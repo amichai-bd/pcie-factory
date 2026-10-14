@@ -9,7 +9,7 @@ schemas, the publishability rules and the workflows. Code: `tools/metrics/`
 `guard.py`, `red.py`, `cli.py`); configuration: `cfg/metrics.yaml`.
 
 ```
-./build metrics collect [--out FILE] [--no-github] [--step NAME=pass|fail|skipped]... [--repo OWNER/NAME]
+./build metrics collect [--out FILE] [--no-github] [--step NAME=pass|fail|skipped]... [--started TIME] [--repo OWNER/NAME]
 ./build metrics commits [--file FILE] [--ref REV] [--no-ci] [--limit N] [--repo OWNER/NAME]
 ./build metrics guard   --branch NAME --base REV [--head REV]
 ./build metrics red     --outcome success|failure --run-url URL [--repo OWNER/NAME]
@@ -77,7 +77,8 @@ producer is absent is `{"status": "unavailable", "reason": R}` with `R` one
 of `missing` (no input file), `invalid` (unreadable input), `disabled`
 (`--no-github`), `forbidden` (HTTP 401/403), `not-found` (404), `gh-error`;
 present sections carry `"status": "ok"`. Missing producers never fail the
-command. `--step` records the nightly's step outcomes.
+command. `--step` records the nightly's step outcomes and `--started` its
+start time.
 
 Top level: `schema_version` (integer, `1`; bumped on any incompatible
 change), then the sections below.
@@ -93,6 +94,7 @@ change), then the sections below.
 | `tools` | `python`, `git`, `gh`, `verilator`, `cocotb`, `pytest`, `pyyaml`: version strings only, `null` when absent. |
 | `nightly.steps` | `{name: pass\|fail\|skipped}` from `--step` (the nightly passes `check`, `regress`, `fpga`, `asic`). |
 | `nightly.result` | `fail` if any step failed, else `pass`; `null` without steps. |
+| `nightly.duration_s` | Seconds from `--started` (the nightly job's start) to `generated_at`: the nightly wall time up to metrics collection; `null` without `--started`. |
 
 ### `code`
 
@@ -260,7 +262,10 @@ runs land on the PR's head commit. GitHub has no REST call to enable
 auto-merge, so `publish` uses `gh pr merge --auto --squash` (GraphQL, which
 works with `GITHUB_TOKEN` on the runner). It needs the repository setting
 **Allow auto-merge** and a required check on `main`; without them the step
-warns and the PR waits for a maintainer.
+warns and the PR waits for a maintainer. Opening the PR at all needs
+**Settings > Actions > General > Allow GitHub Actions to create and approve
+pull requests**; without it `publish` fails with that remedy and the pushed
+branch's compare link, so the night is reported red.
 
 **`data-guard.yml`** runs the job `data-guard` on every `pull_request` (with
 the [fork guard](../../bkm/devops.md#continuous-integration)) and on
