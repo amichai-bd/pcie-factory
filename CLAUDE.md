@@ -51,9 +51,9 @@ merge gate.
 **Exceptions:**
 - Permanent: the nightly data PR may touch only `wiki/tracker/data/**`; a guard
   enforces it and it auto-merges after `ci-gate`, with no issue or reviewer.
-- Temporary, captain-approved, removed when #11 (`ci-gate`) is merged and
-  required on `main`: until then the gate omits `ci-gate` and the PR records
-  local evidence instead. A red `ci-gate` run always blocks merge.
+- Temporary, captain-approved: until `ci-gate` is a required check on
+  `main`, a PR may merge on recorded local evidence when `ci-gate` has not
+  run. A red `ci-gate` run always blocks merge. Remove this bullet then.
 
 ## Pointers
 

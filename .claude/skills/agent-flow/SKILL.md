@@ -132,8 +132,9 @@ Read the PR fresh and check every gate:
 
 - latest `REVIEW-VERDICT` is APPROVE and names the current head SHA;
 - `ci-gate` is green on that SHA, or, under the temporary exception in
-  [`CLAUDE.md`](../../../CLAUDE.md#flow), the PR records local evidence at
-  that SHA and the reviewer audited it; a red `ci-gate` run always blocks;
+  [`CLAUDE.md`](../../../CLAUDE.md#flow) when it has not run, the PR records
+  local evidence at that SHA and the reviewer audited it. A red `ci-gate`
+  run always blocks;
 - no unresolved review threads; mergeable, no conflicts;
 - the PR closes exactly the issue and its acceptance is met.
 

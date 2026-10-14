@@ -158,9 +158,9 @@ selects the sub-IP, and selects the parent only when the parent's filelists
 reach the changed file or the change is in the sub-IP's models.
 
 Superseded PR runs are cancelled; every push to `main` keeps its run. Until
-the runners are online, the temporary exception in
-[`CLAUDE.md`](../../CLAUDE.md#flow) replaces `ci-gate` with recorded local
-evidence.
+`ci-gate` is a required check on `main`, the temporary exception in
+[`CLAUDE.md`](../../CLAUDE.md#flow) accepts recorded local evidence when
+`ci-gate` has not run; a red `ci-gate` run always blocks merge.
 
 ## Nightly
 
