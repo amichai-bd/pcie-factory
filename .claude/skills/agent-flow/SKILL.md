@@ -27,14 +27,23 @@ let a tool infer it. GitHub being unavailable is not a reason to bypass a step.
 | Operation | MCP tool | `gh` |
 | --- | --- | --- |
 | Read issue, comments | `issue_read` | `gh issue view` |
-| Label, comment | `issue_write`, `add_issue_comment` | `gh issue edit`, `gh issue comment` |
+| Label, comment | `issue_write`, `add_issue_comment` | `gh api` (see **Labels**), `gh issue comment` |
 | Open / read PR | `create_pull_request`, `pull_request_read` | `gh pr create`, `gh pr view` |
 | Ready, merge | `update_pull_request`, `merge_pull_request` | `gh pr ready`, `gh pr merge` |
 
 **Labels:** `issue_write` `labels` replaces the whole list. To add or remove
 one label, read the current list (`issue_read` method `get_labels`), write
 back the full list with or without it (`issue_write` method `update`), and
-read it back. `gh issue edit --add-label/--remove-label` is incremental.
+read it back. With `gh`, use the incremental REST forms (`gh issue edit`
+uses GraphQL, which cloud sessions block):
+
+```bash
+gh api -X POST repos/<owner>/<repo>/issues/<n>/labels -f 'labels[]=<label>'
+gh api -X DELETE repos/<owner>/<repo>/issues/<n>/labels/<url-encoded label>
+```
+
+Issues and PRs share the number space, so both work on a PR number. Check
+the rules with `./build labels check <n>`.
 
 ## 1. Issue and claim (firstmate)
 

@@ -164,14 +164,16 @@ the README.
 
 Defined in `cfg/labels.yaml` and synced by `./build labels sync`
 (`--dry-run` previews; labels not in the config are deleted only with
-`--prune`).
+`--prune`); `./build labels check <number>` applies the rules below to an
+issue or PR. The [labels spec](../tools/labels/SPEC.md) owns the config
+schema and command behavior.
 
 | Dimension | Rule | Values |
 | --- | --- | --- |
 | `type:` | Exactly one | `feat`, `bug`, `docs`, `infra`, `test`, `refactor`, `epic`, `data` |
 | `area:` | At least one | `rtl`, `dv`, `build`, `ci`, `wiki`, `skills`, `fpga`, `pd` |
 | `ip:` | Per IP touched | Derived from `src/` directories |
-| `prio:` | Optional | `p0`, `p1`, `p2` |
+| `prio:` | Optional, at most one | `p0`, `p1`, `p2` |
 | State | As needed | `in-progress` (claim), `blocked`, `needs-captain`, `nightly-red` |
 
 `cfg/labels.yaml` is the source of truth for values; this table follows it.
