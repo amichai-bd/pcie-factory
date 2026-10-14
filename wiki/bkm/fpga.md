@@ -40,8 +40,10 @@ resolver, plus only what is in `src/<ip>/fpga/`:
 - The board wrapper is synthesizable RTL under the [RTL BKM](rtl.md) but is
   not in `<ip>.rtl.f`: the FPGA flow adds it, so simulation and ASIC never
   see board policy. It is linted with Verilator `-Wall` together with
-  `<ip>.rtl.f`, as part of the FPGA inputs: `./build fpga` runs that lint
-  first (the `lint` step) whenever Verilator is available.
+  `<ip>.rtl.f`, as part of the FPGA inputs: `./build check` lints it (the
+  [checks SPEC](../tools/checks/SPEC.md#lint-check) owns how), and
+  `./build fpga` runs that lint first (the `lint` step) whenever Verilator
+  is available.
 - Wrapper ports follow the RTL BKM names (`clk_50_i`, `key_ni`, `sw_i`,
   `ledr_o`); a comment gives the board manual's signal name. Declare only the
   board pins the wrapper uses, so `-Wall` has no unused-signal warnings.

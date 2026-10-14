@@ -35,7 +35,7 @@ def repo(tmp_path, fixture_src):
 
 def affected(repo: Path) -> dict:
     root, changed = changed_files("main", repo / "src")
-    return select_affected(discover(repo / "src"), root, changed)
+    return select_affected(discover(repo / "src"), root, changed, repo / "src")
 
 
 def commit(repo: Path) -> None:
@@ -104,3 +104,18 @@ def test_rename_counts_old_and_new_path(repo):
 def test_bad_base(repo):
     with pytest.raises(GitError, match="merge-base"):
         changed_files("no-such-ref", repo / "src")
+
+
+def test_shared_dv_change_selects_all(repo):
+    (repo / "src/common/dv/helpers").mkdir(parents=True)
+    (repo / "src/common/dv/helpers/util.py").write_text("")
+    assert affected(repo) == {
+        "counter": "shared DV change: src/common/dv/helpers/util.py",
+        "counter/inc": "shared DV change: src/common/dv/helpers/util.py",
+    }
+
+
+def test_shared_rtl_change_selects_only_reaching_ips(repo):
+    (repo / "src/common/rtl").mkdir(parents=True)
+    (repo / "src/common/rtl/common_x.sv").write_text("")
+    assert affected(repo) == {}
