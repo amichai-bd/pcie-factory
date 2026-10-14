@@ -1,4 +1,6 @@
+import os
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -30,6 +32,7 @@ IP4C = "10.9." + "8.7"
 IP4D = "10.1." + "1.1"
 IP6 = "fe80:" + ":1a2b:3c4d"
 IP6B = "2a01:4f8:c0c:12" + "34::1"
+IP6C = "2001:4:6:" + "8:a:c:e:1"
 
 CONFIG = "neutrality:\n  words: [frobnitz]\npublishability:\n  allow: []\n"
 
@@ -83,6 +86,7 @@ def test_clean_repo_passes(repo):
     ("ipv4", f"host {IP4B}.", IP4B),
     ("ipv6", f"addr {IP6}", IP6),
     ("ipv6", IP6B, IP6B),
+    ("ipv6", f"{IP6C} has only short groups", IP6C),
     ("home-path", f"log in {HOME}/work/x.log", HOME),
     ("home-path", f"{MAC_HOME}/src", MAC_HOME),
     ("email", f"contact {EMAIL}.", EMAIL),
@@ -219,3 +223,31 @@ def test_real_repository_is_publishable():
     assert all(e.reason for e in allow_list)
     r = publishability.run(REPO_ROOT)
     assert r.passed, r.findings
+
+
+def test_pathless_entry_named_only_in_config_is_stale(repo):
+    mail = "alice" + AT + "corp.net"
+    write(repo, "cfg/checks.yaml", allow(f"    - {{rule: email, match: '{mail}', reason: x}}\n"))
+    assert findings(repo) == [
+        f"cfg/checks.yaml: publishability.allow[0] (email {mail!r}): stale, matches nothing"]
+    write(repo, "a.md", mail + "\n")
+    assert findings(repo) == []
+
+
+def test_symlink_is_not_followed(repo, tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text(HOME + "\n")
+    os.symlink(outside, repo / "tools/link.txt")  # the target's content is not read
+    assert findings(repo) == []
+    os.symlink(HOME + "/notes", repo / "tools/home.txt")  # the target string is scanned
+    assert findings(repo) == ["tools/home.txt:1: home-path: " + repr(HOME)]
+
+
+@pytest.mark.parametrize("head, unit, n", [
+    ("", "a%-", 40000), ("", "%", 40000), ("", "%2F%3A", 20000), ("", "a.", 40000),
+    ("", "a:", 40000), ("", "1.", 40000), ("x://", "a:", 40000), ("", "/home/", 20000)])
+def test_long_lines_scan_in_linear_time(head, unit, n):
+    text = head + unit * n
+    start = time.perf_counter()
+    publishability.scan_text(text)
+    assert time.perf_counter() - start < 1.0

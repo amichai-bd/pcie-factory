@@ -5,7 +5,8 @@ git lists (tracked, plus untracked files that are not ignored), in every
 tree, for text that must not be published: private keys, access tokens,
 credentials in URLs, IP addresses, home-directory paths and personal email
 addresses. File paths are scanned as well as contents; binary files (a NUL
-byte) are skipped.
+byte) are skipped, and a symbolic link is not followed: its target string is
+scanned instead.
 
 The rules are fixed here. Values that identify nobody are not findings:
 loopback, unspecified and documentation addresses (RFC 5737, RFC 3849),
@@ -19,6 +20,7 @@ nothing is stale and is a finding.
 from __future__ import annotations
 
 import ipaddress
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -52,7 +54,9 @@ RULES: dict[str, re.Pattern] = {
     "ipv6": re.compile(r"(?<![\w:.])(?P<v>(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4})(?![\w:])"),
     "home-path": re.compile(r"(?<![\w.-])(?P<v>/(?:home|Users)/[A-Za-z0-9._-]+)"),
     "email": re.compile(
-        r"(?<![\w.+-])(?P<v>[A-Za-z0-9._%+-]+@(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![\w-])"),
+        # The lookbehind holds every local-part character, so a match starts
+        # only once per run: otherwise a long run backtracks quadratically.
+        r"(?<![\w.%+-])(?P<v>[A-Za-z0-9._%+-]+@(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![\w-])"),
 }
 
 # Networks that identify no machine: loopback, unspecified and documentation.
@@ -117,7 +121,7 @@ def _harmless(rule: str, value: str) -> bool:
         if rule == "ipv6":
             groups = [g for g in value.split(":") if g]
             # Slice and scope syntax (`1::2`, `a::b`) is not an address.
-            if len(groups) < 2 or max(len(g) for g in groups) < 3:
+            if len(groups) < 2 or (len(groups) < 3 and max(len(g) for g in groups) < 3):
                 return True
         return any(addr in n for n in _SAFE_NETS if n.version == addr.version)
     if rule == "email":
@@ -163,21 +167,28 @@ def run(repo_root: Path, config_path: str = CONFIG) -> CheckResult:
     result = CheckResult("publishability")
 
     def report(path: str, rule: str, value: str, at: str) -> None:
+        if path == config_path:
+            # The config may name every allowed value (the review record);
+            # that mention is not a use, so it never keeps an entry alive.
+            if not any(e.rule == rule and e.match == value for e in allow):
+                result.findings.append(f"{at}: {rule}: {value!r}")
+            return
         hit = [i for i, e in enumerate(allow) if _allowed(e, rule, value, path)]
         if hit:
             used.update(hit)
-        # The config file may name every allowed value: that is the review record.
-        elif not (path == config_path and any(e.rule == rule and e.match == value
-                                              for e in allow)):
+        else:
             result.findings.append(f"{at}: {rule}: {value!r}")
 
     for f in files:
         for _, rule, value in scan_text(f):
             report(f, rule, value, f"{f} (path)")
         p = Path(repo_root) / f
-        if not p.is_file():  # deleted in the working tree, or a submodule
+        if p.is_symlink():  # never follow a link out of the repository: scan its target string
+            data = os.readlink(p).encode()
+        elif p.is_file():
+            data = p.read_bytes()
+        else:  # deleted in the working tree, or a submodule
             continue
-        data = p.read_bytes()
         if b"\0" in data:
             continue
         for n, rule, value in scan_text(data.decode("utf-8", errors="replace")):
