@@ -35,7 +35,7 @@ target and its module prefix are declared once, in
 | `cfg/` | Generic configuration only (levels, CI, host pins, checks, labels). |
 | `tools/` | Generic Python tools, each with unit tests and a wiki SPEC. |
 | `src/<ip>/` | `rtl/`, `dv/`, optional `fpga/`, `asic/`; sub-IPs in `<subip>/`. |
-| `wiki/` | Specs and methods, published as the wiki site. |
+| `wiki/` | Specs and methods, published as a public site. |
 | `worktrees/` | Issue worktrees; contents ignored. |
 | `workdir/` | All generated output; ignored and disposable. |
 
@@ -121,6 +121,12 @@ a PR whose code and specs disagree.
   (source, commit, license) and is adapted, not copied blindly.
 - Never commit credentials, private machine details or unredistributable tool
   output.
+- The repository and its wiki site are public: everything committed, including
+  `wiki/src/` and tracker data, must be fit for public reading
+  ([publishability](wiki/bkm/wiki.md#publishability)).
+- Self-hosted runners never run fork code: use the job guard from the
+  [DevOps BKM](wiki/bkm/devops.md#continuous-integration), and never let
+  `pull_request_target` check out PR code.
 
 The DevOps BKM in `wiki/bkm/` owns levels, budgets, CI selection, labels and
 metrics.

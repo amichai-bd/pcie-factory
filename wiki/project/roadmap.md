@@ -15,7 +15,7 @@ seed IP. Tracked by the M0 epic (issue #1) and its sub-issues.
 | Hosts | Cloud session-start hook; self-hosted CI host |
 | CI | `ci-gate` on PRs; nightly L2 with metrics and data PR |
 | Physical | FPGA (Quartus Lite, DE2-115) and ASIC (ORFS, sky130hd) flows |
-| Wiki | Site generator, Pages deploy, metrics tracker |
+| Wiki | Site generator, public Pages deploy, metrics tracker |
 
 M0 is done when the epic's goal checklist holds on `main`.
 

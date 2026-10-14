@@ -1,7 +1,8 @@
 # Wiki site generator
 
-`tools/wiki_site/wiki_site.py` turns `wiki/` into a static HTML site that
-GitHub Pages publishes. It is small on purpose: no nav config, no framework,
+`tools/wiki_site/wiki_site.py` turns `wiki/`, plus the repository's
+`README.md`, `CLAUDE.md` and skills, into a static HTML site that GitHub Pages
+publishes. It is small on purpose: no nav config, no framework,
 no Node and no view-time network access.
 
 ## Usage
@@ -21,8 +22,8 @@ not installed; other `./build` commands do not need them.
 | --- | --- | --- |
 | `--out` | `workdir/wiki-site` | Output directory. `build` deletes and rewrites it. |
 | `--strict` | off | Exit 1 if any problem is found; otherwise problems print as `WARN`. |
-| `--sha` | `git rev-parse HEAD` | Commit used in links that leave `wiki/`. Exit 2 if it can't be resolved. |
-| `--repo-url` | `https://github.com/amichai-bd/pcie-factory` | Repository used in links that leave `wiki/`. |
+| `--sha` | `git rev-parse HEAD` | Commit used in links to files the site does not publish. Exit 2 if it can't be resolved. |
+| `--repo-url` | `https://github.com/amichai-bd/pcie-factory` | Repository used in links to files the site does not publish, and in the navbar link. |
 | `--port` | `8000` | `serve` binds to `127.0.0.1` on this port. |
 
 `build` prints one summary line, `PASS:` or `FAIL:`, followed by the page,
@@ -40,15 +41,36 @@ Dependencies are `markdown-it-py` and `Pygments`, pinned in
 | `<dir>/index.md` or `<dir>/README.md` | `<dir>/index.html` (the folder's landing page) |
 | `<path>.md` | `<path>.html` |
 | any other file | copied byte for byte to the same path |
+| `README.md` (repository root) | `index.html`, the home page |
+| `CLAUDE.md` (repository root) | `agents.html` |
+| `.claude/skills/<name>/SKILL.md` | `skills/<name>.html` |
 | (theme) | `assets/wiki.css`, `wiki.js`, `mermaid.min.js`, `mermaid-LICENSE.txt` |
 | (generated) | `assets/search-index.json` |
 
 The theme and generated paths under `assets/` are reserved: a wiki source that
 would publish to one of them is a problem (see [Links](#links)).
 
-Names that start with `.` are skipped, at any depth. `wiki/index.md` (or `wiki/README.md`)
-is the site home page, and its first H1 is the site name in the navbar. A page
-title is its first H1, or the file stem if there is none.
+Names under `wiki/` that start with `.` are skipped, at any depth.
+
+The home page is the repository's root `README.md`. Then:
+
+- `CLAUDE.md`, if present, publishes to `agents.html`. Both pages open with a
+  `README.md` / `CLAUDE.md` toggle that links to the other.
+- `wiki/index.md` (or `wiki/README.md`) publishes to `wiki.html` instead of
+  `index.html`. Every other wiki path is unchanged.
+- Each `.claude/skills/<name>/SKILL.md` is published. Its YAML frontmatter
+  (between `---` lines at the top, possibly empty) is not rendered. Its
+  `description` (a single line, indented continuation lines, or a `>` or `|`
+  block) is shown as a quote under the first H1 outside a code fence, or at
+  the top if there is none. The text is HTML-escaped and shown literally, not
+  parsed as Markdown.
+
+Without a root `README.md`, `wiki/index.md` (or `wiki/README.md`) is the home
+page at `index.html`, and `CLAUDE.md` and skills are not published.
+
+The home page's first H1 is the site name in the navbar. The navbar also links
+to `--repo-url` on every page. A page title is its first H1, or the file stem
+if there is none.
 
 The same tree and SHA always build the same bytes.
 
@@ -82,6 +104,9 @@ collapsible entry:
 - Inside a folder, pages come first, sorted by file name, then subfolders,
   sorted by name.
 - The home page comes first in the sidebar.
+- With a root `README.md`, the sidebar is: the home page, `CLAUDE.md`, one
+  section for the whole wiki tree headed by the wiki landing page, then a
+  **Skills** section with one entry per skill, sorted by name.
 - The current page is highlighted, and its ancestor folders start open.
 
 Every page is in the sidebar. Number file names (`0001-…`) to set an order.
@@ -99,10 +124,10 @@ resolved relative to the source file. Only the exact attribute names count:
 | --- | --- |
 | URL with a scheme, `//host`, or empty | unchanged |
 | `#anchor` | unchanged; the anchor must exist in the page |
-| a page under `wiki/` | relative `.html` path, keeping `#anchor` |
+| a page the site publishes (under `wiki/`, `README.md`, `CLAUDE.md`, a skill) | relative `.html` path, keeping `#anchor` |
 | a folder under `wiki/` | its landing page |
 | another file under `wiki/` | relative path to the copied file |
-| a file or folder in the repository but outside `wiki/` | `<repo-url>/blob/<sha>/<path>` (`tree` for folders), plus `?raw=true` for images |
+| any other file or folder in the repository | `<repo-url>/blob/<sha>/<path>` (`tree` for folders), plus `?raw=true` for images |
 
 Problems are reported as `WARN` or, with `--strict`, as `ERROR` and exit 1:
 
@@ -117,8 +142,8 @@ Problems are reported as `WARN` or, with `--strict`, as `ERROR` and exit 1:
   anchor to check (reported once per file; the link is still rewritten);
 - a path that leaves the repository, or an absolute `/path`;
 - two sources that publish to the same output (`index.md` and `README.md` in
-  one folder), or a source that publishes to a reserved theme path such as
-  `wiki/assets/wiki.js`;
+  one folder, or `wiki/agents.md` beside `CLAUDE.md`), or a source that
+  publishes to a reserved theme path such as `wiki/assets/wiki.js`;
 - no home page.
 
 ## Search
@@ -139,11 +164,16 @@ HTTP (`serve`, Pages) but not from `file://`.
 `workdir/` with `pip install -r tools/requirements.txt`, and runs
 `build --strict --sha $GITHUB_SHA`.
 
-- **Pull requests** that touch `wiki/`, the tool or the workflow build only.
+- **Pull requests** that touch `wiki/`, `README.md`, `CLAUDE.md`,
+  `.claude/skills/`, the tool or the workflow build only.
 - **Pushes to `main` and manual runs** build, upload the site with
   `actions/upload-pages-artifact`, and deploy it with `actions/deploy-pages`.
 
-The repository's Pages source must be set to "GitHub Actions".
+The repository and the published site are **public**; the
+[wiki BKM](../../bkm/wiki.md#publishability) owns what may be published. The
+captain enables Pages by setting the repository's Pages source to "GitHub
+Actions"; until then the deploy job fails while the build job still checks
+every change.
 
 ## Files
 
