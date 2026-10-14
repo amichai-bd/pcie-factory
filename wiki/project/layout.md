@@ -29,7 +29,8 @@
 │   ├── tools/<tool>/SPEC.md
 │   ├── src/                     # mirrors src/: rtl/<ip>/MAS.md, dv/<ip>/DV_PLAN.md,
 │   │                            #   arch/<ip>/HAS.md, fpga/<ip>/FPGA.md, asic/<ip>/ASIC.md,
-│   │                            #   {rtl,dv}/common/<block>.md
+│   │                            #   {rtl,dv}/common/<block>.md;
+│   │                            #   plus README.md, roadmap.md, decisions/NNNN-<slug>.md
 │   └── tracker/                 # index.md, data/
 ├── worktrees/                   # issue worktrees (ignored except README)
 └── workdir/                     # generated output (ignored)
@@ -97,7 +98,8 @@ shared unit's files (its `filelist` check) and the wiki mirror.
 for every IP, `arch/<ip>/HAS.md` for every top-level IP, and
 `fpga/<ip>/FPGA.md` or `asic/<ip>/ASIC.md` when `src/fpga/<ip>/` or
 `src/asic/<ip>/` exists, and `rtl/common/<block>.md` and
-`dv/common/<block>.md` for every shared block. The [wiki BKM](../bkm/wiki.md#page-set) owns the
+`dv/common/<block>.md` for every shared block. Beside them, a fixed set of design-level pages:
+`README.md`, `roadmap.md` and `decisions/NNNN-<slug>.md`. The [wiki BKM](../bkm/wiki.md#page-set) owns the
 page set.
 
 Filelists use plain Verilator `.f` syntax: one path per line, `//` comments,
