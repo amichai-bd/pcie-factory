@@ -1,0 +1,438 @@
+"""Build the wiki as a small static HTML site.
+
+Every `wiki/**/*.md` page becomes an HTML page at its mirrored path
+(`index.md` or `README.md` -> the folder's `index.html`); other wiki files are
+copied byte for byte. The sidebar is derived from the `wiki/` directory tree.
+Links are rewritten: `.md` -> `.html`, folders -> their landing page, and
+repository paths outside `wiki/` -> GitHub blob/tree URLs at the built commit.
+`--strict` turns every broken link or anchor into a failure. The same tree and
+SHA always build the same bytes. See wiki/tools/wiki_site/SPEC.md.
+"""
+from __future__ import annotations
+
+import argparse
+import functools
+import http.server
+import json
+import posixpath
+import re
+import shutil
+import subprocess
+import sys
+import unicodedata
+from dataclasses import dataclass, field
+from html import escape
+from pathlib import Path, PurePosixPath
+from urllib.parse import quote, unquote
+
+from markdown_it import MarkdownIt
+from pygments import highlight
+from pygments.formatters import HtmlFormatter
+from pygments.lexers import get_lexer_by_name
+from pygments.util import ClassNotFound
+
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parents[1]
+WIKI = "wiki"
+REPO_URL = "https://github.com/amichai-bd/pcie-factory"
+LANDINGS = ("index.md", "README.md")
+LEXER_ALIASES = {"sh": "bash", "shell": "bash", "console": "bash", "sv": "systemverilog"}
+PLAIN = {"", "text", "txt", "plain"}
+THEME = ("wiki.css", "wiki.js", "vendor/mermaid.min.js", "vendor/mermaid-LICENSE.txt")
+ATTR = re.compile(r"""(\b(?:href|src)\s*=\s*)(["'])(.*?)\2""", re.I | re.S)
+HTML_ID = re.compile(r"""\b(?:id|name)\s*=\s*["']([^"']+)["']""", re.I)
+SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
+TEXT_LIMIT = 4000  # characters of body text per page in the search index
+
+
+def github_slug(text: str) -> str:
+    """GitHub's heading anchor: lowercase, keep letters, marks, numbers, `_`,
+    `-` and spaces, then spaces -> `-`."""
+    kept = (c for c in text.lower() if c in " -_" or unicodedata.category(c)[0] in "LMN")
+    return "".join(kept).replace(" ", "-")
+
+
+def unique_slug(base: str, seen: dict[str, int]) -> str:
+    """A repeated heading gets the next free `-N` suffix, as on GitHub."""
+    slug = base
+    while slug in seen:
+        seen[base] += 1
+        slug = f"{base}-{seen[base]}"
+    seen[slug] = 0
+    return slug
+
+
+def out_path(rel: str) -> str:
+    """Site path of a file given relative to wiki/ (POSIX)."""
+    p = PurePosixPath(rel)
+    if p.name in LANDINGS:
+        return str(p.parent / "index.html") if str(p.parent) != "." else "index.html"
+    return str(p.with_suffix(".html")) if p.suffix == ".md" else rel
+
+
+def inline_text(token) -> str:
+    return "".join(c.content if c.type not in ("softbreak", "hardbreak") else " "
+                   for c in token.children or () if c.type in ("text", "code_inline", "softbreak", "hardbreak")).strip()
+
+
+def new_md() -> MarkdownIt:
+    return MarkdownIt("commonmark", {"html": True}).enable(["table", "strikethrough"])
+
+
+class Page:
+    """One Markdown source: tokens, title, headings and the ids links may name."""
+
+    def __init__(self, md: MarkdownIt, rel: str, text: str):
+        self.rel = rel  # repo-relative source path
+        self.env: dict = {}
+        self.tokens = md.parse(text, self.env)
+        self.title = ""
+        self.headings: list[tuple[int, str, str]] = []  # (level, text, anchor)
+        self.ids: set[str] = set()
+        words: list[str] = []
+        seen: dict[str, int] = {}
+        for i, tok in enumerate(self.tokens):
+            if tok.type == "heading_open":
+                text_ = inline_text(self.tokens[i + 1])
+                anchor = unique_slug(github_slug(text_), seen)
+                tok.attrSet("id", anchor)
+                self.tokens[i + 2].meta["anchor"] = anchor
+                self.headings.append((int(tok.tag[1]), text_, anchor))
+                if tok.tag == "h1" and not self.title:
+                    self.title = text_
+            elif tok.type == "inline":
+                words.append(inline_text(tok))
+            elif tok.type == "html_block":
+                self.ids.update(HTML_ID.findall(tok.content))
+            for child in tok.children or ():
+                if child.type == "html_inline":
+                    self.ids.update(HTML_ID.findall(child.content))
+        self.ids.update(a for _, _, a in self.headings)
+        self.title = self.title or PurePosixPath(rel).stem
+        self.text = " ".join(" ".join(words).split())[:TEXT_LIMIT]
+
+
+@dataclass
+class Folder:
+    """A wiki directory in the sidebar: its landing page, pages and subfolders."""
+    rel: str  # path relative to wiki/ ("" for the root)
+    landing: str | None = None  # repo-relative source of index.md / README.md
+    pages: list[str] = field(default_factory=list)
+    folders: list["Folder"] = field(default_factory=list)
+
+
+class Site:
+    def __init__(self, root: Path, sha: str, repo_url: str = REPO_URL):
+        self.root, self.sha, self.repo_url = root, sha, repo_url.rstrip("/")
+        self.md = new_md()
+        self.md.add_render_rule("fence", render_fence)
+        self.md.add_render_rule("heading_close", render_heading_close)
+        self.pages: dict[str, Page] = {}  # repo-relative source -> page
+        self.assets: list[str] = []  # repo-relative non-Markdown wiki files
+        self.problems: list[str] = []
+        self.links = 0
+        self._foreign: dict[str, set[str]] = {}
+        self.tree = self._scan(root / WIKI)
+        taken: dict[str, str] = {}
+        for rel in sorted(list(self.pages) + self.assets):
+            out = out_path(rel[len(WIKI) + 1:])
+            if out in taken:
+                self.problems.append(f"{rel}: publishes to {out}, already written by {taken[out]}")
+            taken[out] = rel
+        if "index.html" not in taken:
+            self.problems.append(f"{WIKI}/: no index.md or README.md for the site home page")
+
+    def _scan(self, d: Path) -> Folder:
+        rel = d.relative_to(self.root / WIKI).as_posix()
+        folder = Folder("" if rel == "." else rel)
+        for child in sorted(d.iterdir(), key=lambda p: p.name):
+            if child.name.startswith("."):
+                continue
+            src = child.relative_to(self.root).as_posix()
+            if child.is_dir():
+                sub = self._scan(child)
+                if sub.landing or sub.pages or sub.folders:
+                    folder.folders.append(sub)
+            elif child.suffix == ".md":
+                self.pages[src] = Page(self.md, src, child.read_text(encoding="utf-8"))
+                if child.name in LANDINGS and folder.landing is None:
+                    folder.landing = src
+                else:
+                    folder.pages.append(src)
+            else:
+                self.assets.append(src)
+        return folder
+
+    def site_path(self, src: str) -> str:
+        return out_path(src[len(WIKI) + 1:])
+
+    def landing_of(self, d: str) -> str | None:
+        for name in LANDINGS:
+            if f"{d}/{name}" in self.pages:
+                return f"{d}/{name}"
+        return None
+
+    def anchors_of(self, target: str) -> set[str] | None:
+        """Anchors a link may name in a repo file, or None when not checkable."""
+        if target in self.pages:
+            return self.pages[target].ids
+        if not target.endswith(".md"):
+            return None
+        if target not in self._foreign:
+            text = (self.root / target).read_text(encoding="utf-8")
+            self._foreign[target] = Page(self.md, target, text).ids
+        return self._foreign[target]
+
+    def resolve(self, src: str, href: str, raw: bool = False) -> str:
+        """Rewrite one link found in page `src`; record any problem."""
+        if not href or SCHEME.match(href) or href.startswith("//"):
+            return href
+        self.links += 1
+        path, _, frag = href.partition("#")
+        path = path.split("?", 1)[0]
+        anchor = unquote(frag)
+        if not path:
+            if frag and anchor not in self.pages[src].ids:
+                self.problems.append(f"{src}: broken anchor #{frag}")
+            return href
+        if path.startswith("/"):
+            self.problems.append(f"{src}: absolute link {href}; use a relative path")
+            return href
+        target = posixpath.normpath(posixpath.join(posixpath.dirname(src), unquote(path)))
+        full = self.root / target
+        if target == ".." or target.startswith("../"):
+            self.problems.append(f"{src}: link {href} leaves the repository")
+            return href
+        if not full.exists():
+            self.problems.append(f"{src}: broken link {href} ({target} does not exist)")
+            return href
+        in_wiki = target == WIKI or target.startswith(WIKI + "/")
+        dest: str | None = target
+        if full.is_dir():
+            dest = self.landing_of(target) if in_wiki else next(
+                (f"{target}/{n}" for n in LANDINGS if (full / n).is_file()), None)
+            if dest is None and in_wiki:
+                self.problems.append(f"{src}: link {href} names folder {target}, which has no index.md")
+                return href
+        if frag:
+            known = self.anchors_of(dest) if dest else set()
+            if known is not None and anchor not in known:
+                self.problems.append(f"{src}: broken anchor {href} (no #{anchor} in {dest or target})")
+        suffix = "#" + frag if frag else ""
+        if not in_wiki:
+            kind = "tree" if full.is_dir() else "blob"
+            tail = "?raw=true" if raw and kind == "blob" else ""
+            return f"{self.repo_url}/{kind}/{self.sha}/{quote(target)}{tail}{suffix}"
+        rel = posixpath.relpath(self.site_path(dest), posixpath.dirname(self.site_path(src)) or ".")
+        return quote(rel, safe="/-._~") + suffix
+
+    def _rewrite_html(self, src: str, html: str) -> str:
+        def sub(m):
+            raw = m.group(1).strip().lower().startswith("src")
+            return f"{m.group(1)}{m.group(2)}{self.resolve(src, m.group(3), raw)}{m.group(2)}"
+        return ATTR.sub(sub, html)
+
+    def rewrite(self, page: Page) -> None:
+        for tok in page.tokens:
+            if tok.type == "html_block":
+                tok.content = self._rewrite_html(page.rel, tok.content)
+            for child in tok.children or ():
+                if child.type == "link_open":
+                    child.attrSet("href", self.resolve(page.rel, child.attrGet("href") or ""))
+                elif child.type == "image":
+                    child.attrSet("src", self.resolve(page.rel, child.attrGet("src") or "", raw=True))
+                elif child.type == "html_inline":
+                    child.content = self._rewrite_html(page.rel, child.content)
+
+    # ------------------------------------------------------------- sidebar
+    def sidebar(self, active: str, root: str) -> str:
+        top = self.tree
+        items = "".join(self._folder(f, active, root) for f in top.folders)
+        pages = "".join(self._link(p, active, root) for p in top.pages)
+        home = self._link(top.landing, active, root) if top.landing else ""
+        return f'<ul class="menu">{home}{pages}{items}</ul>'
+
+    def _link(self, src: str, active: str, root: str) -> str:
+        out = self.site_path(src)
+        cls = ' class="active"' if out == active else ""
+        return f'<li><a{cls} href="{root}{quote(out, safe="/-._~")}">{escape(self.pages[src].title)}</a></li>'
+
+    def _folder(self, folder: Folder, active: str, root: str) -> str:
+        name = PurePosixPath(folder.rel).name
+        if folder.landing:
+            out = self.site_path(folder.landing)
+            cls = ' class="active"' if out == active else ""
+            head = f'<a{cls} href="{root}{quote(out, safe="/-._~")}">{escape(self.pages[folder.landing].title)}</a>'
+        else:
+            head = f"<span>{escape(name)}</span>"
+        kids = "".join(self._link(p, active, root) for p in folder.pages)
+        kids += "".join(self._folder(f, active, root) for f in folder.folders)
+        is_open = " open" if active.startswith(folder.rel + "/") else ""
+        return f"<li><details{is_open}><summary>{head}</summary><ul>{kids}</ul></details></li>"
+
+    def nav_pages(self, folder: Folder | None = None) -> list[str]:
+        """Every page the sidebar links to, in sidebar order."""
+        folder = folder or self.tree
+        out = ([folder.landing] if folder.landing else []) + folder.pages
+        for sub in folder.folders:
+            out += self.nav_pages(sub)
+        return out
+
+
+def render_fence(renderer, tokens, idx, options, env) -> str:
+    tok = tokens[idx]
+    lang = tok.info.strip().split()[0].lower() if tok.info.strip() else ""
+    if lang == "mermaid":  # drawn in the browser by assets/mermaid.min.js (wiki.js)
+        return f'<pre class="mermaid">{escape(tok.content)}</pre>\n'
+    lexer = None
+    if lang not in PLAIN:
+        try:
+            lexer = get_lexer_by_name(LEXER_ALIASES.get(lang, lang))
+        except ClassNotFound:
+            pass
+    body = highlight(tok.content, lexer, HtmlFormatter(nowrap=True)) if lexer else escape(tok.content)
+    label = f' data-lang="{escape(lang)}"' if lang else ""
+    return f'<pre class="highlight"{label}><code>{body}</code></pre>\n'
+
+
+def render_heading_close(renderer, tokens, idx, options, env) -> str:
+    anchor = escape(tokens[idx].meta.get("anchor", ""))
+    return f'<a class="hash-link" href="#{anchor}" aria-label="Link to this heading">#</a></{tokens[idx].tag}>\n'
+
+
+def theme_css() -> str:
+    light = HtmlFormatter(style="default").get_style_defs(".highlight")
+    dark = HtmlFormatter(style="github-dark").get_style_defs('[data-theme="dark"] .highlight')
+    return ((HERE / "theme" / "wiki.css").read_text(encoding="utf-8")
+            + "\n/* pygments: default (light) */\n" + light + "\n/* pygments: github-dark */\n" + dark + "\n")
+
+
+def layout(site: Site, out: str, page: Page, body: str, brand: str) -> str:
+    root = "../" * out.count("/")
+    toc = [(lvl, t, a) for lvl, t, a in page.headings if lvl in (2, 3)]
+    toc_html = ""
+    if toc:
+        toc_html = ('<aside class="toc"><div class="toc-title">On this page</div><ul>' + "".join(
+            f'<li class="toc-l{lvl}"><a href="#{escape(a)}">{escape(t)}</a></li>' for lvl, t, a in toc)
+            + "</ul></aside>")
+    title = escape(page.title if page.title == brand else f"{page.title} | {brand}")
+    return f"""<!doctype html>
+<html lang="en" data-root="{root}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<script>try{{var t=localStorage.getItem("theme")}}catch(e){{}}document.documentElement.dataset.theme=t||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")</script>
+<link rel="stylesheet" href="{root}assets/wiki.css">
+</head>
+<body>
+<nav class="navbar">
+<button class="navbar-toggle" type="button" aria-label="Toggle navigation">&#9776;</button>
+<a class="navbar-brand" href="{root}index.html">{escape(brand)}</a>
+<div class="navbar-right">
+<div class="search"><input type="search" placeholder="Search" aria-label="Search the wiki" autocomplete="off"><ul class="search-results" hidden></ul></div>
+<button class="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode"><span class="sun">&#9728;</span><span class="moon">&#9790;</span></button>
+</div>
+</nav>
+<div class="layout">
+<aside class="sidebar">{site.sidebar(out, root)}</aside>
+<main class="doc"><article class="markdown">
+{body}</article></main>
+{toc_html}
+</div>
+<script src="{root}assets/wiki.js"></script>
+</body>
+</html>
+"""
+
+
+def search_index(site: Site) -> str:
+    entries = []
+    for src in site.nav_pages():
+        p = site.pages[src]
+        entries.append({"title": p.title, "url": site.site_path(src), "text": p.text,
+                        "headings": [[t, a] for lvl, t, a in p.headings if lvl in (2, 3)]})
+    return json.dumps(entries, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
+
+
+def build(root: Path, out: Path, sha: str, repo_url: str = REPO_URL) -> tuple[list[str], dict]:
+    """Build the site into `out` (replaced); return (problems, stats)."""
+    site = Site(root, sha, repo_url)
+    for page in site.pages.values():
+        site.rewrite(page)
+    if out.exists():
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
+    home = site.tree.landing
+    brand = site.pages[home].title if home else "Wiki"
+    for src, page in sorted(site.pages.items()):
+        dest = site.site_path(src)
+        (out / dest).parent.mkdir(parents=True, exist_ok=True)
+        body = site.md.renderer.render(page.tokens, site.md.options, page.env)
+        (out / dest).write_text(layout(site, dest, page, body, brand), encoding="utf-8")
+    for src in site.assets:
+        (out / site.site_path(src)).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(root / src, out / site.site_path(src))
+    assets = out / "assets"
+    assets.mkdir(exist_ok=True)
+    for name in THEME:
+        shutil.copyfile(HERE / "theme" / name, assets / PurePosixPath(name).name)
+    (assets / "wiki.css").write_text(theme_css(), encoding="utf-8")
+    index = search_index(site)
+    (assets / "search-index.json").write_text(index, encoding="utf-8")
+    stats = {"pages": len(site.pages), "assets": len(site.assets), "links": site.links,
+             "search_index_bytes": len(index.encode())}
+    return site.problems, stats
+
+
+def head_sha(root: Path) -> str:
+    return subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], check=True,
+                          capture_output=True, text=True).stdout.strip()
+
+
+def serve(out: Path, port: int) -> int:
+    if not (out / "index.html").is_file():
+        print(f"ERROR: {out}/index.html not found; run the build first", file=sys.stderr)
+        return 2
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(out))
+    with http.server.ThreadingHTTPServer(("127.0.0.1", port), handler) as httpd:
+        print(f"Serving {out} at http://127.0.0.1:{port}/ (Ctrl-C to stop)")
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            pass
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    sub = parser.add_subparsers(dest="command", required=True)
+    b = sub.add_parser("build", help="build the site")
+    b.add_argument("--strict", action="store_true", help="fail on any broken link or anchor")
+    b.add_argument("--out", type=Path, default=REPO / "workdir" / "wiki-site", help="output directory (replaced)")
+    b.add_argument("--sha", help="commit for GitHub links (default: git rev-parse HEAD)")
+    b.add_argument("--repo-url", default=REPO_URL, help="repository URL for links outside wiki/")
+    b.add_argument("--root", type=Path, default=REPO, help=argparse.SUPPRESS)
+    s = sub.add_parser("serve", help="serve the built site over HTTP")
+    s.add_argument("--out", type=Path, default=REPO / "workdir" / "wiki-site", help="built site directory")
+    s.add_argument("--port", type=int, default=8000)
+    args = parser.parse_args(argv)
+    if args.command == "serve":
+        return serve(args.out.resolve(), args.port)
+    try:
+        sha = args.sha or head_sha(args.root)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        print(f"ERROR: cannot resolve the built commit ({exc}); pass --sha", file=sys.stderr)
+        return 2
+    problems, stats = build(args.root.resolve(), args.out.resolve(), sha, args.repo_url)
+    tag = "ERROR" if args.strict else "WARN"
+    for p in problems:
+        print(f"{tag}: {p}", file=sys.stderr)
+    failed = bool(problems) and args.strict
+    summary = " ".join(f"{k}={v}" for k, v in stats.items())
+    print(f"{'FAIL' if failed else 'PASS'}: {summary} problems={len(problems)} out={args.out}")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
