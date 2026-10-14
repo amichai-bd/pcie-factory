@@ -2,3 +2,4 @@
 *.png binary
 *.jpg binary
 *.pdf binary
+tools/wiki_site/theme/vendor/** -whitespace -diff linguist-vendored
