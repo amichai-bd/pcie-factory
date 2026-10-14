@@ -17,7 +17,7 @@ import shutil
 import signal
 import subprocess
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
@@ -143,7 +143,6 @@ class Plan:
     incdirs: list[Path]
     defines: dict[str, str | None]
     clock_period_ns: float | None
-    steps: list[tuple[str, str]] = field(default_factory=list)  # (name, bash script)
 
     @property
     def config_mk(self) -> Path:
