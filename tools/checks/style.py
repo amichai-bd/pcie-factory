@@ -17,7 +17,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from build.filelist import FilelistError, resolve
 from build.ip import Ip, owner_ip
+from checks import filelists
 from checks.common import (
     COMMON_PREFIX,
     CheckResult,
@@ -169,6 +171,21 @@ def module_ports(text: str):
             yield off + named[0], direction, named[1]
 
 
+def directive_findings(relpath: str, raw: str) -> list[str]:
+    """``tool-pragma`` and ``verilator-config`` findings in one file of any
+    type: these are the rules that matter for files that can be
+    `` `include``d whatever their suffix."""
+    text = strip_comments_and_strings(raw)
+    out = []
+    for m in _COMMENT_RE.finditer(raw):
+        body = (m.group("line") if m.group("line") is not None else m.group("block")).strip()
+        if _PRAGMA_RE.match(body):
+            out.append(f"{relpath}:{line_of(raw, m.start())}: tool-pragma: {body[:60]}")
+    for m in re.finditer(r"`verilator_config\b", text):
+        out.append(f"{relpath}:{line_of(text, m.start())}: verilator-config: {m.group()}")
+    return out
+
+
 def check_text(relpath: str, raw: str, expected_prefix: str | None) -> list[str]:
     """Apply every rule to one file; ``expected_prefix`` is the name prefix
     a unit in this file must start with (None: no prefix declared)."""
@@ -179,10 +196,7 @@ def check_text(relpath: str, raw: str, expected_prefix: str | None) -> list[str]
     def add(rule: str, index: int, detail: str) -> None:
         out.append(f"{relpath}:{line_of(text, index)}: {rule}: {detail.strip()}")
 
-    for m in _COMMENT_RE.finditer(raw):
-        body = (m.group("line") if m.group("line") is not None else m.group("block")).strip()
-        if _PRAGMA_RE.match(body):
-            add("tool-pragma", m.start(), body[:60])
+    out += directive_findings(relpath, raw)
 
     if path.suffix == ".sv":
         tokens = text.split()
@@ -199,8 +213,6 @@ def check_text(relpath: str, raw: str, expected_prefix: str | None) -> list[str]
         add("plain-always", m.start(), m.group())
     for m in re.finditer(r"\b(interface|modport|union)\b", body):
         add("interface-union", m.start(), m.group())
-    for m in re.finditer(r"`verilator_config\b", body):
-        add("verilator-config", m.start(), m.group())
     for m in re.finditer(r"\.\s*\*", body):
         add("wildcard-connection", m.start(), ".*")
     for m in re.finditer(r"`(?:ifdef|ifndef|elsif)\s+(SYNTHESIS|SIMULATION|VERILATOR)\b", body):
@@ -253,11 +265,39 @@ def expected_prefix(path: Path, src_root: Path, ips: list[Ip], prefix: str | Non
     return prefix + ip_stem(owner) if owner is not None else prefix
 
 
+def include_scope(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> list[Path]:
+    """Every file, of any type, that an ``rtl/`` closure could `` `include``
+    (everything below its include directories inside the source root), plus
+    every file below an ``fpga/`` directory."""
+    found: set[Path] = set()
+    for f in filelists.all_filelists(src_root):
+        if "rtl" not in f.relative_to(src_root).parts or not selected(f, ips, ip_ids):
+            continue
+        try:
+            dirs = resolve(f).incdirs
+        except FilelistError:
+            continue  # the filelist check reports it
+        for d in dirs:
+            if d == src_root or src_root in d.parents:
+                found.update(p for p in d.rglob("*") if p.is_file())
+    for p in Path(src_root).rglob("*"):
+        if p.is_file() and "fpga" in p.relative_to(src_root).parts[:-1] \
+                and selected(p, ips, ip_ids):
+            found.add(p)
+    return sorted(found)
+
+
 def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
     prefix = read_prefix(src_root)
     files = [f for f in rtl_files(src_root, ("rtl", "fpga")) if selected(f, ips, ip_ids)]
-    result = CheckResult("style", f"{len(files)} RTL file(s), {len(RULES)} rule(s)")
+    extra = [f for f in include_scope(src_root, ips, ip_ids) if f not in set(files)]
+    result = CheckResult("style", f"{len(files)} RTL file(s), {len(RULES)} rule(s); "
+                         f"{len(extra)} other includable or fpga/ file(s) for directives")
     for f in files:
         exp = expected_prefix(f, src_root, ips, prefix)
         result.findings += check_text(rel(f, src_root), f.read_text(errors="replace"), exp)
+    for f in extra:
+        data = f.read_bytes()
+        if b"\0" not in data:  # binary files cannot carry directives
+            result.findings += directive_findings(rel(f, src_root), data.decode(errors="replace"))
     return result

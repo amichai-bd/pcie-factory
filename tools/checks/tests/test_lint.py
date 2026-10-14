@@ -177,3 +177,11 @@ def test_non_sv_source_is_not_linted(good, monkeypatch):
     r = lint.run(good, discover(good), {"blk/sub"})
     assert r.findings == ["blk/sub: not linted: rtl filelist lists non-.sv/.svh source(s): "
                           "blk/sub/rtl/waive.vlt"]
+
+
+def test_incdir_outside_rtl_is_not_linted(good, monkeypatch):
+    monkeypatch.setattr(sim, "find_verilator", lambda: None)  # never reached for blk/sub
+    f = good / "blk/sub/rtl/sub.rtl.f"
+    f.write_text("+incdir+../dv\n" + f.read_text())
+    r = lint.run(good, discover(good), {"blk/sub"})
+    assert r.findings == ["blk/sub: not linted: rtl filelist includes from outside rtl/: blk/sub/dv"]

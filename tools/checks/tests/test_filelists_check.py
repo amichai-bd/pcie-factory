@@ -119,8 +119,8 @@ def test_non_sv_source_in_rtl_closure_fails(good, name, text):
            "(synthesizable closures hold SystemVerilog only)" in r.findings
     assert f"blk/dv/blk.sim.f: source blk/rtl/{name} is not .sv/.svh " \
            "(synthesizable closures hold SystemVerilog only)" not in r.findings  # dv is free
-    assert any(x.startswith(f"blk/rtl/{name}: {Path(name).suffix} file not allowed")
-               for x in r.findings)
+    assert f"blk/rtl/{name}: file type not allowed under rtl/ (only .sv, .svh, .f, .md)" \
+        in r.findings
 
 
 def test_non_sv_source_reached_from_outside_rtl_fails(good):
@@ -137,9 +137,37 @@ def test_foreign_files_under_rtl_and_fpga_fail_even_unlisted(good):
     (good / "blk/fpga/waive.vlt").write_text(VLT)
     (good / "common/rtl/common_old.v").write_text(V_FILE)
     (good / "blk/fpga/xy_blk.sdc").write_text("")  # constraints are fine
+    (good / "common/rtl/README.md").write_text("notes\n")  # docs are allowed
     assert run(good).findings == [
-        "blk/fpga/waive.vlt: .vlt file not allowed under rtl/ or fpga/ "
-        "(SystemVerilog .sv/.svh only; waivers go in the waiver file)",
-        "common/rtl/common_old.v: .v file not allowed under rtl/ or fpga/ "
+        "common/rtl/common_old.v: file type not allowed under rtl/ (only .sv, .svh, .f, .md)",
+        "blk/fpga/waive.vlt: .vlt file not allowed under fpga/ "
         "(SystemVerilog .sv/.svh only; waivers go in the waiver file)",
     ]
+
+
+WAIVE_TXT = "`verilator_config\nlint_off -rule UNUSEDSIGNAL\n"
+
+
+def test_include_route_any_extension_under_rtl_fails(good):
+    # `include "w.txt" from an incdir under rtl/: the allowlist rejects it.
+    (good / "blk/rtl/include/w.txt").write_text(WAIVE_TXT)
+    assert run(good).findings == [
+        "blk/rtl/include/w.txt: file type not allowed under rtl/ (only .sv, .svh, .f, .md)"]
+
+
+def test_incdir_outside_rtl_fails(good):
+    # `include "w.txt" through +incdir+ ../dv: the include dir itself fails.
+    (good / "blk/dv/w.txt").write_text("// verilator lint_off UNUSEDSIGNAL\n")
+    f = good / "blk/rtl/blk.rtl.f"
+    f.write_text("+incdir+../dv\n" + f.read_text())
+    msg = ("blk/rtl/blk.rtl.f: +incdir+ blk/dv is not under an rtl/ directory "
+           "(a synthesizable closure includes only from rtl/)")
+    assert run(good).findings == [msg]  # the dv/ sim closure may include from dv/
+
+
+def test_incdir_outside_src_root_fails(good, tmp_path):
+    (tmp_path / "elsewhere").mkdir()
+    f = good / "blk/rtl/blk.rtl.f"
+    f.write_text(f"+incdir+{tmp_path / 'elsewhere'}\n" + f.read_text())
+    assert any("+incdir+" in x and "elsewhere is not under an rtl/" in x
+               for x in run(good).findings)

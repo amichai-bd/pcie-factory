@@ -24,7 +24,7 @@ slowest). Output:
 ```
 check: 2 IP(s) under /abs/src
 [filelist] PASS: 7 filelist(s), 2 IP(s) with regression lists, 5 RTL file(s) for orphans
-[style] FAIL (1): 6 RTL file(s), 12 rule(s)
+[style] FAIL (1): 6 RTL file(s), 12 rule(s); 0 other includable or fpga/ file(s) for directives
   blk/rtl/xy_blk.sv:10: plain-always: always
 [neutrality] PASS: 135 file(s) (tracked and untracked, not ignored) outside src/, ...
 [lint] blk: top=xy_blk
@@ -55,12 +55,19 @@ Rule owners: [layout](../../project/layout.md#per-ip-files) and the
   `dv/regress/level{0,1,2}.yaml`, and its regression lists pass the
   [regress schema](../regress/SPEC.md#regression-lists) (including unique
   test names).
-- **SystemVerilog only:** every source in the closure of a filelist that
-  lives under an `rtl/` directory ends in `.sv` or `.svh`, and no `.v`,
-  `.vh`, `.vlt`, `.vc`, `.vhd` or `.vhdl` file sits anywhere below an `rtl/`
-  or `fpga/` directory, listed or not. Other files would escape the style
-  check, and a Verilator control file (`.vlt`) would waive warnings outside
-  the reviewed waiver file. `dv/` filelists are not restricted.
+- **SystemVerilog only.** These rules close every route by which a file
+  could carry a waiver past the style check and the reviewed waiver file:
+  a listed control file (`.vlt`), or any file reached by `` `include``,
+  which accepts any file name.
+  - Every source in the closure of a filelist under an `rtl/` directory
+    ends in `.sv` or `.svh`.
+  - Every `+incdir+` in such a closure resolves to a directory below an
+    `rtl/` directory inside the source root (never `dv/` or elsewhere).
+  - **Allowlist:** below an `rtl/` directory only `.sv`, `.svh`, `.f` and
+    `.md` files exist, listed or not.
+  - Below an `fpga/` directory, no `.v`, `.vh`, `.vlt`, `.vc`, `.vhd` or
+    `.vhdl` file exists (constraint and flow files are fine).
+  - `dv/` filelists are not restricted.
 - **No orphans:** every `.sv`/`.svh` below an `rtl/` directory is reached by a
   filelist in that same `rtl/` directory (for an IP, its `.rtl.f`; for
   `src/common/rtl/`, whichever filelist lives there). "Reached" is the
@@ -73,8 +80,13 @@ filelist but needs no `dv/` files.
 
 ## Style check
 
-The RTL style checker applies to every `.sv`/`.svh` below an `rtl/` or
-`fpga/` directory. It is lexical: comments and strings are blanked first,
+The RTL style checker applies every rule to each `.sv`/`.svh` below an
+`rtl/` or `fpga/` directory. It also applies the two directive rules,
+`verilator-config` and `tool-pragma`, to every other text file that could
+reach Verilator: every file of any type below an include directory of an
+`rtl/` filelist closure (inside the source root), and every file below an
+`fpga/` directory. Binary files (a NUL byte) are skipped. The summary line
+counts both sets. It is lexical: comments and strings are blanked first,
 then each rule is a pattern or a bracket-aware scan of module headers. Rules
 it cannot check reliably (widths, latches, one driver, reset values,
 positional connections, logic in `always_ff`) stay
@@ -92,7 +104,7 @@ positional connections, logic in `always_ff`) stay
 | `typedef-outside-package` | `typedef` only inside `package ... endpackage`. | [rtl.md#types-and-constants-live-in-packages](../../bkm/rtl.md#types-and-constants-live-in-packages) |
 | `file-name` | A `.sv` declares exactly one module or package, named after the file. A package name ends in `_pkg` and a module name does not. The name starts with the owner's prefix: `common_` under `src/common/`, otherwise `<prefix><ip>` (sub-IP `a/b` gives `<prefix>a_b`) followed by the end or `_`; `<prefix>` alone when no IP owns the file. `<prefix>` is read from the `Module/package/file prefix` row of `src/README.md`; a missing row is a finding. | [rtl.md#naming](../../bkm/rtl.md#naming) |
 | `port-suffix` | Every module port is ANSI with a direction. Inputs end in `_i`, outputs in `_o`, inouts in `_io`, each optionally with `n` before the direction letter for active-low (`rst_ni`). `ref` ports are not allowed. | [rtl.md#naming](../../bkm/rtl.md#naming) |
-| `verilator-config` | No `` `verilator_config`` block in any `.sv` or `.svh` (a listed include file would otherwise carry `lint_off` rules past the waiver file). | [rtl.md#lint-and-style-checks](../../bkm/rtl.md#lint-and-style-checks) |
+| `verilator-config` | No `` `verilator_config`` block in any checked file, including includable files of any type (a listed or `` `include``d file would otherwise carry `lint_off` rules past the waiver file). | [rtl.md#lint-and-style-checks](../../bkm/rtl.md#lint-and-style-checks) |
 | `tool-pragma` | No tool directive comment: `verilator`, `synthesis`, `synopsys`, `pragma` or `altera` followed by a directive word (`lint_off`, `translate_off`, `full_case`, `public`, `protect`, `message_off`, ...). This covers inline lint waivers (`/* verilator lint_off */`). Prose that only starts with the tool name (`// Synthesis infers a flop`) is not flagged. | [rtl.md#lint-and-style-checks](../../bkm/rtl.md#lint-and-style-checks) |
 
 Provenance: the comment/string stripper, the package-span test and the
@@ -178,17 +190,22 @@ then `verilator.prefix` in `cfg/host.yaml`); see the
 - An IP whose `.rtl.f` does not resolve is a lint finding (the filelist check
   reports the cause).
 - An IP whose `.rtl.f` closure lists a source that is not `.sv`/`.svh` (for
-  example a `.vlt` control file) is not linted; that is a lint finding, so
-  such a file can never waive a warning.
+  example a `.vlt` control file), or has an include directory outside
+  `rtl/`, is not linted; that is a lint finding, so such a file can never
+  waive a warning.
 
 ### Waivers
 
 Waivers live only in `<src-root>/lint_waivers.yaml` (in the repository,
 `src/lint_waivers.yaml`). It is under `src/` because waivers name design
-files. A missing file means no waivers. Inline lint pragmas and
-`` `verilator_config`` blocks are rejected by the style check (`tool-pragma`,
-`verilator-config`), and Verilator control files by the filelist and lint
-checks, so this file is the only way to waive.
+files. A missing file means no waivers. This file is the only way to waive:
+
+- inline lint pragmas and `` `verilator_config`` blocks are rejected by the
+  style check (`tool-pragma`, `verilator-config`) in every file a closure
+  can list or `` `include``;
+- Verilator control files, other file types under `rtl/`, and include
+  directories outside `rtl/` are rejected by the filelist check, and lint
+  refuses such an IP.
 
 ```yaml
 waivers:
@@ -224,7 +241,10 @@ rule (`test_style.py`), duplicate, diamond, orphan and regression cases
 slug URLs, a look-alike slug and an invalid config (`test_neutrality.py`),
 and waivers (used, stale, invalid), output parsing and the command line
 (`test_lint.py`, `test_check_run.py`). Negative cases include a `.vlt`
-and a `.v` file in an `rtl/` closure, prose versus directive comments, a
+and a `.v` file in an `rtl/` closure, a `w.txt` waiver reached by
+`` `include`` through an include directory under `rtl/` and through
+`+incdir+../dv` (both as a `` `verilator_config`` block and as a
+`// verilator lint_off` comment), prose versus directive comments, a
 comment and a widened exempt path in the config, and look-alike slug hosts.
 Tests that run Verilator are skipped when it is not installed. `test_check_run.py` also runs the neutrality check
 on this repository.

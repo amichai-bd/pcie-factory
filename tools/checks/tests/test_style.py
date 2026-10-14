@@ -204,3 +204,41 @@ def test_run_flags_listed_include_with_verilator_config(tmp_path):
     r = style.run(src, discover(src), None)
     assert r.findings == [
         "blk/rtl/include/xy_blk_defs.svh:5: verilator-config: `verilator_config"]
+
+
+def _good_copy(tmp_path):
+    import shutil
+    src = tmp_path / "src"
+    shutil.copytree(FIXTURES / "good/src", src)
+    return src
+
+
+@pytest.mark.parametrize("text, rule", [
+    ("`verilator_config\nlint_off -rule UNUSEDSIGNAL\n", "verilator-config: `verilator_config"),
+    ("// verilator lint_off UNUSEDSIGNAL\n", "tool-pragma: verilator lint_off UNUSEDSIGNAL"),
+])
+def test_includable_file_of_any_type_is_scanned(tmp_path, text, rule):
+    # w.txt via an incdir under rtl/, and via +incdir+../dv: both are
+    # reachable by `include "w.txt", so both are scanned for directives.
+    src = _good_copy(tmp_path)
+    (src / "blk/rtl/include/w.txt").write_text(text)
+    (src / "blk/dv/w.txt").write_text(text)
+    f = src / "blk/rtl/blk.rtl.f"
+    f.write_text("+incdir+../dv\n" + f.read_text())
+    r = style.run(src, discover(src), None)
+    assert sorted(r.findings) == [f"blk/dv/w.txt:1: {rule}", f"blk/rtl/include/w.txt:1: {rule}"]
+    assert "7 other includable or fpga/ file(s)" in r.checked  # all of blk/dv/ is includable
+
+
+def test_every_fpga_text_file_is_scanned(tmp_path):
+    src = _good_copy(tmp_path)
+    (src / "blk/fpga/board.qsf.tcl").write_text("set_global_assignment -name X Y\n`verilator_config\n")
+    (src / "blk/fpga/logo.bin").write_bytes(b"\0`verilator_config")
+    r = style.run(src, discover(src), None)
+    assert r.findings == ["blk/fpga/board.qsf.tcl:2: verilator-config: `verilator_config"]
+
+
+def test_dv_files_outside_rtl_incdirs_are_not_scanned(tmp_path):
+    src = _good_copy(tmp_path)
+    (src / "blk/dv/notes.txt").write_text("// verilator lint_off WIDTH\n")
+    assert style.run(src, discover(src), None).passed

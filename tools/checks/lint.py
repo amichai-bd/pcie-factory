@@ -174,6 +174,13 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                 f"{ip.id}: not linted: rtl filelist lists non-.sv/.svh source(s): "
                 + ", ".join(rel(s, src_root) for s in foreign))
             continue
+        outside = [d for d in flat.incdirs
+                   if not (src_root in d.parents and "rtl" in d.relative_to(src_root).parts)]
+        if outside:  # files included from there escape the rtl/ allowlist
+            result.findings.append(
+                f"{ip.id}: not linted: rtl filelist includes from outside rtl/: "
+                + ", ".join(rel(d, src_root) for d in outside))
+            continue
         plan += targets(ip, flat, prefix)
     verilator = None
     if plan:
