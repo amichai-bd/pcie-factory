@@ -10,8 +10,8 @@ contract, skills, tools and CI serve any IP placed under `src/`.
 
 | Part | What it does | Where |
 | --- | --- | --- |
-| Contract | Roles, flow, gates, neutrality | `CLAUDE.md` |
-| Skills | Repeatable agent procedures | `.claude/skills/` |
+| Contract | Mission, neutrality, non-negotiables, flow exceptions | `CLAUDE.md` |
+| Skills | Roles, flow, gates and repeatable procedures | `.claude/skills/` |
 | Methods | Best known methods per discipline | `wiki/bkm/` |
 | Specs | Per-IP MAS, HAS, DV plan; per-tool specs | `wiki/src/`, `wiki/tools/` |
 | Build | Single entry point for checks, sim, regress, FPGA, ASIC, wiki | `build`, `tools/` |
@@ -39,8 +39,9 @@ flowchart LR
 ## Flow
 
 Issue → claim → branch and worktree → implement with specs → validate → draft
-PR → independent review → fix loop → merge → cleanup. `CLAUDE.md` owns the
-gates; the `agent-flow` skill owns the procedure.
+PR → independent review → fix loop → merge → cleanup. The `agent-flow` skill
+owns the steps and gates, the `firstmate` skill the roles, and `CLAUDE.md` the
+exceptions.
 
 ## Evidence levels
 

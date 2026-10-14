@@ -20,7 +20,8 @@ ASIC and the wiki site. It is being built under the M0 epic; see the
 
 Captain (human) → firstmate (root agent) → crewmates (subagents). Every change
 goes issue → branch → worktree → draft PR → independent review → squash merge
-→ cleanup. Details in [`CLAUDE.md`](CLAUDE.md#flow).
+→ cleanup. Details in the
+[agent-flow](.claude/skills/agent-flow/SKILL.md) skill.
 
 ## Status
 

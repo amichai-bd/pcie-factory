@@ -70,10 +70,11 @@ pd (ORFS/sky130hd).
   the captain accepts the residual risk (recorded on #1).
 - **CI host:** the self-hosted runners, Quartus Lite and ORFS/sky130hd run on
   the Omarchy host (supersedes earlier "WSL host" wording).
-- **Temporary exception (captain-approved):** until the self-hosted runners
-  are online, the merge gate is the independent `REVIEW-VERDICT` plus local
-  validation evidence recorded in the PR. Removed once `ci-gate` is required
-  on `main`.
+- **Branch protection: `ci-gate` required (captain, recorded on #1):**
+  branch protection on `main` requires `ci-gate`, with `enforce_admins`. The
+  merge gate is an APPROVE verdict at the head plus `ci-gate` green on that
+  head. This ends the earlier temporary exception that allowed merging on
+  local validation evidence before the runners were online.
 - **Runner selection (firstmate decision, recorded on #1):** workflows target `[self-hosted, linux, x64]`; runners
   registered to this repository serve only it, so no workflow names the
   design target.

@@ -7,7 +7,7 @@ its discipline and links to the owning page instead of restating it.
 | --- | --- |
 | [RTL](rtl.md) | SystemVerilog style, packages, naming, filelists, lint waivers |
 | [DV](dv.md) | cocotb structure, regression lists, levels, seeds, DV plan alignment |
-| [DevOps](devops.md) | `./build`, levels and budgets, CI selection, nightly, labels, metrics |
+| [DevOps](devops.md) | `./build`, levels and budgets, local evidence, CI selection, nightly, labels, metrics |
 | [Wiki](wiki.md) | Page sets, spec↔code alignment, writing rules |
 | [FPGA](fpga.md) | Quartus Lite flow, board target, `src/<ip>/fpga/` contents |
 | [PD](pd.md) | ORFS flow, platform, `src/<ip>/asic/` contents, reported metrics |
