@@ -241,6 +241,9 @@ def test_dry_run_writes_config_only(asic_src, tmp_path, capsys, monkeypatch):
     assert (work / "counter" / "asic" / "config.mk").is_file()
     assert not (work / "counter" / "asic" / "metrics.json").exists()
     assert "[asic] flow: bash -c" in out and " finish" in out
+    # Printed paths are placeholders: CI job logs are public.
+    assert str(tmp_path) not in out and str(asic_src) not in out
+    assert "<workdir>/counter/asic/config.mk" in out
 
 
 def test_cli_unknown_ip(asic_src, tmp_path, capsys):
@@ -330,3 +333,14 @@ def test_sigterm_kills_step_and_restores_handler(ctx, monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         flow.run(ctx, plan, orfs, timeout_s=60)
     assert signal.getsignal(signal.SIGTERM) is before
+
+
+def test_redact_paths(tmp_path):
+    from build.ip import Context
+    repo = tmp_path / "repo"
+    c = Context(repo, repo / "src", repo / "workdir")
+    text = f"-v {repo}:{repo}:ro -v {repo}/workdir:{repo}/workdir:rw {repo}/src/a.sv"
+    assert flow.redact(text, c) == ("-v <repo>:<repo>:ro -v <repo>/workdir:<repo>/workdir:rw "
+                                    "<repo>/src/a.sv")
+    other = Context(repo, tmp_path / "s", tmp_path / "w")
+    assert flow.redact(f"{tmp_path}/w/x {tmp_path}/s/y", other) == "<workdir>/x <src>/y"

@@ -55,9 +55,42 @@ reset and is don't-care while `valid_o` is 0.
 - Clock target: 100 MHz (10 ns period) on `clk_i`, the ASIC study clock in
   `src/top/asic/pcie_top.sdc` (sky130hd).
 
+## FPGA board wrapper
+
+`pcie_top_de2_115` binds `pcie_top` to the Terasic DE2-115 for the
+[FPGA flow](../../tools/fpga/SPEC.md); it is board policy, not part of
+`top.rtl.f`.
+
+| Port | Board signal | Pin(s) | Use |
+| --- | --- | --- | --- |
+| `clk_50_i` | `CLOCK_50` | `Y2` | 50 MHz clock for everything (`clk_i`). |
+| `key_ni[0]` | `KEY[0]` | `M23` | Held: reset (`rst_i`). |
+| `key_ni[1]` | `KEY[1]` | `M21` | Press: one `valid_i` pulse with `data_i = SW[7:0]`. |
+| `key_ni[2]` | `KEY[2]` | `N21` | Press: one `reseed_i` pulse. |
+| `sw_i[7:0]` | `SW[7:0]` | `AB28 AC28 AC27 AD27 AB27 AC26 AD26 AB26` | Data byte. |
+| `ledr_o[7:0]` | `LEDR[7:0]` | `G19 F19 E19 F21 F18 E18 J19 H19` | Last `data_o` with `valid_o`; 0 after reset. |
+| `ledg0_o` | `LEDG[0]` | `E21` | A byte has been shown since reset. |
+
+Reset is synchronous and active high. It is held for the first 15 cycles
+after configuration by a 4-bit power-on counter (`por_cnt_q`, which starts
+at 0 because the board file disables power-up don't-care), and while
+`KEY[0]` is held. Reset clears both LED outputs.
+
+Keys and switches pass through two-flop synchronizers to `clk_50_i`. A
+press is a high-to-low step of a synchronized key, so each press gives one
+pulse (the board debounces the keys). The SDC constrains `CLOCK_50` to
+20 ns and false-paths the asynchronous inputs and the static LED outputs.
+
+Build with `./build fpga --ip top`; resource and timing results are not
+recorded here but in `metrics.json` and, once nightly runs, the tracker
+(#16).
+
 ## Files
 
 | File | Holds |
 | --- | --- |
 | [`pcie_top.sv`](../../../src/top/rtl/pcie_top.sv) | The module. |
 | [`top.rtl.f`](../../../src/top/rtl/top.rtl.f) | `-F ../lfsr/rtl/lfsr.rtl.f`, then `pcie_top.sv`. |
+| [`pcie_top_de2_115.sv`](../../../src/top/fpga/pcie_top_de2_115.sv) | DE2-115 board wrapper (FPGA flow only). |
+| [`pcie_top.sdc`](../../../src/top/fpga/pcie_top.sdc) | FPGA timing constraints. |
+| [`de2_115.qsf.tcl`](../../../src/top/fpga/de2_115.qsf.tcl) | DE2-115 device, pins and I/O settings. |

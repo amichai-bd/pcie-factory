@@ -326,6 +326,21 @@ def docker_mounts(ctx: Context) -> list[tuple[Path, str]]:
     return mounts
 
 
+def redact(text: str, ctx: Context) -> str:
+    """Replace host paths with placeholders for printing (CI job logs are
+    public): the workdir becomes ``<repo>/workdir`` when it is the repository
+    default, else ``<workdir>``; the source root ``<src>``; the repository
+    ``<repo>``. Longest path first, so nested paths map correctly."""
+    names = {ctx.repo_root: "<repo>", ctx.src_root: "<src>", ctx.workdir: "<workdir>"}
+    if ctx.src_root == ctx.repo_root / "src":
+        names[ctx.src_root] = "<repo>/src"
+    if ctx.workdir == ctx.repo_root / "workdir":
+        names[ctx.workdir] = "<repo>/workdir"
+    for path in sorted(names, key=lambda p: len(str(p)), reverse=True):
+        text = text.replace(str(path), names[path])
+    return text
+
+
 def container_name(plan: Plan) -> str:
     """Unique per run (several runners share the host); steps append a suffix."""
     return f"asic-{plan.nick.replace('_', '-')}-{uuid.uuid4().hex[:12]}"
@@ -411,7 +426,7 @@ def _run(ctx: Context, plan: Plan, orfs: Orfs, timeout_s: float, name: str) -> t
     with plan.flow_log.open("w") as log:
         for step, script in step_scripts(orfs, plan):
             argv = wrap(orfs, plan, ctx, script, f"{name}-{step}")
-            print(f"[asic] {step}: {shlex.join(argv)}", flush=True)
+            print(redact(f"[asic] {step}: {shlex.join(argv)}", ctx), flush=True)
             log.write(f"### step {step}: {shlex.join(argv)}\n")
             log.flush()
             mark = plan.flow_log.stat().st_size

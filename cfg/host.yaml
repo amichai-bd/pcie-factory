@@ -30,7 +30,8 @@ hosts:
     verilator_prefix:
     verilator_version:
     python:
-    quartus_root:
+    quartus_root: /opt/intelFPGA_lite/25.1/quartus   # seen by the fpga workflow (also $QUARTUS_ROOTDIR and on PATH)
+    quartus_version: "25.1std.0 Build 1129"         # `quartus_sh --version`; Lite Edition
     orfs_root:
     orfs_image: "openroad/orfs:26Q4-142-gd4b96380b@sha256:f00e7890ebca6af80a973c2e7a5ccf7ff992c1a65903ac8bee39dfd4a458c811"   # ./build asic pin; the runners also export it as ORFS_IMAGE
     orfs_commit: d4b96380b10e          # ORFS revision in that image

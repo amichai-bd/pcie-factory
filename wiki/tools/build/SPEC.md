@@ -11,6 +11,7 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `tools/build/ip.py` | Repository context (source root, workdir) and IP discovery. |
 | `tools/build/sim.py` | Verilator + cocotb build and test driver. |
 | `tools/regress/` | Regression lists, selection and summary; see the [regress spec](../regress/SPEC.md). |
+| `tools/fpga/` | Quartus FPGA flow and report parsing; see the [fpga spec](../fpga/SPEC.md). |
 | `tools/labels/` | GitHub label standard, sync and check; see the [labels spec](../labels/SPEC.md). |
 
 ## Command line
@@ -26,8 +27,9 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `clean [--ip ID]...` | Delete the whole workdir. With `--ip`, empty `workdir/<ip>/` for each given IP but keep the directories of its sub-IPs, which nest there. |
 | `labels` | Sync and check GitHub labels; see the [labels spec](../labels/SPEC.md). |
 | `wiki build\|serve` | Build the wiki site into `<workdir>/wiki-site`, or serve an existing build; see the [wiki site spec](../wiki_site/SPEC.md). |
-| `asic --ip ID` | Run the ORFS flow for one IP and write `metrics.json`; see the [asic spec](../asic/SPEC.md). |
-| `check`, `fpga` | Stubs: print `not implemented yet (see issue #N)` and exit 2. Each is filled in by its issue (#7, #13) by replacing one entry in `COMMANDS`. |
+| `fpga (--ip ID... \| --all) [--part P] [--timeout S] [--dry-run]` | Quartus compile and `metrics.json` for IPs with `fpga/`; see the [fpga spec](../fpga/SPEC.md). |
+| `asic --ip ID [--platform P] [--timeout S] [--dry-run]` | ORFS flow and `metrics.json` for one IP with `asic/`; see the [asic spec](../asic/SPEC.md). |
+| `check` | Stub: prints `not implemented yet (see issue #7)` and exits 2, until #7 replaces its entry in `COMMANDS`. |
 
 Options shared by every command:
 
@@ -41,7 +43,7 @@ launcher.
 
 Exit codes: `0` means success, `1` means a test or build failed, and `2`
 means a usage or configuration error (bad filelist, regression list or IP id,
-missing Verilator, git error, or a command that isn't implemented yet).
+missing Verilator or Quartus, git error, or a command that isn't implemented yet).
 Errors are printed as `error: <message>` and name the file and line where
 there is one.
 
@@ -154,8 +156,8 @@ so a sub-IP nests under its parent):
 | `workdir/<ip>/<test>/<seed>/` | `results.xml`, `sim.log` (the full simulator output), and waves (`dump.vcd`) with `--waves`. This directory is cleared before each run. |
 
 Because a test directory and a sub-IP directory share `workdir/<ip>/`, a
-test may not be named `build`, `asic` (the [asic tool's](../asic/SPEC.md#output)
-output) or after a sub-IP directory.
+test may not be named `build`, `fpga` (the [fpga tool's](../fpga/SPEC.md#output) output),
+`asic` (the [asic tool's](../asic/SPEC.md#output) output) or after a sub-IP directory.
 
 A test's status comes from `results.xml`:
 

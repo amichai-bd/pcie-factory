@@ -94,6 +94,12 @@ the unit tests drive with a fake ORFS.
 5. Parse the reports and write `metrics.json` and `worst_path.txt`, also on
    failure.
 
+Everything the command prints (commands, paths, errors) shows host paths as
+placeholders, because CI job logs are public: the repository as `<repo>`,
+the default workdir and source root as `<repo>/workdir` and `<repo>/src`,
+others as `<workdir>` and `<src>`. The commands that run, `config.mk` and
+`flow.log` keep the real paths.
+
 ## Output
 
 | Path | Content |
