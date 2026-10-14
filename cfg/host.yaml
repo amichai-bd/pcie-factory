@@ -19,6 +19,16 @@ python:
   minimum: "3.11"                   # python3 on PATH must be at least this
   requirements: tools/requirements.txt   # exact pins for cocotb, pytest, PyYAML, ...
 
+# OpenROAD-flow-scripts for ./build asic (wiki/tools/asic/SPEC.md). Runs only
+# on the Omarchy host. Environment overrides: ORFS_RUNNER, ORFS_IMAGE,
+# ORFS_ROOT (a native checkout; implies the native runner).
+orfs:
+  runner: docker                    # docker | native
+  image: "openroad/orfs:26Q4-142-gd4b96380b@sha256:f00e7890ebca6af80a973c2e7a5ccf7ff992c1a65903ac8bee39dfd4a458c811"
+  image_root: /OpenROAD-flow-scripts   # ORFS checkout inside the image
+  commit: d4b96380b                 # ORFS revision the image tag names
+  root:                             # native checkout; unset (docker only)
+
 hosts:
   cloud:
     description: Claude Code cloud session (Ubuntu); provisioned by .claude/hooks/session-start.sh
@@ -31,4 +41,6 @@ hosts:
     verilator_version:
     python:
     quartus_root:
-    orfs_root:
+    docker: "29.7.2"                # docker version (server), seen by the asic workflow
+    orfs_image: "openroad/orfs:26Q4-142-gd4b96380b@sha256:f00e7890ebca6af80a973c2e7a5ccf7ff992c1a65903ac8bee39dfd4a458c811"   # pulled; also exported as ORFS_IMAGE to the runners
+    orfs_root:                      # no native ORFS (/opt/orfs exists but is empty)

@@ -54,7 +54,7 @@ jobs:
         run: ./build asic --ip "$IP"
       - name: Upload metrics and reports
         if: always()
-        uses: actions/upload-artifact@v5.0.0
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: asic-metrics
           if-no-files-found: warn
