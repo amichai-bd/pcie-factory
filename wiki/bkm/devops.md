@@ -100,7 +100,20 @@ behavior, not command success. Missing evidence is a review finding.
 Workflows live in `.github/workflows/` (`ci`, `nightly`, `pages`) and run on
 self-hosted runners selected with `runs-on: [self-hosted, linux, x64]`. The
 runners are registered to this repository only, so no workflow names the
-design target. The CI host is the Omarchy machine; `cfg/host.yaml` pins its
+design target. The repository is public, so fork code must never reach these
+runners. Every job that a `pull_request` can trigger carries
+
+```yaml
+if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+```
+
+so it still runs on push and dispatch, runs for PRs from this repository, and
+is skipped for fork PRs. `pull_request_target` never checks out PR code, and
+workflows never echo secrets. The captain also requires approval for
+outside-collaborator fork workflows in the repository settings. A skipped job
+counts as passing a required check, so a fork PR is never merged on its
+`ci-gate` alone: a maintainer pushes its commits to a branch in this
+repository, and that PR's `ci-gate` is the gate. The CI host is the Omarchy machine; `cfg/host.yaml` pins its
 toolchain.
 
 **`ci-gate`** is the one required check. It runs on pull requests to `main`,
