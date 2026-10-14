@@ -52,14 +52,14 @@ async def smoke(dut):
         await step(dut, model, i, advance=1)
     assert seen == KAT, f"key bytes after reset: expected {KAT} got {seen}"
     held = int(dut.key_o.value)
-    await step(dut, model, 10)  # no advance: hold
+    await step(dut, model, 5)  # no advance: hold
     assert int(dut.key_o.value) == held, "key_o changed without advance_i"
-    await step(dut, model, 11, reseed=1, advance=1)  # re-seed wins
+    await step(dut, model, 6, reseed=1, advance=1)  # re-seed wins
     assert int(dut.key_o.value) == 0xFF, "re-seed did not restore the seed"
-    await step(dut, model, 12, advance=1)
-    await step(dut, model, 13, rst=1, advance=1)  # reset wins
+    await step(dut, model, 7, advance=1)
+    await step(dut, model, 8, rst=1, advance=1)  # reset wins
     assert int(dut.key_o.value) == 0xFF, "reset did not restore the seed"
-    await step(dut, model, 14)
+    await step(dut, model, 9)
 
 
 async def random_run(dut, model, cycles, p_reseed, p_rst):

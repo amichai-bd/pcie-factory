@@ -54,6 +54,9 @@ follows the [DV BKM](dv.md).
   package only when it has types the parent does not need. Shared, IP-neutral
   types go in `src/common/rtl/common_*_pkg.sv` only when there is a real
   second consumer.
+- Package dependencies point down the hierarchy: a parent may import a
+  sub-IP's package, and a sub-IP never imports its parent's, so the sub-IP's
+  filelist stays standalone.
 - Packages cannot see module parameters. A field whose width follows a module
   parameter stays a separately declared signal, not a packaged struct field.
 - Packages come first in the filelist that owns them (see below).

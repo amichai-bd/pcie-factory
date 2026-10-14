@@ -101,8 +101,16 @@ Known gaps:
   there selects no IP on its own.
 - The global prefixes (`tools/`, `cfg/`, `build`) are constants in
   `tools/regress/affected.py`.
+- A change to a sub-IP's `dv/models/` selects only that sub-IP, not the
+  parent IPs whose models import it
+  ([DV BKM](../../bkm/dv.md#reusing-a-sub-ip-model)), because no filelist
+  reaches Python.
+- The pure-Python model unit tests under `src/**/dv/models/` are run by no
+  regression level or CI step.
 
-Both move to `cfg/ci.yaml` selection rules when `ci-gate` is wired up (#11).
+Issue #11 owns all four: the first two move to `cfg/ci.yaml` selection
+rules when `ci-gate` is wired up, and it decides how the last two are
+selected and run.
 
 ## Seeds
 

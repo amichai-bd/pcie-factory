@@ -36,6 +36,21 @@ Shared DV helpers live in `src/common/dv/` once a second IP needs them.
 Python imports use paths relative to the IP's `dv/` directory; the sim tool
 SPEC owns how `PYTHONPATH` is set.
 
+### Reusing a sub-IP model
+
+A parent IP's model reuses a sub-IP's model instead of re-implementing it:
+
+- Model modules carry their IP's full name (`<prefix><ip>_<subip>_model.py`),
+  so they never collide, and `models/` directories have no `__init__.py`.
+- The parent's model appends `<subip>/dv/models`, located relative to its own
+  file (`Path(__file__).resolve().parents[2] / "<subip>" / "dv" / "models"`),
+  to `sys.path` and imports the sub-IP module by name. This works the same
+  under the sim tool, which puts only the IP's own `dv/` on the path, and
+  under plain pytest.
+- `regress --affected` does not follow this import (see the
+  [regress SPEC known gaps](../tools/regress/SPEC.md#selection)): after
+  changing a sub-IP model, run its parent IPs too.
+
 ## Fast test ladder
 
 Run the cheapest test that can reject the change:
