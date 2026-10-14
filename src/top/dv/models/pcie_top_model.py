@@ -2,12 +2,7 @@
 (wiki/src/top/HAS.md).
 
 The key stream comes from the lfsr sub-IP's model, reused rather than
-re-implemented. Model modules carry their IP's full prefix so names never
-collide, and ``models/`` directories have no ``__init__.py``. A parent IP
-reaches a sub-IP model by putting ``<subip>/dv/models`` on ``sys.path``,
-located relative to this file, and importing the module by its name. That
-works the same under ``./build sim``/``regress`` (which put only this IP's
-``dv/`` on the path) and under plain pytest.
+re-implemented, per the DV BKM (wiki/bkm/dv.md, "Reusing a sub-IP model").
 """
 
 import sys

@@ -9,7 +9,7 @@ module pcie_top
   input  logic  rst_i,     // synchronous, active high
   input  logic  valid_i,   // data_i holds a byte to scramble; advances the LFSR
   input  t_byte data_i,
-  input  logic  reseed_i,  // re-seed the LFSR after this cycle (COM-style)
+  input  logic  reseed_i,  // seed key from the next byte; this cycle's byte uses the current key
   output logic  valid_o,
   output t_byte data_o
 );

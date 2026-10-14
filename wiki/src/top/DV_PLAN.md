@@ -22,24 +22,11 @@
 
 ### Reusing the sub-IP model
 
-`./build sim` and `./build regress` put only the IP's own `dv/` on the
-Python path ([build SPEC](../../tools/build/SPEC.md#ip-discovery)), so
-`tests/` imports `models.pcie_top_model`. The convention for sharing models
-across IPs:
-
-- Model modules carry their IP's full prefix (`pcie_top_lfsr_model.py`), so
-  names never collide, and `models/` directories have no `__init__.py`.
-- A parent's model appends `<subip>/dv/models`, located relative to its own
-  file (`Path(__file__).parents[2] / "lfsr" / "dv" / "models"`), to
-  `sys.path` and imports the sub-IP model by module name. This works the
-  same under cocotb and under plain pytest.
-
-`regress --affected` selects `top` for any change the `top.sim.f` filelist
-reaches, including lfsr RTL. It does not see Python: a change to only the
-lfsr model selects `top/lfsr`, not `top`
-([regress SPEC](../../tools/regress/SPEC.md#selection), Python-only reuse is
-the same known gap as `src/common/dv/`). Run both IPs after changing the
-lfsr model.
+`pcie_top_model.py` imports `pcie_top_lfsr_model` from `lfsr/dv/models`
+following the [DV BKM](../../bkm/dv.md#reusing-a-sub-ip-model). A change to
+the lfsr RTL selects `top` through `top.sim.f`, but a change to only the lfsr
+model does not ([regress SPEC known gaps](../../tools/regress/SPEC.md#selection)):
+run both IPs after changing it.
 
 ## Plan
 
