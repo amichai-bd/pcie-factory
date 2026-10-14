@@ -3,7 +3,8 @@
 - **Status:** accepted
 - **Source:** captain grill session, recorded in the M0 epic (issue #1) and
   updated by its comments. This copy is faithful except that design-target
-  names are replaced by neutral wording (see Q2).
+  and IP names are replaced by neutral wording (see Q2); later decisions from
+  the epic's comments are listed under Updates.
 
 ## Mission
 
@@ -32,7 +33,7 @@ on it at runtime, and anything adapted from it carries a provenance note.
 | Q15 | The reviewer crewmate is fresh, independent and read-only. It trusts CI and reviews the exact head for code↔wiki alignment, BKM conformance and test adequacy (DV_PLAN against the regression lists). It posts one `REVIEW-VERDICT: APPROVE\|REQUEST-CHANGES @<sha>` comment. The firstmate then auto-merges once the verdict and `ci-gate` are green. |
 | Q16 | Local hosts and Claude Code cloud sessions are both supported. `.claude/hooks/session-start.sh` installs the pinned toolchain from `cfg/host.yaml` in cloud sessions. CI runs on self-hosted runners on the **Omarchy** host. Herdr may be added later. |
 | Q17 | Directories use bare IP names. Files, modules and packages are named `<prefix><ip>[_<sub>]` with the prefix declared in `src/README.md`, and shared blocks use `common_`. |
-| Q18 | Seed design: IP `src/top/` with sub-IP `src/top/lfsr/`, one test per level each, full docs. |
+| Q18 | Seed design: one IP with one sub-IP (named in `wiki/src/`), one test per level each, full docs. |
 | Q19 | Labels use prefixed dimensions: `type:` (exactly one), `area:` (at least one), `ip:` (derived from `src/`), `prio:`, and state labels (`in-progress`, `blocked`, `needs-captain`, `nightly-red`). Defined in `cfg/labels.yaml` and synced by `./build labels sync`. |
 | Q20/21 | Metrics history lives in `wiki/tracker/data/`. The nightly bot PR may touch **only** that path; a guard check enforces it, and it auto-merges after `ci-gate`. This is the single permanent flow exception in CLAUDE.md. |
 | Q22 | Tracker metrics: code stats (LOC and files by kind and IP), tests (counts, pass/fail, runtime per level, slowest tests), GitHub flow (issues, PRs, lead time, review rounds), FPGA, and ASIC. |
@@ -57,8 +58,8 @@ pd (ORFS/sky130hd).
   are online, the merge gate is the independent `REVIEW-VERDICT` plus local
   validation evidence recorded in the PR. Removed once `ci-gate` is required
   on `main`.
-- **Runner selection:** workflows target `[self-hosted, linux, x64]`; runners
+- **Runner selection (firstmate decision, recorded on #1):** workflows target `[self-hosted, linux, x64]`; runners
   registered to this repository serve only it, so no workflow names the
   design target.
-- **Root layout addition:** `src/README.md` declares the design target and
+- **Root layout addition (firstmate decision, recorded on #1):** `src/README.md` declares the design target and
   prefix so that everything outside `src/` can stay neutral.

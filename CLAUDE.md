@@ -19,9 +19,10 @@ never invent a third rule.
 Everything outside `src/` and `wiki/src/` is design-neutral: this file, skills,
 `tools/`, `cfg/`, `.github/`, BKMs and project pages never name the design
 target, its protocol or its IPs. Tools discover IPs from `src/`; no IP name is
-ever hard-coded in `tools/` or `cfg/`. `./build check` enforces this. Exempt: the repository slug in URLs and
-nightly data under `wiki/tracker/data/`. The target and its module prefix are
-declared once, in [`src/README.md`](src/README.md).
+ever hard-coded in `tools/` or `cfg/`. `./build check` enforces this. Exempt:
+the repository slug in URLs and nightly data under `wiki/tracker/data/`. The
+target and its module prefix are declared once, in
+[`src/README.md`](src/README.md).
 
 ## Layout
 
@@ -33,7 +34,7 @@ declared once, in [`src/README.md`](src/README.md).
 | `.github/` | Workflows (`ci`, `nightly`, `pages`) and templates. |
 | `cfg/` | Generic configuration only (levels, CI, host pins, checks, labels). |
 | `tools/` | Generic Python tools, each with unit tests and a wiki SPEC. |
-| `src/<ip>/` | `rtl/`, `dv/`, optional `fpga/` and `asic/`, sub-IPs nested as `src/<ip>/<subip>/`. |
+| `src/<ip>/` | `rtl/`, `dv/`, optional `fpga/`, `asic/`; sub-IPs in `<subip>/`. |
 | `wiki/` | Specs and methods, published as the wiki site. |
 | `worktrees/` | Issue worktrees; contents ignored. |
 | `workdir/` | All generated output; ignored and disposable. |
