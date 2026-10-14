@@ -61,18 +61,20 @@ Place files per the [directory structure](../../../wiki/bkm/dv.md#directory-stru
 ## 4. Regression lists
 
 Edit `src/<ip>/dv/regress/level{0,1,2}.yaml` per
-[regression lists](../../../wiki/bkm/dv.md#regression-lists). The exact
-schema and defaults are owned by the regression tool SPEC
-(`wiki/tools/regress/SPEC.md`, created by the build core issue #6); follow it
-once present, the BKM field table until then.
+[regression lists](../../../wiki/bkm/dv.md#regression-lists). The
+[regress SPEC](../../../wiki/tools/regress/SPEC.md#regression-lists) owns the exact schema, validation and
+defaults; where it and the BKM field table differ, the SPEC wins.
 
 - [ ] Entry in exactly one level, chosen by the
       [budgets](../../../wiki/bkm/devops.md#levels-and-budgets); never
       duplicated to "also run" it.
 - [ ] Entry in this IP's own lists only; a parent does not inherit sub-IP
       entries.
-- [ ] `name` unique in the IP; explicit integer `seeds`; a `timeout_s`.
-- [ ] All three files exist; an empty level is `[]`.
+- [ ] Required `name`, `module`, `top` and `timeout_s` set; `name` unique
+      across all three levels of the IP and not `build` or a sub-IP name.
+- [ ] `seeds` is the run count; seed values are derived per the
+      [regress SPEC](../../../wiki/tools/regress/SPEC.md#seeds), so record the printed seeds as evidence.
+- [ ] A level with no tests is a missing file or an empty `tests:` list.
 
 ## 5. DV plan alignment
 
@@ -92,12 +94,14 @@ Follow the [fast test ladder](../../../wiki/bkm/dv.md#fast-test-ladder):
 
 ```text
 python3 -m pytest src/<ip>/dv/models               # model unit tests
-./build sim <ip> <test> --seed <N>                 # focused test
+./build sim --ip <id> --test <name> [--seed N] [--waves]   # focused test
+./build regress --level 0 --level 1 --affected origin/main --dry-run   # what runs
 ./build regress --level 0 --level 1 --affected origin/main   # before review
 ```
 
-`sim` and `regress` land with the build core issue (#6); their SPECs own the
-exact syntax. Rerun a failing seed alone to confirm it reproduces before and
+The [build SPEC](../../../wiki/tools/build/SPEC.md#simulation-build-sim) and [regress SPEC](../../../wiki/tools/regress/SPEC.md) own the
+syntax; `sim` defaults to the test's first regression seed, so
+`--ip <id> --test <name> --seed <s>` reproduces a regression failure. Rerun a failing seed alone to confirm it reproduces before and
 after the fix. Outputs stay under `workdir/`.
 
 ## 7. Before the PR

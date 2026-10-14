@@ -34,7 +34,8 @@ issue worktree per [agent-flow](../agent-flow/SKILL.md).
   ([design neutrality](../../../CLAUDE.md#design-neutrality)). Read the prefix
   from [`src/README.md`](../../../src/README.md) when a tool needs it.
 - Python standard library, PyYAML and pytest only, unless the issue approves
-  more; pin any approved dependency where its tool SPEC says.
+  more. Python dependencies are pinned in `tools/requirements.txt` (from
+  #9); a new one needs issue approval and a pin there.
 - Validate inputs before expensive work, print what will run, exit nonzero on
   failure, keep output paths deterministic and under `workdir/`.
 - No new abstraction or wrapper until two real consumers need it.
@@ -71,6 +72,9 @@ python3 -m pytest tools/<tool>/tests -q        # focused
 python3 -m pytest tools -q                     # all tool tests
 ./build check                                  # lands with issue #7
 ```
+
+The [build SPEC](../../../wiki/tools/build/SPEC.md#unit-tests) owns the test layout (`tools/pytest.ini`,
+fixture trees) and the `COMMANDS` dispatch table a new subcommand plugs into.
 
 ## 5. Spec and neutrality
 

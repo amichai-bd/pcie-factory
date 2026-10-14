@@ -62,14 +62,15 @@ Update `src/<ip>/rtl/<ip>.rtl.f` in the same edit as the source:
 
 ```text
 ./build check                                  # lint -Wall, RTL style, filelists, neutrality
-./build sim <ip> <test> [--seed N]             # the focused test for the change
+./build sim --ip <id> --test <name> [--seed N] [--waves]   # focused test
 ./build regress --level 0 --level 1 --affected origin/main   # before review
 ```
 
-`./build check` lands with the check issue (#7) and `sim`/`regress` with
-the build core issue (#6); their tool SPECs, once present under
-`wiki/tools/`, own the exact syntax. Until then run `verilator --lint-only
--Wall -F src/<ip>/rtl/<ip>.rtl.f` directly and record that in the PR.
+The [build SPEC](../../../wiki/tools/build/SPEC.md#simulation-build-sim) owns `sim` and the
+[regress SPEC](../../../wiki/tools/regress/SPEC.md) owns `regress`; `<id>` is the IP path under `src/`
+(`<ip>` or `<ip>/<subip>`). `./build check` lands with the check issue (#7);
+until then run `verilator --lint-only -Wall -F src/<ip>/rtl/<ip>.rtl.f`
+directly and record that in the PR.
 
 - Every warning is a failure. Fix the cause; a waiver goes only in the
   reviewed waiver file with a reason
