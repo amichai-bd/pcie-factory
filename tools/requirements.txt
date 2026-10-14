@@ -1,0 +1,8 @@
+# Exact Python pins for tools/ and DV. Owning spec: wiki/tools/host/SPEC.md.
+# Installed by .claude/hooks/session-start.sh in cloud sessions; keep one
+# "name==version" per line (the hook's skip check parses exactly that form).
+cocotb==2.1.0
+pytest==9.1.1
+PyYAML==6.0.3
+markdown-it-py==4.2.0
+Pygments==2.21.0
