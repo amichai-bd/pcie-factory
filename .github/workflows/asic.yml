@@ -44,12 +44,17 @@ jobs:
           echo "--- native tools"; which openroad yosys klayout make python3
           echo "--- candidate roots"; ls -d /opt/orfs* /opt/OpenROAD* /opt/openroad* ~/OpenROAD-flow-scripts* ~/orfs* /OpenROAD-flow-scripts 2>&1
           echo "--- env"; env | grep -i -E 'orfs|openroad|flow_home' || true
+          echo "--- /opt/orfs"; ls -la /opt/orfs; find /opt/orfs -maxdepth 2 -type f -size -8k -exec sh -c 'echo "== $1"; head -40 "$1"' _ {} \;
+          if [ -n "$ORFS_IMAGE" ]; then
+            echo "--- inside $ORFS_IMAGE"
+            docker run --rm "$ORFS_IMAGE" bash -c 'pwd; ls /OpenROAD-flow-scripts /OpenROAD-flow-scripts/flow; cat /OpenROAD-flow-scripts/env.sh | head -30; command -v openroad yosys klayout; yosys -m slang -p "help read_slang" 2>&1 | head -3'
+          fi
           exit 0
       - name: Run the ASIC flow
         run: ./build asic --ip "$IP"
       - name: Upload metrics and reports
         if: always()
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v5.0.0
         with:
           name: asic-metrics
           if-no-files-found: warn
