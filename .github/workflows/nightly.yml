@@ -12,6 +12,8 @@ name: nightly
 on:
   schedule:
     - cron: "17 3 * * *"   # 03:17 UTC daily, off-peak
+  push:                    # TEMPORARY: registers the workflow on this branch; removed before review
+    branches: [15-nightly-metrics]
   workflow_dispatch:
     inputs:
       base:
@@ -26,7 +28,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  BASE: ${{ inputs.base || 'main' }}
+  BASE: ${{ inputs.base || (github.event_name == 'push' && github.ref_name) || 'main' }}
 
 jobs:
   nightly:
