@@ -272,6 +272,7 @@ def test_run_writes_metrics(asic_src, tmp_path, capsys, monkeypatch):
     assert doc["timing"]["wns_ns"] == 0.0 and doc["timing"]["setup_ws_ns"] == 6.01343
     assert doc["max_fanout"]["value"] == 25 and doc["logic_depth"]["value"] == 4
     assert doc["toolchain"]["runner"] == "native"
+    assert doc["work_home"] == "counter/asic/run"
     assert doc["toolchain"]["openroad"] == "26Q4-142-gd4b96380b"
     assert (work / "counter" / "asic" / "worst_path.txt").read_text().startswith(
         "worst setup path (clk)")

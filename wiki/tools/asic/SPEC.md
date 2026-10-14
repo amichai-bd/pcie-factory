@@ -120,7 +120,7 @@ the unit tests drive with a fake ORFS.
 | `worst_path.from`, `.to`, `.group`, `.slack_ns`, `.cells` | First `report_checks -path_delay max` section of `6_finish.rpt`; `cells` counts instances strictly between start and end point on the data path. |
 | `power_w`, `route_drc_errors` | `*__power__total`, `detailedroute__route__drc_errors`. |
 | `toolchain` | Runner, image, root, `orfs_pin` (the host's `orfs_commit`, see above) and the `versions` step output (`openroad`, `yosys`, `orfs`; the pinned image's OpenROAD and ORFS report `unknown`, so the image digest and `orfs_pin` identify them). |
-| `source`, `elapsed_s`, `work_home` | Repository `HEAD`, run time, ORFS work home. |
+| `source`, `elapsed_s`, `work_home` | Repository `HEAD`, run time, ORFS work home relative to the workdir (`<ip>/asic/run`; no host paths, since the file is published). |
 
 "Latest stage" means the first present of `finish`, `detailedroute`,
 `globalroute`, `cts`, `detailedplace`, `globalplace`, `placeopt`,

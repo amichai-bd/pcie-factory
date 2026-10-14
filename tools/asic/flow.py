@@ -442,7 +442,8 @@ def _run(ctx: Context, plan: Plan, orfs: Orfs, timeout_s: float, name: str) -> t
                       "orfs_pin": orfs.commit, **versions},
         "source": source_revision(ctx.repo_root),
         "elapsed_s": round(time.monotonic() - started, 1),
-        "work_home": str(plan.work_home),
+        # Relative to the workdir: metrics.json is published, host paths are not.
+        "work_home": plan.work_home.relative_to(ctx.workdir).as_posix(),
     }
     plan.metrics_json.write_text(json.dumps(doc, indent=2) + "\n")
     return (0 if status == "pass" else 1), doc
