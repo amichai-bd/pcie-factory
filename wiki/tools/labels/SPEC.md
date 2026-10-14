@@ -68,8 +68,8 @@ authenticated, for example with `GH_TOKEN`). No GraphQL is used.
 | Delete | `DELETE repos/{repo}/labels/{url-encoded name}` |
 | Issue or PR labels | `GET repos/{repo}/issues/{number}` |
 
-A failing `gh` call stops the command with exit 2 and the last line of its
-error (for example an HTTP 403).
+A failing `gh` call, or one whose output is not JSON, stops the command with
+exit 2 and the last line of its error (for example an HTTP 403).
 
 ## `sync`
 
@@ -78,6 +78,14 @@ name order: missing on GitHub is a **create** (`+`); a different name case,
 color or description is an **update** (`~`, which renames to the configured
 case). Then, for each GitHub label not in the config: with `--prune` a
 **delete** (`-`), otherwise an **extra** (`?`) that is reported and kept.
+
+**Prune guard:** when a derived dimension has no labels (no IP discovered,
+which includes a missing or wrong source root), `--prune` refuses to delete
+any label under that dimension's prefix: the command exits 2 before any
+write call, also in `--dry-run`. This stops a bad `--src-root` from deleting
+every `ip:` label and stripping it from all issues. Delete such a label by
+hand if that is really intended. With at least one IP discovered, a stale
+`ip:` label is pruned normally.
 
 Output is one header line, one line per change, and a count line:
 
@@ -95,9 +103,11 @@ second sync after a successful one shows no create, update or delete. Exit
 0 on success.
 
 The `labels` workflow (`.github/workflows/labels.yml`) runs `sync` without
-`--prune` on a push to `main` that changes `cfg/labels.yaml`, `tools/labels/`
-or `src/`, and on manual dispatch, with the workflow token
-(`issues: write`).
+`--prune` on a push to `main` that changes `cfg/labels.yaml`, `tools/labels/`,
+`tools/build/ip.py` (IP discovery), `tools/cli/`, `src/` or the workflow
+itself, and on manual dispatch, with the workflow token (`issues: write`).
+The runner needs `python3` and the GitHub CLI `gh` on `PATH`; a first step
+fails with a clear error when `gh` is missing.
 
 ## `check`
 
@@ -109,7 +119,10 @@ Reads the labels of issue or pull request `NUMBER` and applies the rules:
   `type:nope` or the `ip:` label of a removed IP) is an error;
 - the counts per dimension must satisfy its rule;
 - labels outside every dimension (GitHub's defaults such as `bug`) are
-  warnings.
+  warnings;
+- names are compared case-sensitively with the config (unlike `sync`). After
+  a sync, GitHub's names have the configured case, so this only matters for
+  a label renamed by hand since then.
 
 It prints `warning:` and `error:` lines, then `#N: labels OK` (exit 0) or
 `#N: labels FAIL` (exit 1). Configuration and GitHub errors exit 2.
@@ -119,6 +132,6 @@ It prints `warning:` and `error:` lines, then `#N: labels OK` (exit 0) or
 `tools/labels/tests/test_labels.py` never touches the network: it replaces
 `subprocess.run` to check the exact `gh api` commands and pagination, and uses
 an in-memory GitHub for sync and check. It covers config validation, `ip:`
-derivation, slug resolution, the plan and its order, dry run with no writes,
-convergence after sync with and without `--prune`, each check rule, and the
-CLI exit codes.
+derivation, slug resolution, non-JSON `gh` output, the plan and its order,
+dry run with no writes, convergence after sync with and without `--prune`,
+the prune guard, each check rule, and the CLI exit codes.

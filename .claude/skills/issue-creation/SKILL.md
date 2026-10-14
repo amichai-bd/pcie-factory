@@ -75,7 +75,7 @@ Use only these values, never invent one:
 | `type:` | `feat`, `bug`, `docs`, `infra`, `test`, `refactor`, `epic`, `data` | Exactly one. |
 | `area:` | `rtl`, `dv`, `build`, `ci`, `wiki`, `skills`, `fpga`, `pd` | At least one, by the part touched. |
 | `ip:` | One per IP, derived from `src/` | One per affected IP. |
-| `prio:` | `p0`, `p1`, `p2` | Optional. |
+| `prio:` | `p0`, `p1`, `p2` | Optional, at most one. |
 | State | `in-progress`, `blocked`, `needs-captain`, `nightly-red` | Set by the flow, not at creation. |
 
 `cfg/labels.yaml` is the source of truth: if it ever differs from this

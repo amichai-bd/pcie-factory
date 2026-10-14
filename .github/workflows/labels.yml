@@ -2,6 +2,7 @@
 # A push to main that changes the label config, the tool, or src/ (ip: labels
 # are derived from IP discovery) makes the repository labels match the config.
 # It never prunes; run `./build labels sync --prune` by hand for that.
+# Runner prerequisites: python3 and the GitHub CLI `gh` on PATH.
 name: labels
 
 on:
@@ -10,6 +11,8 @@ on:
     paths:
       - "cfg/labels.yaml"
       - "tools/labels/**"
+      - "tools/build/ip.py"
+      - "tools/cli/**"
       - "src/**"
       - ".github/workflows/labels.yml"
   workflow_dispatch:
@@ -31,6 +34,10 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
+      - name: Check that the GitHub CLI is installed
+        run: |
+          command -v gh >/dev/null || { echo "::error::gh (GitHub CLI) is not installed on this runner; ./build labels needs it"; exit 1; }
+          gh --version
       - name: Install the tool's Python dependencies
         run: |
           python3 -m venv workdir/venv

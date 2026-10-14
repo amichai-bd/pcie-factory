@@ -316,3 +316,29 @@ def test_cli_errors_exit_2(monkeypatch, capsys):
     with pytest.raises(SystemExit) as exc:
         main(["labels"])
     assert exc.value.code == 2
+
+
+def test_gh_non_json_output(monkeypatch):
+    monkeypatch.setattr(core.subprocess, "run", fake_run([(0, "<html>oops", "")], []))
+    with pytest.raises(LabelsError, match="output is not JSON"):
+        Gh("o/r").issue_labels(1)
+
+
+def test_prune_refuses_derived_labels_without_discovery(tmp_path):
+    std = core.load(write(tmp_path), [])  # no IPs discovered
+    existing = [Label("ip:counter", "006b75", "Touches IP counter"), Label("bug", "d73a4a", "x")]
+    with pytest.raises(LabelsError, match="refusing to prune 'ip:counter': no ip was discovered"):
+        core.plan(std, existing, prune=True)
+    # Without --prune it is only an extra; with IPs discovered, pruning a stale one is allowed.
+    assert ("extra", "ip:counter") in [(c.action, c.name) for c in core.plan(std, existing, False)]
+    std = core.load(write(tmp_path), ["other"])
+    assert ("delete", "ip:counter") in [(c.action, c.name) for c in core.plan(std, existing, True)]
+
+
+def test_cli_prune_guard_writes_nothing(monkeypatch, tmp_path, capsys):
+    gh = FakeGh([Label("ip:gone", "006b75", "x")])
+    monkeypatch.setattr(core, "Gh", lambda repo: gh)
+    argv = ["labels", "--src-root", str(tmp_path / "missing"), "sync", "--repo", "o/r", "--prune"]
+    assert main(argv) == 2
+    assert "refusing to prune 'ip:gone'" in capsys.readouterr().err
+    assert gh.calls == []

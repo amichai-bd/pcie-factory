@@ -44,6 +44,7 @@ class Dimension:
     prefix: str
     rule: str
     labels: tuple[Label, ...]
+    derived: str | None = None  # e.g. "ip": labels come from discovery
 
 
 @dataclass(frozen=True)
@@ -141,7 +142,7 @@ def load(path: Path, ip_ids: list[str]) -> Standard:
                                   f"dimensions.{seen[name.lower()]}")
             seen[name.lower()] = dname
             labels.append(lab)
-        dims.append(Dimension(dname, prefix, rule, tuple(labels)))
+        dims.append(Dimension(dname, prefix, rule, tuple(labels), derived))
     for d in dims:  # an unprefixed label must not look like a prefixed one
         if d.prefix == "":
             for lab in d.labels:
@@ -207,7 +208,12 @@ class Gh:
         if proc.returncode != 0:
             msg = (proc.stderr.strip() or proc.stdout.strip()).splitlines()
             raise LabelsError(f"gh api {method} {path} failed: {msg[-1] if msg else 'no output'}")
-        return json.loads(proc.stdout) if proc.stdout.strip() else None
+        if not proc.stdout.strip():
+            return None
+        try:
+            return json.loads(proc.stdout)
+        except json.JSONDecodeError as exc:
+            raise LabelsError(f"gh api {method} {path}: output is not JSON: {exc}") from exc
 
     def _label_path(self, name: str) -> str:
         return f"repos/{self.repo}/labels/{quote(name, safe='')}"
@@ -273,8 +279,16 @@ def plan(standard: Standard, existing: list[Label], prune: bool) -> list[Change]
             diffs.append(f"description {cur.description!r} -> {lab.description!r}")
         if diffs:
             changes.append(Change("update", cur.name, lab, "; ".join(diffs)))
+    # A derived dimension with no labels (no IPs discovered, or a wrong or
+    # missing source root) must not prune: it would delete every label of it.
+    empty = [d for d in standard.dimensions if d.derived and not d.labels]
     for key in sorted(set(current) - wanted):
         cur = current[key]
+        guard = next((d for d in empty if cur.name.startswith(d.prefix)), None)
+        if prune and guard is not None:
+            raise LabelsError(f"refusing to prune {cur.name!r}: no {guard.derived} "
+                              f"was discovered, so no {guard.prefix}* label is derived "
+                              "(check --src-root; delete it by hand if intended)")
         if prune:
             changes.append(Change("delete", cur.name, None, "not in the config"))
         else:
