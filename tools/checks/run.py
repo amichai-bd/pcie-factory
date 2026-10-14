@@ -5,11 +5,11 @@ from __future__ import annotations
 import sys
 
 from build.ip import Context, discover, find_ip
-from checks import filelists, layout, lint, neutrality, publishability, style, wiki_mirror
+from checks import filelists, flows, layout, lint, neutrality, publishability, style, wiki_mirror
 from checks.common import CheckResult
 
 # Report order. Lint runs last: it is the slowest and needs Verilator.
-CHECKS = ("layout", "filelist", "style", "wiki", "neutrality", "publishability", "lint")
+CHECKS = ("layout", "filelist", "style", "wiki", "flows", "neutrality", "publishability", "lint")
 
 
 def run_checks(ctx: Context, ip_ids: list[str] | None, only: list[str] | None,
@@ -33,6 +33,8 @@ def run_checks(ctx: Context, ip_ids: list[str] | None, only: list[str] | None,
             r = style.run(ctx.src_root, ips, ids)
         elif name == "wiki":
             r = wiki_mirror.run(ctx.src_root, ips, ids)
+        elif name == "flows":
+            r = flows.run(ctx.src_root, ips, ids, ctx.repo_root, ctx.workdir)
         elif name == "neutrality":
             r = neutrality.run(ctx.repo_root)
         elif name == "publishability":
