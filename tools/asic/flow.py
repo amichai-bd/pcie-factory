@@ -17,6 +17,7 @@ import shutil
 import signal
 import subprocess
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,18 +35,26 @@ EXTRA_TCL = Path(__file__).resolve().parent / "extra_metrics.tcl"
 
 # Variables the tool generates; an IP's <platform>.mk must not set them.
 TOOL_OWNED = ("VERILOG_FILES", "VERILOG_INCLUDE_DIRS", "VERILOG_DEFINES",
-              "SDC_FILE", "PLATFORM", "DESIGN_NICKNAME", "WORK_HOME", "FLOW_VARIANT")
+              "SDC_FILE", "PLATFORM", "DESIGN_NICKNAME", "DESIGN_CONFIG", "WORK_HOME",
+              "FLOW_VARIANT", "NUM_CORES", "RESULTS_DIR", "LOG_DIR", "REPORTS_DIR",
+              "OBJECTS_DIR")
 RUNNERS = ("docker", "native")
 
 ENV_RUNNER = "ORFS_RUNNER"
-ENV_IMAGE = "ORFS_IMAGE"
 ENV_ROOT = "ORFS_ROOT"
 # ORFS checkout inside the official openroad/orfs images.
 IMAGE_ROOT = "/OpenROAD-flow-scripts"
-# Container memory cap (swap included), as on the host's verified invocation.
+# Container limits on the shared host: memory (swap included, as on the
+# host's verified invocation) and process count. CPUs come from cfg.
 DOCKER_MEMORY = "3g"
+DOCKER_PIDS = 4096
+DEFAULT_CORES = 2
+DIGEST = "@sha256:"
 
-_ASSIGN = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:\?|:|::|\+)?=\s*(.*?)\s*$")
+# "[override] [export] [override] NAME op value" and "[...] define NAME".
+_PREFIX = r"^\s*(?:override\s+)?(?:export\s+)?(?:override\s+)?"
+_ASSIGN = re.compile(_PREFIX + r"([A-Za-z_][A-Za-z0-9_]*)\s*(?:\?|:|::|:::|\+|!)?=\s*(.*?)\s*$")
+_DEFINE = re.compile(_PREFIX + r"define\s+([A-Za-z_][A-Za-z0-9_]*)")
 
 
 class AsicError(Exception):
@@ -61,6 +70,7 @@ class Orfs:
     image: str | None = None
     source: str = "cfg"        # where the setting came from, for the log
     commit: str | None = None  # recorded ORFS revision of that image or root
+    cores: int = DEFAULT_CORES  # NUM_CORES for ORFS and the container CPU cap
 
 
 def host_orfs(cfg_dir: Path) -> dict:
@@ -81,12 +91,14 @@ def host_orfs(cfg_dir: Path) -> dict:
 
 
 def load_orfs(cfg_dir: Path, env: dict) -> Orfs:
-    """ORFS settings: environment (ORFS_RUNNER, ORFS_IMAGE, ORFS_ROOT), then
-    the host's ``orfs_image``/``orfs_root`` in cfg/host.yaml. An image selects
-    the docker runner, a root the native runner; the environment wins."""
+    """ORFS settings from the host entry in cfg/host.yaml (``orfs_image``,
+    ``orfs_root``, ``orfs_commit``, ``orfs_cores``), with ``ORFS_ROOT`` and
+    ``ORFS_RUNNER`` overrides for a native checkout. The image comes only from
+    cfg and must be pinned by digest; an ``ORFS_IMAGE`` environment variable
+    is ignored."""
     path = cfg_dir / "host.yaml"
     host = host_orfs(cfg_dir)
-    image = env.get(ENV_IMAGE) or host.get("orfs_image") or None
+    image = host.get("orfs_image") or None
     native_root = env.get(ENV_ROOT) or host.get("orfs_root") or None
     runner = env.get(ENV_RUNNER)
     if runner is None:
@@ -97,32 +109,44 @@ def load_orfs(cfg_dir: Path, env: dict) -> Orfs:
         elif native_root:
             runner = "native"
     if runner not in RUNNERS:
-        raise AsicError(f"no ORFS configured: set ${ENV_IMAGE} or ${ENV_ROOT}, or a host's "
-                        f"orfs_image/orfs_root in {path}"
+        raise AsicError(f"no ORFS configured: set a host's orfs_image or orfs_root in {path}, "
+                        f"or ${ENV_ROOT}"
                         + (f" (${ENV_RUNNER}={runner!r} is not one of "
                            f"{', '.join(RUNNERS)})" if runner else ""))
     if runner == "docker":
         if not image:
-            raise AsicError(f"docker runner needs an image: set ${ENV_IMAGE} or orfs_image in {path}")
+            raise AsicError(f"docker runner needs orfs_image in {path}")
+        if DIGEST not in str(image):
+            raise AsicError(f"{path}: orfs_image {image!r} is not pinned by digest "
+                            f"(<name>:<tag>{DIGEST}<hex>)")
         root = IMAGE_ROOT
-        recorded = image == host.get("orfs_image")
+        recorded = True
     else:
         if not native_root:
             raise AsicError(f"native runner needs the ORFS root: set ${ENV_ROOT} or orfs_root in {path}")
         root = native_root
         recorded = root == host.get("orfs_root")
-    source = "env" if any(env.get(k) for k in (ENV_RUNNER, ENV_IMAGE, ENV_ROOT)) else "cfg"
+    cores = host.get("orfs_cores", DEFAULT_CORES)
+    if isinstance(cores, bool) or not isinstance(cores, int) or cores < 1:
+        raise AsicError(f"{path}: orfs_cores must be a positive integer, got {cores!r}")
+    source = "env" if any(env.get(k) for k in (ENV_RUNNER, ENV_ROOT)) else "cfg"
     commit = host.get("orfs_commit") if recorded else None
-    return Orfs(runner, str(root), image, source, str(commit) if commit else None)
+    return Orfs(runner, str(root), str(image) if image else None, source,
+                str(commit) if commit else None, cores)
 
 
 def read_design_mk(path: Path) -> dict[str, str]:
-    """Plain ``NAME = value`` assignments of a design .mk (line continuations
-    joined). Used to validate it, not to evaluate make."""
+    """Variables a design .mk assigns (``=``, ``:=``, ``?=``, ``+=``, ``!=``,
+    with ``export``/``override``) or defines (``define NAME``), with line
+    continuations joined. Used to validate it, not to evaluate make."""
     text = re.sub(r"\\\n", " ", path.read_text())
     out = {}
     for line in text.splitlines():
         if line.lstrip().startswith("#"):
+            continue
+        m = _DEFINE.match(line)
+        if m:
+            out[m.group(1)] = "<define>"
             continue
         m = _ASSIGN.match(line)
         if m:
@@ -155,6 +179,10 @@ class Plan:
     @property
     def metrics_json(self) -> Path:
         return self.out / "metrics.json"
+
+    @property
+    def worst_path_txt(self) -> Path:
+        return self.out / "worst_path.txt"
 
     @property
     def flow_log(self) -> Path:
@@ -245,7 +273,8 @@ def render_config_mk(plan: Plan) -> str:
 def make_args(orfs: Orfs, plan: Plan, *targets: str) -> str:
     """``make`` invocation for ORFS, as a shell-quoted string."""
     argv = ["make", "-C", f"{orfs.root}/flow", f"DESIGN_CONFIG={plan.config_mk}",
-            f"WORK_HOME={plan.work_home}", f"FLOW_VARIANT={VARIANT}", *targets]
+            f"WORK_HOME={plan.work_home}", f"FLOW_VARIANT={VARIANT}",
+            f"NUM_CORES={orfs.cores}", *targets]
     return shlex.join(argv)
 
 
@@ -280,6 +309,8 @@ def wrap(orfs: Orfs, plan: Plan, ctx: Context, script: str, name: str) -> list[s
     for path, mode in docker_mounts(ctx):
         mounts += ["-v", f"{path}:{path}:{mode}"]
     return ["docker", "run", "--rm", "--name", name,
+            "--network=none", "--cap-drop=ALL", "--security-opt=no-new-privileges",
+            f"--pids-limit={DOCKER_PIDS}", f"--cpus={orfs.cores}",
             f"--memory={DOCKER_MEMORY}", f"--memory-swap={DOCKER_MEMORY}",
             "--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp",
             *mounts, "-w", str(plan.out), orfs.image, "bash", "-c", script]
@@ -296,7 +327,16 @@ def docker_mounts(ctx: Context) -> list[tuple[Path, str]]:
 
 
 def container_name(plan: Plan) -> str:
-    return f"asic-{plan.nick}-{os.getpid()}"
+    """Unique per run (several runners share the host); steps append a suffix."""
+    return f"asic-{plan.nick.replace('_', '-')}-{uuid.uuid4().hex[:12]}"
+
+
+class Terminated(KeyboardInterrupt):
+    """SIGTERM (e.g. a cancelled CI job); handled like Ctrl-C."""
+
+
+def _on_sigterm(signum, frame):
+    raise Terminated()
 
 
 def write_inputs(plan: Plan, clean: bool) -> None:
@@ -307,8 +347,10 @@ def write_inputs(plan: Plan, clean: bool) -> None:
 
 
 def _kill(proc: subprocess.Popen, orfs: Orfs, name: str) -> None:
+    """Stop a step: remove its container (dockerd owns it, so killing the
+    client is not enough), then kill the step's process group."""
     if orfs.runner == "docker":
-        subprocess.run(["docker", "kill", name], capture_output=True)
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
     try:
         os.killpg(proc.pid, signal.SIGKILL)
     except ProcessLookupError:
@@ -354,6 +396,14 @@ def run(ctx: Context, plan: Plan, orfs: Orfs, timeout_s: float) -> tuple[int, di
     """Run every step under one wall-clock budget, then write metrics.json."""
     write_inputs(plan, clean=True)
     name = container_name(plan)
+    previous = signal.signal(signal.SIGTERM, _on_sigterm)
+    try:
+        return _run(ctx, plan, orfs, timeout_s, name)
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
+def _run(ctx: Context, plan: Plan, orfs: Orfs, timeout_s: float, name: str) -> tuple[int, dict]:
     deadline = time.monotonic() + timeout_s
     started = time.monotonic()
     status = "pass"
@@ -374,7 +424,9 @@ def run(ctx: Context, plan: Plan, orfs: Orfs, timeout_s: float) -> tuple[int, di
             if result != "pass":
                 status = f"{step}: {result if result != 'timeout' else f'timeout after {timeout_s:g}s'}"
                 break
-    summary = asic_metrics.collect(plan.work_home, plan.platform, plan.nick, VARIANT)
+    summary, worst_text = asic_metrics.collect(plan.work_home, plan.platform, plan.nick,
+                                               VARIANT)
+    plan.worst_path_txt.write_text(worst_text)
     absent = asic_metrics.missing(summary)
     if status == "pass" and absent:
         status = f"incomplete: missing {', '.join(absent)}"

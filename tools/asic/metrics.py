@@ -116,7 +116,49 @@ def parse_worst_path(text: str) -> dict | None:
     if "from" not in path or "to" not in path:
         return None
     path["cells"] = _data_path_cells(section, path["from"], path["to"])
+    path["points"] = _data_path_points(section, path["from"])
     return path
+
+
+# A timed path line: "... <time> ^|v <pin> (<cell>|in|out)".
+_POINT_LINE = re.compile(r"(?P<time>-?[0-9.]+)\s+(?P<edge>[\^v])\s+(?P<pin>\S+)"
+                         r"(?: \((?P<cell>[^)\s]+)\))?\s*$")
+
+
+def _data_path_points(lines: list[str], frm: str) -> list[dict]:
+    """Timed points of the data path, from the startpoint to the endpoint pin
+    (clock-network lines before the startpoint skipped)."""
+    points: list[dict] = []
+    for line in lines:
+        if "data arrival time" in line:
+            break
+        m = _POINT_LINE.search(line)
+        if not m:
+            continue
+        pin = m.group("pin")
+        if not points and pin != frm and not pin.startswith(frm + "/"):
+            continue
+        points.append({"arrival_ns": float(m.group("time")), "edge": m.group("edge"),
+                       "pin": pin, "cell": m.group("cell")})
+    return points
+
+
+def format_worst_path(path: dict | None) -> str:
+    """A short, tool-neutral text summary of the worst setup path."""
+    if not path:
+        return "worst setup path: not found\n"
+    lines = [
+        f"worst setup path ({path.get('group')}): slack {path.get('slack_ns')} ns, "
+        f"{path.get('cells')} cells",
+        f"from: {path['from']} ({path.get('from_kind')})",
+        f"to:   {path['to']} ({path.get('to_kind')})",
+        "",
+        f"{'arrival_ns':>10}  edge  {'pin':<40} cell",
+    ]
+    for pt in path.get("points", []):
+        lines.append(f"{pt['arrival_ns']:>10.2f}  {'rise' if pt['edge'] == '^' else 'fall':<4}  "
+                     f"{pt['pin']:<40} {pt['cell'] or ''}")
+    return "\n".join(lines) + "\n"
 
 
 def _data_path_cells(lines: list[str], frm: str, to: str) -> int | None:
@@ -183,7 +225,8 @@ def summarize(step: dict, synth: dict, worst: dict | None, extra: dict) -> dict:
         "max_fanout": {"value": extra.get("max_fanout"), "net": extra.get("max_fanout_net")},
         "logic_depth": {"value": extra.get("logic_depth"),
                         "endpoint": extra.get("logic_depth_endpoint")},
-        "worst_path": worst or {"from": None, "to": None},
+        "worst_path": ({k: v for k, v in worst.items() if k != "points"} if worst
+                       else {"from": None, "to": None}),
         "power_w": latest(step, "power__total"),
         "route_drc_errors": step.get("detailedroute__route__drc_errors"),
     }
@@ -208,8 +251,10 @@ def _read(path: Path) -> str | None:
         return None
 
 
-def collect(work_home: Path, platform: str, nick: str, variant: str = "base") -> dict:
-    """Read every input from an ORFS work home and summarize it."""
+def collect(work_home: Path, platform: str, nick: str,
+            variant: str = "base") -> tuple[dict, str]:
+    """Read every input from an ORFS work home: the summary and the
+    worst-path text."""
     logs = work_home / "logs" / platform / nick / variant
     reports = work_home / "reports" / platform / nick / variant
     step = merge_step_json([t for p in sorted(logs.glob("*.json"))
@@ -217,4 +262,4 @@ def collect(work_home: Path, platform: str, nick: str, variant: str = "base") ->
     synth = parse_synth_stat(_read(reports / "synth_stat.txt") or "")
     worst = parse_worst_path(_read(reports / "6_finish.rpt") or "")
     extra = parse_extra(_read(reports / "asic_extra.json") or "")
-    return summarize(step, synth, worst, extra)
+    return summarize(step, synth, worst, extra), format_worst_path(worst)

@@ -49,7 +49,7 @@ def plan_for(ctx, ip_id="counter"):
 
 
 def native_env(monkeypatch, mode="ok"):
-    for key in (flow.ENV_RUNNER, flow.ENV_IMAGE):
+    for key in (flow.ENV_RUNNER,):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv(flow.ENV_ROOT, str(FAKE_ORFS))
     monkeypatch.setenv("FAKE_MAKE", mode)
@@ -92,6 +92,11 @@ def test_sub_ip_nickname(asic_src, tmp_path):
     ("export VERILOG_FILES = a.sv\n", "VERILOG_FILES"),
     ("export SDC_FILE = x.sdc\n", "SDC_FILE"),
     ("PLATFORM ?= sky130hd\n", "PLATFORM"),
+    ("override export VERILOG_DEFINES += -DX\n", "VERILOG_DEFINES"),
+    ("define SDC_FILE\nx.sdc\nendef\n", "SDC_FILE"),
+    ("export RESULTS_DIR = /tmp\n", "RESULTS_DIR"),
+    ("DESIGN_CONFIG := x\n", "DESIGN_CONFIG"),
+    ("NUM_CORES = 64\n", "NUM_CORES"),
 ])
 def test_mk_must_not_set_tool_owned(ctx, bad, message):
     (ctx.src_root / "counter" / "asic" / "sky130hd.mk").write_text(MK + bad)
@@ -159,14 +164,15 @@ def test_orfs_env_root_selects_native(tmp_path):
     assert (orfs.runner, orfs.root, orfs.source, orfs.commit) == ("native", "/x", "env", None)
 
 
-def test_orfs_env_image_overrides_and_drops_commit(tmp_path):
-    orfs = flow.load_orfs(write_cfg(tmp_path, DOCKER_CFG), {flow.ENV_IMAGE: "other:1"})
-    assert (orfs.runner, orfs.image, orfs.commit) == ("docker", "other:1", None)
+def test_orfs_env_image_is_ignored(tmp_path):
+    orfs = flow.load_orfs(write_cfg(tmp_path, DOCKER_CFG), {"ORFS_IMAGE": "other:1"})
+    assert (orfs.image, orfs.commit, orfs.source) == ("img:tag@sha256:abc", "c0ffee", "cfg")
 
 
-def test_orfs_env_same_image_keeps_commit(tmp_path):
-    orfs = flow.load_orfs(write_cfg(tmp_path, DOCKER_CFG), {flow.ENV_IMAGE: "img:tag@sha256:abc"})
-    assert (orfs.source, orfs.commit) == ("env", "c0ffee")
+def test_orfs_cores(tmp_path):
+    assert flow.load_orfs(write_cfg(tmp_path, DOCKER_CFG), {}).cores == flow.DEFAULT_CORES
+    body = DOCKER_CFG + "    orfs_cores: 6\n"
+    assert flow.load_orfs(write_cfg(tmp_path, body), {}).cores == 6
 
 
 def test_orfs_cfg_native_root(tmp_path):
@@ -177,7 +183,9 @@ def test_orfs_cfg_native_root(tmp_path):
 @pytest.mark.parametrize("body, env, message", [
     ("hosts:\n  h:\n    python: x\n", {}, "no ORFS configured"),
     ("other: 1\n", {flow.ENV_RUNNER: "podman"}, "is not one of"),
-    ("other: 1\n", {flow.ENV_RUNNER: "docker"}, "needs an image"),
+    ("other: 1\n", {flow.ENV_RUNNER: "docker"}, "needs orfs_image"),
+    ("hosts:\n  h:\n    orfs_image: img:tag\n", {}, "not pinned by digest"),
+    ("hosts:\n  h:\n    orfs_image: i@sha256:a\n    orfs_cores: 0\n", {}, "orfs_cores"),
     ("other: 1\n", {flow.ENV_RUNNER: "native"}, "needs the ORFS root"),
     ("hosts: [1, 2]\n", {}, "must be a mapping"),
     ("hosts:\n  a:\n    orfs_image: x\n  b:\n    orfs_root: /y\n", {}, "more than one host"),
@@ -200,7 +208,10 @@ def test_docker_wrap_mounts_and_image(ctx, tmp_path):
     orfs = flow.load_orfs(write_cfg(tmp_path, DOCKER_CFG), {})
     argv = flow.wrap(orfs, plan, ctx, "true", "n")
     assert argv[:2] == ["docker", "run"] and "img:tag@sha256:abc" in argv
-    assert f"--memory={flow.DOCKER_MEMORY}" in argv
+    for flag in ("--network=none", "--cap-drop=ALL", "--security-opt=no-new-privileges",
+                 f"--pids-limit={flow.DOCKER_PIDS}", f"--cpus={flow.DEFAULT_CORES}",
+                 f"--memory={flow.DOCKER_MEMORY}"):
+        assert flag in argv
     mounts = [argv[i + 1] for i, a in enumerate(argv) if a == "-v"]
     assert f"{ctx.workdir}:{ctx.workdir}:rw" in mounts
     assert f"{ctx.repo_root}:{ctx.repo_root}:ro" in mounts
@@ -215,6 +226,7 @@ def test_steps_run_finish_then_extra(ctx, tmp_path):
     assert list(steps) == ["versions", "flow", "extra"]
     assert f"make -C {flow.IMAGE_ROOT}/flow" in steps["flow"] and steps["flow"].endswith(" finish")
     assert f"DESIGN_CONFIG={plan.config_mk}" in steps["flow"]
+    assert f"NUM_CORES={flow.DEFAULT_CORES}" in steps["flow"]
     assert f"RUN_SCRIPT={flow.EXTRA_TCL}" in steps["extra"]
     assert steps["extra"].endswith(" run")
 
@@ -261,6 +273,8 @@ def test_run_writes_metrics(asic_src, tmp_path, capsys, monkeypatch):
     assert doc["max_fanout"]["value"] == 25 and doc["logic_depth"]["value"] == 4
     assert doc["toolchain"]["runner"] == "native"
     assert doc["toolchain"]["openroad"] == "26Q4-142-gd4b96380b"
+    assert (work / "counter" / "asic" / "worst_path.txt").read_text().startswith(
+        "worst setup path (clk)")
     log = (work / "counter" / "asic" / "flow.log").read_text()
     assert "fake make" in log and "### step extra" in log
     assert "[asic] pass: WNS 0.0 ns" in capsys.readouterr().out
@@ -295,3 +309,23 @@ def test_run_missing_metric_is_exit_1(ctx, monkeypatch):
 
 def test_fake_orfs_is_executable():
     assert shutil.which("make", path=str(FAKE_ORFS / "bin")) is not None
+
+
+def test_container_names_are_unique(ctx):
+    plan = plan_for(ctx)
+    a, b = flow.container_name(plan), flow.container_name(plan)
+    assert a != b and a.startswith("asic-counter-")
+
+
+def test_sigterm_kills_step_and_restores_handler(ctx, monkeypatch):
+    import os
+    import signal
+    import threading
+    native_env(monkeypatch, "sleep")
+    plan = plan_for(ctx)
+    orfs = flow.load_orfs(ctx.cfg_dir, dict(os.environ))
+    before = signal.getsignal(signal.SIGTERM)
+    threading.Timer(1.0, os.kill, (os.getpid(), signal.SIGTERM)).start()
+    with pytest.raises(KeyboardInterrupt):
+        flow.run(ctx, plan, orfs, timeout_s=60)
+    assert signal.getsignal(signal.SIGTERM) is before

@@ -154,7 +154,8 @@ so a sub-IP nests under its parent):
 | `workdir/<ip>/<test>/<seed>/` | `results.xml`, `sim.log` (the full simulator output), and waves (`dump.vcd`) with `--waves`. This directory is cleared before each run. |
 
 Because a test directory and a sub-IP directory share `workdir/<ip>/`, a
-test may not be named `build` or after a sub-IP directory.
+test may not be named `build`, `asic` (the [asic tool's](../asic/SPEC.md#output)
+output) or after a sub-IP directory.
 
 A test's status comes from `results.xml`:
 

@@ -12,7 +12,7 @@
 | Flow | OpenROAD-flow-scripts (ORFS): synthesis, floorplan, place, CTS, route |
 | Platform | `sky130hd` |
 | Host | The Omarchy CI host, through the pinned `openroad/orfs` Docker image recorded in `cfg/host.yaml` (`hosts.omarchy.orfs_image`) |
-| When | Nightly L2, the `asic` workflow (on demand, and on pull requests that touch RTL or ASIC inputs), or `./build asic --ip <id>` on the host |
+| When | Nightly L2 or on demand only: the `asic` workflow (`workflow_dispatch`, which nightly calls) or `./build asic --ip <id>` on the host; never in `ci-gate` or on pull requests |
 
 The flow is an estimation and quality signal for the RTL, not a tape-out. It
 never runs in `ci-gate`. Its unit tests (config generation, report parsing)
@@ -25,7 +25,7 @@ resolver, plus only what is in `src/<ip>/asic/`:
 
 | File | Holds |
 | --- | --- |
-| `<top>.sdc` | Exactly one SDC, named after the top module: clock period and uncertainty, input and output delays, each exception with a reason |
+| `<prefix><ip>.sdc` (exactly one `.sdc`) | Clock period and uncertainty, input and output delays, each exception with a reason |
 | `sky130hd.mk` | ORFS design config: `DESIGN_NAME` (the IP top), platform, utilization or die/core area, placement density and other knobs; never a source list |
 
 - `asic/` exists only for an IP that is a synthesis target; a sub-IP gets one
@@ -47,8 +47,8 @@ resolver, plus only what is in `src/<ip>/asic/`:
 ORFS logs, reports, results (netlists, DEF, ODB, GDS) and `metrics.json` go
 under `workdir/<ip>/asic/` only and are never committed. Each run starts from
 a clean work directory so stale results never mask a failure. The `asic`
-workflow uploads `metrics.json`, `flow.log`, the reports and step logs as
-its `asic-metrics` artifact.
+workflow publishes only `metrics.json` and the tool's `worst_path.txt`
+summary as its `asic-metrics` artifact, never raw ORFS reports or logs.
 
 ## Acceptance ladder
 
@@ -83,7 +83,7 @@ Nightly collects these per IP into the tracker
 
 ## Review checklist
 
-- Inputs limited to `<ip>.rtl.f`, one `<top>.sdc` and `sky130hd.mk`.
+- Inputs limited to `<ip>.rtl.f`, one `<prefix><ip>.sdc` and `sky130hd.mk`.
 - SDC clock matches the HAS; every exception has a reason.
 - Metrics reported with the toolchain versions; WNS gap explained.
 - No generated output committed.

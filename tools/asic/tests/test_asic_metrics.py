@@ -47,6 +47,13 @@ def test_synth_stat_old_format():
 
 def test_worst_path():
     path = metrics.parse_worst_path(text("reports/6_finish.rpt"))
+    points = path.pop("points")
+    # Port, then input/output pin pairs of each cell, then the endpoint D pin.
+    assert [p["pin"] for p in points] == [
+        "valid_i", "input11/A", "input11/X", "_092_/A", "_092_/Y", "_102_/A", "_102_/Y",
+        "_105_/A2", "_105_/Y", "u_inc.state_q[10]$_SDFFE_PP1P_/D"]
+    assert points[0] == {"arrival_ns": 2.0, "edge": "^", "pin": "valid_i", "cell": "in"}
+    assert points[-1]["arrival_ns"] == 3.89
     assert path == {
         "from": "valid_i",
         "from_kind": "input port clocked by clk",
@@ -82,6 +89,11 @@ Path Type: max
 def test_worst_path_reg_to_reg_violated():
     path = metrics.parse_worst_path(REG_TO_REG)
     assert (path["from"], path["to"], path["cells"]) == ("a_q$_DFF_P_", "b_q$_DFF_P_", 1)
+    # Clock-network lines before the startpoint are not data-path points.
+    assert [p["pin"] for p in path["points"]] == [
+        "a_q$_DFF_P_/CLK", "a_q$_DFF_P_/Q", "_1_/A", "_1_/Y", "b_q$_DFF_P_/D"]
+    text_out = metrics.format_worst_path(path)
+    assert "slack -0.12 ns, 1 cells" in text_out and "fall  _1_/Y" in text_out
     assert path["slack_ns"] == -0.12
 
 
@@ -124,13 +136,16 @@ def test_collect_from_work_home(tmp_path):
     shutil.copytree(ORFS / "logs", logs)
     shutil.copytree(ORFS / "reports", reports)
     (logs / "broken.json").write_text("{")
-    summary = metrics.collect(tmp_path, "sky130hd", "n")
+    summary, worst = metrics.collect(tmp_path, "sky130hd", "n")
     assert summary["cells"] == 167 and metrics.missing(summary) == []
+    assert "points" not in summary["worst_path"]
+    assert worst.startswith("worst setup path (clk): slack 6.01 ns, 4 cells\n")
 
 
 def test_collect_empty_work_home(tmp_path):
-    summary = metrics.collect(tmp_path, "sky130hd", "n")
+    summary, worst = metrics.collect(tmp_path, "sky130hd", "n")
     assert set(metrics.missing(summary)) == set(metrics.REQUIRED)
+    assert worst == "worst setup path: not found\n"
 
 
 @pytest.mark.parametrize("bad", ["", "{", "[1]"])

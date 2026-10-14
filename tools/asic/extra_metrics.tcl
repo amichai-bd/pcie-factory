@@ -6,7 +6,8 @@
 # Max fanout: the largest number of input pins (plus output ports) on one
 #   data net. Nets that reach a register clock pin are excluded.
 # Logic depth: the largest number of cells on any path that ends at a
-#   register data pin or an output port and starts at a register or an
+#   register input pin other than its clock (data, enable, set or reset) or
+#   an output port, and starts at a register or an
 #   input port (both endpoints excluded, buffers and inverters included).
 
 source $::env(SCRIPTS_DIR)/load.tcl

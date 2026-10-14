@@ -32,5 +32,6 @@ hosts:
     python:
     quartus_root:
     orfs_root:
-    orfs_image: "openroad/orfs:26Q4-142-gd4b96380b@sha256:f00e7890ebca6af80a973c2e7a5ccf7ff992c1a65903ac8bee39dfd4a458c811"   # also exported as ORFS_IMAGE on the runners
+    orfs_image: "openroad/orfs:26Q4-142-gd4b96380b@sha256:f00e7890ebca6af80a973c2e7a5ccf7ff992c1a65903ac8bee39dfd4a458c811"   # ./build asic pin; the runners also export it as ORFS_IMAGE
     orfs_commit: d4b96380b10e          # ORFS revision in that image
+    orfs_cores: 4                     # NUM_CORES and docker --cpus for ./build asic

@@ -31,11 +31,13 @@ is still written); `2` a usage or configuration error.
 | `src/<ip>/asic/*.sdc` | Exactly one SDC; becomes `SDC_FILE`. Its first `create_clock -period` is reported as `clock_period_ns`. |
 | `cfg/host.yaml` `hosts.<name>.orfs_*` | How to reach ORFS (below). |
 
-The tool owns `PLATFORM`, `DESIGN_NICKNAME`, `SDC_FILE`, `VERILOG_FILES`,
-`VERILOG_INCLUDE_DIRS`, `VERILOG_DEFINES`, `WORK_HOME` and `FLOW_VARIANT`; a
-`.mk` that assigns any of them is a configuration error. The check reads
-plain `NAME = value` assignments (`=`, `:=`, `?=`, `+=`, with or without
-`export`); it does not evaluate make.
+The tool owns `PLATFORM`, `DESIGN_NICKNAME`, `DESIGN_CONFIG`, `SDC_FILE`,
+`VERILOG_FILES`, `VERILOG_INCLUDE_DIRS`, `VERILOG_DEFINES`, `WORK_HOME`,
+`FLOW_VARIANT`, `NUM_CORES`, `RESULTS_DIR`, `LOG_DIR`, `REPORTS_DIR` and
+`OBJECTS_DIR`; a `.mk` that sets any of them is a configuration error. The
+check reads assignments (`=`, `:=`, `::=`, `:::=`, `?=`, `+=`, `!=`, with
+`export` and/or `override`) and `define NAME` blocks, with line continuations
+joined; it does not evaluate make.
 
 **SystemVerilog frontend.** Yosys's built-in reader handles only part of
 SystemVerilog (package imports in a module header, typed parameters). An IP
@@ -47,19 +49,25 @@ pinned image's Yosys). The tool passes the knob through unchanged.
 
 | Runner | Runs | Selected by |
 | --- | --- | --- |
-| `docker` | `docker run --rm --memory=3g --memory-swap=3g` of the image, as the calling user (`--user uid:gid`, `HOME=/tmp`), with ORFS at `/OpenROAD-flow-scripts` inside it. The repository and an outside source root are mounted read-only and the workdir read-write, each at its own path, so generated absolute paths work unchanged. | `ORFS_IMAGE`, else the host's `orfs_image` |
+| `docker` | `docker run --rm` of the image with ORFS at `/OpenROAD-flow-scripts`, as the calling user (`--user uid:gid`, `HOME=/tmp`), hardened for a shared host: `--network=none`, `--cap-drop=ALL`, `--security-opt=no-new-privileges`, `--pids-limit=4096`, `--cpus=<cores>`, `--memory=3g --memory-swap=3g`. The repository and an outside source root are mounted read-only and the workdir read-write, each at its own path, so generated absolute paths work unchanged. | The host's `orfs_image` |
 | `native` | `bash -c` on the host, after `source <root>/env.sh` when it exists. | `ORFS_ROOT`, else the host's `orfs_root` |
 
-Selection, first match wins: `ORFS_RUNNER` (`docker`|`native`) if set;
-`ORFS_ROOT` set means native; an image (environment or cfg) means docker; a
-cfg root means native. With none of them the command exits 2. The host
-values come from the one `hosts.<name>` entry in
+Host values come from the one `hosts.<name>` entry in
 [`cfg/host.yaml`](../../../cfg/host.yaml) that records `orfs_image` or
-`orfs_root` (more than one is an error). Its `orfs_commit` is reported as
-`toolchain.orfs_pin` only when the image or root that runs is the recorded
-one. The Omarchy host has only the pinned image (also exported to its
-runners as `ORFS_IMAGE`); native mode is kept because it costs one `bash -c`
-and is what the unit tests drive with a fake ORFS.
+`orfs_root` (more than one is an error):
+
+| Key | Meaning |
+| --- | --- |
+| `orfs_image` | Docker image, required to carry `@sha256:<digest>`; a tag-only image exits 2. The image comes only from cfg: an `ORFS_IMAGE` environment variable is ignored. |
+| `orfs_root` | Native ORFS checkout, if the host has one. |
+| `orfs_commit` | ORFS revision of that image or root, reported as `toolchain.orfs_pin` (dropped when `ORFS_ROOT` points elsewhere). |
+| `orfs_cores` | Positive integer, default 2: passed as `NUM_CORES` to ORFS and as `--cpus` to docker. |
+
+Selection, first match wins: `ORFS_RUNNER` (`docker`|`native`) if set;
+`ORFS_ROOT` set means native; a cfg image means docker; a cfg root means
+native. With none of them the command exits 2. The Omarchy host has only the
+pinned image; native mode is kept because it costs one `bash -c` and is what
+the unit tests drive with a fake ORFS.
 
 ## Behavior
 
@@ -73,14 +81,18 @@ and is what the unit tests drive with a fake ORFS.
    | Step | Command | Purpose |
    | --- | --- | --- |
    | `versions` | `openroad -version`, `yosys -V`, `git describe` of the ORFS root | Toolchain record |
-   | `flow` | `make -C <root>/flow DESIGN_CONFIG=… WORK_HOME=… FLOW_VARIANT=base finish` | Synthesis to final report |
+   | `flow` | `make -C <root>/flow DESIGN_CONFIG=… WORK_HOME=… FLOW_VARIANT=base NUM_CORES=<cores> finish` | Synthesis to final report |
    | `extra` | the same `make … RUN_SCRIPT=tools/asic/extra_metrics.tcl run` | Max fanout and logic depth on `6_final.odb` |
 
-4. Each step runs in its own process group. When the shared `--timeout`
-   budget runs out, the group is killed (and, for docker, the named
-   container `asic-<nick>-<pid>-<step>` is killed) and the status is
-   `<step>: timeout after <S>s`. Ctrl-C kills the same way.
-5. Parse the reports and write `metrics.json`, also on failure.
+4. Each step runs in its own process group. Docker containers are named
+   `asic-<nick>-<12 random hex>-<step>`, unique per run because several
+   runners share the host. When the shared `--timeout` budget runs out, the
+   container is removed (`docker rm -f`; dockerd owns it, so killing the
+   client is not enough), the group is killed and the status is
+   `<step>: timeout after <S>s`. Ctrl-C or SIGTERM (a cancelled CI job)
+   cleans up the same way and exits 130.
+5. Parse the reports and write `metrics.json` and `worst_path.txt`, also on
+   failure.
 
 ## Output
 
@@ -90,6 +102,7 @@ and is what the unit tests drive with a fake ORFS.
 | `workdir/<ip>/asic/flow.log` | Every step's command line and output. |
 | `workdir/<ip>/asic/run/` | ORFS `WORK_HOME`: `logs/`, `reports/`, `results/`, `objects/` under `<platform>/<nick>/base/`. `<nick>` is the IP id with `/` replaced by `_`. |
 | `workdir/<ip>/asic/metrics.json` | The summary below. |
+| `workdir/<ip>/asic/worst_path.txt` | The worst setup path in the tool's own format: group, slack, cell count, start and end point, then one line per data-path pin (arrival ns, rise/fall, pin, cell), from the startpoint to the endpoint pin. `worst setup path: not found` without a report. |
 
 ### `metrics.json` (schema 1)
 
@@ -103,7 +116,7 @@ and is what the unit tests drive with a fake ORFS.
 | `cells`, `synth_cells` | `*__design__instance__count__stdcell` after route (tap cells, clock and timing-repair buffers included, fill cells excluded); Yosys count after synthesis (`synth__…` JSON, else `synth_stat.txt`). |
 | `utilization` | `*__design__instance__utilization`, a fraction of the core area. |
 | `max_fanout.value`, `.net` | `extra_metrics.tcl` on `6_final.odb`: largest count of input pins plus output ports on one signal net; power, ground and clock nets (odb `CLOCK` type or reaching a register clock pin) excluded. |
-| `logic_depth.value`, `.endpoint` | `extra_metrics.tcl`: most cells on any path from a register or input port to a register data pin or output port (endpoints excluded; buffers and inverters count), walked backwards over the odb netlist with memoization; a combinational loop is cut. Registers come from OpenSTA `all_registers`. Names are reported with odb's `\[ \]` escapes removed. |
+| `logic_depth.value`, `.endpoint` | `extra_metrics.tcl`: most cells on any path from a register or input port to a register input pin other than its clock (data, enable, set or reset) or an output port (endpoints excluded; buffers and inverters count), walked backwards over the odb netlist with memoization; a combinational loop is cut. Registers come from OpenSTA `all_registers`. Names are reported with odb's `\[ \]` escapes removed. |
 | `worst_path.from`, `.to`, `.group`, `.slack_ns`, `.cells` | First `report_checks -path_delay max` section of `6_finish.rpt`; `cells` counts instances strictly between start and end point on the data path. |
 | `power_w`, `route_drc_errors` | `*__power__total`, `detailedroute__route__drc_errors`. |
 | `toolchain` | Runner, image, root, `orfs_pin` (the host's `orfs_commit`, see above) and the `versions` step output (`openroad`, `yosys`, `orfs`; the pinned image's OpenROAD and ORFS report `unknown`, so the image digest and `orfs_pin` identify them). |
@@ -119,15 +132,17 @@ liberty time is ns, area µm².
 
 ## Workflow
 
-`asic.yml` runs on `[self-hosted, linux, x64]` (the host with ORFS) on
-`workflow_dispatch` (input `ip`, default the first synthesis target) and on
-pull requests touching `tools/asic/**`, `src/**/asic/**`, `src/**/rtl/**`
-or the workflow. It prints an ORFS discovery report (docker images, native
-tools, candidate roots), runs `./build asic --ip <ip>` and uploads
-`metrics.json`, `flow.log`, the ORFS reports and the step logs as the
-`asic-metrics` artifact. Pull requests from forks are skipped (the job's
-`if:` requires the head repository to be this one), so fork code never runs
-on the self-hosted host. It is not part of `ci-gate`.
+`asic.yml` runs only on `workflow_dispatch` (nightly L2 dispatches it; never
+in `ci-gate`), on `[self-hosted, linux, x64]`, the host with ORFS. Input
+`ip`: one IP id; empty (the default) runs every IP that has an `asic/`
+directory under `src/`, found with `find`, one `./build asic --ip <id>` each
+(the job fails if any fails). A discovery step prints only `ORFS_IMAGE`, the
+docker version, the local ORFS images (name, tag, digest) and where
+`openroad`, `yosys` and `klayout` are on `PATH`. The `asic-metrics` artifact
+(14-day retention) holds only `metrics.json` and `worst_path.txt` per IP,
+never raw ORFS reports or logs. The job keeps the fork guard (`if:` requires
+a non-`pull_request` event or a head repository equal to this one), so fork
+code never runs on the self-hosted host if a trigger is added later.
 
 ## Tests
 
@@ -135,8 +150,8 @@ on the self-hosted host. It is not part of `ci-gate`.
 
 | Test file | Proves |
 | --- | --- |
-| `test_asic_flow.py` | `config.mk` generation (filelist order, include dirs, defines, sub-IP nickname, determinism); `.mk` validation; SDC count; ORFS settings and overrides; docker mounts; step commands; `--dry-run`; and a full run against `fixtures/fake_orfs` (a fake `env.sh`, `make`, `openroad`, `yosys`): pass, step failure, timeout and missing metrics, each with the expected exit code and `status`. |
-| `test_asic_metrics.py` | Each parser on the fixture reports in `fixtures/orfs/` and on malformed or empty input. |
+| `test_asic_flow.py` | `config.mk` generation (filelist order, include dirs, defines, sub-IP nickname, determinism); `.mk` validation (including `override`, `define` and the ORFS directory variables); SDC count; ORFS settings (digest required, `ORFS_IMAGE` ignored, cores, overrides); docker hardening flags and mounts; unique container names; step commands; `--dry-run`; and a full run against `fixtures/fake_orfs` (a fake `env.sh`, `make`, `openroad`, `yosys`): pass, step failure, timeout, SIGTERM and missing metrics, each with the expected exit code and `status`. |
+| `test_asic_metrics.py` | Each parser and the worst-path summary on the fixture reports in `fixtures/orfs/` and on malformed or empty input. |
 
 `fixtures/orfs/` holds report files cut from a real run of the pinned image
 on the first synthesis target (see its `README.md`); the fake `make` copies
