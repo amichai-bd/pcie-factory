@@ -4,7 +4,8 @@
 `commits.jsonl` (one line per commit on main) and the nightly `<date>.json`
 records, and returns Markdown (headings plus raw HTML blocks) appended to
 that landing page, plus one generated page per IP. Every trend shares one
-x axis: main commits in order, labelled by short SHA. Charts are `<canvas>`
+x axis, main commits in order labelled by the first 7 hex digits of the SHA,
+and the trends of a page share one x range. Charts are `<canvas>`
 placeholders whose data travels in one inline JSON block per page;
 `assets/tracker.js` draws them with the vendored Chart.js. Every chart has a
 data table, so the page reads without JavaScript. Records are keyed on
@@ -32,6 +33,7 @@ IP_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*(/[A-Za-z0-9][A-Za-z0-9_.-]*)*$"
 SLOTS = 8  # categorical colour slots (--series-1..8 in wiki.css); never cycled
 TABLE_ROWS = 30  # most recent points in each trend's data table
 LIST_ROWS = 20  # rows in open-PR / open-issue / slowest-test tables
+BLANK_LINE = re.compile(r"\n[ \t]*\n")  # ends a Markdown HTML block (line endings normalised to \n first)
 STALE_DAYS = 7  # an open issue with no activity for longer is stale
 CI_WINDOW = 20  # ci-gate pass rate window, in runs on main
 
@@ -259,7 +261,7 @@ def ci_duration(r):           return first(r, "ci.duration_s")
 def nightly_sha(r):           return text(r, "meta.commit", "sha", "commit")
 def nightly_date(r):          return dig(r, "meta.date") or r.get("date")
 def nightly_result(r):        return text(r, "meta.nightly.result", "nightly.result")
-def nightly_duration(r):      return first(r, "meta.nightly.duration_s", "nightly.duration_s", "tests.wall_s")
+def nightly_duration(r):      return first(r, "meta.nightly.duration_s")
 def test_levels(r):           return mapping(r, "tests.totals", "tests.levels")
 def test_ip_levels(r, ip):
     m = mapping(r, "tests.ips", "tests.by_ip").get(ip)
@@ -448,16 +450,25 @@ def bins(values: list[float], integer: bool) -> tuple[list[str], list[int]]:
 class Page:
     """Accumulates one page's Markdown and chart data."""
 
-    def __init__(self, axis: list[tuple[str, str]]):
+    def __init__(self, axis: list[tuple[str, str]], where: str = "index.md"):
         self.axis = axis
+        self.where = f"wiki/tracker/{where}"
         self.charts: dict = {}
         self.parts: list[str] = []
+        self.problems: list[str] = []
 
     def md(self, s: str) -> None:
         self.parts.append(s)
 
     def html(self, s: str) -> None:
-        assert "\n\n" not in s  # one Markdown HTML block
+        """One Markdown HTML block: a blank line would end it, so a record
+        value carrying one is folded onto one line and reported."""
+        if BLANK_LINE.search(s.replace("\r\n", "\n").replace("\r", "\n")):
+            msg = (f"{self.where}: a record value contains a blank line; "
+                   "rendered with its line breaks folded to spaces")
+            if msg not in self.problems:  # once per page
+                self.problems.append(msg)
+            s = re.sub(r"\s*[\r\n]\s*", " ", s)
         self.parts.append(s)
 
     def _figure(self, cid: str, title: str, unit: str, note: str, table_html: str, summary: str) -> None:
@@ -515,6 +526,10 @@ class Page:
         body = "\n\n".join(self.parts)
         if self.charts:
             data = {"axis": [list(a) for a in self.axis], "charts": self.charts}
+            xs = [pt[0] for c in self.charts.values() if c["kind"] == "trend"
+                  for ser in c["series"] for pt in ser["points"]]
+            if xs:
+                data["xrange"] = [min(xs), max(xs)]  # every trend on the page shares it
             body += '\n\n<script type="application/json" id="tracker-data">' + script_json(data) + "</script>"
         return body + "\n"
 
@@ -823,18 +838,17 @@ def physical_section(p: Page, d: Data, ips: list[str], name: str, metrics: list[
     n = d.nightly
     with_data = [ip for ip in ips if any(isinstance(getter(r.data, ip), dict) for r in n)]
     drew = False
-    for m in metrics:
+    for m in metrics:  # slots go to IPs with data in this flow, in sorted order
         drew |= p.trend(m.key, m.label, m.unit, [
-            {"label": ip, "color": ips.index(ip) + 1, "points": n,
+            {"label": ip, "color": i + 1, "points": n,
              "get": lambda r, ip=ip, m=m: m.get(getter(r, ip)) if isinstance(getter(r, ip), dict) else None}
-            for ip in with_data if ips.index(ip) < SLOTS],
-            hidden=sum(1 for ip in with_data if ips.index(ip) >= SLOTS))
+            for i, ip in enumerate(with_data)])
     if not drew:
         p.html(empty(f"No {name} metrics yet."))
 
 
-def ip_page(ip: str, d: Data) -> str:
-    p = Page(d.axis)
+def ip_page(ip: str, d: Data) -> Page:
+    p = Page(d.axis, f"{IP_DIR}/{ip}/index.md")
     up = "../" * (ip.count("/") + 1)
     p.md(f"# {md_escape(ip)} metrics")
     p.html(f'<p>Per-IP view of the <a href="{up}../index.md">metrics tracker</a>; '
@@ -844,7 +858,7 @@ def ip_page(ip: str, d: Data) -> str:
          or code_ip(x.data, ip)]
     if not c and not n:
         p.html(empty("No data yet for this IP."))
-        return p.text()
+        return p
     code_pts = c or n
     rows = [("Lines of code", "", code_pts, lambda r: code_ip_total(r, ip, "loc")),
             ("Files", "", code_pts, lambda r: code_ip_total(r, ip, "files")),
@@ -876,7 +890,7 @@ def ip_page(ip: str, d: Data) -> str:
         if not drew:
             p.html(empty(f"No {name} metrics yet for this IP."))
     ip_coverage(p, n, ip)
-    return p.text()
+    return p
 
 
 def ip_coverage(p: Page, n: list[Point], ip: str) -> None:
@@ -889,14 +903,14 @@ def ip_coverage(p: Page, n: list[Point], ip: str) -> None:
         p.html(empty("No coverage metrics yet for this IP."))
 
 
-def ip_index(ips: list[str], d: Data) -> str:
-    p = Page(d.axis)
+def ip_index(ips: list[str], d: Data) -> Page:
+    p = Page(d.axis, f"{IP_DIR}/index.md")
     p.md("# Per-IP metrics")
     p.html('<p>One page per IP named in the nightly records; back to the '
            '<a href="../index.md">metrics tracker</a>.</p>')
     if not ips:
         p.html(empty("No data yet: no record names an IP."))
-        return p.text()
+        return p
     code = d.commits[-1].data if d.commits else d.nightly[-1].data
     night = d.nightly[-1].data if d.nightly else {}
     rows = []
@@ -910,7 +924,7 @@ def ip_index(ips: list[str], d: Data) -> str:
                      escape(fmt(ASIC[0].get(asic) if asic else None, "ns")),
                      escape(fmt(ASIC[2].get(asic) if asic else None, "µm²"))])
     p.html(table(["IP", "Lines of code", "FPGA LEs", "Fmax", "ASIC WNS", "Std-cell area"], rows))
-    return p.text()
+    return p
 
 
 def render(data_dir: Path) -> tuple[str, dict[str, str], list[str]]:
@@ -919,13 +933,17 @@ def render(data_dir: Path) -> tuple[str, dict[str, str], list[str]]:
     d = load(data_dir)
     ips, bad = ip_ids(d)
     problems = d.problems + bad
-    pages = {f"{IP_DIR}/index.md": ip_index(ips, d)}
+    generated = {f"{IP_DIR}/index.md": ip_index(ips, d)}
     p = Page(d.axis)
+
+    def done():
+        pages = {path: g.text() for path, g in generated.items()}
+        return p.text(), pages, problems + [x for g in [p, *generated.values()] for x in g.problems]
     if d.empty:
         p.md("## Repo health")
         p.html(empty("No data yet: the nightly job adds records to wiki/tracker/data/, "
                      "and this page then shows charts and tables."))
-        return p.text(), pages, problems
+        return done()
     health_section(p, d)
     overview_compare(p, d)
     code_section(p, d, ips)
@@ -939,5 +957,5 @@ def render(data_dir: Path) -> tuple[str, dict[str, str], list[str]]:
     p.html("<ul>" + "".join(f'<li><a href="{IP_DIR}/{quote(ip)}/index.md">{escape(ip)}</a></li>' for ip in ips)
            + "</ul>" if ips else empty("No record names an IP yet."))
     for ip in ips:
-        pages[f"{IP_DIR}/{ip}/index.md"] = ip_page(ip, d)
-    return p.text(), pages, problems
+        generated[f"{IP_DIR}/{ip}/index.md"] = ip_page(ip, d)
+    return done()
