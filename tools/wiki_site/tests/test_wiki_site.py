@@ -272,3 +272,13 @@ def test_serve_existing_build(tmp_path, monkeypatch, capsys):
         thread.join(5)
     assert result == [0]
     assert f"Serving {out}" in capsys.readouterr().out
+
+
+def test_navbar_links_to_repo(tmp_path):
+    _, _, out = run(tmp_path, BASE)
+    link = f'<a class="navbar-repo" href="{URL}" title="Source on GitHub">GitHub</a>'
+    for page in ("index.html", "a.html", "sec/z.html"):
+        assert link in (out / page).read_text()
+    other = tmp_path / "other"
+    wiki_site.build(tmp_path, other, SHA, "https://example.invalid/x/y/")
+    assert 'class="navbar-repo" href="https://example.invalid/x/y"' in (other / "index.html").read_text()

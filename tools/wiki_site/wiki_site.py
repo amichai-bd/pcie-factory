@@ -342,6 +342,7 @@ def layout(site: Site, out: str, page: Page, body: str, brand: str) -> str:
 <button class="navbar-toggle" type="button" aria-label="Toggle navigation">&#9776;</button>
 <a class="navbar-brand" href="{root}index.html">{escape(brand)}</a>
 <div class="navbar-right">
+<a class="navbar-repo" href="{escape(site.repo_url)}" title="Source on GitHub">GitHub</a>
 <div class="search"><input type="search" placeholder="Search" aria-label="Search the wiki" autocomplete="off"><ul class="search-results" hidden></ul></div>
 <button class="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode"><span class="sun">&#9728;</span><span class="moon">&#9790;</span></button>
 </div>
