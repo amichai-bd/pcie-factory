@@ -10,7 +10,7 @@
 This page owns the build entry point, levels and budgets, local evidence,
 CI selection, the nightly run, labels and metrics. The
 [agent-flow](../../.claude/skills/agent-flow/SKILL.md) skill owns the delivery
-flow and merge gate; [`CLAUDE.md`](../../CLAUDE.md#flow) owns its exceptions.
+flow and merge gate; [`CLAUDE.md`](../../CLAUDE.md#flow) owns its exception.
 Each tool's `wiki/tools/<tool>/SPEC.md` owns its exact command syntax.
 
 ## Build entry point
@@ -129,7 +129,9 @@ counts as passing a required check, so a fork PR's own run proves nothing).
 Workflows never use `pull_request_target` with a PR checkout and never echo
 secrets.
 
-**`ci-gate`** is the one required check. It runs on pull requests to `main`,
+**`ci-gate`** is the one required check: branch protection on `main`
+requires it, admins included, so a red or missing run blocks every merge. It
+runs on pull requests to `main`,
 pushes to `main` and manual dispatch:
 
 1. `./build check`.
@@ -157,10 +159,7 @@ A sub-IP is an IP in its own right: a change inside `src/<ip>/<subip>/`
 selects the sub-IP, and selects the parent only when the parent's filelists
 reach the changed file or the change is in the sub-IP's models.
 
-Superseded PR runs are cancelled; every push to `main` keeps its run. Until
-`ci-gate` is a required check on `main`, the temporary exception in
-[`CLAUDE.md`](../../CLAUDE.md#flow) accepts recorded local evidence when
-`ci-gate` has not run; a red `ci-gate` run always blocks merge.
+Superseded PR runs are cancelled; every push to `main` keeps its run.
 
 ## Nightly
 

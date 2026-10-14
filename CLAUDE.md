@@ -46,14 +46,12 @@ target and its module prefix are declared once, in
 Every tracked change, however small, goes issue → claim → branch and worktree
 → draft PR → independent `REVIEW-VERDICT` → squash merge → cleanup. The
 [agent-flow](.claude/skills/agent-flow/SKILL.md) skill owns the steps and the
-merge gate.
+merge gate: an APPROVE verdict at the head plus `ci-gate` green on that
+head, which branch protection requires on `main` (admins included).
 
-**Exceptions:**
-- Permanent: the nightly data PR may touch only `wiki/tracker/data/**`; a guard
-  enforces it and it auto-merges after `ci-gate`, with no issue or reviewer.
-- Temporary, captain-approved: until `ci-gate` is a required check on
-  `main`, a PR may merge on recorded local evidence when `ci-gate` has not
-  run. A red `ci-gate` run always blocks merge. Remove this bullet then.
+**Exception:** the nightly data PR may touch only `wiki/tracker/data/**`; a
+guard enforces it and it auto-merges after `ci-gate`, with no issue or
+reviewer.
 
 ## Pointers
 

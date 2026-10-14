@@ -10,7 +10,7 @@ description: Use for any tracked repository change, from choosing or claiming an
 
 This skill owns the delivery steps and the merge gate for every tracked
 change; no change is too small for it. [`CLAUDE.md`](../../../CLAUDE.md#flow)
-owns the two exceptions, [firstmate](../firstmate/SKILL.md) owns the roles.
+owns the nightly data-PR exception, [firstmate](../firstmate/SKILL.md) owns the roles.
 
 ```text
 issue -> claim -> branch + worktree -> code + wiki -> validate -> draft PR
@@ -131,10 +131,8 @@ head. Every push makes earlier verdicts stale.
 Read the PR fresh and check every gate:
 
 - latest `REVIEW-VERDICT` is APPROVE and names the current head SHA;
-- `ci-gate` is green on that SHA, or, under the temporary exception in
-  [`CLAUDE.md`](../../../CLAUDE.md#flow) when it has not run, the PR records
-  local evidence at that SHA and the reviewer audited it. A red `ci-gate`
-  run always blocks;
+- `ci-gate` is green on that SHA (branch protection requires it; a red or
+  missing run blocks);
 - no unresolved review threads; mergeable, no conflicts;
 - the PR closes exactly the issue and its acceptance is met.
 

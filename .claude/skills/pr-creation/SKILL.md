@@ -61,9 +61,8 @@ Rules:
 - `Closes #<n>` names exactly one issue.
 - One row per command actually run at the head SHA; state seeds and tool
   versions; treat warnings as failures unless a reviewed waiver covers them.
-- While the temporary exception in [`CLAUDE.md`](../../../CLAUDE.md#flow)
-  holds (`ci-gate` not yet a required check), this section is the merge evidence: include the
-  required levels for affected IPs and tool unit tests.
+- Local evidence complements `ci-gate`, which is the required merge check;
+  it never replaces it.
 - Summarize evidence; never paste or commit logs, waves or reports.
 - End with the PR attribution footer shown in the session instructions or in
   recently merged PRs.

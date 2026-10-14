@@ -71,7 +71,7 @@ satisfy a suggestion.
 ## Stop and report
 
 Report to the firstmate when the head has an APPROVE verdict and every check
-is green (or local evidence is recorded under the temporary exception), or
+is green, including `ci-gate`, or
 when blocked on something only the captain can resolve (product decision,
 credentials, physical action). Include the head SHA and what changed since
 the last review.
