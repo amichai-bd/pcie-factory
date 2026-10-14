@@ -1,0 +1,126 @@
+# DV BKM
+
+> Provenance: adapted from nand2anything `wiki/bkm/bkm_dv.md` (commit
+> `085ef4b`, same owner, no license file). Generic Python/cocotb practice
+> kept; project tests, targets and launchers dropped.
+
+## Scope and oracle
+
+This page owns repository-wide design-verification practice. An IP's
+`HAS.md` defines expected behavior and its `DV_PLAN.md` maps features to
+tests and levels ([wiki BKM](wiki.md#page-set)). Oracles come from the spec,
+never from the RTL structure.
+
+- Verilator is the only simulator. Python with cocotb is the only DV
+  language for stimulus, models, scoreboards and checks; the cocotb pin is in
+  the host configuration (`cfg/`), not here.
+- Drive and observe documented ports (and signals the HAS names for bind
+  checkers). Never read Verilator-generated internals.
+- Add infrastructure only when a real test needs it.
+
+## Directory structure
+
+Per IP and sub-IP, under `src/<ip>/dv/` (paths from the
+[layout page](../project/layout.md)):
+
+| Path | Holds |
+| --- | --- |
+| `<ip>.dv.f` | Simulation-only SystemVerilog: testbench tops, bind and assertion modules, SV models. Same `.f` rules as the [RTL BKM](rtl.md#filelists). |
+| `<ip>.sim.f` | Exactly `-F ../rtl/<ip>.rtl.f` then `-F <ip>.dv.f`. Nothing else. |
+| `tb/` | SV testbench tops and bind files (listed in `.dv.f`), and the Python environment: clock/reset helpers, drivers, monitors, scoreboards. |
+| `tests/` | cocotb test modules, `test_<feature>.py`, each with one or more `@cocotb.test()` testcases. |
+| `models/` | Pure-Python reference models, with pytest unit tests that run without a simulator. |
+| `regress/level{0,1,2}.yaml` | This IP's regression entries per level. |
+
+Shared DV helpers live in `src/common/dv/` once a second IP needs them.
+Python imports use paths relative to the IP's `dv/` directory; the sim tool
+SPEC owns how `PYTHONPATH` is set.
+
+## Fast test ladder
+
+Run the cheapest test that can reject the change:
+
+1. Pure-Python model unit tests.
+2. The focused sub-IP test for the changed behavior.
+3. Boundary, error and reset cases of the changed block.
+4. The smallest parent-IP test that covers the changed connections.
+5. Wider regression only when the changed contract can affect it.
+
+Every IP keeps focused sub-IP tests that localize failures; a slow
+system-level test never replaces them.
+
+## Regression lists
+
+Each IP's `regress/level{0,1,2}.yaml` lists its own tests only:
+
+- **Flat per IP.** A parent IP does not inherit its sub-IPs' entries; each
+  sub-IP has its own lists. A global run is the union of all IPs.
+- **Exclusive levels.** `--level 1` runs only `level1.yaml`. Combine
+  explicitly: `--level 0 --level 1`. Never copy an entry into a second level
+  to make it "also run".
+- All three files exist; a level with no tests is an empty list (`[]`).
+
+Each entry is one simulation configuration. Fields (the regression tool's
+SPEC, created by the `./build` core issue #6, owns the exact schema and
+defaults):
+
+| Field | Meaning |
+| --- | --- |
+| `name` | Unique within the IP; used in reports, output paths and the DV plan. |
+| `module` | Python test module under `tests/` (e.g. `test_<feature>`). |
+| `testcase` | Optional cocotb testcase filter within the module; all when absent. |
+| `top` | HDL toplevel module, normally the IP top or a `tb/` top. |
+| `seeds` | Explicit list of integer seeds; one run per seed. |
+| `timeout_s` | Wall-clock bound per run; exceeding it is a failure. |
+| `params` | Optional map of top-level parameter overrides. |
+
+Level placement follows budgets in the [DevOps BKM](devops.md#levels-and-budgets):
+L0 holds smoke and the fastest directed tests, L1 the full directed set and a
+few random seeds, L2 long tests and wide seed sweeps.
+
+## DV plan alignment
+
+`wiki/src/<ip>/DV_PLAN.md` holds a feature → test → level table. Alignment
+is a review duty (no automation):
+
+- Every planned row names an entry `name` and a level, and that entry exists
+  in exactly that `regress/level<N>.yaml`.
+- Every regression entry maps to at least one plan row.
+- A feature with no test is listed with its owning issue, never silently
+  omitted.
+
+A PR that adds, moves or removes a regression entry updates the DV plan in
+the same PR, and vice versa.
+
+## Determinism and failure quality
+
+- Directed tests are deterministic. Random tests take the seed from the
+  regression entry (cocotb `RANDOM_SEED`), print it at start, and draw all
+  randomness from it. A failure is reproducible from `name` and seed.
+- Every test bounds simulated cycles and wall time and fails nonzero.
+- Mismatch messages report operation, expected value, observed value and the
+  cycle or transaction index.
+- Reference models favor obvious correctness over mirroring the RTL;
+  scoreboards compare externally observable transactions or state.
+- Assertions (bind modules, [RTL BKM](rtl.md#assertions)) check local
+  invariants; the test owns the observable pass condition.
+- Each test checks something it could fail on: include a negative or
+  after-drain check where a pass could otherwise be vacuous.
+- Warnings fail unless a reviewed waiver explains them.
+
+## Test value
+
+Each test protects an observable behavior or contract. Before adding one,
+name the regression it would catch that existing tests miss. Remove or merge
+a test only when the plan row it covers stays covered.
+
+## Output and evidence
+
+- Simulation builds, logs, results XML and waves go under
+  `workdir/<ip>/<test>/<seed>/` (the sim tool SPEC owns the exact path).
+  Waves are opt-in debug output.
+- PR evidence records the exact command, seeds, pass/fail counts, runtime
+  and any non-pass entry with its diagnosis, at the reviewed head. Never
+  commit outputs.
+- Levels to run per change and the merge-gate rule are in the
+  [DevOps BKM](devops.md#local-evidence).
