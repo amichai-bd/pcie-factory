@@ -27,7 +27,7 @@ on it at runtime, and anything adapted from it carries a provenance note.
 | Q8 | The single entry point is `./build`, a thin launcher at the root. The implementation lives in `tools/`. |
 | Q9 | `./build check`: Verilator lint (`-Wall`, waivers only in a reviewed file with reasons), the RTL style checker (BKM rules), filelist checks (files resolve, no duplicates, no orphan RTL), and the neutrality check. |
 | Q10 | `tools/` unit tests run in `ci-gate` when `tools/` or `cfg/` change. Doc line caps are a review guideline, not a check. |
-| Q11/12 | Every IP **and** sub-IP has `wiki/src/<ip>/{MAS,HAS,DV_PLAN}.md`. Specs live only in the wiki. Every src/tools change updates the wiki and vice versa, and **review** checks that they match (no automation). |
+| Q11/12 | Every IP **and** sub-IP has `wiki/src/<ip>/{MAS,HAS,DV_PLAN}.md`. Specs live only in the wiki. Every src/tools change updates the wiki and vice versa, and **review** checks that they match (no automation). Superseded in part: see the wiki mirror update. |
 | Q13 | The wiki site generator is a minimal fresh port. Nav follows the `wiki/` tree, and the n2a theme is reused with provenance. Published to GitHub Pages. |
 | Q14 | An issue is claimed with the `in-progress` label plus a claim comment naming the session, branch and worktree. |
 | Q15 | The reviewer crewmate is fresh, independent and read-only. It trusts CI and reviews the exact head for code↔wiki alignment, BKM conformance and test adequacy (DV_PLAN against the regression lists). It posts one `REVIEW-VERDICT: APPROVE\|REQUEST-CHANGES @<sha>` comment. The firstmate then auto-merges once the verdict and `ci-gate` are green. |
@@ -80,3 +80,17 @@ pd (ORFS/sky130hd).
   design target.
 - **Root layout addition (firstmate decision, recorded on #1):** `src/README.md` declares the design target and
   prefix so that everything outside `src/` can stay neutral.
+- **Wiki mirrors src; HAS and MAS defined (captain decisions, recorded on
+  [#1](https://github.com/amichai-bd/pcie-factory/issues/1#issuecomment-6176791147)
+  and [#1](https://github.com/amichai-bd/pcie-factory/issues/1#issuecomment-6176828568)),
+  updating Q11/12:** `wiki/src/` mirrors `src/` folder by folder and
+  `wiki/tools/<tool>/` mirrors `tools/<tool>/`. The HAS (High-level
+  Architecture Specification: what and why) is `wiki/src/<ip>/arch/HAS.md`,
+  for top-level IPs only; the MAS (Micro-Architecture Specification: how) is
+  `rtl/MAS.md` and the DV plan `dv/DV_PLAN.md` for every IP and sub-IP;
+  `fpga/FPGA.md` and `asic/ASIC.md` exist exactly when `src/<ip>/fpga/` or
+  `src/<ip>/asic/` does. `src/<ip>/arch/` will hold Python behavioral and
+  performance models for architects (a follow-up issue builds that tooling);
+  until then a top-level IP's wiki `arch/` needs no src counterpart.
+  `./build check` enforces the page set and the mirror; content alignment
+  stays a review item.

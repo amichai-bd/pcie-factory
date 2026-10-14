@@ -7,14 +7,14 @@
 ## Scope and oracle
 
 This page owns repository-wide design-verification practice. An IP's
-`HAS.md` defines expected behavior and its `DV_PLAN.md` maps features to
-tests and levels ([wiki BKM](wiki.md#page-set)). Oracles come from the spec,
+`arch/HAS.md` (for a sub-IP, its `rtl/MAS.md`) defines expected behavior and
+its `dv/DV_PLAN.md` maps features to tests and levels ([wiki BKM](wiki.md#page-set)). Oracles come from the spec,
 never from the RTL structure.
 
 - Verilator is the only simulator. Python with cocotb is the only DV
   language for stimulus, models, scoreboards and checks; the cocotb pin is in
   the host configuration (`cfg/`), not here.
-- Drive and observe documented ports (and signals the HAS names for bind
+- Drive and observe documented ports (and internal signals the MAS names for bind
   checkers). Never read Verilator-generated internals.
 - Add infrastructure only when a real test needs it.
 
@@ -89,8 +89,8 @@ few random seeds, L2 long tests and wide seed sweeps.
 
 ## DV plan alignment
 
-`wiki/src/<ip>/DV_PLAN.md` holds a feature → test → level table. Alignment
-is a review duty (no automation):
+`wiki/src/<ip>/dv/DV_PLAN.md` holds a feature → test → level table.
+Alignment is a review duty (no automation):
 
 - Every planned row names an entry `name` and a level, and that entry exists
   in exactly that `regress/level<N>.yaml`.

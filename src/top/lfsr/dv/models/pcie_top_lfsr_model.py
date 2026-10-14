@@ -1,6 +1,6 @@
 """Reference model of the pcie_top_lfsr data scrambler LFSR.
 
-Written from wiki/src/top/lfsr/HAS.md, bit-serially, without mirroring the
+Written from wiki/src/top/lfsr/rtl/MAS.md, bit-serially, without mirroring the
 RTL: G(X) = X^16 + X^5 + X^4 + X^3 + 1, seed 0xFFFF, one key bit per shift
 taken from state bit 15 before the shift, eight shifts per byte, key bit 0
 first. Pure Python, no simulator.

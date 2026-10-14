@@ -1,6 +1,6 @@
 ---
 name: rtl-coder
-description: Use before and while adding or changing synthesizable SystemVerilog under src/**/rtl/ or an <ip>.rtl.f filelist - new modules, packages, sub-IPs, interface or behavior changes, lint or style fixes - to keep RTL, filelists, checks and the owning HAS aligned in one PR.
+description: Use before and while adding or changing synthesizable SystemVerilog under src/**/rtl/ or an <ip>.rtl.f filelist - new modules, packages, sub-IPs, interface or behavior changes, lint or style fixes - to keep RTL, filelists, checks and the owning HAS and MAS aligned in one PR.
 ---
 
 # RTL coder
@@ -16,11 +16,14 @@ redefines those rules. Work inside an issue worktree per
 
 ## 1. Before editing
 
-1. Read the owning specs in `wiki/src/<ip>/[<subip>/]`: `HAS.md` (ports,
-   parameters, reset, timing, behavior), `MAS.md` (scope, targets) and
-   `DV_PLAN.md` (which tests cover what you will touch).
-2. If the HAS is missing or silent on the behavior you are changing, write the
-   minimal HAS change first with [wiki-spec-writer](../wiki-spec-writer/SKILL.md).
+1. Read the owning specs in `wiki/src/<ip>/[<subip>/]`, which mirrors
+   `src/`: `arch/HAS.md` (top-level IPs: function, interfaces, parameters,
+   behavior, targets), `rtl/MAS.md` (pipeline, state, RTL structure, timing,
+   files; for a sub-IP also its interfaces and behavior) and
+   `dv/DV_PLAN.md` (which tests cover what you will touch).
+2. If the spec is missing or silent on the behavior or structure you are
+   changing, write the minimal HAS or MAS change first with
+   [wiki-spec-writer](../wiki-spec-writer/SKILL.md).
    Code follows the spec, never the reverse.
 3. Read the prefix from [`src/README.md`](../../../src/README.md); names
    follow the [naming table](../../../wiki/bkm/rtl.md#naming).
@@ -84,11 +87,12 @@ while iterating, then run it in full before review.
 
 ## 5. Before the PR
 
-- [ ] `HAS.md` matches the RTL: ports, widths, parameters, reset values,
-      latency and the Files table. Update `MAS.md` only if scope or targets
-      changed.
-- [ ] `DV_PLAN.md` and regression lists updated if coverage changed.
-- [ ] `fpga/` and `asic/` constraints still name existing ports and clocks.
+- [ ] `arch/HAS.md` (sub-IP: `rtl/MAS.md`) matches the RTL: ports, widths,
+      parameters, reset values and behavior. `rtl/MAS.md` matches the
+      structure, pipeline, latency and the Files table.
+- [ ] `dv/DV_PLAN.md` and regression lists updated if coverage changed.
+- [ ] `fpga/` and `asic/` constraints still name existing ports and clocks,
+      and `fpga/FPGA.md` / `asic/ASIC.md` still describe them.
 - [ ] The [RTL review checklist](../../../wiki/bkm/rtl.md#review-checklist)
       holds.
 - [ ] Local evidence per the [DevOps BKM](../../../wiki/bkm/devops.md#local-evidence)

@@ -37,6 +37,8 @@ resolver, plus only what is in `src/<ip>/fpga/`:
 
 - `fpga/` exists only for an IP that is a synthesis target; a sub-IP gets one
   only if it is built on its own.
+- The IP's FPGA page, `wiki/src/<ip>/fpga/FPGA.md`, documents the board
+  wrapper (pins, reset, I/O use), the constraints and how to run the flow.
 - The board wrapper is synthesizable RTL under the [RTL BKM](rtl.md) but is
   not in `<ip>.rtl.f`: the FPGA flow adds it, so simulation and ASIC never
   see board policy. It is linted with Verilator `-Wall` together with
@@ -61,7 +63,8 @@ resolver, plus only what is in `src/<ip>/fpga/`:
   through `<ip>.rtl.f` and the wrapper.
 - Vendor IP (PLLs, memories) is avoided while behavioral RTL suffices. When
   needed, it sits behind a module boundary with a synthesizable simulation
-  model, and its generator, parameters and license are in the IP's HAS.
+  model, and its generator, parameters and license are in the IP's FPGA
+  page (`wiki/src/<ip>/fpga/FPGA.md`).
 
 ## Layers
 

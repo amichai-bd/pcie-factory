@@ -106,6 +106,12 @@ collapsible entry:
   link. A folder without one shows its name as plain text.
 - Inside a folder, pages come first, sorted by file name, then subfolders,
   sorted by name.
+- A folder with no landing page, no subfolders and exactly one page is not
+  a section: its page is listed in the parent, after the parent's own pages
+  and in folder-name order. This applies bottom-up, so the one-page mirror
+  folders of `wiki/src/` (`arch/HAS.md`, `rtl/MAS.md`, ...) and
+  `wiki/tools/<tool>/SPEC.md` each read as one link labelled by the page's
+  title.
 - The home page comes first in the sidebar.
 - With a root `README.md`, the sidebar is: the home page, `CLAUDE.md`, one
   section for the whole wiki tree headed by the wiki landing page, then a

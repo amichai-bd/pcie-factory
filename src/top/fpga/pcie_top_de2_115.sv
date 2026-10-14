@@ -1,4 +1,4 @@
-// DE2-115 board wrapper for pcie_top (wiki/src/top/HAS.md, FPGA section).
+// DE2-115 board wrapper for pcie_top (wiki/src/top/fpga/FPGA.md).
 // Board policy only: holds reset for a short count after configuration,
 // synchronizes the switches and push buttons to the 50 MHz board clock,
 // turns button presses into one-cycle pulses and holds the last scrambled

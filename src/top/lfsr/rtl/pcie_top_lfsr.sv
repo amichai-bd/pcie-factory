@@ -1,5 +1,5 @@
 // Scrambler LFSR: one key byte per state, eight shifts per advance
-// (wiki/src/top/lfsr/HAS.md).
+// (wiki/src/top/lfsr/rtl/MAS.md).
 `default_nettype none
 
 module pcie_top_lfsr

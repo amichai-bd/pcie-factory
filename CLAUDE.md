@@ -75,4 +75,4 @@ Read the matching `.claude/skills/<name>/SKILL.md` before working in its area.
 | `rtl-coder` | RTL and `.rtl.f` filelists. |
 | `dv-coder` | cocotb tests, models, DV filelists, regression lists, DV plans. |
 | `build-maintainer` | `build`, `tools/`, `cfg/`, `.github/`. |
-| `wiki-spec-writer` | MAS, HAS, DV plans, tool specs, BKMs. |
+| `wiki-spec-writer` | HAS, MAS, DV plans, FPGA/ASIC pages, tool specs, BKMs. |

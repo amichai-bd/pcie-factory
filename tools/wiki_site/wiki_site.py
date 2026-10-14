@@ -275,6 +275,12 @@ class Site:
                     folder.pages.append(src)
             else:
                 self.assets.append(src)
+        # A folder holding just one page and nothing else is listed as that
+        # page (after the folder's own pages), not as a one-entry section.
+        single = [f for f in folder.folders if not f.landing and not f.folders
+                  and len(f.pages) == 1]
+        folder.pages += [f.pages[0] for f in single]
+        folder.folders = [f for f in folder.folders if all(f is not g for g in single)]
         return folder
 
     def site_path(self, src: str) -> str:

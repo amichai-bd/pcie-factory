@@ -1,5 +1,5 @@
 # pcie_top timing constraints for ./build asic (wiki/bkm/pd.md).
-# Clock target from wiki/src/top/HAS.md (Timing): 100 MHz, 10 ns.
+# Clock target from wiki/src/top/asic/ASIC.md (Clock target): 100 MHz, 10 ns.
 set clk_period 10.0
 set clk_port   clk_i
 

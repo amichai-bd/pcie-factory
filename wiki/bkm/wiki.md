@@ -21,46 +21,84 @@ page disagree until both are reconciled in the same issue.
 
 ## Page set
 
+`wiki/src/` mirrors `src/` folder by folder, and `wiki/tools/<tool>/`
+mirrors `tools/<tool>/`. Each spec sits in the folder named like the source
+folder it describes:
+
+```
+src/<ip>/                           wiki/src/<ip>/
+  arch/   behavioral models (opt.)    arch/HAS.md      top-level IPs only
+  rtl/    *.sv, <ip>.rtl.f            rtl/MAS.md
+  dv/     tests, models, regress      dv/DV_PLAN.md
+  fpga/   SDC, QSF Tcl, wrapper       fpga/FPGA.md     iff src/<ip>/fpga/ exists
+  asic/   SDC, <platform>.mk          asic/ASIC.md     iff src/<ip>/asic/ exists
+  <subip>/                            <subip>/rtl/MAS.md, <subip>/dv/DV_PLAN.md, ...
+```
+
 | Folder | Pages | Required for |
 | --- | --- | --- |
-| `wiki/src/<ip>/` | `MAS.md`, `HAS.md`, `DV_PLAN.md` | Every IP |
-| `wiki/src/<ip>/<subip>/` | `MAS.md`, `HAS.md`, `DV_PLAN.md` | Every sub-IP, recursively |
+| `wiki/src/<ip>/arch/` | `HAS.md` | Every top-level IP (a direct child of `src/`); sub-IPs have none |
+| `wiki/src/<ip>/rtl/` | `MAS.md` | Every IP and sub-IP |
+| `wiki/src/<ip>/dv/` | `DV_PLAN.md` | Every IP and sub-IP |
+| `wiki/src/<ip>/fpga/` | `FPGA.md` | Exactly the IPs with `src/<ip>/fpga/` |
+| `wiki/src/<ip>/asic/` | `ASIC.md` | Exactly the IPs with `src/<ip>/asic/` |
 | `wiki/tools/<tool>/` | `SPEC.md` | Every tool under `tools/` |
 | `wiki/bkm/` | One page per discipline | Fixed set ([index](README.md)) |
 | `wiki/project/` | Architecture, layout, roadmap, decisions | Fixed set |
 | `wiki/tracker/` | `index.md`, `data/` (nightly bot only) | Fixed set |
 
+Every folder under `wiki/src/` has a `src/` counterpart, and every page
+there sits in an `arch/`, `rtl/`, `dv/`, `fpga/` or `asic/` folder. The one
+exception: a top-level IP's `arch/` needs no `src/<ip>/arch/` yet, since the
+architecture model tooling that fills it is still to come. `./build check`
+enforces the page set and the mirror
+([checks SPEC](../tools/checks/SPEC.md#wiki-mirror-check)).
+
 Among wiki pages, only `wiki/src/` names the design target or its IPs;
 [`CLAUDE.md`](../../CLAUDE.md#design-neutrality) owns the full rule and its
 exemptions.
 
-### MAS: architecture, what and why
+### HAS: High-level Architecture Specification, what and why
 
-- Purpose and scope of the IP; what it is not.
-- Position in the parent (block diagram, Mermaid allowed) and its sub-IPs.
-- Key architectural choices with their rationale and rejected alternatives.
-- Performance, area and feature targets the HAS must satisfy.
-- Open questions, each linked to an issue.
+Top-level IPs only; a sub-IP's role is described in its parent's HAS.
 
-### HAS: hardware architecture spec, how
-
-- **Interfaces:** a port table (name, direction, width, clock domain,
-  description) and protocol rules with timing diagrams where cycle behavior
-  matters.
+- Purpose and scope of the IP; what it is not; use cases.
+- Position in the system (block diagram, Mermaid allowed) and its sub-IPs.
+- **Interfaces:** the architectural port table (name, direction, width,
+  clock domain, description) and protocol rules.
 - **Parameters:** name, type, default, legal range, effect.
 - **Behavior:** function, reset values, error and corner cases, stated
   precisely enough to write an independent model.
-- **Microarchitecture:** datapath, state machines, pipelines, storage.
-- **Timing:** latency and throughput per operation, clocks and resets,
-  any crossing.
+- Architectural choices with their rationale and rejected alternatives.
+- Performance, area and feature targets the MAS must satisfy.
+- Open questions, each linked to an issue.
+
+### MAS: Micro-Architecture Specification, how
+
+- How the RTL meets the HAS: datapath, pipeline, state machines, storage,
+  and the RTL structure (modules, instances, packages).
+- Implementation choices with their rationale and rejected alternatives.
+- **Timing:** latency and throughput per operation, clocks and resets, any
+  crossing, the critical path.
 - **Files:** the `rtl/` files and what each holds, linked, not copied.
+- A sub-IP has no HAS, so its MAS also owns its purpose, interfaces,
+  parameters, behavior and targets (the HAS sections above).
+
+### FPGA and ASIC pages
+
+The implementation of one IP on a flow: the board wrapper (pins, reset,
+I/O) or the clock target, constraints and flow configuration, how to run the
+flow, and the files in `src/<ip>/fpga/` or `src/<ip>/asic/`. The
+[FPGA](fpga.md) and [PD](pd.md) BKMs own the method; results go to metrics
+and the tracker, not to the page.
 
 ### DV_PLAN: feature → test → level
 
 - Strategy: test layers, reference model, checkers, what is out of scope.
-- One table: feature (linked to its HAS section) → regression entry `name` →
-  level → seeds or note. The table matches `src/<ip>/dv/regress/level*.yaml`
-  exactly ([DV BKM](dv.md#dv-plan-alignment)).
+- One table: feature (linked to its HAS section, or its MAS section for a
+  sub-IP) → regression entry `name` → level → seeds or note. The table
+  matches `src/<ip>/dv/regress/level*.yaml` exactly
+  ([DV BKM](dv.md#dv-plan-alignment)).
 - Uncovered features listed with their owning issue.
 
 ### Tool SPEC
@@ -71,12 +109,14 @@ the unit tests prove it.
 
 ## Specs and code stay aligned
 
-- Every PR that changes `src/` or `tools/` updates the owning MAS, HAS,
-  DV_PLAN or SPEC in the same PR; every wiki change that alters behavior
+- Every PR that changes `src/` or `tools/` updates the owning HAS, MAS,
+  DV_PLAN, FPGA, ASIC or SPEC page in the same PR; every wiki change that alters behavior
   updates the code.
-- A new IP or sub-IP arrives with its three pages; a new tool with its SPEC.
-- The reviewer checks alignment by reading both sides. There is no
-  automation for it; a mismatch is a REQUEST-CHANGES finding.
+- A new IP or sub-IP arrives with its [page set](#page-set); a new tool with
+  its SPEC.
+- The reviewer checks alignment by reading both sides; `./build check`
+  only proves that the pages exist where the mirror puts them. A content
+  mismatch is a REQUEST-CHANGES finding.
 
 ## Concision
 

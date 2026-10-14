@@ -10,7 +10,8 @@ description: Use before and while changing factory infrastructure - the ./build 
 
 The [DevOps BKM](../../../wiki/bkm/devops.md) owns the entry point, tool and
 configuration rules, static checks, levels, CI, nightly, metrics and labels.
-Each tool's `wiki/tools/<tool>/SPEC.md` owns its command line and behavior.
+Each tool's `wiki/tools/<tool>/SPEC.md` (the wiki mirror of `tools/<tool>/`)
+owns its command line and behavior.
 This skill is the procedure; it never redefines those rules. Work inside an
 issue worktree per [agent-flow](../agent-flow/SKILL.md).
 

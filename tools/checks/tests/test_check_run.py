@@ -26,13 +26,14 @@ def test_empty_src_passes_and_reports_coverage(tmp_path, capsys):
     lines = out.out.splitlines()
     assert lines[0].startswith("check: 0 IP(s) under ")
     assert [ln.split("]")[0] for ln in lines[1:-1]] == [
-        "[filelist", "[style", "[neutrality", "[lint"]
+        "[filelist", "[style", "[wiki", "[neutrality", "[lint"]
     assert "[filelist] PASS: 0 filelist(s), 0 IP(s)" in out.out
+    assert "[wiki] PASS: 0 required page(s), 0 wiki folder(s)" in out.out
     assert "[lint] PASS: 0 IP(s), 0 Verilator run(s)" in out.out
     assert lines[-1] == "check: PASS"
 
 
-@pytest.mark.parametrize("only", ["filelist", "style"])
+@pytest.mark.parametrize("only", ["filelist", "style", "wiki"])
 def test_bad_fixture_fails_each_check(only, capsys):
     code, out = check(capsys, "--src-root", str(FIXTURES / "bad/src"), "--only", only)
     assert code == 1
@@ -84,3 +85,10 @@ def test_launcher_check_on_repo():
                            "--only", "neutrality"], capture_output=True, text=True)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "[neutrality] PASS" in proc.stdout
+
+
+def test_launcher_wiki_mirror_on_repo():
+    proc = subprocess.run([sys.executable, str(REPO_ROOT / "build"), "check",
+                           "--only", "wiki"], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "[wiki] PASS" in proc.stdout

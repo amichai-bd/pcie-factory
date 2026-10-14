@@ -40,7 +40,9 @@ BASE = {
     "wiki/sec/README.md": "# Section\n",
     "wiki/sec/z.md": "# Zed\n",
     "wiki/sec/deep/x.md": "# Ex\n",
+    "wiki/sec/deep/xx.md": "# Ex two\n",
     "wiki/noland/y.md": "# Why\n",
+    "wiki/noland/yy.md": "# Why two\n",
 }
 
 
@@ -50,14 +52,43 @@ def test_nav_from_tree(tmp_path):
     site = wiki_site.Site(tmp_path, SHA, URL)
     # landing first, then files by name, then folders by name, depth first
     assert site.nav_pages() == ["wiki/index.md", "wiki/a.md", "wiki/b.md", "wiki/noland/y.md",
-                                "wiki/sec/README.md", "wiki/sec/z.md", "wiki/sec/deep/x.md"]
+                                "wiki/noland/yy.md", "wiki/sec/README.md", "wiki/sec/z.md",
+                                "wiki/sec/deep/x.md", "wiki/sec/deep/xx.md"]
     assert set(site.nav_pages()) == set(site.pages)  # every page is in the nav
     html = (out / "sec" / "deep" / "x.html").read_text()
     assert '<a class="active" href="../../sec/deep/x.html">Ex</a>' in html
     assert '<summary><span>noland</span></summary>' in html
     assert '<summary><a href="../../sec/index.html">Section</a></summary>' in html
     assert "<details open><summary><span>deep</span>" in html
-    assert stats["pages"] == 7
+    assert stats["pages"] == 9
+
+
+def test_single_page_folders_are_listed_as_their_page(tmp_path):
+    # Mirror-style trees: one page per folder must not cost a click per level.
+    files = {"wiki/index.md": "# Home\n",
+             "wiki/m/z.md": "# Zed\n",
+             "wiki/m/rtl/MAS.md": "# Blk MAS\n",
+             "wiki/m/arch/HAS.md": "# Blk HAS\n",
+             "wiki/m/sub/rtl/MAS.md": "# Sub MAS\n",
+             "wiki/m/sub/dv/PLAN.md": "# Sub plan\n",
+             "wiki/m/only/deeper/x.md": "# Ex\n",
+             "wiki/m/land/index.md": "# Land\n"}
+    problems, _, out = run(tmp_path, files)
+    assert problems == []
+    site = wiki_site.Site(tmp_path, SHA, URL)
+    # own pages, then single-page folders by folder name, then other folders
+    assert site.nav_pages() == ["wiki/index.md", "wiki/m/z.md", "wiki/m/arch/HAS.md",
+                                "wiki/m/only/deeper/x.md", "wiki/m/rtl/MAS.md",
+                                "wiki/m/land/index.md",
+                                "wiki/m/sub/dv/PLAN.md", "wiki/m/sub/rtl/MAS.md"]
+    html = (out / "m" / "rtl" / "MAS.html").read_text()
+    assert '<a class="active" href="../../m/rtl/MAS.html">Blk MAS</a>' in html
+    assert "<span>rtl</span>" not in html and "<span>arch</span>" not in html
+    assert "<span>sub</span>" in html and "<span>dv</span>" not in html
+    # Applied bottom-up: a folder whose only entry is a one-page folder is
+    # flattened too. A landing page keeps its folder.
+    assert "<span>only</span>" not in html and "<span>deeper</span>" not in html
+    assert '<summary><a href="../../m/land/index.html">Land</a></summary>' in html
 
 
 def test_landing_pages_and_link_rewrite(tmp_path):
@@ -140,7 +171,8 @@ def test_search_index(tmp_path):
     problems, _, out = run(tmp_path, BASE)
     data = json.loads((out / "assets" / "search-index.json").read_text())
     assert [e["url"] for e in data] == ["index.html", "a.html", "b.html", "noland/y.html",
-                                         "sec/index.html", "sec/z.html", "sec/deep/x.html"]
+                                         "noland/yy.html", "sec/index.html", "sec/z.html",
+                                         "sec/deep/x.html", "sec/deep/xx.html"]
     bee = data[2]
     assert bee["title"] == "Bee" and bee["headings"] == [["Part one", "part-one"]]
     assert "text" in bee["text"]

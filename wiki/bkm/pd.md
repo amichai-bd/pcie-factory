@@ -30,6 +30,8 @@ resolver, plus only what is in `src/<ip>/asic/`:
 
 - `asic/` exists only for an IP that is a synthesis target; a sub-IP gets one
   only if it is hardened on its own.
+- The IP's ASIC page, `wiki/src/<ip>/asic/ASIC.md`, states the clock
+  target, the constraints and flow knobs, and how to run the flow.
 - The flow tool generates the ORFS `VERILOG_FILES`, include directories and
   defines from the flattened filelist, plus `PLATFORM`, `SDC_FILE` and
   `DESIGN_NICKNAME`; `sky130hd.mk` setting any of them is an error
@@ -37,10 +39,11 @@ resolver, plus only what is in `src/<ip>/asic/`:
 - RTL with packages, typed parameters or other SystemVerilog beyond Yosys's
   own reader sets `SYNTH_HDL_FRONTEND = slang` in `sky130hd.mk`, so ORFS reads
   it with the slang frontend built into its Yosys.
-- The SDC clock comes from the IP's HAS timing section. A different study
-  clock is a run option, never an edit to the HAS target.
+- The SDC clock comes from the clock target on the IP's ASIC page
+  (`wiki/src/<ip>/asic/ASIC.md`), which meets the HAS performance targets. A
+  different study clock is a run option, never an edit to that target.
 - Keep RTL portable: no vendor primitives in `<ip>.rtl.f`; memories stay
-  behavioral until a macro is specified in the HAS.
+  behavioral until a macro is specified in the MAS.
 
 ## Generated output
 
@@ -56,10 +59,10 @@ summary as its `asic-metrics` artifact, never raw ORFS reports or logs.
 2. Lint clean ([RTL BKM](rtl.md#lint-and-style-checks)); synthesis warnings
    reviewed (latches, undriven or removed logic are failures).
 3. Flow completes through route with the reported metrics.
-4. Timing: WNS ≥ 0 at the HAS clock, or the gap is stated with its owning
-   issue.
+4. Timing: WNS ≥ 0 at the ASIC page's clock target, or the gap is stated
+   with its owning issue.
 
-Synthesis removing logic that the HAS requires is a bug, even when the flow
+Synthesis removing logic that the MAS requires is a bug, even when the flow
 passes; check the cell count against expectation.
 
 ## Metrics
@@ -84,6 +87,6 @@ Nightly collects these per IP into the tracker
 ## Review checklist
 
 - Inputs limited to `<ip>.rtl.f`, one `<prefix><ip>.sdc` and `sky130hd.mk`.
-- SDC clock matches the HAS; every exception has a reason.
+- SDC clock matches the ASIC page; every exception has a reason.
 - Metrics reported with the toolchain versions; WNS gap explained.
 - No generated output committed.

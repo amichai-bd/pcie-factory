@@ -7,8 +7,10 @@
 ## Scope
 
 This page owns repository-wide SystemVerilog style for synthesizable RTL
-under `src/**/rtl/`. An IP's `HAS.md` owns its behavior; the
-[layout page](../project/layout.md) owns file placement. Simulation-only code
+under `src/**/rtl/`. An IP's `arch/HAS.md` owns its behavior and
+interfaces (a sub-IP's `rtl/MAS.md` does, as it has no HAS), its
+`rtl/MAS.md` owns its micro-architecture ([wiki BKM](wiki.md#page-set)), and
+the [layout page](../project/layout.md) owns file placement. Simulation-only code
 follows the [DV BKM](dv.md).
 
 ## SystemVerilog rules
@@ -81,12 +83,12 @@ page refers to it as `<prefix>`.
 
 ## Reset and clocks
 
-- Each module's HAS states clock, reset polarity, synchronous or asynchronous
-  assertion, release behavior and every reset value. Default when the HAS is
-  silent: one clock `clk_i`, synchronous active-high reset `rst_i`.
+- Each IP's spec (HAS, or MAS for a sub-IP) states clock, reset polarity,
+  synchronous or asynchronous assertion, release behavior and every reset
+  value. Default when the spec is silent: one clock `clk_i`, synchronous active-high reset `rst_i`.
 - Reset only state that needs a defined value; storage arrays are not reset.
 - No generated or gated clocks in fabric; use clock enables. A second clock
-  domain needs an owning HAS section, and every crossing uses a specified
+  domain needs an owning MAS section, and every crossing uses a specified
   synchronizer or protocol.
 - No synthesis pragmas or attributes that change simulated behavior.
 
@@ -94,7 +96,7 @@ page refers to it as `<prefix>`.
 
 - Checkers that only simulation needs go in bind modules listed in
   `dv/<ip>.dv.f`, never in the `.rtl.f` closure. Bind to documented ports and
-  internal signals named in the HAS.
+  internal signals named in the MAS.
 - Assertions are simulator-neutral SystemVerilog that Verilator supports
   (`--assert`): immediate assertions in `always_comb`/`always_ff`, or
   concurrent properties with an explicit clock and `disable iff` reset.
@@ -130,10 +132,11 @@ format and names. Practice on top of it:
 
 ## Review checklist
 
-- Widths, signedness and reset values match the HAS.
+- Widths, signedness and reset values match the HAS (or sub-IP MAS).
 - No latch, no multiple drivers, no unsized constant.
 - Types in packages; names follow the table.
 - Filelist updated in order; no orphan or duplicate.
 - Lint and style clean, or each waiver reviewed with a reason.
-- HAS updated in the same PR when behavior or interfaces change
+- HAS updated in the same PR when behavior or interfaces change, MAS when
+  the structure, pipeline or timing does
   ([wiki BKM](wiki.md#specs-and-code-stay-aligned)).
