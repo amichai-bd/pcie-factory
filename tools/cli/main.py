@@ -49,9 +49,13 @@ def cmd_sim(ctx: Context, args) -> int:
 
 def cmd_regress(ctx: Context, args) -> int:
     levels = sorted(set(args.level))
+    if not args.dry_run:
+        regress.remove_summary(ctx.workdir)
     selection = regress.select(ctx, levels, args.ip, args.affected, args.seed)
     for ip in selection.ips:
         print(f"[select] {ip.id}: {selection.reasons[ip.id]}")
+    if not selection.ips:
+        print("no IPs selected")
     if args.dry_run:
         for entry, seed in selection.runs:
             print(f"L{entry.level} {entry.ip}:{entry.name} seed={seed}")
@@ -65,14 +69,27 @@ def cmd_regress(ctx: Context, args) -> int:
 
 
 def cmd_clean(ctx: Context, args) -> int:
-    targets = [ctx.workdir]
-    if args.ip:
-        ips = discover(ctx.src_root)
-        targets = [find_ip(ips, i).work_dir(ctx.workdir) for i in args.ip]
-    for t in targets:
-        if t.exists():
-            shutil.rmtree(t)
-            print(f"removed {t}")
+    if not args.ip:
+        if ctx.workdir.exists():
+            shutil.rmtree(ctx.workdir)
+            print(f"removed {ctx.workdir}")
+        return 0
+    ips = discover(ctx.src_root)
+    for ip_id in args.ip:
+        ip = find_ip(ips, ip_id)
+        # Sub-IP output nests under workdir/<ip>/<subip>/; keep it.
+        keep = {o.path.name for o in ips if o.path.parent == ip.path}
+        out = ip.work_dir(ctx.workdir)
+        if not out.is_dir():
+            continue
+        for entry in sorted(out.iterdir()):
+            if entry.name in keep:
+                continue
+            if entry.is_dir():
+                shutil.rmtree(entry)
+            else:
+                entry.unlink()
+        print(f"cleaned {out} (sub-IP output kept)" if keep else f"cleaned {out}")
     return 0
 
 
@@ -103,7 +120,8 @@ def _regress_args(p: argparse.ArgumentParser) -> None:
 
 
 def _clean_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--ip", action="append", help="only this IP's output; repeatable")
+    p.add_argument("--ip", action="append",
+                   help="only this IP's own output (sub-IP output is kept); repeatable")
 
 
 # The dispatch table: name -> (help, handler, argument builder).
@@ -149,3 +167,7 @@ def main(argv: list[str] | None = None) -> int:
     except USER_ERRORS as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    except KeyboardInterrupt:
+        sim.kill_all()
+        print("interrupted", file=sys.stderr)
+        return 130

@@ -22,9 +22,26 @@ def default_seed(entry: TestEntry, index: int) -> int:
 
 
 def seeds_for(entry: TestEntry, base_seed: int | None) -> list[int]:
+    """``--seed S`` gives S, S+1, ...; otherwise the explicit list, or seeds
+    derived from the entry for a count."""
     if base_seed is not None:
-        return [base_seed + i for i in range(entry.seeds)]
+        return [base_seed + i for i in range(entry.runs)]
+    if isinstance(entry.seeds, tuple):
+        return list(entry.seeds)
     return [default_seed(entry, i) for i in range(entry.seeds)]
+
+
+def pmap(fn, items, jobs: int) -> list:
+    """Map ``fn`` over ``items`` on ``jobs`` threads. On Ctrl-C, kill every
+    running child process group, drop queued work and re-raise."""
+    pool = ThreadPoolExecutor(max_workers=jobs)
+    try:
+        return list(pool.map(fn, items))
+    except KeyboardInterrupt:
+        sim.kill_all()
+        raise
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
 
 
 def load_all(ips: list[Ip]) -> dict[str, list[TestEntry]]:
@@ -88,6 +105,7 @@ def run(
     out=sys.stdout,
 ) -> dict:
     """Build and run the selection; write and return the summary."""
+    remove_summary(ctx.workdir)
     verilator = sim.find_verilator()
     if verilator is None and selection.runs:
         raise sim.SimError(
@@ -108,8 +126,7 @@ def run(
         print(f"[build] {spec.ip.id}:{spec.key} {res.status} ({res.runtime_s:.1f}s)", file=out, flush=True)
         return res
 
-    with ThreadPoolExecutor(max_workers=jobs) as pool:
-        built = dict(zip(specs, pool.map(do_build, specs.values())))
+    built = dict(zip(specs, pmap(do_build, list(specs.values()), jobs)))
 
     def do_test(run_item):
         entry, seed = run_item
@@ -130,8 +147,7 @@ def run(
         )
         return res
 
-    with ThreadPoolExecutor(max_workers=jobs) as pool:
-        results = list(pool.map(do_test, selection.runs))
+    results = pmap(do_test, selection.runs, jobs)
 
     summary = make_summary(
         ctx, selection, levels, budgets, list(built.items()), results,
@@ -185,6 +201,8 @@ def make_summary(
         "levels": sorted(levels),
         "src_root": str(ctx.src_root),
         "ips": {ip.id: selection.reasons[ip.id] for ip in selection.ips},
+        "selected_ips": len(selection.ips),
+        "selected_tests": len(tests),
         "builds": [
             {"ip": ip_id, "build": key, "status": r.status,
              "runtime_s": round(r.runtime_s, 3), "log": rel(r.log)}
@@ -200,6 +218,12 @@ def make_summary(
 
 def summary_path(workdir: Path) -> Path:
     return workdir / "regress" / "summary.json"
+
+
+def remove_summary(workdir: Path) -> None:
+    """Drop a previous run's summary so a failed or aborted run never leaves
+    a stale result behind."""
+    summary_path(workdir).unlink(missing_ok=True)
 
 
 def write_summary(workdir: Path, summary: dict) -> Path:

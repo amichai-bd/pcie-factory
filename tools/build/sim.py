@@ -20,6 +20,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -28,11 +29,12 @@ from pathlib import Path
 if __package__ in (None, ""):  # executed as a script by the parent process
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from build.filelist import resolve  # noqa: E402
+from build.filelist import FilelistError, resolve  # noqa: E402
 from build.ip import Ip  # noqa: E402
 
 COCOTB_VERSION = "2.1.0"
 VERILATOR_FALLBACK_DIRS = [Path("/opt/verilator/5.052/bin")]
+BUILD_TIMEOUT_S = 1800.0  # wall-clock bound on one Verilator build
 
 
 class SimError(Exception):
@@ -89,33 +91,68 @@ def test_dir(workdir: Path, ip: Ip, test: str, seed: int) -> Path:
     return ip.work_dir(workdir) / test / str(seed)
 
 
+# Child processes currently running, so an interrupt can kill them all.
+_ACTIVE: set[subprocess.Popen] = set()
+_LOCK = threading.Lock()
+_STOPPING = threading.Event()
+
+
+def kill_all() -> None:
+    """Kill every running child process group and refuse to start new ones
+    (used on Ctrl-C; children run in their own sessions and would otherwise
+    survive the parent)."""
+    _STOPPING.set()
+    with _LOCK:
+        procs = list(_ACTIVE)
+    for proc in procs:
+        if proc.returncode is None:
+            _killpg(proc)
+
+
+def _killpg(proc: subprocess.Popen) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
 def _run_child(phase: str, job: dict, log: Path, timeout_s: float | None) -> tuple[int | None, float]:
     """Run one child phase; return (exit code or None on timeout, runtime)."""
+    if _STOPPING.is_set():
+        raise KeyboardInterrupt
     log.parent.mkdir(parents=True, exist_ok=True)
     job_file = log.with_suffix(".job.json")
     job_file.write_text(json.dumps(job, indent=2, sort_keys=True))
     cmd = [sys.executable, "-B", str(Path(__file__).resolve()), phase, str(job_file)]
     start = time.monotonic()
+    code: int | None = None
     with open(log, "w") as fh:
         proc = subprocess.Popen(
             cmd, stdout=fh, stderr=subprocess.STDOUT, start_new_session=True
         )
+        with _LOCK:
+            _ACTIVE.add(proc)
         try:
             code = proc.wait(timeout=timeout_s)
         except subprocess.TimeoutExpired:
-            os.killpg(proc.pid, signal.SIGKILL)
-            proc.wait()
             code = None
+        except BaseException:  # Ctrl-C in this thread: take the sim down too
+            code = None
+            raise
+        finally:
+            if code is None:  # timed out or interrupted: kill the whole group
+                _killpg(proc)
+                proc.wait()
+            with _LOCK:
+                _ACTIVE.discard(proc)
+    if _STOPPING.is_set():
+        raise KeyboardInterrupt
     return code, time.monotonic() - start
 
 
 def _job(spec: BuildSpec, workdir: Path, verilator: Path) -> dict:
-    flat = resolve(spec.ip.sim_f)
     return {
         "verilator": str(verilator),
-        "sources": [str(p) for p in flat.sources],
-        "incdirs": [str(p) for p in flat.incdirs],
-        "defines": flat.defines,
         "top": spec.top,
         "params": spec.params,
         "waves": spec.waves,
@@ -125,12 +162,28 @@ def _job(spec: BuildSpec, workdir: Path, verilator: Path) -> dict:
 
 
 def build(spec: BuildSpec, workdir: Path, verilator: Path) -> Result:
-    """Elaborate and compile ``spec``; log at ``<build_dir>/build.log``."""
-    job = _job(spec, workdir, verilator)
+    """Elaborate and compile ``spec``; log at ``<build_dir>/build.log``.
+    A filelist that does not resolve is a build ``error`` (not an exception),
+    with the ``file:line`` message as detail and in the log."""
     log = spec.build_dir(workdir) / "build.log"
-    code, runtime = _run_child("build", job, log, timeout_s=None)
-    status = "pass" if code == 0 else "error"
-    return Result(status, runtime, log, "" if code == 0 else f"build failed, see {log}")
+    try:
+        flat = resolve(spec.ip.sim_f)
+    except FilelistError as exc:
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text(f"error: {exc}\n")
+        return Result("error", 0.0, log, str(exc))
+    job = _job(spec, workdir, verilator)
+    job.update(
+        sources=[str(p) for p in flat.sources],
+        incdirs=[str(p) for p in flat.incdirs],
+        defines=flat.defines,
+    )
+    code, runtime = _run_child("build", job, log, timeout_s=BUILD_TIMEOUT_S)
+    if code is None:
+        return Result("error", runtime, log, f"build timed out after {BUILD_TIMEOUT_S}s")
+    if code != 0:
+        return Result("error", runtime, log, f"build failed, see {log}")
+    return Result("pass", runtime, log)
 
 
 def run_test(
@@ -169,7 +222,10 @@ def parse_results(results_xml: Path) -> tuple[str, str]:
     """Map a cocotb results.xml to (status, detail)."""
     if not results_xml.is_file():
         return "error", "no results.xml (simulation terminated abnormally)"
-    root = ET.parse(results_xml).getroot()
+    try:
+        root = ET.parse(results_xml).getroot()
+    except ET.ParseError as exc:
+        return "error", f"unreadable results.xml: {exc}"
     cases = root.findall(".//testcase")
     if not cases:
         return "error", "results.xml contains no test cases"

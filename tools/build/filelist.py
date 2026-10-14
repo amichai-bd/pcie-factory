@@ -38,12 +38,13 @@ class Resolved:
 
     def reaches(self, path: Path) -> bool:
         """True if ``path`` is a source, a filelist in the include tree, or a
-        file directly inside one of the include directories."""
+        file anywhere below one of the include directories (``include
+        "sub/x.svh"`` reaches into subdirectories)."""
         path = Path(path).resolve()
         return (
             path in self.sources
             or path in self.filelists
-            or path.parent in self.incdirs
+            or any(d in path.parents for d in self.incdirs)
         )
 
 

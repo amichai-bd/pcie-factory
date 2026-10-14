@@ -90,6 +90,17 @@ def test_broken_filelist_selects_ip(repo):
     assert got["counter"] == "sim filelist does not resolve"
 
 
+def test_path_with_spaces(repo):
+    (repo / "src/counter/inc/dv/notes with spaces.txt").write_text("x")
+    assert affected(repo) == {"counter/inc": "changed: src/counter/inc/dv/notes with spaces.txt"}
+
+
+def test_rename_counts_old_and_new_path(repo):
+    git(repo, "mv", "src/counter/inc/dv/tests/test_inc.py", "src/counter/dv/tests/moved.py")
+    commit(repo)
+    assert set(affected(repo)) == {"counter", "counter/inc"}
+
+
 def test_bad_base(repo):
     with pytest.raises(GitError, match="merge-base"):
         changed_files("no-such-ref", repo / "src")

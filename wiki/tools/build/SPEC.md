@@ -22,7 +22,7 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | --- | --- |
 | `sim` | Run one test of one IP (below). |
 | `regress` | Run regression levels; see the [regress spec](../regress/SPEC.md). |
-| `clean [--ip ID]...` | Delete the workdir, or only `workdir/<ip>/` for each given IP. |
+| `clean [--ip ID]...` | Delete the whole workdir. With `--ip`, empty `workdir/<ip>/` for each given IP but keep the directories of its sub-IPs, which nest there. |
 | `check`, `labels`, `wiki`, `fpga`, `asic` | Stubs: print `not implemented yet (see issue #N)` and exit 2. Each is filled in by its issue (#7, #10, #12, #13, #14) by replacing one entry in `COMMANDS`. |
 
 Options shared by every command:
@@ -93,7 +93,8 @@ cycle and is flattened once.
 
 `Resolved.reaches(path)` answers the reverse question for `regress
 --affected`. It is true when `path` is a source, a visited filelist, or a
-file directly inside one of the include directories (even a new file).
+file anywhere below one of the include directories. Subdirectories count
+(``include "sub/x.svh"``), and so do new files.
 
 ## Simulation: `./build sim`
 
@@ -118,8 +119,17 @@ overrides (`-G`).
 
 Each build and each test runs in a child process
 (`python3 -B tools/build/sim.py build|test <job.json>`). The parent never
-imports cocotb, a test that runs past its `timeout_s` has its process group
-killed, and tests can run in parallel. Output layout (`<ip>` is the IP id,
+imports cocotb, and tests can run in parallel. Every child runs in its own
+process group:
+
+- A test that runs past its `timeout_s` has its group killed.
+- A build has a fixed wall-clock bound, `BUILD_TIMEOUT_S` (1800 s) in
+  `sim.py`. Exceeding it is a build `error`.
+- On Ctrl-C, every active group is killed and the command exits 130.
+
+The filelist is resolved before the build child starts. A resolve failure
+is a build `error`, with the `file:line` message as the detail and in
+`build.log`. Output layout (`<ip>` is the IP id,
 so a sub-IP nests under its parent):
 
 | Path | Content |
@@ -137,7 +147,7 @@ A test's status comes from `results.xml`:
 | `pass` | Every test case passed and the simulator exited 0. |
 | `fail` | At least one test case has a failure or error. |
 | `timeout` | The run exceeded `timeout_s` and was killed. |
-| `error` | The build failed, `results.xml` is missing or empty, or the simulator exited nonzero without a recorded failure. |
+| `error` | The build failed, `results.xml` is missing, empty or unreadable (for example truncated), or the simulator exited nonzero without a recorded failure. |
 
 ## Unit tests
 
@@ -145,11 +155,14 @@ A test's status comes from `results.xml`:
 python3 -m pytest tools
 ```
 
-`tools/pytest.ini` puts `tools/` on the path and excludes `fixtures/`. The
+`tools/pytest.ini` puts `tools/` on the path, collects every tool's tests
+and excludes `fixtures/`. It uses pytest's default (prepend) import mode, so
+test file basenames must be unique across `tools/`. The
 fixture source tree `tools/build/tests/fixtures/src/` is a counter IP with a
 sub-IP, and it exercises `-F`, `+incdir+`, `+define+`, `params`, seeds and one
 test per level. The end-to-end tests (real build, pass, fail, timeout, build
-error, waves, and the `regress` and `sim` CLI) are skipped when Verilator or
-cocotb is missing.
+error, waves, a broken filelist in one IP, and the `regress` and `sim` CLI)
+are skipped when Verilator or cocotb is missing. Process-control tests use a
+sleeping shell script in place of the child, so they need no simulator.
 
 Python dependencies: `pyyaml`, `pytest`, `cocotb==2.1.0`.

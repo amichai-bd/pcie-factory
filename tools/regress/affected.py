@@ -31,8 +31,9 @@ def changed_files(base: str, start: Path) -> tuple[Path, list[str]]:
     of ``base`` and HEAD, including uncommitted and untracked files."""
     repo = Path(_git(start, "rev-parse", "--show-toplevel").strip())
     merge_base = _git(repo, "merge-base", base, "HEAD").strip()
-    names = set(_git(repo, "diff", "--name-only", merge_base).split())
-    names |= set(_git(repo, "ls-files", "--others", "--exclude-standard").split())
+    diff = _git(repo, "diff", "-z", "--no-renames", "--name-only", merge_base)
+    untracked = _git(repo, "ls-files", "-z", "--others", "--exclude-standard")
+    names = {n for n in (diff + untracked).split("\0") if n}
     return repo, sorted(names)
 
 

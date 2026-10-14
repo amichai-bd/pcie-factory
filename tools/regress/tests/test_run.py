@@ -103,3 +103,33 @@ def test_summary_and_budget_warning(fixture_src, tmp_path):
     path = regress.write_summary(work, summary)
     assert path == work / "regress/summary.json"
     assert json.loads(path.read_text())["tests"][2]["status"] == "fail"
+
+
+def test_explicit_seed_list(fixture_src, tmp_path):
+    (fixture_src / "counter/dv/regress/level2.yaml").write_text(
+        "tests:\n  - {name: r, module: tests.test_counter, top: counter,"
+        " seeds: [11, 4], timeout_s: 5}\n")
+    ctx = ctx_for(fixture_src, tmp_path)
+    assert [s for _, s in regress.select(ctx, [2]).runs] == [4, 11]  # sorted
+    assert [s for _, s in regress.select(ctx, [2], base_seed=7).runs] == [7, 8]
+
+
+def test_filelist_error_is_a_per_ip_build_error(fixture_src, tmp_path, monkeypatch):
+    """A sim.f that does not resolve fails that IP's build; other IPs still
+    run and the summary is written with exit code 1."""
+    (fixture_src / "counter/dv/counter.dv.f").write_text("missing_tb.sv\n")
+    monkeypatch.setattr(sim, "find_verilator", lambda: Path("/fake/verilator"))
+    monkeypatch.setattr(sim, "_run_child", lambda phase, job, log, timeout_s: (0, 0.1))
+    monkeypatch.setattr(sim, "run_test", lambda spec, *a: sim.Result("pass", 0.2, Path("x.log")))
+    ctx = ctx_for(fixture_src, tmp_path)
+    out = io.StringIO()
+    summary = regress.run(ctx, regress.select(ctx, [0]), [0], out=out)
+    status = {t["ip"]: (t["status"], t["detail"]) for t in summary["tests"]}
+    assert status["counter/inc"] == ("pass", "")
+    assert status["counter"][0] == "error"
+    assert "counter.dv.f:1: source not found: missing_tb.sv" in status["counter"][1]
+    assert summary["passed"] is False
+    assert regress.report(summary, io.StringIO(), io.StringIO()) == 1
+    assert json.loads(regress.summary_path(ctx.workdir).read_text())["passed"] is False
+    build_log = ctx.workdir / "counter/build/counter/build.log"
+    assert "source not found" in build_log.read_text()

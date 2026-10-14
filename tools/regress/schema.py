@@ -34,7 +34,11 @@ class TestEntry:
     top: str
     timeout_s: float
     testcase: str | None = None
-    seeds: int = 1
+    seeds: int | tuple[int, ...] = 1  # count (derived seeds) or explicit seeds
+
+    @property
+    def runs(self) -> int:
+        return self.seeds if isinstance(self.seeds, int) else len(self.seeds)
     params: dict = field(default_factory=dict)
 
     def __hash__(self) -> int:
@@ -51,6 +55,8 @@ def _load_yaml(path: Path):
 def parse_entry(raw, ip: str, level: int, where: str) -> TestEntry:
     if not isinstance(raw, dict):
         raise SchemaError(f"{where}: a test entry must be a mapping")
+    if isinstance(raw.get("name"), str):
+        where = f"{where} ({raw['name']})"
     keys = set(raw)
     missing = _REQUIRED - keys
     if missing:
@@ -64,7 +70,6 @@ def parse_entry(raw, ip: str, level: int, where: str) -> TestEntry:
         raise SchemaError(f"{where}: 'name' must match {_NAME_RE.pattern}")
     if name in RESERVED_TEST_NAMES:
         raise SchemaError(f"{where}: test name {name!r} is reserved")
-    where = f"{where} ({name})"
     module = raw["module"]
     if not isinstance(module, str) or not _MODULE_RE.match(module):
         raise SchemaError(f"{where}: 'module' must be a dotted Python module name")
@@ -75,8 +80,21 @@ def parse_entry(raw, ip: str, level: int, where: str) -> TestEntry:
     if testcase is not None and (not isinstance(testcase, str) or not _IDENT_RE.match(testcase)):
         raise SchemaError(f"{where}: 'testcase' must be a Python function name")
     seeds = raw.get("seeds", 1)
-    if isinstance(seeds, bool) or not isinstance(seeds, int) or seeds < 1:
-        raise SchemaError(f"{where}: 'seeds' must be an integer >= 1")
+    if isinstance(seeds, list):
+        if not seeds or any(
+            isinstance(x, bool) or not isinstance(x, int) or not 0 <= x < 2**31
+            for x in seeds
+        ):
+            raise SchemaError(
+                f"{where}: a 'seeds' list must hold integers in [0, 2**31)"
+            )
+        if len(set(seeds)) != len(seeds):
+            raise SchemaError(f"{where}: 'seeds' list has duplicates")
+        seeds = tuple(seeds)
+    elif isinstance(seeds, bool) or not isinstance(seeds, int) or seeds < 1:
+        raise SchemaError(
+            f"{where}: 'seeds' must be a count >= 1 or a list of integer seeds"
+        )
     timeout = raw["timeout_s"]
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
         raise SchemaError(f"{where}: 'timeout_s' must be a positive number")
@@ -92,16 +110,18 @@ def parse_entry(raw, ip: str, level: int, where: str) -> TestEntry:
 
 
 def load_level(ip: Ip, level: int) -> list[TestEntry]:
-    """Tests of one IP at one level; a missing file means no tests."""
+    """Tests of one IP at one level. A missing file or ``tests: []`` means
+    no tests."""
     path = ip.level_file(level)
     if not path.is_file():
         return []
     data = _load_yaml(path)
-    if data is None:
-        return []
     if not isinstance(data, dict) or set(data) != {"tests"}:
-        raise SchemaError(f"{path}: top level must be a mapping with only 'tests'")
-    tests = data["tests"] or []
+        raise SchemaError(
+            f"{path}: top level must be a mapping with only 'tests' "
+            "(an empty level is 'tests: []')"
+        )
+    tests = data["tests"]
     if not isinstance(tests, list):
         raise SchemaError(f"{path}: 'tests' must be a list")
     return [parse_entry(raw, ip.id, level, f"{path}: tests[{i}]") for i, raw in enumerate(tests)]

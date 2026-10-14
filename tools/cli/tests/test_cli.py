@@ -1,3 +1,4 @@
+import json
 import subprocess
 import sys
 
@@ -52,10 +53,38 @@ def test_user_errors_exit_2(fixture_src, tmp_path, capsys):
 
 def test_clean(fixture_src, tmp_path):
     work = tmp_path / "work"
-    (work / "counter/inc/x").mkdir(parents=True)
+    (work / "counter/counts/1").mkdir(parents=True)
+    (work / "counter/build").mkdir(parents=True)
+    (work / "counter/inc/exhaustive/1").mkdir(parents=True)
     (work / "other").mkdir()
     base = ["clean", "--src-root", str(fixture_src), "--workdir", str(work)]
+    assert main(base + ["--ip", "counter"]) == 0
+    assert sorted(p.name for p in (work / "counter").iterdir()) == ["inc"]
+    assert (work / "counter/inc/exhaustive/1").is_dir()  # sub-IP output kept
     assert main(base + ["--ip", "counter/inc"]) == 0
-    assert not (work / "counter/inc").exists() and (work / "other").exists()
+    assert list((work / "counter/inc").iterdir()) == [] and (work / "other").exists()
     assert main(base) == 0
     assert not work.exists()
+
+
+def test_no_ips_selected(tmp_path, capsys):
+    src = tmp_path / "src"
+    src.mkdir()
+    work = tmp_path / "work"
+    assert main(["regress", "--src-root", str(src), "--workdir", str(work), "--level", "0"]) == 0
+    assert "no IPs selected" in capsys.readouterr().out
+    summary = json.loads((work / "regress/summary.json").read_text())
+    assert (summary["selected_ips"], summary["selected_tests"], summary["passed"]) == (0, 0, True)
+
+
+def test_stale_summary_removed_on_error_kept_on_dry_run(fixture_src, tmp_path):
+    work = tmp_path / "work"
+    stale = work / "regress/summary.json"
+    stale.parent.mkdir(parents=True)
+    stale.write_text('{"passed": true}')
+    base = ["regress", "--src-root", str(fixture_src), "--workdir", str(work), "--level", "0"]
+    assert main(base + ["--dry-run"]) == 0
+    assert stale.is_file()  # --dry-run neither writes nor removes the summary
+    (fixture_src / "counter/dv/regress/level0.yaml").write_text("tests: 1\n")
+    assert main(base) == 2
+    assert not stale.exists()

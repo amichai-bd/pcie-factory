@@ -13,6 +13,11 @@ def test_defaults():
     assert (e.seeds, e.testcase, e.params, e.timeout_s) == (1, None, {}, 10.0)
 
 
+def test_explicit_seed_list():
+    e = parse_entry(dict(GOOD, seeds=[5, 0, 7]), "a", 0, "w")
+    assert e.seeds == (5, 0, 7) and e.runs == 3
+
+
 def test_all_fields():
     e = parse_entry(dict(GOOD, testcase="tc", seeds=3, params={"W": 4, "S": "x"}), "a", 2, "w")
     assert (e.level, e.seeds, e.testcase, e.params) == (2, 3, "tc", {"W": 4, "S": "x"})
@@ -30,6 +35,10 @@ def test_all_fields():
         ({"testcase": "a.b"}, "Python function name"),
         ({"seeds": 0}, "'seeds'"),
         ({"seeds": True}, "'seeds'"),
+        ({"seeds": []}, "'seeds' list"),
+        ({"seeds": [1, "2"]}, "'seeds' list"),
+        ({"seeds": [-1]}, "'seeds' list"),
+        ({"seeds": [3, 3]}, "duplicates"),
         ({"timeout_s": -1}, "'timeout_s'"),
         ({"timeout_s": "10"}, "'timeout_s'"),
         ({"params": [1]}, "'params' must be a mapping"),
@@ -48,6 +57,13 @@ def test_entry_errors(change, message):
         parse_entry(raw, "a", 0, "file.yaml: tests[0]")
 
 
+def test_errors_name_the_test():
+    with pytest.raises(SchemaError, match=r"tests\[0\] \(t\): unknown key"):
+        parse_entry(dict(GOOD, bogus=1), "a", 0, "f.yaml: tests[0]")
+    with pytest.raises(SchemaError, match=r"tests\[0\] \(t\): missing key"):
+        parse_entry({"name": "t"}, "a", 0, "f.yaml: tests[0]")
+
+
 def test_entry_must_be_mapping():
     with pytest.raises(SchemaError, match="must be a mapping"):
         parse_entry(["x"], "a", 0, "w")
@@ -62,9 +78,9 @@ def make_ip(tmp_path: Path, levels: dict) -> Ip:
 
 
 def test_level_files(tmp_path):
-    ip = make_ip(tmp_path, {0: "", 1: "tests: []\n",
+    ip = make_ip(tmp_path, {1: "tests: []\n",
                             2: "tests:\n  - {name: t, module: m, top: t, timeout_s: 1}\n"})
-    assert load_level(ip, 0) == [] and load_level(ip, 1) == []
+    assert load_level(ip, 0) == [] and load_level(ip, 1) == []  # missing, empty
     assert [e.name for e in load_level(ip, 2)] == ["t"]
     assert [e.name for e in load_ip(ip)] == ["t"]
 
@@ -73,10 +89,13 @@ def test_level_files(tmp_path):
     "text, message",
     [
         ("- a\n", "only 'tests'"),
+        ("[]\n", "an empty level is 'tests: \\[\\]'"),
+        ("", "only 'tests'"),
+        ("tests:\n", "must be a list"),
         ("tests: []\nother: 1\n", "only 'tests'"),
         ("tests: {a: 1}\n", "must be a list"),
         ("tests: [\n", "invalid YAML"),
-        ("tests:\n  - {name: t}\n", r"level0.yaml: tests\[0\]: missing key"),
+        ("tests:\n  - {name: t}\n", r"level0.yaml: tests\[0\] \(t\): missing key"),
     ],
 )
 def test_level_errors(tmp_path, text, message):

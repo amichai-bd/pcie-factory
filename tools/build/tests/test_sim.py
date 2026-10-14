@@ -1,6 +1,8 @@
 import importlib.util
 import json
 import os
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -27,6 +29,80 @@ def test_parse_results(tmp_path):
     assert sim.parse_results(bad) == ("fail", "failed: b")
     err = write_results(tmp_path / "x.xml", '<testcase name="c"><error/></testcase>')
     assert sim.parse_results(err)[0] == "fail"
+    (tmp_path / "t.xml").write_text("<testsuites><testsuite><testca")
+    assert sim.parse_results(tmp_path / "t.xml")[0] == "error"  # truncated
+
+
+needs_proc = pytest.mark.skipif(not Path("/proc/self/stat").exists(), reason="needs /proc")
+
+
+@pytest.fixture
+def sleeper(tmp_path, monkeypatch):
+    """Make child processes a shell that sleeps (and spawns a grandchild in
+    the same process group), so process control is testable without a sim."""
+    script = tmp_path / "sleeper.sh"
+    script.write_text("#!/bin/sh\nsleep 60 &\nsleep 60\n")
+    script.chmod(0o755)
+    monkeypatch.setattr(sim.sys, "executable", str(script))
+    yield
+    sim._STOPPING.clear()
+
+
+def group_alive(pgid: int) -> bool:
+    """True if a live (non-zombie) process is in group ``pgid``. Killed
+    grandchildren may linger as zombies until init reaps them."""
+    for stat in Path("/proc").glob("[0-9]*/stat"):
+        try:
+            fields = stat.read_text().rsplit(")", 1)[1].split()
+        except OSError:
+            continue
+        if int(fields[2]) == pgid and fields[0] != "Z":
+            return True
+    return False
+
+
+@needs_proc
+def test_build_timeout_kills_group(fixture_src, tmp_path, monkeypatch, sleeper):
+    monkeypatch.setattr(sim, "BUILD_TIMEOUT_S", 0.5)
+    pids = []
+    real_popen = sim.subprocess.Popen
+
+    def popen(*a, **kw):
+        proc = real_popen(*a, **kw)
+        pids.append(proc.pid)
+        return proc
+
+    monkeypatch.setattr(sim.subprocess, "Popen", popen)
+    ip = find_ip(discover(fixture_src), "counter")
+    res = sim.build(sim.BuildSpec(ip, "counter"), tmp_path / "w", Path("/fake/verilator"))
+    assert res.status == "error" and "timed out" in res.detail
+    assert res.runtime_s < 10
+    assert pids and not group_alive(pids[0])
+
+
+@needs_proc
+def test_kill_all_stops_running_children(tmp_path, sleeper):
+    errors = []
+
+    def work():
+        try:
+            sim._run_child("test", {}, tmp_path / "x/sim.log", timeout_s=None)
+        except KeyboardInterrupt as exc:
+            errors.append(exc)
+
+    t = threading.Thread(target=work)
+    t.start()
+    deadline = time.monotonic() + 10
+    while not sim._ACTIVE and time.monotonic() < deadline:
+        time.sleep(0.05)
+    (proc,) = list(sim._ACTIVE)
+    assert group_alive(proc.pid)
+    sim.kill_all()
+    t.join(10)
+    assert not t.is_alive() and len(errors) == 1
+    assert not group_alive(proc.pid) and not sim._ACTIVE
+    with pytest.raises(KeyboardInterrupt):  # nothing new starts once stopping
+        sim._run_child("test", {}, tmp_path / "y/sim.log", timeout_s=None)
 
 
 def test_build_key_and_dirs(tmp_path):
@@ -81,6 +157,15 @@ def test_e2e_pass_fail_timeout_and_build_error(fixture_src, tmp_path):
 
     hung = sim.run_test(spec, work, verilator, "hang", "tests.test_negative", "hangs", 1, 3)
     assert hung.status == "timeout"
+    hang_dir = (work / "counter/hang/1").resolve()
+    survivors = []
+    for proc_dir in Path("/proc").glob("[0-9]*"):
+        try:
+            if Path(os.readlink(proc_dir / "cwd")).resolve() == hang_dir:
+                survivors.append(proc_dir.name)
+        except OSError:
+            pass
+    assert survivors == []  # the simulator was killed, not just abandoned
 
     (ip.path / "rtl/counter.sv").write_text("module counter(; endmodule\n")
     assert sim.build(sim.BuildSpec(ip, "counter"), work, verilator).status == "error"
@@ -103,6 +188,15 @@ def test_e2e_regress_cli_all_levels(fixture_src, tmp_path, capsys):
     assert summary["totals"]["level2"]["tests"] == 2  # seeds: 2
     for t in summary["tests"]:
         assert (work / t["log"]).is_file()
+
+    # A broken sim.f in one IP is a build error there; the other IP still runs.
+    (fixture_src / "counter/dv/counter.dv.f").write_text("missing_tb.sv\n")
+    argv0 = ["regress", "--src-root", str(fixture_src), "--workdir", str(work), "--level", "0"]
+    assert main(argv0) == 1
+    summary = json.loads((work / "regress/summary.json").read_text())
+    assert {t["ip"]: t["status"] for t in summary["tests"]} == {
+        "counter": "error", "counter/inc": "pass"}
+    (fixture_src / "counter/dv/counter.dv.f").write_text("")
 
     # A failing test makes the run fail and is reported in the summary.
     (fixture_src / "counter/dv/regress/level0.yaml").write_text(

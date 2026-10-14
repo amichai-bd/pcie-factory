@@ -109,6 +109,7 @@ def test_reaches(tree):
     assert r.reaches(tree / "sub/sub.f")
     assert r.reaches(tree / "inc/defs.svh")
     assert r.reaches(tree / "inc/new_header.svh")  # may not exist yet
+    assert r.reaches(tree / "inc/sub/x.svh")  # `include "sub/x.svh"
     assert not r.reaches(tree / "b.sv")
 
 
