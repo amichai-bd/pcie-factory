@@ -8,6 +8,9 @@ on:
     branches: [main]
     paths:
       - "wiki/**"
+      - "README.md"
+      - "CLAUDE.md"
+      - ".claude/skills/**"
       - "tools/wiki_site/**"
       - "tools/requirements.txt"
       - ".github/workflows/pages.yml"

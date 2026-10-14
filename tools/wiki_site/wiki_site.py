@@ -3,6 +3,10 @@
 Every `wiki/**/*.md` page becomes an HTML page at its mirrored path
 (`index.md` or `README.md` -> the folder's `index.html`); other wiki files are
 copied byte for byte. The sidebar is derived from the `wiki/` directory tree.
+When the repository has a root `README.md`, it is the home page, `CLAUDE.md`
+is published beside it with a toggle between the two, the wiki's own landing
+page moves to `wiki.html`, and `.claude/skills/<name>/SKILL.md` become a
+Skills section.
 Links are rewritten: `.md` -> `.html`, folders -> their landing page, and
 repository paths outside `wiki/` -> GitHub blob/tree URLs at the built commit.
 `--strict` turns every broken link or anchor into a failure. The same tree and
@@ -36,6 +40,10 @@ REPO = HERE.parents[1]
 WIKI = "wiki"
 REPO_URL = "https://github.com/amichai-bd/pcie-factory"
 LANDINGS = ("index.md", "README.md")
+HOME = "README.md"  # repo-root page that, if present, is the site home
+AGENTS = "CLAUDE.md"  # agent contract, published beside the home page
+SKILLS = ".claude/skills"  # <name>/SKILL.md -> skills/<name>.html
+FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.S)
 LEXER_ALIASES = {"sh": "bash", "shell": "bash", "console": "bash", "sv": "systemverilog"}
 PLAIN = {"", "text", "txt", "plain"}
 THEME = ("wiki.css", "wiki.js", "vendor/mermaid.min.js", "vendor/mermaid-LICENSE.txt")
@@ -72,6 +80,30 @@ def out_path(rel: str) -> str:
     if p.name in LANDINGS:
         return str(p.parent / "index.html") if str(p.parent) != "." else "index.html"
     return str(p.with_suffix(".html")) if p.suffix == ".md" else rel
+
+
+def skill_text(text: str) -> str:
+    """A SKILL.md without its YAML frontmatter; the `description` becomes a
+    quote under the first H1 instead of being parsed as Markdown."""
+    m = FRONTMATTER.match(text)
+    if not m:
+        return text
+    meta: dict[str, str] = {}
+    key = None
+    for line in m.group(1).splitlines():
+        if key and line[:1] in (" ", "\t"):
+            meta[key] += " " + line.strip()
+        elif ":" in line:
+            key, _, value = line.partition(":")
+            key = key.strip()
+            meta[key] = value.strip()
+    body = text[m.end():]
+    desc = meta.get("description", "")
+    if not desc:
+        return body
+    lines = body.split("\n")
+    at = next((i + 1 for i, line in enumerate(lines) if line.startswith("# ")), 0)
+    return "\n".join(lines[:at] + ["", f"> {desc}", ""] + lines[at:])
 
 
 def inline_text(token) -> str:
@@ -118,8 +150,8 @@ class Page:
 
 @dataclass
 class Folder:
-    """A wiki directory in the sidebar: its landing page, pages and subfolders."""
-    rel: str  # path relative to wiki/ ("" for the root)
+    """A sidebar section: a wiki directory, or a section the build adds."""
+    rel: str  # path relative to wiki/ ("" for the root); its name is the label
     landing: str | None = None  # repo-relative source of index.md / README.md
     pages: list[str] = field(default_factory=list)
     folders: list["Folder"] = field(default_factory=list)
@@ -133,18 +165,54 @@ class Site:
         self.md.add_render_rule("heading_close", render_heading_close)
         self.pages: dict[str, Page] = {}  # repo-relative source -> page
         self.assets: list[str] = []  # repo-relative non-Markdown wiki files
+        self.out: dict[str, str] = {}  # repo-relative source -> site path
         self.problems: list[str] = []
         self.links = 0
         self._foreign: dict[str, set[str] | None] = {}
         self.tree = self._scan(root / WIKI)
+        for rel in list(self.pages) + self.assets:
+            self.out[rel] = out_path(rel[len(WIKI) + 1:])
+        self.home = self.tree.landing
+        self.toggle: tuple[str, str] | None = None  # (home, agents) sources
+        self.top: list[str] = ([self.tree.landing] if self.tree.landing else []) + self.tree.pages
+        self.sections: list[Folder] = list(self.tree.folders)
+        if (root / HOME).is_file():
+            self._add_repo_pages()
         taken: dict[str, str] = {out: "the theme" for out in RESERVED}
-        for rel in sorted(list(self.pages) + self.assets):
-            out = out_path(rel[len(WIKI) + 1:])
+        for rel in sorted(self.out):
+            out = self.out[rel]
             if out in taken:
                 self.problems.append(f"{rel}: publishes to {out}, already written by {taken[out]}")
             taken[out] = rel
         if "index.html" not in taken:
             self.problems.append(f"{WIKI}/: no index.md or README.md for the site home page")
+
+    def _add(self, src: str, out: str, text: str) -> None:
+        self.pages[src] = Page(self.md, src, text)
+        self.out[src] = out
+
+    def _add_repo_pages(self) -> None:
+        """README.md is home, CLAUDE.md sits beside it, the wiki tree becomes
+        one section headed by its landing page, and skills another."""
+        read = lambda rel: (self.root / rel).read_text(encoding="utf-8")  # noqa: E731
+        self._add(HOME, "index.html", read(HOME))
+        self.home, self.top = HOME, [HOME]
+        if (self.root / AGENTS).is_file():
+            self._add(AGENTS, "agents.html", read(AGENTS))
+            self.toggle = (HOME, AGENTS)
+            self.top.append(AGENTS)
+        if self.tree.landing:
+            self.out[self.tree.landing] = "wiki.html"
+        wiki = Folder(WIKI, self.tree.landing, self.tree.pages, self.tree.folders)
+        self.sections = [wiki] if wiki.landing or wiki.pages or wiki.folders else []
+        skills = Folder("Skills")
+        skill_dir = self.root / SKILLS
+        for f in sorted(skill_dir.glob("*/SKILL.md")) if skill_dir.is_dir() else ():
+            src = f.relative_to(self.root).as_posix()
+            self._add(src, f"skills/{f.parent.name}.html", skill_text(read(src)))
+            skills.pages.append(src)
+        if skills.pages:
+            self.sections.append(skills)
 
     def _scan(self, d: Path) -> Folder:
         rel = d.relative_to(self.root / WIKI).as_posix()
@@ -168,7 +236,7 @@ class Site:
         return folder
 
     def site_path(self, src: str) -> str:
-        return out_path(src[len(WIKI) + 1:])
+        return self.out[src]
 
     def landing_of(self, d: str) -> str | None:
         for name in LANDINGS:
@@ -231,7 +299,7 @@ class Site:
             if known is not None and anchor not in known:
                 self.problems.append(f"{src}: broken anchor {href} (no #{anchor} in {dest or target})")
         suffix = "#" + frag if frag else ""
-        if not in_wiki:
+        if not in_wiki and dest not in self.pages:
             kind = "tree" if full.is_dir() else "blob"
             tail = "?raw=true" if raw and kind == "blob" else ""
             return f"{self.repo_url}/{kind}/{self.sha}/{quote(target)}{tail}{suffix}"
@@ -258,11 +326,9 @@ class Site:
 
     # ------------------------------------------------------------- sidebar
     def sidebar(self, active: str, root: str) -> str:
-        top = self.tree
-        items = "".join(self._folder(f, active, root) for f in top.folders)
-        pages = "".join(self._link(p, active, root) for p in top.pages)
-        home = self._link(top.landing, active, root) if top.landing else ""
-        return f'<ul class="menu">{home}{pages}{items}</ul>'
+        pages = "".join(self._link(p, active, root) for p in self.top)
+        items = "".join(self._folder(f, active, root) for f in self.sections)
+        return f'<ul class="menu">{pages}{items}</ul>'
 
     def _link(self, src: str, active: str, root: str) -> str:
         out = self.site_path(src)
@@ -279,12 +345,13 @@ class Site:
             head = f"<span>{escape(name)}</span>"
         kids = "".join(self._link(p, active, root) for p in folder.pages)
         kids += "".join(self._folder(f, active, root) for f in folder.folders)
-        is_open = " open" if active.startswith(folder.rel + "/") else ""
+        is_open = " open" if active in {self.site_path(p) for p in self.nav_pages(folder)} else ""
         return f"<li><details{is_open}><summary>{head}</summary><ul>{kids}</ul></details></li>"
 
     def nav_pages(self, folder: Folder | None = None) -> list[str]:
-        """Every page the sidebar links to, in sidebar order."""
-        folder = folder or self.tree
+        """Every page the sidebar links to (in `folder`), in sidebar order."""
+        if folder is None:
+            return self.top + [p for f in self.sections for p in self.nav_pages(f)]
         out = ([folder.landing] if folder.landing else []) + folder.pages
         for sub in folder.folders:
             out += self.nav_pages(sub)
@@ -328,6 +395,12 @@ def layout(site: Site, out: str, page: Page, body: str, brand: str) -> str:
             f'<li class="toc-l{lvl}"><a href="#{escape(a)}">{escape(t)}</a></li>' for lvl, t, a in toc)
             + "</ul></aside>")
     title = escape(page.title if page.title == brand else f"{page.title} | {brand}")
+    if site.toggle and page.rel in site.toggle:
+        tabs = []
+        for src in site.toggle:
+            cls = ' class="active"' if src == page.rel else ""
+            tabs.append(f'<a{cls} href="{root}{site.site_path(src)}">{escape(src)}</a>')
+        body = f'<nav class="doc-toggle" aria-label="Landing page">{"".join(tabs)}</nav>\n' + body
     return f"""<!doctype html>
 <html lang="en" data-root="{root}">
 <head>
@@ -376,8 +449,7 @@ def build(root: Path, out: Path, sha: str, repo_url: str = REPO_URL) -> tuple[li
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)
-    home = site.tree.landing
-    brand = site.pages[home].title if home else "Wiki"
+    brand = site.pages[site.home].title if site.home else "Wiki"
     for src, page in sorted(site.pages.items()):
         dest = site.site_path(src)
         (out / dest).parent.mkdir(parents=True, exist_ok=True)
@@ -424,7 +496,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--strict", action="store_true", help="fail on any broken link or anchor")
     b.add_argument("--out", type=Path, default=REPO / "workdir" / "wiki-site", help="output directory (replaced)")
     b.add_argument("--sha", help="commit for GitHub links (default: git rev-parse HEAD)")
-    b.add_argument("--repo-url", default=REPO_URL, help="repository URL for links outside wiki/")
+    b.add_argument("--repo-url", default=REPO_URL, help="repository URL for links to unpublished files")
     b.add_argument("--root", type=Path, default=REPO, help=argparse.SUPPRESS)
     s = sub.add_parser("serve", help="serve the built site over HTTP")
     s.add_argument("--out", type=Path, default=REPO / "workdir" / "wiki-site", help="built site directory")
