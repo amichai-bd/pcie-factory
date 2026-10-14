@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import shutil
 from pathlib import Path
 
@@ -92,7 +91,7 @@ def test_worst_path_absent(bad):
 
 
 def test_summary_and_required():
-    extra = json.loads(text("reports/asic_extra.json"))
+    extra = metrics.parse_extra(text("reports/asic_extra.json"))
     summary = metrics.summarize(step_metrics(), metrics.parse_synth_stat(text("reports/synth_stat.txt")),
                                 metrics.parse_worst_path(text("reports/6_finish.rpt")), extra)
     assert summary["timing"] == {"setup_ws_ns": pytest.approx(6.01343), "wns_ns": 0.0,
@@ -101,6 +100,8 @@ def test_summary_and_required():
     assert summary["cells"] == 167 and summary["synth_cells"] == 105
     assert summary["utilization"] == pytest.approx(0.360963)
     assert summary["max_fanout"] == {"value": 25, "net": "net11"}
+    assert summary["logic_depth"] == {"value": 4,
+                                      "endpoint": "u_inc.state_q[5]$_SDFFE_PP1P_/D"}
     assert summary["route_drc_errors"] == 0
     assert metrics.missing(summary) == []
 
@@ -114,6 +115,7 @@ def test_negative_slack_is_wns():
 def test_synth_fallback_when_json_lacks_counts():
     summary = metrics.summarize({}, {"cells": 7, "area_um2": 3.5}, None, {})
     assert (summary["cells"], summary["area"]["stdcell_um2"]) == (7, 3.5)
+    assert summary["synth_cells"] == 7
 
 
 def test_collect_from_work_home(tmp_path):
@@ -129,3 +131,8 @@ def test_collect_from_work_home(tmp_path):
 def test_collect_empty_work_home(tmp_path):
     summary = metrics.collect(tmp_path, "sky130hd", "n")
     assert set(metrics.missing(summary)) == set(metrics.REQUIRED)
+
+
+@pytest.mark.parametrize("bad", ["", "{", "[1]"])
+def test_extra_malformed(bad):
+    assert metrics.parse_extra(bad) == {}

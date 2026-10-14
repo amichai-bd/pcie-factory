@@ -258,7 +258,7 @@ def test_run_writes_metrics(asic_src, tmp_path, capsys, monkeypatch):
     assert doc["status"] == "pass"
     assert doc["design"] == "counter" and doc["clock_period_ns"] == 8.5
     assert doc["timing"]["wns_ns"] == 0.0 and doc["timing"]["setup_ws_ns"] == 6.01343
-    assert doc["max_fanout"]["value"] == 25 and doc["logic_depth"]["value"] == 6
+    assert doc["max_fanout"]["value"] == 25 and doc["logic_depth"]["value"] == 4
     assert doc["toolchain"]["runner"] == "native"
     assert doc["toolchain"]["openroad"] == "26Q4-142-gd4b96380b"
     log = (work / "counter" / "asic" / "flow.log").read_text()

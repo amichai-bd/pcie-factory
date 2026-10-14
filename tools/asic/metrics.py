@@ -141,12 +141,20 @@ def _data_path_cells(lines: list[str], frm: str, to: str) -> int | None:
     return len(seen) if started else None
 
 
+def _unescape(name):
+    """odb keeps bus brackets escaped (``q\\[5\\]``); report them plainly."""
+    return name.replace("\\[", "[").replace("\\]", "]") if isinstance(name, str) else name
+
+
 def parse_extra(text: str) -> dict:
+    """``asic_extra.json`` from extra_metrics.tcl, names unescaped."""
     try:
         data = json.loads(text)
     except ValueError:
         return {}
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: _unescape(v) for k, v in data.items()}
 
 
 def summarize(step: dict, synth: dict, worst: dict | None, extra: dict) -> dict:
@@ -168,7 +176,9 @@ def summarize(step: dict, synth: dict, worst: dict | None, extra: dict) -> dict:
             "die_um2": latest(step, "design__die__area"),
         },
         "cells": cells if cells is not None else synth.get("cells"),
-        "synth_cells": synth.get("cells"),
+        "synth_cells": (step.get("synth__design__instance__count__stdcell")
+                        if step.get("synth__design__instance__count__stdcell") is not None
+                        else synth.get("cells")),
         "utilization": latest(step, "design__instance__utilization"),
         "max_fanout": {"value": extra.get("max_fanout"), "net": extra.get("max_fanout_net")},
         "logic_depth": {"value": extra.get("logic_depth"),

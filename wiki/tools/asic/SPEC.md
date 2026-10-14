@@ -100,13 +100,13 @@ and is what the unit tests drive with a fake ORFS.
 | `timing.setup_ws_ns`, `timing.tns_ns`, `timing.hold_ws_ns` | ORFS `*__timing__setup__ws`, `*__timing__setup__tns`, `*__timing__hold__ws`, latest stage. |
 | `timing.wns_ns` | `min(setup_ws_ns, 0)`. |
 | `area.stdcell_um2`, `area.core_um2`, `area.die_um2` | `*__design__instance__area__stdcell`, `*__design__core__area`, `*__design__die__area`; Yosys `synth_stat.txt` area as fallback. |
-| `cells` | `*__design__instance__count__stdcell` (includes tap, fill-less physical and buffer cells); `synth_cells` is the Yosys count after synthesis. |
+| `cells`, `synth_cells` | `*__design__instance__count__stdcell` after route (tap cells, clock and timing-repair buffers included, fill cells excluded); Yosys count after synthesis (`synth__…` JSON, else `synth_stat.txt`). |
 | `utilization` | `*__design__instance__utilization`, a fraction of the core area. |
-| `max_fanout.value`, `.net` | `extra_metrics.tcl`: largest count of input pins plus output ports on one net, excluding nets that reach a register clock pin. |
-| `logic_depth.value`, `.endpoint` | `extra_metrics.tcl`: most cells on any path from a register or input port to a register data pin or output port (endpoints excluded; buffers and inverters count). |
+| `max_fanout.value`, `.net` | `extra_metrics.tcl` on `6_final.odb`: largest count of input pins plus output ports on one signal net; power, ground and clock nets (odb `CLOCK` type or reaching a register clock pin) excluded. |
+| `logic_depth.value`, `.endpoint` | `extra_metrics.tcl`: most cells on any path from a register or input port to a register data pin or output port (endpoints excluded; buffers and inverters count), walked backwards over the odb netlist with memoization; a combinational loop is cut. Registers come from OpenSTA `all_registers`. Names are reported with odb's `\[ \]` escapes removed. |
 | `worst_path.from`, `.to`, `.group`, `.slack_ns`, `.cells` | First `report_checks -path_delay max` section of `6_finish.rpt`; `cells` counts instances strictly between start and end point on the data path. |
 | `power_w`, `route_drc_errors` | `*__power__total`, `detailedroute__route__drc_errors`. |
-| `toolchain` | Runner, image, root, `orfs_pin` (the host's `orfs_commit`, see above) and the `versions` step output. |
+| `toolchain` | Runner, image, root, `orfs_pin` (the host's `orfs_commit`, see above) and the `versions` step output (`openroad`, `yosys`, `orfs`; the pinned image's OpenROAD and ORFS report `unknown`, so the image digest and `orfs_pin` identify them). |
 | `source`, `elapsed_s`, `work_home` | Repository `HEAD`, run time, ORFS work home. |
 
 "Latest stage" means the first present of `finish`, `detailedroute`,
