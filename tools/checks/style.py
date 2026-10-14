@@ -45,6 +45,8 @@ RULES = {
     "file-name": ("naming", "one module or package per .sv, named after the file, "
                   "with the owner's prefix; packages end in _pkg"),
     "port-suffix": ("naming", "ANSI ports with direction; _i/_o/_io suffix (n before it for active-low)"),
+    "verilator-config": ("lint-and-style-checks",
+                         "no `verilator_config blocks (lint_off and friends outside the waiver file)"),
     "tool-pragma": ("lint-and-style-checks",
                     "no tool directive comments (verilator lint_off, synthesis translate_off, ...)"),
 }
@@ -197,6 +199,8 @@ def check_text(relpath: str, raw: str, expected_prefix: str | None) -> list[str]
         add("plain-always", m.start(), m.group())
     for m in re.finditer(r"\b(interface|modport|union)\b", body):
         add("interface-union", m.start(), m.group())
+    for m in re.finditer(r"`verilator_config\b", body):
+        add("verilator-config", m.start(), m.group())
     for m in re.finditer(r"\.\s*\*", body):
         add("wildcard-connection", m.start(), ".*")
     for m in re.finditer(r"`(?:ifdef|ifndef|elsif)\s+(SYNTHESIS|SIMULATION|VERILATOR)\b", body):

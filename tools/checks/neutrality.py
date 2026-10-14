@@ -66,6 +66,8 @@ def load_config(repo_root: Path, path: str = CONFIG) -> Config:
         raise CheckConfigError(
             f"{p}: neutrality.words must be one flow list on one line ('words: [a, b]'), "
             "so that only it is exempt from the scan")
+    if len(re.findall(r"^\s*repo_slug\s*:", text, re.MULTILINE)) > 1:
+        raise CheckConfigError(f"{p}: neutrality.repo_slug appears more than once")
     slug = n.get("repo_slug")
     if slug is not None and (not isinstance(slug, str) or not re.fullmatch(r"[\w.-]+/[\w.-]+", slug)):
         raise CheckConfigError(f"{p}: neutrality.repo_slug must be 'owner/repo'")

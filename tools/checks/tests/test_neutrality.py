@@ -141,6 +141,8 @@ def test_exempt_trees_are_fixed(repo):
     ("neutrality:\n  words:\n    - a\n", "one flow list on one line"),
     ("neutrality:\n  words: [a,\n    b]\n", "one flow list on one line"),
     ("neutrality: [\n", "invalid YAML"),
+    ("neutrality:\n  words: [a]\n  repo_slug: x/frobnitz\n  repo_slug: o/r\n",
+     "repo_slug appears more than once"),
 ])
 def test_config_errors(repo, text, msg):
     write(repo, "cfg/checks.yaml", text)

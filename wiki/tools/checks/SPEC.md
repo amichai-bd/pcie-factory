@@ -24,7 +24,7 @@ slowest). Output:
 ```
 check: 2 IP(s) under /abs/src
 [filelist] PASS: 7 filelist(s), 2 IP(s) with regression lists, 5 RTL file(s) for orphans
-[style] FAIL (1): 6 RTL file(s), 11 rule(s)
+[style] FAIL (1): 6 RTL file(s), 12 rule(s)
   blk/rtl/xy_blk.sv:10: plain-always: always
 [neutrality] PASS: 135 file(s) (tracked and untracked, not ignored) outside src/, ...
 [lint] blk: top=xy_blk
@@ -92,6 +92,7 @@ positional connections, logic in `always_ff`) stay
 | `typedef-outside-package` | `typedef` only inside `package ... endpackage`. | [rtl.md#types-and-constants-live-in-packages](../../bkm/rtl.md#types-and-constants-live-in-packages) |
 | `file-name` | A `.sv` declares exactly one module or package, named after the file. A package name ends in `_pkg` and a module name does not. The name starts with the owner's prefix: `common_` under `src/common/`, otherwise `<prefix><ip>` (sub-IP `a/b` gives `<prefix>a_b`) followed by the end or `_`; `<prefix>` alone when no IP owns the file. `<prefix>` is read from the `Module/package/file prefix` row of `src/README.md`; a missing row is a finding. | [rtl.md#naming](../../bkm/rtl.md#naming) |
 | `port-suffix` | Every module port is ANSI with a direction. Inputs end in `_i`, outputs in `_o`, inouts in `_io`, each optionally with `n` before the direction letter for active-low (`rst_ni`). `ref` ports are not allowed. | [rtl.md#naming](../../bkm/rtl.md#naming) |
+| `verilator-config` | No `` `verilator_config`` block in any `.sv` or `.svh` (a listed include file would otherwise carry `lint_off` rules past the waiver file). | [rtl.md#lint-and-style-checks](../../bkm/rtl.md#lint-and-style-checks) |
 | `tool-pragma` | No tool directive comment: `verilator`, `synthesis`, `synopsys`, `pragma` or `altera` followed by a directive word (`lint_off`, `translate_off`, `full_case`, `public`, `protect`, `message_off`, ...). This covers inline lint waivers (`/* verilator lint_off */`). Prose that only starts with the tool name (`// Synthesis infers a flop`) is not flagged. | [rtl.md#lint-and-style-checks](../../bkm/rtl.md#lint-and-style-checks) |
 
 Provenance: the comment/string stripper, the package-span test and the
@@ -148,8 +149,9 @@ neutrality:
 ```
 
 Any other key (including an attempt to configure exempt paths), a missing
-key, a wrong type, or a `words` list that is not one single-line flow list
-is a configuration error.
+key, a wrong type, a `words` list that is not one single-line flow list, or
+more than one `words` or `repo_slug` line (a duplicate YAML key could hide a
+value) is a configuration error.
 
 ## Lint check
 
@@ -183,9 +185,10 @@ then `verilator.prefix` in `cfg/host.yaml`); see the
 
 Waivers live only in `<src-root>/lint_waivers.yaml` (in the repository,
 `src/lint_waivers.yaml`). It is under `src/` because waivers name design
-files. A missing file means no waivers. Inline lint pragmas are rejected by
-the style check (`tool-pragma`) and Verilator control files by the filelist
-and lint checks, so this file is the only way to waive.
+files. A missing file means no waivers. Inline lint pragmas and
+`` `verilator_config`` blocks are rejected by the style check (`tool-pragma`,
+`verilator-config`), and Verilator control files by the filelist and lint
+checks, so this file is the only way to waive.
 
 ```yaml
 waivers:

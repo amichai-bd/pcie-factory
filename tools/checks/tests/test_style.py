@@ -57,6 +57,15 @@ def test_good_package_is_clean():
     assert check(text, "xy_a_pkg.sv") == []
 
 
+@pytest.mark.parametrize("name", ["xy_a_waive.svh", "xy_a_m.sv"])
+def test_verilator_config_block_rejected(name):
+    # A listed include file carrying a config block would waive warnings
+    # outside the reviewed waiver file.
+    text = "`verilator_config\nlint_off -rule UNUSEDSIGNAL -file \"*\"\n"
+    found = check(text, name)
+    assert any(f.startswith(f"{name}:1: verilator-config: `verilator_config") for f in found), found
+
+
 def test_include_header_needs_no_nettype():
     assert check("`ifndef X_SVH\n`define X_SVH\n`endif\n", "x_defs.svh") == []
 
@@ -99,7 +108,7 @@ def test_rule_fires(rule, text):
 def test_every_rule_is_tested_and_documented():
     tested = {"default-nettype", "net-keyword", "plain-always", "interface-union",
               "wildcard-connection", "sim-ifdef", "task-function", "typedef-outside-package",
-              "port-suffix", "tool-pragma", "file-name"}
+              "port-suffix", "tool-pragma", "file-name", "verilator-config"}
     assert tested == set(RULES)
     spec = (Path(__file__).resolve().parents[3] / "wiki/tools/checks/SPEC.md").read_text()
     for rule, (anchor, _) in RULES.items():
@@ -184,3 +193,14 @@ def test_expected_prefix(tmp_path):
     assert style.expected_prefix(src / "blk/sub/rtl/xy_blk_sub.sv", src, ips, "xy_") == "xy_blk_sub"
     assert style.expected_prefix(src / "blk/fpga/xy_blk_board.sv", src, ips, "xy_") == "xy_blk"
     assert style.expected_prefix(src / "common/rtl/common_flop.sv", src, ips, "xy_") == "common_"
+
+
+def test_run_flags_listed_include_with_verilator_config(tmp_path):
+    import shutil
+    src = tmp_path / "src"
+    shutil.copytree(FIXTURES / "good/src", src)
+    inc = src / "blk/rtl/include/xy_blk_defs.svh"
+    inc.write_text(inc.read_text() + "`verilator_config\nlint_off -rule WIDTH\n")
+    r = style.run(src, discover(src), None)
+    assert r.findings == [
+        "blk/rtl/include/xy_blk_defs.svh:5: verilator-config: `verilator_config"]
