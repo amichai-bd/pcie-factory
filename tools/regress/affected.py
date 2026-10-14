@@ -1,4 +1,7 @@
-"""``--affected <base>``: which IPs a change touches."""
+"""``--affected <base>``: which IPs a change touches.
+
+The rules' facts (global paths, shared DV directories, the models directory)
+come from ``cfg/ci.yaml``; see wiki/tools/ci/SPEC.md."""
 
 from __future__ import annotations
 
@@ -7,12 +10,7 @@ from pathlib import Path
 
 from build.filelist import FilelistError, resolve
 from build.ip import Ip, owner_ip
-
-# Paths (relative to the repository root) whose change selects every IP.
-GLOBAL_PREFIXES = ("tools/", "cfg/")
-GLOBAL_FILES = ("build",)
-# Shared DV helpers under the source root; a change there selects every IP.
-SHARED_DV = "common/dv"
+from ci.config import CiRules
 
 
 class GitError(Exception):
@@ -40,27 +38,33 @@ def changed_files(base: str, start: Path) -> tuple[Path, list[str]]:
 
 
 def select_affected(
-    ips: list[Ip], repo: Path, changed: list[str], src_root: Path | None = None
+    ips: list[Ip], repo: Path, changed: list[str], src_root: Path, rules: CiRules
 ) -> dict[str, str]:
     """Map affected IP id -> reason. Every IP is affected when a global path
-    changed, or a file under ``<src_root>/common/dv/`` (shared DV Python,
-    which no filelist reaches). Otherwise an IP is affected when a changed
-    file lies in its own directory (not in a sub-IP's) or is reached by its
-    ``dv/<name>.sim.f``."""
+    changed, or a file under a shared DV directory (Python no filelist
+    reaches). Otherwise an IP is affected when a changed file lies in its own
+    directory (not in a sub-IP's), lies in the models directory of one of its
+    descendant IPs, or is reached by its ``dv/<name>.sim.f``."""
     for rel in changed:
-        if rel in GLOBAL_FILES or rel.startswith(GLOBAL_PREFIXES):
+        if rules.is_global(rel):
             return {ip.id: f"global change: {rel}" for ip in ips}
     paths = [(repo / rel).resolve() for rel in changed]
-    if src_root is not None:
-        shared = (Path(src_root) / SHARED_DV).resolve()
-        for rel, path in zip(changed, paths):
-            if shared in path.parents:
-                return {ip.id: f"shared DV change: {rel}" for ip in ips}
+    shared = [(Path(src_root) / d).resolve() for d in rules.shared_dv]
+    for rel, path in zip(changed, paths):
+        if any(s in path.parents for s in shared):
+            return {ip.id: f"shared DV change: {rel}" for ip in ips}
     reasons: dict[str, str] = {}
     for rel, path in zip(changed, paths):
         owner = owner_ip(ips, path)
         if owner is not None:
             reasons.setdefault(owner.id, f"changed: {rel}")
+    # Parent models import sub-IP models by path, which no filelist shows.
+    for rel, path in zip(changed, paths):
+        for sub in ips:
+            if (sub.path / rules.models) in path.parents:
+                for ip in ips:
+                    if ip.path in sub.path.parents:
+                        reasons.setdefault(ip.id, f"sub-IP model: {rel}")
     for ip in ips:
         if ip.id in reasons or not ip.sim_f.is_file():
             continue

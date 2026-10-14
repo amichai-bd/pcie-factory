@@ -14,6 +14,7 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `tools/fpga/` | Quartus FPGA flow and report parsing; see the [fpga spec](../fpga/SPEC.md). |
 | `tools/labels/` | GitHub label standard, sync and check; see the [labels spec](../labels/SPEC.md). |
 | `tools/checks/` | `./build check`; see the [checks spec](../checks/SPEC.md). |
+| `tools/ci/` | `cfg/ci.yaml` rules and `./build ci`; see the [CI spec](../ci/SPEC.md). |
 
 ## Command line
 
@@ -27,6 +28,7 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `regress` | Run regression levels; see the [regress spec](../regress/SPEC.md). |
 | `clean [--ip ID]...` | Delete the whole workdir. With `--ip`, empty `workdir/<ip>/` for each given IP but keep the directories of its sub-IPs, which nest there. |
 | `labels` | Sync and check GitHub labels; see the [labels spec](../labels/SPEC.md). |
+| `ci unit\|summary` | `ci-gate` helpers: unit-test suites and the job summary; see the [CI spec](../ci/SPEC.md). |
 | `wiki build\|serve` | Build the wiki site into `<workdir>/wiki-site`, or serve an existing build; see the [wiki site spec](../wiki_site/SPEC.md). |
 | `check` | Static checks; see the [checks spec](../checks/SPEC.md). |
 | `fpga (--ip ID... \| --all) [--part P] [--timeout S] [--dry-run]` | Quartus compile and `metrics.json` for IPs with `fpga/`; see the [fpga spec](../fpga/SPEC.md). |

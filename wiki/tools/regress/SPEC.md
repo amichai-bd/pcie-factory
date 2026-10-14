@@ -72,16 +72,22 @@ Three rules decide which tests run:
   `git merge-base BASE HEAD`. The changed files are the committed diff, the
   uncommitted diff and untracked files that aren't ignored. Git runs with
   `-z` (paths may contain spaces) and `--no-renames` (a move counts as both
-  its old and new path). An IP is affected in any of these cases:
-  - Every IP is affected when any change is under `tools/` or `cfg/`, or is
-    the `build` launcher (paths relative to the git repository root).
-  - Every IP is affected when any change is under `<src-root>/common/dv/`:
-    shared DV Python helpers are reached by no filelist, so their users
-    cannot be told apart.
+  its old and new path). An IP is affected in any of these cases, using
+  the path facts in [`cfg/ci.yaml`](../ci/SPEC.md#selection-rules-cfgciyaml)
+  (defaults shown):
+  - Every IP is affected when any change is under a `global` path: `tools/`
+    or `cfg/`, or the `build` launcher (relative to the git repository root).
+  - Every IP is affected when any change is under a `shared_dv` directory
+    (`<src-root>/common/dv/`): shared DV Python helpers are reached by no
+    filelist, so their users cannot be told apart.
   - A changed file lies in the IP's **own files**: under `src/<ip>/`, but not
     inside a nested directory that is itself an IP. A change inside sub-IP
     `a/b` therefore selects `a/b`. It selects the parent `a` only through
-    the next case.
+    the next two cases.
+  - A changed file lies in the `models` directory (`dv/models/`) of an IP
+    nested anywhere below this one: parent models import sub-IP models by
+    path ([DV BKM](../../bkm/dv.md#reusing-a-sub-ip-model)), which no
+    filelist shows. A change in `a/b/dv/models/` selects `a/b` and `a`.
   - The IP's `dv/<name>.sim.f` **reaches** a changed file: a source, a
     filelist in its `-F` tree, or a file in one of its include directories.
   - The IP's `sim.f` doesn't resolve (for example, a source it lists was
@@ -98,20 +104,9 @@ Use `--dry-run` to print the selection (IPs, tests and seeds) without
 building or running anything. A dry run neither writes nor removes
 `summary.json`.
 
-Known gaps:
-
-- The global prefixes (`tools/`, `cfg/`, `build`) and the shared DV
-  directory (`common/dv/`) are constants in `tools/regress/affected.py`.
-- A change to a sub-IP's `dv/models/` selects only that sub-IP, not the
-  parent IPs whose models import it
-  ([DV BKM](../../bkm/dv.md#reusing-a-sub-ip-model)), because no filelist
-  reaches Python.
-- The pure-Python model unit tests under `src/**/dv/models/` are run by no
-  regression level or CI step.
-
-Issue #11 owns all three: the first moves to `cfg/ci.yaml` selection rules
-when `ci-gate` is wired up, and it decides how the last two are selected
-and run.
+The pure-Python model unit tests under `src/**/dv/models/` are not part of
+any regression level; [`./build ci unit`](../ci/SPEC.md#build-ci-unit) runs
+them for the same selection in `ci-gate`.
 
 ## Seeds
 

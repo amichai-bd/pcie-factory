@@ -25,10 +25,15 @@ goes issue → branch → worktree → draft PR → independent review → squas
 
 ## Status
 
-<!-- Badges (ci-gate, nightly, pages) and the tracker link land with the CI,
-nightly and wiki-site milestones. -->
-Badges and a link to the metrics tracker arrive with the CI, nightly and wiki
-site milestones.
+[![ci-gate](https://github.com/amichai-bd/pcie-factory/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/amichai-bd/pcie-factory/actions/workflows/ci.yml)
+[![nightly](https://github.com/amichai-bd/pcie-factory/actions/workflows/nightly.yml/badge.svg?branch=main)](https://github.com/amichai-bd/pcie-factory/actions/workflows/nightly.yml)
+[![pages](https://github.com/amichai-bd/pcie-factory/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/amichai-bd/pcie-factory/actions/workflows/pages.yml)
+
+Metrics history (code, CI, nightly, tests, issues and PRs, FPGA and ASIC per
+IP) is charted on the live
+[metrics tracker](https://amichai-bd.github.io/pcie-factory/tracker/)
+([source](wiki/tracker/index.md)). The nightly job updates its data; it never
+edits this README.
 
 ## License
 
