@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Fake ORFS make for tools/asic unit tests. Understands the arguments
+# ./build asic passes (-C DIR, NAME=VALUE, one target) and copies the fixture
+# reports under tests/fixtures/orfs/ into WORK_HOME like the real flow.
+# FAKE_MAKE: ok (default) | fail (exit 3) | sleep (hang) | noextra (no asic_extra.json).
+set -euo pipefail
+echo "fake make $*"
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/orfs"
+target=""
+for arg in "$@"; do
+  case "$arg" in
+    DESIGN_CONFIG=*) cfg="${arg#*=}" ;;
+    WORK_HOME=*) work="${arg#*=}" ;;
+    FLOW_VARIANT=*) variant="${arg#*=}" ;;
+    *=*|-C) ;;
+    /*) ;;
+    *) target="$arg" ;;
+  esac
+done
+platform=$(sed -n 's/^export PLATFORM = //p' "$cfg")
+nick=$(sed -n 's/^export DESIGN_NICKNAME = //p' "$cfg")
+logs="$work/logs/$platform/$nick/$variant"
+reports="$work/reports/$platform/$nick/$variant"
+mode="${FAKE_MAKE:-ok}"
+case "$target" in
+  finish)
+    [ "$mode" = fail ] && exit 3
+    [ "$mode" = sleep ] && exec sleep 600
+    mkdir -p "$logs" "$reports"
+    cp "$here"/logs/*.json "$logs/"
+    cp "$here"/reports/6_finish.rpt "$here"/reports/synth_stat.txt "$reports/"
+    ;;
+  run)
+    [ "$mode" = noextra ] && exit 0
+    cp "$here"/reports/asic_extra.json "$reports/"
+    ;;
+  *) echo "fake make: unknown target $target" >&2; exit 2 ;;
+esac

@@ -84,7 +84,10 @@ def load_orfs(cfg_dir: Path, env: dict) -> Orfs:
         key = "orfs.image_root" if runner == "docker" else f"${ENV_ROOT} or orfs.root"
         raise AsicError(f"{runner} runner needs the ORFS root: set {key} in {path}")
     source = "env" if any(env.get(k) for k in (ENV_RUNNER, ENV_IMAGE, ENV_ROOT)) else "cfg"
-    commit = cfg.get("commit") if source == "cfg" else None
+    # The pinned revision describes the cfg image or root; record it only
+    # when that is what runs.
+    pinned = image == cfg.get("image") if runner == "docker" else root == cfg.get("root")
+    commit = cfg.get("commit") if pinned else None
     return Orfs(runner, str(root), image, source, str(commit) if commit else None)
 
 
@@ -148,9 +151,23 @@ def find_inputs(ip: Ip, platform: str) -> tuple[Path, Path]:
 
 
 def parse_clock_period(sdc_text: str) -> float | None:
-    """The first ``create_clock -period`` value (in the SDC time unit, ns)."""
-    m = re.search(r"create_clock\b[^\n]*?-period\s+([0-9.]+)", sdc_text)
-    return float(m.group(1)) if m else None
+    """The first ``create_clock -period`` value (in the SDC time unit, ns).
+    The value may be a literal or a ``$var`` set earlier with ``set var <num>``."""
+    m = re.search(r"create_clock\b[^\n]*?-period\s+(\$\{?\w+\}?|[0-9.]+)", sdc_text)
+    if not m:
+        return None
+    value = m.group(1)
+    if value.startswith("$"):
+        name = value.strip("${}")
+        sets = re.findall(rf"^\s*set\s+{re.escape(name)}\s+([0-9.]+)\s*$",
+                          sdc_text[:m.start()], re.M)
+        if not sets:
+            return None
+        value = sets[-1]
+    try:
+        return float(value)
+    except ValueError:
+        return None
 
 
 def make_plan(ctx: Context, ip: Ip, platform: str) -> Plan:

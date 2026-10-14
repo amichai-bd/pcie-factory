@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       ip:
-        description: IP id (a directory under src/ with an asic/ directory)
-        required: true
-        default: top
+        description: IP id with an asic/ directory (empty = every such IP)
+        required: false
+        default: ""
   pull_request:
     branches: [main]
     paths:
@@ -29,7 +29,7 @@ jobs:
       group: asic-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     env:
-      IP: ${{ inputs.ip || 'top' }}
+      IP: ${{ inputs.ip }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -51,7 +51,18 @@ jobs:
           fi
           exit 0
       - name: Run the ASIC flow
-        run: ./build asic --ip "$IP"
+        run: |
+          # Without an input: every IP that has an asic/ directory.
+          ips="$IP"
+          if [ -z "$ips" ]; then
+            ips=$(find src -type d -name asic -printf '%P\n' | sed 's|/asic$||' | sort)
+          fi
+          [ -n "$ips" ] || { echo "no IP has an asic/ directory"; exit 1; }
+          rc=0
+          for ip in $ips; do
+            ./build asic --ip "$ip" || rc=1
+          done
+          exit $rc
       - name: Upload metrics and reports
         if: always()
         uses: actions/upload-artifact@v6.0.0

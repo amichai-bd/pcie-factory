@@ -84,16 +84,25 @@ def parse_worst_path(text: str) -> dict | None:
         return None
     section = text[start:].splitlines()
     path: dict = {}
+    pending = None  # "from_kind"/"to_kind" when the "(...)" wraps to the next line
     for line in section:
+        m = re.match(r"\s+\((.*)\)\s*$", line)
+        if pending and m:
+            path[pending] = m.group(1)
+            pending = None
+            continue
+        pending = None
         m = re.match(r"\s*Startpoint:\s*(\S+)(?:\s+\((.*)\))?", line)
         if m and "from" not in path:
             path["from"] = m.group(1)
             path["from_kind"] = m.group(2)
+            pending = None if m.group(2) else "from_kind"
             continue
         m = re.match(r"\s*Endpoint:\s*(\S+)(?:\s+\((.*)\))?", line)
         if m and "to" not in path:
             path["to"] = m.group(1)
             path["to_kind"] = m.group(2)
+            pending = None if m.group(2) else "to_kind"
             continue
         m = re.match(r"\s*Path Group:\s*(\S+)", line)
         if m and "group" not in path:

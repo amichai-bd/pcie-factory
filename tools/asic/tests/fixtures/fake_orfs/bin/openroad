@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Fake: prints the version string of the pinned image's OpenROAD.
+echo "26Q4-142-gd4b96380b"

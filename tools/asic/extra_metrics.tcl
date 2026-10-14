@@ -14,6 +14,12 @@ load_design 6_final.odb 6_final.sdc
 
 interp recursionlimit {} 100000
 
+proc asic_mark { msg } {
+  puts "asic_extra: $msg"
+  flush stdout
+}
+asic_mark "design loaded"
+
 # Registers end the backward walk; record them by full name.
 array set ::asic_regs {}
 foreach cell [all_registers -cells] {
@@ -27,6 +33,8 @@ foreach pin [all_registers -clock_pins] {
     set ::asic_clock_nets([get_full_name $net]) 1
   }
 }
+
+asic_mark "[array size ::asic_regs] registers, [array size ::asic_clock_nets] clock nets"
 
 # --- max fanout ---
 set max_fanout 0
@@ -43,6 +51,8 @@ foreach net [get_nets -quiet *] {
     set max_fanout_net $name
   }
 }
+
+asic_mark "max fanout $max_fanout ($max_fanout_net)"
 
 # --- logic depth ---
 array set ::asic_depth {}
@@ -85,6 +95,7 @@ proc asic_pin_depth { obj } {
 
 set logic_depth 0
 set logic_depth_endpoint ""
+asic_mark "walking [llength [all_registers -data_pins]] register data pins"
 foreach pin [all_registers -data_pins] {
   set d [asic_pin_depth $pin]
   if { $d > $logic_depth } {
