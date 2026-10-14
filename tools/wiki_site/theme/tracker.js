@@ -1,7 +1,8 @@
 // Tracker charts: draws every <canvas data-chart> from the page's
 // <script id="tracker-data"> JSON with the vendored Chart.js (assets/chart.umd.js,
-// loaded by wiki.js). Trends share one x axis, main commits in order, labelled
-// by short SHA with the date in the tooltip; histograms are bar charts.
+// loaded by wiki.js). Trends share one x axis and one x range per page, main
+// commits in order, labelled by short SHA with the date in the tooltip;
+// histograms are bar charts.
 // Colours come from CSS custom properties, so a theme change redraws in the
 // new palette. See wiki/tools/wiki_site/SPEC.md#tracker.
 (function () {
@@ -46,8 +47,8 @@
 
   function trend(spec, ink, grid) {
     var opts = base(spec, ink, grid, "Commit on main (short SHA)");
-    var xs = [];
-    spec.series.forEach(function (s) { s.points.forEach(function (p) { xs.push(p[0]); }); });
+    var xs = (data.xrange || []).slice();  // the page's shared range, so trends line up vertically
+    if (!xs.length) spec.series.forEach(function (s) { s.points.forEach(function (p) { xs.push(p[0]); }); });
     var lo = Math.min.apply(null, xs), hi = Math.max.apply(null, xs);
     opts.scales.x.type = "linear";
     opts.scales.x.min = lo - 0.5;

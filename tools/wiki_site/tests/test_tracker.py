@@ -54,10 +54,10 @@ def commit(n: int, date: str, **extra) -> str:
     return json.dumps({"schema_version": 1, "sha": sha(n), "date": date + "T00:00:00Z", **extra}) + "\n"
 
 
-def nightly(date: str, n: int, result: str | None = None, **extra) -> str:
+def nightly(date: str, n: int, result: str | None = None, duration: float | None = None, **extra) -> str:
     meta = {"date": date, "commit": sha(n)}
     if result:
-        meta["nightly"] = {"result": result}
+        meta["nightly"] = {"result": result, "duration_s": duration}
     return json.dumps({"schema_version": 1, "meta": meta, **extra})
 
 
@@ -167,7 +167,7 @@ def test_no_tracker_landing_means_no_tracker(tmp_path):
 
 # ------------------------------------------------------- partial groups
 def test_partial_groups_and_unknown_fields(tmp_path):
-    rec = nightly("2026-09-05", 7, "fail", tests={"status": "unavailable", "wall_s": 600},
+    rec = nightly("2026-09-05", 7, "fail", 600, tests={"status": "unavailable", "wall_s": 600},
                   future_group={"x": 1}, code={"total": {"code": 10}, "mystery": [1, 2]},
                   fpga={"status": "unavailable", "reason": "missing"})
     problems, out = build(tree(tmp_path, {"2026-09-05.json": rec}))
@@ -187,11 +187,81 @@ def test_partial_groups_and_unknown_fields(tmp_path):
 def test_commit_index_orders_the_axis(tmp_path):
     lines = commit(2, "2026-09-03", index=2) + commit(0, "2026-09-01", index=0) + commit(1, "2026-09-02", index=1)
     problems, out = build(tree(tmp_path, {"commits.jsonl": lines,
-                                          "2026-09-02.json": nightly("2026-09-02", 1, "pass", tests={"wall_s": 60})}))
+                                          "2026-09-02.json": nightly("2026-09-02", 1, "pass", 60)}))
     assert problems == []
     data = chart_data((out / "tracker/index.html").read_text())
     assert [a[1] for a in data["axis"]] == ["2026-09-01", "2026-09-02", "2026-09-03"]
     assert data["charts"]["nightly-duration"]["series"][0]["points"] == [[1, 1]]
+
+
+def test_nightly_duration_is_the_collector_field(tmp_path):
+    # meta.nightly.duration_s is the nightly wall time; the regression wall
+    # time tests.wall_s is a different quantity and never stands in for it.
+    lines = commit(0, "2026-09-01") + commit(1, "2026-09-02")
+    problems, out = build(tree(tmp_path, {"commits.jsonl": lines,
+                                          "2026-09-01.json": nightly("2026-09-01", 0, "pass", tests={"wall_s": 60}),
+                                          "2026-09-02.json": nightly("2026-09-02", 1, "pass", 180)}))
+    assert problems == []
+    data = chart_data((out / "tracker/index.html").read_text())
+    assert data["charts"]["nightly-duration"]["series"][0]["points"] == [[1, 3]]
+
+
+def test_trends_share_one_x_range(tmp_path):
+    # commit trends span 0..3, the nightly trend only 2..3: all line up on 0..3
+    lines = "".join(commit(i, f"2026-09-0{i + 1}", code={"total": {"loc": 10 * (i + 1)}}) for i in range(4))
+    problems, out = build(tree(tmp_path, {"commits.jsonl": lines,
+                                          "2026-09-03.json": nightly("2026-09-03", 2, "pass", 60),
+                                          "2026-09-04.json": nightly("2026-09-04", 3, "pass", 120)}))
+    assert problems == []
+    data = chart_data((out / "tracker/index.html").read_text())
+    assert data["xrange"] == [0, 3]
+    assert [p[0] for p in data["charts"]["nightly-duration"]["series"][0]["points"]] == [2, 3]
+
+
+def test_flow_charts_keep_every_ip_with_data(tmp_path):
+    # ten IPs in the records, FPGA data for the last three only: all three drawn
+    ips = [f"ip{i}" for i in range(10)]
+    rec = nightly("2026-09-05", 1, code={"ips": {ip: {"code": 1, "files": 1} for ip in ips}},
+                  fpga={"status": "ok", "ips": {ip: {"logic_elements": 5} for ip in ips[7:]}})
+    problems, out = build(tree(tmp_path, {"2026-09-05.json": rec}))
+    assert problems == []
+    chart = chart_data((out / "tracker/index.html").read_text())["charts"]["fpga-le"]
+    assert [(s["label"], s["color"]) for s in chart["series"]] == [("ip7", "1"), ("ip8", "2"), ("ip9", "3")]
+    # more than eight IPs with data: eight drawn, the rest named in a note
+    rec = nightly("2026-09-05", 1, fpga={"status": "ok", "ips": {ip: {"logic_elements": 5} for ip in ips}})
+    problems, out = build(tree(tmp_path, {"2026-09-05.json": rec}))
+    html = (out / "tracker/index.html").read_text()
+    assert len(chart_data(html)["charts"]["fpga-le"]["series"]) == 8
+    assert "2 more series not drawn" in html
+
+
+def test_blank_line_in_a_value_is_a_problem(tmp_path):
+    rec = nightly("2026-09-05", 1, "pass", 60, github={"issues": {"open_by_label": {"a\n\nb": 2}}},
+                  tests={"totals": {"level0": {"tests": 1}},
+                         "slowest": [{"ip": "x\r\n\r\ny", "name": "t", "runtime_s": 1}]})
+    problems, out = build(tree(tmp_path, {"2026-09-05.json": rec}))
+    assert problems and all("wiki/tracker/index.md: a record value contains a blank line" in p for p in problems)
+    html = (out / "tracker/index.html").read_text()
+    assert "<code>a b</code>" in html and "x y" in html
+    assert wiki_site.main(["build", "--strict", "--root", str(tmp_path), "--out", str(out),
+                           "--sha", SHA]) == 1
+
+
+def test_light_series_colours_clear_3_to_1_on_the_page():
+    css = (Path(tracker.__file__).parent / "theme/wiki.css").read_text()
+    root = re.search(r":root \{([^}]*)\}", css.split("/* ---- tracker")[0]).group(1)
+    light = re.search(r"/\* ---- tracker.*?:root \{([^}]*)\}", css, re.S).group(1)
+    bg = re.search(r"--bg:\s*(#[0-9a-f]{6})", root).group(1)
+
+    def lum(h):
+        c = [int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        c = [v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4 for v in c]
+        return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    slots = re.findall(r"--series-(\d): (#[0-9a-f]{6})", light)
+    assert len(slots) == tracker.SLOTS
+    for n, h in slots:
+        hi, lo = sorted((lum(h), lum(bg)), reverse=True)
+        assert (hi + 0.05) / (lo + 0.05) >= 3, f"--series-{n} {h}"
 
 
 def test_commit_only_data(tmp_path):

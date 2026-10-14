@@ -191,11 +191,12 @@ the site reads it.
 | File | Holds |
 | --- | --- |
 | `data/commits.jsonl` | One JSON object per line, one line per commit on `main`, in commit order: `sha`, ISO `date`, `code` stats of that commit's tree (`total`, `kinds`, `ips`, `by_ext`, `by_dir`), and its push `ci-gate` run (`ci.conclusion`, `ci.duration_s`). |
-| `data/<date>.json` | One nightly record: `meta` (`date`, else the file stem; `commit`, the `main` SHA it ran on; `nightly.result`), and the `code`, `github`, `health`, `tests`, `fpga`, `asic` and `distributions` groups. |
+| `data/<date>.json` | One nightly record: `meta` (`date`, else the file stem; `commit`, the `main` SHA it ran on; `nightly.result`, `nightly.duration_s`), and the `code`, `github`, `health`, `tests`, `fpga`, `asic` and `distributions` groups. |
 
 Lines of code are a bucket's `code` count (non-blank, non-comment lines),
-else its `lines`. The nightly runtime is `meta.nightly.duration_s`, else the
-regression wall time `tests.wall_s`.
+else its `lines`. The nightly duration is `meta.nightly.duration_s` only; a
+record without it leaves a gap (the regression wall time `tests.wall_s` is a
+different quantity and never stands in for it).
 
 Every record carries `schema_version`; a version other than `1` is a problem
 and the record is skipped. Every group and field is optional: a missing one
@@ -204,12 +205,17 @@ live in one block at the top of `tracker.py`, so a schema change edits only
 that block. Problems, reported like link problems (fatal with `--strict`):
 unreadable JSON, a non-object record, an unsupported `schema_version`, a bad
 date or SHA, a repeated commit or date (the later date file wins), an IP id that is not a safe
-relative path (letters, digits, `_`, `.`, `-`, `/`-separated, no `..`), and a
-source file at a generated page's path.
+relative path (letters, digits, `_`, `.`, `-`, `/`-separated, no `..`), a
+record value containing a blank line (it would end the page's HTML block, so
+it is rendered with its line breaks folded to spaces), and a source file at a
+generated page's path.
 
 **X axis.** Every trend plots against the commits of `commits.jsonl`, in
-`index` order when every line has one, else in file order, labelled by short
-SHA, with SHA and date in the tooltip. A nightly record sits at the commit it
+`index` order when every line has one, else in file order, labelled by the
+first 7 hex digits of `sha` (the metrics SPEC's
+[consumer rule](../metrics/SPEC.md#consumers)), with SHA and date in the
+tooltip. All trends on a page share one x range, from the first to the last
+commit any of them plots, so they line up vertically. A nightly record sits at the commit it
 ran on (`meta.commit`); a record whose commit is not in the series is
 ignored. Without `commits.jsonl`, the nightly records' SHAs, in date order,
 form the axis.
@@ -239,7 +245,10 @@ vendored Chart.js and `tracker.js` only on pages that have one, and redraws on
 a theme change. Colours are CSS custom properties: eight categorical slots
 (light and dark steps validated for colour-vision deficiency), assigned in a
 fixed order per entity (code kind, level, or IP in sorted order) and never
-cycled; a ninth series is not drawn and the chart says so. Status (good,
+cycled; a ninth series is not drawn and the chart says so. In the FPGA and
+ASIC charts the slots go, in sorted order, to the IPs with data in that flow,
+so an IP is never dropped while a slot is free. Every light slot clears 3:1
+contrast on the page background. Status (good,
 warning, critical) always pairs a colour with an icon and a label; pass and
 fail runs also differ by marker shape. Histograms use equal 1-2-5 bins, about
 Sturges' count; a small integer range gets one bin per value, and a long tail
