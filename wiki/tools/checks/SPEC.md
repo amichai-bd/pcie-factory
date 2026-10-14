@@ -3,23 +3,24 @@
 `./build check` runs the static checks that the
 [DevOps BKM](../../bkm/devops.md#static-checks) requires: the source layout
 check, the filelist and regression-list check, the RTL style checker, the
-wiki mirror check, the neutrality check and Verilator lint. It prints one
+wiki mirror check, the neutrality check, the citation check and Verilator
+lint. It prints one
 summary line per check, then every violation, then an overall verdict. The
 code lives in `tools/checks/` (`run.py`, `layout.py`, `filelists.py`,
-`style.py`, `wiki_mirror.py`, `neutrality.py`, `lint.py`).
+`style.py`, `wiki_mirror.py`, `neutrality.py`, `citation.py`, `lint.py`).
 
 ```
-./build check [--ip ID]... [--only layout|filelist|style|wiki|neutrality|lint]...
+./build check [--ip ID]... [--only layout|filelist|style|wiki|neutrality|citation|lint]...
               [--src-root DIR] [--workdir DIR]
 ```
 
 | Option | Meaning |
 | --- | --- |
-| `--ip ID` | Restrict layout, filelist, style, wiki and lint to these IPs (repeatable). Files not owned by a selected IP, such as `src/rtl/common/`, are skipped. Neutrality always scans the whole repository. |
-| `--only NAME` | Run only these checks (repeatable). The default is all six. |
-| `--src-root DIR` | The source tree to check, as for every command ([build spec](../build/SPEC.md#command-line)). The wiki check reads its sibling `wiki/src/`. Neutrality ignores it and scans the git repository that holds the launcher. |
+| `--ip ID` | Restrict layout, filelist, style, wiki and lint to these IPs (repeatable). Files not owned by a selected IP, such as `src/rtl/common/`, are skipped. Neutrality always scans the whole repository, and citation the whole of `src/` and `wiki/src/`. |
+| `--only NAME` | Run only these checks (repeatable). The default is all seven. |
+| `--src-root DIR` | The source tree to check, as for every command ([build spec](../build/SPEC.md#command-line)). The wiki and citation checks read its sibling `wiki/src/`. Neutrality ignores it and scans the git repository that holds the launcher. |
 
-Checks run in the order layout, filelist, style, wiki, neutrality, lint
+Checks run in the order layout, filelist, style, wiki, neutrality, citation, lint
 (lint is the slowest). Output:
 
 ```
@@ -30,18 +31,20 @@ check: 2 IP(s) under /abs/src
   rtl/blk/xy_blk.sv:10: plain-always: always
 [wiki] PASS: 6 required page(s), 6 wiki folder(s) under wiki/src/ (all IPs)
 [neutrality] PASS: 135 file(s) (tracked and untracked, not ignored) outside src/, ...
+[citation] PASS: 40 text file(s) under src/, wiki/src/; quotes up to 25 words; ...
 [lint] blk: top=xy_blk
 [lint] PASS: 2 IP(s), 3 Verilator run(s) with -E audit, 0 waiver(s), 0 warning(s) waived
 check: FAIL (style)
 ```
 
 Paths in findings are relative to the source root (neutrality: to the
-repository root; wiki: to the source root's parent, so `wiki/src/...`). With no IPs under `src/`, every check still runs and says
+repository root; wiki and citation: to the source root's parent, so
+`wiki/src/...`). With no IPs under `src/`, every check still runs and says
 what it covered (zero IPs and files), and the command passes.
 
 **Exit codes:** `0` means every selected check passed. `1` means at least
 one check found a violation. `2` means a usage or configuration error: an
-unknown `--ip`, an invalid `cfg/checks.yaml` or waiver file, a git error,
+unknown `--ip`, an invalid `cfg/checks.yaml` (either section) or waiver file, a git error,
 or Verilator missing while there is something to lint.
 
 ## Layout check
@@ -226,12 +229,47 @@ which the word list covers. Hard-coded bare IP names stay a review item.
 neutrality:
   words: [<word>, ...]           # required, non-empty, one flow list on one line
   repo_slug: owner/repo          # optional
+citation:                        # see the citation check
+  max_quote_words: 25
 ```
 
+The top level holds `neutrality` and optionally `citation`, nothing else.
 Any other key (including an attempt to configure exempt paths), a missing
 key, a wrong type, a `words` list that is not one single-line flow list, or
 more than one `words` or `repo_slug` line (a duplicate YAML key could hide a
 value) is a configuration error.
+
+## Citation check
+
+Rule owner: the [wiki BKM, citations](../../bkm/wiki.md#citations). Code:
+`citation.py`. Config: `citation.max_quote_words` in `cfg/checks.yaml`
+(required, a positive integer; any other key is a configuration error).
+
+The check scans every text file below the source root and its sibling
+`wiki/src/` (in the repository, `src/` and `wiki/src/`), whatever the file
+type. Hidden files and folders and binary files (a NUL byte) are skipped.
+In Markdown files (`.md`), fenced code blocks and code spans are blanked
+first: code is not prose. A word is a run of letters and digits, with
+inner `'` or `-`. Findings, `<path>:<line>: <message>`:
+
+| Finding | Flags |
+| --- | --- |
+| `block quote of N words` | Markdown only: a run of consecutive `>` lines with more than `max_quote_words` words. |
+| `quoted run of N words` | Text between typographic double quotes, or between straight double quotes, with more than `max_quote_words` words. In Markdown a straight-quoted run may wrap lines within a paragraph (not across a blank line). In any other file it stays on one line, and a quote that is part of `""` or `"""` is not a delimiter, so Python docstrings are not quotes. |
+| `malformed citation` | `[cite:` (any case or spacing) that does not open exactly `[cite: <standard>, rev <revision>, §<section>]`. `<standard>` starts with a letter or digit and holds letters, digits, spaces and `./+&()-`. `<revision>` is letters, digits, `.` and `-`. `<section>` is one alphanumeric section number with `.` or `-` separators. The finding runs to the `]`, or to the end of the line when there is none. |
+| `section reference ... outside a citation` | A `§`, or a dotted section number (`4.3.2`, at least two levels) after `section`, `sec.`, `chapter` or `clause` (any case), outside a citation. One inside a malformed citation is reported once, as that. |
+
+**Limits.** The check is a heuristic. It cannot prove that text was not
+copied: a paraphrase and a copied sentence without quote marks look the
+same, and it never sees the standard. It also misses a free-form reference
+that names no section number, a quote split by stray quote marks, and a
+copied table without quote marks. A stray quote mark in a Markdown
+paragraph can pair with the next one and produce a false finding. Review
+remains the main control: the
+[pr-reviewer](../../../.claude/skills/pr-reviewer/SKILL.md#3-check) checklist
+requires the reviewer to confirm paraphrase-only for any PR that touches
+cited material. The threshold is set high enough that ordinary messages and
+string literals in tests pass.
 
 ## Lint check
 
@@ -330,8 +368,11 @@ sub-IP turning top-level when no IP reaches it, the IP-first wiki tree, orphan
 and empty folders, extra pages, a non-IP source folder, hidden entries,
 `--ip`, and a missing wiki tree (`test_wiki_mirror.py`), a small git repository with forbidden words,
 slug URLs, a look-alike slug and an invalid config (`test_neutrality.py`),
-and waivers (used, stale, invalid), output parsing and the command line
-(`test_lint.py`, `test_check_run.py`). Negative cases include a `.vlt`
+each citation finding with its pass and fail boundary (exactly
+`max_quote_words` words versus one more, every malformed citation variant,
+code blocks and spans, triple quotes, binary and hidden files) and every
+config error (`test_citation.py`), and waivers (used, stale, invalid),
+output parsing and the command line (`test_lint.py`, `test_check_run.py`). Negative cases include a `.vlt`
 and a `.v` file in an `rtl/` closure, a `w.txt` waiver reached by
 `` `include`` through an include directory under `rtl/` and through
 `+incdir+` of a `dv/` folder (both as a `` `verilator_config`` block and as a
@@ -339,5 +380,5 @@ and a `.v` file in an `rtl/` closure, a `w.txt` waiver reached by
 allowed include directory and a listed source under `dv/` (both caught by
 the preprocessed audit), prose versus directive comments, a
 comment and a widened exempt path in the config, and look-alike slug hosts.
-Tests that run Verilator are skipped when it is not installed. `test_check_run.py` also runs the neutrality and wiki
-mirror checks on this repository.
+Tests that run Verilator are skipped when it is not installed. `test_check_run.py` also runs the neutrality, wiki
+mirror and citation checks on this repository.
