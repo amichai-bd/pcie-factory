@@ -1,6 +1,6 @@
 ---
 name: wiki-spec-writer
-description: Use when creating, updating or condensing a wiki specification or method page - an IP or sub-IP MAS, HAS or DV_PLAN under wiki/src/, a tool SPEC under wiki/tools/, a BKM, or a project page - and whenever code changes in src/ or tools/ need their owning page brought back into alignment.
+description: Use when creating, updating or condensing a wiki specification or method page - an IP or sub-IP HAS, MAS, DV_PLAN, FPGA or ASIC page under wiki/src/, a tool SPEC under wiki/tools/, a BKM, or a project page - and whenever code changes in src/ or tools/ need their owning page brought back into alignment.
 ---
 
 # Wiki spec writer
@@ -17,13 +17,20 @@ per [agent-flow](../agent-flow/SKILL.md).
 
 | Change | Owning page |
 | --- | --- |
-| IP scope, targets, sub-IP split | `wiki/src/<ip>/MAS.md` |
-| Ports, parameters, behavior, timing, files | `wiki/src/<ip>/HAS.md` |
-| Feature → test → level | `wiki/src/<ip>/DV_PLAN.md` |
-| Same, for a sub-IP | `wiki/src/<ip>/<subip>/{MAS,HAS,DV_PLAN}.md` |
+| Top-level IP: scope, interfaces, parameters, behavior, targets, sub-IP split (what and why) | `wiki/src/<ip>/arch/HAS.md` |
+| Pipeline, state, RTL structure, timing, files (how) | `wiki/src/<ip>/rtl/MAS.md` |
+| Feature → test → level | `wiki/src/<ip>/dv/DV_PLAN.md` |
+| Board wrapper, FPGA constraints, running the FPGA flow | `wiki/src/<ip>/fpga/FPGA.md` |
+| ASIC clock target, constraints, flow knobs | `wiki/src/<ip>/asic/ASIC.md` |
+| Sub-IP (no HAS: its MAS also holds scope, interfaces and behavior) | `wiki/src/<ip>/<subip>/rtl/MAS.md`, `dv/DV_PLAN.md` |
 | A tool's command line or behavior | `wiki/tools/<tool>/SPEC.md` |
 | A repository-wide method | the matching page in `wiki/bkm/` |
 | Layout, architecture, decisions | `wiki/project/` |
+
+`wiki/src/` mirrors `src/` folder by folder
+([page set](../../../wiki/bkm/wiki.md#page-set)): a page sits in the folder
+named like the source folder it describes, and `./build check` fails on a
+missing page or a folder with no source counterpart.
 
 One fact, one page ([authority](../../../wiki/bkm/wiki.md#authority)). If
 the fact already lives elsewhere, link to it; if it is duplicated, keep the
@@ -34,8 +41,9 @@ owner and replace the copy with a link.
 - Contract first, present tense, exact enough to implement and test
   independently: units, widths, signedness, reset, timing, failure behavior
   ([writing rules](../../../wiki/bkm/wiki.md#writing-rules)).
-- Section contents: [MAS](../../../wiki/bkm/wiki.md#mas-architecture-what-and-why),
-  [HAS](../../../wiki/bkm/wiki.md#has-hardware-architecture-spec-how),
+- Section contents: [HAS](../../../wiki/bkm/wiki.md#has-high-level-architecture-specification-what-and-why),
+  [MAS](../../../wiki/bkm/wiki.md#mas-micro-architecture-specification-how),
+  [FPGA and ASIC](../../../wiki/bkm/wiki.md#fpga-and-asic-pages),
   [DV_PLAN](../../../wiki/bkm/wiki.md#dv_plan-feature--test--level) and
   [tool SPEC](../../../wiki/bkm/wiki.md#tool-spec) per the
   [page set](../../../wiki/bkm/wiki.md#page-set).
@@ -50,28 +58,41 @@ owner and replace the copy with a link.
 Skeletons (omit empty sections; headings stay stable once linked):
 
 ```markdown
-# <IP> MAS
-<2-4 sentences: purpose, parent, consumers; what it is not.>
-## Position        parent, sub-IPs, block diagram (Mermaid allowed)
-## Decisions       choice | rationale | rejected alternatives
-## Targets         performance, area, features the HAS must meet
-## Open questions  issue links
-```
-
-```markdown
-# <IP> HAS
+# <IP> HAS                       arch/HAS.md, top-level IPs only
+<2-4 sentences: purpose, consumers, use cases; what it is not.>
+## Position         system context, sub-IPs, block diagram (Mermaid allowed)
 ## Interfaces       | Port | Dir | Width | Clock | Description |, protocol rules
 ## Parameters       | Name | Type | Default | Range | Effect |
 ## Behavior         function, reset values, errors and corner cases
-## Microarchitecture datapath, state machines, storage
-## Timing           latency, throughput, clocks, resets, crossings
-## Files            | Path | Holds |  (links into src/<ip>/rtl/)
+## Decisions        choice | rationale | rejected alternatives
+## Targets          performance, area, features the MAS must meet
+## Open questions   issue links
 ```
 
 ```markdown
-# <IP> DV plan
+# <IP> MAS                       rtl/MAS.md
+<1-2 sentences: how it implements the HAS.>
+## Microarchitecture datapath, pipeline, state machines, storage, instances
+## Decisions        implementation choice | rationale | rejected
+## Timing           latency, throughput, clocks, resets, crossings, critical path
+## Files            | File | Holds |  (links into src/<ip>/rtl/)
+```
+
+A sub-IP's MAS also carries the HAS sections (purpose, Position,
+Interfaces, Parameters, Behavior, Targets), since it has no HAS.
+
+```markdown
+# <IP> FPGA | ASIC               fpga/FPGA.md, asic/ASIC.md
+## Board wrapper | Clock target   pins and I/O use | the clock the SDC states
+## Constraints      clocks, exceptions with reasons
+## Running          the ./build command; results go to metrics, not here
+## Files            | File | Holds |  (links into src/<ip>/fpga/ or asic/)
+```
+
+```markdown
+# <IP> DV plan                   dv/DV_PLAN.md
 ## Strategy   layers, reference model, checkers, out of scope
-## Plan       | Feature (HAS link) | Entry name | Level | Seeds / note |
+## Plan       | Feature (HAS or sub-IP MAS link) | Entry name | Level | Seeds / note |
 ## Gaps       | Feature | Owning issue |
 ```
 
@@ -90,12 +111,13 @@ Skeletons (omit empty sections; headings stay stable once linked):
 Alignment is a duty of every PR, not a later cleanup
 ([specs and code](../../../wiki/bkm/wiki.md#specs-and-code-stay-aligned)):
 
-- [ ] A `src/` change updates its MAS/HAS/DV_PLAN; a `tools/` change updates
-      its SPEC; a behavior change in the wiki updates the code.
-- [ ] A new IP or sub-IP arrives with all three pages; a new tool with its
-      SPEC.
-- [ ] HAS port and parameter tables match the RTL top exactly; the Files
-      table matches `rtl/<ip>.rtl.f`.
+- [ ] A `src/` change updates its HAS, MAS, DV_PLAN, FPGA or ASIC page; a
+      `tools/` change updates its SPEC; a behavior change in the wiki
+      updates the code.
+- [ ] A new IP or sub-IP arrives with its full page set (`./build check`
+      lists what is missing); a new tool with its SPEC.
+- [ ] HAS (sub-IP: MAS) port and parameter tables match the RTL top
+      exactly; the MAS Files table matches `rtl/<ip>.rtl.f`.
 - [ ] DV_PLAN rows match `src/<ip>/dv/regress/level*.yaml` by name and level
       ([DV plan alignment](../../../wiki/bkm/dv.md#dv-plan-alignment)).
 - [ ] A SPEC's options, defaults and exit codes match the tool's `--help`.

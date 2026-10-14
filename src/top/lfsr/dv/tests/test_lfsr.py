@@ -1,5 +1,5 @@
 """pcie_top_lfsr tests, one testcase per regression level
-(wiki/src/top/lfsr/DV_PLAN.md).
+(wiki/src/top/lfsr/dv/DV_PLAN.md).
 
 Inputs are driven and key_o is sampled at the falling clock edge; the RTL
 updates on the rising edge.

@@ -1,5 +1,5 @@
 // Byte-stream scrambler: data_o = data_i ^ LFSR key, one cycle later
-// (wiki/src/top/HAS.md).
+// (wiki/src/top/rtl/MAS.md).
 `default_nettype none
 
 module pcie_top

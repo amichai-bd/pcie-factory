@@ -49,7 +49,7 @@ Read: the issue (acceptance, scope, comments), `CLAUDE.md`, the diff
 | Area | Finding if |
 | --- | --- |
 | Acceptance | Any issue criterion unmet or unverifiable; scope creep beyond the issue. |
-| Code and wiki | `src/` or `tools/` changed without its MAS/HAS/DV_PLAN or tool SPEC, or they disagree. |
+| Code and wiki | `src/` or `tools/` changed without its HAS, MAS, DV_PLAN, FPGA/ASIC page or tool SPEC, or they disagree. |
 | BKM | Code breaks a rule in the owning BKM or area skill. |
 | Tests | DV_PLAN items lack tests in `src/<ip>/dv/regress/level{0,1,2}.yaml`, tests sit at the wrong level, or tools lack unit tests. Important negative and boundary cases missing. |
 | Evidence | See below. |

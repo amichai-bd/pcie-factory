@@ -16,11 +16,11 @@ issue worktree per [agent-flow](../agent-flow/SKILL.md).
 
 ## 1. Before writing a test
 
-1. Read `wiki/src/<ip>/[<subip>/]HAS.md` for the behavior under test and
-   `DV_PLAN.md` for the row you are covering. The oracle comes from the HAS,
-   never from the RTL ([scope and oracle](../../../wiki/bkm/dv.md#scope-and-oracle)).
+1. Read the behavior under test in `wiki/src/<ip>/arch/HAS.md` (for a
+   sub-IP, `wiki/src/<ip>/<subip>/rtl/MAS.md`) and the row you are covering
+   in `dv/DV_PLAN.md`. The oracle comes from that spec, never from the RTL ([scope and oracle](../../../wiki/bkm/dv.md#scope-and-oracle)).
 2. No plan row for the feature? Add it first with
-   [wiki-spec-writer](../wiki-spec-writer/SKILL.md). A HAS that is too vague
+   [wiki-spec-writer](../wiki-spec-writer/SKILL.md). A spec that is too vague
    to write an independent model is a spec finding, not a test guess.
 3. Name the regression this test catches that existing tests miss
    ([test value](../../../wiki/bkm/dv.md#test-value)). If none, extend an
@@ -39,8 +39,8 @@ Place files per the [directory structure](../../../wiki/bkm/dv.md#directory-stru
 | SV testbench top, bind or assertion module | `dv/tb/`, listed in `dv/<ip>.dv.f` |
 | cocotb testcases | `dv/tests/test_<feature>.py` |
 
-- Drive and observe documented ports only; bind checkers use signals the HAS
-  names. Never read Verilator internals.
+- Drive and observe documented ports only; bind checkers use internal
+  signals the MAS names. Never read Verilator internals.
 - Bound every test in cycles and wall time; mismatch messages give operation,
   expected, observed and cycle or transaction index.
 - Random tests take their seed from the regression entry, print it, and draw
@@ -80,7 +80,7 @@ owns the exact schema, validation and defaults.
 
 ## 5. DV plan alignment
 
-In the same PR, make `wiki/src/<ip>/DV_PLAN.md` and the regression lists
+In the same PR, make `wiki/src/<ip>/dv/DV_PLAN.md` and the regression lists
 agree ([DV plan alignment](../../../wiki/bkm/dv.md#dv-plan-alignment)):
 
 - [ ] Every plan row names an entry and level that exist in exactly that file.

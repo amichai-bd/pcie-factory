@@ -19,7 +19,7 @@ Out: adjacent work left to other issues (linked).
 
 ## Acceptance
 - [ ] Verifiable criterion (exact check, behavior, or review point).
-- [ ] Owning wiki page updated (MAS/HAS/DV_PLAN, tool SPEC, or BKM).
+- [ ] Owning wiki page updated (HAS/MAS/DV_PLAN/FPGA/ASIC, tool SPEC, or BKM).
 - [ ] Tests or regression-list entries at the right level.
 
 ## Risks

@@ -12,4 +12,5 @@ Each IP lives in `src/<ip>/` with `rtl/`, `dv/` and, for synthesis targets,
 `fpga/` and `asic/`; sub-IPs nest as `src/<ip>/<subip>/` with the same shape.
 Directories use the bare IP name; files, modules and packages use
 `pcie_<ip>[_<subip>]`. The [layout page](../wiki/project/layout.md) owns the
-per-IP file rules; each IP's specs are in `wiki/src/<ip>/`.
+per-IP file rules. Each IP's specs are in `wiki/src/<ip>/`, which mirrors
+this tree folder by folder ([wiki BKM](../wiki/bkm/wiki.md#page-set)).

@@ -2,23 +2,24 @@
 
 `./build check` runs the static checks that the
 [DevOps BKM](../../bkm/devops.md#static-checks) requires: the filelist and
-regression-list check, the RTL style checker, the neutrality check and
-Verilator lint. It prints one summary line per check, then every violation,
-then an overall verdict. The code lives in `tools/checks/` (`run.py`,
-`filelists.py`, `style.py`, `neutrality.py`, `lint.py`).
+regression-list check, the RTL style checker, the wiki mirror check, the
+neutrality check and Verilator lint. It prints one summary line per check,
+then every violation, then an overall verdict. The code lives in
+`tools/checks/` (`run.py`, `filelists.py`, `style.py`, `wiki_mirror.py`,
+`neutrality.py`, `lint.py`).
 
 ```
-./build check [--ip ID]... [--only filelist|style|neutrality|lint]...
+./build check [--ip ID]... [--only filelist|style|wiki|neutrality|lint]...
               [--src-root DIR] [--workdir DIR]
 ```
 
 | Option | Meaning |
 | --- | --- |
-| `--ip ID` | Restrict filelist, style and lint to these IPs (repeatable). Files not owned by a selected IP, such as `src/common/`, are skipped. Neutrality always scans the whole repository. |
-| `--only NAME` | Run only these checks (repeatable). The default is all four. |
-| `--src-root DIR` | The source tree to check, as for every command ([build spec](../build/SPEC.md#command-line)). Neutrality ignores it and scans the git repository that holds the launcher. |
+| `--ip ID` | Restrict filelist, style, wiki and lint to these IPs (repeatable). Files not owned by a selected IP, such as `src/common/`, are skipped. Neutrality always scans the whole repository. |
+| `--only NAME` | Run only these checks (repeatable). The default is all five. |
+| `--src-root DIR` | The source tree to check, as for every command ([build spec](../build/SPEC.md#command-line)). The wiki check reads its sibling `wiki/src/`. Neutrality ignores it and scans the git repository that holds the launcher. |
 
-Checks run in the order filelist, style, neutrality, lint (lint is the
+Checks run in the order filelist, style, wiki, neutrality, lint (lint is the
 slowest). Output:
 
 ```
@@ -26,6 +27,7 @@ check: 2 IP(s) under /abs/src
 [filelist] PASS: 7 filelist(s), 2 IP(s) with regression lists, 5 RTL file(s) for orphans
 [style] FAIL (1): 6 RTL file(s), 12 rule(s); 0 other includable or fpga/ file(s) for directives
   blk/rtl/xy_blk.sv:10: plain-always: always
+[wiki] PASS: 6 required page(s), 8 wiki folder(s) under wiki/src/ (all IPs)
 [neutrality] PASS: 135 file(s) (tracked and untracked, not ignored) outside src/, ...
 [lint] blk: top=xy_blk
 [lint] PASS: 2 IP(s), 3 Verilator run(s) with -E audit, 0 waiver(s), 0 warning(s) waived
@@ -33,7 +35,7 @@ check: FAIL (style)
 ```
 
 Paths in findings are relative to the source root (neutrality: to the
-repository root). With no IPs under `src/`, every check still runs and says
+repository root; wiki: to the source root's parent, so `wiki/src/...`). With no IPs under `src/`, every check still runs and says
 what it covered (zero IPs and files), and the command passes.
 
 **Exit codes:** `0` means every selected check passed. `1` means at least
@@ -112,6 +114,41 @@ net-keyword, SYNTHESIS-guard, module-function and pragma-comment ideas are
 adapted from nand2anything `tools/style/rtl_style.py` (commit `085ef4b`,
 same owner, no license file); its project inventories and macro rules were
 dropped.
+
+## Wiki mirror check
+
+Rule owner: the [wiki BKM page set](../../bkm/wiki.md#page-set) (captain
+decision in the [decision record](../../project/decisions/0001-m0-grill.md#updates)).
+The wiki tree is `<src-root>/../wiki/src` (in the repository, `wiki/src/`
+next to `src/`); a missing wiki tree is an empty one. Code: `wiki_mirror.py`.
+
+- **Required pages.** Every top-level IP (an IP directly under the source
+  root) has `arch/HAS.md`. Every IP and sub-IP has `rtl/MAS.md` and
+  `dv/DV_PLAN.md`. An IP with a `fpga/` directory has `fpga/FPGA.md`; one
+  with `asic/` has `asic/ASIC.md`. The pages are found at
+  `wiki/src/<ip id>/`; a missing one is
+  `wiki/src/<id>/<page>: missing (required for IP <id>)`.
+- **Counterparts.** Every folder under the wiki tree has a folder at the same
+  relative path under the source root, so a page cannot outlive its IP or
+  sub-IP, and `fpga/` or `asic/` pages exist only where the source folders
+  do. The one exception: a top-level IP's `arch/` itself, because
+  `src/<ip>/arch/` is optional until the architecture model tooling lands.
+  A folder without a counterpart is reported once and not descended.
+- **No sub-IP `arch/`.** An `arch/` folder of a sub-IP is a finding, even
+  when the source has one.
+- **Placement.** Every file sits in, or below, an `arch/`, `rtl/`, `dv/`,
+  `fpga/` or `asic/` folder of an IP (the innermost IP whose source
+  directory contains the folder's counterpart). This rejects the old flat
+  layout (`wiki/src/<ip>/MAS.md`) and pages for source folders that are not
+  IPs (such as `src/common/` without `common.rtl.f`). Extra pages inside a
+  mirror folder are allowed.
+
+Hidden files and folders (names starting with `.`) are skipped. With `--ip`,
+required pages are checked for the selected IPs only, and the folder and
+placement rules only for wiki folders that the selected IPs own; a folder
+that no IP owns is reported only without `--ip`. The check proves that
+pages exist where the mirror puts them, not that their content matches the
+code; that stays a review item.
 
 ## Neutrality check
 
@@ -246,12 +283,16 @@ Fixtures live in `tools/checks/tests/fixtures/`:
 
 | Fixture | Content |
 | --- | --- |
-| `good/src/` | IP `blk` (package, include header, top) with sub-IP `blk/sub`, a shared block under `common/rtl/`, and a board wrapper in `blk/fpga/`. Every check passes. |
-| `bad/src/` | IP `blk` with a duplicate source, an orphan, a missing and an invalid level file, style violations and lint warnings; IP `broken` with a missing source. Filelist, style and lint fail. |
+| `good/src/`, `good/wiki/src/` | IP `blk` (package, include header, top) with sub-IP `blk/sub`, a shared block under `common/rtl/`, and a board wrapper in `blk/fpga/`; the wiki mirror holds every required page. Every check passes. |
+| `bad/src/`, `bad/wiki/src/` | IP `blk` with a duplicate source, an orphan, a missing and an invalid level file, style violations and lint warnings; IP `broken` with a missing source. The wiki mirror lacks pages, has a flat-layout page, an `fpga/` page with no `src/blk/fpga/` and an orphan folder. Filelist, style, wiki and lint fail. |
 
 Tests also build variants in temporary directories: one bad case per style
 rule (`test_style.py`), duplicate, diamond, orphan and regression cases
-(`test_filelists_check.py`), a small git repository with forbidden words,
+(`test_filelists_check.py`), each wiki mirror rule: every required page,
+`asic/` and `fpga/` pages following the source folders, the top-level
+`arch/` exemption and its limit, a sub-IP `arch/`, the flat layout, orphan
+and empty folders, extra pages, a non-IP source folder, hidden entries,
+`--ip`, and a missing wiki tree (`test_wiki_mirror.py`), a small git repository with forbidden words,
 slug URLs, a look-alike slug and an invalid config (`test_neutrality.py`),
 and waivers (used, stale, invalid), output parsing and the command line
 (`test_lint.py`, `test_check_run.py`). Negative cases include a `.vlt`
@@ -262,5 +303,5 @@ and a `.v` file in an `rtl/` closure, a `w.txt` waiver reached by
 allowed include directory and a listed source under `dv/` (both caught by
 the preprocessed audit), prose versus directive comments, a
 comment and a widened exempt path in the config, and look-alike slug hosts.
-Tests that run Verilator are skipped when it is not installed. `test_check_run.py` also runs the neutrality check
-on this repository.
+Tests that run Verilator are skipped when it is not installed. `test_check_run.py` also runs the neutrality and wiki
+mirror checks on this repository.

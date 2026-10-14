@@ -1,5 +1,37 @@
 # pcie_top HAS
 
+`pcie_top` is the top IP of the PCI Express controller. For now it is a
+seed datapath: a byte-stream scrambler that XORs each valid data byte with
+the Gen1/Gen2 scrambler key from its sub-IP
+[`pcie_top_lfsr`](../lfsr/rtl/MAS.md). It gives the factory a real two-level
+IP (a parent that includes a sub-IP through `-F` and has its own end-to-end
+tests) before the controller's architecture is defined.
+
+It is not a physical layer: no 8b/10b coding, no K-code bypass, no SKP
+handling and no lanes. `reseed_i` plays the role of a COM only in part:
+like a COM, the next byte uses the seed key; unlike a COM (a K code, which is
+never scrambled), the byte in the re-seed cycle is scrambled with the
+current key.
+
+How it is built is in the [MAS](../rtl/MAS.md); how it is verified in the
+[DV plan](../dv/DV_PLAN.md); its implementation targets in the
+[FPGA](../fpga/FPGA.md) and [ASIC](../asic/ASIC.md) pages.
+
+## Position
+
+```mermaid
+flowchart LR
+  data_i --> x(("XOR"))
+  valid_i -- advance_i --> lfsr["pcie_top_lfsr"]
+  reseed_i --> lfsr
+  lfsr -- key_o --> x
+  x --> reg["data/valid registers"]
+  valid_i --> reg
+  reg --> data_o & valid_o
+```
+
+Sub-IPs: [`lfsr`](../lfsr/rtl/MAS.md).
+
 ## Interfaces
 
 One clock, `clk_i`; every input is sampled and every register updates on
@@ -23,8 +55,8 @@ None.
 
 ## Behavior
 
-Let `K` be the key byte of the [LFSR](lfsr/HAS.md#behavior) in the current
-cycle. At each rising edge:
+Let `K` be the key byte of the [LFSR](../lfsr/rtl/MAS.md#behavior) in the
+current cycle. At each rising edge:
 
 | Condition | `valid_o` next | `data_o` next | LFSR |
 | --- | --- | --- | --- |
@@ -41,56 +73,18 @@ restores the data.
 Reset values: `valid_o` is 0 and the LFSR holds the seed. `data_o` is not
 reset and is don't-care while `valid_o` is 0.
 
-## Microarchitecture
+## Decisions
 
-`pcie_top_lfsr` (instance `u_lfsr`) with `advance_i = valid_i` and
-`reseed_i = reseed_i`. One XOR stage, a `valid_q` register with reset, and a
-`data_q` register enabled by `valid_i`.
+| Choice | Rationale | Rejected |
+| --- | --- | --- |
+| The LFSR advances only on valid bytes | Bubbles do not consume key, as a cycle with no symbol would not. | Free-running LFSR. |
+| Re-seed applies from the next byte | The byte in the re-seed cycle uses the current key and the next byte the seed key, so `reseed_i` needs no data bypass. | Re-seed before the byte; a K-code bypass (out of scope for this seed). |
 
-## Timing
+## Targets
 
-- Latency: one cycle from `valid_i`/`data_i` to `valid_o`/`data_o`.
-- Throughput: one byte per cycle, back to back.
-- No clock-domain crossing.
-- Clock target: 100 MHz (10 ns period) on `clk_i`, the ASIC study clock in
-  `src/top/asic/pcie_top.sdc` (sky130hd).
-
-## FPGA board wrapper
-
-`pcie_top_de2_115` binds `pcie_top` to the Terasic DE2-115 for the
-[FPGA flow](../../tools/fpga/SPEC.md); it is board policy, not part of
-`top.rtl.f`.
-
-| Port | Board signal | Pin(s) | Use |
-| --- | --- | --- | --- |
-| `clk_50_i` | `CLOCK_50` | `Y2` | 50 MHz clock for everything (`clk_i`). |
-| `key_ni[0]` | `KEY[0]` | `M23` | Held: reset (`rst_i`). |
-| `key_ni[1]` | `KEY[1]` | `M21` | Press: one `valid_i` pulse with `data_i = SW[7:0]`. |
-| `key_ni[2]` | `KEY[2]` | `N21` | Press: one `reseed_i` pulse. |
-| `sw_i[7:0]` | `SW[7:0]` | `AB28 AC28 AC27 AD27 AB27 AC26 AD26 AB26` | Data byte. |
-| `ledr_o[7:0]` | `LEDR[7:0]` | `G19 F19 E19 F21 F18 E18 J19 H19` | Last `data_o` with `valid_o`; 0 after reset. |
-| `ledg0_o` | `LEDG[0]` | `E21` | A byte has been shown since reset. |
-
-Reset is synchronous and active high. It is held for the first 15 cycles
-after configuration by a 4-bit power-on counter (`por_cnt_q`, which starts
-at 0 because the board file disables power-up don't-care), and while
-`KEY[0]` is held. Reset clears both LED outputs.
-
-Keys and switches pass through two-flop synchronizers to `clk_50_i`. A
-press is a high-to-low step of a synchronized key, so each press gives one
-pulse (the board debounces the keys). The SDC constrains `CLOCK_50` to
-20 ns and false-paths the asynchronous inputs and the static LED outputs.
-
-Build with `./build fpga --ip top`; resource and timing results are not
-recorded here but in `metrics.json` and, once nightly runs, the tracker
-(#16).
-
-## Files
-
-| File | Holds |
+| Item | Target |
 | --- | --- |
-| [`pcie_top.sv`](../../../src/top/rtl/pcie_top.sv) | The module. |
-| [`top.rtl.f`](../../../src/top/rtl/top.rtl.f) | `-F ../lfsr/rtl/lfsr.rtl.f`, then `pcie_top.sv`. |
-| [`pcie_top_de2_115.sv`](../../../src/top/fpga/pcie_top_de2_115.sv) | DE2-115 board wrapper (FPGA flow only). |
-| [`pcie_top.sdc`](../../../src/top/fpga/pcie_top.sdc) | FPGA timing constraints. |
-| [`de2_115.qsf.tcl`](../../../src/top/fpga/de2_115.qsf.tcl) | DE2-115 device, pins and I/O settings. |
+| Throughput | One byte per clock, back to back. |
+| Latency | One cycle from `valid_i` to `valid_o`. |
+| Clock | 100 MHz ASIC study clock ([ASIC](../asic/ASIC.md)); 50 MHz on the board ([FPGA](../fpga/FPGA.md)). |
+| Area | The LFSR plus 9 flops and 8 XORs. |
