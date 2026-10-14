@@ -15,8 +15,11 @@ page disagree until both are reconciled in the same issue.
 
 - One fact, one owning page; everywhere else links to it.
 - Current requirements are normative and in the present tense.
-- Rationale worth keeping goes in a decision record under
-  `wiki/project/decisions/`; delivery history stays in issues and PRs.
+- Rationale worth keeping goes in a decision record: factory decisions under
+  `wiki/project/decisions/`, design decisions under `wiki/src/decisions/`.
+  Records are numbered once across both folders (`NNNN-<slug>.md`), and
+  `wiki/src/README.md` indexes the design records. Delivery history stays in
+  issues and PRs.
 - Deferred work belongs to a named issue, never an ownerless TODO.
 
 ## Page set
@@ -45,14 +48,16 @@ top-level follows from filelist `-F` reachability
 | `wiki/src/dv/<ip>/` | `DV_PLAN.md` | Every IP and sub-IP |
 | `wiki/src/fpga/<ip>/` | `FPGA.md` | Exactly the IPs with `src/fpga/<ip>/` |
 | `wiki/src/asic/<ip>/` | `ASIC.md` | Exactly the IPs with `src/asic/<ip>/` |
+| `wiki/src/` | `README.md`, `roadmap.md`, `decisions/NNNN-<slug>.md` | Fixed set of design-level pages: index and decision index, product roadmap, design decision records |
 | `wiki/tools/<tool>/` | `SPEC.md` | Every tool under `tools/` |
 | `wiki/bkm/` | One page per discipline | Fixed set ([index](README.md)) |
 | `wiki/project/` | Architecture, layout, roadmap, decisions | Fixed set |
 | `wiki/tracker/` | `index.md`, `data/` (nightly bot only) | Fixed set |
 
 Every folder under `wiki/src/` has a `src/` counterpart, and every page
-there sits in an IP folder `<kind>/<ip>/` (or below one). The one
-exception: a top-level IP's `arch/<ip>/` needs `src/arch/<ip>/` only once its HAS
+there sits in an IP folder `<kind>/<ip>/` (or below one), except the
+design-level pages above (`decisions/` is flat and holds only records). The
+one other exception: a top-level IP's `arch/<ip>/` needs `src/arch/<ip>/` only once its HAS
 defines targets (a `## Targets` section); then the
 [architecture model](arch.md) must exist and report against them.
 `./build check` enforces the page set and the mirror

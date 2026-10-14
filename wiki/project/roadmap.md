@@ -19,7 +19,8 @@ seed IP. Tracked by the M0 epic (issue #1) and its sub-issues.
 
 M0 is done when the epic's goal checklist holds on `main`.
 
-## Later
+## Product milestones
 
-Product milestones for the design target are planned in `wiki/src/` once M0
-lands.
+Product milestones for the design target, from M1 on, are planned on the
+[design roadmap](../src/roadmap.md), with their decision records under
+`wiki/src/decisions/`.
