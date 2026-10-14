@@ -78,9 +78,10 @@ _SUFFIX = {"input": re.compile(r"_n?i$"), "output": re.compile(r"_n?o$"),
 _IDENT = re.compile(r"[A-Za-z_][\w$]*")
 # Tool macros the sim-ifdef rule owns; external-ifdef leaves them to it.
 _SIM_MACROS = ("SYNTHESIS", "SIMULATION", "VERILATOR")
-# `ifdef NAME, or a parenthesized macro expression (`ifdef (A && !B)).
-_COND_RE = re.compile(r"`(ifdef|ifndef|elsif)\b[ \t]*(\(|[A-Za-z_]\w*)?")
-_DEFINE_RE = re.compile(r"`define\s+([A-Za-z_]\w*)")
+# `ifdef NAME, or a parenthesized macro expression (`ifdef (A && !B)). The
+# name or "(" must be on the directive's line; macro names may contain $.
+_COND_RE = re.compile(r"`(ifdef|ifndef|elsif)\b[ \t]*(\(|[A-Za-z_][\w$]*)?")
+_DEFINE_RE = re.compile(r"`define\s+([A-Za-z_][\w$]*)")
 
 
 def _package_spans(text: str) -> list[tuple[int, int]]:
@@ -190,7 +191,12 @@ def ifdef_findings(relpath: str, text: str, defined: frozenset[str] | set[str] =
     ``text``. A macro is internal when this file or ``defined`` (the rest of
     its RTL closure: `` `define``s and filelist ``+define+``) defines it, so
     an include guard passes; any other macro can only come from a tool or
-    vendor flow and would hide code from lint."""
+    vendor flow and would hide code from lint.
+
+    Lexical limitation, failing closed: the macro name (or the opening
+    parenthesis of an expression) must be on the directive's line. A name on
+    a later line, ``SYNTHESIS`` included, is reported as an
+    ``external-ifdef`` directive without a macro name."""
     known = defined_macros(text) | set(defined)
     out = []
     for m in _COND_RE.finditer(text):

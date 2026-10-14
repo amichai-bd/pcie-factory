@@ -275,6 +275,23 @@ def test_external_ifdef_line_and_text():
                      "is not `define'd by the RTL closure"]
 
 
+@pytest.mark.parametrize("name", ["XY_A_ON", "SYNTHESIS"])
+def test_name_on_next_line_fails_closed(name):
+    # The scan is lexical: the name must be on the directive's line. A name
+    # on a later line is reported as missing, never silently accepted.
+    text = _wrap(f"`define XY_A_ON\n`ifdef\n  {name}")
+    found = check(text)
+    assert rules(found) == ["external-ifdef"], found
+    assert all(f.endswith("`ifdef without a macro name") for f in found), found
+
+
+def test_macro_name_with_dollar():
+    found = check(_wrap("`ifdef FOO_$x"))
+    assert [f.split(": ", 2)[2] for f in found] == [
+        "`ifdef FOO_$x is not `define'd by the RTL closure"]
+    assert check(_wrap("`define FOO_$x\n`ifdef FOO_$x")) == []
+
+
 def test_sim_macro_is_not_also_external():
     assert rules(check(_wrap("`ifdef VERILATOR"))) == ["sim-ifdef"]
     # Defining a tool macro does not make it internal.
