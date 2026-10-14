@@ -7,7 +7,7 @@ import pytest
 from build.ip import REPO_ROOT
 from cli.main import COMMANDS, main
 
-STUBS = {"fpga": 13, "asic": 14}
+STUBS = {"asic": 14}
 
 
 @pytest.mark.parametrize("name, issue", sorted(STUBS.items()))
@@ -17,7 +17,7 @@ def test_stubs_exit_2(name, issue, capsys):
 
 
 def test_dispatch_table():
-    assert set(COMMANDS) == {"sim", "regress", "clean", "check", "labels", "ci", "wiki"} | set(STUBS)
+    assert set(COMMANDS) == {"sim", "regress", "clean", "labels", "wiki", "check", "fpga", "ci"} | set(STUBS)
 
 
 def test_launcher_runs():

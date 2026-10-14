@@ -40,7 +40,12 @@ inline `[a, b]` lists and `#` comments.
 The Omarchy entries in `cfg/host.yaml` record what the host agent reported
 and must match the pins above; an entry not yet reported stays empty.
 `venv: runner` means the runner service's own virtual environment (its
-`$VIRTUAL_ENV`, first on `PATH`); its path is not recorded. Quartus Lite and ORFS run only there and are recorded there too.
+`$VIRTUAL_ENV`, first on `PATH`); its path is not recorded. Quartus Lite and
+ORFS run only there and are recorded there too:
+Quartus Prime Lite `25.1std.0 Build 1129` at `/opt/intelFPGA_lite/25.1/quartus`
+(`quartus_root`, `quartus_version`), as printed by the fpga workflow's
+discovery step. The [fpga tool](../fpga/SPEC.md#finding-quartus) falls back to
+`<quartus_root>/bin`.
 
 ### Cloud session-start hook
 

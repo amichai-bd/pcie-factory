@@ -14,6 +14,7 @@ from pathlib import Path
 from build import sim
 from build.filelist import FilelistError
 from build.ip import Context, DiscoveryError, discover, find_ip, make_context
+from fpga import flow as fpga
 from labels import core as labels
 from checks.common import CheckConfigError
 from ci import summary as ci_summary
@@ -26,7 +27,7 @@ from regress.schema import LEVELS, SchemaError, load_ip
 
 WIKI_SITE = Path(__file__).resolve().parents[1] / "wiki_site"
 USER_ERRORS = (FilelistError, DiscoveryError, SchemaError, GitError, sim.SimError,
-               labels.LabelsError, CheckConfigError, CiConfigError)
+               fpga.FpgaError, labels.LabelsError, CheckConfigError, CiConfigError)
 
 
 def cmd_sim(ctx: Context, args) -> int:
@@ -102,6 +103,10 @@ def cmd_clean(ctx: Context, args) -> int:
     return 0
 
 
+def cmd_check(ctx: Context, args) -> int:
+    return run_checks(ctx, args.ip, args.only)
+
+
 def cmd_labels(ctx: Context, args) -> int:
     standard = labels.load_repo_standard(ctx.cfg_dir, ctx.src_root)
     gh = labels.Gh(labels.resolve_repo(args.repo, ctx.repo_root))
@@ -149,6 +154,37 @@ def cmd_wiki(ctx: Context, args) -> int:
     return wiki_site.main(argv)
 
 
+def cmd_fpga(ctx: Context, args) -> int:
+    cfg = fpga.load_config(ctx.cfg_dir)
+    ips = discover(ctx.src_root)
+    if args.all:
+        targets = fpga.fpga_ips(ips)
+        if not targets:
+            raise fpga.FpgaError("no IP has an fpga/ directory")
+    else:
+        targets = [find_ip(ips, ip_id) for ip_id in args.ip]
+    timeout = args.timeout if args.timeout is not None else cfg["step_timeout_s"]
+    plans = [fpga.plan(ip, ctx.workdir, cfg["board"], args.part, cfg["processors"]) for ip in targets]
+    if args.dry_run:
+        for p in plans:
+            fpga.generate(p, clean=False)
+            print(f"[{p.ip.id}] top {p.top}, board {p.board}, project {p.out_dir}")
+            print(f"[lint] {' '.join(fpga.lint_command(p, 'verilator'))}")
+            for name, cmd in p.steps:
+                print(f"[{name}] {' '.join(cmd)}")
+        return 0
+    bin_dir = fpga.find_quartus(ctx.cfg_dir)
+    if bin_dir is None:
+        raise fpga.FpgaError(fpga.quartus_not_found(ctx.cfg_dir))
+    print(f"quartus: {bin_dir}")
+    verilator = sim.find_verilator()
+    code = 0
+    for p in plans:
+        print(f"[{p.ip.id}] top {p.top}, board {p.board}, project {p.out_dir}")
+        code = max(code, fpga.run(p, bin_dir, timeout, verilator))
+    return code
+
+
 def stub(issue: int):
     def run(ctx: Context, args) -> int:
         print(f"{args.command}: not implemented yet (see issue #{issue})", file=sys.stderr)
@@ -178,6 +214,23 @@ def _regress_args(p: argparse.ArgumentParser) -> None:
 def _clean_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--ip", action="append",
                    help="only this IP's own output (sub-IP output is kept); repeatable")
+
+
+def _check_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--ip", action="append",
+                   help="restrict lint, style and filelist to this IP id; repeatable")
+    p.add_argument("--only", action="append", choices=CHECKS,
+                   help="run only this check; repeatable (default: all)")
+
+
+def _fpga_args(p: argparse.ArgumentParser) -> None:
+    which = p.add_mutually_exclusive_group(required=True)
+    which.add_argument("--ip", action="append", help="IP id with an fpga/ directory; repeatable")
+    which.add_argument("--all", action="store_true", help="every IP that has an fpga/ directory")
+    p.add_argument("--part", help="override the device set by the board settings file")
+    p.add_argument("--timeout", type=float, help="seconds per step (default: cfg/fpga.yaml)")
+    p.add_argument("--dry-run", action="store_true",
+                   help="generate the project scripts and print the commands only")
 
 
 def _labels_args(p: argparse.ArgumentParser) -> None:
@@ -229,7 +282,7 @@ COMMANDS = {
     "labels": ("GitHub label sync and check", cmd_labels, _labels_args),
     "ci": ("ci-gate helpers: unit suites, job summary", cmd_ci, _ci_args),
     "wiki": ("build or serve the wiki site", cmd_wiki, _wiki_args),
-    "fpga": ("FPGA flow", stub(13), None),
+    "fpga": ("FPGA flow: Quartus compile and metrics", cmd_fpga, _fpga_args),
     "asic": ("ASIC flow", stub(14), None),
 }
 

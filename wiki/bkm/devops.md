@@ -97,7 +97,7 @@ behavior, not command success. Missing evidence is a review finding.
 
 ## Continuous integration
 
-Workflows live in `.github/workflows/` (`ci`, `nightly`, `pages`) and run on
+Workflows live in `.github/workflows/` (`ci`, `nightly`, `pages`, `fpga`) and run on
 self-hosted runners selected with `runs-on: [self-hosted, linux, x64]`. The
 runners are registered to this repository only, so no workflow names the
 design target. The CI host is the Omarchy machine; `cfg/host.yaml` pins its

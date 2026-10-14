@@ -7,6 +7,11 @@ otherwise Verilator picks it (several candidates raise MULTITOP). Each
 ``fpga/*.sv`` board wrapper is linted again with the IP's sources plus the
 wrapper, with the wrapper (named after its file) as top.
 
+Before each lint run, ``verilator -E`` with the same arguments shows what
+Verilator actually reads; that output is audited (``audit_preprocessed``)
+so no file outside ``rtl/`` and no ``verilator_config``/metacomment waiver
+can reach a lint run by any route.
+
 Waivers live only in ``<src-root>/lint_waivers.yaml`` (see the SPEC).
 """
 
@@ -22,7 +27,7 @@ import yaml
 from build import sim
 from build.filelist import FilelistError, Resolved, resolve
 from build.ip import Ip
-from checks.common import CheckConfigError, CheckResult, ip_stem, read_prefix, rel
+from checks.common import SV_SUFFIXES, CheckConfigError, CheckResult, ip_stem, read_prefix, rel
 
 WAIVER_FILE = "lint_waivers.yaml"
 LINT_TIMEOUT_S = 600.0
@@ -102,7 +107,11 @@ def parse_output(output: str, src_root: Path) -> list[Message]:
     msgs = []
     for line in output.splitlines():
         m = _MSG_RE.match(line)
-        if not m or m.group("msg").startswith("Exiting due to"):
+        if m is None:
+            if line.startswith(("%Warning", "%Error")):  # never drop a message
+                msgs.append(Message("Error", "", "", 0, f"unparsed Verilator output: {line}"))
+            continue
+        if m.group("msg").startswith("Exiting due to"):
             continue
         f = m.group("file") or ""
         if f:
@@ -129,6 +138,57 @@ def command(verilator: Path, flat: Resolved, extra: list[Path], top: str | None)
     cmd += [f"+incdir+{d}" for d in flat.incdirs]
     cmd += [f"-D{k}={'' if v is None else v}" for k, v in flat.defines.items()]
     return cmd + [str(s) for s in flat.sources + extra]
+
+
+def preprocess_command(verilator: Path, flat: Resolved, extra: list[Path]) -> list[str]:
+    """``verilator -E`` with the same include dirs, defines and sources."""
+    cmd = [str(verilator), "-E"]
+    cmd += [f"+incdir+{d}" for d in flat.incdirs]
+    cmd += [f"-D{k}={'' if v is None else v}" for k, v in flat.defines.items()]
+    return cmd + [str(s) for s in flat.sources + extra]
+
+
+_LINE_RE = re.compile(r'^`line\s+\d+\s+"(?P<file>[^"]*)"\s+\d+\s*$')
+_METACOMMENT_RE = re.compile(r"/\*\s*(verilator\b.*?)\*/", re.IGNORECASE | re.DOTALL)
+
+
+def audit_preprocessed(output: str, src_root: Path, allowed_extra: tuple[Path, ...] = ()
+                       ) -> list[str]:
+    """Check Verilator's own view of a lint target (``verilator -E``): every
+    file it entered (per `` `line`` markers) must be inside the source root
+    and below an ``rtl/`` directory (or be one of ``allowed_extra``, the
+    board wrapper), and the text must hold no `` `verilator_config`` and no
+    ``/*verilator <directive>*/`` metacomment. ``-E`` turns every comment
+    that starts with ``verilator`` into such a metacomment, whatever file or
+    include route it came from."""
+    from checks.style import _PRAGMA_RE  # one directive list for both checks
+
+    src_root = Path(src_root).resolve()
+    allowed = {Path(p).resolve() for p in allowed_extra}
+    out: list[str] = []
+    entered: dict[Path, None] = {}
+    current = "?"
+    for line in output.splitlines():
+        m = _LINE_RE.match(line)
+        if m:
+            path = Path(m.group("file")).resolve()
+            entered.setdefault(path)
+            current = rel(path, src_root)
+            continue
+        if re.search(r"`verilator_config\b", line):
+            out.append(f"preprocessed input from {current} contains `verilator_config")
+        for c in _METACOMMENT_RE.finditer(line):
+            if _PRAGMA_RE.match(c.group(1).strip()):
+                out.append(f"preprocessed input from {current} contains "
+                           f"/*{c.group(1).strip()[:60]}*/")
+    for path in entered:
+        if path in allowed:
+            continue
+        inside = src_root in path.parents
+        if not inside or "rtl" not in path.relative_to(src_root).parts[:-1]:
+            out.append(f"verilator reads {rel(path, src_root)}, which is not below an rtl/ "
+                       "directory in the source root")
+    return list(dict.fromkeys(out))
 
 
 @dataclass(frozen=True)
@@ -164,6 +224,19 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
         except FilelistError as exc:
             result.findings.append(f"{ip.id}: rtl filelist does not resolve: {exc}")
             continue
+        foreign = [s for s in flat.sources if not s.name.endswith(SV_SUFFIXES)]
+        if foreign:  # e.g. a .vlt control file would waive outside the waiver file
+            result.findings.append(
+                f"{ip.id}: not linted: rtl filelist lists non-.sv/.svh source(s): "
+                + ", ".join(rel(s, src_root) for s in foreign))
+            continue
+        outside = [d for d in flat.incdirs
+                   if not (src_root in d.parents and "rtl" in d.relative_to(src_root).parts)]
+        if outside:  # files included from there escape the rtl/ allowlist
+            result.findings.append(
+                f"{ip.id}: not linted: rtl filelist includes from outside rtl/: "
+                + ", ".join(rel(d, src_root) for d in outside))
+            continue
         plan += targets(ip, flat, prefix)
     verilator = None
     if plan:
@@ -175,11 +248,22 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
         cmd = command(verilator, t.flat, list(t.extra), t.top)
         print(f"[lint] {t.label}: top={t.top or '(verilator picks)'}", flush=True)
         try:
+            pre = subprocess.run(preprocess_command(verilator, t.flat, list(t.extra)),
+                                 capture_output=True, text=True, timeout=LINT_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            result.findings.append(f"{t.label}: verilator -E timed out after {LINT_TIMEOUT_S:.0f}s")
+            continue
+        if pre.returncode != 0:
+            result.findings.append(f"{t.label}: verilator -E exited {pre.returncode}: "
+                                   + (pre.stderr.strip().splitlines() or [""])[0])
+        result.findings += [f"{t.label}: {x}" for x in
+                            audit_preprocessed(pre.stdout, src_root, t.extra)]
+        try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=LINT_TIMEOUT_S)
         except subprocess.TimeoutExpired:
             result.findings.append(f"{t.label}: verilator timed out after {LINT_TIMEOUT_S:.0f}s")
             continue
-        msgs = parse_output(proc.stdout + proc.stderr, src_root)
+        msgs = parse_output(proc.stdout + "\n" + proc.stderr, src_root)
         for m in msgs:
             hit = next((w for w in waivers if w.covers(m)), None)
             if hit is not None:
@@ -196,6 +280,6 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                     f"{WAIVER_FILE}: stale waiver {w.file} {w.rule}"
                     f"{f' line {w.line}' if w.line else ''}{f' {w.match!r}' if w.match else ''}"
                     ": matches no warning")
-    result.checked = (f"{len(chosen)} IP(s), {len(plan)} Verilator run(s), "
+    result.checked = (f"{len(chosen)} IP(s), {len(plan)} Verilator run(s) with -E audit, "
                       f"{len(waivers)} waiver(s), {waived} warning(s) waived")
     return result

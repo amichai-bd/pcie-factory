@@ -1,0 +1,54 @@
+# FPGA flow (Quartus); see wiki/tools/fpga/SPEC.md and wiki/bkm/fpga.md.
+# On demand only: Quartus runs in nightly L2 (which calls ./build fpga --all)
+# or by manual dispatch here, never on pull requests (decision Q26). A
+# dispatch compiles one IP, or every IP with an fpga/ directory when `ip` is
+# empty. The artifact holds only our own summary (metrics.json and
+# worst_path.txt); Quartus reports and logs stay in workdir/ on the host.
+name: fpga
+
+on:
+  workflow_dispatch:
+    inputs:
+      ip:
+        description: "IP id to compile (empty: every IP with an fpga/ directory)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    # Public repository: never run fork code on the self-hosted runners.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 90
+    concurrency:
+      group: fpga-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Discover Quartus
+        run: |
+          command -v quartus_sh || echo "quartus_sh not on PATH"
+          quartus_sh --version || true
+          command -v verilator && verilator --version || echo "verilator not on PATH"
+          python3 --version
+      - name: Compile
+        env:
+          IP: ${{ inputs.ip }}
+        run: |
+          if [ -n "$IP" ]; then ./build fpga --ip "$IP"; else ./build fpga --all; fi
+      - name: Upload metrics
+        if: always()
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: fpga-metrics
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            workdir/**/fpga/metrics.json
+            workdir/**/fpga/worst_path.txt

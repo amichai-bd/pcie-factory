@@ -57,6 +57,15 @@ def test_good_package_is_clean():
     assert check(text, "xy_a_pkg.sv") == []
 
 
+@pytest.mark.parametrize("name", ["xy_a_waive.svh", "xy_a_m.sv"])
+def test_verilator_config_block_rejected(name):
+    # A listed include file carrying a config block would waive warnings
+    # outside the reviewed waiver file.
+    text = "`verilator_config\nlint_off -rule UNUSEDSIGNAL -file \"*\"\n"
+    found = check(text, name)
+    assert any(f.startswith(f"{name}:1: verilator-config: `verilator_config") for f in found), found
+
+
 def test_include_header_needs_no_nettype():
     assert check("`ifndef X_SVH\n`define X_SVH\n`endif\n", "x_defs.svh") == []
 
@@ -87,6 +96,10 @@ def mutate(old: str, new: str) -> str:
     ("port-suffix", mutate("inout  logic         pad_io", "inout  logic         pad_o")),
     ("tool-pragma", mutate("  always_comb", "  // verilator lint_off WIDTH\n  always_comb")),
     ("tool-pragma", mutate("  always_comb", "  /* synthesis translate_off */\n  always_comb")),
+    ("tool-pragma", mutate("  always_comb", "  /*verilator public*/\n  always_comb")),
+    ("tool-pragma", mutate("  always_comb", "  // synopsys full_case\n  always_comb")),
+    ("tool-pragma", mutate("  always_comb", "  // pragma protect begin\n  always_comb")),
+    ("tool-pragma", mutate("  always_comb", "  // altera message_off 10230\n  always_comb")),
 ])
 def test_rule_fires(rule, text):
     assert rule in rules(check(text))
@@ -95,7 +108,7 @@ def test_rule_fires(rule, text):
 def test_every_rule_is_tested_and_documented():
     tested = {"default-nettype", "net-keyword", "plain-always", "interface-union",
               "wildcard-connection", "sim-ifdef", "task-function", "typedef-outside-package",
-              "port-suffix", "tool-pragma", "file-name"}
+              "port-suffix", "tool-pragma", "file-name", "verilator-config"}
     assert tested == set(RULES)
     spec = (Path(__file__).resolve().parents[3] / "wiki/tools/checks/SPEC.md").read_text()
     for rule, (anchor, _) in RULES.items():
@@ -130,6 +143,16 @@ def test_comments_and_strings_do_not_trigger():
                   '  localparam string S = "always wire typedef";\n'
                   "  assign q_o = q_q;")
     assert check(text) == []
+
+
+@pytest.mark.parametrize("prose", [
+    "// Synthesis infers a flop here.",
+    "// Verilator warns if this is unused.",
+    "/* Pragma-free by design. */",
+    "// synopsys tools are not used",
+])
+def test_tool_pragma_ignores_prose(prose):
+    assert check(mutate("  always_comb", f"  {prose}\n  always_comb")) == []
 
 
 def test_line_numbers():
@@ -170,3 +193,52 @@ def test_expected_prefix(tmp_path):
     assert style.expected_prefix(src / "blk/sub/rtl/xy_blk_sub.sv", src, ips, "xy_") == "xy_blk_sub"
     assert style.expected_prefix(src / "blk/fpga/xy_blk_board.sv", src, ips, "xy_") == "xy_blk"
     assert style.expected_prefix(src / "common/rtl/common_flop.sv", src, ips, "xy_") == "common_"
+
+
+def test_run_flags_listed_include_with_verilator_config(tmp_path):
+    import shutil
+    src = tmp_path / "src"
+    shutil.copytree(FIXTURES / "good/src", src)
+    inc = src / "blk/rtl/include/xy_blk_defs.svh"
+    inc.write_text(inc.read_text() + "`verilator_config\nlint_off -rule WIDTH\n")
+    r = style.run(src, discover(src), None)
+    assert r.findings == [
+        "blk/rtl/include/xy_blk_defs.svh:5: verilator-config: `verilator_config"]
+
+
+def _good_copy(tmp_path):
+    import shutil
+    src = tmp_path / "src"
+    shutil.copytree(FIXTURES / "good/src", src)
+    return src
+
+
+@pytest.mark.parametrize("text, rule", [
+    ("`verilator_config\nlint_off -rule UNUSEDSIGNAL\n", "verilator-config: `verilator_config"),
+    ("// verilator lint_off UNUSEDSIGNAL\n", "tool-pragma: verilator lint_off UNUSEDSIGNAL"),
+])
+def test_includable_file_of_any_type_is_scanned(tmp_path, text, rule):
+    # w.txt via an incdir under rtl/, and via +incdir+../dv: both are
+    # reachable by `include "w.txt", so both are scanned for directives.
+    src = _good_copy(tmp_path)
+    (src / "blk/rtl/include/w.txt").write_text(text)
+    (src / "blk/dv/w.txt").write_text(text)
+    f = src / "blk/rtl/blk.rtl.f"
+    f.write_text("+incdir+../dv\n" + f.read_text())
+    r = style.run(src, discover(src), None)
+    assert sorted(r.findings) == [f"blk/dv/w.txt:1: {rule}", f"blk/rtl/include/w.txt:1: {rule}"]
+    assert "7 other includable or fpga/ file(s)" in r.checked  # all of blk/dv/ is includable
+
+
+def test_every_fpga_text_file_is_scanned(tmp_path):
+    src = _good_copy(tmp_path)
+    (src / "blk/fpga/board.qsf.tcl").write_text("set_global_assignment -name X Y\n`verilator_config\n")
+    (src / "blk/fpga/logo.bin").write_bytes(b"\0`verilator_config")
+    r = style.run(src, discover(src), None)
+    assert r.findings == ["blk/fpga/board.qsf.tcl:2: verilator-config: `verilator_config"]
+
+
+def test_dv_files_outside_rtl_incdirs_are_not_scanned(tmp_path):
+    src = _good_copy(tmp_path)
+    (src / "blk/dv/notes.txt").write_text("// verilator lint_off WIDTH\n")
+    assert style.run(src, discover(src), None).passed

@@ -31,5 +31,6 @@ hosts:
     verilator_version: "5.052"
     python: "3.14.7"                # base interpreter of the runner venv
     venv: runner                    # the runner service's own venv ($VIRTUAL_ENV), first on PATH; holds the cocotb, pytest and PyYAML pins
-    quartus_root:
+    quartus_root: /opt/intelFPGA_lite/25.1/quartus   # seen by the fpga workflow (also $QUARTUS_ROOTDIR and on PATH)
+    quartus_version: "25.1std.0 Build 1129"         # `quartus_sh --version`; Lite Edition
     orfs_root:
