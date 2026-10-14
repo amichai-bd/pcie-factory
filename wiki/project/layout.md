@@ -11,6 +11,7 @@
 ├── tools/                       # generic Python tools + unit tests
 ├── src/
 │   ├── README.md                # declares the design target and prefix
+│   ├── lint_waivers.yaml        # reviewed Verilator waivers (optional; checks SPEC)
 │   ├── common/{rtl,dv}/         # shared blocks
 │   └── <ip>/
 │       ├── rtl/                 # <ip>.rtl.f + synthesizable sources

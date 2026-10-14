@@ -14,12 +14,15 @@ from pathlib import Path
 from build import sim
 from build.filelist import FilelistError
 from build.ip import Context, DiscoveryError, discover, find_ip, make_context
+from checks.common import CheckConfigError
+from checks.run import CHECKS, run_checks
 from regress import run as regress
 from regress.affected import GitError
 from regress.schema import LEVELS, SchemaError, load_ip
 
 WIKI_SITE = Path(__file__).resolve().parents[1] / "wiki_site"
-USER_ERRORS = (FilelistError, DiscoveryError, SchemaError, GitError, sim.SimError)
+USER_ERRORS = (FilelistError, DiscoveryError, SchemaError, GitError, sim.SimError,
+               CheckConfigError)
 
 
 def cmd_sim(ctx: Context, args) -> int:
@@ -95,6 +98,10 @@ def cmd_clean(ctx: Context, args) -> int:
     return 0
 
 
+def cmd_check(ctx: Context, args) -> int:
+    return run_checks(ctx, args.ip, args.only)
+
+
 def cmd_wiki(ctx: Context, args) -> int:
     # Imported here so that other commands do not need the generator's
     # dependencies (markdown-it-py, Pygments) installed.
@@ -147,6 +154,13 @@ def _clean_args(p: argparse.ArgumentParser) -> None:
                    help="only this IP's own output (sub-IP output is kept); repeatable")
 
 
+def _check_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--ip", action="append",
+                   help="restrict lint, style and filelist to this IP id; repeatable")
+    p.add_argument("--only", action="append", choices=CHECKS,
+                   help="run only this check; repeatable (default: all)")
+
+
 def _wiki_args(p: argparse.ArgumentParser) -> None:
     actions = p.add_subparsers(dest="action", required=True, metavar="action")
     b = actions.add_parser("build", help="build the site (replaces --out)")
@@ -166,7 +180,7 @@ COMMANDS = {
     "sim": ("run one test of one IP", cmd_sim, _sim_args),
     "regress": ("run regression levels", cmd_regress, _regress_args),
     "clean": ("remove generated output", cmd_clean, _clean_args),
-    "check": ("static checks", stub(7), None),
+    "check": ("static checks: lint, style, filelist, neutrality", cmd_check, _check_args),
     "labels": ("GitHub label sync", stub(10), None),
     "wiki": ("build or serve the wiki site", cmd_wiki, _wiki_args),
     "fpga": ("FPGA flow", stub(13), None),

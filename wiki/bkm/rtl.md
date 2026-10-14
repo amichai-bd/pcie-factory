@@ -121,9 +121,9 @@ format and names. Practice on top of it:
   in RTL. A waiver is a reviewed change, never a convenience.
 - The RTL style checker in `./build check` enforces the mechanically
   checkable rules above (for example typedef-in-module, `wire`/`reg`, missing
-  `default_nettype`, logic in `always_ff`). Rules it cannot check stay review
-  items. Its tool SPEC lists the enforced rules; it is created by the
-  `./build check` issue (#7).
+  `default_nettype`, port suffixes). Rules it cannot check (such as logic in
+  `always_ff`) stay review items. The
+  [checks SPEC](../tools/checks/SPEC.md#style-check) lists the enforced rules.
 
 ## Review checklist
 

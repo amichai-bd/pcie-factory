@@ -11,6 +11,7 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `tools/build/ip.py` | Repository context (source root, workdir) and IP discovery. |
 | `tools/build/sim.py` | Verilator + cocotb build and test driver. |
 | `tools/regress/` | Regression lists, selection and summary; see the [regress spec](../regress/SPEC.md). |
+| `tools/checks/` | `./build check`; see the [checks spec](../checks/SPEC.md). |
 
 ## Command line
 
@@ -24,7 +25,8 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `regress` | Run regression levels; see the [regress spec](../regress/SPEC.md). |
 | `clean [--ip ID]...` | Delete the whole workdir. With `--ip`, empty `workdir/<ip>/` for each given IP but keep the directories of its sub-IPs, which nest there. |
 | `wiki build\|serve` | Build the wiki site into `<workdir>/wiki-site`, or serve an existing build; see the [wiki site spec](../wiki_site/SPEC.md). |
-| `check`, `labels`, `fpga`, `asic` | Stubs: print `not implemented yet (see issue #N)` and exit 2. Each is filled in by its issue (#7, #10, #13, #14) by replacing one entry in `COMMANDS`. |
+| `check` | Static checks; see the [checks spec](../checks/SPEC.md). |
+| `labels`, `fpga`, `asic` | Stubs: print `not implemented yet (see issue #N)` and exit 2. Each is filled in by its issue (#10, #13, #14) by replacing one entry in `COMMANDS`. |
 
 Options shared by every command:
 

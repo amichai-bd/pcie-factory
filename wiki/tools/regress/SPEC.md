@@ -75,6 +75,9 @@ Three rules decide which tests run:
   its old and new path). An IP is affected in any of these cases:
   - Every IP is affected when any change is under `tools/` or `cfg/`, or is
     the `build` launcher (paths relative to the git repository root).
+  - Every IP is affected when any change is under `<src-root>/common/dv/`:
+    shared DV Python helpers are reached by no filelist, so their users
+    cannot be told apart.
   - A changed file lies in the IP's **own files**: under `src/<ip>/`, but not
     inside a nested directory that is itself an IP. A change inside sub-IP
     `a/b` therefore selects `a/b`. It selects the parent `a` only through
@@ -95,14 +98,9 @@ Use `--dry-run` to print the selection (IPs, tests and seeds) without
 building or running anything. A dry run neither writes nor removes
 `summary.json`.
 
-Known gaps:
-
-- Python helpers in `src/common/dv/` are reached by no filelist, so a change
-  there selects no IP on its own.
-- The global prefixes (`tools/`, `cfg/`, `build`) are constants in
-  `tools/regress/affected.py`.
-
-Both move to `cfg/ci.yaml` selection rules when `ci-gate` is wired up (#11).
+Known gap: the global prefixes (`tools/`, `cfg/`, `build`) and the shared
+DV directory are constants in `tools/regress/affected.py`. They move to
+`cfg/ci.yaml` selection rules when `ci-gate` is wired up (#11).
 
 ## Seeds
 
