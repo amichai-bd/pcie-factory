@@ -122,10 +122,6 @@ def cmd_labels(ctx: Context, args) -> int:
     return 1 if errors else 0
 
 
-def cmd_check(ctx: Context, args) -> int:
-    return run_checks(ctx, args.ip, args.only)
-
-
 def cmd_ci(ctx: Context, args) -> int:
     if args.action == "summary":
         print(ci_summary.render(regress.summary_path(ctx.workdir)), end="")
@@ -243,13 +239,6 @@ def _labels_args(p: argparse.ArgumentParser) -> None:
     s.add_argument("--prune", action="store_true", help="delete labels not in the config")
     c = act.add_parser("check", parents=[repo], help="check the label rules on one issue or PR")
     c.add_argument("number", type=int, help="issue or pull request number")
-
-
-def _check_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--ip", action="append",
-                   help="restrict lint, style and filelist to this IP id; repeatable")
-    p.add_argument("--only", action="append", choices=CHECKS,
-                   help="run only this check; repeatable (default: all)")
 
 
 def _ci_args(p: argparse.ArgumentParser) -> None:
