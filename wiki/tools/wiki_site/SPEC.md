@@ -59,8 +59,11 @@ The home page is the repository's root `README.md`. Then:
 - `wiki/index.md` (or `wiki/README.md`) publishes to `wiki.html` instead of
   `index.html`. Every other wiki path is unchanged.
 - Each `.claude/skills/<name>/SKILL.md` is published. Its YAML frontmatter
-  (between `---` lines at the top) is not rendered. Its `description` is shown
-  as a quote under the first H1.
+  (between `---` lines at the top, possibly empty) is not rendered. Its
+  `description` (a single line, indented continuation lines, or a `>` or `|`
+  block) is shown as a quote under the first H1 outside a code fence, or at
+  the top if there is none. The text is HTML-escaped and shown literally, not
+  parsed as Markdown.
 
 Without a root `README.md`, `wiki/index.md` (or `wiki/README.md`) is the home
 page at `index.html`, and `CLAUDE.md` and skills are not published.

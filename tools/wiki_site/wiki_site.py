@@ -43,7 +43,8 @@ LANDINGS = ("index.md", "README.md")
 HOME = "README.md"  # repo-root page that, if present, is the site home
 AGENTS = "CLAUDE.md"  # agent contract, published beside the home page
 SKILLS = ".claude/skills"  # <name>/SKILL.md -> skills/<name>.html
-FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.S)
+FRONTMATTER = re.compile(r"\A---\n(?:(.*?)\n)?---[ \t]*(?:\n|\Z)", re.S)
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 LEXER_ALIASES = {"sh": "bash", "shell": "bash", "console": "bash", "sv": "systemverilog"}
 PLAIN = {"", "text", "txt", "plain"}
 THEME = ("wiki.css", "wiki.js", "vendor/mermaid.min.js", "vendor/mermaid-LICENSE.txt")
@@ -83,27 +84,37 @@ def out_path(rel: str) -> str:
 
 
 def skill_text(text: str) -> str:
-    """A SKILL.md without its YAML frontmatter; the `description` becomes a
-    quote under the first H1 instead of being parsed as Markdown."""
+    """A SKILL.md without its YAML frontmatter. The `description` (one line,
+    indented continuation lines, or a `>`/`|` block) becomes an escaped HTML
+    quote under the first H1, so it is shown literally, never as Markdown."""
     m = FRONTMATTER.match(text)
     if not m:
         return text
     meta: dict[str, str] = {}
     key = None
-    for line in m.group(1).splitlines():
+    for line in (m.group(1) or "").splitlines():
         if key and line[:1] in (" ", "\t"):
             meta[key] += " " + line.strip()
         elif ":" in line:
             key, _, value = line.partition(":")
             key = key.strip()
-            meta[key] = value.strip()
+            value = value.strip()
+            meta[key] = "" if value in (">", "|", ">-", "|-") else value
     body = text[m.end():]
-    desc = meta.get("description", "")
+    desc = " ".join(meta.get("description", "").split())
     if not desc:
         return body
     lines = body.split("\n")
-    at = next((i + 1 for i, line in enumerate(lines) if line.startswith("# ")), 0)
-    return "\n".join(lines[:at] + ["", f"> {desc}", ""] + lines[at:])
+    at, fence = 0, None
+    for i, line in enumerate(lines):
+        f = FENCE.match(line)
+        if f and (fence is None or f.group(1)[0] == fence[0] and len(f.group(1)) >= len(fence)):
+            fence = None if fence else f.group(1)
+        elif fence is None and line.startswith("# "):
+            at = i + 1
+            break
+    quote_html = f'<blockquote class="skill-description"><p>{escape(desc)}</p></blockquote>'
+    return "\n".join(lines[:at] + ["", quote_html, ""] + lines[at:])
 
 
 def inline_text(token) -> str:

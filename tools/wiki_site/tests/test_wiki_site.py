@@ -324,8 +324,8 @@ def test_skills_section_strips_frontmatter(tmp_path):
     _, _, out = run(tmp_path, REPO_PAGES)
     one = (out / "skills" / "one.html").read_text()
     assert "name: one" not in one and "<hr" not in one
-    assert "<blockquote>\n<p>Use when doing one thing.</p>\n</blockquote>" in one
-    assert one.index('<h1 id="skill-one">') < one.index("<blockquote>")
+    assert '<blockquote class="skill-description"><p>Use when doing one thing.</p></blockquote>' in one
+    assert one.index('<h1 id="skill-one">') < one.index('<blockquote class="skill-description">')
     assert 'href="two.html"' in one
     assert 'href="skills/one.html"' in (out / "agents.html").read_text()
     data = json.loads((out / "assets" / "search-index.json").read_text())
@@ -340,3 +340,29 @@ def test_skill_text_without_frontmatter_is_unchanged():
 def test_repo_page_collision_is_a_problem(tmp_path):
     problems, _, _ = run(tmp_path, dict(REPO_PAGES, **{"wiki/agents.md": "# Clash\n"}))
     assert any("publishes to agents.html" in p for p in problems)
+
+
+@pytest.mark.parametrize("front, desc", [
+    ("description: Edit <ip>.rtl.f, **bold** and `x` [y](z)\n", "Edit &lt;ip&gt;.rtl.f, **bold** and `x` [y](z)"),
+    ("description: >\n  Folded <b>\n  text\n", "Folded &lt;b&gt; text"),
+    ("description: |\n  Literal\n", "Literal"),
+])
+def test_skill_description_is_shown_literally(front, desc):
+    out = wiki_site.skill_text(f"---\nname: s\n{front}---\n# T\n\nbody\n")
+    quote_html = f'<blockquote class="skill-description"><p>{desc}</p></blockquote>'
+    assert out.startswith(f"# T\n\n{quote_html}\n\n") and out.rstrip().endswith("body")
+
+
+def test_skill_frontmatter_edge_cases():
+    assert wiki_site.skill_text("---\n---\n# T\n") == "# T\n"  # empty frontmatter
+    assert wiki_site.skill_text("---\nname: s\n---") == ""  # closing line at end of file
+    text = "---\ndescription: D\n---\n```sh\n# not a heading\n```\n# Real\n"
+    out = wiki_site.skill_text(text)
+    assert out.index("# Real") < out.index("skill-description")  # H1 inside a fence is skipped
+
+
+def test_skill_description_renders_escaped(tmp_path):
+    files = dict(REPO_PAGES, **{".claude/skills/two/SKILL.md": "---\nname: two\ndescription: Edit <ip>.dv.f and *a*.\n---\n\n# Skill two\n"})
+    problems, _, out = run(tmp_path, files)
+    assert problems == []
+    assert "<p>Edit &lt;ip&gt;.dv.f and *a*.</p>" in (out / "skills" / "two.html").read_text()
