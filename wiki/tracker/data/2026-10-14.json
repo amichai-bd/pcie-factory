@@ -1,0 +1,1731 @@
+{
+ "asic": {
+  "ips": {
+   "top": {
+    "area": {
+     "core_um2": 4000.09,
+     "die_um2": 4441.56,
+     "stdcell_um2": 1443.88
+    },
+    "cells": 167,
+    "clock_period_ns": 10.0,
+    "design": "pcie_top",
+    "elapsed_s": 49.0,
+    "logic_depth": {
+     "value": 4
+    },
+    "max_fanout": {
+     "value": 25
+    },
+    "platform": "sky130hd",
+    "power_w": 0.000202241,
+    "route_drc_errors": 0,
+    "schema": 1,
+    "status": "pass",
+    "synth_cells": 105,
+    "timing": {
+     "hold_ws_ns": 0.248099,
+     "setup_ws_ns": 6.01343,
+     "tns_ns": 0,
+     "wns_ns": 0.0
+    },
+    "utilization": 0.360963,
+    "worst_path": {
+     "cells": 4,
+     "group": "clk",
+     "slack_ns": 6.01
+    }
+   }
+  },
+  "status": "ok"
+ },
+ "code": {
+  "by_dir": {
+   ".": {
+    "code": 294,
+    "files": 7,
+    "lines": 294
+   },
+   ".claude": {
+    "code": 1023,
+    "files": 12,
+    "lines": 1054
+   },
+   ".github": {
+    "code": 589,
+    "files": 10,
+    "lines": 672
+   },
+   "cfg": {
+    "code": 180,
+    "files": 7,
+    "lines": 256
+   },
+   "src": {
+    "code": 561,
+    "files": 29,
+    "lines": 623
+   },
+   "tools": {
+    "code": 13814,
+    "files": 169,
+    "lines": 14033
+   },
+   "wiki": {
+    "code": 2793,
+    "files": 29,
+    "lines": 2793
+   },
+   "worktrees": {
+    "code": 10,
+    "files": 1,
+    "lines": 10
+   }
+  },
+  "by_ext": {
+   "(none)": {
+    "code": 244,
+    "files": 8,
+    "lines": 244
+   },
+   ".css": {
+    "code": 223,
+    "files": 1,
+    "lines": 223
+   },
+   ".f": {
+    "code": 35,
+    "files": 25,
+    "lines": 50
+   },
+   ".ini": {
+    "code": 7,
+    "files": 1,
+    "lines": 7
+   },
+   ".js": {
+    "code": 2375,
+    "files": 4,
+    "lines": 2375
+   },
+   ".json": {
+    "code": 324,
+    "files": 22,
+    "lines": 324
+   },
+   ".jsonl": {
+    "code": 36,
+    "files": 1,
+    "lines": 36
+   },
+   ".md": {
+    "code": 3895,
+    "files": 52,
+    "lines": 3895
+   },
+   ".mk": {
+    "code": 5,
+    "files": 1,
+    "lines": 13
+   },
+   ".py": {
+    "code": 10356,
+    "files": 85,
+    "lines": 10537
+   },
+   ".rpt": {
+    "code": 291,
+    "files": 3,
+    "lines": 291
+   },
+   ".sdc": {
+    "code": 11,
+    "files": 2,
+    "lines": 22
+   },
+   ".sh": {
+    "code": 141,
+    "files": 2,
+    "lines": 173
+   },
+   ".summary": {
+    "code": 16,
+    "files": 1,
+    "lines": 16
+   },
+   ".sv": {
+    "code": 262,
+    "files": 13,
+    "lines": 293
+   },
+   ".svh": {
+    "code": 8,
+    "files": 2,
+    "lines": 8
+   },
+   ".tcl": {
+    "code": 167,
+    "files": 2,
+    "lines": 201
+   },
+   ".txt": {
+    "code": 71,
+    "files": 4,
+    "lines": 71
+   },
+   ".yaml": {
+    "code": 257,
+    "files": 28,
+    "lines": 333
+   },
+   ".yml": {
+    "code": 540,
+    "files": 7,
+    "lines": 623
+   }
+  },
+  "commits": 28,
+  "contributors": 3,
+  "ips": {
+   "top": {
+    "code": 321,
+    "files": 16,
+    "kinds": {
+     "config": {
+      "code": 147,
+      "files": 11,
+      "lines": 196
+     },
+     "dv_py": {
+      "code": 139,
+      "files": 4,
+      "lines": 139
+     },
+     "rtl_sv": {
+      "code": 35,
+      "files": 1,
+      "lines": 38
+     }
+    },
+    "lines": 373
+   },
+   "top/lfsr": {
+    "code": 228,
+    "files": 12,
+    "kinds": {
+     "config": {
+      "code": 24,
+      "files": 6,
+      "lines": 26
+     },
+     "dv_py": {
+      "code": 157,
+      "files": 4,
+      "lines": 160
+     },
+     "rtl_sv": {
+      "code": 47,
+      "files": 2,
+      "lines": 52
+     }
+    },
+    "lines": 238
+   }
+  },
+  "kinds": {
+   "config": {
+    "code": 351,
+    "files": 24,
+    "lines": 478
+   },
+   "dv_py": {
+    "code": 296,
+    "files": 8,
+    "lines": 299
+   },
+   "dv_sv": {
+    "code": 0,
+    "files": 0,
+    "lines": 0
+   },
+   "rtl_sv": {
+    "code": 82,
+    "files": 3,
+    "lines": 90
+   },
+   "skills": {
+    "code": 868,
+    "files": 10,
+    "lines": 868
+   },
+   "tools_py": {
+    "code": 10068,
+    "files": 78,
+    "lines": 10246
+   },
+   "wiki_md": {
+    "code": 2886,
+    "files": 31,
+    "lines": 2886
+   },
+   "workflows": {
+    "code": 539,
+    "files": 6,
+    "lines": 621
+   }
+  },
+  "repo_size_kb": 1457,
+  "status": "ok",
+  "total": {
+   "bytes": 3854225,
+   "code": 19264,
+   "files": 264,
+   "lines": 19735
+  }
+ },
+ "distributions": {
+  "ci_gate_duration_s": [
+   33.0,
+   59.0,
+   60.0,
+   67.0,
+   68.0,
+   70.0,
+   72.0,
+   75.0,
+   81.0,
+   82.0,
+   86.0,
+   88.0,
+   91.0,
+   106.0,
+   121.0,
+   128.0,
+   137.0,
+   149.0
+  ],
+  "file_bytes": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   7,
+   8,
+   8,
+   10,
+   10,
+   10,
+   10,
+   10,
+   10,
+   10,
+   10,
+   10,
+   10,
+   11,
+   14,
+   32,
+   32,
+   32,
+   32,
+   32,
+   34,
+   35,
+   35,
+   38,
+   40,
+   45,
+   47,
+   52,
+   52,
+   58,
+   68,
+   70,
+   73,
+   73,
+   74,
+   76,
+   81,
+   86,
+   99,
+   101,
+   102,
+   106,
+   108,
+   111,
+   112,
+   113,
+   114,
+   114,
+   115,
+   117,
+   126,
+   132,
+   133,
+   133,
+   135,
+   137,
+   137,
+   138,
+   139,
+   140,
+   146,
+   160,
+   166,
+   166,
+   195,
+   211,
+   214,
+   251,
+   251,
+   258,
+   264,
+   274,
+   301,
+   309,
+   326,
+   335,
+   417,
+   431,
+   437,
+   445,
+   451,
+   476,
+   510,
+   526,
+   542,
+   558,
+   602,
+   629,
+   657,
+   670,
+   674,
+   742,
+   745,
+   800,
+   806,
+   811,
+   834,
+   897,
+   917,
+   1017,
+   1086,
+   1089,
+   1093,
+   1094,
+   1108,
+   1122,
+   1223,
+   1253,
+   1269,
+   1297,
+   1309,
+   1365,
+   1434,
+   1488,
+   1582,
+   1667,
+   1685,
+   1713,
+   1765,
+   1829,
+   1830,
+   1867,
+   1920,
+   1925,
+   1959,
+   1965,
+   1986,
+   2002,
+   2048,
+   2057,
+   2060,
+   2114,
+   2132,
+   2160,
+   2170,
+   2175,
+   2267,
+   2312,
+   2402,
+   2428,
+   2527,
+   2553,
+   2632,
+   2847,
+   2864,
+   2885,
+   2888,
+   2954,
+   3117,
+   3218,
+   3251,
+   3263,
+   3293,
+   3327,
+   3501,
+   3521,
+   3527,
+   3746,
+   3758,
+   3797,
+   3844,
+   3970,
+   3998,
+   3999,
+   4066,
+   4120,
+   4219,
+   4327,
+   4780,
+   4824,
+   4849,
+   4852,
+   4881,
+   5098,
+   5099,
+   5330,
+   5620,
+   5709,
+   5828,
+   5895,
+   5936,
+   5950,
+   5966,
+   6065,
+   6148,
+   6168,
+   6248,
+   6324,
+   6324,
+   6361,
+   6471,
+   6485,
+   6589,
+   6709,
+   6718,
+   6730,
+   6787,
+   6825,
+   6827,
+   6861,
+   7101,
+   7162,
+   7215,
+   7640,
+   7896,
+   7918,
+   8293,
+   8392,
+   9023,
+   9183,
+   9210,
+   9224,
+   9226,
+   9231,
+   9531,
+   9563,
+   9571,
+   9584,
+   9585,
+   9598,
+   9600,
+   9603,
+   9608,
+   9646,
+   9888,
+   10109,
+   10138,
+   10325,
+   10722,
+   10918,
+   11132,
+   11177,
+   11358,
+   12353,
+   12496,
+   13019,
+   13086,
+   13244,
+   13445,
+   13509,
+   13977,
+   13989,
+   14145,
+   15005,
+   15070,
+   15180,
+   15221,
+   16308,
+   17118,
+   17956,
+   19611,
+   26562,
+   42153,
+   54946,
+   205615,
+   2571900
+  ],
+  "file_lines": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   1,
+   2,
+   2,
+   2,
+   2,
+   2,
+   2,
+   2,
+   2,
+   2,
+   2,
+   2,
+   2,
+   2,
+   2,
+   3,
+   3,
+   3,
+   3,
+   3,
+   4,
+   4,
+   4,
+   4,
+   5,
+   5,
+   5,
+   5,
+   5,
+   6,
+   6,
+   6,
+   6,
+   6,
+   6,
+   6,
+   6,
+   7,
+   7,
+   7,
+   7,
+   7,
+   7,
+   8,
+   8,
+   8,
+   8,
+   9,
+   9,
+   10,
+   10,
+   11,
+   11,
+   11,
+   12,
+   12,
+   12,
+   12,
+   12,
+   13,
+   13,
+   13,
+   14,
+   14,
+   14,
+   15,
+   15,
+   15,
+   15,
+   15,
+   15,
+   16,
+   17,
+   17,
+   18,
+   19,
+   19,
+   19,
+   19,
+   19,
+   20,
+   21,
+   21,
+   22,
+   23,
+   24,
+   25,
+   26,
+   26,
+   27,
+   29,
+   30,
+   30,
+   31,
+   33,
+   36,
+   36,
+   37,
+   38,
+   38,
+   38,
+   39,
+   40,
+   40,
+   41,
+   41,
+   43,
+   43,
+   43,
+   44,
+   45,
+   45,
+   45,
+   46,
+   47,
+   47,
+   47,
+   50,
+   51,
+   51,
+   53,
+   57,
+   58,
+   61,
+   63,
+   63,
+   65,
+   65,
+   65,
+   67,
+   69,
+   70,
+   70,
+   71,
+   72,
+   73,
+   74,
+   75,
+   76,
+   78,
+   79,
+   81,
+   82,
+   86,
+   86,
+   87,
+   89,
+   89,
+   89,
+   89,
+   89,
+   95,
+   96,
+   96,
+   97,
+   100,
+   101,
+   103,
+   106,
+   107,
+   109,
+   110,
+   111,
+   114,
+   114,
+   115,
+   116,
+   116,
+   118,
+   119,
+   122,
+   124,
+   127,
+   132,
+   133,
+   135,
+   135,
+   139,
+   139,
+   141,
+   141,
+   143,
+   148,
+   152,
+   153,
+   155,
+   159,
+   160,
+   164,
+   169,
+   171,
+   175,
+   185,
+   196,
+   199,
+   205,
+   214,
+   217,
+   223,
+   226,
+   228,
+   233,
+   246,
+   248,
+   249,
+   257,
+   264,
+   265,
+   268,
+   269,
+   271,
+   277,
+   282,
+   283,
+   295,
+   300,
+   328,
+   394,
+   507,
+   801,
+   2088
+  ],
+  "issue_close_h": [
+   0.03,
+   0.07,
+   0.12,
+   0.14,
+   0.22,
+   0.32,
+   0.36,
+   0.36,
+   0.39,
+   0.45,
+   0.54,
+   0.69,
+   0.79,
+   0.98,
+   1.01,
+   1.5,
+   1.78,
+   1.83,
+   1.95,
+   1.97
+  ],
+  "issue_first_response_h": [
+   0.0,
+   0.0,
+   0.01,
+   0.03,
+   0.09,
+   0.1,
+   0.15,
+   0.16,
+   0.21,
+   0.22,
+   0.22,
+   0.22,
+   0.22,
+   0.31,
+   0.31,
+   0.31,
+   0.33,
+   0.39,
+   0.7,
+   0.7,
+   0.73,
+   1.44,
+   1.44
+  ],
+  "nightly_duration_s": [
+   240.0,
+   258.0,
+   258.0,
+   277.0
+  ],
+  "pr_lead_h": [
+   0.03,
+   0.04,
+   0.05,
+   0.06,
+   0.07,
+   0.08,
+   0.08,
+   0.08,
+   0.13,
+   0.14,
+   0.15,
+   0.17,
+   0.17,
+   0.23,
+   0.29,
+   0.36,
+   0.53,
+   0.81,
+   0.85,
+   0.92
+  ],
+  "pr_review_rounds": [
+   0,
+   1,
+   1,
+   1,
+   1,
+   2,
+   2,
+   2,
+   2,
+   2,
+   2,
+   2,
+   2,
+   2,
+   3,
+   3,
+   3,
+   4,
+   4,
+   5
+  ],
+  "pr_size_lines": [
+   16,
+   83,
+   221,
+   241,
+   264,
+   341,
+   361,
+   425,
+   446,
+   543,
+   751,
+   856,
+   955,
+   1012,
+   1660,
+   2056,
+   2257,
+   2561,
+   2785,
+   3478
+  ],
+  "test_runtime_s": [
+   1.473,
+   1.474,
+   1.726,
+   1.776,
+   1.825,
+   1.826,
+   1.875,
+   1.928,
+   15.925,
+   15.927,
+   15.986,
+   16.684,
+   16.697,
+   16.727,
+   16.786,
+   16.786,
+   16.866,
+   17.1,
+   17.132,
+   17.292,
+   24.127,
+   24.248,
+   25.072,
+   25.212
+  ]
+ },
+ "fpga": {
+  "ips": {
+   "top": {
+    "board": "de2_115",
+    "device": "EP4CE115F29C7",
+    "family": "Cyclone IV E",
+    "flow": {
+     "lint": "pass",
+     "steps": {
+      "fit": {
+       "runtime_s": 14.0,
+       "status": "pass",
+       "warnings": 2
+      },
+      "map": {
+       "runtime_s": 14.8,
+       "status": "pass",
+       "warnings": 0
+      },
+      "project": {
+       "runtime_s": 1.6,
+       "status": "pass",
+       "warnings": 0
+      },
+      "sta": {
+       "runtime_s": 2.8,
+       "status": "pass",
+       "warnings": 0
+      },
+      "worst_path": {
+       "runtime_s": 1.8,
+       "status": "pass",
+       "warnings": 0
+      }
+     }
+    },
+    "quartus_version": "25.1std.0 Build 1129 10/21/2025 SC Lite Edition",
+    "resources": {
+     "dsp_9bit": {
+      "total": 532,
+      "used": 0
+     },
+     "logic_elements": {
+      "total": 114480,
+      "used": 68
+     },
+     "memory_bits": {
+      "total": 3981312,
+      "used": 0
+     },
+     "memory_blocks": {
+      "total": 432,
+      "type": "M9K",
+      "used": 0
+     },
+     "pins": {
+      "total": 529,
+      "used": 21
+     },
+     "plls": {
+      "total": 4,
+      "used": 0
+     },
+     "registers": 62
+    },
+    "schema": 1,
+    "status": "ok",
+    "timing": {
+     "clocks": {
+      "CLOCK_50": {
+       "fmax_mhz": 260.15,
+       "hold_slack_ns": 0.183,
+       "recovery_slack_ns": null,
+       "removal_slack_ns": null,
+       "restricted_fmax_mhz": 250.0,
+       "setup_slack_ns": 16.156
+      }
+     },
+     "critical_path": {
+      "data_delay_ns": 3.741,
+      "slack_ns": 16.156
+     },
+     "met": true,
+     "unconstrained_total": 0,
+     "worst_hold_slack_ns": 0.183,
+     "worst_recovery_slack_ns": null,
+     "worst_removal_slack_ns": null,
+     "worst_setup_slack_ns": 16.156
+    },
+    "top": "pcie_top_de2_115"
+   }
+  },
+  "status": "ok"
+ },
+ "github": {
+  "ci": {
+   "latest_main": {
+    "conclusion": "success",
+    "duration_s": 67.0,
+    "sha": "ccf389551c6c"
+   },
+   "status": "ok",
+   "windows": {
+    "1d": {
+     "completed": 18,
+     "duration_s": {
+      "median": 81.5,
+      "p90": 137.0
+     },
+     "pass_rate": 0.8889,
+     "runs": 18
+    },
+    "30d": {
+     "completed": 18,
+     "duration_s": {
+      "median": 81.5,
+      "p90": 137.0
+     },
+     "pass_rate": 0.8889,
+     "runs": 18
+    },
+    "7d": {
+     "completed": 18,
+     "duration_s": {
+      "median": 81.5,
+      "p90": 137.0
+     },
+     "pass_rate": 0.8889,
+     "runs": 18
+    }
+   },
+   "workflow": "ci.yml"
+  },
+  "issues": {
+   "open": 8,
+   "open_by_label": {
+    "area:build": 4,
+    "area:ci": 2,
+    "area:rtl": 1,
+    "area:skills": 1,
+    "area:wiki": 5,
+    "in-progress": 1,
+    "prio:p1": 1,
+    "prio:p2": 4,
+    "type:bug": 2,
+    "type:epic": 1,
+    "type:feat": 1,
+    "type:infra": 4
+   },
+   "status": "ok",
+   "total": 28,
+   "windows": {
+    "1d": {
+     "closed": 20,
+     "closed_by_label": {
+      "area:build": 6,
+      "area:ci": 4,
+      "area:dv": 1,
+      "area:fpga": 1,
+      "area:pd": 1,
+      "area:rtl": 1,
+      "area:skills": 5,
+      "area:wiki": 10,
+      "ip:top": 1,
+      "ip:top/lfsr": 1,
+      "type:bug": 1,
+      "type:docs": 5,
+      "type:feat": 3,
+      "type:infra": 11
+     },
+     "opened": 28,
+     "opened_by_label": {
+      "area:build": 10,
+      "area:ci": 6,
+      "area:dv": 1,
+      "area:fpga": 1,
+      "area:pd": 1,
+      "area:rtl": 2,
+      "area:skills": 6,
+      "area:wiki": 15,
+      "in-progress": 1,
+      "ip:top": 1,
+      "ip:top/lfsr": 1,
+      "prio:p1": 1,
+      "prio:p2": 4,
+      "type:bug": 3,
+      "type:docs": 5,
+      "type:epic": 1,
+      "type:feat": 4,
+      "type:infra": 15
+     }
+    },
+    "30d": {
+     "closed": 20,
+     "closed_by_label": {
+      "area:build": 6,
+      "area:ci": 4,
+      "area:dv": 1,
+      "area:fpga": 1,
+      "area:pd": 1,
+      "area:rtl": 1,
+      "area:skills": 5,
+      "area:wiki": 10,
+      "ip:top": 1,
+      "ip:top/lfsr": 1,
+      "type:bug": 1,
+      "type:docs": 5,
+      "type:feat": 3,
+      "type:infra": 11
+     },
+     "opened": 28,
+     "opened_by_label": {
+      "area:build": 10,
+      "area:ci": 6,
+      "area:dv": 1,
+      "area:fpga": 1,
+      "area:pd": 1,
+      "area:rtl": 2,
+      "area:skills": 6,
+      "area:wiki": 15,
+      "in-progress": 1,
+      "ip:top": 1,
+      "ip:top/lfsr": 1,
+      "prio:p1": 1,
+      "prio:p2": 4,
+      "type:bug": 3,
+      "type:docs": 5,
+      "type:epic": 1,
+      "type:feat": 4,
+      "type:infra": 15
+     }
+    },
+    "7d": {
+     "closed": 20,
+     "closed_by_label": {
+      "area:build": 6,
+      "area:ci": 4,
+      "area:dv": 1,
+      "area:fpga": 1,
+      "area:pd": 1,
+      "area:rtl": 1,
+      "area:skills": 5,
+      "area:wiki": 10,
+      "ip:top": 1,
+      "ip:top/lfsr": 1,
+      "type:bug": 1,
+      "type:docs": 5,
+      "type:feat": 3,
+      "type:infra": 11
+     },
+     "opened": 28,
+     "opened_by_label": {
+      "area:build": 10,
+      "area:ci": 6,
+      "area:dv": 1,
+      "area:fpga": 1,
+      "area:pd": 1,
+      "area:rtl": 2,
+      "area:skills": 6,
+      "area:wiki": 15,
+      "in-progress": 1,
+      "ip:top": 1,
+      "ip:top/lfsr": 1,
+      "prio:p1": 1,
+      "prio:p2": 4,
+      "type:bug": 3,
+      "type:docs": 5,
+      "type:epic": 1,
+      "type:feat": 4,
+      "type:infra": 15
+     }
+    }
+   }
+  },
+  "pulls": {
+   "merged": 20,
+   "open": 1,
+   "status": "ok",
+   "total": 21,
+   "windows": {
+    "1d": {
+     "data_merged": 0,
+     "lead_time_h": {
+      "median": 0.15,
+      "p90": 0.81
+     },
+     "merged": 20,
+     "opened": 21,
+     "review_rounds": {
+      "max": 5,
+      "median": 2.0
+     }
+    },
+    "30d": {
+     "data_merged": 0,
+     "lead_time_h": {
+      "median": 0.15,
+      "p90": 0.81
+     },
+     "merged": 20,
+     "opened": 21,
+     "review_rounds": {
+      "max": 5,
+      "median": 2.0
+     }
+    },
+    "7d": {
+     "data_merged": 0,
+     "lead_time_h": {
+      "median": 0.15,
+      "p90": 0.81
+     },
+     "merged": 20,
+     "opened": 21,
+     "review_rounds": {
+      "max": 5,
+      "median": 2.0
+     }
+    }
+   }
+  }
+ },
+ "health": {
+  "approve_at_merged_head": {
+   "approved": 19,
+   "merged": 20,
+   "share": 0.95
+  },
+  "ci_gate_main": {
+   "pass_rate": 1.0,
+   "runs": 2
+  },
+  "nightly_red": {
+   "open": 0
+  },
+  "open_issues": {
+   "age_h": [
+    0.52,
+    0.64,
+    0.7,
+    1.14,
+    1.21,
+    1.65,
+    2.47,
+    2.49
+   ],
+   "count": 8,
+   "stale": 0,
+   "stale_days": 7
+  },
+  "open_prs": {
+   "age_h": [
+    0.07,
+    0.53,
+    0.71
+   ],
+   "count": 3
+  },
+  "review_rounds_median": 2.0
+ },
+ "meta": {
+  "commit": "6fb3c569bd0bdf9c3a6760c5c019483d6af88ed1",
+  "commit_date": "2026-10-14T19:02:06Z",
+  "commit_short": "6fb3c569bd0b",
+  "date": "2026-10-14",
+  "generated_at": "2026-10-14T19:06:37Z",
+  "nightly": {
+   "duration_s": 179.0,
+   "result": "pass",
+   "steps": {
+    "asic": "pass",
+    "check": "pass",
+    "fpga": "pass",
+    "regress": "pass"
+   }
+  },
+  "schema_version": 1,
+  "tools": {
+   "cocotb": "2.1.0",
+   "gh": "2.100.0",
+   "git": "2.55.0",
+   "pytest": "9.1.1",
+   "python": "3.14.7",
+   "pyyaml": "6.0.3",
+   "verilator": "5.052"
+  }
+ },
+ "schema_version": 1,
+ "tests": {
+  "builds": {
+   "failed": 0,
+   "total": 2
+  },
+  "ips": {
+   "top": {
+    "level0": {
+     "failed": 0,
+     "passed": 1,
+     "runtime_s": 1.474,
+     "tests": 1
+    },
+    "level1": {
+     "failed": 0,
+     "passed": 3,
+     "runtime_s": 5.628,
+     "tests": 3
+    },
+    "level2": {
+     "failed": 0,
+     "passed": 8,
+     "runtime_s": 133.976,
+     "tests": 8
+    }
+   },
+   "top/lfsr": {
+    "level0": {
+     "failed": 0,
+     "passed": 1,
+     "runtime_s": 1.473,
+     "tests": 1
+    },
+    "level1": {
+     "failed": 0,
+     "passed": 3,
+     "runtime_s": 5.328,
+     "tests": 3
+    },
+    "level2": {
+     "failed": 0,
+     "passed": 8,
+     "runtime_s": 164.591,
+     "tests": 8
+    }
+   }
+  },
+  "levels": [
+   0,
+   1,
+   2
+  ],
+  "passed": true,
+  "runs": [
+   {
+    "ip": "top",
+    "level": 0,
+    "name": "smoke",
+    "runtime_s": 1.474,
+    "seed": 855499442,
+    "status": "pass"
+   },
+   {
+    "ip": "top",
+    "level": 1,
+    "name": "random_vs_model",
+    "runtime_s": 1.825,
+    "seed": 552382085,
+    "status": "pass"
+   },
+   {
+    "ip": "top",
+    "level": 1,
+    "name": "random_vs_model",
+    "runtime_s": 1.928,
+    "seed": 971374399,
+    "status": "pass"
+   },
+   {
+    "ip": "top",
+    "level": 1,
+    "name": "random_vs_model",
+    "runtime_s": 1.875,
+    "seed": 1475059219,
+    "status": "pass"
+   },
+   {
+    "ip": "top",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 16.684,
+    "seed": 152092948,
+    "status": "pass"
+   },
+   {
+    "ip": "top",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 17.1,
+    "seed": 243074317,
+    "status": "pass"
+   },
+   {
+    "ip": "top",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 16.786,
+    "seed": 270110894,
+    "status": "pass"
+   },
+   {
+    "ip": "top",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 16.866,
+    "seed": 393499831,
+    "status": "pass"
+   },
+   {
+    "ip": "top",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 15.925,
+    "seed": 1618175009,
+    "status": "pass"
+   },
+   {
+    "ip": "top",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 16.786,
+    "seed": 1730060344,
+    "status": "pass"
+   },
+   {
+    "ip": "top",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 17.132,
+    "seed": 2038052251,
+    "status": "pass"
+   },
+   {
+    "ip": "top",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 16.697,
+    "seed": 2115498370,
+    "status": "pass"
+   },
+   {
+    "ip": "top/lfsr",
+    "level": 0,
+    "name": "smoke",
+    "runtime_s": 1.473,
+    "seed": 518478093,
+    "status": "pass"
+   },
+   {
+    "ip": "top/lfsr",
+    "level": 1,
+    "name": "random_vs_model",
+    "runtime_s": 1.826,
+    "seed": 121728748,
+    "status": "pass"
+   },
+   {
+    "ip": "top/lfsr",
+    "level": 1,
+    "name": "random_vs_model",
+    "runtime_s": 1.726,
+    "seed": 1766789056,
+    "status": "pass"
+   },
+   {
+    "ip": "top/lfsr",
+    "level": 1,
+    "name": "random_vs_model",
+    "runtime_s": 1.776,
+    "seed": 1883659898,
+    "status": "pass"
+   },
+   {
+    "ip": "top/lfsr",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 24.248,
+    "seed": 191386062,
+    "status": "pass"
+   },
+   {
+    "ip": "top/lfsr",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 25.212,
+    "seed": 201692631,
+    "status": "pass"
+   },
+   {
+    "ip": "top/lfsr",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 24.127,
+    "seed": 308346996,
+    "status": "pass"
+   },
+   {
+    "ip": "top/lfsr",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 25.072,
+    "seed": 353158253,
+    "status": "pass"
+   },
+   {
+    "ip": "top/lfsr",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 17.292,
+    "seed": 1644950779,
+    "status": "pass"
+   },
+   {
+    "ip": "top/lfsr",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 16.727,
+    "seed": 1701196002,
+    "status": "pass"
+   },
+   {
+    "ip": "top/lfsr",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 15.986,
+    "seed": 2063770945,
+    "status": "pass"
+   },
+   {
+    "ip": "top/lfsr",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 15.927,
+    "seed": 2087674200,
+    "status": "pass"
+   }
+  ],
+  "slowest": [
+   {
+    "ip": "top/lfsr",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 25.212,
+    "seed": 201692631,
+    "status": "pass"
+   },
+   {
+    "ip": "top/lfsr",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 25.072,
+    "seed": 353158253,
+    "status": "pass"
+   },
+   {
+    "ip": "top/lfsr",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 24.248,
+    "seed": 191386062,
+    "status": "pass"
+   },
+   {
+    "ip": "top/lfsr",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 24.127,
+    "seed": 308346996,
+    "status": "pass"
+   },
+   {
+    "ip": "top/lfsr",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 17.292,
+    "seed": 1644950779,
+    "status": "pass"
+   },
+   {
+    "ip": "top",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 17.132,
+    "seed": 2038052251,
+    "status": "pass"
+   },
+   {
+    "ip": "top",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 17.1,
+    "seed": 243074317,
+    "status": "pass"
+   },
+   {
+    "ip": "top",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 16.866,
+    "seed": 393499831,
+    "status": "pass"
+   },
+   {
+    "ip": "top",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 16.786,
+    "seed": 270110894,
+    "status": "pass"
+   },
+   {
+    "ip": "top",
+    "level": 2,
+    "name": "long_random",
+    "runtime_s": 16.786,
+    "seed": 1730060344,
+    "status": "pass"
+   }
+  ],
+  "status": "ok",
+  "totals": {
+   "level0": {
+    "budget_s": 120.0,
+    "failed": 0,
+    "over_budget": false,
+    "passed": 2,
+    "runtime_s": 2.947,
+    "tests": 2
+   },
+   "level1": {
+    "budget_s": 600.0,
+    "failed": 0,
+    "over_budget": false,
+    "passed": 6,
+    "runtime_s": 10.956,
+    "tests": 6
+   },
+   "level2": {
+    "budget_s": 7200.0,
+    "failed": 0,
+    "over_budget": false,
+    "passed": 16,
+    "runtime_s": 298.567,
+    "tests": 16
+   }
+  },
+  "wall_s": 79.613
+ }
+}
