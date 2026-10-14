@@ -11,9 +11,12 @@ import shutil
 import sys
 from pathlib import Path
 
+from asic import cli as asic_cli
 from build import sim
 from build.filelist import FilelistError
 from build.ip import Context, DiscoveryError, discover, find_ip, make_context
+from checks.common import CheckConfigError
+from checks.run import CHECKS, run_checks
 from fpga import flow as fpga
 from labels import core as labels
 from metrics import cli as metrics
@@ -23,7 +26,7 @@ from regress.schema import LEVELS, SchemaError, load_ip
 
 WIKI_SITE = Path(__file__).resolve().parents[1] / "wiki_site"
 USER_ERRORS = (FilelistError, DiscoveryError, SchemaError, GitError, sim.SimError,
-               fpga.FpgaError, labels.LabelsError)
+               fpga.FpgaError, labels.LabelsError, CheckConfigError)
 
 
 def cmd_sim(ctx: Context, args) -> int:
@@ -97,6 +100,10 @@ def cmd_clean(ctx: Context, args) -> int:
                 entry.unlink()
         print(f"cleaned {out} (sub-IP output kept)" if keep else f"cleaned {out}")
     return 0
+
+
+def cmd_check(ctx: Context, args) -> int:
+    return run_checks(ctx, args.ip, args.only)
 
 
 def cmd_labels(ctx: Context, args) -> int:
@@ -196,6 +203,13 @@ def _clean_args(p: argparse.ArgumentParser) -> None:
                    help="only this IP's own output (sub-IP output is kept); repeatable")
 
 
+def _check_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--ip", action="append",
+                   help="restrict lint, style and filelist to this IP id; repeatable")
+    p.add_argument("--only", action="append", choices=CHECKS,
+                   help="run only this check; repeatable (default: all)")
+
+
 def _fpga_args(p: argparse.ArgumentParser) -> None:
     which = p.add_mutually_exclusive_group(required=True)
     which.add_argument("--ip", action="append", help="IP id with an fpga/ directory; repeatable")
@@ -236,12 +250,12 @@ COMMANDS = {
     "sim": ("run one test of one IP", cmd_sim, _sim_args),
     "regress": ("run regression levels", cmd_regress, _regress_args),
     "clean": ("remove generated output", cmd_clean, _clean_args),
-    "check": ("static checks", stub(7), None),
+    "check": ("static checks: lint, style, filelist, neutrality", cmd_check, _check_args),
     "labels": ("GitHub label sync and check", cmd_labels, _labels_args),
     "wiki": ("build or serve the wiki site", cmd_wiki, _wiki_args),
     "metrics": ("nightly metrics, data guard and red issue", metrics.run, metrics.add_args),
     "fpga": ("FPGA flow: Quartus compile and metrics", cmd_fpga, _fpga_args),
-    "asic": ("ASIC flow", stub(14), None),
+    "asic": ("ASIC flow (ORFS)", asic_cli.run, asic_cli.add_args),
 }
 
 

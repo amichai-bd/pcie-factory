@@ -53,6 +53,7 @@ jobs:
         run: |
           case "$BASE" in (*[!A-Za-z0-9._/-]*|"") echo "::error::invalid base branch"; exit 1;; esac
           echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+          echo "started=$(date -u +%FT%TZ)" >> "$GITHUB_OUTPUT"
           mkdir -p workdir/nightly
           # run_step NAME CMD...: run CMD with its output logged; record
           # result=pass|fail|skipped (skipped: the subcommand is still a stub).
@@ -123,13 +124,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DATE: ${{ steps.prep.outputs.date }}
+          STARTED: ${{ steps.prep.outputs.started }}
         run: |
           out=workdir/nightly-data
           mkdir -p "$out"
           # Continue the base branch's series (the first run backfills it).
           git show "origin/$BASE:wiki/tracker/data/commits.jsonl" > "$out/commits.jsonl" 2>/dev/null || rm -f "$out/commits.jsonl"
           ./build metrics commits --ref origin/main --file "$out/commits.jsonl"
-          ./build metrics collect --out "$out/$DATE.json" \
+          ./build metrics collect --out "$out/$DATE.json" --started "$STARTED" \
             --step "check=${{ steps.check.outputs.result || 'fail' }}" \
             --step "regress=${{ steps.regress.outputs.result || 'fail' }}" \
             --step "fpga=${{ steps.fpga.outputs.result || 'fail' }}" \
@@ -210,8 +212,14 @@ jobs:
           number=$(gh api "repos/$REPO/pulls?head=$OWNER:$branch&state=open" --jq '.[0].number // empty')
           if [ -z "$number" ]; then
             body="Nightly metrics for $DATE: changes only \`$data_dir/**\`. Opened by the nightly workflow under the data-PR exception in CLAUDE.md; no issue or reviewer. Run: $GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID"
-            number=$(gh api -X POST "repos/$REPO/pulls" -f title="nightly: metrics for $DATE" \
-              -f head="$branch" -f base="$BASE" -f body="$body" --jq .number)
+            if ! number=$(gh api -X POST "repos/$REPO/pulls" -f title="nightly: metrics for $DATE" \
+                -f head="$branch" -f base="$BASE" -f body="$body" --jq .number 2>workdir/pr-error.txt); then
+              cat workdir/pr-error.txt
+              if grep -q 'not permitted to create' workdir/pr-error.txt; then
+                echo "::error::GITHUB_TOKEN may not open pull requests. Enable Settings > Actions > General > 'Allow GitHub Actions to create and approve pull requests'. Branch $branch is pushed: $GITHUB_SERVER_URL/$REPO/compare/$BASE...$branch"
+              fi
+              exit 1
+            fi
           fi
           gh api --silent -X POST "repos/$REPO/issues/$number/labels" -f 'labels[]=type:data' -f 'labels[]=area:wiki'
           echo "data PR: $GITHUB_SERVER_URL/$REPO/pull/$number"

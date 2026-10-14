@@ -101,7 +101,7 @@ def test_collect_end_to_end_is_publishable(repo, tmp_path, cfg, monkeypatch):
     shutil.copy(FIXTURES.parents[3] / "cfg" / "metrics.yaml", repo / "cfg" / "metrics.yaml")
     out = tmp_path / "out" / "2026-03-31.json"
     args = Namespace(out=str(out), no_github=False, step=["check=pass", "regress=fail"],
-                     now="2026-03-31T12:00:00Z", repo="own/repo")
+                     now="2026-03-31T12:00:00Z", started="2026-03-31T10:30:00Z", repo="own/repo")
     assert cli.collect(_ctx(repo, workdir), args, gh_factory=lambda r: FakeGh(dict(ROUTES), r)) == 0
     text = out.read_text()
     for s in PLANTED:
@@ -111,7 +111,8 @@ def test_collect_end_to_end_is_publishable(repo, tmp_path, cfg, monkeypatch):
     assert rec["schema_version"] == 1
     assert rec["meta"]["date"] == "2026-03-31"
     assert len(rec["meta"]["commit"]) == 40
-    assert rec["meta"]["nightly"] == {"steps": {"check": "pass", "regress": "fail"}, "result": "fail"}
+    assert rec["meta"]["nightly"] == {"steps": {"check": "pass", "regress": "fail"}, "result": "fail",
+                                     "duration_s": 5400.0}
     assert rec["code"]["commits"] == 2 and rec["code"]["contributors"] == 1
     assert rec["code"]["repo_size_kb"] == 1234
     assert set(rec["code"]["ips"]) == {"blk", "blk/sub"}
@@ -132,13 +133,15 @@ def test_collect_without_github_or_producers(repo, tmp_path, cfg, monkeypatch):
     (repo / "cfg").mkdir()
     shutil.copy(FIXTURES.parents[3] / "cfg" / "metrics.yaml", repo / "cfg" / "metrics.yaml")
     out = tmp_path / "r.json"
-    args = Namespace(out=str(out), no_github=True, step=[], now="2026-03-31T12:00:00Z", repo=None)
+    args = Namespace(out=str(out), no_github=True, step=[], now="2026-03-31T12:00:00Z",
+                     started=None, repo=None)
     assert cli.collect(_ctx(repo, tmp_path / "empty"), args) == 0
     rec = json.loads(out.read_text())
     for key in ("tests", "fpga", "asic"):
         assert rec[key] == {"status": "unavailable", "reason": "missing"}
     assert rec["github"]["ci"] == {"status": "unavailable", "reason": "disabled"}
     assert rec["meta"]["nightly"]["result"] is None
+    assert rec["meta"]["nightly"]["duration_s"] is None
 
 
 def test_write_refuses_leaks(tmp_path):

@@ -28,6 +28,8 @@ def add_args(p: argparse.ArgumentParser) -> None:
     c.add_argument("--no-github", action="store_true", help="skip the GitHub sections")
     c.add_argument("--step", action="append", default=[], metavar="NAME=OUTCOME",
                    help="nightly step outcome (pass|fail|skipped); repeatable")
+    c.add_argument("--started", metavar="TIME",
+                   help="UTC start of the nightly job (ISO 8601), for meta.nightly.duration_s")
     c.add_argument("--now", help=argparse.SUPPRESS)  # ISO time, for tests
     s = act.add_parser("commits", parents=[repo], help="append main commits to the series")
     s.add_argument("--file", help="series file (default: <data_dir>/commits.jsonl)")
@@ -71,6 +73,10 @@ def collect(ctx: Context, args, gh_factory=Gh) -> int:
     cfg = load(ctx.cfg_dir)
     now = _now(args.now)
     steps = _steps(args.step)
+    try:
+        started = _now(args.started) if args.started else None
+    except ValueError:
+        raise MetricsError(f"--started must be an ISO 8601 time, got {args.started!r}") from None
     out = Path(args.out) if args.out else ctx.workdir / "metrics" / f"{now:%Y-%m-%d}.json"
     raw = None
     if not args.no_github:
@@ -78,7 +84,7 @@ def collect(ctx: Context, args, gh_factory=Gh) -> int:
         print(f"[metrics] github: {gh.repo} (REST)")
         raw = github.fetch(gh, cfg, log=sys.stdout)
     rec = record.build_record(repo=ctx.repo_root, workdir=ctx.workdir, ip_ids=_ip_ids(ctx),
-                              cfg=cfg, now=now, raw=raw, steps=steps,
+                              cfg=cfg, now=now, raw=raw, steps=steps, started=started,
                               versions=record.tool_versions())
     record.write_checked(rec, out, record.host_terms())
     for key in ("code", "tests", "fpga", "asic"):

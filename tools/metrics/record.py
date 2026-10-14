@@ -236,7 +236,8 @@ def tool_versions() -> dict:
     return {k: (x if x and _VERSION.fullmatch(x) else None) for k, x in out.items()}
 
 
-def meta_section(repo: Path, now: datetime, steps: dict[str, str], versions: dict) -> dict:
+def meta_section(repo: Path, now: datetime, steps: dict[str, str], versions: dict,
+                 started: datetime | None = None) -> dict:
     sha = git(repo, "rev-parse", "HEAD").decode().strip()
     cdate = git(repo, "show", "-s", "--format=%cI", "HEAD").decode().strip()
     result = None
@@ -250,7 +251,8 @@ def meta_section(repo: Path, now: datetime, steps: dict[str, str], versions: dic
         "commit_short": sha[:12],
         "commit_date": iso(datetime.fromisoformat(cdate)),
         "tools": versions,
-        "nightly": {"steps": dict(sorted(steps.items())), "result": result},
+        "nightly": {"steps": dict(sorted(steps.items())), "result": result,
+                    "duration_s": round((now - started).total_seconds(), 1) if started else None},
     }
 
 
@@ -275,7 +277,7 @@ def file_distributions(files: list[FileStat]) -> dict:
 
 def build_record(*, repo: Path, workdir: Path, ip_ids: list[str], cfg: Config, now: datetime,
                  raw: dict | None, steps: dict[str, str], versions: dict,
-                 reader: TreeReader | None = None) -> dict:
+                 started: datetime | None = None, reader: TreeReader | None = None) -> dict:
     """Assemble the record; ``raw`` is None when GitHub collection is off."""
     reader = reader or TreeReader(repo, cfg)
     stats, files = reader.stats("HEAD")
@@ -294,7 +296,7 @@ def build_record(*, repo: Path, workdir: Path, ip_ids: list[str], cfg: Config, n
             if tests["status"] == "ok" else None}
     return {
         "schema_version": SCHEMA_VERSION,
-        "meta": meta_section(repo, now, steps, versions),
+        "meta": meta_section(repo, now, steps, versions, started),
         "code": code_section(stats, repo_counts(repo), raw),
         "github": gh_sections,
         "health": health,
