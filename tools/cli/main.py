@@ -11,6 +11,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from asic import cli as asic_cli
 from build import sim
 from build.filelist import FilelistError
 from build.ip import Context, DiscoveryError, discover, find_ip, make_context
@@ -283,7 +284,7 @@ COMMANDS = {
     "ci": ("ci-gate helpers: unit suites, job summary", cmd_ci, _ci_args),
     "wiki": ("build or serve the wiki site", cmd_wiki, _wiki_args),
     "fpga": ("FPGA flow: Quartus compile and metrics", cmd_fpga, _fpga_args),
-    "asic": ("ASIC flow", stub(14), None),
+    "asic": ("ASIC flow (ORFS)", asic_cli.run, asic_cli.add_args),
 }
 
 

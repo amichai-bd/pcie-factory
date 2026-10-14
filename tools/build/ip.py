@@ -20,7 +20,7 @@ ENV_WORKDIR = "BUILD_WORKDIR"
 # Directories under workdir/ that the tools own; an IP may not use these ids.
 RESERVED_IP_IDS = {"regress"}
 # Directory names inside workdir/<ip>/ that a test may not use.
-RESERVED_TEST_NAMES = {"build", "fpga"}
+RESERVED_TEST_NAMES = {"build", "fpga", "asic"}
 
 # Per-IP directories that never hold sub-IPs.
 _NON_IP_DIRS = {"rtl", "dv", "fpga", "asic"}

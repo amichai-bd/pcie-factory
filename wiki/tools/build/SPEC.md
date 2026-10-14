@@ -32,7 +32,7 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `wiki build\|serve` | Build the wiki site into `<workdir>/wiki-site`, or serve an existing build; see the [wiki site spec](../wiki_site/SPEC.md). |
 | `check` | Static checks; see the [checks spec](../checks/SPEC.md). |
 | `fpga (--ip ID... \| --all) [--part P] [--timeout S] [--dry-run]` | Quartus compile and `metrics.json` for IPs with `fpga/`; see the [fpga spec](../fpga/SPEC.md). |
-| `asic` | Stub: prints `not implemented yet (see issue #14)` and exits 2, until its issue replaces the entry in `COMMANDS`. |
+| `asic --ip ID [--platform P] [--timeout S] [--dry-run]` | ORFS flow and `metrics.json` for one IP with `asic/`; see the [asic spec](../asic/SPEC.md). |
 
 Options shared by every command:
 
@@ -159,7 +159,8 @@ so a sub-IP nests under its parent):
 | `workdir/<ip>/<test>/<seed>/` | `results.xml`, `sim.log` (the full simulator output), and waves (`dump.vcd`) with `--waves`. This directory is cleared before each run. |
 
 Because a test directory and a sub-IP directory share `workdir/<ip>/`, a
-test may not be named `build`, `fpga` (the [fpga tool's](../fpga/SPEC.md#output) output) or after a sub-IP directory.
+test may not be named `build`, `fpga` (the [fpga tool's](../fpga/SPEC.md#output) output),
+`asic` (the [asic tool's](../asic/SPEC.md#output) output) or after a sub-IP directory.
 
 A test's status comes from `results.xml`:
 

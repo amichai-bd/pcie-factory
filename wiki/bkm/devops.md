@@ -26,10 +26,11 @@ it; nothing calls a tool script directly.
 | `fpga` | Quartus flow for one IP ([FPGA BKM](fpga.md)). |
 | `asic` | ORFS flow for one IP ([PD BKM](pd.md)). |
 | `labels` | Label sync from `cfg/labels.yaml`. |
+| `ci` | `ci-gate` helpers: unit-test suites and job summary ([CI spec](../tools/ci/SPEC.md)). |
 | `wiki` | Wiki site build. |
 | `clean` | Remove `workdir/` output. |
 
-Subcommands land with their issues (#6 core, #7 check, #10 labels, #12 wiki,
+Subcommands land with their issues (#6 core, #7 check, #10 labels, #11 ci, #12 wiki,
 #13 fpga, #14 asic); until a SPEC exists, the issue owns the contract.
 
 ## Tools and configuration
@@ -97,7 +98,7 @@ behavior, not command success. Missing evidence is a review finding.
 
 ## Continuous integration
 
-Workflows live in `.github/workflows/` (`ci`, `nightly`, `pages`, `fpga`) and run on
+Workflows live in `.github/workflows/` (`ci`, `nightly`, `pages`, `fpga`, `asic`) and run on
 self-hosted runners selected with `runs-on: [self-hosted, linux, x64]`. The
 runners are registered to this repository only, so no workflow names the
 design target. The CI host is the Omarchy machine; `cfg/host.yaml` pins its
