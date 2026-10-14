@@ -22,6 +22,9 @@ CONTEXT = "ci-gate"
 # Anything but success or failure (cancelled, skipped) is an error state,
 # which blocks the merge like a failure.
 STATES = {"success": "success", "failure": "failure", "cancelled": "error", "skipped": "error"}
+# GitHub rejects a status description longer than this (HTTP 422); a long
+# branch name is cut and marked with "...".
+DESCRIPTION_MAX = 140
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _HEADS = "refs/heads/"
 
@@ -42,8 +45,10 @@ def plan(result: str, sha: str, ref: str, branch_prefix: str, target_url: str = 
     if not branch.startswith(branch_prefix) or branch == branch_prefix:
         raise StatusError(f"refusing to post {CONTEXT}: {branch!r} is not a "
                           f"{branch_prefix}<name> data branch")
-    fields = {"state": STATES[result], "context": CONTEXT,
-              "description": f"{CONTEXT} job on {branch}: {result}"}
+    description = f"{CONTEXT} job on {branch}: {result}"
+    if len(description) > DESCRIPTION_MAX:
+        description = description[:DESCRIPTION_MAX - 3] + "..."
+    fields = {"state": STATES[result], "context": CONTEXT, "description": description}
     if target_url:
         fields["target_url"] = target_url
     return fields

@@ -48,6 +48,19 @@ def test_result_maps_to_state(result, state):
                  "description": f"ci-gate job on nightly/2026-01-02: {result}"}
 
 
+@pytest.mark.parametrize("extra", [0, 1, 200])
+def test_description_capped_at_140(extra):
+    short = status.plan("failure", SHA, "nightly/x", "nightly/")["description"]
+    # A branch name that brings the description to exactly 140 + extra characters.
+    branch = "nightly/" + "x" * (len("x") + status.DESCRIPTION_MAX - len(short) + extra)
+    d = status.plan("failure", SHA, branch, "nightly/")["description"]
+    assert len(d) == status.DESCRIPTION_MAX
+    if extra:
+        assert d.endswith("...") and d.startswith("ci-gate job on nightly/xxx")
+    else:
+        assert d == f"ci-gate job on {branch}: failure"
+
+
 @pytest.mark.parametrize("ref", [
     "refs/heads/nightly/x", "nightly/x", "nightly/test-1"])
 def test_data_branch_refs_accepted(ref):

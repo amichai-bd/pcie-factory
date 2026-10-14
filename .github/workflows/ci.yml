@@ -88,10 +88,11 @@ jobs:
           # A nightly/ branch may change only the data directory
           # (wiki/tools/metrics/SPEC.md#guard); other branches pass at once.
           # A pull request compares its merge commit with the first parent. A
-          # push or dispatch of a nightly/ ref (the nightly's data PR is opened
-          # with GITHUB_TOKEN, so it gets no pull_request run and is dispatched
-          # instead) compares with the base of the branch's open PR into main,
-          # else of any open PR, else main. Other pushes and dispatches stop here.
+          # dispatch on a nightly/ ref (the nightly's data PR is opened with
+          # GITHUB_TOKEN, so it gets no runnable pull_request run and is
+          # dispatched instead; push triggers only on main) compares with the
+          # base of the branch's open PR into main, else of any open PR, else
+          # main. Other pushes and dispatches stop here.
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
             ./build metrics guard --branch "$PR_BRANCH" --base HEAD^1
             exit 0
@@ -156,9 +157,10 @@ jobs:
   # This job mirrors the gate's own result as a `ci-gate` commit status on the
   # tested commit, which protection does accept from GitHub Actions
   # (wiki/tools/ci/SPEC.md#build-ci-status). It is the only place with
-  # statuses: write; it runs only for a push or dispatch of a nightly/ ref
-  # (never for a pull_request, so never for a fork), after the gate finishes,
-  # and its state comes from needs.ci-gate.result alone.
+  # statuses: write; it runs only for a dispatch on a nightly/ ref (push
+  # triggers only on main; never for a pull_request, so never for a fork),
+  # after the gate finishes, and its state comes from needs.ci-gate.result
+  # alone. The status binds to the commit, not to a PR or its base.
   ci-gate-status:
     needs: ci-gate
     if: ${{ always() && github.event_name != 'pull_request' && startsWith(github.ref, 'refs/heads/nightly/') }}
