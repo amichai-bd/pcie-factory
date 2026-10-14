@@ -59,22 +59,27 @@ def read_prefix(src_root: Path) -> str | None:
     return m.group(1) if m else None
 
 
-def ip_stem(ip: Ip) -> str:
-    """``a/b`` -> ``a_b``: the IP part of its module names."""
-    return ip.id.replace("/", "_")
+def in_kind(path: Path, src_root: Path, kinds: tuple[str, ...]) -> bool:
+    """True when ``path`` lies below ``<src_root>/<kind>/`` for a kind in
+    ``kinds``."""
+    try:
+        parts = Path(path).resolve().relative_to(Path(src_root).resolve()).parts
+    except ValueError:
+        return False
+    return len(parts) > 1 and parts[0] in kinds
 
 
-def rtl_files(src_root: Path, dirnames: tuple[str, ...] = ("rtl",),
-              suffixes: tuple[str, ...] = SV_SUFFIXES) -> list[Path]:
-    """Every file ending in one of ``suffixes`` below a directory named in
-    ``dirnames`` under ``src_root`` (hidden directories skipped), sorted."""
+def kind_files(src_root: Path, kinds: tuple[str, ...] = ("rtl",),
+               suffixes: tuple[str, ...] | None = SV_SUFFIXES) -> list[Path]:
+    """Every file ending in one of ``suffixes`` (any file for None) below
+    ``<src_root>/<kind>/`` for a kind in ``kinds`` (hidden directories
+    skipped), sorted."""
     found = []
-    for dirpath, dirs, files in os.walk(src_root):
-        dirs[:] = sorted(d for d in dirs if not d.startswith("."))
-        parts = Path(dirpath).relative_to(src_root).parts
-        if not any(p in dirnames for p in parts):
-            continue
-        found += [Path(dirpath) / f for f in files if f.endswith(suffixes)]
+    for kind in kinds:
+        for dirpath, dirs, files in os.walk(Path(src_root) / kind):
+            dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+            found += [Path(dirpath) / f for f in files
+                      if suffixes is None or f.endswith(suffixes)]
     return sorted(found)
 
 

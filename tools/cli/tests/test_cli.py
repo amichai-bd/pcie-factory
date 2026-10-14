@@ -35,16 +35,16 @@ def test_regress_requires_level(fixture_src):
 
 def test_regress_dry_run(fixture_src, tmp_path, capsys):
     argv = ["regress", "--src-root", str(fixture_src), "--workdir", str(tmp_path),
-            "--level", "0", "--ip", "counter/inc", "--seed", "4", "--dry-run"]
+            "--level", "0", "--ip", "counter_inc", "--seed", "4", "--dry-run"]
     assert main(argv) == 0
     out = capsys.readouterr().out
-    assert "[select] counter/inc: --ip" in out
-    assert "L0 counter/inc:exhaustive seed=4" in out
+    assert "[select] counter_inc: --ip" in out
+    assert "L0 counter_inc:exhaustive seed=4" in out
     assert not (tmp_path / "regress").exists()
 
 
 def test_user_errors_exit_2(fixture_src, tmp_path, capsys):
-    (fixture_src / "counter/dv/regress/level0.yaml").write_text("tests: [1]\n")
+    (fixture_src / "dv/counter/regress/level0.yaml").write_text("tests: [1]\n")
     assert main(["regress", "--src-root", str(fixture_src), "--level", "0", "--dry-run"]) == 2
     assert "level0.yaml: tests[0]: a test entry must be a mapping" in capsys.readouterr().err
     assert main(["sim", "--src-root", str(fixture_src), "--ip", "nope", "--test", "t"]) == 2
@@ -56,17 +56,17 @@ def test_clean(fixture_src, tmp_path):
     work = tmp_path / "work"
     (work / "counter/counts/1").mkdir(parents=True)
     (work / "counter/build").mkdir(parents=True)
-    (work / "counter/inc/exhaustive/1").mkdir(parents=True)
+    (work / "counter_inc/exhaustive/1").mkdir(parents=True)
     (work / "other").mkdir()
     base = ["clean", "--src-root", str(fixture_src), "--workdir", str(work)]
     assert main(base + ["--ip", "counter"]) == 0
-    assert sorted(p.name for p in (work / "counter").iterdir()) == ["inc"]
-    assert (work / "counter/inc/exhaustive/1").is_dir()  # sub-IP output kept
-    assert main(base + ["--ip", "counter/inc"]) == 0
-    assert list((work / "counter/inc").iterdir()) == [] and (work / "other").exists()
+    assert not (work / "counter").exists()
+    assert (work / "counter_inc/exhaustive/1").is_dir()  # a sibling IP's output is kept
+    assert main(base + ["--ip", "counter_inc"]) == 0
+    assert not (work / "counter_inc").exists() and (work / "other").exists()
+    assert main(base + ["--ip", "counter"]) == 0  # nothing left: still fine
     assert main(base) == 0
     assert not work.exists()
-
 
 def test_no_ips_selected(tmp_path, capsys):
     src = tmp_path / "src"
@@ -86,7 +86,7 @@ def test_stale_summary_removed_on_error_kept_on_dry_run(fixture_src, tmp_path):
     base = ["regress", "--src-root", str(fixture_src), "--workdir", str(work), "--level", "0"]
     assert main(base + ["--dry-run"]) == 0
     assert stale.is_file()  # --dry-run neither writes nor removes the summary
-    (fixture_src / "counter/dv/regress/level0.yaml").write_text("tests: 1\n")
+    (fixture_src / "dv/counter/regress/level0.yaml").write_text("tests: 1\n")
     assert main(base) == 2
     assert not stale.exists()
 
@@ -103,7 +103,7 @@ def test_sim_default_seed_is_first_regression_seed(fixture_src, tmp_path, monkey
     from regress.schema import load_ip
     from build.ip import discover, find_ip
 
-    (fixture_src / "counter/dv/regress/level2.yaml").write_text(
+    (fixture_src / "dv/counter/regress/level2.yaml").write_text(
         "tests:\n  - {name: r, module: tests.test_counter, top: counter,"
         f" seeds: {seeds}, timeout_s: 5}}\n")
     used = []
@@ -119,7 +119,7 @@ def test_sim_default_seed_is_first_regression_seed(fixture_src, tmp_path, monkey
     assert main(base) == 0
     if expected is None:
         ip = find_ip(discover(fixture_src), "counter")
-        (entry,) = [e for e in load_ip(ip, {"inc"}) if e.name == "r"]
+        (entry,) = [e for e in load_ip(ip) if e.name == "r"]
         expected = regress.default_seed(entry, 0)
     assert used == [expected]
     assert main(base + ["--seed", "3"]) == 0 and used[-1] == 3

@@ -4,7 +4,7 @@ from ci.summary import render
 
 SUMMARY = {
     "levels": [0, 1],
-    "ips": {"a": "changed: src/a/rtl/a.sv"},
+    "ips": {"a": "changed: src/rtl/a/a.sv"},
     "builds": [{"ip": "a", "build": "a_top", "status": "pass"}],
     "tests": [
         {"ip": "a", "level": 0, "name": "smoke", "seed": 1, "status": "pass", "log": "a/smoke/1/sim.log"},
@@ -24,7 +24,7 @@ def test_render_failures_and_budget(tmp_path):
     p.write_text(json.dumps(SUMMARY))
     md = render(p)
     assert md.startswith("### Regression L0, L1: FAIL\n")
-    assert "| `a` | changed: src/a/rtl/a.sv |" in md
+    assert "| `a` | changed: src/rtl/a/a.sv |" in md
     assert "| level1 | 0/1 | 700.0 (over budget) | 600 |" in md
     assert "- `a:full` seed=7: fail (`a/full/7/sim.log`)" in md
     assert "smoke" not in md

@@ -102,8 +102,8 @@ def test_landing_pages_and_link_rewrite(tmp_path):
 def test_links_leaving_wiki_go_to_github(tmp_path):
     files = dict(BASE, **{
         "CLAUDE.md": "# Contract\n\n## Layout\n",
-        "src/top/rtl.sv": "module m; endmodule\n",
-        "wiki/sec/z.md": "# Zed\n\n[c](../../CLAUDE.md#layout) [d](../../src/top/) [f](../../src/top/rtl.sv)\n"
+        "src/rtl/x.sv": "module m; endmodule\n",
+        "wiki/sec/z.md": "# Zed\n\n[c](../../CLAUDE.md#layout) [d](../../src/rtl/) [f](../../src/rtl/x.sv)\n"
                          '<img src="../../src/pic.png">\n',
         "src/pic.png": "x",
     })
@@ -111,8 +111,8 @@ def test_links_leaving_wiki_go_to_github(tmp_path):
     assert problems == []
     html = (out / "sec" / "z.html").read_text()
     assert f'href="{URL}/blob/{SHA}/CLAUDE.md#layout"' in html
-    assert f'href="{URL}/tree/{SHA}/src/top"' in html
-    assert f'href="{URL}/blob/{SHA}/src/top/rtl.sv"' in html
+    assert f'href="{URL}/tree/{SHA}/src/rtl"' in html
+    assert f'href="{URL}/blob/{SHA}/src/rtl/x.sv"' in html
     assert f'src="{URL}/blob/{SHA}/src/pic.png?raw=true"' in html
 
 

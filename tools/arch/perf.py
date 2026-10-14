@@ -1,6 +1,6 @@
 """Architecture-model perf scenarios (wiki/tools/arch/SPEC.md).
 
-A top-level IP's ``arch/`` holds one model module, ``<prefix><name>_arch.py``,
+A top-level IP's ``arch/<ip>/`` folder holds one model module, ``<prefix><name>_arch.py``,
 that defines ``perf(workload, seed) -> {metric: number}``, and perf scenarios
 ``perf/<scenario>.yaml``. Each scenario gives the model a workload and a seed
 and checks the returned metrics against ``min``/``max`` targets. The result
@@ -47,12 +47,8 @@ class Scenario:
     targets: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
-def is_top_level(ip: Ip) -> bool:
-    return "/" not in ip.id
-
-
 def arch_dir(ip: Ip) -> Path:
-    return ip.path / ARCH_DIR
+    return ip.dir(ARCH_DIR)
 
 
 def output_path(ip: Ip, workdir: Path) -> Path:
@@ -60,17 +56,17 @@ def output_path(ip: Ip, workdir: Path) -> Path:
 
 
 def find_model(ip: Ip) -> Path:
-    """The IP's one model module: ``arch/*<name>_arch.py`` (not a test)."""
-    if not is_top_level(ip):
+    """The IP's one model module: ``arch/<ip>/*<ip>_arch.py`` (not a test)."""
+    if not ip.top_level:
         raise ArchError(f"IP {ip.id} is a sub-IP; arch/ models are for top-level IPs only")
     d = arch_dir(ip)
     if not d.is_dir():
-        raise ArchError(f"IP {ip.id} has no {ARCH_DIR}/ directory ({d})")
-    models = sorted(p for p in d.glob(f"*{ip.name}_{ARCH_DIR}.py")
+        raise ArchError(f"IP {ip.id} has no {ARCH_DIR}/{ip.id}/ directory ({d})")
+    models = sorted(p for p in d.glob(f"*{ip.id}_{ARCH_DIR}.py")
                     if not p.name.startswith("test_"))
     if len(models) != 1:
         found = ", ".join(p.name for p in models) or "none"
-        raise ArchError(f"{d}: expected exactly one model <prefix>{ip.name}_{ARCH_DIR}.py "
+        raise ArchError(f"{d}: expected exactly one model <prefix>{ip.id}_{ARCH_DIR}.py "
                         f"(found: {found})")
     return models[0]
 

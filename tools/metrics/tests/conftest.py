@@ -87,14 +87,14 @@ def repo(tmp_path) -> Path:
     git(r, "init", "-q", "-b", "main")
     commit(r, {
         "README.md": "# Title\n\nText.\n",
-        "src/blk/rtl/blk.rtl.f": "// filelist\nxy_blk.sv\n",
-        "src/blk/rtl/xy_blk.sv": "// header\nmodule xy_blk;\n/* block\n comment */\nendmodule\n\n",
+        "src/rtl/blk/blk.rtl.f": "// filelist\nxy_blk.sv\n",
+        "src/rtl/blk/xy_blk.sv": "// header\nmodule xy_blk;\n/* block\n comment */\nendmodule\n\n",
         "tools/x/run.py": "# comment\nimport os\n\nprint(os.name)\n",
     }, "first", "2026-01-01T00:00:00")
     commit(r, {
-        "src/blk/sub/rtl/sub.rtl.f": "xy_blk_sub.sv\n",
-        "src/blk/sub/rtl/xy_blk_sub.sv": "module xy_blk_sub; endmodule // tail\n",
-        "src/blk/dv/tests/test_blk.py": "def test():\n    pass\n",
+        "src/rtl/blk_sub/blk_sub.rtl.f": "xy_blk_sub.sv\n",
+        "src/rtl/blk_sub/xy_blk_sub.sv": "module xy_blk_sub; endmodule // tail\n",
+        "src/dv/blk/tests/test_blk.py": "def test():\n    pass\n",
         "wiki/tracker/data/old.json": "{}\n",
         "logo.bin": "\0\1\2",
     }, "second", "2026-01-02T00:00:00")

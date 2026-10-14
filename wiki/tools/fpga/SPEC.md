@@ -20,8 +20,8 @@ the command line, the generated project, the metrics schema and failures.
 
 | Option | Meaning |
 | --- | --- |
-| `--ip ID` | IP to compile; it must have an `fpga/` directory. Repeatable. |
-| `--all` | Every IP that has an `fpga/` directory, sorted by id. |
+| `--ip ID` | IP to compile; it must have a `src/fpga/<ip>/` folder. Repeatable. |
+| `--all` | Every IP that has a `src/fpga/<ip>/` folder, sorted by id. |
 | `--part DEVICE` | Override the device that the board settings file sets (letters and digits only). |
 | `--timeout S` | Wall-clock bound in seconds on each step (default: `step_timeout_s` in `cfg/fpga.yaml`). |
 | `--dry-run` | Validate inputs, write the project scripts, print the steps; run nothing and need no Quartus. A previous compile in the same directory is left in place. |
@@ -31,15 +31,15 @@ The shared `--src-root` and `--workdir` options work as in the
 
 ## Inputs
 
-For IP `<ip>` with directory name `<name>`, and `<board>` from
+For IP `<ip>` (its id), and `<board>` from
 `cfg/fpga.yaml` (`de2_115`):
 
 | Input | Rule |
 | --- | --- |
-| `rtl/<name>.rtl.f` | Flattened by the [filelist resolver](../build/SPEC.md#filelists): sources, include directories, defines. |
-| `fpga/<board>.qsf.tcl` | Required. Quartus Tcl run inside the open project: device, pins, I/O standards. |
-| `fpga/*.sdc` | Exactly one. Added as the project's `SDC_FILE`. |
-| `fpga/*.sv` | Exactly one: the board wrapper. Its file stem is the top-level module, and it must declare `module <stem>`. It must not also be in `<name>.rtl.f`. |
+| `src/rtl/<ip>/<ip>.rtl.f` | Flattened by the [filelist resolver](../build/SPEC.md#filelists): sources, include directories, defines. |
+| `src/fpga/<ip>/<board>.qsf.tcl` | Required. Quartus Tcl run inside the open project: device, pins, I/O standards. |
+| `src/fpga/<ip>/*.sdc` | Exactly one. Added as the project's `SDC_FILE`. |
+| `src/fpga/<ip>/*.sv` | Exactly one: the board wrapper. Its file stem is the top-level module, and it must declare `module <stem>`. It must not also be in `<ip>.rtl.f`. |
 
 Sources must be `.sv` (`SYSTEMVERILOG_FILE`) or `.v` (`VERILOG_FILE`).
 Every input is checked before anything runs; a violation is an error that
@@ -127,7 +127,7 @@ Unconstrained Paths Summary, no clock with timing paths, an unreadable report, o
 | --- | --- |
 | 0 | Every selected IP compiled, `metrics.json` written, timing met. |
 | 1 | A step failed or timed out, a report could not be parsed, or timing is not met (metrics are still written). |
-| 2 | Usage or input error: unknown IP, IP without `fpga/`, bad inputs or `cfg/fpga.yaml`, filelist error, Quartus not found. |
+| 2 | Usage or input error: unknown IP, IP without `src/fpga/<ip>/`, bad inputs or `cfg/fpga.yaml`, filelist error, Quartus not found. |
 
 With several IPs, every IP runs and the worst code wins.
 
@@ -142,8 +142,7 @@ With several IPs, every IP runs and the worst code wins.
 | `workdir/<ip>/fpga/worst_path.txt`, `metrics.json` | Parsed inputs and the metrics. |
 
 Because `fpga/` lives in `workdir/<ip>/`, no test may be named `fpga`
-(`RESERVED_TEST_NAMES` in `tools/build/ip.py`), and `fpga` is never a sub-IP
-directory.
+(`RESERVED_TEST_NAMES` in `tools/build/ip.py`).
 
 ## CI
 
@@ -180,4 +179,4 @@ committed.
   `cfg/fpga.yaml` validation, and the run loop with fake `quartus_*` scripts
   that replay the fixtures: metrics written, a failing step stops the flow,
   lint failure, timing not met, and a step timeout killing its group; and
-  the CLI (`--dry-run`, `--all`, missing Quartus, IP without `fpga/`).
+  the CLI (`--dry-run`, `--all`, missing Quartus, IP without `src/fpga/<ip>/`).

@@ -2,38 +2,58 @@ from pathlib import Path
 
 import pytest
 
-from build.ip import DiscoveryError, discover, find_ip, make_context, owner_ip
+from build.ip import DiscoveryError, discover, find_ip, locate, make_context, owner_ip
 
 
-def make_ip(root: Path, rel: str) -> None:
-    d = root / rel
-    (d / "rtl").mkdir(parents=True, exist_ok=True)
-    (d / "rtl" / f"{d.name}.rtl.f").write_text("")
+def make_ip(root: Path, ip: str, reaches: tuple[str, ...] = ()) -> None:
+    """``rtl/<ip>/<ip>.rtl.f`` including each IP in ``reaches`` with -F."""
+    d = root / "rtl" / ip
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{ip}.rtl.f").write_text("".join(f"-F ../{r}/{r}.rtl.f\n" for r in reaches))
 
 
-def test_discover_nested(tmp_path):
-    make_ip(tmp_path, "a")
-    make_ip(tmp_path, "a/b")
-    make_ip(tmp_path, "a/b/c")
+def test_discover_flat(tmp_path):
+    make_ip(tmp_path, "a_b")
+    make_ip(tmp_path, "a", ("a_b",))
     make_ip(tmp_path, "z")
-    (tmp_path / "common/rtl").mkdir(parents=True)  # no common.rtl.f -> not an IP
-    (tmp_path / "x/rtl").mkdir(parents=True)
-    (tmp_path / "x/rtl/other.rtl.f").write_text("")  # name mismatch -> not an IP
+    (tmp_path / "rtl/common").mkdir(parents=True)  # shared blocks, never an IP
+    (tmp_path / "rtl/common/common.rtl.f").write_text("")
+    (tmp_path / "rtl/x").mkdir(parents=True)
+    (tmp_path / "rtl/x/other.rtl.f").write_text("")  # name mismatch -> not an IP
+    (tmp_path / "dv/y").mkdir(parents=True)  # no rtl/y/ -> not an IP
     ips = discover(tmp_path)
-    assert [ip.id for ip in ips] == ["a", "a/b", "a/b/c", "z"]
-    assert find_ip(ips, "a/b").name == "b"
-    assert ips[1].sim_f == tmp_path / "a/b/dv/b.sim.f"
+    assert [ip.id for ip in ips] == ["a", "a_b", "z"]
+    sub = find_ip(ips, "a_b")
+    assert sub.rtl_f == tmp_path / "rtl/a_b/a_b.rtl.f"
+    assert sub.sim_f == tmp_path / "dv/a_b/a_b.sim.f"
+    assert sub.dv_f == tmp_path / "dv/a_b/a_b.dv.f"
+    assert sub.level_file(1) == tmp_path / "dv/a_b/regress/level1.yaml"
+    assert sub.dir("fpga") == tmp_path / "fpga/a_b"
 
 
-def test_per_ip_dirs_hold_no_sub_ips(tmp_path):
-    make_ip(tmp_path, "a")
-    for d in ("arch", "rtl", "dv", "fpga", "asic"):
-        make_ip(tmp_path, f"a/{d}")  # a <d>/<d>.rtl.f lookalike is not a sub-IP
-    assert [ip.id for ip in discover(tmp_path)] == ["a"]
+def test_top_level_versus_sub_ip(tmp_path):
+    # a reaches a_b directly and a_b_c through a_b; d reaches a_b_c too.
+    make_ip(tmp_path, "a_b_c")
+    make_ip(tmp_path, "a_b", ("a_b_c",))
+    make_ip(tmp_path, "a", ("a_b",))
+    make_ip(tmp_path, "d", ("a_b_c",))
+    ips = {ip.id: ip for ip in discover(tmp_path)}
+    assert ips["a"].top_level and ips["d"].top_level
+    assert ips["a_b"].ancestors == ("a",) and not ips["a_b"].top_level
+    assert ips["a_b_c"].ancestors == ("a", "a_b", "d")
+
+
+def test_broken_filelist_reaches_nothing(tmp_path):
+    make_ip(tmp_path, "a_b")
+    make_ip(tmp_path, "a", ("a_b", "missing"))
+    ips = {ip.id: ip for ip in discover(tmp_path)}
+    assert ips["a_b"].top_level  # the filelist check reports the broken -F
 
 
 def test_discover_fixture(fixture_src):
-    assert [ip.id for ip in discover(fixture_src)] == ["counter", "counter/inc"]
+    ips = discover(fixture_src)
+    assert [ip.id for ip in ips] == ["counter", "counter_inc"]
+    assert [ip.top_level for ip in ips] == [True, False]
 
 
 def test_unknown_ip(tmp_path):
@@ -53,13 +73,23 @@ def test_missing_root(tmp_path):
         discover(tmp_path / "nope")
 
 
-def test_owner_is_innermost(tmp_path):
+def test_owner_by_kind_folder(tmp_path):
     make_ip(tmp_path, "a")
-    make_ip(tmp_path, "a/b")
+    make_ip(tmp_path, "a_b")
     ips = discover(tmp_path)
-    assert owner_ip(ips, tmp_path / "a/b/rtl/b.sv").id == "a/b"
-    assert owner_ip(ips, tmp_path / "a/rtl/a.sv").id == "a"
+    assert owner_ip(ips, tmp_path / "rtl/a_b/x.sv").id == "a_b"
+    assert owner_ip(ips, tmp_path / "dv/a/tests/t.py").id == "a"
+    assert owner_ip(ips, tmp_path / "fpga/a/a.sdc").id == "a"
+    assert owner_ip(ips, tmp_path / "rtl/a_bc/x.sv") is None
+    assert owner_ip(ips, tmp_path / "rtl/common/c.sv") is None
     assert owner_ip(ips, tmp_path / "README.md") is None
+
+
+def test_locate(tmp_path):
+    assert locate(tmp_path, tmp_path / "rtl/a/x.sv") == ("rtl", "a")
+    assert locate(tmp_path, tmp_path / "dv") == ("dv", None)
+    assert locate(tmp_path, tmp_path / "a/rtl/x.sv") == (None, None)
+    assert locate(tmp_path, tmp_path.parent / "x") == (None, None)
 
 
 def test_context_env(monkeypatch, tmp_path):

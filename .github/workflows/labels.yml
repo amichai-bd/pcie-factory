@@ -12,6 +12,7 @@ on:
       - "cfg/labels.yaml"
       - "tools/labels/**"
       - "tools/build/ip.py"
+      - "tools/build/filelist.py"
       - "tools/cli/**"
       - "src/**"
       - ".github/workflows/labels.yml"

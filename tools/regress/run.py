@@ -47,13 +47,7 @@ def pmap(fn, items, jobs: int) -> list:
 
 def load_all(ips: list[Ip]) -> dict[str, list[TestEntry]]:
     """Load and validate every IP's regression lists."""
-    tests = {}
-    for ip in ips:
-        children = {
-            other.path.name for other in ips if other.path.parent == ip.path
-        }
-        tests[ip.id] = load_ip(ip, children)
-    return tests
+    return {ip.id: load_ip(ip) for ip in ips}
 
 
 @dataclass

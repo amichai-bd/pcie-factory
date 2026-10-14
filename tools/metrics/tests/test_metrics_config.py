@@ -50,9 +50,10 @@ def test_missing_file(tmp_path):
 
 
 @pytest.mark.parametrize("path, pattern, hit", [
-    ("src/a/rtl/x.sv", "src/**/rtl/**/*.sv", True),
-    ("src/a/b/rtl/inc/x.sv", "src/**/rtl/**/*.sv", True),
-    ("src/a/dv/x.sv", "src/**/rtl/**/*.sv", False),
+    ("src/rtl/a/x.sv", "src/rtl/**/*.sv", True),
+    ("src/rtl/a_b/inc/x.sv", "src/rtl/**/*.sv", True),
+    ("src/dv/a/x.sv", "src/rtl/**/*.sv", False),
+    ("src/fpga/a/b.sdc", "src/**/*.sdc", True),
     ("README.md", "*.md", True),
     ("wiki/README.md", "*.md", False),
     ("wiki/tracker/data/2026-01-01.json", "wiki/tracker/data/**", True),

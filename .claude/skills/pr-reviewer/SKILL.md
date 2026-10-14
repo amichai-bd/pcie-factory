@@ -51,7 +51,7 @@ Read: the issue (acceptance, scope, comments), `CLAUDE.md`, the diff
 | Acceptance | Any issue criterion unmet or unverifiable; scope creep beyond the issue. |
 | Code and wiki | `src/` or `tools/` changed without its HAS, MAS, DV_PLAN, FPGA/ASIC page or tool SPEC, or they disagree. |
 | BKM | Code breaks a rule in the owning BKM or area skill. |
-| Tests | DV_PLAN items lack tests in `src/<ip>/dv/regress/level{0,1,2}.yaml`, tests sit at the wrong level, or tools lack unit tests. Important negative and boundary cases missing. |
+| Tests | DV_PLAN items lack tests in `src/dv/<ip>/regress/level{0,1,2}.yaml`, tests sit at the wrong level, or tools lack unit tests. Important negative and boundary cases missing. |
 | Evidence | See below. |
 | Publishability | The change adds content that may not be public ([wiki BKM](../../../wiki/bkm/wiki.md#publishability)); the repository and site are public. A workflow lets a fork PR run on the self-hosted runners. |
 | Neutrality | Outside `src/` and `wiki/src/`, any design-target, protocol or IP name (repo slug in URLs exempt). Check with `grep -rniI` on the changed paths. |

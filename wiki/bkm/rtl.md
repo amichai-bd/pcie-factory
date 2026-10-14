@@ -7,9 +7,9 @@
 ## Scope
 
 This page owns repository-wide SystemVerilog style for synthesizable RTL
-under `src/**/rtl/`. An IP's `arch/HAS.md` owns its behavior and
-interfaces (a sub-IP's `rtl/MAS.md` does, as it has no HAS), its
-`rtl/MAS.md` owns its micro-architecture ([wiki BKM](wiki.md#page-set)), and
+under `src/rtl/`. An IP's `arch/<ip>/HAS.md` owns its behavior and
+interfaces (a sub-IP's `rtl/<ip>/MAS.md` does, as it has no HAS), its
+`rtl/<ip>/MAS.md` owns its micro-architecture ([wiki BKM](wiki.md#page-set)), and
 the [layout page](../project/layout.md) owns file placement. Simulation-only code
 follows the [DV BKM](dv.md).
 
@@ -54,7 +54,7 @@ follows the [DV BKM](dv.md).
   local.
 - Hierarchy: one package per IP for its contract; a sub-IP adds its own
   package only when it has types the parent does not need. Shared, IP-neutral
-  types go in `src/common/rtl/common_*_pkg.sv` only when there is a real
+  types go in `src/rtl/common/common_*_pkg.sv` only when there is a real
   second consumer.
 - Package dependencies point down the hierarchy: a parent may import a
   sub-IP's package, and a sub-IP never imports its parent's, so the sub-IP's
@@ -70,8 +70,8 @@ page refers to it as `<prefix>`.
 
 | Item | Rule | Example shape |
 | --- | --- | --- |
-| Directory | Bare IP or sub-IP name | `src/<ip>/<subip>/` |
-| Module, file | `<prefix><ip>[_<subip>][_<role>]`, one module per file, file named after the module | `<prefix><ip>_<subip>.sv` |
+| Folder | IP id; a sub-IP's id is a parent's id plus `_<sub>`, a flat sibling under each kind | `src/rtl/<ip>/`, `src/rtl/<ip>_<sub>/` |
+| Module, file | `<prefix><id>[_<role>]`, one module per file, file named after the module | `<prefix><ip>_<sub>.sv` |
 | Package | Module rule plus `_pkg` | `<prefix><ip>_pkg` |
 | Shared block | `common_<name>` | `common_<name>.sv` |
 | Type | `t_<name>` (struct, enum, alias) | `t_req` |
@@ -95,7 +95,7 @@ page refers to it as `<prefix>`.
 ## Assertions
 
 - Checkers that only simulation needs go in bind modules listed in
-  `dv/<ip>.dv.f`, never in the `.rtl.f` closure. Bind to documented ports and
+  `dv/<ip>/<ip>.dv.f`, never in the `.rtl.f` closure. Bind to documented ports and
   internal signals named in the MAS.
 - Assertions are simulator-neutral SystemVerilog that Verilator supports
   (`--assert`): immediate assertions in `always_comb`/`always_ff`, or
@@ -109,11 +109,11 @@ The [layout page](../project/layout.md#per-ip-files) owns the filelist
 format and names. Practice on top of it:
 
 - Never duplicate a source list in a flow config; flows consume
-  `rtl/<ip>.rtl.f`.
+  `rtl/<ip>/<ip>.rtl.f`.
 - Order packages first, then leaves, then the IP top.
 - Include a sub-IP or common block through its own filelist with `-F`, never
   by listing its files.
-- Every `.sv` under `src/**/rtl/` belongs to exactly one filelist;
+- Every `.sv` under `src/rtl/` belongs to exactly one filelist;
   `./build check` reports orphans and duplicates.
 
 ## Lint and style checks

@@ -14,7 +14,9 @@ from pathlib import Path, PurePosixPath
 
 from .config import Config, MetricsError, match
 
-_NON_IP_DIRS = {"arch", "rtl", "dv", "fpga", "asic"}
+# Kind folders under the source root (build.ip.KINDS) and the shared folder.
+KINDS = ("rtl", "dv", "arch", "fpga", "asic")
+SHARED_DIR = "common"
 NO_EXT = "(none)"
 ROOT_DIR = "."
 
@@ -130,33 +132,29 @@ class TreeReader:
 
 
 def discover_ips(paths: list[str], src_root: str) -> list[str]:
-    """IP ids (relative to ``src_root``) found in a list of tree paths."""
+    """IP ids found in a list of tree paths: ``<src_root>/rtl/<id>/<id>.rtl.f``
+    (the kind-first layout; ``rtl/common/`` is never an IP)."""
     prefix = src_root.rstrip("/") + "/"
     ips = set()
     for p in paths:
         if not p.startswith(prefix):
             continue
         parts = p[len(prefix):].split("/")
-        # <ip...>/rtl/<name>.rtl.f
-        if len(parts) >= 3 and parts[-2] == "rtl" and parts[-1] == f"{parts[-3]}.rtl.f":
-            ip_parts = parts[:-2]
-            if any(x in _NON_IP_DIRS or x.startswith(".") for x in ip_parts):
-                continue
-            ips.add("/".join(ip_parts))
+        if len(parts) == 3 and parts[0] == "rtl" and parts[2] == f"{parts[1]}.rtl.f" \
+                and parts[1] != SHARED_DIR and not parts[1].startswith("."):
+            ips.add(parts[1])
     return sorted(ips)
 
 
 def owner(path: str, ips: list[str], src_root: str) -> str | None:
-    """The innermost IP whose directory holds ``path``."""
+    """The IP whose kind folder ``<src_root>/<kind>/<id>/`` holds ``path``."""
     prefix = src_root.rstrip("/") + "/"
     if not path.startswith(prefix):
         return None
-    rel = path[len(prefix):]
-    best = None
-    for ip in ips:
-        if rel.startswith(ip + "/") and (best is None or len(ip) > len(best)):
-            best = ip
-    return best
+    parts = path[len(prefix):].split("/")
+    if len(parts) >= 3 and parts[0] in KINDS and parts[1] in ips:
+        return parts[1]
+    return None
 
 
 def _bucket() -> dict:

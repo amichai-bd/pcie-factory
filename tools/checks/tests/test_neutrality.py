@@ -33,7 +33,7 @@ def repo(tmp_path) -> Path:
     git(r, "remote", "add", "origin", "https://github.com/someone/frobnitz-factory.git")
     write(r, "cfg/checks.yaml", CONFIG)
     write(r, "tools/ok.py", "x = 1\n")
-    write(r, "src/a/rtl/frobnitz_a.sv", "// frobnitz is fine in src/\n")
+    write(r, "src/rtl/a/frobnitz_a.sv", "// frobnitz is fine in src/\n")
     write(r, "wiki/src/a/MAS.md", "Frobnitz\n")
     write(r, "wiki/tracker/data/1.json", '{"frobnitz": 1}\n')
     git(r, "add", "-A")

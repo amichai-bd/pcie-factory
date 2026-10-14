@@ -49,7 +49,7 @@ workdir/                    all generated output, ignored
 - Python 3 standard library, PyYAML and pytest only, unless a tool's issue
   approves more.
 - Tools are design-neutral: they discover IPs by walking `src/` and never
-  name an IP. Facts that vary live in `cfg/` or in `src/<ip>/`, not in Python
+  name an IP. Facts that vary live in `cfg/` or in `src/<kind>/<ip>/`, not in Python
   conditionals.
 - Tools validate inputs before expensive work, print what they will run,
   propagate failures with a nonzero exit, and use deterministic output paths.
@@ -65,6 +65,7 @@ workdir/                    all generated output, ignored
 | --- | --- |
 | Verilator `--lint-only -Wall` per `.rtl.f`, waivers only in the reviewed waiver file | [RTL BKM](rtl.md#lint-and-style-checks) |
 | RTL style checker | [RTL BKM](rtl.md) |
+| Source layout: kind-first `src/<kind>/<ip>/`, folders name IPs, `arch`/`fpga`/`asic` for top-level IPs only, flat prefixed sub-IPs | [layout](../project/layout.md#ips-and-sub-ips) |
 | Filelists: every path resolves, no duplicate after flattening, no orphan RTL; every IP has its DV filelists and three valid level files | [layout](../project/layout.md#per-ip-files) |
 | Wiki mirror: `wiki/src/` has every IP's required pages and no folder without a `src/` counterpart | [wiki BKM](wiki.md#page-set) |
 | Neutrality: the word list in `cfg/checks.yaml`, with the scope and exemptions set by the contract | [`CLAUDE.md`](../../CLAUDE.md#design-neutrality) |
@@ -178,16 +179,16 @@ the exact selection.
 
 | Change | Selected |
 | --- | --- |
-| An IP's own files: under `src/<ip>/`, excluding nested sub-IP directories | That IP |
+| An IP's own files: under `src/<kind>/<ip>/` for any kind | That IP |
 | A file reached through `-F` from an IP's filelists | That IP |
 | `tools/**`, `cfg/**` or the `build` launcher | All IPs |
-| Shared DV helpers under `src/common/dv/` (reached by no filelist) | All IPs |
-| A sub-IP's models under `src/<ip>/<subip>/dv/models/` | The sub-IP and every ancestor IP |
+| Shared DV helpers under `src/dv/common/` (reached by no filelist) | All IPs |
+| A sub-IP's models under `src/dv/<sub>/models/` | The sub-IP and every ancestor IP (every IP whose `.rtl.f` reaches it) |
 | Push to `main`, manual dispatch | All IPs |
 | Docs only | Checks only |
 
-A sub-IP is an IP in its own right: a change inside `src/<ip>/<subip>/`
-selects the sub-IP, and selects the parent only when the parent's filelists
+A sub-IP is an IP in its own right: a change inside its folders
+(`src/<kind>/<ip>_<sub>/`) selects the sub-IP, and selects the parent only when the parent's filelists
 reach the changed file or the change is in the sub-IP's models.
 
 Superseded PR runs are cancelled; every push to `main` keeps its run.
@@ -200,7 +201,7 @@ permissions and data PR mechanics):
 
 1. `./build check`, then `./build regress --level 0 --level 1 --level 2`
    across all IPs.
-2. `./build fpga` and `./build asic` for every IP with `fpga/` or `asic/`
+2. `./build fpga` and `./build asic` for every IP with `src/fpga/<ip>/` or `src/asic/<ip>/`
    inputs.
 3. Metrics: the per-commit series `wiki/tracker/data/commits.jsonl` and the
    nightly record `wiki/tracker/data/<date>.json` (versioned schemas).

@@ -96,7 +96,7 @@ The firstmate may implement itself, but then a different crewmate reviews.
 ## 4. Implement and validate (implementer)
 
 1. Turn the issue's acceptance into a checklist. Identify owning wiki pages
-   (`wiki/src/<ip>/`, `wiki/tools/<tool>/SPEC.md`, `wiki/bkm/`) and consumers.
+   (`wiki/src/<kind>/<ip>/`, `wiki/tools/<tool>/SPEC.md`, `wiki/bkm/`) and consumers.
 2. Change code and its wiki pages together, inside issue scope. Read the
    matching area skill from the [`CLAUDE.md` table](../../../CLAUDE.md#skills).
 3. Loop on the cheapest focused check that can reject the edit. Fix causes;

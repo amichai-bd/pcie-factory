@@ -1,2 +1,0 @@
--F ../rtl/counter.rtl.f
--F counter.dv.f

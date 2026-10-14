@@ -190,20 +190,22 @@ def test_run_bad_fixture_and_ip_filter():
 def test_expected_prefix(tmp_path):
     src = FIXTURES / "good/src"
     ips = discover(src)
-    assert style.expected_prefix(src / "blk/sub/rtl/xy_blk_sub.sv", src, ips, "xy_") == "xy_blk_sub"
-    assert style.expected_prefix(src / "blk/fpga/xy_blk_board.sv", src, ips, "xy_") == "xy_blk"
-    assert style.expected_prefix(src / "common/rtl/common_flop.sv", src, ips, "xy_") == "common_"
+    assert style.expected_prefix(src / "rtl/blk_sub/xy_blk_sub.sv", src, ips, "xy_") == "xy_blk_sub"
+    assert style.expected_prefix(src / "fpga/blk/xy_blk_board.sv", src, ips, "xy_") == "xy_blk"
+    assert style.expected_prefix(src / "rtl/common/common_flop.sv", src, ips, "xy_") == "common_"
+    assert style.expected_prefix(src / "dv/common/common_tb.sv", src, ips, "xy_") == "common_"
+    assert style.expected_prefix(src / "rtl/blk/xy_blk.sv", src, ips, "xy_") == "xy_blk"
 
 
 def test_run_flags_listed_include_with_verilator_config(tmp_path):
     import shutil
     src = tmp_path / "src"
     shutil.copytree(FIXTURES / "good/src", src)
-    inc = src / "blk/rtl/include/xy_blk_defs.svh"
+    inc = src / "rtl/blk/include/xy_blk_defs.svh"
     inc.write_text(inc.read_text() + "`verilator_config\nlint_off -rule WIDTH\n")
     r = style.run(src, discover(src), None)
     assert r.findings == [
-        "blk/rtl/include/xy_blk_defs.svh:5: verilator-config: `verilator_config"]
+        "rtl/blk/include/xy_blk_defs.svh:5: verilator-config: `verilator_config"]
 
 
 def _good_copy(tmp_path):
@@ -218,27 +220,27 @@ def _good_copy(tmp_path):
     ("// verilator lint_off UNUSEDSIGNAL\n", "tool-pragma: verilator lint_off UNUSEDSIGNAL"),
 ])
 def test_includable_file_of_any_type_is_scanned(tmp_path, text, rule):
-    # w.txt via an incdir under rtl/, and via +incdir+../dv: both are
+    # w.txt via an incdir under rtl/, and via +incdir+ dv/blk: both are
     # reachable by `include "w.txt", so both are scanned for directives.
     src = _good_copy(tmp_path)
-    (src / "blk/rtl/include/w.txt").write_text(text)
-    (src / "blk/dv/w.txt").write_text(text)
-    f = src / "blk/rtl/blk.rtl.f"
-    f.write_text("+incdir+../dv\n" + f.read_text())
+    (src / "rtl/blk/include/w.txt").write_text(text)
+    (src / "dv/blk/w.txt").write_text(text)
+    f = src / "rtl/blk/blk.rtl.f"
+    f.write_text("+incdir+../../dv/blk\n" + f.read_text())
     r = style.run(src, discover(src), None)
-    assert sorted(r.findings) == [f"blk/dv/w.txt:1: {rule}", f"blk/rtl/include/w.txt:1: {rule}"]
-    assert "7 other includable or fpga/ file(s)" in r.checked  # all of blk/dv/ is includable
+    assert sorted(r.findings) == [f"dv/blk/w.txt:1: {rule}", f"rtl/blk/include/w.txt:1: {rule}"]
+    assert "7 other includable or fpga/ file(s)" in r.checked  # all of dv/blk/ is includable
 
 
 def test_every_fpga_text_file_is_scanned(tmp_path):
     src = _good_copy(tmp_path)
-    (src / "blk/fpga/board.qsf.tcl").write_text("set_global_assignment -name X Y\n`verilator_config\n")
-    (src / "blk/fpga/logo.bin").write_bytes(b"\0`verilator_config")
+    (src / "fpga/blk/board.qsf.tcl").write_text("set_global_assignment -name X Y\n`verilator_config\n")
+    (src / "fpga/blk/logo.bin").write_bytes(b"\0`verilator_config")
     r = style.run(src, discover(src), None)
-    assert r.findings == ["blk/fpga/board.qsf.tcl:2: verilator-config: `verilator_config"]
+    assert r.findings == ["fpga/blk/board.qsf.tcl:2: verilator-config: `verilator_config"]
 
 
 def test_dv_files_outside_rtl_incdirs_are_not_scanned(tmp_path):
     src = _good_copy(tmp_path)
-    (src / "blk/dv/notes.txt").write_text("// verilator lint_off WIDTH\n")
+    (src / "dv/blk/notes.txt").write_text("// verilator lint_off WIDTH\n")
     assert style.run(src, discover(src), None).passed

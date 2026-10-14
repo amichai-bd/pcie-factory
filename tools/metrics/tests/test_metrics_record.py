@@ -93,7 +93,7 @@ def test_forbidden_host_terms():
     assert record.forbidden({"k": "runner01"}, ["runner"])  # joined to digits
     assert record.forbidden({"k": "malice"}, ["alice"])  # long terms match inside tokens
     assert not record.forbidden({"k": "bobcat"}, ["bob"])  # short terms: whole tokens only
-    assert not record.forbidden({"ip": "top/sub", "v": "23.1std.1 Build 10/25/2023", "n": 1.5,
+    assert not record.forbidden({"ip": "top_sub", "v": "23.1std.1 Build 10/25/2023", "n": 1.5,
                                  "t": "2026-10-14T18:26:47Z", "x": ".md", "py": "3.13.16"})
 
 
@@ -124,7 +124,7 @@ def test_collect_end_to_end_is_publishable(repo, tmp_path, cfg, monkeypatch):
                                      "duration_s": 5400.0}
     assert rec["code"]["commits"] == 2 and rec["code"]["contributors"] == 1
     assert rec["code"]["repo_size_kb"] == 1234
-    assert set(rec["code"]["ips"]) == {"blk", "blk/sub"}
+    assert set(rec["code"]["ips"]) == {"blk", "blk_sub"}
     assert rec["tests"]["status"] == rec["fpga"]["status"] == rec["asic"]["status"] == "ok"
     assert rec["github"]["issues"]["status"] == "ok"
     assert rec["distributions"]["test_runtime_s"] == [0.75, 1.5, 38.0, 40.25]

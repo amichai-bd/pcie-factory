@@ -26,21 +26,21 @@ targets:
 """
 
 
-def make_ip(root: Path, rel: str) -> Path:
-    d = root / "src" / rel
-    (d / "rtl").mkdir(parents=True)
-    (d / "rtl" / f"{d.name}.rtl.f").write_text("")
-    return d
+def make_ip(root: Path, ip_id: str, reaches: str = "") -> None:
+    d = root / "src/rtl" / ip_id
+    d.mkdir(parents=True)
+    (d / f"{ip_id}.rtl.f").write_text(f"-F ../{reaches}/{reaches}.rtl.f\n" if reaches else "")
 
 
 @pytest.fixture
 def tree(tmp_path):
-    """IP blk (with sub-IP blk/sub) whose arch/ has a model and one scenario."""
-    blk = make_ip(tmp_path, "blk")
-    make_ip(tmp_path, "blk/sub")
-    (blk / "arch/perf").mkdir(parents=True)
-    (blk / "arch/xy_blk_arch.py").write_text(MODEL)
-    (blk / "arch/perf/full.yaml").write_text(SCENARIO)
+    """IP blk (with sub-IP blk_sub) whose arch/blk/ has a model and one scenario."""
+    make_ip(tmp_path, "blk_sub")
+    make_ip(tmp_path, "blk", reaches="blk_sub")
+    arch = tmp_path / "src/arch/blk"
+    (arch / "perf").mkdir(parents=True)
+    (arch / "xy_blk_arch.py").write_text(MODEL)
+    (arch / "perf/full.yaml").write_text(SCENARIO)
     return tmp_path
 
 
@@ -49,7 +49,7 @@ def ip(root: Path, ip_id: str = "blk"):
 
 
 def scenario(root: Path, name: str, text: str) -> None:
-    (root / "src/blk/arch/perf" / f"{name}.yaml").write_text(text)
+    (root / "src/arch/blk/perf" / f"{name}.yaml").write_text(text)
 
 
 def result(root: Path) -> dict:
@@ -138,29 +138,29 @@ def test_bad_scenario_name(tree):
 
 
 def test_sub_ip_is_rejected(tree):
-    with pytest.raises(perf.ArchError, match="blk/sub is a sub-IP"):
-        perf.run(ip(tree, "blk/sub"), tree / "work")
+    with pytest.raises(perf.ArchError, match="blk_sub is a sub-IP"):
+        perf.run(ip(tree, "blk_sub"), tree / "work")
 
 
 def test_model_lookup(tree):
-    model = tree / "src/blk/arch/xy_blk_arch.py"
-    (tree / "src/blk/arch/test_xy_blk_arch.py").write_text("")  # tests do not count
+    model = tree / "src/arch/blk/xy_blk_arch.py"
+    (tree / "src/arch/blk/test_xy_blk_arch.py").write_text("")  # tests do not count
     assert perf.find_model(ip(tree)) == model
-    (tree / "src/blk/arch/zz_blk_arch.py").write_text(MODEL)
+    (tree / "src/arch/blk/zz_blk_arch.py").write_text(MODEL)
     with pytest.raises(perf.ArchError, match="exactly one model.*xy_blk_arch.py, zz_blk_arch.py"):
         perf.find_model(ip(tree))
-    for p in (model, tree / "src/blk/arch/zz_blk_arch.py"):
+    for p in (model, tree / "src/arch/blk/zz_blk_arch.py"):
         p.unlink()
     with pytest.raises(perf.ArchError, match="found: none"):
         perf.find_model(ip(tree))
 
 
 def test_missing_arch_dir_and_scenarios(tree):
-    (tree / "src/blk/arch/perf/full.yaml").unlink()
+    (tree / "src/arch/blk/perf/full.yaml").unlink()
     with pytest.raises(perf.ArchError, match="no perf scenarios"):
         perf.run(ip(tree), tree / "work")
     make_ip(tree, "other")
-    with pytest.raises(perf.ArchError, match="IP other has no arch/ directory"):
+    with pytest.raises(perf.ArchError, match="IP other has no arch/other/ directory"):
         perf.run(ip(tree, "other"), tree / "work")
 
 
@@ -169,24 +169,24 @@ def test_missing_arch_dir_and_scenarios(tree):
     ("x = 1\n", "defines no perf\\(workload, seed\\) function"),
 ])
 def test_bad_model_module(tree, source, msg):
-    (tree / "src/blk/arch/xy_blk_arch.py").write_text(source)
+    (tree / "src/arch/blk/xy_blk_arch.py").write_text(source)
     with pytest.raises(perf.ArchError, match=msg):
         perf.run(ip(tree), tree / "work")
 
 
 def test_model_may_import_siblings(tree):
-    (tree / "src/blk/arch/xy_blk_helper.py").write_text("RATE = 1.0\n")
-    (tree / "src/blk/arch/xy_blk_arch.py").write_text(
+    (tree / "src/arch/blk/xy_blk_helper.py").write_text("RATE = 1.0\n")
+    (tree / "src/arch/blk/xy_blk_arch.py").write_text(
         "import xy_blk_helper\n\ndef perf(w, s):\n    return {'rate': xy_blk_helper.RATE, 'lat': 1}\n")
     assert perf.run(ip(tree), tree / "work") == 0
-    assert str(tree / "src/blk/arch") not in sys.path
+    assert str(tree / "src/arch/blk") not in sys.path
 
 
 def test_cli(tree, capsys):
     common = ["--src-root", str(tree / "src"), "--workdir", str(tree / "work")]
     assert main(["arch", "--ip", "blk", *common]) == 0
     assert main(["arch", "--ip", "blk", "--scenario", "full", *common]) == 0
-    assert main(["arch", "--ip", "blk/sub", *common]) == 2
+    assert main(["arch", "--ip", "blk_sub", *common]) == 2
     assert main(["arch", "--ip", "nope", *common]) == 2
     err = capsys.readouterr().err
-    assert "error: IP blk/sub is a sub-IP" in err and "unknown IP 'nope'" in err
+    assert "error: IP blk_sub is a sub-IP" in err and "unknown IP 'nope'" in err

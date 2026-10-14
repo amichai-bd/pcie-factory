@@ -23,14 +23,15 @@ issue worktree per [agent-flow](../agent-flow/SKILL.md).
 2. List consumers: `build` subcommands, workflows in `.github/workflows/`,
    other tools, skills and BKMs that quote the command line
    (`grep -rn '<subcommand>' .claude wiki .github tools`).
-3. Decide where each fact lives: varying facts in `cfg/` or in `src/<ip>/`,
+3. Decide where each fact lives: varying facts in `cfg/` or in `src/<kind>/<ip>/`,
    behavior in `tools/`, never facts in Python conditionals
    ([tools and configuration](../../../wiki/bkm/devops.md#tools-and-configuration)).
 
 ## 2. While changing
 
 - `build` stays a thin launcher; logic goes in `tools/<tool>/`.
-- Discover IPs and sub-IPs by walking `src/`; never hard-code an IP name, the
+- Discover IPs and sub-IPs from `src/` (`build.ip.discover`: `src/rtl/<id>/`
+  folders and `-F` reachability); never hard-code an IP name, the
   module prefix or the design target in `tools/`, `cfg/` or `.github/`
   ([design neutrality](../../../CLAUDE.md#design-neutrality)). Read the prefix
   from [`src/README.md`](../../../src/README.md) when a tool needs it.
@@ -79,7 +80,7 @@ network:
 ```text
 python3 -m pytest tools/<tool>/tests -q        # focused
 python3 -m pytest tools -q                     # all tool tests
-./build check                                  # lint, RTL style, filelists, wiki mirror, neutrality
+./build check                                  # layout, filelists, RTL style, wiki mirror, neutrality, lint
 ```
 
 The [build SPEC](../../../wiki/tools/build/SPEC.md#unit-tests)

@@ -13,7 +13,7 @@ method (inputs, acceptance ladder, review). Code: `tools/asic/` (`cli.py`,
 
 | Option | Meaning |
 | --- | --- |
-| `--ip ID` | Required. An IP (or sub-IP) id with an `asic/` directory. |
+| `--ip ID` | Required. A top-level IP id with a `src/asic/<ip>/` folder. |
 | `--platform` | ORFS platform; only `sky130hd` is supported. |
 | `--timeout S` | Wall-clock budget for all ORFS steps together (default 3600 s). |
 | `--dry-run` | Write `config.mk`, print every command, run nothing. |
@@ -26,9 +26,9 @@ is still written); `2` a usage or configuration error.
 
 | File | Use |
 | --- | --- |
-| `src/<ip>/rtl/<name>.rtl.f` | Flattened by the [filelist resolver](../build/SPEC.md#filelists) into `VERILOG_FILES`, `VERILOG_INCLUDE_DIRS` and `VERILOG_DEFINES` (`-DNAME` or `-DNAME=VALUE`), in filelist order. |
-| `src/<ip>/asic/<platform>.mk` | Design knobs, included first by the generated config. `DESIGN_NAME` is required. |
-| `src/<ip>/asic/*.sdc` | Exactly one SDC; becomes `SDC_FILE`. Its first `create_clock -period` is reported as `clock_period_ns`. |
+| `src/rtl/<ip>/<ip>.rtl.f` | Flattened by the [filelist resolver](../build/SPEC.md#filelists) into `VERILOG_FILES`, `VERILOG_INCLUDE_DIRS` and `VERILOG_DEFINES` (`-DNAME` or `-DNAME=VALUE`), in filelist order. |
+| `src/asic/<ip>/<platform>.mk` | Design knobs, included first by the generated config. `DESIGN_NAME` is required. |
+| `src/asic/<ip>/*.sdc` | Exactly one SDC; becomes `SDC_FILE`. Its first `create_clock -period` is reported as `clock_period_ns`. |
 | `cfg/host.yaml` `hosts.<name>.orfs_*` | How to reach ORFS (below). |
 
 The tool owns `PLATFORM`, `DESIGN_NICKNAME`, `DESIGN_CONFIG`, `SDC_FILE`,
@@ -106,7 +106,7 @@ others as `<workdir>` and `<src>`. The commands that run, `config.mk` and
 | --- | --- |
 | `workdir/<ip>/asic/config.mk` | Generated ORFS `DESIGN_CONFIG`. |
 | `workdir/<ip>/asic/flow.log` | Every step's command line and output. |
-| `workdir/<ip>/asic/run/` | ORFS `WORK_HOME`: `logs/`, `reports/`, `results/`, `objects/` under `<platform>/<nick>/base/`. `<nick>` is the IP id with `/` replaced by `_`. |
+| `workdir/<ip>/asic/run/` | ORFS `WORK_HOME`: `logs/`, `reports/`, `results/`, `objects/` under `<platform>/<nick>/base/`. `<nick>` is the IP id. |
 | `workdir/<ip>/asic/metrics.json` | The summary below. |
 | `workdir/<ip>/asic/worst_path.txt` | The worst setup path in the tool's own format: group, slack, cell count, start and end point, then one line per data-path pin (arrival ns, rise/fall, pin, cell), from the startpoint to the endpoint pin. `worst setup path: not found` without a report. |
 
@@ -140,8 +140,8 @@ liberty time is ns, area µm².
 
 `asic.yml` runs only on `workflow_dispatch` (nightly L2 dispatches it; never
 in `ci-gate`), on `[self-hosted, linux, x64]`, the host with ORFS. Input
-`ip`: one IP id; empty (the default) runs every IP that has an `asic/`
-directory under `src/`, found with `find`, one `./build asic --ip <id>` each
+`ip`: one IP id; empty (the default) runs every IP that has a `src/asic/<ip>/`
+folder, found with `find`, one `./build asic --ip <id>` each
 (the job fails if any fails). A discovery step prints only `ORFS_IMAGE`, the
 docker version, the local ORFS images (name, tag, digest) and where
 `openroad`, `yosys` and `klayout` are on `PATH`. The `asic-metrics` artifact
@@ -156,7 +156,7 @@ code never runs on the self-hosted host if a trigger is added later.
 
 | Test file | Proves |
 | --- | --- |
-| `test_asic_flow.py` | `config.mk` generation (filelist order, include dirs, defines, sub-IP nickname, determinism); `.mk` validation (including `override`, `define` and the ORFS directory variables); SDC count; ORFS settings (digest required, `ORFS_IMAGE` ignored, cores, overrides); docker hardening flags and mounts; unique container names; step commands; `--dry-run`; and a full run against `fixtures/fake_orfs` (a fake `env.sh`, `make`, `openroad`, `yosys`): pass, step failure, timeout, SIGTERM and missing metrics, each with the expected exit code and `status`. |
+| `test_asic_flow.py` | `config.mk` generation (filelist order, include dirs, defines, nickname and output path from the IP id, determinism); `.mk` validation (including `override`, `define` and the ORFS directory variables); SDC count; ORFS settings (digest required, `ORFS_IMAGE` ignored, cores, overrides); docker hardening flags and mounts; unique container names; step commands; `--dry-run`; and a full run against `fixtures/fake_orfs` (a fake `env.sh`, `make`, `openroad`, `yosys`): pass, step failure, timeout, SIGTERM and missing metrics, each with the expected exit code and `status`. |
 | `test_asic_metrics.py` | Each parser and the worst-path summary on the fixture reports in `fixtures/orfs/` and on malformed or empty input. |
 
 `fixtures/orfs/` holds report files cut from a real run of the pinned image

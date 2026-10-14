@@ -42,9 +42,10 @@ def select_affected(
 ) -> dict[str, str]:
     """Map affected IP id -> reason. Every IP is affected when a global path
     changed, or a file under a shared DV directory (Python no filelist
-    reaches). Otherwise an IP is affected when a changed file lies in its own
-    directory (not in a sub-IP's), lies in the models directory of one of its
-    descendant IPs, or is reached by its ``dv/<name>.sim.f``."""
+    reaches). Otherwise an IP is affected when a changed file lies in one of
+    its own kind folders, lies in the models directory of one of its sub-IPs
+    (an IP whose rtl filelist its own reaches), or is reached by its
+    ``<name>.sim.f``."""
     for rel in changed:
         if rules.is_global(rel):
             return {ip.id: f"global change: {rel}" for ip in ips}
@@ -61,10 +62,9 @@ def select_affected(
     # Parent models import sub-IP models by path, which no filelist shows.
     for rel, path in zip(changed, paths):
         for sub in ips:
-            if (sub.path / rules.models) in path.parents:
-                for ip in ips:
-                    if ip.path in sub.path.parents:
-                        reasons.setdefault(ip.id, f"sub-IP model: {rel}")
+            if (sub.dv_dir / rules.models) in path.parents:
+                for ancestor in sub.ancestors:
+                    reasons.setdefault(ancestor, f"sub-IP model: {rel}")
     for ip in ips:
         if ip.id in reasons or not ip.sim_f.is_file():
             continue

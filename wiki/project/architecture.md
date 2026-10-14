@@ -15,7 +15,7 @@ contract, skills, tools and CI serve any IP placed under `src/`.
 | Methods | Best known methods per discipline | `wiki/bkm/` |
 | Specs | Per-IP HAS, MAS, DV plan, FPGA and ASIC pages; per-tool specs | `wiki/src/`, `wiki/tools/` |
 | Build | Single entry point for checks, sim, regress, FPGA, ASIC, wiki | `build`, `tools/` |
-| Regression | Per-IP level lists, exclusive levels L0/L1/L2 | `src/<ip>/dv/regress/` |
+| Regression | Per-IP level lists, exclusive levels L0/L1/L2 | `src/dv/<ip>/regress/` |
 | CI | `ci-gate` on PRs, nightly L2 with metrics | `.github/workflows/` |
 | Tracker | Metrics history and charts | `wiki/tracker/` |
 

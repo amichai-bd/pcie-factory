@@ -40,7 +40,7 @@ def run(src: Path, ip_ids=None):
 
 
 def test_parse_output(tmp_path):
-    out = (f"%Warning-UNUSEDSIGNAL: {tmp_path}/a/rtl/x.sv:4:9: Signal is not used: 'clk'\n"
+    out = (f"%Warning-UNUSEDSIGNAL: {tmp_path}/rtl/a/x.sv:4:9: Signal is not used: 'clk'\n"
            "                                : ... note: In instance 'x'\n"
            "%Warning-MULTITOP: /elsewhere/y.sv:6:8: Multiple top level modules\n"
            "%Error: Specified --top-module 'zz' was not found in design.\n"
@@ -48,7 +48,7 @@ def test_parse_output(tmp_path):
            "%Warning-BAD FORMAT\n")
     msgs = lint.parse_output(out, tmp_path)
     assert [m.render() for m in msgs] == [
-        "a/rtl/x.sv:4: Warning-UNUSEDSIGNAL: Signal is not used: 'clk'",
+        "rtl/a/x.sv:4: Warning-UNUSEDSIGNAL: Signal is not used: 'clk'",
         "/elsewhere/y.sv:6: Warning-MULTITOP: Multiple top level modules",
         "Error: Specified --top-module 'zz' was not found in design.",
         "Error: unparsed Verilator output: %Warning-BAD FORMAT",
@@ -63,11 +63,11 @@ def test_targets_and_command(tmp_path):
     assert [(t.label, t.top) for t in ts] == [
         ("blk", "xy_blk"), ("blk + fpga/xy_blk_board.sv", "xy_blk_board")]
     assert lint.targets(ips["blk"], flat, "zz_")[0].top is None  # Verilator picks
-    sub = lint.targets(ips["blk/sub"], resolve(ips["blk/sub"].rtl_f), "xy_")
-    assert [(t.label, t.top) for t in sub] == [("blk/sub", "xy_blk_sub")]
+    sub = lint.targets(ips["blk_sub"], resolve(ips["blk_sub"].rtl_f), "xy_")
+    assert [(t.label, t.top) for t in sub] == [("blk_sub", "xy_blk_sub")]
     cmd = lint.command(Path("/v"), flat, list(ts[1].extra), ts[1].top)
     assert cmd[:6] == ["/v", "--lint-only", "-Wall", "-Wno-fatal", "--top-module", "xy_blk_board"]
-    assert cmd[6].startswith("+incdir+") and cmd[-1].endswith("fpga/xy_blk_board.sv")
+    assert cmd[6].startswith("+incdir+") and cmd[-1].endswith("fpga/blk/xy_blk_board.sv")
     assert [Path(c).name for c in cmd[7:-1]] == [
         "xy_blk_pkg.sv", "common_flop.sv", "xy_blk_sub.sv", "xy_blk.sv"]
 
@@ -129,62 +129,62 @@ def test_good_fixture_lints_clean(good):
 def test_bad_fixture_fails():
     r = run(FIXTURES / "bad/src")
     assert r.findings[0].startswith("broken: rtl filelist does not resolve")
-    assert "blk: blk/rtl/xy_blk.sv:4: Warning-UNUSEDSIGNAL: Signal is not used: 'clk'" in r.findings
+    assert "blk: rtl/blk/xy_blk.sv:4: Warning-UNUSEDSIGNAL: Signal is not used: 'clk'" in r.findings
 
 
 @needs_verilator
 def test_waiver_used_and_stale(good):
-    (good / "blk/sub/rtl/xy_blk_sub.sv").write_text(UNUSED)
+    (good / "rtl/blk_sub/xy_blk_sub.sv").write_text(UNUSED)
     # The sub-IP is linted on its own and inside blk: one warning per run.
     r = run(good)
     assert [f for f in r.findings if "UNUSEDSIGNAL" in f] == [
-        "blk: blk/sub/rtl/xy_blk_sub.sv:8: Warning-UNUSEDSIGNAL: Signal is not used: 'spare'",
-        "blk + fpga/xy_blk_board.sv: blk/sub/rtl/xy_blk_sub.sv:8: Warning-UNUSEDSIGNAL: "
+        "blk: rtl/blk_sub/xy_blk_sub.sv:8: Warning-UNUSEDSIGNAL: Signal is not used: 'spare'",
+        "blk + fpga/xy_blk_board.sv: rtl/blk_sub/xy_blk_sub.sv:8: Warning-UNUSEDSIGNAL: "
         "Signal is not used: 'spare'",
-        "blk/sub: blk/sub/rtl/xy_blk_sub.sv:8: Warning-UNUSEDSIGNAL: "
+        "blk_sub: rtl/blk_sub/xy_blk_sub.sv:8: Warning-UNUSEDSIGNAL: "
         "Signal is not used: 'spare'",
     ]
     waiver_file(good, "waivers:\n"
-                "  - file: blk/sub/rtl/xy_blk_sub.sv\n"
+                "  - file: rtl/blk_sub/xy_blk_sub.sv\n"
                 "    rule: UNUSEDSIGNAL\n"
                 "    match: \"'spare'\"\n"
                 "    reason: reserved input\n"
-                "  - {file: blk/rtl/xy_blk.sv, rule: WIDTH, line: 3, reason: old}\n")
+                "  - {file: rtl/blk/xy_blk.sv, rule: WIDTH, line: 3, reason: old}\n")
     r = run(good)
-    assert r.findings == ["lint_waivers.yaml: stale waiver blk/rtl/xy_blk.sv WIDTH line 3: "
+    assert r.findings == ["lint_waivers.yaml: stale waiver rtl/blk/xy_blk.sv WIDTH line 3: "
                           "matches no warning"]
     assert r.checked.endswith("2 waiver(s), 3 warning(s) waived")
-    assert run(good, {"blk/sub"}).passed  # stale waivers are not judged on --ip runs
+    assert run(good, {"blk_sub"}).passed  # stale waivers are not judged on --ip runs
 
 
 @needs_verilator
 def test_wrapper_lint_failure(good):
-    (good / "blk/fpga/xy_blk_board.sv").write_text(
-        (good / "blk/fpga/xy_blk_board.sv").read_text().replace(".en_i(1'b1)", ".en_i(2'b11)"))
+    (good / "fpga/blk/xy_blk_board.sv").write_text(
+        (good / "fpga/blk/xy_blk_board.sv").read_text().replace(".en_i(1'b1)", ".en_i(2'b11)"))
     r = run(good)
     assert len(r.findings) == 1 and r.findings[0].startswith(
-        "blk + fpga/xy_blk_board.sv: blk/fpga/xy_blk_board.sv:")
+        "blk + fpga/xy_blk_board.sv: fpga/blk/xy_blk_board.sv:")
     assert "WIDTH" in r.findings[0]
 
 
 def test_non_sv_source_is_not_linted(good, monkeypatch):
     # A Verilator control file in the closure would waive warnings outside
     # the reviewed waiver file, so lint refuses to run that IP.
-    monkeypatch.setattr(sim, "find_verilator", lambda: None)  # never reached for blk/sub
-    (good / "blk/sub/rtl/waive.vlt").write_text("`verilator_config\nlint_off -rule WIDTH\n")
-    f = good / "blk/sub/rtl/sub.rtl.f"
+    monkeypatch.setattr(sim, "find_verilator", lambda: None)  # never reached for blk_sub
+    (good / "rtl/blk_sub/waive.vlt").write_text("`verilator_config\nlint_off -rule WIDTH\n")
+    f = good / "rtl/blk_sub/blk_sub.rtl.f"
     f.write_text(f.read_text() + "waive.vlt\n")
-    r = lint.run(good, discover(good), {"blk/sub"})
-    assert r.findings == ["blk/sub: not linted: rtl filelist lists non-.sv/.svh source(s): "
-                          "blk/sub/rtl/waive.vlt"]
+    r = lint.run(good, discover(good), {"blk_sub"})
+    assert r.findings == ["blk_sub: not linted: rtl filelist lists non-.sv/.svh source(s): "
+                          "rtl/blk_sub/waive.vlt"]
 
 
 def test_incdir_outside_rtl_is_not_linted(good, monkeypatch):
-    monkeypatch.setattr(sim, "find_verilator", lambda: None)  # never reached for blk/sub
-    f = good / "blk/sub/rtl/sub.rtl.f"
-    f.write_text("+incdir+../dv\n" + f.read_text())
-    r = lint.run(good, discover(good), {"blk/sub"})
-    assert r.findings == ["blk/sub: not linted: rtl filelist includes from outside rtl/: blk/sub/dv"]
+    monkeypatch.setattr(sim, "find_verilator", lambda: None)  # never reached for blk_sub
+    f = good / "rtl/blk_sub/blk_sub.rtl.f"
+    f.write_text("+incdir+../../dv/blk_sub\n" + f.read_text())
+    r = lint.run(good, discover(good), {"blk_sub"})
+    assert r.findings == ["blk_sub: not linted: rtl filelist includes from outside rtl/: dv/blk_sub"]
 
 
 WAIVE_CFG = "`verilator_config\nlint_off -rule UNUSEDSIGNAL\n"
@@ -193,58 +193,58 @@ WAIVE_COMMENT = "// verilator lint_off UNUSEDSIGNAL\n"
 
 def test_audit_preprocessed(tmp_path):
     src = tmp_path / "src"
-    out = (f'`line 1 "{src}/a/rtl/a.sv" 1\nmodule a;\n'
-           f'`line 1 "{src}/a/rtl/../dv/w.txt" 1\n`verilator_config\n'
+    out = (f'`line 1 "{src}/rtl/a/a.sv" 1\nmodule a;\n'
+           f'`line 1 "{src}/rtl/a/../../dv/a/w.txt" 1\n`verilator_config\n'
            "/*verilator lint_off WIDTH*/\n/*verilator warns about prose*/\n"
            f'`line 1 "{tmp_path}/elsewhere.sv" 1\n'
-           f'`line 1 "{src}/a/fpga/a_board.sv" 1\n')
+           f'`line 1 "{src}/fpga/a/a_board.sv" 1\n')
     assert lint.audit_preprocessed(out, src) == [
-        "preprocessed input from a/dv/w.txt contains `verilator_config",
-        "preprocessed input from a/dv/w.txt contains /*verilator lint_off WIDTH*/",
-        "verilator reads a/dv/w.txt, which is not below an rtl/ directory in the source root",
-        f"verilator reads {tmp_path}/elsewhere.sv, which is not below an rtl/ directory "
+        "preprocessed input from dv/a/w.txt contains `verilator_config",
+        "preprocessed input from dv/a/w.txt contains /*verilator lint_off WIDTH*/",
+        "verilator reads dv/a/w.txt, which is not below rtl/ in the source root",
+        f"verilator reads {tmp_path}/elsewhere.sv, which is not below rtl/ "
         "in the source root",
-        "verilator reads a/fpga/a_board.sv, which is not below an rtl/ directory "
+        "verilator reads fpga/a/a_board.sv, which is not below rtl/ "
         "in the source root",
     ]
-    clean = f'`line 1 "{src}/a/rtl/a.sv" 1\nmodule a;\n/*verilator warns about prose*/\n'
+    clean = f'`line 1 "{src}/rtl/a/a.sv" 1\nmodule a;\n/*verilator warns about prose*/\n'
     assert lint.audit_preprocessed(clean, src) == []
-    wrapper_only = f'`line 1 "{src}/a/fpga/a_board.sv" 1\n'
-    assert lint.audit_preprocessed(wrapper_only, src, (src / "a/fpga/a_board.sv",)) == []
+    wrapper_only = f'`line 1 "{src}/fpga/a/a_board.sv" 1\n'
+    assert lint.audit_preprocessed(wrapper_only, src, (src / "fpga/a/a_board.sv",)) == []
 
 
 def _unused_and_include(good, include_line):
     # An unused signal in the sub-IP, plus a listed, allowed-looking .svh.
-    (good / "blk/sub/rtl/xy_blk_sub.sv").write_text(UNUSED)
-    (good / "blk/sub/rtl/xy_blk_sub_cfg.svh").write_text(include_line + "\n")
-    f = good / "blk/sub/rtl/sub.rtl.f"
+    (good / "rtl/blk_sub/xy_blk_sub.sv").write_text(UNUSED)
+    (good / "rtl/blk_sub/xy_blk_sub_cfg.svh").write_text(include_line + "\n")
+    f = good / "rtl/blk_sub/blk_sub.rtl.f"
     f.write_text("+incdir+.\nxy_blk_sub_cfg.svh\n" + f.read_text())
 
 
 @needs_verilator
 @pytest.mark.parametrize("waiver", [WAIVE_CFG, WAIVE_COMMENT])
 def test_include_traversal_from_allowed_incdir_fails(good, waiver):
-    # Route (a): +incdir+. is under rtl/, but `include "../dv/w.txt" leaves it.
-    (good / "blk/sub/dv/w.txt").write_text(waiver)
-    _unused_and_include(good, '`include "../dv/w.txt"')
-    r = lint.run(good, discover(good), {"blk/sub"})
-    assert ("blk/sub: verilator reads blk/sub/dv/w.txt, which is not below an rtl/ "
-            "directory in the source root") in r.findings
-    assert any(x.startswith("blk/sub: preprocessed input from blk/sub/dv/w.txt contains")
+    # Route (a): +incdir+. is under rtl/, but `include "../../dv/blk_sub/w.txt" leaves it.
+    (good / "dv/blk_sub/w.txt").write_text(waiver)
+    _unused_and_include(good, '`include "../../dv/blk_sub/w.txt"')
+    r = lint.run(good, discover(good), {"blk_sub"})
+    assert ("blk_sub: verilator reads dv/blk_sub/w.txt, which is not below rtl/ "
+            "in the source root") in r.findings
+    assert any(x.startswith("blk_sub: preprocessed input from dv/blk_sub/w.txt contains")
                for x in r.findings)
 
 
 @needs_verilator
 def test_listed_source_outside_rtl_is_seen_by_preprocessor(good):
     # Route (b): a .svh listed from dv/ carrying the waiver.
-    (good / "blk/sub/rtl/xy_blk_sub.sv").write_text(UNUSED)
-    (good / "blk/sub/dv/cfg.svh").write_text(WAIVE_CFG)
-    f = good / "blk/sub/rtl/sub.rtl.f"
-    f.write_text("../dv/cfg.svh\n" + f.read_text())
-    r = lint.run(good, discover(good), {"blk/sub"})
-    assert ("blk/sub: verilator reads blk/sub/dv/cfg.svh, which is not below an rtl/ "
-            "directory in the source root") in r.findings
-    assert "blk/sub: preprocessed input from blk/sub/dv/cfg.svh contains `verilator_config" \
+    (good / "rtl/blk_sub/xy_blk_sub.sv").write_text(UNUSED)
+    (good / "dv/blk_sub/cfg.svh").write_text(WAIVE_CFG)
+    f = good / "rtl/blk_sub/blk_sub.rtl.f"
+    f.write_text("../../dv/blk_sub/cfg.svh\n" + f.read_text())
+    r = lint.run(good, discover(good), {"blk_sub"})
+    assert ("blk_sub: verilator reads dv/blk_sub/cfg.svh, which is not below rtl/ "
+            "in the source root") in r.findings
+    assert "blk_sub: preprocessed input from dv/blk_sub/cfg.svh contains `verilator_config" \
         in r.findings
 
 

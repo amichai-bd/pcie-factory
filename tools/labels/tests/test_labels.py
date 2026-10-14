@@ -51,7 +51,7 @@ def write(tmp_path, text=CFG):
 
 @pytest.fixture
 def std(tmp_path):
-    return core.load(write(tmp_path), ["counter", "counter/inc"])
+    return core.load(write(tmp_path), ["counter", "counter_inc"])
 
 
 class FakeGh(Gh):
@@ -88,10 +88,10 @@ class FakeGh(Gh):
 def test_load(std):
     names = [lab.name for lab in std.labels]
     assert names == ["type:feat", "type:bug", "area:build", "area:wiki", "ip:counter",
-                     "ip:counter/inc", "prio:p0", "prio:p1", "in-progress"]
+                     "ip:counter_inc", "prio:p0", "prio:p1", "in-progress"]
     feat = std.labels[0]
     assert feat.color == "1d76db"  # normalized to lower case
-    assert std.labels[5].description == "Touches IP counter/inc"
+    assert std.labels[5].description == "Touches IP counter_inc"
     assert std.dimension_of("type:x").name == "type"
     assert std.dimension_of("in-progress").name == "state"
     assert std.dimension_of("bug") is None
@@ -139,7 +139,20 @@ def test_load_repo_standard_without_src(tmp_path):
 def test_load_repo_standard_discovers_ips(fixture_src):
     std = core.load_repo_standard(REPO_ROOT / "cfg", fixture_src)
     assert [lab.name for lab in std.labels if lab.name.startswith("ip:")] == \
-        ["ip:counter", "ip:counter/inc"]
+        ["ip:counter", "ip:counter_inc"]
+
+
+def test_ip_first_sub_ip_label_is_extra_after_the_layout_move(fixture_src):
+    """A sub-IP id from the superseded nested layout (``ip:<a>/<b>``) is no
+    longer derived: sync creates the flat ``ip:<a>_<b>`` and keeps the old one
+    as an extra label (``--prune`` deletes it)."""
+    std = core.load_repo_standard(REPO_ROOT / "cfg", fixture_src)
+    old = [Label("ip:counter", "006b75", "Touches IP counter"),
+           Label("ip:counter/inc", "006b75", "Touches IP counter/inc")]
+    ip_changes = lambda prune: [(c.action, c.name) for c in core.plan(std, old, prune)  # noqa: E731
+                                if c.name.startswith("ip:")]
+    assert ip_changes(False) == [("create", "ip:counter_inc"), ("extra", "ip:counter/inc")]
+    assert ip_changes(True) == [("create", "ip:counter_inc"), ("delete", "ip:counter/inc")]
 
 
 # --- repository slug ------------------------------------------------------------
@@ -230,7 +243,7 @@ def test_plan(std):
     got = [(c.action, c.name) for c in changes]
     assert got == [("update", "area:build"), ("create", "area:wiki"),
                    ("update", "in-progress"), ("create", "ip:counter"),
-                   ("create", "ip:counter/inc"), ("create", "prio:p0"),
+                   ("create", "ip:counter_inc"), ("create", "prio:p0"),
                    ("create", "prio:p1"), ("update", "Type:Bug"), ("extra", "bug")]
     assert changes[0].detail == "color ffffff -> d4c5f9; description 'Old' -> 'Build'"
     assert changes[7].detail == "name -> 'type:bug'"
@@ -244,7 +257,7 @@ def test_sync_dry_run_changes_nothing(std, capsys):
     assert gh.calls == []
     assert "labels dry run: o/r (9 labels in the config)" in out
     assert "~ area:build: color ffffff -> d4c5f9" in out
-    assert "+ ip:counter/inc: color 006b75, 'Touches IP counter/inc'" in out
+    assert "+ ip:counter_inc: color 006b75, 'Touches IP counter_inc'" in out
     assert "- bug: not in the config" in out
     assert "would apply: 5 create, 3 update, 1 delete; 0 extra kept" in out
 
@@ -267,7 +280,7 @@ def test_sync_applies_and_converges(std, prune, capsys):
 
 @pytest.mark.parametrize("names, errors", [
     (["type:feat", "area:build"], []),
-    (["type:feat", "area:build", "area:wiki", "ip:counter/inc", "prio:p0", "in-progress"], []),
+    (["type:feat", "area:build", "area:wiki", "ip:counter_inc", "prio:p0", "in-progress"], []),
     (["area:build"], ["needs exactly one type:* label, has 0"]),
     (["type:feat", "type:bug", "area:build"],
      ["needs exactly one type:* label, has 2 (type:bug, type:feat)"]),

@@ -1,33 +1,34 @@
 # Checks tool: `./build check`
 
 `./build check` runs the static checks that the
-[DevOps BKM](../../bkm/devops.md#static-checks) requires: the filelist and
-regression-list check, the RTL style checker, the wiki mirror check, the
-neutrality check and Verilator lint. It prints one summary line per check,
-then every violation, then an overall verdict. The code lives in
-`tools/checks/` (`run.py`, `filelists.py`, `style.py`, `wiki_mirror.py`,
-`neutrality.py`, `lint.py`).
+[DevOps BKM](../../bkm/devops.md#static-checks) requires: the source layout
+check, the filelist and regression-list check, the RTL style checker, the
+wiki mirror check, the neutrality check and Verilator lint. It prints one
+summary line per check, then every violation, then an overall verdict. The
+code lives in `tools/checks/` (`run.py`, `layout.py`, `filelists.py`,
+`style.py`, `wiki_mirror.py`, `neutrality.py`, `lint.py`).
 
 ```
-./build check [--ip ID]... [--only filelist|style|wiki|neutrality|lint]...
+./build check [--ip ID]... [--only layout|filelist|style|wiki|neutrality|lint]...
               [--src-root DIR] [--workdir DIR]
 ```
 
 | Option | Meaning |
 | --- | --- |
-| `--ip ID` | Restrict filelist, style, wiki and lint to these IPs (repeatable). Files not owned by a selected IP, such as `src/common/`, are skipped. Neutrality always scans the whole repository. |
-| `--only NAME` | Run only these checks (repeatable). The default is all five. |
+| `--ip ID` | Restrict layout, filelist, style, wiki and lint to these IPs (repeatable). Files not owned by a selected IP, such as `src/rtl/common/`, are skipped. Neutrality always scans the whole repository. |
+| `--only NAME` | Run only these checks (repeatable). The default is all six. |
 | `--src-root DIR` | The source tree to check, as for every command ([build spec](../build/SPEC.md#command-line)). The wiki check reads its sibling `wiki/src/`. Neutrality ignores it and scans the git repository that holds the launcher. |
 
-Checks run in the order filelist, style, wiki, neutrality, lint (lint is the
-slowest). Output:
+Checks run in the order layout, filelist, style, wiki, neutrality, lint
+(lint is the slowest). Output:
 
 ```
 check: 2 IP(s) under /abs/src
+[layout] PASS: 6 IP or shared folder(s) under rtl/, dv/, arch/, fpga/, asic/
 [filelist] PASS: 7 filelist(s), 2 IP(s) with regression lists, 5 RTL file(s) for orphans
 [style] FAIL (1): 6 RTL file(s), 12 rule(s); 0 other includable or fpga/ file(s) for directives
-  blk/rtl/xy_blk.sv:10: plain-always: always
-[wiki] PASS: 6 required page(s), 8 wiki folder(s) under wiki/src/ (all IPs)
+  rtl/blk/xy_blk.sv:10: plain-always: always
+[wiki] PASS: 6 required page(s), 6 wiki folder(s) under wiki/src/ (all IPs)
 [neutrality] PASS: 135 file(s) (tracked and untracked, not ignored) outside src/, ...
 [lint] blk: top=xy_blk
 [lint] PASS: 2 IP(s), 3 Verilator run(s) with -E audit, 0 waiver(s), 0 warning(s) waived
@@ -43,51 +44,73 @@ one check found a violation. `2` means a usage or configuration error: an
 unknown `--ip`, an invalid `cfg/checks.yaml` or waiver file, a git error,
 or Verilator missing while there is something to lint.
 
+## Layout check
+
+Rule owner: the [layout page](../../project/layout.md#ips-and-sub-ips)
+(captain decision in the [decision record](../../project/decisions/0001-m0-grill.md#updates)).
+IPs, sub-IPs and top-level IPs are as the
+[build spec](../build/SPEC.md#ip-discovery) discovers them. Code: `layout.py`.
+
+- Every folder directly under the source root is a kind folder: `rtl/`,
+  `dv/`, `arch/`, `fpga/` or `asic/` (files there, such as `README.md`, are
+  fine). The superseded IP-first tree (`<ip>/<kind>/`) fails here:
+  `<ip>/: not a kind folder (...)`.
+- A kind folder holds only folders, each named after an IP (an
+  `rtl/<id>/<id>.rtl.f` exists) or, under `rtl/` and `dv/`, the shared
+  folder `common/`; anything else is `<kind>/<name>/: names no IP`.
+- `arch/<id>/`, `fpga/<id>/` and `asic/<id>/` exist only for top-level IPs.
+- An IP's `rtl/<id>/` holds no filelist but `<id>.rtl.f` (at any depth), and
+  its `dv/<id>/` none but `<id>.dv.f` and `<id>.sim.f`, so a sub-IP cannot
+  nest inside its parent's folder.
+- **Flat sub-IP naming.** A sub-IP's id starts with the id of an IP that
+  reaches it plus `_` (`<ip>_<sub>`).
+
+With `--ip`, only the selected IPs' folders and naming are checked; the
+kind-folder rule runs only without `--ip`.
+
 ## Filelist check
 
 Rule owners: [layout](../../project/layout.md#per-ip-files) and the
 [RTL BKM](../../bkm/rtl.md#filelists).
 
-- Every `*.f` below an `rtl/` or `dv/` directory under the source root
-  resolves with the [build tool's resolver](../build/SPEC.md#filelists).
+- Every `*.f` below `rtl/` or `dv/` under the source root resolves with the [build tool's resolver](../build/SPEC.md#filelists).
 - No source is listed twice after flattening. Each filelist in the `-F` tree
   counts once (a diamond include is fine), so a duplicate is a source named
   by two filelists of the tree, or twice by one.
-- Every IP has `rtl/<n>.rtl.f`, `dv/<n>.dv.f`, `dv/<n>.sim.f` and
-  `dv/regress/level{0,1,2}.yaml`, and its regression lists pass the
+- Every IP has `rtl/<id>/<id>.rtl.f`, `dv/<id>/<id>.dv.f`,
+  `dv/<id>/<id>.sim.f` and `dv/<id>/regress/level{0,1,2}.yaml`, and its regression lists pass the
   [regress schema](../regress/SPEC.md#regression-lists) (including unique
   test names).
 - **SystemVerilog only.** These rules close every route by which a file
   could carry a waiver past the style check and the reviewed waiver file:
   a listed control file (`.vlt`), or any file reached by `` `include``,
   which accepts any file name.
-  - Every source in the closure of a filelist under an `rtl/` directory
-    ends in `.sv` or `.svh` and sits below an `rtl/` directory.
-  - Every `+incdir+` in such a closure resolves to a directory below an
-    `rtl/` directory inside the source root (never `dv/` or elsewhere).
-  - **Allowlist:** below an `rtl/` directory only `.sv`, `.svh`, `.f` and
-    `.md` files exist, listed or not.
-  - Below an `fpga/` directory, no `.v`, `.vh`, `.vlt`, `.vc`, `.vhd` or
+  - Every source in the closure of a filelist under `rtl/` ends in `.sv` or
+    `.svh` and sits below `rtl/`.
+  - Every `+incdir+` in such a closure resolves to a directory below
+    `<src-root>/rtl/` (never `dv/` or elsewhere).
+  - **Allowlist:** below `rtl/` only `.sv`, `.svh`, `.f` and `.md` files
+    exist, listed or not.
+  - Below `fpga/`, no `.v`, `.vh`, `.vlt`, `.vc`, `.vhd` or
     `.vhdl` file exists (constraint and flow files are fine).
   - `dv/` filelists are not restricted.
-- **No orphans:** every `.sv`/`.svh` below an `rtl/` directory is reached by a
-  filelist in that same `rtl/` directory (for an IP, its `.rtl.f`; for
-  `src/common/rtl/`, whichever filelist lives there). "Reached" is the
+- **No orphans:** every `.sv`/`.svh` below `rtl/<name>/` is reached by a
+  filelist directly in `rtl/<name>/` (for an IP, its `.rtl.f`; for
+  `rtl/common/`, whichever filelist lives there). "Reached" is the
   resolver's `reaches()`: listed as a source or under an include directory.
   `fpga/` wrappers are not in any filelist and are not orphans.
 
-`src/common/` is an IP only if it has `rtl/common.rtl.f`; a shared-block
-list with another name (for example `common_lib.rtl.f`) is checked as a
-filelist but needs no `dv/` files.
+`rtl/common/` is never an IP; its filelists (for example `common_lib.rtl.f`)
+are checked as filelists but need no `dv/` files.
 
 ## Style check
 
-The RTL style checker applies every rule to each `.sv`/`.svh` below an
-`rtl/` or `fpga/` directory. It also applies the two directive rules,
+The RTL style checker applies every rule to each `.sv`/`.svh` below `rtl/`
+or `fpga/`. It also applies the two directive rules,
 `verilator-config` and `tool-pragma`, to every other text file that could
 reach Verilator: every file of any type below an include directory of an
-`rtl/` filelist closure (inside the source root), and every file below an
-`fpga/` directory. Binary files (a NUL byte) are skipped. The summary line
+`rtl/` filelist closure (inside the source root), and every file below
+`fpga/`. Binary files (a NUL byte) are skipped. The summary line
 counts both sets. It is lexical: comments and strings are blanked first,
 then each rule is a pattern or a bracket-aware scan of module headers. Rules
 it cannot check reliably (widths, latches, one driver, reset values,
@@ -104,7 +127,7 @@ positional connections, logic in `always_ff`) stay
 | `sim-ifdef` | No `` `ifdef``/`` `ifndef``/`` `elsif`` on `SYNTHESIS`, `SIMULATION` or `VERILATOR`. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
 | `task-function` | No `task`; `function` only inside a package. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
 | `typedef-outside-package` | `typedef` only inside `package ... endpackage`. | [rtl.md#types-and-constants-live-in-packages](../../bkm/rtl.md#types-and-constants-live-in-packages) |
-| `file-name` | A `.sv` declares exactly one module or package, named after the file. A package name ends in `_pkg` and a module name does not. The name starts with the owner's prefix: `common_` under `src/common/`, otherwise `<prefix><ip>` (sub-IP `a/b` gives `<prefix>a_b`) followed by the end or `_`; `<prefix>` alone when no IP owns the file. `<prefix>` is read from the `Module/package/file prefix` row of `src/README.md`; a missing row is a finding. | [rtl.md#naming](../../bkm/rtl.md#naming) |
+| `file-name` | A `.sv` declares exactly one module or package, named after the file. A package name ends in `_pkg` and a module name does not. The name starts with the owner's prefix: `common_` under `rtl/common/` or `dv/common/`, otherwise `<prefix><id>` of the owning IP (sub-IP `a_b` gives `<prefix>a_b`) followed by the end or `_`; `<prefix>` alone when no IP owns the file. `<prefix>` is read from the `Module/package/file prefix` row of `src/README.md`; a missing row is a finding. | [rtl.md#naming](../../bkm/rtl.md#naming) |
 | `port-suffix` | Every module port is ANSI with a direction. Inputs end in `_i`, outputs in `_o`, inouts in `_io`, each optionally with `n` before the direction letter for active-low (`rst_ni`). `ref` ports are not allowed. | [rtl.md#naming](../../bkm/rtl.md#naming) |
 | `verilator-config` | No `` `verilator_config`` block in any checked file, including includable files of any type (a listed or `` `include``d file would otherwise carry `lint_off` rules past the waiver file). | [rtl.md#lint-and-style-checks](../../bkm/rtl.md#lint-and-style-checks) |
 | `tool-pragma` | No tool directive comment: `verilator`, `synthesis`, `synopsys`, `pragma` or `altera` followed by a directive word (`lint_off`, `translate_off`, `full_case`, `public`, `protect`, `message_off`, ...). This covers inline lint waivers (`/* verilator lint_off */`). Prose that only starts with the tool name (`// Synthesis infers a flop`) is not flagged. | [rtl.md#lint-and-style-checks](../../bkm/rtl.md#lint-and-style-checks) |
@@ -122,40 +145,39 @@ decision in the [decision record](../../project/decisions/0001-m0-grill.md#updat
 The wiki tree is `<src-root>/../wiki/src` (in the repository, `wiki/src/`
 next to `src/`); a missing wiki tree is an empty one. Code: `wiki_mirror.py`.
 
-- **Required pages.** Every top-level IP (an IP directly under the source
-  root) has `arch/HAS.md`. Every IP and sub-IP has `rtl/MAS.md` and
-  `dv/DV_PLAN.md`. An IP with a `fpga/` directory has `fpga/FPGA.md`; one
-  with `asic/` has `asic/ASIC.md`. The pages are found at
-  `wiki/src/<ip id>/`; a missing one is
-  `wiki/src/<id>/<page>: missing (required for IP <id>)`.
-- **Counterparts.** Every folder under the wiki tree has a folder at the same
-  relative path under the source root, so a page cannot outlive its IP or
-  sub-IP, and `fpga/` or `asic/` pages exist only where the source folders
-  do. The one exception: a top-level IP's `arch/` itself, whose
-  `src/<ip>/arch/` is required only by the next rule.
-  A folder without a counterpart is reported once and not descended.
-- **Arch model.** A top-level IP whose `arch/HAS.md` has a level-2
+- **Required pages.** Every IP has `rtl/<id>/MAS.md` and
+  `dv/<id>/DV_PLAN.md`; every top-level IP also has `arch/<id>/HAS.md`. An
+  IP with `src/fpga/<id>/` has `fpga/<id>/FPGA.md`; one with
+  `src/asic/<id>/` has `asic/<id>/ASIC.md`. A missing one is
+  `wiki/src/<kind>/<id>/<page>: missing (required for IP <id>)`.
+- **Kinds and IPs.** Every folder directly under the wiki tree is a kind
+  folder, and every folder directly under a kind folder names an IP
+  (`wiki/src/<kind>/<name>/: names no IP`, which also covers `common/`).
+  This rejects the superseded IP-first tree (`wiki/src/<ip>/<kind>/`).
+- **Counterparts.** Every IP folder and every folder below one has a folder
+  at the same relative path under the source root, so `fpga/` or `asic/`
+  pages exist only where the source folders do. The one exception: a
+  top-level IP's `arch/<id>/` itself, whose `src/arch/<id>/` is required
+  only by the next rule. A folder without a counterpart is reported once
+  and not descended.
+- **Arch model.** A top-level IP whose `arch/<id>/HAS.md` has a level-2
   `## Targets` heading (it defines performance targets) needs
-  `src/<ip>/arch/`; a missing one is
-  `src/<id>/arch/: missing (wiki/src/<id>/arch/HAS.md defines targets; ...)`.
-  Any `src/<ip>/arch/` of a top-level IP, required or not, holds exactly one
-  model `*<name>_arch.py` (not `test_*`) and at least one `perf/*.yaml`
+  `src/arch/<id>/`; a missing one is
+  `src/arch/<id>/: missing (wiki/src/arch/<id>/HAS.md defines targets; ...)`.
+  Any `src/arch/<id>/` of a top-level IP, required or not, holds exactly one
+  model `*<id>_arch.py` (not `test_*`) and at least one `perf/*.yaml`
   scenario ([arch spec](../arch/SPEC.md#model)); their content is checked
   by `./build arch`, not here.
-- **No sub-IP `arch/`.** An `arch/` folder of a sub-IP is a finding in the
-  wiki tree, and `src/<sub-IP>/arch/` is a separate finding in the source
-  tree.
-- **Placement.** Every file sits in, or below, an `arch/`, `rtl/`, `dv/`,
-  `fpga/` or `asic/` folder of an IP (the innermost IP whose source
-  directory contains the folder's counterpart). This rejects the old flat
-  layout (`wiki/src/<ip>/MAS.md`) and pages for source folders that are not
-  IPs (such as `src/common/` without `common.rtl.f`). Extra pages inside a
-  mirror folder are allowed.
+- **No sub-IP `arch/`.** `wiki/src/arch/<sub>/` is a finding here;
+  `src/arch/<sub>/` is a [layout check](#layout-check) finding.
+- **Placement.** Every file sits in, or below, an IP folder
+  `<kind>/<id>/`; a file directly in the wiki tree or in a kind folder is a
+  finding. Extra pages inside an IP folder are allowed.
 
 Hidden files and folders (names starting with `.`) are skipped. With `--ip`,
 required pages are checked for the selected IPs only, and the folder and
-placement rules only for wiki folders that the selected IPs own; a folder
-that no IP owns is reported only without `--ip`. The check proves that
+placement rules only inside the selected IPs' folders; other findings are
+reported only without `--ip`. The check proves that
 pages exist where the mirror puts them, not that their content matches the
 code; that stays a review item.
 
@@ -219,7 +241,7 @@ Rule owners: [RTL BKM](../../bkm/rtl.md#lint-and-style-checks) and
 For each selected IP, Verilator runs
 `--lint-only -Wall -Wno-fatal [--top-module T] +incdir+... -D... <sources>`
 with the include directories, defines and sources of the resolved
-`rtl/<n>.rtl.f`. `-Wno-fatal` lets every warning print; the tool, not
+`rtl/<id>/<id>.rtl.f`. `-Wno-fatal` lets every warning print; the tool, not
 Verilator, decides pass or fail: every `%Warning-<CODE>` or `%Error` not
 covered by a waiver is a finding, as is any `%Warning`/`%Error` line that
 does not parse and a nonzero exit with no error message. Standard output
@@ -227,11 +249,11 @@ and standard error are joined with a newline before parsing. Verilator is found 
 then `verilator.prefix` in `cfg/host.yaml`); see the
 [build spec](../build/SPEC.md#simulation-build-sim).
 
-- **Top:** `<prefix><ip>` (sub-IP `a/b`: `<prefix>a_b`) when a module of that
+- **Top:** `<prefix><id>` (sub-IP `a_b`: `<prefix>a_b`) when a module of that
   name is declared in the IP's sources; otherwise no `--top-module`, and
   Verilator picks the single unreferenced module (several raise `MULTITOP`,
   which fails).
-- **Board wrapper:** each `fpga/*.sv` of the IP is linted in a second run with
+- **Board wrapper:** each `fpga/<id>/*.sv` of the IP is linted in a second run with
   the IP's sources plus the wrapper, with the wrapper's file stem as top.
 - An IP whose `.rtl.f` does not resolve is a lint finding (the filelist check
   reports the cause).
@@ -243,8 +265,8 @@ then `verilator.prefix` in `cfg/host.yaml`); see the
   same include directories, defines and sources, and its output is checked
   against what Verilator actually reads:
   - every file it entered (each `` `line N "<file>" `` marker) must be inside
-    the source root and below an `rtl/` directory (any IP's or
-    `src/common/`'s, since closures include sub-IP and common lists), or be
+    the source root and below `rtl/` (any IP's or `rtl/common/`, since
+    closures include sub-IP and common lists), or be
     the board wrapper of that run;
   - the output must contain no `` `verilator_config`` and no
     `/*verilator <directive>*/` metacomment (`-E` turns every comment that
@@ -269,7 +291,7 @@ over every includable file) are fast pre-checks that point at the cause.
 
 ```yaml
 waivers:
-  - file: blk/rtl/xy_blk.sv        # required; relative to the source root
+  - file: rtl/blk/xy_blk.sv        # required; relative to the source root
     rule: UNUSEDSIGNAL             # required; Verilator warning code
     line: 12                       # line or match (or both) required
     match: "'spare_i'"             # substring of the warning message
@@ -292,17 +314,19 @@ Fixtures live in `tools/checks/tests/fixtures/`:
 
 | Fixture | Content |
 | --- | --- |
-| `good/src/`, `good/wiki/src/` | IP `blk` (package, include header, top) with sub-IP `blk/sub`, a shared block under `common/rtl/`, and a board wrapper in `blk/fpga/`; the wiki mirror holds every required page. Every check passes. |
-| `bad/src/`, `bad/wiki/src/` | IP `blk` with a duplicate source, an orphan, a missing and an invalid level file, style violations and lint warnings; IP `broken` with a missing source. The wiki mirror lacks pages, has a flat-layout page, an `fpga/` page with no `src/blk/fpga/` and an orphan folder. Filelist, style, wiki and lint fail. |
+| `good/src/`, `good/wiki/src/` | Kind-first tree: IP `blk` (package, include header, top) with flat sub-IP `blk_sub`, a shared block under `rtl/common/`, and a board wrapper in `fpga/blk/`; the wiki mirror holds every required page. Every check passes. |
+| `bad/src/`, `bad/wiki/src/` | IP `blk` with a duplicate source, an orphan, a missing and an invalid level file, style violations and lint warnings; IP `broken` with a missing source; an `asic/ghost/` folder that names no IP. The wiki mirror lacks pages, has a page outside an IP folder, an `fpga/blk/` page with no `src/fpga/blk/` and a folder that names no IP. Layout, filelist, style, wiki and lint fail. |
 
-Tests also build variants in temporary directories: one bad case per style
+Tests also build variants in temporary directories: the superseded
+IP-first tree, a nested sub-IP, a sub-IP with `arch/`, `fpga/` or `asic/`, a
+folder that names no IP and an unprefixed sub-IP id (`test_layout.py`), one bad case per style
 rule (`test_style.py`), duplicate, diamond, orphan and regression cases
 (`test_filelists_check.py`), each wiki mirror rule: every required page,
 `asic/` and `fpga/` pages following the source folders, the top-level
 `arch/` exemption without targets and its limit, HAS targets requiring
-`src/<ip>/arch/` (and only a level-2 heading counting), a source `arch/`
-without a model or scenario or with two models, a sub-IP `arch/` in either
-tree, the flat layout, orphan
+`src/arch/<ip>/` (and only a level-2 heading counting), a source `arch/`
+without a model or scenario or with two models, a sub-IP `arch/` page, a
+sub-IP turning top-level when no IP reaches it, the IP-first wiki tree, orphan
 and empty folders, extra pages, a non-IP source folder, hidden entries,
 `--ip`, and a missing wiki tree (`test_wiki_mirror.py`), a small git repository with forbidden words,
 slug URLs, a look-alike slug and an invalid config (`test_neutrality.py`),
@@ -310,8 +334,8 @@ and waivers (used, stale, invalid), output parsing and the command line
 (`test_lint.py`, `test_check_run.py`). Negative cases include a `.vlt`
 and a `.v` file in an `rtl/` closure, a `w.txt` waiver reached by
 `` `include`` through an include directory under `rtl/` and through
-`+incdir+../dv` (both as a `` `verilator_config`` block and as a
-`// verilator lint_off` comment), `` `include "../dv/w.txt"`` from an
+`+incdir+` of a `dv/` folder (both as a `` `verilator_config`` block and as a
+`// verilator lint_off` comment), an `` `include`` of a `dv/` file from an
 allowed include directory and a listed source under `dv/` (both caught by
 the preprocessed audit), prose versus directive comments, a
 comment and a widened exempt path in the config, and look-alike slug hosts.

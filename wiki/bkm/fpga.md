@@ -26,8 +26,8 @@ the `fpga` workflow (manual dispatch only) compiles and uploads only
 
 ## Inputs
 
-The flow consumes the IP's `rtl/<ip>.rtl.f`, flattened by the filelist
-resolver, plus only what is in `src/<ip>/fpga/`:
+The flow consumes the IP's `rtl/<ip>/<ip>.rtl.f`, flattened by the filelist
+resolver, plus only what is in `src/fpga/<ip>/`:
 
 | File | Holds |
 | --- | --- |
@@ -35,9 +35,9 @@ resolver, plus only what is in `src/<ip>/fpga/`:
 | `de2_115.qsf.tcl` | Family, device, pin assignments, I/O standards, drive settings, project settings; pins cite the board manual table |
 | Board wrapper `<prefix><ip>_de2_115.sv` (exactly one `.sv`) | Binds the IP's ports to board pins: clock, reset, LEDs, switches, connectors. Its file stem is the Quartus top-level module. |
 
-- `fpga/` exists only for an IP that is a synthesis target; a sub-IP gets one
-  only if it is built on its own.
-- The IP's FPGA page, `wiki/src/<ip>/fpga/FPGA.md`, documents the board
+- `src/fpga/<ip>/` exists only for a top-level IP that is a synthesis
+  target; a sub-IP never has one (the layout check rejects it).
+- The IP's FPGA page, `wiki/src/fpga/<ip>/FPGA.md`, documents the board
   wrapper (pins, reset, I/O use), the constraints and how to run the flow.
 - The board wrapper is synthesizable RTL under the [RTL BKM](rtl.md) but is
   not in `<ip>.rtl.f`: the FPGA flow adds it, so simulation and ASIC never
@@ -64,15 +64,15 @@ resolver, plus only what is in `src/<ip>/fpga/`:
 - Vendor IP (PLLs, memories) is avoided while behavioral RTL suffices. When
   needed, it sits behind a module boundary with a synthesizable simulation
   model, and its generator, parameters and license are in the IP's FPGA
-  page (`wiki/src/<ip>/fpga/FPGA.md`).
+  page (`wiki/src/fpga/<ip>/FPGA.md`).
 
 ## Layers
 
 | Layer | Owns | Where |
 | --- | --- | --- |
-| IP RTL | Function; no board choices | `src/<ip>/rtl/` |
-| Board wrapper | Pin binding, board clock and reset conditioning | `src/<ip>/fpga/` |
-| Constraints | Timing and placement intent | `src/<ip>/fpga/` |
+| IP RTL | Function; no board choices | `src/rtl/<ip>/` |
+| Board wrapper | Pin binding, board clock and reset conditioning | `src/fpga/<ip>/` |
+| Constraints | Timing and placement intent | `src/fpga/<ip>/` |
 | Flow | Project generation, compile, report parsing | `tools/` (fpga tool SPEC) |
 
 ## Generated output

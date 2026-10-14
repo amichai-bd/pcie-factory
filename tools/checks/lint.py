@@ -1,10 +1,9 @@
 """Verilator lint: ``--lint-only -Wall`` per IP, with reviewed waivers.
 
 For each IP the sources, include directories and defines come from the
-resolved ``rtl/<name>.rtl.f``. The top is ``<prefix><ip>`` (``a/b`` ->
-``<prefix>a_b``) when a module of that name is declared in those sources;
+resolved ``rtl/<id>/<id>.rtl.f``. The top is ``<prefix><id>`` when a module of that name is declared in those sources;
 otherwise Verilator picks it (several candidates raise MULTITOP). Each
-``fpga/*.sv`` board wrapper is linted again with the IP's sources plus the
+``fpga/<id>/*.sv`` board wrapper is linted again with the IP's sources plus the
 wrapper, with the wrapper (named after its file) as top.
 
 Before each lint run, ``verilator -E`` with the same arguments shows what
@@ -27,7 +26,7 @@ import yaml
 from build import sim
 from build.filelist import FilelistError, Resolved, resolve
 from build.ip import Ip
-from checks.common import SV_SUFFIXES, CheckConfigError, CheckResult, ip_stem, read_prefix, rel
+from checks.common import SV_SUFFIXES, CheckConfigError, CheckResult, in_kind, read_prefix, rel
 
 WAIVER_FILE = "lint_waivers.yaml"
 LINT_TIMEOUT_S = 600.0
@@ -156,7 +155,7 @@ def audit_preprocessed(output: str, src_root: Path, allowed_extra: tuple[Path, .
                        ) -> list[str]:
     """Check Verilator's own view of a lint target (``verilator -E``): every
     file it entered (per `` `line`` markers) must be inside the source root
-    and below an ``rtl/`` directory (or be one of ``allowed_extra``, the
+    and below ``<src_root>/rtl/`` (or be one of ``allowed_extra``, the
     board wrapper), and the text must hold no `` `verilator_config`` and no
     ``/*verilator <directive>*/`` metacomment. ``-E`` turns every comment
     that starts with ``verilator`` into such a metacomment, whatever file or
@@ -184,10 +183,9 @@ def audit_preprocessed(output: str, src_root: Path, allowed_extra: tuple[Path, .
     for path in entered:
         if path in allowed:
             continue
-        inside = src_root in path.parents
-        if not inside or "rtl" not in path.relative_to(src_root).parts[:-1]:
-            out.append(f"verilator reads {rel(path, src_root)}, which is not below an rtl/ "
-                       "directory in the source root")
+        if not in_kind(path, src_root, ("rtl",)):
+            out.append(f"verilator reads {rel(path, src_root)}, which is not below rtl/ "
+                       "in the source root")
     return list(dict.fromkeys(out))
 
 
@@ -202,10 +200,10 @@ class Target:
 
 
 def targets(ip: Ip, flat: Resolved, prefix: str | None) -> list[Target]:
-    expected = (prefix or "") + ip_stem(ip)
+    expected = (prefix or "") + ip.id
     top = expected if expected in declared_modules(flat.sources) else None
     out = [Target(ip.id, flat, (), top)]
-    fpga = ip.path / "fpga"
+    fpga = ip.dir("fpga")
     if fpga.is_dir():
         for w in sorted(fpga.glob("*.sv")):
             out.append(Target(f"{ip.id} + fpga/{w.name}", flat, (w,), w.stem))
@@ -230,8 +228,7 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                 f"{ip.id}: not linted: rtl filelist lists non-.sv/.svh source(s): "
                 + ", ".join(rel(s, src_root) for s in foreign))
             continue
-        outside = [d for d in flat.incdirs
-                   if not (src_root in d.parents and "rtl" in d.relative_to(src_root).parts)]
+        outside = [d for d in flat.incdirs if not in_kind(d, src_root, ("rtl",))]
         if outside:  # files included from there escape the rtl/ allowlist
             result.findings.append(
                 f"{ip.id}: not linted: rtl filelist includes from outside rtl/: "

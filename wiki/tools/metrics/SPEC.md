@@ -110,7 +110,7 @@ zero lines).
 | --- | --- |
 | `total` | Bucket over every tracked file outside `exclude`, plus `bytes`. |
 | `kinds.<kind>` | Bucket per configured kind (all kinds, zeros included). |
-| `ips.<ip>` | Bucket of the files the IP owns (its directory minus nested sub-IP directories), plus `kinds` with the non-empty kinds. IPs are discovered in the tree as in the [build spec](../build/SPEC.md#ip-discovery). |
+| `ips.<ip>` | Bucket of the files the IP owns (its folders `src/<kind>/<ip>/` under every kind), plus `kinds` with the non-empty kinds. IPs are discovered in the tree as in the [build spec](../build/SPEC.md#ip-discovery): `src/rtl/<id>/<id>.rtl.f`, `rtl/common/` excluded. |
 | `by_ext.<ext>` | Bucket per file extension (`(none)` without one). |
 | `by_dir.<dir>` | Bucket per top-level directory (`.` for files at the root). |
 | `commits` | `git rev-list --count HEAD`. |
@@ -228,7 +228,11 @@ Each run appends missing commits (the first run, on an empty file, is the
 one-time backfill), refreshes `ci` on lines that were `none` or
 `unavailable` and now have a run, and leaves every other existing line
 unchanged (`n/a` is final). Line counts are cached per blob, so a backfill reads each blob
-once. `--no-ci` skips the API; `--limit N` adds at most `N` commits.
+once. Existing lines and nightly records are never rewritten: IPs are keyed
+by the id that was current when the line or record was written, so when an
+IP id changes (a layout move or a rename) its history before the change
+stays under the old id and the new id starts at the change. A fresh backfill
+discovers IPs with the current layout rules only. `--no-ci` skips the API; `--limit N` adds at most `N` commits.
 
 ## `guard`
 
@@ -263,7 +267,7 @@ over the day's real data PR.
 
 | Job | Permissions | Does |
 | --- | --- | --- |
-| `nightly` (480 min) | read: contents, issues, pull-requests, actions | `./build check`; `./build regress --level 0 --level 1 --level 2` (all IPs); `./build fpga --all` and the ASIC flow for IPs with `fpga/` or `asic/` (`--all`, else one `--ip` per IP); `./build metrics commits --ref origin/main` continuing the base branch's series, then `./build metrics collect` with the step outcomes; uploads both files. Every step runs even after a failure; a step whose subcommand is still a stub, or has no IP inputs, is `skipped`. |
+| `nightly` (480 min) | read: contents, issues, pull-requests, actions | `./build check`; `./build regress --level 0 --level 1 --level 2` (all IPs); `./build fpga --all` and the ASIC flow for IPs with `src/fpga/<ip>/` or `src/asic/<ip>/` (`--all`, else one `--ip` per IP); `./build metrics commits --ref origin/main` continuing the base branch's series, then `./build metrics collect` with the step outcomes; uploads both files. Every step runs even after a failure; a step whose subcommand is still a stub, or has no IP inputs, is `skipped`. |
 | `publish` (15 min) | write: contents, pull-requests, actions | Checks out without persisted credentials and installs PyYAML; commits only the two data files, as `github-actions[bot]`, on the data branch from the base tip; runs `./build metrics guard` from this trusted checkout; force-pushes the branch with the token passed for that one command; closes, with a comment, any other open `nightly/*` PR into the same base (they would conflict on `commits.jsonl`); opens (or reuses) the PR labelled `type:data` and `area:wiki`; dispatches `ci.yml` (`ci-gate`, with the data guard) on the branch; on `main`, enables squash auto-merge and dispatches `pages.yml` on `main`. |
 | `report` (5 min) | read contents, write issues | `./build metrics red` with `success` only when `nightly` and `publish` both succeeded. |
 
@@ -355,7 +359,8 @@ and must render as gaps.
 `tools/metrics/tests/` runs without network or simulator, with a fake
 `gh` client and a synthetic git repository with neutral IP names:
 configuration loading and every malformed case, the glob matcher, line
-counting, IP ownership, tree statistics and determinism
+counting, kind-first IP discovery and ownership (the superseded IP-first
+form is not an IP), tree statistics and determinism
 (`test_metrics_config.py`, `test_metrics_tree.py`); the series backfill,
 incremental append, CI refresh and idempotence (`test_metrics_tree.py`);
 every GitHub section, distribution and health value from fixtures, and

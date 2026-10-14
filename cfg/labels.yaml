@@ -26,8 +26,8 @@ dimensions:
     prefix: "area:"
     rule: at-least-one
     labels:
-      rtl: {color: "fbca04", description: "RTL under src/<ip>/rtl/"}
-      dv: {color: "f9d0c4", description: "Verification under src/<ip>/dv/"}
+      rtl: {color: "fbca04", description: "RTL under src/rtl/"}
+      dv: {color: "f9d0c4", description: "Verification under src/dv/"}
       build: {color: "d4c5f9", description: "The ./build entry point and tools/"}
       ci: {color: "bfdadc", description: "GitHub workflows and CI configuration"}
       wiki: {color: "c2e0c6", description: "Wiki pages, specs and the wiki site"}

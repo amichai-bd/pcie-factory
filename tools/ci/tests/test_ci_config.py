@@ -7,9 +7,8 @@ GOOD = """\
 global:
   prefixes: [tools/, cfg/]
   files: [build]
-shared_dv: [common/dv]
-models: dv/models
-arch: arch
+shared_dv: [dv/common]
+models: models
 tools_tests: [tools]
 """
 
@@ -22,7 +21,7 @@ def write(tmp_path, text):
 def test_real_config_loads():
     r = load_rules(REPO_ROOT / "cfg")
     assert r.global_prefixes == ("tools/", "cfg/") and r.global_files == ("build",)
-    assert r.shared_dv == ("common/dv",) and r.models == "dv/models" and r.arch == "arch"
+    assert r.shared_dv == ("dv/common",) and r.models == "models"
     assert r.tools_tests == ("tools",)
 
 
@@ -35,16 +34,15 @@ def test_is_global(tmp_path):
 @pytest.mark.parametrize("text, msg", [
     ("", "top level must be a mapping"),
     ("global: [", "invalid YAML"),
-    (GOOD.replace("models: dv/models\n", ""), "missing \\['models'\\]"),
+    (GOOD.replace("models: models\n", ""), "missing \\['models'\\]"),
     (GOOD + "extra: 1\n", "unknown \\['extra'\\]"),
     (GOOD.replace("files: [build]", "file: [build]"), "global: must be a mapping"),
     (GOOD.replace("[tools/, cfg/]", "[tools, cfg/]"), "must end with '/'"),
-    (GOOD.replace("[common/dv]", "[../x]"), "relative path inside the tree"),
-    (GOOD.replace("[common/dv]", "common/dv"), "expected a list"),
-    (GOOD.replace("models: dv/models", "models: [dv/models]"), "models: expected a string"),
-    (GOOD.replace("arch: arch\n", ""), "missing \\['arch'\\]"),
-    (GOOD.replace("arch: arch", "arch: 1"), "arch: expected a string"),
-    (GOOD.replace("arch: arch", "arch: ../arch"), "arch: .*relative path inside the tree"),
+    (GOOD.replace("[dv/common]", "[../x]"), "relative path inside the tree"),
+    (GOOD.replace("[dv/common]", "dv/common"), "expected a list"),
+    (GOOD.replace("models: models", "models: [models]"), "models: expected a string"),
+    (GOOD.replace("models: models", "models: ../models"), "models: .*relative path inside the tree"),
+    (GOOD + "arch: arch\n", "unknown \\['arch'\\]"),
     (GOOD.replace("tools_tests: [tools]", "tools_tests: [/abs]"), "relative path"),
 ])
 def test_malformed(tmp_path, text, msg):

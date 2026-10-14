@@ -190,11 +190,11 @@ class Plan:
 
 
 def find_inputs(ip: Ip, platform: str) -> tuple[Path, Path]:
-    asic = ip.path / "asic"
+    asic = ip.dir("asic")
     mk = asic / f"{platform}.mk"
     if not mk.is_file():
         raise AsicError(f"IP {ip.id} has no ASIC config {mk} (an IP is an ASIC target "
-                        "only with asic/<platform>.mk and one asic/*.sdc)")
+                        f"only with asic/{ip.id}/<platform>.mk and one asic/{ip.id}/*.sdc)")
     sdcs = sorted(asic.glob("*.sdc"))
     if len(sdcs) != 1:
         raise AsicError(f"IP {ip.id}: expected exactly one .sdc in {asic}, found "
@@ -238,7 +238,7 @@ def make_plan(ctx: Context, ip: Ip, platform: str) -> Plan:
     if not resolved.sources:
         raise AsicError(f"{ip.rtl_f}: no sources")
     return Plan(
-        ip=ip, platform=platform, design=design, nick=ip.id.replace("/", "_"),
+        ip=ip, platform=platform, design=design, nick=ip.id,
         out=ip.work_dir(ctx.workdir) / "asic", design_mk=mk, sdc=sdc,
         sources=resolved.sources, incdirs=resolved.incdirs, defines=resolved.defines,
         clock_period_ns=parse_clock_period(sdc.read_text()),

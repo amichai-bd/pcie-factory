@@ -1,2 +1,0 @@
--F ../rtl/lfsr.rtl.f
--F lfsr.dv.f
