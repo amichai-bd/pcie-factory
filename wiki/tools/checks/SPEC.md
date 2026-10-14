@@ -109,9 +109,9 @@ are checked as filelists but need no `dv/` files.
 ## Style check
 
 The RTL style checker applies every rule to each `.sv`/`.svh` below `rtl/`
-or `fpga/`. It also applies the two directive rules,
-`verilator-config` and `tool-pragma`, to every other text file that could
-reach Verilator: every file of any type below an include directory of an
+or `fpga/`. It also applies the four directive rules,
+`verilator-config`, `tool-pragma`, `sim-ifdef` and `external-ifdef`, to
+every other text file that could reach Verilator: every file of any type below an include directory of an
 `rtl/` filelist closure (inside the source root), and every file below
 `fpga/`. Binary files (a NUL byte) are skipped. The summary line
 counts both sets. It is lexical: comments and strings are blanked first,
@@ -127,7 +127,8 @@ positional connections, logic in `always_ff`) stay
 | `plain-always` | Only `always_comb` and `always_ff`: no `always` (including `always @*`) and no `always_latch`. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
 | `interface-union` | No `interface`, `modport` or `union`. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
 | `wildcard-connection` | No `.*` port connections. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
-| `sim-ifdef` | No `` `ifdef``/`` `ifndef``/`` `elsif`` on `SYNTHESIS`, `SIMULATION` or `VERILATOR`. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
+| `sim-ifdef` | No `` `ifdef``/`` `ifndef``/`` `elsif`` on `SYNTHESIS`, `SIMULATION` or `VERILATOR`, even when the RTL defines it. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
+| `external-ifdef` | No `` `ifdef``/`` `ifndef``/`` `elsif`` on a macro the RTL closure does not define (a vendor or tool macro such as `ALTERA_RESERVED_QIS`, or one nothing defines): such code is hidden from lint and simulation while another flow compiles it. A macro is defined when the file itself, or any closure that reaches it, `` `define``s it or passes it with `+define+`. A closure is an `rtl/` filelist's resolved sources, every file below its include directories (inside the source root) and its `+define+` names; a file reached by several closures gets their union, and an `fpga/<id>/` file also gets its IP's `.rtl.f` closure (the lint check links the wrapper with it). So an include guard (`` `ifndef X_SVH`` then `` `define X_SVH``) passes. Each name in a parenthesized expression (`` `ifdef (A && B)``) is checked; a directive with no name is a finding. The macro name (or the opening parenthesis) must be on the directive's line: the scan is lexical and fails closed, so a name on a later line, `SYNTHESIS` included, is reported as `` `ifdef without a macro name``. Macro names may contain `$` after the first character. `SYNTHESIS`, `SIMULATION` and `VERILATOR` are left to `sim-ifdef`. Two cases are deliberately permissive: a file reached by several closures may condition on a macro only one of them defines (a sub-IP on a parent-only macro, which its own lint run does not define), and every file below an include directory counts as defining its macros, whether or not it is `` `include``d. In both cases the macro must still be `` `define``d by a file in the source tree of a closure that reaches the file, so a macro that only a vendor or tool flow defines never passes. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
 | `task-function` | No `task`; `function` only inside a package. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
 | `typedef-outside-package` | `typedef` only inside `package ... endpackage`. | [rtl.md#types-and-constants-live-in-packages](../../bkm/rtl.md#types-and-constants-live-in-packages) |
 | `file-name` | A `.sv` declares exactly one module or package, named after the file. A package name ends in `_pkg` and a module name does not. The name starts with the owner's prefix: `common_` under `rtl/common/` or `dv/common/`, otherwise `<prefix><id>` of the owning IP (sub-IP `a_b` gives `<prefix>a_b`) followed by the end or `_`; `<prefix>` alone when no IP owns the file. `<prefix>` is read from the `Module/package/file prefix` row of `src/README.md`; a missing row is a finding. | [rtl.md#naming](../../bkm/rtl.md#naming) |
@@ -377,7 +378,9 @@ Fixtures live in `tools/checks/tests/fixtures/`:
 Tests also build variants in temporary directories: the superseded
 IP-first tree, a nested sub-IP, a sub-IP with `arch/`, `fpga/` or `asic/`, a
 folder that names no IP and an unprefixed sub-IP id (`test_layout.py`), one bad case per style
-rule (`test_style.py`), duplicate, diamond, orphan and regression cases
+rule plus `external-ifdef` closure cases (a vendor and an undefined macro
+fail; include guards, `` `define``s in an include file, `+define+`, a parent
+closure and a board wrapper pass) (`test_style.py`), duplicate, diamond, orphan and regression cases
 (`test_filelists_check.py`), each wiki mirror rule: every required page,
 `asic/` and `fpga/` pages following the source folders, the top-level
 `arch/` exemption without targets and its limit, HAS targets requiring

@@ -189,10 +189,11 @@ a:hover { text-decoration: underline; }
 /* ---- tracker (tools/wiki_site/tracker.py, tracker.js) ----
  * Categorical slots and status steps from the dataviz reference palette:
  * light and dark steps chosen per surface, validated for colour-vision
- * deficiency; status always ships with an icon and a label. */
+ * deficiency; status always ships with an icon and a label. Light slots 3-5
+ * take the palette's darker steps so every slot clears 3:1 on the white page. */
 :root {
-  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
-  --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6; --series-8: #e34948;
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #199e70; --series-4: #c98500;
+  --series-5: #d55181; --series-6: #008300; --series-7: #6250d6; --series-8: #e34948;
   --status-good: #0ca30c; --status-warning: #fab219; --status-critical: #d03b3b; --status-info: #898781;
   --status-good-text: #006300; --status-warning-text: #8a5a00; --status-critical-text: #b42323;
   --chart-grid: #e1e0d9;
