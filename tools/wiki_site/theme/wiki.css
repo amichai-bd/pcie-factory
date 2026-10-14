@@ -62,6 +62,8 @@ a:hover { text-decoration: underline; }
   border: 0; background: none; color: var(--text); cursor: pointer;
   font-size: 20px; line-height: 1; padding: 6px 8px; border-radius: 50%;
 }
+.navbar-repo { color: var(--text); font-size: 14px; padding: 6px 10px; border-radius: 999px; white-space: nowrap; }
+.navbar-repo:hover { background: var(--hover); text-decoration: none; }
 .navbar-toggle { display: none; }
 .navbar-toggle:hover, .theme-toggle:hover { background: var(--hover); }
 .theme-toggle .moon, [data-theme="dark"] .theme-toggle .sun { display: none; }
