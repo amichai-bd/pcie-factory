@@ -9,7 +9,7 @@ net-keyword, SYNTHESIS-guard, module-function and pragma-comment rules are
 adapted from nand2anything tools/style/rtl_style.py (commit 085ef4b, same
 owner, no license file). Project inventories, macros and exceptions were
 dropped; the file-name, port-suffix, nettype, always, interface/union and
-wildcard-connection rules are new.
+wildcard-connection and external-ifdef rules are new.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from build.filelist import FilelistError, resolve
+from build.filelist import FilelistError, Resolved, resolve
 from build.ip import SHARED_DIR, Ip, locate, owner_ip
 from checks import filelists
 from checks.common import (
@@ -41,6 +41,9 @@ RULES = {
     "interface-union": ("systemverilog-rules", "no interface, modport or union in synthesizable RTL"),
     "wildcard-connection": ("systemverilog-rules", "named connections only; no .*"),
     "sim-ifdef": ("systemverilog-rules", "no `ifdef/`ifndef/`elsif on SYNTHESIS, SIMULATION or VERILATOR"),
+    "external-ifdef": ("systemverilog-rules",
+                       "no `ifdef/`ifndef/`elsif on a macro the RTL closure does not `define "
+                       "(vendor or tool macros); include guards pass"),
     "task-function": ("systemverilog-rules", "no tasks; functions only inside a package"),
     "typedef-outside-package": ("types-and-constants-live-in-packages",
                                 "typedefs only inside a package"),
@@ -73,6 +76,11 @@ _UNIT_RE = re.compile(r"\b(module|package|interface|program|class)\s+(?:(?:autom
 _SUFFIX = {"input": re.compile(r"_n?i$"), "output": re.compile(r"_n?o$"),
            "inout": re.compile(r"_n?io$")}
 _IDENT = re.compile(r"[A-Za-z_][\w$]*")
+# Tool macros the sim-ifdef rule owns; external-ifdef leaves them to it.
+_SIM_MACROS = ("SYNTHESIS", "SIMULATION", "VERILATOR")
+# `ifdef NAME, or a parenthesized macro expression (`ifdef (A && !B)).
+_COND_RE = re.compile(r"`(ifdef|ifndef|elsif)\b[ \t]*(\(|[A-Za-z_]\w*)?")
+_DEFINE_RE = re.compile(r"`define\s+([A-Za-z_]\w*)")
 
 
 def _package_spans(text: str) -> list[tuple[int, int]]:
@@ -171,12 +179,44 @@ def module_ports(text: str):
             yield off + named[0], direction, named[1]
 
 
-def directive_findings(relpath: str, raw: str) -> list[str]:
-    """``tool-pragma`` and ``verilator-config`` findings in one file of any
-    type: these are the rules that matter for files that can be
-    `` `include``d whatever their suffix."""
-    text = strip_comments_and_strings(raw)
+def defined_macros(text: str) -> set[str]:
+    """Names `` `define``d in comment-stripped ``text``."""
+    return set(_DEFINE_RE.findall(text))
+
+
+def ifdef_findings(relpath: str, text: str, defined: frozenset[str] | set[str] = frozenset()
+                   ) -> list[str]:
+    """``sim-ifdef`` and ``external-ifdef`` findings in comment-stripped
+    ``text``. A macro is internal when this file or ``defined`` (the rest of
+    its RTL closure: `` `define``s and filelist ``+define+``) defines it, so
+    an include guard passes; any other macro can only come from a tool or
+    vendor flow and would hide code from lint."""
+    known = defined_macros(text) | set(defined)
     out = []
+    for m in _COND_RE.finditer(text):
+        directive, operand = m.group(1), m.group(2) or ""
+        if operand == "(":
+            operand = text[m.start(2):_balanced(text, m.start(2))]
+        line = line_of(text, m.start())
+        names = _IDENT.findall(operand)
+        if not names:
+            out.append(f"{relpath}:{line}: external-ifdef: `{directive} without a macro name")
+        for name in names:
+            if name in _SIM_MACROS:
+                out.append(f"{relpath}:{line}: sim-ifdef: `{directive} {name}")
+            elif name not in known:
+                out.append(f"{relpath}:{line}: external-ifdef: `{directive} {name} "
+                           "is not `define'd by the RTL closure")
+    return out
+
+
+def directive_findings(relpath: str, raw: str, defined: frozenset[str] | set[str] = frozenset()
+                       ) -> list[str]:
+    """Findings that matter for files that can be `` `include``d whatever
+    their suffix: ``tool-pragma``, ``verilator-config``, and the two
+    conditional-compilation rules (``sim-ifdef``, ``external-ifdef``)."""
+    text = strip_comments_and_strings(raw)
+    out = ifdef_findings(relpath, text, defined)
     for m in _COMMENT_RE.finditer(raw):
         body = (m.group("line") if m.group("line") is not None else m.group("block")).strip()
         if _PRAGMA_RE.match(body):
@@ -186,9 +226,11 @@ def directive_findings(relpath: str, raw: str) -> list[str]:
     return out
 
 
-def check_text(relpath: str, raw: str, expected_prefix: str | None) -> list[str]:
+def check_text(relpath: str, raw: str, expected_prefix: str | None,
+               defined: frozenset[str] | set[str] = frozenset()) -> list[str]:
     """Apply every rule to one file; ``expected_prefix`` is the name prefix
-    a unit in this file must start with (None: no prefix declared)."""
+    a unit in this file must start with (None: no prefix declared);
+    ``defined`` holds the macros the rest of its RTL closure defines."""
     text = strip_comments_and_strings(raw)
     path = Path(relpath)
     out: list[str] = []
@@ -196,7 +238,7 @@ def check_text(relpath: str, raw: str, expected_prefix: str | None) -> list[str]
     def add(rule: str, index: int, detail: str) -> None:
         out.append(f"{relpath}:{line_of(text, index)}: {rule}: {detail.strip()}")
 
-    out += directive_findings(relpath, raw)
+    out += directive_findings(relpath, raw, defined)
 
     if path.suffix == ".sv":
         tokens = text.split()
@@ -215,8 +257,6 @@ def check_text(relpath: str, raw: str, expected_prefix: str | None) -> list[str]
         add("interface-union", m.start(), m.group())
     for m in re.finditer(r"\.\s*\*", body):
         add("wildcard-connection", m.start(), ".*")
-    for m in re.finditer(r"`(?:ifdef|ifndef|elsif)\s+(SYNTHESIS|SIMULATION|VERILATOR)\b", body):
-        add("sim-ifdef", m.start(), m.group())
     packages = _package_spans(body)
     for m in re.finditer(r"\b(task|function)\b", body):
         if m.group(1) == "task" or not _in(m.start(), packages):
@@ -284,17 +324,81 @@ def include_scope(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> lis
     return sorted(found)
 
 
+def _text(path: Path) -> str | None:
+    """Decoded contents, or None for a binary file (a NUL byte)."""
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+    return None if b"\0" in data else data.decode(errors="replace")
+
+
+def closure_macros(src_root: Path, ips: list[Ip]) -> tuple[list[tuple[Resolved, set[str]]],
+                                                            dict[Path, set[str]]]:
+    """Macros each ``rtl/`` filelist closure defines: `` `define``s in its
+    sources and in every file below its include directories (inside the
+    source root), plus its ``+define+`` names. Returns (closure, macros)
+    pairs, and the macros of each IP's own ``.rtl.f`` keyed by the IP's
+    ``fpga/`` directory (a board wrapper is linted with those sources)."""
+    cache: dict[Path, set[str]] = {}
+
+    def macros(f: Path) -> set[str]:
+        f = f.resolve()
+        if f not in cache:
+            text = _text(f)
+            cache[f] = defined_macros(strip_comments_and_strings(text)) if text else set()
+        return cache[f]
+
+    closures = []
+    by_fpga: dict[Path, set[str]] = {}
+    for f in filelists.all_filelists(src_root):
+        if not in_kind(f, src_root, ("rtl",)):
+            continue
+        try:
+            flat = resolve(f)
+        except FilelistError:
+            continue  # the filelist check reports it
+        names = set(flat.defines)
+        files = set(flat.sources)
+        for d in flat.incdirs:
+            if d == src_root.resolve() or src_root.resolve() in d.parents:
+                files.update(p for p in d.rglob("*") if p.is_file())
+        for p in files:
+            names |= macros(p)
+        closures.append((flat, names))
+        for ip in ips:
+            if ip.rtl_f.resolve() == f.resolve():
+                by_fpga[ip.dir("fpga").resolve()] = names
+    return closures, by_fpga
+
+
+def _defined_for(path: Path, closures, by_fpga) -> set[str]:
+    """Union of the macros of every closure that reaches ``path``."""
+    path = path.resolve()
+    out: set[str] = set()
+    for flat, names in closures:
+        if flat.reaches(path):
+            out |= names
+    for d, names in by_fpga.items():
+        if d in path.parents:
+            out |= names
+    return out
+
+
 def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
     prefix = read_prefix(src_root)
     files = [f for f in kind_files(src_root, ("rtl", "fpga")) if selected(f, ips, ip_ids)]
     extra = [f for f in include_scope(src_root, ips, ip_ids) if f not in set(files)]
     result = CheckResult("style", f"{len(files)} RTL file(s), {len(RULES)} rule(s); "
                          f"{len(extra)} other includable or fpga/ file(s) for directives")
+    closures, by_fpga = closure_macros(src_root, ips)
     for f in files:
         exp = expected_prefix(f, src_root, ips, prefix)
-        result.findings += check_text(rel(f, src_root), f.read_text(errors="replace"), exp)
+        result.findings += check_text(rel(f, src_root), f.read_text(errors="replace"), exp,
+                                      _defined_for(f, closures, by_fpga))
     for f in extra:
-        data = f.read_bytes()
-        if b"\0" not in data:  # binary files cannot carry directives
-            result.findings += directive_findings(rel(f, src_root), data.decode(errors="replace"))
+        text = _text(f)
+        if text is not None:  # binary files cannot carry directives
+            result.findings += directive_findings(rel(f, src_root), text,
+                                                  _defined_for(f, closures, by_fpga))
     return result

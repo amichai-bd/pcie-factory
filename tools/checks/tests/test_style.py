@@ -85,6 +85,10 @@ def mutate(old: str, new: str) -> str:
                                "logic [W-1:0] q_d, q_q;\n  union packed {logic a;} u;")),
     ("wildcard-connection", mutate("(.a_i(q_q), .y_o())", "(.*)")),
     ("sim-ifdef", mutate("  assign q_o = q_q;", "`ifdef SYNTHESIS\n  assign q_o = q_q;\n`endif")),
+    ("external-ifdef", mutate("  assign q_o = q_q;",
+                              "`ifdef ALTERA_RESERVED_QIS\n  assign q_o = q_q;\n`endif")),
+    ("external-ifdef", mutate("  assign q_o = q_q;",
+                              "`ifndef XY_A_FAST\n  assign q_o = q_q;\n`endif")),
     ("task-function", mutate("  assign q_o = q_q;",
                              "  function automatic logic f(); return 1'b0; endfunction\n"
                              "  assign q_o = q_q;")),
@@ -108,7 +112,7 @@ def test_rule_fires(rule, text):
 def test_every_rule_is_tested_and_documented():
     tested = {"default-nettype", "net-keyword", "plain-always", "interface-union",
               "wildcard-connection", "sim-ifdef", "task-function", "typedef-outside-package",
-              "port-suffix", "tool-pragma", "file-name", "verilator-config"}
+              "port-suffix", "tool-pragma", "file-name", "verilator-config", "external-ifdef"}
     assert tested == set(RULES)
     spec = (Path(__file__).resolve().parents[3] / "wiki/tools/checks/SPEC.md").read_text()
     for rule, (anchor, _) in RULES.items():
@@ -244,3 +248,89 @@ def test_dv_files_outside_rtl_incdirs_are_not_scanned(tmp_path):
     src = _good_copy(tmp_path)
     (src / "dv/blk/notes.txt").write_text("// verilator lint_off WIDTH\n")
     assert style.run(src, discover(src), None).passed
+
+
+def _wrap(cond: str) -> str:
+    return mutate("  assign q_o = q_q;", f"{cond}\n  assign q_o = q_q;\n`endif")
+
+
+@pytest.mark.parametrize("cond, detail", [
+    # A vendor macro: code the vendor flow synthesizes but lint never sees.
+    ("`ifdef ALTERA_RESERVED_QIS", "`ifdef ALTERA_RESERVED_QIS"),
+    # A macro nothing defines.
+    ("`ifndef XY_A_FAST", "`ifndef XY_A_FAST"),
+    ("`ifdef XY_A_ON\n`define XY_A_X\n`elsif XY_A_SLOW", "`elsif XY_A_SLOW"),
+    ("`ifdef (XY_A_ON && !OTHER_TOOL)", "`ifdef OTHER_TOOL"),
+    ("`ifdef (XY_A_ON && (OTHER_A) || OTHER_B)", "`ifdef OTHER_B"),
+    ("`ifdef", "`ifdef without a macro name"),
+])
+def test_external_ifdef_fires(cond, detail):
+    found = [f for f in check(_wrap(cond)) if ": external-ifdef: " in f]
+    assert any(detail in f for f in found), found
+
+
+def test_external_ifdef_line_and_text():
+    found = check(_wrap("`ifdef ALTERA_RESERVED_QIS"))
+    assert found == ["xy_a_m.sv:23: external-ifdef: `ifdef ALTERA_RESERVED_QIS "
+                     "is not `define'd by the RTL closure"]
+
+
+def test_sim_macro_is_not_also_external():
+    assert rules(check(_wrap("`ifdef VERILATOR"))) == ["sim-ifdef"]
+    # Defining a tool macro does not make it internal.
+    assert rules(check(_wrap("`define SYNTHESIS\n`ifdef SYNTHESIS"))) == ["sim-ifdef"]
+
+
+@pytest.mark.parametrize("name, text", [
+    ("x_defs.svh", "`ifndef X_DEFS_SVH\n`define X_DEFS_SVH\n`define X_W 8\n`endif\n"),
+    ("xy_a_m.sv", GOOD.replace("module xy_a_m", "`ifndef XY_A_M_SV\n`define XY_A_M_SV\nmodule xy_a_m")
+     .replace("endmodule", "endmodule\n`endif")),
+])
+def test_include_guard_passes(name, text):
+    assert check(text, name) == []
+
+
+def test_closure_defined_macro_passes():
+    text = _wrap("`ifdef XY_A_ON")
+    assert rules(check(text)) == ["external-ifdef"]
+    assert check_text("xy_a_m.sv", text, "xy_a", {"XY_A_ON"}) == []
+
+
+def test_commented_ifdef_is_ignored():
+    assert check(mutate("  assign q_o = q_q;",
+                        "  // `ifdef ALTERA_RESERVED_QIS\n  assign q_o = q_q;")) == []
+
+
+def _ifdef_in(path: Path, macro: str) -> None:
+    path.write_text(path.read_text().replace(
+        "endmodule", f"`ifdef {macro}\n`endif\nendmodule", 1))
+
+
+@pytest.mark.parametrize("where, macro, setup", [
+    ("rtl/blk/xy_blk.sv", "XY_BLK_W", None),            # `define in an include file
+    ("rtl/blk/xy_blk.sv", "XY_BLK_EN", "+define+"),     # +define+ in the filelist
+    ("rtl/blk_sub/xy_blk_sub.sv", "XY_BLK_W", None),    # parent closure reaches the sub-IP
+    ("fpga/blk/xy_blk_board.sv", "XY_BLK_W", None),     # wrapper linted with the IP's sources
+])
+def test_run_closure_macros_pass(tmp_path, where, macro, setup):
+    src = _good_copy(tmp_path)
+    if setup:
+        f = src / "rtl/blk/blk.rtl.f"
+        f.write_text(f"+define+{macro}\n" + f.read_text())
+    _ifdef_in(src / where, macro)
+    r = style.run(src, discover(src), None)
+    assert r.passed, r.findings
+
+
+def test_run_vendor_and_undefined_macros_fail(tmp_path):
+    src = _good_copy(tmp_path)
+    _ifdef_in(src / "rtl/blk/xy_blk.sv", "ALTERA_RESERVED_QIS")
+    _ifdef_in(src / "fpga/blk/xy_blk_board.sv", "XY_BLK_UNDEFINED")
+    (src / "rtl/blk/include/w.txt").write_text("`ifdef ALTERA_RESERVED_QIS\n`endif\n")
+    r = style.run(src, discover(src), None)
+    assert sorted((f.split(":")[0], f.split(": ")[1]) for f in r.findings) == [
+        ("fpga/blk/xy_blk_board.sv", "external-ifdef"),
+        ("rtl/blk/include/w.txt", "external-ifdef"),
+        ("rtl/blk/xy_blk.sv", "external-ifdef"),
+    ]
+    assert any("`ifdef XY_BLK_UNDEFINED" in f for f in r.findings)
