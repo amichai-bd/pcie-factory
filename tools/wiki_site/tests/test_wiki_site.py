@@ -243,8 +243,42 @@ def test_non_utf8_md_target_is_a_problem(tmp_path):
     (tmp_path / "doc.md").write_bytes(b"# Bad \xff\xfe\n")
     files = {"wiki/a.md": "# Ay\n\n[d](../doc.md#bad) [e](../doc.md#other)\n"}
     problems, _, out = run(tmp_path, files)
-    assert len(problems) == 1 and problems[0].startswith("doc.md: cannot read as UTF-8")
+    assert problems == ["doc.md: not valid UTF-8 (invalid start byte at byte 6); "
+                        "its anchors are not checked"]
     assert f'href="{URL}/blob/{SHA}/doc.md#bad"' in (out / "a.html").read_text()
+
+
+@pytest.mark.parametrize("bad", ["wiki/sec/z.md", "wiki/index.md", "README.md", "CLAUDE.md",
+                                 ".claude/skills/s/SKILL.md"])
+def test_non_utf8_source_fails_naming_the_file(tmp_path, bad, capsys):
+    make(tmp_path, dict(BASE, **{"README.md": "# Repo\n", "CLAUDE.md": "# Agents\n",
+                                 ".claude/skills/s/SKILL.md": "# Skill\n"}))
+    (tmp_path / bad).write_bytes(b"# Bad \xff\n")
+    (tmp_path / "wiki/a.md").write_bytes(b"\xc3")  # a second bad page is reported too
+    out = tmp_path / "workdir" / "s"
+    with pytest.raises(wiki_site.SourceError) as info:
+        wiki_site.build(tmp_path, out, SHA, URL)
+    assert f"{bad}: not valid UTF-8 (invalid start byte at byte 6)" in info.value.messages
+    assert "wiki/a.md: not valid UTF-8 (unexpected end of data at byte 0)" in info.value.messages
+    assert len(info.value.messages) == 2
+    rc = wiki_site.main(["build", "--sha", SHA, "--root", str(tmp_path), "--out", str(out)])
+    cap = capsys.readouterr()
+    assert rc == 1  # fatal even without --strict
+    assert f"ERROR: {bad}: not valid UTF-8" in cap.err and "Traceback" not in cap.err
+    assert cap.out.startswith("FAIL: unreadable=2 ")
+    assert not out.exists()  # nothing is written
+
+
+def test_unreadable_source_is_an_os_error(tmp_path, capsys):
+    make(tmp_path, BASE)
+    (tmp_path / "wiki/a.md").unlink()
+    (tmp_path / "wiki/a.md").symlink_to(tmp_path / "missing.md")  # dangling: read fails
+    rc = wiki_site.main(["build", "--sha", SHA, "--root", str(tmp_path),
+                         "--out", str(tmp_path / "workdir" / "s")])
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "ERROR: wiki/a.md: cannot read (No such file or directory)" in err
+    assert "UTF-8" not in err
 
 
 def test_special_characters_are_escaped(tmp_path):

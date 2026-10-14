@@ -294,20 +294,38 @@ COMMANDS = {
 }
 
 
+def _shared_args(p: argparse.ArgumentParser, default=None) -> None:
+    p.add_argument("--src-root", default=default, help="source tree to discover IPs in "
+                   "(default: $BUILD_SRC_ROOT or <repo>/src)")
+    p.add_argument("--workdir", default=default, help="output directory "
+                   "(default: $BUILD_WORKDIR or <repo>/workdir)")
+
+
+def _nested_actions(p: argparse.ArgumentParser):
+    """Every parser below `p` in its subcommand tree (actions of an action...)."""
+    for action in p._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            for child in dict.fromkeys(action.choices.values()):  # aliases share a parser
+                yield child
+                yield from _nested_actions(child)
+
+
 def make_parser() -> argparse.ArgumentParser:
-    common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--src-root", help="source tree to discover IPs in "
-                        "(default: $BUILD_SRC_ROOT or <repo>/src)")
-    common.add_argument("--workdir", help="output directory "
-                        "(default: $BUILD_WORKDIR or <repo>/workdir)")
     parser = argparse.ArgumentParser(prog="build", description="Factory build entry point.")
     sub = parser.add_subparsers(dest="command", required=True, metavar="command")
     for name, (help_text, handler, add_args) in COMMANDS.items():
-        p = sub.add_parser(name, help=help_text, parents=[common])
+        p = sub.add_parser(name, help=help_text)
+        _shared_args(p)
         if add_args is None:  # stubs accept anything until implemented
             p.add_argument("rest", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
         else:
             add_args(p)
+        # Shared options are also accepted after an action (`wiki build
+        # --workdir D`). SUPPRESS keeps a value given before the action: an
+        # action parser that did not see the option adds nothing to the
+        # namespace, while one that did overrides the earlier value.
+        for child in _nested_actions(p):
+            _shared_args(child, default=argparse.SUPPRESS)
         p.set_defaults(handler=handler)
     return parser
 
