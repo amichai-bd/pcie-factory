@@ -52,6 +52,16 @@ pd (ORFS/sky130hd).
 
 ## Updates
 
+- **Public repository and site (captain decisions, recorded on #1):** the
+  repository is public and the wiki is published to GitHub Pages as a public
+  site. Everything committed must be publishable; reviewers check it on every
+  PR.
+- **Self-hosted runner safety (firstmate rule, recorded on #1):** every job a
+  `pull_request` can trigger is skipped for fork PRs but still runs on push and
+  dispatch, using the guard in the DevOps BKM's Continuous integration
+  section; `pull_request_target` never checks out PR code; workflows never
+  echo secrets; fork PRs are validated by re-pushing them to a branch here. The captain requires approval for outside-collaborator fork
+  workflows in the repository settings.
 - **CI host:** the self-hosted runners, Quartus Lite and ORFS/sky130hd run on
   the Omarchy host (supersedes earlier "WSL host" wording).
 - **Temporary exception (captain-approved):** until the self-hosted runners

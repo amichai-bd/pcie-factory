@@ -44,6 +44,11 @@ issue worktree per [agent-flow](../agent-flow/SKILL.md).
 
 - [ ] `runs-on: [self-hosted, linux, x64]`; no hosted runners, no design
       names in job names, paths or labels.
+- [ ] Every job a `pull_request` can trigger carries
+      `if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository`
+      (public repository: fork code never runs on the self-hosted runners,
+      push and dispatch still run). Never `pull_request_target` with a PR
+      checkout; never echo secrets.
 - [ ] Jobs call `./build <subcommand>`, never a tool script directly.
 - [ ] Explicit `permissions:` (least privilege), `timeout-minutes`, and
       `concurrency` that cancels superseded PR runs but keeps every push to
