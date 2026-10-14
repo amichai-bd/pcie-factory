@@ -233,7 +233,7 @@ def test_includable_file_of_any_type_is_scanned(tmp_path, text, rule):
     f.write_text("+incdir+../../dv/blk\n" + f.read_text())
     r = style.run(src, discover(src), None)
     assert sorted(r.findings) == [f"dv/blk/w.txt:1: {rule}", f"rtl/blk/include/w.txt:1: {rule}"]
-    assert "7 other includable or fpga/ file(s)" in r.checked  # all of dv/blk/ is includable
+    assert "9 other includable or fpga/ file(s)" in r.checked  # all of dv/blk/ is includable
 
 
 def test_every_fpga_text_file_is_scanned(tmp_path):
