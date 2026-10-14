@@ -38,7 +38,9 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `asic --ip ID [--platform P] [--timeout S] [--dry-run]` | ORFS flow and `metrics.json` for one IP with `asic/`; see the [asic spec](../asic/SPEC.md). |
 | `arch --ip ID [--scenario NAME]` | Perf scenarios of a top-level IP's architecture model and `perf.json`; see the [arch spec](../arch/SPEC.md). |
 
-Options shared by every command:
+Options shared by every command. A command with actions (`wiki build`,
+`labels sync`, `ci unit`, `metrics collect`, ...) accepts them before or
+after the action; if both are given, the one after the action wins.
 
 - `--src-root DIR` is the tree to discover IPs in. If it isn't given, the tools
   use `$BUILD_SRC_ROOT`, then `<repo>/src`. Tests and fixtures use it.

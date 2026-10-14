@@ -81,6 +81,21 @@ def unique_slug(base: str, seen: dict[str, int]) -> str:
     return slug
 
 
+def read_error(rel: str, exc: OSError | UnicodeDecodeError) -> str:
+    """One-line message naming `rel`, telling a decode error from a read error."""
+    if isinstance(exc, UnicodeDecodeError):
+        return f"{rel}: not valid UTF-8 ({exc.reason} at byte {exc.start})"
+    return f"{rel}: cannot read ({exc.strerror or exc})"
+
+
+class SourceError(Exception):
+    """Sources the build cannot read; `messages` names each one."""
+
+    def __init__(self, messages: list[str]):
+        super().__init__("; ".join(messages))
+        self.messages = messages
+
+
 def out_path(rel: str) -> str:
     """Site path of a file given relative to wiki/ (POSIX)."""
     p = PurePosixPath(rel)
@@ -137,6 +152,7 @@ class Page:
 
     def __init__(self, md: MarkdownIt, rel: str, text: str):
         self.rel = rel  # repo-relative source path
+        self.source = text  # the Markdown as read
         self.env: dict = {}
         self.tokens = md.parse(text, self.env)
         self.title = ""
@@ -184,6 +200,7 @@ class Site:
         self.assets: list[str] = []  # repo-relative non-Markdown wiki files
         self.out: dict[str, str] = {}  # repo-relative source -> site path
         self.problems: list[str] = []
+        self.unreadable: list[str] = []  # sources that could not be read (fatal)
         self.links = 0
         self._foreign: dict[str, set[str] | None] = {}
         self.tree = self._scan(root / WIKI)
@@ -204,6 +221,17 @@ class Site:
             taken[out] = rel
         if "index.html" not in taken:
             self.problems.append(f"{WIKI}/: no index.md or README.md for the site home page")
+        if self.unreadable:
+            raise SourceError(self.unreadable)
+
+    def read(self, rel: str) -> str:
+        """A source's text; an unreadable source is recorded and reads as ""
+        so that the scan goes on and reports every bad file at once."""
+        try:
+            return (self.root / rel).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            self.unreadable.append(read_error(rel, exc))
+            return ""
 
     def _add_tracker(self) -> None:
         """Append the rendered tracker to wiki/tracker's landing page and add
@@ -214,7 +242,7 @@ class Site:
             return
         body, pages, problems = tracker.render(self.root / TRACKER / tracker.DATA_DIR)
         self.problems += problems
-        text = (self.root / landing).read_text(encoding="utf-8").rstrip("\n") + "\n\n" + body
+        text = self.pages[landing].source.rstrip("\n") + "\n\n" + body
         self.pages[landing] = Page(self.md, landing, text)
         ips = Folder(f"tracker/{tracker.IP_DIR}")
         for rel, md in sorted(pages.items()):
@@ -236,7 +264,7 @@ class Site:
     def _add_repo_pages(self) -> None:
         """README.md is home, CLAUDE.md sits beside it, the wiki tree becomes
         one section headed by its landing page, and skills another."""
-        read = lambda rel: (self.root / rel).read_text(encoding="utf-8")  # noqa: E731
+        read = self.read
         self._add(HOME, "index.html", read(HOME))
         self.home, self.top = HOME, [HOME]
         if (self.root / AGENTS).is_file():
@@ -268,7 +296,7 @@ class Site:
                 if sub.landing or sub.pages or sub.folders:
                     folder.folders.append(sub)
             elif child.suffix == ".md":
-                self.pages[src] = Page(self.md, src, child.read_text(encoding="utf-8"))
+                self.pages[src] = Page(self.md, src, self.read(src))
                 if child.name in LANDINGS and folder.landing is None:
                     folder.landing = src
                 else:
@@ -302,7 +330,7 @@ class Site:
             try:
                 text = (self.root / target).read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError) as exc:
-                self.problems.append(f"{target}: cannot read as UTF-8 to check anchors ({exc})")
+                self.problems.append(f"{read_error(target, exc)}; its anchors are not checked")
                 self._foreign[target] = None
             else:
                 self._foreign[target] = Page(self.md, target, text).ids
@@ -490,7 +518,8 @@ def search_index(site: Site) -> str:
 
 
 def build(root: Path, out: Path, sha: str, repo_url: str = REPO_URL) -> tuple[list[str], dict]:
-    """Build the site into `out` (replaced); return (problems, stats)."""
+    """Build the site into `out` (replaced); return (problems, stats).
+    Raise SourceError, leaving `out` untouched, if a source cannot be read."""
     site = Site(root, sha, repo_url)
     for page in site.pages.values():
         site.rewrite(page)
@@ -557,7 +586,13 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, subprocess.CalledProcessError) as exc:
         print(f"ERROR: cannot resolve the built commit ({exc}); pass --sha", file=sys.stderr)
         return 2
-    problems, stats = build(args.root.resolve(), args.out.resolve(), sha, args.repo_url)
+    try:
+        problems, stats = build(args.root.resolve(), args.out.resolve(), sha, args.repo_url)
+    except SourceError as exc:
+        for m in exc.messages:
+            print(f"ERROR: {m}", file=sys.stderr)
+        print(f"FAIL: unreadable={len(exc.messages)} out={args.out} (not written)")
+        return 1
     tag = "ERROR" if args.strict else "WARN"
     for p in problems:
         print(f"{tag}: {p}", file=sys.stderr)

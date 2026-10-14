@@ -16,8 +16,9 @@ are images a page links by URL, such as the README's status badges.
 
 `./build wiki` forwards to `tools/wiki_site/wiki_site.py`, which takes the
 same arguments and can be run directly. Through `./build`, `--out` defaults to
-`<workdir>/wiki-site`, so `./build wiki --workdir DIR build` and
-`$BUILD_WORKDIR` move it. `./build wiki` exits 2 if the dependencies below are
+`<workdir>/wiki-site`, so `--workdir DIR` (before or after the action, as for
+every [shared option](../build/SPEC.md#command-line)) and `$BUILD_WORKDIR`
+move it. `./build wiki` exits 2 if the dependencies below are
 not installed; other `./build` commands do not need them.
 
 | Option | Default | Meaning |
@@ -76,6 +77,14 @@ to `--repo-url` on every page. A page title is its first H1, or the file stem
 if there is none.
 
 The same tree and SHA always build the same bytes.
+
+Every source above is read as UTF-8. A source that cannot be read (a `.md`
+page under `wiki/`, the root `README.md` or `CLAUDE.md`, or a `SKILL.md`)
+fails the build, with or without `--strict`: each such file prints as
+`ERROR: <path>: not valid UTF-8 (<reason> at byte <offset>)` or
+`ERROR: <path>: cannot read (<OS error>)`, the summary line is
+`FAIL: unreadable=<n> ...`, `build` exits 1 without a traceback, and `--out`
+is left untouched.
 
 ## Markdown
 
@@ -147,8 +156,10 @@ Problems are reported as `WARN` or, with `--strict`, as `ERROR` and exit 1:
 - a link to a `wiki/` folder that has no landing page;
 - a link to a `wiki/` path with a component that starts with `.`, which the
   build skips;
-- a `.md` target outside `wiki/` that is not valid UTF-8, when the link has an
-  anchor to check (reported once per file; the link is still rewritten);
+- a `.md` target outside `wiki/` that is not valid UTF-8 or cannot be read,
+  when the link has an anchor to check (reported once per file with the same
+  decode or read message as an unreadable source, ending `; its anchors are
+  not checked`; the link is still rewritten);
 - a path that leaves the repository, or an absolute `/path`;
 - two sources that publish to the same output (`index.md` and `README.md` in
   one folder, or `wiki/agents.md` beside `CLAUDE.md`), or a source that
