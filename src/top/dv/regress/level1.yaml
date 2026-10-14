@@ -1,0 +1,7 @@
+tests:
+  - name: random_vs_model
+    module: tests.test_top
+    testcase: random_vs_model
+    top: pcie_top
+    seeds: 3
+    timeout_s: 120

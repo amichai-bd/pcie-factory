@@ -1,0 +1,7 @@
+tests:
+  - name: long_random
+    module: tests.test_top
+    testcase: long_random
+    top: pcie_top
+    seeds: 8
+    timeout_s: 600
