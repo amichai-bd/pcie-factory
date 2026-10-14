@@ -105,6 +105,6 @@ the unit tests prove it.
 ## Site
 
 The wiki is published to GitHub Pages by a minimal generator in `tools/`
-(issue #12 owns it and its SPEC). Navigation follows the `wiki/` tree, so a
-new page needs no nav file edit. Validate links locally before review; the
-site build is the link check once it exists.
+(see its [SPEC](../tools/wiki_site/SPEC.md)). Navigation follows the `wiki/`
+tree, so a new page needs no nav file edit. Validate links locally before
+review with `./build wiki build --strict`; it is the link check.

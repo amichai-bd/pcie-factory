@@ -7,7 +7,7 @@ import pytest
 from build.ip import REPO_ROOT
 from cli.main import COMMANDS, main
 
-STUBS = {"check": 7, "labels": 10, "wiki": 12, "fpga": 13, "asic": 14}
+STUBS = {"check": 7, "labels": 10, "fpga": 13, "asic": 14}
 
 
 @pytest.mark.parametrize("name, issue", sorted(STUBS.items()))
@@ -17,7 +17,7 @@ def test_stubs_exit_2(name, issue, capsys):
 
 
 def test_dispatch_table():
-    assert set(COMMANDS) == {"sim", "regress", "clean"} | set(STUBS)
+    assert set(COMMANDS) == {"sim", "regress", "clean", "wiki"} | set(STUBS)
 
 
 def test_launcher_runs():
@@ -122,3 +122,20 @@ def test_sim_default_seed_is_first_regression_seed(fixture_src, tmp_path, monkey
         expected = regress.default_seed(entry, 0)
     assert used == [expected]
     assert main(base + ["--seed", "3"]) == 0 and used[-1] == 3
+
+
+def test_wiki_build_and_serve(tmp_path, capsys):
+    # Builds the repository's own wiki into <workdir>/wiki-site.
+    assert main(["wiki", "--workdir", str(tmp_path), "build", "--strict", "--sha", "abc123"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("PASS:") and f"out={tmp_path / 'wiki-site'}" in out
+    assert (tmp_path / "wiki-site" / "index.html").is_file()
+    assert "/blob/abc123/" in (tmp_path / "wiki-site" / "index.html").read_text()
+    assert main(["wiki", "serve", "--out", str(tmp_path / "none")]) == 2
+    assert "run the build first" in capsys.readouterr().err
+
+
+def test_wiki_requires_action():
+    with pytest.raises(SystemExit) as exc:
+        main(["wiki"])
+    assert exc.value.code == 2

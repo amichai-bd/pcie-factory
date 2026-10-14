@@ -39,9 +39,13 @@ LANDINGS = ("index.md", "README.md")
 LEXER_ALIASES = {"sh": "bash", "shell": "bash", "console": "bash", "sv": "systemverilog"}
 PLAIN = {"", "text", "txt", "plain"}
 THEME = ("wiki.css", "wiki.js", "vendor/mermaid.min.js", "vendor/mermaid-LICENSE.txt")
-ATTR = re.compile(r"""(\b(?:href|src)\s*=\s*)(["'])(.*?)\2""", re.I | re.S)
-HTML_ID = re.compile(r"""\b(?:id|name)\s*=\s*["']([^"']+)["']""", re.I)
+# `(?<![\w-])`, not `\b`: `-` is a word boundary, so `\b` would also match the
+# tail of `data-src=` or `data-id=`.
+ATTR = re.compile(r"""((?<![\w-])(?:href|src)\s*=\s*)(["'])(.*?)\2""", re.I | re.S)
+HTML_ID = re.compile(r"""(?<![\w-])(?:id|name)\s*=\s*["']([^"']+)["']""", re.I)
 SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
+# Site paths the build writes itself; no wiki source may publish to them.
+RESERVED = tuple(f"assets/{PurePosixPath(n).name}" for n in THEME) + ("assets/search-index.json",)
 TEXT_LIMIT = 4000  # characters of body text per page in the search index
 
 
@@ -131,9 +135,9 @@ class Site:
         self.assets: list[str] = []  # repo-relative non-Markdown wiki files
         self.problems: list[str] = []
         self.links = 0
-        self._foreign: dict[str, set[str]] = {}
+        self._foreign: dict[str, set[str] | None] = {}
         self.tree = self._scan(root / WIKI)
-        taken: dict[str, str] = {}
+        taken: dict[str, str] = {out: "the theme" for out in RESERVED}
         for rel in sorted(list(self.pages) + self.assets):
             out = out_path(rel[len(WIKI) + 1:])
             if out in taken:
@@ -179,8 +183,13 @@ class Site:
         if not target.endswith(".md"):
             return None
         if target not in self._foreign:
-            text = (self.root / target).read_text(encoding="utf-8")
-            self._foreign[target] = Page(self.md, target, text).ids
+            try:
+                text = (self.root / target).read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                self.problems.append(f"{target}: cannot read as UTF-8 to check anchors ({exc})")
+                self._foreign[target] = None
+            else:
+                self._foreign[target] = Page(self.md, target, text).ids
         return self._foreign[target]
 
     def resolve(self, src: str, href: str, raw: bool = False) -> str:
@@ -207,6 +216,9 @@ class Site:
             self.problems.append(f"{src}: broken link {href} ({target} does not exist)")
             return href
         in_wiki = target == WIKI or target.startswith(WIKI + "/")
+        if in_wiki and any(part.startswith(".") for part in target.split("/")):
+            self.problems.append(f"{src}: link {href} names {target}, which the build skips (name starts with '.')")
+            return href
         dest: str | None = target
         if full.is_dir():
             dest = self.landing_of(target) if in_wiki else next(
