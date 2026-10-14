@@ -28,7 +28,7 @@ check: 2 IP(s) under /abs/src
   blk/rtl/xy_blk.sv:10: plain-always: always
 [neutrality] PASS: 135 file(s) (tracked and untracked, not ignored) outside src/, ...
 [lint] blk: top=xy_blk
-[lint] PASS: 2 IP(s), 3 Verilator run(s), 0 waiver(s), 0 warning(s) waived
+[lint] PASS: 2 IP(s), 3 Verilator run(s) with -E audit, 0 waiver(s), 0 warning(s) waived
 check: FAIL (style)
 ```
 
@@ -60,7 +60,7 @@ Rule owners: [layout](../../project/layout.md#per-ip-files) and the
   a listed control file (`.vlt`), or any file reached by `` `include``,
   which accepts any file name.
   - Every source in the closure of a filelist under an `rtl/` directory
-    ends in `.sv` or `.svh`.
+    ends in `.sv` or `.svh` and sits below an `rtl/` directory.
   - Every `+incdir+` in such a closure resolves to a directory below an
     `rtl/` directory inside the source root (never `dv/` or elsewhere).
   - **Allowlist:** below an `rtl/` directory only `.sv`, `.svh`, `.f` and
@@ -193,19 +193,33 @@ then `verilator.prefix` in `cfg/host.yaml`); see the
   example a `.vlt` control file), or has an include directory outside
   `rtl/`, is not linted; that is a lint finding, so such a file can never
   waive a warning.
+- **Preprocessed audit.** Before each lint run, `verilator -E` runs with the
+  same include directories, defines and sources, and its output is checked
+  against what Verilator actually reads:
+  - every file it entered (each `` `line N "<file>" `` marker) must be inside
+    the source root and below an `rtl/` directory (any IP's or
+    `src/common/`'s, since closures include sub-IP and common lists), or be
+    the board wrapper of that run;
+  - the output must contain no `` `verilator_config`` and no
+    `/*verilator <directive>*/` metacomment (`-E` turns every comment that
+    starts with `verilator` into one, so both `//` and `/* */` forms appear,
+    whatever file or include route they came from). Directive words are the
+    `tool-pragma` list;
+  - a nonzero `-E` exit is a finding.
 
 ### Waivers
 
 Waivers live only in `<src-root>/lint_waivers.yaml` (in the repository,
 `src/lint_waivers.yaml`). It is under `src/` because waivers name design
-files. A missing file means no waivers. This file is the only way to waive:
-
-- inline lint pragmas and `` `verilator_config`` blocks are rejected by the
-  style check (`tool-pragma`, `verilator-config`) in every file a closure
-  can list or `` `include``;
-- Verilator control files, other file types under `rtl/`, and include
-  directories outside `rtl/` are rejected by the filelist check, and lint
-  refuses such an IP.
+files. A missing file means no waivers. This file is the only way to waive.
+The authoritative guarantee is the lint check's preprocessed audit: it
+inspects Verilator's own `-E` view of every lint run, so no waiver
+(`` `verilator_config`` or a `verilator` metacomment) and no file outside
+`rtl/` can reach a lint run by any route, including `../` from an allowed
+include directory, macros, or a listed source elsewhere. The filelist rules
+(SystemVerilog-only closures below `rtl/`, include directories below `rtl/`,
+the `rtl/` allowlist) and the style rules (`tool-pragma`, `verilator-config`
+over every includable file) are fast pre-checks that point at the cause.
 
 ```yaml
 waivers:
@@ -244,7 +258,9 @@ and waivers (used, stale, invalid), output parsing and the command line
 and a `.v` file in an `rtl/` closure, a `w.txt` waiver reached by
 `` `include`` through an include directory under `rtl/` and through
 `+incdir+../dv` (both as a `` `verilator_config`` block and as a
-`// verilator lint_off` comment), prose versus directive comments, a
+`// verilator lint_off` comment), `` `include "../dv/w.txt"`` from an
+allowed include directory and a listed source under `dv/` (both caught by
+the preprocessed audit), prose versus directive comments, a
 comment and a widened exempt path in the config, and look-alike slug hosts.
 Tests that run Verilator are skipped when it is not installed. `test_check_run.py` also runs the neutrality check
 on this repository.

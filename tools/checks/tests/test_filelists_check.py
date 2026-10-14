@@ -129,6 +129,8 @@ def test_non_sv_source_reached_from_outside_rtl_fails(good):
     f = good / "blk/rtl/blk.rtl.f"
     f.write_text(f.read_text() + "../misc/waive.vlt\n")
     assert run(good).findings == [
+        "blk/rtl/blk.rtl.f: source blk/misc/waive.vlt is not below an rtl/ directory "
+        "(a synthesizable closure lists only rtl/ files)",
         "blk/rtl/blk.rtl.f: source blk/misc/waive.vlt is not .sv/.svh "
         "(synthesizable closures hold SystemVerilog only)"]
 
@@ -171,3 +173,14 @@ def test_incdir_outside_src_root_fails(good, tmp_path):
     f.write_text(f"+incdir+{tmp_path / 'elsewhere'}\n" + f.read_text())
     assert any("+incdir+" in x and "elsewhere is not under an rtl/" in x
                for x in run(good).findings)
+
+
+def test_listed_source_outside_rtl_fails(good):
+    # Route (b): a .svh listed from dv/ passes the suffix rule but is never
+    # style-checked; it must sit below rtl/.
+    (good / "blk/dv/xy_blk_cfg.svh").write_text("`verilator_config\n")
+    f = good / "blk/rtl/blk.rtl.f"
+    f.write_text(f.read_text() + "../dv/xy_blk_cfg.svh\n")
+    assert run(good).findings == [
+        "blk/rtl/blk.rtl.f: source blk/dv/xy_blk_cfg.svh is not below an rtl/ directory "
+        "(a synthesizable closure lists only rtl/ files)"]

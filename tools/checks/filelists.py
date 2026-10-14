@@ -5,8 +5,9 @@
 - Every IP has ``rtl/<n>.rtl.f``, ``dv/<n>.dv.f``, ``dv/<n>.sim.f`` and
   ``dv/regress/level{0,1,2}.yaml``, and its regression lists validate
   (``regress.schema``).
-- An ``rtl/`` filelist's closure holds only ``.sv``/``.svh`` sources and
-  only include directories below an ``rtl/`` directory; below ``rtl/`` only
+- An ``rtl/`` filelist's closure holds only ``.sv``/``.svh`` sources that
+  sit below an ``rtl/`` directory, and only include directories below an
+  ``rtl/`` directory; below ``rtl/`` only
   ``.sv``, ``.svh``, ``.f`` and ``.md`` files exist (an allowlist, since
   `` `include`` takes any name), and below ``fpga/`` no
   ``.v``/``.vh``/``.vlt``/``.vc``/``.vhd``/``.vhdl`` file. Anything else
@@ -98,6 +99,10 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                     add(f"{rel(f, src_root)}: +incdir+ {rel(d, src_root)} is not under an rtl/ "
                         "directory (a synthesizable closure includes only from rtl/)")
             for source in resolved[f].sources:
+                inside = src_root in source.parents
+                if not inside or "rtl" not in source.relative_to(src_root).parts[:-1]:
+                    add(f"{rel(f, src_root)}: source {rel(source, src_root)} is not below an "
+                        "rtl/ directory (a synthesizable closure lists only rtl/ files)")
                 if not source.name.endswith(SV_SUFFIXES):
                     add(f"{rel(f, src_root)}: source {rel(source, src_root)} is not .sv/.svh "
                         "(synthesizable closures hold SystemVerilog only)")
