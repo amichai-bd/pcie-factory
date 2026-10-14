@@ -1,0 +1,61 @@
+# ASIC flow (ORFS) for one IP; see wiki/tools/asic/SPEC.md and wiki/bkm/pd.md.
+# Runs on the self-hosted host that has ORFS; uploads metrics.json and the
+# key reports. Never part of ci-gate.
+name: asic
+
+on:
+  workflow_dispatch:
+    inputs:
+      ip:
+        description: IP id (a directory under src/ with an asic/ directory)
+        required: true
+        default: top
+  pull_request:
+    branches: [main]
+    paths:
+      - "tools/asic/**"
+      - "src/**/asic/**"
+      - "src/**/rtl/**"
+      - ".github/workflows/asic.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  flow:
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 90
+    concurrency:
+      group: asic-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    env:
+      IP: ${{ inputs.ip || 'top' }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Discover ORFS
+        run: |
+          set +e
+          uname -a
+          echo "--- docker"; command -v docker && docker version --format '{{.Server.Version}}'
+          docker images --digests 2>&1 | grep -i -E 'openroad|orfs'
+          echo "--- native tools"; which openroad yosys klayout make python3
+          echo "--- candidate roots"; ls -d /opt/orfs* /opt/OpenROAD* /opt/openroad* ~/OpenROAD-flow-scripts* ~/orfs* /OpenROAD-flow-scripts 2>&1
+          echo "--- env"; env | grep -i -E 'orfs|openroad|flow_home' || true
+          exit 0
+      - name: Run the ASIC flow
+        run: ./build asic --ip "$IP"
+      - name: Upload metrics and reports
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: asic-metrics
+          if-no-files-found: warn
+          path: |
+            workdir/**/asic/metrics.json
+            workdir/**/asic/flow.log
+            workdir/**/asic/run/reports/**
+            workdir/**/asic/run/logs/**/*.json
+            workdir/**/asic/run/logs/**/*.log
