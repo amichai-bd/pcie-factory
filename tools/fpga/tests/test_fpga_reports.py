@@ -24,7 +24,7 @@ def test_fit_summary():
     fit = reports.parse_fit_summary(FIX / "output_files" / f"{REV}.fit.summary")
     assert fit["device"] == "EP4CE115F29C7"
     assert fit["family"] == "Cyclone IV E"
-    assert fit["quartus_version"].startswith("23.1std.1 Build 993")
+    assert fit["quartus_version"] == "25.1std.0 Build 1129 10/21/2025 SC Lite Edition"
     r = fit["resources"]
     assert r["logic_elements"] == {"used": 1234, "total": 114480}
     assert r["registers"] == 456
@@ -70,6 +70,8 @@ def test_panels_split():
     assert tables["Slow 1200mV 85C Model Recovery Summary"] == []
     assert tables["Clocks"][1]["Period"] == "8.000"
     assert "Table of Contents" in tables
+    assert tables["Parallel Compilation"][1] == {"Processors": "Maximum allowed", "Number": "2"}
+    assert tables["Timing Closure Recommendations"] == []
 
 
 def test_sta_worst_across_corners():

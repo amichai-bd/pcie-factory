@@ -1,14 +1,16 @@
 # Hand-made Quartus report fixtures
 
 Every file here was written by hand to mimic the text layout of Quartus
-Prime Lite 23.1 (Cyclone IV E) reports. None is real Quartus output and the
-numbers describe no real design. The parser tests in `../test_fpga_reports.py`
+Prime Lite 25.1std.0 Build 1129 (Cyclone IV E) reports, checked against the
+reports of the first `fpga` workflow runs on the CI host. None is real
+Quartus output: panels are trimmed, the legal notice is left out, and the
+names and numbers describe no real design. The parser tests in `../test_fpga_reports.py`
 use them; when real reports reveal a layout difference, fix the fixture and
 the parser together.
 
 | File | Mimics |
 | --- | --- |
 | `output_files/widget_board.fit.summary` | Fitter summary |
-| `output_files/widget_board.fit.rpt` | Fitter report, resource usage panel only |
-| `output_files/widget_board.sta.rpt` | Timing analyzer report: Fmax, setup and hold summaries for three corners, plus unrelated panels |
+| `output_files/widget_board.fit.rpt` | Fitter report: resource usage panel and a trimmed per-entity table (its `M9Ks` column must not be read as the block count) |
+| `output_files/widget_board.sta.rpt` | Timing analyzer report: Fmax (slow models only, as Quartus prints), setup and hold summaries for three corners, plus unrelated panels including one with blank rows and an empty one |
 | `worst_path.txt` | Output of the generated `worst_path.tcl` |
