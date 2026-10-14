@@ -7,9 +7,15 @@ no Node and no view-time network access.
 ## Usage
 
 ```sh
-python3 tools/wiki_site/wiki_site.py build [--strict] [--out DIR] [--sha SHA] [--repo-url URL]
-python3 tools/wiki_site/wiki_site.py serve [--out DIR] [--port 8000]
+./build wiki build [--strict] [--out DIR] [--sha SHA] [--repo-url URL]
+./build wiki serve [--out DIR] [--port 8000]
 ```
+
+`./build wiki` forwards to `tools/wiki_site/wiki_site.py`, which takes the
+same arguments and can be run directly. Through `./build`, `--out` defaults to
+`<workdir>/wiki-site`, so `./build wiki --workdir DIR build` and
+`$BUILD_WORKDIR` move it. `./build wiki` exits 2 if the dependencies below are
+not installed; other `./build` commands do not need them.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -25,7 +31,7 @@ with Python's `http.server`. It exits 2 if the build directory has no
 `index.html`.
 
 Dependencies are `markdown-it-py` and `Pygments`, pinned in
-`tools/requirements.txt`.
+`tools/requirements.txt` (`pip install -r tools/requirements.txt`).
 
 ## Inputs and outputs
 
@@ -37,7 +43,10 @@ Dependencies are `markdown-it-py` and `Pygments`, pinned in
 | (theme) | `assets/wiki.css`, `wiki.js`, `mermaid.min.js`, `mermaid-LICENSE.txt` |
 | (generated) | `assets/search-index.json` |
 
-Names that start with `.` are skipped. `wiki/index.md` (or `wiki/README.md`)
+The theme and generated paths under `assets/` are reserved: a wiki source that
+would publish to one of them is a problem (see [Links](#links)).
+
+Names that start with `.` are skipped, at any depth. `wiki/index.md` (or `wiki/README.md`)
 is the site home page, and its first H1 is the site name in the navbar. A page
 title is its first H1, or the file stem if there is none.
 
@@ -82,7 +91,9 @@ H3 headings.
 ## Links
 
 Links in Markdown (`[]()`, images) and `href`/`src` attributes in raw HTML are
-resolved relative to the source file:
+resolved relative to the source file. Only the exact attribute names count:
+`data-src`, `data-href` and the like are left alone. Likewise only `id` and
+`name` attributes (not `data-id`) add anchors.
 
 | Target | Rewritten to |
 | --- | --- |
@@ -100,9 +111,14 @@ Problems are reported as `WARN` or, with `--strict`, as `ERROR` and exit 1:
   or outside `wiki/`; a folder link with an anchor checks the folder's
   landing page);
 - a link to a `wiki/` folder that has no landing page;
+- a link to a `wiki/` path with a component that starts with `.`, which the
+  build skips;
+- a `.md` target outside `wiki/` that is not valid UTF-8, when the link has an
+  anchor to check (reported once per file; the link is still rewritten);
 - a path that leaves the repository, or an absolute `/path`;
 - two sources that publish to the same output (`index.md` and `README.md` in
-  one folder);
+  one folder), or a source that publishes to a reserved theme path such as
+  `wiki/assets/wiki.js`;
 - no home page.
 
 ## Search
@@ -119,8 +135,8 @@ HTTP (`serve`, Pages) but not from `file://`.
 ## Publishing
 
 `.github/workflows/pages.yml` runs on the self-hosted runners
-(`[self-hosted, linux, x64]`). It installs dependencies into a venv under
-`workdir/` from `tools/requirements.txt`, and runs
+(`[self-hosted, linux, x64]`). It installs the pinned dependencies into a venv under
+`workdir/` with `pip install -r tools/requirements.txt`, and runs
 `build --strict --sha $GITHUB_SHA`.
 
 - **Pull requests** that touch `wiki/`, the tool or the workflow build only.
@@ -134,6 +150,7 @@ The repository's Pages source must be set to "GitHub Actions".
 | Path | Role |
 | --- | --- |
 | [`tools/wiki_site/wiki_site.py`](../../../tools/wiki_site/wiki_site.py) | Generator and CLI. |
+| [`tools/cli/main.py`](../../../tools/cli/main.py) | `./build wiki` entry in `COMMANDS`. |
 | [`tools/wiki_site/theme/`](../../../tools/wiki_site/theme/) | CSS, JS, vendored Mermaid, provenance. |
 | [`tools/wiki_site/tests/`](../../../tools/wiki_site/tests/) | Unit tests (pytest). |
 | [`.github/workflows/pages.yml`](../../../.github/workflows/pages.yml) | Build and deploy workflow. |

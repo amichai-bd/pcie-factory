@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+from pathlib import Path
 
 from build import sim
 from build.filelist import FilelistError
@@ -18,6 +19,7 @@ from regress import run as regress
 from regress.affected import GitError
 from regress.schema import LEVELS, SchemaError, load_ip
 
+WIKI_SITE = Path(__file__).resolve().parents[1] / "wiki_site"
 USER_ERRORS = (FilelistError, DiscoveryError, SchemaError, GitError, sim.SimError,
                labels.LabelsError)
 
@@ -109,6 +111,27 @@ def cmd_labels(ctx: Context, args) -> int:
     return 1 if errors else 0
 
 
+def cmd_wiki(ctx: Context, args) -> int:
+    # Imported here so that other commands do not need the generator's
+    # dependencies (markdown-it-py, Pygments) installed.
+    if str(WIKI_SITE) not in sys.path:
+        sys.path.insert(0, str(WIKI_SITE))
+    try:
+        import wiki_site
+    except ImportError as exc:
+        print(f"error: wiki: {exc} (run: pip install -r tools/requirements.txt)", file=sys.stderr)
+        return 2
+    out = Path(args.out) if args.out else ctx.workdir / "wiki-site"
+    argv = [args.action, "--out", str(out)]
+    if args.action == "build":
+        argv += ["--strict"] * args.strict
+        argv += ["--sha", args.sha] if args.sha else []
+        argv += ["--repo-url", args.repo_url] if args.repo_url else []
+    else:
+        argv += ["--port", str(args.port)]
+    return wiki_site.main(argv)
+
+
 def stub(issue: int):
     def run(ctx: Context, args) -> int:
         print(f"{args.command}: not implemented yet (see issue #{issue})", file=sys.stderr)
@@ -151,6 +174,19 @@ def _labels_args(p: argparse.ArgumentParser) -> None:
     c.add_argument("number", type=int, help="issue or pull request number")
 
 
+def _wiki_args(p: argparse.ArgumentParser) -> None:
+    actions = p.add_subparsers(dest="action", required=True, metavar="action")
+    b = actions.add_parser("build", help="build the site (replaces --out)")
+    b.add_argument("--strict", action="store_true", help="fail on any broken link or anchor")
+    b.add_argument("--out", help="output directory (default: <workdir>/wiki-site)")
+    b.add_argument("--sha", help="commit for links outside wiki/ (default: git rev-parse HEAD)")
+    b.add_argument("--repo-url", help="repository URL for links outside wiki/ "
+                   "(default: the generator's REPO_URL)")
+    s = actions.add_parser("serve", help="serve an existing build on 127.0.0.1")
+    s.add_argument("--out", help="built site directory (default: <workdir>/wiki-site)")
+    s.add_argument("--port", type=int, default=8000, help="port (default: 8000)")
+
+
 # The dispatch table: name -> (help, handler, argument builder).
 # Later issues replace a stub(...) entry with their implementation.
 COMMANDS = {
@@ -159,7 +195,7 @@ COMMANDS = {
     "clean": ("remove generated output", cmd_clean, _clean_args),
     "check": ("static checks", stub(7), None),
     "labels": ("GitHub label sync and check", cmd_labels, _labels_args),
-    "wiki": ("build the wiki site", stub(12), None),
+    "wiki": ("build or serve the wiki site", cmd_wiki, _wiki_args),
     "fpga": ("FPGA flow", stub(13), None),
     "asic": ("ASIC flow", stub(14), None),
 }

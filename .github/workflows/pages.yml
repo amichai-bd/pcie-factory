@@ -33,11 +33,7 @@ jobs:
       - name: Install the generator's Python dependencies
         run: |
           python3 -m venv workdir/venv
-          if [ -f tools/requirements.txt ]; then
-            workdir/venv/bin/pip install --quiet -r tools/requirements.txt
-          else
-            workdir/venv/bin/pip install --quiet markdown-it-py Pygments
-          fi
+          workdir/venv/bin/pip install --quiet -r tools/requirements.txt
       - name: Build the site strictly
         run: workdir/venv/bin/python -B tools/wiki_site/wiki_site.py build --strict --sha "$GITHUB_SHA" --out workdir/wiki-site
       - name: Upload the Pages artifact

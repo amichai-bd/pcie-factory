@@ -25,7 +25,8 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `regress` | Run regression levels; see the [regress spec](../regress/SPEC.md). |
 | `clean [--ip ID]...` | Delete the whole workdir. With `--ip`, empty `workdir/<ip>/` for each given IP but keep the directories of its sub-IPs, which nest there. |
 | `labels` | Sync and check GitHub labels; see the [labels spec](../labels/SPEC.md). |
-| `check`, `wiki`, `fpga`, `asic` | Stubs: print `not implemented yet (see issue #N)` and exit 2. Each is filled in by its issue (#7, #12, #13, #14) by replacing one entry in `COMMANDS`. |
+| `wiki build\|serve` | Build the wiki site into `<workdir>/wiki-site`, or serve an existing build; see the [wiki site spec](../wiki_site/SPEC.md). |
+| `check`, `fpga`, `asic` | Stubs: print `not implemented yet (see issue #N)` and exit 2. Each is filled in by its issue (#7, #13, #14) by replacing one entry in `COMMANDS`. |
 
 Options shared by every command:
 
