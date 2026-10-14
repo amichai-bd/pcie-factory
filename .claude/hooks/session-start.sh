@@ -61,6 +61,7 @@ if sys.version_info[:len(minimum)] < minimum:
 values = {
     "VERILATOR_VERSION": v["version"],
     "VERILATOR_TAG": v["tag"],
+    "VERILATOR_COMMIT": v["commit"],
     "VERILATOR_REPO": v["repo"],
     "VERILATOR_PREFIX": v["prefix"],
     "VERILATOR_DEPS": " ".join(v["build_deps"]),
@@ -74,14 +75,26 @@ PY
 )
 eval "$pins"
 
-# HOST_VERILATOR_PREFIX overrides the install prefix (used to exercise the
-# build path into a scratch prefix without touching the pinned one).
+# Test-only overrides, for exercising the build path without touching the
+# pinned install: HOST_VERILATOR_PREFIX (install prefix) and
+# HOST_VERILATOR_TAG (tag to clone; the commit check still applies).
 PREFIX=${HOST_VERILATOR_PREFIX:-$VERILATOR_PREFIX}
+TAG=${HOST_VERILATOR_TAG:-$VERILATOR_TAG}
 VERILATOR=$PREFIX/bin/verilator
+
+# PREFIX is written to $CLAUDE_ENV_FILE, which the session shell
+# sources: accept only a plain absolute path.
+if [[ ! "$PREFIX" =~ ^/[A-Za-z0-9._/+-]+$ || "$PREFIX" == *..* ]]; then
+  echo "session-start: unsafe Verilator prefix: $PREFIX" >&2
+  exit 1
+fi
 
 verilator_ok() {
   "$VERILATOR" --version 2>/dev/null | grep -q "^Verilator ${VERILATOR_VERSION} "
 }
+
+src=''
+trap '[ -z "$src" ] || rm -rf "$src"' EXIT
 
 if ! verilator_ok; then
   # One build per prefix at a time, even across concurrent sessions.
@@ -89,31 +102,38 @@ if ! verilator_ok; then
   flock 9
   if ! verilator_ok; then
     log=$(mktemp /tmp/session-start-verilator.XXXXXX.log)
-    echo "session-start: building Verilator $VERILATOR_VERSION into $PREFIX (log: $log)"
+    echo "session-start: building Verilator $VERILATOR_VERSION ($TAG) into $PREFIX (log: $log)"
     read -r -a deps <<<"$VERILATOR_DEPS"
     missing=()
     for pkg in "${deps[@]}"; do
       dpkg -s "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
     done
     src=$(mktemp -d)
-    if ! (
-      if [ "${#missing[@]}" -gt 0 ]; then
+    # A separate bash keeps errexit in force: inside `if ! ( ... )` the
+    # current shell would ignore set -e and run on past a failed step.
+    if ! bash -euo pipefail -c '
+      src=$1 repo=$2 tag=$3 commit=$4 prefix=$5; shift 5
+      if [ "$#" -gt 0 ]; then
         apt-get update -q
-        DEBIAN_FRONTEND=noninteractive apt-get install -y -q "${missing[@]}"
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -q "$@"
       fi
-      git -c advice.detachedHead=false clone -q --depth 1 -b "$VERILATOR_TAG" \
-        "$VERILATOR_REPO" "$src/verilator"
+      git -c advice.detachedHead=false clone -q --depth 1 -b "$tag" "$repo" "$src/verilator"
       cd "$src/verilator"
+      head=$(git rev-parse HEAD)
+      if [ "$head" != "$commit" ]; then
+        echo "session-start: $tag is $head, expected $commit" >&2
+        exit 1
+      fi
       autoconf
-      ./configure --prefix="$PREFIX"
+      ./configure --prefix="$prefix"
       make -j"$(nproc)"
       make install
-    ) >"$log" 2>&1; then
+    ' build "$src" "$VERILATOR_REPO" "$TAG" "$VERILATOR_COMMIT" "$PREFIX" \
+        "${missing[@]}" >"$log" 2>&1; then
       tail -n 40 "$log" >&2
       echo "session-start: Verilator build failed; full log: $log" >&2
       exit 1
     fi
-    rm -rf "$src"
     verilator_ok || { echo "session-start: built Verilator does not report $VERILATOR_VERSION" >&2; exit 1; }
   fi
   flock -u 9
@@ -159,4 +179,7 @@ if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
 fi
 
 "$VERILATOR" --version
-python3 -I -c 'import sys, cocotb, pytest, yaml; print("python", sys.version.split()[0], "cocotb", cocotb.__version__, "pytest", pytest.__version__, "PyYAML", yaml.__version__)'
+python3 -I -c 'import sys, cocotb, pytest, yaml, markdown_it, pygments
+print("python", sys.version.split()[0], "cocotb", cocotb.__version__,
+      "pytest", pytest.__version__, "PyYAML", yaml.__version__,
+      "markdown-it-py", markdown_it.__version__, "Pygments", pygments.__version__)'

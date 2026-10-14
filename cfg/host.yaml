@@ -9,6 +9,7 @@
 verilator:
   version: "5.052"                  # `verilator --version` prints "Verilator 5.052 ..."
   tag: v5.052                       # git tag built from source
+  commit: ea338be98e1e838d3518809ce8899f85a009963c   # v5.052^{}; verified after clone
   repo: https://github.com/verilator/verilator
   prefix: /opt/verilator/5.052      # install prefix; binary at <prefix>/bin/verilator
   # Debian/Ubuntu packages needed to build it (cloud image is Ubuntu).
@@ -21,7 +22,6 @@ python:
 hosts:
   cloud:
     description: Claude Code cloud session (Ubuntu); provisioned by .claude/hooks/session-start.sh
-    verilator_prefix: /opt/verilator/5.052
     python: system python3, packages installed into it from tools/requirements.txt
   omarchy:
     description: self-hosted CI host (Arch Linux); provisioned by hand, not by the hook
