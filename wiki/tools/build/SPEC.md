@@ -29,7 +29,7 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `regress` | Run regression levels; see the [regress spec](../regress/SPEC.md). |
 | `clean [--ip ID]...` | Delete the whole workdir. With `--ip`, empty `workdir/<ip>/` for each given IP but keep the directories of its sub-IPs, which nest there. |
 | `labels` | Sync and check GitHub labels; see the [labels spec](../labels/SPEC.md). |
-| `ci unit\|summary` | `ci-gate` helpers: unit-test suites and the job summary; see the [CI spec](../ci/SPEC.md). |
+| `ci unit\|summary\|status` | `ci-gate` helpers: unit-test suites, the job summary and the data-branch `ci-gate` status; see the [CI spec](../ci/SPEC.md). |
 | `metrics collect\|commits\|guard\|red` | Nightly metrics records, the per-commit series, the data guard and the `nightly-red` issue; see the [metrics spec](../metrics/SPEC.md). |
 | `wiki build\|serve` | Build the wiki site into `<workdir>/wiki-site`, or serve an existing build; see the [wiki site spec](../wiki_site/SPEC.md). |
 | `check` | Static checks; see the [checks spec](../checks/SPEC.md). |

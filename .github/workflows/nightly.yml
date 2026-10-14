@@ -190,7 +190,9 @@ jobs:
         run: |
           set -euo pipefail
           case "$BASE" in (*[!A-Za-z0-9._/-]*|"") echo "::error::invalid base branch"; exit 1;; esac
-          branch="nightly/$DATE"
+          # A test dispatch against another base gets its own branch, so it
+          # never force-pushes over the day's real data PR head.
+          if [ "$BASE" = main ]; then branch="nightly/$DATE"; else branch="nightly/$DATE-${BASE//\//-}"; fi
           data_dir=$(python3 -c 'import yaml; print(yaml.safe_load(open("cfg/metrics.yaml"))["data_dir"])')
           git fetch --quiet origin "$BASE"
           git worktree prune
@@ -237,9 +239,12 @@ jobs:
           gh api --silent -X POST "repos/$REPO/issues/$number/labels" -f 'labels[]=type:data' -f 'labels[]=area:wiki'
           echo "data PR: $GITHUB_SERVER_URL/$REPO/pull/$number"
 
-          # Pushes and PRs made with GITHUB_TOKEN start no workflows, so run
-          # ci-gate (which holds the data guard) by dispatch on the branch; its
-          # check run lands on the PR head.
+          # Pushes and PRs made with GITHUB_TOKEN start no runnable workflows
+          # (pull_request runs wait for approval), so run ci-gate (which holds
+          # the data guard) by dispatch on the branch. Protection does not
+          # count that dispatched check run; the run's ci-gate-status job posts
+          # the gate's result as the `ci-gate` commit status on the PR head,
+          # which it does count (wiki/tools/metrics/SPEC.md#nightly-workflow).
           gh api --silent -X POST "repos/$REPO/actions/workflows/ci.yml/dispatches" -f ref="$branch"
           echo "dispatched ci.yml on $branch"
 

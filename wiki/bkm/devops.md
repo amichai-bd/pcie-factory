@@ -143,6 +143,21 @@ pushes to `main` and manual dispatch:
    model unit tests of the affected IPs (`./build ci unit`).
 4. `./build regress --level 0 --level 1` for the affected IPs.
 
+**`ci-gate` on the data PR.** The nightly opens its data PR with
+`GITHUB_TOKEN`, which starts no runnable `pull_request` run, so it
+dispatches `ci-gate` on the data branch. Protection does not count a
+dispatched check run toward a PR, so the dispatched run's `ci-gate-status`
+job mirrors the gate's result as a `ci-gate` commit status on the tested
+commit; the required check is bound to GitHub Actions, which accepts a
+status that app posts. Only that job holds `statuses: write`, and only for
+a push or dispatch of a `nightly/` ref, never for a `pull_request` (so never
+for a fork); its state is the gate job's own result (a failure, cancellation
+or skip blocks the merge). A person or another app cannot post a status
+that counts, because protection only accepts `ci-gate` from GitHub Actions;
+a workflow a writer adds could, exactly as a writer can already edit
+`ci.yml` in their own PR, so review stays the control for writers
+([CI spec](../tools/ci/SPEC.md#build-ci-status)).
+
 The [CI tool spec](../tools/ci/SPEC.md) owns the workflow's steps and
 `cfg/ci.yaml`; the [regress spec](../tools/regress/SPEC.md#selection) owns
 the exact selection.
@@ -180,7 +195,9 @@ permissions and data PR mechanics):
 4. A data PR from branch `nightly/<date>`, labelled `type:data`, under the
    permanent exception in [`CLAUDE.md`](../../CLAUDE.md#flow): the data
    guard in `ci-gate` fails it if it touches anything outside
-   `wiki/tracker/data/**`, and it auto-merges after `ci-gate`.
+   `wiki/tracker/data/**`, and it auto-merges after `ci-gate` (the
+   dispatched gate's result, posted as the `ci-gate` commit status). Each
+   night's data PR closes any older open one.
 5. On failure, open or update the single `nightly-red` issue; close it when
    the nightly is green again.
 

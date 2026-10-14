@@ -256,17 +256,30 @@ PRs carrying the label are ignored.
 **`nightly.yml`** runs at 03:17 UTC daily and on `workflow_dispatch`, never
 on `pull_request`, on `[self-hosted, linux, x64]`. Its `base` input
 (default `main`) is the data PR's base; any other base is for testing the
-workflow and skips auto-merge and the `nightly-red` issue.
+workflow and skips auto-merge and the `nightly-red` issue. The data branch
+is `nightly/<date>` for `main` and `nightly/<date>-<base>` (slashes in the
+base become `-`) for any other base, so a test dispatch never force-pushes
+over the day's real data PR.
 
 | Job | Permissions | Does |
 | --- | --- | --- |
 | `nightly` (480 min) | read: contents, issues, pull-requests, actions | `./build check`; `./build regress --level 0 --level 1 --level 2` (all IPs); `./build fpga --all` and the ASIC flow for IPs with `fpga/` or `asic/` (`--all`, else one `--ip` per IP); `./build metrics commits --ref origin/main` continuing the base branch's series, then `./build metrics collect` with the step outcomes; uploads both files. Every step runs even after a failure; a step whose subcommand is still a stub, or has no IP inputs, is `skipped`. |
-| `publish` (15 min) | write: contents, pull-requests, actions | Checks out without persisted credentials and installs PyYAML; commits only the two data files, as `github-actions[bot]`, on `nightly/<date>` from the base tip; runs `./build metrics guard` from this trusted checkout; force-pushes the branch with the token passed for that one command; closes, with a comment, any other open `nightly/*` PR into the same base (they would conflict on `commits.jsonl`); opens (or reuses) the PR labelled `type:data` and `area:wiki`; dispatches `ci.yml` (`ci-gate`, with the data guard) on the branch; on `main`, enables squash auto-merge and dispatches `pages.yml` on `main`. |
+| `publish` (15 min) | write: contents, pull-requests, actions | Checks out without persisted credentials and installs PyYAML; commits only the two data files, as `github-actions[bot]`, on the data branch from the base tip; runs `./build metrics guard` from this trusted checkout; force-pushes the branch with the token passed for that one command; closes, with a comment, any other open `nightly/*` PR into the same base (they would conflict on `commits.jsonl`); opens (or reuses) the PR labelled `type:data` and `area:wiki`; dispatches `ci.yml` (`ci-gate`, with the data guard) on the branch; on `main`, enables squash auto-merge and dispatches `pages.yml` on `main`. |
 | `report` (5 min) | read contents, write issues | `./build metrics red` with `success` only when `nightly` and `publish` both succeeded. |
 
-Pushes and PRs made with `GITHUB_TOKEN` start no workflow runs, so the
-data PR gets its checks by `workflow_dispatch` on its branch; the check
-runs land on the PR's head commit. GitHub has no REST call to enable
+Pushes and PRs made with `GITHUB_TOKEN` start no runnable workflows (a
+push starts none; the PR's `pull_request` runs are created as
+`action_required` and wait for an approval nobody gives), so the data PR gets
+its checks by `workflow_dispatch` on its branch. Branch protection does not
+count the dispatched `ci-gate` check run toward the PR, even on the PR's
+head commit (issue #53: PR blocked, `405 Required status check "ci-gate" is
+expected`). The dispatched run's `ci-gate-status` job therefore posts the
+gate's own result as a commit status with context `ci-gate` on the head
+commit ([`./build ci status`](../ci/SPEC.md#build-ci-status)); a status from
+GitHub Actions satisfies the required check, which is bound to that app, so
+a green gate lets auto-merge proceed and a red or cancelled one keeps the PR
+blocked. The PR then shows `unstable` (the waiting `pull_request` runs are
+not required), which auto-merge accepts. GitHub has no REST call to enable
 auto-merge, so `publish` uses `gh pr merge --auto --squash` (GraphQL, which
 works with `GITHUB_TOKEN` on the runner). It needs the repository setting
 **Allow auto-merge** and a required check on `main`; without them the step
@@ -291,7 +304,10 @@ of any open PR, else `main`), which is how the nightly's dispatched run
 checks the data PR; any other push or dispatch passes at once, without an
 API call or history fetch. Like every PR check, a PR can
 edit its own copy of the workflow; the `publish` job's own guard run, from
-the trusted checkout, is what keeps the bot honest.
+the trusted checkout, is what keeps the bot honest. A superseded data PR
+(for example one opened before a fix to this flow) is closed by the next
+night's `publish`, which closes every other open `nightly/*` PR into the
+same base.
 
 A data PR changes only `wiki/tracker/data/**`, a docs-only change: on a
 `pull_request` run `ci-gate` selects no IPs. The nightly's dispatched run is
