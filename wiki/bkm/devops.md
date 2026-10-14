@@ -69,6 +69,7 @@ workdir/                    all generated output, ignored
 | Filelists: every path resolves, no duplicate after flattening, no orphan RTL; every IP has its DV filelists and three valid level files | [layout](../project/layout.md#per-ip-files) |
 | Wiki mirror: `wiki/src/` has every IP's required pages and no folder without a `src/` counterpart | [wiki BKM](wiki.md#page-set) |
 | Neutrality: the word list in `cfg/checks.yaml`, with the scope and exemptions set by the contract | [`CLAUDE.md`](../../CLAUDE.md#design-neutrality) |
+| Publishability: no keys, tokens, URL credentials, IP addresses, home paths or personal email addresses in any file, with reviewed exemptions in `cfg/checks.yaml` | [wiki BKM](wiki.md#publishability) |
 
 `tools/` unit tests run when `tools/` or `cfg/` change. Doc line caps are a
 review guideline, not a check.
@@ -92,7 +93,7 @@ by raising the budget silently.
 
 | Change | Run before review |
 | --- | --- |
-| Docs only | Link check and the neutrality check |
+| Docs only | Link check and the neutrality and publishability checks |
 | `tools/`, `cfg/` | `./build check`, the tool unit tests, L0 of all IPs |
 | RTL or DV | `./build check`, `./build regress --level 0 --level 1 --affected origin/main` |
 | Architecture models (`arch/`) | `./build check`, the model self-tests, `./build arch --ip <ip>` ([arch BKM](arch.md#evidence)) |
@@ -107,11 +108,11 @@ Missing evidence is a review finding.
 
 ## Continuous integration
 
-Workflows live in `.github/workflows/` (`ci`, `nightly`, `pages`, `fpga`, `asic`) and run on
-self-hosted runners selected with `runs-on: [self-hosted, linux, x64]`. The
-runners are registered to this repository only, so no workflow names the
-design target. The CI host is the Omarchy machine; `cfg/host.yaml` pins its
-toolchain.
+Workflows live in `.github/workflows/` (`ci`, `nightly`, `pages`, `fpga`,
+`asic`) and run on self-hosted runners selected with
+`runs-on: [self-hosted, linux, x64]`. The runners are registered to this
+repository only, so no workflow names the design target. The CI host is
+the Omarchy machine; `cfg/host.yaml` pins its toolchain.
 
 **Forks.** The repository is public, so fork code must not reach these
 runners. Every job that a `pull_request` can trigger carries
@@ -128,7 +129,9 @@ approval setting (approval for first-time contributors only); the captain
 accepts the residual risk that a returning outside contributor's fork could
 run code on the runners. Maintainers **never approve a fork PR's workflow
 run**. Fork changes reach CI only by review and re-push: a maintainer reviews
-the diff, pushes its commits to a branch in this repository and merges
+the whole diff, including every workflow and `./build` change, and only then
+pushes its commits to a branch in this repository, because the re-push is
+when fork code reaches the self-hosted runners. The maintainer merges
 through a PR from that branch, whose `ci-gate` is the gate (a skipped job
 counts as passing a required check, so a fork PR's own run proves nothing).
 Workflows never use `pull_request_target` with a PR checkout and never echo
@@ -155,14 +158,16 @@ job mirrors the gate's result as a `ci-gate` commit status on the tested
 commit; the required check is bound to GitHub Actions, which accepts a
 status that app posts. Only that job holds `statuses: write`, and only for
 a dispatch on a `nightly/` ref (push triggers only on `main`), never for a
-`pull_request` (so never for a fork); its state is the gate job's own result (a failure, cancellation
-or skip blocks the merge). A person or another app cannot post a status
-that counts, because protection only accepts `ci-gate` from GitHub Actions;
-a workflow a writer adds could, exactly as a writer can already edit
-`ci.yml` in their own PR, so review stays the control for writers
+`pull_request` (so never for a fork); its state is the gate job's own
+result (a failure, cancellation or skip blocks the merge). A person or
+another app cannot post a status that counts, because protection only
+accepts `ci-gate` from GitHub Actions; a workflow a writer adds could,
+exactly as a writer can already edit `ci.yml` in their own PR, so review
+stays the control for writers
 ([CI spec](../tools/ci/SPEC.md#build-ci-status)). Any writer can dispatch
 `ci.yml` on any `nightly/*` ref, and the status binds to the tested commit,
-not to a PR or its base ([what a status vouches for](../tools/ci/SPEC.md#the-workflow)).
+not to a PR or its base
+([what a status vouches for](../tools/ci/SPEC.md#the-workflow)).
 
 **Review is process, not enforcement.** Branch protection on `main`
 requires `ci-gate` only, with no required approving reviews. The
@@ -188,8 +193,9 @@ the exact selection.
 | Docs only | Checks only |
 
 A sub-IP is an IP in its own right: a change inside its folders
-(`src/<kind>/<ip>_<sub>/`) selects the sub-IP, and selects the parent only when the parent's filelists
-reach the changed file or the change is in the sub-IP's models.
+(`src/<kind>/<ip>_<sub>/`) selects the sub-IP, and selects the parent only
+when the parent's filelists reach the changed file or the change is in the
+sub-IP's models.
 
 Superseded PR runs are cancelled; every push to `main` keeps its run.
 
@@ -201,8 +207,8 @@ permissions and data PR mechanics):
 
 1. `./build check`, then `./build regress --level 0 --level 1 --level 2`
    across all IPs.
-2. `./build fpga` and `./build asic` for every IP with `src/fpga/<ip>/` or `src/asic/<ip>/`
-   inputs.
+2. `./build fpga` and `./build asic` for every IP with `src/fpga/<ip>/` or
+   `src/asic/<ip>/` inputs.
 3. Metrics: the per-commit series `wiki/tracker/data/commits.jsonl` and the
    nightly record `wiki/tracker/data/<date>.json` (versioned schemas).
 4. A data PR from branch `nightly/<date>`, labelled `type:data`, under the

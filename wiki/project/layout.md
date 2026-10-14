@@ -4,6 +4,10 @@
 .
 ├── CLAUDE.md                    # agent contract (normative; no AGENTS.md)
 ├── README.md                    # human overview
+├── LICENSE                      # Apache-2.0 license text
+├── NOTICE                       # copyright and third-party notice
+├── .gitignore                   # ignores workdir/, worktrees/ and caches
+├── .gitattributes               # line endings; binary and vendored files
 ├── build                        # single entry point → tools/
 ├── .claude/                     # settings.json, hooks/, skills/<name>/SKILL.md
 ├── .github/                     # workflows/{ci,nightly,pages,fpga,asic}.yml, templates

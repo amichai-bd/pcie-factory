@@ -75,22 +75,24 @@ pd (ORFS/sky130hd).
   merge gate is an APPROVE verdict at the head plus `ci-gate` green on that
   head. This ends the earlier temporary exception that allowed merging on
   local validation evidence before the runners were online.
-- **Runner selection (firstmate decision, recorded on #1):** workflows target `[self-hosted, linux, x64]`; runners
-  registered to this repository serve only it, so no workflow names the
-  design target.
-- **Root layout addition (firstmate decision, recorded on #1):** `src/README.md` declares the design target and
-  prefix so that everything outside `src/` can stay neutral.
+- **Runner selection (firstmate decision, recorded on #1):** workflows
+  target `[self-hosted, linux, x64]`; runners registered to this repository
+  serve only it, so no workflow names the design target.
+- **Root layout addition (firstmate decision, recorded on #1):**
+  `src/README.md` declares the design target and prefix so that everything
+  outside `src/` can stay neutral.
 - **Wiki mirrors src; HAS and MAS defined (captain decisions, recorded on
   [#1](https://github.com/amichai-bd/pcie-factory/issues/1#issuecomment-6176791147)
   and [#1](https://github.com/amichai-bd/pcie-factory/issues/1#issuecomment-6176828568)),
   updating Q11/12:** `wiki/src/` mirrors `src/` folder by folder and
   `wiki/tools/<tool>/` mirrors `tools/<tool>/`. The HAS (High-level
-  Architecture Specification: what and why) is the IP's `HAS.md` in its `arch` folder,
-  for top-level IPs only; the MAS (Micro-Architecture Specification: how) is
-  `MAS.md` in its `rtl` folder and the DV plan `DV_PLAN.md` in its `dv` folder
-  for every IP and sub-IP; `FPGA.md` and `ASIC.md` exist exactly when the
-  IP's `fpga` or `asic` source folder does. The `arch` source folder holds Python behavioral and
-  performance models for architects, not verification; DV may import them,
+  Architecture Specification: what and why) is the IP's `HAS.md` in its
+  `arch` folder, for top-level IPs only; the MAS (Micro-Architecture
+  Specification: how) is `MAS.md` in its `rtl` folder and the DV plan
+  `DV_PLAN.md` in its `dv` folder for every IP and sub-IP; `FPGA.md` and
+  `ASIC.md` exist exactly when the IP's `fpga` or `asic` source folder does.
+  The `arch` source folder holds Python behavioral and performance models
+  for architects, not verification; DV may import them,
   never the reverse. Delivered by
   [#55](https://github.com/amichai-bd/pcie-factory/issues/55) (`./build arch`,
   [arch BKM](../../bkm/arch.md)): a top-level IP whose HAS defines targets

@@ -131,7 +131,8 @@ def test_exempt_trees_are_fixed(repo):
 
 
 @pytest.mark.parametrize("text, msg", [
-    ("neutrality: {words: [a]}\nextra: 1\n", "only 'neutrality'"),
+    ("neutrality: {words: [a]}\nextra: 1\n", "'neutrality' and only"),
+    ("publishability: {allow: []}\n", "'neutrality' and only"),
     ("neutrality: {repo_slug: a/b}\n", "'words' and optional"),
     ("neutrality: {words: [a], note: x}\n", "'words' and optional"),
     ("neutrality: {words: []}\n", "words is empty"),

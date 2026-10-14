@@ -32,6 +32,8 @@ from checks.common import CheckConfigError, CheckResult
 CONFIG = "cfg/checks.yaml"
 # The exempt trees, as CLAUDE.md "Design neutrality" fixes them.
 EXEMPT = ("src/", "wiki/src/", "wiki/tracker/data/")
+# Top-level sections of cfg/checks.yaml; each check validates its own.
+SECTIONS = {"neutrality", "publishability"}
 
 _WORDS_LINE = re.compile(r"^\s*words\s*:\s*(\[[^\]\n]*\])", re.MULTILINE)
 _SLUG_LINE = re.compile(r"^\s*repo_slug\s*:\s*(\S+)", re.MULTILINE)
@@ -52,8 +54,9 @@ def load_config(repo_root: Path, path: str = CONFIG) -> Config:
         raise CheckConfigError(f"{p}: {exc.strerror}") from None
     except yaml.YAMLError as exc:
         raise CheckConfigError(f"{p}: invalid YAML: {exc}") from None
-    if not isinstance(data, dict) or set(data) != {"neutrality"}:
-        raise CheckConfigError(f"{p}: top level must be a mapping with only 'neutrality'")
+    if not isinstance(data, dict) or "neutrality" not in data or not set(data) <= SECTIONS:
+        raise CheckConfigError(
+            f"{p}: top level must be a mapping with 'neutrality' and only {sorted(SECTIONS)}")
     n = data["neutrality"]
     if not isinstance(n, dict) or "words" not in n or not set(n) <= {"words", "repo_slug"}:
         raise CheckConfigError(f"{p}: 'neutrality' must have 'words' and optional 'repo_slug' only")

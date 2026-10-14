@@ -12,3 +12,28 @@ neutrality:
   words: [pcie, pci express, pci sig, ltssm, dllp]
   # owner/repo exempt inside GitHub URLs; unset means "from the origin remote".
   # repo_slug: owner/repo
+
+publishability:
+  # Reviewed exemptions only. Each entry exempts the exact matched text of
+  # one rule (in the files its optional fnmatch `path` glob names) and says
+  # why; an entry that matches nothing fails the check as stale.
+  allow:
+    - rule: email
+      match: git@github.com
+      reason: the SSH user of a Git host remote URL, not a person
+    - rule: home-path
+      match: /home/someone
+      path: tools/metrics/tests/*
+      reason: placeholder home path planted to test that metrics records refuse it
+    - rule: ipv4
+      match: 10.1.2.3
+      path: tools/metrics/tests/test_metrics_record.py
+      reason: made-up private address planted to test that metrics records refuse it
+    - rule: ipv6
+      match: fe80::1
+      path: tools/metrics/tests/test_metrics_record.py
+      reason: generic link-local address planted to test that metrics records refuse it
+    - rule: token
+      match: AKIAABCDEFGHIJKLMNOP
+      path: tools/metrics/tests/test_metrics_record.py
+      reason: fake key-shaped string (the alphabet) planted to test that metrics records refuse it
