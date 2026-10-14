@@ -144,7 +144,11 @@ HTTP (`serve`, Pages) but not from `file://`.
 - **Pushes to `main` and manual runs** build, upload the site with
   `actions/upload-pages-artifact`, and deploy it with `actions/deploy-pages`.
 
-The repository's Pages source must be set to "GitHub Actions".
+The published site is **public** although the repository is private; the
+[wiki BKM](../../bkm/wiki.md#publishability) owns what may be published. The
+captain enables Pages by setting the repository's Pages source to "GitHub
+Actions"; until then the deploy job fails while the build job still checks
+every change.
 
 ## Files
 

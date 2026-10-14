@@ -52,6 +52,10 @@ pd (ORFS/sky130hd).
 
 ## Updates
 
+- **Public site (captain decision, recorded on #1):** the wiki is published to
+  GitHub Pages as a public site although the repository is private. Everything
+  under `wiki/` must be publishable; reviewers check it on every PR that
+  touches `wiki/`.
 - **CI host:** the self-hosted runners, Quartus Lite and ORFS/sky130hd run on
   the Omarchy host (supersedes earlier "WSL host" wording).
 - **Temporary exception (captain-approved):** until the self-hosted runners

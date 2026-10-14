@@ -44,6 +44,8 @@ owner and replace the copy with a link.
 - Only `wiki/src/` names the design target or IPs; BKMs, tool SPECs and
   project pages stay neutral ([design neutrality](../../../CLAUDE.md#design-neutrality)).
 - Adapted text carries a provenance line (source path, commit, license).
+- The site is public: write nothing that may not be published
+  ([publishability](../../../wiki/bkm/wiki.md#publishability)).
 
 Skeletons (omit empty sections; headings stay stable once linked):
 
