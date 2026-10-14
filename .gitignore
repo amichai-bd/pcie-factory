@@ -1,0 +1,18 @@
+# All generated output
+/workdir/
+
+# Issue worktrees (keep only the guide)
+/worktrees/*
+!/worktrees/README.md
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
