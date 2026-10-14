@@ -16,6 +16,7 @@ from build.filelist import FilelistError
 from build.ip import Context, DiscoveryError, discover, find_ip, make_context
 from fpga import flow as fpga
 from labels import core as labels
+from metrics import cli as metrics
 from regress import run as regress
 from regress.affected import GitError
 from regress.schema import LEVELS, SchemaError, load_ip
@@ -238,6 +239,7 @@ COMMANDS = {
     "check": ("static checks", stub(7), None),
     "labels": ("GitHub label sync and check", cmd_labels, _labels_args),
     "wiki": ("build or serve the wiki site", cmd_wiki, _wiki_args),
+    "metrics": ("nightly metrics, data guard and red issue", metrics.run, metrics.add_args),
     "fpga": ("FPGA flow: Quartus compile and metrics", cmd_fpga, _fpga_args),
     "asic": ("ASIC flow", stub(14), None),
 }

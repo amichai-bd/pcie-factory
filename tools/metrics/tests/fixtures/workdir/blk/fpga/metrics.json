@@ -1,0 +1,19 @@
+{
+  "ip": "blk", "board": "board_x", "top": "xy_blk_board", "schema": 1,
+  "quartus_version": "23.1std.1 Build 993 SC Lite Edition",
+  "family": "Family X", "device": "DEV123",
+  "project_dir": "/home/someone/checkout/workdir/blk/fpga",
+  "resources": {
+    "logic_elements": {"used": 120, "total": 1000, "ratio": 0.12},
+    "registers": 64,
+    "memory_blocks": {"type": "M9K", "used": 0, "total": 10},
+    "pins": {"used": 5, "total": 100}
+  },
+  "timing": {
+    "clocks": {"clk_50": {"fmax_mhz": 210.5, "restricted_fmax_mhz": 210.5, "setup_slack_ns": 15.2, "hold_slack_ns": 0.3, "recovery_slack_ns": null, "removal_slack_ns": null}},
+    "worst_setup_slack_ns": 15.2, "worst_hold_slack_ns": 0.3,
+    "unconstrained_total": 0, "met": true,
+    "critical_path": {"from": "u_core|q[3]", "to": "u_core|q[7]", "slack_ns": 15.2, "data_delay_ns": 4.1}
+  },
+  "flow": {"lint": "pass", "steps": {"map": {"status": "pass", "runtime_s": 12.0, "warnings": 3, "log": "/home/someone/checkout/workdir/blk/fpga/logs/map.log"}}}
+}

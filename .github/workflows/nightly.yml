@@ -1,0 +1,259 @@
+# Nightly L2, metrics and the guarded data PR. Owning docs: wiki/bkm/devops.md
+# (Nightly, Metrics) and wiki/tools/metrics/SPEC.md (Nightly workflow).
+#
+# Three jobs, each with only the token permissions it needs:
+#   nightly  read-only: checks, L0+L1+L2, FPGA and ASIC flows, metrics files
+#   publish  contents/pull-requests/actions write: commits ONLY the data files
+#            on nightly/<date>, opens the type:data PR, dispatches its checks
+#   report   issues write: opens/updates/closes the single nightly-red issue
+# No pull_request trigger, so fork code never reaches this workflow.
+name: nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"   # 03:17 UTC daily, off-peak
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Base branch of the data PR. Only main enables auto-merge and the nightly-red issue; another branch is for testing this workflow."
+        type: string
+        default: main
+
+permissions: {}
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+env:
+  BASE: ${{ inputs.base || 'main' }}
+
+jobs:
+  nightly:
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 480
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      actions: read
+    outputs:
+      date: ${{ steps.prep.outputs.date }}
+      collected: ${{ steps.collect.outcome == 'success' }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0          # full first-parent history for the commit series
+          persist-credentials: false
+
+      - name: Prepare
+        id: prep
+        run: |
+          case "$BASE" in (*[!A-Za-z0-9._/-]*|"") echo "::error::invalid base branch"; exit 1;; esac
+          echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+          mkdir -p workdir/nightly
+          # run_step NAME CMD...: run CMD with its output logged; record
+          # result=pass|fail|skipped (skipped: the subcommand is still a stub).
+          cat > workdir/nightly/lib.sh <<'EOF'
+          run_step() {
+            local name="$1"; shift
+            local log="workdir/nightly/$name.log" code
+            set +e; "$@" 2>&1 | tee "$log"; code=${PIPESTATUS[0]}; set -e
+            if [ "$code" -eq 2 ] && grep -q 'not implemented yet' "$log"; then
+              echo "::notice::$name: not implemented on this commit; skipped"
+              echo "result=skipped" >> "$GITHUB_OUTPUT"; return 0
+            fi
+            [ "$code" -eq 0 ] && echo "result=pass" >> "$GITHUB_OUTPUT" || echo "result=fail" >> "$GITHUB_OUTPUT"
+            return "$code"
+          }
+          skip_step() { echo "::notice::$1"; echo "result=skipped" >> "$GITHUB_OUTPUT"; }
+          EOF
+          git log --oneline -1
+
+      - name: Python dependencies
+        run: |
+          if python3 -m pip install --dry-run --no-index --quiet -r tools/requirements.txt >/dev/null 2>&1; then
+            echo "runner Python satisfies tools/requirements.txt"
+          else
+            python3 -m venv workdir/venv
+            workdir/venv/bin/pip install --quiet -r tools/requirements.txt
+            echo "$PWD/workdir/venv/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Static checks
+        id: check
+        run: |
+          . workdir/nightly/lib.sh
+          run_step check ./build check
+
+      - name: Regression L0+L1+L2 (all IPs)
+        id: regress
+        if: ${{ !cancelled() }}
+        run: |
+          . workdir/nightly/lib.sh
+          run_step regress ./build regress --level 0 --level 1 --level 2 --jobs "$(nproc)"
+
+      - name: FPGA flow (IPs with fpga/)
+        id: fpga
+        if: ${{ !cancelled() }}
+        run: |
+          . workdir/nightly/lib.sh
+          if ! find src -type d -name fpga | grep -q .; then skip_step "fpga: no IP has fpga/ inputs"
+          elif ./build fpga --help 2>/dev/null | grep -q -- '--all'; then run_step fpga ./build fpga --all
+          else skip_step "fpga: ./build fpga --all is not available on this commit"; fi
+
+      - name: ASIC flow (IPs with asic/)
+        id: asic
+        if: ${{ !cancelled() }}
+        run: |
+          . workdir/nightly/lib.sh
+          ips=$(find src -type d -name asic -not -path '*/rtl/*' -not -path '*/dv/*' | sed 's|^src/||; s|/asic$||' | sort)
+          help=$(./build asic --help 2>/dev/null || true)
+          if [ -z "$ips" ]; then skip_step "asic: no IP has asic/ inputs"
+          elif grep -q -- '--all' <<<"$help"; then run_step asic ./build asic --all
+          elif grep -q -- '--ip' <<<"$help"; then
+            run_step asic bash -c 'rc=0; for ip in "$@"; do ./build asic --ip "$ip" || rc=1; done; exit $rc' _ $ips
+          else skip_step "asic: ./build asic is not available on this commit"; fi
+
+      - name: Metrics
+        id: collect
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DATE: ${{ steps.prep.outputs.date }}
+        run: |
+          out=workdir/nightly-data
+          mkdir -p "$out"
+          # Continue the base branch's series (the first run backfills it).
+          git show "origin/$BASE:wiki/tracker/data/commits.jsonl" > "$out/commits.jsonl" 2>/dev/null || rm -f "$out/commits.jsonl"
+          ./build metrics commits --ref origin/main --file "$out/commits.jsonl"
+          ./build metrics collect --out "$out/$DATE.json" \
+            --step "check=${{ steps.check.outputs.result || 'fail' }}" \
+            --step "regress=${{ steps.regress.outputs.result || 'fail' }}" \
+            --step "fpga=${{ steps.fpga.outputs.result || 'fail' }}" \
+            --step "asic=${{ steps.asic.outputs.result || 'fail' }}"
+
+      - name: Upload data files
+        if: ${{ !cancelled() && steps.collect.outcome == 'success' }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: nightly-data
+          path: workdir/nightly-data/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload regression summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: regress-summary
+          path: workdir/regress/summary.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  publish:
+    needs: nightly
+    if: ${{ !cancelled() && needs.nightly.outputs.collected == 'true' }}
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 15
+    permissions:
+      contents: write        # push nightly/<date>
+      pull-requests: write   # open and label the data PR, enable auto-merge
+      actions: write         # dispatch the data branch's checks (see below)
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: true   # this job pushes; it runs no PR code
+
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: nightly-data
+          path: workdir/nightly-data
+
+      - name: Python dependencies
+        run: |
+          python3 -m venv workdir/venv
+          workdir/venv/bin/pip install --quiet "$(grep '^PyYAML==' tools/requirements.txt)"
+          echo "$PWD/workdir/venv/bin" >> "$GITHUB_PATH"
+
+      - name: Commit the data files on nightly/<date> and open the data PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DATE: ${{ needs.nightly.outputs.date }}
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          case "$BASE" in (*[!A-Za-z0-9._/-]*|"") echo "::error::invalid base branch"; exit 1;; esac
+          branch="nightly/$DATE"
+          data_dir=$(python3 -c 'import yaml; print(yaml.safe_load(open("cfg/metrics.yaml"))["data_dir"])')
+          git fetch --quiet origin "$BASE"
+          git worktree prune
+          git worktree add --quiet -B "$branch" workdir/data-branch "origin/$BASE"
+          mkdir -p "workdir/data-branch/$data_dir"
+          cp workdir/nightly-data/* "workdir/data-branch/$data_dir/"
+          git -C workdir/data-branch add -- "$data_dir"
+          if git -C workdir/data-branch diff --cached --quiet; then
+            echo "no data change against $BASE; nothing to publish"; exit 0
+          fi
+          # Data-only commits use the GitHub Actions bot identity.
+          git -C workdir/data-branch -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit --quiet -m "nightly: metrics for $DATE"
+          # Same guard as the data-guard check, from this trusted checkout.
+          ./build metrics guard --branch "$branch" --base "origin/$BASE" --head "$branch"
+          git push --force origin "refs/heads/$branch:refs/heads/$branch"
+
+          number=$(gh api "repos/$REPO/pulls?head=$OWNER:$branch&state=open" --jq '.[0].number // empty')
+          if [ -z "$number" ]; then
+            body="Nightly metrics for $DATE: changes only \`$data_dir/**\`. Opened by the nightly workflow under the data-PR exception in CLAUDE.md; no issue or reviewer. Run: $GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID"
+            number=$(gh api -X POST "repos/$REPO/pulls" -f title="nightly: metrics for $DATE" \
+              -f head="$branch" -f base="$BASE" -f body="$body" --jq .number)
+          fi
+          gh api --silent -X POST "repos/$REPO/issues/$number/labels" -f 'labels[]=type:data' -f 'labels[]=area:wiki'
+          echo "data PR: $GITHUB_SERVER_URL/$REPO/pull/$number"
+
+          # Pushes and PRs made with GITHUB_TOKEN start no workflows, so run the
+          # data branch's checks by dispatch: their check runs land on the PR head.
+          for wf in data-guard.yml ci.yml; do
+            if [ -f "workdir/data-branch/.github/workflows/$wf" ]; then
+              gh api --silent -X POST "repos/$REPO/actions/workflows/$wf/dispatches" -f ref="$branch" -f "inputs[base]=$BASE" 2>/dev/null \
+                || gh api --silent -X POST "repos/$REPO/actions/workflows/$wf/dispatches" -f ref="$branch"
+              echo "dispatched $wf on $branch"
+            else
+              echo "::warning::$wf is not on $BASE; not dispatched"
+            fi
+          done
+
+          if [ "$BASE" = main ]; then
+            # Auto-merge (squash) once the required checks pass. GitHub has no
+            # REST call for this; gh uses GraphQL, which works with GITHUB_TOKEN.
+            gh pr merge --repo "$REPO" --auto --squash "$number" \
+              || echo "::warning::auto-merge not enabled on #$number (repository 'Allow auto-merge' off or no required checks on main); the PR waits for a maintainer"
+          fi
+
+  report:
+    needs: [nightly, publish]
+    # Test dispatches against another base never touch the nightly-red issue.
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || inputs.base == 'main') }}
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Python dependencies
+        run: |
+          python3 -m venv workdir/venv
+          workdir/venv/bin/pip install --quiet "$(grep '^PyYAML==' tools/requirements.txt)"
+      - name: Open, update or close the nightly-red issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUTCOME: ${{ needs.nightly.result == 'success' && needs.publish.result == 'success' && 'success' || 'failure' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: workdir/venv/bin/python -B ./build metrics red --outcome "$OUTCOME" --run-url "$RUN_URL"

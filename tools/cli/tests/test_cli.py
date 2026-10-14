@@ -17,7 +17,8 @@ def test_stubs_exit_2(name, issue, capsys):
 
 
 def test_dispatch_table():
-    assert set(COMMANDS) == {"sim", "regress", "clean", "labels", "wiki", "fpga"} | set(STUBS)
+    assert set(COMMANDS) == {"sim", "regress", "clean", "labels", "wiki", "fpga",
+                             "metrics"} | set(STUBS)
 
 
 def test_launcher_runs():

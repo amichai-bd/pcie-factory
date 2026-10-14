@@ -26,6 +26,7 @@ it; nothing calls a tool script directly.
 | `fpga` | Quartus flow for one IP ([FPGA BKM](fpga.md)). |
 | `asic` | ORFS flow for one IP ([PD BKM](pd.md)). |
 | `labels` | Label sync from `cfg/labels.yaml`. |
+| `metrics` | Nightly metrics, the data guard and the `nightly-red` issue ([metrics spec](../tools/metrics/SPEC.md)). |
 | `wiki` | Wiki site build. |
 | `clean` | Remove `workdir/` output. |
 
@@ -97,7 +98,7 @@ behavior, not command success. Missing evidence is a review finding.
 
 ## Continuous integration
 
-Workflows live in `.github/workflows/` (`ci`, `nightly`, `pages`, `fpga`) and run on
+Workflows live in `.github/workflows/` (`ci`, `nightly`, `data-guard`, `pages`, `fpga`) and run on
 self-hosted runners selected with `runs-on: [self-hosted, linux, x64]`. The
 runners are registered to this repository only, so no workflow names the
 design target. The repository is public, so fork code must never reach these
@@ -144,33 +145,50 @@ evidence.
 
 ## Nightly
 
-The nightly workflow runs on the same runners:
+The nightly workflow runs daily on the same runners (the
+[metrics spec](../tools/metrics/SPEC.md#workflows) owns its jobs,
+permissions and data PR mechanics):
 
-1. `./build regress --level 0 --level 1 --level 2` across all IPs.
+1. `./build check`, then `./build regress --level 0 --level 1 --level 2`
+   across all IPs.
 2. `./build fpga` and `./build asic` for every IP with `fpga/` or `asic/`
    inputs.
-3. Metrics collection into `wiki/tracker/data/<date>.json` (versioned
-   schema).
+3. Metrics: the per-commit series `wiki/tracker/data/commits.jsonl` and the
+   nightly record `wiki/tracker/data/<date>.json` (versioned schemas).
 4. A data PR from branch `nightly/<date>`, labelled `type:data`, under the
-   permanent exception in [`CLAUDE.md`](../../CLAUDE.md#flow) (guarded to
-   `wiki/tracker/data/**`, auto-merged after `ci-gate`).
+   permanent exception in [`CLAUDE.md`](../../CLAUDE.md#flow): the
+   `data-guard` check fails it if it touches anything outside
+   `wiki/tracker/data/**`, and it auto-merges after `ci-gate` (docs only, so
+   checks only).
 5. On failure, open or update the single `nightly-red` issue; close it when
    the nightly is green again.
 
 ## Metrics
 
-Each nightly record holds:
+Every trend is plotted against commits on `main`, in order. The data:
+
+| File | Holds |
+| --- | --- |
+| `commits.jsonl` | One line per main commit: code stats of its tree and its push `ci-gate` result and duration. Appended nightly; the first run backfills history. |
+| `<date>.json` | One record per night, keyed by the main SHA it ran on. |
 
 | Group | Metrics |
 | --- | --- |
-| Code | LOC and file counts by kind and IP |
-| Tests | Counts, pass/fail, runtime per level, slowest tests |
-| GitHub flow | Issues, PRs, lead time, review rounds |
+| Code | LOC and file counts by kind and IP; extension and directory distribution; commits, contributor count, repository size |
+| Tests | Counts, pass/fail, runtime per level and IP, slowest tests, seeds, nightly result |
+| GitHub flow | Issues by label, PRs merged, lead time, review rounds |
+| CI | `ci-gate` runs, pass rate, duration, latest result on main |
+| Health | Open PR and issue ages, stale issues, `nightly-red`, recent pass rate, review rounds, APPROVE at the merged head |
+| Distributions | Issue close and first-response times, PR lead time, size and review rounds, CI and nightly durations, test runtimes, file sizes |
 | FPGA | Per [FPGA BKM](fpga.md#metrics) |
 | ASIC | Per [PD BKM](pd.md#metrics) |
 
-The tracker pages under `wiki/tracker/` render history; the bot never edits
-the README.
+The [metrics spec](../tools/metrics/SPEC.md) owns the schemas field by
+field. Records hold only counts, durations, label names and SHAs, never
+names, emails, host or path details
+([publishability](wiki.md#publishability)); the tool refuses a record that
+fails its scan. The tracker pages under `wiki/tracker/` render history; the
+bot never edits the README.
 
 ## Labels
 

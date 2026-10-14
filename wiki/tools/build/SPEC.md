@@ -13,6 +13,7 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `tools/regress/` | Regression lists, selection and summary; see the [regress spec](../regress/SPEC.md). |
 | `tools/fpga/` | Quartus FPGA flow and report parsing; see the [fpga spec](../fpga/SPEC.md). |
 | `tools/labels/` | GitHub label standard, sync and check; see the [labels spec](../labels/SPEC.md). |
+| `tools/metrics/` | Nightly metrics, the data guard and the `nightly-red` issue; see the [metrics spec](../metrics/SPEC.md). |
 
 ## Command line
 
@@ -26,6 +27,7 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `regress` | Run regression levels; see the [regress spec](../regress/SPEC.md). |
 | `clean [--ip ID]...` | Delete the whole workdir. With `--ip`, empty `workdir/<ip>/` for each given IP but keep the directories of its sub-IPs, which nest there. |
 | `labels` | Sync and check GitHub labels; see the [labels spec](../labels/SPEC.md). |
+| `metrics collect\|commits\|guard\|red` | Nightly metrics records, the per-commit series, the data guard and the `nightly-red` issue; see the [metrics spec](../metrics/SPEC.md). |
 | `wiki build\|serve` | Build the wiki site into `<workdir>/wiki-site`, or serve an existing build; see the [wiki site spec](../wiki_site/SPEC.md). |
 | `fpga (--ip ID... \| --all) [--part P] [--timeout S] [--dry-run]` | Quartus compile and `metrics.json` for IPs with `fpga/`; see the [fpga spec](../fpga/SPEC.md). |
 | `check`, `asic` | Stubs: print `not implemented yet (see issue #N)` and exit 2. Each is filled in by its issue (#7, #14) by replacing one entry in `COMMANDS`. |

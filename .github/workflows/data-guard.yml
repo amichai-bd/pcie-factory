@@ -1,0 +1,60 @@
+# data-guard: a pull request whose head branch starts with nightly/ may change
+# only the nightly data directory (cfg/metrics.yaml data_dir). Every other
+# branch passes at once. Owning docs: wiki/tools/metrics/SPEC.md (Data guard)
+# and the data-PR exception in CLAUDE.md.
+#
+# The nightly workflow opens its data PR with GITHUB_TOKEN, which starts no
+# pull_request runs, so it dispatches this workflow on the data branch; the
+# check run then lands on the PR's head commit.
+name: data-guard
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Base branch the data branch is compared with"
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: data-guard-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  data-guard:
+    # Fork guard (wiki/bkm/devops.md, continuous integration): fork code never
+    # runs on the self-hosted runners.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Python dependencies
+        run: |
+          python3 -m venv workdir/venv
+          workdir/venv/bin/pip install --quiet "$(grep '^PyYAML==' tools/requirements.txt)"
+
+      - name: Guard the nightly data branch
+        env:
+          # Untrusted names go through the environment, never into the script.
+          PR_BRANCH: ${{ github.head_ref }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_BASE: ${{ inputs.base }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            # The checkout is the merge commit; its first parent is the base tip.
+            branch="$PR_BRANCH"; base="HEAD^1"
+          else
+            case "${INPUT_BASE:-main}" in (*[!A-Za-z0-9._/-]*) echo "::error::invalid base"; exit 1;; esac
+            branch="$REF_NAME"; base="origin/${INPUT_BASE:-main}"
+            git fetch --quiet origin "${INPUT_BASE:-main}"
+          fi
+          workdir/venv/bin/python -B ./build metrics guard --branch "$branch" --base "$base"
