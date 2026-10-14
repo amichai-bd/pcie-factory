@@ -35,11 +35,11 @@ class TestEntry:
     timeout_s: float
     testcase: str | None = None
     seeds: int | tuple[int, ...] = 1  # count (derived seeds) or explicit seeds
+    params: dict = field(default_factory=dict)
 
     @property
     def runs(self) -> int:
         return self.seeds if isinstance(self.seeds, int) else len(self.seeds)
-    params: dict = field(default_factory=dict)
 
     def __hash__(self) -> int:
         return hash((self.ip, self.level, self.name))

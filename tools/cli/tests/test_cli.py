@@ -88,3 +88,37 @@ def test_stale_summary_removed_on_error_kept_on_dry_run(fixture_src, tmp_path):
     (fixture_src / "counter/dv/regress/level0.yaml").write_text("tests: 1\n")
     assert main(base) == 2
     assert not stale.exists()
+
+
+@pytest.mark.parametrize(
+    "seeds, expected",
+    [("[9, 5]", 9), ("2", None)],  # list: first in list order; count: first derived
+)
+def test_sim_default_seed_is_first_regression_seed(fixture_src, tmp_path, monkeypatch, seeds, expected):
+    from pathlib import Path
+
+    from build import sim
+    from regress import run as regress
+    from regress.schema import load_ip
+    from build.ip import discover, find_ip
+
+    (fixture_src / "counter/dv/regress/level2.yaml").write_text(
+        "tests:\n  - {name: r, module: tests.test_counter, top: counter,"
+        f" seeds: {seeds}, timeout_s: 5}}\n")
+    used = []
+    monkeypatch.setattr(sim, "find_verilator", lambda: Path("/fake/verilator"))
+    monkeypatch.setattr(sim, "build", lambda *a: sim.Result("pass", 0.0, Path("b.log")))
+
+    def fake_run_test(spec, workdir, verilator, test, module, testcase, seed, timeout_s):
+        used.append(seed)
+        return sim.Result("pass", 0.0, Path("s.log"))
+
+    monkeypatch.setattr(sim, "run_test", fake_run_test)
+    base = ["sim", "--src-root", str(fixture_src), "--workdir", str(tmp_path), "--ip", "counter", "--test", "r"]
+    assert main(base) == 0
+    if expected is None:
+        ip = find_ip(discover(fixture_src), "counter")
+        (entry,) = [e for e in load_ip(ip, {"inc"}) if e.name == "r"]
+        expected = regress.default_seed(entry, 0)
+    assert used == [expected]
+    assert main(base + ["--seed", "3"]) == 0 and used[-1] == 3

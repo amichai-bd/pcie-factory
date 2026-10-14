@@ -104,13 +104,25 @@ file anywhere below one of the include directories. Subdirectories count
 
 The command looks `<name>` up across the IP's level lists (test names are
 unique per IP; see the regress spec), then builds and runs that one test with
-one seed. The default seed is the test's first regression seed, so a
-regression failure reproduces with the same command line.
+one seed. The default seed is the test's first regression seed:
 
-The simulator is Verilator, driven by cocotb 2.1.0's Python runner
-(`cocotb_tools.runner`). The tools find `verilator` on `PATH`, then in
-`$VERILATOR_ROOT/bin`, then in `/opt/verilator/5.052/bin`. If none of these
-has it, the command fails with exit code 2.
+- With a `seeds` list, it's the first entry in the list's own order, not
+  the sorted order that regress prints.
+- With a count, it's derived seed 0.
+
+`--seed N` overrides the default.
+
+The simulator is Verilator, driven by cocotb's Python runner
+(`cocotb_tools.runner`). The cocotb version is pinned in
+`tools/requirements.txt`; the tools don't check it themselves. The tools
+look for `verilator` in this order:
+
+1. `PATH`.
+2. `$VERILATOR_ROOT/bin`.
+3. `<prefix>/bin`, where `<prefix>` is `verilator.prefix` in
+   `cfg/host.yaml`.
+
+If none of these has it, the command fails with exit code 2.
 
 Sources, include directories and defines come from the resolved
 `dv/<name>.sim.f`. A bare define is passed as `-DNAME=`. The test entry's
@@ -165,4 +177,5 @@ error, waves, a broken filelist in one IP, and the `regress` and `sim` CLI)
 are skipped when Verilator or cocotb is missing. Process-control tests use a
 sleeping shell script in place of the child, so they need no simulator.
 
-Python dependencies: `pyyaml`, `pytest`, `cocotb==2.1.0`.
+Python dependencies (pinned in `tools/requirements.txt`): `PyYAML`,
+`pytest`, `cocotb`.

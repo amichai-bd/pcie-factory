@@ -122,7 +122,7 @@ def test_build_key_and_dirs(tmp_path):
 def test_find_verilator_fallbacks(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     monkeypatch.delenv("VERILATOR_ROOT", raising=False)
-    monkeypatch.setattr(sim, "VERILATOR_FALLBACK_DIRS", [])
+    monkeypatch.setattr(sim, "fallback_dirs", lambda: [])
     assert sim.find_verilator() is None
     exe = tmp_path / "vroot/bin/verilator"
     exe.parent.mkdir(parents=True)
@@ -131,8 +131,17 @@ def test_find_verilator_fallbacks(tmp_path, monkeypatch):
     monkeypatch.setenv("VERILATOR_ROOT", str(tmp_path / "vroot"))
     assert sim.find_verilator() == exe
     monkeypatch.delenv("VERILATOR_ROOT")
-    monkeypatch.setattr(sim, "VERILATOR_FALLBACK_DIRS", [exe.parent])
+    monkeypatch.setattr(sim, "fallback_dirs", lambda: [exe.parent])
     assert sim.find_verilator() == exe
+
+
+def test_fallback_dir_from_host_cfg():
+    import yaml
+    from build.ip import REPO_ROOT
+
+    prefix = yaml.safe_load((REPO_ROOT / "cfg/host.yaml").read_text())["verilator"]["prefix"]
+    assert sim.fallback_dirs() == [Path(prefix) / "bin"]
+    assert str(Path(prefix) / "bin") in sim.not_found_message()
 
 
 # ---------------------------------------------------------------- real sim

@@ -26,14 +26,14 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import yaml
+
 if __package__ in (None, ""):  # executed as a script by the parent process
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from build.filelist import FilelistError, resolve  # noqa: E402
-from build.ip import Ip  # noqa: E402
+from build.ip import REPO_ROOT, Ip  # noqa: E402
 
-COCOTB_VERSION = "2.1.0"
-VERILATOR_FALLBACK_DIRS = [Path("/opt/verilator/5.052/bin")]
 BUILD_TIMEOUT_S = 1800.0  # wall-clock bound on one Verilator build
 
 
@@ -41,21 +41,38 @@ class SimError(Exception):
     pass
 
 
+def fallback_dirs() -> list[Path]:
+    """``<prefix>/bin`` for the pinned Verilator in ``cfg/host.yaml``
+    (``verilator.prefix``); empty when the file or key is absent."""
+    path = REPO_ROOT / "cfg" / "host.yaml"
+    try:
+        data = yaml.safe_load(path.read_text()) or {}
+        prefix = data["verilator"]["prefix"]
+    except (OSError, KeyError, TypeError, yaml.YAMLError):
+        return []
+    return [Path(str(prefix)) / "bin"] if prefix else []
+
+
 def find_verilator() -> Path | None:
     """Locate ``verilator``: PATH, then ``$VERILATOR_ROOT/bin``, then the
-    pinned install directories."""
+    pinned install prefix from ``cfg/host.yaml``."""
     found = shutil.which("verilator")
     if found:
         return Path(found).resolve()
     candidates = []
     if os.environ.get("VERILATOR_ROOT"):
         candidates.append(Path(os.environ["VERILATOR_ROOT"]) / "bin")
-    candidates += VERILATOR_FALLBACK_DIRS
+    candidates += fallback_dirs()
     for d in candidates:
         exe = d / "verilator"
         if exe.is_file() and os.access(exe, os.X_OK):
             return exe
     return None
+
+
+def not_found_message() -> str:
+    places = ["PATH", "$VERILATOR_ROOT/bin"] + [str(d) for d in fallback_dirs()]
+    return "verilator not found (looked in " + ", ".join(places) + ")"
 
 
 @dataclass
@@ -245,12 +262,8 @@ def parse_results(results_xml: Path) -> tuple[str, str]:
 
 def _child(phase: str, job_file: str) -> int:
     job = json.loads(Path(job_file).read_text())
-    import cocotb
     from cocotb_tools.runner import get_runner
 
-    if cocotb.__version__ != COCOTB_VERSION:
-        print(f"error: cocotb {COCOTB_VERSION} required, found {cocotb.__version__}")
-        return 2
     os.environ["PATH"] = str(Path(job["verilator"]).parent) + os.pathsep + os.environ["PATH"]
     # The runner exports sys.path as PYTHONPATH, so the IP's dv/ is importable.
     sys.path.insert(0, job["dv_dir"])

@@ -29,11 +29,11 @@ def cmd_sim(ctx: Context, args) -> int:
         known = ", ".join(sorted(entries)) or "none"
         raise SchemaError(f"IP {ip.id} has no test {args.test!r} (known: {known})")
     entry = entries[args.test]
-    seed = args.seed if args.seed is not None else regress.default_seed(entry, 0)
+    # Default: the test's first regression seed (list order for a seed list).
+    seed = args.seed if args.seed is not None else regress.seeds_for(entry, None)[0]
     verilator = sim.find_verilator()
     if verilator is None:
-        raise sim.SimError("verilator not found (PATH, $VERILATOR_ROOT/bin, "
-                           + ", ".join(map(str, sim.VERILATOR_FALLBACK_DIRS)) + ")")
+        raise sim.SimError(sim.not_found_message())
     spec = sim.BuildSpec(ip, entry.top, dict(entry.params), args.waves)
     built = sim.build(spec, ctx.workdir, verilator)
     print(f"build {built.status} ({built.runtime_s:.1f}s): {built.log}")

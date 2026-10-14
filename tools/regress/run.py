@@ -108,10 +108,7 @@ def run(
     remove_summary(ctx.workdir)
     verilator = sim.find_verilator()
     if verilator is None and selection.runs:
-        raise sim.SimError(
-            "verilator not found on PATH, in $VERILATOR_ROOT/bin or in "
-            + ", ".join(str(d) for d in sim.VERILATOR_FALLBACK_DIRS)
-        )
+        raise sim.SimError(sim.not_found_message())
     budgets = load_budgets(ctx.cfg_dir)
     ips = {ip.id: ip for ip in selection.ips}
     wall_start = time.monotonic()
