@@ -2,7 +2,7 @@
 
 | File | Source | Changes |
 | --- | --- | --- |
-| `wiki.css` | `tools/wiki_site/theme/wiki.css` in github.com/amichai-bd/nand2anything @ `085ef4b` | Navbar tab styles removed; search snippet style, plain folder labels and the tracker block (palette from the dataviz reference palette) added. |
+| `wiki.css` | `tools/wiki_site/theme/wiki.css` in github.com/amichai-bd/nand2anything @ `085ef4b` | Navbar tab styles removed; search snippet style, plain folder labels, a narrow-screen navbar fit and the tracker block (palette from the dataviz reference palette) added. |
 | `wiki.js` | `tools/wiki_site/theme/wiki.js` in the same repository and commit | Search reads `assets/search-index.json` and also matches page text; loads Chart.js and `tracker.js` on tracker pages. |
 | `vendor/mermaid.min.js` | Mermaid 11.4.1 `dist/mermaid.min.js` from the npm tarball `mermaid-11.4.1.tgz`, as vendored by the same repository and commit | Unmodified. SHA-256 `a43bc1afd446f9c4cc66ac5dd45d02e8d65e26fc5344ec0ef787f88d6ddb6f9e`. |
 | `vendor/mermaid-LICENSE.txt` | Mermaid's license (MIT, Copyright (c) 2014 - 2022 Knut Sveidqvist) | Unmodified. |

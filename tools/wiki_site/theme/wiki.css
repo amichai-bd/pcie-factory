@@ -180,7 +180,9 @@ a:hover { text-decoration: underline; }
 }
 @media (max-width: 480px) {
   .navbar { padding: 0 8px; }
-  .navbar-brand { margin-right: 4px; font-size: 15px; }
+  .navbar-brand { margin-right: 4px; font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .navbar-right { gap: 2px; }
+  .navbar-repo { padding: 6px; }
   .search input { width: 96px; }
 }
 
