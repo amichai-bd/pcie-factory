@@ -1,0 +1,66 @@
+# FPGA flow (Quartus); see wiki/tools/fpga/SPEC.md and wiki/bkm/fpga.md.
+# Runs on the self-hosted host that has Quartus. A pull request touching the
+# flow or any IP's RTL or FPGA inputs compiles every IP with an fpga/
+# directory; a manual dispatch compiles one IP, or all when `ip` is empty.
+name: fpga
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "tools/fpga/**"
+      - "src/**/fpga/**"
+      - "src/**/rtl/**"
+      - "cfg/fpga.yaml"
+      - ".github/workflows/fpga.yml"
+  workflow_dispatch:
+    inputs:
+      ip:
+        description: "IP id to compile (empty: every IP with an fpga/ directory)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 90
+    concurrency:
+      group: fpga-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Discover Quartus
+        run: |
+          echo "PATH=$PATH"
+          echo "QUARTUS_ROOTDIR=${QUARTUS_ROOTDIR:-<unset>}"
+          which quartus_sh || echo "quartus_sh not on PATH"
+          quartus_sh --version || true
+          ls -d /opt/intelFPGA* /opt/intelFPGA*/* /opt/altera* ~/intelFPGA* ~/altera* 2>/dev/null || true
+          ls -d /opt/intelFPGA*/*/quartus/bin/quartus_sh ~/intelFPGA*/*/quartus/bin/quartus_sh 2>/dev/null || true
+          which verilator && verilator --version || echo "verilator not on PATH"
+          python3 --version
+          python3 -c "import yaml; print('PyYAML', yaml.__version__)"
+      - name: Compile
+        env:
+          IP: ${{ inputs.ip }}
+        run: |
+          if [ -n "$IP" ]; then ./build fpga --ip "$IP"; else ./build fpga --all; fi
+      - name: Upload metrics and reports
+        if: always()
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: fpga-reports
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            workdir/**/fpga/metrics.json
+            workdir/**/fpga/output_files/*.summary
+            workdir/**/fpga/output_files/*.rpt
+            workdir/**/fpga/logs/*.log
+            workdir/**/fpga/worst_path.txt
