@@ -62,8 +62,10 @@ findings, conflicts) is work.
   concrete options, the recommended one first and marked as such, each with
   its consequence in one line.
 - Batch related questions; never block other work while waiting.
-- Record each answer as a comment on the epic and in the decision record
-  under `wiki/project/decisions/`, then update the affected issues.
+- Record each answer as a comment on the epic and in the matching decision
+  record (factory: `wiki/project/decisions/`; design: `wiki/src/decisions/`,
+  per the [wiki BKM](../../../wiki/bkm/wiki.md#authority)), then update the
+  affected issues.
 - Firstmate decisions within existing authorization are recorded the same
   way and marked as overridable by the captain.
 
