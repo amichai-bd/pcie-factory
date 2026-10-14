@@ -13,7 +13,7 @@ CONFIG = "metrics.yaml"
 _KEYS = {
     "data_dir", "branch_prefix", "exclude", "kinds", "line_comments", "block_c",
     "windows", "review_marker", "ci_workflow", "slowest", "fpga_fields", "asic_fields",
-    "src_root", "nightly_workflow", "stale_days", "health_ci_runs", "max_pr_details",
+    "src_root", "data_author", "nightly_workflow", "stale_days", "health_ci_runs", "max_pr_details",
 }
 _KIND_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _FIELD_RE = re.compile(r"^(\*|[A-Za-z0-9_]+)(\.(\*|[A-Za-z0-9_]+))*$")
@@ -27,6 +27,7 @@ class MetricsError(Exception):
 class Config:
     data_dir: str
     branch_prefix: str
+    data_author: str
     exclude: tuple[str, ...]
     kinds: dict[str, tuple[str, ...]]
     line_comments: dict[str, tuple[str, ...]]
@@ -120,7 +121,8 @@ def load(cfg_dir: Path) -> Config:
         v = raw[key]
         if not isinstance(v, int) or isinstance(v, bool) or v < 1:
             raise MetricsError(f"{where}: {key}: must be a positive integer")
-    for key in ("review_marker", "ci_workflow", "nightly_workflow", "branch_prefix"):
+    for key in ("review_marker", "ci_workflow", "nightly_workflow", "branch_prefix",
+                "data_author"):
         if not isinstance(raw[key], str) or not raw[key].strip():
             raise MetricsError(f"{where}: {key}: must be a non-empty string")
     fields = {}
@@ -132,6 +134,7 @@ def load(cfg_dir: Path) -> Config:
     return Config(
         data_dir=_rel(f"{where}: data_dir", raw["data_dir"]).rstrip("/"),
         branch_prefix=raw["branch_prefix"],
+        data_author=raw["data_author"],
         exclude=_str_list(f"{where}: exclude", raw["exclude"]),
         kinds={k: _str_list(f"{where}: kinds.{k}", v) for k, v in kinds.items()},
         line_comments={k: _str_list(f"{where}: line_comments.{k}", v)

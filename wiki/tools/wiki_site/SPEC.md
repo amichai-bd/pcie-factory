@@ -242,8 +242,11 @@ inline JSON escapes `<`, `>`, `&` and `'`.
 
 - **Pull requests** that touch `wiki/`, `README.md`, `CLAUDE.md`,
   `.claude/skills/`, the tool or the workflow build only.
-- **Pushes to `main` and manual runs** build, upload the site with
-  `actions/upload-pages-artifact`, and deploy it with `actions/deploy-pages`.
+- **Pushes to `main`, manual runs and a daily schedule (05:17 UTC)** build,
+  upload the site with `actions/upload-pages-artifact`, and deploy it with
+  `actions/deploy-pages`. The schedule, and a dispatch by the nightly, cover
+  nightly data merged by GitHub Actions auto-merge, whose push starts no
+  workflows ([metrics spec](../metrics/SPEC.md#workflows)).
 
 The repository and the published site are **public**; the
 [wiki BKM](../../bkm/wiki.md#publishability) owns what may be published. The

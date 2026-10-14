@@ -8,6 +8,9 @@
 data_dir: wiki/tracker/data
 # Head-branch prefix of the nightly data pull requests.
 branch_prefix: nightly/
+# Author email of the nightly data commits. A main commit by this author that
+# changes only data_dir is marked data_only in the series, with ci n/a.
+data_author: "41898282+github-actions[bot]@users.noreply.github.com"
 
 # Source root, relative to the repository, where IPs are discovered in each
 # commit's tree (an IP is a directory D holding rtl/<basename(D)>.rtl.f).

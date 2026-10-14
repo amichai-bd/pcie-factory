@@ -61,7 +61,8 @@ def git(repo: Path, *args: str) -> str:
                           text=True).stdout.strip()
 
 
-def commit(repo: Path, files: dict[str, str], message: str, date: str) -> str:
+def commit(repo: Path, files: dict[str, str], message: str, date: str,
+           email: str = "t@example.invalid") -> str:
     for rel, text in files.items():
         p = repo / rel
         if text is None:
@@ -71,7 +72,7 @@ def commit(repo: Path, files: dict[str, str], message: str, date: str) -> str:
         p.write_text(text)
     git(repo, "add", "-A")
     env_date = f"{date} +0000"
-    subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+    subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", f"user.email={email}",
                     "commit", "-q", "-m", message, "--date", env_date],
                    check=True, env={"GIT_COMMITTER_DATE": env_date, "PATH": "/usr/bin:/bin",
                                     "HOME": str(repo)})

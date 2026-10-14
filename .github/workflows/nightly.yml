@@ -161,23 +161,25 @@ jobs:
     permissions:
       contents: write        # push nightly/<date>
       pull-requests: write   # open and label the data PR, enable auto-merge
-      actions: write         # dispatch ci-gate on the data branch (see below)
+      actions: write         # dispatch ci-gate on the data branch and pages on main
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
-          persist-credentials: true   # this job pushes; it runs no PR code
-
-      - uses: actions/download-artifact@v8.0.1
-        with:
-          name: nightly-data
-          path: workdir/nightly-data
+          # No credential on disk: the package install below never sees the
+          # write token, and the push passes it explicitly.
+          persist-credentials: false
 
       - name: Python dependencies
         run: |
           python3 -m venv workdir/venv
           workdir/venv/bin/pip install --quiet "$(grep '^PyYAML==' tools/requirements.txt)"
           echo "$PWD/workdir/venv/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: nightly-data
+          path: workdir/nightly-data
 
       - name: Commit the data files on nightly/<date> and open the data PR
         env:
@@ -205,7 +207,20 @@ jobs:
             commit --quiet -m "nightly: metrics for $DATE"
           # The ci-gate data guard, run here from this trusted checkout.
           ./build metrics guard --branch "$branch" --base "origin/$BASE" --head "$branch"
-          git push --force origin "refs/heads/$branch:refs/heads/$branch"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
+            push --force origin "refs/heads/$branch:refs/heads/$branch"
+
+          # Older data PRs would conflict on commits.jsonl: close them.
+          gh api "repos/$REPO/pulls?state=open&base=$BASE&per_page=100" \
+            --jq '.[] | select(.head.ref | startswith("nightly/")) | "\(.number) \(.head.ref)"' |
+          while read -r old ref; do
+            [ "$ref" = "$branch" ] && continue
+            gh api --silent -X POST "repos/$REPO/issues/$old/comments" -f body="Superseded by the data PR for $DATE ($branch); closing."
+            gh api --silent -X PATCH "repos/$REPO/pulls/$old" -f state=closed
+            echo "closed superseded data PR #$old ($ref)"
+          done
 
           number=$(gh api "repos/$REPO/pulls?head=$OWNER:$branch&state=open" --jq '.[0].number // empty')
           if [ -z "$number" ]; then
@@ -233,6 +248,10 @@ jobs:
             # REST call for this; gh uses GraphQL, which works with GITHUB_TOKEN.
             gh pr merge --repo "$REPO" --auto --squash "$number" \
               || echo "::warning::auto-merge not enabled on #$number (repository 'Allow auto-merge' off or no required checks on main); the PR waits for a maintainer"
+            # Republish the site. This may run before the merge lands (a merge
+            # by GitHub Actions starts no workflows); pages.yml's daily
+            # schedule is the backstop.
+            gh api --silent -X POST "repos/$REPO/actions/workflows/pages.yml/dispatches" -f ref=main
           fi
 
   report:

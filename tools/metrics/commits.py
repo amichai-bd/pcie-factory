@@ -18,6 +18,22 @@ from .tree import TreeReader, git
 SERIES_VERSION = 1
 
 
+NOT_APPLICABLE = {"status": "n/a"}
+
+
+def data_only(reader: TreeReader, sha: str) -> bool:
+    """A nightly data commit: by ``data_author`` and changing only ``data_dir``."""
+    cfg = reader.cfg
+    author = git(reader.repo, "show", "-s", "--format=%ae", sha).decode().strip()
+    if author.lower() != cfg.data_author.lower():
+        return False
+    files = git(reader.repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "-z", "--root",
+                sha).decode("utf-8", errors="replace").split("\0")
+    files = [f for f in files if f]
+    prefix = cfg.data_dir.rstrip("/") + "/"
+    return bool(files) and all(f.startswith(prefix) for f in files)
+
+
 def ci_entry(sha: str, ci_map: dict | None) -> dict:
     if ci_map is None:
         return {"status": "unavailable"}
@@ -56,7 +72,7 @@ def update(reader: TreeReader, ref: str, lines: list[dict], ci_map: dict | None,
     have = {x["sha"]: x for x in lines}
     refreshed = 0
     for x in lines:
-        if x.get("ci", {}).get("status") != "ok":
+        if x.get("ci", {}).get("status") not in ("ok", "n/a"):
             new = ci_entry(x["sha"], ci_map)
             if new["status"] == "ok" or (x.get("ci", {}).get("status") == "unavailable"
                                          and new["status"] == "none"):
@@ -70,13 +86,15 @@ def update(reader: TreeReader, ref: str, lines: list[dict], ci_map: dict | None,
             break
         stats, _ = reader.stats(sha)
         cdate = git(reader.repo, "show", "-s", "--format=%cI", sha).decode().strip()
+        is_data = data_only(reader, sha)
         have[sha] = {
             "schema_version": SERIES_VERSION,
             "sha": sha,
             "short": sha[:12],
             "date": iso(datetime.fromisoformat(cdate)),
             "code": stats,
-            "ci": ci_entry(sha, ci_map),
+            "ci": dict(NOT_APPLICABLE) if is_data else ci_entry(sha, ci_map),
+            "data_only": is_data,
         }
         added += 1
     ordered = sorted(have.values(), key=lambda x: (index.get(x["sha"], len(shas)), x["date"]))

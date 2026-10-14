@@ -36,7 +36,14 @@ _FORBIDDEN = [
     ("absolute path", re.compile(r"(?:^|[\s=:\"'(,])(?:/|~/?)[\w.-]")),
     ("windows path", re.compile(r"[A-Za-z]:\\|\\\\")),
     ("token", re.compile(r"\b(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{8,}")),
+    ("access key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bsk-[A-Za-z0-9_-]{16,}")),
     ("ip address", re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")),
+    ("ipv6 address", re.compile(r"(?<![0-9A-Fa-f:])(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}(?![0-9A-Fa-f:])"
+                                r"|(?<![0-9A-Fa-f:])(?:[0-9A-Fa-f]{1,4}:){1,6}:(?:[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4})*)?"
+                                r"|(?<![0-9A-Fa-f:])::(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{1,4}")),
+    ("domain name", re.compile(r"\b[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.(?:com|net|org|edu|gov|io|dev|ai|"
+                               r"app|cloud|co|us|uk|de|il|local|lan|home|internal|intra|corp|localdomain)\b",
+                               re.I)),
     ("url", re.compile(r"[a-z][a-z0-9+.-]*://", re.I)),
 ]
 
@@ -85,7 +92,13 @@ def forbidden(record, terms: list[str] = ()) -> list[str]:
         for reason, rx in _FORBIDDEN:
             if rx.search(s):
                 problems.append(f"{path}: {reason}")
-        hit = _tokens(s) & term_set | ({t for t in term_set if t in s.lower() and not t.isalnum()})
+        low = s.lower()
+        tokens = _tokens(s)
+        # Whole tokens for short terms; for longer ones also a term joined to
+        # other letters or digits (``runner01``), and any non-alphanumeric term.
+        hit = {t for t in term_set if t in tokens
+               or (len(t) >= 4 and any(t in tok for tok in tokens))
+               or (not t.isalnum() and t in low)}
         if hit:
             problems.append(f"{path}: names this host or user")
 

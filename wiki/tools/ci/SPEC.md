@@ -82,9 +82,10 @@ requests to `main`, pushes to `main` and manual dispatch:
    job venv under `workdir/venv` put first on `PATH`.
 3. The data guard, `./build metrics guard` ([metrics spec](../metrics/SPEC.md#guard)):
    on a pull request `--branch <head> --base HEAD^1`; on a push or dispatch
-   `--branch <ref> --base origin/<base>`, where `<base>` is the base of the
-   branch's open PR (else `main`; the history is unshallowed first). Only a
-   `nightly/` branch can fail it.
+   of a `nightly/` ref `--branch <ref> --base origin/<base>`, where `<base>`
+   is the base of the branch's open PR into `main` (else of any open PR,
+   else `main`; the history is unshallowed first). Any other push or
+   dispatch skips it. Only a `nightly/` branch can fail it.
 4. `./build check`.
 5. `./build ci unit`, then `./build regress --level 0 --level 1 --jobs
    $(nproc)`. On a pull request both get `--affected HEAD^1`: the checkout is

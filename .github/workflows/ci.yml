@@ -87,17 +87,23 @@ jobs:
           # A nightly/ branch may change only the data directory
           # (wiki/tools/metrics/SPEC.md#guard); other branches pass at once.
           # A pull request compares its merge commit with the first parent. A
-          # push or dispatch (the nightly's data PR is opened with GITHUB_TOKEN,
-          # so it gets no pull_request run and is dispatched instead) compares
-          # with the base of the branch's open PR, else main.
+          # push or dispatch of a nightly/ ref (the nightly's data PR is opened
+          # with GITHUB_TOKEN, so it gets no pull_request run and is dispatched
+          # instead) compares with the base of the branch's open PR into main,
+          # else of any open PR, else main. Other pushes and dispatches stop here.
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
             ./build metrics guard --branch "$PR_BRANCH" --base HEAD^1
-          else
-            base=$(gh api "repos/$GITHUB_REPOSITORY/pulls?head=$GITHUB_REPOSITORY_OWNER:$GITHUB_REF_NAME&state=open" --jq '.[0].base.ref // "main"')
-            git fetch --quiet --unshallow origin 2>/dev/null || true
-            git fetch --quiet origin "$base"
-            ./build metrics guard --branch "$GITHUB_REF_NAME" --base "origin/$base"
+            exit 0
           fi
+          case "$GITHUB_REF_NAME" in
+            nightly/*) ;;
+            *) echo "$GITHUB_REF_NAME: not a nightly/ branch; nothing to guard"; exit 0 ;;
+          esac
+          base=$(gh api "repos/$GITHUB_REPOSITORY/pulls?head=$GITHUB_REPOSITORY_OWNER:$GITHUB_REF_NAME&state=open" \
+            --jq '([.[] | select(.base.ref == "main")] + .)[0].base.ref // "main"')
+          git fetch --quiet --unshallow origin 2>/dev/null || true
+          git fetch --quiet origin "$base"
+          ./build metrics guard --branch "$GITHUB_REF_NAME" --base "origin/$base"
 
       - name: Static checks
         id: check

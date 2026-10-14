@@ -30,6 +30,7 @@ GitHub (for `red`) or publishability error.
 | --- | --- |
 | `data_dir` | Where records are committed (`wiki/tracker/data`); the only path a data branch may change. |
 | `branch_prefix` | Head-branch prefix of data PRs (`nightly/`). |
+| `data_author` | Author email of the nightly data commits (the GitHub Actions bot). |
 | `src_root` | Source root in each commit's tree, for IP discovery (`src`). |
 | `exclude` | Globs left out of every code statistic (the data directory). |
 | `kinds` | Kind name to globs: `rtl_sv`, `dv_sv`, `dv_py`, `tools_py`, `wiki_md`, `config`, `workflows`, `skills`. A file may match several kinds. |
@@ -62,9 +63,11 @@ site ([publishability](../../bkm/wiki.md#publishability)). So:
 - **Last-line scan.** Before writing, every key and string of the record
   (and of each series line) is scanned; any hit refuses the whole file
   (exit 2). It flags email addresses, absolute, home or Windows paths,
-  GitHub tokens, IPv4 addresses, URLs, and any whole token equal to this
-  machine's host name or the user name (`hostname`, `$USER`, `$HOME`'s
-  last part). Tests cover each pattern and an end-to-end record built from
+  GitHub tokens, AWS (`AKIA`/`ASIA`) and `sk-` key shapes, IPv4 and IPv6
+  addresses, URLs, domain names (common public and internal suffixes), and
+  this machine's host name or user name (`hostname`, `$USER`, `$HOME`'s last
+  part): a whole token, or, for names of four or more characters, a name
+  joined to other letters or digits (`runner01`). Tests cover each pattern and an end-to-end record built from
   inputs with planted paths, emails and names.
 
 ## `collect`: the nightly record
@@ -132,7 +135,11 @@ round is one `REVIEW-VERDICT: APPROVE|REQUEST-CHANGES @<sha>` comment.
 
 **`github.ci`**: runs of `ci_workflow` (the workflow whose one job is
 `ci-gate`; the Actions REST API, which works on the runner with
-`GITHUB_TOKEN`). `workflow`; `windows.<w>`: `runs`, `completed`,
+`GITHUB_TOKEN`). The windows count **every** run of the workflow: pull
+requests, pushes to `main` and dispatches (including the nightly's
+dispatched data-branch runs), so their pass rate is a mixed, all-events
+number; `latest_main` and `health.ci_gate_main` are the main-only views.
+`workflow`; `windows.<w>`: `runs`, `completed`,
 `pass_rate` (success over success plus failure, timed out or startup
 failure; cancelled and skipped runs do not count), `duration_s` (`{median,
 p90}`, `run_started_at` to `updated_at` of completed runs);
@@ -214,12 +221,13 @@ is this list: plot by `index`, label with `short` and `date`.
 | `sha`, `short` | Full and 12-hex SHA. |
 | `date` | Committer date, UTC. |
 | `code` | The `collect` code statistics of that commit's tree: `total`, `kinds`, `ips`, `by_ext`, `by_dir` (same shapes). |
-| `ci` | That commit's push `ci-gate` run on `main`: `{"status": "ok", conclusion, duration_s}` (the latest completed run), `{"status": "none"}` when it has none, or `{"status": "unavailable"}` when the Actions API was not reachable. |
+| `ci` | That commit's push `ci-gate` run on `main`: `{"status": "ok", conclusion, duration_s}` (the latest completed run), `{"status": "none"}` when it has none, `{"status": "unavailable"}` when the Actions API was not reachable, or `{"status": "n/a"}` for a data-only commit. |
+| `data_only` | `true` for a nightly data commit: authored by `data_author` and changing only `data_dir/`. A merge by GitHub Actions auto-merge starts no push run, so these commits never have a `ci-gate` result; they stay on the axis (a nightly record may name one as its `meta.commit`) and renderers may skip them in CI charts. |
 
 Each run appends missing commits (the first run, on an empty file, is the
 one-time backfill), refreshes `ci` on lines that were `none` or
 `unavailable` and now have a run, and leaves every other existing line
-unchanged. Line counts are cached per blob, so a backfill reads each blob
+unchanged (`n/a` is final). Line counts are cached per blob, so a backfill reads each blob
 once. `--no-ci` skips the API; `--limit N` adds at most `N` commits.
 
 ## `guard`
@@ -253,7 +261,7 @@ workflow and skips auto-merge and the `nightly-red` issue.
 | Job | Permissions | Does |
 | --- | --- | --- |
 | `nightly` (480 min) | read: contents, issues, pull-requests, actions | `./build check`; `./build regress --level 0 --level 1 --level 2` (all IPs); `./build fpga --all` and the ASIC flow for IPs with `fpga/` or `asic/` (`--all`, else one `--ip` per IP); `./build metrics commits --ref origin/main` continuing the base branch's series, then `./build metrics collect` with the step outcomes; uploads both files. Every step runs even after a failure; a step whose subcommand is still a stub, or has no IP inputs, is `skipped`. |
-| `publish` (15 min) | write: contents, pull-requests, actions | Commits only the two data files, as `github-actions[bot]`, on `nightly/<date>` from the base tip; runs `./build metrics guard` from this trusted checkout; force-pushes the branch; opens (or reuses) the PR labelled `type:data` and `area:wiki`; dispatches `ci.yml` (`ci-gate`, with the data guard) on the branch; on `main`, enables squash auto-merge. |
+| `publish` (15 min) | write: contents, pull-requests, actions | Checks out without persisted credentials and installs PyYAML; commits only the two data files, as `github-actions[bot]`, on `nightly/<date>` from the base tip; runs `./build metrics guard` from this trusted checkout; force-pushes the branch with the token passed for that one command; closes, with a comment, any other open `nightly/*` PR into the same base (they would conflict on `commits.jsonl`); opens (or reuses) the PR labelled `type:data` and `area:wiki`; dispatches `ci.yml` (`ci-gate`, with the data guard) on the branch; on `main`, enables squash auto-merge and dispatches `pages.yml` on `main`. |
 | `report` (5 min) | read contents, write issues | `./build metrics red` with `success` only when `nightly` and `publish` both succeeded. |
 
 Pushes and PRs made with `GITHUB_TOKEN` start no workflow runs, so the
@@ -267,12 +275,21 @@ warns and the PR waits for a maintainer. Opening the PR at all needs
 pull requests**; without it `publish` fails with that remedy and the pushed
 branch's compare link, so the night is reported red.
 
+A merge by GitHub Actions auto-merge is a push by `GITHUB_TOKEN`, which
+starts no workflows: neither `pages.yml` nor a push `ci-gate` runs for the
+data commit. `publish` therefore dispatches `pages.yml` on `main` (it may
+run before the merge lands), and `pages.yml` also runs daily at 05:17 UTC,
+two hours after the nightly, as the backstop. The series marks those
+commits `data_only` with `ci` `n/a`.
+
 **The data guard** is a step of the `ci-gate` job in `ci.yml` (the
 [CI spec](../ci/SPEC.md#the-workflow) owns its invocation), so the single
 required check also gates the data PR. On a pull request it compares the
-merge commit with its first parent. On a push or dispatch it compares the
-branch with the base of its open PR (else `main`), which is how the
-nightly's dispatched run checks the data PR. Like every PR check, a PR can
+merge commit with its first parent. On a push or dispatch of a `nightly/`
+ref it compares the branch with the base of its open PR into `main` (else
+of any open PR, else `main`), which is how the nightly's dispatched run
+checks the data PR; any other push or dispatch passes at once, without an
+API call or history fetch. Like every PR check, a PR can
 edit its own copy of the workflow; the `publish` job's own guard run, from
 the trusted checkout, is what keeps the bot honest.
 

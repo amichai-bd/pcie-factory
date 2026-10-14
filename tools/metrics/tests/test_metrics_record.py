@@ -74,6 +74,12 @@ def test_pick_drops_unsafe_strings():
     ("ghp_abcdefghijklmnop", "token"),
     ("10.1.2.3", "ip address"),
     ("https://example.invalid/x", "url"),
+    ("build.example.com", "domain name"),
+    ("host.corp", "domain name"),
+    ("fe80::1", "ipv6 address"),
+    ("2001:db8:0:0:0:0:0:1", "ipv6 address"),
+    ("AKIAABCDEFGHIJKLMNOP", "access key"),
+    ("sk-abcdefghijklmnop1234", "access key"),
 ])
 def test_forbidden_patterns(value, reason):
     problems = record.forbidden({"k": [value]})
@@ -84,8 +90,11 @@ def test_forbidden_patterns(value, reason):
 def test_forbidden_host_terms():
     assert record.forbidden({"k": "built on buildbox-7"}, ["buildbox-7"])
     assert record.forbidden({"k": "by alice"}, ["alice"])
-    assert not record.forbidden({"k": "malice"}, ["alice"])  # whole tokens only
-    assert not record.forbidden({"ip": "top/sub", "v": "23.1std.1 Build 10/25/2023", "n": 1.5})
+    assert record.forbidden({"k": "runner01"}, ["runner"])  # joined to digits
+    assert record.forbidden({"k": "malice"}, ["alice"])  # long terms match inside tokens
+    assert not record.forbidden({"k": "bobcat"}, ["bob"])  # short terms: whole tokens only
+    assert not record.forbidden({"ip": "top/sub", "v": "23.1std.1 Build 10/25/2023", "n": 1.5,
+                                 "t": "2026-10-14T18:26:47Z", "x": ".md", "py": "3.13.16"})
 
 
 def _ctx(repo, workdir):

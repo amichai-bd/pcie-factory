@@ -88,3 +88,22 @@ def test_series_bad_line(tmp_path):
     p.write_text('{"sha": "a"}\nnot json\n')
     with pytest.raises(MetricsError, match="c.jsonl:2"):
         commits.load(p)
+
+
+def test_series_marks_data_only_commits(repo, cfg):
+    reader = TreeReader(repo, cfg)
+    bot = cfg.data_author
+    data = commit(repo, {"wiki/tracker/data/2026-01-03.json": "{}\n"}, "data", "2026-01-03T00:00:00",
+                  email=bot)
+    mixed = commit(repo, {"wiki/tracker/data/x.json": "{}\n", "tools/x/y.py": "y = 1\n"}, "mixed",
+                   "2026-01-04T00:00:00", email=bot)
+    human = commit(repo, {"wiki/tracker/data/z.json": "{}\n"}, "human data", "2026-01-05T00:00:00")
+    ci = {data: {"conclusion": "success", "duration_s": 1.0}}
+    lines, _, _ = commits.update(reader, "HEAD", [], ci)
+    by = {x["sha"]: x for x in lines}
+    assert by[data]["data_only"] is True and by[data]["ci"] == {"status": "n/a"}
+    assert by[mixed]["data_only"] is False and by[mixed]["ci"] == {"status": "none"}
+    assert by[human]["data_only"] is False
+    # n/a is never refreshed.
+    again, _, refreshed = commits.update(reader, "HEAD", lines, ci)
+    assert refreshed == 0 and {x["sha"]: x for x in again}[data]["ci"] == {"status": "n/a"}
