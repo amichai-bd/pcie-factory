@@ -22,6 +22,11 @@ concurrency:
 
 jobs:
   ci-gate:
+    # The repository is public: never run fork code on the self-hosted runners.
+    # A fork PR skips this job, and a skipped required check counts as passing,
+    # so a maintainer re-pushes a fork PR's commits to a branch here (and opens
+    # a PR from it) before it can merge. Never use pull_request_target here.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64]
     # Budget: checks plus L0+L1 of the affected IPs in 10 minutes; the
     # timeout leaves headroom for a cold dependency install.

@@ -131,7 +131,10 @@ A sub-IP is an IP in its own right: a change inside `src/<ip>/<subip>/`
 selects the sub-IP, and selects the parent only when the parent's filelists
 reach the changed file or the change is in the sub-IP's models.
 
-Superseded PR runs are cancelled; every push to `main` keeps its run. Until
+Superseded PR runs are cancelled; every push to `main` keeps its run. Fork
+PRs never run on the self-hosted runners and skip `ci-gate`, which branch
+protection treats as passing, so a maintainer re-pushes a fork PR to a branch
+here before merging ([CI spec](../tools/ci/SPEC.md#the-workflow)). Until
 the runners are online, the temporary exception in
 [`CLAUDE.md`](../../CLAUDE.md#flow) replaces `ci-gate` with recorded local
 evidence.

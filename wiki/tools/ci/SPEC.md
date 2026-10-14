@@ -90,6 +90,15 @@ requests to `main`, pushes to `main` and manual dispatch:
    (step outcomes plus `./build ci summary`) and the `regress-summary`
    artifact (`workdir/regress/summary.json`).
 
+**Forks:** the repository is public and the runners are self-hosted, so the
+job carries `if: github.event_name != 'pull_request' ||
+github.event.pull_request.head.repo.full_name == github.repository`: fork
+code never runs on them. A skipped required check counts as passing in
+branch protection, so a fork PR is never merged on its own `ci-gate`: a
+maintainer reviews it, pushes its commits to a branch in this repository and
+merges through a PR from that branch, which runs the gate. The workflow never
+uses `pull_request_target` and never prints secrets.
+
 Concurrency cancels a superseded run of the same PR; every push and
 dispatch has its own group. `permissions: contents: read`, a 20-minute
 timeout (the budget is 10 minutes, the rest is headroom for a cold
