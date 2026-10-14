@@ -1,4 +1,5 @@
 # Wiki site; see wiki/tools/wiki_site/SPEC.md.
+# The repository and the published site are public.
 # A pull request builds with --strict and never deploys; a push to main or a
 # manual dispatch builds strictly and deploys to GitHub Pages.
 name: pages
@@ -23,6 +24,8 @@ permissions:
 
 jobs:
   build:
+    # Public repository: never run fork PR code on the self-hosted runners.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64]
     timeout-minutes: 10
     concurrency:
