@@ -146,6 +146,41 @@ def test_ip_first_layout_is_rejected(good):
     ]
 
 
+def test_design_level_pages_are_allowed(good):
+    write(good / "wiki/src/README.md")
+    write(good / "wiki/src/roadmap.md")
+    write(good / "wiki/src/decisions/0002-m1-grill.md")
+    write(good / "wiki/src/decisions/0010-a-b-2.md")
+    r = run(good)
+    assert r.passed, r.findings
+    assert r.checked.startswith("6 required page(s), 6 wiki folder(s)")
+
+
+def test_other_design_level_files_are_rejected(good):
+    write(good / "wiki/src/Roadmap.md")              # names are exact
+    write(good / "wiki/src/notes.md")
+    write(good / "wiki/src/decisions/README.md")     # not a record
+    write(good / "wiki/src/decisions/2-short.md")    # four digits
+    write(good / "wiki/src/decisions/0003-Upper.md")  # lower-case slug
+    write(good / "wiki/src/decisions/0004-x.txt")
+    write(good / "wiki/src/decisions/old/0001-x.md")  # flat folder
+    write(good / "wiki/src/rtl/roadmap.md")          # only at the root
+    write(good / "wiki/src/rtl/decisions/0001-x.md")
+    assert run(good).findings == [
+        f"wiki/src/Roadmap.md: not in an IP folder <kind>/<ip>/ {KINDS}",
+        f"wiki/src/notes.md: not in an IP folder <kind>/<ip>/ {KINDS}",
+        "wiki/src/decisions/old/: decisions/ holds no folders",
+        "wiki/src/decisions/0003-Upper.md: not a decision record NNNN-<slug>.md",
+        "wiki/src/decisions/0004-x.txt: not a decision record NNNN-<slug>.md",
+        "wiki/src/decisions/2-short.md: not a decision record NNNN-<slug>.md",
+        "wiki/src/decisions/README.md: not a decision record NNNN-<slug>.md",
+        f"wiki/src/rtl/roadmap.md: not in an IP folder <kind>/<ip>/ {KINDS}",
+        "wiki/src/rtl/decisions/: names no IP (no src/rtl/decisions/decisions.rtl.f)",
+    ]
+    # A filtered run looks only inside the chosen IPs' folders.
+    assert run(good, {"blk"}).passed
+
+
 def test_orphan_folders(good):
     write(good / "wiki/src/rtl/gone/MAS.md")        # IP removed from src
     write(good / "wiki/src/dv/blk_subx/DV_PLAN.md")  # misspelled sub-IP

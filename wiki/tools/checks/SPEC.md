@@ -153,7 +153,14 @@ next to `src/`); a missing wiki tree is an empty one. Code: `wiki_mirror.py`.
   IP with `src/fpga/<id>/` has `fpga/<id>/FPGA.md`; one with
   `src/asic/<id>/` has `asic/<id>/ASIC.md`. A missing one is
   `wiki/src/<kind>/<id>/<page>: missing (required for IP <id>)`.
-- **Kinds and IPs.** Every folder directly under the wiki tree is a kind
+- **Design-level pages.** The only files outside an IP folder are
+  `README.md` and `roadmap.md` at the root of the wiki tree and decision
+  records `decisions/NNNN-<slug>.md` (four digits, a lower-case
+  hyphenated slug). Any other file outside an IP folder is
+  `<path>: not in an IP folder <kind>/<ip>/ (...)`; a misnamed file in
+  `decisions/` is `<path>: not a decision record NNNN-<slug>.md`, and a
+  folder in it is `<path>/: decisions/ holds no folders`.
+- **Kinds and IPs.** Every other folder directly under the wiki tree is a kind
   folder, and every folder directly under a kind folder names an IP
   (`wiki/src/<kind>/<name>/: names no IP`, which also covers `common/`).
   This rejects the superseded IP-first tree (`wiki/src/<ip>/<kind>/`).
@@ -374,7 +381,9 @@ rule (`test_style.py`), duplicate, diamond, orphan and regression cases
 `arch/` exemption without targets and its limit, HAS targets requiring
 `src/arch/<ip>/` (and only a level-2 heading counting), a source `arch/`
 without a model or scenario or with two models, a sub-IP `arch/` page, a
-sub-IP turning top-level when no IP reaches it, the IP-first wiki tree, orphan
+sub-IP turning top-level when no IP reaches it, the IP-first wiki tree, the
+design-level pages and look-alikes (misnamed root pages, bad record names,
+a folder in `decisions/`, a design-level page inside a kind folder), orphan
 and empty folders, extra pages, a non-IP source folder, hidden entries,
 `--ip`, and a missing wiki tree (`test_wiki_mirror.py`), a small git repository with forbidden words,
 slug URLs, a look-alike slug and an invalid config (`test_neutrality.py`),
