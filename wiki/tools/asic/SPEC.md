@@ -125,7 +125,9 @@ pull requests touching `tools/asic/**`, `src/**/asic/**`, `src/**/rtl/**`
 or the workflow. It prints an ORFS discovery report (docker images, native
 tools, candidate roots), runs `./build asic --ip <ip>` and uploads
 `metrics.json`, `flow.log`, the ORFS reports and the step logs as the
-`asic-metrics` artifact. It is not part of `ci-gate`.
+`asic-metrics` artifact. Pull requests from forks are skipped (the job's
+`if:` requires the head repository to be this one), so fork code never runs
+on the self-hosted host. It is not part of `ci-gate`.
 
 ## Tests
 
