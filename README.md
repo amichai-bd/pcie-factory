@@ -23,5 +23,7 @@ goes issue → branch → worktree → draft PR → independent review → squas
 
 ## Status
 
+<!-- Badges (ci-gate, nightly, pages) and the tracker link land with the CI,
+nightly and wiki-site milestones. -->
 Badges and a link to the metrics tracker arrive with the CI, nightly and wiki
 site milestones.

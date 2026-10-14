@@ -19,7 +19,7 @@ never invent a third rule.
 Everything outside `src/` and `wiki/src/` is design-neutral: this file, skills,
 `tools/`, `cfg/`, `.github/`, BKMs and project pages never name the design
 target, its protocol or its IPs. Tools discover IPs from `src/`; no IP name is
-ever hard-coded in `tools/` or `cfg/`. Exempt: the repository slug in URLs and
+ever hard-coded in `tools/` or `cfg/`. `./build check` enforces this. Exempt: the repository slug in URLs and
 nightly data under `wiki/tracker/data/`. The target and its module prefix are
 declared once, in [`src/README.md`](src/README.md).
 
@@ -72,8 +72,10 @@ Every tracked change follows the same path; no change is too small for it:
 5. Run focused checks while developing, then the required levels once on the
    commit intended for review. Record exact commands and results.
 6. Push and open a **draft** PR that closes the issue.
-7. An independent reviewer crewmate reviews the exact head, read-only, and
-   posts one `REVIEW-VERDICT: APPROVE|REQUEST-CHANGES @<sha>` comment.
+7. An independent reviewer crewmate reviews the exact head, read-only and
+   trusting CI, for code↔wiki alignment, BKM conformance and test adequacy
+   (DV plan against regression lists), and posts one
+   `REVIEW-VERDICT: APPROVE|REQUEST-CHANGES @<sha>` comment.
 8. Fix every accepted finding and request review of the new head; repeat.
 9. **Merge gate:** an APPROVE verdict for the current head, `ci-gate` green on
    that head, no unresolved review threads, mergeable. The firstmate marks the
@@ -86,7 +88,7 @@ for a product decision outside the issue, missing credentials, or a physical
 action. Failures, findings and conflicts are work, not reasons to stop. Never
 weaken acceptance, skip a test, or bypass a gate to finish.
 
-**Exceptions (the only ones):**
+**Exceptions (one permanent, one temporary):**
 
 - The nightly workflow's data PR may touch only `wiki/tracker/data/**`; a guard
   check enforces it and it auto-merges after `ci-gate`, with no issue or
@@ -114,6 +116,8 @@ a PR whose code and specs disagree.
 - Evidence demonstrates behavior, not command success. Treat warnings as
   failures unless a reviewed waiver explains them. Record seeds. Keep logs and
   waves under `workdir/`; summarize evidence in the PR, never commit outputs.
+- Code or text adapted from another repository carries a provenance note
+  (source, commit, license) and is adapted, not copied blindly.
 - Never commit credentials, private machine details or unredistributable tool
   output.
 
