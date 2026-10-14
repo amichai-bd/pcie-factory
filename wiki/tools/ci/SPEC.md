@@ -98,8 +98,9 @@ bound to.
 - `--sha` must be a full 40-hex lowercase commit SHA (`$GITHUB_SHA`, the
   commit the gate tested).
 - It sends one `POST repos/<repo>/statuses/<sha>` with `state`, `context`
-  `ci-gate`, `description` `ci-gate job on <branch>: <result>` and, when
-  given, `target_url` (the run). The repository is `--repo`, then
+  `ci-gate`, `description` `ci-gate job on <branch>: <result>` (cut to 140
+  characters, ending in `...`, because GitHub rejects a longer one) and,
+  when given, `target_url` (the run). The repository is `--repo`, then
   `$GH_REPO`, `$GITHUB_REPOSITORY`, the origin remote; `gh` reads
   `GH_TOKEN`. `--dry-run` prints the status and posts nothing.
 
@@ -119,8 +120,9 @@ requests to `main`, pushes to `main` and manual dispatch:
    `tools/requirements.txt` (`pip install --dry-run --no-index`), otherwise a
    job venv under `workdir/venv` put first on `PATH`.
 3. The data guard, `./build metrics guard` ([metrics spec](../metrics/SPEC.md#guard)):
-   on a pull request `--branch <head> --base HEAD^1`; on a push or dispatch
-   of a `nightly/` ref `--branch <ref> --base origin/<base>`, where `<base>`
+   on a pull request `--branch <head> --base HEAD^1`; on a dispatch on a
+   `nightly/` ref (push triggers only on `main`, so a `nightly/` ref arrives
+   only by dispatch) `--branch <ref> --base origin/<base>`, where `<base>`
    is the base of the branch's open PR into `main` (else of any open PR,
    else `main`; the history is unshallowed first). Any other push or
    dispatch skips it. Only a `nightly/` branch can fail it.
@@ -152,7 +154,8 @@ dependency install.
 
 **`ci-gate-status`** is a second job, `needs: ci-gate` with `always()`,
 that runs only when the event is not `pull_request` and the ref is
-`refs/heads/nightly/*` (the nightly's dispatch on its data branch). It
+`refs/heads/nightly/*`, which in practice means a dispatch on a data branch
+(the nightly's own, or a writer's). It
 checks out the branch without persisted credentials, installs the Python
 pins like step 2, and runs `./build ci status` with the gate job's result
 (`needs.ci-gate.result`), `$GITHUB_SHA` and `$GITHUB_REF`, and the run as
@@ -172,8 +175,21 @@ the status job never runs for `pull_request`; the nightly's data commits
 pass `./build metrics guard` from a trusted checkout before they are
 pushed; the posted state is the gate job's own result. The residual path is
 a writer adding or editing a workflow on their own branch, which can equally
-make any `ci-gate` check pass today; review before merge is the control for
-that, unchanged by this job.
+make any `ci-gate` check pass today. Review before merge is the control for
+that, unchanged by this job, and it is **process, not enforcement**: branch
+protection on `main` requires only `ci-gate` and no approving reviews, so
+the `REVIEW-VERDICT` gate of the
+[agent flow](../../../.claude/skills/agent-flow/SKILL.md#7-merge-firstmate)
+is kept by the agents and maintainers, not by GitHub.
+
+**What a status vouches for.** Any writer can dispatch `ci.yml` on any
+`nightly/*` ref, and every such dispatch posts a `ci-gate` status. A commit
+status binds to a commit SHA, not to a PR, a branch or a base: the state
+says that the gate passed on that commit, with the data guard run against
+the base it resolved at dispatch time (the open PR's base, else `main`). A
+PR with the same head commit, into another base or opened later, sees the
+same status. The guard base is not in the description; the run behind
+`target_url` shows it in its guard step log.
 
 ## Tests
 
@@ -181,7 +197,7 @@ that, unchanged by this job.
 (`test_ci_config.py`), suite planning on a synthetic git repository
 (including an IP with an arch model and scenario), running the arch and perf
 suites, and failure propagation (`test_ci_unit.py`), summary rendering
-(`test_ci_summary.py`), and the status mapping, data-branch-only rule,
+(`test_ci_summary.py`), and the status mapping, the 140-character description cap, the data-branch-only rule,
 posted request, dry run, API failure and CLI wiring (`test_ci_status.py`,
 `gh` faked). The affected-IP rules are tested in
 `tools/regress/tests/test_affected.py` against the real `cfg/ci.yaml`.
