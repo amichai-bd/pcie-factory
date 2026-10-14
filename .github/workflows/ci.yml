@@ -1,0 +1,112 @@
+# ci-gate: the single required check. Owning docs: wiki/bkm/devops.md
+# (continuous integration) and wiki/tools/ci/SPEC.md. Selection rules live in
+# cfg/ci.yaml and the tools, never here: this file only chooses between
+# "affected since the PR base" (pull_request) and "everything" (push, dispatch).
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One group per PR, so a new head cancels the superseded run. Pushes and
+  # dispatches get a group of their own run, so every push to main keeps its run.
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ci-gate:
+    runs-on: [self-hosted, linux, x64]
+    # Budget: checks plus L0+L1 of the affected IPs in 10 minutes; the
+    # timeout leaves headroom for a cold dependency install.
+    timeout-minutes: 20
+    env:
+      # pull_request checks out the merge commit refs/pull/N/merge, whose first
+      # parent is the base branch tip it was merged onto. HEAD^1 therefore
+      # diffs exactly the PR's change against the tree being tested, even if
+      # main moved after the event (base.sha could be older and over-select).
+      # fetch-depth 2 is enough: HEAD^1 is a parent of HEAD, so it is the merge base.
+      AFFECTED: ${{ github.event_name == 'pull_request' && '--affected HEAD^1' || '' }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Toolchain
+        run: |
+          git log --oneline -3
+          echo "python3: $(command -v python3) ($(python3 --version 2>&1)); VIRTUAL_ENV=${VIRTUAL_ENV:-unset}"
+          prefix=$(python3 -c 'import yaml; print(yaml.safe_load(open("cfg/host.yaml"))["verilator"]["prefix"])' 2>/dev/null || true)
+          echo "cfg/host.yaml verilator prefix: ${prefix:-unreadable} ($( [ -x "$prefix/bin/verilator" ] && echo present || echo absent))"
+          if command -v verilator >/dev/null; then
+            echo "verilator: $(command -v verilator) ($(verilator --version))"
+          elif [ -x "$prefix/bin/verilator" ]; then
+            echo "verilator: $prefix/bin/verilator ($("$prefix/bin/verilator" --version))"
+          else
+            echo "::error::verilator not found on PATH or under the cfg/host.yaml prefix"
+            exit 1
+          fi
+          python3 -c 'import cocotb; print("cocotb", cocotb.__version__)' || echo "cocotb: not importable by python3"
+
+      - name: Python dependencies
+        run: |
+          # Use the runner's environment when it already has every pin in
+          # tools/requirements.txt (checked offline); otherwise install them
+          # into a job venv and put it first on PATH for the later steps.
+          if python3 -m pip install --dry-run --no-index --quiet -r tools/requirements.txt >/dev/null 2>&1; then
+            echo "runner Python satisfies tools/requirements.txt"
+          else
+            echo "runner Python lacks some pins; installing them into workdir/venv"
+            python3 -m venv workdir/venv
+            workdir/venv/bin/pip install --quiet -r tools/requirements.txt
+            echo "$PWD/workdir/venv/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Static checks
+        id: check
+        run: ./build check
+
+      - name: Unit tests (tools, models)
+        id: unit
+        if: ${{ !cancelled() }}
+        run: ./build ci unit $AFFECTED
+
+      - name: Regression L0+L1
+        id: regress
+        if: ${{ !cancelled() }}
+        run: ./build regress --level 0 --level 1 $AFFECTED --jobs "$(nproc)"
+
+      - name: Job summary
+        if: ${{ !cancelled() }}
+        env:
+          CHECK: ${{ steps.check.outcome }}
+          UNIT: ${{ steps.unit.outcome }}
+          REGRESS: ${{ steps.regress.outcome }}
+        run: |
+          {
+            echo "## ci-gate (${GITHUB_EVENT_NAME}${AFFECTED:+, $AFFECTED})"
+            echo
+            echo "| Step | Outcome |"
+            echo "| --- | --- |"
+            echo "| \`./build check\` | $CHECK |"
+            echo "| \`./build ci unit\` | $UNIT |"
+            echo "| \`./build regress\` | $REGRESS |"
+            echo
+            ./build ci summary
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload regression summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: regress-summary
+          path: workdir/regress/summary.json
+          if-no-files-found: warn
+          retention-days: 14

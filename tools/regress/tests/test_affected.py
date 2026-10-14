@@ -3,8 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from build.ip import discover
+from build.ip import REPO_ROOT, discover
+from ci.config import load_rules
 from regress.affected import GitError, changed_files, select_affected
+
+# The real rules, so these tests pin the behavior cfg/ci.yaml configures.
+RULES = load_rules(REPO_ROOT / "cfg")
 
 
 def git(repo: Path, *args: str) -> str:
@@ -35,7 +39,7 @@ def repo(tmp_path, fixture_src):
 
 def affected(repo: Path) -> dict:
     root, changed = changed_files("main", repo / "src")
-    return select_affected(discover(repo / "src"), root, changed, repo / "src")
+    return select_affected(discover(repo / "src"), root, changed, repo / "src", RULES)
 
 
 def commit(repo: Path) -> None:
@@ -119,3 +123,23 @@ def test_shared_rtl_change_selects_only_reaching_ips(repo):
     (repo / "src/common/rtl").mkdir(parents=True)
     (repo / "src/common/rtl/common_x.sv").write_text("")
     assert affected(repo) == {}
+
+
+def test_sub_ip_model_change_selects_ancestors(repo):
+    (repo / "src/counter/inc/dv/models").mkdir(parents=True)
+    (repo / "src/counter/inc/dv/models/inc_model.py").write_text("")
+    assert affected(repo) == {
+        "counter": "sub-IP model: src/counter/inc/dv/models/inc_model.py",
+        "counter/inc": "changed: src/counter/inc/dv/models/inc_model.py",
+    }
+
+
+def test_sub_ip_non_model_dv_change_selects_only_sub_ip(repo):
+    (repo / "src/counter/inc/dv/tests/test_inc.py").write_text("# x\n")
+    assert affected(repo) == {"counter/inc": "changed: src/counter/inc/dv/tests/test_inc.py"}
+
+
+def test_parent_model_change_does_not_select_sub_ip(repo):
+    (repo / "src/counter/dv/models").mkdir(parents=True)
+    (repo / "src/counter/dv/models/counter_model.py").write_text("")
+    assert affected(repo) == {"counter": "changed: src/counter/dv/models/counter_model.py"}

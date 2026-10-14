@@ -27,8 +27,9 @@ hosts:
     description: self-hosted CI host (Arch Linux); provisioned by hand, not by the hook
     # TODO(omarchy host agent): record the installed paths and versions here
     # once reported. Left empty on purpose; do not guess.
-    verilator_prefix:
-    verilator_version:
-    python:
+    verilator_prefix: /usr          # binary at /usr/bin/verilator, found on PATH
+    verilator_version: "5.052"
+    python: "3.14.7"                # /usr/bin/python3
+    venv: $VIRTUAL_ENV              # runner venv, first on PATH: cocotb, pytest, PyYAML pins (path is design-named)
     quartus_root:
     orfs_root:

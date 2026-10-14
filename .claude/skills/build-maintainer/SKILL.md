@@ -51,8 +51,8 @@ issue worktree per [agent-flow](../agent-flow/SKILL.md).
 - [ ] Actions pinned to an exact version; toolchain versions come from
       `cfg/host.yaml`, not the workflow.
 - [ ] `ci-gate` stays the single required check; affected-IP selection
-      never lives in workflow YAML. Its rules are in
-      `tools/regress/affected.py` until #11 moves them to `cfg/ci.yaml`.
+      never lives in workflow YAML: its facts are in `cfg/ci.yaml`
+      ([CI spec](../../../wiki/tools/ci/SPEC.md)).
 - [ ] A header comment points to the owning SPEC or BKM section.
 
 ## 4. Tests

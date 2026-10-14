@@ -107,8 +107,13 @@ toolchain.
 pushes to `main` and manual dispatch:
 
 1. `./build check`.
-2. `tools/` unit tests, when `tools/` or `cfg/` changed.
+2. `tools/` unit tests, when `tools/`, `cfg/` or `build` changed, and the
+   model unit tests of the affected IPs (`./build ci unit`).
 3. `./build regress --level 0 --level 1` for the affected IPs.
+
+The [CI tool spec](../tools/ci/SPEC.md) owns the workflow's steps and
+`cfg/ci.yaml`; the [regress spec](../tools/regress/SPEC.md#selection) owns
+the exact selection.
 
 **Affected IPs** (selection rules in `cfg/ci.yaml`):
 
@@ -118,12 +123,13 @@ pushes to `main` and manual dispatch:
 | A file reached through `-F` from an IP's filelists | That IP |
 | `tools/**`, `cfg/**` or the `build` launcher | All IPs |
 | Shared DV helpers under `src/common/dv/` (reached by no filelist) | All IPs |
+| A sub-IP's models under `src/<ip>/<subip>/dv/models/` | The sub-IP and every ancestor IP |
 | Push to `main`, manual dispatch | All IPs |
 | Docs only | Checks only |
 
 A sub-IP is an IP in its own right: a change inside `src/<ip>/<subip>/`
 selects the sub-IP, and selects the parent only when the parent's filelists
-reach the changed file.
+reach the changed file or the change is in the sub-IP's models.
 
 Superseded PR runs are cancelled; every push to `main` keeps its run. Until
 the runners are online, the temporary exception in
