@@ -30,6 +30,7 @@ def test_all_fields():
         ({"bogus": 1}, "unknown key"),
         ({"name": "has space"}, "'name' must match"),
         ({"name": "build"}, "reserved"),
+        ({"name": "asic"}, "reserved"),
         ({"module": "tests/test_x.py"}, "dotted Python module"),
         ({"top": "1top"}, "HDL module name"),
         ({"testcase": "a.b"}, "Python function name"),
