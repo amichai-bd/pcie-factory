@@ -4,11 +4,12 @@ The `ci-gate` workflow (`.github/workflows/ci.yml`) is the one required
 check; the [DevOps BKM](../../bkm/devops.md#continuous-integration) owns
 what it must cover. This page owns the selection rules file `cfg/ci.yaml`
 and the `./build ci` helpers the workflow calls. The code lives in
-`tools/ci/` (`config.py`, `unit.py`, `summary.py`).
+`tools/ci/` (`config.py`, `unit.py`, `summary.py`, `status.py`).
 
 ```
 ./build ci [--src-root DIR] [--workdir DIR] unit [--affected BASE]
 ./build ci [--workdir DIR] summary
+./build ci status --result RESULT --sha SHA --ref REF [--target-url URL] [--repo OWNER/NAME] [--dry-run]
 ```
 
 ## Selection rules: `cfg/ci.yaml`
@@ -70,9 +71,38 @@ build or test that did not pass with its seed and log path, and the wall
 time. A missing or unreadable summary prints one line saying so. It always
 exits `0`; it reports, it does not gate.
 
+## `./build ci status`
+
+Posts the `ci-gate` commit status for a nightly data branch, from the
+dispatched gate job's result; the workflow's `ci-gate-status` job is its
+only caller. Why it exists: the data PR is opened with `GITHUB_TOKEN`, so
+its gate runs by dispatch, and branch protection does not count a
+dispatched check run toward a PR; it does count a commit status with
+context `ci-gate` posted by GitHub Actions, the app the required check is
+bound to.
+
+- `--result` is the job result (`needs.ci-gate.result`): `success` posts
+  `success`, `failure` posts `failure`, `cancelled` and `skipped` post
+  `error`. Any other value is refused.
+- `--ref` must name a branch under `branch_prefix` of `cfg/metrics.yaml`
+  (`nightly/`), as `refs/heads/<branch>` or `<branch>`; any other ref,
+  including tags, PR refs and the bare prefix, is refused before any API call.
+- `--sha` must be a full 40-hex lowercase commit SHA (`$GITHUB_SHA`, the
+  commit the gate tested).
+- It sends one `POST repos/<repo>/statuses/<sha>` with `state`, `context`
+  `ci-gate`, `description` `ci-gate job on <branch>: <result>` and, when
+  given, `target_url` (the run). The repository is `--repo`, then
+  `$GH_REPO`, `$GITHUB_REPOSITORY`, the origin remote; `gh` reads
+  `GH_TOKEN`. `--dry-run` prints the status and posts nothing.
+
+Exit `0` when posted (or dry run), whatever the posted state: the gate job
+itself already carries the failure. Exit `2` on a refused input, a
+configuration error or a failed API call (the job then fails and no status
+is posted, so the PR stays blocked).
+
 ## The workflow
 
-`ci.yml` runs one job, `ci-gate`, on `[self-hosted, linux, x64]` for pull
+`ci.yml` runs the job `ci-gate` on `[self-hosted, linux, x64]` for pull
 requests to `main`, pushes to `main` and manual dispatch:
 
 1. Toolchain discovery (prints `python3`, the Verilator found on `PATH` or
@@ -112,12 +142,37 @@ budget of the DevOps BKM is a target the job is expected to meet, not
 enforced by the workflow; the timeout leaves headroom for a cold
 dependency install.
 
-Branch protection on `main` requires the status check `ci-gate`.
+**`ci-gate-status`** is a second job, `needs: ci-gate` with `always()`,
+that runs only when the event is not `pull_request` and the ref is
+`refs/heads/nightly/*` (the nightly's dispatch on its data branch). It
+checks out the branch without persisted credentials, installs the Python
+pins like step 2, and runs `./build ci status` with the gate job's result
+(`needs.ci-gate.result`), `$GITHUB_SHA` and `$GITHUB_REF`, and the run as
+target URL. It is the only job with `statuses: write` (plus
+`contents: read`); the gate job never holds it, so no gate step, including
+the guard that receives a token, can post a status.
+
+Branch protection on `main` requires the status check `ci-gate`, bound to
+GitHub Actions (app 15368). On a pull request from this repository the
+`ci-gate` check run satisfies it; on the nightly data PR the commit status
+from `ci-gate-status` does ([metrics spec](../metrics/SPEC.md#workflows)).
+
+**Who can satisfy `ci-gate`.** Protection only accepts `ci-gate` from
+GitHub Actions, so a status posted by a person or by another app does not
+count. Inside Actions: fork `pull_request` runs get a read-only token and
+the status job never runs for `pull_request`; the nightly's data commits
+pass `./build metrics guard` from a trusted checkout before they are
+pushed; the posted state is the gate job's own result. The residual path is
+a writer adding or editing a workflow on their own branch, which can equally
+make any `ci-gate` check pass today; review before merge is the control for
+that, unchanged by this job.
 
 ## Tests
 
 `tools/ci/tests/`: rule loading and every malformed-input case
 (`test_ci_config.py`), suite planning on a synthetic git repository and
-failure propagation (`test_ci_unit.py`), and summary rendering
-(`test_ci_summary.py`). The affected-IP rules are tested in
+failure propagation (`test_ci_unit.py`), summary rendering
+(`test_ci_summary.py`), and the status mapping, data-branch-only rule,
+posted request, dry run, API failure and CLI wiring (`test_ci_status.py`,
+`gh` faked). The affected-IP rules are tested in
 `tools/regress/tests/test_affected.py` against the real `cfg/ci.yaml`.

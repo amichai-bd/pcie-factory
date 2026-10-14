@@ -16,6 +16,7 @@ from build import sim
 from build.filelist import FilelistError
 from build.ip import Context, DiscoveryError, discover, find_ip, make_context
 from checks.common import CheckConfigError
+from ci import status as ci_status
 from ci import summary as ci_summary
 from ci import unit as ci_unit
 from ci.config import CiConfigError, load_rules
@@ -127,6 +128,8 @@ def cmd_ci(ctx: Context, args) -> int:
     if args.action == "summary":
         print(ci_summary.render(regress.summary_path(ctx.workdir)), end="")
         return 0
+    if args.action == "status":
+        return ci_status.run(ctx, args)
     rules = load_rules(ctx.cfg_dir)
     return ci_unit.run(ci_unit.plan(ctx, rules, args.affected))
 
@@ -248,6 +251,14 @@ def _ci_args(p: argparse.ArgumentParser) -> None:
     u.add_argument("--affected", metavar="BASE",
                    help="only the suites affected since the merge base with BASE")
     act.add_parser("summary", help="print the regress summary as Markdown")
+    st = act.add_parser("status", help="post the ci-gate commit status on a nightly data branch")
+    st.add_argument("--result", required=True, help="the ci-gate job result: "
+                    + ", ".join(ci_status.STATES))
+    st.add_argument("--sha", required=True, help="full commit SHA the job tested")
+    st.add_argument("--ref", required=True, help="branch the job ran on (must be a data branch)")
+    st.add_argument("--target-url", help="link shown with the status (the run)")
+    st.add_argument("--repo", help="OWNER/NAME (default: $GH_REPO, $GITHUB_REPOSITORY, origin)")
+    st.add_argument("--dry-run", action="store_true", help="print the status, post nothing")
 
 
 def _wiki_args(p: argparse.ArgumentParser) -> None:
@@ -271,7 +282,7 @@ COMMANDS = {
     "clean": ("remove generated output", cmd_clean, _clean_args),
     "check": ("static checks: lint, style, filelist, wiki mirror, neutrality", cmd_check, _check_args),
     "labels": ("GitHub label sync and check", cmd_labels, _labels_args),
-    "ci": ("ci-gate helpers: unit suites, job summary", cmd_ci, _ci_args),
+    "ci": ("ci-gate helpers: unit suites, job summary, data-branch status", cmd_ci, _ci_args),
     "wiki": ("build or serve the wiki site", cmd_wiki, _wiki_args),
     "metrics": ("nightly metrics, data guard and red issue", metrics.run, metrics.add_args),
     "fpga": ("FPGA flow: Quartus compile and metrics", cmd_fpga, _fpga_args),

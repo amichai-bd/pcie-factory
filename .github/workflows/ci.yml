@@ -1,5 +1,6 @@
 # ci-gate: the single required check. Owning docs: wiki/bkm/devops.md
-# (continuous integration) and wiki/tools/ci/SPEC.md. Selection rules live in
+# (continuous integration) and wiki/tools/ci/SPEC.md (also the ci-gate-status
+# job for nightly data branches). Selection rules live in
 # cfg/ci.yaml and the tools, never here: this file only chooses between
 # "affected since the PR base" (pull_request) and "everything" (push, dispatch).
 name: ci
@@ -149,3 +150,42 @@ jobs:
           path: workdir/regress/summary.json
           if-no-files-found: warn
           retention-days: 14
+
+  # The data PR is opened with GITHUB_TOKEN, so its ci-gate runs by dispatch,
+  # and branch protection does not count a dispatched check run toward a PR.
+  # This job mirrors the gate's own result as a `ci-gate` commit status on the
+  # tested commit, which protection does accept from GitHub Actions
+  # (wiki/tools/ci/SPEC.md#build-ci-status). It is the only place with
+  # statuses: write; it runs only for a push or dispatch of a nightly/ ref
+  # (never for a pull_request, so never for a fork), after the gate finishes,
+  # and its state comes from needs.ci-gate.result alone.
+  ci-gate-status:
+    needs: ci-gate
+    if: ${{ always() && github.event_name != 'pull_request' && startsWith(github.ref, 'refs/heads/nightly/') }}
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Python dependencies
+        run: |
+          if python3 -m pip install --dry-run --no-index --quiet -r tools/requirements.txt >/dev/null 2>&1; then
+            echo "runner Python satisfies tools/requirements.txt"
+          else
+            python3 -m venv workdir/venv
+            workdir/venv/bin/pip install --quiet -r tools/requirements.txt
+            echo "$PWD/workdir/venv/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Post the ci-gate commit status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESULT: ${{ needs.ci-gate.result }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: ./build ci status --result "$RESULT" --sha "$GITHUB_SHA" --ref "$GITHUB_REF" --target-url "$TARGET_URL"
