@@ -52,6 +52,8 @@ reset and is don't-care while `valid_o` is 0.
 - Latency: one cycle from `valid_i`/`data_i` to `valid_o`/`data_o`.
 - Throughput: one byte per cycle, back to back.
 - No clock-domain crossing.
+- Clock target: 100 MHz (10 ns period) on `clk_i`, the ASIC study clock in
+  `src/top/asic/pcie_top.sdc` (sky130hd).
 
 ## FPGA board wrapper
 

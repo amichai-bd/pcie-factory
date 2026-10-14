@@ -1,0 +1,66 @@
+# ASIC flow (ORFS); see wiki/tools/asic/SPEC.md and wiki/bkm/pd.md.
+# On demand only (nightly L2 dispatches it); never part of ci-gate. Runs on the
+# self-hosted host that has ORFS and uploads only metrics.json and the
+# worst-path summary, never raw ORFS reports or logs.
+name: asic
+
+on:
+  workflow_dispatch:
+    inputs:
+      ip:
+        description: IP id with an asic/ directory (empty = every such IP)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  flow:
+    # Public repository: never run fork code on the self-hosted runners
+    # (kept even though only workflow_dispatch triggers this workflow today).
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 90
+    concurrency:
+      group: asic-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    env:
+      IP: ${{ inputs.ip }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Discover ORFS
+        # Tool versions and ORFS paths only (wiki/tools/asic/SPEC.md#orfs-runners).
+        run: |
+          set +e
+          echo "ORFS_IMAGE=${ORFS_IMAGE:-<unset>}"
+          docker version --format 'docker {{.Server.Version}}'
+          docker images --digests --format '{{.Repository}}:{{.Tag}}@{{.Digest}}' | grep -i -E '^(openroad|orfs)'
+          for tool in openroad yosys klayout; do command -v "$tool" || echo "$tool: not on PATH"; done
+          exit 0
+      - name: Run the ASIC flow
+        run: |
+          # Without an input: every IP that has an asic/ directory.
+          ips="$IP"
+          if [ -z "$ips" ]; then
+            ips=$(find src -type d -name asic -printf '%P\n' | sed 's|/asic$||' | sort)
+          fi
+          [ -n "$ips" ] || { echo "no IP has an asic/ directory"; exit 1; }
+          rc=0
+          for ip in $ips; do
+            ./build asic --ip "$ip" || rc=1
+          done
+          exit $rc
+      - name: Upload metrics and worst-path summary
+        if: always()
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: asic-metrics
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            workdir/**/asic/metrics.json
+            workdir/**/asic/worst_path.txt
