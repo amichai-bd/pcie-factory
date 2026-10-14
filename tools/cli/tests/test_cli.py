@@ -5,7 +5,7 @@ import sys
 import pytest
 
 from build.ip import REPO_ROOT
-from cli.main import COMMANDS, main
+from cli.main import COMMANDS, main, make_parser
 
 STUBS: dict[str, int] = {}
 
@@ -140,3 +140,26 @@ def test_wiki_requires_action():
     with pytest.raises(SystemExit) as exc:
         main(["wiki"])
     assert exc.value.code == 2
+
+
+@pytest.mark.parametrize("argv", [
+    ["wiki", "build"], ["wiki", "serve"], ["labels", "sync"], ["labels", "check", "7"],
+    ["ci", "summary"], ["metrics", "guard", "--branch", "b", "--base", "m"],
+    ["check"], ["clean"],
+])
+def test_shared_options_before_or_after_the_action(argv):
+    parse = make_parser().parse_args
+    shared = ["--workdir", "W", "--src-root", "S"]
+    before = parse(argv[:1] + shared + argv[1:])
+    after = parse(argv + shared)
+    assert (before.workdir, before.src_root) == (after.workdir, after.src_root) == ("W", "S")
+    neither = parse(argv)
+    assert (neither.workdir, neither.src_root) == (None, None)
+    if len(argv) > 1 and not argv[1].startswith("-"):  # an action: the later one wins
+        both = parse(argv[:1] + ["--workdir", "A"] + argv[1:] + ["--workdir", "B"])
+        assert both.workdir == "B" and both.src_root is None
+
+
+def test_wiki_workdir_after_action(tmp_path, capsys):
+    assert main(["wiki", "build", "--sha", "abc123", "--workdir", str(tmp_path)]) == 0
+    assert f"out={tmp_path / 'wiki-site'}" in capsys.readouterr().out

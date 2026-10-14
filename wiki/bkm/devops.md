@@ -153,13 +153,22 @@ dispatched check run toward a PR, so the dispatched run's `ci-gate-status`
 job mirrors the gate's result as a `ci-gate` commit status on the tested
 commit; the required check is bound to GitHub Actions, which accepts a
 status that app posts. Only that job holds `statuses: write`, and only for
-a push or dispatch of a `nightly/` ref, never for a `pull_request` (so never
-for a fork); its state is the gate job's own result (a failure, cancellation
+a dispatch on a `nightly/` ref (push triggers only on `main`), never for a
+`pull_request` (so never for a fork); its state is the gate job's own result (a failure, cancellation
 or skip blocks the merge). A person or another app cannot post a status
 that counts, because protection only accepts `ci-gate` from GitHub Actions;
 a workflow a writer adds could, exactly as a writer can already edit
 `ci.yml` in their own PR, so review stays the control for writers
-([CI spec](../tools/ci/SPEC.md#build-ci-status)).
+([CI spec](../tools/ci/SPEC.md#build-ci-status)). Any writer can dispatch
+`ci.yml` on any `nightly/*` ref, and the status binds to the tested commit,
+not to a PR or its base ([what a status vouches for](../tools/ci/SPEC.md#the-workflow)).
+
+**Review is process, not enforcement.** Branch protection on `main`
+requires `ci-gate` only, with no required approving reviews. The
+independent `REVIEW-VERDICT` gate is kept by the
+[agent flow](../../.claude/skills/agent-flow/SKILL.md#7-merge-firstmate),
+not by GitHub; the nightly data PR is the one exception and merges on
+`ci-gate` alone.
 
 The [CI tool spec](../tools/ci/SPEC.md) owns the workflow's steps and
 `cfg/ci.yaml`; the [regress spec](../tools/regress/SPEC.md#selection) owns

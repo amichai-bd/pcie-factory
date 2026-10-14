@@ -278,8 +278,9 @@ gate's own result as a commit status with context `ci-gate` on the head
 commit ([`./build ci status`](../ci/SPEC.md#build-ci-status)); a status from
 GitHub Actions satisfies the required check, which is bound to that app, so
 a green gate lets auto-merge proceed and a red or cancelled one keeps the PR
-blocked. The PR then shows `unstable` (the waiting `pull_request` runs are
-not required), which auto-merge accepts. GitHub has no REST call to enable
+blocked. The PR's own `pull_request` runs of `ci.yml` and `pages.yml` stay
+waiting; they are not required and did not hold auto-merge back on the
+first nightly after #61 (see **Evidence** below). GitHub has no REST call to enable
 auto-merge, so `publish` uses `gh pr merge --auto --squash` (GraphQL, which
 works with `GITHUB_TOKEN` on the runner). It needs the repository setting
 **Allow auto-merge** and a required check on `main`; without them the step
@@ -295,12 +296,35 @@ run before the merge lands), and `pages.yml` also runs daily at 05:17 UTC,
 two hours after the nightly, as the backstop. The series marks those
 commits `data_only` with `ci` `n/a`.
 
+**Evidence: the first data PR merged this way** (read back through the
+REST API). Nightly run
+[38628703968](https://github.com/amichai-bd/pcie-factory/actions/runs/38628703968),
+on `main` at `c477275` (the #61 merge), force-pushed `nightly/2026-10-14` to
+`cf8e30f` at 20:07:05 UTC and reused data PR
+[#52](https://github.com/amichai-bd/pcie-factory/pull/52), whose squash
+auto-merge was already enabled. Its dispatched `ci.yml` run
+[38629345324](https://github.com/amichai-bd/pcie-factory/actions/runs/38629345324)
+passed `ci-gate` at 20:08:22, and `ci-gate-status` posted the `ci-gate`
+commit status `success` at 20:08:36. Auto-merge squash-merged #52 at
+20:09:28 as [`6b84433`](https://github.com/amichai-bd/pcie-factory/commit/6b844332ef7840dad36a8c0b6ca662370d849d64).
+The PR's `pull_request` runs of `ci.yml`
+([38629348666](https://github.com/amichai-bd/pcie-factory/actions/runs/38629348666))
+and `pages.yml`
+([38629348539](https://github.com/amichai-bd/pcie-factory/actions/runs/38629348539)),
+created at 20:07:09, never started a job and completed as `failure` with
+zero jobs at 20:09:29, after the PR closed. So auto-merge took the commit
+status as the required `ci-gate` and merged while those non-required runs
+were pending. GitHub does not keep a PR's pre-merge `mergeable_state` (it
+reads `unknown` after the merge), so whether it showed `unstable` then is
+not recorded; the merge is the evidence. The merge commit has no push
+`ci-gate` run, as expected.
+
 **The data guard** is a step of the `ci-gate` job in `ci.yml` (the
 [CI spec](../ci/SPEC.md#the-workflow) owns its invocation), so the single
 required check also gates the data PR. On a pull request it compares the
-merge commit with its first parent. On a push or dispatch of a `nightly/`
-ref it compares the branch with the base of its open PR into `main` (else
-of any open PR, else `main`), which is how the nightly's dispatched run
+merge commit with its first parent. On a dispatch on a `nightly/` ref (push
+triggers only on `main`) it compares the branch with the base of its open PR
+into `main` (else of any open PR, else `main`), which is how the nightly's dispatched run
 checks the data PR; any other push or dispatch passes at once, without an
 API call or history fetch. Like every PR check, a PR can
 edit its own copy of the workflow; the `publish` job's own guard run, from
