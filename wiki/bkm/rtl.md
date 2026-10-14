@@ -39,7 +39,11 @@ follows the [DV BKM](dv.md).
   connections (`.port(sig)`) on every instance; no `.*`, no positional
   connections.
 - **No `ifdef` for behavior.** Product RTL has no `` `ifdef SYNTHESIS`` or
-  simulation-only branches; configuration is by parameter.
+  simulation-only branches; configuration is by parameter. Never condition
+  on a macro the RTL does not `` `define`` itself (a vendor or tool macro
+  such as `ALTERA_RESERVED_QIS`): that code is hidden from lint and
+  simulation while another flow still compiles it. Include guards are the
+  expected use.
 - **No functions with side effects, no tasks** in RTL. Pure helper functions
   live in the owning package.
 - Small modules with one purpose. Comments explain protocol, timing,
