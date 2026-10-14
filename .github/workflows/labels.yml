@@ -1,0 +1,41 @@
+# Label sync; see wiki/tools/labels/SPEC.md.
+# A push to main that changes the label config, the tool, or src/ (ip: labels
+# are derived from IP discovery) makes the repository labels match the config.
+# It never prunes; run `./build labels sync --prune` by hand for that.
+name: labels
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cfg/labels.yaml"
+      - "tools/labels/**"
+      - "src/**"
+      - ".github/workflows/labels.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: labels
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Install the tool's Python dependencies
+        run: |
+          python3 -m venv workdir/venv
+          workdir/venv/bin/pip install --quiet "$(grep '^PyYAML==' tools/requirements.txt)"
+      - name: Sync labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: workdir/venv/bin/python -B ./build labels sync --repo "$GITHUB_REPOSITORY"
