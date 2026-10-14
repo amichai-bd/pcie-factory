@@ -53,9 +53,40 @@ reset and is don't-care while `valid_o` is 0.
 - Throughput: one byte per cycle, back to back.
 - No clock-domain crossing.
 
+## FPGA board wrapper
+
+`pcie_top_de2_115` binds `pcie_top` to the Terasic DE2-115 for the
+[FPGA flow](../../tools/fpga/SPEC.md); it is board policy, not part of
+`top.rtl.f`.
+
+| Port | Board signal | Pin(s) | Use |
+| --- | --- | --- | --- |
+| `clk_50_i` | `CLOCK_50` | `Y2` | 50 MHz clock for everything (`clk_i`). |
+| `key_ni[0]` | `KEY[0]` | `M23` | Held: reset (`rst_i`). |
+| `key_ni[1]` | `KEY[1]` | `M21` | Press: one `valid_i` pulse with `data_i = SW[7:0]`. |
+| `key_ni[2]` | `KEY[2]` | `N21` | Press: one `reseed_i` pulse. |
+| `sw_i[7:0]` | `SW[7:0]` | `AB28 AC28 AC27 AD27 AB27 AC26 AD26 AB26` | Data byte. |
+| `ledr_o[7:0]` | `LEDR[7:0]` | `G19 F19 E19 F21 F18 E18 J19 H19` | Last `data_o` with `valid_o`. |
+| `ledg0_o` | `LEDG[0]` | `E21` | A byte has been shown since reset. |
+
+Keys and switches pass through two-flop synchronizers to `clk_50_i`. A
+press is a high-to-low step of a synchronized key, so each press gives one
+pulse (the board debounces the keys). Reset is synchronous while `KEY[0]`
+is held; `ledg0_o` resets to 0 and `ledr_o` is not reset (qualified by
+`ledg0_o`). The SDC constrains `CLOCK_50` to 20 ns and false-paths the
+asynchronous inputs and the static LED outputs.
+
+Compiled with `./build fpga --ip top` (Quartus Prime Lite 25.1std.0,
+`EP4CE115F29C7`): 61 logic elements, 58 registers, no memory or
+multipliers; `CLOCK_50` Fmax 222.37 MHz, worst setup slack 15.503 ns,
+worst hold slack 0.184 ns.
+
 ## Files
 
 | File | Holds |
 | --- | --- |
 | [`pcie_top.sv`](../../../src/top/rtl/pcie_top.sv) | The module. |
 | [`top.rtl.f`](../../../src/top/rtl/top.rtl.f) | `-F ../lfsr/rtl/lfsr.rtl.f`, then `pcie_top.sv`. |
+| [`pcie_top_de2_115.sv`](../../../src/top/fpga/pcie_top_de2_115.sv) | DE2-115 board wrapper (FPGA flow only). |
+| [`pcie_top.sdc`](../../../src/top/fpga/pcie_top.sdc) | FPGA timing constraints. |
+| [`de2_115.qsf.tcl`](../../../src/top/fpga/de2_115.qsf.tcl) | DE2-115 device, pins and I/O settings. |
