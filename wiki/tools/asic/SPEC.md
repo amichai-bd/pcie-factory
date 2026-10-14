@@ -16,7 +16,7 @@ method (inputs, acceptance ladder, review). Code: `tools/asic/` (`cli.py`,
 | `--ip ID` | Required. A top-level IP id with a `src/asic/<ip>/` folder. |
 | `--platform` | ORFS platform; only `sky130hd` is supported. |
 | `--timeout S` | Wall-clock budget for all ORFS steps together (default 3600 s). |
-| `--dry-run` | Write `config.mk`, print every command, run nothing. |
+| `--dry-run` | Write `config.mk`, print every command, run nothing. `./build check` runs the same input and ORFS-settings validation for every ASIC target, writing nothing ([flow-input check](../checks/SPEC.md#flow-input-check)). |
 
 Exit codes: `0` the flow passed and every required metric was read; `1`
 a step failed, timed out, or a required metric is missing (`metrics.json`
