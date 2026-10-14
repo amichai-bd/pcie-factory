@@ -6,6 +6,7 @@ its discipline and links to the owning page instead of restating it.
 | BKM | Owns |
 | --- | --- |
 | [RTL](rtl.md) | SystemVerilog style, packages, naming, filelists, lint waivers |
+| [Arch](arch.md) | Python architecture models of top-level IPs: layout, perf scenarios, use by DV |
 | [DV](dv.md) | cocotb structure, regression lists, levels, seeds, DV plan alignment |
 | [DevOps](devops.md) | `./build`, levels and budgets, local evidence, CI selection, nightly, labels, metrics |
 | [Wiki](wiki.md) | Page sets, spec↔code alignment, writing rules |

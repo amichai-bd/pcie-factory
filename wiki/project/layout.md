@@ -14,7 +14,7 @@
 │   ├── lint_waivers.yaml        # reviewed Verilator waivers (optional; checks SPEC)
 │   ├── common/{rtl,dv}/         # shared blocks
 │   └── <ip>/
-│       ├── arch/                # top-level IPs: Python architecture models (planned)
+│       ├── arch/                # top-level IPs: Python architecture models, perf/
 │       ├── rtl/                 # <ip>.rtl.f + synthesizable sources
 │       ├── dv/                  # <ip>.dv.f, <ip>.sim.f, tb/, tests/, models/, regress/
 │       ├── fpga/                # synthesis targets only: SDC, QSF Tcl, board wrapper
@@ -23,7 +23,7 @@
 ├── wiki/
 │   ├── index.md
 │   ├── project/                 # architecture, layout, roadmap, decisions/
-│   ├── bkm/                     # rtl, dv, devops, wiki, fpga, pd
+│   ├── bkm/                     # rtl, dv, arch, devops, wiki, fpga, pd
 │   ├── tools/<tool>/SPEC.md
 │   ├── src/<ip>/                # mirrors src/<ip>/: arch/HAS.md (top-level IPs),
 │   │                            #   rtl/MAS.md, dv/DV_PLAN.md, fpga/FPGA.md,
@@ -49,7 +49,7 @@ target and the prefix `<prefix>` used below.
 | `dv/<ip>.sim.f` | `-F ../rtl/<ip>.rtl.f` plus `-F <ip>.dv.f`. |
 | `dv/regress/level{0,1,2}.yaml` | This IP's own tests per level. Levels are exclusive; sub-IP tests are not inherited. |
 | `fpga/`, `asic/` | Constraints and flow config only; generated output goes to `workdir/`. |
-| `arch/` | Top-level IPs only: architecture models (Python, not verification); the tooling is a planned follow-up, so the folder is optional for now. |
+| `arch/` | Top-level IPs only: `<prefix><ip>_arch.py` (Python architecture model, not verification), its self-tests and `perf/<scenario>.yaml`; required once the HAS defines targets ([arch BKM](../bkm/arch.md)). |
 
 ## Wiki mirror
 

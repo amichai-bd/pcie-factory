@@ -83,7 +83,9 @@ Three rules decide which tests run:
   - A changed file lies in the IP's **own files**: under `src/<ip>/`, but not
     inside a nested directory that is itself an IP. A change inside sub-IP
     `a/b` therefore selects `a/b`. It selects the parent `a` only through
-    the next two cases.
+    the next two cases. A change under a top-level IP's `arch/` (the
+    architecture model, [arch BKM](../../bkm/arch.md)) is one of its own
+    files, so it selects that IP alone.
   - A changed file lies in the `models` directory (`dv/models/`) of an IP
     nested anywhere below this one: parent models import sub-IP models by
     path ([DV BKM](../../bkm/dv.md#reusing-a-sub-ip-model)), which no

@@ -1,12 +1,14 @@
 """``./build ci unit``: run the pytest suites a change needs.
 
-Two kinds of suite, both pure Python (no simulator):
+Four kinds of suite, all pure Python (no simulator):
 
 - ``tools``: the tools unit tests (``tools_tests`` in cfg/ci.yaml).
 - ``models:<ip>``: the reference-model unit tests in ``<ip>/<models>/``.
+- ``arch:<ip>``: the architecture-model self-tests in ``<ip>/<arch>/``.
+- ``perf:<ip>``: ``./build arch --ip <ip>``, the IP's perf scenarios.
 
 Without ``--affected`` every suite runs. With it, ``tools`` runs when a
-global path changed, and the model suites run for the IPs that
+global path changed, and the per-IP suites run for the IPs that
 ``regress --affected`` would select.
 """
 
@@ -18,7 +20,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from build.ip import Context, Ip, discover
+from arch.perf import PERF_DIR
+from build.ip import REPO_ROOT, Context, Ip, discover
 from ci.config import CiRules
 from regress.affected import changed_files, select_affected
 
@@ -28,7 +31,10 @@ class Suite:
     name: str
     reason: str
     cwd: Path
-    args: tuple[str, ...]
+    args: tuple[str, ...]  # after the Python interpreter
+
+
+_PYTEST_HERE = ("-m", "pytest", "-q", "-p", "no:cacheprovider", "--rootdir", ".", ".")
 
 
 def _has_tests(d: Path) -> bool:
@@ -48,14 +54,20 @@ def plan(ctx: Context, rules: CiRules, affected_base: str | None) -> list[Suite]
     suites = []
     if run_tools:
         suites.append(Suite("tools", run_tools, ctx.repo_root,
-                            ("-q", *rules.tools_tests)))
+                            ("-m", "pytest", "-q", *rules.tools_tests)))
     for ip in ips:
-        d = ip.path / rules.models
-        if ip.id in hit and _has_tests(d):
-            # Run in the models directory: model modules are imported by bare
-            # name, and each IP is its own pytest session so names never mix.
-            suites.append(Suite(f"models:{ip.id}", hit[ip.id], d,
-                                ("-q", "-p", "no:cacheprovider", "--rootdir", ".", ".")))
+        if ip.id not in hit:
+            continue
+        # Run in the models or arch directory: modules there are imported by
+        # bare name, and each is its own pytest session so names never mix.
+        for kind, sub in (("models", rules.models), ("arch", rules.arch)):
+            d = ip.path / sub
+            if _has_tests(d):
+                suites.append(Suite(f"{kind}:{ip.id}", hit[ip.id], d, _PYTEST_HERE))
+        if (ip.path / rules.arch / PERF_DIR).is_dir():
+            suites.append(Suite(f"perf:{ip.id}", hit[ip.id], ctx.repo_root, (
+                str(REPO_ROOT / "build"), "arch", "--ip", ip.id,
+                "--src-root", str(ctx.src_root), "--workdir", str(ctx.workdir))))
     return suites
 
 
@@ -68,7 +80,7 @@ def run(suites: list[Suite], out=sys.stdout) -> int:
     failed = []
     for s in suites:
         print(f"[unit] {s.name}: {s.reason}", file=out, flush=True)
-        code = subprocess.run([sys.executable, "-m", "pytest", *s.args],
+        code = subprocess.run([sys.executable, *s.args],
                               cwd=s.cwd, env=env).returncode
         print(f"[unit] {s.name}: {'PASS' if code == 0 else f'FAIL (exit {code})'}",
               file=out, flush=True)

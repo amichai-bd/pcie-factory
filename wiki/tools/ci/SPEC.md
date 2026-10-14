@@ -24,6 +24,7 @@ global:
   files: [build]             # repo-relative exact paths
 shared_dv: [common/dv]       # relative to the source root
 models: dv/models            # relative to each IP directory
+arch: arch                   # relative to each top-level IP directory
 tools_tests: [tools]         # repo-relative pytest paths
 ```
 
@@ -32,9 +33,10 @@ tools_tests: [tools]         # repo-relative pytest paths
 | `global` | A change under a prefix, or to one of the files, selects every IP and the tools unit tests. |
 | `shared_dv` | Shared DV Python that no filelist reaches; a change under one selects every IP. |
 | `models` | An IP's reference models and their unit tests. A change under a sub-IP's models directory also selects every ancestor IP, because parent models import sub-IP models ([DV BKM](../../bkm/dv.md#reusing-a-sub-ip-model)). `./build ci unit` runs the model tests of each selected IP. |
+| `arch` | A top-level IP's architecture models, self-tests and `perf/` scenarios ([arch BKM](../../bkm/arch.md)). A change under it selects that IP, since it lies in the IP's directory (and DV may import the models); `./build ci unit` runs its self-tests and perf scenarios. |
 | `tools_tests` | The pytest paths of the tools unit tests. |
 
-All five keys are required and no others are allowed. Paths are relative,
+All keys are required and no others are allowed. Paths are relative,
 without `..`. A missing file, invalid YAML, a missing or unknown key, or a
 value of the wrong type is a configuration error (exit 2) that names the
 file and key. Never name an IP here.
@@ -47,13 +49,19 @@ Runs the pure-Python unit-test suites a change needs; no simulator.
 - **`models:<ip>`:** `python -m pytest -q` inside `<ip>/<models>/`, one
   session per IP (model modules are imported by bare name), for each IP whose
   models directory holds a `test_*.py`.
+- **`arch:<ip>`:** the same inside `<ip>/<arch>/`, for each IP whose arch
+  directory holds a `test_*.py` (the model self-tests).
+- **`perf:<ip>`:** `./build arch --ip <ip>` with the same `--src-root` and
+  `--workdir` ([arch spec](../arch/SPEC.md)), for each IP with an
+  `<arch>/perf/` directory; a missed target fails it.
 
 Without `--affected`, every suite runs. With `--affected BASE`, the changed
 files are those of [`regress --affected`](../regress/SPEC.md#selection)
 (merge base of `BASE` and `HEAD`, plus uncommitted and untracked files):
 
 - `tools` runs when a `global` path changed;
-- `models:<ip>` runs for each IP that `regress --affected BASE` selects.
+- `models:<ip>`, `arch:<ip>` and `perf:<ip>` run for each IP that
+  `regress --affected BASE` selects.
 
 Each suite prints `[unit] <suite>: <reason>`, pytest's own output, then
 `[unit] <suite>: PASS` or `FAIL (exit N)`. Every suite runs even after a
@@ -170,8 +178,9 @@ that, unchanged by this job.
 ## Tests
 
 `tools/ci/tests/`: rule loading and every malformed-input case
-(`test_ci_config.py`), suite planning on a synthetic git repository and
-failure propagation (`test_ci_unit.py`), summary rendering
+(`test_ci_config.py`), suite planning on a synthetic git repository
+(including an IP with an arch model and scenario), running the arch and perf
+suites, and failure propagation (`test_ci_unit.py`), summary rendering
 (`test_ci_summary.py`), and the status mapping, data-branch-only rule,
 posted request, dry run, API failure and CLI wiring (`test_ci_status.py`,
 `gh` faked). The affected-IP rules are tested in

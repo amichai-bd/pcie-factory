@@ -9,7 +9,9 @@
 This page owns repository-wide design-verification practice. An IP's
 `arch/HAS.md` (for a sub-IP, its `rtl/MAS.md`) defines expected behavior and
 its `dv/DV_PLAN.md` maps features to tests and levels ([wiki BKM](wiki.md#page-set)). Oracles come from the spec,
-never from the RTL structure.
+never from the RTL structure. DV may import a top-level IP's architecture
+model as a second reference; the architecture model never imports DV
+([arch BKM](arch.md#dv-and-arch)).
 
 - Verilator is the only simulator. Python with cocotb is the only DV
   language for stimulus, models, scoreboards and checks; the cocotb pin is in

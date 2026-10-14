@@ -64,7 +64,7 @@ Update `src/<ip>/rtl/<ip>.rtl.f` in the same edit as the source:
 ## 4. Check, cheapest first
 
 ```text
-./build check                                  # lint -Wall, RTL style, filelists, neutrality
+./build check                                  # lint -Wall, RTL style, filelists, wiki mirror, neutrality
 ./build sim --ip <id> --test <name> [--seed N] [--waves]   # focused test
 ./build regress --level 0 --level 1 --affected origin/main   # before review
 ```

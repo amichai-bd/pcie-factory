@@ -15,6 +15,7 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `tools/labels/` | GitHub label standard, sync and check; see the [labels spec](../labels/SPEC.md). |
 | `tools/checks/` | `./build check`; see the [checks spec](../checks/SPEC.md). |
 | `tools/ci/` | `cfg/ci.yaml` rules and `./build ci`; see the [CI spec](../ci/SPEC.md). |
+| `tools/arch/` | Architecture-model perf scenarios; see the [arch spec](../arch/SPEC.md). |
 | `tools/metrics/` | Nightly metrics, the data guard and the `nightly-red` issue; see the [metrics spec](../metrics/SPEC.md). |
 
 ## Command line
@@ -35,6 +36,7 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `check` | Static checks; see the [checks spec](../checks/SPEC.md). |
 | `fpga (--ip ID... \| --all) [--part P] [--timeout S] [--dry-run]` | Quartus compile and `metrics.json` for IPs with `fpga/`; see the [fpga spec](../fpga/SPEC.md). |
 | `asic --ip ID [--platform P] [--timeout S] [--dry-run]` | ORFS flow and `metrics.json` for one IP with `asic/`; see the [asic spec](../asic/SPEC.md). |
+| `arch --ip ID [--scenario NAME]` | Perf scenarios of a top-level IP's architecture model and `perf.json`; see the [arch spec](../arch/SPEC.md). |
 
 Options shared by every command:
 
@@ -57,7 +59,7 @@ there is one.
 An IP is any directory `D` under the source root that contains
 `rtl/<basename(D)>.rtl.f`. Its **id** is `D` relative to the source root,
 using `/` as the separator, for example `a` or `a/b` for sub-IP `b` of `a`.
-The tools don't descend into `rtl/`, `dv/`, `fpga/`, `asic/` or hidden
+The tools don't descend into `arch/`, `rtl/`, `dv/`, `fpga/`, `asic/` or hidden
 directories when they look for IPs. IPs are sorted by id. No IP name is
 hard-coded anywhere in `tools/` or `cfg/`. The id `regress` is reserved
 because `workdir/regress/` holds the regression summary.
@@ -70,6 +72,7 @@ Each IP has these files:
 | `dv/<name>.sim.f` | Simulation filelist, used by `sim` and `regress`. |
 | `dv/` | Python root for cocotb test modules (`module: tests.test_x` is `dv/tests/test_x.py`). |
 | `dv/regress/level{0,1,2}.yaml` | Regression lists. |
+| `arch/` | Top-level IPs only: the architecture model and its perf scenarios ([arch spec](../arch/SPEC.md)). |
 
 ## Filelists
 
@@ -162,7 +165,8 @@ so a sub-IP nests under its parent):
 
 Because a test directory and a sub-IP directory share `workdir/<ip>/`, a
 test may not be named `build`, `fpga` (the [fpga tool's](../fpga/SPEC.md#output) output),
-`asic` (the [asic tool's](../asic/SPEC.md#output) output) or after a sub-IP directory.
+`asic` (the [asic tool's](../asic/SPEC.md#output) output), `arch` (the
+[arch tool's](../arch/SPEC.md#behavior-and-output) output) or after a sub-IP directory.
 
 A test's status comes from `results.xml`:
 

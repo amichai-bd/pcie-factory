@@ -6,7 +6,10 @@
   implements the [HAS](../arch/HAS.md#behavior) cycle table. It does not
   re-implement the key: it imports the lfsr sub-IP's model (below). Its
   pytest unit tests run without a simulator:
-  `python3 -m pytest src/top/dv/models src/top/lfsr/dv/models`.
+  `python3 -m pytest src/top/dv/models src/top/lfsr/dv/models`. One of them
+  cross-checks it, on 3000 random cycles, against the independently written
+  [architecture model](../arch/HAS.md#architecture-model), which DV may
+  import ([arch BKM](../../../bkm/arch.md#dv-and-arch)).
 - **Tests:** [`tests/test_top.py`](../../../../src/top/dv/tests/test_top.py)
   drives `pcie_top` directly (no SV testbench; `top.dv.f` is empty). Inputs
   change and outputs are compared with the model at every falling clock

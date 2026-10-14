@@ -79,7 +79,7 @@ network:
 ```text
 python3 -m pytest tools/<tool>/tests -q        # focused
 python3 -m pytest tools -q                     # all tool tests
-./build check                                  # lint, RTL style, filelists, neutrality
+./build check                                  # lint, RTL style, filelists, wiki mirror, neutrality
 ```
 
 The [build SPEC](../../../wiki/tools/build/SPEC.md#unit-tests)

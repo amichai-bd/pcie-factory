@@ -18,5 +18,11 @@ shared_dv: [common/dv]
 # each selected IP.
 models: dv/models
 
+# Directory relative to a top-level IP holding its architecture models, their
+# self-tests and perf/ scenarios. A change under it selects that IP (it lies
+# in the IP's directory; DV may import the models), and `./build ci unit`
+# runs, for each selected IP that has it, the self-tests and `./build arch`.
+arch: arch
+
 # pytest paths, relative to the repository root, of the tools unit tests.
 tools_tests: [tools]

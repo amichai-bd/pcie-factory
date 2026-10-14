@@ -14,7 +14,7 @@ from pathlib import Path, PurePosixPath
 
 from .config import Config, MetricsError, match
 
-_NON_IP_DIRS = {"rtl", "dv", "fpga", "asic"}
+_NON_IP_DIRS = {"arch", "rtl", "dv", "fpga", "asic"}
 NO_EXT = "(none)"
 ROOT_DIR = "."
 
