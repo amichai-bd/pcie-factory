@@ -24,7 +24,7 @@ def test_maximal_length():
 
 def test_cycle_model_controls():
     lfsr = m.Lfsr()
-    assert lfsr.key == 0xFE  # THROWAWAY: deliberate break to prove ci-gate goes red
+    assert lfsr.key == 0xFF
     lfsr.clock(rst=0, reseed=0, advance=0)
     assert lfsr.key == 0xFF  # hold
     lfsr.clock(rst=0, reseed=0, advance=1)
