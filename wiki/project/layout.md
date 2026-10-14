@@ -70,11 +70,11 @@ The shared blocks are verified together as the **shared unit**, id
 | --- | --- |
 | `dv/common/common.dv.f` | Simulation-only SystemVerilog for the blocks' tests. |
 | `dv/common/common.sim.f` | `-F ../../rtl/common/<block>.rtl.f` for every block (so every block is tested), then `-F common.dv.f`. |
-| `dv/common/tb/`, `tests/`, `regress/level{0,1,2}.yaml` | As for an IP; tests name the block as `top`. |
+| `dv/common/tb/`, `tests/`, `models/`, `regress/level{0,1,2}.yaml` | As for an IP; tests name the block as `top`, and `./build ci unit` runs the `models/` tests. |
 
 `./build sim`, `regress` and `clean` take `--ip common`; output goes to
-`workdir/common/`. Shared DV helpers that IP tests import also live in
-`dv/common/` ([DV BKM](../bkm/dv.md#directory-structure)). Each block has a MAS `wiki/src/rtl/common/<block>.md` and
+`workdir/common/`. IP tests cannot import from `dv/common/`: `sim` puts
+only the tested unit's own DV folder on the Python path. Each block has a MAS `wiki/src/rtl/common/<block>.md` and
 a DV plan `wiki/src/dv/common/<block>.md`
 ([wiki BKM](../bkm/wiki.md#page-set)).
 

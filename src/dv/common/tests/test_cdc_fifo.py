@@ -135,12 +135,11 @@ async def start(dut, src_period, dst_period, phase):
 
 
 def lag(edges, start, rises, what):
-    """Edges of ``edges`` from ``start`` up to the first rise in ``rises``
-    after it: the flag latency, which the MAS bounds to two or three."""
+    """The first rise in ``rises`` at or after ``start`` is the flag
+    latency, which the MAS bounds to two or three edges."""
     rise = next((r for r in rises if r >= start), None)
     assert rise is not None, f"{what} never rose after {start} ps"
-    n = edges.count(start, rise)
-    assert 2 <= n <= 3, f"{what} rose {n} edges after {start} ps, expected 2 or 3"
+    edges.check_lag(start, rise, what)
 
 
 async def fill_and_drain(dut, f, round_):
@@ -229,6 +228,41 @@ async def traffic(dut, rounds, max_ratio):
                   f.empty_after_data)
     assert f.full_seen and f.empty_after_data, "vacuous run: full or empty never reached"
     assert f.popped > 2 * f.depth, f"only {f.popped} words: the pointers never wrapped"
+
+
+@cocotb.test()
+async def reset_in_flight(dut):
+    """L1: reset both sides together while words are queued and both sides
+    are busy, three times: the FIFO comes back empty and not full, and
+    traffic after each reset is checked word by word."""
+    src, dst = random_periods(random, 8.0)
+    await start(dut, src, dst, random.randrange(2, dst, 2))
+    f = Fifo(dut, random, src, dst)
+    for round_ in range(3):
+        await f.run(1.0, 0.3, 4 * f.depth)
+        assert f.queue, f"round {round_}: nothing in flight before the reset"
+        lost = len(f.queue)
+        # Stop both sides, then assert both resets over edges of both clocks
+        # (words offered in reset would be dropped; the MAS reset rule).
+        f.p_write, f.p_read = 0.0, 0.0
+        await falling_edges(dut.src_clk_i, 1)
+        await falling_edges(dut.dst_clk_i, 1)
+        dut.src_rst_i.value = 1
+        dut.dst_rst_i.value = 1
+        await falling_edges(dut.src_clk_i, 3)
+        await falling_edges(dut.dst_clk_i, 3)
+        dut.src_rst_i.value = 0
+        dut.dst_rst_i.value = 0
+        f.queue.clear()
+        await falling_edges(dut.src_clk_i, 4)
+        await falling_edges(dut.dst_clk_i, 4)
+        assert int(dut.dst_valid_o.value) == 0, (
+            f"round {round_}: dst_valid_o high after reset ({lost} words were queued)")
+        assert int(dut.src_ready_o.value) == 1, f"round {round_}: src_ready_o low after reset"
+        popped = f.popped
+        await f.run(0.7, 0.7, 8 * f.depth)
+        await f.drain()
+        assert f.popped > popped, f"round {round_}: no traffic after the reset"
 
 
 @cocotb.test()

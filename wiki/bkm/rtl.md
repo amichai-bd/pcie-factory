@@ -109,9 +109,11 @@ crossing cells in `src/rtl/common/`; each MAS owns its cell's rules
 | An event: one source cycle becomes one destination cycle | [`common_cdc_pulse`](../src/rtl/common/common_cdc_pulse.md) |
 | Data, or a burst of events, with flow control | [`common_cdc_fifo`](../src/rtl/common/common_cdc_fifo.md) |
 
-- No hand-built synchronizer, no logic between the launching flop and the
-  cell input, and no signal that fans out to two cells and reconverges in
-  the destination domain. A crossing no cell fits needs a new
+- No hand-built synchronizer, and no signal that fans out to two cells and
+  reconverges in the destination domain. A cell with `src=async` (no
+  source clock) takes its source inputs straight from a launching flop,
+  with no logic between; a cell with a source clock samples them with its
+  own source flops, so ordinary source-domain logic may drive them. A crossing no cell fits needs a new
   `common_cdc_<name>` cell with its MAS and DV plan first.
 - Each domain has its own reset, synchronous to its clock. A cell's MAS
   says how its two resets must overlap.

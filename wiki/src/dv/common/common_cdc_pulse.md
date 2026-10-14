@@ -12,8 +12,9 @@
   `dst_clk_i` periods) plus a random number of extra source cycles.
 - **Oracle, from the MAS:** no pulse in reset (with `src_pulse_i` held
   high) or before the first event; one output pulse per event, in order;
-  each two or three `dst_clk_i` edges after the source edge that sampled
-  it.
+  each exactly two `dst_clk_i` edges after the source edge that sampled
+  it (one when a `dst_clk_i` edge coincides with it), as in the
+  [sync2 plan](common_cdc_sync2.md#strategy).
 - **Clock ratios:** fixed in L0 (fast-to-slow 2:5 and slow-to-fast 11:5,
   where the source pulses on consecutive cycles); random in L1 and L2 as in
   the sync2 plan.

@@ -34,14 +34,19 @@ CDC declaration ([convention](../../../bkm/rtl.md#clock-domain-crossings)):
 | Name | Type | Default | Legal range | Effect |
 | --- | --- | --- | --- | --- |
 | `WIDTH` | `int unsigned` | 8 | 1 or more | Word width. |
-| `ADDR_W` | `int unsigned` | 2 | 1 or more | Depth is `2**ADDR_W` words. |
+| `ADDR_W` | `int unsigned` | 2 | 1 or more; less is an elaboration `$error` (`g_addr_w_check`) | Depth is `2**ADDR_W` words. |
 
 ## Behavior
 
 - **Reset:** reset both sides together: assert `src_rst_i` and `dst_rst_i`
   over an interval that contains at least one rising edge of each clock.
-  The FIFO is then empty: `dst_valid_o` low, `src_ready_o` high. Resetting
-  one side alone while the FIFO holds words is undefined.
+  The FIFO is then empty: `dst_valid_o` low, `src_ready_o` high. Words
+  queued before the reset are discarded. Resetting one side alone while the
+  FIFO holds words is undefined.
+- **Offers during reset are dropped:** `src_ready_o` is high while
+  `src_rst_i` is asserted (both pointers are zero), so a word offered then
+  completes a handshake and is lost. Hold `src_valid_i` low in reset, or
+  share the reset with the source.
 - **Order and capacity:** words come out in the order they went in, none
   lost or duplicated. With the reader stalled, exactly `2**ADDR_W` words are
   taken; then `src_ready_o` is low until a read is seen.

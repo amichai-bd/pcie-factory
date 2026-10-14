@@ -1,31 +1,16 @@
 """Clock and edge-timing helpers for the common_cdc_* tests
 (wiki/src/dv/common/).
 
-Times are integer picoseconds. Clock periods are even so that both phases
-of every clock are whole picoseconds.
+Times are integer picoseconds. Clock periods come from
+models/common_cdc_clocks.py.
 """
-
-import math
 
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import FallingEdge, RisingEdge, Timer
 from cocotb.utils import get_sim_time
 
-MIN_PERIOD_PS = 2_000
-MAX_PERIOD_PS = 40_000
-
-
-def even(ps: float) -> int:
-    return max(MIN_PERIOD_PS, 2 * round(ps / 2))
-
-
-def random_periods(rng, max_ratio: float) -> tuple[int, int]:
-    """(src, dst) periods whose ratio is log-uniform in
-    [1/max_ratio, max_ratio]."""
-    src = even(rng.uniform(MIN_PERIOD_PS, 10_000))
-    dst = even(src * math.exp(rng.uniform(-1, 1) * math.log(max_ratio)))
-    return src, min(dst, MAX_PERIOD_PS)
+from models.common_cdc_clocks import random_periods  # noqa: F401  (re-exported)
 
 
 def now() -> int:
@@ -61,9 +46,18 @@ class EdgeLog:
         """The last rising edge strictly before ``t``."""
         return max(e for e in self.times if e < t)
 
-    def count(self, start: int, end: int) -> int:
-        """Rising edges ``e`` with ``start <= e <= end``."""
-        return sum(start <= e <= end for e in self.times)
+    def check_lag(self, start: int, produced: int, what: str) -> None:
+        """A synchronizer update launched at ``start`` reached its output at
+        the rising edge ``produced``. Zero-delay simulation has no late
+        resolution, so that is exactly the second edge after ``start``; an
+        edge at ``start`` itself may capture the update or not, so then the
+        first edge after it is also correct (the MAS's "two or three edges
+        at or after the launch")."""
+        after = sum(start < e <= produced for e in self.times)
+        ok = after == 2 or (after == 1 and start in self.times)
+        assert ok, (f"{what}: launched at {start} ps, output after {after} edge(s) "
+                    f"strictly later (edge at launch: {start in self.times}); expected 2, "
+                    "or 1 when an edge coincides with the launch")
 
 
 async def falling_edges(clk, n: int) -> None:

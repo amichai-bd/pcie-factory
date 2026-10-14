@@ -34,8 +34,9 @@ Per IP and sub-IP, under `src/dv/<ip>/` (paths from the
 | `models/` | Pure-Python reference models, with pytest unit tests that run without a simulator. |
 | `regress/level{0,1,2}.yaml` | This IP's regression entries per level. |
 
-Shared DV helpers live in `src/dv/common/` once a second IP needs them.
-The same folder is the shared unit's DV folder: the tests, `tb/` and
+Shared DV helpers live in `src/dv/common/` once a second IP needs them
+(today `sim` puts only the tested unit's own DV folder on the Python path,
+so sharing them needs that changed first). The same folder is the shared unit's DV folder: the tests, `tb/` and
 regression lists of the shared blocks in `src/rtl/common/`, laid out as
 above with `common.dv.f` and `common.sim.f`
 ([layout](../project/layout.md#shared-blocks)); each block has its own DV

@@ -69,10 +69,7 @@ async def pulses(dut, rng, src_period, dst_period, count, max_extra):
     assert len(outputs) == count, (
         f"sent {count} pulses, dst_pulse_o gave {len(outputs)}")
     for i, (t, e) in enumerate(zip(sampled, outputs)):
-        lag = edges.count(t, e)
-        assert 2 <= lag <= 3, (
-            f"pulse {i}: sampled at {t} ps, dst_pulse_o after {lag} dst edges "
-            f"(edge {e} ps), expected 2 or 3")
+        edges.check_lag(t, e, f"pulse {i}")
 
 
 @cocotb.test()

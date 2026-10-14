@@ -24,6 +24,12 @@ tests:
     top: common_cdc_fifo
     seeds: 2
     timeout_s: 120
+  - name: fifo_reset_in_flight
+    module: tests.test_cdc_fifo
+    testcase: reset_in_flight
+    top: common_cdc_fifo
+    seeds: 2
+    timeout_s: 120
   - name: fifo_random
     module: tests.test_cdc_fifo
     testcase: random_traffic

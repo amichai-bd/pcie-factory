@@ -29,6 +29,11 @@ module common_cdc_fifo #(
   // two top bits differ, the rest are equal.
   localparam logic [PTR_W-1:0] FULL_XOR = PTR_W'(2'b11) << (ADDR_W - 1);
 
+  // Elaboration-time guard: the pointer logic needs at least two entries.
+  if (ADDR_W < 1) begin : g_addr_w_check
+    $error("common_cdc_fifo: ADDR_W must be at least 1");
+  end
+
   logic [WIDTH-1:0] mem_q [DEPTH];
 
   // Source (write) side.

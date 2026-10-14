@@ -73,10 +73,7 @@ async def stream(dut, rng, src_period, dst_period, changes):
     for i, (t, v) in enumerate(sent):
         while not (samples[k][0] > t and samples[k][1] == v):
             k += 1
-        lag = edges.count(t, edges.last_before(samples[k][0]))
-        assert 2 <= lag <= 3, (
-            f"update {i}: value {v:#x} driven at {t} ps reached dst_data_o after "
-            f"{lag} dst edges, expected 2 or 3")
+        edges.check_lag(t, edges.last_before(samples[k][0]), f"update {i} ({v:#x})")
 
 
 async def start(dut, dst_period):

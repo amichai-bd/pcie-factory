@@ -16,13 +16,20 @@
   rising edge to measure latency.
 - **Oracle, from the MAS:** the sequence of distinct `dst_data_o` values
   equals the sent sequence (nothing skipped, nothing invented), and each
-  value appears two or three `dst_clk_i` edges after it was driven.
-- **Clock ratios:** random tests draw both periods from the seed, with a
-  log-uniform ratio up to 8:1 (L1) or 16:1 (L2) either way and a random
-  phase; the log prints them.
+  value appears exactly two `dst_clk_i` edges strictly after it was driven (one when a
+  `dst_clk_i` edge coincides with the update and captures it). Zero-delay
+  simulation has no late resolution, so the MAS's third edge is not
+  accepted, and a three-flop synchronizer fails.
+- **Clock ratios:** random tests draw both periods from the seed with
+  [`models/common_cdc_clocks.py`](../../../../src/dv/common/models/common_cdc_clocks.py):
+  a ratio log-uniform in [1, 8] (L1) or [1, 16] (L2), a fast period
+  uniform in [2 ns, 64 ns / ratio], and the fast clock on a random side;
+  the destination clock gets a random phase, and the log prints all three.
+  Its pytest unit tests (`models:common` in `./build ci unit`) prove that
+  the draws reach the claimed ratio in both directions, are log-uniform
+  and do not pile up on the period limits.
 - **Out of scope:** metastability itself. Verilator is two-state and
-  zero-delay, so a late resolution never happens in simulation; the
-  latency bound still allows it. Whether crossings use the cells at all is
+  zero-delay, so a late resolution never happens in simulation. Whether crossings use the cells at all is
   the structural CDC check's job ([#70](https://github.com/amichai-bd/pcie-factory/issues/70)).
 
 ## Plan

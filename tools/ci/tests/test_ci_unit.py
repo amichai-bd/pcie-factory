@@ -54,6 +54,16 @@ def names(suites):
 ALL = ["tools", "models:counter", "arch:counter", "perf:counter", "models:counter_inc"]
 
 
+def test_shared_unit_models_run(repo):
+    d = repo / "src/dv/common"
+    (d / "models").mkdir(parents=True)
+    (d / "common.sim.f").write_text("")
+    (d / "models/test_c.py").write_text("def test_ok():\n    assert True\n")
+    assert names(unit.plan(ctx(repo), RULES, None)) == ["tools", "models:common", *ALL[1:]]
+    # A change under dv/common/ is a shared DV change: every IP and the unit.
+    assert "models:common" in names(unit.plan(ctx(repo), RULES, "main"))
+
+
 def test_all_without_affected(repo):
     got = unit.plan(ctx(repo), RULES, None)
     assert names(got) == ALL

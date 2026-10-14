@@ -93,6 +93,7 @@ it has an IP's DV files: `dv/common/common.sim.f`, `dv/common/` as the
 Python root and `dv/common/regress/level{0,1,2}.yaml`. It is not an IP: it
 is never top-level, has no `rtl/common/common.rtl.f`, HAS, `arch/`, `fpga/`
 or `asic/`, and `check`, `fpga`, `asic`, `arch` and `labels` do not take it.
+`ci unit` runs its `models/` tests like an IP's.
 `sim`, `regress` and `clean` choose from every IP plus the shared unit
 (`build.ip.units`), so `--ip common` works there and its output is
 `workdir/common/`.
