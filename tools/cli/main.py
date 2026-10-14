@@ -14,12 +14,14 @@ from pathlib import Path
 from build import sim
 from build.filelist import FilelistError
 from build.ip import Context, DiscoveryError, discover, find_ip, make_context
+from labels import core as labels
 from regress import run as regress
 from regress.affected import GitError
 from regress.schema import LEVELS, SchemaError, load_ip
 
 WIKI_SITE = Path(__file__).resolve().parents[1] / "wiki_site"
-USER_ERRORS = (FilelistError, DiscoveryError, SchemaError, GitError, sim.SimError)
+USER_ERRORS = (FilelistError, DiscoveryError, SchemaError, GitError, sim.SimError,
+               labels.LabelsError)
 
 
 def cmd_sim(ctx: Context, args) -> int:
@@ -95,6 +97,20 @@ def cmd_clean(ctx: Context, args) -> int:
     return 0
 
 
+def cmd_labels(ctx: Context, args) -> int:
+    standard = labels.load_repo_standard(ctx.cfg_dir, ctx.src_root)
+    gh = labels.Gh(labels.resolve_repo(args.repo, ctx.repo_root))
+    if args.action == "sync":
+        return labels.sync(standard, gh, args.dry_run, args.prune, sys.stdout)
+    errors, warnings = labels.check(standard, gh.issue_labels(args.number))
+    for w in warnings:
+        print(f"warning: #{args.number}: {w}")
+    for e in errors:
+        print(f"error: #{args.number}: {e}")
+    print(f"#{args.number}: labels {'FAIL' if errors else 'OK'}")
+    return 1 if errors else 0
+
+
 def cmd_wiki(ctx: Context, args) -> int:
     # Imported here so that other commands do not need the generator's
     # dependencies (markdown-it-py, Pygments) installed.
@@ -147,6 +163,17 @@ def _clean_args(p: argparse.ArgumentParser) -> None:
                    help="only this IP's own output (sub-IP output is kept); repeatable")
 
 
+def _labels_args(p: argparse.ArgumentParser) -> None:
+    repo = argparse.ArgumentParser(add_help=False)
+    repo.add_argument("--repo", help="OWNER/NAME (default: $GH_REPO, then the origin remote)")
+    act = p.add_subparsers(dest="action", required=True, metavar="action")
+    s = act.add_parser("sync", parents=[repo], help="make GitHub labels match cfg/labels.yaml")
+    s.add_argument("--dry-run", action="store_true", help="print the diff, change nothing")
+    s.add_argument("--prune", action="store_true", help="delete labels not in the config")
+    c = act.add_parser("check", parents=[repo], help="check the label rules on one issue or PR")
+    c.add_argument("number", type=int, help="issue or pull request number")
+
+
 def _wiki_args(p: argparse.ArgumentParser) -> None:
     actions = p.add_subparsers(dest="action", required=True, metavar="action")
     b = actions.add_parser("build", help="build the site (replaces --out)")
@@ -167,7 +194,7 @@ COMMANDS = {
     "regress": ("run regression levels", cmd_regress, _regress_args),
     "clean": ("remove generated output", cmd_clean, _clean_args),
     "check": ("static checks", stub(7), None),
-    "labels": ("GitHub label sync", stub(10), None),
+    "labels": ("GitHub label sync and check", cmd_labels, _labels_args),
     "wiki": ("build or serve the wiki site", cmd_wiki, _wiki_args),
     "fpga": ("FPGA flow", stub(13), None),
     "asic": ("ASIC flow", stub(14), None),

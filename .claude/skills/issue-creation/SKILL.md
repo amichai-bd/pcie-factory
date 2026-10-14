@@ -75,12 +75,12 @@ Use only these values, never invent one:
 | `type:` | `feat`, `bug`, `docs`, `infra`, `test`, `refactor`, `epic`, `data` | Exactly one. |
 | `area:` | `rtl`, `dv`, `build`, `ci`, `wiki`, `skills`, `fpga`, `pd` | At least one, by the part touched. |
 | `ip:` | One per IP, derived from `src/` | One per affected IP. |
-| `prio:` | `p0`, `p1`, `p2` | Optional. |
+| `prio:` | `p0`, `p1`, `p2` | Optional, at most one. |
 | State | `in-progress`, `blocked`, `needs-captain`, `nightly-red` | Set by the flow, not at creation. |
 
 `cfg/labels.yaml` is the source of truth: if it ever differs from this
-table, follow it and fix this table in the same issue. Until the labels exist
-in the repository, create the issue unlabeled and note it in the issue.
+table, follow it and fix this table in the same issue. After creating the
+issue, `./build labels check <n>` must report `labels OK`.
 
 ## 5. Create and link
 
@@ -94,7 +94,8 @@ without touching GitHub. When creation is authorized:
    `sub_issue_write` method `add` with the child's numeric issue id, not its
    number. Keep the epic's checklist in sync.
 3. Read it back (`issue_read` method `get`) and verify title, body, labels,
-   `open` state, parent link and URL. Fix any mismatch and read back again.
+   `open` state, parent link and URL, and run `./build labels check <n>`.
+   Fix any mismatch and read back again.
 
 Report the issue number and URL to the caller. Do not claim, assign a
 worktree or start implementation here.

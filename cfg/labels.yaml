@@ -1,0 +1,57 @@
+# GitHub label standard, synced by ./build labels sync and checked by
+# ./build labels check (see wiki/tools/labels/SPEC.md). This file is the source
+# of truth for label values; the DevOps BKM and the issue-creation skill follow it.
+#
+# Each dimension has a name prefix ("" for unprefixed state labels) and a rule
+# that `labels check` applies to an issue or pull request:
+#   exactly-one | at-least-one | at-most-one | any
+# A dimension lists its labels (name: {color, description}), or is derived:
+# `derived: ip` makes one label per IP discovered under src/, named
+# <prefix><ip id>, with the dimension's color and description template.
+# Colors are 6-digit hex without '#'; descriptions are at most 100 characters.
+dimensions:
+  type:
+    prefix: "type:"
+    rule: exactly-one
+    labels:
+      feat: {color: "1d76db", description: "New capability or behavior"}
+      bug: {color: "d73a4a", description: "Something does not work as specified"}
+      docs: {color: "0075ca", description: "Documentation or specs only"}
+      infra: {color: "5319e7", description: "Factory infrastructure: build, CI, tooling, process"}
+      test: {color: "0e8a16", description: "Tests or verification only"}
+      refactor: {color: "c5def5", description: "Restructuring without behavior change"}
+      epic: {color: "3e4b9e", description: "Tracks a group of sub-issues"}
+      data: {color: "bfd4f2", description: "Automated nightly data update"}
+  area:
+    prefix: "area:"
+    rule: at-least-one
+    labels:
+      rtl: {color: "fbca04", description: "RTL under src/<ip>/rtl/"}
+      dv: {color: "f9d0c4", description: "Verification under src/<ip>/dv/"}
+      build: {color: "d4c5f9", description: "The ./build entry point and tools/"}
+      ci: {color: "bfdadc", description: "GitHub workflows and CI configuration"}
+      wiki: {color: "c2e0c6", description: "Wiki pages, specs and the wiki site"}
+      skills: {color: "fef2c0", description: "Agent skills and the operating contract"}
+      fpga: {color: "e99695", description: "FPGA flow"}
+      pd: {color: "d93f0b", description: "ASIC physical design flow"}
+  ip:
+    prefix: "ip:"
+    rule: any
+    derived: ip
+    color: "006b75"
+    description: "Touches IP {id}"
+  prio:
+    prefix: "prio:"
+    rule: at-most-one
+    labels:
+      p0: {color: "b60205", description: "Highest priority; blocks other work"}
+      p1: {color: "d93f0b", description: "Normal priority"}
+      p2: {color: "fbca04", description: "Low priority"}
+  state:
+    prefix: ""
+    rule: any
+    labels:
+      in-progress: {color: "ededed", description: "Claimed; see the claim comment for owner and branch"}
+      blocked: {color: "000000", description: "Waiting on another issue or an external dependency"}
+      needs-captain: {color: "e11d21", description: "Needs a captain decision"}
+      nightly-red: {color: "b60205", description: "The nightly run is failing"}
