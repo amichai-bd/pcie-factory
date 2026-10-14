@@ -151,6 +151,10 @@ with Quartus) with `contents: read` and a 90-minute job timeout:
 - **Pull request** touching `tools/fpga/**`, `src/**/fpga/**`,
   `src/**/rtl/**`, `cfg/fpga.yaml` or the workflow: `./build fpga --all`.
   A newer push cancels the running job.
+  The job runs only when the pull request comes from a branch of this
+  repository (`head.repo.full_name == github.repository`); fork pull
+  requests never run on the self-hosted runners. The workflow uses no
+  secrets and checks out with `persist-credentials: false`.
 - **Manual dispatch** with input `ip`: `./build fpga --ip <ip>`, or `--all`
   when empty.
 
