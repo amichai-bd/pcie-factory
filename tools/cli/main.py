@@ -28,10 +28,11 @@ from labels import core as labels
 from metrics import cli as metrics
 from regress import run as regress
 from regress.affected import GitError
+from regress.coverage import CoverageError
 from regress.schema import LEVELS, SchemaError, load_ip
 
 WIKI_SITE = Path(__file__).resolve().parents[1] / "wiki_site"
-USER_ERRORS = (FilelistError, DiscoveryError, SchemaError, GitError, sim.SimError,
+USER_ERRORS = (FilelistError, DiscoveryError, SchemaError, GitError, sim.SimError, CoverageError,
                fpga.FpgaError, labels.LabelsError, CheckConfigError, CiConfigError,
                ArchError)
 
@@ -77,7 +78,8 @@ def cmd_regress(ctx: Context, args) -> int:
         return 0
     if not selection.runs:
         print("no tests selected")
-    summary = regress.run(ctx, selection, levels, jobs=args.jobs, waves=args.waves)
+    summary = regress.run(ctx, selection, levels, jobs=args.jobs, waves=args.waves,
+                          coverage=args.coverage)
     code = regress.report(summary)
     print(f"summary: {regress.summary_path(ctx.workdir)}")
     return code
@@ -201,6 +203,9 @@ def _regress_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--jobs", "-j", type=int, default=1, help="parallel builds/tests")
     p.add_argument("--seed", type=int, help="base seed; run i of a test uses seed+i")
     p.add_argument("--waves", action="store_true", help="dump waves for every test")
+    p.add_argument("--coverage", action="store_true",
+                   help="coverage builds; merge line, toggle and functional coverage per IP "
+                        "and check the floors")
     p.add_argument("--dry-run", action="store_true", help="print the selection only")
 
 

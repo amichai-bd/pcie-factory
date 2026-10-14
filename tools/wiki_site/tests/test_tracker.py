@@ -294,3 +294,37 @@ def test_deterministic(tmp_path):
     _, out = build(root)
     second = {p.relative_to(out): p.read_bytes() for p in out.rglob("*") if p.is_file()}
     assert first == second
+
+
+def test_coverage_charts(tmp_path):
+    tests = {"status": "ok", "ips": {"alpha": {"level0": {"tests": 1, "passed": 1, "failed": 0}}}}
+
+    def cov(line, toggle, functional):
+        return {"status": "ok", "passed": True, "ips": {"alpha": {
+            "line": {"covered": 1, "total": 2, "pct": line},
+            "toggle": {"covered": 1, "total": 2, "pct": toggle},
+            "functional": {"covered": 0, "total": 0, "pct": functional},
+            "floors": {}, "floors_passed": True}}}
+    data = {"commits.jsonl": commit(1, "2026-09-01") + commit(2, "2026-09-02") + commit(3, "2026-09-03"),
+            "2026-09-01.json": nightly("2026-09-01", 1, "pass", tests=tests, coverage=cov(50.0, 25.0, None)),
+            "2026-09-02.json": nightly("2026-09-02", 2, "pass", tests=tests, coverage={"status": "unavailable"}),
+            "2026-09-03.json": nightly("2026-09-03", 3, "pass", tests=tests, coverage=cov(75.0, 40.0, 90.0))}
+    problems, out = build(tree(tmp_path, data))
+    assert problems == []
+    html = (out / "tracker/index.html").read_text()
+    assert ">Coverage<a" in html
+    charts = chart_data(html)["charts"]
+    assert charts["cov-line"]["series"][0]["label"] == "alpha"
+    assert charts["cov-line"]["series"][0]["points"] == [[0, 50.0], [2, 75.0]]
+    assert charts["cov-functional"]["series"][0]["points"] == [[2, 90.0]]  # null is a gap
+    page = (out / "tracker/ip/alpha/index.html").read_text()
+    series = {s["label"]: s["points"] for s in chart_data(page)["charts"]["ip-coverage"]["series"]}
+    assert series == {"Line coverage": [[0, 50.0], [2, 75.0]], "Toggle coverage": [[0, 25.0], [2, 40.0]],
+                      "Functional coverage": [[2, 90.0]]}
+
+
+def test_no_coverage_data_says_so(tmp_path):
+    problems, out = build(tree(tmp_path, fixtures=True))
+    assert problems == []
+    assert "No Coverage metrics yet." in (out / "tracker/index.html").read_text()
+    assert "No coverage metrics yet for this IP." in (out / "tracker/ip/alpha/index.html").read_text()

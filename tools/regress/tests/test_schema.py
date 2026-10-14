@@ -90,11 +90,11 @@ def test_level_files(tmp_path):
 @pytest.mark.parametrize(
     "text, message",
     [
-        ("- a\n", "only 'tests'"),
+        ("- a\n", "with 'tests' and optionally"),
         ("[]\n", "an empty level is 'tests: \\[\\]'"),
-        ("", "only 'tests'"),
+        ("", "with 'tests' and optionally"),
         ("tests:\n", "must be a list"),
-        ("tests: []\nother: 1\n", "only 'tests'"),
+        ("tests: []\nother: 1\n", "with 'tests' and optionally"),
         ("tests: {a: 1}\n", "must be a list"),
         ("tests: [\n", "invalid YAML"),
         ("tests:\n  - {name: t}\n", r"level0.yaml: tests\[0\] \(t\): missing key"),

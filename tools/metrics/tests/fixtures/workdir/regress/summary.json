@@ -1,4 +1,16 @@
 {
+  "coverage": {
+    "ips": {
+      "blk": {"dat_files": 3, "dir": "/home/someone/checkout/workdir/blk/coverage", "failures": ["line 80.00% (8/10) is below its floor of 90% (level2.yaml)"],
+              "floors": {"line": 90.0}, "funcov_files": 3, "runs": 3,
+              "functional": {"covered": 3, "pct": 75.0, "total": 4, "uncovered": 1},
+              "line": {"covered": 8, "pct": 80.0, "total": 10}, "toggle": {"covered": 5, "pct": 50.0, "total": 10}},
+      "blk/sub": {"dat_files": 1, "dir": "blk/sub/coverage", "failures": [], "floors": {}, "funcov_files": 0, "runs": 1,
+                  "functional": {"covered": 0, "pct": null, "total": 0, "uncovered": 0},
+                  "line": {"covered": 4, "pct": 100.0, "total": 4}, "toggle": {"covered": 2, "pct": 100.0, "total": 2}}
+    },
+    "passed": false
+  },
   "builds": [
     {"build": "default", "ip": "blk", "log": "blk/build/default/build.log", "runtime_s": 3.2, "status": "pass"},
     {"build": "default", "ip": "blk/sub", "log": "blk/sub/build/default/build.log", "runtime_s": 2.1, "status": "pass"}

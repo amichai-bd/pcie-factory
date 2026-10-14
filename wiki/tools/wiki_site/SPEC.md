@@ -191,7 +191,7 @@ the site reads it.
 | File | Holds |
 | --- | --- |
 | `data/commits.jsonl` | One JSON object per line, one line per commit on `main`, in commit order: `sha`, ISO `date`, `code` stats of that commit's tree (`total`, `kinds`, `ips`, `by_ext`, `by_dir`), and its push `ci-gate` run (`ci.conclusion`, `ci.duration_s`). |
-| `data/<date>.json` | One nightly record: `meta` (`date`, else the file stem; `commit`, the `main` SHA it ran on; `nightly.result`), and the `code`, `github`, `health`, `tests`, `fpga`, `asic` and `distributions` groups. |
+| `data/<date>.json` | One nightly record: `meta` (`date`, else the file stem; `commit`, the `main` SHA it ran on; `nightly.result`), and the `code`, `github`, `health`, `tests`, `coverage`, `fpga`, `asic` and `distributions` groups. |
 
 Lines of code are a bucket's `code` count (non-blank, non-comment lines),
 else its `lines`. The nightly runtime is `meta.nightly.duration_s`, else the
@@ -223,13 +223,14 @@ form the axis.
 | Code | LOC and files by kind, LOC per IP, lines-per-file and file-size histograms, and tables of the file-type distribution by extension and top-level directory with share bars. |
 | CI | `ci-gate` duration per commit, marked by result; duration histogram. |
 | Nightly and tests | Nightly duration marked by result; tests, failing tests and runtime per level; test runtime histogram; slowest tests table. |
+| Coverage | Line, toggle and functional coverage (`coverage.ips.<ip>.<metric>.pct`), one chart per metric with a series per IP. |
 | Issues and pull requests | Open issues and PRs, issues opened and closed and PRs merged in the trailing 7 days; histograms of issue time to close and to first response or claim, PR lead time, PR size and review rounds; open issues by label. |
 | FPGA, ASIC | One chart per metric with a series per IP: LEs, registers, M9K blocks, worst-clock Fmax and setup slack; WNS, TNS, std-cell area, cells, max fanout and logic depth. |
 
 **`/tracker/ip/<id>/`** (`<id>` may contain `/`, as sub-IP ids did in records
 written before the kind-first layout) shows that
-IP's comparison table, LOC by kind, tests per level, and its FPGA and ASIC
-charts. `/tracker/ip/` lists the IPs; the sidebar lists them under it.
+IP's comparison table, LOC by kind, tests per level, its FPGA and ASIC
+charts, and one coverage chart with a series per metric. `/tracker/ip/` lists the IPs; the sidebar lists them under it.
 
 **Charts.** Each chart is a `<canvas>` with a caption naming the quantity and
 unit, an axis title on both axes, and a data table (the latest 30 points, or

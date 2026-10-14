@@ -1,8 +1,8 @@
-# Nightly L2, metrics and the guarded data PR. Owning docs: wiki/bkm/devops.md
+# Nightly L2 with coverage, metrics and the guarded data PR. Owning docs: wiki/bkm/devops.md
 # (Nightly, Metrics) and wiki/tools/metrics/SPEC.md (Workflows).
 #
 # Three jobs, each with only the token permissions it needs:
-#   nightly  read-only: checks, L0+L1+L2, FPGA and ASIC flows, metrics files
+#   nightly  read-only: checks, L0+L1+L2 with coverage, FPGA and ASIC flows, metrics files
 #   publish  contents/pull-requests/actions write: commits ONLY the data files
 #            on nightly/<date>, opens the type:data PR, dispatches ci-gate on it
 #   report   issues write: opens/updates/closes the single nightly-red issue
@@ -87,12 +87,12 @@ jobs:
           . workdir/nightly/lib.sh
           run_step check ./build check
 
-      - name: Regression L0+L1+L2 (all IPs)
+      - name: Regression L0+L1+L2 with coverage (all IPs)
         id: regress
         if: ${{ !cancelled() }}
         run: |
           . workdir/nightly/lib.sh
-          run_step regress ./build regress --level 0 --level 1 --level 2 --jobs "$(nproc)"
+          run_step regress ./build regress --level 0 --level 1 --level 2 --jobs "$(nproc)" --coverage
 
       - name: FPGA flow (IPs with src/fpga/<ip>/)
         id: fpga

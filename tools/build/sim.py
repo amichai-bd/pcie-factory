@@ -8,7 +8,8 @@ tests can run in parallel.
 Output layout (``<ip>`` is the IP id, e.g. ``a`` or ``a_b``):
 
     workdir/<ip>/build/<top>[-<hash>]/   Verilator build, build.log
-    workdir/<ip>/<test>/<seed>/          results.xml, sim.log, waves
+    workdir/<ip>/<test>/<seed>/          results.xml, sim.log, waves,
+                                         coverage.dat and funcov.json (coverage)
 """
 
 from __future__ import annotations
@@ -35,6 +36,10 @@ from build.filelist import FilelistError, resolve  # noqa: E402
 from build.ip import REPO_ROOT, Ip  # noqa: E402
 
 BUILD_TIMEOUT_S = 1800.0  # wall-clock bound on one Verilator build
+# Verilator options of a coverage build; the regress SPEC owns the choice.
+COVERAGE_ARGS = ["--coverage-line", "--coverage-toggle"]
+COVERAGE_DAT = "coverage.dat"  # code coverage of one run, in its test directory
+FUNCOV_JSON = "funcov.json"  # functional coverage of one run (regress.funcov)
 
 
 class SimError(Exception):
@@ -83,11 +88,14 @@ class BuildSpec:
     top: str
     params: dict = field(default_factory=dict)
     waves: bool = False
+    coverage: bool = False
 
     @property
     def key(self) -> str:
         extra = {"params": self.params, "waves": self.waves}
-        if not self.params and not self.waves:
+        if self.coverage:
+            extra["coverage"] = True
+        if not self.params and not self.waves and not self.coverage:
             return self.top
         digest = hashlib.sha1(json.dumps(extra, sort_keys=True).encode()).hexdigest()
         return f"{self.top}-{digest[:8]}"
@@ -173,6 +181,7 @@ def _job(spec: BuildSpec, workdir: Path, verilator: Path) -> dict:
         "top": spec.top,
         "params": spec.params,
         "waves": spec.waves,
+        "coverage": spec.coverage,
         "build_dir": str(spec.build_dir(workdir)),
         "dv_dir": str(spec.ip.dv_dir),
     }
@@ -256,6 +265,15 @@ def parse_results(results_xml: Path) -> tuple[str, str]:
     return "pass", f"{len(cases)} case(s) passed"
 
 
+def _coverage_test_args(job: dict) -> dict:
+    """Where a coverage run writes its code and functional coverage."""
+    if not job["coverage"]:
+        return {}
+    tdir = Path(job["test_dir"])
+    return {"plusargs": [f"+verilator+coverage+file+{tdir / COVERAGE_DAT}"],
+            "extra_env": {"FUNCOV_FILE": str(tdir / FUNCOV_JSON)}}
+
+
 # --------------------------------------------------------------------------
 # Child process: the only code that imports cocotb.
 
@@ -277,6 +295,7 @@ def _child(phase: str, job_file: str) -> int:
             hdl_toplevel=job["top"],
             build_dir=job["build_dir"],
             waves=job["waves"],
+            build_args=COVERAGE_ARGS if job["coverage"] else [],
             always=True,
         )
         return 0
@@ -290,6 +309,7 @@ def _child(phase: str, job_file: str) -> int:
         test_dir=job["test_dir"],
         results_xml=job["results"],
         waves=job["waves"],
+        **_coverage_test_args(job),
     )
     return 0
 

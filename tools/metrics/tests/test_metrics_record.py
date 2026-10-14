@@ -43,6 +43,27 @@ def test_tests_section_missing_and_invalid(tmp_path, cfg):
         assert record.tests_section(bad, cfg) == {"status": "unavailable", "reason": "invalid"}
 
 
+def test_coverage_section(tmp_path):
+    c = record.coverage_section(FIXTURES / "workdir" / "regress" / "summary.json")
+    assert c["status"] == "ok" and c["passed"] is False and set(c["ips"]) == {"blk", "blk/sub"}
+    assert c["ips"]["blk"] == {
+        "line": {"covered": 8, "total": 10, "pct": 80.0},
+        "toggle": {"covered": 5, "total": 10, "pct": 50.0},
+        "functional": {"covered": 3, "total": 4, "pct": 75.0},
+        "floors": {"line": 90.0}, "floors_passed": False}
+    assert c["ips"]["blk/sub"]["functional"]["pct"] is None
+    assert c["ips"]["blk/sub"]["floors_passed"] is True
+    assert "/home/" not in json.dumps(c) and "below" not in json.dumps(c)
+    assert record.coverage_section(tmp_path / "none.json") == {"status": "unavailable", "reason": "missing"}
+    off = tmp_path / "off.json"
+    off.write_text('{"coverage": null}')
+    assert record.coverage_section(off) == {"status": "unavailable", "reason": "disabled"}
+    for text in ("[]", '{"coverage": {"ips": {"/abs": {}}, "passed": true}}',
+                 '{"coverage": {"ips": {"a": {"line": {}}}, "passed": true}}'):
+        off.write_text(text)
+        assert record.coverage_section(off) == {"status": "unavailable", "reason": "invalid"}
+
+
 def test_flow_sections_whitelist(cfg):
     wd = FIXTURES / "workdir"
     f = record.flow_section(wd, ["blk", "other"], "fpga", cfg.fpga_fields)
@@ -126,6 +147,7 @@ def test_collect_end_to_end_is_publishable(repo, tmp_path, cfg, monkeypatch):
     assert rec["code"]["repo_size_kb"] == 1234
     assert set(rec["code"]["ips"]) == {"blk", "blk_sub"}
     assert rec["tests"]["status"] == rec["fpga"]["status"] == rec["asic"]["status"] == "ok"
+    assert rec["coverage"]["ips"]["blk"]["line"]["pct"] == 80.0
     assert rec["github"]["issues"]["status"] == "ok"
     assert rec["distributions"]["test_runtime_s"] == [0.75, 1.5, 38.0, 40.25]
     assert rec["distributions"]["nightly_duration_s"] is None
@@ -146,7 +168,7 @@ def test_collect_without_github_or_producers(repo, tmp_path, cfg, monkeypatch):
                      started=None, repo=None)
     assert cli.collect(_ctx(repo, tmp_path / "empty"), args) == 0
     rec = json.loads(out.read_text())
-    for key in ("tests", "fpga", "asic"):
+    for key in ("tests", "coverage", "fpga", "asic"):
         assert rec[key] == {"status": "unavailable", "reason": "missing"}
     assert rec["github"]["ci"] == {"status": "unavailable", "reason": "disabled"}
     assert rec["meta"]["nightly"]["result"] is None
