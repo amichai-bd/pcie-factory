@@ -7,18 +7,10 @@ import pytest
 from build.ip import REPO_ROOT
 from cli.main import COMMANDS, main, make_parser
 
-STUBS: dict[str, int] = {}
-
-
-@pytest.mark.parametrize("name, issue", sorted(STUBS.items()))
-def test_stubs_exit_2(name, issue, capsys):
-    assert main([name, "anything", "--x"]) == 2
-    assert f"not implemented yet (see issue #{issue})" in capsys.readouterr().err
-
 
 def test_dispatch_table():
     assert set(COMMANDS) == {"sim", "regress", "clean", "labels", "wiki", "check", "fpga", "asic",
-                             "ci", "metrics", "arch"} | set(STUBS)
+                             "ci", "metrics", "arch"}
 
 
 def test_launcher_runs():
