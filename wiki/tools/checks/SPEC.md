@@ -25,13 +25,14 @@ Checks run in the order layout, filelist, style, wiki, neutrality, lint
 ```
 check: 2 IP(s) under /abs/src
 [layout] PASS: 6 IP or shared folder(s) under rtl/, dv/, arch/, fpga/, asic/
-[filelist] PASS: 7 filelist(s), 2 IP(s) with regression lists, 5 RTL file(s) for orphans
+[filelist] PASS: 9 filelist(s), 2 IP(s) and the shared unit with regression lists, 5 RTL file(s) for orphans
 [style] FAIL (1): 6 RTL file(s), 12 rule(s); 0 other includable or fpga/ file(s) for directives
   rtl/blk/xy_blk.sv:10: plain-always: always
 [wiki] PASS: 6 required page(s), 6 wiki folder(s) under wiki/src/ (all IPs)
 [neutrality] PASS: 135 file(s) (tracked and untracked, not ignored) outside src/, ...
 [lint] blk: top=xy_blk
-[lint] PASS: 2 IP(s), 3 Verilator run(s) with -E audit, 0 waiver(s), 0 warning(s) waived
+[lint] common/common_lib: top=common_lib
+[lint] PASS: 2 IP(s), 1 shared block(s), 4 Verilator run(s) with -E audit, 0 waiver(s), 0 warning(s) waived
 check: FAIL (style)
 ```
 
@@ -62,6 +63,11 @@ IPs, sub-IPs and top-level IPs are as the
 - An IP's `rtl/<id>/` holds no filelist but `<id>.rtl.f` (at any depth), and
   its `dv/<id>/` none but `<id>.dv.f` and `<id>.sim.f`, so a sub-IP cannot
   nest inside its parent's folder.
+- **Shared folders** ([layout](../../project/layout.md#shared-blocks)):
+  `rtl/common/` holds filelists only directly in it, each a shared block
+  named `common_<name>.rtl.f`, and `dv/common/` holds no filelist but
+  `common.dv.f` and `common.sim.f` (the shared unit). Anything else is
+  `<path>: rtl/common/ holds no filelist but ...`.
 - **Flat sub-IP naming.** A sub-IP's id starts with the id of an IP that
   reaches it plus `_` (`<ip>_<sub>`).
 
@@ -100,8 +106,17 @@ Rule owners: [layout](../../project/layout.md#per-ip-files) and the
   resolver's `reaches()`: listed as a source or under an include directory.
   `fpga/` wrappers are not in any filelist and are not orphans.
 
-`rtl/common/` is never an IP; its filelists (for example `common_lib.rtl.f`)
-are checked as filelists but need no `dv/` files.
+`rtl/common/` is never an IP; its filelists, the shared blocks (for example
+`common_lib.rtl.f`), are checked as filelists. Without `--ip`, the
+[shared unit](../build/SPEC.md#shared-unit) is checked when a shared block
+or `dv/common/common.sim.f` exists:
+
+- `dv/common/common.dv.f`, `dv/common/common.sim.f` and
+  `dv/common/regress/level{0,1,2}.yaml` exist (`common: missing <path>`),
+  and the regression lists pass the regress schema;
+- `common.sim.f` reaches every shared block's filelist, so every block is
+  tested (`rtl/common/<block>.rtl.f: shared block not reached by
+  dv/common/common.sim.f`).
 
 ## Style check
 
@@ -152,7 +167,8 @@ next to `src/`); a missing wiki tree is an empty one. Code: `wiki_mirror.py`.
   `wiki/src/<kind>/<id>/<page>: missing (required for IP <id>)`.
 - **Kinds and IPs.** Every folder directly under the wiki tree is a kind
   folder, and every folder directly under a kind folder names an IP
-  (`wiki/src/<kind>/<name>/: names no IP`, which also covers `common/`).
+  (`wiki/src/<kind>/<name>/: names no IP`) or is the shared folder
+  `rtl/common/` or `dv/common/` (below).
   This rejects the superseded IP-first tree (`wiki/src/<ip>/<kind>/`).
 - **Counterparts.** Every IP folder and every folder below one has a folder
   at the same relative path under the source root, so `fpga/` or `asic/`
@@ -168,14 +184,21 @@ next to `src/`); a missing wiki tree is an empty one. Code: `wiki_mirror.py`.
   model `*<id>_arch.py` (not `test_*`) and at least one `perf/*.yaml`
   scenario ([arch spec](../arch/SPEC.md#model)); their content is checked
   by `./build arch`, not here.
+- **Shared blocks.** Every shared block `src/rtl/common/<block>.rtl.f`
+  has its MAS `rtl/common/<block>.md` and its DV plan `dv/common/<block>.md`
+  (`...: missing (required for shared block <block>)`). The folders
+  `rtl/common/` and `dv/common/` hold nothing else: a page that names no
+  block is `wiki/src/<kind>/common/<page>: names no shared block`, and a
+  subfolder is a finding. `common/` under any other kind names no IP.
 - **No sub-IP `arch/`.** `wiki/src/arch/<sub>/` is a finding here;
   `src/arch/<sub>/` is a [layout check](#layout-check) finding.
 - **Placement.** Every file sits in, or below, an IP folder
-  `<kind>/<id>/`; a file directly in the wiki tree or in a kind folder is a
-  finding. Extra pages inside an IP folder are allowed.
+  `<kind>/<id>/`, or is a shared block's page; a file directly in the wiki
+  tree or in a kind folder is a finding. Extra pages inside an IP folder are allowed.
 
 Hidden files and folders (names starting with `.`) are skipped. With `--ip`,
-required pages are checked for the selected IPs only, and the folder and
+required pages are checked for the selected IPs only (shared block pages
+not at all), and the folder and
 placement rules only inside the selected IPs' folders; other findings are
 reported only without `--ip`. The check proves that
 pages exist where the mirror puts them, not that their content matches the
@@ -255,6 +278,10 @@ then `verilator.prefix` in `cfg/host.yaml`); see the
   which fails).
 - **Board wrapper:** each `fpga/<id>/*.sv` of the IP is linted in a second run with
   the IP's sources plus the wrapper, with the wrapper's file stem as top.
+- **Shared blocks:** without `--ip`, each `rtl/common/<block>.rtl.f` is
+  linted the same way, labelled `common/<block>`, with top `<block>` when a
+  module of that name is declared (otherwise Verilator picks). The summary
+  counts them as `N shared block(s)`.
 - An IP whose `.rtl.f` does not resolve is a lint finding (the filelist check
   reports the cause).
 - An IP whose `.rtl.f` closure lists a source that is not `.sv`/`.svh` (for
@@ -314,20 +341,20 @@ Fixtures live in `tools/checks/tests/fixtures/`:
 
 | Fixture | Content |
 | --- | --- |
-| `good/src/`, `good/wiki/src/` | Kind-first tree: IP `blk` (package, include header, top) with flat sub-IP `blk_sub`, a shared block under `rtl/common/`, and a board wrapper in `fpga/blk/`; the wiki mirror holds every required page. Every check passes. |
+| `good/src/`, `good/wiki/src/` | Kind-first tree: IP `blk` (package, include header, top) with flat sub-IP `blk_sub`, a shared block `common_lib` under `rtl/common/` with the shared unit's files in `dv/common/`, and a board wrapper in `fpga/blk/`; the wiki mirror holds every required page, including the block's two pages. Every check passes. |
 | `bad/src/`, `bad/wiki/src/` | IP `blk` with a duplicate source, an orphan, a missing and an invalid level file, style violations and lint warnings; IP `broken` with a missing source; an `asic/ghost/` folder that names no IP. The wiki mirror lacks pages, has a page outside an IP folder, an `fpga/blk/` page with no `src/fpga/blk/` and a folder that names no IP. Layout, filelist, style, wiki and lint fail. |
 
 Tests also build variants in temporary directories: the superseded
 IP-first tree, a nested sub-IP, a sub-IP with `arch/`, `fpga/` or `asic/`, a
-folder that names no IP and an unprefixed sub-IP id (`test_layout.py`), one bad case per style
+folder that names no IP, an unprefixed sub-IP id and misnamed or nested filelists in the shared folders (`test_layout.py`), one bad case per style
 rule (`test_style.py`), duplicate, diamond, orphan and regression cases
-(`test_filelists_check.py`), each wiki mirror rule: every required page,
+and the shared unit's files, lists and block coverage (`test_filelists_check.py`), each wiki mirror rule: every required page,
 `asic/` and `fpga/` pages following the source folders, the top-level
 `arch/` exemption without targets and its limit, HAS targets requiring
 `src/arch/<ip>/` (and only a level-2 heading counting), a source `arch/`
 without a model or scenario or with two models, a sub-IP `arch/` page, a
 sub-IP turning top-level when no IP reaches it, the IP-first wiki tree, orphan
-and empty folders, extra pages, a non-IP source folder, hidden entries,
+and empty folders, extra pages, shared block pages (required, and nothing else in the shared folders), a non-IP source folder, hidden entries,
 `--ip`, and a missing wiki tree (`test_wiki_mirror.py`), a small git repository with forbidden words,
 slug URLs, a look-alike slug and an invalid config (`test_neutrality.py`),
 and waivers (used, stale, invalid), output parsing and the command line

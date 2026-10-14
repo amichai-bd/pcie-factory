@@ -1,0 +1,32 @@
+tests:
+  - name: sync2_random
+    module: tests.test_cdc_sync2
+    testcase: random_ratio
+    top: common_cdc_sync2
+    params: {WIDTH: 4}
+    seeds: 3
+    timeout_s: 120
+  - name: pulse_random
+    module: tests.test_cdc_pulse
+    testcase: random_ratio
+    top: common_cdc_pulse
+    seeds: 3
+    timeout_s: 120
+  - name: fifo_full_empty_src_fast
+    module: tests.test_cdc_fifo
+    testcase: full_empty_src_fast
+    top: common_cdc_fifo
+    seeds: 2
+    timeout_s: 120
+  - name: fifo_full_empty_dst_fast
+    module: tests.test_cdc_fifo
+    testcase: full_empty_dst_fast
+    top: common_cdc_fifo
+    seeds: 2
+    timeout_s: 120
+  - name: fifo_random
+    module: tests.test_cdc_fifo
+    testcase: random_traffic
+    top: common_cdc_fifo
+    seeds: 3
+    timeout_s: 120

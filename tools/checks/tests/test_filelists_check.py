@@ -23,8 +23,42 @@ def run(src: Path, ip_ids=None):
 def test_good_fixture_passes(good):
     r = run(good)
     assert r.passed, r.findings
-    assert r.checked == ("7 filelist(s), 2 IP(s) with regression lists, "
+    assert r.checked == ("9 filelist(s), 2 IP(s) and the shared unit with regression lists, "
                          "5 RTL file(s) for orphans")
+
+
+def test_shared_unit_files_and_block_coverage(good):
+    (good / "dv/common/regress/level2.yaml").unlink()
+    (good / "dv/common/regress/level1.yaml").write_text("tests: [{name: x}]\n")
+    (good / "rtl/common/common_two.sv").write_text("")
+    (good / "rtl/common/common_two.rtl.f").write_text("common_two.sv\n")
+    f = run(good).findings
+    assert len(f) == 3, f
+    assert f[0] == "common: missing dv/common/regress/level2.yaml"
+    assert f[1].startswith("common: regression list: ")
+    assert f[1].endswith("level1.yaml: tests[0] (x): missing key(s): module, timeout_s, top")
+    assert f[2] == ("rtl/common/common_two.rtl.f: shared block not reached by "
+                    "dv/common/common.sim.f (every shared block is tested)")
+    assert run(good, {"blk"}).passed  # a filtered run skips the shared unit
+
+
+def test_shared_unit_needed_only_with_blocks(good):
+    import shutil
+    shutil.rmtree(good / "dv/common")
+    assert [f for f in run(good).findings if f.startswith("common:")] == [
+        "common: missing dv/common/common.dv.f",
+        "common: missing dv/common/common.sim.f",
+        "common: missing dv/common/regress/level0.yaml",
+        "common: missing dv/common/regress/level1.yaml",
+        "common: missing dv/common/regress/level2.yaml",
+    ]
+    shutil.rmtree(good / "rtl/common")
+    good_blk = good / "rtl/blk/blk.rtl.f"
+    good_blk.write_text("\n".join(ln for ln in good_blk.read_text().splitlines()
+                                  if "common" not in ln) + "\n")
+    r = run(good)
+    assert r.passed, r.findings
+    assert "2 IP(s) with regression lists" in r.checked
 
 
 def test_bad_fixture_fails():

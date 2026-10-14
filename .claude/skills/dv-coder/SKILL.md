@@ -57,6 +57,10 @@ Place files under `src/dv/<ip>/` per the [directory structure](../../../wiki/bkm
       `-F <ip>.dv.f`.
 - [ ] A new sub-IP gets its own flat `src/dv/<ip>_<sub>/` with both lists and
       all three regression files.
+- [ ] A new shared block is added to `dv/common/common.sim.f` and tested in
+      the shared unit (`--ip common`), with its own DV plan
+      `wiki/src/dv/common/<block>.md`
+      ([layout](../../../wiki/project/layout.md#shared-blocks)).
 
 ## 4. Regression lists
 

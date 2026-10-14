@@ -1,0 +1,243 @@
+"""common_cdc_fifo tests (wiki/src/dv/common/common_cdc_fifo.md).
+
+Each side is driven and sampled at the falling edge of its own clock: the
+writer sets src_valid_i/src_data_i and, when src_ready_o is high, records
+the word as accepted by the next rising edge; the reader sets dst_ready_i
+and, when dst_valid_o is high, pops and compares dst_data_o with the
+scoreboard. The depth is 2**ADDR_W, read from the parameter.
+"""
+
+import random
+from collections import deque
+
+import cocotb
+from cocotb.triggers import FallingEdge
+
+from tb.cdc_env import EdgeLog, falling_edges, now, random_periods, start_clock
+
+
+class Fifo:
+    """Drivers, scoreboard and coverage for one test. A word is recorded
+    as written (read) at the falling edge before the rising edge that
+    takes it, when the newly driven valid (ready) meets the current, stable
+    ready (valid)."""
+
+    def __init__(self, dut, rng, src_period, dst_period):
+        self.dut = dut
+        self.rng = rng
+        self.depth = 2 ** int(dut.ADDR_W.value)
+        self.width = len(dut.src_data_i)
+        self.src_period = src_period
+        self.dst_period = dst_period
+        self.src_edges = EdgeLog(dut.src_clk_i)
+        self.dst_edges = EdgeLog(dut.dst_clk_i)
+        self.queue = deque()  # (word index, data) accepted, not yet read
+        self.pushed = 0
+        self.popped = 0
+        self.push_times = []  # rising src edge that takes each word
+        self.pop_times = []   # rising dst edge that takes each word
+        self.valid_rises = []  # dst edge after which dst_valid_o went high
+        self.ready_rises = []  # src edge after which src_ready_o went high
+        self.full_seen = 0    # src cycles with src_ready_o low
+        self.empty_after_data = 0
+        self.p_write = 0.0
+        self.p_read = 0.0
+        self.write_limit = None  # stop offering words after this many pushes
+        cocotb.start_soon(self._writer())
+        cocotb.start_soon(self._reader())
+
+    async def _writer(self):
+        dut = self.dut
+        was_ready = 1
+        while True:
+            await FallingEdge(dut.src_clk_i)
+            ready = int(dut.src_ready_o.value)
+            if ready and not was_ready:
+                self.ready_rises.append(self.src_edges.last_before(now()))
+            was_ready = ready
+            self.full_seen += not ready
+            offer = (self.write_limit is None or self.pushed < self.write_limit) \
+                and self.rng.random() < self.p_write
+            data = self.rng.getrandbits(self.width)
+            dut.src_valid_i.value = int(offer)
+            dut.src_data_i.value = data
+            if offer and ready:
+                self.queue.append((self.pushed, data))
+                self.push_times.append(now() + self.src_period // 2)
+                self.pushed += 1
+
+    async def _reader(self):
+        dut = self.dut
+        was_valid = 0
+        while True:
+            await FallingEdge(dut.dst_clk_i)
+            valid = int(dut.dst_valid_o.value)
+            if valid and not was_valid:
+                self.valid_rises.append(self.dst_edges.last_before(now()))
+            was_valid = valid
+            take = self.rng.random() < self.p_read
+            dut.dst_ready_i.value = int(take)
+            if take and valid:
+                assert self.queue, (
+                    f"read {self.popped}: dst_valid_o high but no word was written")
+                index, want = self.queue.popleft()
+                got = int(dut.dst_data_o.value)
+                assert got == want, (
+                    f"read {self.popped} (word {index}): dst_data_o expected {want:#x} "
+                    f"got {got:#x}")
+                self.pop_times.append(now() + self.dst_period // 2)
+                self.popped += 1
+                if not self.queue:
+                    self.empty_after_data += 1
+
+    async def run(self, p_write, p_read, src_cycles):
+        self.p_write, self.p_read = p_write, p_read
+        await falling_edges(self.dut.src_clk_i, src_cycles)
+
+    async def drain(self):
+        """Stop writing and read until every accepted word came out, then
+        check the FIFO reports empty and not full."""
+        self.p_write, self.p_read = 0.0, 1.0
+        limit = 8 + 4 * self.depth
+        for _ in range(limit):
+            await FallingEdge(self.dut.dst_clk_i)
+            if not self.queue:
+                break
+        assert not self.queue, (
+            f"drain: {len(self.queue)} accepted word(s) never read after {limit} dst cycles")
+        await falling_edges(self.dut.dst_clk_i, 2)
+        assert int(self.dut.dst_valid_o.value) == 0, "drained FIFO still shows dst_valid_o"
+        await falling_edges(self.dut.src_clk_i, 4)
+        assert int(self.dut.src_ready_o.value) == 1, "drained FIFO still shows src_ready_o low"
+
+
+async def start(dut, src_period, dst_period, phase):
+    """Start both clocks and reset both sides together; check the reset
+    state: empty (dst_valid_o low) and not full (src_ready_o high)."""
+    dut._log.info("ADDR_W %d, WIDTH %d, src period %d ps, dst period %d ps, "
+                  "dst phase %d ps", int(dut.ADDR_W.value),
+                  len(dut.src_data_i), src_period, dst_period, phase)
+    dut.src_rst_i.value = 1
+    dut.dst_rst_i.value = 1
+    dut.src_valid_i.value = 0
+    dut.src_data_i.value = 0
+    dut.dst_ready_i.value = 0
+    start_clock(dut.src_clk_i, src_period)
+    start_clock(dut.dst_clk_i, dst_period, phase)
+    await falling_edges(dut.src_clk_i, 4)
+    await falling_edges(dut.dst_clk_i, 4)
+    dut.src_rst_i.value = 0
+    dut.dst_rst_i.value = 0
+    await falling_edges(dut.src_clk_i, 2)
+    await falling_edges(dut.dst_clk_i, 2)
+    assert int(dut.dst_valid_o.value) == 0, "after reset: dst_valid_o high (not empty)"
+    assert int(dut.src_ready_o.value) == 1, "after reset: src_ready_o low (full)"
+
+
+def lag(edges, start, rises, what):
+    """Edges of ``edges`` from ``start`` up to the first rise in ``rises``
+    after it: the flag latency, which the MAS bounds to two or three."""
+    rise = next((r for r in rises if r >= start), None)
+    assert rise is not None, f"{what} never rose after {start} ps"
+    n = edges.count(start, rise)
+    assert 2 <= n <= 3, f"{what} rose {n} edges after {start} ps, expected 2 or 3"
+
+
+async def fill_and_drain(dut, f, round_):
+    """Write with the reader stalled until full: exactly depth words are
+    accepted and src_ready_o stays low; then read until empty: the words
+    come out in order and dst_valid_o drops right after the last one. The
+    first word reaches dst_valid_o, and the first read reaches src_ready_o,
+    two or three edges of the far clock later."""
+    depth = f.depth
+    pushed, popped = f.pushed, f.popped
+    f.p_write, f.p_read = 1.0, 0.0
+    await falling_edges(dut.src_clk_i, depth + 8)
+    accepted = f.pushed - pushed
+    assert accepted == depth, f"round {round_}: full after {accepted} words, expected {depth}"
+    assert int(dut.src_ready_o.value) == 0, f"round {round_}: src_ready_o high when full"
+    await falling_edges(dut.dst_clk_i, 4)
+    lag(f.dst_edges, f.push_times[pushed], f.valid_rises, f"round {round_}: dst_valid_o")
+
+    f.p_write, f.p_read = 0.0, 1.0
+    while f.popped - popped < depth:
+        await FallingEdge(dut.dst_clk_i)
+    await FallingEdge(dut.dst_clk_i)
+    assert f.popped - popped == depth, f"round {round_}: read {f.popped - popped} words"
+    assert int(dut.dst_valid_o.value) == 0, f"round {round_}: dst_valid_o high when empty"
+    await falling_edges(dut.src_clk_i, 4)
+    lag(f.src_edges, f.pop_times[popped], f.ready_rises, f"round {round_}: src_ready_o")
+
+
+def directed_periods(rng, src_fast):
+    """A random ratio between 1:1 and 8:1, with the given side faster."""
+    fast = rng.randrange(2_000, 6_000, 2)
+    slow = rng.randrange(fast + 2, 8 * fast, 2)
+    return (fast, slow) if src_fast else (slow, fast)
+
+
+@cocotb.test()
+async def smoke(dut):
+    """L0: reset state, one word through, then a burst with both sides
+    running at a fixed 2:5 ratio."""
+    await start(dut, 4_000, 10_000, 1_000)
+    f = Fifo(dut, random.Random(1), 4_000, 10_000)
+    f.write_limit = 1
+    await f.run(1.0, 1.0, 20)
+    assert f.popped == 1, f"one word written, {f.popped} read"
+    f.write_limit = 1 + 4 * f.depth
+    await f.run(1.0, 1.0, 20 * f.depth)
+    await f.drain()
+    assert f.popped == 1 + 4 * f.depth, f"{f.pushed} words written, {f.popped} read"
+
+
+async def full_empty(dut, src_fast):
+    """Fill to full and drain to empty five times (the pointers wrap), with
+    the flag latencies checked."""
+    src, dst = directed_periods(random, src_fast)
+    await start(dut, src, dst, random.randrange(2, dst, 2))
+    f = Fifo(dut, random, src, dst)
+    for round_ in range(5):
+        await fill_and_drain(dut, f, round_)
+    assert f.pushed == f.popped == 5 * f.depth
+
+
+@cocotb.test()
+async def full_empty_src_fast(dut):
+    """L1: full, empty and wrap with the source clock faster."""
+    await full_empty(dut, True)
+
+
+@cocotb.test()
+async def full_empty_dst_fast(dut):
+    """L1: full, empty and wrap with the destination clock faster."""
+    await full_empty(dut, False)
+
+
+async def traffic(dut, rounds, max_ratio):
+    """Random rate phases at a random clock ratio; every word checked in
+    order, and the run must have hit full, empty and a pointer wrap."""
+    src, dst = random_periods(random, max_ratio)
+    await start(dut, src, dst, random.randrange(2, dst, 2))
+    f = Fifo(dut, random, src, dst)
+    rates = (0.0, 0.2, 0.5, 0.8, 1.0)
+    for _ in range(rounds):
+        await f.run(random.choice(rates), random.choice(rates), random.randrange(4, 16 * f.depth))
+        await f.run(1.0, 0.0, 2 * f.depth + 8)  # always reach full once per round
+    await f.drain()
+    dut._log.info("%d words, %d full src cycles, %d empties", f.popped, f.full_seen,
+                  f.empty_after_data)
+    assert f.full_seen and f.empty_after_data, "vacuous run: full or empty never reached"
+    assert f.popped > 2 * f.depth, f"only {f.popped} words: the pointers never wrapped"
+
+
+@cocotb.test()
+async def random_traffic(dut):
+    """L1: random traffic at a random clock ratio up to 8:1 either way."""
+    await traffic(dut, 40, 8.0)
+
+
+@cocotb.test()
+async def long_traffic(dut):
+    """L2: long random traffic at a random clock ratio up to 16:1."""
+    await traffic(dut, 400, 16.0)

@@ -88,9 +88,45 @@ page refers to it as `<prefix>`.
   value. Default when the spec is silent: one clock `clk_i`, synchronous active-high reset `rst_i`.
 - Reset only state that needs a defined value; storage arrays are not reset.
 - No generated or gated clocks in fabric; use clock enables. A second clock
-  domain needs an owning MAS section, and every crossing uses a specified
-  synchronizer or protocol.
+  domain needs an owning MAS section, and every crossing uses a crossing
+  cell ([below](#clock-domain-crossings)).
 - No synthesis pragmas or attributes that change simulated behavior.
+
+## Clock-domain crossings
+
+A crossing is any path from a flop on one clock to a flop on another clock
+that is asynchronous or unrelated to it. Crossings may only use the shared
+crossing cells in `src/rtl/common/`; each MAS owns its cell's rules
+(spacing, Gray coding, reset):
+
+| Crossing | Cell |
+| --- | --- |
+| A level, or a Gray-coded vector, from a source flop | [`common_cdc_sync2`](../src/rtl/common/common_cdc_sync2.md) |
+| An event: one source cycle becomes one destination cycle | [`common_cdc_pulse`](../src/rtl/common/common_cdc_pulse.md) |
+| Data, or a burst of events, with flow control | [`common_cdc_fifo`](../src/rtl/common/common_cdc_fifo.md) |
+
+- No hand-built synchronizer, no logic between the launching flop and the
+  cell input, and no signal that fans out to two cells and reconverges in
+  the destination domain. A crossing no cell fits needs a new
+  `common_cdc_<name>` cell with its MAS and DV plan first.
+- Each domain has its own reset, synchronous to its clock. A cell's MAS
+  says how its two resets must overlap.
+- **Declaration.** A crossing cell declares its clocks in a comment on the
+  line directly above its `module` line:
+
+  ```systemverilog
+  // cdc-cell: src=<source clock port | async> dst=<destination clock port>
+  module common_cdc_<name> ...
+  ```
+
+  `src` names the cell's source clock input, or is `async` when the cell has
+  no source clock (its source inputs must come straight from a flop in the
+  source domain). `dst` names its destination clock input. Port names give
+  every other port's domain: `src_*` ports belong to the source domain and
+  `dst_*` ports to the destination domain. Only `common_cdc_*` modules in
+  `src/rtl/common/` carry the directive. The structural CDC check
+  ([#70](https://github.com/amichai-bd/pcie-factory/issues/70)) reads it;
+  until that check exists, review enforces this section.
 
 ## Assertions
 
@@ -134,6 +170,8 @@ format and names. Practice on top of it:
 
 - Widths, signedness and reset values match the HAS (or sub-IP MAS).
 - No latch, no multiple drivers, no unsized constant.
+- Every clock-domain crossing goes through a crossing cell
+  ([crossings](#clock-domain-crossings)).
 - Types in packages; names follow the table.
 - Filelist updated in order; no orphan or duplicate.
 - Lint and style clean, or each waiver reviewed with a reason.

@@ -1,0 +1,21 @@
+tests:
+  - name: sync2_smoke
+    module: tests.test_cdc_sync2
+    testcase: smoke
+    top: common_cdc_sync2
+    timeout_s: 60
+  - name: pulse_smoke
+    module: tests.test_cdc_pulse
+    top: common_cdc_pulse
+    testcase: smoke
+    timeout_s: 60
+  - name: pulse_slow_to_fast
+    module: tests.test_cdc_pulse
+    testcase: slow_to_fast
+    top: common_cdc_pulse
+    timeout_s: 60
+  - name: fifo_smoke
+    module: tests.test_cdc_fifo
+    testcase: smoke
+    top: common_cdc_fifo
+    timeout_s: 60

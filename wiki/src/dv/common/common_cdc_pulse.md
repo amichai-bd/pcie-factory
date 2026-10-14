@@ -1,0 +1,32 @@
+# common_cdc_pulse DV plan
+
+## Strategy
+
+- **Shared unit:** tested with the other `common_` cells as the shared
+  unit (`--ip common`); see the [sync2 plan](common_cdc_sync2.md#strategy).
+- **Tests:** [`tests/test_cdc_pulse.py`](../../../../src/dv/common/tests/test_cdc_pulse.py)
+  drives `src_pulse_i` at falling `src_clk_i` edges (the next rising edge
+  samples it) and samples `dst_pulse_o` at every falling `dst_clk_i` edge;
+  each high sample is one output pulse. Pulses are spaced by the
+  [MAS spacing rule](../../rtl/common/common_cdc_pulse.md#behavior) (two
+  `dst_clk_i` periods) plus a random number of extra source cycles.
+- **Oracle, from the MAS:** no pulse in reset (with `src_pulse_i` held
+  high) or before the first event; one output pulse per event, in order;
+  each two or three `dst_clk_i` edges after the source edge that sampled
+  it.
+- **Clock ratios:** fixed in L0 (fast-to-slow 2:5 and slow-to-fast 11:5,
+  where the source pulses on consecutive cycles); random in L1 and L2 as in
+  the sync2 plan.
+- **Out of scope:** pulses that break the spacing rule (undefined by the
+  MAS); metastability, as in the sync2 plan.
+
+## Plan
+
+| Feature | Entry `name` | Level | Seeds / note |
+| --- | --- | --- | --- |
+| [Reset and transfer](../../rtl/common/common_cdc_pulse.md#behavior), fast source | `pulse_smoke` | 0 | 1; 8 pulses at the minimum spacing |
+| [Spacing rule](../../rtl/common/common_cdc_pulse.md#behavior): slow source pulsing on consecutive cycles | `pulse_slow_to_fast` | 0 | 1; 8 back-to-back pulses |
+| [Transfer](../../rtl/common/common_cdc_pulse.md#behavior) at random ratios and spacing | `pulse_random` | 1 | 3; 100 pulses, ratio up to 8:1 |
+| [Transfer](../../rtl/common/common_cdc_pulse.md#behavior), long, mostly minimum spacing | `pulse_long` | 2 | 8; 1000 pulses, ratio up to 16:1 |
+
+Every [interface](../../rtl/common/common_cdc_pulse.md#interfaces) port is exercised by every entry.

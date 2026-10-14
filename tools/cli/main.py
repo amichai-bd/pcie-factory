@@ -16,7 +16,7 @@ from arch.perf import ArchError
 from asic import cli as asic_cli
 from build import sim
 from build.filelist import FilelistError
-from build.ip import Context, DiscoveryError, discover, find_ip, make_context
+from build.ip import Context, DiscoveryError, discover, find_ip, make_context, units
 from checks.common import CheckConfigError
 from ci import status as ci_status
 from ci import summary as ci_summary
@@ -37,7 +37,7 @@ USER_ERRORS = (FilelistError, DiscoveryError, SchemaError, GitError, sim.SimErro
 
 
 def cmd_sim(ctx: Context, args) -> int:
-    ips = discover(ctx.src_root)
+    ips = units(ctx.src_root)
     ip = find_ip(ips, args.ip)
     entries = {e.name: e for e in load_ip(ip)}
     if args.test not in entries:
@@ -89,7 +89,7 @@ def cmd_clean(ctx: Context, args) -> int:
             shutil.rmtree(ctx.workdir)
             print(f"removed {ctx.workdir}")
         return 0
-    ips = discover(ctx.src_root)
+    ips = units(ctx.src_root)
     for ip_id in args.ip:
         out = find_ip(ips, ip_id).work_dir(ctx.workdir)
         if out.is_dir():
@@ -186,7 +186,7 @@ def stub(issue: int):
 
 
 def _sim_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--ip", required=True, help="IP id, e.g. a or a_b")
+    p.add_argument("--ip", required=True, help="IP id, e.g. a or a_b, or common")
     p.add_argument("--test", required=True, help="test name from the IP's level lists")
     p.add_argument("--seed", type=int, help="seed (default: the test's first regress seed)")
     p.add_argument("--waves", action="store_true", help="dump waves into the test directory")
@@ -195,7 +195,8 @@ def _sim_args(p: argparse.ArgumentParser) -> None:
 def _regress_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--level", type=int, choices=LEVELS, action="append", required=True,
                    help="level to run; repeat to combine (levels are exclusive)")
-    p.add_argument("--ip", action="append", help="restrict to this IP id; repeatable")
+    p.add_argument("--ip", action="append",
+                   help="restrict to this IP id (or common); repeatable")
     p.add_argument("--affected", metavar="BASE",
                    help="only IPs affected by changes since the merge base with BASE")
     p.add_argument("--jobs", "-j", type=int, default=1, help="parallel builds/tests")

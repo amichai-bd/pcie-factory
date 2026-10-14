@@ -28,7 +28,7 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | --- | --- |
 | `sim` | Run one test of one IP (below). |
 | `regress` | Run regression levels; see the [regress spec](../regress/SPEC.md). |
-| `clean [--ip ID]...` | Delete the whole workdir. With `--ip`, delete `workdir/<ip>/` for each given IP (sub-IP output is a sibling, `workdir/<ip>_<sub>/`). |
+| `clean [--ip ID]...` | Delete the whole workdir. With `--ip`, delete `workdir/<ip>/` for each given IP or the [shared unit](#shared-unit) (sub-IP output is a sibling, `workdir/<ip>_<sub>/`). |
 | `labels` | Sync and check GitHub labels; see the [labels spec](../labels/SPEC.md). |
 | `ci unit\|summary\|status` | `ci-gate` helpers: unit-test suites, the job summary and the data-branch `ci-gate` status; see the [CI spec](../ci/SPEC.md). |
 | `metrics collect\|commits\|guard\|red` | Nightly metrics records, the per-commit series, the data guard and the `nightly-red` issue; see the [metrics spec](../metrics/SPEC.md). |
@@ -83,6 +83,22 @@ Each IP has these files:
 | `dv/<id>/` | Python root for cocotb test modules (`module: tests.test_x` is `dv/<id>/tests/test_x.py`). |
 | `dv/<id>/regress/level{0,1,2}.yaml` | Regression lists. |
 | `arch/<id>/`, `fpga/<id>/`, `asic/<id>/` | Top-level IPs only: the architecture model and its perf scenarios ([arch spec](../arch/SPEC.md)), FPGA and ASIC inputs. |
+
+### Shared unit
+
+The shared blocks in `rtl/common/` are verified together as the **shared
+unit**, id `common` ([layout](../../project/layout.md#shared-blocks)). It
+exists when `dv/common/common.sim.f` exists (`build.ip.shared_unit`), and
+it has an IP's DV files: `dv/common/common.sim.f`, `dv/common/` as the
+Python root and `dv/common/regress/level{0,1,2}.yaml`. It is not an IP: it
+is never top-level, has no `rtl/common/common.rtl.f`, HAS, `arch/`, `fpga/`
+or `asic/`, and `check`, `fpga`, `asic`, `arch` and `labels` do not take it.
+`sim`, `regress` and `clean` choose from every IP plus the shared unit
+(`build.ip.units`), so `--ip common` works there and its output is
+`workdir/common/`.
+
+A **shared block** is a filelist `rtl/common/<block>.rtl.f`
+(`build.ip.shared_blocks`); its top module is `<block>`.
 
 ## Filelists
 
@@ -204,7 +220,9 @@ are skipped when Verilator or cocotb is missing. Process-control tests use a
 sleeping shell script in place of the child, so they need no simulator. `test_ip.py` covers discovery on synthetic kind-first trees: flat
 sub-IPs, top-level versus sub-IP by `-F` reachability (direct, transitive and
 from two parents), `common/` and name mismatches that are not IPs, a broken
-filelist, ownership by kind folder (never by id prefix) and `locate`.
+filelist, ownership by kind folder (never by id prefix), `locate`, and the
+shared blocks and shared unit (`units` adds it only with
+`dv/common/common.sim.f`; it owns the `common/` folders).
 
 Python dependencies (pinned in `tools/requirements.txt`): `PyYAML`,
 `pytest`, `cocotb`.

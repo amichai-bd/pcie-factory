@@ -32,8 +32,8 @@ def write(path: Path, text: str = PAGE) -> None:
 def test_good_fixture_passes(good):
     r = run(good)
     assert r.passed, r.findings
-    # blk: arch, rtl, dv, fpga; blk_sub: rtl, dv
-    assert r.checked == "6 required page(s), 6 wiki folder(s) under wiki/src/ (all IPs)"
+    # blk: arch, rtl, dv, fpga; blk_sub: rtl, dv; shared block common_lib: rtl, dv
+    assert r.checked == "8 required page(s), 8 wiki folder(s) under wiki/src/ (all IPs)"
 
 
 def test_bad_fixture_fails():
@@ -164,10 +164,29 @@ def test_extra_pages_and_shared_folders(good):
     write(good / "wiki/src/rtl/blk/NOTES.md")
     write(good / "wiki/src/dv/blk/regress/README.md")
     assert run(good).passed
-    # rtl/common/ is not an IP: a source folder exists, but no page fits.
+    # rtl/common/ is not an IP: only shared block pages fit there.
     write(good / "wiki/src/rtl/common/common.md")
+    write(good / "wiki/src/dv/common/MAS.md")
+    write(good / "wiki/src/rtl/common/sub/x.md")
+    write(good / "wiki/src/fpga/common/x.md")
     assert run(good).findings == [
-        "wiki/src/rtl/common/: names no IP (no src/rtl/common/common.rtl.f)"]
+        "wiki/src/dv/common/MAS.md: names no shared block (no src/rtl/common/MAS.rtl.f)",
+        "wiki/src/fpga/common/: names no IP (no src/rtl/common/common.rtl.f)",
+        "wiki/src/rtl/common/sub/: rtl/common/ holds only block pages",
+        "wiki/src/rtl/common/common.md: names no shared block "
+        "(no src/rtl/common/common.rtl.f)",
+    ]
+
+
+@pytest.mark.parametrize("kind", ["rtl", "dv"])
+def test_each_shared_block_needs_its_pages(good, kind):
+    (good / f"wiki/src/{kind}/common/common_lib.md").unlink()
+    assert run(good).findings == [
+        f"wiki/src/{kind}/common/common_lib.md: missing (required for shared block common_lib)"]
+    assert run(good, {"blk"}).passed  # a filtered run skips the shared pages
+    # A second block needs its own two pages.
+    write(good / "src/rtl/common/common_two.rtl.f", "")
+    assert len(run(good).findings) == 3
 
 
 def test_hidden_entries_are_skipped(good):
@@ -193,7 +212,7 @@ def test_ip_filter(good):
 def test_no_wiki_tree(tmp_path):
     shutil.copytree(FIXTURES / "good/src", tmp_path / "src")
     r = run(tmp_path)
-    assert len(r.findings) == 6 and all("missing" in f for f in r.findings)
+    assert len(r.findings) == 8 and all("missing" in f for f in r.findings)
     (tmp_path / "empty/src").mkdir(parents=True)
     r = run(tmp_path / "empty")
     assert r.passed and r.checked.startswith("0 required page(s), 0 wiki folder(s)")

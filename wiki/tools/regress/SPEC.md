@@ -55,7 +55,7 @@ These validation rules apply:
 Every error names the file and the entry index, plus the test name whenever
 the entry has a string `name`. For example:
 `.../level0.yaml: tests[2] (counts): missing key(s): top`. Validation covers
-every discovered IP, not only the selected ones.
+every discovered IP and the shared unit, not only the selected ones.
 
 ## Selection
 
@@ -66,7 +66,9 @@ Three rules decide which tests run:
   is required.
 - **`--ip ID`** (repeatable) restricts the run to those IPs. IPs are flat:
   selecting a parent doesn't select its sub-IPs. Without `--ip`, every
-  discovered IP is selected.
+  discovered IP and the [shared unit](../build/SPEC.md#shared-unit) (`common`)
+  are selected; `--ip common` selects the shared unit. Everything this page
+  says about an IP's lists, seeds and output applies to it.
 - **`--affected BASE`** narrows the selection (combined with `--ip`, the
   result is the intersection) to IPs that are affected by changes since
   `git merge-base BASE HEAD`. The changed files are the committed diff, the
@@ -81,7 +83,8 @@ Three rules decide which tests run:
     (`<src-root>/dv/common/`): shared DV Python helpers are reached by no
     filelist, so their users cannot be told apart.
   - A changed file lies in the IP's **own files**: under `src/<kind>/<ip>/`
-    for any kind. A change in sub-IP `a_b`'s folders therefore selects
+    for any kind (for the shared unit, `src/rtl/common/` or
+    `src/dv/common/`; the latter also selects every IP by the previous rule). A change in sub-IP `a_b`'s folders therefore selects
     `a_b`; it selects the parent `a` only through the next two cases. A
     change under a top-level IP's `src/arch/<ip>/` (the architecture model,
     [arch BKM](../../bkm/arch.md)) is one of its own files, so it selects

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from build import sim
-from build.ip import Context, Ip, discover, find_ip
+from build.ip import Context, Ip, find_ip, units
 from ci.config import load_rules
 from regress.affected import changed_files, select_affected
 from regress.schema import LevelBudget, TestEntry, load_budgets, load_ip
@@ -64,7 +64,7 @@ def select(
     affected_base: str | None = None,
     base_seed: int | None = None,
 ) -> Selection:
-    all_ips = discover(ctx.src_root)
+    all_ips = units(ctx.src_root)  # every IP and the shared unit
     tests = load_all(all_ips)  # validate everything, not only the selection
     if ip_ids:
         chosen = [find_ip(all_ips, i) for i in dict.fromkeys(ip_ids)]
