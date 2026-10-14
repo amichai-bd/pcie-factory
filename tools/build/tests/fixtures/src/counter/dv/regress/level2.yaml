@@ -1,0 +1,7 @@
+tests:
+  - name: random_enable
+    module: tests.test_counter
+    testcase: random_enable
+    top: counter
+    seeds: 2
+    timeout_s: 120

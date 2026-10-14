@@ -51,28 +51,20 @@ system-level test never replaces them.
 
 ## Regression lists
 
-Each IP's `regress/level{0,1,2}.yaml` lists its own tests only:
+Each IP's `regress/level{0,1,2}.yaml` lists its own tests only. The
+[regress tool SPEC](../tools/regress/SPEC.md#regression-lists) owns the
+entry schema: fields, defaults, seeds (a count or an explicit list) and
+validation.
 
-- **Flat per IP.** A parent IP does not inherit its sub-IPs' entries; each
+- **Flat per IP.** A parent IP doesn't inherit its sub-IPs' entries; each
   sub-IP has its own lists. A global run is the union of all IPs.
 - **Exclusive levels.** `--level 1` runs only `level1.yaml`. Combine
   explicitly: `--level 0 --level 1`. Never copy an entry into a second level
   to make it "also run".
-- All three files exist; a level with no tests is an empty list (`[]`).
-
-Each entry is one simulation configuration. Fields (the regression tool's
-SPEC, created by the `./build` core issue #6, owns the exact schema and
-defaults):
-
-| Field | Meaning |
-| --- | --- |
-| `name` | Unique within the IP; used in reports, output paths and the DV plan. |
-| `module` | Python test module under `tests/` (e.g. `test_<feature>`). |
-| `testcase` | Optional cocotb testcase filter within the module; all when absent. |
-| `top` | HDL toplevel module, normally the IP top or a `tb/` top. |
-| `seeds` | Explicit list of integer seeds; one run per seed. |
-| `timeout_s` | Wall-clock bound per run; exceeding it is a failure. |
-| `params` | Optional map of top-level parameter overrides. |
+- **All three files exist.** A level with no tests is `tests: []`.
+- **One entry, one configuration.** Each entry is one simulation
+  configuration, and its `name` is what reports, output paths and the DV
+  plan refer to.
 
 Level placement follows budgets in the [DevOps BKM](devops.md#levels-and-budgets):
 L0 holds smoke and the fastest directed tests, L1 the full directed set and a
@@ -94,9 +86,10 @@ the same PR, and vice versa.
 
 ## Determinism and failure quality
 
-- Directed tests are deterministic. Random tests take the seed from the
-  regression entry (cocotb `RANDOM_SEED`), print it at start, and draw all
-  randomness from it. A failure is reproducible from `name` and seed.
+- Directed tests are deterministic. Random tests take the seed that the
+  regression tool passes to cocotb for each run (see its SPEC), print it at
+  start, and draw all randomness from it. A failure is reproducible from
+  `name` and seed (`./build sim --ip <ip> --test <name> --seed <seed>`).
 - Every test bounds simulated cycles and wall time and fails nonzero.
 - Mismatch messages report operation, expected value, observed value and the
   cycle or transaction index.

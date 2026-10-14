@@ -1,0 +1,12 @@
+# Regression level budgets, read by ./build regress (see wiki/tools/regress/SPEC.md).
+# budget_s is compared with the serial-equivalent runtime (sum of test runtimes)
+# of the level; exceeding it prints a warning. The DevOps BKM owns these values.
+level0:
+  description: Fast local confidence; run while developing and in ci-gate.
+  budget_s: 120
+level1:
+  description: Merge gate for affected IPs, run by ci-gate after level 0.
+  budget_s: 600
+level2:
+  description: Nightly full regression with more seeds.
+  budget_s: 7200
