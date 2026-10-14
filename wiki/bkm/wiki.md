@@ -104,8 +104,8 @@ the unit tests prove it.
 
 ## Site
 
-The wiki is published to GitHub Pages as a **public** site, although the
-repository is private (captain decision, see the
+The repository is public and the wiki is published to GitHub Pages as a
+**public** site (captain decisions, see the
 [decision record](../project/decisions/0001-m0-grill.md#updates)). It is built
 by a minimal generator in `tools/` (see its [SPEC](../tools/wiki_site/SPEC.md)). Navigation follows the `wiki/`
 tree, so a new page needs no nav file edit. Validate links locally before
@@ -113,8 +113,9 @@ review with `./build wiki build --strict`; it is the link check.
 
 ### Publishability
 
-Every page under `wiki/`, including `wiki/src/` specs and `wiki/tracker/data/`,
-is public. A page must not contain:
+The whole repository is public, so this applies to every committed file; it
+matters most for `wiki/`, including `wiki/src/` specs and `wiki/tracker/data/`,
+which is also published as a site. Nothing committed may contain:
 
 - credentials, tokens, secrets or private URLs;
 - private machine details beyond tool versions and install paths (no host
@@ -124,5 +125,5 @@ is public. A page must not contain:
   datasheet excerpts beyond short quotes with attribution);
 - anything the captain has not cleared for publication.
 
-Reviewers check this on every PR that touches `wiki/`. Content that cannot be
+Reviewers check this on every PR. Content that cannot be
 public belongs outside the wiki, and the captain decides where.

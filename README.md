@@ -7,7 +7,7 @@ builds.
 
 - **Agents:** start with [`CLAUDE.md`](CLAUDE.md), the operating contract.
 - **Specs and methods:** the [wiki](wiki/index.md), also published as a public
-  site on GitHub Pages.
+  site on GitHub Pages. The repository itself is public.
 - **Design target:** declared in [`src/README.md`](src/README.md).
 
 ## Quick start

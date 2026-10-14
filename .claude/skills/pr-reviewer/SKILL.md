@@ -53,7 +53,7 @@ Read: the issue (acceptance, scope, comments), `CLAUDE.md`, the diff
 | BKM | Code breaks a rule in the owning BKM or area skill. |
 | Tests | DV_PLAN items lack tests in `src/<ip>/dv/regress/level{0,1,2}.yaml`, tests sit at the wrong level, or tools lack unit tests. Important negative and boundary cases missing. |
 | Evidence | See below. |
-| Publishability | A change under `wiki/` adds content that may not be public ([wiki BKM](../../../wiki/bkm/wiki.md#publishability)); the site is public. |
+| Publishability | The change adds content that may not be public ([wiki BKM](../../../wiki/bkm/wiki.md#publishability)); the repository and site are public. A workflow lets a fork PR run on the self-hosted runners. |
 | Neutrality | Outside `src/` and `wiki/src/`, any design-target, protocol or IP name (repo slug in URLs exempt). Check with `grep -rniI` on the changed paths. |
 | Hygiene | Generated output, logs or credentials committed; provenance note missing on adapted content; unexplained warnings or waivers. |
 

@@ -100,7 +100,12 @@ behavior, not command success. Missing evidence is a review finding.
 Workflows live in `.github/workflows/` (`ci`, `nightly`, `pages`) and run on
 self-hosted runners selected with `runs-on: [self-hosted, linux, x64]`. The
 runners are registered to this repository only, so no workflow names the
-design target. The CI host is the Omarchy machine; `cfg/host.yaml` pins its
+design target. The repository is public, so fork code must never reach these
+runners: every job a `pull_request` triggers carries
+`if: github.event.pull_request.head.repo.full_name == github.repository`,
+`pull_request_target` never checks out PR code, and workflows never echo
+secrets. The captain also requires approval for outside-collaborator fork
+workflows in the repository settings. The CI host is the Omarchy machine; `cfg/host.yaml` pins its
 toolchain.
 
 **`ci-gate`** is the one required check. It runs on pull requests to `main`,

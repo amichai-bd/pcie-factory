@@ -20,6 +20,8 @@ permissions:
 
 jobs:
   build:
+    # Public repository: never run fork PR code on the self-hosted runners.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64]
     timeout-minutes: 10
     concurrency:
