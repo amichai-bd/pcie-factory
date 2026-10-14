@@ -3,23 +3,24 @@
 `./build check` runs the static checks that the
 [DevOps BKM](../../bkm/devops.md#static-checks) requires: the source layout
 check, the filelist and regression-list check, the RTL style checker, the
-wiki mirror check, the neutrality check and Verilator lint. It prints one
+wiki mirror check, the flow-input check, the neutrality check and Verilator
+lint. It prints one
 summary line per check, then every violation, then an overall verdict. The
 code lives in `tools/checks/` (`run.py`, `layout.py`, `filelists.py`,
-`style.py`, `wiki_mirror.py`, `neutrality.py`, `lint.py`).
+`style.py`, `wiki_mirror.py`, `flows.py`, `neutrality.py`, `lint.py`).
 
 ```
-./build check [--ip ID]... [--only layout|filelist|style|wiki|neutrality|lint]...
+./build check [--ip ID]... [--only layout|filelist|style|wiki|flows|neutrality|lint]...
               [--src-root DIR] [--workdir DIR]
 ```
 
 | Option | Meaning |
 | --- | --- |
-| `--ip ID` | Restrict layout, filelist, style, wiki and lint to these IPs (repeatable). Files not owned by a selected IP, such as `src/rtl/common/`, are skipped. Neutrality always scans the whole repository. |
-| `--only NAME` | Run only these checks (repeatable). The default is all six. |
+| `--ip ID` | Restrict layout, filelist, style, wiki, flows and lint to these IPs (repeatable). Files not owned by a selected IP, such as `src/rtl/common/`, are skipped. Neutrality always scans the whole repository. |
+| `--only NAME` | Run only these checks (repeatable). The default is all seven. |
 | `--src-root DIR` | The source tree to check, as for every command ([build spec](../build/SPEC.md#command-line)). The wiki check reads its sibling `wiki/src/`. Neutrality ignores it and scans the git repository that holds the launcher. |
 
-Checks run in the order layout, filelist, style, wiki, neutrality, lint
+Checks run in the order layout, filelist, style, wiki, flows, neutrality, lint
 (lint is the slowest). Output:
 
 ```
@@ -29,6 +30,7 @@ check: 2 IP(s) under /abs/src
 [style] FAIL (1): 6 RTL file(s), 12 rule(s); 0 other includable or fpga/ file(s) for directives
   rtl/blk/xy_blk.sv:10: plain-always: always
 [wiki] PASS: 6 required page(s), 6 wiki folder(s) under wiki/src/ (all IPs)
+[flows] PASS: 1 FPGA and 0 ASIC target(s) with their flows' dry-run validation; cfg/fpga.yaml
 [neutrality] PASS: 135 file(s) (tracked and untracked, not ignored) outside src/, ...
 [lint] blk: top=xy_blk
 [lint] common/common_lib: top=common_lib
@@ -43,7 +45,9 @@ what it covered (zero IPs and files), and the command passes.
 **Exit codes:** `0` means every selected check passed. `1` means at least
 one check found a violation. `2` means a usage or configuration error: an
 unknown `--ip`, an invalid `cfg/checks.yaml` or waiver file, a git error,
-or Verilator missing while there is something to lint.
+or Verilator missing while there is something to lint. The flow settings
+(`cfg/fpga.yaml`, the ORFS entry of `cfg/host.yaml`) are flow inputs, not
+the check's own configuration: a problem there is a `flows` finding.
 
 ## Layout check
 
@@ -212,6 +216,35 @@ reported only without `--ip`. The check proves that
 pages exist where the mirror puts them, not that their content matches the
 code; that stays a review item.
 
+## Flow-input check
+
+Rule owners: the [FPGA tool spec](../fpga/SPEC.md#inputs) and the
+[ASIC tool spec](../asic/SPEC.md#inputs). Code: `flows.py`.
+
+The check runs the same validation as `./build fpga --dry-run` and
+`./build asic --dry-run`, by calling the flows' own planning functions, so
+the two never drift apart. It writes nothing and runs no vendor tool, so it
+passes in a cloud session and in `ci-gate`, where Quartus and ORFS are absent.
+
+- **FPGA**, for every selected IP with `src/fpga/<id>/`: `cfg/fpga.yaml` is
+  valid; the board settings file `<board>.qsf.tcl` exists; there is exactly
+  one `*.sdc` and exactly one `*.sv` board wrapper; the wrapper declares the
+  module its file stem names and is not in the IP's `.rtl.f`; every source
+  has a supported type; and every path quotes for the generated Tcl.
+- **ASIC**, for every selected IP with `src/asic/<id>/`, on each platform it
+  has a `<platform>.mk` for (the default platform when it has none, so the
+  missing config is reported): exactly one `*.sdc`; the `.mk` sets
+  `DESIGN_NAME` and none of the tool-owned variables; the `.rtl.f` has
+  sources. Then the ORFS settings in `cfg/host.yaml` load with the
+  `ORFS_RUNNER` and `ORFS_ROOT` overrides ignored, so a recorded image must
+  be pinned by digest.
+
+Each flow stops at its first error, so a target reports one finding per
+platform; a finding is the flow's own error message with source-root and
+repository paths shown relative. The cfg files are read only when at least
+one selected IP is a target of that flow. With `--ip`, only the selected IPs
+are planned.
+
 ## Neutrality check
 
 Rule owner: [`CLAUDE.md`](../../../CLAUDE.md#design-neutrality). The scan
@@ -349,7 +382,8 @@ Fixtures live in `tools/checks/tests/fixtures/`:
 
 | Fixture | Content |
 | --- | --- |
-| `good/src/`, `good/wiki/src/` | Kind-first tree: IP `blk` (package, include header, top) with flat sub-IP `blk_sub`, a shared block `common_lib` under `rtl/common/` with the shared unit's files in `dv/common/`, and a board wrapper in `fpga/blk/`; the wiki mirror holds every required page, including the block's two pages. Every check passes. |
+| `good/src/`, `good/wiki/src/` | Kind-first tree: IP `blk` (package, include header, top) with flat sub-IP `blk_sub`, a shared block `common_lib` under `rtl/common/` with the shared unit's files in `dv/common/`, and a board wrapper, SDC and board settings file in `fpga/blk/`; the wiki mirror holds every required page, including the block's two pages. Every check passes. |
+| `flows_bad/src/` | IP `blk` whose `fpga/blk/` has two SDC files and no board settings file or wrapper, and whose `asic/blk/sky130hd.mk` has no SDC beside it. Only the flow-input check is meant to fail on it (with one finding per flow). |
 | `bad/src/`, `bad/wiki/src/` | IP `blk` with a duplicate source, an orphan, a missing and an invalid level file, style violations and lint warnings; IP `broken` with a missing source; an `asic/ghost/` folder that names no IP. The wiki mirror lacks pages, has a page outside an IP folder, an `fpga/blk/` page with no `src/fpga/blk/` and a folder that names no IP. Layout, filelist, style, wiki and lint fail. |
 
 Tests also build variants in temporary directories: the superseded
@@ -369,6 +403,11 @@ a folder in `decisions/`, a design-level page inside a kind folder), orphan
 and empty folders, extra pages, shared block pages (required, and nothing else in the shared folders), a non-IP source folder, hidden entries,
 `--ip`, and a missing wiki tree (`test_wiki_mirror.py`), a small git repository with forbidden words,
 slug URLs, a look-alike slug and an invalid config (`test_neutrality.py`),
+one case per flow-input finding (board settings, SDC and wrapper counts,
+wrapper module and listing, `cfg/fpga.yaml`, a missing `.mk`, SDC counts,
+a tool-owned variable, no `DESIGN_NAME`, an unpinned image, no ORFS, ORFS
+environment overrides ignored, `--ip`, nothing written) on a copy of the
+good tree with `asic/blk/` inputs and its own `cfg/` (`test_flows.py`),
 and waivers (used, stale, invalid), output parsing and the command line
 (`test_lint.py`, `test_check_run.py`). Negative cases include a `.vlt`
 and a `.v` file in an `rtl/` closure, a `w.txt` waiver reached by

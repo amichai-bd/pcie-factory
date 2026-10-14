@@ -24,7 +24,7 @@ the command line, the generated project, the metrics schema and failures.
 | `--all` | Every IP that has a `src/fpga/<ip>/` folder, sorted by id. |
 | `--part DEVICE` | Override the device that the board settings file sets (letters and digits only). |
 | `--timeout S` | Wall-clock bound in seconds on each step (default: `step_timeout_s` in `cfg/fpga.yaml`). |
-| `--dry-run` | Validate inputs, write the project scripts, print the steps; run nothing and need no Quartus. A previous compile in the same directory is left in place. |
+| `--dry-run` | Validate inputs, write the project scripts, print the steps; run nothing and need no Quartus. A previous compile in the same directory is left in place. `./build check` runs the same input validation for every FPGA target ([flow-input check](../checks/SPEC.md#flow-input-check)). |
 
 The shared `--src-root` and `--workdir` options work as in the
 [build spec](../build/SPEC.md#command-line).
