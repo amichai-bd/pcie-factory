@@ -11,7 +11,7 @@
   "src_root": "/home/someone/checkout/src",
   "tests": [
     {"detail": "", "ip": "blk", "level": 0, "log": "blk/smoke/seed1/run.log", "name": "smoke", "runtime_s": 1.5, "seed": 1, "status": "pass"},
-    {"detail": "assert failed at /home/someone/checkout/src/blk/dv/tests/test_x.py:12", "ip": "blk", "level": 2, "log": "blk/sweep/seed7/run.log", "name": "sweep", "runtime_s": 40.25, "seed": 7, "status": "fail"},
+    {"detail": "assert failed at /home/someone/checkout/src/dv/blk/tests/test_x.py:12", "ip": "blk", "level": 2, "log": "blk/sweep/seed7/run.log", "name": "sweep", "runtime_s": 40.25, "seed": 7, "status": "fail"},
     {"detail": "", "ip": "blk", "level": 2, "log": "blk/sweep/seed8/run.log", "name": "sweep", "runtime_s": 38.0, "seed": 8, "status": "pass"},
     {"detail": "", "ip": "blk/sub", "level": 0, "log": "blk/sub/smoke/seed1/run.log", "name": "smoke", "runtime_s": 0.75, "seed": 1, "status": "pass"}
   ],
