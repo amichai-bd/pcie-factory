@@ -1,0 +1,8 @@
+tests:
+  - name: wraps_w4
+    module: tests.test_counter
+    testcase: wraps
+    top: counter
+    params:
+      W: 4
+    timeout_s: 60

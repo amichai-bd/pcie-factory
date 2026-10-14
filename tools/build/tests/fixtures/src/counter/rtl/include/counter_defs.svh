@@ -1,0 +1,4 @@
+`ifndef COUNTER_DEFS_SVH
+`define COUNTER_DEFS_SVH
+`define COUNTER_WIDTH 8
+`endif

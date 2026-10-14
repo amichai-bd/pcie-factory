@@ -1,0 +1,5 @@
+tests:
+  - name: exhaustive
+    module: tests.test_inc
+    top: inc
+    timeout_s: 60

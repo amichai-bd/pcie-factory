@@ -1,0 +1,6 @@
+tests:
+  - name: counts
+    module: tests.test_counter
+    testcase: counts
+    top: counter
+    timeout_s: 60
