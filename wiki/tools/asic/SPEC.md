@@ -29,7 +29,7 @@ is still written); `2` a usage or configuration error.
 | `src/<ip>/rtl/<name>.rtl.f` | Flattened by the [filelist resolver](../build/SPEC.md#filelists) into `VERILOG_FILES`, `VERILOG_INCLUDE_DIRS` and `VERILOG_DEFINES` (`-DNAME` or `-DNAME=VALUE`), in filelist order. |
 | `src/<ip>/asic/<platform>.mk` | Design knobs, included first by the generated config. `DESIGN_NAME` is required. |
 | `src/<ip>/asic/*.sdc` | Exactly one SDC; becomes `SDC_FILE`. Its first `create_clock -period` is reported as `clock_period_ns`. |
-| `cfg/host.yaml` `orfs` | How to reach ORFS (below). |
+| `cfg/host.yaml` `hosts.<name>.orfs_*` | How to reach ORFS (below). |
 
 The tool owns `PLATFORM`, `DESIGN_NICKNAME`, `SDC_FILE`, `VERILOG_FILES`,
 `VERILOG_INCLUDE_DIRS`, `VERILOG_DEFINES`, `WORK_HOME` and `FLOW_VARIANT`; a
@@ -47,14 +47,19 @@ pinned image's Yosys). The tool passes the knob through unchanged.
 
 | Runner | Runs | Selected by |
 | --- | --- | --- |
-| `docker` | `docker run --rm` of the pinned image, as the calling user (`--user uid:gid`, `HOME=/tmp`). The repository and an outside source root are mounted read-only and the workdir read-write, each at its own path, so generated absolute paths work unchanged. | `orfs.runner: docker` + `orfs.image` + `orfs.image_root` (ORFS inside the image) |
-| `native` | `bash -c` on the host, after `source <root>/env.sh` when it exists. | `orfs.runner: native` + `orfs.root` |
+| `docker` | `docker run --rm --memory=3g --memory-swap=3g` of the image, as the calling user (`--user uid:gid`, `HOME=/tmp`), with ORFS at `/OpenROAD-flow-scripts` inside it. The repository and an outside source root are mounted read-only and the workdir read-write, each at its own path, so generated absolute paths work unchanged. | `ORFS_IMAGE`, else the host's `orfs_image` |
+| `native` | `bash -c` on the host, after `source <root>/env.sh` when it exists. | `ORFS_ROOT`, else the host's `orfs_root` |
 
-Environment overrides, in order: `ORFS_RUNNER` (`docker`|`native`),
-`ORFS_IMAGE` (image reference), `ORFS_ROOT` (a native checkout; implies
-`native` unless `ORFS_RUNNER` says otherwise). The pinned image and the host
-facts are recorded in [`cfg/host.yaml`](../../../cfg/host.yaml) and the
-[host spec](../host/SPEC.md).
+Selection, first match wins: `ORFS_RUNNER` (`docker`|`native`) if set;
+`ORFS_ROOT` set means native; an image (environment or cfg) means docker; a
+cfg root means native. With none of them the command exits 2. The host
+values come from the one `hosts.<name>` entry in
+[`cfg/host.yaml`](../../../cfg/host.yaml) that records `orfs_image` or
+`orfs_root` (more than one is an error). Its `orfs_commit` is reported as
+`toolchain.orfs_pin` only when the image or root that runs is the recorded
+one. The Omarchy host has only the pinned image (also exported to its
+runners as `ORFS_IMAGE`); native mode is kept because it costs one `bash -c`
+and is what the unit tests drive with a fake ORFS.
 
 ## Behavior
 
@@ -101,7 +106,7 @@ facts are recorded in [`cfg/host.yaml`](../../../cfg/host.yaml) and the
 | `logic_depth.value`, `.endpoint` | `extra_metrics.tcl`: most cells on any path from a register or input port to a register data pin or output port (endpoints excluded; buffers and inverters count). |
 | `worst_path.from`, `.to`, `.group`, `.slack_ns`, `.cells` | First `report_checks -path_delay max` section of `6_finish.rpt`; `cells` counts instances strictly between start and end point on the data path. |
 | `power_w`, `route_drc_errors` | `*__power__total`, `detailedroute__route__drc_errors`. |
-| `toolchain` | Runner, image, root, `orfs_pin` (`orfs.commit` from cfg) and the `versions` step output. |
+| `toolchain` | Runner, image, root, `orfs_pin` (the host's `orfs_commit`, see above) and the `versions` step output. |
 | `source`, `elapsed_s`, `work_home` | Repository `HEAD`, run time, ORFS work home. |
 
 "Latest stage" means the first present of `finish`, `detailedroute`,

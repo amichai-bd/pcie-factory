@@ -36,19 +36,14 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
       - name: Discover ORFS
+        # Informational: what this host offers (see wiki/tools/asic/SPEC.md#orfs-runners).
         run: |
           set +e
-          uname -a
-          echo "--- docker"; command -v docker && docker version --format '{{.Server.Version}}'
-          docker images --digests 2>&1 | grep -i -E 'openroad|orfs'
-          echo "--- native tools"; which openroad yosys klayout make python3
-          echo "--- candidate roots"; ls -d /opt/orfs* /opt/OpenROAD* /opt/openroad* ~/OpenROAD-flow-scripts* ~/orfs* /OpenROAD-flow-scripts 2>&1
-          echo "--- env"; env | grep -i -E 'orfs|openroad|flow_home' || true
-          echo "--- /opt/orfs"; ls -la /opt/orfs; find /opt/orfs -maxdepth 2 -type f -size -8k -exec sh -c 'echo "== $1"; head -40 "$1"' _ {} \;
-          if [ -n "$ORFS_IMAGE" ]; then
-            echo "--- inside $ORFS_IMAGE"
-            docker run --rm "$ORFS_IMAGE" bash -c 'pwd; ls /OpenROAD-flow-scripts /OpenROAD-flow-scripts/flow; cat /OpenROAD-flow-scripts/env.sh | head -30; command -v openroad yosys klayout; yosys -m slang -p "help read_slang" 2>&1 | head -3'
-          fi
+          echo "ORFS_IMAGE=${ORFS_IMAGE:-<unset>} ORFS_ROOT=${ORFS_ROOT:-<unset>}"
+          docker version --format 'docker {{.Server.Version}}'
+          docker images --digests | grep -i -E 'openroad|orfs'
+          which openroad yosys klayout
+          ls -d /opt/orfs* /opt/OpenROAD* ~/OpenROAD-flow-scripts* 2>/dev/null
           exit 0
       - name: Run the ASIC flow
         run: |

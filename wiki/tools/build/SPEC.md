@@ -26,7 +26,8 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `clean [--ip ID]...` | Delete the whole workdir. With `--ip`, empty `workdir/<ip>/` for each given IP but keep the directories of its sub-IPs, which nest there. |
 | `labels` | Sync and check GitHub labels; see the [labels spec](../labels/SPEC.md). |
 | `wiki build\|serve` | Build the wiki site into `<workdir>/wiki-site`, or serve an existing build; see the [wiki site spec](../wiki_site/SPEC.md). |
-| `check`, `fpga`, `asic` | Stubs: print `not implemented yet (see issue #N)` and exit 2. Each is filled in by its issue (#7, #13, #14) by replacing one entry in `COMMANDS`. |
+| `asic --ip ID` | Run the ORFS flow for one IP and write `metrics.json`; see the [asic spec](../asic/SPEC.md). |
+| `check`, `fpga` | Stubs: print `not implemented yet (see issue #N)` and exit 2. Each is filled in by its issue (#7, #13) by replacing one entry in `COMMANDS`. |
 
 Options shared by every command:
 

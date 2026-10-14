@@ -15,6 +15,7 @@ Owns the pinned host toolchain and how each host gets it. Code:
 | Verilator | 5.052, built from tag `v5.052` (commit `ea338be98e1e838d3518809ce8899f85a009963c`, verified after clone) into `/opt/verilator/5.052` | `cfg/host.yaml` `verilator` |
 | Verilator build deps | apt packages listed in `verilator.build_deps` | `cfg/host.yaml` |
 | Python | `python3` >= 3.11 | `cfg/host.yaml` `python.minimum` |
+| ORFS (Omarchy only) | `openroad/orfs` Docker image pinned by tag and digest, with its ORFS commit | `cfg/host.yaml` `hosts.omarchy.orfs_image`, `orfs_commit`; read by the [asic tool](../asic/SPEC.md#orfs-runners) |
 | cocotb, pytest, PyYAML, markdown-it-py, Pygments | exact `name==version` | `tools/requirements.txt` |
 
 Change a pin only in its source of truth; the hook reads both files and
