@@ -1,5 +1,5 @@
-// Wiki site: theme toggle, mobile sidebar, TOC scroll spy, Mermaid drawing and
-// client-side search over assets/search-index.json (titles, headings, text).
+// Wiki site: theme toggle, mobile sidebar, TOC scroll spy, Mermaid drawing,
+// tracker charts and client-side search over assets/search-index.json (titles, headings, text).
 // Adapted from nand2anything tools/wiki_site/theme/wiki.js @ 085ef4b (same
 // owner; see PROVENANCE.md): search reads a JSON index and matches page text.
 (function () {
@@ -9,7 +9,11 @@
 
   // ---- dark mode: a stored choice wins; otherwise follow the OS ----
   function stored() { try { return localStorage.getItem("theme"); } catch (e) { return null; } }
-  function setTheme(theme) { doc.dataset.theme = theme; drawDiagrams(); }
+  function setTheme(theme) {
+    doc.dataset.theme = theme;
+    drawDiagrams();
+    if (window.drawTrackerCharts) window.drawTrackerCharts();
+  }
   document.querySelector(".theme-toggle").addEventListener("click", function () {
     var next = doc.dataset.theme === "dark" ? "light" : "dark";
     setTheme(next);
@@ -42,6 +46,18 @@
     ms.src = root + "assets/mermaid.min.js";
     ms.onload = drawDiagrams;
     document.head.appendChild(ms);
+  }
+
+  // ---- tracker charts: load the vendored Chart.js, then tracker.js, only on
+  // pages that carry tracker data ----
+  function loadScript(name, then) {
+    var s = document.createElement("script");
+    s.src = root + "assets/" + name;
+    s.onload = then;
+    document.head.appendChild(s);
+  }
+  if (document.getElementById("tracker-data")) {
+    loadScript("chart.umd.js", function () { loadScript("tracker.js"); });
   }
 
   // ---- mobile sidebar ----
