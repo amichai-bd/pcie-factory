@@ -75,12 +75,25 @@ def test_panels_split():
 
 
 def test_sta_worst_across_corners():
-    clocks = reports.parse_sta(FIX / "output_files" / f"{REV}.sta.rpt")
+    sta = reports.parse_sta(FIX / "output_files" / f"{REV}.sta.rpt")
+    clocks = sta["clocks"]
     assert list(clocks) == ["CLK_A", "CLK_B"]
     assert clocks["CLK_A"] == {"fmax_mhz": 187.55, "restricted_fmax_mhz": 187.55,
-                               "setup_slack_ns": 14.668, "hold_slack_ns": 0.181}
+                               "setup_slack_ns": 14.668, "hold_slack_ns": 0.181,
+                               "recovery_slack_ns": 17.31, "removal_slack_ns": 1.204}
     assert clocks["CLK_B"] == {"fmax_mhz": 260.42, "restricted_fmax_mhz": 250.0,
-                               "setup_slack_ns": 4.16, "hold_slack_ns": 0.187}
+                               "setup_slack_ns": 4.16, "hold_slack_ns": 0.187,
+                               "recovery_slack_ns": None, "removal_slack_ns": None}
+    assert sta["unconstrained"]["unconstrained_input_port_paths"] == {"setup": 0, "hold": 0}
+    assert len(sta["unconstrained"]) == 6
+
+
+def test_sta_missing_unconstrained_panel(tmp_path):
+    rpt = tmp_path / "x.sta.rpt"
+    text = (FIX / "output_files" / f"{REV}.sta.rpt").read_text()
+    rpt.write_text(text.replace("Unconstrained Paths Summary", "Something Else"))
+    with pytest.raises(ReportError, match="Unconstrained Paths Summary"):
+        reports.parse_sta(rpt)
 
 
 def test_sta_missing_panel(tmp_path):
@@ -125,6 +138,9 @@ def test_collect(project):
     t = m["timing"]
     assert t["worst_setup_slack_ns"] == 4.16
     assert t["worst_hold_slack_ns"] == 0.181
+    assert t["worst_recovery_slack_ns"] == 17.31
+    assert t["worst_removal_slack_ns"] == 1.204
+    assert t["unconstrained_total"] == 0
     assert t["met"] is True
     assert t["critical_path"]["to"] == "u_core|acc_q[15]"
     json.dumps(m)  # serializable
@@ -135,6 +151,24 @@ def test_collect_negative_slack_not_met(project):
     rpt.write_text(rpt.read_text().replace("; CLK_A ; 0.181 ;", "; CLK_A ; -0.050 ;"))
     m = reports.collect(project, REV)
     assert m["timing"]["worst_hold_slack_ns"] == -0.05
+    assert m["timing"]["met"] is False
+
+
+def test_collect_negative_removal_not_met(project):
+    rpt = project / "output_files" / f"{REV}.sta.rpt"
+    rpt.write_text(rpt.read_text().replace("; CLK_A ; 1.204 ;", "; CLK_A ; -0.300 ;"))
+    m = reports.collect(project, REV)
+    assert m["timing"]["worst_removal_slack_ns"] == -0.3
+    assert m["timing"]["met"] is False
+
+
+def test_collect_unconstrained_not_met(project):
+    rpt = project / "output_files" / f"{REV}.sta.rpt"
+    rpt.write_text(rpt.read_text().replace(
+        "; Unconstrained Input Port Paths  ; 0     ; 0    ;",
+        "; Unconstrained Input Port Paths  ; 3     ; 3    ;"))
+    m = reports.collect(project, REV)
+    assert m["timing"]["unconstrained_total"] == 6
     assert m["timing"]["met"] is False
 
 

@@ -12,5 +12,5 @@ the parser together.
 | --- | --- |
 | `output_files/widget_board.fit.summary` | Fitter summary |
 | `output_files/widget_board.fit.rpt` | Fitter report: resource usage panel and a trimmed per-entity table (its `M9Ks` column must not be read as the block count) |
-| `output_files/widget_board.sta.rpt` | Timing analyzer report: Fmax (slow models only, as Quartus prints), setup and hold summaries for three corners, plus unrelated panels including one with blank rows and an empty one |
+| `output_files/widget_board.sta.rpt` | Timing analyzer report: Fmax (slow models only, as Quartus prints), setup and hold summaries for three corners, recovery and removal summaries (one empty), the unconstrained paths summary, plus unrelated panels including one with blank rows |
 | `worst_path.txt` | Output of the generated `worst_path.tcl` |

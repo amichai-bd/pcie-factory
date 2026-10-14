@@ -31,7 +31,7 @@ target and its module prefix are declared once, in
 | `CLAUDE.md` | This contract. There is no `AGENTS.md`. |
 | `build` | The single entry point; implementation in `tools/`. |
 | `.claude/` | Settings, session-start hook, `skills/<name>/SKILL.md`. |
-| `.github/` | Workflows (`ci`, `nightly`, `pages`) and templates. |
+| `.github/` | Workflows (`ci`, `nightly`, `pages`, `fpga`) and templates. |
 | `cfg/` | Generic configuration only (levels, CI, host pins, checks, labels). |
 | `tools/` | Generic Python tools, each with unit tests and a wiki SPEC. |
 | `src/<ip>/` | `rtl/`, `dv/`, optional `fpga/`, `asic/`; sub-IPs in `<subip>/`. |

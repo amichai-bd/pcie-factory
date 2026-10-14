@@ -24,7 +24,7 @@ the command line, the generated project, the metrics schema and failures.
 | `--all` | Every IP that has an `fpga/` directory, sorted by id. |
 | `--part DEVICE` | Override the device that the board settings file sets (letters and digits only). |
 | `--timeout S` | Wall-clock bound in seconds on each step (default: `step_timeout_s` in `cfg/fpga.yaml`). |
-| `--dry-run` | Validate inputs, generate the project scripts, print the steps; run nothing and need no Quartus. |
+| `--dry-run` | Validate inputs, write the project scripts, print the steps; run nothing and need no Quartus. A previous compile in the same directory is left in place. |
 
 The shared `--src-root` and `--workdir` options work as in the
 [build spec](../build/SPEC.md#command-line).
@@ -47,8 +47,8 @@ names the file.
 
 ## Steps
 
-Everything runs in `workdir/<ip>/fpga/`, which is deleted and recreated
-first. Each step runs in its own process group, with stdout and stderr in
+Everything runs in `workdir/<ip>/fpga/`, which a real run deletes and
+recreates first (`--dry-run` only overwrites the two scripts). Each step runs in its own process group, with stdout and stderr in
 `logs/<step>.log` (first line: the command). A step that exceeds the
 timeout has its group killed and counts as `timeout`. The first step that
 fails or times out stops the flow and prints the last 30 lines of its log.
@@ -107,17 +107,19 @@ summary.
 | `resources.memory_blocks` | `{type, used, total}` from the fitter resource usage line `M9Ks` (any `M<n>Ks`), or `null`. |
 | `resources.dsp_9bit` | `{used, total}`, "Embedded Multiplier 9-bit elements". |
 | `resources.pins`, `resources.plls` | `{used, total}`. |
-| `timing.clocks.<clock>` | `fmax_mhz`, `restricted_fmax_mhz`, `setup_slack_ns`, `hold_slack_ns`: for each clock, the worst value over every timing model (corner) panel `* Model Fmax Summary`, `* Model Setup Summary` and `* Model Hold Summary`. |
-| `timing.worst_setup_slack_ns`, `timing.worst_hold_slack_ns` | Minimum over the clocks. |
-| `timing.met` | True when both worst slacks are `>= 0`. |
+| `timing.clocks.<clock>` | `fmax_mhz`, `restricted_fmax_mhz`, `setup_slack_ns`, `hold_slack_ns`, `recovery_slack_ns`, `removal_slack_ns`: for each clock, the worst value over every timing model (corner) panel `* Model Fmax Summary` and `* Model <Setup\|Hold\|Recovery\|Removal> Summary`; `null` when a kind has no paths for that clock. |
+| `timing.worst_<kind>_slack_ns` | Minimum over the clocks for `setup`, `hold`, `recovery`, `removal`; `null` when no clock has such paths. |
+| `timing.unconstrained` | The "Unconstrained Paths Summary" panel as `{property: {setup, hold}}`, property in snake case (`unconstrained_input_port_paths`, ...). |
+| `timing.unconstrained_total` | Sum of all those counts. |
+| `timing.met` | True when setup and hold paths exist with worst slack `>= 0`, recovery and removal slack (when present) are `>= 0`, and `unconstrained_total` is 0. Pulse-width checks are not included. |
 | `timing.critical_path` | `{from, to, from_clock, to_clock, slack_ns, data_delay_ns}` from `worst_path.txt` (slow model), or `null` when there is no path. |
 | `flow.lint` | `pass`, `fail` or `skipped`. |
 | `flow.steps.<step>` | `{status, runtime_s, warnings}`; `warnings` is the count from the step's closing "was successful. N errors, M warnings" line, or `null`. |
 
 A ratio missing from the fitter summary is `null`. These are report errors
 (exit 1): fitter status other than `Successful`, no logic-element, register
-or device line, a missing Fmax, setup or hold summary panel, no clock with
-timing paths, an unreadable report, or a malformed `worst_path.txt` line.
+or device line, a missing Fmax, setup or hold summary panel or
+Unconstrained Paths Summary, no clock with timing paths, an unreadable report, or a malformed `worst_path.txt` line.
 
 ## Exit codes
 
@@ -146,24 +148,22 @@ directory.
 ## CI
 
 `.github/workflows/fpga.yml` runs on `[self-hosted, linux, x64]` (the host
-with Quartus) with `contents: read` and a 90-minute job timeout:
+with Quartus) with `contents: read` and a 90-minute job timeout. It has
+**manual dispatch only**: per decision Q26, Quartus runs in nightly L2 or on
+demand, never on pull requests. Input `ip` runs `./build fpga --ip <ip>`,
+or `--all` when empty; nightly (DevOps BKM) calls `./build fpga --all`
+itself. The job still carries the fork guard
+(`head.repo.full_name == github.repository`) from the
+[DevOps BKM](../../bkm/devops.md#continuous-integration) in case a
+`pull_request` trigger is ever added. The workflow uses no secrets and checks
+out with `persist-credentials: false`.
 
-- **Pull request** touching `tools/fpga/**`, `src/**/fpga/**`,
-  `src/**/rtl/**`, `cfg/fpga.yaml` or the workflow: `./build fpga --all`.
-  A newer push cancels the running job.
-  The job runs only when the pull request comes from a branch of this
-  repository (`head.repo.full_name == github.repository`); fork pull
-  requests never run on the self-hosted runners. The workflow uses no
-  secrets and checks out with `persist-credentials: false`.
-- **Manual dispatch** with input `ip`: `./build fpga --ip <ip>`, or `--all`
-  when empty.
-
-A discovery step first prints `PATH`, `$QUARTUS_ROOTDIR`, `which
-quartus_sh`, `quartus_sh --version`, the Quartus install directories, the
-Verilator and Python versions. The artifact `fpga-reports` (kept 14 days)
-holds each IP's `metrics.json`, `worst_path.txt`, step logs and Quartus
-reports; it is uploaded even when a step fails. Nightly collection of the
-metrics is owned by the nightly workflow (DevOps BKM).
+A discovery step prints only the `quartus_sh`, Verilator and Python paths
+and versions. The artifact `fpga-metrics` (kept 14 days, uploaded even when a
+step fails) holds only this tool's own output, `metrics.json` and
+`worst_path.txt`, for each IP. Quartus reports and logs carry the vendor's
+notice, so they stay in `workdir/` on the host and are never uploaded or
+committed.
 
 ## Unit tests
 

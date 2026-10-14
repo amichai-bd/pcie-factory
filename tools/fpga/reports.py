@@ -142,16 +142,29 @@ def panels(text: str) -> dict[str, list[dict[str, str]]]:
     return result
 
 
+SLACK_KINDS = ("setup", "hold", "recovery", "removal")
+
+
 def parse_sta(path: Path) -> dict:
-    """Per-clock Fmax and slack from every ``* Model ...`` corner panel of
-    ``<rev>.sta.rpt``, keeping the worst value of each across corners."""
+    """Timing from ``<rev>.sta.rpt``.
+
+    ``clocks``: per clock, Fmax and restricted Fmax from every ``* Model Fmax
+    Summary`` panel and the setup, hold, recovery and removal slack from
+    every ``* Model <Kind> Summary`` panel, keeping the worst value of each
+    across corners (``None`` when a kind has no paths for that clock).
+    ``unconstrained``: the "Unconstrained Paths Summary" counts, as
+    ``{property: {"setup": n, "hold": n}}``.
+
+    Fmax, setup and hold panels and the unconstrained summary are required;
+    recovery and removal panels are optional.
+    """
     tables = panels(_read(path))
     clocks: dict[str, dict] = {}
 
     def entry(name: str) -> dict:
         return clocks.setdefault(name, {
             "fmax_mhz": None, "restricted_fmax_mhz": None,
-            "setup_slack_ns": None, "hold_slack_ns": None})
+            **{f"{k}_slack_ns": None for k in SLACK_KINDS}})
 
     def keep_min(d: dict, key: str, value: float) -> None:
         d[key] = value if d[key] is None else min(d[key], value)
@@ -165,19 +178,35 @@ def parse_sta(path: Path) -> dict:
                 keep_min(e, "fmax_mhz", _mhz(_cell(path, title, row, "Fmax")))
                 keep_min(e, "restricted_fmax_mhz",
                          _mhz(_cell(path, title, row, "Restricted Fmax")))
-        for kind in ("Setup", "Hold"):
-            if title.endswith(f"Model {kind} Summary"):
-                seen.add(kind.lower())
+        for kind in SLACK_KINDS:
+            if title.endswith(f"Model {kind.capitalize()} Summary"):
+                seen.add(kind)
                 for row in rows:
                     e = entry(_cell(path, title, row, "Clock"))
-                    keep_min(e, f"{kind.lower()}_slack_ns",
+                    keep_min(e, f"{kind}_slack_ns",
                              _float(_cell(path, title, row, "Slack")))
     for need in ("fmax", "setup", "hold"):
         if need not in seen:
             raise ReportError(f"{path}: no '* Model {need.capitalize()} Summary' panel")
     if not clocks:
         raise ReportError(f"{path}: no constrained clock has timing paths")
-    return {name: clocks[name] for name in sorted(clocks)}
+    title = "Unconstrained Paths Summary"
+    if title not in tables:
+        raise ReportError(f"{path}: no {title!r} panel")
+    unconstrained = {}
+    for row in tables[title]:
+        name = _cell(path, title, row, "Property").lower().replace(" ", "_")
+        unconstrained[name] = {k: _count(_cell(path, title, row, k.capitalize()))
+                               for k in ("setup", "hold")}
+    return {"clocks": {name: clocks[name] for name in sorted(clocks)},
+            "unconstrained": unconstrained}
+
+
+def _count(text: str) -> int:
+    try:
+        return _int(text)
+    except ValueError:
+        raise ReportError(f"expected a count, got {text!r}") from None
 
 
 def _cell(path: Path, title: str, row: dict, column: str) -> str:
@@ -225,13 +254,20 @@ def collect(project_dir: Path, revision: str) -> dict:
     out = Path(project_dir) / "output_files"
     fit = parse_fit_summary(out / f"{revision}.fit.summary")
     fit["resources"]["memory_blocks"] = parse_fit_memory_blocks(out / f"{revision}.fit.rpt")
-    clocks = parse_sta(out / f"{revision}.sta.rpt")
-    setup = [c["setup_slack_ns"] for c in clocks.values() if c["setup_slack_ns"] is not None]
-    hold = [c["hold_slack_ns"] for c in clocks.values() if c["hold_slack_ns"] is not None]
-    worst_setup = min(setup) if setup else None
-    worst_hold = min(hold) if hold else None
-    met = (worst_setup is not None and worst_setup >= 0
-           and worst_hold is not None and worst_hold >= 0)
+    sta = parse_sta(out / f"{revision}.sta.rpt")
+    clocks = sta["clocks"]
+    worst = {}
+    for kind in SLACK_KINDS:
+        values = [c[f"{kind}_slack_ns"] for c in clocks.values()
+                  if c[f"{kind}_slack_ns"] is not None]
+        worst[kind] = min(values) if values else None
+    unconstrained_total = sum(v["setup"] + v["hold"] for v in sta["unconstrained"].values())
+    # Met: setup and hold paths exist with no negative slack, recovery and
+    # removal (if any) have no negative slack, and nothing is unconstrained.
+    met = (worst["setup"] is not None and worst["setup"] >= 0
+           and worst["hold"] is not None and worst["hold"] >= 0
+           and all(worst[k] is None or worst[k] >= 0 for k in ("recovery", "removal"))
+           and unconstrained_total == 0)
     return {
         "schema": SCHEMA,
         "quartus_version": fit["quartus_version"],
@@ -241,8 +277,9 @@ def collect(project_dir: Path, revision: str) -> dict:
         "resources": fit["resources"],
         "timing": {
             "clocks": clocks,
-            "worst_setup_slack_ns": worst_setup,
-            "worst_hold_slack_ns": worst_hold,
+            **{f"worst_{k}_slack_ns": worst[k] for k in SLACK_KINDS},
+            "unconstrained": sta["unconstrained"],
+            "unconstrained_total": unconstrained_total,
             "met": met,
             "critical_path": parse_worst_path(Path(project_dir) / "worst_path.txt"),
         },

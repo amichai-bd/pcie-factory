@@ -1,7 +1,8 @@
 // DE2-115 board wrapper for pcie_top (wiki/src/top/HAS.md, FPGA section).
-// Board policy only: synchronizes the switches and push buttons to the
-// 50 MHz board clock, turns button presses into one-cycle pulses and holds
-// the last scrambled byte on the red LEDs. Not part of top.rtl.f.
+// Board policy only: holds reset for a short count after configuration,
+// synchronizes the switches and push buttons to the 50 MHz board clock,
+// turns button presses into one-cycle pulses and holds the last scrambled
+// byte on the red LEDs. Not part of top.rtl.f.
 `default_nettype none
 
 module pcie_top_de2_115
@@ -15,6 +16,15 @@ module pcie_top_de2_115
   output logic       ledg0_o    // LEDG[0]: a byte has been shown since reset
 );
 
+  // Power-on reset: por_cnt_q starts at 0 after configuration (power-up
+  // don't-care is disabled in de2_115.qsf.tcl) and counts to all ones;
+  // reset is held until then.
+  localparam int unsigned POR_W = 4;
+
+  logic [POR_W-1:0] por_cnt_d;
+  logic [POR_W-1:0] por_cnt_q;
+  logic             por_done;
+
   // Two-flop synchronizers: the buttons and switches are asynchronous to
   // clk_50_i. key_prev_q keeps the previous synchronized level of the two
   // buttons that need edge detection.
@@ -26,12 +36,23 @@ module pcie_top_de2_115
 
   logic       rst;
   logic [2:1] press;
-  logic       valid_o;
-  t_byte      data_o;
+  logic       top_valid;
+  t_byte      top_data;
   t_byte      shown_d;
   t_byte      shown_q;
   logic       seen_d;
   logic       seen_q;
+
+  assign por_done = &por_cnt_q;
+
+  always_comb begin
+    por_cnt_d = por_cnt_q;
+    if (!por_done) por_cnt_d = por_cnt_q + POR_W'(1);
+  end
+
+  always_ff @(posedge clk_50_i) begin
+    por_cnt_q <= por_cnt_d;
+  end
 
   always_ff @(posedge clk_50_i) begin
     key_meta_q <= key_ni;
@@ -43,8 +64,8 @@ module pcie_top_de2_115
 
   // A press is a high-to-low step of the synchronized active-low button.
   assign press = key_prev_q & ~key_sync_q[2:1];
-  // Reset is held while KEY[0] is pressed (synchronous, active high).
-  assign rst   = ~key_sync_q[0];
+  // Reset (synchronous, active high): power-on count, or KEY[0] held.
+  assign rst   = ~por_done | ~key_sync_q[0];
 
   pcie_top u_top (
     .clk_i    (clk_50_i),
@@ -52,27 +73,28 @@ module pcie_top_de2_115
     .valid_i  (press[1]),
     .data_i   (sw_sync_q),
     .reseed_i (press[2]),
-    .valid_o  (valid_o),
-    .data_o   (data_o)
+    .valid_o  (top_valid),
+    .data_o   (top_data)
   );
 
   always_comb begin
     shown_d = shown_q;
     seen_d  = seen_q;
-    if (valid_o) begin
-      shown_d = data_o;
+    if (top_valid) begin
+      shown_d = top_data;
       seen_d  = 1'b1;
     end
   end
 
+  // Reset clears the LEDs.
   always_ff @(posedge clk_50_i) begin
-    if (rst) seen_q <= 1'b0;
-    else     seen_q <= seen_d;
-  end
-
-  // The LED byte is qualified by seen_q, so it needs no reset.
-  always_ff @(posedge clk_50_i) begin
-    shown_q <= shown_d;
+    if (rst) begin
+      shown_q <= '0;
+      seen_q  <= 1'b0;
+    end else begin
+      shown_q <= shown_d;
+      seen_q  <= seen_d;
+    end
   end
 
   assign ledr_o  = shown_q;

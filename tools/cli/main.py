@@ -146,7 +146,7 @@ def cmd_fpga(ctx: Context, args) -> int:
     plans = [fpga.plan(ip, ctx.workdir, cfg["board"], args.part, cfg["processors"]) for ip in targets]
     if args.dry_run:
         for p in plans:
-            fpga.generate(p)
+            fpga.generate(p, clean=False)
             print(f"[{p.ip.id}] top {p.top}, board {p.board}, project {p.out_dir}")
             print(f"[lint] {' '.join(fpga.lint_command(p, 'verilator'))}")
             for name, cmd in p.steps:

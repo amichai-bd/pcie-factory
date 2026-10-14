@@ -66,20 +66,22 @@ reset and is don't-care while `valid_o` is 0.
 | `key_ni[1]` | `KEY[1]` | `M21` | Press: one `valid_i` pulse with `data_i = SW[7:0]`. |
 | `key_ni[2]` | `KEY[2]` | `N21` | Press: one `reseed_i` pulse. |
 | `sw_i[7:0]` | `SW[7:0]` | `AB28 AC28 AC27 AD27 AB27 AC26 AD26 AB26` | Data byte. |
-| `ledr_o[7:0]` | `LEDR[7:0]` | `G19 F19 E19 F21 F18 E18 J19 H19` | Last `data_o` with `valid_o`. |
+| `ledr_o[7:0]` | `LEDR[7:0]` | `G19 F19 E19 F21 F18 E18 J19 H19` | Last `data_o` with `valid_o`; 0 after reset. |
 | `ledg0_o` | `LEDG[0]` | `E21` | A byte has been shown since reset. |
+
+Reset is synchronous and active high. It is held for the first 15 cycles
+after configuration by a 4-bit power-on counter (`por_cnt_q`, which starts
+at 0 because the board file disables power-up don't-care), and while
+`KEY[0]` is held. Reset clears both LED outputs.
 
 Keys and switches pass through two-flop synchronizers to `clk_50_i`. A
 press is a high-to-low step of a synchronized key, so each press gives one
-pulse (the board debounces the keys). Reset is synchronous while `KEY[0]`
-is held; `ledg0_o` resets to 0 and `ledr_o` is not reset (qualified by
-`ledg0_o`). The SDC constrains `CLOCK_50` to 20 ns and false-paths the
-asynchronous inputs and the static LED outputs.
+pulse (the board debounces the keys). The SDC constrains `CLOCK_50` to
+20 ns and false-paths the asynchronous inputs and the static LED outputs.
 
-Compiled with `./build fpga --ip top` (Quartus Prime Lite 25.1std.0,
-`EP4CE115F29C7`): 61 logic elements, 58 registers, no memory or
-multipliers; `CLOCK_50` Fmax 222.37 MHz, worst setup slack 15.503 ns,
-worst hold slack 0.184 ns.
+Build with `./build fpga --ip top`; resource and timing results are not
+recorded here but in `metrics.json` and, once nightly runs, the tracker
+(#16).
 
 ## Files
 

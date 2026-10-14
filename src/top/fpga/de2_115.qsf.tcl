@@ -7,6 +7,9 @@
 set_global_assignment -name FAMILY "Cyclone IV E"
 set_global_assignment -name DEVICE EP4CE115F29C7
 set_global_assignment -name RESERVE_ALL_UNUSED_PINS_WEAK_PULLUP "AS INPUT TRI-STATED"
+# Registers keep their power-up value of 0; the wrapper's power-on reset
+# counter relies on it.
+set_global_assignment -name ALLOW_POWER_UP_DONT_CARE OFF
 
 # CLOCK_50
 set_location_assignment PIN_Y2 -to clk_50_i

@@ -13,14 +13,16 @@
 | Board | Terasic DE2-115 |
 | Device | Cyclone IV E `EP4CE115F29C7` |
 | Host | The Omarchy CI host only; version recorded in `cfg/host.yaml` (Quartus Prime Lite 25.1std.0) |
-| When | Nightly L2, a pull request that touches FPGA or RTL inputs, or on demand with `./build fpga` |
+| When | Nightly L2, or on demand with `./build fpga` |
 | Command | `./build fpga --ip <ip>` ([fpga tool spec](../tools/fpga/SPEC.md)) |
 
 Quartus never runs in `ci-gate` or in cloud sessions. Its unit tests (project
 generation, report parsing) use hand-made fixture reports and run without
 Quartus. In a cloud session, `./build fpga --ip <ip> --dry-run` validates the
-inputs and generates the project scripts. The `fpga` workflow compiles on the
-Omarchy host and uploads `metrics.json` and the reports as an artifact.
+inputs and generates the project scripts. On demand on the Omarchy host,
+the `fpga` workflow (manual dispatch only) compiles and uploads only
+`metrics.json` and `worst_path.txt`; the Quartus reports and logs stay in
+`workdir/` on the host.
 
 ## Inputs
 
@@ -49,6 +51,10 @@ resolver, plus only what is in `src/<ip>/fpga/`:
   the timing report has no unconstrained I/O.
 - Push buttons are active low; derive a synchronous active-high reset and
   one-cycle press pulses from their synchronized levels.
+- Reset the design after configuration with a power-on reset (a short
+  counter that holds reset until it saturates) rather than relying on a
+  button press; the board file sets `ALLOW_POWER_UP_DONT_CARE OFF` so that
+  counter starts at 0.
 - No duplicate source list: the flow never names RTL files other than
   through `<ip>.rtl.f` and the wrapper.
 - Vendor IP (PLLs, memories) is avoided while behavioral RTL suffices. When
@@ -96,7 +102,8 @@ least:
 | Logic elements, registers, memory bits | Fitter summary |
 | M9K blocks, embedded multipliers (DSP) | Fitter resource usage summary |
 | Fmax and restricted Fmax per clock | Timing analyzer, worst over the slow models |
-| Worst setup and hold slack | Timing analyzer, worst over all models |
+| Worst setup, hold, recovery and removal slack | Timing analyzer, worst over all models |
+| Unconstrained paths | Timing analyzer "Unconstrained Paths Summary" |
 | Critical path | Timing analyzer, worst setup path (from, to, clocks, slack) |
 | Warning count per step | Each Quartus step's closing message |
 

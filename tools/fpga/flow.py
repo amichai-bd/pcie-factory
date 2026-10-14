@@ -259,11 +259,13 @@ def worst_path_tcl(p: Plan) -> str:
     ])
 
 
-def generate(p: Plan) -> None:
-    """Recreate ``p.out_dir`` with the generated Tcl scripts."""
-    if p.out_dir.exists():
+def generate(p: Plan, clean: bool = True) -> None:
+    """Write the generated Tcl scripts into ``p.out_dir``. With ``clean``
+    (a real run) the directory is recreated first; without it (``--dry-run``)
+    a previous compile is left in place."""
+    if clean and p.out_dir.exists():
         shutil.rmtree(p.out_dir)
-    (p.out_dir / "logs").mkdir(parents=True)
+    (p.out_dir / "logs").mkdir(parents=True, exist_ok=True)
     (p.out_dir / "project.tcl").write_text(project_tcl(p))
     (p.out_dir / "worst_path.tcl").write_text(worst_path_tcl(p))
 
@@ -345,7 +347,7 @@ def run(p: Plan, bin_dir: Path, timeout_s: float, verilator: Path | None) -> int
     print_summary(metrics)
     print(f"metrics: {path}")
     if not metrics["timing"]["met"]:
-        print("timing: NOT MET (negative setup or hold slack)")
+        print("timing: NOT MET (negative slack, or unconstrained paths)")
         return 1
     return 0
 
@@ -371,6 +373,7 @@ def print_summary(m: dict) -> None:
         print(f"  clock {name}: fmax {c['fmax_mhz']} MHz (restricted "
               f"{c['restricted_fmax_mhz']}), setup {c['setup_slack_ns']} ns, "
               f"hold {c['hold_slack_ns']} ns")
+    print(f"  unconstrained paths: {t['unconstrained_total']}")
     cp = t["critical_path"]
     warned = {n: s["warnings"] for n, s in m["flow"]["steps"].items() if s["warnings"]}
     if warned:

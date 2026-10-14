@@ -301,6 +301,17 @@ def test_cli_dry_run(src, tmp_path, capsys):
     assert (tmp_path / "w" / "widget" / "fpga" / "project.tcl").is_file()
 
 
+def test_cli_dry_run_keeps_previous_compile(src, tmp_path):
+    out = tmp_path / "w" / "widget" / "fpga"
+    (out / "output_files").mkdir(parents=True)
+    (out / "metrics.json").write_text("{}")
+    argv = ["fpga", "--src-root", str(src), "--workdir", str(tmp_path / "w"),
+            "--ip", "widget", "--dry-run"]
+    assert main(argv) == 0
+    assert (out / "metrics.json").read_text() == "{}"
+    assert (out / "output_files").is_dir() and (out / "project.tcl").is_file()
+
+
 def test_cli_all_selects_fpga_ips(src, tmp_path, capsys):
     argv = ["fpga", "--src-root", str(src), "--workdir", str(tmp_path / "w"),
             "--all", "--dry-run"]
