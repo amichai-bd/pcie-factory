@@ -7,9 +7,10 @@
 
 ## Scope
 
-This page owns the build entry point, levels and budgets, CI selection, the
-nightly run, labels and metrics. [`CLAUDE.md`](../../CLAUDE.md) owns the
-delivery flow and merge gate; the `agent-flow` skill owns the procedure.
+This page owns the build entry point, levels and budgets, local evidence,
+CI selection, the nightly run, labels and metrics. The
+[agent-flow](../../.claude/skills/agent-flow/SKILL.md) skill owns the delivery
+flow and merge gate; [`CLAUDE.md`](../../CLAUDE.md#flow) owns its exception.
 Each tool's `wiki/tools/<tool>/SPEC.md` owns its exact command syntax.
 
 ## Build entry point
@@ -95,7 +96,10 @@ by raising the budget silently.
 
 Run the required set once on the commit intended for review and record exact
 commands, seeds, counts and every non-pass entry in the PR. Evidence shows
-behavior, not command success. Missing evidence is a review finding.
+behavior, not command success. Treat every warning (lint, simulation, flow)
+as a failure unless a reviewed waiver explains it. Logs, waves and reports
+stay under `workdir/`; the PR summarizes them and never commits them.
+Missing evidence is a review finding.
 
 ## Continuous integration
 
@@ -126,7 +130,9 @@ counts as passing a required check, so a fork PR's own run proves nothing).
 Workflows never use `pull_request_target` with a PR checkout and never echo
 secrets.
 
-**`ci-gate`** is the one required check. It runs on pull requests to `main`,
+**`ci-gate`** is the one required check: branch protection on `main`
+requires it, admins included, so a red or missing run blocks every merge. It
+runs on pull requests to `main`,
 pushes to `main` and manual dispatch:
 
 1. The data guard: a `nightly/` branch may change only
@@ -157,10 +163,7 @@ A sub-IP is an IP in its own right: a change inside `src/<ip>/<subip>/`
 selects the sub-IP, and selects the parent only when the parent's filelists
 reach the changed file or the change is in the sub-IP's models.
 
-Superseded PR runs are cancelled; every push to `main` keeps its run. Until
-the runners are online, the temporary exception in
-[`CLAUDE.md`](../../CLAUDE.md#flow) replaces `ci-gate` with recorded local
-evidence.
+Superseded PR runs are cancelled; every push to `main` keeps its run.
 
 ## Nightly
 
