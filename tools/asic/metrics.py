@@ -52,7 +52,8 @@ def latest(metrics: dict, suffix: str):
     return None
 
 
-_STAT_CELLS = re.compile(r"^\s*Number of cells:\s*(\d+)\s*$|^\s*(\d+)\s+\S*\s*cells\s*$", re.M)
+# "Number of cells: N" (older Yosys) or "  N  <area>  N  <area> cells" (0.5x+).
+_STAT_CELLS = re.compile(r"^\s*Number of cells:\s*(\d+)\s*$|^\s*(\d+)\s+.*\bcells\s*$", re.M)
 _STAT_AREA = re.compile(r"Chip area for (?:top )?module '\\?[^']*':\s*([0-9.]+)")
 
 

@@ -139,36 +139,48 @@ def write_cfg(tmp_path, body):
 
 
 DOCKER_CFG = """\
-orfs:
-  runner: docker
-  image: "img:tag@sha256:abc"
-  image_root: /orfs
-  commit: c0ffee
-  root:
+hosts:
+  laptop:
+    python: x
+  ci:
+    orfs_root:
+    orfs_image: "img:tag@sha256:abc"
+    orfs_commit: c0ffee
 """
 
 
 def test_orfs_from_cfg(tmp_path):
     orfs = flow.load_orfs(write_cfg(tmp_path, DOCKER_CFG), {})
-    assert orfs == flow.Orfs("docker", "/orfs", "img:tag@sha256:abc", "cfg", "c0ffee")
+    assert orfs == flow.Orfs("docker", flow.IMAGE_ROOT, "img:tag@sha256:abc", "cfg", "c0ffee")
 
 
 def test_orfs_env_root_selects_native(tmp_path):
     orfs = flow.load_orfs(write_cfg(tmp_path, DOCKER_CFG), {flow.ENV_ROOT: "/x"})
-    assert (orfs.runner, orfs.root, orfs.source) == ("native", "/x", "env")
+    assert (orfs.runner, orfs.root, orfs.source, orfs.commit) == ("native", "/x", "env", None)
 
 
-def test_orfs_env_image_overrides(tmp_path):
+def test_orfs_env_image_overrides_and_drops_commit(tmp_path):
     orfs = flow.load_orfs(write_cfg(tmp_path, DOCKER_CFG), {flow.ENV_IMAGE: "other:1"})
-    assert (orfs.runner, orfs.image) == ("docker", "other:1")
+    assert (orfs.runner, orfs.image, orfs.commit) == ("docker", "other:1", None)
+
+
+def test_orfs_env_same_image_keeps_commit(tmp_path):
+    orfs = flow.load_orfs(write_cfg(tmp_path, DOCKER_CFG), {flow.ENV_IMAGE: "img:tag@sha256:abc"})
+    assert (orfs.source, orfs.commit) == ("env", "c0ffee")
+
+
+def test_orfs_cfg_native_root(tmp_path):
+    orfs = flow.load_orfs(write_cfg(tmp_path, "hosts:\n  h:\n    orfs_root: /o\n"), {})
+    assert (orfs.runner, orfs.root) == ("native", "/o")
 
 
 @pytest.mark.parametrize("body, env, message", [
-    ("orfs:\n  runner: podman\n", {}, "runner must be one of"),
-    ("other: 1\n", {}, "runner must be one of"),
-    ("orfs:\n  runner: docker\n  image_root: /o\n", {}, "needs an image"),
-    ("orfs:\n  runner: native\n", {}, "needs the ORFS root"),
-    ("orfs: [1, 2]\n", {}, "must be a mapping"),
+    ("hosts:\n  h:\n    python: x\n", {}, "no ORFS configured"),
+    ("other: 1\n", {flow.ENV_RUNNER: "podman"}, "is not one of"),
+    ("other: 1\n", {flow.ENV_RUNNER: "docker"}, "needs an image"),
+    ("other: 1\n", {flow.ENV_RUNNER: "native"}, "needs the ORFS root"),
+    ("hosts: [1, 2]\n", {}, "must be a mapping"),
+    ("hosts:\n  a:\n    orfs_image: x\n  b:\n    orfs_root: /y\n", {}, "more than one host"),
 ])
 def test_orfs_config_errors(tmp_path, body, env, message):
     with pytest.raises(flow.AsicError, match=message):
@@ -178,7 +190,7 @@ def test_orfs_config_errors(tmp_path, body, env, message):
 def test_repo_cfg_pins_an_image_by_digest():
     from build.ip import REPO_ROOT
     orfs = flow.load_orfs(REPO_ROOT / "cfg", {})
-    assert orfs.runner == "docker" and "@sha256:" in orfs.image
+    assert orfs.runner == "docker" and "@sha256:" in orfs.image and orfs.commit
 
 
 # --- commands ---
@@ -188,6 +200,7 @@ def test_docker_wrap_mounts_and_image(ctx, tmp_path):
     orfs = flow.load_orfs(write_cfg(tmp_path, DOCKER_CFG), {})
     argv = flow.wrap(orfs, plan, ctx, "true", "n")
     assert argv[:2] == ["docker", "run"] and "img:tag@sha256:abc" in argv
+    assert f"--memory={flow.DOCKER_MEMORY}" in argv
     mounts = [argv[i + 1] for i, a in enumerate(argv) if a == "-v"]
     assert f"{ctx.workdir}:{ctx.workdir}:rw" in mounts
     assert f"{ctx.repo_root}:{ctx.repo_root}:ro" in mounts
@@ -200,7 +213,7 @@ def test_steps_run_finish_then_extra(ctx, tmp_path):
     orfs = flow.load_orfs(write_cfg(tmp_path, DOCKER_CFG), {})
     steps = dict(flow.step_scripts(orfs, plan))
     assert list(steps) == ["versions", "flow", "extra"]
-    assert "make -C /orfs/flow" in steps["flow"] and steps["flow"].endswith(" finish")
+    assert f"make -C {flow.IMAGE_ROOT}/flow" in steps["flow"] and steps["flow"].endswith(" finish")
     assert f"DESIGN_CONFIG={plan.config_mk}" in steps["flow"]
     assert f"RUN_SCRIPT={flow.EXTRA_TCL}" in steps["extra"]
     assert steps["extra"].endswith(" run")
@@ -244,8 +257,8 @@ def test_run_writes_metrics(asic_src, tmp_path, capsys, monkeypatch):
     doc = json.loads((work / "counter" / "asic" / "metrics.json").read_text())
     assert doc["status"] == "pass"
     assert doc["design"] == "counter" and doc["clock_period_ns"] == 8.5
-    assert doc["timing"]["wns_ns"] == 0.0 and doc["timing"]["setup_ws_ns"] == 6.6261
-    assert doc["max_fanout"]["value"] == 9 and doc["logic_depth"]["value"] == 6
+    assert doc["timing"]["wns_ns"] == 0.0 and doc["timing"]["setup_ws_ns"] == 6.01343
+    assert doc["max_fanout"]["value"] == 25 and doc["logic_depth"]["value"] == 6
     assert doc["toolchain"]["runner"] == "native"
     assert doc["toolchain"]["openroad"] == "26Q4-142-gd4b96380b"
     log = (work / "counter" / "asic" / "flow.log").read_text()

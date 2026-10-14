@@ -40,6 +40,10 @@ RUNNERS = ("docker", "native")
 ENV_RUNNER = "ORFS_RUNNER"
 ENV_IMAGE = "ORFS_IMAGE"
 ENV_ROOT = "ORFS_ROOT"
+# ORFS checkout inside the official openroad/orfs images.
+IMAGE_ROOT = "/OpenROAD-flow-scripts"
+# Container memory cap (swap included), as on the host's verified invocation.
+DOCKER_MEMORY = "3g"
 
 _ASSIGN = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:\?|:|::|\+)?=\s*(.*?)\s*$")
 
@@ -53,41 +57,62 @@ class Orfs:
     """How to reach ORFS: a docker image or a native checkout."""
 
     runner: str
-    root: str               # ORFS checkout (inside the image for docker)
+    root: str                  # ORFS checkout (inside the image for docker)
     image: str | None = None
-    source: str = "cfg"
-    commit: str | None = None  # pinned ORFS revision from cfg, for metrics     # where the setting came from, for the log
+    source: str = "cfg"        # where the setting came from, for the log
+    commit: str | None = None  # recorded ORFS revision of that image or root
+
+
+def host_orfs(cfg_dir: Path) -> dict:
+    """The ``orfs_*`` fields of the host entry in cfg/host.yaml that records
+    an ORFS image or root (at most one host may)."""
+    path = cfg_dir / "host.yaml"
+    try:
+        hosts = (yaml.safe_load(path.read_text()) or {}).get("hosts") or {}
+    except (OSError, yaml.YAMLError, AttributeError) as exc:
+        raise AsicError(f"{path}: {exc}") from exc
+    if not isinstance(hosts, dict):
+        raise AsicError(f"{path}: 'hosts' must be a mapping")
+    found = {name: h for name, h in hosts.items()
+             if isinstance(h, dict) and (h.get("orfs_image") or h.get("orfs_root"))}
+    if len(found) > 1:
+        raise AsicError(f"{path}: more than one host records ORFS ({', '.join(sorted(found))})")
+    return next(iter(found.values()), {})
 
 
 def load_orfs(cfg_dir: Path, env: dict) -> Orfs:
-    """ORFS settings: environment overrides, then ``orfs`` in cfg/host.yaml."""
+    """ORFS settings: environment (ORFS_RUNNER, ORFS_IMAGE, ORFS_ROOT), then
+    the host's ``orfs_image``/``orfs_root`` in cfg/host.yaml. An image selects
+    the docker runner, a root the native runner; the environment wins."""
     path = cfg_dir / "host.yaml"
-    try:
-        cfg = (yaml.safe_load(path.read_text()) or {}).get("orfs") or {}
-    except (OSError, yaml.YAMLError) as exc:
-        raise AsicError(f"{path}: {exc}") from exc
-    if not isinstance(cfg, dict):
-        raise AsicError(f"{path}: 'orfs' must be a mapping")
-    image = env.get(ENV_IMAGE) or cfg.get("image") or None
-    root_env = env.get(ENV_ROOT)
-    runner = env.get(ENV_RUNNER) or ("native" if root_env else cfg.get("runner"))
+    host = host_orfs(cfg_dir)
+    image = env.get(ENV_IMAGE) or host.get("orfs_image") or None
+    native_root = env.get(ENV_ROOT) or host.get("orfs_root") or None
+    runner = env.get(ENV_RUNNER)
+    if runner is None:
+        if env.get(ENV_ROOT):
+            runner = "native"
+        elif image:
+            runner = "docker"
+        elif native_root:
+            runner = "native"
     if runner not in RUNNERS:
-        raise AsicError(f"ORFS runner must be one of {', '.join(RUNNERS)} "
-                        f"(set ${ENV_RUNNER} or orfs.runner in {path}); got {runner!r}")
+        raise AsicError(f"no ORFS configured: set ${ENV_IMAGE} or ${ENV_ROOT}, or a host's "
+                        f"orfs_image/orfs_root in {path}"
+                        + (f" (${ENV_RUNNER}={runner!r} is not one of "
+                           f"{', '.join(RUNNERS)})" if runner else ""))
     if runner == "docker":
-        root = cfg.get("image_root")
         if not image:
-            raise AsicError(f"docker runner needs an image: set ${ENV_IMAGE} or orfs.image in {path}")
+            raise AsicError(f"docker runner needs an image: set ${ENV_IMAGE} or orfs_image in {path}")
+        root = IMAGE_ROOT
+        recorded = image == host.get("orfs_image")
     else:
-        root = root_env or cfg.get("root")
-    if not root:
-        key = "orfs.image_root" if runner == "docker" else f"${ENV_ROOT} or orfs.root"
-        raise AsicError(f"{runner} runner needs the ORFS root: set {key} in {path}")
+        if not native_root:
+            raise AsicError(f"native runner needs the ORFS root: set ${ENV_ROOT} or orfs_root in {path}")
+        root = native_root
+        recorded = root == host.get("orfs_root")
     source = "env" if any(env.get(k) for k in (ENV_RUNNER, ENV_IMAGE, ENV_ROOT)) else "cfg"
-    # The pinned revision describes the cfg image or root; record it only
-    # when that is what runs.
-    pinned = image == cfg.get("image") if runner == "docker" else root == cfg.get("root")
-    commit = cfg.get("commit") if pinned else None
+    commit = host.get("orfs_commit") if recorded else None
     return Orfs(runner, str(root), image, source, str(commit) if commit else None)
 
 
@@ -256,6 +281,7 @@ def wrap(orfs: Orfs, plan: Plan, ctx: Context, script: str, name: str) -> list[s
     for path, mode in docker_mounts(ctx):
         mounts += ["-v", f"{path}:{path}:{mode}"]
     return ["docker", "run", "--rm", "--name", name,
+            f"--memory={DOCKER_MEMORY}", f"--memory-swap={DOCKER_MEMORY}",
             "--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp",
             *mounts, "-w", str(plan.out), orfs.image, "bash", "-c", script]
 
