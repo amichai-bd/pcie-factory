@@ -11,7 +11,8 @@ Scans every text file below the source root and its sibling ``wiki/src/``
   double quotes (a Markdown paragraph, or one line in any other file; triple
   quotes are not delimiters), with more than ``max_quote_words`` words.
 - **Malformed citation**: ``[cite:`` that does not open exactly
-  ``[cite: <standard>, rev <revision>, §<section>]``.
+  ``[cite: <standard>, rev <revision>, §<section>]`` (in Markdown, any space
+  of the form may be a line break).
 - **Uncited section reference**: a ``§`` or a dotted section number after
   ``section``/``sec.``/``chapter``/``clause`` outside a citation (one
   inside a malformed citation is reported once, as that).
@@ -34,10 +35,20 @@ CONFIG = "cfg/checks.yaml"
 FORM = "[cite: <standard>, rev <revision>, §<section>]"
 
 _OPEN = re.compile(r"\[\s*cite\s*:", re.IGNORECASE)
-_FORM = re.compile(
-    r"\[cite: [A-Za-z0-9](?:[A-Za-z0-9 ./+&()-]*[A-Za-z0-9)])?"
-    r", rev [A-Za-z0-9][A-Za-z0-9.-]*"
-    r", §[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*\]")
+
+
+def _form(sp: str) -> re.Pattern:
+    """The citation form, with ``sp`` wherever the form has a space."""
+    return re.compile(
+        rf"\[cite:{sp}[A-Za-z0-9](?:(?:[A-Za-z0-9./+&()-]|{sp})*[A-Za-z0-9)])?"
+        rf",{sp}rev{sp}[A-Za-z0-9][A-Za-z0-9.-]*"
+        rf",{sp}§[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*\]")
+
+
+_FORM = _form(" ")
+# Markdown is hard-wrapped: a space in the form may also be one line break.
+_FORM_WRAPPED = _form(r"(?: |[ \t]*\n[ \t]*)")
+_BLANK_LINE = re.compile(r"\n[ \t]*\n")
 _SECTION_REF = re.compile(
     r"§|\b(?:section|sec\.|chapter|clause)\s*[0-9]+(?:\.[0-9]+)+", re.IGNORECASE)
 _WORD = re.compile(r"[^\W_]+(?:['’-][^\W_]+)*")
@@ -104,14 +115,20 @@ def scan_text(text: str, markdown: bool, max_words: int) -> list[tuple[int, str]
                 hits.append((line_of(text, m.start()),
                              f"quoted run of {n} words (max {max_words}): {quote!r}"))
     cited: list[tuple[int, int]] = []  # citations, good or bad, report once
+    form = _FORM_WRAPPED if markdown else _FORM
     for m in _OPEN.finditer(text):
-        good = _FORM.match(text, m.start())
+        good = form.match(text, m.start())
         if good:
             cited.append(good.span())
         else:
-            # The bad citation runs to its ']' or, if unclosed, the end of the line.
-            eol = text.find("\n", m.start())
-            eol = len(text) if eol < 0 else eol
+            # A bad citation runs to its ']' or, if unclosed, the end of the
+            # line (Markdown: of the paragraph).
+            if markdown:
+                b = _BLANK_LINE.search(text, m.start())
+                eol = b.start() if b else len(text)
+            else:
+                eol = text.find("\n", m.start())
+                eol = len(text) if eol < 0 else eol
             end = text.find("]", m.start(), eol)
             stop = eol if end < 0 else end + 1
             cited.append((m.start(), stop))

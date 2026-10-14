@@ -233,7 +233,9 @@ citation:                        # see the citation check
   max_quote_words: 25
 ```
 
-The top level holds `neutrality` and optionally `citation`, nothing else.
+The top level holds `neutrality` and `citation` and nothing else. Both are
+required: the neutrality check rejects a missing `neutrality` and any
+unknown top-level key, and the citation check rejects a missing `citation`.
 Any other key (including an attempt to configure exempt paths), a missing
 key, a wrong type, a `words` list that is not one single-line flow list, or
 more than one `words` or `repo_slug` line (a duplicate YAML key could hide a
@@ -243,7 +245,8 @@ value) is a configuration error.
 
 Rule owner: the [wiki BKM, citations](../../bkm/wiki.md#citations). Code:
 `citation.py`. Config: `citation.max_quote_words` in `cfg/checks.yaml`
-(required, a positive integer; any other key is a configuration error).
+(the section and the key are required; the value is a positive integer;
+any other key is a configuration error).
 
 The check scans every text file below the source root and its sibling
 `wiki/src/` (in the repository, `src/` and `wiki/src/`), whatever the file
@@ -256,15 +259,22 @@ inner `'` or `-`. Findings, `<path>:<line>: <message>`:
 | --- | --- |
 | `block quote of N words` | Markdown only: a run of consecutive `>` lines with more than `max_quote_words` words. |
 | `quoted run of N words` | Text between typographic double quotes, or between straight double quotes, with more than `max_quote_words` words. In Markdown a straight-quoted run may wrap lines within a paragraph (not across a blank line). In any other file it stays on one line, and a quote that is part of `""` or `"""` is not a delimiter, so Python docstrings are not quotes. |
-| `malformed citation` | `[cite:` (any case or spacing) that does not open exactly `[cite: <standard>, rev <revision>, §<section>]`. `<standard>` starts with a letter or digit and holds letters, digits, spaces and `./+&()-`. `<revision>` is letters, digits, `.` and `-`. `<section>` is one alphanumeric section number with `.` or `-` separators. The finding runs to the `]`, or to the end of the line when there is none. |
-| `section reference ... outside a citation` | A `§`, or a dotted section number (`4.3.2`, at least two levels) after `section`, `sec.`, `chapter` or `clause` (any case), outside a citation. One inside a malformed citation is reported once, as that. |
+| `malformed citation` | `[cite:` (any case or spacing) that does not open exactly `[cite: <standard>, rev <revision>, §<section>]`. `<standard>` starts with a letter or digit and holds letters, digits, spaces and `./+&()-`. `<revision>` is letters, digits, `.` and `-`. `<section>` is one alphanumeric section number with `.` or `-` separators. In Markdown, which is hard-wrapped, each space of the form may instead be one line break (with indentation), so a wrapped citation is well-formed; in other files the citation stays on one line. The finding runs to the `]`, or to the end of the line (Markdown: of the paragraph) when there is none. |
+| `section reference ... outside a citation` | Every `§`, and every dotted section number (`4.3.2`, at least two levels) after `section`, `sec.`, `chapter` or `clause` (any case), outside a citation, whatever it refers to: in `src/` and `wiki/src/` these forms are reserved for citations, and internal cross-references link by heading name ([wiki BKM](../../bkm/wiki.md#citations)). One inside a malformed citation is reported once, as that. |
 
 **Limits.** The check is a heuristic. It cannot prove that text was not
 copied: a paraphrase and a copied sentence without quote marks look the
-same, and it never sees the standard. It also misses a free-form reference
-that names no section number, a quote split by stray quote marks, and a
-copied table without quote marks. A stray quote mark in a Markdown
-paragraph can pair with the next one and produce a false finding. Review
+same, and it never reads the source document.
+
+- **Misses:** a free-form reference with no section number or with a
+  single-level one ("section 4"), text in single typographic quotes
+  (‘...’), a quote split by stray quote marks, and a copied table without
+  quote marks.
+- **False positives:** an internal reference written as `§` or
+  "section N.M" (link by heading name instead); a stray quote mark in a
+  Markdown paragraph that pairs with the next one; and a legitimate block
+  quote of more than `max_quote_words` words in `wiki/src/`, such as a
+  provenance note (keep it short or write it as a plain paragraph). Review
 remains the main control: the
 [pr-reviewer](../../../.claude/skills/pr-reviewer/SKILL.md#3-check) checklist
 requires the reviewer to confirm paraphrase-only for any PR that touches
@@ -369,7 +379,7 @@ and empty folders, extra pages, a non-IP source folder, hidden entries,
 `--ip`, and a missing wiki tree (`test_wiki_mirror.py`), a small git repository with forbidden words,
 slug URLs, a look-alike slug and an invalid config (`test_neutrality.py`),
 each citation finding with its pass and fail boundary (exactly
-`max_quote_words` words versus one more, every malformed citation variant,
+`max_quote_words` words versus one more, every malformed citation variant, wrapped citations in Markdown (and not over a blank line),
 code blocks and spans, triple quotes, binary and hidden files) and every
 config error (`test_citation.py`), and waivers (used, stale, invalid),
 output parsing and the command line (`test_lint.py`, `test_check_run.py`). Negative cases include a `.vlt`

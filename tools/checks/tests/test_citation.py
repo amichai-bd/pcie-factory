@@ -47,6 +47,29 @@ def test_malformed_citations_fail(cite):
 
 
 @pytest.mark.parametrize("text", [
+    "The block resets [cite: Widget Bus\nSpec, rev 2.1, §4.3.2] first.\n",
+    "The block resets [cite: Widget Bus Spec,\n  rev 2.1, §4.3.2] first.\n",
+    "The block resets [cite: Widget Bus Spec, rev\n2.1,\n§4.3.2] first.\n",
+    "The block resets [cite:\nWidget Bus Spec, rev 2.1, §4.3.2] first.\n",
+])
+def test_wrapped_citation_passes_in_markdown(text):
+    assert scan(text) == []
+    # Source comments are not wrapped prose: the same text is malformed there.
+    hits = scan(text, markdown=False)
+    assert hits and "malformed citation" in hits[0]
+
+
+def test_wrapped_malformed_citation_reported_once():
+    hits = scan("x\n[cite: Widget Bus Spec,\nrev 2.1 §4.3.2] y\n")
+    assert len(hits) == 1 and hits[0].startswith("2: malformed citation"), hits
+
+
+def test_citation_does_not_wrap_over_a_blank_line():
+    hits = scan("x [cite: Widget Bus Spec,\n\nrev 2.1, §4.3.2]\n")
+    assert [h.split(" ")[1] for h in hits] == ["malformed", "section"], hits
+
+
+@pytest.mark.parametrize("text", [
     "See §4.3 of the bus spec.",
     "As section 4.3.2 requires, the bus resets.",
     "Per Clause 10.2.1, idle is low.",

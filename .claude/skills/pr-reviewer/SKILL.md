@@ -54,7 +54,7 @@ Read: the issue (acceptance, scope, comments), `CLAUDE.md`, the diff
 | Tests | DV_PLAN items lack tests in `src/dv/<ip>/regress/level{0,1,2}.yaml`, tests sit at the wrong level, or tools lack unit tests. Important negative and boundary cases missing. |
 | Evidence | See below. |
 | Publishability | The change adds content that may not be public ([wiki BKM](../../../wiki/bkm/wiki.md#publishability)); the repository and site are public. A workflow lets a fork PR run on the self-hosted runners. |
-| Citations | The PR touches material that relies on an external standard (a `[cite: ...]`, or text derived from a standard) and does not paraphrase it: copied sentences, tables or figures; or a citation outside the [citation form](../../../wiki/bkm/wiki.md#citations). Confirm paraphrase-only in the verdict by reading the cited passages; `./build check` only flags long quotes and form errors. |
+| Citations | The PR touches material that relies on an external document such as a standard, manual or datasheet (a `[cite: ...]`, or text derived from one) and does not paraphrase it: copied sentences, tables or figures; or a citation outside the [citation form](../../../wiki/bkm/wiki.md#citations). Confirm paraphrase-only in the verdict by reading the cited passages; `./build check` only flags long quotes and form errors. |
 | Neutrality | Outside `src/` and `wiki/src/`, any design-target, protocol or IP name (repo slug in URLs exempt). Check with `grep -rniI` on the changed paths. |
 | Hygiene | Generated output, logs or credentials committed; provenance note missing on adapted content; unexplained warnings or waivers. |
 

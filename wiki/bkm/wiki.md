@@ -151,9 +151,10 @@ the unit tests prove it.
 
 ## Citations
 
-Specs and code that rely on an external standard (a specification that
-someone else owns and copyrights, such as a protocol, interface or file
-format standard) paraphrase it and cite it. They never reproduce it.
+Specs and code that rely on an external document paraphrase it and cite it.
+They never reproduce it. An external document is anything that someone else
+owns and copyrights: a protocol, interface or file format standard, a board
+or vendor manual, or a datasheet. "Standard" below means any of them.
 
 - **Paraphrase only.** Restate each requirement in your own words, as
   precisely as the page needs. Never copy sentences, tables, figures,
@@ -165,8 +166,12 @@ format standard) paraphrase it and cite it. They never reproduce it.
   `[cite: <standard>, rev <revision>, §<section>]`, for example
   `[cite: Example Bus Spec, rev 2.1, §4.3.2]`. `<standard>` is the published
   name, `<revision>` is its version or year, and `<section>` is one section
-  number (cite each section separately). Section references to a standard
-  (`§`, "section 4.3.2") appear only inside a citation.
+  number (cite each section separately). In Markdown a citation may wrap
+  across lines like any other text.
+- **Section forms are reserved.** In `src/` and `wiki/src/`, `§` and
+  "section N.M" appear only inside a citation, whatever they refer to.
+  Internal cross-references link by heading name instead
+  (`[Timing](MAS.md#timing)`).
 - **No standard text in the repository.** Nobody fetches or stores a
   standard's text, or excerpts of it, here.
 
@@ -198,9 +203,9 @@ which is also published as a site. Nothing committed may contain:
 - machine details beyond tool versions, install paths and the CI host's
   role name (no network addresses, internal host names or user accounts other
   than the runner service account);
-- unredistributable vendor content (copied tool reports, licensed IP text or
-  datasheet excerpts beyond short attributed quotes). External standards are
-  never quoted at all; they are paraphrased and cited ([citations](#citations)).
+- unredistributable vendor content (copied tool reports or licensed IP
+  text). Standards, manuals and datasheets are never quoted at all; they are
+  paraphrased and cited ([citations](#citations)).
 
 Reviewers check this on every PR. Content that cannot be public stays out of
 the repository; ask the captain where it belongs.
