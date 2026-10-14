@@ -16,7 +16,9 @@ follows the [DV BKM](dv.md).
 - Synthesizable SystemVerilog-2017 that Verilator, Quartus Lite and the ORFS
   frontend all accept: `logic`, `always_comb`, `always_ff`, parameters,
   enums, packed structs, packed arrays and `generate` where they make intent
-  clearer.
+  clearer. SystemVerilog interfaces, modports and unions stay out of the
+  `.rtl.f` closure until a flow issue proves all three tools handle them;
+  DV code may use them.
 - **Explicit widths.** Size every constant (`8'd0`, `'0`, `WIDTH'(x)`), make
   extension, truncation and signedness visible, and never rely on implicit
   32-bit integer context.
@@ -33,7 +35,7 @@ follows the [DV BKM](dv.md).
   `wire` at the end) or declaration-time assignment.
 - **Ports.** ANSI ports with explicit direction, type and width. Named
   connections (`.port(sig)`) on every instance; no `.*`, no positional
-  connections. Interfaces only for a real shared contract.
+  connections.
 - **No `ifdef` for behavior.** Product RTL has no `` `ifdef SYNTHESIS`` or
   simulation-only branches; configuration is by parameter.
 - **No functions with side effects, no tasks** in RTL. Pure helper functions
@@ -43,7 +45,7 @@ follows the [DV BKM](dv.md).
 
 ## Types and constants live in packages
 
-- Every `typedef` (enum, struct, union, width alias) lives in a package
+- Every `typedef` (enum, packed struct, width alias) lives in a package
   (`<prefix><ip>_pkg.sv`), never inside a module.
 - A constant or parameter default used by more than one module lives in the
   package; a `localparam` derived and used only inside one module stays
@@ -72,7 +74,7 @@ page refers to it as `<prefix>`.
 | Signal | `lower_snake` | `rd_valid` |
 | Port suffix | `_i` input, `_o` output | `data_i` |
 | Register / next state | `_q` / `_d` | `count_q`, `count_d` |
-| Active-low | `_n` suffix (before `_i`/`_o`) | `rst_ni` |
+| Active-low | `n` directly before the direction letter on ports; `_n` on internal signals | `rst_ni`, `cs_no`, `busy_n` |
 
 ## Reset and clocks
 
@@ -98,19 +100,16 @@ page refers to it as `<prefix>`.
 
 ## Filelists
 
-Rules from the [layout page](../project/layout.md#per-ip-files), restated
-only as practice:
+The [layout page](../project/layout.md#per-ip-files) owns the filelist
+format and names. Practice on top of it:
 
-- `rtl/<ip>.rtl.f` (bare IP name, as the layout page fixes it) lists
-  synthesizable sources only. It is the single source of truth for simulation, FPGA and
-  ASIC; never duplicate a source list in a flow config.
-- Plain Verilator `.f` syntax: one path per line, `//` comments, paths
-  relative to the filelist, and only `-F`, `+incdir+` and `+define+`.
-- Explicit order: packages, then leaves, then the IP top. No globs.
+- Never duplicate a source list in a flow config; flows consume
+  `rtl/<ip>.rtl.f`.
+- Order packages first, then leaves, then the IP top.
 - Include a sub-IP or common block through its own filelist with `-F`, never
   by listing its files.
-- Every `.sv` under `src/**/rtl/` appears in exactly one filelist; no
-  duplicates after flattening. `./build check` enforces this.
+- Every `.sv` under `src/**/rtl/` belongs to exactly one filelist;
+  `./build check` reports orphans and duplicates.
 
 ## Lint and style checks
 

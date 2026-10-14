@@ -30,8 +30,9 @@ page disagree until both are reconciled in the same issue.
 | `wiki/project/` | Architecture, layout, roadmap, decisions | Fixed set |
 | `wiki/tracker/` | `index.md`, `data/` (nightly bot only) | Fixed set |
 
-Only `wiki/src/` names the design target or its IPs; every other page is
-design-neutral.
+Among wiki pages, only `wiki/src/` names the design target or its IPs;
+[`CLAUDE.md`](../../CLAUDE.md#design-neutrality) owns the full rule and its
+exemptions.
 
 ### MAS: architecture, what and why
 

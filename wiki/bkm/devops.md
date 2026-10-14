@@ -62,7 +62,7 @@ workdir/                    all generated output, ignored
 | Verilator `--lint-only -Wall` per `.rtl.f`, waivers only in the reviewed waiver file | [RTL BKM](rtl.md#lint-and-style-checks) |
 | RTL style checker | [RTL BKM](rtl.md) |
 | Filelists: every path resolves, no duplicate after flattening, no orphan RTL | [layout](../project/layout.md#per-ip-files) |
-| Neutrality: the word list in `cfg/checks.yaml` appears nowhere outside `src/`, `wiki/src/` and `wiki/tracker/data/` | [`CLAUDE.md`](../../CLAUDE.md#design-neutrality) |
+| Neutrality: the word list in `cfg/checks.yaml`, with the scope and exemptions set by the contract | [`CLAUDE.md`](../../CLAUDE.md#design-neutrality) |
 
 `tools/` unit tests run when `tools/` or `cfg/` change. Doc line caps are a
 review guideline, not a check.
@@ -114,11 +114,15 @@ pushes to `main` and manual dispatch:
 
 | Change | Selected |
 | --- | --- |
-| Files under `src/<ip>/` | That IP (sub-IPs are IPs in their own right) |
+| An IP's own files: under `src/<ip>/`, excluding nested sub-IP directories | That IP |
 | A file reached through `-F` from an IP's filelists | That IP |
 | `tools/**` or `cfg/**` | All IPs |
 | Push to `main`, manual dispatch | All IPs |
 | Docs only | Checks only |
+
+A sub-IP is an IP in its own right: a change inside `src/<ip>/<subip>/`
+selects the sub-IP, and selects the parent only when the parent's filelists
+reach the changed file.
 
 Superseded PR runs are cancelled; every push to `main` keeps its run. Until
 the runners are online, the temporary exception in
@@ -134,10 +138,9 @@ The nightly workflow runs on the same runners:
    inputs.
 3. Metrics collection into `wiki/tracker/data/<date>.json` (versioned
    schema).
-4. A data PR from branch `nightly/<date>`, labelled `type:data`. A guard check
-   fails if the diff touches anything outside `wiki/tracker/data/**`; the PR
-   auto-merges (squash) after `ci-gate`, with no issue or reviewer. This is
-   the single permanent flow exception in `CLAUDE.md`.
+4. A data PR from branch `nightly/<date>`, labelled `type:data`, under the
+   permanent exception in [`CLAUDE.md`](../../CLAUDE.md#flow) (guarded to
+   `wiki/tracker/data/**`, auto-merged after `ci-gate`).
 5. On failure, open or update the single `nightly-red` issue; close it when
    the nightly is green again.
 

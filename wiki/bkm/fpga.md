@@ -33,7 +33,9 @@ resolver, plus only what is in `src/<ip>/fpga/`:
   only if it is built on its own.
 - The board wrapper is synthesizable RTL under the [RTL BKM](rtl.md) but is
   not in `<ip>.rtl.f`: the FPGA flow adds it, so simulation and ASIC never
-  see board policy.
+  see board policy. It is linted with Verilator `-Wall` together with
+  `<ip>.rtl.f`, as part of the FPGA inputs; the check and fpga tools
+  (issues #7, #13) own how.
 - No duplicate source list: the flow never names RTL files other than
   through `<ip>.rtl.f` and the wrapper.
 - Vendor IP (PLLs, memories) is avoided while behavioral RTL suffices. When
@@ -61,7 +63,8 @@ FPGA evidence is reported as distinct stages; never claim a later stage from
 an earlier one:
 
 1. Verilator behavior tests pass for the IP ([DV BKM](dv.md)).
-2. Structural check: wrapper, ports, filelist and constraints resolve.
+2. Structural check: wrapper lint-clean with the IP; ports, filelist and
+   constraints resolve.
 3. Quartus analysis, fit and timing: warnings reviewed, every clock meets
    its constraint (no negative setup or hold slack).
 4. Programming and observed board behavior, only when an issue asks for it
