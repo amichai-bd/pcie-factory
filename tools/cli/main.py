@@ -14,6 +14,7 @@ from pathlib import Path
 from build import sim
 from build.filelist import FilelistError
 from build.ip import Context, DiscoveryError, discover, find_ip, make_context
+from fpga import flow as fpga
 from labels import core as labels
 from checks.common import CheckConfigError
 from checks.run import CHECKS, run_checks
@@ -23,7 +24,7 @@ from regress.schema import LEVELS, SchemaError, load_ip
 
 WIKI_SITE = Path(__file__).resolve().parents[1] / "wiki_site"
 USER_ERRORS = (FilelistError, DiscoveryError, SchemaError, GitError, sim.SimError,
-               labels.LabelsError, CheckConfigError)
+               fpga.FpgaError, labels.LabelsError, CheckConfigError)
 
 
 def cmd_sim(ctx: Context, args) -> int:
@@ -138,6 +139,37 @@ def cmd_wiki(ctx: Context, args) -> int:
     return wiki_site.main(argv)
 
 
+def cmd_fpga(ctx: Context, args) -> int:
+    cfg = fpga.load_config(ctx.cfg_dir)
+    ips = discover(ctx.src_root)
+    if args.all:
+        targets = fpga.fpga_ips(ips)
+        if not targets:
+            raise fpga.FpgaError("no IP has an fpga/ directory")
+    else:
+        targets = [find_ip(ips, ip_id) for ip_id in args.ip]
+    timeout = args.timeout if args.timeout is not None else cfg["step_timeout_s"]
+    plans = [fpga.plan(ip, ctx.workdir, cfg["board"], args.part, cfg["processors"]) for ip in targets]
+    if args.dry_run:
+        for p in plans:
+            fpga.generate(p, clean=False)
+            print(f"[{p.ip.id}] top {p.top}, board {p.board}, project {p.out_dir}")
+            print(f"[lint] {' '.join(fpga.lint_command(p, 'verilator'))}")
+            for name, cmd in p.steps:
+                print(f"[{name}] {' '.join(cmd)}")
+        return 0
+    bin_dir = fpga.find_quartus(ctx.cfg_dir)
+    if bin_dir is None:
+        raise fpga.FpgaError(fpga.quartus_not_found(ctx.cfg_dir))
+    print(f"quartus: {bin_dir}")
+    verilator = sim.find_verilator()
+    code = 0
+    for p in plans:
+        print(f"[{p.ip.id}] top {p.top}, board {p.board}, project {p.out_dir}")
+        code = max(code, fpga.run(p, bin_dir, timeout, verilator))
+    return code
+
+
 def stub(issue: int):
     def run(ctx: Context, args) -> int:
         print(f"{args.command}: not implemented yet (see issue #{issue})", file=sys.stderr)
@@ -176,6 +208,16 @@ def _check_args(p: argparse.ArgumentParser) -> None:
                    help="run only this check; repeatable (default: all)")
 
 
+def _fpga_args(p: argparse.ArgumentParser) -> None:
+    which = p.add_mutually_exclusive_group(required=True)
+    which.add_argument("--ip", action="append", help="IP id with an fpga/ directory; repeatable")
+    which.add_argument("--all", action="store_true", help="every IP that has an fpga/ directory")
+    p.add_argument("--part", help="override the device set by the board settings file")
+    p.add_argument("--timeout", type=float, help="seconds per step (default: cfg/fpga.yaml)")
+    p.add_argument("--dry-run", action="store_true",
+                   help="generate the project scripts and print the commands only")
+
+
 def _labels_args(p: argparse.ArgumentParser) -> None:
     repo = argparse.ArgumentParser(add_help=False)
     repo.add_argument("--repo", help="OWNER/NAME (default: $GH_REPO, then the origin remote)")
@@ -209,7 +251,7 @@ COMMANDS = {
     "check": ("static checks: lint, style, filelist, neutrality", cmd_check, _check_args),
     "labels": ("GitHub label sync and check", cmd_labels, _labels_args),
     "wiki": ("build or serve the wiki site", cmd_wiki, _wiki_args),
-    "fpga": ("FPGA flow", stub(13), None),
+    "fpga": ("FPGA flow: Quartus compile and metrics", cmd_fpga, _fpga_args),
     "asic": ("ASIC flow", stub(14), None),
 }
 

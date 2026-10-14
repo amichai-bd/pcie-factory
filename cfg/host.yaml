@@ -30,5 +30,6 @@ hosts:
     verilator_prefix:
     verilator_version:
     python:
-    quartus_root:
+    quartus_root: /opt/intelFPGA_lite/25.1/quartus   # seen by the fpga workflow (also $QUARTUS_ROOTDIR and on PATH)
+    quartus_version: "25.1std.0 Build 1129"         # `quartus_sh --version`; Lite Edition
     orfs_root:
