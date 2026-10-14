@@ -28,3 +28,8 @@ goes issue → branch → worktree → draft PR → independent review → squas
 nightly and wiki-site milestones. -->
 Badges and a link to the metrics tracker arrive with the CI, nightly and wiki
 site milestones.
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE). Vendored third-party files
+keep their own licenses next to them (see each `PROVENANCE.md`).
