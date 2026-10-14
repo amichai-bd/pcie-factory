@@ -7,9 +7,10 @@ signal, following the [PD BKM](../../../bkm/pd.md). The flow reads
 
 ## Clock target
 
-100 MHz (10 ns period) on `clk_i`. This is the study clock that the
-[HAS](../arch/HAS.md#targets) targets; a different study clock is a run
-option, never an edit to this target.
+The [HAS clock target](../arch/HAS.md#targets) on `clk_i`, as the period
+in [`pcie_top.sdc`](../../../../src/top/asic/pcie_top.sdc). This is the
+study clock; a different study clock is a run option, never an edit to this
+target.
 
 ## Constraints
 

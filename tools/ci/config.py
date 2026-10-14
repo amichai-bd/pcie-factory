@@ -8,7 +8,7 @@ from pathlib import Path, PurePosixPath
 import yaml
 
 CONFIG_NAME = "ci.yaml"
-_KEYS = {"global", "shared_dv", "models", "tools_tests"}
+_KEYS = {"global", "shared_dv", "models", "arch", "tools_tests"}
 _GLOBAL_KEYS = {"prefixes", "files"}
 
 
@@ -22,6 +22,7 @@ class CiRules:
     global_files: tuple[str, ...]
     shared_dv: tuple[str, ...]
     models: str
+    arch: str
     tools_tests: tuple[str, ...]
 
     def is_global(self, rel: str) -> bool:
@@ -61,14 +62,18 @@ def load_rules(cfg_dir: Path) -> CiRules:
     g = data["global"]
     if not isinstance(g, dict) or set(g) != _GLOBAL_KEYS:
         raise CiConfigError(f"{path}: global: must be a mapping with keys {sorted(_GLOBAL_KEYS)}")
-    models = data["models"]
-    if not isinstance(models, str):
-        raise CiConfigError(f"{path}: models: expected a string")
-    _paths(f"{path}: models", [models])
+    dirs = {}
+    for key in ("models", "arch"):
+        value = data[key]
+        if not isinstance(value, str):
+            raise CiConfigError(f"{path}: {key}: expected a string")
+        _paths(f"{path}: {key}", [value])
+        dirs[key] = value.rstrip("/")
     return CiRules(
         global_prefixes=_paths(f"{path}: global.prefixes", g["prefixes"], trailing_slash=True),
         global_files=_paths(f"{path}: global.files", g["files"]),
         shared_dv=_paths(f"{path}: shared_dv", data["shared_dv"]),
-        models=models.rstrip("/"),
+        models=dirs["models"],
+        arch=dirs["arch"],
         tools_tests=_paths(f"{path}: tools_tests", data["tools_tests"]),
     )

@@ -31,6 +31,7 @@ def test_all_fields():
         ({"name": "has space"}, "'name' must match"),
         ({"name": "build"}, "reserved"),
         ({"name": "asic"}, "reserved"),
+        ({"name": "arch"}, "reserved"),
         ({"module": "tests/test_x.py"}, "dotted Python module"),
         ({"top": "1top"}, "HDL module name"),
         ({"testcase": "a.b"}, "Python function name"),

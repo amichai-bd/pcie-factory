@@ -3,7 +3,19 @@
 Run: python3 -m pytest src/top/dv/models
 """
 
+import random
+import sys
+from pathlib import Path
+
 import pcie_top_model as m
+
+# DV may import the IP's architecture model as a second reference; arch never
+# imports DV (wiki/bkm/arch.md#dv-and-arch).
+_ARCH = Path(__file__).resolve().parents[2] / "arch"
+if str(_ARCH) not in sys.path:
+    sys.path.append(str(_ARCH))
+
+import pcie_top_arch  # noqa: E402
 
 
 def test_zero_stream_is_keystream():
@@ -25,3 +37,18 @@ def test_bubble_does_not_advance_and_reseed_after_byte():
     assert s.data_o == 0x17
     s.clock(rst=0, valid=1, data=0x00, reseed=0)
     assert s.data_o == 0xFF
+
+
+def test_agrees_with_the_arch_model():
+    rng = random.Random(7)
+    dv, arch = m.Scrambler(), pcie_top_arch.Scrambler()
+    for _ in range(3000):
+        rst = int(rng.random() < 0.01)
+        valid = int(rng.random() < 0.7)
+        reseed = int(rng.random() < 0.05)
+        data = rng.randrange(256)
+        dv.clock(rst=rst, valid=valid, data=data, reseed=reseed)
+        valid_o, data_o = arch.cycle(valid=valid, data=data, reseed=reseed, rst=rst)
+        assert dv.valid_o == valid_o
+        if valid_o:
+            assert dv.data_o == data_o

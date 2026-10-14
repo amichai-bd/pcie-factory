@@ -26,6 +26,7 @@ it; nothing calls a tool script directly.
 | `regress` | Regression by IP and level; `--affected <base>` selects IPs. |
 | `fpga` | Quartus flow for one IP ([FPGA BKM](fpga.md)). |
 | `asic` | ORFS flow for one IP ([PD BKM](pd.md)). |
+| `arch` | Architecture-model perf scenarios of a top-level IP ([arch BKM](arch.md)). |
 | `labels` | Label sync from `cfg/labels.yaml`. |
 | `ci` | `ci-gate` helpers: unit-test suites and job summary ([CI spec](../tools/ci/SPEC.md)). |
 | `metrics` | Nightly metrics, the data guard and the `nightly-red` issue ([metrics spec](../tools/metrics/SPEC.md)). |
@@ -33,7 +34,7 @@ it; nothing calls a tool script directly.
 | `clean` | Remove `workdir/` output. |
 
 Subcommands land with their issues (#6 core, #7 check, #10 labels, #11 ci, #12 wiki,
-#13 fpga, #14 asic); until a SPEC exists, the issue owns the contract.
+#13 fpga, #14 asic, #55 arch); until a SPEC exists, the issue owns the contract.
 
 ## Tools and configuration
 
@@ -93,6 +94,7 @@ by raising the budget silently.
 | Docs only | Link check and the neutrality check |
 | `tools/`, `cfg/` | `./build check`, the tool unit tests, L0 of all IPs |
 | RTL or DV | `./build check`, `./build regress --level 0 --level 1 --affected origin/main` |
+| Architecture models (`arch/`) | `./build check`, the model self-tests, `./build arch --ip <ip>` ([arch BKM](arch.md#evidence)) |
 | Physical inputs (`fpga/`, `asic/`) | The above plus the flow on demand, when the host has the tool |
 
 Run the required set once on the commit intended for review and record exact

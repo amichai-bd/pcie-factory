@@ -19,8 +19,8 @@ source.
 
 ## Timing
 
-- Latency: one cycle from `valid_i`/`data_i` to `valid_o`/`data_o`.
-- Throughput: one byte per cycle, back to back.
+- Latency and throughput: the [HAS targets](../arch/HAS.md#targets), met
+  by the single register stage with no stall condition.
 - Critical path: `state_q` of the LFSR through the key logic and the XOR
   into `data_q`.
 - No clock-domain crossing. Clock targets and constraints are in the

@@ -27,7 +27,7 @@ folder it describes:
 
 ```
 src/<ip>/                           wiki/src/<ip>/
-  arch/   behavioral models (opt.)    arch/HAS.md      top-level IPs only
+  arch/   architecture models         arch/HAS.md      top-level IPs only
   rtl/    *.sv, <ip>.rtl.f            rtl/MAS.md
   dv/     tests, models, regress      dv/DV_PLAN.md
   fpga/   SDC, QSF Tcl, wrapper       fpga/FPGA.md     iff src/<ip>/fpga/ exists
@@ -49,9 +49,10 @@ src/<ip>/                           wiki/src/<ip>/
 
 Every folder under `wiki/src/` has a `src/` counterpart, and every page
 there sits in an `arch/`, `rtl/`, `dv/`, `fpga/` or `asic/` folder. The one
-exception: a top-level IP's `arch/` needs no `src/<ip>/arch/` yet, since the
-architecture model tooling that fills it is still to come. `./build check`
-enforces the page set and the mirror
+exception: a top-level IP's `arch/` needs `src/<ip>/arch/` only once its HAS
+defines targets (a `## Targets` section); then the
+[architecture model](arch.md) must exist and report against them.
+`./build check` enforces the page set and the mirror
 ([checks SPEC](../tools/checks/SPEC.md#wiki-mirror-check)).
 
 Among wiki pages, only `wiki/src/` names the design target or its IPs;
@@ -70,7 +71,10 @@ Top-level IPs only; a sub-IP's role is described in its parent's HAS.
 - **Behavior:** function, reset values, error and corner cases, stated
   precisely enough to write an independent model.
 - Architectural choices with their rationale and rejected alternatives.
-- Performance, area and feature targets the MAS must satisfy.
+- **Targets:** performance, area and feature targets the MAS must satisfy,
+  in a `## Targets` section. With it, the IP's
+  [architecture model](arch.md) reports against them; the MAS links to
+  them instead of restating them.
 - Open questions, each linked to an issue.
 
 ### MAS: Micro-Architecture Specification, how

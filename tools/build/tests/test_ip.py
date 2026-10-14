@@ -25,6 +25,13 @@ def test_discover_nested(tmp_path):
     assert ips[1].sim_f == tmp_path / "a/b/dv/b.sim.f"
 
 
+def test_per_ip_dirs_hold_no_sub_ips(tmp_path):
+    make_ip(tmp_path, "a")
+    for d in ("arch", "rtl", "dv", "fpga", "asic"):
+        make_ip(tmp_path, f"a/{d}")  # a <d>/<d>.rtl.f lookalike is not a sub-IP
+    assert [ip.id for ip in discover(tmp_path)] == ["a"]
+
+
 def test_discover_fixture(fixture_src):
     assert [ip.id for ip in discover(fixture_src)] == ["counter", "counter/inc"]
 

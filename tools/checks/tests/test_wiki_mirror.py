@@ -70,7 +70,7 @@ def test_fpga_page_without_src_folder(good):
     assert run(good).findings == ["wiki/src/blk/fpga/: no source counterpart src/blk/fpga/"]
 
 
-def test_top_level_arch_needs_no_src_counterpart(good):
+def test_top_level_arch_without_targets_needs_no_src_counterpart(good):
     assert not (good / "src/blk/arch").exists()
     r = run(good)
     assert r.passed, r.findings
@@ -84,10 +84,59 @@ def test_sub_ip_has_no_arch(good):
     write(good / "wiki/src/blk/sub/arch/HAS.md")
     assert run(good).findings == ["wiki/src/blk/sub/arch/: arch/ is for top-level IPs only "
                                   "(blk/sub is a sub-IP)"]
-    # Even with a source folder.
+    # Even with a source folder, which is a finding of its own.
     (good / "src/blk/sub/arch").mkdir()
-    assert run(good).findings == ["wiki/src/blk/sub/arch/: arch/ is for top-level IPs only "
-                                  "(blk/sub is a sub-IP)"]
+    assert run(good).findings == [
+        "src/blk/sub/arch/: arch/ is for top-level IPs only (blk/sub is a sub-IP)",
+        "wiki/src/blk/sub/arch/: arch/ is for top-level IPs only (blk/sub is a sub-IP)"]
+
+
+def test_src_arch_under_a_sub_ip(good):
+    (good / "src/blk/sub/arch").mkdir()
+    assert run(good).findings == [
+        "src/blk/sub/arch/: arch/ is for top-level IPs only (blk/sub is a sub-IP)"]
+    assert run(good, {"blk"}).passed  # reported with the sub-IP
+
+
+HAS_WITH_TARGETS = "# Blk HAS\n\n## Targets\n\n| Item | Target |\n| --- | --- |\n"
+
+
+def add_arch(root: Path, model: bool = True, scenario: bool = True) -> None:
+    arch = root / "src/blk/arch"
+    (arch / "perf").mkdir(parents=True)
+    if model:
+        write(arch / "xy_blk_arch.py", "def perf(workload, seed):\n    return {}\n")
+    if scenario:
+        write(arch / "perf/full.yaml", "description: d\nseed: 1\nworkload: {}\n")
+
+
+def test_has_targets_require_the_arch_model(good):
+    write(good / "wiki/src/blk/arch/HAS.md", HAS_WITH_TARGETS)
+    assert run(good).findings == [
+        "src/blk/arch/: missing (wiki/src/blk/arch/HAS.md defines targets; "
+        "the arch model reports against them)"]
+    add_arch(good)
+    r = run(good)
+    assert r.passed, r.findings
+    # Only a level-2 "Targets" heading counts.
+    shutil.rmtree(good / "src/blk/arch")
+    write(good / "wiki/src/blk/arch/HAS.md", "# Blk\n\n### Targets\n\nTargets: none.\n")
+    assert run(good).passed
+
+
+def test_src_arch_needs_a_model_and_a_scenario(good):
+    add_arch(good)
+    assert run(good).passed  # without HAS targets, an arch/ is still checked
+    (good / "src/blk/arch/xy_blk_arch.py").unlink()
+    (good / "src/blk/arch/perf/full.yaml").unlink()
+    assert run(good).findings == [
+        "src/blk/arch/: no single model <prefix>blk_arch.py",
+        "src/blk/arch/: no perf scenario perf/*.yaml",
+    ]
+    write(good / "src/blk/arch/xy_blk_arch.py")
+    write(good / "src/blk/arch/zz_blk_arch.py")
+    write(good / "src/blk/arch/perf/full.yaml")
+    assert run(good).findings == ["src/blk/arch/: no single model <prefix>blk_arch.py"]
 
 
 def test_old_flat_layout_is_rejected(good):

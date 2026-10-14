@@ -145,6 +145,12 @@ def test_parent_model_change_does_not_select_sub_ip(repo):
     assert affected(repo) == {"counter": "changed: src/counter/dv/models/counter_model.py"}
 
 
+def test_arch_change_selects_only_its_ip(repo):
+    (repo / "src/counter/arch/perf").mkdir(parents=True)
+    (repo / "src/counter/arch/perf/s.yaml").write_text("")
+    assert affected(repo) == {"counter": "changed: src/counter/arch/perf/s.yaml"}
+
+
 def test_nested_sub_ip_model_change_selects_all_ancestors(repo):
     deep = repo / "src/counter/inc/deep"
     (deep / "rtl").mkdir(parents=True)

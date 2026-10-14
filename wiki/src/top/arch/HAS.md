@@ -15,7 +15,9 @@ current key.
 
 How it is built is in the [MAS](../rtl/MAS.md); how it is verified in the
 [DV plan](../dv/DV_PLAN.md); its implementation targets in the
-[FPGA](../fpga/FPGA.md) and [ASIC](../asic/ASIC.md) pages.
+[FPGA](../fpga/FPGA.md) and [ASIC](../asic/ASIC.md) pages. Its
+[architecture model](#architecture-model) states this page's behavior and
+targets as executable Python.
 
 ## Position
 
@@ -86,5 +88,19 @@ reset and is don't-care while `valid_o` is 0.
 | --- | --- |
 | Throughput | One byte per clock, back to back. |
 | Latency | One cycle from `valid_i` to `valid_o`. |
-| Clock | 100 MHz ASIC study clock ([ASIC](../asic/ASIC.md)); 50 MHz on the board ([FPGA](../fpga/FPGA.md)). |
+| Clock | 100 MHz, the study clock of the [ASIC](../asic/ASIC.md) flow; the board runs at its own clock ([FPGA](../fpga/FPGA.md)). |
 | Area | The LFSR plus 9 flops and 8 XORs. |
+
+## Architecture model
+
+[`pcie_top_arch.py`](../../../../src/top/arch/pcie_top_arch.py) models the
+[behavior](#behavior) and the one-cycle latency, for definition and
+performance analysis ([arch BKM](../../../bkm/arch.md)). Its perf scenarios
+in [`src/top/arch/perf/`](../../../../src/top/arch/perf/back_to_back.yaml)
+check the throughput and latency targets; `./build arch --ip top` writes
+`workdir/top/arch/perf.json`.
+
+| Scenario | Workload | Targets checked |
+| --- | --- | --- |
+| `back_to_back` | 4096 random bytes, no bubbles or re-seeds | `throughput_bytes_per_cycle` >= 1, `latency_cycles_max` <= 1 |
+| `bubbles_reseed` | 4096 random bytes offered in half the cycles, a re-seed every 128 bytes | `throughput_ratio` (output over offered rate) >= 1, `latency_cycles_max` <= 1 |

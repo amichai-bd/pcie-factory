@@ -10,7 +10,10 @@ page set:
 - an IP with ``fpga/`` has ``fpga/FPGA.md``, one with ``asic/`` has
   ``asic/ASIC.md`` (and, by the next rule, an IP without them has neither);
 - every folder under the wiki tree has a source counterpart, except a
-  top-level IP's ``arch/``, whose source folder is optional for now;
+  top-level IP's ``arch/`` while its HAS defines no targets;
+- a top-level IP whose ``arch/HAS.md`` has a ``## Targets`` section has
+  ``src/<ip>/arch/`` with one model ``*<name>_arch.py`` and at least one
+  ``perf/*.yaml`` scenario (the arch BKM); no sub-IP has ``src/.../arch/``;
 - every file under the wiki tree sits in a mirror folder (``arch/``,
   ``rtl/``, ``dv/``, ``fpga/``, ``asic/``) of an IP, or below one.
 """
@@ -18,8 +21,10 @@ page set:
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
+from arch.perf import ARCH_DIR, PERF_DIR, ArchError, find_model
 from build.ip import Ip, owner_ip
 from checks.common import CheckResult
 
@@ -34,8 +39,39 @@ def wiki_root(src_root: Path) -> Path:
     return Path(src_root).resolve().parent / "wiki" / "src"
 
 
+# A HAS defines performance targets in a level-2 "Targets" section.
+_TARGETS = re.compile(r"^##[ \t]+Targets[ \t]*$", re.M)
+
+
 def is_top_level(ip: Ip) -> bool:
     return "/" not in ip.id
+
+
+def defines_targets(has: Path) -> bool:
+    try:
+        return bool(_TARGETS.search(has.read_text(encoding="utf-8")))
+    except OSError:
+        return False
+
+
+def arch_findings(ip: Ip, wiki: Path, label) -> list[str]:
+    """Source-side arch/ rules for one IP."""
+    src_arch = ip.path / ARCH_DIR
+    if not is_top_level(ip):
+        return ([f"{label(src_arch)}/: arch/ is for top-level IPs only ({ip.id} is a sub-IP)"]
+                if src_arch.is_dir() else [])
+    has = wiki / ip.id / ARCH_DIR / PAGES[ARCH_DIR]
+    if not src_arch.is_dir():
+        return ([f"{label(src_arch)}/: missing ({label(has)} defines targets; "
+                 f"the arch model reports against them)"] if defines_targets(has) else [])
+    found = []
+    try:
+        find_model(ip)
+    except ArchError:
+        found.append(f"{label(src_arch)}/: no single model <prefix>{ip.name}_{ARCH_DIR}.py")
+    if not any((src_arch / PERF_DIR).glob("*.yaml")):
+        found.append(f"{label(src_arch)}/: no perf scenario {PERF_DIR}/*.yaml")
+    return found
 
 
 def required_pages(ip: Ip) -> list[str]:
@@ -73,6 +109,7 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
             if not (wiki / ip.id / page).is_file():
                 result.findings.append(f"{label(wiki / ip.id / page)}: missing "
                                        f"(required for IP {ip.id})")
+        result.findings += arch_findings(ip, wiki, label)
 
     for dirpath, dirs, files in os.walk(wiki) if wiki.is_dir() else ():
         dirs[:] = sorted(d for d in dirs if not d.startswith("."))
@@ -88,7 +125,8 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                                        f"({ip.id} is a sub-IP)")
                 dirs[:] = []
                 continue
-            # A top-level IP's arch/ may precede its source folder.
+            # A top-level IP's arch/ may precede its source folder; the HAS
+            # targets rule above requires that folder once targets exist.
             arch_exempt = mirror == "arch" and len(rel.parts) == len(Path(ip.id).parts) + 1
             if not (src_root / rel).is_dir() and not arch_exempt:
                 result.findings.append(f"{label(here)}/: no source counterpart "

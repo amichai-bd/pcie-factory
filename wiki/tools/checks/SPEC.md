@@ -131,11 +131,20 @@ next to `src/`); a missing wiki tree is an empty one. Code: `wiki_mirror.py`.
 - **Counterparts.** Every folder under the wiki tree has a folder at the same
   relative path under the source root, so a page cannot outlive its IP or
   sub-IP, and `fpga/` or `asic/` pages exist only where the source folders
-  do. The one exception: a top-level IP's `arch/` itself, because
-  `src/<ip>/arch/` is optional until the architecture model tooling lands.
+  do. The one exception: a top-level IP's `arch/` itself, whose
+  `src/<ip>/arch/` is required only by the next rule.
   A folder without a counterpart is reported once and not descended.
-- **No sub-IP `arch/`.** An `arch/` folder of a sub-IP is a finding, even
-  when the source has one.
+- **Arch model.** A top-level IP whose `arch/HAS.md` has a level-2
+  `## Targets` heading (it defines performance targets) needs
+  `src/<ip>/arch/`; a missing one is
+  `src/<id>/arch/: missing (wiki/src/<id>/arch/HAS.md defines targets; ...)`.
+  Any `src/<ip>/arch/` of a top-level IP, required or not, holds exactly one
+  model `*<name>_arch.py` (not `test_*`) and at least one `perf/*.yaml`
+  scenario ([arch spec](../arch/SPEC.md#model)); their content is checked
+  by `./build arch`, not here.
+- **No sub-IP `arch/`.** An `arch/` folder of a sub-IP is a finding in the
+  wiki tree, and `src/<sub-IP>/arch/` is a separate finding in the source
+  tree.
 - **Placement.** Every file sits in, or below, an `arch/`, `rtl/`, `dv/`,
   `fpga/` or `asic/` folder of an IP (the innermost IP whose source
   directory contains the folder's counterpart). This rejects the old flat
@@ -290,7 +299,10 @@ Tests also build variants in temporary directories: one bad case per style
 rule (`test_style.py`), duplicate, diamond, orphan and regression cases
 (`test_filelists_check.py`), each wiki mirror rule: every required page,
 `asic/` and `fpga/` pages following the source folders, the top-level
-`arch/` exemption and its limit, a sub-IP `arch/`, the flat layout, orphan
+`arch/` exemption without targets and its limit, HAS targets requiring
+`src/<ip>/arch/` (and only a level-2 heading counting), a source `arch/`
+without a model or scenario or with two models, a sub-IP `arch/` in either
+tree, the flat layout, orphan
 and empty folders, extra pages, a non-IP source folder, hidden entries,
 `--ip`, and a missing wiki tree (`test_wiki_mirror.py`), a small git repository with forbidden words,
 slug URLs, a look-alike slug and an invalid config (`test_neutrality.py`),
