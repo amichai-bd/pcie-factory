@@ -253,7 +253,7 @@ workflow and skips auto-merge and the `nightly-red` issue.
 | Job | Permissions | Does |
 | --- | --- | --- |
 | `nightly` (480 min) | read: contents, issues, pull-requests, actions | `./build check`; `./build regress --level 0 --level 1 --level 2` (all IPs); `./build fpga --all` and the ASIC flow for IPs with `fpga/` or `asic/` (`--all`, else one `--ip` per IP); `./build metrics commits --ref origin/main` continuing the base branch's series, then `./build metrics collect` with the step outcomes; uploads both files. Every step runs even after a failure; a step whose subcommand is still a stub, or has no IP inputs, is `skipped`. |
-| `publish` (15 min) | write: contents, pull-requests, actions | Commits only the two data files, as `github-actions[bot]`, on `nightly/<date>` from the base tip; runs `./build metrics guard` from this trusted checkout; force-pushes the branch; opens (or reuses) the PR labelled `type:data` and `area:wiki`; dispatches `data-guard.yml` and, when present on the base, `ci.yml` on the branch; on `main`, enables squash auto-merge. |
+| `publish` (15 min) | write: contents, pull-requests, actions | Commits only the two data files, as `github-actions[bot]`, on `nightly/<date>` from the base tip; runs `./build metrics guard` from this trusted checkout; force-pushes the branch; opens (or reuses) the PR labelled `type:data` and `area:wiki`; dispatches `ci.yml` (`ci-gate`, with the data guard) on the branch; on `main`, enables squash auto-merge. |
 | `report` (5 min) | read contents, write issues | `./build metrics red` with `success` only when `nightly` and `publish` both succeeded. |
 
 Pushes and PRs made with `GITHUB_TOKEN` start no workflow runs, so the
@@ -267,25 +267,29 @@ warns and the PR waits for a maintainer. Opening the PR at all needs
 pull requests**; without it `publish` fails with that remedy and the pushed
 branch's compare link, so the night is reported red.
 
-**`data-guard.yml`** runs the job `data-guard` on every `pull_request` (with
-the [fork guard](../../bkm/devops.md#continuous-integration)) and on
-`workflow_dispatch` with input `base`. On a PR it compares the merge
-commit with its first parent; on dispatch, the branch with `origin/<base>`.
-It is a separate workflow because `ci.yml` (#11) is not on `main` yet; it
-moves into `ci.yml` as a job once that lands. To gate auto-merge, branch
-protection should require `data-guard` beside `ci-gate`. Like every PR
-check, a PR can edit its own copy of the workflow; the `publish` job's own
-guard run, from the trusted checkout, is what keeps the bot honest.
+**The data guard** is a step of the `ci-gate` job in `ci.yml` (the
+[CI spec](../ci/SPEC.md#the-workflow) owns its invocation), so the single
+required check also gates the data PR. On a pull request it compares the
+merge commit with its first parent. On a push or dispatch it compares the
+branch with the base of its open PR (else `main`), which is how the
+nightly's dispatched run checks the data PR. Like every PR check, a PR can
+edit its own copy of the workflow; the `publish` job's own guard run, from
+the trusted checkout, is what keeps the bot honest.
 
-A data PR changes only `wiki/tracker/data/**`, a docs-only change, so
-`ci-gate` selects no IPs and runs only the static checks.
+A data PR changes only `wiki/tracker/data/**`, a docs-only change: on a
+`pull_request` run `ci-gate` selects no IPs. The nightly's dispatched run is
+a dispatch, so it runs every IP's L0+L1 (about the same few minutes as any
+push to `main`).
 
 ## Consumers
 
-The tracker pages (`wiki/tracker/`, #16) read only `commits.jsonl` and the
-`<date>.json` records, keyed by `schema_version`. They plot every trend
-against `commits.jsonl` order and place nightly records on that axis by
-`meta.commit`; a record whose commit is not in the series (a test run on
+The tracker pages (`wiki/tracker/`, rendered by `tools/wiki_site/tracker.py`)
+read only `commits.jsonl` and the `<date>.json` records, keyed by
+`schema_version`. They plot every trend against `commits.jsonl` order
+(`index`) and place nightly records on that axis by `meta.commit`. The
+commit label on charts and tables is the first 7 hex digits of `sha` (git's
+default abbreviation); the 12-hex `short` and `commit_short` are for
+unambiguous references in tables and links; a record whose commit is not in the series (a test run on
 another branch) is ignored. Missing sections and `null` values are normal
 and must render as gaps.
 

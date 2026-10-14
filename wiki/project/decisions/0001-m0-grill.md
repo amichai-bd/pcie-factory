@@ -63,8 +63,11 @@ pd (ORFS/sky130hd).
   `pull_request` can trigger is skipped for fork PRs but still runs on push and
   dispatch, using the guard in the DevOps BKM's Continuous integration
   section; `pull_request_target` never checks out PR code; workflows never
-  echo secrets; fork PRs are validated by re-pushing them to a branch here. The captain requires approval for outside-collaborator fork
-  workflows in the repository settings.
+  echo secrets. The guard is defense in depth only, since a fork's own copy
+  of the workflow can drop it. Maintainers never approve a fork PR's
+  workflow run; fork changes reach CI only by review and re-push to a branch
+  here. The repository keeps GitHub's default fork-run approval setting and
+  the captain accepts the residual risk (recorded on #1).
 - **CI host:** the self-hosted runners, Quartus Lite and ORFS/sky130hd run on
   the Omarchy host (supersedes earlier "WSL host" wording).
 - **Temporary exception (captain-approved):** until the self-hosted runners

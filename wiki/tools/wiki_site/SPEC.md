@@ -2,8 +2,10 @@
 
 `tools/wiki_site/wiki_site.py` turns `wiki/`, plus the repository's
 `README.md`, `CLAUDE.md` and skills, into a static HTML site that GitHub Pages
-publishes. It is small on purpose: no nav config, no framework,
-no Node and no view-time network access.
+publishes, including the [metrics tracker](#tracker). It is small on
+purpose: no nav config, no framework and no Node. The theme, Mermaid and the
+chart library are served from the site itself; the only view-time fetches
+are images a page links by URL, such as the README's status badges.
 
 ## Usage
 
@@ -44,7 +46,8 @@ Dependencies are `markdown-it-py` and `Pygments`, pinned in
 | `README.md` (repository root) | `index.html`, the home page |
 | `CLAUDE.md` (repository root) | `agents.html` |
 | `.claude/skills/<name>/SKILL.md` | `skills/<name>.html` |
-| (theme) | `assets/wiki.css`, `wiki.js`, `mermaid.min.js`, `mermaid-LICENSE.txt` |
+| (theme) | `assets/wiki.css`, `wiki.js`, `tracker.js`, `mermaid.min.js`, `mermaid-LICENSE.txt`, `chart.umd.js`, `chart-LICENSE.md` |
+| (tracker) | `tracker/index.html` gains the rendered tracker; `tracker/ip/index.html` and `tracker/ip/<id>/index.html` are generated ([Tracker](#tracker)) |
 | (generated) | `assets/search-index.json` |
 
 The theme and generated paths under `assets/` are reserved: a wiki source that
@@ -157,6 +160,79 @@ matches (shown with a snippet). Up to 20 hits are shown. `/` focuses the box,
 and arrows and Enter pick a hit. The index is fetched, so search works over
 HTTP (`serve`, Pages) but not from `file://`.
 
+## Tracker
+
+When `wiki/tracker/index.md` exists, `tools/wiki_site/tracker.py` renders the
+records in `wiki/tracker/data/` below that page's own text and generates one
+page per IP. The data files are also copied to the site like any other wiki
+file. The record schema is owned by the
+metrics tool SPEC, `wiki/tools/metrics/SPEC.md` (#15); this section owns how
+the site reads it.
+
+**Inputs.**
+
+| File | Holds |
+| --- | --- |
+| `data/commits.jsonl` | One JSON object per line, one line per commit on `main`, in commit order: `sha`, ISO `date`, `code` stats of that commit's tree (`total`, `kinds`, `ips`, `by_ext`, `by_dir`), and its push `ci-gate` run (`ci.conclusion`, `ci.duration_s`). |
+| `data/<date>.json` | One nightly record: `meta` (`date`, else the file stem; `commit`, the `main` SHA it ran on; `nightly.result`), and the `code`, `github`, `health`, `tests`, `fpga`, `asic` and `distributions` groups. |
+
+Lines of code are a bucket's `code` count (non-blank, non-comment lines),
+else its `lines`. The nightly runtime is `meta.nightly.duration_s`, else the
+regression wall time `tests.wall_s`.
+
+Every record carries `schema_version`; a version other than `1` is a problem
+and the record is skipped. Every group and field is optional: a missing one
+leaves its chart or table out, and unknown fields are ignored. Field paths
+live in one block at the top of `tracker.py`, so a schema change edits only
+that block. Problems, reported like link problems (fatal with `--strict`):
+unreadable JSON, a non-object record, an unsupported `schema_version`, a bad
+date or SHA, a repeated commit or date (the later date file wins), an IP id that is not a safe
+relative path (letters, digits, `_`, `.`, `-`, `/`-separated, no `..`), and a
+source file at a generated page's path.
+
+**X axis.** Every trend plots against the commits of `commits.jsonl`, in
+`index` order when every line has one, else in file order, labelled by short
+SHA, with SHA and date in the tooltip. A nightly record sits at the commit it
+ran on (`meta.commit`); a record whose commit is not in the series is
+ignored. Without `commits.jsonl`, the nightly records' SHAs, in date order,
+form the axis.
+
+**`/tracker/`** shows, in order:
+
+| Section | Content |
+| --- | --- |
+| Repo health | Cards: nightly status (an open `nightly-red` issue, else the latest nightly result), `ci-gate` pass rate over the last runs on `main` (from `health`, else the last 20 results in `commits.jsonl`), open PRs with the oldest age, open issues with the stale count, median review rounds, share of merged PRs with `APPROVE` at the merged head, LOC and files. A table of open PR ages (oldest 20) and an open-issue age histogram. |
+| Latest vs 7 and 30 days ago | Each metric's latest value against the last point dated at least 7 and 30 days earlier, with the difference. |
+| Code | LOC and files by kind, LOC per IP, lines-per-file and file-size histograms, and tables of the file-type distribution by extension and top-level directory with share bars. |
+| CI | `ci-gate` duration per commit, marked by result; duration histogram. |
+| Nightly and tests | Nightly duration marked by result; tests, failing tests and runtime per level; test runtime histogram; slowest tests table. |
+| Issues and pull requests | Open issues and PRs, issues opened and closed and PRs merged in the trailing 7 days; histograms of issue time to close and to first response or claim, PR lead time, PR size and review rounds; open issues by label. |
+| FPGA, ASIC | One chart per metric with a series per IP: LEs, registers, M9K blocks, worst-clock Fmax and setup slack; WNS, TNS, std-cell area, cells, max fanout and logic depth. |
+
+**`/tracker/ip/<id>/`** (`<id>` may contain `/` for a sub-IP) shows that
+IP's comparison table, LOC by kind, tests per level, and its FPGA and ASIC
+charts. `/tracker/ip/` lists the IPs; the sidebar lists them under it.
+
+**Charts.** Each chart is a `<canvas>` with a caption naming the quantity and
+unit, an axis title on both axes, and a data table (the latest 30 points, or
+every bin) in a `<details>` below it, so values never depend on colour or
+JavaScript. A page's chart data is one inline JSON block; `wiki.js` loads the
+vendored Chart.js and `tracker.js` only on pages that have one, and redraws on
+a theme change. Colours are CSS custom properties: eight categorical slots
+(light and dark steps validated for colour-vision deficiency), assigned in a
+fixed order per entity (code kind, level, or IP in sorted order) and never
+cycled; a ninth series is not drawn and the chart says so. Status (good,
+warning, critical) always pairs a colour with an icon and a label; pass and
+fail runs also differ by marker shape. Histograms use equal 1-2-5 bins, about
+Sturges' count; a small integer range gets one bin per value, and a long tail
+(maximum above twice the p90) is folded into a final "≥" bin from the
+first bin edge above the p90.
+
+**No data.** With an empty or missing `data/`, the site still builds:
+`/tracker/` and `/tracker/ip/` say "No data yet", and each empty section or
+IP group says so too. Every value from a record is HTML-escaped, and the
+inline JSON escapes `<`, `>`, `&` and `'`.
+
 ## Publishing
 
 `.github/workflows/pages.yml` runs on the self-hosted runners
@@ -181,6 +257,7 @@ every change.
 | --- | --- |
 | [`tools/wiki_site/wiki_site.py`](../../../tools/wiki_site/wiki_site.py) | Generator and CLI. |
 | [`tools/cli/main.py`](../../../tools/cli/main.py) | `./build wiki` entry in `COMMANDS`. |
-| [`tools/wiki_site/theme/`](../../../tools/wiki_site/theme/) | CSS, JS, vendored Mermaid, provenance. |
-| [`tools/wiki_site/tests/`](../../../tools/wiki_site/tests/) | Unit tests (pytest). |
+| [`tools/wiki_site/tracker.py`](../../../tools/wiki_site/tracker.py) | Tracker rendering. |
+| [`tools/wiki_site/theme/`](../../../tools/wiki_site/theme/) | CSS, JS (`wiki.js`, `tracker.js`), vendored Mermaid and Chart.js, provenance. |
+| [`tools/wiki_site/tests/`](../../../tools/wiki_site/tests/) | Unit tests (pytest); synthetic tracker records in `fixtures/tracker/`. |
 | [`.github/workflows/pages.yml`](../../../.github/workflows/pages.yml) | Build and deploy workflow. |

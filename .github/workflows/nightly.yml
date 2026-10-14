@@ -4,7 +4,7 @@
 # Three jobs, each with only the token permissions it needs:
 #   nightly  read-only: checks, L0+L1+L2, FPGA and ASIC flows, metrics files
 #   publish  contents/pull-requests/actions write: commits ONLY the data files
-#            on nightly/<date>, opens the type:data PR, dispatches its checks
+#            on nightly/<date>, opens the type:data PR, dispatches ci-gate on it
 #   report   issues write: opens/updates/closes the single nightly-red issue
 # No pull_request trigger, so fork code never reaches this workflow.
 name: nightly
@@ -161,7 +161,7 @@ jobs:
     permissions:
       contents: write        # push nightly/<date>
       pull-requests: write   # open and label the data PR, enable auto-merge
-      actions: write         # dispatch the data branch's checks (see below)
+      actions: write         # dispatch ci-gate on the data branch (see below)
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -203,7 +203,7 @@ jobs:
           git -C workdir/data-branch -c user.name="github-actions[bot]" \
             -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit --quiet -m "nightly: metrics for $DATE"
-          # Same guard as the data-guard check, from this trusted checkout.
+          # The ci-gate data guard, run here from this trusted checkout.
           ./build metrics guard --branch "$branch" --base "origin/$BASE" --head "$branch"
           git push --force origin "refs/heads/$branch:refs/heads/$branch"
 
@@ -222,17 +222,11 @@ jobs:
           gh api --silent -X POST "repos/$REPO/issues/$number/labels" -f 'labels[]=type:data' -f 'labels[]=area:wiki'
           echo "data PR: $GITHUB_SERVER_URL/$REPO/pull/$number"
 
-          # Pushes and PRs made with GITHUB_TOKEN start no workflows, so run the
-          # data branch's checks by dispatch: their check runs land on the PR head.
-          for wf in data-guard.yml ci.yml; do
-            if [ -f "workdir/data-branch/.github/workflows/$wf" ]; then
-              gh api --silent -X POST "repos/$REPO/actions/workflows/$wf/dispatches" -f ref="$branch" -f "inputs[base]=$BASE" 2>/dev/null \
-                || gh api --silent -X POST "repos/$REPO/actions/workflows/$wf/dispatches" -f ref="$branch"
-              echo "dispatched $wf on $branch"
-            else
-              echo "::warning::$wf is not on $BASE; not dispatched"
-            fi
-          done
+          # Pushes and PRs made with GITHUB_TOKEN start no workflows, so run
+          # ci-gate (which holds the data guard) by dispatch on the branch; its
+          # check run lands on the PR head.
+          gh api --silent -X POST "repos/$REPO/actions/workflows/ci.yml/dispatches" -f ref="$branch"
+          echo "dispatched ci.yml on $branch"
 
           if [ "$BASE" = main ]; then
             # Auto-merge (squash) once the required checks pass. GitHub has no

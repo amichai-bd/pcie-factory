@@ -26,11 +26,12 @@ it; nothing calls a tool script directly.
 | `fpga` | Quartus flow for one IP ([FPGA BKM](fpga.md)). |
 | `asic` | ORFS flow for one IP ([PD BKM](pd.md)). |
 | `labels` | Label sync from `cfg/labels.yaml`. |
+| `ci` | `ci-gate` helpers: unit-test suites and job summary ([CI spec](../tools/ci/SPEC.md)). |
 | `metrics` | Nightly metrics, the data guard and the `nightly-red` issue ([metrics spec](../tools/metrics/SPEC.md)). |
 | `wiki` | Wiki site build. |
 | `clean` | Remove `workdir/` output. |
 
-Subcommands land with their issues (#6 core, #7 check, #10 labels, #12 wiki,
+Subcommands land with their issues (#6 core, #7 check, #10 labels, #11 ci, #12 wiki,
 #13 fpga, #14 asic); until a SPEC exists, the issue owns the contract.
 
 ## Tools and configuration
@@ -98,31 +99,47 @@ behavior, not command success. Missing evidence is a review finding.
 
 ## Continuous integration
 
-Workflows live in `.github/workflows/` (`ci`, `nightly`, `data-guard`, `pages`, `fpga`, `asic`) and run on
+Workflows live in `.github/workflows/` (`ci`, `nightly`, `pages`, `fpga`, `asic`) and run on
 self-hosted runners selected with `runs-on: [self-hosted, linux, x64]`. The
 runners are registered to this repository only, so no workflow names the
-design target. The repository is public, so fork code must never reach these
+design target. The CI host is the Omarchy machine; `cfg/host.yaml` pins its
+toolchain.
+
+**Forks.** The repository is public, so fork code must not reach these
 runners. Every job that a `pull_request` can trigger carries
 
 ```yaml
 if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
 ```
 
-so it still runs on push and dispatch, runs for PRs from this repository, and
-is skipped for fork PRs. `pull_request_target` never checks out PR code, and
-workflows never echo secrets. The captain also requires approval for
-outside-collaborator fork workflows in the repository settings. A skipped job
-counts as passing a required check, so a fork PR is never merged on its
-`ci-gate` alone: a maintainer pushes its commits to a branch in this
-repository, and that PR's `ci-gate` is the gate. The CI host is the Omarchy machine; `cfg/host.yaml` pins its
-toolchain.
+so it runs on push and dispatch and for PRs from this repository, and is
+skipped for unmodified fork PRs. This guard is defense in depth only: a
+`pull_request` run uses the workflow file from the PR's own merge commit, so
+a fork's copy can drop it. The repository keeps GitHub's default fork-run
+approval setting (approval for first-time contributors only); the captain
+accepts the residual risk that a returning outside contributor's fork could
+run code on the runners. Maintainers **never approve a fork PR's workflow
+run**. Fork changes reach CI only by review and re-push: a maintainer reviews
+the diff, pushes its commits to a branch in this repository and merges
+through a PR from that branch, whose `ci-gate` is the gate (a skipped job
+counts as passing a required check, so a fork PR's own run proves nothing).
+Workflows never use `pull_request_target` with a PR checkout and never echo
+secrets.
 
 **`ci-gate`** is the one required check. It runs on pull requests to `main`,
 pushes to `main` and manual dispatch:
 
-1. `./build check`.
-2. `tools/` unit tests, when `tools/` or `cfg/` changed.
-3. `./build regress --level 0 --level 1` for the affected IPs.
+1. The data guard: a `nightly/` branch may change only
+   `wiki/tracker/data/**` ([metrics spec](../tools/metrics/SPEC.md#guard)).
+   Other branches pass at once.
+2. `./build check`.
+3. `tools/` unit tests, when `tools/`, `cfg/` or `build` changed, and the
+   model unit tests of the affected IPs (`./build ci unit`).
+4. `./build regress --level 0 --level 1` for the affected IPs.
+
+The [CI tool spec](../tools/ci/SPEC.md) owns the workflow's steps and
+`cfg/ci.yaml`; the [regress spec](../tools/regress/SPEC.md#selection) owns
+the exact selection.
 
 **Affected IPs** (selection rules in `cfg/ci.yaml`):
 
@@ -132,12 +149,13 @@ pushes to `main` and manual dispatch:
 | A file reached through `-F` from an IP's filelists | That IP |
 | `tools/**`, `cfg/**` or the `build` launcher | All IPs |
 | Shared DV helpers under `src/common/dv/` (reached by no filelist) | All IPs |
+| A sub-IP's models under `src/<ip>/<subip>/dv/models/` | The sub-IP and every ancestor IP |
 | Push to `main`, manual dispatch | All IPs |
 | Docs only | Checks only |
 
 A sub-IP is an IP in its own right: a change inside `src/<ip>/<subip>/`
 selects the sub-IP, and selects the parent only when the parent's filelists
-reach the changed file.
+reach the changed file or the change is in the sub-IP's models.
 
 Superseded PR runs are cancelled; every push to `main` keeps its run. Until
 the runners are online, the temporary exception in
@@ -157,10 +175,9 @@ permissions and data PR mechanics):
 3. Metrics: the per-commit series `wiki/tracker/data/commits.jsonl` and the
    nightly record `wiki/tracker/data/<date>.json` (versioned schemas).
 4. A data PR from branch `nightly/<date>`, labelled `type:data`, under the
-   permanent exception in [`CLAUDE.md`](../../CLAUDE.md#flow): the
-   `data-guard` check fails it if it touches anything outside
-   `wiki/tracker/data/**`, and it auto-merges after `ci-gate` (docs only, so
-   checks only).
+   permanent exception in [`CLAUDE.md`](../../CLAUDE.md#flow): the data
+   guard in `ci-gate` fails it if it touches anything outside
+   `wiki/tracker/data/**`, and it auto-merges after `ci-gate`.
 5. On failure, open or update the single `nightly-red` issue; close it when
    the nightly is green again.
 

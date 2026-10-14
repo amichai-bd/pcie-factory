@@ -38,9 +38,11 @@ inline `[a, b]` lists and `#` comments.
 | Cloud | Claude Code cloud sessions (Ubuntu container) | `.claude/hooks/session-start.sh` |
 | Omarchy | Self-hosted CI runners, FPGA and ASIC flows (Arch Linux) | By hand; versions recorded under `hosts.omarchy` in `cfg/host.yaml` |
 
-The Omarchy entries in `cfg/host.yaml` are intentionally empty until the host
-agent reports the installed paths and versions; they must match the pins
-above. Quartus Lite and ORFS run only there and are recorded there too:
+The Omarchy entries in `cfg/host.yaml` record what the host agent reported
+and must match the pins above; an entry not yet reported stays empty.
+`venv: runner` means the runner service's own virtual environment (its
+`$VIRTUAL_ENV`, first on `PATH`); its path is not recorded. Quartus Lite and
+ORFS run only there and are recorded there too:
 Quartus Prime Lite `25.1std.0 Build 1129` at `/opt/intelFPGA_lite/25.1/quartus`
 (`quartus_root`, `quartus_version`), as printed by the fpga workflow's
 discovery step. The [fpga tool](../fpga/SPEC.md#finding-quartus) falls back to

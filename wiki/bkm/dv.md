@@ -47,9 +47,11 @@ A parent IP's model reuses a sub-IP's model instead of re-implementing it:
   to `sys.path` and imports the sub-IP module by name. This works the same
   under the sim tool, which puts only the IP's own `dv/` on the path, and
   under plain pytest.
-- `regress --affected` does not follow this import (see the
-  [regress SPEC known gaps](../tools/regress/SPEC.md#selection)): after
-  changing a sub-IP model, run its parent IPs too.
+- `regress --affected` follows this import by rule, not by tracing it: a
+  change under a sub-IP's `dv/models/` also selects every ancestor IP
+  ([regress selection](../tools/regress/SPEC.md#selection)), and `ci-gate`
+  runs the model unit tests of every selected IP
+  ([`./build ci unit`](../tools/ci/SPEC.md#build-ci-unit)).
 
 ## Fast test ladder
 
