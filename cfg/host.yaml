@@ -1,0 +1,34 @@
+# Host toolchain pins. Owning spec: wiki/tools/host/SPEC.md.
+#
+# Read by .claude/hooks/session-start.sh with a small stdlib parser (PyYAML may
+# not be installed yet when it runs), so keep this file to the subset that
+# parser accepts: nested block mappings, scalars, inline [a, b] lists and
+# full-line or trailing "# " comments. No anchors, block lists or multi-line
+# strings.
+
+verilator:
+  version: "5.052"                  # `verilator --version` prints "Verilator 5.052 ..."
+  tag: v5.052                       # git tag built from source
+  commit: ea338be98e1e838d3518809ce8899f85a009963c   # v5.052^{}; verified after clone
+  repo: https://github.com/verilator/verilator
+  prefix: /opt/verilator/5.052      # install prefix; binary at <prefix>/bin/verilator
+  # Debian/Ubuntu packages needed to build it (cloud image is Ubuntu).
+  build_deps: [git, autoconf, flex, bison, help2man, perl, make, g++, ccache, libfl2, libfl-dev, zlib1g-dev]
+
+python:
+  minimum: "3.11"                   # python3 on PATH must be at least this
+  requirements: tools/requirements.txt   # exact pins for cocotb, pytest, PyYAML, ...
+
+hosts:
+  cloud:
+    description: Claude Code cloud session (Ubuntu); provisioned by .claude/hooks/session-start.sh
+    python: system python3, packages installed into it from tools/requirements.txt
+  omarchy:
+    description: self-hosted CI host (Arch Linux); provisioned by hand, not by the hook
+    # TODO(omarchy host agent): record the installed paths and versions here
+    # once reported. Left empty on purpose; do not guess.
+    verilator_prefix:
+    verilator_version:
+    python:
+    quartus_root:
+    orfs_root:

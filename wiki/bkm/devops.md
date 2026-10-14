@@ -116,7 +116,7 @@ pushes to `main` and manual dispatch:
 | --- | --- |
 | An IP's own files: under `src/<ip>/`, excluding nested sub-IP directories | That IP |
 | A file reached through `-F` from an IP's filelists | That IP |
-| `tools/**` or `cfg/**` | All IPs |
+| `tools/**`, `cfg/**` or the `build` launcher | All IPs |
 | Push to `main`, manual dispatch | All IPs |
 | Docs only | Checks only |
 
