@@ -7,7 +7,7 @@ description: Use when driving your own open pull request to mergeable green - re
 
 Owned by the implementer of the PR (or a crewmate the firstmate assigns in its
 place). Part of the fix loop in [agent-flow](../agent-flow/SKILL.md#6-review-loop);
-the gates are in [`CLAUDE.md`](../../../CLAUDE.md#flow).
+the gates are in [agent-flow](../agent-flow/SKILL.md#7-merge-firstmate).
 
 Use the GitHub MCP tools (`pull_request_read` with `get`, `get_check_runs`,
 `get_comments`, `get_review_comments`; `get_job_logs`;

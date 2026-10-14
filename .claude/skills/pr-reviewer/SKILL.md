@@ -8,10 +8,10 @@ description: Use when acting as, or spawning, the independent reviewer crewmate 
 <!-- Provenance: adapted from nand2anything .agents/skills/pr-reviewer/SKILL.md
      (commit 085ef4b, same owner, no license file); rewritten design-neutral. -->
 
-Review gate of [agent-flow](../agent-flow/SKILL.md#6-review-loop); policy in
-[`CLAUDE.md`](../../../CLAUDE.md#flow). The verdict comment, not a native
-GitHub approval, is the gate (crewmates share one GitHub identity and cannot
-approve their own PRs).
+Review gate of [agent-flow](../agent-flow/SKILL.md#6-review-loop); reviewer
+independence in [firstmate](../firstmate/SKILL.md#reviewer-independence). The
+verdict comment, not a native GitHub approval, is the gate (crewmates share
+one GitHub identity and cannot approve their own PRs).
 
 ## Part 1: firstmate spawns the reviewer
 

@@ -7,9 +7,10 @@
 
 ## Scope
 
-This page owns the build entry point, levels and budgets, CI selection, the
-nightly run, labels and metrics. [`CLAUDE.md`](../../CLAUDE.md) owns the
-delivery flow and merge gate; the `agent-flow` skill owns the procedure.
+This page owns the build entry point, levels and budgets, local evidence,
+CI selection, the nightly run, labels and metrics. The
+[agent-flow](../../.claude/skills/agent-flow/SKILL.md) skill owns the delivery
+flow and merge gate; [`CLAUDE.md`](../../CLAUDE.md#flow) owns its exceptions.
 Each tool's `wiki/tools/<tool>/SPEC.md` owns its exact command syntax.
 
 ## Build entry point
@@ -93,7 +94,10 @@ by raising the budget silently.
 
 Run the required set once on the commit intended for review and record exact
 commands, seeds, counts and every non-pass entry in the PR. Evidence shows
-behavior, not command success. Missing evidence is a review finding.
+behavior, not command success. Treat every warning (lint, simulation, flow)
+as a failure unless a reviewed waiver explains it. Logs, waves and reports
+stay under `workdir/`; the PR summarizes them and never commits them.
+Missing evidence is a review finding.
 
 ## Continuous integration
 

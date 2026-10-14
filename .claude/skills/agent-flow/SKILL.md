@@ -8,13 +8,27 @@ description: Use for any tracked repository change, from choosing or claiming an
 <!-- Provenance: adapted from nand2anything .agents/skills/agent-flow/SKILL.md
      (commit 085ef4b, same owner, no license file); rewritten design-neutral. -->
 
-[`CLAUDE.md`](../../../CLAUDE.md#flow) owns roles, gates and exceptions; this
-skill owns the step-by-step procedure. No change is too small for it.
+This skill owns the delivery steps and the merge gate for every tracked
+change; no change is too small for it. [`CLAUDE.md`](../../../CLAUDE.md#flow)
+owns the two exceptions, [firstmate](../firstmate/SKILL.md) owns the roles.
 
 ```text
 issue -> claim -> branch + worktree -> code + wiki -> validate -> draft PR
 -> reviewer crewmate -> fix loop -> squash merge -> verify on main -> cleanup
 ```
+
+| # | Step | Who | Section |
+| --- | --- | --- | --- |
+| 1 | One scoped issue, acceptance criteria, labels from `cfg/labels.yaml` | firstmate | [1](#1-issue-and-claim-firstmate) |
+| 2 | Claim: `in-progress` label and a claim comment | firstmate | [1](#1-issue-and-claim-firstmate) |
+| 3 | Branch `<n>-<slug>` from `origin/main`, worktree `worktrees/<n>-<slug>/` | firstmate | [2](#2-branch-and-worktree), [3](#3-delegate-firstmate) |
+| 4 | Code and its owning wiki pages together, inside issue scope | implementer | [4](#4-implement-and-validate-implementer) |
+| 5 | Focused checks, then the required levels once on the review commit | implementer | [4](#4-implement-and-validate-implementer) |
+| 6 | Push and open a draft PR that closes the issue | implementer | [5](#5-commit-push-draft-pr-implementer) |
+| 7 | Independent reviewer posts one `REVIEW-VERDICT` for the exact head | reviewer | [6](#6-review-loop) |
+| 8 | Fix every accepted finding, re-review the new head; repeat | implementer | [6](#6-review-loop) |
+| 9 | Merge gate, ready, squash merge | firstmate | [7](#7-merge-firstmate) |
+| 10 | Verify on `main`, close the issue, clean up, report | firstmate | [8](#8-verify-and-clean-up-firstmate) |
 
 ## GitHub access
 
@@ -74,7 +88,7 @@ Preserve any dirty worktree of unclear ownership; never reset or delete it.
 
 Spawn one implementer crewmate per issue as a Claude Code subagent (Agent
 tool) or a cloud session, working only in its worktree. Keep at most ten
-active crewmates. The handoff names: issue number, branch, absolute worktree
+active crewmates ([firstmate](../firstmate/SKILL.md)). The handoff names: issue number, branch, absolute worktree
 path, files the issue owns, relevant wiki pages, this skill, and the expected
 final report (PR URL, head SHA, validation commands and results, deviations).
 The firstmate may implement itself, but then a different crewmate reviews.
@@ -88,8 +102,9 @@ The firstmate may implement itself, but then a different crewmate reviews.
 3. Loop on the cheapest focused check that can reject the edit. Fix causes;
    never mute a warning, weaken a check or skip a test.
 4. On the commit intended for review, run the required levels once
-   ([verification](../../../CLAUDE.md#verification)). Record exact commands,
-   seeds, versions and results. Output stays under the worktree's `workdir/`.
+   ([local evidence](../../../wiki/bkm/devops.md#local-evidence)). Record
+   exact commands, seeds, versions and results. Output stays under the
+   worktree's `workdir/`.
 
 ## 5. Commit, push, draft PR (implementer)
 
@@ -129,8 +144,8 @@ Then mark the PR ready (`update_pull_request` with `draft: false`;
 <sha>`). Set the squash message explicitly: `commit_title` is
 `<PR title> (#<pr>)`; `commit_message` is a short summary, `Closes #<n>` and
 the commit attribution trailers (the default concatenates branch commits and
-duplicates trailers). A failed gate is work for the implementer, never a
-waiver.
+duplicates trailers). There is no captain checkpoint on the normal path. A
+failed gate is work for the implementer, never a waiver.
 
 ## 8. Verify and clean up (firstmate)
 
@@ -157,5 +172,6 @@ waiver.
 ## When to stop
 
 Only for a product decision outside the issue, missing credentials or
-access, or a physical action ([`CLAUDE.md`](../../../CLAUDE.md#flow)).
-Failures, findings and conflicts are work.
+access, or a physical action; ask as the [firstmate](../firstmate/SKILL.md#captain-decisions)
+skill says. Failures, findings and conflicts are work. Never weaken
+acceptance, skip a test or bypass a gate to finish.

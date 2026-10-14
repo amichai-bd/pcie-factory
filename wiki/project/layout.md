@@ -2,7 +2,7 @@
 
 ```
 .
-├── CLAUDE.md                    # agent contract (normative)
+├── CLAUDE.md                    # agent contract (normative; no AGENTS.md)
 ├── README.md                    # human overview
 ├── build                        # single entry point → tools/
 ├── .claude/                     # settings.json, hooks/, skills/<name>/SKILL.md
