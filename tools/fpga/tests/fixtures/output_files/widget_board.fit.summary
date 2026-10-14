@@ -1,0 +1,16 @@
+Fitter Status : Successful - Wed Oct 14 12:00:00 2026
+Quartus Prime Version : 25.1std.0 Build 1129 10/21/2025 SC Lite Edition
+Revision Name : widget_board
+Top-level Entity Name : widget_board
+Family : Cyclone IV E
+Device : EP4CE115F29C7
+Timing Models : Final
+Total logic elements : 1,234 / 114,480 ( 1 % )
+    Total combinational functions : 1,100 / 114,480 ( < 1 % )
+    Dedicated logic registers : 456 / 114,480 ( < 1 % )
+Total registers : 456
+Total pins : 18 / 529 ( 3 % )
+Total virtual pins : 0
+Total memory bits : 8,192 / 3,981,312 ( < 1 % )
+Embedded Multiplier 9-bit elements : 2 / 532 ( < 1 % )
+Total PLLs : 0 / 4 ( 0 % )
