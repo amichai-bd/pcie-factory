@@ -6,7 +6,8 @@ regressions, CI, wiki, metrics) is the product; the design in `src/` is what it
 builds.
 
 - **Agents:** start with [`CLAUDE.md`](CLAUDE.md), the operating contract.
-- **Specs and methods:** the [wiki](wiki/index.md), also published as a site.
+- **Specs and methods:** the [wiki](wiki/index.md), also published as a public
+  site on GitHub Pages. The repository itself is public.
 - **Design target:** declared in [`src/README.md`](src/README.md).
 
 ## Quick start
@@ -27,3 +28,8 @@ goes issue → branch → worktree → draft PR → independent review → squas
 nightly and wiki-site milestones. -->
 Badges and a link to the metrics tracker arrive with the CI, nightly and wiki
 site milestones.
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE). Vendored third-party files
+keep their own licenses next to them (see each `PROVENANCE.md`).

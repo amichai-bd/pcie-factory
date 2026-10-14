@@ -272,3 +272,97 @@ def test_serve_existing_build(tmp_path, monkeypatch, capsys):
         thread.join(5)
     assert result == [0]
     assert f"Serving {out}" in capsys.readouterr().out
+
+
+def test_navbar_links_to_repo(tmp_path):
+    _, _, out = run(tmp_path, BASE)
+    link = f'<a class="navbar-repo" href="{URL}" title="Source on GitHub">GitHub</a>'
+    for page in ("index.html", "a.html", "sec/z.html"):
+        assert link in (out / page).read_text()
+    other = tmp_path / "other"
+    wiki_site.build(tmp_path, other, SHA, "https://example.invalid/x/y/")
+    assert 'class="navbar-repo" href="https://example.invalid/x/y"' in (other / "index.html").read_text()
+
+
+REPO_PAGES = dict(BASE, **{
+    "README.md": "# Proj\n\nRead [the contract](CLAUDE.md#flow), the [wiki](wiki/index.md) and [src](src/x.txt).\n",
+    "CLAUDE.md": "# Contract\n\n## Flow\n\nUse [skill one](.claude/skills/one/SKILL.md).\n",
+    "src/x.txt": "x\n",
+    "wiki/index.md": "# Home\n\nSee [b](b.md), [sec](sec/) and the [contract](../CLAUDE.md).\n",
+    ".claude/skills/one/SKILL.md": "---\nname: one\ndescription: Use when\n  doing one thing.\n---\n\n# Skill one\n\nSee [two](../two/SKILL.md).\n",
+    ".claude/skills/two/SKILL.md": "---\nname: two\ndescription: Second.\n---\n\n# Skill two\n",
+})
+
+
+def test_repo_readme_is_home_with_agents_toggle(tmp_path):
+    problems, stats, out = run(tmp_path, REPO_PAGES)
+    assert problems == []
+    assert stats["pages"] == len([k for k in REPO_PAGES if k.endswith(".md")])
+    home, agents = (out / "index.html").read_text(), (out / "agents.html").read_text()
+    assert '<a class="navbar-brand" href="index.html">Proj</a>' in home
+    toggle = '<nav class="doc-toggle" aria-label="Landing page">'
+    assert toggle + '<a class="active" href="index.html">README.md</a><a href="agents.html">CLAUDE.md</a></nav>' in home
+    assert toggle + '<a href="index.html">README.md</a><a class="active" href="agents.html">CLAUDE.md</a></nav>' in agents
+    assert 'href="agents.html#flow"' in home and 'href="wiki.html"' in home
+    assert f'href="{URL}/blob/{SHA}/src/x.txt"' in home  # unpublished files still go to GitHub
+    assert toggle not in (out / "wiki.html").read_text()
+
+
+def test_wiki_landing_moves_to_its_own_section(tmp_path):
+    _, _, out = run(tmp_path, REPO_PAGES)
+    wiki = (out / "wiki.html").read_text()
+    assert "<title>Home | Proj</title>" in wiki
+    assert 'href="b.html"' in wiki and 'href="sec/index.html"' in wiki and 'href="agents.html"' in wiki
+    assert (out / "b.html").is_file() and (out / "sec" / "z.html").is_file()  # wiki URLs unchanged
+    menu = (out / "sec" / "z.html").read_text().split('<ul class="menu">')[1].split("</aside>")[0]
+    order = [menu.index(s) for s in ('href="../index.html"', 'href="../agents.html"',
+                                     '<details open><summary><a href="../wiki.html">', "<span>Skills</span>")]
+    assert order == sorted(order)
+
+
+def test_skills_section_strips_frontmatter(tmp_path):
+    _, _, out = run(tmp_path, REPO_PAGES)
+    one = (out / "skills" / "one.html").read_text()
+    assert "name: one" not in one and "<hr" not in one
+    assert '<blockquote class="skill-description"><p>Use when doing one thing.</p></blockquote>' in one
+    assert one.index('<h1 id="skill-one">') < one.index('<blockquote class="skill-description">')
+    assert 'href="two.html"' in one
+    assert 'href="skills/one.html"' in (out / "agents.html").read_text()
+    data = json.loads((out / "assets" / "search-index.json").read_text())
+    assert [e["url"] for e in data][:3] == ["index.html", "agents.html", "wiki.html"]
+    assert {"skills/one.html", "skills/two.html"} <= {e["url"] for e in data}
+
+
+def test_skill_text_without_frontmatter_is_unchanged():
+    assert wiki_site.skill_text("# T\n\nbody\n") == "# T\n\nbody\n"
+
+
+def test_repo_page_collision_is_a_problem(tmp_path):
+    problems, _, _ = run(tmp_path, dict(REPO_PAGES, **{"wiki/agents.md": "# Clash\n"}))
+    assert any("publishes to agents.html" in p for p in problems)
+
+
+@pytest.mark.parametrize("front, desc", [
+    ("description: Edit <ip>.rtl.f, **bold** and `x` [y](z)\n", "Edit &lt;ip&gt;.rtl.f, **bold** and `x` [y](z)"),
+    ("description: >\n  Folded <b>\n  text\n", "Folded &lt;b&gt; text"),
+    ("description: |\n  Literal\n", "Literal"),
+])
+def test_skill_description_is_shown_literally(front, desc):
+    out = wiki_site.skill_text(f"---\nname: s\n{front}---\n# T\n\nbody\n")
+    quote_html = f'<blockquote class="skill-description"><p>{desc}</p></blockquote>'
+    assert out.startswith(f"# T\n\n{quote_html}\n\n") and out.rstrip().endswith("body")
+
+
+def test_skill_frontmatter_edge_cases():
+    assert wiki_site.skill_text("---\n---\n# T\n") == "# T\n"  # empty frontmatter
+    assert wiki_site.skill_text("---\nname: s\n---") == ""  # closing line at end of file
+    text = "---\ndescription: D\n---\n```sh\n# not a heading\n```\n# Real\n"
+    out = wiki_site.skill_text(text)
+    assert out.index("# Real") < out.index("skill-description")  # H1 inside a fence is skipped
+
+
+def test_skill_description_renders_escaped(tmp_path):
+    files = dict(REPO_PAGES, **{".claude/skills/two/SKILL.md": "---\nname: two\ndescription: Edit <ip>.dv.f and *a*.\n---\n\n# Skill two\n"})
+    problems, _, out = run(tmp_path, files)
+    assert problems == []
+    assert "<p>Edit &lt;ip&gt;.dv.f and *a*.</p>" in (out / "skills" / "two.html").read_text()
