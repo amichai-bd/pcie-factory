@@ -26,9 +26,10 @@ target and its module prefix are declared once, in
 
 ## Non-negotiables
 
-- **Public repository.** The repository and its wiki site are public: nothing
-  committed may contain credentials, private machine details or
-  unredistributable content ([publishability](wiki/bkm/wiki.md#publishability)).
+- **Public repository.** The repository and its wiki site are public:
+  everything committed must be fit for public reading, so no credentials,
+  personal data, private machine details or unredistributable content
+  ([publishability](wiki/bkm/wiki.md#publishability)).
 - **License and provenance.** The repository is licensed under Apache-2.0
   ([`LICENSE`](LICENSE)); every contribution is under it. Code or text adapted
   from elsewhere needs a compatible license or the copyright owner's
@@ -50,9 +51,9 @@ merge gate.
 **Exceptions:**
 - Permanent: the nightly data PR may touch only `wiki/tracker/data/**`; a guard
   enforces it and it auto-merges after `ci-gate`, with no issue or reviewer.
-- Temporary, captain-approved: until `ci-gate` is required on `main` (#11),
-  the merge gate omits it and the PR records local validation evidence
-  instead. Remove this bullet then.
+- Temporary, captain-approved, removed when #11 (`ci-gate`) is merged and
+  required on `main`: until then the gate omits `ci-gate` and the PR records
+  local evidence instead. A red `ci-gate` run always blocks merge.
 
 ## Pointers
 
@@ -63,8 +64,7 @@ merge gate.
 
 ## Skills
 
-Read the matching skill in `.claude/skills/<name>/SKILL.md` before working in
-its area.
+Read the matching `.claude/skills/<name>/SKILL.md` before working in its area.
 
 | Skill | Applies to |
 | --- | --- |

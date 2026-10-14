@@ -28,17 +28,19 @@ worktree.
    ([issue-creation](../issue-creation/SKILL.md)); order them by dependency on
    the epic.
 2. **Claim and assign.** Claim each issue and create its branch and worktree
-   ([agent-flow steps 1-2](../agent-flow/SKILL.md#1-issue-and-claim-firstmate)).
+   (agent-flow [§1](../agent-flow/SKILL.md#1-issue-and-claim-firstmate)
+   and [§2](../agent-flow/SKILL.md#2-branch-and-worktree)).
 3. **Delegate.** Spawn one implementer crewmate per issue as a Claude Code
    subagent or session with fresh context
-   ([agent-flow step 3](../agent-flow/SKILL.md#3-delegate-firstmate)). Keep
+   (agent-flow [§3](../agent-flow/SKILL.md#3-delegate-firstmate)). Keep
    at most **ten active crewmates**.
 4. **Read evidence.** Check each report against the PR itself: head SHA,
    exact commands and results, deviations. A claim without evidence is not
    done.
 5. **Review, merge, clean up.** Spawn an independent reviewer per PR, apply
    the merge gate, squash-merge, verify on `main` and clean up
-   ([agent-flow steps 6-8](../agent-flow/SKILL.md#6-review-loop)).
+   (agent-flow [§6](../agent-flow/SKILL.md#6-review-loop) to
+   [§8](../agent-flow/SKILL.md#8-verify-and-clean-up-firstmate)).
 6. **Report** to the captain: integration SHAs, issue and PR state, and
    anything blocked or retained.
 

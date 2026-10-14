@@ -88,9 +88,9 @@ Preserve any dirty worktree of unclear ownership; never reset or delete it.
 
 Spawn one implementer crewmate per issue as a Claude Code subagent (Agent
 tool) or a cloud session, working only in its worktree. Keep at most ten
-active crewmates ([firstmate](../firstmate/SKILL.md)). The handoff names: issue number, branch, absolute worktree
-path, files the issue owns, relevant wiki pages, this skill, and the expected
-final report (PR URL, head SHA, validation commands and results, deviations).
+active crewmates ([firstmate](../firstmate/SKILL.md)). The handoff names:
+issue number, branch, absolute worktree path, files the issue owns, relevant
+wiki pages, this skill, and the expected final report (PR URL, head SHA, validation commands and results, deviations).
 The firstmate may implement itself, but then a different crewmate reviews.
 
 ## 4. Implement and validate (implementer)
@@ -133,7 +133,7 @@ Read the PR fresh and check every gate:
 - latest `REVIEW-VERDICT` is APPROVE and names the current head SHA;
 - `ci-gate` is green on that SHA, or, under the temporary exception in
   [`CLAUDE.md`](../../../CLAUDE.md#flow), the PR records local evidence at
-  that SHA and the reviewer audited it;
+  that SHA and the reviewer audited it; a red `ci-gate` run always blocks;
 - no unresolved review threads; mergeable, no conflicts;
 - the PR closes exactly the issue and its acceptance is met.
 
