@@ -31,26 +31,34 @@ let a tool infer it. GitHub being unavailable is not a reason to bypass a step.
 | Open / read PR | `create_pull_request`, `pull_request_read` | `gh pr create`, `gh pr view` |
 | Ready, merge | `update_pull_request`, `merge_pull_request` | `gh pr ready`, `gh pr merge` |
 
+**Labels:** `issue_write` `labels` replaces the whole list. To add or remove
+one label, read the current list (`issue_read` method `get_labels`), write
+back the full list with or without it (`issue_write` method `update`), and
+read it back. `gh issue edit --add-label/--remove-label` is incremental.
+
 ## 1. Issue and claim (firstmate)
 
 1. Find or create the issue with the [issue-creation](../issue-creation/SKILL.md)
    skill. One issue, one bounded outcome.
 2. Read its labels and comments. If it carries `in-progress` from someone
    else, skip it; only the claimant or the captain releases a claim.
-3. **Claim:** add the `in-progress` label, then comment:
-   `Claimed by <session>: branch <n>-<slug>, worktree worktrees/<n>-<slug>/`.
+3. **Claim:** add `in-progress` (see **Labels** above), then comment:
+
+   ```markdown
+   Claimed by the firstmate (session <session-url>)[, delegated to <crewmate>].
+
+   - Branch: `<n>-<slug>`
+   - Worktree: `worktrees/<n>-<slug>/`
+   ```
+
    Read the issue back and confirm the label and comment are present.
 
 ## 2. Branch and worktree
 
-From the root checkout (kept clean on `main`; never implement there):
-
-```text
-git fetch origin
-git worktree add -b <n>-<slug> worktrees/<n>-<slug> origin/main
-```
-
-Before editing, confirm the worktree is clean and belongs to this issue.
+From the root checkout (kept clean on `main`; never implement there), run
+`git fetch origin` then
+`git worktree add -b <n>-<slug> worktrees/<n>-<slug> origin/main`. Before
+editing, confirm the worktree is clean and belongs to this issue.
 Preserve any dirty worktree of unclear ownership; never reset or delete it.
 
 ## 3. Delegate (firstmate)
@@ -109,8 +117,11 @@ Then mark the PR ready (`update_pull_request` with `draft: false`;
 `gh pr ready`) and squash-merge, pinning the approved head
 (`merge_pull_request` with `merge_method: squash` and
 `expectedHeadSha: <approved-sha>`; `gh pr merge --squash --match-head-commit
-<sha>`). A failed gate is work for
-the implementer, never a waiver.
+<sha>`). Set the squash message explicitly: `commit_title` is
+`<PR title> (#<pr>)`; `commit_message` is a short summary, `Closes #<n>` and
+the commit attribution trailers (the default concatenates branch commits and
+duplicates trailers). A failed gate is work for the implementer, never a
+waiver.
 
 ## 8. Verify and clean up (firstmate)
 
@@ -120,22 +131,22 @@ the implementer, never a waiver.
    `git diff <approved-sha> <merge-sha> --stat` is empty when the branch was
    current with `main`; otherwise compare `git diff <merge-sha>^ <merge-sha>`
    with `git diff <merge-base> <approved-sha>`.
-3. Confirm the issue closed; if not, close it with a comment linking the PR.
-4. Remove the `in-progress` label (closed or abandoned issues release it).
+3. Confirm the issue closed; if not, comment with the PR link and close it
+   (`issue_write` `state: closed`, `state_reason: completed`).
+4. Remove `in-progress` (see **Labels**); closed or abandoned issues release
+   it.
 5. Remove the worktree and local branch:
    `git worktree remove worktrees/<n>-<slug>` then `git branch -D <n>-<slug>`
-   (`-D` because a squash merge does not make the branch an ancestor).
-6. Delete the remote branch. If the environment's git proxy refuses the
-   delete, rely on the repository setting "Automatically delete head
+   (`-D` because a squash merge does not make the branch an ancestor). Never
+   force-remove a dirty worktree; preserve unclear work and report it.
+6. Delete the remote branch: `git push origin --delete <n>-<slug>`. If the
+   environment's git proxy refuses it, rely on the repository setting "Automatically delete head
    branches" (a captain action if it is off) and note it in the report.
 7. Report to the captain: integration SHA, PR and issue state, removed paths,
    anything retained and why.
 
-Never force-remove a dirty worktree; preserve unclear work and report it.
-
 ## When to stop
 
-Stop for the captain only for a product decision outside the issue, missing
-credentials or access, or a physical action. Failures, findings and conflicts
-are work. If `CLAUDE.md`, a skill and a spec disagree, reconcile them in the
-same issue.
+Only for a product decision outside the issue, missing credentials or
+access, or a physical action ([`CLAUDE.md`](../../../CLAUDE.md#flow)).
+Failures, findings and conflicts are work.

@@ -89,9 +89,10 @@ without touching GitHub. When creation is authorized:
 
 1. Create the issue with title, full body and labels
    (`issue_write` method `create`; `gh issue create --body-file`).
-2. For a sub-issue, attach it to its epic (`sub_issue_write` method `add`
-   with the child's numeric issue id, not its number; or the web UI) and
-   keep the epic's checklist in sync.
+2. For a new sub-issue, pass `parent_issue_number: <epic>` to `issue_write`
+   `create`, which attaches it in the same call. For an existing issue use
+   `sub_issue_write` method `add` with the child's numeric issue id, not its
+   number. Keep the epic's checklist in sync.
 3. Read it back (`issue_read` method `get`) and verify title, body, labels,
    `open` state, parent link and URL. Fix any mismatch and read back again.
 

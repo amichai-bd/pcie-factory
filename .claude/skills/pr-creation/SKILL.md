@@ -80,8 +80,10 @@ gh pr create --repo <owner>/<repo> --base main --head <n>-<slug> \
 ```
 
 Do not use `gh pr create --fill`. Apply the issue's `type:`, `area:` and
-`ip:` labels to the PR (`issue_write` on the PR number, or `--label`). If
-creation fails, find the cause (existing PR for the branch, unpushed head)
+`ip:` labels to the PR (`issue_write` on the PR number, or `--label`); with
+MCP, write the full list as in agent-flow's **Labels** note. Until the labels
+exist in the repository, leave the PR unlabeled and say so in the body; that
+is not a creation failure. If creation fails, find the cause (existing PR for the branch, unpushed head)
 before retrying.
 
 ## 4. Read back
@@ -92,7 +94,7 @@ verify:
 - state open, draft true, base `main`, head the issue branch;
 - head SHA equals the recorded SHA;
 - body contains `Closes #<n>` and the validation table;
-- labels match the issue;
+- labels match the issue (or the PR notes they do not exist yet);
 - the URL is in the expected repository.
 
 Fix mismatches with `update_pull_request` (or `gh pr edit`) and read back
