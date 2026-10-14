@@ -69,9 +69,9 @@ Update `src/<ip>/rtl/<ip>.rtl.f` in the same edit as the source:
 The [build SPEC](../../../wiki/tools/build/SPEC.md#simulation-build-sim)
 owns `sim` and the [regress SPEC](../../../wiki/tools/regress/SPEC.md)
 owns `regress`; `<id>` is the IP path under `src/` (`<ip>` or
-`<ip>/<subip>`). `./build check` lands with the check issue (#7); until then
-run `verilator --lint-only -Wall -F src/<ip>/rtl/<ip>.rtl.f` directly and
-record that in the PR.
+`<ip>/<subip>`). The [checks SPEC](../../../wiki/tools/checks/SPEC.md)
+owns `check`; narrow it with `--ip <id>` and `--only lint|style|filelist`
+while iterating, then run it in full before review.
 
 - Every warning is a failure. Fix the cause; a waiver goes only in the
   reviewed waiver file with a reason

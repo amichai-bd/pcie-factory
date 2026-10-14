@@ -11,6 +11,8 @@ from build.ip import Ip, owner_ip
 # Paths (relative to the repository root) whose change selects every IP.
 GLOBAL_PREFIXES = ("tools/", "cfg/")
 GLOBAL_FILES = ("build",)
+# Shared DV helpers under the source root; a change there selects every IP.
+SHARED_DV = "common/dv"
 
 
 class GitError(Exception):
@@ -38,15 +40,22 @@ def changed_files(base: str, start: Path) -> tuple[Path, list[str]]:
 
 
 def select_affected(
-    ips: list[Ip], repo: Path, changed: list[str]
+    ips: list[Ip], repo: Path, changed: list[str], src_root: Path | None = None
 ) -> dict[str, str]:
     """Map affected IP id -> reason. Every IP is affected when a global path
-    changed. Otherwise an IP is affected when a changed file lies in its own
-    directory (not in a sub-IP's) or is reached by its ``dv/<name>.sim.f``."""
+    changed, or a file under ``<src_root>/common/dv/`` (shared DV Python,
+    which no filelist reaches). Otherwise an IP is affected when a changed
+    file lies in its own directory (not in a sub-IP's) or is reached by its
+    ``dv/<name>.sim.f``."""
     for rel in changed:
         if rel in GLOBAL_FILES or rel.startswith(GLOBAL_PREFIXES):
             return {ip.id: f"global change: {rel}" for ip in ips}
     paths = [(repo / rel).resolve() for rel in changed]
+    if src_root is not None:
+        shared = (Path(src_root) / SHARED_DV).resolve()
+        for rel, path in zip(changed, paths):
+            if shared in path.parents:
+                return {ip.id: f"shared DV change: {rel}" for ip in ips}
     reasons: dict[str, str] = {}
     for rel, path in zip(changed, paths):
         owner = owner_ip(ips, path)

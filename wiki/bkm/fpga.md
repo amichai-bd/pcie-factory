@@ -34,8 +34,9 @@ resolver, plus only what is in `src/<ip>/fpga/`:
 - The board wrapper is synthesizable RTL under the [RTL BKM](rtl.md) but is
   not in `<ip>.rtl.f`: the FPGA flow adds it, so simulation and ASIC never
   see board policy. It is linted with Verilator `-Wall` together with
-  `<ip>.rtl.f`, as part of the FPGA inputs; the check and fpga tools
-  (issues #7, #13) own how.
+  `<ip>.rtl.f`, as part of the FPGA inputs; the
+  [checks SPEC](../tools/checks/SPEC.md#lint-check) owns how, and the fpga
+  tool (#13) consumes the same inputs.
 - No duplicate source list: the flow never names RTL files other than
   through `<ip>.rtl.f` and the wrapper.
 - Vendor IP (PLLs, memories) is avoided while behavioral RTL suffices. When

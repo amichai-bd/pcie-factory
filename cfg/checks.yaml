@@ -1,0 +1,14 @@
+# Static check configuration for ./build check.
+# Owning spec: wiki/tools/checks/SPEC.md.
+#
+# This file holds the design-neutrality word list, so the neutrality check
+# skips exactly this one file. To keep that exemption narrow, the tool
+# rejects any key not listed in the SPEC.
+
+neutrality:
+  # Case-insensitive substrings; a space also matches '-' or '_'.
+  words: [pcie, pci express, pci sig]
+  # Path prefixes (relative to the repository root) that may name the design.
+  exclude: [src/, wiki/src/, wiki/tracker/data/]
+  # owner/repo exempt inside GitHub URLs; unset means "from the origin remote".
+  # repo_slug: owner/repo
