@@ -24,9 +24,9 @@ def test_levels_are_exclusive(fixture_src, tmp_path):
     ctx = ctx_for(fixture_src, tmp_path)
     assert names(regress.select(ctx, [1])) == [(1, "counter", "wraps_w4")]
     assert names(regress.select(ctx, [0])) == [
-        (0, "counter", "counts"), (0, "counter/inc", "exhaustive")]
+        (0, "counter", "counts"), (0, "counter_inc", "exhaustive")]
     assert names(regress.select(ctx, [0, 1])) == [
-        (0, "counter", "counts"), (0, "counter/inc", "exhaustive"),
+        (0, "counter", "counts"), (0, "counter_inc", "exhaustive"),
         (1, "counter", "wraps_w4")]
 
 
@@ -35,8 +35,8 @@ def test_ip_filter_is_flat(fixture_src, tmp_path):
     sel = regress.select(ctx, [0], ["counter"])
     assert names(sel) == [(0, "counter", "counts")]  # sub-IP tests not inherited
     assert sel.reasons == {"counter": "--ip"}
-    sel = regress.select(ctx, [0], ["counter/inc", "counter/inc"])
-    assert names(sel) == [(0, "counter/inc", "exhaustive")]
+    sel = regress.select(ctx, [0], ["counter_inc", "counter_inc"])
+    assert names(sel) == [(0, "counter_inc", "exhaustive")]
     with pytest.raises(DiscoveryError, match="unknown IP"):
         regress.select(ctx, [0], ["nope"])
 
@@ -51,7 +51,7 @@ def test_seeds(fixture_src, tmp_path):
 
 
 def test_validation_covers_unselected_ips(fixture_src, tmp_path):
-    (fixture_src / "counter/inc/dv/regress/level2.yaml").write_text("tests: 3\n")
+    (fixture_src / "dv/counter_inc/regress/level2.yaml").write_text("tests: 3\n")
     with pytest.raises(Exception, match="must be a list"):
         regress.select(ctx_for(fixture_src, tmp_path), [0], ["counter"])
 
@@ -78,7 +78,7 @@ def test_summary_and_budget_warning(fixture_src, tmp_path):
     work = ctx.workdir
     results = [
         sim.Result("pass", 1.5, work / "counter/counts/1/sim.log"),
-        sim.Result("pass", 0.5, work / "counter/inc/exhaustive/1/sim.log"),
+        sim.Result("pass", 0.5, work / "counter_inc/exhaustive/1/sim.log"),
         sim.Result("fail", 2.0, work / "x.log", "failed: random_enable"),
         sim.Result("timeout", 9.0, work / "y.log", "timed out"),
     ]
@@ -106,7 +106,7 @@ def test_summary_and_budget_warning(fixture_src, tmp_path):
 
 
 def test_explicit_seed_list(fixture_src, tmp_path):
-    (fixture_src / "counter/dv/regress/level2.yaml").write_text(
+    (fixture_src / "dv/counter/regress/level2.yaml").write_text(
         "tests:\n  - {name: r, module: tests.test_counter, top: counter,"
         " seeds: [11, 4], timeout_s: 5}\n")
     ctx = ctx_for(fixture_src, tmp_path)
@@ -117,7 +117,7 @@ def test_explicit_seed_list(fixture_src, tmp_path):
 def test_filelist_error_is_a_per_ip_build_error(fixture_src, tmp_path, monkeypatch):
     """A sim.f that does not resolve fails that IP's build; other IPs still
     run and the summary is written with exit code 1."""
-    (fixture_src / "counter/dv/counter.dv.f").write_text("missing_tb.sv\n")
+    (fixture_src / "dv/counter/counter.dv.f").write_text("missing_tb.sv\n")
     monkeypatch.setattr(sim, "find_verilator", lambda: Path("/fake/verilator"))
     monkeypatch.setattr(sim, "_run_child", lambda phase, job, log, timeout_s: (0, 0.1))
     monkeypatch.setattr(sim, "run_test", lambda spec, *a: sim.Result("pass", 0.2, Path("x.log")))
@@ -125,7 +125,7 @@ def test_filelist_error_is_a_per_ip_build_error(fixture_src, tmp_path, monkeypat
     out = io.StringIO()
     summary = regress.run(ctx, regress.select(ctx, [0]), [0], out=out)
     status = {t["ip"]: (t["status"], t["detail"]) for t in summary["tests"]}
-    assert status["counter/inc"] == ("pass", "")
+    assert status["counter_inc"] == ("pass", "")
     assert status["counter"][0] == "error"
     assert "counter.dv.f:1: source not found: missing_tb.sv" in status["counter"][1]
     assert summary["passed"] is False

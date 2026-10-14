@@ -1,2 +1,0 @@
--F ../rtl/top.rtl.f
--F top.dv.f

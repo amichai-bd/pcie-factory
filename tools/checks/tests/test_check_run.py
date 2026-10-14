@@ -26,14 +26,14 @@ def test_empty_src_passes_and_reports_coverage(tmp_path, capsys):
     lines = out.out.splitlines()
     assert lines[0].startswith("check: 0 IP(s) under ")
     assert [ln.split("]")[0] for ln in lines[1:-1]] == [
-        "[filelist", "[style", "[wiki", "[neutrality", "[lint"]
+        "[layout", "[filelist", "[style", "[wiki", "[neutrality", "[lint"]
     assert "[filelist] PASS: 0 filelist(s), 0 IP(s)" in out.out
     assert "[wiki] PASS: 0 required page(s), 0 wiki folder(s)" in out.out
     assert "[lint] PASS: 0 IP(s), 0 Verilator run(s)" in out.out
     assert lines[-1] == "check: PASS"
 
 
-@pytest.mark.parametrize("only", ["filelist", "style", "wiki"])
+@pytest.mark.parametrize("only", ["layout", "filelist", "style", "wiki"])
 def test_bad_fixture_fails_each_check(only, capsys):
     code, out = check(capsys, "--src-root", str(FIXTURES / "bad/src"), "--only", only)
     assert code == 1

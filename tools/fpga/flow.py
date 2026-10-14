@@ -1,11 +1,11 @@
 """Quartus FPGA flow for one IP: project generation, compile, metrics.
 
-Inputs (``<name>`` is the IP directory name, ``<board>`` from cfg/fpga.yaml):
+Inputs (``<ip>`` is the IP id, ``<board>`` from cfg/fpga.yaml):
 
-    src/<ip>/rtl/<name>.rtl.f         flattened by build.filelist
-    src/<ip>/fpga/<board>.qsf.tcl     device, pins, I/O standards
-    src/<ip>/fpga/*.sdc               exactly one timing constraints file
-    src/<ip>/fpga/*.sv                exactly one board wrapper; its file
+    src/rtl/<ip>/<ip>.rtl.f           flattened by build.filelist
+    src/fpga/<ip>/<board>.qsf.tcl     device, pins, I/O standards
+    src/fpga/<ip>/*.sdc               exactly one timing constraints file
+    src/fpga/<ip>/*.sv                exactly one board wrapper; its file
                                       stem is the top-level module
 
 Output, all under ``workdir/<ip>/fpga/`` (cleared first):
@@ -138,16 +138,16 @@ def _one(fpga_dir: Path, pattern: str, what: str) -> Path:
 
 
 def fpga_ips(ips: list[Ip]) -> list[Ip]:
-    """IPs that are FPGA synthesis targets (have an ``fpga/`` directory)."""
-    return [ip for ip in ips if (ip.path / "fpga").is_dir()]
+    """IPs that are FPGA synthesis targets (have an ``fpga/<ip>/`` folder)."""
+    return [ip for ip in ips if ip.dir("fpga").is_dir()]
 
 
 def plan(ip: Ip, workdir: Path, board: str, part: str | None = None,
          processors: int = 1) -> Plan:
     """Validate an IP's FPGA inputs and resolve its sources."""
-    fpga_dir = ip.path / "fpga"
+    fpga_dir = ip.dir("fpga")
     if not fpga_dir.is_dir():
-        raise FpgaError(f"IP {ip.id} has no fpga/ directory (not an FPGA target)")
+        raise FpgaError(f"IP {ip.id} has no fpga/{ip.id}/ folder (not an FPGA target)")
     if part is not None and not _PART_RE.match(part):
         raise FpgaError(f"--part must be a device name like EP4CE115F29C7, got {part!r}")
     qsf_tcl = fpga_dir / f"{board}.qsf.tcl"

@@ -1,0 +1,2 @@
+-F ../../rtl/top_lfsr/top_lfsr.rtl.f
+-F top_lfsr.dv.f

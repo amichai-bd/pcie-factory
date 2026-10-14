@@ -16,12 +16,16 @@ def test_count_lines_hash_and_unknown(cfg):
 
 
 def test_discover_and_owner():
-    paths = ["src/a/rtl/a.rtl.f", "src/a/b/rtl/b.rtl.f", "src/a/rtl/x/rtl/x.rtl.f",
-             "src/c/rtl/wrong.rtl.f", "lib/d/rtl/d.rtl.f"]
+    paths = ["src/rtl/a/a.rtl.f", "src/rtl/a_b/a_b.rtl.f", "src/rtl/a/x/x.rtl.f",
+             "src/rtl/c/wrong.rtl.f", "src/rtl/common/common.rtl.f", "lib/rtl/d/d.rtl.f",
+             "src/e/rtl/e.rtl.f"]  # the superseded IP-first form is not an IP
     ips = discover_ips(paths, "src")
-    assert ips == ["a", "a/b"]
-    assert owner("src/a/b/dv/t.py", ips, "src") == "a/b"
-    assert owner("src/a/dv/t.py", ips, "src") == "a"
+    assert ips == ["a", "a_b"]
+    assert owner("src/dv/a_b/tests/t.py", ips, "src") == "a_b"
+    assert owner("src/dv/a/t.py", ips, "src") == "a"
+    assert owner("src/fpga/a/a.sdc", ips, "src") == "a"
+    assert owner("src/rtl/common/c.sv", ips, "src") is None
+    assert owner("src/misc/a/x", ips, "src") is None
     assert owner("src/README.md", ips, "src") is None
 
 
@@ -30,12 +34,12 @@ def test_code_stats_from_tree(repo, cfg):
     paths = [f.path for f in files]
     assert "wiki/tracker/data/old.json" not in paths  # excluded
     assert stats["total"]["files"] == len(files) == 8
-    assert set(stats["ips"]) == {"blk", "blk/sub"}
+    assert set(stats["ips"]) == {"blk", "blk_sub"}
     blk = stats["ips"]["blk"]
     assert blk["files"] == 3  # sub-IP files are not counted in the parent
     assert blk["kinds"]["rtl_sv"] == {"files": 1, "lines": 5, "code": 2}
     assert blk["kinds"]["dv_py"]["files"] == 1
-    assert stats["ips"]["blk/sub"]["kinds"]["rtl_sv"]["code"] == 1
+    assert stats["ips"]["blk_sub"]["kinds"]["rtl_sv"]["code"] == 1
     assert stats["kinds"]["tools_py"] == {"files": 1, "lines": 3, "code": 2}
     assert stats["by_ext"][".bin"]["lines"] == 0  # binary
     assert stats["by_dir"]["."]["files"] == 2  # README.md, logo.bin

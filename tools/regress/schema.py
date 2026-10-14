@@ -127,9 +127,9 @@ def load_level(ip: Ip, level: int) -> list[TestEntry]:
     return [parse_entry(raw, ip.id, level, f"{path}: tests[{i}]") for i, raw in enumerate(tests)]
 
 
-def load_ip(ip: Ip, child_names: set[str] = frozenset()) -> list[TestEntry]:
-    """All tests of one IP across levels; names must be unique per IP and
-    must not collide with a sub-IP directory name (they share workdir/<ip>/)."""
+def load_ip(ip: Ip) -> list[TestEntry]:
+    """All tests of one IP across levels; names must be unique per IP (they
+    share workdir/<ip>/)."""
     seen: dict[str, int] = {}
     entries = []
     for level in LEVELS:
@@ -138,11 +138,6 @@ def load_ip(ip: Ip, child_names: set[str] = frozenset()) -> list[TestEntry]:
                 raise SchemaError(
                     f"{ip.level_file(level)}: test {entry.name!r} already defined "
                     f"in level{seen[entry.name]}.yaml of IP {ip.id}"
-                )
-            if entry.name in child_names:
-                raise SchemaError(
-                    f"{ip.level_file(level)}: test name {entry.name!r} collides with "
-                    f"sub-IP directory {ip.id}/{entry.name}"
                 )
             seen[entry.name] = level
             entries.append(entry)

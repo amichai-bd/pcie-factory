@@ -18,16 +18,16 @@ import re
 from pathlib import Path
 
 from build.filelist import FilelistError, resolve
-from build.ip import Ip, owner_ip
+from build.ip import SHARED_DIR, Ip, locate, owner_ip
 from checks import filelists
 from checks.common import (
     COMMON_PREFIX,
     CheckResult,
-    ip_stem,
+    in_kind,
+    kind_files,
     line_of,
     read_prefix,
     rel,
-    rtl_files,
     selected,
     strip_comments_and_strings,
 )
@@ -255,14 +255,14 @@ def check_text(relpath: str, raw: str, expected_prefix: str | None) -> list[str]
 
 
 def expected_prefix(path: Path, src_root: Path, ips: list[Ip], prefix: str | None) -> str | None:
-    """``common_`` under src/common/, else ``<prefix><ip>`` for the owning
-    IP (``<prefix>`` alone when no IP owns the file)."""
-    if Path(path).resolve().relative_to(src_root).parts[0] == "common":
+    """``common_`` under ``<kind>/common/``, else ``<prefix><ip>`` for the
+    owning IP (``<prefix>`` alone when no IP owns the file)."""
+    if locate(src_root, path)[1] == SHARED_DIR:
         return COMMON_PREFIX
     if prefix is None:
         return None
     owner = owner_ip(ips, path)
-    return prefix + ip_stem(owner) if owner is not None else prefix
+    return prefix + owner.id if owner is not None else prefix
 
 
 def include_scope(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> list[Path]:
@@ -271,7 +271,7 @@ def include_scope(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> lis
     every file below an ``fpga/`` directory."""
     found: set[Path] = set()
     for f in filelists.all_filelists(src_root):
-        if "rtl" not in f.relative_to(src_root).parts or not selected(f, ips, ip_ids):
+        if not in_kind(f, src_root, ("rtl",)) or not selected(f, ips, ip_ids):
             continue
         try:
             dirs = resolve(f).incdirs
@@ -280,16 +280,13 @@ def include_scope(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> lis
         for d in dirs:
             if d == src_root or src_root in d.parents:
                 found.update(p for p in d.rglob("*") if p.is_file())
-    for p in Path(src_root).rglob("*"):
-        if p.is_file() and "fpga" in p.relative_to(src_root).parts[:-1] \
-                and selected(p, ips, ip_ids):
-            found.add(p)
+    found.update(p for p in kind_files(src_root, ("fpga",), None) if selected(p, ips, ip_ids))
     return sorted(found)
 
 
 def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
     prefix = read_prefix(src_root)
-    files = [f for f in rtl_files(src_root, ("rtl", "fpga")) if selected(f, ips, ip_ids)]
+    files = [f for f in kind_files(src_root, ("rtl", "fpga")) if selected(f, ips, ip_ids)]
     extra = [f for f in include_scope(src_root, ips, ip_ids) if f not in set(files)]
     result = CheckResult("style", f"{len(files)} RTL file(s), {len(RULES)} rule(s); "
                          f"{len(extra)} other includable or fpga/ file(s) for directives")

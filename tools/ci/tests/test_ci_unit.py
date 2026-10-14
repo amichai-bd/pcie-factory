@@ -23,11 +23,11 @@ def repo(tmp_path, fixture_src):
     r = tmp_path / "repo"
     r.mkdir()
     fixture_src.rename(r / "src")
-    for ip in ("counter", "counter/inc"):
-        d = r / "src" / ip / "dv/models"
+    for ip in ("counter", "counter_inc"):
+        d = r / "src/dv" / ip / "models"
         d.mkdir(parents=True)
         (d / "test_m.py").write_text("def test_ok():\n    assert True\n")
-    arch = r / "src/counter/arch"
+    arch = r / "src/arch/counter"
     (arch / "perf").mkdir(parents=True)
     (arch / "test_a.py").write_text("def test_ok():\n    assert True\n")
     (arch / "xy_counter_arch.py").write_text("def perf(workload, seed):\n    return {'x': 1}\n")
@@ -51,23 +51,23 @@ def names(suites):
     return [s.name for s in suites]
 
 
-ALL = ["tools", "models:counter", "arch:counter", "perf:counter", "models:counter/inc"]
+ALL = ["tools", "models:counter", "arch:counter", "perf:counter", "models:counter_inc"]
 
 
 def test_all_without_affected(repo):
     got = unit.plan(ctx(repo), RULES, None)
     assert names(got) == ALL
     assert got[0].args == ("-m", "pytest", "-q", "tools") and got[0].cwd == repo
-    assert got[1].cwd == repo / "src/counter/dv/models"
-    assert got[2].cwd == repo / "src/counter/arch" and got[2].args[:2] == ("-m", "pytest")
+    assert got[1].cwd == repo / "src/dv/counter/models"
+    assert got[2].cwd == repo / "src/arch/counter" and got[2].args[:2] == ("-m", "pytest")
     assert got[3].args[1:4] == ("arch", "--ip", "counter")
 
 
 def test_arch_change_runs_the_ip_suites(repo):
-    (repo / "src/counter/arch/xy_counter_arch.py").write_text("def perf(w, s):\n    return {}\n")
+    (repo / "src/arch/counter/xy_counter_arch.py").write_text("def perf(w, s):\n    return {}\n")
     got = unit.plan(ctx(repo), RULES, "main")
     assert names(got) == ["models:counter", "arch:counter", "perf:counter"]
-    assert got[0].reason == "changed: src/counter/arch/xy_counter_arch.py"
+    assert got[0].reason == "changed: src/arch/counter/xy_counter_arch.py"
 
 
 def test_arch_suites_run_and_perf_writes_its_result(repo, capsys):
@@ -75,7 +75,7 @@ def test_arch_suites_run_and_perf_writes_its_result(repo, capsys):
               ("arch", "perf")]
     assert unit.run(suites, out=sys.stdout) == 0
     assert (repo / "workdir/counter/arch/perf.json").is_file()
-    (repo / "src/counter/arch/perf/s.yaml").write_text(
+    (repo / "src/arch/counter/perf/s.yaml").write_text(
         "description: d\nseed: 1\nworkload: {}\ntargets: {x: {min: 2}}\n")
     assert unit.run(suites, out=sys.stdout) == 1
     assert "[unit] perf:counter: FAIL (exit 1)" in capsys.readouterr().out
@@ -94,28 +94,28 @@ def test_global_change_runs_everything(repo):
 
 
 def test_sub_ip_model_change_runs_parent_models(repo):
-    (repo / "src/counter/inc/dv/models/inc_model.py").write_text("")
+    (repo / "src/dv/counter_inc/models/inc_model.py").write_text("")
     assert names(unit.plan(ctx(repo), RULES, "main")) == [
-        "models:counter", "arch:counter", "perf:counter", "models:counter/inc"]
+        "models:counter", "arch:counter", "perf:counter", "models:counter_inc"]
 
 
 def test_parent_change_runs_only_parent_models(repo):
-    (repo / "src/counter/dv/models/counter_model.py").write_text("")
+    (repo / "src/dv/counter/models/counter_model.py").write_text("")
     assert names(unit.plan(ctx(repo), RULES, "main")) == [
         "models:counter", "arch:counter", "perf:counter"]
 
 
 def test_models_dir_without_tests_is_skipped(repo):
-    (repo / "src/counter/inc/dv/models/test_m.py").unlink()
+    (repo / "src/dv/counter_inc/models/test_m.py").unlink()
     assert names(unit.plan(ctx(repo), RULES, None)) == ALL[:-1]
 
 
 def test_run_reports_failure_and_continues(repo, capsys):
-    (repo / "src/counter/dv/models/test_m.py").write_text("def test_bad():\n    assert False\n")
+    (repo / "src/dv/counter/models/test_m.py").write_text("def test_bad():\n    assert False\n")
     suites = [s for s in unit.plan(ctx(repo), RULES, None) if s.name.startswith("models:")]
     assert unit.run(suites, out=sys.stdout) == 1
     out = capsys.readouterr().out
-    assert "[unit] models:counter: FAIL" in out and "[unit] models:counter/inc: PASS" in out
+    assert "[unit] models:counter: FAIL" in out and "[unit] models:counter_inc: PASS" in out
     assert "1/2 suite(s) passed; failed: models:counter" in out
 
 

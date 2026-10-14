@@ -32,8 +32,8 @@ SDC = "create_clock -name clk -period 8.5 [get_ports clk_i]\n"
 
 @pytest.fixture
 def asic_src(fixture_src):
-    asic = fixture_src / "counter" / "asic"
-    asic.mkdir()
+    asic = fixture_src / "asic" / "counter"
+    asic.mkdir(parents=True)
     (asic / "sky130hd.mk").write_text(MK)
     (asic / "counter.sdc").write_text(SDC)
     return fixture_src
@@ -60,15 +60,15 @@ def native_env(monkeypatch, mode="ok"):
 def test_config_mk_flattens_filelist(ctx):
     plan = plan_for(ctx)
     text = flow.render_config_mk(plan)
-    src = ctx.src_root / "counter"
-    assert f"include {src / 'asic' / 'sky130hd.mk'}" in text
+    src = ctx.src_root
+    assert f"include {src / 'asic' / 'counter' / 'sky130hd.mk'}" in text
     assert "export PLATFORM = sky130hd" in text
     assert "export DESIGN_NICKNAME = counter" in text
-    assert f"export SDC_FILE = {src / 'asic' / 'counter.sdc'}" in text
+    assert f"export SDC_FILE = {src / 'asic' / 'counter' / 'counter.sdc'}" in text
     # Sub-IP source first, then the top, as the filelist orders them.
     files = text.split("export VERILOG_FILES = ", 1)[1].split("export ", 1)[0]
     assert files.index("inc.sv") < files.index("counter.sv")
-    assert f"export VERILOG_INCLUDE_DIRS = {src / 'rtl' / 'include'}" in text
+    assert f"export VERILOG_INCLUDE_DIRS = {src / 'rtl' / 'counter' / 'include'}" in text
     assert "-DCOUNTER_FIXTURE" in text
     assert plan.design == "counter" and plan.clock_period_ns == 8.5
 
@@ -77,15 +77,10 @@ def test_config_mk_is_deterministic(ctx):
     assert flow.render_config_mk(plan_for(ctx)) == flow.render_config_mk(plan_for(ctx))
 
 
-def test_sub_ip_nickname(asic_src, tmp_path):
-    asic = asic_src / "counter" / "inc" / "asic"
-    asic.mkdir()
-    (asic / "sky130hd.mk").write_text("DESIGN_NAME = inc\n")
-    (asic / "inc.sdc").write_text(SDC)
-    c = make_context(str(asic_src), str(tmp_path / "w"))
-    plan = plan_for(c, "counter/inc")
-    assert plan.nick == "counter_inc"
-    assert plan.out == tmp_path / "w" / "counter" / "inc" / "asic"
+def test_nickname_and_output_follow_the_ip_id(ctx, tmp_path):
+    plan = plan_for(ctx)
+    assert plan.nick == "counter"
+    assert plan.out == tmp_path / "work" / "counter" / "asic"
 
 
 @pytest.mark.parametrize("bad, message", [
@@ -99,13 +94,13 @@ def test_sub_ip_nickname(asic_src, tmp_path):
     ("NUM_CORES = 64\n", "NUM_CORES"),
 ])
 def test_mk_must_not_set_tool_owned(ctx, bad, message):
-    (ctx.src_root / "counter" / "asic" / "sky130hd.mk").write_text(MK + bad)
+    (ctx.src_root / "asic" / "counter" / "sky130hd.mk").write_text(MK + bad)
     with pytest.raises(flow.AsicError, match=message):
         plan_for(ctx)
 
 
 def test_mk_needs_design_name(ctx):
-    (ctx.src_root / "counter" / "asic" / "sky130hd.mk").write_text("CORE_UTILIZATION = 1\n")
+    (ctx.src_root / "asic" / "counter" / "sky130hd.mk").write_text("CORE_UTILIZATION = 1\n")
     with pytest.raises(flow.AsicError, match="DESIGN_NAME is required"):
         plan_for(ctx)
 
@@ -123,7 +118,7 @@ def test_missing_asic_dir(fixture_src, tmp_path):
 
 
 def test_needs_exactly_one_sdc(ctx):
-    (ctx.src_root / "counter" / "asic" / "other.sdc").write_text(SDC)
+    (ctx.src_root / "asic" / "counter" / "other.sdc").write_text(SDC)
     with pytest.raises(flow.AsicError, match="exactly one .sdc"):
         plan_for(ctx)
 

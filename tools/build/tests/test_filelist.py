@@ -114,7 +114,7 @@ def test_reaches(tree):
 
 
 def test_fixture_filelists(fixture_src):
-    r = resolve(fixture_src / "counter/dv/counter.sim.f")
+    r = resolve(fixture_src / "dv/counter/counter.sim.f")
     assert [p.name for p in r.sources] == ["inc.sv", "counter.sv"]
     assert r.defines == {"COUNTER_FIXTURE": None}
     assert [p.name for p in r.incdirs] == ["include"]

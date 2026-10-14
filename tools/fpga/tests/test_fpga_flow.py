@@ -32,20 +32,20 @@ def src(tmp_path) -> Path:
     """A synthetic tree: IP ``widget`` (FPGA target, one include dir and one
     define) and IP ``plain`` (no fpga/)."""
     root = tmp_path / "src"
-    rtl = root / "widget" / "rtl"
+    rtl = root / "rtl" / "widget"
     (rtl / "inc").mkdir(parents=True)
     (rtl / "widget_pkg.sv").write_text("package widget_pkg; endpackage\n")
     (rtl / "widget.sv").write_text("module widget(input logic clk_i, output logic q_o); endmodule\n")
     (rtl / "widget.rtl.f").write_text(
         "+incdir+inc\n+define+WIDTH=8\n+define+FAST\nwidget_pkg.sv\nwidget.sv\n")
-    fpga_dir = root / "widget" / "fpga"
-    fpga_dir.mkdir()
+    fpga_dir = root / "fpga" / "widget"
+    fpga_dir.mkdir(parents=True)
     (fpga_dir / f"{TOP}.sv").write_text(WRAPPER)
     (fpga_dir / "widget.sdc").write_text("create_clock -period 20 [get_ports clk_i]\n")
     (fpga_dir / "de2_115.qsf.tcl").write_text("set_global_assignment -name DEVICE EP4CE115F29C7\n")
-    (root / "plain" / "rtl").mkdir(parents=True)
-    (root / "plain" / "rtl" / "plain.rtl.f").write_text("plain.sv\n")
-    (root / "plain" / "rtl" / "plain.sv").write_text("module plain; endmodule\n")
+    (root / "rtl" / "plain").mkdir(parents=True)
+    (root / "rtl" / "plain" / "plain.rtl.f").write_text("plain.sv\n")
+    (root / "rtl" / "plain" / "plain.sv").write_text("module plain; endmodule\n")
     return root
 
 
@@ -77,14 +77,14 @@ def test_project_tcl(src, tmp_path):
     assert f"project_new {{{TOP}}} -revision {{{TOP}}} -overwrite" in lines
     assert f"set_global_assignment -name TOP_LEVEL_ENTITY {{{TOP}}}" in lines
     assert "set_global_assignment -name NUM_PARALLEL_PROCESSORS 3" in lines
-    assert f"set_global_assignment -name SEARCH_PATH {{{src / 'widget/rtl/inc'}}}" in lines
+    assert f"set_global_assignment -name SEARCH_PATH {{{src / 'rtl/widget/inc'}}}" in lines
     assert "set_global_assignment -name VERILOG_MACRO {WIDTH=8}" in lines
     assert "set_global_assignment -name VERILOG_MACRO {FAST}" in lines
     files = [ln for ln in lines if "SYSTEMVERILOG_FILE" in ln]
     assert [Path(f.split("{")[1].rstrip("}")).name for f in files] == [
         "widget_pkg.sv", "widget.sv", f"{TOP}.sv"]
     # Board file after the sources, --part after the board file.
-    i_src = lines.index(f"source {{{src / 'widget/fpga/de2_115.qsf.tcl'}}}")
+    i_src = lines.index(f"source {{{src / 'fpga/widget/de2_115.qsf.tcl'}}}")
     i_part = lines.index("set_global_assignment -name DEVICE EP4CE22F17C6")
     assert lines.index(files[-1]) < i_src < i_part
     assert lines[-2:] == ["export_assignments", "project_close"]
@@ -131,20 +131,20 @@ def test_fpga_ips(src):
      f"does not declare module {TOP}"),
 ])
 def test_plan_input_errors(src, tmp_path, mutate, message):
-    mutate(src / "widget" / "fpga")
+    mutate(src / "fpga" / "widget")
     with pytest.raises(FpgaError, match=message):
         make_plan(src, tmp_path)
 
 
 def test_plan_wrapper_in_rtl_f(src, tmp_path):
-    with open(src / "widget/rtl/widget.rtl.f", "a") as fh:
-        fh.write(f"../fpga/{TOP}.sv\n")
+    with open(src / "rtl/widget/widget.rtl.f", "a") as fh:
+        fh.write(f"../../fpga/widget/{TOP}.sv\n")
     with pytest.raises(FpgaError, match="must not be in widget.rtl.f"):
         make_plan(src, tmp_path)
 
 
 def test_plan_not_fpga_target(src, tmp_path):
-    with pytest.raises(FpgaError, match="no fpga/ directory"):
+    with pytest.raises(FpgaError, match="no fpga/plain/ folder"):
         flow.plan(find_ip(discover(src), "plain"), tmp_path, "de2_115")
 
 
@@ -324,7 +324,7 @@ def test_cli_not_fpga_target(src, tmp_path, capsys):
     argv = ["fpga", "--src-root", str(src), "--workdir", str(tmp_path), "--ip", "plain",
             "--dry-run"]
     assert main(argv) == 2
-    assert "no fpga/ directory" in capsys.readouterr().err
+    assert "no fpga/plain/ folder" in capsys.readouterr().err
 
 
 def test_cli_quartus_missing(src, tmp_path, monkeypatch, capsys):

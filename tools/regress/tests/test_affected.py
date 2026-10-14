@@ -56,27 +56,27 @@ def test_unrelated_file(repo):
 
 
 def test_own_file_of_parent_only(repo):
-    (repo / "src/counter/dv/tests/test_counter.py").write_text("# x\n")
+    (repo / "src/dv/counter/tests/test_counter.py").write_text("# x\n")
     commit(repo)  # committed changes count
-    assert affected(repo) == {"counter": "changed: src/counter/dv/tests/test_counter.py"}
+    assert affected(repo) == {"counter": "changed: src/dv/counter/tests/test_counter.py"}
 
 
 def test_sub_ip_rtl_reaches_parent(repo):
-    (repo / "src/counter/inc/rtl/inc.sv").write_text("// x\n")  # uncommitted
+    (repo / "src/rtl/counter_inc/inc.sv").write_text("// x\n")  # uncommitted
     got = affected(repo)
-    assert got["counter/inc"] == "changed: src/counter/inc/rtl/inc.sv"
-    assert got["counter"] == "reaches: src/counter/inc/rtl/inc.sv"
+    assert got["counter_inc"] == "changed: src/rtl/counter_inc/inc.sv"
+    assert got["counter"] == "reaches: src/rtl/counter_inc/inc.sv"
 
 
 def test_sub_ip_dv_change_does_not_select_parent(repo):
-    """Files under a nested sub-IP are not the parent's own files; the parent
-    is selected only if its filelists reach the changed file."""
-    (repo / "src/counter/inc/dv/tests/test_inc.py").write_text("# x\n")
-    assert affected(repo) == {"counter/inc": "changed: src/counter/inc/dv/tests/test_inc.py"}
+    """A sub-IP's files are not the parent's own files; the parent is
+    selected only if its filelists reach the changed file."""
+    (repo / "src/dv/counter_inc/tests/test_inc.py").write_text("# x\n")
+    assert affected(repo) == {"counter_inc": "changed: src/dv/counter_inc/tests/test_inc.py"}
 
 
 def test_untracked_include_header_reaches(repo):
-    (repo / "src/counter/rtl/include/new.svh").write_text("")
+    (repo / "src/rtl/counter/include/new.svh").write_text("")
     assert set(affected(repo)) == {"counter"}
 
 
@@ -84,25 +84,25 @@ def test_untracked_include_header_reaches(repo):
 def test_global_change_selects_all(repo, path):
     (repo / path).write_text("changed")
     got = affected(repo)
-    assert set(got) == {"counter", "counter/inc"}
+    assert set(got) == {"counter", "counter_inc"}
     assert all(v == f"global change: {path}" for v in got.values())
 
 
 def test_broken_filelist_selects_ip(repo):
-    (repo / "src/counter/inc/rtl/inc.sv").unlink()
+    (repo / "src/rtl/counter_inc/inc.sv").unlink()
     got = affected(repo)
     assert got["counter"] == "sim filelist does not resolve"
 
 
 def test_path_with_spaces(repo):
-    (repo / "src/counter/inc/dv/notes with spaces.txt").write_text("x")
-    assert affected(repo) == {"counter/inc": "changed: src/counter/inc/dv/notes with spaces.txt"}
+    (repo / "src/dv/counter_inc/notes with spaces.txt").write_text("x")
+    assert affected(repo) == {"counter_inc": "changed: src/dv/counter_inc/notes with spaces.txt"}
 
 
 def test_rename_counts_old_and_new_path(repo):
-    git(repo, "mv", "src/counter/inc/dv/tests/test_inc.py", "src/counter/dv/tests/moved.py")
+    git(repo, "mv", "src/dv/counter_inc/tests/test_inc.py", "src/dv/counter/tests/moved.py")
     commit(repo)
-    assert set(affected(repo)) == {"counter", "counter/inc"}
+    assert set(affected(repo)) == {"counter", "counter_inc"}
 
 
 def test_bad_base(repo):
@@ -111,59 +111,68 @@ def test_bad_base(repo):
 
 
 def test_shared_dv_change_selects_all(repo):
-    (repo / "src/common/dv/helpers").mkdir(parents=True)
-    (repo / "src/common/dv/helpers/util.py").write_text("")
+    (repo / "src/dv/common/helpers").mkdir(parents=True)
+    (repo / "src/dv/common/helpers/util.py").write_text("")
     assert affected(repo) == {
-        "counter": "shared DV change: src/common/dv/helpers/util.py",
-        "counter/inc": "shared DV change: src/common/dv/helpers/util.py",
+        "counter": "shared DV change: src/dv/common/helpers/util.py",
+        "counter_inc": "shared DV change: src/dv/common/helpers/util.py",
     }
 
 
 def test_shared_rtl_change_selects_only_reaching_ips(repo):
-    (repo / "src/common/rtl").mkdir(parents=True)
-    (repo / "src/common/rtl/common_x.sv").write_text("")
+    (repo / "src/rtl/common").mkdir(parents=True)
+    (repo / "src/rtl/common/common_x.sv").write_text("")
     assert affected(repo) == {}
 
 
 def test_sub_ip_model_change_selects_ancestors(repo):
-    (repo / "src/counter/inc/dv/models").mkdir(parents=True)
-    (repo / "src/counter/inc/dv/models/inc_model.py").write_text("")
+    (repo / "src/dv/counter_inc/models").mkdir(parents=True)
+    (repo / "src/dv/counter_inc/models/inc_model.py").write_text("")
     assert affected(repo) == {
-        "counter": "sub-IP model: src/counter/inc/dv/models/inc_model.py",
-        "counter/inc": "changed: src/counter/inc/dv/models/inc_model.py",
+        "counter": "sub-IP model: src/dv/counter_inc/models/inc_model.py",
+        "counter_inc": "changed: src/dv/counter_inc/models/inc_model.py",
     }
 
 
 def test_sub_ip_non_model_dv_change_selects_only_sub_ip(repo):
-    (repo / "src/counter/inc/dv/tests/test_inc.py").write_text("# x\n")
-    assert affected(repo) == {"counter/inc": "changed: src/counter/inc/dv/tests/test_inc.py"}
+    (repo / "src/dv/counter_inc/tests/test_inc.py").write_text("# x\n")
+    assert affected(repo) == {"counter_inc": "changed: src/dv/counter_inc/tests/test_inc.py"}
 
 
 def test_parent_model_change_does_not_select_sub_ip(repo):
-    (repo / "src/counter/dv/models").mkdir(parents=True)
-    (repo / "src/counter/dv/models/counter_model.py").write_text("")
-    assert affected(repo) == {"counter": "changed: src/counter/dv/models/counter_model.py"}
+    (repo / "src/dv/counter/models").mkdir(parents=True)
+    (repo / "src/dv/counter/models/counter_model.py").write_text("")
+    assert affected(repo) == {"counter": "changed: src/dv/counter/models/counter_model.py"}
 
 
 def test_arch_change_selects_only_its_ip(repo):
-    (repo / "src/counter/arch/perf").mkdir(parents=True)
-    (repo / "src/counter/arch/perf/s.yaml").write_text("")
-    assert affected(repo) == {"counter": "changed: src/counter/arch/perf/s.yaml"}
+    (repo / "src/arch/counter/perf").mkdir(parents=True)
+    (repo / "src/arch/counter/perf/s.yaml").write_text("")
+    assert affected(repo) == {"counter": "changed: src/arch/counter/perf/s.yaml"}
 
 
 def test_nested_sub_ip_model_change_selects_all_ancestors(repo):
-    deep = repo / "src/counter/inc/deep"
-    (deep / "rtl").mkdir(parents=True)
-    (deep / "rtl/deep.rtl.f").write_text("")
+    deep = repo / "src/rtl/counter_inc_deep"
+    deep.mkdir(parents=True)
+    (deep / "counter_inc_deep.rtl.f").write_text("")
+    inc_f = repo / "src/rtl/counter_inc/counter_inc.rtl.f"
+    inc_f.write_text("-F ../counter_inc_deep/counter_inc_deep.rtl.f\n" + inc_f.read_text())
     commit_all(repo)
-    (deep / "dv/models").mkdir(parents=True)
-    (deep / "dv/models/deep_model.py").write_text("")
-    rel = "src/counter/inc/deep/dv/models/deep_model.py"
+    (repo / "src/dv/counter_inc_deep/models").mkdir(parents=True)
+    (repo / "src/dv/counter_inc_deep/models/deep_model.py").write_text("")
+    rel = "src/dv/counter_inc_deep/models/deep_model.py"
     assert affected(repo) == {
         "counter": f"sub-IP model: {rel}",
-        "counter/inc": f"sub-IP model: {rel}",
-        "counter/inc/deep": f"changed: {rel}",
+        "counter_inc": f"sub-IP model: {rel}",
+        "counter_inc_deep": f"changed: {rel}",
     }
+
+
+def test_sibling_with_shared_prefix_is_not_owned(repo):
+    """Ownership is by kind folder name, never by id prefix."""
+    (repo / "src/dv/counter_incx").mkdir(parents=True)
+    (repo / "src/dv/counter_incx/x.py").write_text("")
+    assert affected(repo) == {}
 
 
 def commit_all(repo: Path) -> None:

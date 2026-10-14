@@ -3,8 +3,8 @@
 Four kinds of suite, all pure Python (no simulator):
 
 - ``tools``: the tools unit tests (``tools_tests`` in cfg/ci.yaml).
-- ``models:<ip>``: the reference-model unit tests in ``<ip>/<models>/``.
-- ``arch:<ip>``: the architecture-model self-tests in ``<ip>/<arch>/``.
+- ``models:<ip>``: the reference-model unit tests in ``dv/<ip>/<models>/``.
+- ``arch:<ip>``: the architecture-model self-tests in ``arch/<ip>/``.
 - ``perf:<ip>``: ``./build arch --ip <ip>``, the IP's perf scenarios.
 
 Without ``--affected`` every suite runs. With it, ``tools`` runs when a
@@ -20,7 +20,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from arch.perf import PERF_DIR
+from arch.perf import ARCH_DIR, PERF_DIR
 from build.ip import REPO_ROOT, Context, Ip, discover
 from ci.config import CiRules
 from regress.affected import changed_files, select_affected
@@ -60,11 +60,10 @@ def plan(ctx: Context, rules: CiRules, affected_base: str | None) -> list[Suite]
             continue
         # Run in the models or arch directory: modules there are imported by
         # bare name, and each is its own pytest session so names never mix.
-        for kind, sub in (("models", rules.models), ("arch", rules.arch)):
-            d = ip.path / sub
+        for kind, d in (("models", ip.dv_dir / rules.models), ("arch", ip.dir(ARCH_DIR))):
             if _has_tests(d):
                 suites.append(Suite(f"{kind}:{ip.id}", hit[ip.id], d, _PYTEST_HERE))
-        if (ip.path / rules.arch / PERF_DIR).is_dir():
+        if (ip.dir(ARCH_DIR) / PERF_DIR).is_dir():
             suites.append(Suite(f"perf:{ip.id}", hit[ip.id], ctx.repo_root, (
                 str(REPO_ROOT / "build"), "arch", "--ip", ip.id,
                 "--src-root", str(ctx.src_root), "--workdir", str(ctx.workdir))))

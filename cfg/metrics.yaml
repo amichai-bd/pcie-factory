@@ -13,7 +13,8 @@ branch_prefix: nightly/
 data_author: "41898282+github-actions[bot]@users.noreply.github.com"
 
 # Source root, relative to the repository, where IPs are discovered in each
-# commit's tree (an IP is a directory D holding rtl/<basename(D)>.rtl.f).
+# commit's tree (kind-first: an IP is a folder rtl/<id>/ holding <id>.rtl.f, and
+# owns <kind>/<id>/ under every kind folder).
 src_root: src
 
 # Tracked files left out of every code statistic (the records themselves).
@@ -21,12 +22,12 @@ exclude: ["wiki/tracker/data/**"]
 
 # File kinds, counted over tracked files. A file may match several kinds.
 kinds:
-  rtl_sv: ["src/**/rtl/**/*.sv", "src/**/rtl/**/*.svh", "src/**/rtl/**/*.v"]
-  dv_sv: ["src/**/dv/**/*.sv", "src/**/dv/**/*.svh"]
-  dv_py: ["src/**/dv/**/*.py"]
+  rtl_sv: ["src/rtl/**/*.sv", "src/rtl/**/*.svh", "src/rtl/**/*.v"]
+  dv_sv: ["src/dv/**/*.sv", "src/dv/**/*.svh"]
+  dv_py: ["src/dv/**/*.py"]
   tools_py: ["tools/**/*.py", "build"]
   wiki_md: ["wiki/**/*.md", "*.md"]
-  config: ["cfg/**/*.yaml", "src/**/*.yaml", "src/**/*.f", "src/**/fpga/**", "src/**/asic/**"]
+  config: ["cfg/**/*.yaml", "src/**/*.yaml", "src/**/*.f", "src/fpga/**", "src/asic/**"]
   workflows: [".github/workflows/*.yml", ".github/workflows/*.yaml"]
   skills: [".claude/skills/**/*.md"]
 

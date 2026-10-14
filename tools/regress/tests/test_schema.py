@@ -72,8 +72,8 @@ def test_entry_must_be_mapping():
 
 
 def make_ip(tmp_path: Path, levels: dict) -> Ip:
-    ip = Ip("a", tmp_path / "a")
-    (ip.path / "dv/regress").mkdir(parents=True)
+    ip = Ip("a", tmp_path)
+    (ip.dv_dir / "regress").mkdir(parents=True)
     for level, text in levels.items():
         ip.level_file(level).write_text(text)
     return ip
@@ -111,12 +111,6 @@ def test_duplicate_name_across_levels(tmp_path):
     ip = make_ip(tmp_path, {0: entry, 2: entry})
     with pytest.raises(SchemaError, match="already defined in level0.yaml"):
         load_ip(ip)
-
-
-def test_name_collides_with_sub_ip(tmp_path):
-    ip = make_ip(tmp_path, {0: "tests:\n  - {name: sub, module: m, top: t, timeout_s: 1}\n"})
-    with pytest.raises(SchemaError, match="collides with sub-IP"):
-        load_ip(ip, {"sub"})
 
 
 def test_fixture_lists_valid(fixture_src):

@@ -124,7 +124,7 @@ def test_collect_end_to_end_is_publishable(repo, tmp_path, cfg, monkeypatch):
                                      "duration_s": 5400.0}
     assert rec["code"]["commits"] == 2 and rec["code"]["contributors"] == 1
     assert rec["code"]["repo_size_kb"] == 1234
-    assert set(rec["code"]["ips"]) == {"blk", "blk/sub"}
+    assert set(rec["code"]["ips"]) == {"blk", "blk_sub"}
     assert rec["tests"]["status"] == rec["fpga"]["status"] == rec["asic"]["status"] == "ok"
     assert rec["github"]["issues"]["status"] == "ok"
     assert rec["distributions"]["test_runtime_s"] == [0.75, 1.5, 38.0, 40.25]

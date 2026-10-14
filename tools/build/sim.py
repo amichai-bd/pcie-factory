@@ -5,7 +5,7 @@ child process (``python3 -B tools/build/sim.py <phase> <job.json>``) that uses
 cocotb's Python runner, so a hung simulation can be killed on timeout and
 tests can run in parallel.
 
-Output layout (``<ip>`` is the IP id, e.g. ``a`` or ``a/b``):
+Output layout (``<ip>`` is the IP id, e.g. ``a`` or ``a_b``):
 
     workdir/<ip>/build/<top>[-<hash>]/   Verilator build, build.log
     workdir/<ip>/<test>/<seed>/          results.xml, sim.log, waves

@@ -27,7 +27,7 @@ import yaml
 from build import sim
 from build.filelist import FilelistError, Resolved, resolve
 from build.ip import Ip
-from checks.common import SV_SUFFIXES, CheckConfigError, CheckResult, ip_stem, read_prefix, rel
+from checks.common import SV_SUFFIXES, CheckConfigError, CheckResult, in_kind, read_prefix, rel
 
 WAIVER_FILE = "lint_waivers.yaml"
 LINT_TIMEOUT_S = 600.0
@@ -184,10 +184,9 @@ def audit_preprocessed(output: str, src_root: Path, allowed_extra: tuple[Path, .
     for path in entered:
         if path in allowed:
             continue
-        inside = src_root in path.parents
-        if not inside or "rtl" not in path.relative_to(src_root).parts[:-1]:
-            out.append(f"verilator reads {rel(path, src_root)}, which is not below an rtl/ "
-                       "directory in the source root")
+        if not in_kind(path, src_root, ("rtl",)):
+            out.append(f"verilator reads {rel(path, src_root)}, which is not below rtl/ "
+                       "in the source root")
     return list(dict.fromkeys(out))
 
 
@@ -202,10 +201,10 @@ class Target:
 
 
 def targets(ip: Ip, flat: Resolved, prefix: str | None) -> list[Target]:
-    expected = (prefix or "") + ip_stem(ip)
+    expected = (prefix or "") + ip.id
     top = expected if expected in declared_modules(flat.sources) else None
     out = [Target(ip.id, flat, (), top)]
-    fpga = ip.path / "fpga"
+    fpga = ip.dir("fpga")
     if fpga.is_dir():
         for w in sorted(fpga.glob("*.sv")):
             out.append(Target(f"{ip.id} + fpga/{w.name}", flat, (w,), w.stem))
@@ -230,8 +229,7 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                 f"{ip.id}: not linted: rtl filelist lists non-.sv/.svh source(s): "
                 + ", ".join(rel(s, src_root) for s in foreign))
             continue
-        outside = [d for d in flat.incdirs
-                   if not (src_root in d.parents and "rtl" in d.relative_to(src_root).parts)]
+        outside = [d for d in flat.incdirs if not in_kind(d, src_root, ("rtl",))]
         if outside:  # files included from there escape the rtl/ allowlist
             result.findings.append(
                 f"{ip.id}: not linted: rtl filelist includes from outside rtl/: "

@@ -1,0 +1,6 @@
+tests:
+  - name: smoke
+    module: tests.test_top_lfsr
+    testcase: smoke
+    top: pcie_top_lfsr
+    timeout_s: 60

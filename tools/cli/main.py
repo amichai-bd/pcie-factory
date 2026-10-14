@@ -39,8 +39,7 @@ USER_ERRORS = (FilelistError, DiscoveryError, SchemaError, GitError, sim.SimErro
 def cmd_sim(ctx: Context, args) -> int:
     ips = discover(ctx.src_root)
     ip = find_ip(ips, args.ip)
-    children = {o.path.name for o in ips if o.path.parent == ip.path}
-    entries = {e.name: e for e in load_ip(ip, children)}
+    entries = {e.name: e for e in load_ip(ip)}
     if args.test not in entries:
         known = ", ".join(sorted(entries)) or "none"
         raise SchemaError(f"IP {ip.id} has no test {args.test!r} (known: {known})")
@@ -92,20 +91,10 @@ def cmd_clean(ctx: Context, args) -> int:
         return 0
     ips = discover(ctx.src_root)
     for ip_id in args.ip:
-        ip = find_ip(ips, ip_id)
-        # Sub-IP output nests under workdir/<ip>/<subip>/; keep it.
-        keep = {o.path.name for o in ips if o.path.parent == ip.path}
-        out = ip.work_dir(ctx.workdir)
-        if not out.is_dir():
-            continue
-        for entry in sorted(out.iterdir()):
-            if entry.name in keep:
-                continue
-            if entry.is_dir():
-                shutil.rmtree(entry)
-            else:
-                entry.unlink()
-        print(f"cleaned {out} (sub-IP output kept)" if keep else f"cleaned {out}")
+        out = find_ip(ips, ip_id).work_dir(ctx.workdir)
+        if out.is_dir():
+            shutil.rmtree(out)
+            print(f"cleaned {out}")
     return 0
 
 
@@ -164,7 +153,7 @@ def cmd_fpga(ctx: Context, args) -> int:
     if args.all:
         targets = fpga.fpga_ips(ips)
         if not targets:
-            raise fpga.FpgaError("no IP has an fpga/ directory")
+            raise fpga.FpgaError("no IP has an fpga/<ip>/ folder")
     else:
         targets = [find_ip(ips, ip_id) for ip_id in args.ip]
     timeout = args.timeout if args.timeout is not None else cfg["step_timeout_s"]
@@ -197,7 +186,7 @@ def stub(issue: int):
 
 
 def _sim_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--ip", required=True, help="IP id, e.g. a or a/b")
+    p.add_argument("--ip", required=True, help="IP id, e.g. a or a_b")
     p.add_argument("--test", required=True, help="test name from the IP's level lists")
     p.add_argument("--seed", type=int, help="seed (default: the test's first regress seed)")
     p.add_argument("--waves", action="store_true", help="dump waves into the test directory")
@@ -216,21 +205,20 @@ def _regress_args(p: argparse.ArgumentParser) -> None:
 
 
 def _clean_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--ip", action="append",
-                   help="only this IP's own output (sub-IP output is kept); repeatable")
+    p.add_argument("--ip", action="append", help="only this IP's output; repeatable")
 
 
 def _check_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--ip", action="append",
-                   help="restrict lint, style, filelist and wiki to this IP id; repeatable")
+                   help="restrict layout, filelist, style, wiki and lint to this IP id; repeatable")
     p.add_argument("--only", action="append", choices=CHECKS,
                    help="run only this check; repeatable (default: all)")
 
 
 def _fpga_args(p: argparse.ArgumentParser) -> None:
     which = p.add_mutually_exclusive_group(required=True)
-    which.add_argument("--ip", action="append", help="IP id with an fpga/ directory; repeatable")
-    which.add_argument("--all", action="store_true", help="every IP that has an fpga/ directory")
+    which.add_argument("--ip", action="append", help="IP id with an fpga/<ip>/ folder; repeatable")
+    which.add_argument("--all", action="store_true", help="every IP that has an fpga/<ip>/ folder")
     p.add_argument("--part", help="override the device set by the board settings file")
     p.add_argument("--timeout", type=float, help="seconds per step (default: cfg/fpga.yaml)")
     p.add_argument("--dry-run", action="store_true",
@@ -283,7 +271,7 @@ COMMANDS = {
     "sim": ("run one test of one IP", cmd_sim, _sim_args),
     "regress": ("run regression levels", cmd_regress, _regress_args),
     "clean": ("remove generated output", cmd_clean, _clean_args),
-    "check": ("static checks: lint, style, filelist, wiki mirror, neutrality", cmd_check, _check_args),
+    "check": ("static checks: layout, filelist, style, wiki mirror, neutrality, lint", cmd_check, _check_args),
     "labels": ("GitHub label sync and check", cmd_labels, _labels_args),
     "ci": ("ci-gate helpers: unit suites, job summary, data-branch status", cmd_ci, _ci_args),
     "wiki": ("build or serve the wiki site", cmd_wiki, _wiki_args),

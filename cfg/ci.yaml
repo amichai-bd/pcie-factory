@@ -10,19 +10,16 @@ global:
 
 # Directories relative to the source root holding shared DV Python that no
 # filelist reaches; a change under one selects every IP.
-shared_dv: [common/dv]
+shared_dv: [dv/common]
 
-# Directory relative to an IP holding its pure-Python reference models and
-# their unit tests. A change under it also selects every ancestor IP (parent
+# Directory relative to an IP's DV folder (src/dv/<ip>/) holding its
+# pure-Python reference models and their unit tests. A change under it also
+# selects every ancestor IP (an IP whose rtl filelist reaches this one; parent
 # models import sub-IP models), and `./build ci unit` runs the model tests of
-# each selected IP.
-models: dv/models
-
-# Directory relative to a top-level IP holding its architecture models, their
-# self-tests and perf/ scenarios. A change under it selects that IP (it lies
-# in the IP's directory; DV may import the models), and `./build ci unit`
-# runs, for each selected IP that has it, the self-tests and `./build arch`.
-arch: arch
+# each selected IP. Architecture models live in src/arch/<ip>/ (top-level IPs
+# only); a change there selects that IP, and `./build ci unit` runs, for each
+# selected IP that has it, the self-tests and `./build arch`.
+models: models
 
 # pytest paths, relative to the repository root, of the tools unit tests.
 tools_tests: [tools]
