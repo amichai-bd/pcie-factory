@@ -52,6 +52,9 @@ pd (ORFS/sky130hd).
 
 ## Updates
 
+- **License (captain decision, recorded on #40):** the repository is licensed
+  under Apache-2.0. Vendored third-party files keep their own licenses next to
+  them.
 - **Public repository and site (captain decisions, recorded on #1):** the
   repository is public and the wiki is published to GitHub Pages as a public
   site. Everything committed must be publishable; reviewers check it on every

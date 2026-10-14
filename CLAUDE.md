@@ -117,8 +117,10 @@ a PR whose code and specs disagree.
 - Evidence demonstrates behavior, not command success. Treat warnings as
   failures unless a reviewed waiver explains them. Record seeds. Keep logs and
   waves under `workdir/`; summarize evidence in the PR, never commit outputs.
-- Code or text adapted from another repository carries a provenance note
-  (source, commit, license) and is adapted, not copied blindly.
+- The repository is licensed under Apache-2.0 ([`LICENSE`](LICENSE)); every
+  contribution is under it. Code or text adapted from another repository
+  carries a provenance note (source, commit, license), must have a compatible
+  license, and is adapted, not copied blindly.
 - Never commit credentials, private machine details or unredistributable tool
   output.
 - The repository and its wiki site are public: everything committed, including
