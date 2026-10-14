@@ -1,0 +1,65 @@
+# Wiki site; see wiki/tools/wiki_site/SPEC.md.
+# A pull request builds with --strict and never deploys; a push to main or a
+# manual dispatch builds strictly and deploys to GitHub Pages.
+name: pages
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wiki/**"
+      - "tools/wiki_site/**"
+      - "tools/requirements.txt"
+      - ".github/workflows/pages.yml"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 10
+    concurrency:
+      group: pages-build-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Install the generator's Python dependencies
+        run: |
+          python3 -m venv workdir/venv
+          if [ -f tools/requirements.txt ]; then
+            workdir/venv/bin/pip install --quiet -r tools/requirements.txt
+          else
+            workdir/venv/bin/pip install --quiet markdown-it-py Pygments
+          fi
+      - name: Build the site strictly
+        run: workdir/venv/bin/python -B tools/wiki_site/wiki_site.py build --strict --sha "$GITHUB_SHA" --out workdir/wiki-site
+      - name: Upload the Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5.0.0
+        with:
+          path: workdir/wiki-site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5.0.1
