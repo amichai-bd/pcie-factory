@@ -47,7 +47,8 @@ The theme and generated paths under `assets/` are reserved: a wiki source that
 would publish to one of them is a problem (see [Links](#links)).
 
 Names that start with `.` are skipped, at any depth. `wiki/index.md` (or `wiki/README.md`)
-is the site home page, and its first H1 is the site name in the navbar. A page
+is the site home page, and its first H1 is the site name in the navbar. The
+navbar also links to `--repo-url` on every page. A page
 title is its first H1, or the file stem if there is none.
 
 The same tree and SHA always build the same bytes.
