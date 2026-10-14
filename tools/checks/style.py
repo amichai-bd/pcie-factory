@@ -46,10 +46,23 @@ RULES = {
                   "with the owner's prefix; packages end in _pkg"),
     "port-suffix": ("naming", "ANSI ports with direction; _i/_o/_io suffix (n before it for active-low)"),
     "tool-pragma": ("lint-and-style-checks",
-                    "no tool directive comments (verilator, synthesis, synopsys, pragma, altera)"),
+                    "no tool directive comments (verilator lint_off, synthesis translate_off, ...)"),
 }
 
-PRAGMA_KEYWORDS = ("verilator", "synthesis", "synopsys", "pragma", "altera")
+# A tool directive comment: a tool keyword followed by a directive word.
+# Prose that merely starts with the keyword ("Synthesis infers a flop") is
+# not one. Directive words adapted from nand2anything rtl_style.py
+# PRAGMA_DIRECTIVES (commit 085ef4b); prefixes cover families (lint_off,
+# lint_on, translate_off, syn_keep, ...).
+_PRAGMA_RE = re.compile(
+    r"^(?:verilator|synthesis|synopsys|pragma|altera)\s*:?\s+"
+    r"(?:lint_|translate_|syn_|public|coverage_|tracing_|message_|unroll_|timing_|"
+    r"no_inline|inline|dont_|protect|keep\b|preserve\b|noprune\b|ramstyle\b|"
+    r"romstyle\b|full_case\b|parallel_case\b|read_comments_as_hdl\b|attribute\b|"
+    r"multstyle\b|maxfan\b|direct_enable\b|useioff\b|split_var\b|"
+    r"isolate_assignments\b|hier_block\b|clocker\b|no_clocker\b|clock_enable\b|"
+    r"forceable\b|sformat\b|sc_bv\b|tag\b|altera_attribute\b)",
+    re.IGNORECASE)
 _COMMENT_RE = re.compile(r"//(?P<line>[^\n]*)|/\*(?P<block>.*?)\*/", re.DOTALL)
 _NETTYPE_RE = re.compile(r"`default_nettype\s+(\w+)")
 _UNIT_RE = re.compile(r"\b(module|package|interface|program|class)\s+(?:(?:automatic|static)\s+)?(\w+)")
@@ -166,8 +179,7 @@ def check_text(relpath: str, raw: str, expected_prefix: str | None) -> list[str]
 
     for m in _COMMENT_RE.finditer(raw):
         body = (m.group("line") if m.group("line") is not None else m.group("block")).strip()
-        words = body.split()
-        if words and words[0].lower().rstrip(":") in PRAGMA_KEYWORDS:
+        if _PRAGMA_RE.match(body):
             add("tool-pragma", m.start(), body[:60])
 
     if path.suffix == ".sv":

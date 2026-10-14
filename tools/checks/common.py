@@ -10,6 +10,10 @@ from pathlib import Path
 from build.ip import Ip, owner_ip
 
 SV_SUFFIXES = (".sv", ".svh")
+# HDL and tool-control files that must not appear in synthesizable trees:
+# only .sv/.svh are style-checked, and a Verilator control file (.vlt) or
+# command file would bypass the reviewed waiver file.
+FOREIGN_SUFFIXES = (".v", ".vh", ".vlt", ".vc", ".vhd", ".vhdl")
 
 
 class CheckConfigError(Exception):
@@ -60,16 +64,17 @@ def ip_stem(ip: Ip) -> str:
     return ip.id.replace("/", "_")
 
 
-def rtl_files(src_root: Path, dirnames: tuple[str, ...] = ("rtl",)) -> list[Path]:
-    """Every ``.sv``/``.svh`` below a directory named in ``dirnames`` under
-    ``src_root`` (hidden directories skipped), sorted."""
+def rtl_files(src_root: Path, dirnames: tuple[str, ...] = ("rtl",),
+              suffixes: tuple[str, ...] = SV_SUFFIXES) -> list[Path]:
+    """Every file ending in one of ``suffixes`` below a directory named in
+    ``dirnames`` under ``src_root`` (hidden directories skipped), sorted."""
     found = []
     for dirpath, dirs, files in os.walk(src_root):
         dirs[:] = sorted(d for d in dirs if not d.startswith("."))
         parts = Path(dirpath).relative_to(src_root).parts
         if not any(p in dirnames for p in parts):
             continue
-        found += [Path(dirpath) / f for f in files if f.endswith(SV_SUFFIXES)]
+        found += [Path(dirpath) / f for f in files if f.endswith(suffixes)]
     return sorted(found)
 
 

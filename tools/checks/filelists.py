@@ -5,6 +5,10 @@
 - Every IP has ``rtl/<n>.rtl.f``, ``dv/<n>.dv.f``, ``dv/<n>.sim.f`` and
   ``dv/regress/level{0,1,2}.yaml``, and its regression lists validate
   (``regress.schema``).
+- An ``rtl/`` filelist's closure holds only ``.sv``/``.svh`` sources, and no
+  ``.v``/``.vh``/``.vlt``/``.vc``/``.vhd``/``.vhdl`` file sits below an
+  ``rtl/`` or ``fpga/`` directory: other files would escape the style check,
+  and a Verilator control file would bypass the reviewed waiver file.
 - No orphan RTL: every ``.sv``/``.svh`` below an ``rtl/`` directory is reached
   by a filelist that lives in that same ``rtl/`` directory (for an IP, its
   ``.rtl.f``).
@@ -18,7 +22,7 @@ from pathlib import Path
 
 from build.filelist import FilelistError, _parse_line, resolve
 from build.ip import Ip
-from checks.common import CheckResult, rel, rtl_files, selected
+from checks.common import FOREIGN_SUFFIXES, SV_SUFFIXES, CheckResult, rel, rtl_files, selected
 from regress.schema import LEVELS, SchemaError, load_ip
 
 
@@ -69,6 +73,11 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
             continue
         for dup in duplicates(f):
             add(f"{rel(f, src_root)}: lists {rel(Path(dup), src_root)} more than once after flattening")
+        if "rtl" in f.relative_to(src_root).parts:
+            for source in resolved[f].sources:
+                if not source.name.endswith(SV_SUFFIXES):
+                    add(f"{rel(f, src_root)}: source {rel(source, src_root)} is not .sv/.svh "
+                        "(synthesizable closures hold SystemVerilog only)")
 
     chosen = [ip for ip in ips if ip_ids is None or ip.id in ip_ids]
     for ip in chosen:
@@ -89,6 +98,12 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
         if not any(r.reaches(src) for r in owners):
             add(f"{rel(src, src_root)}: orphan: not reached by a filelist in "
                 f"{rel(home, src_root)}/")
+
+    foreign = [f for f in rtl_files(src_root, ("rtl", "fpga"), FOREIGN_SUFFIXES)
+               if selected(f, ips, ip_ids)]
+    for f in foreign:
+        add(f"{rel(f, src_root)}: {f.suffix} file not allowed under rtl/ or fpga/ "
+            "(SystemVerilog .sv/.svh only; waivers go in the waiver file)")
 
     result.checked = (f"{len(lists)} filelist(s), {len(chosen)} IP(s) "
                       f"with regression lists, {len(sources)} RTL file(s) for orphans")

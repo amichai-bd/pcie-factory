@@ -22,7 +22,7 @@ import yaml
 from build import sim
 from build.filelist import FilelistError, Resolved, resolve
 from build.ip import Ip
-from checks.common import CheckConfigError, CheckResult, ip_stem, read_prefix, rel
+from checks.common import SV_SUFFIXES, CheckConfigError, CheckResult, ip_stem, read_prefix, rel
 
 WAIVER_FILE = "lint_waivers.yaml"
 LINT_TIMEOUT_S = 600.0
@@ -102,7 +102,11 @@ def parse_output(output: str, src_root: Path) -> list[Message]:
     msgs = []
     for line in output.splitlines():
         m = _MSG_RE.match(line)
-        if not m or m.group("msg").startswith("Exiting due to"):
+        if m is None:
+            if line.startswith(("%Warning", "%Error")):  # never drop a message
+                msgs.append(Message("Error", "", "", 0, f"unparsed Verilator output: {line}"))
+            continue
+        if m.group("msg").startswith("Exiting due to"):
             continue
         f = m.group("file") or ""
         if f:
@@ -164,6 +168,12 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
         except FilelistError as exc:
             result.findings.append(f"{ip.id}: rtl filelist does not resolve: {exc}")
             continue
+        foreign = [s for s in flat.sources if not s.name.endswith(SV_SUFFIXES)]
+        if foreign:  # e.g. a .vlt control file would waive outside the waiver file
+            result.findings.append(
+                f"{ip.id}: not linted: rtl filelist lists non-.sv/.svh source(s): "
+                + ", ".join(rel(s, src_root) for s in foreign))
+            continue
         plan += targets(ip, flat, prefix)
     verilator = None
     if plan:
@@ -179,7 +189,7 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
         except subprocess.TimeoutExpired:
             result.findings.append(f"{t.label}: verilator timed out after {LINT_TIMEOUT_S:.0f}s")
             continue
-        msgs = parse_output(proc.stdout + proc.stderr, src_root)
+        msgs = parse_output(proc.stdout + "\n" + proc.stderr, src_root)
         for m in msgs:
             hit = next((w for w in waivers if w.covers(m)), None)
             if hit is not None:

@@ -101,3 +101,45 @@ def test_ip_filter(good):
     assert r.passed, r.findings  # common/ and the sub-IP are not selected
     assert r.checked.startswith("3 filelist(s), 1 IP(s)")
     assert len(run(good, {"blk/sub"}).findings) == 1
+
+
+VLT = "`verilator_config\nlint_off -rule UNUSEDSIGNAL\n"
+V_FILE = "module xy_blk_v (a, y);\n  input a; output y;\n  wire a;\n  assign y = a;\nendmodule\n"
+
+
+@pytest.mark.parametrize("name, text", [("waive.vlt", VLT), ("xy_blk_v.v", V_FILE)])
+def test_non_sv_source_in_rtl_closure_fails(good, name, text):
+    # A .vlt would waive warnings outside the reviewed waiver file; a .v
+    # would escape the style check. Both fail even when listed.
+    (good / "blk/rtl" / name).write_text(text)
+    f = good / "blk/rtl/blk.rtl.f"
+    f.write_text(f.read_text() + name + "\n")
+    r = run(good)
+    assert f"blk/rtl/blk.rtl.f: source blk/rtl/{name} is not .sv/.svh " \
+           "(synthesizable closures hold SystemVerilog only)" in r.findings
+    assert f"blk/dv/blk.sim.f: source blk/rtl/{name} is not .sv/.svh " \
+           "(synthesizable closures hold SystemVerilog only)" not in r.findings  # dv is free
+    assert any(x.startswith(f"blk/rtl/{name}: {Path(name).suffix} file not allowed")
+               for x in r.findings)
+
+
+def test_non_sv_source_reached_from_outside_rtl_fails(good):
+    (good / "blk/misc").mkdir()
+    (good / "blk/misc/waive.vlt").write_text(VLT)
+    f = good / "blk/rtl/blk.rtl.f"
+    f.write_text(f.read_text() + "../misc/waive.vlt\n")
+    assert run(good).findings == [
+        "blk/rtl/blk.rtl.f: source blk/misc/waive.vlt is not .sv/.svh "
+        "(synthesizable closures hold SystemVerilog only)"]
+
+
+def test_foreign_files_under_rtl_and_fpga_fail_even_unlisted(good):
+    (good / "blk/fpga/waive.vlt").write_text(VLT)
+    (good / "common/rtl/common_old.v").write_text(V_FILE)
+    (good / "blk/fpga/xy_blk.sdc").write_text("")  # constraints are fine
+    assert run(good).findings == [
+        "blk/fpga/waive.vlt: .vlt file not allowed under rtl/ or fpga/ "
+        "(SystemVerilog .sv/.svh only; waivers go in the waiver file)",
+        "common/rtl/common_old.v: .v file not allowed under rtl/ or fpga/ "
+        "(SystemVerilog .sv/.svh only; waivers go in the waiver file)",
+    ]

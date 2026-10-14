@@ -87,6 +87,10 @@ def mutate(old: str, new: str) -> str:
     ("port-suffix", mutate("inout  logic         pad_io", "inout  logic         pad_o")),
     ("tool-pragma", mutate("  always_comb", "  // verilator lint_off WIDTH\n  always_comb")),
     ("tool-pragma", mutate("  always_comb", "  /* synthesis translate_off */\n  always_comb")),
+    ("tool-pragma", mutate("  always_comb", "  /*verilator public*/\n  always_comb")),
+    ("tool-pragma", mutate("  always_comb", "  // synopsys full_case\n  always_comb")),
+    ("tool-pragma", mutate("  always_comb", "  // pragma protect begin\n  always_comb")),
+    ("tool-pragma", mutate("  always_comb", "  // altera message_off 10230\n  always_comb")),
 ])
 def test_rule_fires(rule, text):
     assert rule in rules(check(text))
@@ -130,6 +134,16 @@ def test_comments_and_strings_do_not_trigger():
                   '  localparam string S = "always wire typedef";\n'
                   "  assign q_o = q_q;")
     assert check(text) == []
+
+
+@pytest.mark.parametrize("prose", [
+    "// Synthesis infers a flop here.",
+    "// Verilator warns if this is unused.",
+    "/* Pragma-free by design. */",
+    "// synopsys tools are not used",
+])
+def test_tool_pragma_ignores_prose(prose):
+    assert check(mutate("  always_comb", f"  {prose}\n  always_comb")) == []
 
 
 def test_line_numbers():

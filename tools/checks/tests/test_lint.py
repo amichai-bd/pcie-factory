@@ -44,12 +44,14 @@ def test_parse_output(tmp_path):
            "                                : ... note: In instance 'x'\n"
            "%Warning-MULTITOP: /elsewhere/y.sv:6:8: Multiple top level modules\n"
            "%Error: Specified --top-module 'zz' was not found in design.\n"
-           "%Error: Exiting due to 1 error(s)\n")
+           "%Error: Exiting due to 1 error(s)\n"
+           "%Warning-BAD FORMAT\n")
     msgs = lint.parse_output(out, tmp_path)
     assert [m.render() for m in msgs] == [
         "a/rtl/x.sv:4: Warning-UNUSEDSIGNAL: Signal is not used: 'clk'",
         "/elsewhere/y.sv:6: Warning-MULTITOP: Multiple top level modules",
         "Error: Specified --top-module 'zz' was not found in design.",
+        "Error: unparsed Verilator output: %Warning-BAD FORMAT",
     ]
 
 
@@ -163,3 +165,15 @@ def test_wrapper_lint_failure(good):
     assert len(r.findings) == 1 and r.findings[0].startswith(
         "blk + fpga/xy_blk_board.sv: blk/fpga/xy_blk_board.sv:")
     assert "WIDTH" in r.findings[0]
+
+
+def test_non_sv_source_is_not_linted(good, monkeypatch):
+    # A Verilator control file in the closure would waive warnings outside
+    # the reviewed waiver file, so lint refuses to run that IP.
+    monkeypatch.setattr(sim, "find_verilator", lambda: None)  # never reached for blk/sub
+    (good / "blk/sub/rtl/waive.vlt").write_text("`verilator_config\nlint_off -rule WIDTH\n")
+    f = good / "blk/sub/rtl/sub.rtl.f"
+    f.write_text(f.read_text() + "waive.vlt\n")
+    r = lint.run(good, discover(good), {"blk/sub"})
+    assert r.findings == ["blk/sub: not linted: rtl filelist lists non-.sv/.svh source(s): "
+                          "blk/sub/rtl/waive.vlt"]

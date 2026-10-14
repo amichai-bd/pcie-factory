@@ -26,7 +26,7 @@ check: 2 IP(s) under /abs/src
 [filelist] PASS: 7 filelist(s), 2 IP(s) with regression lists, 5 RTL file(s) for orphans
 [style] FAIL (1): 6 RTL file(s), 11 rule(s)
   blk/rtl/xy_blk.sv:10: plain-always: always
-[neutrality] PASS: 84 tracked file(s) outside src/, wiki/src/, wiki/tracker/data/; ...
+[neutrality] PASS: 135 file(s) (tracked and untracked, not ignored) outside src/, ...
 [lint] blk: top=xy_blk
 [lint] PASS: 2 IP(s), 3 Verilator run(s), 0 waiver(s), 0 warning(s) waived
 check: FAIL (style)
@@ -55,6 +55,12 @@ Rule owners: [layout](../../project/layout.md#per-ip-files) and the
   `dv/regress/level{0,1,2}.yaml`, and its regression lists pass the
   [regress schema](../regress/SPEC.md#regression-lists) (including unique
   test names).
+- **SystemVerilog only:** every source in the closure of a filelist that
+  lives under an `rtl/` directory ends in `.sv` or `.svh`, and no `.v`,
+  `.vh`, `.vlt`, `.vc`, `.vhd` or `.vhdl` file sits anywhere below an `rtl/`
+  or `fpga/` directory, listed or not. Other files would escape the style
+  check, and a Verilator control file (`.vlt`) would waive warnings outside
+  the reviewed waiver file. `dv/` filelists are not restricted.
 - **No orphans:** every `.sv`/`.svh` below an `rtl/` directory is reached by a
   filelist in that same `rtl/` directory (for an IP, its `.rtl.f`; for
   `src/common/rtl/`, whichever filelist lives there). "Reached" is the
@@ -86,7 +92,7 @@ positional connections, logic in `always_ff`) stay
 | `typedef-outside-package` | `typedef` only inside `package ... endpackage`. | [rtl.md#types-and-constants-live-in-packages](../../bkm/rtl.md#types-and-constants-live-in-packages) |
 | `file-name` | A `.sv` declares exactly one module or package, named after the file. A package name ends in `_pkg` and a module name does not. The name starts with the owner's prefix: `common_` under `src/common/`, otherwise `<prefix><ip>` (sub-IP `a/b` gives `<prefix>a_b`) followed by the end or `_`; `<prefix>` alone when no IP owns the file. `<prefix>` is read from the `Module/package/file prefix` row of `src/README.md`; a missing row is a finding. | [rtl.md#naming](../../bkm/rtl.md#naming) |
 | `port-suffix` | Every module port is ANSI with a direction. Inputs end in `_i`, outputs in `_o`, inouts in `_io`, each optionally with `n` before the direction letter for active-low (`rst_ni`). `ref` ports are not allowed. | [rtl.md#naming](../../bkm/rtl.md#naming) |
-| `tool-pragma` | No comment whose first word is `verilator`, `synthesis`, `synopsys`, `pragma` or `altera`: no inline lint waivers (`/* verilator lint_off */`) and no tool directives. | [rtl.md#lint-and-style-checks](../../bkm/rtl.md#lint-and-style-checks) |
+| `tool-pragma` | No tool directive comment: `verilator`, `synthesis`, `synopsys`, `pragma` or `altera` followed by a directive word (`lint_off`, `translate_off`, `full_case`, `public`, `protect`, `message_off`, ...). This covers inline lint waivers (`/* verilator lint_off */`). Prose that only starts with the tool name (`// Synthesis infers a flop`) is not flagged. | [rtl.md#lint-and-style-checks](../../bkm/rtl.md#lint-and-style-checks) |
 
 Provenance: the comment/string stripper, the package-span test and the
 net-keyword, SYNTHESIS-guard, module-function and pragma-comment ideas are
@@ -98,28 +104,36 @@ dropped.
 
 Rule owner: [`CLAUDE.md`](../../../CLAUDE.md#design-neutrality). The scan
 covers every file `git ls-files --cached --others --exclude-standard` lists
-(tracked plus untracked, not ignored), except:
+(tracked, plus untracked files that are not ignored), except:
 
-- paths that start with a `neutrality.exclude` prefix (`src/`, `wiki/src/`,
-  `wiki/tracker/data/`);
-- `cfg/checks.yaml` itself, because it holds the word list. To keep that
-  exemption narrow, the file is schema-checked (below), so nothing else can
-  hide in it;
+- paths under the exempt trees the contract names: `src/`, `wiki/src/` and
+  `wiki/tracker/data/`. They are hard-coded (`EXEMPT` in `neutrality.py`),
+  not configurable, so a config line cannot widen them;
 - binary files (containing a NUL byte).
 
-Each word in `neutrality.words` matches case-insensitively as a substring;
-a space, `-` or `_` inside a word matches any run of those characters
-(`widget bus` also matches `Widget-Bus`). Both file contents and file
-paths are scanned, so this also proves that the design target's name does
-not appear in `tools/` code. A finding is `<path>:<line>: '<match>'`.
+`cfg/checks.yaml` is scanned like any other file, except that the value of
+`words` (a one-line flow list, `words: [...]`) and the value of `repo_slug`
+are blanked first. Its comments, keys and every other line are scanned, so
+the word list is the only text in it that may name the target.
+
+Each word in `neutrality.words` matches case-insensitively as a substring.
+A space, `-` or `_` inside a word matches any run of those characters,
+including none (`widget bus` also matches `Widget-Bus` and `widgetbus`).
+Both file contents and file paths are scanned, so this also proves that the
+design target's name does not appear in `tools/` code. A finding is
+`<path>:<line>: '<match>'`. The word list holds the target, its protocol
+names and protocol-specific terms; very short terms are left out because
+they would match ordinary text.
 
 **Repository slug.** The slug is exempt only inside a GitHub URL:
 `github.com/<owner>/<repo>`, `github.com:<owner>/<repo>` and
-`<owner>.github.io/<repo>`, case-insensitive, where `<repo>` is not followed
-by another name character (so `<repo>-other` is not exempt). The slug is
-`neutrality.repo_slug` when set, else `<owner>/<repo>` taken from the last
-two path components of the `origin` remote URL. With neither, nothing is
-exempt.
+`<owner>.github.io/<repo>`, case-insensitive, with a name boundary on both
+sides: the host or owner is not preceded by a name character, `.` or `-`
+(so `evilgithub.com/...` and `x<owner>.github.io/...` are not exempt), and
+`<repo>` is not followed by a name character or `-` (so `<repo>-other` is
+not exempt). The slug is `neutrality.repo_slug` when set, else
+`<owner>/<repo>` taken from the last two path components of the `origin`
+remote URL. With neither, nothing is exempt.
 
 IP names are not in the word list: bare IP names are ordinary words
 (they collide with generic text), and prefixed names contain the prefix,
@@ -129,12 +143,13 @@ which the word list covers. Hard-coded bare IP names stay a review item.
 
 ```yaml
 neutrality:
-  words: [<word>, ...]           # required, non-empty
-  exclude: [src/, ...]           # required; path prefixes from the repo root
+  words: [<word>, ...]           # required, non-empty, one flow list on one line
   repo_slug: owner/repo          # optional
 ```
 
-Any other key, a missing key, or a wrong type is a configuration error.
+Any other key (including an attempt to configure exempt paths), a missing
+key, a wrong type, or a `words` list that is not one single-line flow list
+is a configuration error.
 
 ## Lint check
 
@@ -146,8 +161,9 @@ For each selected IP, Verilator runs
 with the include directories, defines and sources of the resolved
 `rtl/<n>.rtl.f`. `-Wno-fatal` lets every warning print; the tool, not
 Verilator, decides pass or fail: every `%Warning-<CODE>` or `%Error` not
-covered by a waiver is a finding, as is a nonzero exit with no error
-message. Verilator is found as for `sim` (`PATH`, `$VERILATOR_ROOT/bin`,
+covered by a waiver is a finding, as is any `%Warning`/`%Error` line that
+does not parse and a nonzero exit with no error message. Standard output
+and standard error are joined with a newline before parsing. Verilator is found as for `sim` (`PATH`, `$VERILATOR_ROOT/bin`,
 then `verilator.prefix` in `cfg/host.yaml`); see the
 [build spec](../build/SPEC.md#simulation-build-sim).
 
@@ -159,13 +175,17 @@ then `verilator.prefix` in `cfg/host.yaml`); see the
   the IP's sources plus the wrapper, with the wrapper's file stem as top.
 - An IP whose `.rtl.f` does not resolve is a lint finding (the filelist check
   reports the cause).
+- An IP whose `.rtl.f` closure lists a source that is not `.sv`/`.svh` (for
+  example a `.vlt` control file) is not linted; that is a lint finding, so
+  such a file can never waive a warning.
 
 ### Waivers
 
 Waivers live only in `<src-root>/lint_waivers.yaml` (in the repository,
 `src/lint_waivers.yaml`). It is under `src/` because waivers name design
-files. A missing file means no waivers. Inline pragmas are rejected by the
-style check (`tool-pragma`), so this file is the only way to waive.
+files. A missing file means no waivers. Inline lint pragmas are rejected by
+the style check (`tool-pragma`) and Verilator control files by the filelist
+and lint checks, so this file is the only way to waive.
 
 ```yaml
 waivers:
@@ -200,6 +220,8 @@ rule (`test_style.py`), duplicate, diamond, orphan and regression cases
 (`test_filelists_check.py`), a small git repository with forbidden words,
 slug URLs, a look-alike slug and an invalid config (`test_neutrality.py`),
 and waivers (used, stale, invalid), output parsing and the command line
-(`test_lint.py`, `test_check_run.py`). Tests that run Verilator are skipped
-when it is not installed. `test_check_run.py` also runs the neutrality check
+(`test_lint.py`, `test_check_run.py`). Negative cases include a `.vlt`
+and a `.v` file in an `rtl/` closure, prose versus directive comments, a
+comment and a widened exempt path in the config, and look-alike slug hosts.
+Tests that run Verilator are skipped when it is not installed. `test_check_run.py` also runs the neutrality check
 on this repository.
