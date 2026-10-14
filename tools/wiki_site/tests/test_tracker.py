@@ -236,13 +236,17 @@ def test_flow_charts_keep_every_ip_with_data(tmp_path):
 
 
 def test_blank_line_in_a_value_is_a_problem(tmp_path):
-    rec = nightly("2026-09-05", 1, "pass", 60, github={"issues": {"open_by_label": {"a\n\nb": 2}}},
+    # LF, CRLF, bare CR, and a line holding only whitespace all end the block
+    rec = nightly("2026-09-05", 1, "pass", 60,
+                  github={"issues": {"open_by_label": {"a\n\nb": 2, "c\n \t\nd": 1}}},
                   tests={"totals": {"level0": {"tests": 1}},
-                         "slowest": [{"ip": "x\r\n\r\ny", "name": "t", "runtime_s": 1}]})
+                         "slowest": [{"ip": "x\r\n\r\ny", "name": "e\r\rf", "runtime_s": 1}]})
     problems, out = build(tree(tmp_path, {"2026-09-05.json": rec}))
-    assert problems and all("wiki/tracker/index.md: a record value contains a blank line" in p for p in problems)
+    # one problem line per page, however many values carry blank lines
+    assert len(problems) == 1 and "wiki/tracker/index.md: a record value contains a blank line" in problems[0]
     html = (out / "tracker/index.html").read_text()
-    assert "<code>a b</code>" in html and "x y" in html
+    assert "<code>a b</code>" in html and "<code>c d</code>" in html
+    assert "x y" in html and "<code>e f</code>" in html
     assert wiki_site.main(["build", "--strict", "--root", str(tmp_path), "--out", str(out),
                            "--sha", SHA]) == 1
 

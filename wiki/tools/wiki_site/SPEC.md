@@ -206,8 +206,9 @@ that block. Problems, reported like link problems (fatal with `--strict`):
 unreadable JSON, a non-object record, an unsupported `schema_version`, a bad
 date or SHA, a repeated commit or date (the later date file wins), an IP id that is not a safe
 relative path (letters, digits, `_`, `.`, `-`, `/`-separated, no `..`), a
-record value containing a blank line (it would end the page's HTML block, so
-it is rendered with its line breaks folded to spaces), and a source file at a
+record value containing a blank line (an empty or whitespace-only line under
+LF, CRLF or CR endings: it would end the page's HTML block, so it is rendered
+with its line breaks folded to spaces and reported once per page), and a source file at a
 generated page's path.
 
 **X axis.** Every trend plots against the commits of `commits.jsonl`, in
