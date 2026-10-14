@@ -165,8 +165,9 @@ HTTP (`serve`, Pages) but not from `file://`.
 When `wiki/tracker/index.md` exists, `tools/wiki_site/tracker.py` renders the
 records in `wiki/tracker/data/` below that page's own text and generates one
 page per IP. The data files are also copied to the site like any other wiki
-file. The record schema is owned by the metrics tool SPEC (#15); this section
-owns how the site reads it.
+file. The record schema is owned by the
+metrics tool SPEC, `wiki/tools/metrics/SPEC.md` (#15); this section owns how
+the site reads it.
 
 **Inputs.**
 
@@ -185,15 +186,16 @@ leaves its chart or table out, and unknown fields are ignored. Field paths
 live in one block at the top of `tracker.py`, so a schema change edits only
 that block. Problems, reported like link problems (fatal with `--strict`):
 unreadable JSON, a non-object record, an unsupported `schema_version`, a bad
-date or SHA, a repeated commit or date (the later date file wins), a nightly
-SHA missing from a non-empty `commits.jsonl`, an IP id that is not a safe
+date or SHA, a repeated commit or date (the later date file wins), an IP id that is not a safe
 relative path (letters, digits, `_`, `.`, `-`, `/`-separated, no `..`), and a
 source file at a generated page's path.
 
-**X axis.** Every trend plots against the commits of `commits.jsonl` in file
-order, labelled by short SHA, with SHA and date in the tooltip. A nightly
-record sits at the commit it ran on. Without `commits.jsonl`, the nightly
-records' SHAs, in date order, form the axis.
+**X axis.** Every trend plots against the commits of `commits.jsonl`, in
+`index` order when every line has one, else in file order, labelled by short
+SHA, with SHA and date in the tooltip. A nightly record sits at the commit it
+ran on (`meta.commit`); a record whose commit is not in the series is
+ignored. Without `commits.jsonl`, the nightly records' SHAs, in date order,
+form the axis.
 
 **`/tracker/`** shows, in order:
 

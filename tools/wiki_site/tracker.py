@@ -80,13 +80,18 @@ def text(obj, *paths: str) -> str | None:
 
 
 def mapping(obj, *paths: str) -> dict:
-    """The first dict found at one of `paths` (an `ips` sub-dict is unwrapped)."""
+    """The first dict found at one of `paths`."""
     for p in paths:
         v = dig(obj, p)
         if isinstance(v, dict):
-            inner = v.get("ips")
-            return inner if isinstance(inner, dict) else v
+            return v
     return {}
+
+
+def flow_ips(obj, path: str) -> dict:
+    """`{ip: metrics}` of a flow section `{status, ips: {...}}`; a section
+    without `ips` (e.g. `{"status": "unavailable"}`) has no IPs."""
+    return mapping(obj, f"{path}.ips")
 
 
 def scaled(v, k):
@@ -188,8 +193,14 @@ def load(data_dir: Path) -> Data:
                 d.problems.append(f"{rel}: commit {sha[:7]} repeats line {seen[sha]}; skipped")
                 continue
             seen[sha] = n
-            d.commits.append(Point(len(d.axis), sha, date, data))
-            d.axis.append((sha[:7], date))
+            d.commits.append(Point(0, sha, date, data))
+    # The collector writes lines oldest first with an `index` on the
+    # first-parent history; order by it when every line has one.
+    if d.commits and all(isinstance(num(p.data.get("index")), int) for p in d.commits):
+        d.commits.sort(key=lambda p: p.data["index"])
+    for i, p in enumerate(d.commits):
+        p.idx = i
+        d.axis.append((p.sha[:7], p.date))
     nightly: dict[str, tuple[str, dict]] = {}
     for f in sorted(data_dir.glob("*.json")) if data_dir.is_dir() else []:
         rel = f"{base}/{f.name}"
@@ -220,7 +231,7 @@ def load(data_dir: Path) -> Data:
         if hit:
             d.nightly.append(Point(hit.idx, hit.sha, date, data))
         elif d.commits:
-            d.problems.append(f"{rel}: sha {sha[:7]} is not in {COMMITS}; left off the commit axis")
+            continue  # not a main commit in the series (e.g. a test run on another branch): ignored
         else:
             extra.append((date, sha, data))  # no commit history yet: nightly SHAs form the axis
     for date, sha, data in extra:
@@ -254,8 +265,8 @@ def test_ip_levels(r, ip):
     m = mapping(r, "tests.ips", "tests.by_ip").get(ip)
     return mapping(m, "levels") or (m if isinstance(m, dict) else {})
 def test_slowest(r):          return dig(r, "tests.slowest")
-def fpga_ip(r, ip):           return mapping(r, "fpga").get(ip)
-def asic_ip(r, ip):           return mapping(r, "asic").get(ip)
+def fpga_ip(r, ip):           return flow_ips(r, "fpga").get(ip)
+def asic_ip(r, ip):           return flow_ips(r, "asic").get(ip)
 def issues_open(r):           return first(r, "github.issues.open")
 def issues_by_label(r):       return mapping(r, "github.issues.open_by_label")
 def issues_window(r, w, k):   return first(r, f"github.issues.windows.{w}.{k}")
@@ -570,7 +581,7 @@ def ip_ids(d: Data) -> tuple[list[str], list[str]]:
     seen: set[str] = set()
     for p in d.commits + d.nightly:
         for m in (mapping(p.data, "code.ips", "code.by_ip"), mapping(p.data, "tests.ips", "tests.by_ip"),
-                  mapping(p.data, "fpga"), mapping(p.data, "asic")):
+                  flow_ips(p.data, "fpga"), flow_ips(p.data, "asic")):
             seen.update(k for k in m if isinstance(k, str))
     good = sorted(i for i in seen if IP_ID.match(i) and ".." not in i.split("/"))
     return good, [f"wiki/tracker/{DATA_DIR}: IP id {i!r} is not a safe path; skipped"

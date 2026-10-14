@@ -180,6 +180,18 @@ def test_partial_groups_and_unknown_fields(tmp_path):
                 "No slowest-test data yet.", "No file distribution yet.", "No issue or pull request data yet."):
         assert msg in html, msg
     assert "✗" in html and "fail" in html  # nightly card: icon plus label
+    # an unavailable flow section names no IPs
+    assert sorted(x.name for x in (out / "tracker/ip").iterdir()) == ["index.html"]
+
+
+def test_commit_index_orders_the_axis(tmp_path):
+    lines = commit(2, "2026-09-03", index=2) + commit(0, "2026-09-01", index=0) + commit(1, "2026-09-02", index=1)
+    problems, out = build(tree(tmp_path, {"commits.jsonl": lines,
+                                          "2026-09-02.json": nightly("2026-09-02", 1, "pass", tests={"wall_s": 60})}))
+    assert problems == []
+    data = chart_data((out / "tracker/index.html").read_text())
+    assert [a[1] for a in data["axis"]] == ["2026-09-01", "2026-09-02", "2026-09-03"]
+    assert data["charts"]["nightly-duration"]["series"][0]["points"] == [[1, 1]]
 
 
 def test_commit_only_data(tmp_path):
@@ -212,7 +224,7 @@ def test_bad_records_are_problems(tmp_path):
     assert "2026-09-02.json: schema_version 99 is not supported" in text
     assert "2026-09-03.json: a record must be a JSON object" in text
     assert "2026-13-40.json: date" in text
-    assert "2026-09-04.json: sha 0000000 is not in commits.jsonl" in text
+    assert "2026-09-04.json" not in text  # a commit outside the series is ignored, not a problem
     assert "2026-09-05.json: no main `sha`" in text
     assert wiki_site.main(["build", "--strict", "--root", str(tmp_path), "--out", str(out),
                            "--sha", SHA]) == 1
