@@ -1,0 +1,4 @@
+# FPGA flow settings. Owning spec: wiki/tools/fpga/SPEC.md.
+board: de2_115        # selects src/<ip>/fpga/<board>.qsf.tcl
+step_timeout_s: 3600  # wall-clock bound on each Quartus step (and lint)
+processors: 2         # Quartus NUM_PARALLEL_PROCESSORS; the CI host is shared

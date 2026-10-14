@@ -6,11 +6,12 @@
 ├── README.md                    # human overview
 ├── build                        # single entry point → tools/
 ├── .claude/                     # settings.json, hooks/, skills/<name>/SKILL.md
-├── .github/                     # workflows/{ci,nightly,pages}.yml, templates
+├── .github/                     # workflows/{ci,nightly,pages,fpga}.yml, templates
 ├── cfg/                         # generic config: levels, ci, host, checks, labels
 ├── tools/                       # generic Python tools + unit tests
 ├── src/
 │   ├── README.md                # declares the design target and prefix
+│   ├── lint_waivers.yaml        # reviewed Verilator waivers (optional; checks SPEC)
 │   ├── common/{rtl,dv}/         # shared blocks
 │   └── <ip>/
 │       ├── rtl/                 # <ip>.rtl.f + synthesizable sources

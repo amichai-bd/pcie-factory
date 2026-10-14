@@ -1,0 +1,14 @@
+# Static check configuration for ./build check.
+# Owning spec: wiki/tools/checks/SPEC.md.
+#
+# The neutrality check scans this file like any other, except that it
+# blanks the `words` list and the `repo_slug` value first. Keep `words` a
+# one-line flow list; comments and any other text here are still scanned.
+# The exempt trees are fixed by CLAUDE.md and hard-coded in the tool.
+
+neutrality:
+  # Case-insensitive substrings. A space, '-' or '_' inside a word matches
+  # any run of those characters, including none.
+  words: [pcie, pci express, pci sig, ltssm, dllp]
+  # owner/repo exempt inside GitHub URLs; unset means "from the origin remote".
+  # repo_slug: owner/repo

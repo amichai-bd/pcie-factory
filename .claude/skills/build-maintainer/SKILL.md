@@ -76,7 +76,7 @@ network:
 ```text
 python3 -m pytest tools/<tool>/tests -q        # focused
 python3 -m pytest tools -q                     # all tool tests
-./build check                                  # lands with issue #7
+./build check                                  # lint, RTL style, filelists, neutrality
 ```
 
 The [build SPEC](../../../wiki/tools/build/SPEC.md#unit-tests)
@@ -90,9 +90,9 @@ dispatch table a new subcommand plugs into.
 - [ ] The [DevOps BKM](../../../wiki/bkm/devops.md) subcommand table, a
       skill or `CLAUDE.md` updated only if they name a changed command (keep
       the edit minimal and call it out in the PR).
-- [ ] Neutrality grep outside `src/` and `wiki/src/` is clean: use the word
-      list in `cfg/checks.yaml` (via `./build check`) once it exists, or the
-      target and prefix from `src/README.md` with `grep -rniI` until then.
+- [ ] Neutrality is clean outside `src/` and `wiki/src/`:
+      `./build check --only neutrality` (word list in `cfg/checks.yaml`;
+      [checks SPEC](../../../wiki/tools/checks/SPEC.md#neutrality-check)).
 
 ## 6. Before the PR
 
