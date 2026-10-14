@@ -79,7 +79,7 @@ def select(
         reasons = {ip.id: "all" for ip in chosen}
     if affected_base is not None:
         repo, changed = changed_files(affected_base, ctx.src_root)
-        hit = select_affected(all_ips, repo, changed)
+        hit = select_affected(all_ips, repo, changed, ctx.src_root)
         chosen = [ip for ip in chosen if ip.id in hit]
         reasons = {ip.id: hit[ip.id] for ip in chosen}
     chosen.sort(key=lambda ip: ip.id)

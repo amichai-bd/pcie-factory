@@ -61,7 +61,7 @@ workdir/                    all generated output, ignored
 | --- | --- |
 | Verilator `--lint-only -Wall` per `.rtl.f`, waivers only in the reviewed waiver file | [RTL BKM](rtl.md#lint-and-style-checks) |
 | RTL style checker | [RTL BKM](rtl.md) |
-| Filelists: every path resolves, no duplicate after flattening, no orphan RTL | [layout](../project/layout.md#per-ip-files) |
+| Filelists: every path resolves, no duplicate after flattening, no orphan RTL; every IP has its DV filelists and three valid level files | [layout](../project/layout.md#per-ip-files) |
 | Neutrality: the word list in `cfg/checks.yaml`, with the scope and exemptions set by the contract | [`CLAUDE.md`](../../CLAUDE.md#design-neutrality) |
 
 `tools/` unit tests run when `tools/` or `cfg/` change. Doc line caps are a
@@ -130,6 +130,7 @@ pushes to `main` and manual dispatch:
 | An IP's own files: under `src/<ip>/`, excluding nested sub-IP directories | That IP |
 | A file reached through `-F` from an IP's filelists | That IP |
 | `tools/**`, `cfg/**` or the `build` launcher | All IPs |
+| Shared DV helpers under `src/common/dv/` (reached by no filelist) | All IPs |
 | Push to `main`, manual dispatch | All IPs |
 | Docs only | Checks only |
 
