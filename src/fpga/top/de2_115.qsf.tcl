@@ -1,8 +1,8 @@
 # Quartus settings for pcie_top on the Terasic DE2-115.
 # Sourced by the project script that ./build fpga generates.
-# Pins and I/O standards: Terasic DE2-115 User Manual, section 4 (CLOCK_50
-# table, push-button table, slide-switch table, LED tables); the switch, key
-# and LED banks run at 2.5 V with jumper JP7 in its default position.
+# Pins and I/O standards: the CLOCK_50, push-button, slide-switch and LED
+# tables [cite: Terasic DE2-115 User Manual, rev unverified, §4]; the switch,
+# key and LED banks run at 2.5 V with jumper JP7 in its default position.
 
 set_global_assignment -name FAMILY "Cyclone IV E"
 set_global_assignment -name DEVICE EP4CE115F29C7
