@@ -1,7 +1,7 @@
 # Wiki site; see wiki/tools/wiki_site/SPEC.md.
 # The repository and the published site are public.
 # A pull request builds with --strict and never deploys; a push to main or a
-# manual dispatch builds strictly and deploys to GitHub Pages.
+# manual dispatch or the daily schedule builds strictly and deploys to GitHub Pages.
 name: pages
 
 on:
@@ -17,6 +17,10 @@ on:
       - ".github/workflows/pages.yml"
   push:
     branches: [main]
+  # Backstop for nightly data merged by GitHub Actions auto-merge, whose push
+  # to main starts no workflows; about 2 hours after the 03:17 UTC nightly.
+  schedule:
+    - cron: "17 5 * * *"
   workflow_dispatch:
 
 permissions:

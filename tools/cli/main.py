@@ -15,13 +15,14 @@ from asic import cli as asic_cli
 from build import sim
 from build.filelist import FilelistError
 from build.ip import Context, DiscoveryError, discover, find_ip, make_context
-from fpga import flow as fpga
-from labels import core as labels
 from checks.common import CheckConfigError
 from ci import summary as ci_summary
 from ci import unit as ci_unit
 from ci.config import CiConfigError, load_rules
 from checks.run import CHECKS, run_checks
+from fpga import flow as fpga
+from labels import core as labels
+from metrics import cli as metrics
 from regress import run as regress
 from regress.affected import GitError
 from regress.schema import LEVELS, SchemaError, load_ip
@@ -272,6 +273,7 @@ COMMANDS = {
     "labels": ("GitHub label sync and check", cmd_labels, _labels_args),
     "ci": ("ci-gate helpers: unit suites, job summary", cmd_ci, _ci_args),
     "wiki": ("build or serve the wiki site", cmd_wiki, _wiki_args),
+    "metrics": ("nightly metrics, data guard and red issue", metrics.run, metrics.add_args),
     "fpga": ("FPGA flow: Quartus compile and metrics", cmd_fpga, _fpga_args),
     "asic": ("ASIC flow (ORFS)", asic_cli.run, asic_cli.add_args),
 }

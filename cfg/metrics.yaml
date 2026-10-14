@@ -1,0 +1,123 @@
+# Metrics collection configuration. Owning spec: wiki/tools/metrics/SPEC.md.
+# Read by `./build metrics`. Never name an IP here: IPs are discovered from src/.
+#
+# Patterns are repository-relative POSIX globs: `*` matches within one path
+# segment, `**` matches any number of segments (including none).
+
+# Where nightly records are committed; the only path a nightly/ branch may touch.
+data_dir: wiki/tracker/data
+# Head-branch prefix of the nightly data pull requests.
+branch_prefix: nightly/
+# Author email of the nightly data commits. A main commit by this author that
+# changes only data_dir is marked data_only in the series, with ci n/a.
+data_author: "41898282+github-actions[bot]@users.noreply.github.com"
+
+# Source root, relative to the repository, where IPs are discovered in each
+# commit's tree (an IP is a directory D holding rtl/<basename(D)>.rtl.f).
+src_root: src
+
+# Tracked files left out of every code statistic (the records themselves).
+exclude: ["wiki/tracker/data/**"]
+
+# File kinds, counted over tracked files. A file may match several kinds.
+kinds:
+  rtl_sv: ["src/**/rtl/**/*.sv", "src/**/rtl/**/*.svh", "src/**/rtl/**/*.v"]
+  dv_sv: ["src/**/dv/**/*.sv", "src/**/dv/**/*.svh"]
+  dv_py: ["src/**/dv/**/*.py"]
+  tools_py: ["tools/**/*.py", "build"]
+  wiki_md: ["wiki/**/*.md", "*.md"]
+  config: ["cfg/**/*.yaml", "src/**/*.yaml", "src/**/*.f", "src/**/fpga/**", "src/**/asic/**"]
+  workflows: [".github/workflows/*.yml", ".github/workflows/*.yaml"]
+  skills: [".claude/skills/**/*.md"]
+
+# Line-comment prefixes per file extension, used for the code-line count
+# (non-blank, non-comment). Block comments: /* */ for the `block_c` extensions.
+# Extensions not listed count every non-blank line.
+line_comments:
+  .sv: ["//"]
+  .svh: ["//"]
+  .v: ["//"]
+  .py: ["#"]
+  .yaml: ["#"]
+  .yml: ["#"]
+  .f: ["//", "#"]
+  .sh: ["#"]
+  .tcl: ["#"]
+  .sdc: ["#"]
+  .mk: ["#"]
+block_c: [.sv, .svh, .v, .sdc]
+
+# Trailing windows, in days, for the GitHub flow and CI counts.
+windows: [1, 7, 30]
+# Comments that count as one review round on a pull request (line start).
+review_marker: "REVIEW-VERDICT"
+# Workflow files whose runs feed the ci section and the per-commit series
+# (the required check), and the nightly duration distribution.
+ci_workflow: ci.yml
+nightly_workflow: nightly.yml
+# Health snapshot: an open issue is stale after this many days without
+# activity; the ci-gate pass rate covers this many latest completed runs on main.
+stale_days: 7
+health_ci_runs: 20
+# At most this many most recently merged PRs are fetched one by one for their
+# size (lines changed); older ones are left out of that distribution.
+max_pr_details: 200
+# How many slowest test runs to keep.
+slowest: 10
+
+# Keys copied from each IP's workdir/<ip>/fpga|asic/metrics.json; anything
+# else is dropped. Dotted paths; `*` matches one key (e.g. a clock name).
+# Only numbers, booleans, null and short neutral strings are kept.
+fpga_fields:
+  - schema
+  - board
+  - top
+  - quartus_version
+  - family
+  - device
+  - resources.*.used
+  - resources.*.total
+  - resources.registers
+  - resources.memory_blocks.type
+  - timing.clocks.*.fmax_mhz
+  - timing.clocks.*.restricted_fmax_mhz
+  - timing.clocks.*.setup_slack_ns
+  - timing.clocks.*.hold_slack_ns
+  - timing.clocks.*.recovery_slack_ns
+  - timing.clocks.*.removal_slack_ns
+  - timing.worst_setup_slack_ns
+  - timing.worst_hold_slack_ns
+  - timing.worst_recovery_slack_ns
+  - timing.worst_removal_slack_ns
+  - timing.unconstrained_total
+  - timing.met
+  - timing.critical_path.slack_ns
+  - timing.critical_path.data_delay_ns
+  - flow.lint
+  - flow.steps.*.status
+  - flow.steps.*.runtime_s
+  - flow.steps.*.warnings
+asic_fields:
+  - schema
+  - design
+  - platform
+  - clock_period_ns
+  - status
+  - timing.setup_ws_ns
+  - timing.tns_ns
+  - timing.hold_ws_ns
+  - timing.wns_ns
+  - area.stdcell_um2
+  - area.core_um2
+  - area.die_um2
+  - cells
+  - synth_cells
+  - utilization
+  - max_fanout.value
+  - logic_depth.value
+  - worst_path.slack_ns
+  - worst_path.cells
+  - worst_path.group
+  - power_w
+  - route_drc_errors
+  - elapsed_s

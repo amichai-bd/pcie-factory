@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read   # data guard: the base of a dispatched branch's open PR
 
 concurrency:
   # One group per PR, so a new head cancels the superseded run. Pushes and
@@ -76,6 +77,34 @@ jobs:
             echo "$PWD/workdir/venv/bin" >> "$GITHUB_PATH"
           fi
 
+      - name: Data guard
+        id: guard
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_BRANCH: ${{ github.head_ref }}
+        run: |
+          # A nightly/ branch may change only the data directory
+          # (wiki/tools/metrics/SPEC.md#guard); other branches pass at once.
+          # A pull request compares its merge commit with the first parent. A
+          # push or dispatch of a nightly/ ref (the nightly's data PR is opened
+          # with GITHUB_TOKEN, so it gets no pull_request run and is dispatched
+          # instead) compares with the base of the branch's open PR into main,
+          # else of any open PR, else main. Other pushes and dispatches stop here.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            ./build metrics guard --branch "$PR_BRANCH" --base HEAD^1
+            exit 0
+          fi
+          case "$GITHUB_REF_NAME" in
+            nightly/*) ;;
+            *) echo "$GITHUB_REF_NAME: not a nightly/ branch; nothing to guard"; exit 0 ;;
+          esac
+          base=$(gh api "repos/$GITHUB_REPOSITORY/pulls?head=$GITHUB_REPOSITORY_OWNER:$GITHUB_REF_NAME&state=open" \
+            --jq '([.[] | select(.base.ref == "main")] + .)[0].base.ref // "main"')
+          git fetch --quiet --unshallow origin 2>/dev/null || true
+          git fetch --quiet origin "$base"
+          ./build metrics guard --branch "$GITHUB_REF_NAME" --base "origin/$base"
+
       - name: Static checks
         id: check
         if: ${{ !cancelled() }}
@@ -94,6 +123,7 @@ jobs:
       - name: Job summary
         if: ${{ !cancelled() }}
         env:
+          GUARD: ${{ steps.guard.outcome }}
           CHECK: ${{ steps.check.outcome }}
           UNIT: ${{ steps.unit.outcome }}
           REGRESS: ${{ steps.regress.outcome }}
@@ -103,6 +133,7 @@ jobs:
             echo
             echo "| Step | Outcome |"
             echo "| --- | --- |"
+            echo "| \`./build metrics guard\` | $GUARD |"
             echo "| \`./build check\` | $CHECK |"
             echo "| \`./build ci unit\` | $UNIT |"
             echo "| \`./build regress\` | $REGRESS |"

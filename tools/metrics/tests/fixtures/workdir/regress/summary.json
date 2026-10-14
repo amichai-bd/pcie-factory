@@ -1,0 +1,23 @@
+{
+  "builds": [
+    {"build": "default", "ip": "blk", "log": "blk/build/default/build.log", "runtime_s": 3.2, "status": "pass"},
+    {"build": "default", "ip": "blk/sub", "log": "blk/sub/build/default/build.log", "runtime_s": 2.1, "status": "pass"}
+  ],
+  "ips": {"blk": "all IPs", "blk/sub": "all IPs"},
+  "levels": [0, 2],
+  "passed": false,
+  "selected_ips": 2,
+  "selected_tests": 4,
+  "src_root": "/home/someone/checkout/src",
+  "tests": [
+    {"detail": "", "ip": "blk", "level": 0, "log": "blk/smoke/seed1/run.log", "name": "smoke", "runtime_s": 1.5, "seed": 1, "status": "pass"},
+    {"detail": "assert failed at /home/someone/checkout/src/blk/dv/tests/test_x.py:12", "ip": "blk", "level": 2, "log": "blk/sweep/seed7/run.log", "name": "sweep", "runtime_s": 40.25, "seed": 7, "status": "fail"},
+    {"detail": "", "ip": "blk", "level": 2, "log": "blk/sweep/seed8/run.log", "name": "sweep", "runtime_s": 38.0, "seed": 8, "status": "pass"},
+    {"detail": "", "ip": "blk/sub", "level": 0, "log": "blk/sub/smoke/seed1/run.log", "name": "smoke", "runtime_s": 0.75, "seed": 1, "status": "pass"}
+  ],
+  "totals": {
+    "level0": {"budget_s": 120, "failed": 0, "over_budget": false, "passed": 2, "runtime_s": 2.25, "tests": 2},
+    "level2": {"budget_s": 7200, "failed": 1, "over_budget": false, "passed": 1, "runtime_s": 78.25, "tests": 2}
+  },
+  "wall_s": 85.5
+}

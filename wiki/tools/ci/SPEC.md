@@ -80,13 +80,19 @@ requests to `main`, pushes to `main` and manual dispatch:
 2. Python dependencies: the runner's environment when it already satisfies
    `tools/requirements.txt` (`pip install --dry-run --no-index`), otherwise a
    job venv under `workdir/venv` put first on `PATH`.
-3. `./build check`.
-4. `./build ci unit`, then `./build regress --level 0 --level 1 --jobs
+3. The data guard, `./build metrics guard` ([metrics spec](../metrics/SPEC.md#guard)):
+   on a pull request `--branch <head> --base HEAD^1`; on a push or dispatch
+   of a `nightly/` ref `--branch <ref> --base origin/<base>`, where `<base>`
+   is the base of the branch's open PR into `main` (else of any open PR,
+   else `main`; the history is unshallowed first). Any other push or
+   dispatch skips it. Only a `nightly/` branch can fail it.
+4. `./build check`.
+5. `./build ci unit`, then `./build regress --level 0 --level 1 --jobs
    $(nproc)`. On a pull request both get `--affected HEAD^1`: the checkout is
    the merge commit, whose first parent is the base tip it merged onto, so
    the diff is exactly the PR's change against the tree under test. On a push
    or dispatch neither gets `--affected` (every IP, every suite).
-5. Steps 3 to 4 all run even if an earlier step fails (only cancellation
+6. Steps 3 to 5 all run even if an earlier step fails (only cancellation
    stops them); then the job summary
    (step outcomes plus `./build ci summary`) and the `regress-summary`
    artifact (`workdir/regress/summary.json`).
@@ -99,7 +105,8 @@ the BKM's Forks paragraph owns the rule, the accepted residual risk and the
 review-and-re-push route.
 
 Concurrency cancels a superseded run of the same PR; every push and
-dispatch has its own group. `permissions: contents: read`, actions pinned
+dispatch has its own group. `permissions: contents: read` and
+`pull-requests: read` (the guard's base lookup), actions pinned
 to exact versions, and a 20-minute hard timeout. The 10-minute `ci-gate`
 budget of the DevOps BKM is a target the job is expected to meet, not
 enforced by the workflow; the timeout leaves headroom for a cold
