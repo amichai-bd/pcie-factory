@@ -1,0 +1,26 @@
+Fitter report for widget_board
+Wed Oct 14 12:00:00 2026
+Quartus Prime Version 23.1std.1 Build 993 05/14/2024 SC Lite Edition
+
+
+---------------------
+; Table of Contents ;
+---------------------
+  1. Legal Notice
+  2. Fitter Summary
+  3. Fitter Resource Usage Summary
+
+
++-----------------------------------------------------------------------+
+; Fitter Resource Usage Summary                                         ;
++---------------------------------------------+-------------------------+
+; Resource                                    ; Usage                   ;
++---------------------------------------------+-------------------------+
+; Total logic elements                        ; 1,234 / 114,480 ( 1 % ) ;
+;     -- Combinational with no register       ; 778                     ;
+; Total registers                             ; 456                     ;
+; I/O pins                                    ; 18 / 529 ( 3 % )        ;
+; M9Ks                                        ; 1 / 432 ( < 1 % )       ;
+; Total block memory bits                     ; 8,192 / 3,981,312 ( < 1 % ) ;
+; Embedded Multiplier 9-bit elements          ; 2 / 532 ( < 1 % )       ;
++---------------------------------------------+-------------------------+

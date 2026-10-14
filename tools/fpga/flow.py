@@ -54,12 +54,15 @@ def load_config(cfg_dir: Path) -> dict:
         data = yaml.safe_load(path.read_text()) or {}
     except (OSError, yaml.YAMLError) as exc:
         raise FpgaError(f"cannot read {path}: {exc}") from None
-    board, timeout = data.get("board"), data.get("step_timeout_s")
+    board = data.get("board")
     if not isinstance(board, str) or not re.match(r"^[A-Za-z0-9_]+$", board):
         raise FpgaError(f"{path}: 'board' must be a plain name, got {board!r}")
+    timeout, procs = data.get("step_timeout_s"), data.get("processors")
     if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or timeout <= 0:
         raise FpgaError(f"{path}: 'step_timeout_s' must be a positive number")
-    return {"board": board, "step_timeout_s": float(timeout)}
+    if not isinstance(procs, int) or isinstance(procs, bool) or procs < 1:
+        raise FpgaError(f"{path}: 'processors' must be a positive integer")
+    return {"board": board, "step_timeout_s": float(timeout), "processors": procs}
 
 
 def host_quartus_root(cfg_dir: Path) -> Path | None:
@@ -115,6 +118,7 @@ class Plan:
     top: str
     board: str
     part: str | None
+    processors: int
     sources: list[Path]
     incdirs: list[Path]
     defines: dict[str, str | None]
@@ -138,7 +142,8 @@ def fpga_ips(ips: list[Ip]) -> list[Ip]:
     return [ip for ip in ips if (ip.path / "fpga").is_dir()]
 
 
-def plan(ip: Ip, workdir: Path, board: str, part: str | None = None) -> Plan:
+def plan(ip: Ip, workdir: Path, board: str, part: str | None = None,
+         processors: int = 1) -> Plan:
     """Validate an IP's FPGA inputs and resolve its sources."""
     fpga_dir = ip.path / "fpga"
     if not fpga_dir.is_dir():
@@ -164,7 +169,7 @@ def plan(ip: Ip, workdir: Path, board: str, part: str | None = None) -> Plan:
             raise FpgaError(f"{src}: unsupported source type {src.suffix!r} "
                             f"(expected {', '.join(sorted(SOURCE_TYPES))})")
     out_dir = ip.work_dir(workdir) / "fpga"
-    p = Plan(ip, top, board, part, sources, list(resolved.incdirs),
+    p = Plan(ip, top, board, part, processors, sources, list(resolved.incdirs),
              dict(resolved.defines), sdc.resolve(), qsf_tcl.resolve(),
              wrapper.resolve(), out_dir)
     p.steps = [
@@ -208,6 +213,7 @@ def project_tcl(p: Plan) -> str:
         f"set_global_assignment -name TOP_LEVEL_ENTITY {t}",
         "set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files",
         "set_global_assignment -name VERILOG_INPUT_VERSION SYSTEMVERILOG_2005",
+        f"set_global_assignment -name NUM_PARALLEL_PROCESSORS {p.processors}",
     ]
     for d in p.incdirs:
         lines.append(f"set_global_assignment -name SEARCH_PATH {_brace(str(d))}")
@@ -323,7 +329,8 @@ def run(p: Plan, bin_dir: Path, timeout_s: float, verilator: Path | None) -> int
         if name == "lint":
             flow["lint"] = res.status
         else:
-            flow["steps"][name] = {"status": res.status, "runtime_s": round(res.runtime_s, 1)}
+            flow["steps"][name] = {"status": res.status, "runtime_s": round(res.runtime_s, 1),
+                                   "warnings": quartus_warnings(res.log)}
         if res.status != "pass":
             _tail(res.log)
             return 1
@@ -343,6 +350,18 @@ def run(p: Plan, bin_dir: Path, timeout_s: float, verilator: Path | None) -> int
     return 0
 
 
+_DONE_RE = re.compile(r"was successful\. \d+ errors?, (\d+) warnings?")
+
+
+def quartus_warnings(log: Path) -> int | None:
+    """Warning count from a Quartus step's closing "was successful" line."""
+    try:
+        m = _DONE_RE.findall(log.read_text(errors="replace"))
+    except OSError:
+        return None
+    return int(m[-1]) if m else None
+
+
 def print_summary(m: dict) -> None:
     r, t = m["resources"], m["timing"]
     le = r["logic_elements"]
@@ -353,6 +372,9 @@ def print_summary(m: dict) -> None:
               f"{c['restricted_fmax_mhz']}), setup {c['setup_slack_ns']} ns, "
               f"hold {c['hold_slack_ns']} ns")
     cp = t["critical_path"]
+    warned = {n: s["warnings"] for n, s in m["flow"]["steps"].items() if s["warnings"]}
+    if warned:
+        print(f"  quartus warnings (review in logs/): {warned}")
     if cp:
         print(f"  critical path {cp['from']} -> {cp['to']} (slack {cp['slack_ns']} ns)")
 

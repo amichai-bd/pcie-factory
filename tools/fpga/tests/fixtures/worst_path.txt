@@ -1,0 +1,6 @@
+slack=4.160
+from=u_core|acc_q[3]
+to=u_core|acc_q[15]
+from_clock=CLK_B
+to_clock=CLK_B
+data_delay=3.721

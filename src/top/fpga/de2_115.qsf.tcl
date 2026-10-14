@@ -43,3 +43,9 @@ set_location_assignment PIN_E21 -to ledg0_o
 foreach port {key_ni[*] sw_i[*] ledr_o[*] ledg0_o} {
   set_instance_assignment -name IO_STANDARD "2.5 V" -to $port
 }
+
+# LED drivers: low current and slow edges are enough for static indicators.
+foreach port {ledr_o[*] ledg0_o} {
+  set_instance_assignment -name CURRENT_STRENGTH_NEW 8MA -to $port
+  set_instance_assignment -name SLEW_RATE 0 -to $port
+}

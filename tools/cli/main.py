@@ -128,7 +128,7 @@ def cmd_fpga(ctx: Context, args) -> int:
     else:
         targets = [find_ip(ips, ip_id) for ip_id in args.ip]
     timeout = args.timeout if args.timeout is not None else cfg["step_timeout_s"]
-    plans = [fpga.plan(ip, ctx.workdir, cfg["board"], args.part) for ip in targets]
+    plans = [fpga.plan(ip, ctx.workdir, cfg["board"], args.part, cfg["processors"]) for ip in targets]
     if args.dry_run:
         for p in plans:
             fpga.generate(p)
