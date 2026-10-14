@@ -36,7 +36,8 @@ owner and replace the copy with a link.
   ([writing rules](../../../wiki/bkm/wiki.md#writing-rules)).
 - Section contents: [MAS](../../../wiki/bkm/wiki.md#mas-architecture-what-and-why),
   [HAS](../../../wiki/bkm/wiki.md#has-hardware-architecture-spec-how),
-  DV_PLAN and [tool SPEC](../../../wiki/bkm/wiki.md#tool-spec) per the
+  [DV_PLAN](../../../wiki/bkm/wiki.md#dv_plan-feature--test--level) and
+  [tool SPEC](../../../wiki/bkm/wiki.md#tool-spec) per the
   [page set](../../../wiki/bkm/wiki.md#page-set).
 - Link to source, config and tests; never paste code, filelists or YAML.
 - Open choices and gaps name their owning issue; no ownerless TODO.
@@ -104,7 +105,8 @@ Alignment is a duty of every PR, not a later cleanup
   about 250 lines.
 - Renamed heading or moved page: update every inbound link in the same PR
   (`grep -rn '<old-anchor-or-path>' wiki .claude CLAUDE.md README.md`).
-- Link check: build the site strictly (`python3 tools/wiki_site/wiki_site.py build --strict`, see the
+- Link check: build the site strictly
+  (`python3 tools/wiki_site/wiki_site.py build --strict`, see the
   [wiki site SPEC](../../../wiki/tools/wiki_site/SPEC.md#links); `./build wiki`
   once it exists). Links from outside `wiki/` are checked by hand.
 - Neutrality check per the [DevOps BKM](../../../wiki/bkm/devops.md#static-checks).

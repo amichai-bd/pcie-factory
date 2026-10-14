@@ -50,8 +50,9 @@ issue worktree per [agent-flow](../agent-flow/SKILL.md).
       `main` ([continuous integration](../../../wiki/bkm/devops.md#continuous-integration)).
 - [ ] Actions pinned to an exact version; toolchain versions come from
       `cfg/host.yaml`, not the workflow.
-- [ ] `ci-gate` stays the single required check; affected-IP selection lives
-      in `cfg/ci.yaml`, not in workflow YAML.
+- [ ] `ci-gate` stays the single required check; affected-IP selection
+      never lives in workflow YAML. Its rules are in
+      `tools/regress/affected.py` until #11 moves them to `cfg/ci.yaml`.
 - [ ] A header comment points to the owning SPEC or BKM section.
 
 ## 4. Tests
@@ -73,8 +74,9 @@ python3 -m pytest tools -q                     # all tool tests
 ./build check                                  # lands with issue #7
 ```
 
-The [build SPEC](../../../wiki/tools/build/SPEC.md#unit-tests) owns the test layout (`tools/pytest.ini`,
-fixture trees) and the `COMMANDS` dispatch table a new subcommand plugs into.
+The [build SPEC](../../../wiki/tools/build/SPEC.md#unit-tests)
+owns the test layout (`tools/pytest.ini`, fixture trees) and the `COMMANDS`
+dispatch table a new subcommand plugs into.
 
 ## 5. Spec and neutrality
 
