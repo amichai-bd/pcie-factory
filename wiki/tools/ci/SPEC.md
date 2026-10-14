@@ -7,8 +7,8 @@ and the `./build ci` helpers the workflow calls. The code lives in
 `tools/ci/` (`config.py`, `unit.py`, `summary.py`).
 
 ```
-./build ci unit [--affected BASE] [--src-root DIR]
-./build ci summary [--workdir DIR]
+./build ci [--src-root DIR] [--workdir DIR] unit [--affected BASE]
+./build ci [--workdir DIR] summary
 ```
 
 ## Selection rules: `cfg/ci.yaml`
@@ -86,23 +86,24 @@ requests to `main`, pushes to `main` and manual dispatch:
    the merge commit, whose first parent is the base tip it merged onto, so
    the diff is exactly the PR's change against the tree under test. On a push
    or dispatch neither gets `--affected` (every IP, every suite).
-5. Steps 3 to 4 all run even if an earlier one fails; then the job summary
+5. Steps 3 to 4 all run even if an earlier step fails (only cancellation
+   stops them); then the job summary
    (step outcomes plus `./build ci summary`) and the `regress-summary`
    artifact (`workdir/regress/summary.json`).
 
-**Forks:** the repository is public and the runners are self-hosted, so the
-job carries `if: github.event_name != 'pull_request' ||
-github.event.pull_request.head.repo.full_name == github.repository`: fork
-code never runs on them. A skipped required check counts as passing in
-branch protection, so a fork PR is never merged on its own `ci-gate`: a
-maintainer reviews it, pushes its commits to a branch in this repository and
-merges through a PR from that branch, which runs the gate. The workflow never
-uses `pull_request_target` and never prints secrets.
+**Forks:** the job carries the fork guard `if:` that the
+[DevOps BKM](../../bkm/devops.md#continuous-integration) prescribes. That
+guard lives in the PR's own copy of `ci.yml`, so a fork can remove it: it is
+defense in depth only. Maintainers never approve a fork PR's workflow run;
+the BKM's Forks paragraph owns the rule, the accepted residual risk and the
+review-and-re-push route.
 
 Concurrency cancels a superseded run of the same PR; every push and
-dispatch has its own group. `permissions: contents: read`, a 20-minute
-timeout (the budget is 10 minutes, the rest is headroom for a cold
-dependency install), and actions pinned to exact versions.
+dispatch has its own group. `permissions: contents: read`, actions pinned
+to exact versions, and a 20-minute hard timeout. The 10-minute `ci-gate`
+budget of the DevOps BKM is a target the job is expected to meet, not
+enforced by the workflow; the timeout leaves headroom for a cold
+dependency install.
 
 Branch protection on `main` requires the status check `ci-gate`.
 

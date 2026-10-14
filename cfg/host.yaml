@@ -25,11 +25,11 @@ hosts:
     python: system python3, packages installed into it from tools/requirements.txt
   omarchy:
     description: self-hosted CI host (Arch Linux); provisioned by hand, not by the hook
-    # TODO(omarchy host agent): record the installed paths and versions here
-    # once reported. Left empty on purpose; do not guess.
-    verilator_prefix: /usr          # binary at /usr/bin/verilator, found on PATH
+    # Recorded from the host agent's report; fields still empty are not
+    # reported yet. Do not guess.
+    verilator_prefix: /usr          # /usr/bin/verilator, found on PATH
     verilator_version: "5.052"
-    python: "3.14.7"                # /usr/bin/python3
-    venv: $VIRTUAL_ENV              # runner venv, first on PATH: cocotb, pytest, PyYAML pins (path is design-named)
+    python: "3.14.7"                # base interpreter of the runner venv
+    venv: runner                    # the runner service's own venv ($VIRTUAL_ENV), first on PATH; holds the cocotb, pytest and PyYAML pins
     quartus_root:
     orfs_root:

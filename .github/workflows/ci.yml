@@ -22,14 +22,16 @@ concurrency:
 
 jobs:
   ci-gate:
-    # The repository is public: never run fork code on the self-hosted runners.
-    # A fork PR skips this job, and a skipped required check counts as passing,
-    # so a maintainer re-pushes a fork PR's commits to a branch here (and opens
-    # a PR from it) before it can merge. Never use pull_request_target here.
+    # Fork guard; the rule is in wiki/bkm/devops.md (Forks). This `if:` lives
+    # in the PR's own copy of this file, so a fork can delete it: defense in
+    # depth only. Maintainers NEVER approve a fork PR's workflow run; fork
+    # changes reach CI only by review and re-push to a branch here (a skipped
+    # required check counts as passing). Never use pull_request_target with a
+    # PR checkout.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64]
-    # Budget: checks plus L0+L1 of the affected IPs in 10 minutes; the
-    # timeout leaves headroom for a cold dependency install.
+    # Target (not enforced): checks plus L0+L1 of the affected IPs within
+    # 10 minutes; the hard timeout leaves headroom for a cold dependency install.
     timeout-minutes: 20
     env:
       # pull_request checks out the merge commit refs/pull/N/merge, whose first
@@ -76,6 +78,7 @@ jobs:
 
       - name: Static checks
         id: check
+        if: ${{ !cancelled() }}
         run: ./build check
 
       - name: Unit tests (tools, models)

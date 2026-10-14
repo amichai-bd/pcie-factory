@@ -100,21 +100,29 @@ behavior, not command success. Missing evidence is a review finding.
 Workflows live in `.github/workflows/` (`ci`, `nightly`, `pages`) and run on
 self-hosted runners selected with `runs-on: [self-hosted, linux, x64]`. The
 runners are registered to this repository only, so no workflow names the
-design target. The repository is public, so fork code must never reach these
+design target. The CI host is the Omarchy machine; `cfg/host.yaml` pins its
+toolchain.
+
+**Forks.** The repository is public, so fork code must not reach these
 runners. Every job that a `pull_request` can trigger carries
 
 ```yaml
 if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
 ```
 
-so it still runs on push and dispatch, runs for PRs from this repository, and
-is skipped for fork PRs. `pull_request_target` never checks out PR code, and
-workflows never echo secrets. The captain also requires approval for
-outside-collaborator fork workflows in the repository settings. A skipped job
-counts as passing a required check, so a fork PR is never merged on its
-`ci-gate` alone: a maintainer pushes its commits to a branch in this
-repository, and that PR's `ci-gate` is the gate. The CI host is the Omarchy machine; `cfg/host.yaml` pins its
-toolchain.
+so it runs on push and dispatch and for PRs from this repository, and is
+skipped for unmodified fork PRs. This guard is defense in depth only: a
+`pull_request` run uses the workflow file from the PR's own merge commit, so
+a fork's copy can drop it. The repository keeps GitHub's default fork-run
+approval setting (approval for first-time contributors only); the captain
+accepts the residual risk that a returning outside contributor's fork could
+run code on the runners. Maintainers **never approve a fork PR's workflow
+run**. Fork changes reach CI only by review and re-push: a maintainer reviews
+the diff, pushes its commits to a branch in this repository and merges
+through a PR from that branch, whose `ci-gate` is the gate (a skipped job
+counts as passing a required check, so a fork PR's own run proves nothing).
+Workflows never use `pull_request_target` with a PR checkout and never echo
+secrets.
 
 **`ci-gate`** is the one required check. It runs on pull requests to `main`,
 pushes to `main` and manual dispatch:
@@ -144,10 +152,7 @@ A sub-IP is an IP in its own right: a change inside `src/<ip>/<subip>/`
 selects the sub-IP, and selects the parent only when the parent's filelists
 reach the changed file or the change is in the sub-IP's models.
 
-Superseded PR runs are cancelled; every push to `main` keeps its run. Fork
-PRs never run on the self-hosted runners and skip `ci-gate`, which branch
-protection treats as passing, so a maintainer re-pushes a fork PR to a branch
-here before merging ([CI spec](../tools/ci/SPEC.md#the-workflow)). Until
+Superseded PR runs are cancelled; every push to `main` keeps its run. Until
 the runners are online, the temporary exception in
 [`CLAUDE.md`](../../CLAUDE.md#flow) replaces `ci-gate` with recorded local
 evidence.

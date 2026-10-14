@@ -143,3 +143,24 @@ def test_parent_model_change_does_not_select_sub_ip(repo):
     (repo / "src/counter/dv/models").mkdir(parents=True)
     (repo / "src/counter/dv/models/counter_model.py").write_text("")
     assert affected(repo) == {"counter": "changed: src/counter/dv/models/counter_model.py"}
+
+
+def test_nested_sub_ip_model_change_selects_all_ancestors(repo):
+    deep = repo / "src/counter/inc/deep"
+    (deep / "rtl").mkdir(parents=True)
+    (deep / "rtl/deep.rtl.f").write_text("")
+    commit_all(repo)
+    (deep / "dv/models").mkdir(parents=True)
+    (deep / "dv/models/deep_model.py").write_text("")
+    rel = "src/counter/inc/deep/dv/models/deep_model.py"
+    assert affected(repo) == {
+        "counter": f"sub-IP model: {rel}",
+        "counter/inc": f"sub-IP model: {rel}",
+        "counter/inc/deep": f"changed: {rel}",
+    }
+
+
+def commit_all(repo: Path) -> None:
+    git(repo, "add", "-A")
+    git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x")
+    git(repo, "branch", "-f", "main", "HEAD")

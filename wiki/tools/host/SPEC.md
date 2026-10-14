@@ -37,11 +37,10 @@ inline `[a, b]` lists and `#` comments.
 | Cloud | Claude Code cloud sessions (Ubuntu container) | `.claude/hooks/session-start.sh` |
 | Omarchy | Self-hosted CI runners, FPGA and ASIC flows (Arch Linux) | By hand; versions recorded under `hosts.omarchy` in `cfg/host.yaml` |
 
-The Omarchy entries in `cfg/host.yaml` stay empty until the host agent
-reports the installed paths and versions; they must match the pins above.
-Python, the runner venv and Verilator are recorded; a path that names the
-design (such as the runner venv) is described, not written, to keep `cfg/`
-neutral. Quartus Lite and ORFS run only there and are recorded there too.
+The Omarchy entries in `cfg/host.yaml` record what the host agent reported
+and must match the pins above; an entry not yet reported stays empty.
+`venv: runner` means the runner service's own virtual environment (its
+`$VIRTUAL_ENV`, first on `PATH`); its path is not recorded. Quartus Lite and ORFS run only there and are recorded there too.
 
 ### Cloud session-start hook
 
