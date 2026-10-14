@@ -122,12 +122,11 @@ a PR whose code and specs disagree.
 - Never commit credentials, private machine details or unredistributable tool
   output.
 - The repository and its wiki site are public: everything committed, including
-  `wiki/src/` and tracker data, must be fit for public reading (rules in the
-  wiki BKM's Publishability section).
-- Self-hosted runners must never run untrusted code: every job a
-  `pull_request` triggers runs only for PRs from this repository, and
-  `pull_request_target` never checks out PR code (DevOps BKM, Continuous
-  integration).
+  `wiki/src/` and tracker data, must be fit for public reading
+  ([publishability](wiki/bkm/wiki.md#publishability)).
+- Self-hosted runners never run fork code: use the job guard from the
+  [DevOps BKM](wiki/bkm/devops.md#continuous-integration), and never let
+  `pull_request_target` check out PR code.
 
 The DevOps BKM in `wiki/bkm/` owns levels, budgets, CI selection, labels and
 metrics.

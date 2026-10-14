@@ -107,9 +107,10 @@ the unit tests prove it.
 The repository is public and the wiki is published to GitHub Pages as a
 **public** site (captain decisions, see the
 [decision record](../project/decisions/0001-m0-grill.md#updates)). It is built
-by a minimal generator in `tools/` (see its [SPEC](../tools/wiki_site/SPEC.md)). Navigation follows the `wiki/`
-tree, so a new page needs no nav file edit. Validate links locally before
-review with `./build wiki build --strict`; it is the link check.
+by a minimal generator in `tools/` (see its [SPEC](../tools/wiki_site/SPEC.md)).
+Navigation follows the `wiki/` tree, so a new page needs no nav file edit.
+Validate links locally before review with `./build wiki build --strict`; it
+is the link check.
 
 ### Publishability
 
@@ -117,13 +118,13 @@ The whole repository is public, so this applies to every committed file; it
 matters most for `wiki/`, including `wiki/src/` specs and `wiki/tracker/data/`,
 which is also published as a site. Nothing committed may contain:
 
-- credentials, tokens, secrets or private URLs;
-- private machine details beyond tool versions and install paths (no host
-  names, IP addresses, user accounts other than service accounts, or personal
-  data);
+- credentials, tokens, keys or other secrets, or URLs that embed them;
+- personal data (personal email addresses, phone numbers, home paths);
+- machine details beyond tool versions, install paths and the CI host's
+  role name (no network addresses, internal host names or user accounts other
+  than the runner service account);
 - unredistributable vendor content (copied tool reports, licensed IP text or
-  datasheet excerpts beyond short quotes with attribution);
-- anything the captain has not cleared for publication.
+  datasheet excerpts beyond short attributed quotes).
 
-Reviewers check this on every PR. Content that cannot be
-public belongs outside the wiki, and the captain decides where.
+Reviewers check this on every PR. Content that cannot be public stays out of
+the repository; ask the captain where it belongs.

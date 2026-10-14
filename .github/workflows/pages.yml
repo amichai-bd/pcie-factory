@@ -1,4 +1,5 @@
 # Wiki site; see wiki/tools/wiki_site/SPEC.md.
+# The repository and the published site are public.
 # A pull request builds with --strict and never deploys; a push to main or a
 # manual dispatch builds strictly and deploys to GitHub Pages.
 name: pages
