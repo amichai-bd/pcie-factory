@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 import pytest
@@ -62,6 +63,32 @@ def test_wrapped_citation_passes_in_markdown(text):
 def test_wrapped_malformed_citation_reported_once():
     hits = scan("x\n[cite: Widget Bus Spec,\nrev 2.1 §4.3.2] y\n")
     assert len(hits) == 1 and hits[0].startswith("2: malformed citation"), hits
+
+
+@pytest.mark.parametrize("markdown", [True, False])
+def test_long_indented_malformed_wrapped_citation_is_fast(markdown):
+    # Regression: the wrapped form once backtracked exponentially here.
+    body = "".join(f"   \n        w{i}   " for i in range(30))
+    text = f"x [cite: Widget Bus Spec{body} rev 2.1 §4]\n" * 3
+    start = time.perf_counter()
+    hits = scan(text, markdown=markdown)
+    assert time.perf_counter() - start < 0.5
+    assert any("malformed citation" in h for h in hits)
+
+
+def test_long_wrapped_well_formed_citation_passes_fast():
+    name = "\n      ".join(f"Part{i}" for i in range(40))
+    start = time.perf_counter()
+    assert scan(f"x [cite: {name},\n  rev 2.1,\n  §4.3]\n") == []
+    assert time.perf_counter() - start < 0.5
+
+
+def test_unclosed_backticks_stay_in_their_paragraph():
+    text = ("a ` b\n\n" * 2000) + "§1\n"
+    start = time.perf_counter()
+    assert scan(text) == ["4001: section reference '§' outside a citation "
+                          f"(expected '{citation.FORM}')"]
+    assert time.perf_counter() - start < 0.5
 
 
 def test_citation_does_not_wrap_over_a_blank_line():

@@ -38,16 +38,23 @@ _OPEN = re.compile(r"\[\s*cite\s*:", re.IGNORECASE)
 
 
 def _form(sp: str) -> re.Pattern:
-    """The citation form, with ``sp`` wherever the form has a space."""
+    """The citation form, with ``sp`` wherever the form has a space.
+
+    Linear time: ``sp`` must match whitespace only and in one way (atomic),
+    and the standard name is non-whitespace runs joined by ``sp``, so every
+    split of the text is unique and nothing backtracks exponentially.
+    """
+    name = r"[A-Za-z0-9./+&()-]+"
     return re.compile(
-        rf"\[cite:{sp}[A-Za-z0-9](?:(?:[A-Za-z0-9./+&()-]|{sp})*[A-Za-z0-9)])?"
+        rf"\[cite:{sp}(?=[A-Za-z0-9]){name}(?:{sp}{name})*(?<=[A-Za-z0-9)])"
         rf",{sp}rev{sp}[A-Za-z0-9][A-Za-z0-9.-]*"
         rf",{sp}§[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*\]")
 
 
 _FORM = _form(" ")
-# Markdown is hard-wrapped: a space in the form may also be one line break.
-_FORM_WRAPPED = _form(r"(?: |[ \t]*\n[ \t]*)")
+# Markdown is hard-wrapped: a space in the form may also be one line break
+# with the spaces around it. Atomic, so the indentation matches one way only.
+_FORM_WRAPPED = _form(r"(?>[ \t]*\n[ \t]*| )")
 _BLANK_LINE = re.compile(r"\n[ \t]*\n")
 _SECTION_REF = re.compile(
     r"§|\b(?:section|sec\.|chapter|clause)\s*[0-9]+(?:\.[0-9]+)+", re.IGNORECASE)
@@ -58,7 +65,9 @@ _STRAIGHT_LINE = re.compile(r'(?<!")"(?!")([^"\n]+)"(?!")')
 _STRAIGHT_PARA = re.compile(r'(?<!")"(?!")((?:[^"\n]|\n(?![ \t]*\n))+)"(?!")')
 _FENCE = re.compile(r"^[ \t]{0,3}(```|~~~).*?(?:^[ \t]{0,3}\1[^\n]*$|\Z)",
                     re.MULTILINE | re.DOTALL)
-_CODE_SPAN = re.compile(r"(`+)(?:(?!\1).)+?\1", re.DOTALL)
+# A code span stays inside its paragraph, so an unclosed backtick scans at
+# most to the next blank line.
+_CODE_SPAN = re.compile(r"(`+)(?:(?!\1)[^\n]|\n(?![ \t]*\n))+?\1")
 _BLOCK_QUOTE = re.compile(r"(?:^[ \t]{0,3}>.*(?:\n|\Z))+", re.MULTILINE)
 
 

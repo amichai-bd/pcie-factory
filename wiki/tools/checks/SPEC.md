@@ -258,15 +258,17 @@ any other key is a configuration error).
 The check scans every text file below the source root and its sibling
 `wiki/src/` (in the repository, `src/` and `wiki/src/`), whatever the file
 type. Hidden files and folders and binary files (a NUL byte) are skipped.
-In Markdown files (`.md`), fenced code blocks and code spans are blanked
-first: code is not prose. A word is a run of letters and digits, with
+In Markdown files (`.md`), fenced code blocks and code spans (which do not cross a blank line) are
+blanked first: code is not prose. No pattern can backtrack exponentially
+(each whitespace run in a citation matches one way only), so a long
+malformed input cannot stall the check. A word is a run of letters and digits, with
 inner `'` or `-`. Findings, `<path>:<line>: <message>`:
 
 | Finding | Flags |
 | --- | --- |
 | `block quote of N words` | Markdown only: a run of consecutive `>` lines with more than `max_quote_words` words. |
 | `quoted run of N words` | Text between typographic double quotes, or between straight double quotes, with more than `max_quote_words` words. In Markdown a straight-quoted run may wrap lines within a paragraph (not across a blank line). In any other file it stays on one line, and a quote that is part of `""` or `"""` is not a delimiter, so Python docstrings are not quotes. |
-| `malformed citation` | `[cite:` (any case or spacing) that does not open exactly `[cite: <standard>, rev <revision>, §<section>]`. `<standard>` starts with a letter or digit and holds letters, digits, spaces and `./+&()-`. `<revision>` is letters, digits, `.` and `-`. `<section>` is one alphanumeric section number with `.` or `-` separators. In Markdown, which is hard-wrapped, each space of the form may instead be one line break (with indentation), so a wrapped citation is well-formed; in other files the citation stays on one line. The finding runs to the `]`, or to the end of the line (Markdown: of the paragraph) when there is none. |
+| `malformed citation` | `[cite:` (any case or spacing) that does not open exactly `[cite: <standard>, rev <revision>, §<section>]`. `<standard>` is words of letters, digits and `./+&()-` joined by single spaces; it starts with a letter or digit and ends with one or `)`. `<revision>` is letters, digits, `.` and `-`. `<section>` is one alphanumeric section number with `.` or `-` separators. In Markdown, which is hard-wrapped, each space of the form may instead be one line break (with indentation), so a wrapped citation is well-formed; in other files the citation stays on one line. The finding runs to the `]`, or to the end of the line (Markdown: of the paragraph) when there is none. |
 | `section reference ... outside a citation` | Every `§`, and every dotted section number (`4.3.2`, at least two levels) after `section`, `sec.`, `chapter` or `clause` (any case), outside a citation, whatever it refers to: in `src/` and `wiki/src/` these forms are reserved for citations, and internal cross-references link by heading name ([wiki BKM](../../bkm/wiki.md#citations)). One inside a malformed citation is reported once, as that. |
 
 **Limits.** The check is a heuristic. It cannot prove that text was not
@@ -388,7 +390,7 @@ and empty folders, extra pages, a non-IP source folder, hidden entries,
 `--ip`, and a missing wiki tree (`test_wiki_mirror.py`), a small git repository with forbidden words,
 slug URLs, a look-alike slug and an invalid config (`test_neutrality.py`),
 each citation finding with its pass and fail boundary (exactly
-`max_quote_words` words versus one more, every malformed citation variant, wrapped citations in Markdown (and not over a blank line),
+`max_quote_words` words versus one more, every malformed citation variant, wrapped citations in Markdown (and not over a blank line), long indented malformed citations and unclosed backticks finishing quickly (a regression guard against backtracking),
 code blocks and spans, triple quotes, binary and hidden files) and every
 config error (`test_citation.py`), and waivers (used, stale, invalid),
 output parsing and the command line (`test_lint.py`, `test_check_run.py`). Negative cases include a `.vlt`
