@@ -33,7 +33,7 @@ IP_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*(/[A-Za-z0-9][A-Za-z0-9_.-]*)*$"
 SLOTS = 8  # categorical colour slots (--series-1..8 in wiki.css); never cycled
 TABLE_ROWS = 30  # most recent points in each trend's data table
 LIST_ROWS = 20  # rows in open-PR / open-issue / slowest-test tables
-BLANK_LINE = re.compile(r"(\r\n|\r|\n)[ \t]*(\r\n|\r|\n)")  # ends a Markdown HTML block
+BLANK_LINE = re.compile(r"\n[ \t]*\n")  # ends a Markdown HTML block (line endings normalised to \n first)
 STALE_DAYS = 7  # an open issue with no activity for longer is stale
 CI_WINDOW = 20  # ci-gate pass rate window, in runs on main
 
@@ -456,7 +456,7 @@ class Page:
     def html(self, s: str) -> None:
         """One Markdown HTML block: a blank line would end it, so a record
         value carrying one is folded onto one line and reported."""
-        if BLANK_LINE.search(s):
+        if BLANK_LINE.search(s.replace("\r\n", "\n").replace("\r", "\n")):
             msg = (f"{self.where}: a record value contains a blank line; "
                    "rendered with its line breaks folded to spaces")
             if msg not in self.problems:  # once per page

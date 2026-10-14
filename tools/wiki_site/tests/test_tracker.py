@@ -251,6 +251,16 @@ def test_blank_line_in_a_value_is_a_problem(tmp_path):
                            "--sha", SHA]) == 1
 
 
+def test_single_line_break_in_a_value_is_not_a_problem(tmp_path):
+    # one CRLF, LF or CR is no blank line: it renders inside the block as is
+    rec = nightly("2026-09-05", 1, "pass", 60, github={"issues": {"open_by_label": {
+        "a\r\nb": 1, "c\nd": 2, "e\rf": 3, "g \r\n h": 4}}})
+    problems, out = build(tree(tmp_path, {"2026-09-05.json": rec}))
+    assert problems == []
+    assert wiki_site.main(["build", "--strict", "--root", str(tmp_path), "--out", str(out),
+                           "--sha", SHA]) == 0
+
+
 def test_light_series_colours_clear_3_to_1_on_the_page():
     css = (Path(tracker.__file__).parent / "theme/wiki.css").read_text()
     root = re.search(r":root \{([^}]*)\}", css.split("/* ---- tracker")[0]).group(1)
