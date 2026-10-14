@@ -61,6 +61,20 @@ def group_alive(pgid: int) -> bool:
     return False
 
 
+def group_dies(pgid: int, within_s: float = 30.0) -> bool:
+    """Poll until no live process is left in group ``pgid``. ``killpg`` only
+    queues SIGKILL and ``wait()`` reaps only the group leader, so a
+    grandchild can still be running for a moment after the code under test
+    returns, especially on a loaded host. Poll with a deadline; never assert
+    right after the kill."""
+    deadline = time.monotonic() + within_s
+    while group_alive(pgid):
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.05)
+    return True
+
+
 @needs_proc
 def test_build_timeout_kills_group(fixture_src, tmp_path, monkeypatch, sleeper):
     monkeypatch.setattr(sim, "BUILD_TIMEOUT_S", 0.5)
@@ -76,8 +90,8 @@ def test_build_timeout_kills_group(fixture_src, tmp_path, monkeypatch, sleeper):
     ip = find_ip(discover(fixture_src), "counter")
     res = sim.build(sim.BuildSpec(ip, "counter"), tmp_path / "w", Path("/fake/verilator"))
     assert res.status == "error" and "timed out" in res.detail
-    assert res.runtime_s < 10
-    assert pids and not group_alive(pids[0])
+    assert res.runtime_s < 30  # 0.5 s timeout plus kill; generous for loaded hosts
+    assert pids and group_dies(pids[0])
 
 
 @needs_proc
@@ -92,15 +106,15 @@ def test_kill_all_stops_running_children(tmp_path, sleeper):
 
     t = threading.Thread(target=work)
     t.start()
-    deadline = time.monotonic() + 10
+    deadline = time.monotonic() + 30
     while not sim._ACTIVE and time.monotonic() < deadline:
         time.sleep(0.05)
     (proc,) = list(sim._ACTIVE)
     assert group_alive(proc.pid)
     sim.kill_all()
-    t.join(10)
+    t.join(30)
     assert not t.is_alive() and len(errors) == 1
-    assert not group_alive(proc.pid) and not sim._ACTIVE
+    assert group_dies(proc.pid) and not sim._ACTIVE
     with pytest.raises(KeyboardInterrupt):  # nothing new starts once stopping
         sim._run_child("test", {}, tmp_path / "y/sim.log", timeout_s=None)
 

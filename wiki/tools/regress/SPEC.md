@@ -19,8 +19,8 @@ levels.
 
 An empty level is either a missing file or `tests: []`. An empty file and a
 bare `[]` are errors. The DV BKM convention is that all three files exist.
-This tool doesn't require that; the `./build check` filelist and regression
-checks (#7) are where it would be enforced.
+This tool doesn't require that; the
+[`./build check` filelist check](../checks/SPEC.md#filelist-check) enforces it.
 
 ```yaml
 tests:
