@@ -67,19 +67,20 @@ about `src/` or `wiki/src/`.
 
 ## 4. Choose labels
 
-Labels are defined in `cfg/labels.yaml` and synced by `./build labels sync`;
-use only labels defined there, never invent one. Dimensions:
+Labels are defined in `cfg/labels.yaml` and synced by `./build labels sync`.
+Use only these values, never invent one:
 
-| Prefix | Rule |
-| --- | --- |
-| `type:` | Exactly one (for example feature, bug, docs, chore, epic). |
-| `area:` | At least one, by the part of the factory touched. |
-| `ip:` | One per affected IP, derived from `src/`. |
-| `prio:` | Optional priority. |
-| State | `in-progress`, `blocked`, `needs-captain`, `nightly-red`; set by the flow, not at creation. |
+| Dimension | Values | Rule |
+| --- | --- | --- |
+| `type:` | `feat`, `bug`, `docs`, `infra`, `test`, `refactor`, `epic`, `data` | Exactly one. |
+| `area:` | `rtl`, `dv`, `build`, `ci`, `wiki`, `skills`, `fpga`, `pd` | At least one, by the part touched. |
+| `ip:` | One per IP, derived from `src/` | One per affected IP. |
+| `prio:` | `p0`, `p1`, `p2` | Optional. |
+| State | `in-progress`, `blocked`, `needs-captain`, `nightly-red` | Set by the flow, not at creation. |
 
-Read `cfg/labels.yaml` for the current names before labeling. Until it
-exists, create the issue unlabeled and note it in the issue.
+`cfg/labels.yaml` is the source of truth: if it ever differs from this
+table, follow it and fix this table in the same issue. Until the labels exist
+in the repository, create the issue unlabeled and note it in the issue.
 
 ## 5. Create and link
 
