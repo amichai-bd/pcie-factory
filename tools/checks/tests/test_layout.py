@@ -66,9 +66,9 @@ def test_nested_sub_ip_is_rejected(good):
     write(good / "dv/blk/sub/sub.sim.f")
     assert run(good).findings == [
         "rtl/blk/sub/sub.rtl.f: only blk.rtl.f may live in rtl/blk/ "
-        "(a sub-IP is a flat sibling rtl/<blk_sub>/)",
+        "(a sub-IP is a flat sibling rtl/blk_<sub>/)",
         "dv/blk/sub/sub.sim.f: only blk.dv.f, blk.sim.f may live in dv/blk/ "
-        "(a sub-IP is a flat sibling dv/<blk_sub>/)",
+        "(a sub-IP is a flat sibling dv/blk_<sub>/)",
     ]
 
 

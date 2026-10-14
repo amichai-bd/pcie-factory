@@ -12,20 +12,20 @@ the model and scenario contracts and the output. Code: `tools/arch/`
 
 | Option | Meaning |
 | --- | --- |
-| `--ip ID` | A top-level IP (a direct child of the source root) with an `arch/` directory. Required. |
-| `--scenario NAME` | Run only `arch/perf/NAME.yaml`. Default: every scenario, sorted by name. |
+| `--ip ID` | A top-level IP (one no other IP's `.rtl.f` reaches, [IP discovery](../build/SPEC.md#ip-discovery)) with a `src/arch/<ip>/` folder. Required. |
+| `--scenario NAME` | Run only `src/arch/<ip>/perf/NAME.yaml`. Default: every scenario, sorted by name. |
 
 Exit codes: `0` every scenario passed, `1` a scenario failed or errored,
-`2` a usage or configuration error (unknown IP, a sub-IP, no `arch/`, no or
+`2` a usage or configuration error (unknown IP, a sub-IP, no `src/arch/<ip>/`, no or
 several models, a model that cannot be imported or has no `perf`, no
 scenarios, an unknown `--scenario`, an invalid scenario file).
 
 ## Model
 
-`src/<ip>/arch/` holds exactly one model module whose file name ends in
-`<name>_arch.py` (`<name>` is the IP directory name; the prefix comes from
+`src/arch/<ip>/` holds exactly one model module whose file name ends in
+`<ip>_arch.py` (`<ip>` is the IP id; the prefix comes from
 [`src/README.md`](../../../src/README.md)) and does not start with
-`test_`. The tool imports it by path with `arch/` first on `sys.path`, so it
+`test_`. The tool imports it by path with `src/arch/<ip>/` first on `sys.path`, so it
 may import sibling modules by bare name, and calls:
 
 ```python
@@ -36,7 +36,7 @@ once per scenario, with a copy of the scenario's `workload` and its `seed`.
 The model validates its own workload (raising on a bad one). Metrics are
 finite numbers, never booleans.
 
-## Scenarios: `arch/perf/<name>.yaml`
+## Scenarios: `src/arch/<ip>/perf/<name>.yaml`
 
 `<name>` matches `[a-z0-9][a-z0-9_]*`.
 
@@ -81,25 +81,25 @@ then writes `<workdir>/<ip>/arch/perf.json` (replacing it):
 
 Keys are sorted and the file has no timestamps, so the same sources give
 the same bytes. Because `arch/` lives in `workdir/<ip>/`, no test may be
-named `arch` (`RESERVED_TEST_NAMES` in `tools/build/ip.py`), and `arch` is
-never a sub-IP directory ([IP discovery](../build/SPEC.md#ip-discovery)).
+named `arch` (`RESERVED_TEST_NAMES` in `tools/build/ip.py`).
 
 ## Callers
 
 - `./build ci unit` runs it as the `perf:<ip>` suite of `ci-gate`
   ([CI spec](../ci/SPEC.md#build-ci-unit)).
-- `./build check` requires `src/<ip>/arch/` with a model and a scenario when
-  the IP's HAS has a `## Targets` section, and rejects `arch/` under a sub-IP
-  ([checks spec](../checks/SPEC.md#wiki-mirror-check)).
+- `./build check` requires `src/arch/<ip>/` with a model and a scenario when
+  the IP's HAS has a `## Targets` section
+  ([checks spec](../checks/SPEC.md#wiki-mirror-check)), and rejects
+  `src/arch/<sub>/` for a sub-IP ([layout check](../checks/SPEC.md#layout-check)).
 
 ## Tests
 
 `tools/arch/tests/test_arch_perf.py`, on a synthetic tree (IP `blk` with
-sub-IP `blk/sub`) in a temporary directory: a passing run and its
+flat sub-IP `blk_sub`, reached by `blk.rtl.f`) in a temporary directory: a passing run and its
 `perf.json`, byte-identical reruns, a missed target, model exceptions and
 bad return values, a target on an unreported metric, `--scenario`
 selection and an unknown name, every malformed scenario case, a bad
 scenario name, a sub-IP, model lookup (none, two, tests ignored), a
-missing `arch/` or scenario directory, an import failure, a model without
+missing `src/arch/<ip>/` or scenario directory, an import failure, a model without
 `perf`, sibling imports (and `sys.path` restored), and the command line
 exit codes.

@@ -1,6 +1,6 @@
 """Unit tests of the scrambler LFSR model; no simulator needed.
 
-Run: python3 -m pytest src/top/lfsr/dv/models
+Run: python3 -m pytest src/dv/top_lfsr/models
 """
 
 import pcie_top_lfsr_model as m

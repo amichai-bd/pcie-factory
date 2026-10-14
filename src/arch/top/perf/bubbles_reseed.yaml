@@ -1,5 +1,5 @@
 # Half-rate source with periodic re-seeds: bubbles and re-seeds never stall
-# the stream or add latency (wiki/src/top/arch/HAS.md#targets).
+# the stream or add latency (wiki/src/arch/top/HAS.md#targets).
 description: Random bytes offered in half the cycles, a re-seed every 128 bytes.
 seed: 2
 workload:

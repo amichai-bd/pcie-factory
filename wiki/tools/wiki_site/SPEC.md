@@ -226,7 +226,8 @@ form the axis.
 | Issues and pull requests | Open issues and PRs, issues opened and closed and PRs merged in the trailing 7 days; histograms of issue time to close and to first response or claim, PR lead time, PR size and review rounds; open issues by label. |
 | FPGA, ASIC | One chart per metric with a series per IP: LEs, registers, M9K blocks, worst-clock Fmax and setup slack; WNS, TNS, std-cell area, cells, max fanout and logic depth. |
 
-**`/tracker/ip/<id>/`** (`<id>` may contain `/` for a sub-IP) shows that
+**`/tracker/ip/<id>/`** (`<id>` may contain `/`, as sub-IP ids did in records
+written before the kind-first layout) shows that
 IP's comparison table, LOC by kind, tests per level, and its FPGA and ASIC
 charts. `/tracker/ip/` lists the IPs; the sidebar lists them under it.
 

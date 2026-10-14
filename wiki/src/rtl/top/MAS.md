@@ -1,7 +1,7 @@
 # pcie_top MAS
 
-How `pcie_top` implements its [HAS](../arch/HAS.md): one register stage
-around the key XOR, with the [lfsr sub-IP](../lfsr/rtl/MAS.md) as the key
+How `pcie_top` implements its [HAS](../../arch/top/HAS.md): one register stage
+around the key XOR, with the [lfsr sub-IP](../../rtl/top_lfsr/MAS.md) as the key
 source.
 
 ## Microarchitecture
@@ -19,16 +19,16 @@ source.
 
 ## Timing
 
-- Latency and throughput: the [HAS targets](../arch/HAS.md#targets), met
+- Latency and throughput: the [HAS targets](../../arch/top/HAS.md#targets), met
   by the single register stage with no stall condition.
 - Critical path: `state_q` of the LFSR through the key logic and the XOR
   into `data_q`.
 - No clock-domain crossing. Clock targets and constraints are in the
-  [FPGA](../fpga/FPGA.md) and [ASIC](../asic/ASIC.md) pages.
+  [FPGA](../../fpga/top/FPGA.md) and [ASIC](../../asic/top/ASIC.md) pages.
 
 ## Files
 
 | File | Holds |
 | --- | --- |
-| [`pcie_top.sv`](../../../../src/top/rtl/pcie_top.sv) | The module. |
-| [`top.rtl.f`](../../../../src/top/rtl/top.rtl.f) | `-F ../lfsr/rtl/lfsr.rtl.f`, then `pcie_top.sv`. |
+| [`pcie_top.sv`](../../../../src/rtl/top/pcie_top.sv) | The module. |
+| [`top.rtl.f`](../../../../src/rtl/top/top.rtl.f) | `-F ../top_lfsr/top_lfsr.rtl.f`, then `pcie_top.sv`. |

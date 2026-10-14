@@ -1,4 +1,4 @@
-# Timing constraints for pcie_top on the DE2-115 (wiki/src/top/fpga/FPGA.md).
+# Timing constraints for pcie_top on the DE2-115 (wiki/src/fpga/top/FPGA.md).
 
 # CLOCK_50 (PIN_Y2): the board's 50 MHz oscillator.
 create_clock -name CLOCK_50 -period 20.000 [get_ports {clk_50_i}]

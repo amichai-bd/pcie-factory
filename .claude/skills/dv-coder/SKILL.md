@@ -1,6 +1,6 @@
 ---
 name: dv-coder
-description: Use before and while writing or changing verification under src/**/dv/ - cocotb tests, Python reference models, testbench tops and bind checkers, <ip>.dv.f and <ip>.sim.f, regress/level{0,1,2}.yaml entries and seeds - and when aligning an IP's DV_PLAN with its regression lists.
+description: Use before and while writing or changing verification under src/dv/ - cocotb tests, Python reference models, testbench tops and bind checkers, <ip>.dv.f and <ip>.sim.f, regress/level{0,1,2}.yaml entries and seeds - and when aligning an IP's DV_PLAN with its regression lists.
 ---
 
 # DV coder
@@ -16,28 +16,28 @@ issue worktree per [agent-flow](../agent-flow/SKILL.md).
 
 ## 1. Before writing a test
 
-1. Read the behavior under test in `wiki/src/<ip>/arch/HAS.md` (for a
-   sub-IP, `wiki/src/<ip>/<subip>/rtl/MAS.md`) and the row you are covering
-   in `dv/DV_PLAN.md`. The oracle comes from that spec, never from the RTL ([scope and oracle](../../../wiki/bkm/dv.md#scope-and-oracle)).
+1. Read the behavior under test in `wiki/src/arch/<ip>/HAS.md` (for a
+   sub-IP, `wiki/src/rtl/<ip>/MAS.md`) and the row you are covering
+   in `wiki/src/dv/<ip>/DV_PLAN.md`. The oracle comes from that spec, never from the RTL ([scope and oracle](../../../wiki/bkm/dv.md#scope-and-oracle)).
 2. No plan row for the feature? Add it first with
    [wiki-spec-writer](../wiki-spec-writer/SKILL.md). A spec that is too vague
    to write an independent model is a spec finding, not a test guess.
 3. Name the regression this test catches that existing tests miss
    ([test value](../../../wiki/bkm/dv.md#test-value)). If none, extend an
    existing test instead.
-4. Check `src/<ip>/dv/tb/`, `models/` and `src/common/dv/` for helpers before
+4. Check `src/dv/<ip>/tb/`, `models/` and `src/dv/common/` for helpers before
    adding infrastructure.
 
 ## 2. Writing
 
-Place files per the [directory structure](../../../wiki/bkm/dv.md#directory-structure):
+Place files under `src/dv/<ip>/` per the [directory structure](../../../wiki/bkm/dv.md#directory-structure):
 
 | Change | Where |
 | --- | --- |
-| Pure-Python reference model | `dv/models/`, with pytest unit tests that need no simulator |
-| Drivers, monitors, scoreboards, clock/reset helpers | `dv/tb/` (Python) |
-| SV testbench top, bind or assertion module | `dv/tb/`, listed in `dv/<ip>.dv.f` |
-| cocotb testcases | `dv/tests/test_<feature>.py` |
+| Pure-Python reference model | `models/`, with pytest unit tests that need no simulator |
+| Drivers, monitors, scoreboards, clock/reset helpers | `tb/` (Python) |
+| SV testbench top, bind or assertion module | `tb/`, listed in `<ip>.dv.f` |
+| cocotb testcases | `tests/test_<feature>.py` |
 
 - Drive and observe documented ports only; bind checkers use internal
   signals the MAS names. Never read Verilator internals.
@@ -50,17 +50,17 @@ Place files per the [directory structure](../../../wiki/bkm/dv.md#directory-stru
 
 ## 3. Filelists
 
-- [ ] `dv/<ip>.dv.f` lists simulation-only SV in order; same `.f` rules as
+- [ ] `dv/<ip>/<ip>.dv.f` lists simulation-only SV in order; same `.f` rules as
       RTL ([filelists](../../../wiki/bkm/rtl.md#filelists)). Never list
       synthesizable RTL here.
-- [ ] `dv/<ip>.sim.f` stays exactly `-F ../rtl/<ip>.rtl.f` then
+- [ ] `dv/<ip>/<ip>.sim.f` stays exactly `-F ../../rtl/<ip>/<ip>.rtl.f` then
       `-F <ip>.dv.f`.
-- [ ] A new sub-IP gets its own `dv/` with both lists and all three
-      regression files.
+- [ ] A new sub-IP gets its own flat `src/dv/<ip>_<sub>/` with both lists and
+      all three regression files.
 
 ## 4. Regression lists
 
-Edit `src/<ip>/dv/regress/level{0,1,2}.yaml` per
+Edit `src/dv/<ip>/regress/level{0,1,2}.yaml` per
 [regression lists](../../../wiki/bkm/dv.md#regression-lists). The
 [regress SPEC](../../../wiki/tools/regress/SPEC.md#regression-lists)
 owns the exact schema, validation and defaults.
@@ -71,7 +71,8 @@ owns the exact schema, validation and defaults.
 - [ ] Entry in this IP's own lists only; a parent does not inherit sub-IP
       entries.
 - [ ] Required `name`, `module`, `top` and `timeout_s` set; `name` unique
-      across all three levels of the IP and not `build` or a sub-IP name.
+      across all three levels of the IP and not a reserved name (`build`,
+      `fpga`, `asic`, `arch`).
 - [ ] `seeds` is a count (default 1, derived seeds) or an explicit list,
       per the [regress SPEC](../../../wiki/tools/regress/SPEC.md#seeds);
       record the printed seeds as evidence.
@@ -80,7 +81,7 @@ owns the exact schema, validation and defaults.
 
 ## 5. DV plan alignment
 
-In the same PR, make `wiki/src/<ip>/dv/DV_PLAN.md` and the regression lists
+In the same PR, make `wiki/src/dv/<ip>/DV_PLAN.md` and the regression lists
 agree ([DV plan alignment](../../../wiki/bkm/dv.md#dv-plan-alignment)):
 
 - [ ] Every plan row names an entry and level that exist in exactly that file.
@@ -95,7 +96,7 @@ entry name in the plan table, and compare both sets by level.
 Follow the [fast test ladder](../../../wiki/bkm/dv.md#fast-test-ladder):
 
 ```text
-python3 -m pytest src/<ip>/dv/models               # model unit tests
+python3 -m pytest src/dv/<ip>/models               # model unit tests
 ./build sim --ip <id> --test <name> [--seed N] [--waves]   # focused test
 ./build regress --level 0 --level 1 --affected origin/main --dry-run   # what runs
 ./build regress --level 0 --level 1 --affected origin/main   # before review

@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -151,7 +152,7 @@ def test_arch_change_selects_only_its_ip(repo):
     assert affected(repo) == {"counter": "changed: src/arch/counter/perf/s.yaml"}
 
 
-def test_nested_sub_ip_model_change_selects_all_ancestors(repo):
+def test_transitive_sub_ip_model_change_selects_all_ancestors(repo):
     deep = repo / "src/rtl/counter_inc_deep"
     deep.mkdir(parents=True)
     (deep / "counter_inc_deep.rtl.f").write_text("")
@@ -179,3 +180,23 @@ def commit_all(repo: Path) -> None:
     git(repo, "add", "-A")
     git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x")
     git(repo, "branch", "-f", "main", "HEAD")
+
+
+def test_repo_sub_ip_change_selects_every_ancestor(tmp_path):
+    """On the repository's own src/ (IPs discovered, never named): changing
+    any file of a sub-IP's rtl/ folder selects the sub-IP and every IP whose
+    filelists reach it."""
+    r = tmp_path / "repo"
+    r.mkdir()
+    shutil.copytree(REPO_ROOT / "src", r / "src")
+    ips = discover(r / "src")
+    subs = [ip for ip in ips if not ip.top_level]
+    if not subs:
+        pytest.skip("the repository has no sub-IP")
+    for sub in subs:
+        changed = sorted(p for p in sub.rtl_dir.glob("*.sv"))[0]
+        rel = changed.relative_to(r).as_posix()
+        got = select_affected(ips, r, [rel], r / "src", RULES)
+        assert got[sub.id] == f"changed: {rel}"
+        for ancestor in sub.ancestors:
+            assert got[ancestor] == f"reaches: {rel}"

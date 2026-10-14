@@ -1,6 +1,6 @@
 ---
 name: rtl-coder
-description: Use before and while adding or changing synthesizable SystemVerilog under src/**/rtl/ or an <ip>.rtl.f filelist - new modules, packages, sub-IPs, interface or behavior changes, lint or style fixes - to keep RTL, filelists, checks and the owning HAS and MAS aligned in one PR.
+description: Use before and while adding or changing synthesizable SystemVerilog under src/rtl/ or an <ip>.rtl.f filelist - new modules, packages, sub-IPs, interface or behavior changes, lint or style fixes - to keep RTL, filelists, checks and the owning HAS and MAS aligned in one PR.
 ---
 
 # RTL coder
@@ -16,11 +16,11 @@ redefines those rules. Work inside an issue worktree per
 
 ## 1. Before editing
 
-1. Read the owning specs in `wiki/src/<ip>/[<subip>/]`, which mirrors
-   `src/`: `arch/HAS.md` (top-level IPs: function, interfaces, parameters,
-   behavior, targets), `rtl/MAS.md` (pipeline, state, RTL structure, timing,
-   files; for a sub-IP also its interfaces and behavior) and
-   `dv/DV_PLAN.md` (which tests cover what you will touch).
+1. Read the owning specs in `wiki/src/`, which mirrors `src/`:
+   `arch/<ip>/HAS.md` (top-level IPs: function, interfaces, parameters,
+   behavior, targets), `rtl/<ip>/MAS.md` (pipeline, state, RTL structure,
+   timing, files; for a sub-IP also its interfaces and behavior) and
+   `dv/<ip>/DV_PLAN.md` (which tests cover what you will touch).
 2. If the spec is missing or silent on the behavior or structure you are
    changing, write the minimal HAS or MAS change first with
    [wiki-spec-writer](../wiki-spec-writer/SKILL.md).
@@ -29,9 +29,9 @@ redefines those rules. Work inside an issue worktree per
    follow the [naming table](../../../wiki/bkm/rtl.md#naming).
 4. Find every consumer of what you change: instantiations
    (`grep -rn '<module>' src/`), filelists that reach the file through `-F`,
-   bind checkers in `dv/<ip>.dv.f`, `fpga/` and `asic/` constraints, and the
+   bind checkers in `dv/<ip>/<ip>.dv.f`, `fpga/<ip>/` and `asic/<ip>/` constraints, and the
    tests named in the DV plan.
-5. Check `src/common/rtl/` before writing a generic block; add a `common_`
+5. Check `src/rtl/common/` before writing a generic block; add a `common_`
    block only when a second consumer exists.
 
 ## 2. While editing
@@ -41,7 +41,7 @@ redefines those rules. Work inside an issue worktree per
 - Apply the [SystemVerilog rules](../../../wiki/bkm/rtl.md#systemverilog-rules)
   and [reset and clocks](../../../wiki/bkm/rtl.md#reset-and-clocks) as you
   write; do not leave them for the checker.
-- Simulation-only checkers go in bind modules listed in `dv/<ip>.dv.f`
+- Simulation-only checkers go in bind modules listed in `dv/<ip>/<ip>.dv.f`
   ([assertions](../../../wiki/bkm/rtl.md#assertions)); hand those to
   [dv-coder](../dv-coder/SKILL.md) if they need test changes.
 - No `ifdef` for behavior, no lint pragmas in RTL, no flow-specific copies
@@ -49,30 +49,31 @@ redefines those rules. Work inside an issue worktree per
 
 ## 3. Filelists
 
-Update `src/<ip>/rtl/<ip>.rtl.f` in the same edit as the source:
+Update `src/rtl/<ip>/<ip>.rtl.f` in the same edit as the source:
 
 - [ ] New file listed once, in order: packages, leaves, then the IP top.
 - [ ] Sub-IP and `common_` blocks included with `-F <their>.rtl.f`, never by
       listing their files.
 - [ ] Removed or renamed file removed from the list; no orphan `.sv` left in
-      `rtl/`.
-- [ ] A new sub-IP gets its own `rtl/<subip>.rtl.f`, `dv/` lists and three
-      wiki pages (see [wiki-spec-writer](../wiki-spec-writer/SKILL.md)).
+      `rtl/<ip>/`.
+- [ ] A new sub-IP is a flat sibling with a prefixed id, `src/rtl/<ip>_<sub>/`
+      with its own `<ip>_<sub>.rtl.f` (reached from the parent with `-F`),
+      `src/dv/<ip>_<sub>/` lists and two wiki pages (see
+      [wiki-spec-writer](../wiki-spec-writer/SKILL.md)); never a nested folder.
 - [ ] Only `-F`, `+incdir+`, `+define+`, relative paths, no globs
       ([layout](../../../wiki/project/layout.md#per-ip-files)).
 
 ## 4. Check, cheapest first
 
 ```text
-./build check                                  # lint -Wall, RTL style, filelists, wiki mirror, neutrality
+./build check                                  # layout, filelists, RTL style, wiki mirror, neutrality, lint -Wall
 ./build sim --ip <id> --test <name> [--seed N] [--waves]   # focused test
 ./build regress --level 0 --level 1 --affected origin/main   # before review
 ```
 
 The [build SPEC](../../../wiki/tools/build/SPEC.md#simulation-build-sim)
 owns `sim` and the [regress SPEC](../../../wiki/tools/regress/SPEC.md)
-owns `regress`; `<id>` is the IP path under `src/` (`<ip>` or
-`<ip>/<subip>`). The [checks SPEC](../../../wiki/tools/checks/SPEC.md)
+owns `regress`; `<id>` is the IP id (`<ip>` or a sub-IP's `<ip>_<sub>`). The [checks SPEC](../../../wiki/tools/checks/SPEC.md)
 owns `check`; narrow it with `--ip <id>` and `--only lint|style|filelist`
 while iterating, then run it in full before review.
 
@@ -87,12 +88,12 @@ while iterating, then run it in full before review.
 
 ## 5. Before the PR
 
-- [ ] `arch/HAS.md` (sub-IP: `rtl/MAS.md`) matches the RTL: ports, widths,
-      parameters, reset values and behavior. `rtl/MAS.md` matches the
+- [ ] `arch/<ip>/HAS.md` (sub-IP: `rtl/<ip>/MAS.md`) matches the RTL: ports, widths,
+      parameters, reset values and behavior. `rtl/<ip>/MAS.md` matches the
       structure, pipeline, latency and the Files table.
-- [ ] `dv/DV_PLAN.md` and regression lists updated if coverage changed.
-- [ ] `fpga/` and `asic/` constraints still name existing ports and clocks,
-      and `fpga/FPGA.md` / `asic/ASIC.md` still describe them.
+- [ ] `dv/<ip>/DV_PLAN.md` and regression lists updated if coverage changed.
+- [ ] `fpga/<ip>/` and `asic/<ip>/` constraints still name existing ports and
+      clocks, and `fpga/<ip>/FPGA.md` / `asic/<ip>/ASIC.md` still describe them.
 - [ ] The [RTL review checklist](../../../wiki/bkm/rtl.md#review-checklist)
       holds.
 - [ ] Local evidence per the [DevOps BKM](../../../wiki/bkm/devops.md#local-evidence)

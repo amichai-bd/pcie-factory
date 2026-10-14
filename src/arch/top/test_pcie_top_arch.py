@@ -1,6 +1,6 @@
 """Self-tests of the pcie_top architecture model; no simulator needed.
 
-Run: python3 -m pytest src/top/arch (./build ci unit runs them as arch:<ip>).
+Run: python3 -m pytest src/arch/top (./build ci unit runs them as arch:<ip>).
 """
 
 import pytest

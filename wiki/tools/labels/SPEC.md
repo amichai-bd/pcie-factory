@@ -42,9 +42,13 @@ A label's name is `prefix + value`. Validation fails (exit 2) when:
 
 `derived: ip` is the only derivation. It makes `ip:<id>` for every IP that
 [IP discovery](../build/SPEC.md) finds under the source root (`--src-root`,
-`$BUILD_SRC_ROOT`, or `src/`), so `ip:a` and `ip:a/b` for a sub-IP. A
+`$BUILD_SRC_ROOT`, or `src/`), so `ip:a` and `ip:a_b` for a flat sub-IP. A
 missing source root yields no `ip:` labels. No IP name is written in the
-config.
+config. When an IP id changes (for example a sub-IP id from the superseded
+nested layout, `ip:a/b`, becoming `ip:a_b`), `sync` creates the new label and
+reports the old one as `extra`; `sync --prune` deletes it (removing it from
+the issues that carry it), or a maintainer renames it by hand in GitHub to
+keep those issues labeled.
 
 The current dimensions are `type:` (exactly one), `area:` (at least one),
 `ip:` (any), `prio:` (at most one) and the unprefixed state labels (any).
@@ -104,7 +108,7 @@ second sync after a successful one shows no create, update or delete. Exit
 
 The `labels` workflow (`.github/workflows/labels.yml`) runs `sync` without
 `--prune` on a push to `main` that changes `cfg/labels.yaml`, `tools/labels/`,
-`tools/build/ip.py` (IP discovery), `tools/cli/`, `src/` or the workflow
+`tools/build/ip.py` and `tools/build/filelist.py` (IP discovery and `-F` reachability), `tools/cli/`, `src/` or the workflow
 itself, and on manual dispatch, with the workflow token (`issues: write`).
 The runner needs `python3` and the GitHub CLI `gh` on `PATH`; a first step
 fails with a clear error when `gh` is missing.
@@ -132,6 +136,7 @@ It prints `warning:` and `error:` lines, then `#N: labels OK` (exit 0) or
 `tools/labels/tests/test_labels.py` never touches the network: it replaces
 `subprocess.run` to check the exact `gh api` commands and pagination, and uses
 an in-memory GitHub for sync and check. It covers config validation, `ip:`
-derivation, slug resolution, non-JSON `gh` output, the plan and its order,
+derivation (including an old nested sub-IP label left as `extra`, or
+deleted with `--prune`, next to its new flat label), slug resolution, non-JSON `gh` output, the plan and its order,
 dry run with no writes, convergence after sync with and without `--prune`,
 the prune guard, each check rule, and the CLI exit codes.

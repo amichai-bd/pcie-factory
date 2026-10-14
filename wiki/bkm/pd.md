@@ -20,17 +20,17 @@ use fixture reports and run without ORFS.
 
 ## Inputs
 
-The flow consumes the IP's `rtl/<ip>.rtl.f`, flattened by the filelist
-resolver, plus only what is in `src/<ip>/asic/`:
+The flow consumes the IP's `rtl/<ip>/<ip>.rtl.f`, flattened by the filelist
+resolver, plus only what is in `src/asic/<ip>/`:
 
 | File | Holds |
 | --- | --- |
 | `<prefix><ip>.sdc` (exactly one `.sdc`) | Clock period and uncertainty, input and output delays, each exception with a reason |
 | `sky130hd.mk` | ORFS design config: `DESIGN_NAME` (the IP top), platform, utilization or die/core area, placement density and other knobs; never a source list |
 
-- `asic/` exists only for an IP that is a synthesis target; a sub-IP gets one
-  only if it is hardened on its own.
-- The IP's ASIC page, `wiki/src/<ip>/asic/ASIC.md`, states the clock
+- `src/asic/<ip>/` exists only for a top-level IP that is a synthesis
+  target; a sub-IP never has one (the layout check rejects it).
+- The IP's ASIC page, `wiki/src/asic/<ip>/ASIC.md`, states the clock
   target, the constraints and flow knobs, and how to run the flow.
 - The flow tool generates the ORFS `VERILOG_FILES`, include directories and
   defines from the flattened filelist, plus `PLATFORM`, `SDC_FILE` and
@@ -40,7 +40,7 @@ resolver, plus only what is in `src/<ip>/asic/`:
   own reader sets `SYNTH_HDL_FRONTEND = slang` in `sky130hd.mk`, so ORFS reads
   it with the slang frontend built into its Yosys.
 - The SDC clock comes from the clock target on the IP's ASIC page
-  (`wiki/src/<ip>/asic/ASIC.md`), which meets the HAS performance targets. A
+  (`wiki/src/asic/<ip>/ASIC.md`), which meets the HAS performance targets. A
   different study clock is a run option, never an edit to that target.
 - Keep RTL portable: no vendor primitives in `<ip>.rtl.f`; memories stay
   behavioral until a macro is specified in the MAS.

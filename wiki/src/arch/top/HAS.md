@@ -3,7 +3,7 @@
 `pcie_top` is the top IP of the PCI Express controller. For now it is a
 seed datapath: a byte-stream scrambler that XORs each valid data byte with
 the Gen1/Gen2 scrambler key from its sub-IP
-[`pcie_top_lfsr`](../lfsr/rtl/MAS.md). It gives the factory a real two-level
+[`pcie_top_lfsr`](../../rtl/top_lfsr/MAS.md). It gives the factory a real two-level
 IP (a parent that includes a sub-IP through `-F` and has its own end-to-end
 tests) before the controller's architecture is defined.
 
@@ -13,9 +13,9 @@ like a COM, the next byte uses the seed key; unlike a COM (a K code, which is
 never scrambled), the byte in the re-seed cycle is scrambled with the
 current key.
 
-How it is built is in the [MAS](../rtl/MAS.md); how it is verified in the
-[DV plan](../dv/DV_PLAN.md); its implementation targets in the
-[FPGA](../fpga/FPGA.md) and [ASIC](../asic/ASIC.md) pages. Its
+How it is built is in the [MAS](../../rtl/top/MAS.md); how it is verified in the
+[DV plan](../../dv/top/DV_PLAN.md); its implementation targets in the
+[FPGA](../../fpga/top/FPGA.md) and [ASIC](../../asic/top/ASIC.md) pages. Its
 [architecture model](#architecture-model) states this page's behavior and
 targets as executable Python.
 
@@ -32,7 +32,7 @@ flowchart LR
   reg --> data_o & valid_o
 ```
 
-Sub-IPs: [`lfsr`](../lfsr/rtl/MAS.md).
+Sub-IPs: [`top_lfsr`](../../rtl/top_lfsr/MAS.md) (it is a sub-IP because `top.rtl.f` reaches `top_lfsr.rtl.f` through `-F`).
 
 ## Interfaces
 
@@ -57,7 +57,7 @@ None.
 
 ## Behavior
 
-Let `K` be the key byte of the [LFSR](../lfsr/rtl/MAS.md#behavior) in the
+Let `K` be the key byte of the [LFSR](../../rtl/top_lfsr/MAS.md#behavior) in the
 current cycle. At each rising edge:
 
 | Condition | `valid_o` next | `data_o` next | LFSR |
@@ -88,15 +88,15 @@ reset and is don't-care while `valid_o` is 0.
 | --- | --- |
 | Throughput | One byte per clock, back to back. |
 | Latency | One cycle from `valid_i` to `valid_o`. |
-| Clock | 100 MHz, the study clock of the [ASIC](../asic/ASIC.md) flow; the board runs at its own clock ([FPGA](../fpga/FPGA.md)). |
+| Clock | 100 MHz, the study clock of the [ASIC](../../asic/top/ASIC.md) flow; the board runs at its own clock ([FPGA](../../fpga/top/FPGA.md)). |
 | Area | The LFSR plus 9 flops and 8 XORs. |
 
 ## Architecture model
 
-[`pcie_top_arch.py`](../../../../src/top/arch/pcie_top_arch.py) models the
+[`pcie_top_arch.py`](../../../../src/arch/top/pcie_top_arch.py) models the
 [behavior](#behavior) and the one-cycle latency, for definition and
 performance analysis ([arch BKM](../../../bkm/arch.md)). Its perf scenarios
-in [`src/top/arch/perf/`](../../../../src/top/arch/perf/back_to_back.yaml)
+in [`src/arch/top/perf/`](../../../../src/arch/top/perf/back_to_back.yaml)
 check the throughput and latency targets; `./build arch --ip top` writes
 `workdir/top/arch/perf.json`.
 

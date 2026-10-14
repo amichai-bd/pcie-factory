@@ -68,7 +68,7 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                     if f not in allowed:
                         add(f"{rel(f, src_root)}: only "
                             f"{', '.join(sorted(p.name for p in allowed))} may live in "
-                            f"{where}/ (a sub-IP is a flat sibling {kind}/<{ip.id}_sub>/)")
+                            f"{where}/ (a sub-IP is a flat sibling {kind}/{ip.id}_<sub>/)")
 
     for ip in ips:
         if ip_ids is not None and ip.id not in ip_ids:

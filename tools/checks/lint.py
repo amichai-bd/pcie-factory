@@ -1,10 +1,9 @@
 """Verilator lint: ``--lint-only -Wall`` per IP, with reviewed waivers.
 
 For each IP the sources, include directories and defines come from the
-resolved ``rtl/<name>.rtl.f``. The top is ``<prefix><ip>`` (``a/b`` ->
-``<prefix>a_b``) when a module of that name is declared in those sources;
+resolved ``rtl/<id>/<id>.rtl.f``. The top is ``<prefix><id>`` when a module of that name is declared in those sources;
 otherwise Verilator picks it (several candidates raise MULTITOP). Each
-``fpga/*.sv`` board wrapper is linted again with the IP's sources plus the
+``fpga/<id>/*.sv`` board wrapper is linted again with the IP's sources plus the
 wrapper, with the wrapper (named after its file) as top.
 
 Before each lint run, ``verilator -E`` with the same arguments shows what
@@ -156,7 +155,7 @@ def audit_preprocessed(output: str, src_root: Path, allowed_extra: tuple[Path, .
                        ) -> list[str]:
     """Check Verilator's own view of a lint target (``verilator -E``): every
     file it entered (per `` `line`` markers) must be inside the source root
-    and below an ``rtl/`` directory (or be one of ``allowed_extra``, the
+    and below ``<src_root>/rtl/`` (or be one of ``allowed_extra``, the
     board wrapper), and the text must hold no `` `verilator_config`` and no
     ``/*verilator <directive>*/`` metacomment. ``-E`` turns every comment
     that starts with ``verilator`` into such a metacomment, whatever file or

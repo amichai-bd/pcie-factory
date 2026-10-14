@@ -13,7 +13,7 @@ for IP discovery, filelists and simulation. The code lives in
 
 ## Regression lists
 
-This page owns the schema of `src/<ip>/dv/regress/level{0,1,2}.yaml`. The
+This page owns the schema of `src/dv/<ip>/regress/level{0,1,2}.yaml`. The
 [DV BKM](../../bkm/dv.md#regression-lists) owns how tests are placed in
 levels.
 
@@ -25,7 +25,7 @@ This tool doesn't require that; the
 ```yaml
 tests:
   - name: counts              # required; [A-Za-z0-9_][A-Za-z0-9_.-]*
-    module: tests.test_counter  # required; cocotb module, dotted, under dv/
+    module: tests.test_counter  # required; cocotb module, dotted, under dv/<ip>/
     testcase: counts          # optional; run only this cocotb test function
     top: counter              # required; HDL toplevel module
     seeds: 2                  # optional, default 1; see Seeds
@@ -36,7 +36,7 @@ tests:
 | Key | Required | Type and default |
 | --- | --- | --- |
 | `name` | yes | String matching `[A-Za-z0-9_][A-Za-z0-9_.-]*`. |
-| `module` | yes | Dotted Python module name, importable with `dv/` on the path. |
+| `module` | yes | Dotted Python module name, importable with `dv/<ip>/` on the path. |
 | `top` | yes | HDL identifier. |
 | `timeout_s` | yes | Positive number. A run that exceeds it gets the `timeout` status. |
 | `testcase` | no | Python identifier. If absent, every `@cocotb.test()` in the module runs. |
@@ -49,7 +49,7 @@ These validation rules apply:
 - Each entry is a mapping with all four required keys, only the keys listed
   above, and values of the types shown.
 - `name` is unique across all three levels of the same IP. It also can't be
-  `build` or the name of a sub-IP directory, because those share
+  `build`, `fpga`, `asic` or `arch`, because the tools' output shares
   `workdir/<ip>/`.
 
 Every error names the file and the entry index, plus the test name whenever
@@ -78,19 +78,21 @@ Three rules decide which tests run:
   - Every IP is affected when any change is under a `global` path: `tools/`
     or `cfg/`, or the `build` launcher (relative to the git repository root).
   - Every IP is affected when any change is under a `shared_dv` directory
-    (`<src-root>/common/dv/`): shared DV Python helpers are reached by no
+    (`<src-root>/dv/common/`): shared DV Python helpers are reached by no
     filelist, so their users cannot be told apart.
-  - A changed file lies in the IP's **own files**: under `src/<ip>/`, but not
-    inside a nested directory that is itself an IP. A change inside sub-IP
-    `a/b` therefore selects `a/b`. It selects the parent `a` only through
-    the next two cases. A change under a top-level IP's `arch/` (the
-    architecture model, [arch BKM](../../bkm/arch.md)) is one of its own
-    files, so it selects that IP alone.
-  - A changed file lies in the `models` directory (`dv/models/`) of an IP
-    nested anywhere below this one: parent models import sub-IP models by
-    path ([DV BKM](../../bkm/dv.md#reusing-a-sub-ip-model)), which no
-    filelist shows. A change in `a/b/dv/models/` selects `a/b` and `a`.
-  - The IP's `dv/<name>.sim.f` **reaches** a changed file: a source, a
+  - A changed file lies in the IP's **own files**: under `src/<kind>/<ip>/`
+    for any kind. A change in sub-IP `a_b`'s folders therefore selects
+    `a_b`; it selects the parent `a` only through the next two cases. A
+    change under a top-level IP's `src/arch/<ip>/` (the architecture model,
+    [arch BKM](../../bkm/arch.md)) is one of its own files, so it selects
+    that IP alone.
+  - A changed file lies in the `models` directory (`src/dv/<sub>/models/`)
+    of one of the IP's sub-IPs (an IP its `.rtl.f` reaches, see
+    [IP discovery](../build/SPEC.md#ip-discovery)): parent models import
+    sub-IP models by path ([DV BKM](../../bkm/dv.md#reusing-a-sub-ip-model)),
+    which no filelist shows. A change in `src/dv/a_b/models/` selects `a_b`
+    and every ancestor, such as `a`.
+  - The IP's `dv/<ip>/<ip>.sim.f` **reaches** a changed file: a source, a
     filelist in its `-F` tree, or a file in one of its include directories.
   - The IP's `sim.f` doesn't resolve (for example, a source it lists was
     deleted). The IP is selected, and its build reports the error.
@@ -106,7 +108,7 @@ Use `--dry-run` to print the selection (IPs, tests and seeds) without
 building or running anything. A dry run neither writes nor removes
 `summary.json`.
 
-The pure-Python model unit tests under `src/**/dv/models/` are not part of
+The pure-Python model unit tests under `src/dv/*/models/` are not part of
 any regression level; [`./build ci unit`](../ci/SPEC.md#build-ci-unit) runs
 them for the same selection in `ci-gate`.
 
@@ -117,7 +119,8 @@ places:
 
 - **A count:** `seeds: N` (the default is `1`) gives N runs. Run `i` uses
   the deterministic seed `crc32("<ip>:<name>:<i>") & 0x7fffffff`, so
-  repeated regressions and `./build sim` use the same seeds.
+  repeated regressions and `./build sim` use the same seeds. Renaming an IP
+  (its id) changes its derived seeds; pin a list to keep them.
 - **A list:** `seeds: [a, b, ...]` runs exactly those seeds, in sorted order
   in the output.
 - **`--seed S`:** replaces either form with `S, S+1, ...`, using the same
@@ -156,7 +159,7 @@ when it finishes, even if it selected no tests:
 {
   "levels": [0, 1],
   "src_root": "/abs/path/src",
-  "ips": {"a": "changed: src/a/rtl/a.sv"},
+  "ips": {"a": "changed: src/rtl/a/a.sv"},
   "selected_ips": 1,
   "selected_tests": 1,
   "builds": [{"ip": "a", "build": "a_top", "status": "pass",

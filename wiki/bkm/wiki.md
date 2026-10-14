@@ -21,35 +21,38 @@ page disagree until both are reconciled in the same issue.
 
 ## Page set
 
-`wiki/src/` mirrors `src/` folder by folder, and `wiki/tools/<tool>/`
+`wiki/src/` mirrors the kind-first `src/` exactly, and `wiki/tools/<tool>/`
 mirrors `tools/<tool>/`. Each spec sits in the folder named like the source
 folder it describes:
 
 ```
-src/<ip>/                           wiki/src/<ip>/
-  arch/   architecture models         arch/HAS.md      top-level IPs only
-  rtl/    *.sv, <ip>.rtl.f            rtl/MAS.md
-  dv/     tests, models, regress      dv/DV_PLAN.md
-  fpga/   SDC, QSF Tcl, wrapper       fpga/FPGA.md     iff src/<ip>/fpga/ exists
-  asic/   SDC, <platform>.mk          asic/ASIC.md     iff src/<ip>/asic/ exists
-  <subip>/                            <subip>/rtl/MAS.md, <subip>/dv/DV_PLAN.md, ...
+src/                                wiki/src/
+  arch/<ip>/  architecture models     arch/<ip>/HAS.md   top-level IPs only
+  rtl/<ip>/   *.sv, <ip>.rtl.f        rtl/<ip>/MAS.md    every IP and sub-IP
+  dv/<ip>/    tests, models, regress  dv/<ip>/DV_PLAN.md every IP and sub-IP
+  fpga/<ip>/  SDC, QSF Tcl, wrapper   fpga/<ip>/FPGA.md  iff src/fpga/<ip>/ exists
+  asic/<ip>/  SDC, <platform>.mk      asic/<ip>/ASIC.md  iff src/asic/<ip>/ exists
 ```
+
+A sub-IP `<ip>_<sub>` is a flat sibling under each kind; which IPs are
+top-level follows from filelist `-F` reachability
+([layout](../project/layout.md#ips-and-sub-ips)).
 
 | Folder | Pages | Required for |
 | --- | --- | --- |
-| `wiki/src/<ip>/arch/` | `HAS.md` | Every top-level IP (a direct child of `src/`); sub-IPs have none |
-| `wiki/src/<ip>/rtl/` | `MAS.md` | Every IP and sub-IP |
-| `wiki/src/<ip>/dv/` | `DV_PLAN.md` | Every IP and sub-IP |
-| `wiki/src/<ip>/fpga/` | `FPGA.md` | Exactly the IPs with `src/<ip>/fpga/` |
-| `wiki/src/<ip>/asic/` | `ASIC.md` | Exactly the IPs with `src/<ip>/asic/` |
+| `wiki/src/arch/<ip>/` | `HAS.md` | Every top-level IP (one no other IP's `.rtl.f` reaches); sub-IPs have none |
+| `wiki/src/rtl/<ip>/` | `MAS.md` | Every IP and sub-IP |
+| `wiki/src/dv/<ip>/` | `DV_PLAN.md` | Every IP and sub-IP |
+| `wiki/src/fpga/<ip>/` | `FPGA.md` | Exactly the IPs with `src/fpga/<ip>/` |
+| `wiki/src/asic/<ip>/` | `ASIC.md` | Exactly the IPs with `src/asic/<ip>/` |
 | `wiki/tools/<tool>/` | `SPEC.md` | Every tool under `tools/` |
 | `wiki/bkm/` | One page per discipline | Fixed set ([index](README.md)) |
 | `wiki/project/` | Architecture, layout, roadmap, decisions | Fixed set |
 | `wiki/tracker/` | `index.md`, `data/` (nightly bot only) | Fixed set |
 
 Every folder under `wiki/src/` has a `src/` counterpart, and every page
-there sits in an `arch/`, `rtl/`, `dv/`, `fpga/` or `asic/` folder. The one
-exception: a top-level IP's `arch/` needs `src/<ip>/arch/` only once its HAS
+there sits in an IP folder `<kind>/<ip>/` (or below one). The one
+exception: a top-level IP's `arch/<ip>/` needs `src/arch/<ip>/` only once its HAS
 defines targets (a `## Targets` section); then the
 [architecture model](arch.md) must exist and report against them.
 `./build check` enforces the page set and the mirror
@@ -92,7 +95,7 @@ Top-level IPs only; a sub-IP's role is described in its parent's HAS.
 
 The implementation of one IP on a flow: the board wrapper (pins, reset,
 I/O) or the clock target, constraints and flow configuration, how to run the
-flow, and the files in `src/<ip>/fpga/` or `src/<ip>/asic/`. The
+flow, and the files in `src/fpga/<ip>/` or `src/asic/<ip>/`. The
 [FPGA](fpga.md) and [PD](pd.md) BKMs own the method; results go to metrics
 and the tracker, not to the page.
 
@@ -101,7 +104,7 @@ and the tracker, not to the page.
 - Strategy: test layers, reference model, checkers, what is out of scope.
 - One table: feature (linked to its HAS section, or its MAS section for a
   sub-IP) → regression entry `name` → level → seeds or note. The table
-  matches `src/<ip>/dv/regress/level*.yaml` exactly
+  matches `src/dv/<ip>/regress/level*.yaml` exactly
   ([DV BKM](dv.md#dv-plan-alignment)).
 - Uncovered features listed with their owning issue.
 

@@ -28,14 +28,14 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | --- | --- |
 | `sim` | Run one test of one IP (below). |
 | `regress` | Run regression levels; see the [regress spec](../regress/SPEC.md). |
-| `clean [--ip ID]...` | Delete the whole workdir. With `--ip`, empty `workdir/<ip>/` for each given IP but keep the directories of its sub-IPs, which nest there. |
+| `clean [--ip ID]...` | Delete the whole workdir. With `--ip`, delete `workdir/<ip>/` for each given IP (sub-IP output is a sibling, `workdir/<ip>_<sub>/`). |
 | `labels` | Sync and check GitHub labels; see the [labels spec](../labels/SPEC.md). |
 | `ci unit\|summary\|status` | `ci-gate` helpers: unit-test suites, the job summary and the data-branch `ci-gate` status; see the [CI spec](../ci/SPEC.md). |
 | `metrics collect\|commits\|guard\|red` | Nightly metrics records, the per-commit series, the data guard and the `nightly-red` issue; see the [metrics spec](../metrics/SPEC.md). |
 | `wiki build\|serve` | Build the wiki site into `<workdir>/wiki-site`, or serve an existing build; see the [wiki site spec](../wiki_site/SPEC.md). |
 | `check` | Static checks; see the [checks spec](../checks/SPEC.md). |
-| `fpga (--ip ID... \| --all) [--part P] [--timeout S] [--dry-run]` | Quartus compile and `metrics.json` for IPs with `fpga/`; see the [fpga spec](../fpga/SPEC.md). |
-| `asic --ip ID [--platform P] [--timeout S] [--dry-run]` | ORFS flow and `metrics.json` for one IP with `asic/`; see the [asic spec](../asic/SPEC.md). |
+| `fpga (--ip ID... \| --all) [--part P] [--timeout S] [--dry-run]` | Quartus compile and `metrics.json` for IPs with `fpga/<ip>/`; see the [fpga spec](../fpga/SPEC.md). |
+| `asic --ip ID [--platform P] [--timeout S] [--dry-run]` | ORFS flow and `metrics.json` for one IP with `asic/<ip>/`; see the [asic spec](../asic/SPEC.md). |
 | `arch --ip ID [--scenario NAME]` | Perf scenarios of a top-level IP's architecture model and `perf.json`; see the [arch spec](../arch/SPEC.md). |
 
 Options shared by every command. A command with actions (`wiki build`,
@@ -58,23 +58,31 @@ there is one.
 
 ## IP discovery
 
-An IP is any directory `D` under the source root that contains
-`rtl/<basename(D)>.rtl.f`. Its **id** is `D` relative to the source root,
-using `/` as the separator, for example `a` or `a/b` for sub-IP `b` of `a`.
-The tools don't descend into `arch/`, `rtl/`, `dv/`, `fpga/`, `asic/` or hidden
-directories when they look for IPs. IPs are sorted by id. No IP name is
-hard-coded anywhere in `tools/` or `cfg/`. The id `regress` is reserved
-because `workdir/regress/` holds the regression summary.
+The source tree is kind-first ([layout](../../project/layout.md)): every
+folder directly under the source root is a kind (`rtl`, `dv`, `arch`,
+`fpga`, `asic`), and an IP owns `<kind>/<id>/` under each kind it has. An IP
+is a folder `rtl/<id>/` that holds `<id>.rtl.f` (`build.ip.discover`); its
+**id** is that folder's name, for example `a`, or `a_b` for a sub-IP of `a`.
+`rtl/common/` (and `dv/common/`) holds shared blocks and is never an IP;
+hidden folders are skipped. IPs are sorted by id. No IP name is hard-coded
+anywhere in `tools/` or `cfg/`. The id `regress` is reserved because
+`workdir/regress/` holds the regression summary.
+
+Each IP's `rtl/<id>/<id>.rtl.f` is resolved once at discovery. IP `X` is a
+**sub-IP** of every IP whose resolved `.rtl.f` tree includes `X`'s `.rtl.f`
+(its **ancestors**, direct or through another sub-IP); a **top-level IP**
+has no ancestors. A `.rtl.f` that does not resolve reaches nothing here
+(the filelist check reports it).
 
 Each IP has these files:
 
 | Path | Meaning |
 | --- | --- |
-| `rtl/<name>.rtl.f` | Synthesizable filelist; this file is what marks the directory as an IP. |
-| `dv/<name>.sim.f` | Simulation filelist, used by `sim` and `regress`. |
-| `dv/` | Python root for cocotb test modules (`module: tests.test_x` is `dv/tests/test_x.py`). |
-| `dv/regress/level{0,1,2}.yaml` | Regression lists. |
-| `arch/` | Top-level IPs only: the architecture model and its perf scenarios ([arch spec](../arch/SPEC.md)). |
+| `rtl/<id>/<id>.rtl.f` | Synthesizable filelist; this file is what marks `rtl/<id>/` as an IP. |
+| `dv/<id>/<id>.sim.f` | Simulation filelist, used by `sim` and `regress`. |
+| `dv/<id>/` | Python root for cocotb test modules (`module: tests.test_x` is `dv/<id>/tests/test_x.py`). |
+| `dv/<id>/regress/level{0,1,2}.yaml` | Regression lists. |
+| `arch/<id>/`, `fpga/<id>/`, `asic/<id>/` | Top-level IPs only: the architecture model and its perf scenarios ([arch spec](../arch/SPEC.md)), FPGA and ASIC inputs. |
 
 ## Filelists
 
@@ -141,7 +149,7 @@ look for `verilator` in this order:
 If none of these has it, the command fails with exit code 2.
 
 Sources, include directories and defines come from the resolved
-`dv/<name>.sim.f`. A bare define is passed as `-DNAME=`. The test entry's
+`dv/<id>/<id>.sim.f`. A bare define is passed as `-DNAME=`. The test entry's
 `top` is the HDL toplevel, and its `params` become top-level parameter
 overrides (`-G`).
 
@@ -157,18 +165,18 @@ process group:
 
 The filelist is resolved before the build child starts. A resolve failure
 is a build `error`, with the `file:line` message as the detail and in
-`build.log`. Output layout (`<ip>` is the IP id,
-so a sub-IP nests under its parent):
+`build.log`. Output layout (`<ip>` is the IP id; a sub-IP's output is a
+flat sibling):
 
 | Path | Content |
 | --- | --- |
 | `workdir/<ip>/build/<top>[-<hash>]/` | Verilator build and `build.log`. `<hash>` (8 hex digits) is added when the test has `params` or waves are on, so different elaborations never share a directory. |
 | `workdir/<ip>/<test>/<seed>/` | `results.xml`, `sim.log` (the full simulator output), and waves (`dump.vcd`) with `--waves`. This directory is cleared before each run. |
 
-Because a test directory and a sub-IP directory share `workdir/<ip>/`, a
-test may not be named `build`, `fpga` (the [fpga tool's](../fpga/SPEC.md#output) output),
-`asic` (the [asic tool's](../asic/SPEC.md#output) output), `arch` (the
-[arch tool's](../arch/SPEC.md#behavior-and-output) output) or after a sub-IP directory.
+Because test directories share `workdir/<ip>/` with the tools' own output,
+a test may not be named `build`, `fpga` (the [fpga tool's](../fpga/SPEC.md#output) output),
+`asic` (the [asic tool's](../asic/SPEC.md#output) output) or `arch` (the
+[arch tool's](../arch/SPEC.md#behavior-and-output) output).
 
 A test's status comes from `results.xml`:
 
@@ -189,11 +197,14 @@ python3 -m pytest tools
 and excludes `fixtures/`. It uses pytest's default (prepend) import mode, so
 test file basenames must be unique across `tools/`. The
 fixture source tree `tools/build/tests/fixtures/src/` is a counter IP with a
-sub-IP, and it exercises `-F`, `+incdir+`, `+define+`, `params`, seeds and one
+flat sub-IP (`counter_inc`), and it exercises `-F`, `+incdir+`, `+define+`, `params`, seeds and one
 test per level. The end-to-end tests (real build, pass, fail, timeout, build
 error, waves, a broken filelist in one IP, and the `regress` and `sim` CLI)
 are skipped when Verilator or cocotb is missing. Process-control tests use a
-sleeping shell script in place of the child, so they need no simulator.
+sleeping shell script in place of the child, so they need no simulator. `test_ip.py` covers discovery on synthetic kind-first trees: flat
+sub-IPs, top-level versus sub-IP by `-F` reachability (direct, transitive and
+from two parents), `common/` and name mismatches that are not IPs, a broken
+filelist, ownership by kind folder (never by id prefix) and `locate`.
 
 Python dependencies (pinned in `tools/requirements.txt`): `PyYAML`,
 `pytest`, `cocotb`.

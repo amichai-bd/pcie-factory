@@ -13,7 +13,7 @@ from . import flow
 
 
 def add_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--ip", required=True, help="IP id with an asic/ directory, e.g. a or a/b")
+    p.add_argument("--ip", required=True, help="IP id with an asic/<ip>/ folder")
     p.add_argument("--platform", default=flow.PLATFORMS[0], choices=flow.PLATFORMS,
                    help=f"ORFS platform (default: {flow.PLATFORMS[0]})")
     p.add_argument("--timeout", type=float, default=flow.DEFAULT_TIMEOUT_S,

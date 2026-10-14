@@ -2,7 +2,7 @@
 
 `pcie_top_lfsr` is the data-scrambler LFSR of the PCI Express Gen1/Gen2
 (8b/10b) physical layer: it produces the key byte that its parent,
-[`pcie_top`](../../arch/HAS.md), XORs with each data byte. It is a seed IP,
+[`pcie_top`](../../arch/top/HAS.md), XORs with each data byte. It is a seed IP,
 small on purpose, that gives the factory a real sub-IP to build, regress and
 review. As a sub-IP it has no HAS of its own: its role in the system is in
 the parent's HAS, and this page owns its interface, behavior and structure.
@@ -11,6 +11,13 @@ It is not a full scrambler: it sees no data, does not know which symbols are
 K codes, and does not apply the SKP (do not advance) or COM (re-seed) rules;
 the parent decides when to advance and re-seed. It is not the Gen3+
 (128b/130b) scrambler, which uses a different polynomial.
+
+Its IP id is `top_lfsr` since the kind-first layout
+([#92](https://github.com/amichai-bd/pcie-factory/issues/92)); before, it was
+`top/lfsr`. Tracker records up to that change keep the old id (records are
+never rewritten), so its history before the move is on the
+[`top/lfsr` tracker page](../../../tracker/ip/top/lfsr/index.md), and the
+`ip:top/lfsr` label is superseded by `ip:top_lfsr`.
 
 ## Position
 
@@ -103,6 +110,6 @@ shifts to compute both `key_o` and the advanced state. A second
 
 | File | Holds |
 | --- | --- |
-| [`pcie_top_lfsr_pkg.sv`](../../../../../src/top/lfsr/rtl/pcie_top_lfsr_pkg.sv) | `LFSR_W`, `BYTE_W`, `t_lfsr`, `t_byte`, `LFSR_TAPS` (`16'h0039`), `LFSR_SEED` (`16'hFFFF`). |
-| [`pcie_top_lfsr.sv`](../../../../../src/top/lfsr/rtl/pcie_top_lfsr.sv) | The module. |
-| [`lfsr.rtl.f`](../../../../../src/top/lfsr/rtl/lfsr.rtl.f) | Package, then module. |
+| [`pcie_top_lfsr_pkg.sv`](../../../../src/rtl/top_lfsr/pcie_top_lfsr_pkg.sv) | `LFSR_W`, `BYTE_W`, `t_lfsr`, `t_byte`, `LFSR_TAPS` (`16'h0039`), `LFSR_SEED` (`16'hFFFF`). |
+| [`pcie_top_lfsr.sv`](../../../../src/rtl/top_lfsr/pcie_top_lfsr.sv) | The module. |
+| [`top_lfsr.rtl.f`](../../../../src/rtl/top_lfsr/top_lfsr.rtl.f) | Package, then module. |

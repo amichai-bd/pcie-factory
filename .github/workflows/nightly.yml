@@ -94,23 +94,23 @@ jobs:
           . workdir/nightly/lib.sh
           run_step regress ./build regress --level 0 --level 1 --level 2 --jobs "$(nproc)"
 
-      - name: FPGA flow (IPs with fpga/)
+      - name: FPGA flow (IPs with src/fpga/<ip>/)
         id: fpga
         if: ${{ !cancelled() }}
         run: |
           . workdir/nightly/lib.sh
-          if ! find src -type d -name fpga | grep -q .; then skip_step "fpga: no IP has fpga/ inputs"
+          if ! find src/fpga -mindepth 1 -maxdepth 1 -type d 2>/dev/null | grep -q .; then skip_step "fpga: no IP has fpga/<ip>/ inputs"
           elif ./build fpga --help 2>/dev/null | grep -q -- '--all'; then run_step fpga ./build fpga --all
           else skip_step "fpga: ./build fpga --all is not available on this commit"; fi
 
-      - name: ASIC flow (IPs with asic/)
+      - name: ASIC flow (IPs with src/asic/<ip>/)
         id: asic
         if: ${{ !cancelled() }}
         run: |
           . workdir/nightly/lib.sh
-          ips=$(find src -type d -name asic -not -path '*/rtl/*' -not -path '*/dv/*' | sed 's|^src/||; s|/asic$||' | sort)
+          ips=$(find src/asic -mindepth 1 -maxdepth 1 -type d -not -name '.*' -printf '%f\n' 2>/dev/null | sort)
           help=$(./build asic --help 2>/dev/null || true)
-          if [ -z "$ips" ]; then skip_step "asic: no IP has asic/ inputs"
+          if [ -z "$ips" ]; then skip_step "asic: no IP has asic/<ip>/ inputs"
           elif grep -q -- '--all' <<<"$help"; then run_step asic ./build asic --all
           elif grep -q -- '--ip' <<<"$help"; then
             run_step asic bash -c 'rc=0; for ip in "$@"; do ./build asic --ip "$ip" || rc=1; done; exit $rc' _ $ips

@@ -93,7 +93,7 @@ def test_forbidden_host_terms():
     assert record.forbidden({"k": "runner01"}, ["runner"])  # joined to digits
     assert record.forbidden({"k": "malice"}, ["alice"])  # long terms match inside tokens
     assert not record.forbidden({"k": "bobcat"}, ["bob"])  # short terms: whole tokens only
-    assert not record.forbidden({"ip": "top/sub", "v": "23.1std.1 Build 10/25/2023", "n": 1.5,
+    assert not record.forbidden({"ip": "top_sub", "v": "23.1std.1 Build 10/25/2023", "n": 1.5,
                                  "t": "2026-10-14T18:26:47Z", "x": ".md", "py": "3.13.16"})
 
 

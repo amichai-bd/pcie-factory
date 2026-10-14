@@ -1,6 +1,6 @@
 """Unit tests of the pcie_top model; no simulator needed.
 
-Run: python3 -m pytest src/top/dv/models
+Run: python3 -m pytest src/dv/top/models
 """
 
 import random

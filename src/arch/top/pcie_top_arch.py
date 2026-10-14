@@ -1,5 +1,5 @@
 """Architecture model of pcie_top, the byte-stream scrambler
-(wiki/src/top/arch/HAS.md).
+(wiki/src/arch/top/HAS.md).
 
 For definition and performance analysis, not verification: it states the
 HAS behavior and its latency as executable Python, and ``perf`` measures a
@@ -7,7 +7,7 @@ workload against the HAS targets for ``./build arch`` (wiki/bkm/arch.md).
 DV may import it as a reference; it never imports DV code.
 
 The key stream follows the lfsr sub-IP behavior that the HAS links to
-(wiki/src/top/lfsr/rtl/MAS.md#behavior): G(X) = X^16 + X^5 + X^4 + X^3 + 1,
+(wiki/src/rtl/top_lfsr/MAS.md#behavior): G(X) = X^16 + X^5 + X^4 + X^3 + 1,
 seed 0xFFFF, eight shifts per byte, key bit 0 first. Python stdlib only.
 """
 

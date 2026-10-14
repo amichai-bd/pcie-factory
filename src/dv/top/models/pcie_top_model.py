@@ -1,5 +1,5 @@
 """Reference model of pcie_top, the byte-stream scrambler
-(wiki/src/top/arch/HAS.md).
+(wiki/src/arch/top/HAS.md).
 
 The key stream comes from the lfsr sub-IP's model, reused rather than
 re-implemented, per the DV BKM (wiki/bkm/dv.md, "Reusing a sub-IP model").

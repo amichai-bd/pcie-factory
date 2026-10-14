@@ -1,4 +1,4 @@
-// Types and constants of the scrambler LFSR (wiki/src/top/lfsr/rtl/MAS.md).
+// Types and constants of the scrambler LFSR (wiki/src/rtl/top_lfsr/MAS.md).
 `default_nettype none
 
 package pcie_top_lfsr_pkg;

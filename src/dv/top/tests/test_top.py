@@ -1,5 +1,5 @@
 """pcie_top end-to-end tests, one testcase per regression level
-(wiki/src/top/dv/DV_PLAN.md).
+(wiki/src/dv/top/DV_PLAN.md).
 
 Inputs are driven and outputs sampled at the falling clock edge; the RTL
 updates on the rising edge. The oracle is models/pcie_top_model.py, which

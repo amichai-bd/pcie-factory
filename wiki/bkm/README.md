@@ -10,8 +10,8 @@ its discipline and links to the owning page instead of restating it.
 | [DV](dv.md) | cocotb structure, regression lists, levels, seeds, DV plan alignment |
 | [DevOps](devops.md) | `./build`, levels and budgets, local evidence, CI selection, nightly, labels, metrics |
 | [Wiki](wiki.md) | Page sets, spec↔code alignment, writing rules |
-| [FPGA](fpga.md) | Quartus Lite flow, board target, `src/<ip>/fpga/` contents |
-| [PD](pd.md) | ORFS flow, platform, `src/<ip>/asic/` contents, reported metrics |
+| [FPGA](fpga.md) | Quartus Lite flow, board target, `src/fpga/<ip>/` contents |
+| [PD](pd.md) | ORFS flow, platform, `src/asic/<ip>/` contents, reported metrics |
 
 Precedence: [`CLAUDE.md`](../../CLAUDE.md) is normative where it and a BKM
 disagree until both are reconciled in the same issue. The

@@ -7,8 +7,8 @@ signal, following the [PD BKM](../../../bkm/pd.md). The flow reads
 
 ## Clock target
 
-The [HAS clock target](../arch/HAS.md#targets) on `clk_i`, as the period
-in [`pcie_top.sdc`](../../../../src/top/asic/pcie_top.sdc). This is the
+The [HAS clock target](../../arch/top/HAS.md#targets) on `clk_i`, as the period
+in [`pcie_top.sdc`](../../../../src/asic/top/pcie_top.sdc). This is the
 study clock; a different study clock is a run option, never an edit to this
 target.
 
@@ -37,5 +37,5 @@ the nightly run, the tracker.
 
 | File | Holds |
 | --- | --- |
-| [`pcie_top.sdc`](../../../../src/top/asic/pcie_top.sdc) | Clock, uncertainty and I/O delays. |
-| [`sky130hd.mk`](../../../../src/top/asic/sky130hd.mk) | ORFS design knobs; never a source list. |
+| [`pcie_top.sdc`](../../../../src/asic/top/pcie_top.sdc) | Clock, uncertainty and I/O delays. |
+| [`sky130hd.mk`](../../../../src/asic/top/sky130hd.mk) | ORFS design knobs; never a source list. |

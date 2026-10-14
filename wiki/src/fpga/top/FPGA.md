@@ -43,6 +43,6 @@ tracker.
 
 | File | Holds |
 | --- | --- |
-| [`pcie_top_de2_115.sv`](../../../../src/top/fpga/pcie_top_de2_115.sv) | DE2-115 board wrapper (FPGA flow only). |
-| [`pcie_top.sdc`](../../../../src/top/fpga/pcie_top.sdc) | FPGA timing constraints. |
-| [`de2_115.qsf.tcl`](../../../../src/top/fpga/de2_115.qsf.tcl) | DE2-115 device, pins and I/O settings. |
+| [`pcie_top_de2_115.sv`](../../../../src/fpga/top/pcie_top_de2_115.sv) | DE2-115 board wrapper (FPGA flow only). |
+| [`pcie_top.sdc`](../../../../src/fpga/top/pcie_top.sdc) | FPGA timing constraints. |
+| [`de2_115.qsf.tcl`](../../../../src/fpga/top/de2_115.qsf.tcl) | DE2-115 device, pins and I/O settings. |
