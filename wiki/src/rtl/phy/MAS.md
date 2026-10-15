@@ -39,7 +39,7 @@ latency is the sum of the two IPs' latencies
 | --- | --- | --- |
 | Transmit | 2 cycles, from an accepted `sop` beat to its STP or SDP on `ser_tx_data_o` (the packet's first byte is in `[19:10]` of that word) | The MAC's transmit word is combinational (`mac` MAS, zero inside its budget of 3), and the PCS takes 2 (`pcs` HAS). The target is 6. |
 | Receive | 11.8 to 14.3 cycles at +600 ppm with the elastic buffer at its nominal fill | `pcs` receive (at most 12 at a fill of 12 or less), then the MAC's 3, plus 1 when the packet starts in `[15:8]`. The target is 16. |
-| Throughput | Exactly the HAS formula: 1.9788 bytes per cycle for 274-byte TLPs, 1.4956 for DLLPs | One framing cycle per packet (STP or SDP, and END); one SKP ordered set every 1180 symbols. | The only clock-domain
+| Throughput | 1.9788 bytes per cycle for 274-byte TLPs, which is the HAS floor exactly; 1.4956 for DLLPs, against a floor of 1.4949 | One framing cycle per packet (STP or SDP, and END); one SKP ordered set every 1180 symbols. | The only clock-domain
 crossings are inside `pcie_pcs`. Every phy input carries a `cdc-domain`
 annotation: `ser_rx_data_i` and `ser_rx_elec_idle_i` are on
 `ser_rx_clk_i`, every other input on `clk_i`. The `pcs` reset nets have
