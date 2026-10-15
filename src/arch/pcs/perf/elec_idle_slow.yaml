@@ -1,0 +1,20 @@
+# Electrical idle with the RX clock slow (wiki/src/arch/pcs/HAS.md#targets).
+description: Random traffic with three 20000-symbol electrical-idle gaps, RX clock -600 ppm.
+seed: 9
+workload:
+  kind: link
+  packets: 300
+  mix: random
+  ppm: -600
+  idle_gaps: 3
+  idle_symbols: 20000
+targets:
+  eb_fill_symbols_min: {min: 4}
+  eb_fill_symbols_max: {max: 12}
+  eb_write_view_words_max: {max: 12}
+  eb_overflows: {max: 0}
+  eb_underflows: {max: 0}
+  symbols_wrong: {max: 0}
+  relocks: {max: 0}
+  locks: {min: 4, max: 4}
+  lock_to_rx_valid_cycles_max: {max: 10}

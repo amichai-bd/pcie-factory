@@ -1,0 +1,14 @@
+# PIPE control timing with a far-end receiver present: PhyStatus after
+# reset, receiver detection and PowerDown acknowledgement
+# (wiki/src/arch/pcs/PIPE_CONTROL.md, wiki/src/arch/pcs/HAS.md#targets).
+description: Reset, receiver detection (receiver present), then P0, P0s, P0, P1, P0, P2, P0.
+seed: 0
+workload:
+  kind: pipe
+  rxdet: 1
+targets:
+  phy_status_after_reset_cycles: {min: 16, max: 16}
+  rx_detect_cycles: {min: 64, max: 64}
+  rx_detect_status: {min: 3, max: 3}
+  power_ack_cycles_max: {min: 4, max: 4}
+  pulses: {min: 8, max: 8}
