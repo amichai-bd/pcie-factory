@@ -90,7 +90,7 @@ The `Clock` column is each input's `cdc-domain` annotation in the RTL
 | `pipe_power_down_i` | in | 2 | `clk_i` | PowerDown: 0 P0, 1 P0s, 2 P1, 3 P2. |
 | `pipe_rx_data_o` | out | 16 | `clk_i` | RxData: two bytes. |
 | `pipe_rx_datak_o` | out | 2 | `clk_i` | RxDataK. |
-| `pipe_rx_valid_o` | out | 1 | `clk_i` | RxValid: both symbols are under symbol lock. |
+| `pipe_rx_valid_o` | out | 1 | `clk_i` | RxValid: both symbols are under symbol lock, or an idle tail ([receive path](RECEIVE.md#decode-and-rxstatus)). |
 | `pipe_phy_status_o` | out | 1 | `clk_i` | PhyStatus: high in and after reset, then one-cycle completion pulses. |
 | `pipe_rx_elec_idle_o` | out | 1 | `clk_i` | RxElecIdle, in order with the received words ([receive path](RECEIVE.md#electrical-idle)). |
 | `pipe_rx_status_o` | out | 3 | `clk_i` | RxStatus per word ([codes](RECEIVE.md#decode-and-rxstatus)). |
@@ -99,7 +99,7 @@ The `Clock` column is each input's `cdc-domain` annotation in the RTL
 | `ser_tx_rxdet_i` | in | 1 | `clk_i` | A far-end receiver termination is present. |
 | `ser_rx_clk_i` | in | 1 | - | Recovered RX clock, 125 MHz nominal. |
 | `ser_rx_data_i` | in | 20 | `ser_rx_clk_i` | Twenty received bits, bit 0 earliest, no alignment. |
-| `ser_rx_elec_idle_i` | in | 1 | `ser_rx_clk_i` | The line is in electrical idle. |
+| `ser_rx_elec_idle_i` | in | 1 | `ser_rx_clk_i` | The line is in electrical idle: 1 for a word that holds any idle bit, so a word in which the line goes idle may still start with the end of the stream ([loss of lock](RECEIVE.md#comma-alignment-and-symbol-lock)). |
 
 The lower ports are exactly the `phy` HAS's
 [lower symbol interface](../phy/HAS.md#lower-symbol-interface).
@@ -133,9 +133,9 @@ lists every item.
 | `PHY_STATUS_RESET_CYCLES`, `RX_DETECT_CYCLES`, `POWER_ACK_CYCLES` | `pcie_pcs_pkg` | 16, 64 and 4 ([PIPE control](PIPE_CONTROL.md)). |
 | `ERR_LIMIT`, `ERR_DECAY_WORDS` | `pcie_pcs_pkg` | 3 and 8 ([relock](RECEIVE.md#comma-alignment-and-symbol-lock)); the error counter is the top's. |
 | `t_sym10` | `pcie_pcs_pkg` | One raw symbol, bit 0 first on the line. |
-| `t_rx_pair`, `t_dec_pair`, `t_eb_status`, `t_tx_word`, `t_rx_word` | `pcie_pcs_pkg` | The block interfaces: two received symbols with per-symbol lock and generation (aligner, elastic buffer, decoder); two decoded symbols with their code and disparity errors (decoder to top); the elastic buffer's word status (SKP added and removed, overflow, underflow); the encoder's input word; the PIPE receive register with its RxStatus. |
+| `t_rx_pair`, `t_dec_pair`, `t_eb_status`, `t_tx_word`, `t_rx_word` | `pcie_pcs_pkg` | The block interfaces: two received symbols with per-symbol idle flag, lock and generation (aligner, elastic buffer, decoder); two decoded symbols with their code and disparity errors (decoder to top); the elastic buffer's word status (SKP added and removed, overflow, underflow); the encoder's input word; the PIPE receive register with its RxStatus. |
 | `COMMA_MINUS`, `COMMA_PLUS` | `pcie_pcs_align` (module constants) | The two [comma](8B10B.md#comma) forms, matched only there. |
-| `t_eb_word`, `COM_RD_MINUS`, `COM_RD_PLUS`, `SKP_RD_MINUS`, `SKP_RD_PLUS` | `pcie_pcs_pkg` | One elastic-buffer word (two raw symbols, the lock tag, the lock-generation bit, two removed-SKP flags, the overflow flag; 25 bits); the raw COM and SKP codes it matches without decoding. |
+| `t_eb_word`, `COM_RD_MINUS`, `COM_RD_PLUS`, `SKP_RD_MINUS`, `SKP_RD_PLUS`, `IDL_RD_MINUS`, `IDL_RD_PLUS` | `pcie_pcs_pkg` | One elastic-buffer word (two raw symbols, a lock tag, an idle flag and a removed-SKP flag per symbol, the lock-generation bit, the overflow flag; 28 bits); the raw COM, SKP and IDL codes matched without decoding. |
 | `EB_ADDR_W`, `EB_NOMINAL`, `EB_HIGH`, `EB_LOW`, `EB_HOLDOFF` | `pcie_pcs_pkg` | 4, 8, 9, 7 and 8 ([elastic buffer](RECEIVE.md#elastic-buffer)). |
 
 The RTL has no `` `ifdef `` and writes no assertion directly: invariants

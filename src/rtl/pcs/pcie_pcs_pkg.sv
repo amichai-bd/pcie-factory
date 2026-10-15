@@ -124,6 +124,10 @@ package pcie_pcs_pkg;
   localparam t_sym10 COM_RD_PLUS  = 10'h283;  // line order 1100000101
   localparam t_sym10 SKP_RD_MINUS = 10'h0BC;  // line order 0011110100
   localparam t_sym10 SKP_RD_PLUS  = 10'h343;  // line order 1100001011
+  // IDL (K28.3), the body of an electrical idle ordered set, for the
+  // aligner's EIOS completion (RECEIVE.md, Loss of lock).
+  localparam t_sym10 IDL_RD_MINUS = 10'h33C;  // line order 0011110011
+  localparam t_sym10 IDL_RD_PLUS  = 10'h0C3;  // line order 1100001100
 
   // ------------------------------------------------------ elastic buffer
 
@@ -195,6 +199,22 @@ package pcie_pcs_pkg;
 
   function automatic logic is_skp(t_sym10 s);
     return (s == SKP_RD_MINUS) || (s == SKP_RD_PLUS);
+  endfunction
+
+  function automatic logic is_idl(t_sym10 s);
+    return (s == IDL_RD_MINUS) || (s == IDL_RD_PLUS);
+  endfunction
+
+  // EIOS progress over a locked symbol stream: 1 after a COM, 2 and 3
+  // after one and two IDL that follow it; the third IDL (or any other
+  // symbol) returns to 0.
+  function automatic logic [1:0] eios_step(logic [1:0] e, t_sym10 s);
+    if (is_com(s)) begin
+      return 2'd1;
+    end else if (is_idl(s) && (e != 2'd0) && (e != 2'd3)) begin
+      return e + 2'd1;
+    end
+    return 2'd0;
   endfunction
 
   // ------------------------------------------------------------ aligner

@@ -328,6 +328,7 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
     prev_txpos: list[int] = [-1] * 20
     in_t = prev_t = 0.0
     idle_q = idle_prev_q = 1
+    eios = 0                     # EIOS progress over the locked aligned symbols
     lock = 0
     gen = 0                      # lock generation: flips at every lock acquisition
     offset = 0
@@ -421,14 +422,19 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
                 st["write_view_max"] = max(st["write_view_max"], wbin - rptr_seen)
             wgray.set(_gray(wbin), t)
             # Aligner: register this edge's aligned word from the window.
-            if relock_level != relock_seen:
+            relocked = relock_level != relock_seen
+            if relocked:
                 relock_seen = relock_level
                 lock = 0
             # Lock drops for the word whose symbols start in an idle word:
-            # the output word starts in in_prev_q (RECEIVE.md, Electrical idle).
+            # the output word starts in in_prev_q (RECEIVE.md, Loss of lock).
+            # EIOS completion: right after a locked COM IDL IDL, an IDL in
+            # sym0 of that first idle word still leaves locked.
+            window = in_prev_q | (in_q << 20)
+            tail = bool(lock and idle_prev_q and not relocked and eios == 3
+                        and raw_is((window >> offset) & 0x3FF, K_IDL))
             if idle_prev_q:
                 lock = 0
-            window = in_prev_q | (in_q << 20)
             if not lock and not idle_q and not idle_prev_q:
                 for p in range(20):
                     if has_comma((window >> p) & 0x3FF):
@@ -444,8 +450,14 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
                 tp = tx_all[p]
                 if tp >= 0 and (tp % 10 or any(tx_all[p + i] != tp + i for i in range(10))):
                     tp = -1
-                aligned.append(_Sym(c, lock, gen, in_t if p + 10 > 20 else prev_t,
-                                    tp // 10 if tp >= 0 else -1, idle_prev_q))
+                tl = tail and j == 0
+                aligned.append(_Sym(c, lock or tl, gen, in_t if p + 10 > 20 else prev_t,
+                                    tp // 10 if tp >= 0 else -1, idle_prev_q and not tl))
+            if lock:
+                for s_ in aligned:
+                    eios = _eios_step(eios, s_.code)
+            elif not tail:
+                eios = 0
             # Input register.
             in_prev_q, prev_txpos, prev_t, idle_prev_q = in_q, in_txpos, in_t, idle_q
             base = 20 * n
@@ -595,6 +607,16 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
     st["delivered_txpos"] = delivered_txpos
     st["t_rx"] = t_rx
     return st
+
+
+def _eios_step(e: int, code: int) -> int:
+    """EIOS progress: 1 after a COM, 2 and 3 after the IDLs that follow;
+    the third IDL or any other symbol returns to 0."""
+    if raw_is(code, K_COM):
+        return 1
+    if raw_is(code, K_IDL) and e in (1, 2):
+        return e + 1
+    return 0
 
 
 def _word(bits: bytearray, base: int) -> int:

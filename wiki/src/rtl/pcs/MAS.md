@@ -5,7 +5,7 @@ with five blocks, each a module file in `src/rtl/pcs/` under one
 `pcs.rtl.f` (decision Q24 on epic
 [#65](https://github.com/amichai-bd/pcie-factory/issues/65)): the
 [top](#top) (PIPE control, RxStatus, RxValid, the error counter, loopback,
-crossings 4 and 5), the [encoder](#encoder), the [decoder](#decoder), the
+crossing 4), the [encoder](#encoder), the [decoder](#decoder), the
 [aligner](#aligner) and the [elastic buffer](#elastic-buffer). The blocks
 exchange packed structs of [`pcie_pcs_pkg`](#package) (decision Q25); the
 `pcie_pcs` ports stay flat, with the PIPE names of the HAS.
@@ -55,14 +55,14 @@ import.
 | `t_align` | The aligner's lock state: lock, generation, boundary. |
 | `t_dec`, `t_dec_state`, `t_match` and the functions `six_minus` to `decode` | The decoder's per-symbol result, RD state and the pure decode functions. |
 | `EB_ADDR_W`, `EB_NOMINAL`, `EB_HIGH`, `EB_LOW`, `EB_HOLDOFF`, `EB_FILL_W`, `HOLDOFF_W` | 4, 8, 9, 7, 8, 6 and 4 ([elastic buffer](../../arch/pcs/RECEIVE.md#elastic-buffer)). |
-| `COM_RD_MINUS`, `COM_RD_PLUS`, `SKP_RD_MINUS`, `SKP_RD_PLUS`, `is_com`, `is_skp` | The raw COM and SKP codes in both columns, matched without decoding. |
+| `COM_RD_MINUS`, `COM_RD_PLUS`, `SKP_RD_MINUS`, `SKP_RD_PLUS`, `IDL_RD_MINUS`, `IDL_RD_PLUS`, `is_com`, `is_skp`, `is_idl`, `eios_step` | The raw COM, SKP and IDL codes in both columns, matched without decoding; `eios_step` advances the aligner's EIOS progress by one symbol. |
 | `t_eb_word`, `t_eb_sym`, `t_eb_status`, `t_eb_wr`, `t_eb_rd` | The 28-bit FIFO word (a lock and an idle flag per symbol), one read-side symbol with its flags, the read side's word status (SKP added, removed, overflow, underflow), and the write- and read-side state. |
 
 ## Top
 
 [`pcie_pcs.sv`](../../../../src/rtl/pcs/pcie_pcs.sv): the HAS ports, the
 four block instances, PIPE control, word forming, the PIPE receive
-register, the error counter, loopback and crossings 4 and 5.
+register, the error counter, loopback and crossing 4.
 
 ### Resets
 
@@ -377,6 +377,14 @@ words (the previous one in bits 0 to 19):
    generation of steps 1 and 2 and the idle flag of the previous word
    (`sym_idle_q`, reset 1). While unlocked, the last boundary is kept and
    the words go out unlocked.
+4. **EIOS completion.** `eios_q` follows the locked output with
+   `eios_step` (1 after a COM, 2 and 3 after the IDLs that follow it). In
+   the edge where lock drops for idle (`idle_prev_q`, no relock), if
+   `eios_q` is 3 and the output word's `sym0` is an IDL (`tail`), that
+   symbol leaves locked and not idle (`tail_q`), `sym1` unlocked and idle:
+   the last IDL of an EIOS that starts inside the first idle-flagged word,
+   when the receiver's word boundary is 10 to 19 bits after the
+   transmitter's (RECEIVE.md, EIOS completion; #182).
 
 Reset: lock, generation and boundary 0 (`state_q`, `t_align`), both idle
 flags 1 (no hunt for two words). The data registers are not reset.
@@ -392,6 +400,7 @@ holds the comma, so the word holding the comma is the first locked one.
 | `a_no_lock_from_idle` | No lock from a window holding an idle word. |
 | `a_relock_drops_lock` | A relock request never keeps lock unless a comma retakes it. |
 | `a_lock_kept_into_idle`, `a_idle_word_unlocked` | Lock is never kept or taken for a word whose symbols start in an idle word, and an idle-tagged word is never locked. |
+| `a_tail_is_last_idl` | An EIOS-completion word is the first idle word after lock, and its `sym0` is an IDL. |
 | `a_gen_flips_only_on_lock` | The generation flips only when lock is taken. |
 | `a_lock_word_holds_comma` | The first word of a lock holds a comma at `sym0` or `sym1`. |
 | `a_lock_at_lowest_comma` | Lock is taken at the lowest comma offset of the window (an upward scan, independent of the downward priority scan). |
@@ -484,7 +493,7 @@ by `rst_i`), each cycle:
 | Assertion | Invariant |
 | --- | --- |
 | `a_one_removal`, `a_rem_after_com` | One removal per cycle, none right after a pending removed flag. |
-| `a_word_one_lock`, `a_idle_unlocked` | The two symbols of an aligned word carry the same tags; an idle word is never locked. |
+| `a_word_one_lock`, `a_idle_unlocked` | The two symbols of an aligned word carry the same tags, except an EIOS-completion word (`sym0` locked, `sym1` idle); an idle symbol is never locked. |
 | `a_no_unlocked_then_locked` | No FIFO word holds an unlocked symbol before a locked one (lock start). |
 | `a_pop_empty`, `a_dup_needs_symbol`, `a_send_needs_symbols` | No pop from an empty FIFO; an owed copy and a send have their symbols. |
 | `a_add_only_low`, `a_owed_copy_is_skp` | Additions only at a fill of 7 or less; an owed copy is a SKP. |

@@ -147,6 +147,7 @@ revisited.
 | --- | --- | --- |
 | Reset# is asynchronous [cite: PIPE Spec, rev 3.0, §5.1]. | `pipe_reset_ni` is synchronous to `clk_i` ([PIPE page](../phy/PIPE.md#signals)). | Both IPs share `clk_i`; stricter than PIPE. |
 | RxElecIdle is asynchronous [cite: PIPE Spec, rev 3.0, §5.1]. | On `clk_i`, in order with the received words. | Stricter; the MAC samples it like any PIPE input and never sees idle before the words that came before it. |
+| EDB on PIPE marks a symbol with a decode error, reported with RxStatus [cite: PIPE Spec, rev 3.0, §6.14]. | An idle tail (a lock that ends in the first half of a word before electrical idle) leaves under RxValid 1 with EDB (K) as its second symbol and no error status ([receive path](RECEIVE.md#decode-and-rxstatus)). | A 16-bit PIPE word has one RxValid for two symbols; this keeps the last symbol before idle, the end of an EIOS, without inventing data or a receive error. EDB is a K symbol, not a data byte. |
 | In P2 the PHY stops PCLK; PhyStatus rises before PCLK stops and, on exit, stays high until PCLK is stable [cite: PIPE Spec, rev 3.0, §6.3]. | `clk_i` (PCLK) keeps running in P2; entry and exit are acknowledged with the same one-cycle pulse as every change. | PCLK is the stack's core clock, not a PHY output ([`phy` decisions](../phy/HAS.md#decisions)). |
 | In P2 with TxElecIdle 0 the PHY sends a beacon [cite: PIPE Spec, rev 3.0, §6.9]. | No beacon; the transmitter stays idle in P2. | Beacon is out of scope ([`phy` HAS](../phy/HAS.md#link-up-and-requests)). |
 

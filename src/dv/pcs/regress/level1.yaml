@@ -207,6 +207,12 @@ tests:
     top: pcie_pcs
     seeds: [1, 2]
     timeout_s: 300
+  - name: rx_eios_phases
+    module: tests.test_lock
+    testcase: rx_eios_phases
+    top: pcie_pcs
+    seeds: [1, 2]
+    timeout_s: 300
   - name: rx_eios_idle
     module: tests.test_elastic
     testcase: rx_eios_idle
@@ -236,4 +242,4 @@ tests:
 coverage_floors:
   line: 99
   toggle: 97
-  functional: {pcs_align_impairments: 100, pcs_align_lock: 100, pcs_align_relock: 100, pcs_dec_class: 100, pcs_dec_rd_unknown: 100, pcs_dec_recovery: 100, pcs_elastic: 100, pcs_pipe_control: 100, pcs_pipe_power: 100, pcs_rx_codes: 100, pcs_rx_elec_idle: 100, pcs_rx_status: 100, pcs_tx_codes: 100, pcs_tx_controls: 100}
+  functional: {pcs_align_eios: 100, pcs_align_impairments: 100, pcs_align_lock: 100, pcs_align_relock: 100, pcs_dec_class: 100, pcs_dec_rd_unknown: 100, pcs_dec_recovery: 100, pcs_elastic: 100, pcs_pipe_control: 100, pcs_pipe_power: 100, pcs_rx_codes: 100, pcs_rx_elec_idle: 100, pcs_rx_status: 100, pcs_tx_codes: 100, pcs_tx_controls: 100}

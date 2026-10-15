@@ -39,14 +39,24 @@ bit first.
 - **Locked.** The boundary is frozen. Each cycle the aligner sends the two
   10-bit symbols that start at the boundary and at the boundary plus 10,
   tagged locked. Commas at other offsets are ignored.
-- **Loss of lock.** Lock drops for the first word whose symbols start in
-  a word received with `ser_rx_elec_idle_i` high (with the boundary at 0
-  to 9, both symbols of a word start in the previous word of the window),
-  so every symbol that starts in a word received before the idle leaves
-  locked, the tail of an EIOS included; and when a relock request arrives
-  from the `clk_i` side. The aligner then hunts again. Each word it sends
-  carries an **idle** flag: its symbols start in a word received in
-  electrical idle (such a word is never locked).
+- **Loss of lock.** `ser_rx_elec_idle_i` flags a received word that
+  holds any idle bit: the line may go idle inside it, so its first bits
+  can still be the end of the stream. Lock drops for the first word whose
+  symbols start in a word received with the flag high (with the boundary
+  at 0 to 9, both symbols of a word start in the previous word of the
+  window), so every symbol that starts in a word received before the idle
+  leaves locked; and when a relock request arrives from the `clk_i` side.
+  The aligner then hunts again. Each word it sends carries an **idle**
+  flag: its symbols start in a word received in electrical idle (such a
+  symbol is never locked).
+- **EIOS completion.** The transmitter enters idle at a word boundary
+  right after an EIOS (COM and three IDL). When the receiver's word
+  boundary falls 10 to 19 bits after the transmitter's, the EIOS's last
+  IDL starts inside the first idle-flagged word. So when lock drops for
+  idle right after a locked COM IDL IDL, and that word's first symbol is
+  an IDL, that one symbol still leaves locked (and not idle): the EIOS
+  reaches PIPE whole at every bit phase. Its raw IDL codes are matched in
+  both columns, like COM and SKP.
 - **Relock request.** On the `clk_i` side an error counter watches the
   words that leave with `pipe_rx_valid_o` high. A word with a code or
   disparity error adds 1; eight error-free words in a row take 1 away (not
@@ -83,9 +93,9 @@ other's complement, so a SKP can be added or removed without disturbing the
 decoder, and found without decoding.
 
 - **Storage.** A [`common_cdc_fifo`](../../rtl/common/common_cdc_fifo.md)
-  of 16 words (`ADDR_W` 4). A word holds two raw 10-bit symbols, the lock
-  tag, the lock-generation bit, a removed-SKP flag per symbol and an
-  overflow flag (25 bits).
+  of 16 words (`ADDR_W` 4). A word holds two raw 10-bit symbols, a lock
+  tag, an idle flag and a removed-SKP flag per symbol, the lock-generation
+  bit and an overflow flag (28 bits).
 - **Visible fill.** The read side's fill is twice the words it can see
   (the FIFO's read-side occupancy: written words whose pointer has
   crossed) plus the symbols held in its one-symbol leftover register. The
@@ -210,10 +220,13 @@ received after it; `pipe_rx_valid_o` is never 1 while it is 1. Its
 latency is the receive latency of that word: within the RX latency
 [target](HAS.md#targets).
 
-These codes, their meaning, the EDB substitutions, the reporting of SKP
-changes on the COM's word and the error precedence agree with PIPE
+These codes, their meaning, the EDB substitution for a code error, the
+reporting of SKP changes on the COM's word and the error precedence agree
+with PIPE
 [cite: PIPE Spec, rev 3.0, §5.1] [cite: PIPE Spec, rev 3.0, §6.13]
 [cite: PIPE Spec, rev 3.0, §6.14]. PIPE allows removing the only SKP of a
 set, leaving a bare COM [cite: PIPE Spec, rev 3.0, §6.13], and asks for
 inverted data within 20 PCLK cycles of RxPolarity
 [cite: PIPE Spec, rev 3.0, §6.16]; this PCS inverts from the next word.
+The idle tail's EDB, under RxValid with no error, is this stack's own
+choice ([differences from PIPE](PIPE_CONTROL.md#differences-from-pipe)).

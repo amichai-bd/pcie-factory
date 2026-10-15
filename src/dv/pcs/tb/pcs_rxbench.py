@@ -402,13 +402,15 @@ def rd_settle_word(run) -> float:
     return run.words[-1].t
 
 
-def check_ei_order(rx: RxBench, link, runs, where: str) -> int:
+def check_ei_order(rx: RxBench, link, runs, where: str) -> dict[str, int]:
     """Electrical idle in order with the words (RECEIVE.md, Electrical
     idle): before each idle gap, every sent symbol that starts in a word
     received with ``ser_rx_elec_idle_i`` low leaves on PIPE under RxValid
     before RxElecIdle rises for that gap, and a gap that follows an EIOS
     shows the whole EIOS under RxValid. RxValid is never 1 with RxElecIdle
-    1 (checked every cycle by the bench). Returns the gaps checked."""
+    1 (checked every cycle by the bench). Returns the counts of gaps
+    checked, EIOS checked whole and idle tails, for the callers'
+    non-vacuity checks."""
     placed = {s: t for r in runs for t, s in r.placed}
     for r in runs:
         placed.update({s: r.words[0].t for s in r.sent_of.values() if s not in placed})
@@ -418,7 +420,7 @@ def check_ei_order(rx: RxBench, link, runs, where: str) -> int:
         b = rx.rx_bit(10 * s)
         return bool(line.idle[(b // 20) * 20 + 19])
 
-    checked = 0
+    checked = eios_whole = 0
     for a, _ in link.idles:
         last = a - 1
         while last >= 0 and (link.syms[last] == (1, K_SKP) or starts_idle(last)):
@@ -437,14 +439,15 @@ def check_ei_order(rx: RxBench, link, runs, where: str) -> int:
             whole = all(s in placed and placed[s] < t_ei for s in range(com, com + 4))
             assert whole, f"{where}: the EIOS at symbol {com} not whole under RxValid before idle"
             COV_RX.sample(ei_order="eios_whole")
+            eios_whole += 1
         COV_RX.sample(ei_order="before_idle")
         checked += 1
     tails = sum(r.idle_tail for r in runs)
     for _ in range(tails):
         COV_RX.sample(ei_order="idle_tail")
-    rx.dut._log.info("%s: %d gaps in order before RxElecIdle, %d idle tails", where, checked,
-                     tails)
-    return checked
+    rx.dut._log.info("%s: %d gaps in order before RxElecIdle, %d EIOS whole, %d idle tails",
+                     where, checked, eios_whole, tails)
+    return {"gaps": checked, "eios_whole": eios_whole, "idle_tails": tails}
 
 
 def check_idle(rx: RxBench, link, where: str) -> list:
@@ -471,5 +474,5 @@ def check_idle(rx: RxBench, link, where: str) -> list:
     check_skp_status(link.syms, [r for r in runs if not r.noise_lock], where)
     check_latency(rx, runs)
     check_lock_latency(rx, link, runs[1:], where)
-    check_ei_order(rx, link, runs, where)
+    rx.ei_order = check_ei_order(rx, link, runs, where)
     return runs

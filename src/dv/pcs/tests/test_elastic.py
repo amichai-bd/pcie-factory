@@ -176,6 +176,11 @@ async def eb_idle(dut, ppm: float, packets: int, gaps: int, symbols: int, where:
     await rx.start(link, max_cycles=len(link.syms) // 2 + 4000)
     await rx.run_line()
     runs = check_idle(rx, link, where)
+    if eios:
+        # Non-vacuity: every gap's EIOS checked whole, and idle tails seen.
+        eo = rx.ei_order
+        assert eo["eios_whole"] == eo["gaps"] == len(link.idles), f"{where}: {eo}"
+        assert eo["idle_tails"] > 0, f"{where}: vacuous, no idle tail: {eo}"
     # Recentring is observed, never assumed: through the gaps a slow RX clock
     # makes the read side hold, a fast one makes the write side drop.
     rc = rx.recentre

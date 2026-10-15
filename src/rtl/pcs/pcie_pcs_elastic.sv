@@ -147,11 +147,14 @@ module pcie_pcs_elastic (
   `COMMON_ASSERT_NEVER(a_one_removal, ser_rx_clk_i, rx_rst, w_rm0 & w_rm1)
   `COMMON_ASSERT_NEVER(a_rem_after_com, ser_rx_clk_i, rx_rst, w_rm0 & w_q.pend_rem)
   // The aligner tags both symbols of a word with one lock, generation and
-  // idle flag, and never locks an idle word.
+  // idle flag, except an EIOS tail word (sym0 the locked last IDL, sym1
+  // idle), and never locks an idle symbol.
   `COMMON_ASSERT_NEVER(a_word_one_lock, ser_rx_clk_i, rx_rst,
-                       ser_rx_valid_i & ((ser_rx_i.sym1.lock != ser_rx_i.sym0.lock)
-                                       | (ser_rx_i.sym1.gen != ser_rx_i.sym0.gen)
-                                       | (ser_rx_i.sym1.idle != ser_rx_i.sym0.idle)))
+                       ser_rx_valid_i & ((ser_rx_i.sym1.gen != ser_rx_i.sym0.gen)
+                                       | (((ser_rx_i.sym1.lock != ser_rx_i.sym0.lock)
+                                           | (ser_rx_i.sym1.idle != ser_rx_i.sym0.idle))
+                                          & ~(ser_rx_i.sym0.lock & ~ser_rx_i.sym0.idle
+                                              & ~ser_rx_i.sym1.lock & ser_rx_i.sym1.idle))))
   `COMMON_ASSERT_NEVER(a_idle_unlocked, ser_rx_clk_i, rx_rst,
                        ser_rx_valid_i & ser_rx_i.sym0.idle & ser_rx_i.sym0.lock)
   // Lock start: a FIFO word never holds an unlocked symbol before a locked one.

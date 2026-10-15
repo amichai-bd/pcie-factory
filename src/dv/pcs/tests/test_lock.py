@@ -25,12 +25,12 @@ from __future__ import annotations
 import cocotb
 
 from models import pcie_pcs_align_model as am
-from models.pcie_pcs_align_model import K_END
+from models.pcie_pcs_align_model import K_COM, K_END, K_STP
 from models.pcie_pcs_rx_check import ERROR_CODES
 from regress.funcov import Covergroup
-from tb.pcs_bench import seeded
 from tb.pcs_lines import Builder, fts_traffic, skp_slip_events, slip_events, ts_traffic
-from tb.pcs_rxbench import CYCLE, RxBench, check_latency, check_lock_latency
+from tb.pcs_bench import regress_seed, seeded
+from tb.pcs_rxbench import CYCLE, K_IDL, RxBench, check_ei_order, check_latency, check_lock_latency
 
 SLIP_WINDOW = 48                  # cycles: relock target 32 plus the receive latency
 FLIP_WINDOW = 24                  # cycles: a flipped bit's errored words reach PIPE
@@ -47,6 +47,9 @@ COV_RELOCK.coverpoint("event", bins=["lock_from_hunt", "relock_same_cycle", "rel
                                      "idle_drop", "reset_drop"])
 
 # Where slips and isolated errors land.
+COV_EIOS = Covergroup("pcs_align_eios")
+COV_EIOS.coverpoint("phase", bins={str(p): p for p in range(20)})
+
 COV_IMPAIR = Covergroup("pcs_align_impairments")
 COV_IMPAIR.coverpoint("slip", bins=["ts_drop", "ts_repeat", "fts_drop", "fts_repeat",
                                     "packet_drop", "packet_repeat", "skp_com", "skp_skp",
@@ -179,6 +182,48 @@ async def rx_lock_offsets(dut):
         COV_LOCK.sample(position=p, comma=form)
     for _ in runs:
         COV_RELOCK.sample(event="idle_drop")
+
+
+@cocotb.test()
+async def rx_eios_phases(dut):
+    """L0 (#182): an EIOS before electrical idle at every RX bit phase 0 to
+    19 of the transmitter's word boundary (filler bits shift it; the idle
+    starts at the transmitted word boundary right after the EIOS, so the
+    word holding it is flagged idle from its last bit). At every phase the
+    whole EIOS leaves under RxValid before RxElecIdle rises: at phases 10
+    to 19 its last IDL starts inside the idle-flagged word, and the
+    aligner's EIOS completion keeps it locked. The seed's parity picks a
+    clock offset of +300 or -300 ppm, so SKP corrections also move the
+    elastic buffer's word parity."""
+    rng = seeded(dut)
+    b = Builder(rng)
+    phases = list(range(20))
+    rng.shuffle(phases)
+    idles = []
+    b.idle(12)
+    for phase in phases:
+        b.filler(phase)
+        seg = len(b.syms)
+        syms = fts_traffic(12, start=seg) + [(1, K_STP)] + [(0, rng.randrange(256))
+                                                           for _ in range(rng.randrange(20, 60))]
+        syms += [(1, K_END)]
+        if (len(syms)) % 2:
+            syms += [(0, rng.randrange(256))]
+        syms += [(1, K_COM), (1, K_IDL), (1, K_IDL), (1, K_IDL)]
+        b.send(syms)
+        idles.append((len(b.syms), len(b.syms)))
+        b.idle(16)
+    link = b.link()
+    link.idles = idles
+    ppm = (1 if regress_seed() % 2 else -1) * 300.0
+    rx = RxBench(dut, b.rng, ppm)
+    await rx.start(link, max_cycles=len(link.line.bits) // 20 + 4000)
+    await rx.run_line()
+    runs = check_link(rx, "eios_phases")
+    eo = check_ei_order(rx, link, runs, "eios_phases")
+    assert eo["gaps"] == eo["eios_whole"] == 20, f"eios_phases: {eo}"
+    for phase in phases:
+        COV_EIOS.sample(phase=phase)
 
 
 @cocotb.test()

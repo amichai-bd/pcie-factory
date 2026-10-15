@@ -4,7 +4,7 @@
 //
 // The top holds PIPE control (reset and PhyStatus, PowerDown acknowledge,
 // receiver detection, RxElecIdle), RxStatus and RxValid, the error counter
-// that requests a relock, loopback, and the crossings 4 and 5. Four
+// that requests a relock, loopback, and crossing 4. Four
 // blocks of the IP do the rest: pcie_pcs_enc8b10b (transmit),
 // pcie_pcs_align (comma lock, ser_rx_clk_i), pcie_pcs_elastic (SKP elastic
 // buffer, crossings 1 to 3) and pcie_pcs_dec8b10b (polarity and decode,
