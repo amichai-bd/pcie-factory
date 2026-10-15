@@ -563,3 +563,19 @@ def test_arch_failing_chart_starts_at_zero(tmp_path):
     problems, out = build(tree(tmp_path, {"2026-09-05.json": rec}))
     charts = chart_data((out / "tracker/index.html").read_text())["charts"]
     assert charts["arch-failing"]["ymin"] == 0 and "ymin" not in charts["arch-lat"]
+
+
+def test_repo_home_links_to_tracker_up_front():
+    # The repository README (the site home) links to the published tracker
+    # before its first section, by absolute URL so it works on GitHub too; the
+    # build leaves absolute URLs as they are.
+    owner, repo = wiki_site.REPO_URL.rstrip("/").split("/")[-2:]
+    url = f"https://{owner}.github.io/{repo}/tracker/"
+    readme = (wiki_site.REPO / wiki_site.HOME).read_text(encoding="utf-8")
+    page = wiki_site.Page(wiki_site.new_md(), wiki_site.HOME, readme)
+    intro = []
+    for tok in page.tokens:
+        if tok.type == "heading_open" and tok.tag == "h2":
+            break
+        intro += [c.attrGet("href") for c in tok.children or () if c.type == "link_open"]
+    assert url in intro

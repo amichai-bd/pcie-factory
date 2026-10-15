@@ -1,5 +1,8 @@
 # Chip-design factory
 
+**[Metrics tracker](https://amichai-bd.github.io/pcie-factory/tracker/)**: live charts of
+code, CI, nightly runs, tests, and FPGA and ASIC results, updated nightly.
+
 An agent-driven factory that turns hardware intent into reviewed, verified RTL
 with FPGA and ASIC evidence. The factory itself (contract, skills, build,
 regressions, CI, wiki, metrics) is the product; the design in `src/` is what it
