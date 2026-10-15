@@ -39,15 +39,15 @@ tests:
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
   - name: smoke_n_fts_1
     module: tests.test_mac
-    testcase: smoke_power
+    testcase: smoke_arcs
     top: pcie_mac_tb
-    timeout_s: 300
+    timeout_s: 900
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024, N_FTS: 1}
   - name: smoke_n_fts_255
     module: tests.test_mac
-    testcase: smoke_power
+    testcase: smoke_arcs
     top: pcie_mac_tb
-    timeout_s: 300
+    timeout_s: 900
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024, N_FTS: 255}
   - name: partner_arc_sweep
     module: tests.test_partner

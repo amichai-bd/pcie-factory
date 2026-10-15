@@ -103,7 +103,7 @@ shows where each of their checks went.
 | The same, upstream | `arcs_full_upstream` | 2 | 1 |
 | [Timeout dividers](../../arch/mac/HAS.md#parameters) and the error-timeout floor | `dividers` | 2 | 1; Polling.Active 23437 cycles |
 | [Training targets](../../arch/mac/HAS.md#targets) at dividers 1: link-up 12.0 to 12.2 ms, training 65.536 to 80 µs, both roles | `train_spec` | 2 | 1 |
-| [`N_FTS`](../../arch/mac/HAS.md#parameters) 1 and 255 in every TS sent | `smoke_n_fts_1`, `smoke_n_fts_255` | 2 | 1 each |
+| [`N_FTS`](../../arch/mac/HAS.md#parameters) 1 and 255 in every TS sent; then the `arcs_quick` recipes in both roles (testcase `smoke_arcs`): in the power episode the partner sends that many FTS, and the `Rx_L0s.FTS` timeout is at its extremes (16 and 542 cycles) | `smoke_n_fts_1`, `smoke_n_fts_255` | 2 | 1 each |
 | [The link partner reaches every arc in each role](../../arch/mac/MODEL.md#arc-sweep) | `partner_arc_sweep` | 2 | 1; the model alone, the DUT is only clocked |
 
 ## Leaf checks, old to new
@@ -143,6 +143,10 @@ listed entry; each fails, and the unmutated RTL passes.
 | Frame | Reset no longer wins over ready inside a packet (`tx_ready = up_open \|\| (!rst_i && tx_start_ok)`) | `smoke` | Fails: `pkt_tx_ready_o` 1 with `rst_i` high inside a packet. |
 | Top | One extra register on the `pkt_rx_*` outputs | `smoke` | Fails at cycle 10298: `sop` 4 cycles after its STP in lane 0, the HAS allows 3. |
 | Top | The frame's idle marks registered (one cycle behind the events) | `smoke` | Fails at cycle 10272: `ltssm_state_o` 0x0D, the shadow already in L0 (0x20). |
+| LTSSM | L1.Entry to L1.Idle without waiting for the P1 acknowledge | `arcs_quick` | Fails at cycle 28660: `ltssm_state_o` 0x31, the shadow still in L1.Entry (0x30). |
+| LTSSM | `Rx_L0s.Entry` left after 2 cycles, not 3 | `arcs_quick` | Fails at cycle 26961: `ltssm_state_o` 0x26 (`Rx_L0s.Idle`), the shadow 0x25. |
+| LTSSM | `Tx_L0s.FTS` sends one FTS fewer than the partner's N_FTS | `arcs_quick` | Fails at cycle 27126: transmitted COM, SKP; the shadow COM, FTS. |
+| LTSSM | L2.Idle's P2 straight to Detect's P1 (not through P0) | `arcs_quick` | Stops on the RTL assertion `a_pd_via_p0`. |
 
 ## Gaps
 
