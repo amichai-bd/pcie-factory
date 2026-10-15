@@ -79,8 +79,9 @@ def select(
         repo, changed = changed_files(affected_base, ctx.src_root)
         hit = select_affected_levels(all_ips, repo, changed, ctx.src_root, rules)
         chosen = [ip for ip in chosen if ip.id in hit]
-        reasons = {ip.id: hit[ip.id][0] for ip in chosen}
         caps = {ip.id: hit[ip.id][1] for ip in chosen}
+        reasons = {ip.id: hit[ip.id][0] + ("" if caps[ip.id] is None else
+                   f" (level {', '.join(map(str, caps[ip.id]))} only)") for ip in chosen}
     else:
         caps = {}
     chosen.sort(key=lambda ip: ip.id)

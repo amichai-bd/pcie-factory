@@ -10,6 +10,7 @@ global:
   levels: [0]
 shared_dv: [dv/common]
 models: models
+import_root: tools
 tools_tests: [tools]
 vocabulary_tests:
   marker: vocabulary
@@ -25,7 +26,7 @@ def write(tmp_path, text):
 def test_real_config_loads():
     r = load_rules(REPO_ROOT / "cfg")
     assert r.global_prefixes == ("tools/", "cfg/") and r.global_files == ("build",)
-    assert r.global_levels == (0,)
+    assert r.global_levels == (0,) and r.import_root == "tools"
     assert r.shared_dv == ("dv/common",) and r.models == "models"
     assert r.tools_tests == ("tools",)
     assert r.vocabulary_marker == "vocabulary"
@@ -60,6 +61,9 @@ def test_is_global(tmp_path):
     (GOOD.replace("[dv/common]", "[../x]"), "relative path inside the tree"),
     (GOOD.replace("[dv/common]", "dv/common"), "expected a list"),
     (GOOD.replace("models: models", "models: [models]"), "models: expected a string"),
+    (GOOD.replace("import_root: tools\n", ""), "missing \\['import_root'\\]"),
+    (GOOD.replace("import_root: tools", "import_root: [tools]"), "import_root: expected a string"),
+    (GOOD.replace("import_root: tools", "import_root: ../tools"), "import_root: .*relative path"),
     (GOOD.replace("models: models", "models: ../models"), "models: .*relative path inside the tree"),
     (GOOD + "arch: arch\n", "unknown \\['arch'\\]"),
     (GOOD.replace("tools_tests: [tools]", "tools_tests: [/abs]"), "relative path"),

@@ -271,12 +271,13 @@ def test_e2e_sim_cli_waves(fixture_src, tmp_path):
 def test_wait_rusage_counts_the_grandchild_cpu_time():
     # The simulator runs under the cocotb runner, a grandchild of regress:
     # its CPU time must be in the figure the level budgets compare.
-    burn = "s = 0\nfor i in range(3_000_000):\n    s += i\n"
+    burn = ("import time\nend = time.process_time() + 1.0\n"
+            "while time.process_time() < end:\n    pass\n")  # about 1 s of CPU
     parent = f"import subprocess, sys\nsubprocess.run([sys.executable, '-c', {burn!r}])\nsys.exit(3)\n"
     proc = subprocess.Popen([sys.executable, "-c", parent])
     code, cpu = sim._wait_rusage(proc, timeout_s=60)
     assert code == 3 and proc.returncode == 3
-    assert cpu > 0.05
+    assert cpu > 0.5  # the grandchild's second, not just the parent's start-up
 
 
 def test_wait_rusage_times_out():

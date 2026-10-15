@@ -100,9 +100,9 @@ warns, naming the CPU number, when a level exceeds its budget. It warns
 rather than fails: CPU time still varies a little between hosts and
 Python versions, and a red gate on a timing number would block correct
 changes; the warning is in the job summary, and the fix is to move or
-speed up tests, never to raise the budget silently. Measured for #166 with all IPs: L1
-381.6 s of CPU against 600 s; L0 41.8 s against 120 s (after the `phy`
-RTL-to-RTL link-up of #173).
+speed up tests, never to raise the budget silently.
+Measured for #166 with all IPs: L1 @L1CPU@ s of CPU against 600 s
+(@L1COMMIT@); L0 41.8 s against 120 s.
 
 ## Local evidence
 
@@ -207,6 +207,7 @@ the exact selection.
 | An IP's own files: under `src/<kind>/<ip>/` for any kind | That IP |
 | A file reached through `-F` from an IP's filelists | That IP |
 | `tools/**`, `cfg/**` or the `build` launcher | All IPs, level 0 only (with the tools unit tests); an IP another row selects keeps every level |
+| A file the IP's DV or arch Python imports, directly or through other files: under the import root (`import_root`, the tools on `sys.path` in simulations), or another IP's arch or models module imported by name | That IP, every level (found by an import scan; no filelist shows these) |
 | Shared DV helpers under `src/dv/common/` (reached by no filelist) | All IPs |
 | A sub-IP's or integrated IP's models under `src/dv/<id>/models/` | That IP and every ancestor IP (every IP whose `.rtl.f` reaches it) |
 | Push to `main`, manual dispatch | All IPs |

@@ -25,6 +25,7 @@ global:
   levels: [0]                # regression levels an IP selected only by these runs
 shared_dv: [dv/common]       # relative to the source root
 models: models               # relative to each IP's src/dv/<ip>/
+import_root: tools           # repo-relative; the Python DV imports at run time
 tools_tests: [tools]         # repo-relative pytest paths
 vocabulary_tests:            # marked tools tests a source change selects
   marker: vocabulary         # pytest marker (registered in tools/pytest.ini)
@@ -36,6 +37,7 @@ vocabulary_tests:            # marked tools tests a source change selects
 | `global` | A change under a prefix, or to one of the files, selects every IP and the tools unit tests. An IP that only such a change selects runs only the regression `levels` (a non-empty list of level numbers) among those requested; an IP another rule selects runs every requested level ([regress selection](../regress/SPEC.md#selection)). |
 | `shared_dv` | Shared DV Python that no filelist reaches; a change under one selects every IP. |
 | `models` | An IP's reference models and their unit tests. A change under a sub-IP's (or an integrated IP's) models directory also selects every ancestor IP, because parent models import sub-IP models ([DV BKM](../../bkm/dv.md#reusing-a-sub-ip-model)). `./build ci unit` runs the model tests of each selected IP. |
+| `import_root` | The directory whose Python the DV imports at run time (on `sys.path` in every simulation). `--affected` scans the imports of each IP's DV and arch Python and selects the IP, at every level, when a file it reaches under this root or in another IP's arch or models folder changes ([regress selection](../regress/SPEC.md#selection)). |
 | `tools_tests` | The pytest paths of the tools unit tests. |
 | `vocabulary_tests` | `marker`: a pytest marker on tools tests that build source files (the RTL vocabulary headers, with Verilator); `paths`: repo-relative files (a trailing `/` makes a prefix) whose change runs those tests; a checks unit test keeps them equal to the style check's vocabulary header list ([checks SPEC](../checks/SPEC.md#style-check)). |
 

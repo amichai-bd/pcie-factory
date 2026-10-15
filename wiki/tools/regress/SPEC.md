@@ -86,8 +86,10 @@ Three rules decide which tests run:
     or `cfg/`, or the `build` launcher (relative to the git repository root).
     An IP that only such a change selects runs only the levels in
     `global.levels` (default `[0]`) among those requested, and its reason
-    reads `global change: <path> (level 0 only)`; an IP that any other rule
-    below selects runs every requested level. A tools change is proved by
+    reads `global change: <path> (level <levels> only)`, for example
+    `(level 0 only)`; an IP that any other rule below selects runs every
+    requested level. (`./build ci unit` gets the same selection with the
+    bare reason.) A tools change is proved by
     the tools unit tests and a smoke of every IP that shows the tools still
     drive its simulations; a design or DV change by that IP's full set.
   - Every IP is affected when any change is under a `shared_dv` directory
@@ -114,6 +116,19 @@ Three rules decide which tests run:
     filelist in its `-F` tree, or a file in one of its include directories.
   - The IP's `sim.f` doesn't resolve (for example, a source it lists was
     deleted). The IP is selected, and its build reports the error.
+  - The IP's DV or arch Python **imports** a changed file, directly or
+    through other files: a module under the `import_root` of
+    `cfg/ci.yaml` (`import pkg.mod`, `from pkg import mod`; a package's
+    `__init__.py` counts), or a module of another IP's `arch/<ip>/` or
+    `dv/<ip>/<models>/` folder imported by its bare name. Imports are read
+    with `ast` (constant `import_module` and `__import__` names too;
+    relative imports resolve inside their package); the scan follows
+    import-root and model files transitively, skips `tests/` folders under
+    the import root, and also matches a deleted module by name. The reason
+    reads `imports: <path>`, and the IP runs every requested level even when
+    the change is also global. No filelist shows these imports, so without
+    the scan a helper change that only a level-1 test exercises, or another
+    IP's model change, would not run that IP's tests.
 
 The command prints each selected IP with the reason it was selected, or
 `no IPs selected`. An empty selection passes, which is right for a
