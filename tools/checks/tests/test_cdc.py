@@ -833,22 +833,56 @@ SYNCED = """  logic m [{depth}];
     # A read at the synchronized pointer and a read at a constant address
     # both reach the output: every read in the output's cone must qualify.
     SYNCED.format(depth=2, windex="src_a_q", read="m[ra_q] ^ m[0]"),
+    # A read at a constant address in a condition steers the output: it
+    # counts toward what the conditional statement writes.
+    "  logic c;\n" + SYNCED.format(depth=2, windex="src_a_q", read="c")
+    + "  always_comb begin\n    c = 1'b0;\n    if (m[0]) c = m[ra_q];\n  end\n",
 ], ids=["one-entry-qualifier", "free-running-address", "hold-select", "one-entry-synced",
         "constant-address-synced-gate", "free-running-second-read", "unused-synced-read",
-        "constant-read-beside-synced-read"])
+        "constant-read-beside-synced-read", "constant-read-in-condition"])
 def test_memory_read_without_a_synchronized_pointer_fails(tmp_path, body):
     r = run(cell_tree(tmp_path, MEM_CELL.format(body=body), "-F common_cdc_sync2.rtl.f\n"))
     assert any("output dst_q_o is driven by flop m (" in f for f in r.findings), r.findings
 
 
+# A plain (not approved) module inside the cell: a wire from input to output.
+PASS_MODULE = """`default_nettype none
+module bad_pass (
+  input  logic i_i,
+  output logic o_o
+);
+  assign o_o = i_i;
+endmodule
+`default_nettype wire
+"""
+
+
+def synced_via_c(tail: str) -> str:
+    """SYNCED with the output driven by ``c``, which ``tail`` drives."""
+    return "  logic c;\n" + SYNCED.format(depth=2, windex="src_a_q", read="c") + tail
+
+
 @needs_verilator
-@pytest.mark.parametrize("extra", ["", "  logic u;\n  assign u = m[0];\n"],
-                         ids=["one-read", "constant-read-off-the-output"])
-def test_memory_read_at_a_synchronized_pointer_passes(tmp_path, extra):
+@pytest.mark.parametrize("body,extra", [
+    (SYNCED.format(depth=2, windex="src_a_q", read="m[ra_q]"), ""),
     # A read at a constant address whose value does not reach the output is
     # outside the output's cone, so it does not disqualify the memory.
-    body = SYNCED.format(depth=2, windex="src_a_q", read="m[ra_q]") + extra
-    r = run(cell_tree(tmp_path, MEM_CELL.format(body=body), "-F common_cdc_sync2.rtl.f\n"))
+    (SYNCED.format(depth=2, windex="src_a_q", read="m[ra_q]")
+     + "  logic u;\n  assign u = m[0];\n", ""),
+    # The only read at the pointer sits in a condition: it counts toward the
+    # variable that the conditional statement writes. (Verilator folds a
+    # plain if/else of one assignment into a ?: assignment, so the default
+    # assignment keeps the IF statement.)
+    (synced_via_c("  always_comb begin\n    c = 1'b0;\n    if (m[ra_q]) c = 1'b1;\n  end\n"),
+     ""),
+    # The read at the pointer feeds a plain submodule's input, which drives
+    # the output: the instance input is the read's target.
+    (synced_via_c("  bad_pass u_p (.i_i(m[ra_q]), .o_o(c));\n"), PASS_MODULE),
+], ids=["one-read", "constant-read-off-the-output", "read-in-condition",
+        "read-into-instance-pin"])
+def test_memory_read_at_a_synchronized_pointer_passes(tmp_path, body, extra):
+    r = run(cell_tree(tmp_path, MEM_CELL.format(body=body) + extra,
+                      "-F common_cdc_sync2.rtl.f\n"))
     assert r.passed, r.findings
 
 

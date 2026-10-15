@@ -649,20 +649,23 @@ module name:
   the output, and every such read has an index that depends on a
   synchronized pointer in the same way, so a synchronized bit that only
   gates a read at a constant address does not qualify, nor does a read at
-  a constant address beside one at the pointer. A read reaches the output when what it is assigned to (a
-  variable, or an instance input) lies on a combinational path into the
-  output, without passing a flop; a read in a condition counts toward every
-  variable that the conditional statement writes. A read at a synchronized
-  pointer whose value is unused, or goes only to a flop, does not qualify
-  the memory for that output. A read inside a function body
-  is recorded with no index variables (function locals are not module
-  variables), so a cell that reads its memory only through a function
-  fails this condition. A cell that synchronizes a
-  pointer and addresses the read with it, but whose pointer logic does not
-  really guard the read, passes this structural test; its MAS and review
-  own that case ([limits](#limits)). A flop's asynchronous reset is part of
-  its data input, not of its output, so a reset synchronizer whose output
-  comes from `dst` flops reset by a `src_*` input passes;
+  a constant address beside one at the pointer. A read reaches the output
+  when what it is assigned to (a variable, or an instance input) lies on a
+  combinational path into the output, without passing a flop; a read in a
+  condition counts toward every variable that the conditional statement
+  writes. Targets are tracked per variable, not per bit, so a read
+  assigned to one bit of a vector counts as reaching wherever any bit of
+  that vector goes. A read at a synchronized pointer whose value is
+  unused, or goes only to a flop, does not qualify the memory for that
+  output. A read inside a function body is recorded with no index
+  variables (function locals are not module variables), so a cell that
+  reads its memory only through a function fails this condition. A cell
+  that synchronizes a pointer and addresses the read with it, but whose
+  pointer logic does not really guard the read, passes this structural
+  test; its MAS and review own that case ([limits](#limits)). A flop's
+  asynchronous reset is part of its data input, not of its output, so a
+  reset synchronizer whose output comes from `dst` flops reset by a
+  `src_*` input passes;
 - when the cell is a target itself, no approved crossing cell instantiated
   inside it has a `src_*` input (other than its clock) that is connected
   to a constant, left unconnected (omitted or `()`), or connected to nets
