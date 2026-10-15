@@ -50,3 +50,16 @@ def test_synchronizer_latency_and_reset_value():
     assert m.outputs()["meta"] == 0
     m.edge(Inputs(data=7))
     assert m.outputs()["meta"] == m.outputs()["meta_val"] == 7
+
+
+def test_reset_synchronizer_asserts_at_once_and_releases_after_two_edges():
+    m = MacroModel()
+    m.async_reset()
+    assert m.outputs()["rst_sync"] == 1
+    m.edge(Inputs(arst=1))
+    m.edge(Inputs())
+    assert m.outputs()["rst_sync"] == 1
+    m.edge(Inputs())
+    assert m.outputs()["rst_sync"] == 0
+    m.edge(Inputs(arst=1))
+    assert m.outputs()["rst_sync"] == 1

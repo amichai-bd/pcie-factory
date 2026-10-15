@@ -40,7 +40,8 @@ module common_macros_fixture (
   output logic [15:0] wrd_o,
   output logic [7:0]  meta_o,
   output logic [7:0]  meta_val_o,
-  output logic        pulse_o
+  output logic        pulse_o,
+  output logic        rst_sync_o    // arst_i through the reset synchronizer
 );
 
   localparam int unsigned DEPTH = 8;
@@ -96,6 +97,7 @@ module common_macros_fixture (
   `COMMON_METAFLOP(u_meta, meta_o, data_i, clk_i, rst_i)
   `COMMON_METAFLOP_VAL(u_meta_val, meta_val_o, data_i, clk_i, rst_i, META_VAL)
   `COMMON_PULSE_SYNC(u_pulse, pulse_o, pulse_i, src_clk_i, src_rst_i, clk_i, rst_i)
+  `COMMON_RESET_SYNC(u_rst_sync, rst_sync_o, arst_i, clk_i)
 
   `COMMON_UNUSED_BITS(unused_upper, data_i[7:4])
 
