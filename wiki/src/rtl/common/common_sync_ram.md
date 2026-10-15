@@ -87,7 +87,7 @@ These hold for the whole family.
 | Lane enables on every write port, `LANES` default 1 | The vocabulary has the lane-write form; consumers of partial words need it, and a one-lane RAM is the plain template. | A separate lane variant of each block. |
 | Portable inferred RAM only | No consumer needs a vendor macro yet; one source serves simulation, lint, FPGA and ASIC. | The source's Intel and IHP backends (out of scope in [#126](https://github.com/amichai-bd/pcie-factory/issues/126)). |
 | No reset, no initialization, no ROM image | RAM blocks cannot reset their contents; an image needs a system task the design rules forbid. | An initialization macro (no consumer). |
-| No dual-clock RAM yet | A registered read of a memory written on another clock is a raw crossing to the [CDC check](../../../tools/checks/SPEC.md#cdc-check); its only exception needs a synchronized pointer inside the cell, which a plain RAM has not. Cross-domain data uses [`common_cdc_fifo`](common_cdc_fifo.md). | Porting the source's dual-clock RAM with a CDC exception (open item below). |
+| No dual-clock RAM yet | A registered read of a memory written on another clock is a raw crossing to the [CDC check](../../../tools/checks/SPEC.md#cdc-check); its only exception needs a synchronized pointer inside the cell, which a plain RAM has not. Cross-domain data uses [`common_cdc_fifo`](common_cdc_fifo.md). | Porting the source's dual-clock RAM with a CDC-check exception; deferred to [#180](https://github.com/amichai-bd/pcie-factory/issues/180) with the CDC gate unchanged. |
 
 Provenance: adapted from nand2anything `src/common/rtl/n2a_sync_ram.sv` and
 its HAS (commit `085ef4b`), adapted with the owner's permission.
@@ -103,7 +103,7 @@ register when inferred).
 | Item | Owner |
 | --- | --- |
 | Measure the inference shape in Quartus and the ASIC flow with the first consumer that synthesizes a family block. | [#65](https://github.com/amichai-bd/pcie-factory/issues/65) |
-| A dual-clock simple dual-port RAM (the source's `n2a_sdp_ram_dc`) needs a CDC-check rule for an unguarded dual-clock memory read, or a consumer-specific crossing cell. | [#126](https://github.com/amichai-bd/pcie-factory/issues/126) |
+| A dual-clock simple dual-port RAM (the source's `n2a_sdp_ram_dc`) waits for a consumer; the CDC gate stays as it is, so it needs a consumer-specific crossing cell or a separately approved check rule. | [#180](https://github.com/amichai-bd/pcie-factory/issues/180) |
 
 ## Files
 

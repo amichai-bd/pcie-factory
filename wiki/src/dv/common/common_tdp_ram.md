@@ -9,7 +9,7 @@ writes different words on both ports at one edge, and (two or more lanes)
 writes disjoint lanes of one word from both ports. Random traffic shares
 the address between the ports three times in ten and clears port `b`'s
 common lanes when both would write one word, so it stays inside the
-contract. The functional covergroup `common_tdp_ram` bins each port
+contract. The functional covergroup `common_tdp_ram` bins (a write counting only on a port with a nonzero lane mask) each port
 writing the word the other reads, both writing different words, both
 writing one word, one write and reads only.
 

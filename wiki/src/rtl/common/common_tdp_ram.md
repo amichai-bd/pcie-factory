@@ -82,7 +82,7 @@ One clock, no reset. Each `p_rd_data_o` is a read register.
 
 | Item | Owner |
 | --- | --- |
-| Confirm old-data mixed-port read-during-write of the true dual-port shape in Quartus. | [#65](https://github.com/amichai-bd/pcie-factory/issues/65) |
+| Confirm old-data mixed-port read-during-write of the true dual-port shape in Quartus, and that Quartus and Yosys accept `mem_q` written from two processes (one `COMMON_MEM_WRITE_LANES` per port; SystemVerilog allows only one process to write a variable assigned in `always_ff`, Verilator accepts it). | [#65](https://github.com/amichai-bd/pcie-factory/issues/65) |
 
 ## Files
 

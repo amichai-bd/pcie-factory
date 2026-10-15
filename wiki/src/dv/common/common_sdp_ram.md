@@ -8,7 +8,7 @@ holds the output for four edges while the read address changes and the
 shown word is rewritten; random traffic draws the write and read
 addresses independently (equal three times in ten) and drops the read
 enable on about three edges in ten. The functional covergroup
-`common_sdp_ram` bins same-word collisions, write with read, write with
+`common_sdp_ram` bins (by read address; a write counting only with a nonzero lane mask) same-word collisions, write with read, write with
 hold, read and hold.
 
 ## Plan

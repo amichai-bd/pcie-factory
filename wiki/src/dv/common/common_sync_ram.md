@@ -25,8 +25,8 @@ This strategy serves the whole RAM family; each block's plan links here.
   directly.
 - **Vacuity guard:** the random tests fail unless more than half the
   compared bits were defined, more than one edge in twenty was a same-word
-  read and write, and (held and simple dual-port) more than one edge in
-  ten held.
+  read and real write (at least one lane), and (held and simple
+  dual-port) more than one edge in ten held.
 - **Parameter limits:** a rejected geometry cannot be simulated, so
   [`tests/test_ram_params.py`](../../../../src/dv/common/tests/test_ram_params.py)
   lints every family block from its `.rtl.f` with Verilator `-Wall`, as
@@ -39,12 +39,23 @@ This strategy serves the whole RAM family; each block's plan links here.
   words, so random addresses collide often, and two lanes); L2 runs the
   smallest RAM (`WIDTH` 1, `ADDR_W` 1, `LANES` 1) and a wide one (`WIDTH`
   64, `ADDR_W` 6, `LANES` 8).
-- **Functional coverage:** one covergroup per block, `common_<block>`,
-  bins the operation at each edge (per block: write or read; write, read
-  and hold combinations; same-word collisions; the dual-port cases), the
-  lanes of each write (none, partial, all) crossed with the writing
-  operation, and the first and last address. The derived seeds of L0 to L2 hit every
-  bin. No coverage floor is set yet ([DV BKM](../../../bkm/dv.md#coverage)).
+- **Functional coverage:** one covergroup per block, `common_<block>`.
+  A write counts only when it writes a lane (write enable and a nonzero
+  lane mask; for the true dual-port `both_wr*` bins, on both ports).
+  - `op`: the operation at each edge (per block: write or read; write,
+    read and hold combinations; same-word collisions; the dual-port cases).
+  - `lanes`: the lane enables of every write-enabled edge, `none` (write
+    enable with no lane), `partial` or `all`; port `a`'s lanes when it is
+    write-enabled, else port `b`'s.
+  - `wr_op_x_lanes`: each writing operation crossed with the lanes of the
+    real write (`partial`, `all`).
+  - `addr`: the first, last or another word at port `a`'s address, the
+    read address of the simple dual-port RAM. Write-address and port-`b`
+    extremes are not binned; the directed test fills and reads every word
+    on every port.
+
+  The derived seeds of L0 to L2 hit every bin. No coverage floor is set
+  yet ([DV BKM](../../../bkm/dv.md#coverage)).
 - **Out of scope:** reset (the blocks have none); the inference shape,
   which only a synthesis flow shows ([open item](../../rtl/common/common_sync_ram.md#open-items));
   contents before the first write, which the MAS leaves undefined.
