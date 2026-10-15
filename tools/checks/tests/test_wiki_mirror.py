@@ -238,6 +238,15 @@ def test_other_design_level_files_are_rejected(good):
     assert run(good, {"blk"}).passed
 
 
+def test_decision_record_name_is_ascii_and_matched_in_full(good):
+    write(good / "wiki/src/decisions/\u0661\u0662\u0663\u0664-x.md")  # non-ASCII digits
+    write(good / "wiki/src/decisions/0005-x.md\n")  # trailing newline
+    assert sorted(run(good).findings) == [
+        "wiki/src/decisions/0005-x.md\n: not a decision record NNNN-<slug>.md",
+        "wiki/src/decisions/\u0661\u0662\u0663\u0664-x.md: not a decision record NNNN-<slug>.md",
+    ]
+
+
 def test_orphan_folders(good):
     write(good / "wiki/src/rtl/gone/MAS.md")        # IP removed from src
     write(good / "wiki/src/dv/blk_subx/DV_PLAN.md")  # misspelled sub-IP

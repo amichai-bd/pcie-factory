@@ -72,7 +72,9 @@ Each IP's `rtl/<id>/<id>.rtl.f` is resolved once at discovery. IP `X` is a
 **sub-IP** of every IP whose resolved `.rtl.f` tree includes `X`'s `.rtl.f`
 (its **ancestors**, direct or through another sub-IP); a **top-level IP**
 has no ancestors. A `.rtl.f` that does not resolve reaches nothing here
-(the filelist check reports it).
+(the filelist check reports it). A `-F` cycle is such a failure: no
+filelist in it resolves, so every IP in the cycle counts as top-level and
+the filelist check fails.
 
 Each IP has these files:
 

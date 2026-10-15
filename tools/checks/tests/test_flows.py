@@ -57,6 +57,7 @@ def _unlink(name):
     return lambda root: (root / name).unlink()
 
 
+RTL = "src/rtl/blk/"
 FPGA = "src/fpga/blk/"
 ASIC = "src/asic/blk/"
 
@@ -77,6 +78,14 @@ CASES = {
     "fpga-wrapper-listed": (lambda r: (r / "src/rtl/blk/blk.rtl.f").open("a").write(
                                 "../../fpga/blk/xy_blk_board.sv\n"),
                             "fpga/blk/xy_blk_board.sv: the board wrapper must not be in blk.rtl.f"),
+    "fpga-source-type": (lambda r: (_write(RTL + "xy_blk_x.vhd", "")(r),
+                                    (r / RTL / "blk.rtl.f").open("a").write("xy_blk_x.vhd\n")),
+                         "rtl/blk/xy_blk_x.vhd: unsupported source type '.vhd' "
+                         "(expected .sv, .v)"),
+    "fpga-tcl-define": (lambda r: (r / RTL / "blk.rtl.f").open("a").write("+define+XY_W={8}\n"),
+                        "cannot quote 'XY_W={8}' for Tcl"),
+    "fpga-tcl-path": (lambda r: (r / FPGA / "xy_blk_board.sdc").rename(r / FPGA / "xy_{blk.sdc"),
+                      "cannot quote 'fpga/blk/xy_{blk.sdc' for Tcl"),
     "fpga-cfg": (_write("cfg/fpga.yaml", "board: de2_115\nstep_timeout_s: 0\nprocessors: 1\n"),
                  "cfg/fpga.yaml: 'step_timeout_s' must be a positive number"),
     "asic-no-mk": (_unlink(ASIC + "sky130hd.mk"),

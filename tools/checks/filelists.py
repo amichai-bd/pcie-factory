@@ -58,7 +58,7 @@ def duplicates(filelist: Path) -> list[str]:
     return [str(p) for p, n in counts.items() if n > 1]
 
 
-# The only file types allowed anywhere below an rtl/ directory. An allowlist,
+# The only file types allowed anywhere below src/rtl/ (every IP and common/). An allowlist,
 # because `include takes any file name: anything else could carry a
 # `verilator_config block or a lint pragma past the style check.
 RTL_ALLOWED = (".sv", ".svh", ".f", ".md")

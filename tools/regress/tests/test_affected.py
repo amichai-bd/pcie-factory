@@ -197,8 +197,8 @@ def commit_all(repo: Path) -> None:
 
 def test_repo_sub_ip_change_selects_every_ancestor(tmp_path):
     """On the repository's own src/ (IPs discovered, never named): changing
-    any file of a sub-IP's rtl/ folder selects the sub-IP and every IP whose
-    filelists reach it."""
+    a file the sub-IP owns selects the sub-IP and every IP whose filelists
+    reach it."""
     r = tmp_path / "repo"
     r.mkdir()
     shutil.copytree(REPO_ROOT / "src", r / "src")
@@ -207,7 +207,7 @@ def test_repo_sub_ip_change_selects_every_ancestor(tmp_path):
     if not subs:
         pytest.skip("the repository has no sub-IP")
     for sub in subs:
-        changed = sorted(p for p in sub.rtl_dir.glob("*.sv"))[0]
+        changed = sub.rtl_f  # every IP has one, whatever source types it lists
         rel = changed.relative_to(r).as_posix()
         got = select_affected(ips, r, [rel], r / "src", RULES)
         assert got[sub.id] == f"changed: {rel}"

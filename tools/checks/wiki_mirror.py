@@ -45,7 +45,7 @@ PAGES = {"arch": "HAS.md", "rtl": "MAS.md", "dv": "DV_PLAN.md",
 # Design-level pages outside the IP folders (the wiki BKM's page set).
 ROOT_PAGES = ("README.md", "roadmap.md")
 DECISIONS = "decisions"
-_DECISION = re.compile(r"^\d{4}-[a-z0-9]+(-[a-z0-9]+)*\.md$")
+_DECISION = re.compile(r"\A[0-9]{4}-[a-z0-9]+(-[a-z0-9]+)*\.md\Z")
 
 
 def wiki_root(src_root: Path) -> Path:
