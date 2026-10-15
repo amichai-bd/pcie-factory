@@ -4,18 +4,20 @@ Each side is driven and sampled at the falling edge of its own clock: the
 writer sets src_valid_i/src_data_i and, when src_ready_o is high, records
 the word as accepted by the next rising edge; the reader sets dst_ready_i
 and, when dst_valid_o is high, pops and compares dst_data_o with the
-scoreboard. The depth is 2**ADDR_W, read from the parameter.
+scoreboard. The depth is 2**ADDR_W, read from the parameter. The
+asynchronous-reset test stops both clocks and checks the reset state in the
+same time step the resets are driven.
 """
 
 import random
 from collections import deque
 
 import cocotb
-from cocotb.triggers import FallingEdge
+from cocotb.triggers import FallingEdge, ReadOnly, Timer
 
 from regress.funcov import Covergroup
-from tb.cdc_env import (CLOCK_BINS, EdgeLog, clock_ratio, falling_edges, now, random_periods,
-                        start_clock)
+from tb.cdc_env import (CLOCK_BINS, EdgeLog, GatedClock, clock_ratio, falling_edges, now,
+                        random_periods, reset_step, start_clock)
 
 # Functional coverage (DV plan, Strategy): each side's handshake outcome per
 # cycle under each clock ratio class, and resets with words in flight.
@@ -26,6 +28,9 @@ COV.coverpoint("dst", bins=["pop", "empty_stall", "hold", "idle"])
 COV.coverpoint("reset", bins={"in_flight": lambda words: words > 0})
 COV.coverpoint("fill", bins={"empty": lambda f: f[0] == 0, "one": lambda f: f[0] == 1,
                              "some": lambda f: 1 < f[0] < f[1], "full": lambda f: f[0] == f[1]})
+# Asynchronous reset of a full FIFO with both clocks stopped: a pulse
+# wholly inside the stop, or held into the restart.
+COV.coverpoint("async_reset", bins=["stopped_pulse", "stopped_held"])
 COV.cross("clocks_x_src", "clocks", "src")
 COV.cross("clocks_x_dst", "clocks", "dst")
 
@@ -338,3 +343,103 @@ async def random_traffic(dut):
 async def long_traffic(dut):
     """L2: long random traffic at a random clock ratio up to 16:1."""
     await traffic(dut, 400, 16.0)
+
+
+@cocotb.test()
+async def async_reset(dut):
+    """L1, SRC_ASYNC_RESET and DST_ASYNC_RESET 1: a full FIFO, both clocks
+    stopped, both resets asserted: in that same time step it is empty and
+    not full (dst_valid_o 0, dst_fill_o 0, src_ready_o 1). Twice: first
+    filled from pointer 0 and the reset a pulse wholly inside the stop,
+    then filled with both pointers at 2**ADDR_W (the read Gray pointer is
+    then the full pattern) and the reset held into the restart
+    and released synchronously. So every pointer register and both pointer
+    synchronizers are seen to reset with no clock edge. Traffic after each
+    reset is checked word by word."""
+    assert int(dut.SRC_ASYNC_RESET.value) == 1 and int(dut.DST_ASYNC_RESET.value) == 1, \
+        "async_reset needs SRC_ASYNC_RESET and DST_ASYNC_RESET 1"
+    src, dst = random_periods(random, 8.0)
+    phase = random.randrange(2, dst, 2)
+    dut._log.info("ADDR_W %d, WIDTH %d, src period %d ps, dst period %d ps, dst phase %d ps",
+                  int(dut.ADDR_W.value), len(dut.src_data_i), src, dst, phase)
+    sclk = GatedClock(dut.src_clk_i, src)
+    dclk = GatedClock(dut.dst_clk_i, dst)
+    slow = max(src, dst)
+
+    async def expect_reset_state(what):
+        await ReadOnly()
+        got = (int(dut.dst_valid_o.value), int(dut.dst_fill_o.value),
+               int(dut.src_ready_o.value))
+        assert got == (0, 0, 1), (f"{what}: (dst_valid_o, dst_fill_o, src_ready_o) expected "
+                                  f"(0, 0, 1) got {got} at {now()} ps")
+        await Timer(1, "ps")
+
+    async def release_both():
+        sclk.start()
+        dclk.start(phase)
+        task = cocotb.start_soon(reset_step(sclk, dut.src_rst_i))
+        await reset_step(dclk, dut.dst_rst_i)
+        await task
+
+    dut.src_rst_i.value = 1
+    dut.dst_rst_i.value = 1
+    dut.src_valid_i.value = 0
+    dut.src_data_i.value = 0
+    dut.dst_ready_i.value = 0
+    await expect_reset_state("reset at time zero")
+    await release_both()
+    f = Fifo(dut, random, src, dst)
+    depth = f.depth
+    base = 0  # f.popped at the last reset: both pointers count from there
+    for round_, pos in enumerate((0, depth)):
+        # Bring both pointers (the FIFO is empty) to `pos` modulo 2 * depth
+        # by passing exactly `through` words.
+        through = (pos - (f.popped - base)) % (2 * depth)
+        if through:
+            target = f.popped + through
+            f.write_limit = f.pushed + through
+            f.p_write, f.p_read = 1.0, 1.0
+            for _ in range(8 * through + 16):
+                await FallingEdge(dut.dst_clk_i)
+                if f.popped == target:
+                    break
+            assert f.popped == target, f"round {round_}: {f.popped - target + through} read"
+            f.write_limit = None
+            f.p_write, f.p_read = 0.0, 0.0
+            # The last read's dst_clk_i edge, then the read pointer crosses
+            # back: rgray_q and its source copy hold the full pattern.
+            await falling_edges(dut.dst_clk_i, 1)
+            await falling_edges(dut.src_clk_i, 4)
+        await f.fill()
+        f.p_write, f.p_read = 0.0, 0.0
+        await falling_edges(dut.dst_clk_i, 4)
+        fill = int(dut.dst_fill_o.value)
+        assert fill == depth, f"round {round_}: dst_fill_o {fill} when full, expected {depth}"
+        # Both clocks stop low with src_valid_i and dst_ready_i low.
+        await dclk.stop()
+        await sclk.stop()
+        assert int(dut.src_ready_o.value) == 0, f"round {round_}: not full before the reset"
+        await Timer(random.randrange(1, 3 * slow), "ps")
+        dut.src_rst_i.value = 1
+        dut.dst_rst_i.value = 1
+        f.queue.clear()
+        base = f.popped
+        COV.sample(async_reset="stopped_pulse" if round_ == 0 else "stopped_held")
+        await expect_reset_state(f"round {round_}: resets asserted with the clocks stopped")
+        await Timer(random.randrange(1, 3 * slow), "ps")
+        if round_ == 0:
+            dut.src_rst_i.value = 0
+            dut.dst_rst_i.value = 0
+            await expect_reset_state(f"round {round_}: resets released with the clocks stopped")
+            await Timer(random.randrange(1, 3 * slow), "ps")
+            sclk.start()
+            dclk.start(phase)
+        else:
+            await release_both()
+        await falling_edges(dut.src_clk_i, 4)
+        await falling_edges(dut.dst_clk_i, 4)
+        await expect_reset_state(f"round {round_}: after the restart")
+        popped = f.popped
+        await f.run(0.7, 0.7, 8 * depth)
+        await f.drain()
+        assert f.popped > popped, f"round {round_}: no traffic after the reset"

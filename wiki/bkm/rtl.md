@@ -158,6 +158,8 @@ only the FPGA and ASIC flows do ([FPGA](../tools/fpga/SPEC.md),
 | `` `COMMON_ASSERT_STABLE_WHEN(NAME, CLK, RESET, HOLD, SIGNAL)`` | `HOLD` at one edge keeps `SIGNAL` unchanged at the next; `HOLD` is sampled by a flop `NAME_hold_q` (assertion state only). |
 | `` `COMMON_ASSERT_CLOCKED(NAME, CLK, RESET, CONDITION)`` | Immediate check at `posedge CLK` while `!RESET`, in the active region. |
 | `` `COMMON_ASSERT_CLOCKED_WHEN(NAME, CLK, RESET, GUARD, CONDITION)`` | The same under a nested `if (GUARD)` (not `!GUARD \|\| CONDITION`, which differs for X). |
+| `` `COMMON_ASSERT_CLOCKED_ARST(NAME, CLK, RESET, CONDITION)`` | Immediate check at `posedge CLK` while `!RESET`, in a process sensitive to `posedge RESET` too: the form for a domain whose `RESET` is asynchronous ([reset and clocks](#reset-and-clocks)). |
+| `` `COMMON_ASSERT_NEVER_ARST(NAME, CLK, RESET, CONDITION)`` | `CONDITION` is never true outside reset, through `COMMON_ASSERT_CLOCKED_ARST`. |
 | `` `COMMON_ASSERT_PARAM(LABEL, CONDITION, MESSAGE)`` | Module scope, every flow: a false `CONDITION` elaborates block `LABEL`. In the simulation view it holds an elaboration-time `$fatal`, so `./build check` lint and the simulation build reject the parameters; under `SYNTHESIS` it holds a time-zero `initial $fatal`, which synthesis tools accept but ignore (lint is the gate). |
 
 - Assertions sit in the module whose invariant they state, on signals its
@@ -316,9 +318,25 @@ page refers to it as `<prefix>`.
   value. Default when the spec is silent: one clock `clk_i`, synchronous active-high reset `rst_i`.
 - An asynchronously asserted reset comes only from a
   `` `COMMON_RESET_SYNC`` ([`common_cdc_rst`](#clock-domain-crossings)) in
-  its domain, never from a raw reset input of another domain. Each flop
-  that takes it is a `` `COMMON_DFF_ARST_VAL`` or `` `COMMON_DFF_ARST_EN``,
-  so it also enters reset with no clock edge.
+  its domain, never from a raw reset input of another domain.
+- **One net, one consumer style.** Every consumer of a reset net takes it
+  the same way. On a `COMMON_RESET_SYNC` output that is asynchronous
+  everywhere, so every flop of the domain enters reset with no clock edge
+  (a domain whose clock can stop needs this):
+  - registers are `` `COMMON_DFF_ARST_VAL`` or `` `COMMON_DFF_ARST_EN``;
+  - crossing cells use their asynchronous-reset forms on that side
+    (`` `COMMON_METAFLOP_ARST``, `` `COMMON_PULSE_SYNC_ARST``, the FIFO's
+    `SRC_ASYNC_RESET` or `DST_ASYNC_RESET`;
+    [below](#clock-domain-crossings));
+  - assertions use the `_ARST` forms ([assertions](#assertions)), whose
+    process is sensitive to the reset as the flops are.
+
+  A synchronous reset net has only synchronous consumers. Lint enforces
+  the rule: a net used both ways is Verilator `SYNCASYNCNET`
+  ([lint](#lint-and-style-checks)). The input of a `COMMON_RESET_SYNC` is
+  the one exception, since the cell takes it asynchronously by design: when
+  that input is also a synchronous reset of its own domain, the reviewed
+  waiver names that net.
 - Reset only state that needs a defined value; storage arrays are not reset.
 - No generated or gated clocks in fabric; use clock enables. A second clock
   domain needs an owning MAS section, and every crossing uses a crossing
@@ -339,9 +357,11 @@ cell instance the CDC check recognizes:
 | --- | --- | --- |
 | A level, or a Gray-coded vector, from a source flop; reset to `'0` | `` `COMMON_METAFLOP(INST, Q, D, DST_CLK, DST_RST)`` | [`common_cdc_sync2`](../src/rtl/common/cdc/common_cdc_sync2.md) |
 | The same, reset to `VALUE` | `` `COMMON_METAFLOP_VAL(INST, Q, D, DST_CLK, DST_RST, VALUE)`` | `common_cdc_sync2` (`RESET_VALUE`) |
+| The same, reset to `'0` asynchronously (`DST_RST` from a `COMMON_RESET_SYNC`) | `` `COMMON_METAFLOP_ARST(INST, Q, D, DST_CLK, DST_RST)`` | `common_cdc_sync2` (`ASYNC_RESET` 1) |
 | An event: one source cycle becomes one destination cycle | `` `COMMON_PULSE_SYNC(INST, Q, D, SRC_CLK, SRC_RST, DST_CLK, DST_RST)`` | [`common_cdc_pulse`](../src/rtl/common/cdc/common_cdc_pulse.md) |
+| The same, the destination side reset asynchronously (`DST_RST` from a `COMMON_RESET_SYNC`; `SRC_RST` stays synchronous) | `` `COMMON_PULSE_SYNC_ARST(INST, Q, D, SRC_CLK, SRC_RST, DST_CLK, DST_RST)`` | `common_cdc_pulse` (`DST_ASYNC_RESET` 1) |
 | A reset: asynchronous assertion, synchronous release after two `DST_CLK` edges | `` `COMMON_RESET_SYNC(INST, Q, D, DST_CLK)`` | [`common_cdc_rst`](../src/rtl/common/cdc/common_cdc_rst.md) |
-| Data, or a burst of events, with flow control | none yet: instantiate inside `src/rtl/common/` only | [`common_cdc_fifo`](../src/rtl/common/cdc/common_cdc_fifo.md) |
+| Data, or a burst of events, with flow control | none: no macro wraps it, so RTL instantiates it, with `SRC_ASYNC_RESET` or `DST_ASYNC_RESET` 1 on a side whose reset is asynchronous | [`common_cdc_fifo`](../src/rtl/common/cdc/common_cdc_fifo.md) |
 
 `INST` names the instance, the width follows `Q`, and the caller's filelist
 includes the cell's filelist with `-F`.

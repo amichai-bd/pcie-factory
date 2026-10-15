@@ -58,8 +58,8 @@ module pcie_pcs (
 
   // The RX-domain reset (crossing 2) comes from the elastic buffer's
   // synchronizer (u_elastic.ser_rx_rst_o): asserted with rst_i, released on
-  // the second ser_rx_clk_i edge after it falls. Every RX-domain consumer
-  // here takes it synchronously.
+  // the second ser_rx_clk_i edge after it falls. Every RX-domain flop takes
+  // it asynchronously (one reset style per net).
   logic rx_rst;
 
   // ------------------------------------------------------------------
@@ -331,8 +331,9 @@ module pcie_pcs (
   `COMMON_DFF_RST(rl_q, rl_d, clk_i, pcs_rst)
 
   // Crossing 4: both sides reset with rst_i and the RX reset, never
-  // pipe_reset_ni alone, so the two sides reset together.
-  `COMMON_PULSE_SYNC(u_relock_sync, relock_rx, relock_req, clk_i, rst_i, ser_rx_clk_i, rx_rst)
+  // pipe_reset_ni alone, so the two sides reset together; the RX side
+  // asynchronously.
+  `COMMON_PULSE_SYNC_ARST(u_relock_sync, relock_rx, relock_req, clk_i, rst_i, ser_rx_clk_i, rx_rst)
 
   // ------------------------------------------------------------------
   // Transmit path: P0 and not TxElecIdle sends a word through the encoder

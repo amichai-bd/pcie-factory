@@ -68,7 +68,11 @@
 
   `macros_contract` also fails on the first three. The CDC check rejects
   the first and the last structurally: `dst_rst_o` then has a
-  combinational path from `src_rst_i`.
+  combinational path from `src_rst_i`. These were recorded on the
+  single-vector chain; with the last stage split out as `out_q` (#170),
+  the one-stage, synchronous-`out_q` and `out_q`-reset-0 mutants were
+  re-run and fail `rst_smoke`, `rst_glitch` and `rst_random` (PR evidence
+  of #170).
 - **Out of scope:** metastability and late resolution (as in the sync2
   plan), and a source change at the time of a destination edge, which is a
   race in zero-delay simulation. Whether consumers take the reset through

@@ -66,27 +66,36 @@ cycles of the fall, even with late resolution. That meets a contract of
 "asynchronous assertion, synchronous release within 3 cycles", such as the
 `phy` RX-domain reset ([phy HAS](../../../arch/phy/HAS.md#clocks-and-resets)).
 
-**Consumers.** Every flop that takes `dst_rst_o` is a
-`` `COMMON_DFF_ARST_VAL`` or `` `COMMON_DFF_ARST_EN``
-([RTL BKM](../../../../bkm/rtl.md#reset-and-clocks)), so that it also enters
-reset with no clock edge. A flop that samples `dst_rst_o` as a synchronous
-reset only enters reset at its next edge, and then the domain's reset is
-no longer asynchronous.
+**Consumers.** Every consumer takes `dst_rst_o` asynchronously
+([RTL BKM](../../../../bkm/rtl.md#reset-and-clocks), one net, one consumer
+style): flops are `` `COMMON_DFF_ARST_VAL`` or `` `COMMON_DFF_ARST_EN``,
+crossing cells use their asynchronous-reset forms on that side
+(`` `COMMON_METAFLOP_ARST``, `` `COMMON_PULSE_SYNC_ARST``, the FIFO's
+`*_ASYNC_RESET`), and assertions the `_ARST` forms, so that the whole
+domain enters reset with no clock edge. A flop that samples `dst_rst_o` as
+a synchronous reset only enters reset at its next edge, and then the
+domain's reset is no longer asynchronous; Verilator lint reports the mix
+as `SYNCASYNCNET` on `out_q`.
 
 ## Microarchitecture
 
-`sync_q` is a `STAGES`-bit shift register on `dst_clk_i`, one
-`` `COMMON_DFF_ARST_VAL(sync_q, sync_d, dst_clk_i, src_rst_i, '1)``:
-`src_rst_i` sets every bit to one. On each edge out of reset, `sync_d`, which is `sync_q`
-shifted up with a zero entering bit 0, is loaded. `dst_rst_o` is
-`sync_q[STAGES-1]`. Bit 0 is the flop that may go metastable on release;
-the others give it whole `dst_clk_i` periods to resolve.
+The chain is `STAGES` flops on `dst_clk_i`, all set by `src_rst_i`: the
+first `STAGES` - 1 are `sync_q`, one
+`` `COMMON_DFF_ARST_VAL(sync_q, sync_d, dst_clk_i, src_rst_i, '1)``, and
+the last is `out_q`, a
+`` `COMMON_DFF_ARST_VAL(out_q, sync_q[STAGES-2], dst_clk_i, src_rst_i, 1'b1)``.
+On each edge out of reset, `sync_d` (`sync_q` shifted up with a zero
+entering bit 0) is loaded and `out_q` takes the top of `sync_q`.
+`dst_rst_o` is `out_q`. Bit 0 of `sync_q` is the flop that may go
+metastable on release; the others give it whole `dst_clk_i` periods to
+resolve.
 
 ## Decisions
 
 | Choice | Rationale | Rejected |
 | --- | --- | --- |
 | Asynchronous set of every stage | Assertion with no clock edge, from flops, so `dst_rst_o` has no logic and no glitch. All stages set, so a pulse shorter than a period still holds `dst_rst_o` high for the whole release. | `src_rst_i \| sync_q[last]` (logic on the output, and a short pulse never reaches the flops); synchronous assertion (needs clock edges). |
+| The last stage, `out_q`, a register of its own | No flop of the cell reads the output net, so its consumers' asynchronous use is its only use and lint can tell a domain with one reset style from a mixed one. In one vector, the chain's own shift reads the output variable as flop data, which Verilator reports as `SYNCASYNCNET` whenever a consumer takes the output asynchronously (#170). | One `STAGES`-bit vector with the output as its top bit. |
 | `STAGES` parameter, default 2 | The usual two flops meet a 3-cycle release contract; a fast clock that needs more MTBF raises it. | A fixed two flops. |
 | Active-high reset | The repository default ([RTL BKM](../../../../bkm/rtl.md#reset-and-clocks)). | Active-low (`rst_ni`). |
 | No synthesis attribute in the RTL | A vendor attribute ties one shared, flow-neutral source to one FPGA tool. The consuming IP's FPGA constraints mark the chain as a synchronizer, as they do for the other cells. | The source cell's `altera_attribute`. |
@@ -102,8 +111,9 @@ attribute is dropped.
   timing relationship to `dst_clk_i`. Its assertion needs no constraint.
   The consuming IP's FPGA and ASIC constraints own the exception on it,
   and the recovery and removal checks of the release on `dst_clk_i`.
-- `sync_q[i]` to `sync_q[i+1]` are direct flop-to-flop paths, each giving a
-  whole `dst_clk_i` period to resolve.
+- `sync_q[i]` to `sync_q[i+1]`, and the top of `sync_q` to `out_q`, are
+  direct flop-to-flop paths, each giving a whole `dst_clk_i` period to
+  resolve.
 - Assertion latency: none (same time step). Release latency: `STAGES`
   `dst_clk_i` edges, `STAGES` + 1 with late resolution.
 
