@@ -15,7 +15,10 @@ impairments of the phy HAS lower interface applied:
   dropout without an EIOS).
 - ``invert``: every bit inverted (lane polarity).
 
-While a word is in electrical idle its bits are noise from ``rng``.
+While a word is in electrical idle its bits are noise from ``rng``. Idle
+starts and ends on whole words here, a case of the phy HAS contract for
+``ser_rx_elec_idle_i`` (1 for any word that holds an idle bit; the bits
+before the idle in that word are line data).
 Python standard library only; deterministic from ``rng``.
 """
 

@@ -27,7 +27,7 @@ import random
 from array import array
 
 import pcie_pcs_8b10b as code8b10b
-from pcie_pcs_8b10b import (K_COM, K_END, K_FTS, K_PAD, K_SKP, K_STP, decode,
+from pcie_pcs_8b10b import (K_COM, K_END, K_FTS, K_IDL, K_PAD, K_SKP, K_STP, decode,
                             encode, has_comma, raw_is)
 
 # ---------------------------------------------------------------- constants
@@ -129,14 +129,18 @@ def ordered_set(first: int, rest: int, n: int) -> list[tuple[int, int]]:
 
 def make_stream(rng: random.Random, packets: int, mix: str, tlp_bytes: int,
                 skp_interval: int, idle_gaps: int, idle_symbols: int,
-                lead_ts: int = 32) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
+                lead_ts: int = 32,
+                eios: bool = False) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
     """The symbol stream a partner sends: ``lead_ts`` training ordered sets
     (COM, two PAD, N_FTS, rate, control, ten TS1 identifiers D10.2), then
     back-to-back packets (STP, random data standing in for scrambled bytes,
     END), with a SKP ordered set (COM and three SKP) every ``skp_interval``
     symbols throughout, deferred to the end of an ordered set or packet. ``idle_gaps`` electrical-idle gaps of ``idle_symbols`` are spread
     between packets; each is followed by 32 FTS ordered sets (COM and three
-    FTS) to regain lock. Returns the symbols and the idle ranges."""
+    FTS) to regain lock. With ``eios`` each gap follows an electrical idle
+    ordered set (COM and three IDL) and starts at a transmitted word
+    boundary (an even symbol index), as a PIPE transmitter enters idle; one
+    more IDL pads an odd stream. Returns the symbols and the idle ranges."""
     out: list[tuple[int, int]] = []
     idles: list[tuple[int, int]] = []
     credit = 0
@@ -158,6 +162,10 @@ def make_stream(rng: random.Random, packets: int, mix: str, tlp_bytes: int,
     for p in range(packets):
         boundary()
         if every and p and p % every == 0 and len(idles) < idle_gaps:
+            if eios:
+                out.extend([(1, K_COM), (1, K_IDL), (1, K_IDL), (1, K_IDL)])
+                if len(out) % 2:
+                    out.append((1, K_IDL))
             start = len(out)
             out.extend([(0, 0)] * idle_symbols)
             idles.append((start, len(out)))
@@ -294,10 +302,12 @@ class _Reg:
 class _Sym:
     """One symbol in the receive path."""
 
-    __slots__ = ("code", "lock", "gen", "t_in", "txpos", "removed_before", "ovf")
+    __slots__ = ("code", "lock", "gen", "t_in", "txpos", "removed_before", "ovf", "idle")
 
-    def __init__(self, code: int, lock: int, gen: int, t_in: float, txpos: int) -> None:
+    def __init__(self, code: int, lock: int, gen: int, t_in: float, txpos: int,
+                 idle: int = 0) -> None:
         self.code, self.lock, self.gen, self.t_in, self.txpos = code, lock, gen, t_in, txpos
+        self.idle = idle             # starts in a word received in electrical idle
         self.removed_before = False
         self.ovf = False
 
@@ -318,6 +328,7 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
     prev_txpos: list[int] = [-1] * 20
     in_t = prev_t = 0.0
     idle_q = idle_prev_q = 1
+    eios = 0                     # EIOS progress over the locked aligned symbols
     lock = 0
     gen = 0                      # lock generation: flips at every lock acquisition
     offset = 0
@@ -329,7 +340,6 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
     unlock_holdoff = 0
     wbin = 0
     wgray = _Reg()
-    rx_active = _Reg(0)          # not electrical idle, into clk_i
     rsync_rptr = _Sync(rng)
     rsync_full = _Sync(rng)
     rsync_relock = _Sync(rng)
@@ -340,7 +350,6 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
     rbin = 0
     rgray = _Reg()
     csync_wptr = _Sync(rng)
-    csync_active = _Sync(rng)
     too_full = _Reg(0)
     relock_toggle = _Reg(0)
     stage: list[tuple[_Sym, int, int, bool, bool]] = []
@@ -357,7 +366,8 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
           "fill_min": 10**9, "fill_max": -1, "lat_max": 0.0, "lat_min": 1e9,
           "delivered": 0, "wrong": 0, "relocks": 0,
           "code_errors": 0, "disp_errors": 0, "words_out": 0, "locks": 0,
-          "write_view_max": 0, "skp_status_off_com": 0}
+          "write_view_max": 0, "skp_status_off_com": 0, "idle_tails": 0,
+          "valid_in_idle": 0}
     status_counts = [0] * 8
     lock_events: list[float] = []        # RX lock acquired (time)
     first_valid_after: list[float] = []  # PIPE RxValid rising (time)
@@ -412,12 +422,19 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
                 st["write_view_max"] = max(st["write_view_max"], wbin - rptr_seen)
             wgray.set(_gray(wbin), t)
             # Aligner: register this edge's aligned word from the window.
-            if relock_level != relock_seen:
+            relocked = relock_level != relock_seen
+            if relocked:
                 relock_seen = relock_level
                 lock = 0
-            if idle_q:
-                lock = 0
+            # Lock drops for the word whose symbols start in an idle word:
+            # the output word starts in in_prev_q (RECEIVE.md, Loss of lock).
+            # EIOS completion: right after a locked COM IDL IDL, an IDL in
+            # sym0 of that first idle word still leaves locked.
             window = in_prev_q | (in_q << 20)
+            tail = bool(lock and idle_prev_q and not relocked and eios == 3
+                        and raw_is((window >> offset) & 0x3FF, K_IDL))
+            if idle_prev_q:
+                lock = 0
             if not lock and not idle_q and not idle_prev_q:
                 for p in range(20):
                     if has_comma((window >> p) & 0x3FF):
@@ -433,15 +450,21 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
                 tp = tx_all[p]
                 if tp >= 0 and (tp % 10 or any(tx_all[p + i] != tp + i for i in range(10))):
                     tp = -1
-                aligned.append(_Sym(c, lock, gen, in_t if p + 10 > 20 else prev_t, tp // 10 if tp >= 0 else -1))
+                tl = tail and j == 0
+                aligned.append(_Sym(c, lock or tl, gen, in_t if p + 10 > 20 else prev_t,
+                                    tp // 10 if tp >= 0 else -1, idle_prev_q and not tl))
+            if lock:
+                for s_ in aligned:
+                    eios = _eios_step(eios, s_.code)
+            elif not tail:
+                eios = 0
             # Input register.
             in_prev_q, prev_txpos, prev_t, idle_prev_q = in_q, in_txpos, in_t, idle_q
             base = 20 * n
             in_q = _word(line.bits, base)
             in_txpos = list(line.txpos[base:base + 20])
             in_t = t
-            idle_q = line.idle[base + 19]
-            rx_active.set(0 if idle_q else 1, t)
+            idle_q = line.idle[base + 19]   # 1 for any word holding an idle bit (HAS)
             # Synchronizers into the RX domain.
             rsync_rptr.edge(rgray.value, rgray.prev, rgray.changed, t)
             rsync_full.edge(too_full.value, too_full.prev, too_full.changed, t)
@@ -462,7 +485,9 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
         out: list[tuple[_Sym, int, int, bool, bool]] = []
         status = 0
         if started:
-            head_unlocked = visible > 0 and not mem[rbin % EB_WORDS][0].lock
+            # Recentre while the next symbol to send is unlocked.
+            nxt_sym = stage[0][0] if stage else (mem[rbin % EB_WORDS][0] if visible > 0 else None)
+            head_unlocked = nxt_sym is not None and not nxt_sym.lock
             if read_holdoff:
                 read_holdoff -= 1
             if head_unlocked and fill <= EB_LOW and read_holdoff == 0:
@@ -507,7 +532,16 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
         too_full.set(1 if fill >= EB_HIGH else 0, t)
         # PIPE outputs of this edge.
         if len(out) == 2:
-            valid = int(out[0][0].lock and out[1][0].lock)
+            # An idle tail: the last locked symbol, then one that began in
+            # electrical idle; RxValid 1, the second symbol EDB, no error.
+            tail = bool(out[0][0].lock and not out[1][0].lock and out[1][0].idle)
+            valid = int(out[0][0].lock and (out[1][0].lock or tail))
+            if tail:
+                st["idle_tails"] += 1
+                out[1] = (out[1][0], 0xFE, 1, False, False)
+            pipe_ei = out[0][0].idle
+            if valid and pipe_ei:
+                st["valid_in_idle"] += 1
             st["words_out"] += 1
             for s, b, k, ce, de in out:
                 if s.removed_before:      # its COM had already left
@@ -550,7 +584,7 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
                     if clean >= ERR_DECAY_WORDS:
                         err_count, clean = max(0, err_count - 1), 0
                 for s, b, k, ce, de in out:
-                    if (k, b) == (1, K_SKP) or s.txpos < 0:
+                    if (k, b) == (1, K_SKP) or s.txpos < 0 or not s.lock:
                         continue
                     lat = (t - s.t_in) / CORE_NS
                     st["lat_max"] = max(st["lat_max"], lat)
@@ -563,7 +597,6 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
             last_valid = 0
         # Synchronizers into clk_i.
         csync_wptr.edge(wgray.value, wgray.prev, wgray.changed, t)
-        csync_active.edge(rx_active.value, rx_active.prev, rx_active.changed, t)
         t_c += CORE_NS
 
     st["status_counts"] = status_counts
@@ -574,6 +607,16 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
     st["delivered_txpos"] = delivered_txpos
     st["t_rx"] = t_rx
     return st
+
+
+def _eios_step(e: int, code: int) -> int:
+    """EIOS progress: 1 after a COM, 2 and 3 after the IDLs that follow;
+    the third IDL or any other symbol returns to 0."""
+    if raw_is(code, K_COM):
+        return 1
+    if raw_is(code, K_IDL) and e in (1, 2):
+        return e + 1
+    return 0
 
 
 def _word(bits: bytearray, base: int) -> int:
