@@ -1,0 +1,8 @@
+tests:
+  - name: long_random
+    module: tests.test_mac_scrambler
+    testcase: long_random
+    top: pcie_mac_scrambler
+    seeds: 8
+    timeout_s: 900
+coverage_floors: {line: 100, toggle: 100, functional: 100}
