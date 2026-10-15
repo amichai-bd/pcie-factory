@@ -39,7 +39,7 @@ tests:
     module: tests.test_datapath
     testcase: rx_elec_idle_gaps
     top: pcie_pcs
-    seeds: [3, 4, 5, 6]
+    seeds: [3, 4, 5, 6, 12, 14, 22, 24, 28, 30, 34, 36]
     timeout_s: 900
   - name: rx_error_bursts_sweep
     module: tests.test_datapath
