@@ -815,7 +815,11 @@ SYNCED = """  logic m [{depth}];
 """,
     # A synchronized pointer, but a one-entry memory.
     SYNCED.format(depth=1, windex="0", read="m[0] & ra_q"),
-], ids=["one-entry-qualifier", "free-running-address", "hold-select", "one-entry-synced"])
+    # A synchronized pointer gates the output, but the memory is read at a
+    # constant address: the pointer does not address the read (#177 enconst).
+    SYNCED.format(depth=2, windex="src_a_q", read="m[0] & ra_q"),
+], ids=["one-entry-qualifier", "free-running-address", "hold-select", "one-entry-synced",
+        "constant-address-synced-gate"])
 def test_memory_read_without_a_synchronized_pointer_fails(tmp_path, body):
     r = run(cell_tree(tmp_path, MEM_CELL.format(body=body), "-F common_cdc_sync2.rtl.f\n"))
     assert any("output dst_q_o is driven by flop m (" in f for f in r.findings), r.findings
@@ -828,28 +832,72 @@ def test_memory_read_at_a_synchronized_pointer_passes(tmp_path):
     assert r.passed, r.findings
 
 
+# How an inner synchronizer's source-side input is tied off: the pin text,
+# any declaration it needs, and the finding's wording.
+TIE_OFFS = {
+    "constant": ("  common_cdc_sync2 u_s (.dst_clk_i(dst_clk_i), .dst_rst_i(1'b0), "
+                 ".src_data_i(1'b1),\n", "", "is a constant"),
+    "empty-pin": ("  common_cdc_sync2 u_s (.dst_clk_i(dst_clk_i), .dst_rst_i(1'b0), "
+                  ".src_data_i(),\n", "", "is unconnected"),
+    "omitted-pin": ("  common_cdc_sync2 u_s (.dst_clk_i(dst_clk_i), .dst_rst_i(1'b0),\n",
+                    "", "is unconnected"),
+    # Verilator folds a continuously assigned constant into the pin, so this
+    # one reads as a plain constant.
+    "assigned-net": ("  common_cdc_sync2 u_s (.dst_clk_i(dst_clk_i), .dst_rst_i(1'b0), "
+                     ".src_data_i(one),\n", "  logic one;\n  assign one = 1'b1;\n",
+                     "is a constant"),
+    "comb-net": ("  common_cdc_sync2 u_s (.dst_clk_i(dst_clk_i), .dst_rst_i(1'b0), "
+                 ".src_data_i(one),\n", "  logic one;\n  always_comb one = 1'b1;\n",
+                 "is driven only by constants"),
+    "undriven-net": ("  common_cdc_sync2 u_s (.dst_clk_i(dst_clk_i), .dst_rst_i(1'b0), "
+                     ".src_data_i(one),\n", "  logic one;\n", "is driven only by constants"),
+}
+
+
 @needs_verilator
-def test_crossing_cell_with_a_constant_source_input_inside_a_cell_fails(tmp_path):
-    # A synchronizer of 1'b1 qualifies the read pointer: it looks like a
-    # synchronized pointer but nothing crosses.
-    body = """  logic m [4];
+@pytest.mark.parametrize("tie", list(TIE_OFFS))
+def test_crossing_cell_with_a_constant_source_input_inside_a_cell_fails(tmp_path, tie):
+    # A synchronizer of a constant (or of nothing) qualifies the read
+    # pointer: it looks like a synchronized pointer but nothing crosses.
+    pin, decl, how = TIE_OFFS[tie]
+    body = f"""  logic m [4];
   logic [1:0] wa_q;
   logic [1:0] ra_q;
   logic s;
-  always_ff @(posedge src_clk_i) begin
+{decl}  always_ff @(posedge src_clk_i) begin
     m[wa_q] <= src_d_i;
     wa_q <= wa_q + 2'd1;
   end
-  common_cdc_sync2 u_s (.dst_clk_i(dst_clk_i), .dst_rst_i(1'b0), .src_data_i(1'b1),
-                        .dst_data_o(s));
+{pin}                        .dst_data_o(s));
   always_ff @(posedge dst_clk_i) ra_q <= s ? ra_q + 2'd1 : ra_q;
   assign dst_q_o = m[ra_q];
 """
+    line = 17 + decl.count("\n")
     r = run(cell_tree(tmp_path, MEM_CELL.format(body=body), "-F common_cdc_sync2.rtl.f\n"))
     assert r.findings == ["common/common_cdc_bad: rtl/common/common_cdc_bad.sv:2: crossing "
                           "cell common_cdc_bad: source-side input of cell u_s.src_data_i "
-                          "(rtl/common/common_cdc_bad.sv:17) is a constant, so that cell "
+                          f"(rtl/common/common_cdc_bad.sv:{line}) {how}, so that cell "
                           "crosses nothing"]
+
+
+@needs_verilator
+@pytest.mark.parametrize("tie", list(TIE_OFFS))
+def test_ip_top_may_tie_off_a_crossing_cell_source_input(tmp_path, tie):
+    # The constant-source rule is for crossing cells analyzed on their own:
+    # an IP top that ties off an approved cell's src_* input passes.
+    pin, decl, _ = TIE_OFFS[tie]
+    pin = pin.replace("dst_clk_i(dst_clk_i)", "dst_clk_i(clk_b_i)").replace(
+        "dst_rst_i(1'b0)", "dst_rst_i(rst_b_i)")
+    body = A_FLOP + f"""  logic s;
+  logic b_q;
+{decl}{pin}                        .dst_data_o(s));
+  always_ff @(posedge clk_b_i) b_q <= s ^ a_q;
+  assign y_o = b_q;
+"""
+    # a_q is sampled raw on clk_b_i only to give the IP a finding to compare
+    # against: the tie-off itself adds none.
+    r = run(tree(tmp_path, body))
+    assert len(blk(r)) == 1 and "samples flop a_q" in blk(r)[0], r.findings
 
 
 # ---------------------------------------------------------------- selection, tooling
