@@ -83,6 +83,30 @@ package common_pkg;
     PD_P2  = 2'd3
   } t_power_down;
 
+  // A PIPE data word: two symbols, [7:0] first on the line; bit i of datak
+  // marks byte i as a K symbol (wiki/src/arch/phy/PIPE.md#signals).
+  typedef struct packed {
+    logic [15:0] data;
+    logic [1:0]  datak;
+  } t_word;
+
+  // PIPE receive status of one word, PCS to MAC.
+  typedef struct packed {
+    logic       phy_status;  // PhyStatus
+    logic       valid;       // RxValid
+    logic       elec_idle;   // RxElecIdle
+    logic [2:0] status;      // RxStatus; 4 to 7 is an error
+  } t_pipe_rx;
+
+  // PIPE control, MAC to PCS, other than the data word and TxCompliance.
+  typedef struct packed {
+    logic        reset_n;       // PCS reset, active low
+    logic        tx_elec_idle;  // TxElecIdle
+    logic        tx_detect_rx;  // TxDetectRx/Loopback
+    logic        rx_polarity;   // RxPolarity
+    t_power_down power_down;    // PowerDown
+  } t_pipe_ctl;
+
 endpackage
 
 `default_nettype wire

@@ -10,7 +10,10 @@ The package holds no logic; its values are checked where they are used:
   reads every `LTSSM_*` code from `common_pkg.sv` and compares it with the
   [encoding table](../../arch/mac/LTSSM.md#state-encoding) through the
   model. It runs in `./build arch --ip mac` and `./build ci unit`.
-- **Symbol and PowerDown codes:** every symbol the mac sends or parses, and
+- **Symbol codes:** `test_rtl_shared_package_symbol_codes_match_the_model`
+  in the same file reads every `8'h` code of `t_k_code`, `t_d_code` and
+  `t_compl_code` and compares it with the model's symbol constants.
+- **On the wire:** every symbol the mac sends or parses, and
   every PowerDown it drives, is compared on PIPE with the architecture model
   in the [mac DV plan](../mac/DV_PLAN.md); a wrong code fails every one of
   its tests.
@@ -21,4 +24,5 @@ The package holds no logic; its values are checked where they are used:
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | LTSSM codes equal the encoding table | (arch self-test) | - | `./build arch --ip mac` |
+| Symbol codes equal the model's | (arch self-test) | - | `./build arch --ip mac` |
 | Symbol and PowerDown codes on PIPE | the [mac](../mac/DV_PLAN.md#plan) entries | 0 to 2 | as listed there |

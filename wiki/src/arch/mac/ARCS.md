@@ -53,7 +53,7 @@ Detect.Quiet.
 | --- | --- | --- | --- | --- |
 | `cfg_linkwidth_start__loopback_entry` | Configuration.Linkwidth.Start | Loopback.Entry | `loopback_req_i` high (this port is the master), or 2 consecutive TS1 with Loopback set received (slave). | - |
 | `cfg_linkwidth_start__disabled` | Configuration.Linkwidth.Start | Disabled | Downstream role with `disable_req_i` high, or 2 consecutive TS1 with Disable Link set received. | - |
-| `cfg_linkwidth_start__cfg_linkwidth_accept` | Configuration.Linkwidth.Start | Configuration.Linkwidth.Accept | Downstream: 2 consecutive TS1 with link 0 and lane PAD. Upstream: 2 consecutive TS1 with a link number and lane PAD; `N` is the link number of the last TS1 received with one. | - |
+| `cfg_linkwidth_start__cfg_linkwidth_accept` | Configuration.Linkwidth.Start | Configuration.Linkwidth.Accept | Downstream: 2 consecutive TS1 with link 0 and lane PAD. Upstream: 2 consecutive TS1 with a link number and lane PAD; `N` is the link number of the last TS1 received with one (a data symbol in the link field; PAD or another K symbol is none). | - |
 | `cfg_linkwidth_start__detect_quiet` | Configuration.Linkwidth.Start | Detect.Quiet | Timeout. | 24 ms, E |
 | `cfg_linkwidth_accept__cfg_lanenum_wait` | Configuration.Linkwidth.Accept | Configuration.Lanenum.Wait | Downstream: 2 consecutive TS1 with link `N` and lane PAD. Upstream: 2 consecutive TS1 with link `N` and lane 0. | - |
 | `cfg_linkwidth_accept__detect_quiet` | Configuration.Linkwidth.Accept | Detect.Quiet | 2 consecutive TS1 with link PAD and lane PAD, or timeout. | 2 ms, E |

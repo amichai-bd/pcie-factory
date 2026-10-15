@@ -184,9 +184,14 @@ def test_packets_flags_and_odd_alignment():
 def test_dllp_ended_by_edb_is_an_error_not_a_nullify():
     p = trained()
     a, b = p.macs
-    a.tx_packets.append(m.Packet(True, bytes(6), nullify=True))
+    a.tx_packets.append(m.Packet(True, bytes(6), nullify=True))   # ignored for a DLLP
     p.run(100)
-    assert b.rx_packets == [m.Packet(True, bytes(6), nullify=False, err=True)]
+    assert b.rx_packets == [m.Packet(True, bytes(6))]
+    d = (0, 0x11)
+    for w in ((m.SDP, d), (d, d), (d, d), (d, m.EDB)):
+        b.step(m.PipeRx(syms=w, valid=True, elec_idle=False, phy_status=False))
+    got = b.rx_packets[-1]
+    assert got.dllp and got.err and not got.nullify
 
 
 def test_malformed_packets_end_bad():
@@ -348,3 +353,94 @@ def test_perf_is_deterministic():
 def test_bad_workload_is_rejected(workload, msg):
     with pytest.raises(ValueError, match=msg):
         m.perf(workload, 1)
+
+
+# ------------------------------------------- rules aligned with the RTL (#146)
+
+def _rx(*syms):
+    return m.PipeRx(syms=syms, valid=True, elec_idle=False, phy_status=False)
+
+
+def test_compliance_flag_on_the_first_word_of_each_pattern_only():
+    p = m.make_pair()
+    a, b = p.macs
+    b.inject.mute = True
+    p.run_until(lambda q: a.state == m.PC, 400_000)
+    words = []
+    step = a.step
+    a.step = lambda rx: words.append(step(rx)) or words[-1]
+    p.run(40)
+    pattern = [w for w in words if not w.elec_idle]
+    assert pattern, "no compliance words"
+    flags = [w.compliance for w in pattern]
+    firsts = [w.syms[1] == (0, m.D21_5) for w in pattern]
+    assert flags == firsts and any(flags) and not all(flags)
+
+
+def test_compliance_words_do_not_count_for_the_skp_schedule():
+    p = m.make_pair()
+    a, b = p.macs
+    b.inject.mute = True
+    p.run_until(lambda q: a.state == m.PC, 400_000)
+    p.run(4)
+    credit = a.skp_credit
+    p.run(200)
+    assert a.skp_credit == credit
+
+
+def test_empty_packet_is_dropped_and_counted_without_resync():
+    p = trained()
+    a, b = p.macs
+    errs, frames = b.rcv_errors, b.framing_errors
+    b.step(_rx(m.STP, m.END))
+    assert b.rx_packets == [] and b.framing_errors == frames + 1
+    assert b.rcv_errors == errs + 1 and not b._resync
+
+
+def test_leaving_rx_l0_ends_a_resync_and_cuts_silently():
+    p = trained()
+    a, b = p.macs
+    b.step(_rx(m.END, m.PAD))                    # a framing error, then discarded
+    assert b._resync
+    b.step(_rx(m.COM, m.EIDL))                   # EIOS: Rx_L0s.Entry
+    assert b.rx_sub == m.RE and not b._resync
+    frames = b.framing_errors
+    q = m.make_pair()
+    q.run_until(m.both_l0, 100_000)
+    c = q.macs[1]
+    c.step(_rx(m.STP, m.END))                    # open, then end it empty in L0
+    c._pkt = bytearray()                         # an empty packet open again
+    c._set_rx(m.RE)                              # leaving Rx_L0 cuts it
+    assert c._pkt is None and c.rx_packets == [] and frames == b.framing_errors
+
+
+def test_upstream_learns_n_only_from_a_ts1_link_number():
+    for kind, link, want in (("TS1", 7, 7), ("TS2", 7, None), ("TS1", -1, None)):
+        u = m.Mac("upstream")
+        u.rst = False
+        u.state = m.LWS
+        u._enter_state(m.LWS)
+        u._on_ts(m.Ts(kind, link, None, 32, 0))
+        assert u.rx_link == want, (kind, link)
+
+
+def test_partner_n_fts_only_from_the_advancing_ts2():
+    d = m.Mac("downstream")
+    d.rst = False
+    d.state = m.CC
+    d._enter_state(m.CC)
+    d._on_ts(m.Ts("TS2", 5, 0, 77, 0))              # link 5 is not N
+    assert d.partner_n_fts == 255
+    d._on_ts(m.Ts("TS2", 0, 0, 77, 0))
+    assert d.partner_n_fts == 77
+
+
+def test_rtl_shared_package_symbol_codes_match_the_model():
+    pkg = (HERE.parents[1] / "rtl" / "common" / "common_pkg.sv").read_text()
+    got = {k: int(v, 16) for k, v in re.findall(r"\b([A-Z][A-Z0-9_]+)\s*=\s*8'h([0-9A-F]{2})", pkg)}
+    want = {"SYM_COM": m.COM[1], "SYM_STP": m.STP[1], "SYM_SDP": m.SDP[1], "SYM_END": m.END[1],
+            "SYM_EDB": m.EDB[1], "SYM_PAD": m.PAD[1], "SYM_SKP": m.SKP[1], "SYM_FTS": m.FTS[1],
+            "SYM_IDL": m.EIDL[1], "IDLE_DATA": 0, "RATE_GEN1": m.RATE_GEN1,
+            "TS1_ID": m.TS1_ID, "TS2_ID": m.TS2_ID, "TS1_ID_INV": m.TS1_ID ^ 0xFF,
+            "TS2_ID_INV": m.TS2_ID ^ 0xFF, "COMPL_D21_5": m.D21_5, "COMPL_D10_2": m.D10_2}
+    assert got == want

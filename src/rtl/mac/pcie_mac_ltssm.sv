@@ -21,71 +21,34 @@ module pcie_mac_ltssm #(
   parameter int unsigned TIMEOUT_DIV     = 1,  // 1..1024: divides Detect.Quiet's 12 ms
   parameter int unsigned ERR_TIMEOUT_DIV = 1   // 1..1024: divides error-path timeouts, floored
 ) (
-  input  logic        clk_i,
-  input  logic        rst_i,                // synchronous, active high
-  input  logic        port_role_i,          // 0 downstream, 1 upstream; static outside reset
+  input  logic                    clk_i,
+  input  logic                    rst_i,          // synchronous, active high
+  input  logic                    port_role_i,    // 0 downstream, 1 upstream; static outside reset
 
   // Link control and status
-  output logic        link_up_o,
-  output logic [5:0]  ltssm_state_o,
-  input  logic        retrain_req_i,        // pulse: L0 to Recovery
-  input  logic        hot_reset_req_i,      // level; downstream role only
-  input  logic        disable_req_i,        // level; downstream role only
-  input  logic        loopback_req_i,       // level
-  input  logic [1:0]  pm_state_req_i,       // 0 L0, 1 L0s, 2 L1, 3 L2 (power states)
+  output logic                    link_up_o,
+  output logic [5:0]              ltssm_state_o,
+  input  pcie_mac_pkg::t_link_req req_i,
 
-  // PIPE control, MAC to PCS
-  output logic        pipe_reset_no,
-  output logic        pipe_tx_elec_idle_o,
-  output logic        pipe_tx_detect_rx_o,
-  output logic        pipe_rx_polarity_o,
-  output logic [1:0]  pipe_power_down_o,    // common_pkg::t_power_down
-
-  // PIPE status, PCS to MAC
-  input  logic        pipe_phy_status_i,
-  input  logic        pipe_rx_valid_i,
-  input  logic        pipe_rx_elec_idle_i,
-  input  logic [2:0]  pipe_rx_status_i,
+  // PIPE control and status
+  output common_pkg::t_pipe_ctl     pipe_o,
+  input  common_pkg::t_pipe_rx      pipe_rx_i,
 
   // Ordered-set block (mac_os), transmit: one request at a time, a level,
-  // taken at os_tx_ack_i; the TS fields with it
-  output logic        tx_ts_req_o,
-  output logic        tx_compliance_req_o,
-  output logic        tx_ts2_o,             // 0 TS1, 1 TS2
-  output logic        tx_link_pad_o,        // link field is PAD
-  output logic [7:0]  tx_link_o,            // link number when not PAD
-  output logic        tx_lane_pad_o,        // lane field is PAD
-  output logic [7:0]  tx_lane_o,            // lane number when not PAD
-  output logic [2:0]  tx_ctl_o,             // training control bits 2:0
-  input  logic        os_tx_ack_i,          // a requested set starts in this word
-  input  logic        os_tx_valid_i,        // the block sends this word
-  input  logic        os_tx_last_i,         // ... and it is the last word of its set
+  // taken at os_tx_i.ack; the TS fields with it
+  output pcie_mac_pkg::t_os_req   os_req_o,
+  output pcie_mac_pkg::t_ts_tx    ts_o,
+  input  pcie_mac_pkg::t_os_tx    os_tx_i,
 
-  // Ordered-set block, receive: one event per received set, this word
-  input  logic        os_rx_ts_i,           // a TS ended and decoded
-  input  logic        os_rx_ts_bad_i,       // a TS ended and failed to decode, or was cut short
-  input  logic        os_rx_ts2_i,          // with os_rx_ts_i: TS2 (else TS1)
-  input  logic        os_rx_ts_inv_i,       // with os_rx_ts_i: inverted identifier
-  input  logic [7:0]  os_rx_link_i,
-  input  logic        os_rx_link_pad_i,     // link field is PAD
-  input  logic        os_rx_link_num_i,     // link field is a number (neither: another K)
-  input  logic [7:0]  os_rx_lane_i,
-  input  logic        os_rx_lane_pad_i,
-  input  logic        os_rx_lane_num_i,
-  input  logic [7:0]  os_rx_n_fts_i,
-  input  logic [4:0]  os_rx_ctl_i,          // training control bits 4:0
-  input  logic        os_rx_skp_i,          // a SKP ordered set (power states)
-  input  logic        os_rx_eios_i,         // an EIOS
-  input  logic        os_rx_fts_i,          // an FTS ordered set (power states)
-  input  logic [1:0]  os_rx_os_sym_i,       // symbol i belongs to an ordered set
+  // Ordered-set block, receive: the events and TS fields of this word
+  input  pcie_mac_pkg::t_os_rx    os_rx_i,
+  input  pcie_mac_pkg::t_ts_rx    os_ts_i,
 
   // Frame block (mac_frame): the data source of idle symbols and packets
-  output logic        tx_l0_o,              // the frame owns the line (idle, packets)
-  output logic        tx_stop_o,            // start no packet
-  output logic        rx_l0_o,              // main state L0 and Rx_L0: receive packets
-  output logic [7:0]  partner_n_fts_o,      // FTS the partner needs (255 until learned)
-  input  logic        fr_tx_idle_i,         // this cycle's line word is two idle symbols
-  input  logic [1:0]  fr_rx_idle_i          // symbol i of this cycle's received word is idle
+  output pcie_mac_pkg::t_fr_ctl   fr_o,
+  output logic [7:0]              partner_n_fts_o,  // FTS the partner needs (255 until learned)
+  input  logic                    fr_tx_idle_i,     // this cycle's line word is two idle symbols
+  input  logic [1:0]              fr_rx_idle_i      // symbol i of this word is idle
 );
 
   // ------------------------------------------------------------ parameters
@@ -172,15 +135,15 @@ module pcie_mac_ltssm #(
 
   // PhyStatus is high in PCS reset; its first low marks the PCS ready, and
   // after that each high cycle is a completion pulse: of receiver detection
-  // while pipe_tx_detect_rx_o is high, else of a PowerDown change.
+  // while pipe_o.tx_detect_rx is high, else of a PowerDown change.
   logic phy_pulse;
   logic pcs_ready_c, pd_pending_c, detect_done_c, detect_found_c;
 
-  assign phy_pulse      = r_q.pcs_ready && pipe_phy_status_i;
-  assign pcs_ready_c    = r_q.pcs_ready || !pipe_phy_status_i;
+  assign phy_pulse      = r_q.pcs_ready && pipe_rx_i.phy_status;
+  assign pcs_ready_c    = r_q.pcs_ready || !pipe_rx_i.phy_status;
   assign pd_pending_c   = r_q.pd_pending && !(phy_pulse && !r_q.detect_rx);
   assign detect_done_c  = r_q.detect_done || (phy_pulse && r_q.detect_rx);
-  assign detect_found_c = (phy_pulse && r_q.detect_rx) ? (pipe_rx_status_i == 3'd3)
+  assign detect_found_c = (phy_pulse && r_q.detect_rx) ? (pipe_rx_i.status == 3'd3)
                                                        : r_q.detect_found;
 
   // ----------------------------------------------------- 2. receive events
@@ -194,29 +157,29 @@ module pcie_mac_ltssm #(
   logic link_pad, link_num, lane_pad, lane_num, lane_zero, link_is_n;
   logic [7:0] n_link;   // N: 0 downstream, the learned number upstream
 
-  assign ts_any    = os_rx_ts_i || os_rx_ts_bad_i;
-  assign ts_good   = os_rx_ts_i && !os_rx_ts_inv_i;
-  assign ts_bad    = os_rx_ts_bad_i || (os_rx_ts_i && os_rx_ts_inv_i);
-  assign ts2       = os_rx_ts2_i;
-  assign ts1       = !os_rx_ts2_i;
-  assign link_pad  = os_rx_link_pad_i;
-  assign link_num  = os_rx_link_num_i;       // any K other than PAD matches no number
-  assign lane_pad  = os_rx_lane_pad_i;
-  assign lane_num  = os_rx_lane_num_i;
-  assign lane_zero = lane_num && (os_rx_lane_i == 8'd0);
+  assign ts_any    = os_rx_i.ts || os_rx_i.ts_bad;
+  assign ts_good   = os_rx_i.ts && !os_ts_i.ts_inv;
+  assign ts_bad    = os_rx_i.ts_bad || (os_rx_i.ts && os_ts_i.ts_inv);
+  assign ts2       = os_ts_i.ts2;
+  assign ts1       = !os_ts_i.ts2;
+  assign link_pad  = os_ts_i.link_pad;
+  assign link_num  = os_ts_i.link_num;       // any K other than PAD matches no number
+  assign lane_pad  = os_ts_i.lane_pad;
+  assign lane_num  = os_ts_i.lane_num;
+  assign lane_zero = lane_num && (os_ts_i.lane == 8'd0);
   assign n_link    = dsp ? 8'd0 : r_q.rx_link;
 
   // Transmit events: a TS starts when the block acknowledges this LTSSM's
   // TS request; a set is unfinished until its last word.
-  assign ts_start = os_tx_ack_i && r_q.tx_mode == pcie_mac_pkg::TX_TS;
-  assign tx_busy  = os_tx_valid_i && !os_tx_last_i;
+  assign ts_start = os_tx_i.ack && r_q.tx_mode == pcie_mac_pkg::TX_TS;
+  assign tx_busy  = os_tx_i.valid && !os_tx_i.last;
 
   // Idle symbols: parsed, outside an ordered set; any other parsed symbol
   // outside an ordered set (a K symbol, other data) restarts the run.
-  assign rx_parsed = pipe_rx_valid_i && !pipe_rx_elec_idle_i;
+  assign rx_parsed = pipe_rx_i.valid && !pipe_rx_i.elec_idle;
   assign rx_idle   = {2{rx_parsed}} & fr_rx_idle_i;
-  assign rx_break  = {2{rx_parsed}} & ~os_rx_os_sym_i & ~fr_rx_idle_i;
-  assign link_is_n = link_num && (os_rx_link_i == n_link);
+  assign rx_break  = {2{rx_parsed}} & ~os_rx_i.os_sym & ~fr_rx_idle_i;
+  assign link_is_n = link_num && (os_ts_i.link == n_link);
 
   // What a received TS matches in the current state (the arcs' conditions).
   // go: the advancing run; pad: the PAD exit (Recovery.Idle: lane PAD);
@@ -246,7 +209,7 @@ module pcie_mac_ltssm #(
       common_pkg::LTSSM_CFG_LANENUM_ACCEPT: begin
         m_go    = link_is_n && lane_zero;
         m_pad   = ts1 && link_pad;
-        m_renum = ts1 && link_is_n && lane_num && (os_rx_lane_i != 8'd0);
+        m_renum = ts1 && link_is_n && lane_num && (os_ts_i.lane != 8'd0);
       end
       common_pkg::LTSSM_CFG_COMPLETE:
         m_go = ts2 && link_is_n && lane_zero;
@@ -311,13 +274,13 @@ module pcie_mac_ltssm #(
                     ? pcie_mac_pkg::after_next(r_q.idle_after, idle_sent) : '0;
     idle_after_on_c = r_q.idle_after_on || (|rx_idle);
 
-    left_ei_c = r_q.left_ei || !pipe_rx_elec_idle_i;
-    eios_rx_c = r_q.eios_rx || os_rx_eios_i;
-    retrain_c = r_q.retrain || (in_l0 && retrain_req_i);
+    left_ei_c = r_q.left_ei || !pipe_rx_i.elec_idle;
+    eios_rx_c = r_q.eios_rx || os_rx_i.eios;
+    retrain_c = r_q.retrain || (in_l0 && req_i.retrain);
 
     // Polarity: an inverted TS in Polling sets it, once per training.
     polarity_c = r_q.polarity
-              || (os_rx_ts_i && os_rx_ts_inv_i
+              || (os_rx_i.ts && os_ts_i.ts_inv
                   && (st == common_pkg::LTSSM_POLLING_ACTIVE
                       || st == common_pkg::LTSSM_POLLING_CONFIGURATION));
 
@@ -326,7 +289,7 @@ module pcie_mac_ltssm #(
     rx_link_c = r_q.rx_link;
     if (!dsp && st == common_pkg::LTSSM_CFG_LINKWIDTH_START && ts_good && ts1
         && link_num) begin
-      rx_link_c = os_rx_link_i;
+      rx_link_c = os_ts_i.link;
     end
 
     // The partner's N_FTS, from the TS2 that complete Configuration.Complete
@@ -334,7 +297,7 @@ module pcie_mac_ltssm #(
     partner_n_fts_c = r_q.partner_n_fts;
     if (ts_good && m_go && ts2 && (st == common_pkg::LTSSM_CFG_COMPLETE
                                    || st == common_pkg::LTSSM_RECOVERY_RCVRCFG)) begin
-      partner_n_fts_c = os_rx_n_fts_i;
+      partner_n_fts_c = os_ts_i.n_fts;
     end
   end
 
@@ -383,7 +346,7 @@ module pcie_mac_ltssm #(
     case (st)
       common_pkg::LTSSM_DETECT_QUIET:
         if (pcs_ready_c && !pd_pending_c && r_q.pd == common_pkg::PD_P1
-            && (timeout || !pipe_rx_elec_idle_i)) begin
+            && (timeout || !pipe_rx_i.elec_idle)) begin
           det_go = 1'b1;
           det_to = common_pkg::LTSSM_DETECT_ACTIVE;
         end
@@ -412,7 +375,7 @@ module pcie_mac_ltssm #(
                              : common_pkg::LTSSM_POLLING_COMPLIANCE;
         end
       common_pkg::LTSSM_POLLING_COMPLIANCE:
-        if (!pipe_rx_elec_idle_i) begin
+        if (!pipe_rx_i.elec_idle) begin
           pol_go = 1'b1;
           pol_to = common_pkg::LTSSM_POLLING_ACTIVE;
         end
@@ -510,9 +473,9 @@ module pcie_mac_ltssm #(
                     && r_q.rx_sub != common_pkg::L0S_SUB_ENTRY
                     && r_q.rx_sub != common_pkg::L0S_SUB_FTS;
   assign l0_to_rlock = (r_q.rx_sub == common_pkg::L0S_SUB_L0
-                        && (ts_any || (pipe_rx_elec_idle_i && !eios_rx_c)))
-                    || (dsp && (hot_reset_req_i || disable_req_i))
-                    || loopback_req_i || retrain_c;
+                        && (ts_any || (pipe_rx_i.elec_idle && !eios_rx_c)))
+                    || (dsp && (req_i.hot_reset || req_i.disable_link))
+                    || req_i.loopback || retrain_c;
 
   always_comb begin
     l0_go = 1'b0;
@@ -803,28 +766,32 @@ module pcie_mac_ltssm #(
   assign link_up_o           = r_q.link_up;
   assign ltssm_state_o       = in_l0 ? {common_pkg::LTSSM_L0[5:4], r_q.tx_sub, r_q.rx_sub}
                                      : r_q.state;
-  assign pipe_reset_no       = r_q.reset_n;
-  assign pipe_tx_elec_idle_o = r_q.tx_ei;
-  assign pipe_tx_detect_rx_o = r_q.detect_rx;
-  assign pipe_rx_polarity_o  = r_q.polarity;
-  assign pipe_power_down_o   = r_q.pd;
-  assign tx_ts_req_o         = r_q.tx_mode == pcie_mac_pkg::TX_TS;
-  assign tx_compliance_req_o = r_q.tx_mode == pcie_mac_pkg::TX_COMPLIANCE;
-  assign tx_l0_o             = r_q.tx_mode == pcie_mac_pkg::TX_IDLE
+  assign pipe_o.reset_n       = r_q.reset_n;
+  assign pipe_o.tx_elec_idle = r_q.tx_ei;
+  assign pipe_o.tx_detect_rx = r_q.detect_rx;
+  assign pipe_o.rx_polarity  = r_q.polarity;
+  assign pipe_o.power_down   = r_q.pd;
+  assign os_req_o.ts         = r_q.tx_mode == pcie_mac_pkg::TX_TS;
+  assign os_req_o.compliance = r_q.tx_mode == pcie_mac_pkg::TX_COMPLIANCE;
+  assign fr_o.tx_l0             = r_q.tx_mode == pcie_mac_pkg::TX_IDLE
                             || r_q.tx_mode == pcie_mac_pkg::TX_L0;
-  assign tx_stop_o           = r_q.tx_mode != pcie_mac_pkg::TX_L0;
-  assign rx_l0_o             = in_l0 && r_q.rx_sub == common_pkg::L0S_SUB_L0;
-  assign tx_ts2_o            = r_q.tx_ts2;
-  assign tx_link_pad_o       = r_q.tx_link_pad;
-  assign tx_link_o           = r_q.tx_link;
-  assign tx_lane_pad_o       = r_q.tx_lane_pad;
-  assign tx_lane_o           = 8'd0;          // x1: the lane number is always 0
-  assign tx_ctl_o            = '0;            // control bits: control states only
+  assign fr_o.tx_stop           = r_q.tx_mode != pcie_mac_pkg::TX_L0;
+  assign fr_o.rx_l0             = in_l0 && r_q.rx_sub == common_pkg::L0S_SUB_L0;
+  assign ts_o.ts2            = r_q.tx_ts2;
+  assign ts_o.link_pad       = r_q.tx_link_pad;
+  assign ts_o.link           = r_q.tx_link;
+  assign ts_o.lane_pad       = r_q.tx_lane_pad;
+  assign ts_o.lane           = 8'd0;          // x1: the lane number is always 0
+  assign ts_o.ctl            = '0;            // control bits: control states only
   assign partner_n_fts_o     = r_q.partner_n_fts;
+  assign os_req_o.skp        = 1'b0;           // requested SKP, EIOS, FTS: power states
+  assign os_req_o.eios       = 1'b0;
+  assign os_req_o.fts        = 1'b0;
 
   // Inputs the core states do not use yet: the power states read
-  // pm_state_req_i, SKP and FTS, the control states the control bits.
-  `COMMON_UNUSED_BITS(unused_core, {pm_state_req_i, os_rx_ctl_i, os_rx_skp_i, os_rx_fts_i})
+  // req_i.pm_state, SKP and FTS, the control states the control bits.
+  `COMMON_UNUSED_BITS(unused_core, {req_i.pm_state, os_ts_i.ctl, os_rx_i.skp, os_rx_i.fts,
+                                    os_tx_i.compliance})
 
   // ------------------------------------------------------------- invariants
 

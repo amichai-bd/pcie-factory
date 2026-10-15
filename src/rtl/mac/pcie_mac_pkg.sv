@@ -11,6 +11,95 @@ package pcie_mac_pkg;
   typedef logic [BYTE_W-1:0] t_byte;
   typedef logic [BEAT_W-1:0] t_beat_data;
 
+  // ----------------------------------------------- block interfaces (Q25)
+
+  // Upper packet stream, transmit beat (valid and ready stay single wires).
+  typedef struct packed {
+    t_beat_data data;     // [7:0] is the earlier byte
+    logic       sop;
+    logic       eop;
+    logic       dllp;     // 0 TLP, 1 DLLP; read on the sop beat
+    logic       nullify;  // on a TLP's eop beat: end with EDB
+  } t_pkt_tx;
+
+  // Upper packet stream, receive beat.
+  typedef struct packed {
+    logic       valid;
+    t_beat_data data;
+    logic       sop;
+    logic       eop;
+    logic       dllp;
+    logic       err;      // with eop only
+    logic       nullify;  // with eop only
+  } t_pkt_rx;
+
+  // Ordered-set requests, LTSSM to the ordered-set block: at most one high.
+  typedef struct packed {
+    logic ts;
+    logic skp;         // requested SKP: the SKP count restarts at 0
+    logic eios;
+    logic fts;
+    logic compliance;
+  } t_os_req;
+
+  // TS fields sent with a TS request.
+  typedef struct packed {
+    logic       ts2;       // 0 TS1, 1 TS2
+    logic       link_pad;  // link field is PAD
+    t_byte      link;      // link number when not PAD
+    logic       lane_pad;  // lane field is PAD
+    t_byte      lane;      // lane number when not PAD
+    logic [2:0] ctl;       // training control bits 2:0
+  } t_ts_tx;
+
+  // Transmit events of the ordered-set block for the word on the line.
+  typedef struct packed {
+    logic valid;       // the block sends this word
+    logic ack;         // a requested set starts in this word
+    logic last;        // the last word of a set
+    logic compliance;  // TxCompliance for this word
+  } t_os_tx;
+
+  // Receive events of one word, from the ordered-set block.
+  typedef struct packed {
+    logic [1:0] os_sym;  // symbol i belongs to an ordered set
+    logic       ts;      // a TS ended and decoded
+    logic       ts_bad;  // a TS ended and failed to decode, or was cut short
+    logic       skp;
+    logic       eios;
+    logic       fts;
+  } t_os_rx;
+
+  // Fields of the TS that ends with the ts event (valid with it only).
+  typedef struct packed {
+    logic       ts2;       // TS2 (else TS1)
+    logic       ts_inv;    // inverted identifier
+    t_byte      link;
+    logic       link_pad;  // link field is PAD
+    logic       link_num;  // link field is a number (neither: another K)
+    t_byte      lane;
+    logic       lane_pad;
+    logic       lane_num;
+    t_byte      n_fts;
+    logic [4:0] ctl;       // training control bits 4:0
+  } t_ts_rx;
+
+  // LTSSM control of the frame block.
+  typedef struct packed {
+    logic tx_l0;    // the frame owns the line (idle, packets)
+    logic tx_stop;  // start no packet
+    logic rx_l0;    // main state L0 and Rx_L0: receive packets
+  } t_fr_ctl;
+
+  // Link-control requests of the upper layer.
+  typedef struct packed {
+    logic       retrain;    // pulse: L0 to Recovery
+    logic       hot_reset;  // level; downstream role only
+    logic       disable_link;  // level; downstream role only
+    logic       loopback;   // level
+    logic [1:0] pm_state;   // 0 L0, 1 L0s, 2 L1, 3 L2
+  } t_link_req;
+
   // ---------------------------------------------------------- scrambler
 
   localparam int unsigned LFSR_W = 16;
