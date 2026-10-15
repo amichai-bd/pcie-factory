@@ -20,7 +20,7 @@ waivers:
     rule: SYNCASYNCNET
     match: "'rst_i'"
     reason: rst_i resets the stack synchronously and reaches the pcs RX reset synchronizer (pcs crossing 2), as the phy and pcs HAS require.
-  - file: rtl/common/common_cdc_rst.sv
+  - file: rtl/common/cdc/common_cdc_rst.sv
     rule: SYNCASYNCNET
     match: "'pcie_phy.u_pcs.u_elastic.u_rx_rst.sync_q'"
     reason: The pcs RX reset inside the phy stack; asynchronous on the elastic buffer's write-side flops and synchronous in common_cdc_fifo and common_cdc_sync2; it releases synchronously.
