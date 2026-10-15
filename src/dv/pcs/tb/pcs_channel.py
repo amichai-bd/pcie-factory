@@ -110,7 +110,10 @@ def _errored(codes: list[int], rd: int, s: int, gap: int, bits: tuple[int, int])
 
 
 class RxChannel:
-    """Drives ser_rx_data_i and ser_rx_elec_idle_i, one word per RX cycle:
+    """Drives ser_rx_data_i and ser_rx_elec_idle_i, one word per RX cycle
+    (the flag of a word is that of its last bit, so it is 1 for any word
+    that holds an idle bit, as the HAS contract says, and the bits before
+    the idle are line data):
     ``lead`` words of idle noise, then the link's line (or, with
     ``source``, words taken from a queue), then idle noise. ``times[w]`` is
     the rising edge that sampled word w."""

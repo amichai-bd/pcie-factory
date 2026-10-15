@@ -36,7 +36,9 @@ latency is the sum of the `mac` and `pcs` budgets
 ([HAS targets](../../arch/phy/HAS.md#targets)). The only clock-domain
 crossings are inside `pcie_pcs`. Every phy input carries a `cdc-domain`
 annotation: `ser_rx_data_i` and `ser_rx_elec_idle_i` are on
-`ser_rx_clk_i`, every other input on `clk_i`. The `pcs` reset nets have
+`ser_rx_clk_i`, every other input on `clk_i`. `ser_rx_elec_idle_i` passes
+straight to `pcie_pcs` with the HAS contract: 1 for any word that holds an
+idle bit, whose bits before the idle are still line data. The `pcs` reset nets have
 `SYNCASYNCNET` lint waivers seen from the phy top, mirroring the `pcs`
 ones (`src/lint_waivers.yaml`).
 

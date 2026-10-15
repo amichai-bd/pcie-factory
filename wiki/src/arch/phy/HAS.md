@@ -102,7 +102,7 @@ Two 10-bit symbols per `clk_i` cycle (2.5 GT/s = 250 Msymbol/s = 2 x
 | `ser_tx_rxdet_i` | in | 1 | `clk_i` | A receiver termination is present at the far end, as a receiver-detect circuit would sense it; sampled during receiver detection. |
 | `ser_rx_clk_i` | in | 1 | - | Recovered RX clock, 125 MHz nominal (see [Clocks and resets](#clocks-and-resets)). |
 | `ser_rx_data_i` | in | 20 | `ser_rx_clk_i` | Twenty received bits, bit 0 earliest. No symbol alignment is guaranteed. |
-| `ser_rx_elec_idle_i` | in | 1 | `ser_rx_clk_i` | The line is in electrical idle; data is don't care. |
+| `ser_rx_elec_idle_i` | in | 1 | `ser_rx_clk_i` | The line is in electrical idle: 1 for any word that holds an idle bit. The bits of that word before the idle starts are line data (the end of the stream, such as an EIOS's last IDL); the bits after it are don't care. The same contract as the [`pcs` HAS](../pcs/HAS.md) and its [loss of lock](../pcs/RECEIVE.md#comma-alignment-and-symbol-lock). |
 
 ## Parameters
 

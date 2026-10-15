@@ -464,7 +464,7 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
             in_q = _word(line.bits, base)
             in_txpos = list(line.txpos[base:base + 20])
             in_t = t
-            idle_q = line.idle[base + 19]
+            idle_q = line.idle[base + 19]   # 1 for any word holding an idle bit (HAS)
             # Synchronizers into the RX domain.
             rsync_rptr.edge(rgray.value, rgray.prev, rgray.changed, t)
             rsync_full.edge(too_full.value, too_full.prev, too_full.changed, t)

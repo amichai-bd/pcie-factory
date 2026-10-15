@@ -186,7 +186,7 @@ async def rx_lock_offsets(dut):
 
 @cocotb.test()
 async def rx_eios_phases(dut):
-    """L0 (#182): an EIOS before electrical idle at every RX bit phase 0 to
+    """L1 (#182): an EIOS before electrical idle at every RX bit phase 0 to
     19 of the transmitter's word boundary (filler bits shift it; the idle
     starts at the transmitted word boundary right after the EIOS, so the
     word holding it is flagged idle from its last bit). At every phase the
