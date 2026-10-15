@@ -122,6 +122,27 @@ class FillCheck:
                 f"t={now_ps()} ps: visible fill {fill} outside {FILL_MIN}..{FILL_MAX}")
 
 
+class Recentre:
+    """Counts the elastic buffer's recentring on its MAS-named observation
+    nets: `u_elastic.r_recentre` (read side holds, clk_i) and
+    `u_elastic.w_drop` (write side drops an unlocked word, ser_rx_clk_i),
+    outside reset. A test asserts the count its offset needs, so the
+    recentring check is never vacuous."""
+
+    def __init__(self, dut) -> None:
+        self.holds = 0
+        self.drops = 0
+        eb = dut.u_elastic
+        cocotb.start_soon(self._count(dut.clk_i, dut.rst_i, eb.r_recentre, "holds"))
+        cocotb.start_soon(self._count(dut.ser_rx_clk_i, dut.rst_i, eb.w_drop, "drops"))
+
+    async def _count(self, clk, rst, net, field: str) -> None:
+        while True:
+            await FallingEdge(clk)
+            if not int(rst.value) and int(net.value):
+                setattr(self, field, getattr(self, field) + 1)
+
+
 class RxBench:
     """Clocks, the channel, the MAC in P0 and the PIPE receive monitor. The
     visible-fill window check (``FillCheck``) is on unless ``fill_window``
@@ -148,6 +169,7 @@ class RxBench:
         self.chan = RxChannel(dut, self.rng, link.line if link else None, lead=lead,
                               source=source)
         self.fill = FillCheck(dut, lambda: self.chan.done)
+        self.recentre = Recentre(dut)
         self.fill.on = self.fill_window
         self.b = Bench(dut, max_cycles, receive=True)
         self.b.tick = self._wrap(self.b.tick)

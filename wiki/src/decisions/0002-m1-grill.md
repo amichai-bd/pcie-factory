@@ -16,8 +16,8 @@
 M1 is done when all of the following hold on `main`:
 
 1. **Flow:** every sub-issue of this epic is closed, each delivered through issue → branch → worktree → draft PR → independent `REVIEW-VERDICT: APPROVE` at the merged head → squash merge → cleanup.
-2. **Specs:** the HAS pages for `phy`, `mac` and `pcs` each carry a captain approval comment on their PR. Every IP and sub-IP has its MAS and DV_PLAN. Citations pin PCIe Base Spec **rev 3.0** (Gen1 rules), and no spec text, table or figure is reproduced (the citation check passes).
-3. **Function:** `./build regress --level 0 --level 1 --level 2` passes for `phy`, `mac`, `pcs` and every sub-IP. The `phy` e2e trains a downstream and an upstream instance back to back to L0 at Gen1 x1, and exchanges framed TLP- and DLLP-tagged packets in both directions under ±300 ppm, bit slips and injected symbol errors. The `mac` tests against the Python link partner enter and leave every Gen1 LTSSM state.
+2. **Specs:** the HAS pages for `phy`, `mac` and `pcs` each carry a captain (or delegate) approval comment on their PR. Each of `phy`, `mac` and `pcs` has one MAS (a section per internal block) and one DV_PLAN (Q24). Citations pin PCIe Base Spec **rev 3.0** (Gen1 rules), and no spec text, table or figure is reproduced (the citation check passes).
+3. **Function:** `./build regress --level 0 --level 1 --level 2` passes for `phy`, `mac`, `pcs` and the `common` library. These are the only testbenches (Q24); no leaf sub-IP folders remain. The `phy` e2e trains a downstream and an upstream instance back to back to L0 at Gen1 x1, and exchanges framed TLP- and DLLP-tagged packets in both directions under ±300 ppm, bit slips and injected symbol errors. The `mac` tests against the Python link partner enter and leave every Gen1 LTSSM state.
 4. **Coverage:** LTSSM transition coverage is 100% of the arcs listed in the `mac` HAS at L2. Verilator line and toggle coverage is in the nightly record and on the tracker, and the floor set by its issue is enforced.
 5. **CDC:** the clock-crossing check passes on every IP, and every crossing goes through an approved `common_` cell.
 6. **Physical:** nightly reports Quartus DE2-115 timing (125 MHz core clock and RX clock met) and ORFS sky130hd metrics for `phy` on the tracker. (The board loopback demo on physical hardware is tracked separately in #89, outside M1; see Q20.)
@@ -87,3 +87,6 @@ M1 is done when all of the following hold on `main`:
   keep their names, `pcie_mac_pkg` and `pcie_pcs_pkg`
   ([`common_pkg`](../rtl/common/common_pkg.md); #146 created it, #145
   extends it).
+- **2026-10-15:** Done criteria 2 and 3 updated to the epic's current
+  wording (Q24: one MAS and one DV_PLAN per IP; `phy`, `mac`, `pcs` and the
+  `common` library are the only testbenches, no leaf sub-IP folders).

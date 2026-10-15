@@ -108,7 +108,7 @@ package common_pkg;
     logic       phy_status;  // PhyStatus
     logic       valid;       // RxValid
     logic       elec_idle;   // RxElecIdle
-    logic [2:0] status;      // RxStatus; 4 to 7 is an error
+    t_rx_status status;      // RxStatus; 4 to 7 is an error
   } t_pipe_rx;
 
   // PIPE control, MAC to PCS, other than the data word and TxCompliance.

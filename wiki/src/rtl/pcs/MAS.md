@@ -288,7 +288,7 @@ generations. Otherwise the RD is unknown: at the start of each locked run
 (after an unlocked symbol, or at a new lock generation, which a same-cycle
 relock also gives) and when RxPolarity changes.
 
-**State** `state_q` (`t_dec_state`, reset 0): on a word, `rd_known` =
+**State** `state_q` (`t_dec_state`, reset 0; the RD sign and generation need no reset, as they are read only while `rd_known` is 1, but share the struct register): on a word, `rd_known` =
 `sym1`'s lock, `rd_pos` = the RD after `sym1`, `gen` = `sym1`'s generation;
 with no word the RD holds, but `rd_known` clears on a polarity change;
 `pol` is the previous cycle's `polarity_i`.
@@ -392,7 +392,8 @@ one when a copy is owed.
 asynchronously by the RX reset), each cycle with a word:
 
 - **Recentring.** An unlocked word is dropped while fill high is seen, at
-  most once per 8 cycles.
+  most once per 8 cycles; `w_drop` is high in the cycle of a drop (an
+  observation net for DV).
 - **SKP removal.** While fill high is seen and the word is locked, a SKP
   that directly follows a COM (possibly in the previous word) is dropped:
   the first SKP of a set, at most one per set; the next kept symbol
@@ -419,7 +420,8 @@ by `rst_i`), each cycle:
 - **Fill high.** `fill_high_q` is the fill at 9 or more; it crosses to the
   write side through `u_sync_fill_high` (crossing 3).
 - **Recentring.** While the head word is unlocked and the fill is 7 or
-  less, nothing is sent, at most once per 8 cycles.
+  less, nothing is sent, at most once per 8 cycles; `r_recentre` is high
+  in the cycle of a hold (an observation net for DV).
 - **Underflow.** Below a fill of 2, an underflow word is sent; nothing is
   consumed, so no symbol is lost.
 - **Lock start.** A locked head word after an unlocked leftover symbol
@@ -463,7 +465,7 @@ by `rst_i`), each cycle:
 | Drop an unlocked symbol at a lock start, on both sides of the buffer | Without it the first locked word was paired with an unlocked symbol and RxValid started a word late, up to 11 cycles after the comma (#85 review). | Changing the HAS lock target. |
 | Loopback from the PIPE receive register | The HAS loops back the words as they appear on `pipe_rx_data_o`; it reuses the register and the EDB substitution. | A loopback path before the decoder. |
 | One RX reset synchronizer, in the elastic buffer | Firstmate ruling on #85: one crossing 2, exported on `ser_rx_rst_o`. | A second synchronizer in the top. |
-| The RX reset: asynchronous on the elastic buffer's write-side flops, synchronous in the aligner, the crossing cells and `rx_active_q` | The flops as the leaf issues built them; `common_cdc_rst` holds the reset at least 7 RX cycles and `ser_rx_clk_i` always runs (`phy` contract). One style per net is open on #145 (it needs a common-cell change); until then [`src/lint_waivers.yaml`](../../../../src/lint_waivers.yaml) waives `SYNCASYNCNET` on `rst_i` and on the RX reset, each with its reason. | - |
+| The RX reset: asynchronous on the elastic buffer's write-side flops, synchronous in the aligner, the crossing cells and `rx_active_q` | The flops as the leaf issues built them; `common_cdc_rst` holds the reset at least 7 RX cycles and `ser_rx_clk_i` always runs (`phy` contract). One style per net is [#170](https://github.com/amichai-bd/pcie-factory/issues/170) (it needs a common-cell change); until then [`src/lint_waivers.yaml`](../../../../src/lint_waivers.yaml) waives `SYNCASYNCNET` on `rst_i` and on the RX reset, each with its reason. | - |
 
 ## Timing
 

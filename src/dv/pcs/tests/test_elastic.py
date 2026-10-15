@@ -167,15 +167,26 @@ async def eb_dense(dut):
     assert all(stats.get(k) for k in want + ("back_to_back",)), f"dense: changes {stats}"
 
 
-async def eb_idle(dut, ppm: float, gaps: int, symbols: int, where: str):
+async def eb_idle(dut, ppm: float, packets: int, gaps: int, symbols: int, where: str):
     rng = seeded(dut)
-    link = build_link(rng, 10 * gaps, "random", 0, arch.SKP_INTERVAL_MIN, idle_gaps=gaps,
+    link = build_link(rng, packets, "random", 0, arch.SKP_INTERVAL_MIN, idle_gaps=gaps,
                       idle_symbols=symbols)
     rx = RxBench(dut, rng, ppm)
     await rx.start(link, max_cycles=len(link.syms) // 2 + 4000)
     await rx.run_line()
     runs = check_idle(rx, link, where)
-    COV_EB.sample(event="recentre_slow" if ppm < 0 else "recentre_fast")
+    # Recentring is observed, never assumed: through the gaps a slow RX clock
+    # makes the read side hold, a fast one makes the write side drop.
+    rc = rx.recentre
+    dut._log.info("%s: %d read-side holds, %d write-side drops", where, rc.holds, rc.drops)
+    if ppm < 0:
+        assert rc.holds > 0, f"{where}: vacuous run, no read-side recentring at {ppm} ppm"
+    else:
+        assert rc.drops > 0, f"{where}: vacuous run, no write-side recentring at {ppm} ppm"
+    if rc.holds:
+        COV_EB.sample(event="recentre_slow")
+    if rc.drops:
+        COV_EB.sample(event="recentre_fast")
     COV_EB.sample(event="lock_start")
     COV_EB.sample(ppm=round(ppm))
     return runs
@@ -186,13 +197,13 @@ async def eb_idle_m600(dut):
     """L1: two 6000-symbol electrical-idle gaps at -600 ppm: the read side
     recentres while unlocked, no underflow or overflow, lock and data return
     after each gap."""
-    await eb_idle(dut, -600.0, 2, 6000, "idle_m600")
+    await eb_idle(dut, -600.0, 60, 2, 6000, "idle_m600")
 
 
 @cocotb.test()
 async def eb_idle_p600(dut):
     """L1: the same at +600 ppm: the write side drops unlocked words."""
-    await eb_idle(dut, 600.0, 2, 6000, "idle_p600")
+    await eb_idle(dut, 600.0, 60, 2, 6000, "idle_p600")
 
 
 @cocotb.test()
@@ -202,7 +213,7 @@ async def eb_lock_start(dut):
     with an unlocked symbol (the elastic buffer drops it, on its write side
     on a fast RX clock, on its read side on a slow one), so every run starts
     at its lock comma or the symbol before it, within the lock target."""
-    await eb_idle(dut, sign() * 600.0, 12, 1500, "lock_start")
+    await eb_idle(dut, sign() * 600.0, 120, 12, 1500, "lock_start")
 
 
 async def flow_error(dut, ppm: float, overflow: bool) -> None:
@@ -333,4 +344,4 @@ async def eb_long_stress(dut):
 @cocotb.test()
 async def eb_long_idle(dut):
     """L2: three 20000-symbol electrical-idle gaps at -600 or +600 ppm."""
-    await eb_idle(dut, sign() * 600.0, 3, 20000, "long_idle")
+    await eb_idle(dut, sign() * 600.0, 300, 3, 20000, "long_idle")

@@ -19,7 +19,7 @@ each IP that uses it includes it with `-F`. RTL names every item as
 | `t_ltssm_state` | The `ltssm_state_o` main-state codes. | [state encoding](../../arch/mac/LTSSM.md#state-encoding) |
 | `t_l0s_sub` | The L0s sub-machine codes, the tx and rx fields of an L0 code. | [state encoding](../../arch/mac/LTSSM.md#state-encoding) |
 | `t_power_down` | PIPE PowerDown: `PD_P0`, `PD_P0S`, `PD_P1`, `PD_P2`. Used by the mac and the pcs. | [PIPE](../../arch/phy/PIPE.md#signals) |
-| `t_rx_status` | PIPE RxStatus: `RX_OK`, `RX_SKP_ADDED`, `RX_SKP_REMOVED`, `RX_DETECTED`, `RX_CODE_ERR`, `RX_EB_OVERFLOW`, `RX_EB_UNDERFLOW`, `RX_DISP_ERR`. The pcs drives it; the mac reads the field's bits. | [RxStatus](../../arch/pcs/RECEIVE.md#decode-and-rxstatus) |
+| `t_rx_status` | PIPE RxStatus: `RX_OK`, `RX_SKP_ADDED`, `RX_SKP_REMOVED`, `RX_DETECTED`, `RX_CODE_ERR`, `RX_EB_OVERFLOW`, `RX_EB_UNDERFLOW`, `RX_DISP_ERR`. The type of `t_pipe_rx.status`: the pcs drives it; the mac casts its PIPE input to it and compares `RX_DETECTED`. | [RxStatus](../../arch/pcs/RECEIVE.md#decode-and-rxstatus) |
 
 ## Decisions
 

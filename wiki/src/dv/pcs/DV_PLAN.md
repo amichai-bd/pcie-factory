@@ -110,13 +110,15 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
 
 - **Coverage floors** (each level's file; floors apply to the merged
   levels selected): L0 line 87, toggle 87, `pcs_align_lock` 100; L1 (with
-  L0, as in `ci-gate`) line 99, toggle 96 and every covergroup but `pcs_rx`
+  L0, as in `ci-gate`) line 99, toggle 97 and every covergroup but `pcs_rx`
   at 100; L2 (L0 to L2, as nightly) line 99, toggle 97, functional 100.
-  Reached: L0 and L1 99.7% line, 96.9% toggle (3100/3198), 99.9%
-  functional; L0 to L2 99.7% line (334/335), 97.1% toggle (3104/3198), 100%
-  functional (2916 bins). The line left is the encoder's assertion-only
-  `run6`; the assertion-only nets of the threshold and lowest-comma
-  assertions added 50 toggle points, some of which no legal input sets.
+  Reached: L0 and L1 99.7% line (334/335), 97.8% toggle (3094/3162),
+  99.9% functional (2914/2916); the L0-to-L2 values are in each
+  validation's evidence. The line left is the encoder's assertion-only
+  `run6`. The threshold assertions compare the fill with literal
+  constants inline, so they add no constant nets to the toggle count; the
+  lowest-comma assertion's scan nets remain, some bits of which no legal
+  input sets.
 
 ## Plan
 
@@ -150,13 +152,13 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
 | A burst one SKP set short, then a maximum TLP, at -600 ppm (#73 sign-off case) | `eb_short_burst` / `eb_short_burst_sweep` | 1 / 2 | [1] / [2, 3] |
 | Sizes that strand corrections at ±600 ppm | `eb_stress_sizes` | 1 | [1, 2]: fast, slow |
 | Dense SKP sets (one to five SKPs every 48 to 96 symbols) at ±600 ppm: additions after a COM in either half of a word, removals leaving a bare COM, sets back to back | `eb_dense` / `eb_dense_sweep` | 1 / 2 | [1, 2] / [3..8] |
-| Recentring through two 6000-symbol electrical-idle gaps at -600 ppm (read side holds) and +600 ppm (write side drops) | `eb_idle_m600`, `eb_idle_p600` | 1 | [1] each |
-| Lock start after twelve 1500-symbol idle gaps: every run starts at its comma or the symbol before it, within the lock target | `eb_lock_start` / `eb_lock_start_sweep` | 1 / 2 | [1, 2] / [3..10]; odd seeds fast |
+| Recentring through two 6000-symbol electrical-idle gaps in 60 packets at -600 ppm (read side holds) and +600 ppm (write side drops); non-vacuous: `Recentre` counts the MAS observation nets `r_recentre` (read-side hold) and `w_drop` (write-side drop), and the test requires a hold at -600 ppm and a drop at +600 ppm | `eb_idle_m600`, `eb_idle_p600` | 1 | [1] each |
+| Lock start after twelve 1500-symbol idle gaps in 120 packets: every run starts at its comma or the symbol before it, within the lock target; recentring required as in `eb_idle_*` | `eb_lock_start` / `eb_lock_start_sweep` | 1 / 2 | [1, 2] / [3..10]; odd seeds fast |
 | Overflow at +2% with no SKP: RxStatus 5 on the first word after each loss, the rest in order | `eb_overflow` | 1 | [1] |
 | Underflow at -2% with no SKP: RxStatus 6, EDB EDB as K, RxValid 0, nothing lost, no error after an underflow word (the decoder's RD held across it) | `eb_underflow` | 1 | [1] |
 | Outside the targets at ±4000 ppm with long packets: overflow (RxStatus 5) or underflow (RxStatus 6, EDB EDB, RxValid 0) | `eb_stress` | 1 | [1, 2] |
 | Reset with traffic in flight: `rst_i` (lock returns at a comma within the lock target, intact) and `pipe_reset_ni` (RxValid low, the stream resumes with the RD unknown, nothing out of order) | `rx_reset_traffic` / `rx_reset_traffic_sweep` | 1 / 2 | [1, 2] / [3..6] |
-| Long runs: maximum TLPs, random packets, stranding sizes and short bursts, three 20000-symbol idle gaps | `eb_long_tlp`, `eb_long_random`, `eb_long_stress`, `eb_long_idle` | 2 | [1..4], 6, [1..4], [1..4] |
+| Long runs: forty maximum TLPs, 1200 random packets, 60 packets of stranding sizes or short bursts, three 20000-symbol idle gaps in 300 packets (recentring required as in `eb_idle_*`) | `eb_long_tlp`, `eb_long_random`, `eb_long_stress`, `eb_long_idle` | 2 | [1..6] (three per sign; odd seeds fast), 6, [1..6] (three per sign), [1..4] |
 | [Polarity](../../arch/pcs/RECEIVE.md#decode-and-rxstatus): an inverted lane with RxPolarity 1 is intact | `rx_polarity` | 1 | [1] |
 | RxPolarity applies from the next word: wrong data before, every word after correct with no error | `rx_polarity_toggle` | 1 | [2] |
 | Isolated bit errors: each reported (4 or 7), no relock, data intact around them | `rx_errors` / `rx_errors_sweep` | 1 / 2 | [1, 2] / [3..6] |
@@ -198,7 +200,7 @@ Every check of the removed leaf testbenches, and where it is now.
 | `smoke` (elastic buffer) | Reset, RX reset timing, start at fill 8, lossless, SKP sets of 1 to 5 | Lossless and sets of 1 to 5: `eb_random_*`, `eb_dense`; start at fill 8: RTL assertion `a_start_at_8` in every test. RX reset timing is a [gap](#gaps) |
 | `ppm_m600`, `ppm_m300`, `ppm_p300`, `ppm_p600`, `random_offset` (elastic buffer) | Additions or removals per offset, fill 4 to 12 | `eb_tlp_m600`, `eb_random_m300`, `eb_random_p300`, `eb_tlp_p600`, `eb_random_offset`; fill 4 to 12 by `FillCheck` in every receive test within the targets |
 | `short_burst_m600`, `stress_sizes` | The reviewer's case; stranding sizes | `eb_short_burst`, `eb_stress_sizes` |
-| `idle_m600`, `idle_p600` | Recentring, read-side holds, write-side drops | `eb_idle_m600`, `eb_idle_p600` |
+| `idle_m600`, `idle_p600` | Recentring, with the leaf's non-vacuity assertion (a read-side hold at -600 ppm, a write-side drop at +600 ppm), 60 packets | `eb_idle_m600`, `eb_idle_p600` (holds and drops counted on `r_recentre` and `w_drop`) |
 | `lock_start_m600`, `lock_start_p600` | No locked word packed with an unlocked symbol | `eb_lock_start` (every run starts at its comma or the symbol before it), also in `rx_elec_idle_gaps` and every lock test |
 | `relock_generation` | Generation carried per word through same-cycle relocks | `rx_slips_training` (same-cycle relocks; the error counter re-arms on the generation, so the next slip is answered) |
 | `thresholds_swing`, `thresholds_m600`, their sweep | Removal exactly at a seen fill of 9, addition exactly at 7, both sides of each threshold | RTL assertions `a_fill_high_at_9` (fill high, the write side's removal condition, exactly at 9 or more), `a_add_at_7_or_less` and `a_add_when_due` (an addition only at 7 or less, and every possible one made there), live in every test; additions and removals in the right direction (`eb_*`); `FillCheck` |
@@ -234,6 +236,8 @@ slow-clock seeds.
 | Elastic buffer | No read-side lock-start drop (`r_flush` 0) | `eb_lock_start` seeds 2 and 4, `rx_elec_idle_gaps` seeds 2 and 22 (slow RX clock) | - |
 | Elastic buffer | Generation not carried in the FIFO word | `rx_slips_training`, `rx_close_errors`, `rx_error_bursts` | `rx_elec_idle_gaps` seed 1 |
 | Elastic buffer | No addition after a COM in the first slot | `eb_tlp_m600` | `eb_dense` seed 1, `rx_ppm` seed 1 (fast RX clocks) |
+| Elastic buffer | No read-side recentring (`r_recentre` 0) | `eb_idle_m600` seed 1, `eb_lock_start` seed 2, `eb_long_idle` seed 2, `rx_elec_idle_gaps` seed 2: the visible fill falls below 4 (`FillCheck`) before the hold count is checked | - |
+| Elastic buffer | No write-side recentring (`w_drop` 0) | `eb_idle_p600` seed 1, `eb_lock_start` seed 1, `eb_long_idle` seed 1 (the visible fill rises above 12, `FillCheck`); `rx_elec_idle_gaps` seed 1 (first locked word past the lock target) | - |
 | Elastic buffer | Overflow flag never set | `eb_overflow`, `eb_stress` | - |
 | Elastic buffer | Addition threshold at 6 (`EB_LOW` 6) | `eb_tlp_m600`, `eb_short_burst`, `eb_dense` seed 2 (`a_add_when_due`) | - |
 | Elastic buffer | Fill high at 10 (`EB_HIGH` 10) | `eb_tlp_p600` (`a_fill_high_at_9`) | `eb_dense` seed 1, `rx_ppm` seed 1: on a fast clock with no addition the visible fill stays even and skips 9 |
