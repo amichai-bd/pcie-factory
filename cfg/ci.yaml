@@ -3,10 +3,14 @@
 # `./build ci unit` (which unit-test suites run). Never name an IP here.
 
 # A change to any of these paths, relative to the repository root, selects
-# every IP and the tools unit tests.
+# every IP and the tools unit tests. An IP that only such a change selects
+# runs only the regression levels in `levels` (a smoke that the tools still
+# drive every IP's sims); an IP a design or DV change selects runs every
+# requested level.
 global:
   prefixes: [tools/, cfg/]
   files: [build]
+  levels: [0]
 
 # Directories relative to the source root holding shared DV Python that no
 # filelist reaches; a change under one selects every IP.
@@ -20,6 +24,13 @@ shared_dv: [dv/common]
 # only); a change there selects that IP, and `./build ci unit` runs, for each
 # selected IP that has it, the self-tests and `./build arch`.
 models: models
+
+# Directory, relative to the repository root, whose Python the DV imports at
+# run time (it is on sys.path in every simulation). `--affected` scans the
+# imports of each IP's DV and arch Python: a changed file it reaches here, or
+# another IP's arch or models module it imports by name, selects that IP at
+# every requested level, even when the change is also a global one.
+import_root: tools
 
 # pytest paths, relative to the repository root, of the tools unit tests.
 tools_tests: [tools]

@@ -113,6 +113,7 @@ class Result:
     runtime_s: float
     log: Path
     detail: str = ""
+    cpu_s: float = 0.0  # user + system CPU time of the child process tree
 
 
 def test_dir(workdir: Path, ip: Ip, test: str, seed: int) -> Path:
@@ -144,8 +145,30 @@ def _killpg(proc: subprocess.Popen) -> None:
         pass
 
 
-def _run_child(phase: str, job: dict, log: Path, timeout_s: float | None) -> tuple[int | None, float]:
-    """Run one child phase; return (exit code or None on timeout, runtime)."""
+_POLL_S = 0.05
+
+
+def _wait_rusage(proc: subprocess.Popen, timeout_s: float | None) -> tuple[int, float]:
+    """Wait for ``proc`` like ``Popen.wait`` and return (exit code, CPU
+    seconds). ``wait4`` reports the child's user and system time including
+    every descendant it waited for (the simulator under the cocotb runner).
+    Raises ``subprocess.TimeoutExpired`` after ``timeout_s``."""
+    deadline = None if timeout_s is None else time.monotonic() + timeout_s
+    while True:
+        pid, status, ru = os.wait4(proc.pid, os.WNOHANG)
+        if pid == proc.pid:
+            code = os.waitstatus_to_exitcode(status)
+            proc.returncode = code
+            return code, ru.ru_utime + ru.ru_stime
+        if deadline is not None and time.monotonic() >= deadline:
+            raise subprocess.TimeoutExpired(proc.args, timeout_s)
+        time.sleep(_POLL_S)
+
+
+def _run_child(phase: str, job: dict, log: Path,
+               timeout_s: float | None) -> tuple[int | None, float, float]:
+    """Run one child phase; return (exit code or None on timeout, wall
+    runtime, CPU time of the child process tree; 0.0 when it was killed)."""
     if _STOPPING.is_set():
         raise KeyboardInterrupt
     log.parent.mkdir(parents=True, exist_ok=True)
@@ -154,6 +177,7 @@ def _run_child(phase: str, job: dict, log: Path, timeout_s: float | None) -> tup
     cmd = [sys.executable, "-B", str(Path(__file__).resolve()), phase, str(job_file)]
     start = time.monotonic()
     code: int | None = None
+    cpu = 0.0
     with open(log, "w") as fh:
         proc = subprocess.Popen(
             cmd, stdout=fh, stderr=subprocess.STDOUT, start_new_session=True
@@ -161,7 +185,7 @@ def _run_child(phase: str, job: dict, log: Path, timeout_s: float | None) -> tup
         with _LOCK:
             _ACTIVE.add(proc)
         try:
-            code = proc.wait(timeout=timeout_s)
+            code, cpu = _wait_rusage(proc, timeout_s)
         except subprocess.TimeoutExpired:
             code = None
         except BaseException:  # Ctrl-C in this thread: take the sim down too
@@ -175,7 +199,7 @@ def _run_child(phase: str, job: dict, log: Path, timeout_s: float | None) -> tup
                 _ACTIVE.discard(proc)
     if _STOPPING.is_set():
         raise KeyboardInterrupt
-    return code, time.monotonic() - start
+    return code, time.monotonic() - start, cpu
 
 
 def _job(spec: BuildSpec, workdir: Path, verilator: Path) -> dict:
@@ -207,12 +231,12 @@ def build(spec: BuildSpec, workdir: Path, verilator: Path) -> Result:
         incdirs=[str(p) for p in flat.incdirs],
         defines=flat.defines,
     )
-    code, runtime = _run_child("build", job, log, timeout_s=BUILD_TIMEOUT_S)
+    code, runtime, cpu = _run_child("build", job, log, timeout_s=BUILD_TIMEOUT_S)
     if code is None:
         return Result("error", runtime, log, f"build timed out after {BUILD_TIMEOUT_S}s")
     if code != 0:
-        return Result("error", runtime, log, f"build failed, see {log}")
-    return Result("pass", runtime, log)
+        return Result("error", runtime, log, f"build failed, see {log}", cpu)
+    return Result("pass", runtime, log, cpu_s=cpu)
 
 
 def run_test(
@@ -238,13 +262,13 @@ def run_test(
         results=str(tdir / "results.xml"),
     )
     log = tdir / "sim.log"
-    code, runtime = _run_child("test", job, log, timeout_s)
+    code, runtime, cpu = _run_child("test", job, log, timeout_s)
     if code is None:
         return Result("timeout", runtime, log, f"timed out after {timeout_s}s")
     status, detail = parse_results(tdir / "results.xml")
     if code != 0 and status == "pass":
         status, detail = "error", f"simulator exited with {code}"
-    return Result(status, runtime, log, detail)
+    return Result(status, runtime, log, detail, cpu)
 
 
 def parse_results(results_xml: Path) -> tuple[str, str]:

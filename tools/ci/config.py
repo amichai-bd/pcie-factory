@@ -8,9 +8,9 @@ from pathlib import Path, PurePosixPath
 import yaml
 
 CONFIG_NAME = "ci.yaml"
-_KEYS = {"global", "shared_dv", "models", "tools_tests", "vocabulary_tests"}
+_KEYS = {"global", "shared_dv", "models", "import_root", "tools_tests", "vocabulary_tests"}
 _VOCABULARY_KEYS = {"marker", "paths"}
-_GLOBAL_KEYS = {"prefixes", "files"}
+_GLOBAL_KEYS = {"prefixes", "files", "levels"}
 
 
 class CiConfigError(Exception):
@@ -26,6 +26,8 @@ class CiRules:
     tools_tests: tuple[str, ...]
     vocabulary_marker: str = ""
     vocabulary_paths: tuple[str, ...] = ()
+    global_levels: tuple[int, ...] = (0,)
+    import_root: str = "tools"
 
     def is_vocabulary(self, rel: str) -> bool:
         """True when ``rel`` is a path whose change runs the marked tests."""
@@ -69,10 +71,20 @@ def load_rules(cfg_dir: Path) -> CiRules:
     g = data["global"]
     if not isinstance(g, dict) or set(g) != _GLOBAL_KEYS:
         raise CiConfigError(f"{path}: global: must be a mapping with keys {sorted(_GLOBAL_KEYS)}")
+    levels = g["levels"]
+    if (not isinstance(levels, list) or not levels
+            or not all(isinstance(lv, int) and not isinstance(lv, bool) and lv >= 0
+                       for lv in levels)):
+        raise CiConfigError(f"{path}: global.levels: expected a non-empty list of "
+                            "regression level numbers")
     models = data["models"]
     if not isinstance(models, str):
         raise CiConfigError(f"{path}: models: expected a string")
     _paths(f"{path}: models", [models])
+    import_root = data["import_root"]
+    if not isinstance(import_root, str):
+        raise CiConfigError(f"{path}: import_root: expected a string")
+    _paths(f"{path}: import_root", [import_root])
     v = data["vocabulary_tests"]
     if not isinstance(v, dict) or set(v) != _VOCABULARY_KEYS:
         raise CiConfigError(f"{path}: vocabulary_tests: must be a mapping with keys "
@@ -87,4 +99,6 @@ def load_rules(cfg_dir: Path) -> CiRules:
         tools_tests=_paths(f"{path}: tools_tests", data["tools_tests"]),
         vocabulary_marker=v["marker"],
         vocabulary_paths=_paths(f"{path}: vocabulary_tests.paths", v["paths"]),
+        global_levels=tuple(sorted(set(levels))),
+        import_root=import_root.rstrip("/"),
     )
