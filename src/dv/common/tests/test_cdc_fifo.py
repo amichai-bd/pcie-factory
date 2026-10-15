@@ -351,8 +351,8 @@ async def async_reset(dut):
     stopped, both resets asserted: in that same time step it is empty and
     not full (dst_valid_o 0, dst_fill_o 0, src_ready_o 1). Twice: first
     filled from pointer 0 and the reset a pulse wholly inside the stop,
-    then filled after exactly 2**ADDR_W words went through (the read Gray
-    pointer is then the full pattern) and the reset held into the restart
+    then filled with both pointers at 2**ADDR_W (the read Gray pointer is
+    then the full pattern) and the reset held into the restart
     and released synchronously. So every pointer register and both pointer
     synchronizers are seen to reset with no clock edge. Traffic after each
     reset is checked word by word."""
@@ -390,8 +390,12 @@ async def async_reset(dut):
     await release_both()
     f = Fifo(dut, random, src, dst)
     depth = f.depth
-    for round_, through in enumerate((0, depth)):
-        if through:  # exactly `through` words written and read first
+    base = 0  # f.popped at the last reset: both pointers count from there
+    for round_, pos in enumerate((0, depth)):
+        # Bring both pointers (the FIFO is empty) to `pos` modulo 2 * depth
+        # by passing exactly `through` words.
+        through = (pos - (f.popped - base)) % (2 * depth)
+        if through:
             target = f.popped + through
             f.write_limit = f.pushed + through
             f.p_write, f.p_read = 1.0, 1.0
@@ -402,7 +406,10 @@ async def async_reset(dut):
             assert f.popped == target, f"round {round_}: {f.popped - target + through} read"
             f.write_limit = None
             f.p_write, f.p_read = 0.0, 0.0
-            await falling_edges(dut.src_clk_i, 4)  # the read pointer crosses back
+            # The last read's dst_clk_i edge, then the read pointer crosses
+            # back: rgray_q and its source copy hold the full pattern.
+            await falling_edges(dut.dst_clk_i, 1)
+            await falling_edges(dut.src_clk_i, 4)
         await f.fill()
         f.p_write, f.p_read = 0.0, 0.0
         await falling_edges(dut.dst_clk_i, 4)
@@ -416,6 +423,7 @@ async def async_reset(dut):
         dut.src_rst_i.value = 1
         dut.dst_rst_i.value = 1
         f.queue.clear()
+        base = f.popped
         COV.sample(async_reset="stopped_pulse" if round_ == 0 else "stopped_held")
         await expect_reset_state(f"round {round_}: resets asserted with the clocks stopped")
         await Timer(random.randrange(1, 3 * slow), "ps")

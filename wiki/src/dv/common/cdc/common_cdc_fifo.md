@@ -44,9 +44,10 @@
   the FIFO, stops both clocks with no handshake pending, raises both
   resets and checks, in that same time step, `dst_valid_o` 0, `dst_fill_o`
   0 and `src_ready_o` 1. The first fill starts from pointer 0, so the
-  write Gray pointer and its synchronized copy hold the full pattern; the
-  second starts after exactly `2**ADDR_W` words went through, so the read
-  Gray pointer and its synchronized copy hold it. Between them every
+  write Gray pointer and its synchronized copy hold the full pattern; for
+  the second, exactly enough words pass first (counted from the last
+  reset) to bring both pointers to `2**ADDR_W`, so the read Gray pointer
+  and its synchronized copy hold it. Between them every
   pointer register and both pointer synchronizers must reset with no
   edge, or a flag or the fill shows it. The first reset is a pulse wholly
   inside the stop, the second is held into the restart and released at a
