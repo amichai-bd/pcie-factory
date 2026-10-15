@@ -412,3 +412,79 @@ def test_no_coverage_data_says_so(tmp_path):
     assert problems == []
     assert "No Coverage metrics yet." in (out / "tracker/index.html").read_text()
     assert "No coverage metrics yet for this IP." in (out / "tracker/ip/alpha/index.html").read_text()
+
+
+def arch(status="pass", **scenarios):
+    """An `arch` section for IP alpha: scenario -> (status, {metric: value})."""
+    return {"status": "ok", "ips": {"alpha": {"status": status, "scenarios": {
+        name: {"status": st, "targets": targets} for name, (st, targets) in scenarios.items()}}}}
+
+
+def test_arch_charts(tmp_path):
+    data = {"commits.jsonl": commit(1, "2026-09-01") + commit(2, "2026-09-02") + commit(3, "2026-09-03"),
+            # an older record without an arch section still reads
+            "2026-09-01.json": nightly("2026-09-01", 1, "pass"),
+            "2026-09-02.json": nightly("2026-09-02", 2, "pass", arch=arch(
+                full=("pass", {"throughput_bytes_per_cycle": 1.0, "latency_cycles_max": 1}),
+                half=("pass", {"throughput_ratio": 1.0, "latency_cycles_max": 1}))),
+            "2026-09-03.json": nightly("2026-09-03", 3, "fail", arch=arch(
+                "fail", full=("fail", {"throughput_bytes_per_cycle": 0.5, "latency_cycles_max": 2}),
+                half=("pass", {"throughput_ratio": 1.0, "latency_cycles_max": 1})))}
+    problems, out = build(tree(tmp_path, data))
+    assert problems == []
+    html = (out / "tracker/index.html").read_text()
+    assert ">Architecture model<a" in html and "from the 2026-09-03 nightly" in html
+    charts = chart_data(html)["charts"]
+    lat = charts["arch-latency_cycles_max"]
+    assert lat["unit"] == "cycles"
+    assert {s["label"]: s["points"] for s in lat["series"]} == {
+        "alpha / full": [[1, 1], [2, 2]], "alpha / half": [[1, 1], [2, 1]]}
+    assert charts["arch-throughput_bytes_per_cycle"]["unit"] == "bytes per cycle"
+    assert [s["points"] for s in charts["arch-failing"]["series"]] == [[[1, 0], [2, 1]]]
+    assert "<code>full</code>" in html and "latency_cycles_max = 2, throughput_bytes_per_cycle = 0.5" in html
+    page = (out / "tracker/ip/alpha/index.html").read_text()
+    assert ">Architecture model<a" in page and "Arch full latency_cycles_max" in page
+    series = chart_data(page)["charts"]["ip-arch-throughput_ratio"]["series"]
+    assert [(s["label"], s["points"]) for s in series] == [("half", [[1, 1.0], [2, 1.0]])]
+    index = (out / "tracker/ip/index.html").read_text()
+    assert "<th>Arch model</th>" in index and "</span> fail</span>" in index
+
+
+def test_no_arch_data_says_so(tmp_path):
+    problems, out = build(tree(tmp_path, fixtures=True))
+    assert problems == []
+    assert "No architecture-model metrics yet." in (out / "tracker/index.html").read_text()
+    assert "No architecture-model metrics yet for this IP." in (out / "tracker/ip/alpha/index.html").read_text()
+
+
+def test_arch_names_are_escaped_and_ids_safe(tmp_path):
+    rec = nightly("2026-09-05", 1, "pass", arch=arch(**{"<b>x</b>": ("pass", {"a<b": 1, "a>b": 2})}))
+    problems, out = build(tree(tmp_path, {"2026-09-05.json": rec}))
+    assert problems == []
+    html = (out / "tracker/index.html").read_text()
+    assert "<b>x</b>" not in html and "&lt;b&gt;x&lt;/b&gt;" in html
+    assert {"arch-a-b", "arch-a-b-2"} <= set(chart_data(html)["charts"])
+
+
+def test_metric_unit():
+    assert tracker.metric_unit("latency_cycles_max") == "cycles"
+    assert tracker.metric_unit("throughput_bytes_per_cycle") == "bytes per cycle"
+    assert tracker.metric_unit("throughput_ratio") == "ratio"
+    assert tracker.metric_unit("cycles") == "value"
+    assert tracker.metric_unit("lat_max") == "value"
+
+
+def test_code_kind_beyond_the_slots_is_noted(tmp_path):
+    kinds = {k: {"files": 1, "lines": 1, "code": 1} for k in tracker.KINDS}  # nine kinds
+    problems, out = build(tree(tmp_path, {"commits.jsonl": commit(1, "2026-09-01", code={"kinds": kinds})}))
+    assert problems == []
+    html = (out / "tracker/index.html").read_text()
+    labels = [s["label"] for s in chart_data(html)["charts"]["loc-kind"]["series"]]
+    assert len(labels) == 8 and "Arch Python" not in labels and "Skills" in labels
+    assert "1 more series not drawn" in html
+    # with a kind absent, Arch Python takes its free slot
+    del kinds["workflows"]
+    problems, out = build(tree(tmp_path, {"commits.jsonl": commit(1, "2026-09-01", code={"kinds": kinds})}))
+    series = {s["label"]: s["color"] for s in chart_data((out / "tracker/index.html").read_text())
+              ["charts"]["loc-kind"]["series"]}
+    assert series["Arch Python"] == "7" and "Workflows" not in series

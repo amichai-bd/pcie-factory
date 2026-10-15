@@ -58,7 +58,8 @@ Every folder under `wiki/src/` has a `src/` counterpart, and every page
 there sits in an IP folder `<kind>/<ip>/` (or below one), except the
 design-level pages above (`decisions/` is flat and holds only records). The
 one other exception: a top-level IP's `arch/<ip>/` needs `src/arch/<ip>/` only once its HAS
-defines targets (a `## Targets` section); then the
+defines targets (a `## Targets` section: a level-2 heading starting with
+the word `Targets`, outside fenced code); then the
 [architecture model](arch.md) must exist and report against them.
 `./build check` enforces the page set and the mirror
 ([checks SPEC](../tools/checks/SPEC.md#wiki-mirror-check)).

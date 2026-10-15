@@ -191,7 +191,7 @@ the site reads it.
 | File | Holds |
 | --- | --- |
 | `data/commits.jsonl` | One JSON object per line, one line per commit on `main`, in commit order: `sha`, ISO `date`, `code` stats of that commit's tree (`total`, `kinds`, `ips`, `by_ext`, `by_dir`), and its push `ci-gate` run (`ci.conclusion`, `ci.duration_s`). |
-| `data/<date>.json` | One nightly record: `meta` (`date`, else the file stem; `commit`, the `main` SHA it ran on; `nightly.result`, `nightly.duration_s`), and the `code`, `github`, `health`, `tests`, `coverage`, `fpga`, `asic` and `distributions` groups. |
+| `data/<date>.json` | One nightly record: `meta` (`date`, else the file stem; `commit`, the `main` SHA it ran on; `nightly.result`, `nightly.duration_s`), and the `code`, `github`, `health`, `tests`, `coverage`, `fpga`, `asic`, `arch` and `distributions` groups. |
 
 Lines of code are a bucket's `code` count (non-blank, non-comment lines),
 else its `lines`. The nightly duration is `meta.nightly.duration_s` only; a
@@ -233,11 +233,15 @@ form the axis.
 | Coverage | Line, toggle and functional coverage (`coverage.ips.<ip>.<metric>.pct`), one chart per metric with a series per IP. |
 | Issues and pull requests | Open issues and PRs, issues opened and closed and PRs merged in the trailing 7 days; histograms of issue time to close and to first response or claim, PR lead time, PR size and review rounds; open issues by label. |
 | FPGA, ASIC | One chart per metric with a series per IP: LEs, registers, M9K blocks, worst-clock Fmax and setup slack; WNS, TNS, std-cell area, cells, max fanout and logic depth. |
+| Architecture model | From `arch.ips.<ip>.scenarios`: a table of each IP and perf scenario's latest status and target-metric values; perf scenarios not passing, a series per IP; and one chart per target metric with a series per IP and scenario (`<ip> / <scenario>`). A chart's unit is the one its metric name carries: the words after the first, less a trailing statistic (`latency_cycles_max` is in cycles). |
 
 **`/tracker/ip/<id>/`** (`<id>` may contain `/`, as sub-IP ids did in records
 written before the kind-first layout) shows that
-IP's comparison table, LOC by kind, tests per level, its FPGA and ASIC
-charts, and one coverage chart with a series per metric. `/tracker/ip/` lists the IPs; the sidebar lists them under it.
+IP's comparison table (with each scenario's target metrics), LOC by kind,
+tests per level, its FPGA and ASIC charts, one coverage chart with a series
+per metric, and its architecture model: the scenario status table and one
+chart per target metric with a series per scenario. `/tracker/ip/` lists the
+IPs, with their latest arch status; the sidebar lists them under it.
 
 **Charts.** Each chart is a `<canvas>` with a caption naming the quantity and
 unit, an axis title on both axes, and a data table (the latest 30 points, or
@@ -247,7 +251,9 @@ vendored Chart.js and `tracker.js` only on pages that have one, and redraws on
 a theme change. Colours are CSS custom properties: eight categorical slots
 (light and dark steps validated for colour-vision deficiency), assigned in a
 fixed order per entity (code kind, level, or IP in sorted order) and never
-cycled; a ninth series is not drawn and the chart says so. In the FPGA and
+cycled; a ninth series is not drawn and the chart says so. The first eight
+code kinds own their slot; a later kind (`arch_py`) or an unknown one takes
+a slot left free by an absent kind, else it is the series not drawn. In the FPGA and
 ASIC charts the slots go, in sorted order, to the IPs with data in that flow,
 so an IP is never dropped while a slot is free. Every light slot clears 3:1
 contrast on the page background. Status (good,

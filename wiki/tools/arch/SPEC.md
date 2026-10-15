@@ -16,16 +16,16 @@ the model and scenario contracts and the output. Code: `tools/arch/`
 | `--scenario NAME` | Run only `src/arch/<ip>/perf/NAME.yaml`. Default: every scenario, sorted by name. |
 
 Exit codes: `0` every scenario passed, `1` a scenario failed or errored,
-`2` a usage or configuration error (unknown IP, a sub-IP, no `src/arch/<ip>/`, no or
-several models, a model that cannot be imported or has no `perf`, no
+`2` a usage or configuration error (unknown IP, a sub-IP, no `src/arch/<ip>/`, no
+module prefix in `src/README.md`, no model, a model that cannot be imported or has no `perf`, no
 scenarios, an unknown `--scenario`, an invalid scenario file).
 
 ## Model
 
-`src/arch/<ip>/` holds exactly one model module whose file name ends in
-`<ip>_arch.py` (`<ip>` is the IP id; the prefix comes from
-[`src/README.md`](../../../src/README.md)) and does not start with
-`test_`. The tool imports it by path with `src/arch/<ip>/` first on `sys.path`, so it
+`src/arch/<ip>/` holds the model module `<prefix><ip>_arch.py`, exactly
+that name (`<ip>` is the IP id; the prefix comes from
+[`src/README.md`](../../../src/README.md)); other files, such as
+`test_<prefix><ip>_arch.py` or a helper, are never the model. The tool imports it by path with `src/arch/<ip>/` first on `sys.path`, so it
 may import sibling modules by bare name, and calls:
 
 ```python
@@ -83,10 +83,33 @@ Keys are sorted and the file has no timestamps, so the same sources give
 the same bytes. Because `arch/` lives in `workdir/<ip>/`, no test may be
 named `arch` (`RESERVED_TEST_NAMES` in `tools/build/ip.py`).
 
+## Import rule
+
+Arch never imports DV, RTL or tools code ([arch BKM](../../bkm/arch.md#dv-and-arch)).
+`tools/arch/imports.py` checks it statically for `./build check` (the
+[wiki mirror check](../checks/SPEC.md#wiki-mirror-check)): it parses every
+`*.py` under `src/arch/<ip>/` and reports each imported top-level module
+(`import x.y`, `from x import y`, and `importlib.import_module` or
+`__import__` with a constant name) that names
+
+- a tools module or package (`tools/<name>.py`, `tools/<name>/`),
+- a Python module or package under any other kind folder (`src/<kind>/`
+  other than `arch/`: DV models and tests, and any Python beside RTL or
+  flow inputs), or
+- a DV framework (`cocotb`, `pyuvm`),
+
+unless the name is a sibling module in the same `src/arch/<ip>/` (which is
+first on `sys.path`) or a standard-library module. A file that does not
+parse is a finding too. Relative imports and `sys.path` edits are not
+followed; review covers them.
+
 ## Callers
 
 - `./build ci unit` runs it as the `perf:<ip>` suite of `ci-gate`
   ([CI spec](../ci/SPEC.md#build-ci-unit)).
+- The nightly runs it for every IP with `src/arch/<ip>/`, and
+  `./build metrics collect` keeps a whitelisted part of `perf.json` in the
+  nightly record ([metrics spec](../metrics/SPEC.md#arch)).
 - `./build check` requires `src/arch/<ip>/` with a model and a scenario when
   the IP's HAS has a `## Targets` section
   ([checks spec](../checks/SPEC.md#wiki-mirror-check)), and rejects
@@ -99,7 +122,9 @@ flat sub-IP `blk_sub`, reached by `blk.rtl.f`) in a temporary directory: a passi
 `perf.json`, byte-identical reruns, a missed target, model exceptions and
 bad return values, a target on an unreported metric, `--scenario`
 selection and an unknown name, every malformed scenario case, a bad
-scenario name, a sub-IP, model lookup (none, two, tests ignored), a
+scenario name, a sub-IP, model lookup (only the exact
+`<prefix><ip>_arch.py`; tests, other prefixes and near names ignored; no
+declared prefix), a
 missing `src/arch/<ip>/` or scenario directory, an import failure, a model without
 `perf`, sibling imports (and `sys.path` restored), and the command line
 exit codes.

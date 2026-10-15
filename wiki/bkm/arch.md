@@ -16,7 +16,8 @@ formats and `perf.json`.
 - **Top-level IPs only.** A sub-IP has no `src/arch/<ip>/`; its parent's
   model covers it (sub-IPs start at `wiki/src/rtl/<ip>/MAS.md`).
 - **Required when the HAS defines targets.** A HAS with a `## Targets`
-  section needs `src/arch/<ip>/` with a model and at least one scenario
+  section (any level-2 heading that starts with the word, such as
+  `## Targets (draft)`; not inside fenced code) needs `src/arch/<ip>/` with a model and at least one scenario
   that reports against them. `./build check` enforces this
   ([checks SPEC](../tools/checks/SPEC.md#wiki-mirror-check)).
 - **Written from the HAS**, not from the RTL or the DV model, so it is an
@@ -50,7 +51,8 @@ formats and `perf.json`.
 ## DV and arch
 
 The dependency points one way: **DV may import arch, arch never imports
-DV** (or RTL, or tools). A DV model or test may use the architecture model
+DV** (or RTL, or tools); `./build check` scans the imports of every Python
+file in `src/arch/<ip>/` ([import rule](../tools/arch/SPEC.md#import-rule)). A DV model or test may use the architecture model
 as a second reference, for example to cross-check the DV reference model,
 by appending `src/arch/<ip>` (located from its own file) to `sys.path`. The
 DV reference model stays the oracle for the RTL ([DV BKM](dv.md#scope-and-oracle)).
@@ -71,5 +73,9 @@ python3 -m pytest src/arch/<ip>
 ```
 
 The PR quotes each scenario's status and its target metrics. The nightly
-metrics record and the tracker do not carry `perf.json` yet
-([#63](https://github.com/amichai-bd/pcie-factory/issues/63)).
+runs `./build arch --ip <ip>` for every IP with `src/arch/<ip>/` (its `arch`
+step); the nightly record keeps each scenario's status and target-metric
+values ([metrics spec](../tools/metrics/SPEC.md#arch)), and the
+[tracker](../tracker/index.md) charts them per IP and scenario next to the
+FPGA and ASIC series, so a change in modeled throughput or latency shows
+over time. Model code counts as its own code kind, `arch_py`.
