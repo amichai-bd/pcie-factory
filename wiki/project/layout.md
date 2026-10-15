@@ -63,6 +63,11 @@ IP whose id is `<other>_<name>`, for another IP `<other>`, must be reached by
 with `-F` or renamed. `common/` under `rtl/` and `dv/` holds shared blocks
 and is never an IP.
 
+A leaf block is a file in its IP's folder, not a sub-IP: a sub-IP is made
+only for a substantial, independently verified block that the captain
+approves, and testbenches exist per IP and for the shared unit only
+([granularity](../bkm/rtl.md#granularity)).
+
 A top-level IP may **integrate** other top-level IPs through `-F`
 (`sys.rtl.f` including `a.rtl.f` and `b.rtl.f`). They stay top-level, with
 their own HAS, `arch/`, `fpga/` and `asic/`, and `regress --affected` still
@@ -73,7 +78,9 @@ Q19 of [decision record 0002](../src/decisions/0002-m1-grill.md#decisions)).
 ## Shared blocks
 
 `src/rtl/common/` holds the shared blocks, IP-neutral cells that IPs reuse
-(`common_<name>`). It is never an IP: no HAS, no `arch/`, `fpga/` or `asic/`
+(`common_<name>`), and the shared project package, a package-only shared
+block for types and constants used by more than one IP
+([packages](../bkm/rtl.md#types-and-constants-live-in-packages)). It is never an IP: no HAS, no `arch/`, `fpga/` or `asic/`
 folder, and no IP reaches it as a sub-IP. A **shared block** is one
 filelist `rtl/common/<block>.rtl.f`, directly in the folder and named after
 the block's top module; it lists the block's sources and includes the

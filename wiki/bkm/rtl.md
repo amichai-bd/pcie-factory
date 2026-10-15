@@ -116,8 +116,9 @@ then reset, then reset value. `RESET` is active high and wins over
 | `` `COMMON_MEM_READ_EN(Q, MEM, CLK, READ_ENABLE, ADDRESS)`` | The same when `READ_ENABLE`. |
 | `` `COMMON_UNUSED_BITS(NAME, BITS)`` | Lint-only: under Verilator declares `logic NAME = ^(BITS)` so deliberately unused bits are observed without a waiver; synthesis sees nothing. `NAME` starts with `unused_` and has no reader. |
 
-- Group a state machine's registers into one packed struct with a reset
-  constant from the package when that clarifies ownership and reset.
+- Multi-field state (an FSM's state with its counters and flags) is one
+  packed struct register, `state_q`/`state_d`, reset to a typed constant
+  from the package ([structs](#structs-at-interfaces)).
 - Reset only state that needs a defined value; data qualified by a valid
   bit uses `COMMON_DFF_EN`, and storage arrays are not reset.
 - A memory has one `COMMON_MEM_WRITE*` and one `COMMON_MEM_READ*` (or a
@@ -217,16 +218,67 @@ and simulation.
   `pkg_name::item` (`<prefix><ip>_pkg::t_req` in a port list,
   `<prefix><ip>_pkg::SEED` in a reset value). No `import`, wildcard or named: a reader sees where
   each name comes from, and two packages never collide.
-- Hierarchy: one package per IP for its contract; a sub-IP adds its own
-  package only when it has types the parent does not need. Shared, IP-neutral
-  types go in `src/rtl/common/common_*_pkg.sv` only when there is a real
-  second consumer (none yet: no common block needs one).
-- Package dependencies point down the hierarchy: a parent may use a
-  sub-IP's package, and a sub-IP never uses its parent's, so the sub-IP's
-  filelist stays standalone.
+- **One package per IP**, `<prefix><ip>_pkg`, holds the IP's private types
+  and constants: the structs its blocks exchange, its state types and reset
+  constants. The leaf blocks of an IP share it and add no package of their
+  own ([granularity](#granularity)); a sub-IP is an IP and has its own.
+- **One shared project package** in `src/rtl/common/` holds the types and
+  constants used by more than one IP, so no constant is defined twice. It
+  is a shared block, named and laid out like one (`common_<name>_pkg`, with
+  its filelist, MAS and DV plan:
+  [layout](../project/layout.md#shared-blocks)). A type or constant moves
+  there when a second IP needs it, never by copy.
+- Package dependencies point down the hierarchy: an IP's package may use
+  the shared package and a sub-IP's package; the shared package uses no IP
+  package, and a sub-IP never uses its parent's, so each filelist stays
+  standalone.
 - Packages cannot see module parameters. A field whose width follows a module
   parameter stays a separately declared signal, not a packaged struct field.
 - Packages come first in the filelist that owns them (see below).
+
+## Structs at interfaces
+
+Signals that belong together and cross a module boundary inside an IP are
+one packed struct `typedef` in a package, carried by one port, not loose
+`logic` vectors side by side. The same holds for multi-field state such as
+an FSM register. Types an IP keeps to itself go in its package; types two
+IPs exchange go in the shared package.
+
+```systemverilog
+// <prefix><ip>_pkg
+typedef struct packed {
+  logic [7:0] data;
+  logic       ctrl;   // control symbol, not data
+  logic       err;    // received with an error
+} t_sym;
+
+// a block inside the IP
+input  <prefix><ip>_pkg::t_sym sym_i,   // not sym_data_i, sym_ctrl_i, sym_err_i
+```
+
+- Read and write fields by name (`sym_i.err`), never by slicing the
+  struct's bits.
+- Flat `logic` stays for:
+  - a single-meaning signal (a clock, reset, enable, `valid` or `ready`,
+    a count), including the handshake beside a struct payload;
+  - an IP's top-level ports that mirror an external interface its HAS
+    names: they keep that interface's names and widths;
+  - a field whose width follows a module parameter (packages cannot see
+    parameters); fixed-width fields of the same bundle may still form a
+    struct.
+- The checker cannot tell which signals belong together, so this is a
+  review item.
+
+## Granularity
+
+A leaf block is a module file in its IP's `src/rtl/<ip>/` folder, listed in
+the IP's one `.rtl.f`, described by a section of the IP's MAS and tested
+through the IP's ports by the IP's testbench; it is not a sub-IP. A sub-IP
+(its own folder, filelist, MAS, DV plan and testbench) is created only for
+a substantial, independently verified block that the captain approves.
+Testbenches exist per IP and for the shared unit `common`, never per leaf
+module ([layout](../project/layout.md#ips-and-sub-ips),
+[DV BKM](dv.md#fast-test-ladder)).
 
 ## Naming
 
@@ -398,6 +450,9 @@ format and names. Practice on top of it:
 - Every clock-domain crossing goes through a crossing macro or cell
   ([crossings](#clock-domain-crossings)).
 - Types in packages, referenced as `pkg::item`; names follow the table.
+- Related signals bundled as package structs
+  ([structs](#structs-at-interfaces)); a new leaf block is a file in its
+  IP, not a sub-IP ([granularity](#granularity)).
 - Filelist updated in order; no orphan or duplicate.
 - Lint and style clean, or each waiver reviewed with a reason.
 - HAS updated in the same PR when behavior or interfaces change, MAS when
