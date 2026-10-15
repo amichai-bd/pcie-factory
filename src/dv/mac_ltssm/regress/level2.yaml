@@ -1,0 +1,21 @@
+tests:
+  - name: arcs_full_downstream
+    module: tests.test_mac_ltssm
+    testcase: arcs_full_downstream
+    top: pcie_mac_ltssm_tb
+    timeout_s: 3600
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
+  - name: arcs_full_upstream
+    module: tests.test_mac_ltssm
+    testcase: arcs_full_upstream
+    top: pcie_mac_ltssm_tb
+    timeout_s: 3600
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
+  - name: dividers
+    module: tests.test_mac_ltssm
+    testcase: dividers
+    top: pcie_mac_ltssm_tb
+    timeout_s: 1200
+    params: {TIMEOUT_DIV: 256, ERR_TIMEOUT_DIV: 128}
+coverage_floors:
+  functional: {mac_ltssm_arcs: 100}

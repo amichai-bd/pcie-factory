@@ -1,0 +1,20 @@
+tests:
+  - name: arcs_quick
+    module: tests.test_mac_ltssm
+    testcase: arcs_quick
+    top: pcie_mac_ltssm_tb
+    timeout_s: 600
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
+  - name: polarity
+    module: tests.test_mac_ltssm
+    testcase: polarity
+    top: pcie_mac_ltssm_tb
+    timeout_s: 300
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
+  - name: random_soak
+    module: tests.test_mac_ltssm
+    testcase: random_soak
+    top: pcie_mac_ltssm_tb
+    seeds: 2
+    timeout_s: 900
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}

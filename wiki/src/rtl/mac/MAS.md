@@ -14,15 +14,19 @@ The shell drives every output to its
 [reset value](../../arch/mac/HAS.md#reset-values), taking the
 `ltssm_state_o` and PowerDown codes from `pcie_mac_pkg`, and folds every
 input and parameter into one `unused_inputs` net so lint stays clean. It
-instances [`pcie_mac_os`](../mac_os/MAS.md) as `u_os`, with the PIPE
-receive inputs connected, no ordered set requested and every output into
-one `COMMON_UNUSED_BITS` net, and [`pcie_mac_frame`](../mac_frame/MAS.md) as
-`u_frame`, inert (LTSSM controls tied off, no L0; its outputs into
-`unused_frame`), until the integration connects them.
-[`mac.rtl.f`](../../../../src/rtl/mac/mac.rtl.f) also reaches
-[`mac_scrambler`](../mac_scrambler/MAS.md) with `-F`; the last sub-IP
-folder, its `-F` line and its MAS page arrive with
-[#77](https://github.com/amichai-bd/pcie-factory/issues/77).
+instances [`pcie_mac_os`](../mac_os/MAS.md) as `u_os`,
+[`pcie_mac_ltssm`](../mac_ltssm/MAS.md) as `u_ltssm` and
+[`pcie_mac_frame`](../mac_frame/MAS.md) as `u_frame`, joined at the
+LTSSM's sibling ports: its ordered-set requests and TS fields into `u_os`
+and the receive events and acknowledgements back; `tx_l0`, `tx_stop` and
+`rx_l0` into `u_frame`, and the frame's `rx_idle_o` and idle-word-on-line
+(`tx_act_o`, not `tx_pkt_o`, not `u_os`'s `tx_valid_o`) back. The PIPE
+receive inputs go to `u_os` and `u_frame`. Until the integration
+([#78](https://github.com/amichai-bd/pcie-factory/issues/78)) the LTSSM's
+PCS status is tied to "not ready", so it stays in Detect.Quiet, requests no
+ordered set and keeps the frame out of L0; every other output goes into a
+`COMMON_UNUSED_BITS` net. [`mac.rtl.f`](../../../../src/rtl/mac/mac.rtl.f)
+also reaches [`mac_scrambler`](../mac_scrambler/MAS.md) with `-F`.
 
 ## Timing
 
@@ -34,5 +38,5 @@ The latency budgets are in the [HAS targets](../../arch/mac/HAS.md#targets).
 | File | Holds |
 | --- | --- |
 | [`pcie_mac_pkg.sv`](../../../../src/rtl/mac/pcie_mac_pkg.sv) | `t_ltssm_state`, `t_l0s_sub`, `t_power_down` ([HAS, Package](../../arch/mac/HAS.md#package)). |
-| [`pcie_mac.sv`](../../../../src/rtl/mac/pcie_mac.sv) | The shell module. |
-| [`mac.rtl.f`](../../../../src/rtl/mac/mac.rtl.f) | `-F` of the [`mac_scrambler`](../mac_scrambler/MAS.md), [`mac_os`](../mac_os/MAS.md) and [`mac_frame`](../mac_frame/MAS.md) filelists, then `pcie_mac_pkg.sv` and `pcie_mac.sv`. |
+| [`pcie_mac.sv`](../../../../src/rtl/mac/pcie_mac.sv) | The shell module and the inert `u_os`, `u_ltssm` and `u_frame` instances. |
+| [`mac.rtl.f`](../../../../src/rtl/mac/mac.rtl.f) | `-F` of the [`mac_scrambler`](../mac_scrambler/MAS.md), [`mac_frame`](../mac_frame/MAS.md), [`mac_os`](../mac_os/MAS.md) and [`mac_ltssm`](../mac_ltssm/MAS.md) filelists, then `pcie_mac_pkg.sv` and `pcie_mac.sv`. |
