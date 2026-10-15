@@ -6,15 +6,15 @@
 // from a serial-in shift register per domain, fed by one slide switch, and
 // the outputs are registered and folded into one parity LED. No port is
 // constant and every output is observed, so synthesis keeps the whole
-// stack. Both clocks enter on clock pins at 125 MHz. The board loopback
-// demo is a separate issue (#89).
+// stack. Both clocks enter on clock pins at 50 MHz, the FPGA timing target.
+// The board loopback demo is a separate issue (#89).
 `default_nettype none
 
 `include "common_macros.svh"
 
 module pcie_phy_de2_115 (
-  input  logic       clk_125_i,  // SMA_CLKIN: 125 MHz core clock and PCLK (clk_i)
-  input  logic       rx_clk_i,   // HSMC_CLKIN0: 125 MHz recovered RX clock (ser_rx_clk_i)
+  input  logic       clk_i,      // CLOCK_50: board oscillator, core clock and PCLK (clk_i)
+  input  logic       rx_clk_i,   // HSMC_CLKIN0: independent recovered RX clock (ser_rx_clk_i)
   input  logic       key0_ni,    // KEY[0]: push button, low while pressed; held: reset
   input  logic [2:0] sw_i,       // SW[2:0]: [0] port role, [1] core-domain stimulus,
                                  //   [2] RX-domain stimulus
@@ -51,7 +51,7 @@ module pcie_phy_de2_115 (
   // KEY[0] is held. It is a flop with no logic after it, because it reaches
   // the pcs RX reset synchronizer's asynchronous set (common_cdc_rst takes
   // its source straight from a flop). It powers up 0 and goes high at the
-  // first clk_125_i edge.
+  // first clk_i edge.
   logic                 rst_d;
   logic                 rst_q;
 
@@ -88,27 +88,27 @@ module pcie_phy_de2_115 (
     if (!por_done) por_cnt_d = por_cnt_q + POR_W'(1);
   end
 
-  `COMMON_DFF(por_cnt_q, por_cnt_d, clk_125_i)
+  `COMMON_DFF(por_cnt_q, por_cnt_d, clk_i)
 
   assign key0_n  = key0_ni;
   assign sw_core = sw_i[1:0];
   assign sw_rx   = sw_i[2];
 
   // The synchronizers have no reset: the reset itself comes from KEY[0].
-  `COMMON_METAFLOP(u_key_sync, key_sync_q, key0_n, clk_125_i, 1'b0)
-  `COMMON_METAFLOP(u_sw_sync, sw_sync_q, sw_core, clk_125_i, 1'b0)
+  `COMMON_METAFLOP(u_key_sync, key_sync_q, key0_n, clk_i, 1'b0)
+  `COMMON_METAFLOP(u_sw_sync, sw_sync_q, sw_core, clk_i, 1'b0)
   `COMMON_METAFLOP(u_rx_sw_sync, rx_sw_sync_q, sw_rx, rx_clk_i, 1'b0)
 
   assign rst_d = ~(por_done & key_sync_q);
 
-  `COMMON_DFF(rst_q, rst_d, clk_125_i)
+  `COMMON_DFF(rst_q, rst_d, clk_i)
 
   // Serial-in shift registers: each stimulus bit is a distinct flop on the
   // domain of the input it drives. No reset; they start at 0.
   assign stim_d    = {stim_q[STIM_W-2:0], sw_sync_q[1]};
   assign rx_stim_d = {rx_stim_q[RX_STIM_W-2:0], rx_sw_sync_q};
 
-  `COMMON_DFF(stim_q, stim_d, clk_125_i)
+  `COMMON_DFF(stim_q, stim_d, clk_i)
   `COMMON_DFF(rx_stim_q, rx_stim_d, rx_clk_i)
 
   // FPGA builds use TIMEOUT_DIV and ERR_TIMEOUT_DIV 1 (phy HAS).
@@ -116,7 +116,7 @@ module pcie_phy_de2_115 (
     .TIMEOUT_DIV     (1),
     .ERR_TIMEOUT_DIV (1)
   ) u_phy (
-    .clk_i              (clk_125_i),
+    .clk_i              (clk_i),
     .rst_i              (rst_q),
     .port_role_i        (sw_sync_q[0]),
     .pkt_tx_valid_i     (stim_q[0]),
@@ -156,10 +156,10 @@ module pcie_phy_de2_115 (
                   rcv_err, ser_tx_data, ser_tx_elec_idle};
   assign par_d = ^obs_q;
 
-  `COMMON_DFF(obs_q, obs_d, clk_125_i)
-  `COMMON_DFF(par_q, par_d, clk_125_i)
-  `COMMON_DFF(ltssm_q, ltssm_state, clk_125_i)
-  `COMMON_DFF(link_up_q, link_up, clk_125_i)
+  `COMMON_DFF(obs_q, obs_d, clk_i)
+  `COMMON_DFF(par_q, par_d, clk_i)
+  `COMMON_DFF(ltssm_q, ltssm_state, clk_i)
+  `COMMON_DFF(link_up_q, link_up, clk_i)
 
   assign ledr_o = ltssm_q;
   assign ledg_o = {par_q, link_up_q};

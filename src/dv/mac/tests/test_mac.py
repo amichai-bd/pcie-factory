@@ -805,12 +805,14 @@ class Crafter:
     """A line hook that replaces the DUT's received words with a crafted
     symbol stream (plain symbols, scrambled here after a COM so the DUT's
     descrambler keys them), with per-word RxValid, electrical idle and
-    RxStatus overrides."""
+    RxStatus overrides. With ``hold_idle`` the line stays in electrical idle
+    once the crafted words are used up."""
 
-    def __init__(self) -> None:
+    def __init__(self, hold_idle: bool = False) -> None:
         self.words: deque = deque()
         self.scr = arch.Scrambler()
         self.in_os = 0
+        self.hold_idle = hold_idle
 
     def symbols(self, syms, valid=1, status=0) -> None:
         """Queue plain symbols ((k, byte) pairs, an even count)."""
@@ -820,10 +822,20 @@ class Crafter:
         for i in range(0, len(out), 2):
             self.words.append((out[i], out[i + 1], valid, status))
 
+    def idle(self, n: int) -> None:
+        """Queue ``n`` words of electrical idle (RxValid 0, RxElecIdle 1)."""
+        for _ in range(n):
+            self.words.append(None)
+
     def __call__(self, h, rx):
         if not self.words:
+            if self.hold_idle:
+                return arch.PipeRx(elec_idle=True, phy_status=rx.phy_status)
             return rx
-        s0, s1, valid, status = self.words.popleft()
+        w = self.words.popleft()
+        if w is None:
+            return arch.PipeRx(elec_idle=True, phy_status=rx.phy_status)
+        s0, s1, valid, status = w
         syms = []
         for k, b in (s0, s1):
             if not valid:
@@ -957,6 +969,117 @@ async def rx_errors(dut):
         assert h.rcv_pulses > 0, f"{role}: no receiver error pulse in an error test"
         dut._log.info("%s: %d packets delivered, %d rcv_err_o pulses, %d cycles checked",
                       role, len(h.upper.got), h.rcv_pulses, h.checks)
+
+
+async def _tail_burst(h, c, what):
+    """Play a crafted burst that ends in electrical idle (or idle data);
+    return the receiver-error pulses and the packets delivered meanwhile.
+    The line stays idle afterwards, so nothing else is received."""
+    pulses, got = h.rcv_pulses, len(h.upper.got)
+    h.line_hook = c
+    await h.run_until(lambda q: not c.words, 1_000, what)
+    await h.run(8)                       # the last word through the pipeline
+    return h.rcv_pulses - pulses, h.upper.got[got:]
+
+
+@cocotb.test()
+async def rx_idle_tail(dut):
+    """L1, directed (#197): the PCS idle tail, a word whose [7:0] is the
+    last symbol before electrical idle and whose [15:8] is an EDB the line
+    never carried (wiki/src/arch/mac/HAS.md#receive). In each role: a
+    nullified TLP followed by idle data is still nullified with no receiver
+    error (the control); the same symbols followed by electrical idle (the
+    line idles mid-TLP with no EIOS) end bad with one receiver error, as
+    does the cut one symbol earlier; a received EDB in [15:8] outside a
+    packet is one framing error, then resync (the control for the next
+    cases); an EIOS whose last IDL is an idle tail starts receive L0s with
+    no receiver error. Upstream only: an EIOS with an idle tail received in
+    Rx_L0 while the port has L1 requested but has not started its wait (a
+    packet of its own on the line) raises no receiver error. The expected
+    outcomes come from the HAS, not the shadow; the shadow checks every
+    cycle as usual."""
+    h = Harness(dut)
+    await h.start()
+    skp = [arch.COM, arch.SKP, arch.SKP, arch.SKP]
+    eios_odd = [IDLE, arch.COM, arch.EIDL, arch.EIDL, arch.EIDL, arch.EDB]
+    data = list(range(1, 21))
+    for role in arch.ROLES:
+        await train(h, role)
+        # The control: a nullified TLP, then idle data, then the line idles.
+        c = Crafter(hold_idle=True)
+        c.symbols(skp + frame(False, data, arch.EDB) + [IDLE] * 4)
+        pulses, got = await _tail_burst(h, c, "nullified TLP")
+        assert [g[2:4] for g in got] == [(False, True)], (
+            f"{role}: a nullified TLP followed by idle data delivered {got}, "
+            "expected one nullified packet")
+        assert pulses == 0, f"{role}: {pulses} receiver errors for a nullified TLP"
+        await settle(h)
+        # Case 1: the same symbols, then electrical idle with no EIOS.
+        c = Crafter(hold_idle=True)
+        c.symbols(skp + frame(False, data, arch.EDB))
+        assert h.a.state == arch.L0 and h.a.rx_sub == arch.RL0
+        pulses, got = await _tail_burst(h, c, "idle mid-TLP")
+        assert [g[2:4] for g in got] == [(True, False)], (
+            f"{role}: a TLP cut by electrical idle at an idle tail delivered {got}, "
+            "expected one packet with err and no nullify")
+        assert pulses == 1, (f"{role}: {pulses} receiver errors for a TLP cut by "
+                             "electrical idle, expected 1")
+        COV_PKT.sample(rx_error="idle_tail")
+        await settle(h)
+        # The same cut one symbol earlier (no idle tail): err, one error.
+        c = Crafter(hold_idle=True)
+        c.symbols(skp + [arch.STP] + [(0, x) for x in data[:-1]])
+        pulses, got = await _tail_burst(h, c, "idle mid-TLP, even")
+        assert [g[2:4] for g in got] == [(True, False)] and pulses == 1, (
+            f"{role}: a TLP cut by electrical idle after [15:8] delivered {got} with "
+            f"{pulses} receiver errors, expected one bad packet and 1")
+        await settle(h)
+        # A received EDB in [15:8] outside a packet is one framing error,
+        # followed by idle data or by a data symbol, one word later (so its
+        # own error would be a second pulse), that the resync discards.
+        for after in ([IDLE, IDLE], [IDLE, IDLE, (0, 0x55), IDLE]):
+            c = Crafter(hold_idle=True)
+            c.symbols(skp + [IDLE, arch.EDB] + after + [IDLE] * 4)
+            pulses, got = await _tail_burst(h, c, "EDB outside a packet")
+            assert pulses == 1 and not got, (
+                f"{role}: a received EDB outside a packet, then {after}, gave {pulses} "
+                f"receiver errors, {got}; expected 1 (then resync)")
+            await settle(h)
+        # An EIOS ending in an idle tail: receive L0s, no receiver error.
+        c = Crafter(hold_idle=True)
+        c.symbols(skp + eios_odd)
+        pulses, got = await _tail_burst(h, c, "EIOS with an idle tail")
+        assert h.a.rx_sub in (arch.RE, arch.RXI), (
+            f"{role}: receiver in {h.a.rx_sub} after an EIOS, expected receive L0s")
+        assert pulses == 0 and not got, (
+            f"{role}: an EIOS with an idle tail gave {pulses} receiver errors, {got}")
+        await settle(h)
+        if role != "upstream":
+            continue
+        # Case 2: L1 requested while the DUT sends a long TLP, so its wait
+        # (pm_wait) cannot start; the partner's EIOS with an idle tail
+        # arrives in Rx_L0.
+        h.send(arch.Packet(False, bytes(range(256)) * 2))
+        await h.run_until(lambda q: q.upper.cur is not None and q.upper.cur[1] > 4,
+                          1_000, "the DUT's packet started")
+        t = h.now
+        h.request(pm_state=2)
+        await h.run(2)
+        c = Crafter(hold_idle=True)
+        c.symbols(skp + eios_odd)
+        pulses, got = await _tail_burst(h, c, "EIOS before the wait")
+        assert h.upper.cur is not None, (
+            f"{role}: the DUT's packet ended before the EIOS was parsed; the case "
+            "needs the wait not yet started")
+        assert h.a.state == arch.L0 and h.a.rx_sub == arch.RL0, (
+            f"{role}: DUT in {h.a.state}/{h.a.rx_sub}, expected L0 with Rx_L0 "
+            "(the EIOS noted for L1 entry)")
+        assert pulses == 0 and not got, (
+            f"{role}: an EIOS before the L1 wait gave {pulses} receiver errors, {got}")
+        COV_PKT.sample(rx_error="idle_tail_out")
+        await h.run_until(took(h, arch.L0, arch.L1E, t), LIMIT, "L1 after the wait")
+        h.line_hook = None
+        await settle(h)
 
 
 class Mangler:

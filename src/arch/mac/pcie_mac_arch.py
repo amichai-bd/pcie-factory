@@ -248,14 +248,16 @@ class PipeRx:
 
 class Packet:
     """One upper-stream packet. On receive, ``err`` and ``nullify`` are the
-    flags of its eop beat."""
+    flags of its eop beat; ``t`` is the step its end was parsed and ``tail``
+    marks an end by EDB in [15:8], delivered with the next word."""
 
-    __slots__ = ("dllp", "data", "nullify", "err", "t")
+    __slots__ = ("dllp", "data", "nullify", "err", "t", "tail")
 
     def __init__(self, dllp: bool, data: bytes, nullify: bool = False,
                  err: bool = False) -> None:
         self.dllp, self.data, self.nullify, self.err = dllp, bytes(data), nullify, err
         self.t = 0
+        self.tail = False
 
     def __eq__(self, other: object) -> bool:
         return (isinstance(other, Packet) and (self.dllp, self.data, self.nullify, self.err)
@@ -417,6 +419,8 @@ class Mac:
         self._pkt_dllp = False
         self._pkt_bad = False
         self._resync = False
+        self._tail: Packet | None = None   # ended by EDB in [15:8], outcome next word
+        self._tail_ferr = False            # EDB in [15:8] outside a packet, ditto
         self._lb_expect: int | None = None
         self._enter_state(DQ)
 
@@ -667,17 +671,45 @@ class Mac:
                 self.main_ei_exit = True
             if self.sub_ei_seen:
                 self.sub_ei_exit = True
+        ok = rx.valid and not ei
+        in_l0 = self.state == L0 and self.rx_sub == RL0
+        # An EDB in [15:8] of the previous word counts only if this word is
+        # received: before RxValid 0 or electrical idle it is the PCS's idle
+        # tail, and the stream was cut after [7:0] (HAS, Receive).
+        if self._tail is not None:
+            p, self._tail = self._tail, None
+            if not ok:
+                p.err, p.nullify = True, False
+                if in_l0:
+                    self._cut_err()
+            self.rx_packets.append(p)
+        if self._tail_ferr:
+            self._tail_ferr = False
+            if ok:
+                self.framing_errors += 1
+                self.rcv_errors += 1
+                if in_l0:
+                    self._resync = True
         if rx.status >= 4:
             self.rcv_errors += 1
             if self._pkt is not None:
                 self._pkt_bad = True
-        if rx.valid and not ei:
-            for sym in rx.syms:
-                self._rx_sym(sym[0], sym[1])
+        if ok:
+            for lane, sym in enumerate(rx.syms):
+                self._rx_sym(sym[0], sym[1], lane)
         elif self._pkt is not None:
+            # A cut: in Rx_L0 the packet did not end with END or EDB, a
+            # framing error without resync (an empty one counts in _pkt_end).
+            n = len(self._pkt)
             self._pkt_end(err=True)
+            if n and in_l0:
+                self._cut_err()
 
-    def _rx_sym(self, k: int, b: int) -> None:
+    def _cut_err(self) -> None:
+        self.framing_errors += 1
+        self.rcv_errors += 1
+
+    def _rx_sym(self, k: int, b: int, lane: int = 0) -> None:
         scr = self.rx_scr
         if k and b == 0xBC:                     # COM: an ordered set starts
             if self._p == 2:
@@ -738,12 +770,14 @@ class Mac:
                     self._pkt, self._pkt_dllp, self._pkt_bad = bytearray(), b == 0x5C, False
                 self._resync = False
             elif b in (0xFD, 0xFE) and self._pkt is not None:
-                self._pkt_end(err=False, edb=b == 0xFE)
+                self._pkt_end(err=False, edb=b == 0xFE, defer=b == 0xFE and lane == 1)
             elif b in (0xFD, 0xFE) and self._resync:
                 self._resync = False
             elif self._pkt is not None:
                 self._pkt_end(err=True)
                 self._frame_err(in_l0)
+            elif b == 0xFE and lane == 1 and in_l0 and not self._resync:
+                self._tail_ferr = True         # decided by the next word
             elif not self._resync:             # discarded without errors while resyncing
                 self._frame_err(in_l0)
         elif self._pkt is not None:
@@ -765,7 +799,8 @@ class Mac:
             self.rcv_errors += 1
             self._resync = True
 
-    def _pkt_end(self, err: bool, edb: bool = False, silent: bool = False) -> None:
+    def _pkt_end(self, err: bool, edb: bool = False, silent: bool = False,
+                 defer: bool = False) -> None:
         n = len(self._pkt)
         if n == 0:
             # A packet with no data byte is dropped; in L0 it is a framing
@@ -781,7 +816,11 @@ class Mac:
                or (self._pkt_dllp and n != 6))
         p = Packet(self._pkt_dllp, bytes(self._pkt), nullify=edb and not bad, err=bad)
         p.t = self.now
-        self.rx_packets.append(p)
+        p.tail = defer                         # its eop waited for the next word
+        if defer:
+            self._tail = p                     # delivered with the next word
+        else:
+            self.rx_packets.append(p)
         self._pkt = None
         self._pkt_bad = False
 
