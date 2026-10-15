@@ -32,4 +32,4 @@ are in the [HAS targets](../../arch/pcs/HAS.md#targets).
 | File | Holds |
 | --- | --- |
 | [`pcie_pcs.sv`](../../../../src/rtl/pcs/pcie_pcs.sv) | The shell module. |
-| [`pcs.rtl.f`](../../../../src/rtl/pcs/pcs.rtl.f) | `-F ../pcs_enc8b10b/pcs_enc8b10b.rtl.f`, then `pcie_pcs.sv`. |
+| [`pcs.rtl.f`](../../../../src/rtl/pcs/pcs.rtl.f) | `-F ../pcs_enc8b10b/pcs_enc8b10b.rtl.f`, `-F ../pcs_align/pcs_align.rtl.f` (the [`pcs_align`](../pcs_align/MAS.md) sub-IP, not yet instantiated), then `pcie_pcs.sv`. |
