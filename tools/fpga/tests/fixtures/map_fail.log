@@ -1,0 +1,52 @@
+Info: Running Quartus Prime Analysis & Synthesis
+Info: Command: quartus_map widget_board -c widget_board
+Info (20030): Parallel compilation is enabled and will use 4 of the 4 processors detected
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_pkg.sv
+    Info (12023): Found entity 1: widget_pkg File: src/rtl/widget/widget_pkg.sv Line: 1
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget.sv
+    Info (12023): Found entity 1: widget File: src/rtl/widget/widget.sv Line: 1
+Critical Warning (10846): Verilog HDL Instantiation warning at widget.sv(9): instance has no name File: src/rtl/widget/widget.sv Line: 9
+Error (10161): Verilog HDL error at widget.sv(12): object "cnt_d" is not declared File: src/rtl/widget/widget.sv Line: 12
+Error (10161): Verilog HDL error at widget.sv(14): object "cnt_d" is not declared File: src/rtl/widget/widget.sv Line: 14
+Error (12152): Can't elaborate user hierarchy "widget:u_widget" File: src/fpga/widget/widget_board.sv Line: 6
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub0.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub1.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub2.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub3.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub4.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub5.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub6.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub7.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub8.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub9.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub10.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub11.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub12.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub13.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub14.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub15.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub16.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub17.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub18.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub19.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub20.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub21.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub22.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub23.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub24.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub25.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub26.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub27.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub28.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub29.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub30.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub31.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub32.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub33.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub34.sv
+Info (12021): Found 1 design units, including 1 entities, in source file src/rtl/widget/widget_sub35.sv
+Error: Quartus Prime Analysis & Synthesis was unsuccessful. 3 errors, 1 warning
+    Error: Peak virtual memory: 300 megabytes
+    Error: Processing ended: Thu Jan  1 00:00:00 2026
+    Error: Elapsed time: 00:00:10
+    Error: Total CPU time (on all processors): 00:00:20

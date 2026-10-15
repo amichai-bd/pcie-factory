@@ -234,7 +234,11 @@ permissions and data PR mechanics):
    --level 1 --level 2 --coverage` across all IPs (merged line, toggle and functional coverage
    per IP, with any floors checked; [regress SPEC](../tools/regress/SPEC.md#coverage)).
 2. `./build fpga` and `./build asic` for every IP with `src/fpga/<ip>/` or
-   `src/asic/<ip>/` inputs.
+   `src/asic/<ip>/` inputs. A failed step prints every error line of its
+   log before the tail ([failure excerpt](../tools/build/SPEC.md#failure-excerpt))
+   to the job log. That excerpt is the only part of a vendor log that
+   leaves the host: the logs themselves stay in `workdir/` and are never
+   uploaded as artifacts (publishability).
 3. Metrics: the per-commit series `wiki/tracker/data/commits.jsonl` and the
    nightly record `wiki/tracker/data/<date>.json` (versioned schemas).
 4. A data PR from branch `nightly/<date>`, labelled `type:data`, under the

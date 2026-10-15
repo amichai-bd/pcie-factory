@@ -1,0 +1,44 @@
+[INFO] Running synthesis
+1. Executing Verilog-2005 frontend: src/rtl/counter/counter.sv
+ERROR: Module `\counter_sub' referenced in module `\counter' in cell `\u_sub' is not part of the design.
+[INFO GPL-0001] Placement started
+[ERROR GPL-0302] Use a higher -density or re-floorplan with a larger core area.
+Error: counter.sdc line 3, unknown port 'clk_x'.
+[INFO GPL-0100] iteration 0 overflow 0.90
+[INFO GPL-0101] iteration 1 overflow 0.89
+[INFO GPL-0102] iteration 2 overflow 0.88
+[INFO GPL-0103] iteration 3 overflow 0.87
+[INFO GPL-0104] iteration 4 overflow 0.86
+[INFO GPL-0105] iteration 5 overflow 0.85
+[INFO GPL-0106] iteration 6 overflow 0.84
+[INFO GPL-0107] iteration 7 overflow 0.83
+[INFO GPL-0108] iteration 8 overflow 0.82
+[INFO GPL-0109] iteration 9 overflow 0.81
+[INFO GPL-0110] iteration 10 overflow 0.80
+[INFO GPL-0111] iteration 11 overflow 0.79
+[INFO GPL-0112] iteration 12 overflow 0.78
+[INFO GPL-0113] iteration 13 overflow 0.77
+[INFO GPL-0114] iteration 14 overflow 0.76
+[INFO GPL-0115] iteration 15 overflow 0.75
+[INFO GPL-0116] iteration 16 overflow 0.74
+[INFO GPL-0117] iteration 17 overflow 0.73
+[INFO GPL-0118] iteration 18 overflow 0.72
+[INFO GPL-0119] iteration 19 overflow 0.71
+[INFO GPL-0120] iteration 20 overflow 0.70
+[INFO GPL-0121] iteration 21 overflow 0.69
+[INFO GPL-0122] iteration 22 overflow 0.68
+[INFO GPL-0123] iteration 23 overflow 0.67
+[INFO GPL-0124] iteration 24 overflow 0.66
+[INFO GPL-0125] iteration 25 overflow 0.65
+[INFO GPL-0126] iteration 26 overflow 0.64
+[INFO GPL-0127] iteration 27 overflow 0.63
+[INFO GPL-0128] iteration 28 overflow 0.62
+[INFO GPL-0129] iteration 29 overflow 0.61
+[INFO GPL-0130] iteration 30 overflow 0.60
+[INFO GPL-0131] iteration 31 overflow 0.59
+[INFO GPL-0132] iteration 32 overflow 0.58
+[INFO GPL-0133] iteration 33 overflow 0.57
+[INFO GPL-0134] iteration 34 overflow 0.56
+[INFO GPL-0135] iteration 35 overflow 0.55
+make[1]: *** [Makefile:420: do-3_3_place_gp] Error 1
+make: *** [Makefile:410: finish] Error 2

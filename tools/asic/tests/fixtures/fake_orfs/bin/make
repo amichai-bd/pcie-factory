@@ -2,7 +2,8 @@
 # Fake ORFS make for tools/asic unit tests. Understands the arguments
 # ./build asic passes (-C DIR, NAME=VALUE, one target) and copies the fixture
 # reports under tests/fixtures/orfs/ into WORK_HOME like the real flow.
-# FAKE_MAKE: ok (default) | fail (exit 3) | sleep (hang) | noextra (no asic_extra.json)
+# FAKE_MAKE: ok (default) | fail (exit 3) | faillog (print fixtures/flow_fail.log, exit 2)
+# | sleep (hang) | noextra (no asic_extra.json)
 # | noclocks (asic_clocks.json with an empty clocks entry) | clocksfail (the clocks
 # step exits 3, no asic_clocks.json) | clockssleep (the clocks step hangs).
 set -euo pipefail
@@ -28,6 +29,7 @@ mode="${FAKE_MAKE:-ok}"
 case "$target" in
   finish)
     [ "$mode" = fail ] && exit 3
+    [ "$mode" = faillog ] && { cat "$here/../flow_fail.log"; exit 2; }
     [ "$mode" = sleep ] && exec sleep 600
     mkdir -p "$logs" "$reports"
     cp "$here"/logs/*.json "$logs/"
