@@ -371,7 +371,8 @@ includes the cell's filelist with `-F`.
   dual-clock memory read: the other-domain sources are memories of two or
   more entries, and every own-side source reaching the output depends,
   through own-side flops, on a crossing cell inside the cell (a
-  synchronized pointer). A pointer that is synchronized but does not
+  synchronized pointer); a crossing cell inside a cell never has a
+  constant source-side input. A pointer that is synchronized but does not
   really guard the read is left to the cell's MAS and review.
 - **Port domains.** An input port declares the clock it is synchronous to
   with a comment ending its declaration line, naming another input port of

@@ -478,19 +478,22 @@ followed) and fails on:
 | Rule | Finding |
 | --- | --- |
 | `pdf` | `<path>: pdf: ...` for any file named `*.pdf` (any case) or with the PDF signature `%PDF-` anywhere in its first 1 KiB. No allow list: reference documents, datasheets and manuals are never committed, so a PDF has no place in the repository. |
-| `archive` | `<path>: archive: ...` for a `.zip`, `.gz`, `.tgz`, `.7z`, `.tar` or `.tar.<x>` file, or one starting with a zip, gzip or 7z signature, because an archive hides its content from every other rule. A reviewed `spec_cache.allow` entry exempts it (below). |
+| `archive` | `<path>: archive: ...` for a `.zip`, `.gz`, `.tgz`, `.7z`, `.xz`, `.bz2`, `.zst`, `.rar`, `.lz4`, `.tar` or `.tar.<x>` file, or one starting with a zip, gzip, 7z, xz, zstd, rar or lz4 signature or a bzip2 header (`BZh`, a block-size digit and a block or end-of-stream marker), because an archive hides its content from every other rule. A reviewed `spec_cache.allow` entry exempts it (below). |
 | `cached-file` | `<path>: cached-file: identical to the cached <name>`: the file's sha256 equals a cached document's or extracted text's. |
-| `cached-text` | `<path>:<line>: cached-text: <n> or more consecutive words match the cached <name>; ...`: a text file shares a run of `n` = `citation.max_quote_words` + 1 words with an extracted text. Words are lower-case runs of letters and digits, so layout, case and punctuation do not hide a copy; `<line>` is where the first such run starts. A file is read as UTF-8 (a UTF-8 byte-order mark is dropped); one with a UTF-16 byte-order mark is decoded as UTF-16; one with NUL bytes is scanned in each UTF-16 byte order that decodes cleanly, and skipped as binary when neither does. |
+| `cached-text` | `<path>:<line>: cached-text: <n> or more consecutive words match the cached <name>; ...`: a text file shares a run of `n` = `citation.max_quote_words` + 1 words with an extracted text. Words are lower-case runs of letters and digits, so layout, case and punctuation do not hide a copy; `<line>` is where the first such run starts. A file is read as UTF-8 (a UTF-8 byte-order mark is dropped); one with a UTF-32 or UTF-16 byte-order mark is decoded as such (UTF-32 first, since its little-endian mark starts with UTF-16's); one with NUL bytes is scanned in each UTF-32 (length a multiple of 4) and UTF-16 (even length) byte order that decodes cleanly, and skipped as binary when none does. |
 | list | `src/specs.yaml: document '<id>' has no entry heading on wiki/src/references.md`: every listed id is a level-2 to level-6 heading of exactly that id on the public references page. |
 
 ```yaml
 spec_cache:                     # optional section; no section means no entries
   allow:                        # required in the section; may be empty
-    - path: tools/x/tests/*.zip # required; fnmatch glob ('*' crosses '/')
+    - path: tools/x/tests/*.zip # required; fnmatch glob per path segment
       reason: a fixture bundle of our own files   # required
 ```
 
-An entry exempts only the `archive` rule, for archives whose path matches;
+An entry exempts only the `archive` rule, for archives whose path matches.
+The glob is matched one `/`-separated segment at a time and must have as
+many segments as the path, so `*` never crosses a folder: `*.zip` exempts
+only a zip at the repository root, never a nested one;
 an entry that matches no archive is **stale** and is a finding,
 `cfg/checks.yaml: spec_cache.allow[<i>] (<path>): stale, matches no archive`.
 A missing or extra key, an empty string or a wrong type is a configuration
@@ -645,7 +648,11 @@ module name:
   to guard the read passes this structural test; its MAS and review own
   that case. A flop's asynchronous reset is part of
   its data input, not of its output, so a reset synchronizer whose output
-  comes from `dst` flops reset by a `src_*` input passes.
+  comes from `dst` flops reset by a `src_*` input passes;
+- when the cell is a target itself, no approved crossing cell instantiated
+  inside it has a `src_*` input (other than its clock) connected to a
+  constant: a synchronizer of `1'b1` crosses nothing, so it cannot stand
+  in for a synchronized pointer.
 
 A cell that passes is **approved**. A `common_cdc_*` module that fails is
 analyzed like any other module, so its own synchronizer flops are then
@@ -866,10 +873,11 @@ a temporary git repository with a fake cache: a PDF by name and by
 content (with and without a cache, the signature inside versus beyond the
 first 1 KiB), a copy of a cached text, a run one word
 longer than the quote limit across a line break with other case and
-punctuation versus a run at the limit, UTF-16 text with either
+punctuation versus a run at the limit, UTF-32 and UTF-16 text with either
 byte-order mark and without one and UTF-8 with a mark, binary data, every
 archive name and signature with and without an allow entry, archive
-look-alike names, a stale entry and each allow config error, ignored
+look-alike names (and a text file starting `BZh`), a `*.zip` entry that
+does not exempt a nested zip, a stale entry and each allow config error, ignored
 files, a listed id with no page heading, an invalid list and a cache
 inside the repository (`test_spec_cache.py`); no fixture PDF or document
 text is stored, and the PDF signature is assembled at run time,
@@ -889,7 +897,7 @@ mismatches, a pass-through cell, a flop-then-wire cell, a memory read at
 a constant or source-side address, memory reads without a synchronized
 pointer (a one-entry memory, a free-running address, a held select, a
 one-entry memory read with a synchronized pointer) and one at a
-synchronized pointer, co-sources listed and capped, port domains (an annotated port sampled
+synchronized pointer, an inner synchronizer of a constant, co-sources listed and capped, port domains (an annotated port sampled
 in another domain, an unannotated one, legal crossings through each kind
 of cell input, a wrong cell side, every annotation finding, a missing annotation with
 two clock inputs, an exempt `inout` port, a reset-synchronizer cell form (`src=async`, an

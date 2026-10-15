@@ -556,6 +556,7 @@ class Design:
     inputs: dict[Node, str] = field(default_factory=dict)
     inouts: set[Node] = field(default_factory=set)
     memories: dict[Node, int] = field(default_factory=dict)   # unpacked array -> depth
+    const_inputs: list[str] = field(default_factory=list)     # cell src_* inputs tied off
     findings: list[str] = field(default_factory=list)
 
     def name(self, n: Node) -> str:
@@ -656,6 +657,8 @@ def _black_box(d: Design, path, prefix: str, c: CellRef, sub: Module, dv: Direct
             for w, k in p.writes.items():
                 d.edge((path, w), node, k)
         elif info.direction == "INPUT":
+            if side == "src" and not p.reads:
+                d.const_inputs.append(f"cell {desc} ({where})")
             if side == "src" and dv.src == ASYNC:
                 clock = None
             else:
@@ -1067,6 +1070,9 @@ def analyze(nl: Netlist, directives: dict[tuple[Path, str], Directive],
                                 f"{own.module}: flop {design.name(node)} runs on {dom}, "
                                 "not on a clock its cdc-cell directive names")
         findings += pass_through_findings(design, own)
+        findings += [f"{rel(own.file, nl.src_root)}:{own.line}: crossing cell {own.module}: "
+                     f"source-side input of {x} is a constant, so that cell crosses nothing"
+                     for x in design.const_inputs]
         findings += output_domain_findings(analysis, own)
     else:  # a crossing cell's ports have their domains from src_*/dst_*
         findings += analysis.unannotated_inputs()

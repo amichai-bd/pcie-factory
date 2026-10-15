@@ -45,7 +45,10 @@ publishability:
 
 spec_cache:
   # Reviewed exemptions from the spec-cache check's archive rule only (a
-  # .zip, .gz, .tgz, .7z or .tar* file can hide a reference document). Each
-  # entry is an fnmatch `path` glob and a `reason`; one that matches no
-  # archive fails the check as stale. PDFs and cached text are never exempt.
+  # .zip, .gz, .tgz, .7z, .xz, .bz2, .zst, .rar, .lz4 or .tar* file can
+  # hide a reference document). Each
+  # entry is an fnmatch `path` glob and a `reason`; the glob is matched per
+  # path segment, so `*` never crosses a `/` (prefer exact paths). One that
+  # matches no archive fails the check as stale. PDFs and cached text are
+  # never exempt.
   allow: []
