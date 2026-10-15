@@ -16,6 +16,9 @@ from __future__ import annotations
 import random
 from collections import deque
 
+import cocotb
+from cocotb.triggers import FallingEdge
+
 from models.pcie_pcs_model import P0
 from models.pcie_pcs_rx_check import K_COM, K_SKP, Stream, Word, check_runs, check_skp_status
 from regress.funcov import Covergroup
@@ -78,10 +81,55 @@ def align_link(syms: list[tuple[int, int]], line) -> Link:
     return link
 
 
-class RxBench:
-    """Clocks, the channel, the MAC in P0 and the PIPE receive monitor."""
+FILL_MIN, FILL_MAX = 4, 12        # HAS elastic-buffer target, visible fill in symbols
 
-    def __init__(self, dut, rng: random.Random, ppm: float) -> None:
+
+class FillCheck:
+    """The HAS visible-fill window (4 to 12 symbols), on the MAS-named net
+    `eb_fill` of the top (the elastic buffer's `fill_o`), read every clk_i
+    cycle as an observation net (DV BKM, scope and oracle). The window holds
+    only within the targets (clock offset up to 600 ppm, SKP ordered sets as
+    the receive path requires), so a test turns the check on with ``on``;
+    the overflow, underflow and out-of-target stress tests leave it off. It
+    starts once the buffer has started (fill 8), stops while `rst_i` is high
+    and after the line ends (``done``)."""
+
+    def __init__(self, dut, done) -> None:
+        self.dut = dut
+        self.done = done
+        self.on = False
+        self.started = False
+        self.lo, self.hi = 99, -1
+        self.samples = 0
+        cocotb.start_soon(self._run())
+
+    async def _run(self) -> None:
+        dut = self.dut
+        while True:
+            await FallingEdge(dut.clk_i)
+            if int(dut.rst_i.value):
+                self.started = False
+                continue
+            fill = int(dut.eb_fill.value)
+            if not self.started:
+                self.started = fill >= 8
+                continue
+            if not self.on or self.done():
+                continue
+            self.samples += 1
+            self.lo, self.hi = min(self.lo, fill), max(self.hi, fill)
+            assert FILL_MIN <= fill <= FILL_MAX, (
+                f"t={now_ps()} ps: visible fill {fill} outside {FILL_MIN}..{FILL_MAX}")
+
+
+class RxBench:
+    """Clocks, the channel, the MAC in P0 and the PIPE receive monitor. The
+    visible-fill window check (``FillCheck``) is on unless ``fill_window``
+    is False (tests outside the targets)."""
+
+    def __init__(self, dut, rng: random.Random, ppm: float, fill_window: bool = True) -> None:
+        self.fill_window = fill_window
+        self.fill: FillCheck | None = None
         self.dut = dut
         self.rng = rng
         self.ppm = ppm
@@ -99,6 +147,8 @@ class RxBench:
         self.link = link
         self.chan = RxChannel(dut, self.rng, link.line if link else None, lead=lead,
                               source=source)
+        self.fill = FillCheck(dut, lambda: self.chan.done)
+        self.fill.on = self.fill_window
         self.b = Bench(dut, max_cycles, receive=True)
         self.b.tick = self._wrap(self.b.tick)
         await self.b.reset("rst_i", 8)
@@ -126,6 +176,10 @@ class RxBench:
         while not self.chan.done:
             await self.b.tick()
         await self.b.run(drain)
+        if self.fill.on:
+            assert self.fill.samples, "fill window never checked"
+            self.dut._log.info("visible fill %d..%d over %d cycles", self.fill.lo, self.fill.hi,
+                               self.fill.samples)
 
     def rx_bit(self, tx_bit: int) -> int:
         """The received index of a transmitted bit (a dropped bit: the

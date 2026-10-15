@@ -294,8 +294,9 @@ async def rx_slips_packets(dut):
 async def rx_no_false_lock(dut):
     """L1: encoded random data at every bit offset after electrical idle
     never gives lock (no RxValid); random bits flagged idle never give lock;
-    random bits not flagged idle may lock falsely, and the relock rule then
-    finds the true boundary in the packet traffic that follows."""
+    a window holding commas at two symbol boundaries locks at the lowest
+    one; random bits not flagged idle may lock falsely, and the relock rule
+    then finds the true boundary in the packet traffic that follows."""
     rng = seeded(dut)
     b = Builder(rng)
     for shift in range(20):
@@ -304,6 +305,13 @@ async def rx_no_false_lock(dut):
         b.send([(0, rng.randrange(256)) for _ in range(300)], rd=rng.choice((-1, 1)))
     b.idle(2000)
     quiet_end = len(b.line.bits)
+    # Two comma positions in the aligner's first window: a false comma at
+    # bit 2 of the first active word, then a true COM at bit 13 (another
+    # symbol boundary). Lock is taken at the lowest one (RTL assertion
+    # a_lock_at_lowest_comma); the relock rule then finds the true boundary.
+    for bit in (1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 0):
+        b.line.add(bit, -1)
+    b.send(ts_traffic(8, start=len(b.syms), skp_every=1000))
     b.noise(20 * 300)
     noise_end = len(b.line.bits)
     b.send(am.packet_traffic(rng, 20))

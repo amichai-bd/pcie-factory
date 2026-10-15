@@ -325,6 +325,30 @@ module pcie_pcs_elastic (
   `COMMON_ASSERT_NEVER(a_owed_copy_is_skp, clk_i, rst_i,
                        r_q.dup & r_go & ~pcie_pcs_pkg::is_skp(c0.sym))
 
+  // The thresholds of RECEIVE.md (Elastic buffer) as that page writes them,
+  // independent of the package constants that build them: fill high (which
+  // the write side removes on) exactly at a visible fill of 9 or more; the
+  // start exactly at 8; an addition only at 7 or less, and at 7 or less a
+  // possible addition is made, after a COM in either slot.
+  logic [pcie_pcs_pkg::EB_FILL_W-1:0] fill_9;
+  logic [pcie_pcs_pkg::EB_FILL_W-1:0] fill_8;
+  logic [pcie_pcs_pkg::EB_FILL_W-1:0] fill_7;
+  logic                               add_due0;
+  logic                               add_due1;
+
+  assign fill_9   = pcie_pcs_pkg::EB_FILL_W'(9);
+  assign fill_8   = pcie_pcs_pkg::EB_FILL_W'(8);
+  assign fill_7   = pcie_pcs_pkg::EB_FILL_W'(7);
+  assign add_due0 = r_go & ~r_q.dup & (fill <= fill_7) & c0.lock & pcie_pcs_pkg::is_com(c0.sym)
+                  & v1 & ~c1.rem & pcie_pcs_pkg::is_skp(c1.sym);
+  assign add_due1 = r_go & ~r_q.dup & (fill <= fill_7) & c1.lock & pcie_pcs_pkg::is_com(c1.sym)
+                  & v2 & ~c2.rem & pcie_pcs_pkg::is_skp(c2.sym);
+
+  `COMMON_ASSERT_NEVER(a_fill_high_at_9, clk_i, rst_i, fill_high_d != (fill >= fill_9))
+  `COMMON_ASSERT_NEVER(a_start_at_8, clk_i, rst_i, ~r_q.started & (r_started != (fill >= fill_8)))
+  `COMMON_ASSERT_NEVER(a_add_at_7_or_less, clk_i, rst_i, rx_status_o.skp_add & (fill > fill_7))
+  `COMMON_ASSERT_NEVER(a_add_when_due, clk_i, rst_i, (add_due0 & ~r_add0) | (add_due1 & ~r_add1))
+
 endmodule
 
 `default_nettype wire

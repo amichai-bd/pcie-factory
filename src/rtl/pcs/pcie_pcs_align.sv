@@ -86,7 +86,25 @@ module pcie_pcs_align (
   assign rx_o = '{sym1: '{lock: state_q.lock, gen: state_q.gen, code: sym_q[19:10]},
                   sym0: '{lock: state_q.lock, gen: state_q.gen, code: sym_q[9:0]}};
 
+  // The lowest comma offset, scanned upwards, for the assertion that lock
+  // is taken at the lowest one (the priority scan above runs downwards).
+  logic                  low_found;
+  pcie_pcs_pkg::t_offset low_off;
+
+  always_comb begin
+    low_found = 1'b0;
+    low_off   = '0;
+    for (int unsigned p = 0; p < pcie_pcs_pkg::WORD_W; p++) begin
+      if (comma_at[p] && !low_found) begin
+        low_found = 1'b1;
+        low_off   = pcie_pcs_pkg::t_offset'(p % pcie_pcs_pkg::SYM_W);
+      end
+    end
+  end
+
   // Invariants (MAS, Behavior).
+  `COMMON_ASSERT_NEVER(a_lock_at_lowest_comma, clk_i, rst_i,
+                       acquire && (!low_found || (state_d.offset != low_off)))
   `COMMON_ASSERT_NEVER(a_offset_in_symbol, clk_i, rst_i,
                        state_q.offset > OFFSET_MAX)
   `COMMON_ASSERT_NEVER(a_no_lock_from_idle, clk_i, rst_i, acquire && !hunt_ok)

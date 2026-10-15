@@ -209,7 +209,7 @@ async def flow_error(dut, ppm: float, overflow: bool) -> None:
     """Data with no ordered set at 2% off: nothing can be corrected."""
     rng = seeded(dut)
     link = make_link(rng, tr.plain_symbols(rng, 12000))
-    rx = RxBench(dut, rng, ppm)
+    rx = RxBench(dut, rng, ppm, fill_window=False)     # outside the targets
     await rx.start(link, max_cycles=len(link.syms) // 2 + 4000)
     await rx.run_line()
     st = rx.statuses()

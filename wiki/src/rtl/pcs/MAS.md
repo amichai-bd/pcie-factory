@@ -307,6 +307,7 @@ complemented.
 | `a_one_error_class` | Never both flags on a symbol. |
 | `a_code_err_edb` | A code error always carries EDB with K set. |
 | `a_disp_err_known_rd` | A disparity error only at a known RD. |
+| `a_rd_unknown_after_unlocked` | After a word whose second symbol is unlocked, the RD is unknown. |
 
 ## Aligner
 
@@ -356,6 +357,7 @@ holds the comma, so the word holding the comma is the first locked one.
 | `a_relock_drops_lock` | A relock request never keeps lock unless a comma retakes it. |
 | `a_gen_flips_only_on_lock` | The generation flips only when lock is taken. |
 | `a_lock_word_holds_comma` | The first word of a lock holds a comma at `sym0` or `sym1`. |
+| `a_lock_at_lowest_comma` | Lock is taken at the lowest comma offset of the window (an upward scan, independent of the downward priority scan). |
 
 ## Elastic buffer
 
@@ -441,6 +443,7 @@ by `rst_i`), each cycle:
 | `a_word_one_lock` | The two symbols of an aligned word carry the same tags. |
 | `a_pop_empty`, `a_dup_needs_symbol`, `a_send_needs_symbols` | No pop from an empty FIFO; an owed copy and a send have their symbols. |
 | `a_add_only_low`, `a_owed_copy_is_skp` | Additions only at a fill of 7 or less; an owed copy is a SKP. |
+| `a_fill_high_at_9`, `a_start_at_8`, `a_add_at_7_or_less`, `a_add_when_due` | The RECEIVE.md thresholds written as the page's numbers, independent of the package constants: fill high (the write side's removal condition) exactly at a visible fill of 9 or more; the start exactly at 8; an addition only at 7 or less, and at 7 or less every possible addition (a locked COM, in either slot, before a visible SKP without the removed flag) is made. |
 
 ## Decisions
 

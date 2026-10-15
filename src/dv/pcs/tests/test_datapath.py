@@ -329,7 +329,7 @@ async def eb_stress(dut):
     rng = seeded(dut)
     ppm = (1 if regress_seed() % 2 else -1) * 4000.0
     link = build_link(rng, 8, "tlp", 2000, arch.SKP_INTERVAL_MAX, training=8)
-    rx = RxBench(dut, rng, ppm)
+    rx = RxBench(dut, rng, ppm, fill_window=False)     # outside the targets
     await rx.start(link)
     await rx.run_line()
     st = rx.statuses()

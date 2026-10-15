@@ -59,8 +59,16 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
     more than sent (none for a COM sent with no SKP), and the word holding
     its COM carries RxStatus 2, 0 or 1 to match; no other word carries 1 or
     2;
-  - **RX latency** (HAS target 12 cycles, which bounds the visible fill at
-    12 symbols) for every delivered symbol of every clean run;
+  - **RX latency** (HAS target 12 cycles) for every delivered symbol of
+    every clean run;
+  - **visible fill 4 to 12** (HAS elastic-buffer target): `FillCheck` reads
+    the MAS-named net `eb_fill` (the elastic buffer's `fill_o`) every
+    `clk_i` cycle, as an observation net, from the buffer's start until the
+    line ends, outside `rst_i`. The window holds only within the targets,
+    so each test enables it: every receive test, the lock tests and the
+    decode-free traffic tests run with it on; `eb_overflow`, `eb_underflow`
+    (2% offset, no SKP) and `eb_stress` (4000 ppm) leave it off, as they
+    drive the buffer past its window on purpose;
   - **lock start and the lock target** after every loss of lock: the run
     starts at the comma that gave lock or the symbol before it (the
     elastic buffer's lock-start drop), and its first word is on PIPE within
@@ -177,22 +185,22 @@ Every check of the removed leaf testbenches, and where it is now.
 | Encoder model unit tests | Published anchors in both lanes, compliance, EDB, pipeline | Kept: [`test_pcie_pcs_enc8b10b_model.py`](../../../../src/dv/pcs/models/test_pcie_pcs_enc8b10b_model.py) (the model also serves the `phy` e2e's encoder block hook) |
 | Encoder assertions `a_lane*_disparity`, `a_run_length` | Disparity per lane, run length | Kept in the RTL, live in every test |
 | `smoke` (decoder) | Commas at both RDs, a disparity error, a code error to EDB, reset | `rx_decode_smoke` |
-| `exhaustive` (decoder) | 1024 codes x both lanes at RD-, RD+ and unknown, with the RD after; class counts | `rx_decode_table`: both lanes at RD- and RD+ and lane 0 at unknown, with the RD after, and the counts; both lanes unknown through unlocked words (data and K; the code-error flag shows as EDB). Lane 1 at an unknown RD *with* the RD after it, and the lane-1 causes "lane 0 unlocked" and "generation split", are [gaps](#gaps) |
+| `exhaustive` (decoder) | 1024 codes x both lanes at RD-, RD+ and unknown, with the RD after; class counts | `rx_decode_table`: both lanes at RD- and RD+ and lane 0 at unknown, with the RD after, and the counts; both lanes unknown through unlocked words (data and K; the code-error flag shows as EDB). The RD unknown after an unlocked word: RTL assertion `a_rd_unknown_after_unlocked`. Lane 1 at an unknown RD *with* the RD after it, and the lane-1 causes "lane 0 unlocked" and "generation split", are [gaps](#gaps) |
 | `random_vs_model`, `long_random` (decoder) | Encoded traffic with bit errors, random codes, RD slips; valid gaps, lock drops, generation changes, polarity, reset | `rx_decode_random`, `rx_decode_random_long` (errors, codes, RD slips, polarity, `pipe_reset_ni`, every word exact); valid gaps: `eb_underflow` (no error after an underflow word); lock drops and new generations: `rx_decode_table` (after the unlocked run), `rx_elec_idle_gaps`, `eb_lock_start`; same-cycle relocks: `rx_slips_training` |
 | Decoder model unit tests | Column sizes, K28.5, EDB, RD-unknown rules | Kept: [`test_pcie_pcs_dec8b10b_model.py`](../../../../src/dv/pcs/models/test_pcie_pcs_dec8b10b_model.py) |
 | `lock_offsets` (aligner) | Lock from every bit offset at both RDs, one lock, symbols whole, no relock | `rx_lock_offsets` (one intact run per lock, the boundary checked by the data; comma position from the aligner model as coverage) |
 | `controls` (aligner) | Relock while hunting; relock at the eight phases of the TS1 COM period; idle drop; one-word idle pulses at eight phases; reset while locked | Idle pulses and reset: `rx_lock_controls`; relocks in TS1 traffic, same-cycle and to hunting: `rx_slips_training` (`pcs_align_relock`); idle drop: `rx_lock_offsets`, `rx_elec_idle_gaps`. A relock while hunting has no effect at the ports ([gap](#gaps)); the request phase is not a port, so the eight phases are covered as the two outcomes |
 | `slips` (aligner) | Closed loop: slips in TS1, FTS, packets, SKP sets, pairs, detected within 32 cycles; same-cycle relock re-armed through the generation; flips keep lock | `rx_slips_training`, `rx_slips_packets`, `rx_slips` (the closed loop is the real error counter; detection is checked as the end of errored words within 48 cycles, and RxValid falling within 48 cycles in packet traffic) |
-| `no_false_lock` (aligner) | Data at 20 offsets, idle noise, unflagged noise then recovery | `rx_no_false_lock` |
+| `no_false_lock` (aligner) | Data at 20 offsets, idle noise, unflagged noise then recovery; the lowest comma offset wins | `rx_no_false_lock`, with a directed window holding commas at two symbol boundaries, checked by the RTL assertion `a_lock_at_lowest_comma` |
 | `long_random` (aligner) | 40 mixed segments, every check | `rx_align_long` |
 | Aligner model unit tests and assertions | The cycle model; offset range, no lock from idle, relock drops lock, generation flips only on lock, lock word holds a comma | Kept: [`test_pcie_pcs_align_model.py`](../../../../src/dv/pcs/models/test_pcie_pcs_align_model.py); the assertions in the RTL |
-| `smoke` (elastic buffer) | Reset, RX reset timing, start at fill 8, lossless, SKP sets of 1 to 5 | Lossless and sets of 1 to 5: `eb_random_*`, `eb_dense`; start: every test's first lock (the lock target). RX reset timing and the exact start fill are [gaps](#gaps) |
-| `ppm_m600`, `ppm_m300`, `ppm_p300`, `ppm_p600`, `random_offset` (elastic buffer) | Additions or removals per offset, fill 4 to 12 | `eb_tlp_m600`, `eb_random_m300`, `eb_random_p300`, `eb_tlp_p600`, `eb_random_offset`; fill at most 12 through the RX latency bound and at least 2 through no underflow |
+| `smoke` (elastic buffer) | Reset, RX reset timing, start at fill 8, lossless, SKP sets of 1 to 5 | Lossless and sets of 1 to 5: `eb_random_*`, `eb_dense`; start at fill 8: RTL assertion `a_start_at_8` in every test. RX reset timing is a [gap](#gaps) |
+| `ppm_m600`, `ppm_m300`, `ppm_p300`, `ppm_p600`, `random_offset` (elastic buffer) | Additions or removals per offset, fill 4 to 12 | `eb_tlp_m600`, `eb_random_m300`, `eb_random_p300`, `eb_tlp_p600`, `eb_random_offset`; fill 4 to 12 by `FillCheck` in every receive test within the targets |
 | `short_burst_m600`, `stress_sizes` | The reviewer's case; stranding sizes | `eb_short_burst`, `eb_stress_sizes` |
 | `idle_m600`, `idle_p600` | Recentring, read-side holds, write-side drops | `eb_idle_m600`, `eb_idle_p600` |
 | `lock_start_m600`, `lock_start_p600` | No locked word packed with an unlocked symbol | `eb_lock_start` (every run starts at its comma or the symbol before it), also in `rx_elec_idle_gaps` and every lock test |
 | `relock_generation` | Generation carried per word through same-cycle relocks | `rx_slips_training` (same-cycle relocks; the error counter re-arms on the generation, so the next slip is answered) |
-| `thresholds_swing`, `thresholds_m600`, their sweep | Removal exactly at a seen fill of 9, addition exactly at 7, both sides of each threshold | Through the ports: additions and removals in the right direction (`eb_*`), the fill bounds above, `eb_dense` both kinds of change. The exact decision fill is a [gap](#gaps) |
+| `thresholds_swing`, `thresholds_m600`, their sweep | Removal exactly at a seen fill of 9, addition exactly at 7, both sides of each threshold | RTL assertions `a_fill_high_at_9` (fill high, the write side's removal condition, exactly at 9 or more), `a_add_at_7_or_less` and `a_add_when_due` (an addition only at 7 or less, and every possible one made there), live in every test; additions and removals in the right direction (`eb_*`); `FillCheck` |
 | `pause_corners`, its sweep | Write pauses, bare COM, back-to-back sets, removal reported on the next word, overflow and underflow mixed with SKP changes | Bare COM, back-to-back sets: `eb_dense`; overflow and underflow: `eb_overflow`, `eb_underflow`, `eb_stress`. Write pauses and the next-word removal report are [gaps](#gaps) |
 | `overflow`, `underflow` | Losses flagged; underflow words, nothing lost | `eb_overflow`, `eb_underflow` |
 | `reset_restart` | Reset with traffic in flight, clean restart | `rx_reset_traffic` (`rst_i` and `pipe_reset_ni`), `rx_lock_controls` |
@@ -257,9 +265,8 @@ stays covered as stated; none is dropped silently.
 
 | Check | Why not through the ports | Covered by | Owner |
 | --- | --- | --- | --- |
-| Elastic buffer: removal exactly at a seen fill of 9 and addition exactly at 7, the start exactly at fill 8, the visible fill 4 to 12 | The fill (`fill_o`) is not a `pcie_pcs` port | The RX latency bound (at most 12 cycles: fill at most 12), no underflow inside the targets, the direction of every correction, RTL assertion `a_add_only_low` | Firstmate decision on #145 (an RTL assertion on the thresholds, or a DV observation port) |
 | Elastic buffer: write pauses (`ser_rx_valid_i` low) | The top ties it to 1: the aligner sends a word every RX cycle | Not needed by the IP | - |
 | Elastic buffer: removal reported on the next word | Needs a visible fill below 4, outside the targets | The scoreboard rejects a SKP status on a word with no COM change | - |
 | RX-domain reset timing (`ser_rx_rst_o` asserts with `rst_i`, releases on the second RX edge) | Internal net | [`common_cdc_rst`](../common/common_cdc_rst.md)'s library DV; `rx_reset_traffic` and `rx_lock_controls` restart after `rst_i` | `common` |
-| Decoder: lane 1 at an unknown RD with the RD it leaves; lane 1 unknown because lane 0 alone is unlocked, or because the two symbols' generations differ | After the lock-start drop a word is never half locked, and a generation split needs a same-cycle relock with an odd leftover symbol; an unlocked lane 1's RD never reaches a probe | Lane 1's data and K at an unknown RD (`rx_decode_table`); lane 0 at an unknown RD with the RD it leaves (the same `decode()` function); the model unit tests | - |
+| Decoder: lane 1 at an unknown RD with the RD it leaves; lane 1 unknown because lane 0 alone is unlocked, or because the two symbols' generations differ | The lock-start drop removes every word with an unlocked first symbol and a locked second one (a half-locked word occurs only at a lock end, locked then unlocked); a generation split needs a same-cycle relock with an odd leftover symbol, which no stimulus places deterministically; an unlocked lane 1's RD never reaches a probe, as the next word is decoded with the RD unknown | Lane 1's data and K at an unknown RD (`rx_decode_table`); lane 0 at an unknown RD with the RD it leaves (the same `decode()` function); the model unit tests | - |
 | Aligner: a relock request while hunting | It changes nothing on the ports | RTL assertion `a_relock_drops_lock` | - |

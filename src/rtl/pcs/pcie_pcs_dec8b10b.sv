@@ -65,6 +65,9 @@ module pcie_pcs_dec8b10b (
   `COMMON_ASSERT_NEVER(a_code_err_edb, clk_i, rst_i,
                        (dec0.sym.code_err && (dec0.sym.sym.data != common_pkg::SYM_EDB || !dec0.sym.sym.k)) ||
                        (dec1.sym.code_err && (dec1.sym.sym.data != common_pkg::SYM_EDB || !dec1.sym.sym.k)))
+  // After a word whose second symbol is unlocked, the RD is unknown.
+  `COMMON_ASSERT(a_rd_unknown_after_unlocked, clk_i, rst_i,
+                 (in_valid_i && !in_i.sym1.lock) |=> !state_q.rd_known)
   `COMMON_ASSERT_NEVER(a_disp_err_known_rd, clk_i, rst_i,
                        (dec0.sym.disp_err && !known0) || (dec1.sym.disp_err && !known1))
 
