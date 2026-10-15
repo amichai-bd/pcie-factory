@@ -48,7 +48,7 @@ import.
 | `PHY_STATUS_RESET_CYCLES`, `RX_DETECT_CYCLES`, `POWER_ACK_CYCLES`, `ERR_LIMIT`, `ERR_DECAY_WORDS` and their counter widths | 16, 64, 4, 3 and 8 ([PIPE control](../../arch/pcs/PIPE_CONTROL.md), [relock](../../arch/pcs/RECEIVE.md#comma-alignment-and-symbol-lock)). |
 | `t_detect`, `t_relock`, `t_rx_word` | The top's receiver-detection state, error-counter state and PIPE receive register (with RxElecIdle). |
 | `SYM_W`, `BYTE_W`, `WORD_W`, `WINDOW_W`, `COMMA_W`, `OFFSET_W`; `t_sym10`, `t_byte`, `t_word`, `t_window`, `t_comma`, `t_offset` | Symbol, byte, two-symbol word and aligner widths and types. |
-| `t_k_byte` | A byte with its K flag. |
+| `t_k_byte`, `K_EDB` | A byte with its K flag; EDB as a K symbol. |
 | `t_tx_word` | Two `t_k_byte` and TxCompliance: the encoder's input. |
 | `t_rx_sym`, `t_rx_pair` | One raw symbol with its idle flag, lock tag and generation; two of them. Aligner to elastic buffer to decoder. |
 | `t_dec_sym`, `t_dec_pair` | One decoded symbol (`t_k_byte`, code error, disparity error); two of them. Decoder to top. |

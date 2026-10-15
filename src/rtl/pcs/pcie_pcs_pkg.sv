@@ -68,6 +68,9 @@ package pcie_pcs_pkg;
     t_byte data;
   } t_k_byte;
 
+  // EDB as a K symbol: what a code error or an underflow word carries.
+  localparam t_k_byte K_EDB = '{k: 1'b1, data: common_pkg::SYM_EDB};
+
   // One PIPE transmit word for the encoder: two symbols, sym0 first on the
   // line, and TxCompliance (negative RD before sym0).
   typedef struct packed {
