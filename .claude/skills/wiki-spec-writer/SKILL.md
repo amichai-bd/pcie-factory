@@ -87,6 +87,7 @@ Skeletons (omit empty sections; headings stay stable once linked):
 # <IP> MAS                       rtl/<ip>/MAS.md
 <1-2 sentences: how it implements the HAS.>
 ## Microarchitecture datapath, pipeline, state machines, storage, instances
+## <Block>          one section per internal block: interface, behavior, structure
 ## Decisions        implementation choice | rationale | rejected
 ## Timing           latency, throughput, clocks, resets, crossings, critical path
 ## Files            | File | Holds |  (links into src/rtl/<ip>/)

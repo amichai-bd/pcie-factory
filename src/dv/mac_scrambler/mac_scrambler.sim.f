@@ -1,2 +1,0 @@
--F ../../rtl/mac_scrambler/mac_scrambler.rtl.f
--F mac_scrambler.dv.f

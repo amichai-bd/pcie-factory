@@ -1,8 +1,11 @@
-// pcie_mac: synthesizable sources only: the sub-IP filelists, then the
-// package and the top (wiki/src/rtl/mac/MAS.md).
--F ../mac_scrambler/mac_scrambler.rtl.f
--F ../mac_frame/mac_frame.rtl.f
--F ../mac_os/mac_os.rtl.f
--F ../mac_ltssm/mac_ltssm.rtl.f
+// pcie_mac: synthesizable sources only: the shared vocabulary and the
+// design package, the IP package, the blocks, then the top
+// (wiki/src/rtl/mac/MAS.md).
+-F ../common/common_macros.rtl.f
+-F ../common/common_pkg.rtl.f
 pcie_mac_pkg.sv
+pcie_mac_scrambler.sv
+pcie_mac_os.sv
+pcie_mac_frame.sv
+pcie_mac_ltssm.sv
 pcie_mac.sv

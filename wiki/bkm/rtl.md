@@ -180,7 +180,9 @@ and simulation.
 
 - Synthesizable SystemVerilog-2017 that Verilator, Quartus Lite and the ORFS
   frontend all accept: `logic`, `always_comb`, parameters, enums, packed
-  structs, packed arrays and `generate` where they make intent clearer.
+  structs, packed arrays and `generate` where they make intent clearer;
+  packed structs are the default for related signals and multi-field state
+  ([structs at interfaces](#structs-at-interfaces)).
   SystemVerilog interfaces, modports and unions stay out of the `.rtl.f`
   closure until a flow issue proves all three tools handle them; DV code
   may use them.
@@ -218,8 +220,9 @@ and simulation.
   `pkg_name::item` (`<prefix><ip>_pkg::t_req` in a port list,
   `<prefix><ip>_pkg::SEED` in a reset value). No `import`, wildcard or named: a reader sees where
   each name comes from, and two packages never collide.
-- **One package per IP**, `<prefix><ip>_pkg`, holds the IP's private types
-  and constants: the structs its blocks exchange, its state types and reset
+- **At most one package per IP**, `<prefix><ip>_pkg`, and none for an IP
+  without private types (a thin integration IP). It holds the IP's private
+  types and constants: the structs its blocks exchange, its state types and reset
   constants. The leaf blocks of an IP share it and add no package of their
   own ([granularity](#granularity)); a sub-IP is an IP and has its own.
 - **One shared project package, `common_pkg`**, holds the types and

@@ -48,7 +48,10 @@ The RTL tests import the model, as the arch BKM allows
 `pcie_mac_arch`, as the [smoke test](../../../../src/dv/mac/tests/test_mac.py)
 does. Each cycle it samples the RTL's PIPE outputs into a `PipeTx`, steps
 `Link` with the partner's `PipeTx`, and drives the RTL's PIPE inputs from
-the returned `PipeRx`. The sweep module needs the model bound with
+the returned `PipeRx`. A second `Mac` in the RTL's role, the shadow, takes
+every step the RTL takes on the same received words, offset by the mac's
+receive and transmit stages ([MAS](../../rtl/mac/MAS.md#pipeline-and-the-model)),
+and the tests compare the two every cycle. The sweep module needs the model bound with
 `pcie_mac_sweep.use(pcie_mac_arch)`, because the model imports the sweep
 (`./build arch` restores `sys.path` after loading the model).
 
@@ -59,8 +62,7 @@ directed episodes on two models: `a` is the device, `b` the partner. An
 episode steers `a` only through `b`'s requests and hooks, the `Link` hooks
 and `a`'s own upper-layer inputs, reacting to `a`'s state as a test reads
 `ltssm_state_o`, so each episode is a recipe the RTL tests replay against
-the partner ([#77](https://github.com/amichai-bd/pcie-factory/issues/77),
-[#78](https://github.com/amichai-bd/pcie-factory/issues/78)). With `a` in
+the partner ([mac DV plan](../../dv/mac/DV_PLAN.md)). With `a` in
 each port role the sweep reaches **64 of 64 arcs**; no arc is out of reach
 in either role.
 

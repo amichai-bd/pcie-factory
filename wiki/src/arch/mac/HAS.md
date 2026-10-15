@@ -27,10 +27,10 @@ in the [DV plan](../../dv/mac/DV_PLAN.md).
 flowchart TB
   up["data-link layer (DV: stub)"] <-- "packet stream, link control" --> fr
   subgraph mac["pcie_mac"]
-    fr["pcie_mac_frame<br/>framing, idle, ready,<br/>deframing, realign"]
-    os["pcie_mac_os<br/>TS1/TS2, SKP, EIOS, FTS,<br/>compliance: send and detect"]
-    sc["pcie_mac_scrambler<br/>LFSR, one per direction"]
-    lt["pcie_mac_ltssm<br/>main machine, L0s sub-machines,<br/>timers, PIPE control"]
+    fr["frame<br/>framing, idle, ready,<br/>deframing, realign"]
+    os["ordered sets<br/>TS1/TS2, SKP, EIOS, FTS,<br/>compliance: send and detect"]
+    sc["scrambler<br/>LFSR, one per direction"]
+    lt["LTSSM<br/>main machine, L0s sub-machines,<br/>timers, PIPE control"]
     fr --- sc
     os --- sc
     lt --> fr
@@ -41,18 +41,21 @@ flowchart TB
   lt <-- "PIPE control" --> pcs
 ```
 
-Four flat, prefixed sub-IPs (Q18, Q19); their MAS pages own their
-interfaces, and their RTL arrives in wave 2:
+One IP, four blocks (decision Q24 on epic
+[#65](https://github.com/amichai-bd/pcie-factory/issues/65)): each block is
+a file of `mac` under one filelist, described in its own section of the
+[MAS](../../rtl/mac/MAS.md), and verified only through the `mac` ports by
+one testbench ([DV plan](../../dv/mac/DV_PLAN.md)). There are no sub-IPs.
 
-| Sub-IP | Holds | Why separate | Issue |
-| --- | --- | --- | --- |
-| `mac_scrambler` | The [scrambler](SYMBOLS.md#scrambling): LFSR, reset on COM, hold on SKP, a key per symbol; instanced once per direction. | Shared by both directions; reuses the retired `top_lfsr` (Q2). | [#74](https://github.com/amichai-bd/pcie-factory/issues/74) |
-| `mac_os` | Ordered-set transmit (TS1/TS2 with given fields, SKP schedule, EIOS, FTS, compliance pattern) and receive (decode TS fields, flag SKP, EIOS, FTS). | One block per symbol format; the LTSSM only sees fields and events. | [#75](https://github.com/amichai-bd/pcie-factory/issues/75) |
-| `mac_frame` | The upper stream: framing, idle, `pkt_tx_ready_o`, abort with EDB; deframing, realignment, `err` and `nullify`, framing errors. | The packet datapath, independent of training. | [#76](https://github.com/amichai-bd/pcie-factory/issues/76) |
-| `mac_ltssm` | The [LTSSM](LTSSM.md): main machine, L0s sub-machines, timers, directed requests, PIPE power, detection and loopback control, `link_up_o`, `ltssm_state_o`. | The control path; the largest block. | [#77](https://github.com/amichai-bd/pcie-factory/issues/77), [#79](https://github.com/amichai-bd/pcie-factory/issues/79), [#80](https://github.com/amichai-bd/pcie-factory/issues/80) |
+| Block | Holds | Why separate |
+| --- | --- | --- |
+| [Scrambler](../../rtl/mac/MAS.md#scrambler) | The [scrambler](SYMBOLS.md#scrambling): LFSR, reset on COM, hold on SKP, a key per symbol; instanced once per direction. A word that is not sent or not received (RxValid 0 or electrical idle) holds the LFSR. | Shared by both directions; reuses the retired `top_lfsr` (Q2). |
+| [Ordered sets](../../rtl/mac/MAS.md#ordered-sets) | Ordered-set transmit (TS1/TS2 with given fields, SKP schedule, EIOS, FTS, compliance pattern) and receive (decode TS fields, flag SKP, EIOS, FTS). | One block per symbol format; the LTSSM only sees fields and events. |
+| [Frame](../../rtl/mac/MAS.md#frame) | The upper stream: framing, idle, `pkt_tx_ready_o`, abort with EDB; deframing, realignment, `err` and `nullify`, framing errors. | The packet datapath, independent of training. |
+| [LTSSM](../../rtl/mac/MAS.md#ltssm) | The [LTSSM](LTSSM.md): main machine, L0s sub-machines, timers, directed requests, PIPE power, detection and loopback control, `link_up_o`, `ltssm_state_o`. The power states are [#79](https://github.com/amichai-bd/pcie-factory/issues/79), the control states [#80](https://github.com/amichai-bd/pcie-factory/issues/80). | The control path; the largest block. |
 
-`pcie_mac` itself only instances and connects them
-([#78](https://github.com/amichai-bd/pcie-factory/issues/78)).
+The top instances and connects them: a line mux, and one register stage on
+each side of PIPE ([MAS, Top](../../rtl/mac/MAS.md#top)).
 
 ## Interfaces
 
@@ -128,12 +131,14 @@ FPGA and ASIC builds use the defaults; DV may raise both dividers.
 
 ## Package
 
-`pcie_mac_pkg` ([source](../../../../src/rtl/mac/pcie_mac_pkg.sv)) owns the
-IP's shared types, referenced as `pcie_mac_pkg::<name>` without `import`:
-`t_ltssm_state` (the main-state codes of the
-[encoding](LTSSM.md#state-encoding)), `t_l0s_sub` (the L0s sub-machine
-codes) and `t_power_down` (PIPE PowerDown). Wave 2 adds the sub-IP
-boundary types it needs, such as decoded TS fields and ordered-set events.
+`pcie_mac_pkg` ([source](../../../../src/rtl/mac/pcie_mac_pkg.sv)) holds the
+IP's private types: the block-to-block structs, parser and register state
+([MAS, Package](../../rtl/mac/MAS.md#package)). The codes the mac shares
+with other IPs, `t_ltssm_state` (the main-state codes of the
+[encoding](LTSSM.md#state-encoding)), `t_l0s_sub`, `t_power_down`, the
+symbol codes and the PIPE bundles, are in the shared
+[`common_pkg`](../../rtl/common/common_pkg.md). Both are referenced as
+`<pkg>::<name>` without `import`.
 
 ## Behavior
 
@@ -208,8 +213,12 @@ reaches the upper stream as beats:
   error inside it, cut short, a DLLP ended by EDB, or a DLLP that is not 6
   bytes). Otherwise `pkt_rx_nullify_o` is 1 for a TLP ended by EDB. Never
   both.
-- A packet cut short by the LTSSM leaving L0, electrical idle or loss of
-  `pipe_rx_valid_i` still ends with an `eop` beat carrying `err`.
+- A packet cut short by the LTSSM leaving L0 or `Rx_L0`, electrical idle
+  or loss of `pipe_rx_valid_i` still ends with an `eop` beat carrying
+  `err`.
+- A packet with no data byte (STP or SDP followed at once by its end) is
+  never delivered; in L0 it counts as a framing error unless leaving
+  `Rx_L0` cut it ([symbols page](SYMBOLS.md#receive)).
 
 ### Link control
 
@@ -253,13 +262,14 @@ pulse.
 | A DLLP ended by EDB is an error, not a nullify | DLLPs cannot be nullified. | Reporting it as nullified. |
 | Reset wins over ready from `sop` to `eop` | Reset must be immediate; the upper layer is reset with the MAC. | Finishing the packet in reset. |
 | The architecture model is also the DV link partner | One statement of the LTSSM serves the arch and the DV (Q4); its injection hooks reach every arc. | A separate DV-only partner. |
-| `pcie_mac_pkg` holds the encoding and PIPE codes | One source for types, referenced by package name (Q22). | Literals in each sub-IP. |
+| Shared codes in `common_pkg`, private types in `pcie_mac_pkg` | One source for each code and type, referenced by package name (Q22, Q24). | Literals or copies in each block. |
 
 ## Targets
 
 Measured with two [architecture models](#architecture-model) back to back
-(downstream to upstream) and checked again on the RTL against the link
-partner ([#78](https://github.com/amichai-bd/pcie-factory/issues/78)). The
+(downstream to upstream); the training targets are checked again on the
+RTL against the link partner ([DV plan](../../dv/mac/DV_PLAN.md#plan),
+`train_spec`), and every RTL cycle against the model. The
 latency budgets are the ones the [`phy` HAS](../phy/HAS.md#targets) gives
 the MAC.
 
@@ -294,11 +304,11 @@ confirmed; each owner confirms or corrects the rule and the model together.
 
 | Item | Owner |
 | --- | --- |
-| Recovery.RcvrLock timeout target (Configuration when any TS was received, else Detect), Configuration.Lanenum.Accept's 2 ms timeout (taken from its neighbours), and the x1 reading of the Lanenum substates for the upstream role. | [#77](https://github.com/amichai-bd/pcie-factory/issues/77) |
-| Electrical-idle inference in L0 at 2.5 GT/s (here: `pipe_rx_elec_idle_i` without an EIOS goes to Recovery). | [#77](https://github.com/amichai-bd/pcie-factory/issues/77) |
+| Recovery.RcvrLock timeout target (Configuration when any TS was received, else Detect), Configuration.Lanenum.Accept's 2 ms timeout (taken from its neighbours), and the x1 reading of the Lanenum substates for the upstream role. | [#164](https://github.com/amichai-bd/pcie-factory/issues/164) |
+| Electrical-idle inference in L0 at 2.5 GT/s (here: `pipe_rx_elec_idle_i` without an EIOS goes to Recovery). | [#164](https://github.com/amichai-bd/pcie-factory/issues/164) |
 | The `Rx_L0s.FTS` timeout (the smaller of 2 x N_FTS + 32 and 4 x N_FTS + 12 cycles here, so it stays within twice the time of N_FTS + 3 FTS), its exit on the SKP ordered set, and the 7 µs bound on the L0s idle time (expected in the active-state power management rules, [cite: PCIe Base Spec, rev 3.0, §5.4.1.1.1]). Also the L1/L2 entry edge case: an EIOS received before the request counts (the receiver is in `Rx_L0s.Entry` or `Rx_L0s.Idle`), so a downstream port can enter L1 or L2 when its partner had only entered transmit L0s; the pair then recovers through Recovery. | [#79](https://github.com/amichai-bd/pcie-factory/issues/79) |
 | Disabled: the TS1 count (16 here) and the following port's exit; Hot Reset: the following port's timer restart; Loopback: the master's 2 ms entry timeout and the minimum electrical idle in Loopback.Exit. | [#80](https://github.com/amichai-bd/pcie-factory/issues/80) |
 | Compliance Receive, the modified compliance pattern and directed compliance entry, all left out here. | [#80](https://github.com/amichai-bd/pcie-factory/issues/80) |
-| Whether a received Disable Scrambling bit must be honoured at 2.5 GT/s (ignored here). `pcie_mac_os` decodes it, with Compliance Receive, into `rx_ctl_o` ([MAS](../../rtl/mac_os/MAS.md#receive)), so honouring it later changes only `mac_ltssm` and `mac_scrambler`. | [#77](https://github.com/amichai-bd/pcie-factory/issues/77) |
-| Section-level citations for the EIOS, FTS and lane polarity inversion definitions (cited here through the states that use them). | [#75](https://github.com/amichai-bd/pcie-factory/issues/75) |
+| Whether a received Disable Scrambling bit must be honoured at 2.5 GT/s (ignored here). The ordered-set block decodes it, with Compliance Receive, into the received control bits ([MAS](../../rtl/mac/MAS.md#ordered-sets)), so honouring it later changes only the LTSSM and the scrambler's `scr_i`. | [#80](https://github.com/amichai-bd/pcie-factory/issues/80) |
+| Section-level citations for the EIOS, FTS and lane polarity inversion definitions (cited here through the states that use them). | [#149](https://github.com/amichai-bd/pcie-factory/issues/149) |
 | The `phy` HAS says `retrain_req_i` serves a replay-timeout retrain; the rule is the REPLAY_NUM rollover ([Link control](#link-control)). Correct the `phy` wording with the stack integration. | [#86](https://github.com/amichai-bd/pcie-factory/issues/86) |
