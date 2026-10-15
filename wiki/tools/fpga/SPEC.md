@@ -55,7 +55,7 @@ fails or times out stops the flow and prints the last 30 lines of its log.
 
 | Step | Command | Does |
 | --- | --- | --- |
-| `lint` | `verilator --lint-only -Wall --top-module <top> ...` | Lints the flattened sources plus the wrapper (BKM acceptance stage 2), in the simulation view: without `SYNTHESIS`, like `./build check`. Skipped, and recorded as `skipped`, when Verilator is not found ([build spec](../build/SPEC.md#simulation-build-sim) search order). |
+| `lint` | `verilator --lint-only -Wall -Wno-fatal --top-module <top> ...` | Lints the flattened sources plus the wrapper (BKM acceptance stage 2), in the simulation view: without `SYNTHESIS`, like `./build check`. It passes only when every `%Warning` and `%Error` in its log is covered by a reviewed waiver in `src/lint_waivers.yaml`, matched as the [lint check](../checks/SPEC.md#waivers) matches them, and a nonzero exit has an error message; each other message is printed as a finding, and an unreadable or invalid waiver file fails the step. Stale waivers are left to `./build check`. Skipped, and recorded as `skipped`, when Verilator is not found ([build spec](../build/SPEC.md#simulation-build-sim) search order). |
 | `project` | `quartus_sh -t project.tcl` | Creates `<top>.qpf` and `<top>.qsf` (revision = top). |
 | `map` | `quartus_map <top> -c <top>` | Analysis and synthesis. |
 | `fit` | `quartus_fit <top> -c <top>` | Place and route. |
@@ -177,6 +177,8 @@ committed.
   input errors (a filelist defining `SYNTHESIS`), the generated Tcl (order,
   defines with `SYNTHESIS`, include paths, `--part`),
   deterministic generation, the lint command, Quartus discovery order,
+  lint waivers (a waived warning passes, an unwaived one or an invalid
+  waiver file fails),
   `cfg/fpga.yaml` validation, and the run loop with fake `quartus_*` scripts
   that replay the fixtures: metrics written, a failing step stops the flow,
   lint failure, timing not met, and a step timeout killing its group; and
