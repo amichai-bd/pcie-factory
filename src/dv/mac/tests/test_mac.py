@@ -308,7 +308,8 @@ async def ep_idle_to_rlock(h, role):
 async def ep_power(h, role):
     """The power states against the partner (wiki/src/arch/mac/ARCS.md#l0,
     #l0s-sub-machines, #l1-and-l2): transmit and receive L0s, left by a
-    packet each way; a retrain while the receiver is in Rx_L0s.Idle; the
+    packet each way; a retrain while the receiver is in Rx_L0s.Idle, and
+    one in Rx_L0s.Entry (the exit waits for it); the
     Rx_L0s.FTS timeout (the partner sends 200 FTS too many); L1 and L2,
     entered by both requests and left by request 0; and the upstream wait
     for L1 withdrawn (back through Recovery)."""
@@ -333,6 +334,14 @@ async def ep_power(h, role):
     await h.run_until(lambda q: q.a.rx_sub == arch.RXI, LIMIT, "receive L0s")
     h.request(retrain=1)
     await h.run_until(took(h, arch.RXI, arch.ROFF, t), LIMIT, "Rx_L0s.Idle to Rx_Off")
+    await settle(h)
+    # A retrain while the receiver is in Rx_L0s.Entry: the Recovery exit is
+    # latched and waits for Rx_L0s.Idle, the frame sending idle meanwhile.
+    t = h.now
+    p.pm_state_req = 1
+    await h.run_until(lambda q: q.a.rx_sub == arch.RE, LIMIT, "Rx_L0s.Entry")
+    h.request(retrain=1)
+    await h.run_until(took(h, arch.RXI, arch.ROFF, t), LIMIT, "the latched exit")
     await settle(h)
     # The Rx_L0s.FTS timeout.
     t = h.now

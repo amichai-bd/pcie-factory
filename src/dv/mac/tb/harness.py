@@ -113,6 +113,7 @@ TS_FIELDS = ("ts2", "ts_inv", "link", "link_pad", "link_num", "lane", "lane_pad"
 EVENTS = ("os_sym", "ts", "ts_bad", "skp", "eios", "fts")
 
 CODE_STATE = {c: n for n, _, c in arch.MAIN_STATES}
+SUB_STATES = {n for n, _, _ in arch.TX_STATES + arch.RX_STATES}
 TX_SUB = {c: n for n, _, c in arch.TX_STATES if c is not None}
 RX_SUB = {c: n for n, _, c in arch.RX_STATES if c is not None}
 
@@ -676,12 +677,22 @@ class Harness:
             a.state, a.tx_sub, a.rx_sub = main, tx, rx
             return
         for old, new in ((a.state, main), (a.tx_sub, tx), (a.rx_sub, rx)):
-            if old != new:
-                a.arcs.append((self.now, old, new))
-                COV_ARCS.sample(arc=(old, new), port_role=self.role)
-                if (old, new) not in arch.ARC_SET:
+            if old == new:
+                continue
+            path = [old, new]
+            if (old, new) not in arch.ARC_SET:
+                # A sub-machine may take a timed arc and leave with the main
+                # machine in one step (Rx_L0s.Entry to .Idle, Tx_L0s.FTS to
+                # Tx_L0, then Off); the code shows only the ends.
+                mids = [m for m in SUB_STATES
+                        if (old, m) in arch.ARC_SET and (m, new) in arch.ARC_SET]
+                if len(mids) != 1:
                     raise AssertionError(f"cycle {self.now - self.t0}: {old} -> {new} "
                                          "is not an arc of the HAS arc list")
+                path = [old, mids[0], new]
+            for x, y in zip(path, path[1:]):
+                a.arcs.append((self.now, x, y))
+                COV_ARCS.sample(arc=(x, y), port_role=self.role)
         a.state, a.tx_sub, a.rx_sub = main, tx, rx
 
     # ------------------------------------------------------------- waiting
