@@ -15,8 +15,8 @@
     [architecture model](../../arch/mac/MODEL.md), imported (not copied)
     and frozen in L0. It sees the same symbols, scrambled for its own
     descrambler; the adapter adds the MAS readings the model lacks
-    (leaving `Rx_L0` cuts a packet; an empty packet is a framing error, not
-    a beat). Delivered packets (bytes, `dllp`, `err`, `nullify`, beat
+    (leaving `Rx_L0` cuts a packet and ends a resync; an empty packet is a
+    framing error in L0, not a beat). Delivered packets (bytes, `dllp`, `err`, `nullify`, beat
     structure, `eop` at most 3 cycles after the reference ends the packet),
     `rx_frame_err_o` and `rx_idle_o` are compared.
   - `SkpSched`, a stand-in for `mac_os`'s
@@ -59,6 +59,7 @@
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Reset values and reset over the sop-to-eop ready rule](../../rtl/mac_frame/MAS.md#reset) | `smoke` | 0 | 1; reset with a packet offered and inside a packet, then a clean packet |
+| [Resync ends when `rx_l0_i` falls](../../rtl/mac_frame/MAS.md#receive) | `smoke` | 0 | directed: framing error, `rx_l0_i` low, idle counted |
 | [Framing of a TLP, a DLLP and a nullified TLP](../../rtl/mac_frame/MAS.md#transmit) | `smoke` | 0 | exact words checked |
 | [Abort: L0 exit and bubble inside a packet](../../rtl/mac_frame/MAS.md#transmit) | `smoke` | 0 | directed, then random in `tx_random`, `tx_long` |
 | [Random packet streams round trip with back-pressure; ready rules](../../rtl/mac_frame/MAS.md#transmit) | `tx_random` | 1 | 3; 20000 cycles |
@@ -82,6 +83,7 @@ L1 entries; each was caught.
 | Abort sends END instead of EDB | `smoke`: abort word mismatch |
 | Nullify also applied to DLLPs | `tx_random`: end-word mismatch (EDB for END) |
 | DLLP length check dropped on receive | `rx_random`: flags mismatch on a DLLP of the wrong length |
+| Resync kept while `rx_l0_i` is 0 (the clear on leaving `Rx_L0` reverted) | `smoke`: `rx_idle_o` 0 after the retrain step (directed check and `RxRef` mismatch) |
 | No resync after a framing error outside a packet | `rx_random`: `rx_idle_o` mismatch (discarded symbols counted as idle) |
 
 Every feature in the MAS has a row; there are no gaps.

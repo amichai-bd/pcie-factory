@@ -97,6 +97,11 @@ def test_rx_framing_errors_follow_the_symbols_page():
     pkts, errs, _ = run_rx([(1, m.STP), (0, 1), (0, 2), (0, 3), (1, m.COM), (1, m.SKP),
                             (1, m.SKP), (1, m.SKP)])
     assert len(pkts) == 1 and pkts[0].err and errs == 1
+    # Leaving Rx_L0 ends a resync: idle data counts again.
+    ref = m.RxRef()
+    ref.word(((0, 5), (0, 6)), True, False, 0, True)
+    assert ref.word(((0, 0), (0, 0)), True, False, 0, True)[2] == [0, 0]
+    assert ref.word(((0, 0), (0, 0)), True, False, 0, False)[2] == [1, 1]
     # A packet with no data: no packet, one framing error.
     pkts, errs, _ = run_rx([(1, m.STP), (1, m.END)])
     assert pkts == [] and errs == 1

@@ -443,6 +443,17 @@ async def smoke(dut):
         await env.tx_cycle(drv, 1, 0)
     assert env.delivered == 1 and not env.expected
     env.new_refs()
+    # A framing error in L0, then the receiver leaves Rx_L0 (a retrain):
+    # the resync ends, so idle data counts again (Recovery.Idle needs it).
+    await env.drive_idle(rst=1, n=2)
+    env.new_refs()
+    idle_w = ((0, 0), (0, 0))
+    for syms, rx_l0 in ((((0, 5), (0, 6)), True), (idle_w, True), (idle_w, False),
+                        (idle_w, False)):
+        await env.tx_cycle(drv, 0, 0, loop=False, rx_word=(syms, True, False, 0, rx_l0))
+    assert env.out("rx_idle_o") == 0b11, "idle not counted after leaving Rx_L0 in resync"
+    assert env.rx.framing_errors == 1
+    env.new_refs()
     await env.drive_idle(rst=1, n=2)
     await run_tx(env, 1500, max_tlp=32, p_l0_drop=0.005, p_stop=0.01, p_bubble=0.01)
     await env.drive_idle(rst=1, n=2)

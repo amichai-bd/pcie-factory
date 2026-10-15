@@ -223,6 +223,8 @@ class RxRef(arch.Mac):
             self.events.append("cut_l0")
             self._pkt_end(err=True)                # leaving Rx_L0 cuts it (MAS)
         self.rx_sub = arch.RL0 if rx_l0 else arch.RE
+        if not rx_l0:
+            self._resync = False               # as the model's L0 exit and entry do (MAS)
         if self._pkt is not None:
             if status >= 4:
                 self.events.append("status")
@@ -236,7 +238,7 @@ class RxRef(arch.Mac):
         empty = any(not p.data for p in new)
         if empty:
             self.events.append("empty")
-        ferr = self.framing_errors > f0 or empty
+        ferr = self.framing_errors > f0 or (empty and rx_l0)
         idle = [int(x) for x in self._sym_idle] + [0] * (2 - len(self._sym_idle))
         ends = [e for e in self.ends[e0:] if e[0].data]
         return [p for p in new if p.data], ferr, idle, ends

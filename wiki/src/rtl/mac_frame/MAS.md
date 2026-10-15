@@ -133,17 +133,21 @@ these readings:
   symbols), a SKP ordered set (COM and a run of SKP), or an EIOS or FTS
   ordered set (COM and a run of IDL or FTS). The symbol that ends a run is
   parsed normally. A COM inside a packet ends it bad and is a framing error.
-- **Packets** start only while `rx_l0_i` is 1. Framing errors count only
-  while `rx_l0_i` is 1, and each sets the resync state, which discards
-  symbols without further errors up to the next STP, SDP, END or EDB (STP
-  and SDP clear it at once, as they start a packet).
+- **Packets** start only while `rx_l0_i` is 1. Framing errors, the
+  dropped empty packet included, count only while `rx_l0_i` is 1, and each
+  sets the resync state, which discards symbols without further errors up
+  to the next STP, SDP, END or EDB (STP and SDP clear it at once, as they
+  start a packet). Resync also ends whenever `rx_l0_i` is 0 (an L0 exit or
+  receive L0s), as the architecture model clears it on leaving and on
+  entering L0, so idle symbols count again in Recovery.
 - **Flags.** A packet ends bad (`err`) when it was cut, ended by a framing
   error, had an RxStatus error, has an odd byte count, is a DLLP of other
   than 6 bytes, or is a DLLP ended by EDB. Otherwise a TLP ended by EDB is
   `nullify`.
 - **A packet with no data byte** (STP or SDP followed at once by its end)
   has no beat to carry it: it is not delivered, and it counts as a framing
-  error. No TLP or DLLP is empty, so this is malformed framing (firstmate
+  error (in L0, as above; a packet cut by leaving `Rx_L0` before its first
+  byte is dropped without one). No TLP or DLLP is empty, so this is malformed framing (firstmate
   ruling on [#76](https://github.com/amichai-bd/pcie-factory/issues/76); the
   mac HAS gains the rule with
   [#146](https://github.com/amichai-bd/pcie-factory/issues/146)).

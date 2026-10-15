@@ -257,6 +257,12 @@ module pcie_mac_frame (
     bad         = 1'b0;
     beat        = '0;
 
+    // Resync belongs to L0's receive: it ends when the receiver leaves
+    // Rx_L0 (an L0 exit or receive L0s), so idle counts work in Recovery.
+    if (!rx_l0_i) begin
+      resync_d = 1'b0;
+    end
+
     if (in_pkt_q && rx_status_i[2]) begin
       pkt_bad_d = 1'b1;
     end
@@ -391,8 +397,8 @@ module pcie_mac_frame (
           npush = npush + 2'd1;
         end else begin
           // A packet with no data byte has no beat to carry it: it is not
-          // delivered and counts as a framing error (MAS, Receive).
-          ferr = 1'b1;
+          // delivered and counts as a framing error in L0 (MAS, Receive).
+          ferr = ferr || rx_l0_i;
         end
         in_pkt_d = 1'b0;
         pend_v_d = 1'b0;
