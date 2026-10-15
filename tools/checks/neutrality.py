@@ -33,7 +33,7 @@ CONFIG = "cfg/checks.yaml"
 # The exempt trees, as CLAUDE.md "Design neutrality" fixes them.
 EXEMPT = ("src/", "wiki/src/", "wiki/tracker/data/")
 # Top-level sections of cfg/checks.yaml; each check validates its own.
-SECTIONS = {"neutrality", "citation", "publishability"}
+SECTIONS = {"neutrality", "citation", "publishability", "spec_cache"}
 
 _WORDS_LINE = re.compile(r"^\s*words\s*:\s*(\[[^\]\n]*\])", re.MULTILINE)
 _SLUG_LINE = re.compile(r"^\s*repo_slug\s*:\s*(\S+)", re.MULTILINE)

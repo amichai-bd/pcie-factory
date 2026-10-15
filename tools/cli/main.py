@@ -30,11 +30,13 @@ from regress import run as regress
 from regress.affected import GitError
 from regress.coverage import CoverageError
 from regress.schema import LEVELS, SchemaError, load_ip
+from specs import cli as specs_cli
+from specs.core import SpecsError
 
 WIKI_SITE = Path(__file__).resolve().parents[1] / "wiki_site"
 USER_ERRORS = (FilelistError, DiscoveryError, SchemaError, GitError, sim.SimError, CoverageError,
                fpga.FpgaError, labels.LabelsError, CheckConfigError, CiConfigError,
-               ArchError)
+               ArchError, SpecsError)
 
 
 def cmd_sim(ctx: Context, args) -> int:
@@ -277,7 +279,7 @@ COMMANDS = {
     "sim": ("run one test of one IP", cmd_sim, _sim_args),
     "regress": ("run regression levels", cmd_regress, _regress_args),
     "clean": ("remove generated output", cmd_clean, _clean_args),
-    "check": ("static checks: layout, filelist, style, wiki mirror, flow inputs, neutrality, citation, publishability, lint, cdc", cmd_check, _check_args),
+    "check": ("static checks: layout, filelist, style, wiki mirror, flow inputs, neutrality, citation, publishability, spec-cache, lint, cdc", cmd_check, _check_args),
     "labels": ("GitHub label sync and check", cmd_labels, _labels_args),
     "ci": ("ci-gate helpers: unit suites, job summary, data-branch status", cmd_ci, _ci_args),
     "wiki": ("build or serve the wiki site", cmd_wiki, _wiki_args),
@@ -285,6 +287,8 @@ COMMANDS = {
     "fpga": ("FPGA flow: Quartus compile and metrics", cmd_fpga, _fpga_args),
     "asic": ("ASIC flow (ORFS)", asic_cli.run, asic_cli.add_args),
     "arch": ("architecture-model perf scenarios", arch_cli.run, arch_cli.add_args),
+    "specs": ("local cache of official reference documents (never committed)",
+              specs_cli.run, specs_cli.add_args),
 }
 
 

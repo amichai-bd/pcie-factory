@@ -19,7 +19,10 @@ control, the lower symbol interface, clocks and the stack targets; its
 **References.** Rules come from the PCIe Base Spec rev 3.0, Gen1 rules only
 (Q9), and PIPE from rev 3.0 of Intel's PIPE specification, cited as
 `PIPE Spec` ([PIPE page](PIPE.md)). Both are paraphrased and cited, never
-copied ([wiki BKM](../../../bkm/wiki.md#citations)).
+copied ([wiki BKM](../../../bkm/wiki.md#citations)); their links and access
+terms are on the [references page](../../references.md)
+([`pcie-base`](../../references.md#pcie-base), [`pipe`](../../references.md#pipe),
+[`8b10b`](../../references.md#8b10b)).
 
 ## Position
 

@@ -1,0 +1,27 @@
+# Reference documents that `./build specs fetch` caches outside the
+# repository. Owning spec: wiki/tools/specs/SPEC.md. Every id is an entry on
+# the public references page, wiki/src/references.md, which owns the links,
+# access terms and the pages that rely on each document.
+#
+# Never commit a document, its text or excerpts: the licenses allow a local
+# copy only. `./build check` (spec-cache) enforces it.
+
+documents:
+  - id: pipe
+    title: PHY Interface for the PCI Express and USB 3.0 Architectures
+    revision: "3.0"
+    publisher: Intel Corporation
+    # Publisher's own download; the title page states "Version 3.0"
+    # (checked 2026-10-15 before pinning the hash).
+    source: https://www.intel.com/content/dam/doc/white-paper/usb3-phy-interface-pci-express-paper.pdf
+    sha256: 06078c13327a31a312a14e0dc64cc5b382f8398c1c15cee22d21730aadc4ce59
+    license: Copyright license to reproduce for internal use only; a local copy is allowed, redistribution is not.
+
+  - id: pcie-base
+    title: PCI Express Base Specification
+    revision: "3.0"
+    publisher: PCI-SIG
+    # Members only, or a purchased hard copy. The captain places a copy they
+    # hold under their own license at `./build specs path --local pcie-base`.
+    source: local
+    license: Members-only distribution; never redistributed or committed.
