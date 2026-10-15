@@ -22,14 +22,17 @@ It carries a reset only. A level or an event goes through
 | `dst_rst_o` | out | 1 | `dst_clk_i` (release) | Active-high destination reset; driven by the last flop. |
 
 CDC declaration ([convention](../../../../bkm/rtl.md#clock-domain-crossings)):
-`// cdc-cell: src=async dst=dst_clk_i`. The cell has no source clock port.
-The structural CDC check treats `src_rst_i` as a `src=async` input, so it
-must come straight from a flop or a top-level input port, and
-`dst_rst_o` as a source in the `dst_clk_i` domain. RTL outside
-`src/rtl/common/` instantiates the cell only through
-`` `COMMON_RESET_SYNC(INST, Q, D, DST_CLK)`` (default `STAGES`; style rule
-`cdc-cell-macro`, [crossings](../../../../bkm/rtl.md#clock-domain-crossings)):
-`D` drives `src_rst_i`, `Q` is `dst_rst_o`.
+`// cdc-cell: src=async dst=dst_clk_i reset=dst_rst_o`. The cell has no
+source clock port. The structural CDC check treats `src_rst_i` as a
+`src=async` input, so it must come straight from a flop or a top-level
+input port, and `dst_rst_o` as a source in the `dst_clk_i` domain; `reset=`
+makes it hold every flop that takes `dst_rst_o` to the consumer rule
+below. RTL outside `src/rtl/common/` instantiates the cell only through a
+macro (style rule `cdc-cell-macro`,
+[crossings](../../../../bkm/rtl.md#clock-domain-crossings)), with `D`
+driving `src_rst_i` and `Q` being `dst_rst_o`:
+`` `COMMON_RESET_SYNC(INST, Q, D, DST_CLK)`` for the default `STAGES`, or
+`` `COMMON_RESET_SYNC_STAGES(INST, Q, D, DST_CLK, NUM_STAGES)`` to set it.
 
 ## Parameters
 
@@ -74,8 +77,11 @@ crossing cells use their asynchronous-reset forms on that side
 `*_ASYNC_RESET`), and assertions the `_ARST` forms, so that the whole
 domain enters reset with no clock edge. A flop that samples `dst_rst_o` as
 a synchronous reset only enters reset at its next edge, and then the
-domain's reset is no longer asynchronous; Verilator lint reports the mix
-as `SYNCASYNCNET` on `out_q`.
+domain's reset is no longer asynchronous. The CDC check reports any flop
+whose data input, a synchronous reset included, reaches `dst_rst_o`
+unless that flop is asynchronously reset by it
+([synchronized resets](../../../../tools/checks/SPEC.md#cdc-check)), and
+Verilator lint reports a mix of both styles as `SYNCASYNCNET` on `out_q`.
 
 ## Microarchitecture
 
@@ -96,7 +102,7 @@ resolve.
 | --- | --- | --- |
 | Asynchronous set of every stage | Assertion with no clock edge, from flops, so `dst_rst_o` has no logic and no glitch. All stages set, so a pulse shorter than a period still holds `dst_rst_o` high for the whole release. | `src_rst_i \| sync_q[last]` (logic on the output, and a short pulse never reaches the flops); synchronous assertion (needs clock edges). |
 | The last stage, `out_q`, a register of its own | No flop of the cell reads the output net, so its consumers' asynchronous use is its only use and lint can tell a domain with one reset style from a mixed one. In one vector, the chain's own shift reads the output variable as flop data, which Verilator reports as `SYNCASYNCNET` whenever a consumer takes the output asynchronously (#170). | One `STAGES`-bit vector with the output as its top bit. |
-| `STAGES` parameter, default 2 | The usual two flops meet a 3-cycle release contract; a fast clock that needs more MTBF raises it. | A fixed two flops. |
+| `STAGES` parameter, default 2 | The usual two flops meet a 3-cycle release contract; a fast clock that needs more MTBF raises it, through `` `COMMON_RESET_SYNC_STAGES`` outside `src/rtl/common/` (#139). | A fixed two flops; a `STAGES` that only shared blocks could raise. |
 | Active-high reset | The repository default ([RTL BKM](../../../../bkm/rtl.md#reset-and-clocks)). | Active-low (`rst_ni`). |
 | No synthesis attribute in the RTL | A vendor attribute ties one shared, flow-neutral source to one FPGA tool. The consuming IP's FPGA constraints mark the chain as a synchronizer, as they do for the other cells. | The source cell's `altera_attribute`. |
 

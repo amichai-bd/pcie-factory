@@ -48,7 +48,7 @@ def drive(dut, i: Inputs) -> None:
 def observed(dut) -> dict[str, int]:
     out = {name: int(getattr(dut, f"{name}_o").value)
            for name in ("dff", "dff_en", "rst", "rst_val", "rst_en", "arst_val", "arst_en",
-                        "rd", "rd_en", "wrd", "meta", "meta_val", "meta_arst", "rst_sync")}
+                        "rd", "rd_en", "wrd", "meta", "meta_val", "meta_arst", "rst_sync", "rst_sync3")}
     arr, arr_rst = int(dut.arr_en_o.value), int(dut.arr_rst_en_o.value)
     for k in range(ARRAY):
         out[f"arr_en_{k}"] = (arr >> (8 * k)) & 0xFF
@@ -94,6 +94,7 @@ async def contract(dut):
     got = (int(dut.arst_val_o.value), int(dut.arst_en_o.value))
     assert got == (ARST_VAL, ARST_EN_VAL), f"async reset: expected 0x5a/0xc3 got {got}"
     assert int(dut.rst_sync_o.value) == 1, "COMMON_RESET_SYNC: not asserted before any edge"
+    assert int(dut.rst_sync3_o.value) == 1, "COMMON_RESET_SYNC_STAGES: not asserted before any edge"
     assert int(dut.meta_arst_o.value) == 0, "COMMON_METAFLOP_ARST: not reset before any edge"
     n = 0
     await step(dut, model, Inputs(rst=1, arst=1, en=1, data=0x11), n)
@@ -108,6 +109,7 @@ async def contract(dut):
     await Timer(1, "ns")
     assert int(dut.arst_val_o.value) == ARST_VAL and int(dut.arst_en_o.value) == ARST_EN_VAL
     assert int(dut.rst_sync_o.value) == 1, "COMMON_RESET_SYNC: not asserted between edges"
+    assert int(dut.rst_sync3_o.value) == 1, "COMMON_RESET_SYNC_STAGES: not asserted between edges"
     assert int(dut.meta_arst_o.value) == 0, "COMMON_METAFLOP_ARST: not reset between edges"
     model.async_reset()
     n += 1
@@ -116,6 +118,10 @@ async def contract(dut):
     n += 1
     got = await step(dut, model, Inputs(data=0x36), n)
     assert got["rst_sync"] == 0, "COMMON_RESET_SYNC not released two edges after the fall"
+    assert got["rst_sync3"] == 1, "COMMON_RESET_SYNC_STAGES (3) released two edges after the fall"
+    n += 1
+    got = await step(dut, model, Inputs(data=0x37), n)
+    assert got["rst_sync3"] == 0, "COMMON_RESET_SYNC_STAGES (3) not released three edges after the fall"
     # Memory: write, then read the same address while writing new data.
     for k, data in enumerate((0x40, 0x41)):
         n += 1

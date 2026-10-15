@@ -395,6 +395,14 @@ COV.sample(valid=1, data=0x3C)                 # every matching bin counts
   `lambda v: isinstance(v, str)` instead. A cross
   bin is hit when each of its coverpoints is sampled in the same `sample`
   call and hits that bin.
+- `cross(name, *points, unreachable=[...])` leaves out the listed
+  combinations, each a tuple of one bin name per coverpoint (in `points`
+  order), that the stimulus cannot produce: they are not cross bins, so
+  they never count as misses, and a `sample` that hits one raises
+  `CoverageError`, which fails the test, so the claim stays checked. A
+  combination that is not such a tuple, or a list that leaves the cross no
+  bin, raises `CoverageError`. The DV plan says why each one is
+  unreachable ([DV BKM](../../bkm/dv.md#coverage)).
 - Group, coverpoint, cross and bin names match
   `[A-Za-z0-9_][A-Za-z0-9_.-]*`; a duplicate name, an empty bin set, a cross
   of fewer than two known coverpoints or an unknown coverpoint in `sample`

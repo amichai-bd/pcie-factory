@@ -467,6 +467,72 @@ def test_annotated_reset_port_through_the_reset_synchronizer_passes(tmp_path, re
     assert r.passed, r.findings
 
 
+# A clk_b_i flop on the synchronized reset rst_b (the cell's reset= output)
+# must take it as an asynchronous reset; USE is how it takes it.
+RST_USE = """
+  logic rst_b;
+  logic b_q;
+  `COMMON_RESET_SYNC(u_rst, rst_b, rst_a_i, clk_b_i)
+  USE
+  assign y_o = b_q;
+"""
+
+
+@needs_verilator
+@pytest.mark.parametrize("use", [
+    "always_ff @(posedge clk_b_i) begin\n    if (rst_b) b_q <= 1'b0;\n    else b_q <= ~b_q;\n  end",
+    "`COMMON_DFF_RST(b_q, ~b_q, clk_b_i, rst_b)",
+    "always_ff @(posedge clk_b_i) b_q <= rst_b;",
+    "logic r;\n  assign r = rst_b | x_q;\n  `COMMON_DFF_RST(b_q, ~b_q, clk_b_i, r)\n"
+    "  logic x_q;\n  `COMMON_DFF(x_q, rst_b_i, clk_b_i)",
+    "`COMMON_DFF_ARST_VAL(b_q, rst_b, clk_b_i, rst_b_i, 1'b0)",
+], ids=["sync-reset", "sync-reset-macro", "data", "through-logic", "async-on-another-reset"])
+def test_synchronized_reset_taken_synchronously_fails(tmp_path, use):
+    src = rst_port(tmp_path, "", "rst_b")
+    top = src / "rtl/blk/xy_blk.sv"
+    text = top.read_text()
+    start = text.index("  logic rst_b;")
+    top.write_text(text[:start] + RST_USE.replace("USE", use) + TAIL)
+    [f] = blk(run(src))
+    assert f.startswith("blk: flop b_q (rtl/blk/xy_blk.sv:") and (
+        "takes the synchronized reset u_rst.dst_rst_o (rtl/blk/xy_blk.sv:" in f
+        and f.endswith("as data or as a synchronous reset and is not asynchronously reset "
+                       "by it; a flop on that reset is a COMMON_DFF_ARST_* register on it")), f
+
+
+@needs_verilator
+@pytest.mark.parametrize("use", [
+    "`COMMON_DFF_ARST_VAL(b_q, ~b_q, clk_b_i, rst_b, 1'b1)",
+    "logic b_d;\n  assign b_d = ~b_q & ~rst_b;\n  `COMMON_DFF_ARST_VAL(b_q, b_d, clk_b_i, rst_b, 1'b1)",
+], ids=["async-reset", "async-reset-and-data"])
+def test_synchronized_reset_taken_asynchronously_passes(tmp_path, use):
+    """A flop reset asynchronously by the reset may also read it as data:
+    it is in reset whenever the reset is high."""
+    src = rst_port(tmp_path, "", "rst_b")
+    top = src / "rtl/blk/xy_blk.sv"
+    text = top.read_text()
+    start = text.index("  logic rst_b;")
+    top.write_text(text[:start] + RST_USE.replace("USE", use) + TAIL)
+    r = run(src)
+    assert r.passed, r.findings
+
+
+@needs_verilator
+def test_reset_directive_without_the_token_does_not_flag(tmp_path):
+    """The rule follows the directive: with no reset= token, the same
+    synchronous use is not reported (lint's SYNCASYNCNET owns mixed use)."""
+    src = rst_port(tmp_path, "", "rst_b")
+    cell = src / "rtl/common/cdc/common_cdc_rst.sv"
+    cell.write_text(cell.read_text().replace(" reset=dst_rst_o", ""))
+    top = src / "rtl/blk/xy_blk.sv"
+    text = top.read_text()
+    start = text.index("  logic rst_b;")
+    top.write_text(text[:start] + RST_USE.replace(
+        "USE", "`COMMON_DFF_RST(b_q, ~b_q, clk_b_i, rst_b)") + TAIL)
+    r = run(src)
+    assert r.passed, r.findings
+
+
 @needs_verilator
 def test_annotated_reset_port_taken_directly_fails(tmp_path):
     [f] = blk(run(rst_port(tmp_path, "", "rst_a_i")))
@@ -689,6 +755,35 @@ def test_port_findings_async_output():
         model.vars[str(a)] = cdc.VarInfo(n, "", d)
     dv = cdc.Directive("common_cdc_x", "async", "dst_clk_i", Path("x"), 1)
     assert cdc.port_findings(model, dv) == ["src=async cell has a source-side output src_ack_o"]
+
+
+@pytest.mark.parametrize("reset, msg", [
+    ("dst_data_o", []),
+    ("dst_clk_i", ["reset=dst_clk_i is not a dst_* output port"]),
+    ("src_ack_o", ["reset=src_ack_o is not a dst_* output port"]),
+    ("dst_none_o", ["reset=dst_none_o is not a dst_* output port"]),
+])
+def test_port_findings_reset_output(reset, msg):
+    model = cdc.Module({})
+    for a, (n, d) in enumerate([("dst_clk_i", "INPUT"), ("src_ack_o", "OUTPUT"),
+                                ("dst_data_o", "OUTPUT")]):
+        model.vars[str(a)] = cdc.VarInfo(n, "", d)
+    dv = cdc.Directive("common_cdc_x", "src_clk_i", "dst_clk_i", Path("x"), 1, reset)
+    assert [f for f in cdc.port_findings(model, dv) if f.startswith("reset=")] == msg
+
+
+def test_scan_directive_reset_token(tmp_path):
+    common = tmp_path / "src/rtl/common/cdc"
+    common.mkdir(parents=True)
+    f = common / "common_cdc_r.sv"
+    f.write_text("// cdc-cell: src=async dst=dst_clk_i reset=dst_rst_o\nmodule common_cdc_r;\n"
+                 "endmodule\n// cdc-cell: src=async dst=dst_clk_i reset=\nmodule common_cdc_s;\n"
+                 "endmodule\n")
+    found, findings = cdc.scan_directives([f], tmp_path / "src")
+    assert [d.reset for d in found.values()] == ["dst_rst_o"]
+    assert findings == ["rtl/common/cdc/common_cdc_r.sv:4: malformed cdc-cell directive "
+                        "(expected '// cdc-cell: src=<clock port|async> dst=<clock port> "
+                        "[reset=<dst_* output port>]')"]
 
 
 @needs_verilator

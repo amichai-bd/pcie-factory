@@ -44,7 +44,8 @@ SIDES = ("src", "dst")
 # match the grammar exactly.
 _DIRECTIVE_LINE_RE = re.compile(r"^\s*//\s*cdc-cell\b")
 _DIRECTIVE_RE = re.compile(r"^\s*//\s*cdc-cell:\s*src=(?P<src>[A-Za-z_]\w*)"
-                           r"\s+dst=(?P<dst>[A-Za-z_]\w*)\s*$")
+                           r"\s+dst=(?P<dst>[A-Za-z_]\w*)"
+                           r"(?:\s+reset=(?P<reset>[A-Za-z_]\w*))?\s*$")
 _MODULE_LINE_RE = re.compile(r"^\s*module\s+(?:(?:automatic|static)\s+)?(?P<name>\w+)")
 # A port-domain annotation: the trailing comment of an input port declaration.
 _DOMAIN_LINE_RE = re.compile(r"//\s*cdc-domain\b")
@@ -75,6 +76,7 @@ class Directive:
     dst: str
     file: Path  # resolved
     line: int
+    reset: str = ""  # the dst_* output that carries a synchronized reset, if any
 
 
 def scan_directives(files: list[Path], src_root: Path
@@ -103,7 +105,8 @@ def scan_directives(files: list[Path], src_root: Path
             m = _DIRECTIVE_RE.match(line)
             if m is None:
                 findings.append(f"{where}:{n}: malformed cdc-cell directive (expected "
-                                "'// cdc-cell: src=<clock port|async> dst=<clock port>')")
+                                "'// cdc-cell: src=<clock port|async> dst=<clock port>"
+                                " [reset=<dst_* output port>]')")
                 continue
             mod = _MODULE_LINE_RE.match(lines[i + 1]) if i + 1 < len(lines) else None
             if mod is None:
@@ -120,7 +123,8 @@ def scan_directives(files: list[Path], src_root: Path
                                 "src and dst name the same port")
                 continue
             directive_lines.add(i + 1)
-            found[(path, name)] = Directive(name, m.group("src"), m.group("dst"), path, n)
+            found[(path, name)] = Directive(name, m.group("src"), m.group("dst"), path, n,
+                                            m.group("reset") or "")
         if not in_common:
             continue
         for i, line in enumerate(lines):
@@ -237,6 +241,7 @@ class Flop:
     deps: dict[str, int]
     loc: str
     error: str = ""
+    resets: tuple[str, ...] = ()  # var addrs of the other edges: asynchronous resets
 
 
 @dataclass
@@ -489,8 +494,9 @@ def _build_model(nl: Netlist, mod: dict) -> Module:
                 clock = cands[0]
             else:
                 error = "its clock cannot be told from its sensitivity list"
+        resets = tuple(s for s in dict.fromkeys(sens) if s != clock) if clock else ()
         for tg, deps in flop_out.items():
-            m.flops.append(Flop(tg, clock, deps, n.get("loc", ""), error))
+            m.flops.append(Flop(tg, clock, deps, n.get("loc", ""), error, resets))
 
     def cell(n: dict, scope: str) -> None:
         sub = nl.modules.get(n.get("modp", ""))
@@ -559,6 +565,9 @@ def port_findings(model: Module, d: Directive) -> list[str]:
         for name, v in sorted(ports.items()):
             if name.startswith("src_") and v.direction != "INPUT":
                 out.append(f"src=async cell has a source-side output {name}")
+    if d.reset and (not d.reset.startswith("dst_") or d.reset not in ports
+                    or ports[d.reset].direction != "OUTPUT"):
+        out.append(f"reset={d.reset} is not a dst_* output port")
     return out
 
 
@@ -586,6 +595,7 @@ class Design:
     flops: dict[Node, Flop] = field(default_factory=dict)
     flop_clock: dict[Node, Node | None] = field(default_factory=dict)
     pseudo: dict[Node, Node | None] = field(default_factory=dict)  # cell output -> clock
+    resets: set[Node] = field(default_factory=set)  # cell outputs named by a reset= directive
     port_clock: dict[Node, Node] = field(default_factory=dict)  # annotated top input -> clock
     sinks: list[Sink] = field(default_factory=list)
     inputs: dict[Node, str] = field(default_factory=dict)
@@ -700,6 +710,8 @@ def _black_box(d: Design, path, prefix: str, c: CellRef, sub: Module, dv: Direct
             d.names[node] = desc
             d.locs[node] = c.loc
             d.pseudo[node] = clocks.get(side)
+            if dv.reset and info.name == dv.reset:
+                d.resets.add(node)
             for w, k in p.writes.items():
                 d.edge((path, w), node, k)
         elif info.direction == "INPUT":
@@ -1131,6 +1143,42 @@ def output_domain_findings(analysis: Analysis, own: Directive) -> list[str]:
     return out
 
 
+def reset_use_findings(design: Design) -> list[str]:
+    """A synchronized reset (a cell output its directive names ``reset=``)
+    asserts asynchronously, so a flop that takes it must be asynchronously
+    reset by it: a flop whose data input, enclosing conditions such as a
+    synchronous reset included, reaches it through combinational edges is a
+    finding unless one of the flop's asynchronous reset signals reaches it
+    too (then the flop is in reset whenever the reset is high, and reading
+    it as data as well changes nothing)."""
+    d = design
+    out: dict[Node, list[Node]] = {}
+    for dst, ins in d.comb_in.items():
+        for src, _ in ins:
+            out.setdefault(src, []).append(dst)
+    taint: dict[Node, set[Node]] = {}   # node -> the reset outputs reaching it
+    for r in d.resets:
+        stack, seen = [r], set()
+        while stack:
+            n = stack.pop()
+            if n in seen:
+                continue
+            seen.add(n)
+            taint.setdefault(n, set()).add(r)
+            stack.extend(w for w in out.get(n, ()) if w not in d.flops and w not in d.pseudo)
+    found = []
+    for node, f in sorted(d.flops.items(), key=lambda x: d.name(x[0])):
+        path = node[0]
+        reached = set().union(*(taint.get((path, x), set()) for x in f.deps))
+        own = set().union(*(taint.get((path, x), set()) for x in f.resets))
+        found += [f"flop {d.name(node)} ({d.nl.where(d.locs.get(node, ''))}) takes the "
+                  f"synchronized reset {d.name(r)} ({d.nl.where(d.locs.get(r, ''))}) as data "
+                  "or as a synchronous reset and is not asynchronously reset by it; a flop "
+                  "on that reset is a COMMON_DFF_ARST_* register on it"
+                  for r in sorted(reached - own, key=d.name)]
+    return found
+
+
 def analyze(nl: Netlist, directives: dict[tuple[Path, str], Directive],
             checked_cells: dict[str, list[str]],
             domains: dict[tuple[Path, int], PortDomain] | None = None,
@@ -1177,6 +1225,7 @@ def analyze(nl: Netlist, directives: dict[tuple[Path, str], Directive],
     else:  # a crossing cell's ports have their domains from src_*/dst_*
         findings += analysis.unannotated_inputs()
     findings += analysis.crossings()
+    findings += reset_use_findings(design)
     return list(dict.fromkeys(findings)), len(design.flops)
 
 

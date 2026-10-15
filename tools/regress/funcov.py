@@ -25,7 +25,8 @@ When a sample hits no bin and no value bin of its coverpoint has its type,
 a :class:`CoverageWarning` is issued once per coverpoint and type. A
 sampled value hits every bin it matches. A cross has
 one bin per combination of its coverpoints' bins and is hit when every one of
-its coverpoints is sampled in the same ``sample`` call. Predicates must be
+its coverpoints is sampled in the same ``sample`` call; combinations declared
+``unreachable`` are left out, and sampling one raises CoverageError. Predicates must be
 pure functions of the value: ``sample`` reuses the bins computed for an equal
 value of the same type.
 
@@ -148,6 +149,7 @@ class Covergroup:
         self.name = name
         self._points: dict[str, list[tuple[str, object]]] = {}
         self._crosses: dict[str, tuple[str, ...]] = {}
+        self._unreachable: dict[str, frozenset[str]] = {}  # cross -> combinations left out
         self._types: dict[str, frozenset[type]] = {}  # coverpoint -> value bin types
         self._warned: set[tuple[str, type]] = set()
         self._plans: dict[tuple, tuple] = {}  # sampled values -> increments
@@ -174,7 +176,11 @@ class Covergroup:
         self.counts[name] = dict.fromkeys(names, 0)
         return self
 
-    def cross(self, name: str, *points: str) -> "Covergroup":
+    def cross(self, name: str, *points: str, unreachable=()) -> "Covergroup":
+        """A cross of ``points``. ``unreachable`` lists combinations, each a
+        tuple of one bin name per coverpoint, that the stimulus cannot
+        produce: they are left out of the cross, so they never count as
+        misses, and a sample that hits one raises CoverageError."""
         _check_name("cross", name)
         if name in self.counts:
             raise CoverageError(f"{self.name}: {name!r} already defined")
@@ -183,9 +189,20 @@ class Covergroup:
         for p in points:
             if p not in self._points:
                 raise CoverageError(f"{self.name}.{name}: unknown coverpoint {p!r}")
+        names = [[b for b, _ in self._points[p]] for p in points]
+        skip: set[str] = set()
+        for combo in unreachable:
+            if (type(combo) is not tuple or len(combo) != len(points)
+                    or not all(b in n for b, n in zip(combo, names))):
+                raise CoverageError(f"{self.name}.{name}: unreachable combination {combo!r} is "
+                                    f"not a tuple of one bin name per coverpoint {points}")
+            skip.add(CROSS_SEP.join(combo))
+        combos = [CROSS_SEP.join(c) for c in product(*names)]
+        if all(c in skip for c in combos):
+            raise CoverageError(f"{self.name}.{name}: every combination is unreachable")
         self._crosses[name] = tuple(points)
-        combos = product(*[[b for b, _ in self._points[p]] for p in points])
-        self.counts[name] = {CROSS_SEP.join(c): 0 for c in combos}
+        self._unreachable[name] = frozenset(skip)
+        self.counts[name] = {c: 0 for c in combos if c not in skip}
         return self
 
     def sample(self, **values) -> None:
@@ -221,7 +238,12 @@ class Covergroup:
             out += [(self.counts[point], b) for b in hit[point]]
         for name, points in self._crosses.items():
             if all(p in hit for p in points):
-                out += [(self.counts[name], CROSS_SEP.join(c)) for c in product(*[hit[p] for p in points])]
+                for c in product(*[hit[p] for p in points]):
+                    b = CROSS_SEP.join(c)
+                    if b in self._unreachable[name]:
+                        raise CoverageError(f"{self.name}.{name}: sampled the combination {b}, "
+                                            f"declared unreachable ({values})")
+                    out.append((self.counts[name], b))
         return tuple(out)
 
     def _warn_type(self, point: str, value) -> None:
