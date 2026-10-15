@@ -35,11 +35,12 @@ module pcie_mac_scrambler (
   logic                                     valid_q;
   logic [15:0]                              data_q;
   logic [1:0]                               datak_q;
+  genvar                                    sym;         // symbol index of g_lane, g_lane_check
 
   generate
-    for (genvar i = 0; i < SYMS; i++) begin : g_lane
-      assign sym_com[i] = in_datak[i] && (in_data[BYTE_W*i +: BYTE_W] == common_pkg::SYM_COM);
-      assign sym_skp[i] = in_datak[i] && (in_data[BYTE_W*i +: BYTE_W] == common_pkg::SYM_SKP);
+    for (sym = 0; sym < SYMS; sym++) begin : g_lane
+      assign sym_com[sym] = in_datak[sym] && (in_data[BYTE_W*sym +: BYTE_W] == common_pkg::SYM_COM);
+      assign sym_skp[sym] = in_datak[sym] && (in_data[BYTE_W*sym +: BYTE_W] == common_pkg::SYM_SKP);
     end
   endgenerate
 
@@ -89,14 +90,14 @@ module pcie_mac_scrambler (
   // Per symbol, in either lane: a COM loads the seed, a SKP holds, any
   // other symbol advances by eight shifts (the lane chain).
   generate
-    for (genvar i = 0; i < SYMS; i++) begin : g_lane_check
+    for (sym = 0; sym < SYMS; sym++) begin : g_lane_check
       `COMMON_ASSERT_NEVER(a_com_reseeds_lane, clk_i, rst_i,
-                           valid_i && sym_com[i] && lane_state[i+1] != LFSR_SEED)
+                           valid_i && sym_com[sym] && lane_state[sym+1] != LFSR_SEED)
       `COMMON_ASSERT_NEVER(a_skp_holds_lane, clk_i, rst_i,
-                           valid_i && sym_skp[i] && lane_state[i+1] != lane_state[i])
+                           valid_i && sym_skp[sym] && lane_state[sym+1] != lane_state[sym])
       `COMMON_ASSERT_NEVER(a_other_advances_lane, clk_i, rst_i,
-                           valid_i && !sym_com[i] && !sym_skp[i]
-                           && lane_state[i+1] != pcie_mac_pkg::lfsr_advance(lane_state[i]))
+                           valid_i && !sym_com[sym] && !sym_skp[sym]
+                           && lane_state[sym+1] != pcie_mac_pkg::lfsr_advance(lane_state[sym]))
     end
   endgenerate
   // Only data symbols with scr_i set may change.

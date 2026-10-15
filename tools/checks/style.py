@@ -119,6 +119,9 @@ RULES = {
     "bare-generate": ("systemverilog-rules",
                       "a module-level for, if or case (a generate construct) sits inside "
                       "generate ... endgenerate (Quartus Lite rejects a bare generate region)"),
+    "inline-genvar": ("systemverilog-rules",
+                      "no genvar declared in a for header; declare it at module level "
+                      "(Quartus Lite rejects for (genvar i ...))"),
 }
 
 # A tool directive comment: a tool keyword followed by a directive word.
@@ -681,6 +684,8 @@ def check_text(relpath: str, raw: str, expected_prefix: str | None,
         add("interface-union", m.start(), m.group())
     for m in re.finditer(r"\.\s*\*", body):
         add("wildcard-connection", m.start(), ".*")
+    for m in re.finditer(r"\bfor\s*\(\s*genvar\b", body):
+        add("inline-genvar", m.start(), "for (genvar ...): declare the genvar at module level")
     for index in bare_generate(body):
         add("bare-generate", index, f"module-level {_IDENT.match(body, index).group()} "
             "outside generate ... endgenerate")
