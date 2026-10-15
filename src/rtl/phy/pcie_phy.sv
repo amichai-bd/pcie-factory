@@ -13,17 +13,17 @@ module pcie_phy #(
 ) (
   // Clocks, reset and strap
   input  logic        clk_i,            // core clock and PCLK, 125 MHz
-  input  logic        rst_i,            // cdc-domain: clk_i
-  input  logic        port_role_i,      // cdc-domain: clk_i
+  input  logic        rst_i,            // synchronous to clk_i, active high // cdc-domain: clk_i
+  input  logic        port_role_i,      // 0 downstream, 1 upstream; static outside reset // cdc-domain: clk_i
 
   // Upper framed-packet stream, transmit (upper layer to link)
-  input  logic        pkt_tx_valid_i,   // cdc-domain: clk_i
+  input  logic        pkt_tx_valid_i,   // a transmit beat is offered // cdc-domain: clk_i
   output logic        pkt_tx_ready_o,
-  input  logic [15:0] pkt_tx_data_i,    // cdc-domain: clk_i
-  input  logic        pkt_tx_sop_i,     // cdc-domain: clk_i
-  input  logic        pkt_tx_eop_i,     // cdc-domain: clk_i
-  input  logic        pkt_tx_dllp_i,    // cdc-domain: clk_i
-  input  logic        pkt_tx_nullify_i, // cdc-domain: clk_i
+  input  logic [15:0] pkt_tx_data_i,    // [7:0] is the earlier byte // cdc-domain: clk_i
+  input  logic        pkt_tx_sop_i,     // first beat of a packet // cdc-domain: clk_i
+  input  logic        pkt_tx_eop_i,     // last beat of a packet // cdc-domain: clk_i
+  input  logic        pkt_tx_dllp_i,    // tag: 0 TLP, 1 DLLP; held for the packet // cdc-domain: clk_i
+  input  logic        pkt_tx_nullify_i, // on the eop beat of a TLP: end with EDB // cdc-domain: clk_i
 
   // Upper framed-packet stream, receive (link to upper layer)
   output logic        pkt_rx_valid_o,
@@ -38,21 +38,21 @@ module pcie_phy #(
   output logic        link_up_o,
   output logic [5:0]  ltssm_state_o,
   output logic        rcv_err_o,        // one-cycle pulse per receiver error
-  input  logic        retrain_req_i,    // cdc-domain: clk_i
-  input  logic        hot_reset_req_i,  // cdc-domain: clk_i
-  input  logic        disable_req_i,    // cdc-domain: clk_i
-  input  logic        loopback_req_i,   // cdc-domain: clk_i
-  input  logic [1:0]  pm_state_req_i,   // cdc-domain: clk_i
+  input  logic        retrain_req_i,    // pulse: L0 to Recovery // cdc-domain: clk_i
+  input  logic        hot_reset_req_i,  // level, downstream role only // cdc-domain: clk_i
+  input  logic        disable_req_i,    // level, downstream role only // cdc-domain: clk_i
+  input  logic        loopback_req_i,   // level: Loopback master // cdc-domain: clk_i
+  input  logic [1:0]  pm_state_req_i,   // 0 L0, 1 L0s allowed, 2 L1, 3 L2 // cdc-domain: clk_i
 
   // Lower 2x10-bit symbol interface, transmit (clk_i)
   output logic [19:0] ser_tx_data_o,    // [9:0] first symbol, bit 0 first on the line
   output logic        ser_tx_elec_idle_o,
-  input  logic        ser_tx_rxdet_i,   // cdc-domain: clk_i
+  input  logic        ser_tx_rxdet_i,   // far-end receiver termination present // cdc-domain: clk_i
 
   // Lower 2x10-bit symbol interface, receive (ser_rx_clk_i)
   input  logic        ser_rx_clk_i,     // recovered clock, 125 MHz nominal
-  input  logic [19:0] ser_rx_data_i,    // cdc-domain: ser_rx_clk_i
-  input  logic        ser_rx_elec_idle_i // cdc-domain: ser_rx_clk_i
+  input  logic [19:0] ser_rx_data_i,    // bit 0 earliest; no symbol alignment // cdc-domain: ser_rx_clk_i
+  input  logic        ser_rx_elec_idle_i // the line is in electrical idle // cdc-domain: ser_rx_clk_i
 );
 
   // PIPE nets (wiki/src/arch/phy/PIPE.md#signals): flat, as the PIPE
