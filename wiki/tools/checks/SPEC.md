@@ -942,7 +942,11 @@ one-entry memory read with a synchronized pointer, a read at a constant
 address gated by a synchronized bit, and the same with a second read at a
 free-running address, and the same with an unused read at the
 synchronized pointer, a read at a constant address beside one at the
-pointer) and one at a synchronized pointer,
+pointer, a read at a constant address in a condition that steers the
+output) and memory reads that pass (one at a synchronized pointer, the
+same with a constant read whose value does not reach the output, the only
+read at the pointer in a condition, a read at the pointer into a plain
+submodule's input that drives the output),
 an inner synchronizer of a constant, of an empty or omitted pin, of a
 constant-assigned, `always_comb` constant or undriven net, of a flop that
 loads a constant or holds its value (a toggling one is live), the same
