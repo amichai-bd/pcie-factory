@@ -28,7 +28,7 @@ citation, publishability, lint (lint is the slowest). Output:
 ```
 check: 2 IP(s) under /abs/src
 [layout] PASS: 6 IP or shared folder(s) under rtl/, dv/, arch/, fpga/, asic/
-[filelist] PASS: 7 filelist(s), 2 IP(s) with regression lists, 5 RTL file(s) for orphans
+[filelist] PASS: 9 filelist(s), 2 IP(s) and the shared unit with regression lists, 5 RTL file(s) for orphans
 [style] FAIL (1): 6 RTL file(s), 12 rule(s); 0 other includable or fpga/ file(s) for directives
   rtl/blk/xy_blk.sv:10: plain-always: always
 [wiki] PASS: 6 required page(s), 6 wiki folder(s) under wiki/src/ (all IPs)
@@ -37,7 +37,8 @@ check: 2 IP(s) under /abs/src
 [citation] PASS: 40 text file(s) under src/, wiki/src/; quotes up to 25 words; ...
 [publishability] PASS: 180 file(s) (tracked and untracked, not ignored); 7 rule(s); 5 allow entry(ies)
 [lint] blk: top=xy_blk
-[lint] PASS: 2 IP(s), 3 Verilator run(s) with -E audit, 0 waiver(s), 0 warning(s) waived
+[lint] common/common_lib: top=common_lib
+[lint] PASS: 2 IP(s), 1 shared block(s), 4 Verilator run(s) with -E audit, 0 waiver(s), 0 warning(s) waived
 check: FAIL (style)
 ```
 
@@ -71,6 +72,11 @@ IPs, sub-IPs and top-level IPs are as the
 - An IP's `rtl/<id>/` holds no filelist but `<id>.rtl.f` (at any depth), and
   its `dv/<id>/` none but `<id>.dv.f` and `<id>.sim.f`, so a sub-IP cannot
   nest inside its parent's folder.
+- **Shared folders** ([layout](../../project/layout.md#shared-blocks)):
+  `rtl/common/` holds filelists only directly in it, each a shared block
+  named `common_<name>.rtl.f`, and `dv/common/` holds no filelist but
+  `common.dv.f` and `common.sim.f` (the shared unit). Anything else is
+  `<path>: rtl/common/ holds no filelist but ...`.
 - **Flat sub-IP naming.** A sub-IP's id starts with the id of an IP that
   reaches it plus `_` (`<ip>_<sub>`).
 
@@ -109,8 +115,18 @@ Rule owners: [layout](../../project/layout.md#per-ip-files) and the
   resolver's `reaches()`: listed as a source or under an include directory.
   `fpga/` wrappers are not in any filelist and are not orphans.
 
-`rtl/common/` is never an IP; its filelists (for example `common_lib.rtl.f`)
-are checked as filelists but need no `dv/` files.
+`rtl/common/` is never an IP; its filelists, the shared blocks (for example
+`common_lib.rtl.f`), are checked as filelists. Without `--ip`, the
+[shared unit](../build/SPEC.md#shared-unit) is checked when a shared block
+or `dv/common/common.sim.f` exists:
+
+- `dv/common/common.dv.f`, `dv/common/common.sim.f` and
+  `dv/common/regress/level{0,1,2}.yaml` exist (`common: missing <path>`),
+  and the regression lists pass the regress schema (including any coverage
+  floors);
+- `common.sim.f` reaches every shared block's filelist, so every block is
+  tested (`rtl/common/<block>.rtl.f: shared block not reached by
+  dv/common/common.sim.f`).
 
 ## Style check
 
@@ -134,7 +150,7 @@ positional connections, logic in `always_ff`) stay
 | `interface-union` | No `interface`, `modport` or `union`. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
 | `wildcard-connection` | No `.*` port connections. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
 | `sim-ifdef` | No `` `ifdef``/`` `ifndef``/`` `elsif`` on `SYNTHESIS`, `SIMULATION` or `VERILATOR`, even when the RTL defines it. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
-| `external-ifdef` | No `` `ifdef``/`` `ifndef``/`` `elsif`` on a macro the RTL closure does not define (a vendor or tool macro such as `ALTERA_RESERVED_QIS`, or one nothing defines): such code is hidden from lint and simulation while another flow compiles it. A macro is defined when the file itself, or any closure that reaches it, `` `define``s it or passes it with `+define+`. A closure is an `rtl/` filelist's resolved sources, every file below its include directories (inside the source root) and its `+define+` names; a file reached by several closures gets their union, and an `fpga/<id>/` file also gets its IP's `.rtl.f` closure (the lint check links the wrapper with it). So an include guard (`` `ifndef X_SVH`` then `` `define X_SVH``) passes. Each name in a parenthesized expression (`` `ifdef (A && B)``) is checked; a directive with no name is a finding. The macro name (or the opening parenthesis) must be on the directive's line: the scan is lexical and fails closed, so a name on a later line, `SYNTHESIS` included, is reported as `` `ifdef without a macro name``. Macro names may contain `$` after the first character. `SYNTHESIS`, `SIMULATION` and `VERILATOR` are left to `sim-ifdef`. Two cases are deliberately permissive: a file reached by several closures may condition on a macro only one of them defines (a sub-IP on a parent-only macro, which its own lint run does not define), and every file below an include directory counts as defining its macros, whether or not it is `` `include``d. In both cases the macro must still be `` `define``d by a file in the source tree of a closure that reaches the file, so a macro that only a vendor or tool flow defines never passes. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
+| `external-ifdef` | No `` `ifdef``/`` `ifndef``/`` `elsif`` on a macro the RTL closure does not define (a vendor or tool macro such as `ALTERA_RESERVED_QIS`, or one nothing defines): such code is hidden from lint and simulation while another flow compiles it. A macro is defined when the file itself, or any closure that reaches it, `` `define``s it or passes it with `+define+`. A closure is an `rtl/` filelist's resolved sources, every file below its include directories (inside the source root) and its `+define+` names; a file reached by several closures gets their union, and an `fpga/<id>/` file also gets its IP's `.rtl.f` closure (the lint check links the wrapper with it). So an include guard (`` `ifndef X_SVH`` then `` `define X_SVH``) passes. Each name in a parenthesized expression (`` `ifdef (A && B)``) is checked; a directive with no name is a finding. The macro name (or the opening parenthesis) must be on the directive's line: the scan is lexical and fails closed, so a name on a later line, `SYNTHESIS` included, is reported as `` `ifdef/`ifndef/`elsif without a macro name`` (naming the directive found). Macro names may contain `$` after the first character. `SYNTHESIS`, `SIMULATION` and `VERILATOR` are left to `sim-ifdef`. Two cases are deliberately permissive: a file reached by several closures may condition on a macro only one of them defines (a sub-IP on a parent-only macro, which its own lint run does not define), and every file below an include directory counts as defining its macros, whether or not it is `` `include``d. In both cases the macro must still be `` `define``d by a file in the source tree, or passed with a filelist `+define+`, of a closure that reaches the file, so a macro that only a vendor or tool flow defines never passes. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
 | `task-function` | No `task`; `function` only inside a package. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
 | `typedef-outside-package` | `typedef` only inside `package ... endpackage`. | [rtl.md#types-and-constants-live-in-packages](../../bkm/rtl.md#types-and-constants-live-in-packages) |
 | `file-name` | A `.sv` declares exactly one module or package, named after the file. A package name ends in `_pkg` and a module name does not. The name starts with the owner's prefix: `common_` under `rtl/common/` or `dv/common/`, otherwise `<prefix><id>` of the owning IP (sub-IP `a_b` gives `<prefix>a_b`) followed by the end or `_`; `<prefix>` alone when no IP owns the file. `<prefix>` is read from the `Module/package/file prefix` row of `src/README.md`; a missing row is a finding. | [rtl.md#naming](../../bkm/rtl.md#naming) |
@@ -169,7 +185,8 @@ next to `src/`); a missing wiki tree is an empty one. Code: `wiki_mirror.py`.
   folder in it is `<path>/: decisions/ holds no folders`.
 - **Kinds and IPs.** Every other folder directly under the wiki tree is a kind
   folder, and every folder directly under a kind folder names an IP
-  (`wiki/src/<kind>/<name>/: names no IP`, which also covers `common/`).
+  (`wiki/src/<kind>/<name>/: names no IP`) or is the shared folder
+  `rtl/common/` or `dv/common/` (below).
   This rejects the superseded IP-first tree (`wiki/src/<ip>/<kind>/`).
 - **Counterparts.** Every IP folder and every folder below one has a folder
   at the same relative path under the source root, so `fpga/` or `asic/`
@@ -189,14 +206,21 @@ next to `src/`); a missing wiki tree is an empty one. Code: `wiki_mirror.py`.
   `./build arch`, not here. No Python file in it imports DV, RTL or tools
   code ([import rule](../arch/SPEC.md#import-rule)): each such import is
   `src/arch/<id>/<file>:<line>: imports <module> (<origin>); ...`.
+- **Shared blocks.** Every shared block `src/rtl/common/<block>.rtl.f`
+  has its MAS `rtl/common/<block>.md` and its DV plan `dv/common/<block>.md`
+  (`...: missing (required for shared block <block>)`). The folders
+  `rtl/common/` and `dv/common/` hold nothing else: a page that names no
+  block is `wiki/src/<kind>/common/<page>: names no shared block`, and a
+  subfolder is a finding. `common/` under any other kind names no IP.
 - **No sub-IP `arch/`.** `wiki/src/arch/<sub>/` is a finding here;
   `src/arch/<sub>/` is a [layout check](#layout-check) finding.
 - **Placement.** Every file sits in, or below, an IP folder
-  `<kind>/<id>/`; a file directly in the wiki tree or in a kind folder is a
-  finding. Extra pages inside an IP folder are allowed.
+  `<kind>/<id>/`, or is a shared block's page or a design-level page; any
+  other file directly in the wiki tree or in a kind folder is a finding. Extra pages inside an IP folder are allowed.
 
 Hidden files and folders (names starting with `.`) are skipped. With `--ip`,
-required pages are checked for the selected IPs only, and the folder and
+required pages are checked for the selected IPs only (shared block pages
+not at all), and the folder and
 placement rules only inside the selected IPs' folders; other findings are
 reported only without `--ip`. The check proves that
 pages exist where the mirror puts them, not that their content matches the
@@ -415,6 +439,10 @@ then `verilator.prefix` in `cfg/host.yaml`); see the
   which fails).
 - **Board wrapper:** each `fpga/<id>/*.sv` of the IP is linted in a second run with
   the IP's sources plus the wrapper, with the wrapper's file stem as top.
+- **Shared blocks:** without `--ip`, each `rtl/common/<block>.rtl.f` is
+  linted the same way, labelled `common/<block>`, with top `<block>` when a
+  module of that name is declared (otherwise Verilator picks). The summary
+  counts them as `N shared block(s)`.
 - An IP whose `.rtl.f` does not resolve is a lint finding (the filelist check
   reports the cause).
 - An IP whose `.rtl.f` closure lists a source that is not `.sv`/`.svh` (for
@@ -474,17 +502,17 @@ Fixtures live in `tools/checks/tests/fixtures/`:
 
 | Fixture | Content |
 | --- | --- |
-| `good/src/`, `good/wiki/src/` | Kind-first tree: IP `blk` (package, include header, top) with flat sub-IP `blk_sub`, a shared block under `rtl/common/`, and a board wrapper, SDC and board settings file in `fpga/blk/`; the wiki mirror holds every required page. Every check passes. |
-| `flows_bad/src/` | IP `blk` whose `fpga/blk/` has two SDC files and no board settings file or wrapper, and whose `asic/blk/sky130hd.mk` has no SDC beside it. Only the flow-input check is meant to fail on it (with one finding per flow). |
+| `good/src/`, `good/wiki/src/` | Kind-first tree: IP `blk` (package, include header, top) with flat sub-IP `blk_sub`, a shared block `common_lib` under `rtl/common/` with the shared unit's files in `dv/common/`, and a board wrapper, SDC and board settings file in `fpga/blk/`; the wiki mirror holds every required page, including the block's two pages. Every check passes. |
+| `flows_bad/src/` | IP `blk` whose `fpga/blk/` has two SDC files and no board settings file or wrapper, and whose `asic/blk/sky130hd.mk` has no SDC beside it. It is used only by the flow-input tests (one finding per flow). |
 | `bad/src/`, `bad/wiki/src/` | IP `blk` with a duplicate source, an orphan, a missing and an invalid level file, style violations and lint warnings; IP `broken` with a missing source; an `asic/ghost/` folder that names no IP. The wiki mirror lacks pages, has a page outside an IP folder, an `fpga/blk/` page with no `src/fpga/blk/` and a folder that names no IP. Layout, filelist, style, wiki and lint fail. |
 
 Tests also build variants in temporary directories: the superseded
 IP-first tree, a nested sub-IP, a sub-IP with `arch/`, `fpga/` or `asic/`, a
-folder that names no IP and an unprefixed sub-IP id (`test_layout.py`), one bad case per style
+folder that names no IP, an unprefixed sub-IP id and misnamed or nested filelists in the shared folders (`test_layout.py`), one bad case per style
 rule plus `external-ifdef` closure cases (a vendor and an undefined macro
 fail; include guards, `` `define``s in an include file, `+define+`, a parent
 closure and a board wrapper pass) (`test_style.py`), duplicate, diamond, orphan and regression cases
-(`test_filelists_check.py`), each wiki mirror rule: every required page,
+and the shared unit's files, lists and block coverage (`test_filelists_check.py`), each wiki mirror rule: every required page,
 `asic/` and `fpga/` pages following the source folders, the top-level
 `arch/` exemption without targets and its limit, HAS targets requiring
 `src/arch/<ip>/` (and only a level-2 heading counting), a source `arch/`
@@ -492,11 +520,12 @@ without a model or scenario or with two models, a sub-IP `arch/` page, a
 sub-IP turning top-level when no IP reaches it, the IP-first wiki tree, the
 design-level pages and look-alikes (misnamed root pages, bad record names,
 a folder in `decisions/`, a design-level page inside a kind folder), orphan
-and empty folders, extra pages, a non-IP source folder, hidden entries,
+and empty folders, extra pages, shared block pages (required, and nothing else in the shared folders), a non-IP source folder, hidden entries,
 `--ip`, and a missing wiki tree (`test_wiki_mirror.py`), a small git repository with forbidden words,
 slug URLs, a look-alike slug and an invalid config (`test_neutrality.py`),
 one case per flow-input finding (board settings, SDC and wrapper counts,
-wrapper module and listing, `cfg/fpga.yaml`, a missing `.mk`, SDC counts,
+wrapper module and listing, an unsupported source type, a define and a
+path that Tcl cannot quote (a `{`), `cfg/fpga.yaml`, a missing `.mk`, SDC counts,
 a tool-owned variable, no `DESIGN_NAME`, an unpinned image, no ORFS, ORFS
 environment overrides ignored, `--ip`, nothing written) on a copy of the
 good tree with `asic/blk/` inputs and its own `cfg/` (`test_flows.py`),

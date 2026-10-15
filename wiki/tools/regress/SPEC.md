@@ -60,7 +60,7 @@ These validation rules apply:
 Every error names the file and the entry index, plus the test name whenever
 the entry has a string `name`. For example:
 `.../level0.yaml: tests[2] (counts): missing key(s): top`. Validation covers
-every discovered IP, not only the selected ones.
+every discovered IP and the shared unit, not only the selected ones.
 
 ## Selection
 
@@ -71,7 +71,9 @@ Three rules decide which tests run:
   is required.
 - **`--ip ID`** (repeatable) restricts the run to those IPs. IPs are flat:
   selecting a parent doesn't select its sub-IPs. Without `--ip`, every
-  discovered IP is selected.
+  discovered IP and the [shared unit](../build/SPEC.md#shared-unit) (`common`)
+  are selected; `--ip common` selects the shared unit. Everything this page
+  says about an IP's lists, seeds and output applies to it.
 - **`--affected BASE`** narrows the selection (combined with `--ip`, the
   result is the intersection) to IPs that are affected by changes since
   `git merge-base BASE HEAD`. The changed files are the committed diff, the
@@ -86,7 +88,8 @@ Three rules decide which tests run:
     (`<src-root>/dv/common/`): shared DV Python helpers are reached by no
     filelist, so their users cannot be told apart.
   - A changed file lies in the IP's **own files**: under `src/<kind>/<ip>/`
-    for any kind. A change in sub-IP `a_b`'s folders therefore selects
+    for any kind (for the shared unit, `src/rtl/common/` or
+    `src/dv/common/`; the latter also selects every IP by the previous rule). A change in sub-IP `a_b`'s folders therefore selects
     `a_b`; it selects the parent `a` only through the next two cases. A
     change under a top-level IP's `src/arch/<ip>/` (the architecture model,
     [arch BKM](../../bkm/arch.md)) is one of its own files, so it selects
@@ -213,7 +216,9 @@ The fields mean the following:
 
 `--coverage` turns every build of the run into a coverage build and, after
 the tests, merges each selected IP's coverage, prints a table and checks the
-IP's floors. Without it, nothing below happens and the summary's `coverage`
+IP's floors. The [shared unit](../build/SPEC.md#shared-unit) is a unit like
+an IP here: `common` gets its own row, `workdir/common/coverage/` and
+floors from `dv/common/regress/`. Without it, nothing below happens and the summary's `coverage`
 is `null`.
 
 | Metric | Source | Unit |
@@ -250,7 +255,9 @@ every coverage run of the IP:
 Code coverage counts the RTL that `<ip>.rtl.f` reaches, so a parent IP's
 code coverage includes its sub-IPs' RTL as its tests exercise it. Points in
 DV-only sources (files `<ip>.sim.f` reaches through `<ip>.dv.f` but
-`<ip>.rtl.f` does not, such as testbench tops and bind checkers) are left out
+`<ip>.rtl.f` does not, such as testbench tops and bind checkers; for the
+shared unit, files `common.sim.f` reaches that no shared block's `.rtl.f`
+does) are left out
 of the table and the floors; `merged.dat` and `merged.info` still hold
 them. A point is attributed to the file Verilator reports, so an
 `` `include``d file counts unless it is itself a DV-only source. A metric
@@ -339,10 +346,20 @@ COV.sample(valid=1, data=0x3C)                 # every matching bin counts
   of a collection, only when both have the same type and are equal, item
   by item inside tuples and frozensets. `True` hits neither `1`, `[1]` nor
   `range(2)`, and `1` doesn't hit `1.0`; a `range` matches `int` values
-  only. Sample plain Python values (`int(sig.value)`, an `Enum` member),
-  not simulator handles.
-- A class (`str`, `int`, an `Enum` class), an iterator or generator, a
-  mapping or a mapping view (`d.keys()`) as a bin spec raises
+  only. So these never hit a plain `int` bin (a value, a list item or a
+  `range`): an `IntEnum` member, a numpy integer (`numpy.int64`,
+  `numpy.uint8`), `False` or `True`, and a cocotb `LogicArray`; and a
+  namedtuple never hits a plain tuple arc. `sig.value` is a value object
+  (a `LogicArray` or similar), not an `int`: sample plain Python values
+  (`int(sig.value)`, an `Enum` member, `tuple(arc)`).
+- When a sample hits no bin of a coverpoint and no value bin of it has the
+  sample's type, the helper issues a `CoverageWarning` (a `UserWarning`)
+  once per coverpoint and type, naming the bin types. Predicates add no
+  type, so a coverpoint of predicates only never warns.
+- A class (`str`, `int`, an `Enum` class), a class inside a collection
+  (`[str, int]`), an iterator or generator, a mapping or a mapping view
+  (`d.keys()`), or a sequence that is neither a tuple, a `str`, `bytes` nor
+  one of the collections (a `collections.deque`) as a bin spec raises
   `CoverageError`: a class is callable but would hit every value, and the
   others could never be hit. Write a predicate such as
   `lambda v: isinstance(v, str)` instead. A cross

@@ -2,7 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from build.ip import DiscoveryError, discover, find_ip, locate, make_context, owner_ip
+from build.ip import (DiscoveryError, block_name, discover, find_ip, locate, make_context,
+                      owner_ip, shared_blocks, shared_unit, units)
 
 
 def make_ip(root: Path, ip: str, reaches: tuple[str, ...] = ()) -> None:
@@ -50,6 +51,14 @@ def test_broken_filelist_reaches_nothing(tmp_path):
     assert ips["a_b"].top_level  # the filelist check reports the broken -F
 
 
+def test_include_cycle_makes_every_ip_in_it_top_level(tmp_path):
+    # a_b and a_b_c include each other: neither resolves, so neither reaches
+    # the other and both are top-level (the filelist check reports the cycle).
+    make_ip(tmp_path, "a_b", ("a_b_c",))
+    make_ip(tmp_path, "a_b_c", ("a_b",))
+    assert all(ip.top_level for ip in discover(tmp_path))
+
+
 def test_discover_fixture(fixture_src):
     ips = discover(fixture_src)
     assert [ip.id for ip in ips] == ["counter", "counter_inc"]
@@ -83,6 +92,30 @@ def test_owner_by_kind_folder(tmp_path):
     assert owner_ip(ips, tmp_path / "rtl/a_bc/x.sv") is None
     assert owner_ip(ips, tmp_path / "rtl/common/c.sv") is None
     assert owner_ip(ips, tmp_path / "README.md") is None
+
+
+def test_shared_unit_and_blocks(tmp_path):
+    make_ip(tmp_path, "a")
+    common = tmp_path / "rtl/common"
+    common.mkdir(parents=True)
+    (common / "common_y.rtl.f").write_text("")
+    (common / "common_x.rtl.f").write_text("")
+    (common / "notes.md").write_text("")
+    assert shared_blocks(tmp_path) == [common / "common_x.rtl.f", common / "common_y.rtl.f"]
+    assert block_name(common / "common_x.rtl.f") == "common_x"
+    assert shared_blocks(tmp_path / "nope") == []
+    # No dv/common/common.sim.f: no shared unit, units() is discover().
+    assert shared_unit(tmp_path) is None
+    assert [ip.id for ip in units(tmp_path)] == ["a"]
+    (tmp_path / "dv/common").mkdir(parents=True)
+    (tmp_path / "dv/common/common.sim.f").write_text("")
+    unit = shared_unit(tmp_path)
+    assert unit.id == "common" and unit.shared and not unit.top_level
+    assert unit.sim_f == tmp_path / "dv/common/common.sim.f"
+    assert unit.level_file(0) == tmp_path / "dv/common/regress/level0.yaml"
+    assert [ip.id for ip in units(tmp_path)] == ["a", "common"]
+    assert [ip.id for ip in discover(tmp_path)] == ["a"]  # never an IP
+    assert owner_ip(units(tmp_path), common / "common_x.sv").id == "common"
 
 
 def test_locate(tmp_path):

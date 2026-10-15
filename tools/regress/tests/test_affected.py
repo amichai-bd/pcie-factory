@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from build.ip import REPO_ROOT, discover
+from build.ip import REPO_ROOT, discover, units
 from ci.config import load_rules
 from regress.affected import GitError, changed_files, select_affected
 
@@ -126,6 +126,19 @@ def test_shared_rtl_change_selects_only_reaching_ips(repo):
     assert affected(repo) == {}
 
 
+def test_shared_unit_owns_the_common_folders(repo):
+    (repo / "src/dv/common").mkdir(parents=True)
+    (repo / "src/dv/common/common.sim.f").write_text("-F ../../rtl/common/common_x.rtl.f\n")
+    git(repo, "add", "-A")
+    commit(repo)
+    git(repo, "branch", "-f", "main")
+    (repo / "src/rtl/common").mkdir(parents=True)
+    (repo / "src/rtl/common/common_x.sv").write_text("")
+    root, changed = changed_files("main", repo / "src")
+    hit = select_affected(units(repo / "src"), root, changed, repo / "src", RULES)
+    assert hit == {"common": "changed: src/rtl/common/common_x.sv"}
+
+
 def test_sub_ip_model_change_selects_ancestors(repo):
     (repo / "src/dv/counter_inc/models").mkdir(parents=True)
     (repo / "src/dv/counter_inc/models/inc_model.py").write_text("")
@@ -184,8 +197,8 @@ def commit_all(repo: Path) -> None:
 
 def test_repo_sub_ip_change_selects_every_ancestor(tmp_path):
     """On the repository's own src/ (IPs discovered, never named): changing
-    any file of a sub-IP's rtl/ folder selects the sub-IP and every IP whose
-    filelists reach it."""
+    a file the sub-IP owns selects the sub-IP and every IP whose filelists
+    reach it."""
     r = tmp_path / "repo"
     r.mkdir()
     shutil.copytree(REPO_ROOT / "src", r / "src")
@@ -194,7 +207,7 @@ def test_repo_sub_ip_change_selects_every_ancestor(tmp_path):
     if not subs:
         pytest.skip("the repository has no sub-IP")
     for sub in subs:
-        changed = sorted(p for p in sub.rtl_dir.glob("*.sv"))[0]
+        changed = sub.rtl_f  # every IP has one, whatever source types it lists
         rel = changed.relative_to(r).as_posix()
         got = select_affected(ips, r, [rel], r / "src", RULES)
         assert got[sub.id] == f"changed: {rel}"

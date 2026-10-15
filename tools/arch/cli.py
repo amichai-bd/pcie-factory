@@ -10,7 +10,7 @@ from . import perf
 
 
 def add_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--ip", required=True, help="top-level IP id with an arch/ directory")
+    p.add_argument("--ip", required=True, help="top-level IP id with a src/arch/<ip>/ folder")
     p.add_argument("--scenario", help="run only this perf scenario (perf/<NAME>.yaml)")
 
 

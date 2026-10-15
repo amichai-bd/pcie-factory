@@ -23,8 +23,42 @@ def run(src: Path, ip_ids=None):
 def test_good_fixture_passes(good):
     r = run(good)
     assert r.passed, r.findings
-    assert r.checked == ("7 filelist(s), 2 IP(s) with regression lists, "
+    assert r.checked == ("9 filelist(s), 2 IP(s) and the shared unit with regression lists, "
                          "5 RTL file(s) for orphans")
+
+
+def test_shared_unit_files_and_block_coverage(good):
+    (good / "dv/common/regress/level2.yaml").unlink()
+    (good / "dv/common/regress/level1.yaml").write_text("tests: [{name: x}]\n")
+    (good / "rtl/common/common_two.sv").write_text("")
+    (good / "rtl/common/common_two.rtl.f").write_text("common_two.sv\n")
+    f = run(good).findings
+    assert len(f) == 3, f
+    assert f[0] == "common: missing dv/common/regress/level2.yaml"
+    assert f[1].startswith("common: regression list: ")
+    assert f[1].endswith("level1.yaml: tests[0] (x): missing key(s): module, timeout_s, top")
+    assert f[2] == ("rtl/common/common_two.rtl.f: shared block not reached by "
+                    "dv/common/common.sim.f (every shared block is tested)")
+    assert run(good, {"blk"}).passed  # a filtered run skips the shared unit
+
+
+def test_shared_unit_needed_only_with_blocks(good):
+    import shutil
+    shutil.rmtree(good / "dv/common")
+    assert [f for f in run(good).findings if f.startswith("common:")] == [
+        "common: missing dv/common/common.dv.f",
+        "common: missing dv/common/common.sim.f",
+        "common: missing dv/common/regress/level0.yaml",
+        "common: missing dv/common/regress/level1.yaml",
+        "common: missing dv/common/regress/level2.yaml",
+    ]
+    shutil.rmtree(good / "rtl/common")
+    good_blk = good / "rtl/blk/blk.rtl.f"
+    good_blk.write_text("\n".join(ln for ln in good_blk.read_text().splitlines()
+                                  if "common" not in ln) + "\n")
+    r = run(good)
+    assert r.passed, r.findings
+    assert "2 IP(s) with regression lists" in r.checked
 
 
 def test_bad_fixture_fails():
@@ -54,6 +88,21 @@ def test_diamond_include_is_not_a_duplicate(good):
     f = good / "rtl/blk_sub/blk_sub.rtl.f"
     f.write_text("-F ../common/common_lib.rtl.f\n" + f.read_text())
     assert run(good).passed
+
+
+def test_include_cycle_makes_every_ip_in_it_top_level_and_fails(good):
+    # The sub-IP includes its parent back: neither filelist resolves, so
+    # discovery sees no reach (both IPs are top-level) and the check fails.
+    f = good / "rtl/blk_sub/blk_sub.rtl.f"
+    f.write_text("-F ../blk/blk.rtl.f\n" + f.read_text())
+    ips = discover(good)
+    assert all(ip.top_level for ip in ips)
+    r = filelists.run(good, ips, None)
+    assert not r.passed
+    text = "\n".join(r.findings)
+    for ip in ("blk", "blk_sub"):
+        assert f"rtl/{ip}/{ip}.rtl.f: does not resolve" in text
+    assert "cycle" in text
 
 
 def test_orphan_and_include_header(good):
@@ -194,3 +243,11 @@ def test_bad_coverage_floor_is_a_finding(good):
     r = run(good)
     assert not r.passed
     assert any("coverage_floors: line must be a percentage" in str(f) for f in r.findings), r.findings
+
+
+def test_bad_shared_unit_coverage_floor_is_a_finding(good):
+    level = good / "dv/common/regress/level2.yaml"
+    level.write_text(level.read_text() + "coverage_floors: {line: 120}\n")
+    f = run(good).findings
+    assert any(x.startswith("common: regression list: ")
+               and "coverage_floors: line must be a percentage" in x for x in f), f

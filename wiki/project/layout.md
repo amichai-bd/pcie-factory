@@ -17,11 +17,11 @@
 │   ├── README.md                # declares the design target and prefix
 │   ├── lint_waivers.yaml        # reviewed Verilator waivers (optional; checks SPEC)
 │   ├── rtl/
-│   │   ├── common/              # shared synthesizable blocks (never an IP)
+│   │   ├── common/              # shared blocks: common_<name>.sv, <block>.rtl.f (never an IP)
 │   │   ├── <ip>/                # <ip>.rtl.f + synthesizable sources
 │   │   └── <ip>_<sub>/          # a sub-IP: a flat sibling with a prefixed id
 │   ├── dv/
-│   │   ├── common/              # shared DV Python and SV (never an IP)
+│   │   ├── common/              # the shared unit: common.{dv,sim}.f, tb/, tests/, regress/
 │   │   └── <ip>/                # <ip>.dv.f, <ip>.sim.f, tb/, tests/, models/, regress/
 │   ├── arch/<ip>/               # top-level IPs: Python architecture models, perf/
 │   ├── fpga/<ip>/               # top-level synthesis targets: SDC, QSF Tcl, board wrapper
@@ -32,7 +32,8 @@
 │   ├── bkm/                     # rtl, dv, arch, devops, wiki, fpga, pd
 │   ├── tools/<tool>/SPEC.md
 │   ├── src/                     # mirrors src/: rtl/<ip>/MAS.md, dv/<ip>/DV_PLAN.md,
-│   │                            #   arch/<ip>/HAS.md, fpga/<ip>/FPGA.md, asic/<ip>/ASIC.md;
+│   │                            #   arch/<ip>/HAS.md, fpga/<ip>/FPGA.md, asic/<ip>/ASIC.md,
+│   │                            #   {rtl,dv}/common/<block>.md;
 │   │                            #   plus README.md, roadmap.md, decisions/NNNN-<slug>.md
 │   └── tracker/                 # index.md, data/
 ├── worktrees/                   # issue worktrees (ignored except README)
@@ -56,6 +57,31 @@ nested: a sub-IP's id is a reaching IP's id plus `_<sub>`
 (`src/rtl/<ip>_<sub>/`). `common/` under `rtl/` and `dv/` holds shared blocks
 and is never an IP.
 
+## Shared blocks
+
+`src/rtl/common/` holds the shared blocks, IP-neutral cells that IPs reuse
+(`common_<name>`). It is never an IP: no HAS, no `arch/`, `fpga/` or `asic/`
+folder, and no IP reaches it as a sub-IP. A **shared block** is one
+filelist `rtl/common/<block>.rtl.f`, directly in the folder and named after
+the block's top module; it lists the block's sources and includes the
+blocks it uses with `-F`. An IP includes a block the same way, from its own
+`.rtl.f`.
+
+The shared blocks are verified together as the **shared unit**, id
+`common`, laid out like an IP's DV folder:
+
+| File | Rule |
+| --- | --- |
+| `dv/common/common.dv.f` | Simulation-only SystemVerilog for the blocks' tests. |
+| `dv/common/common.sim.f` | `-F ../../rtl/common/<block>.rtl.f` for every block (so every block is tested), then `-F common.dv.f`. |
+| `dv/common/tb/`, `tests/`, `models/`, `regress/level{0,1,2}.yaml` | As for an IP; tests name the block as `top`, and `./build ci unit` runs the `models/` tests. |
+
+`./build sim`, `regress` and `clean` take `--ip common`; output goes to
+`workdir/common/`. IP tests cannot import from `dv/common/`: `sim` puts
+only the tested unit's own DV folder on the Python path. Each block has a MAS `wiki/src/rtl/common/<block>.md` and
+a DV plan `wiki/src/dv/common/<block>.md`
+([wiki BKM](../bkm/wiki.md#page-set)).
+
 ## Per-IP files
 
 | File | Rule |
@@ -67,15 +93,16 @@ and is never an IP.
 | `fpga/<ip>/`, `asic/<ip>/` | Top-level IPs only. Constraints and flow config only; generated output goes to `workdir/`. |
 | `arch/<ip>/` | Top-level IPs only: `<prefix><ip>_arch.py` (Python architecture model, not verification), its self-tests and `perf/<scenario>.yaml`; required once the HAS defines targets ([arch BKM](../bkm/arch.md)). |
 
-`./build check` enforces the source layout (its `layout` check) and the
-wiki mirror.
+`./build check` enforces the source layout (its `layout` check), the
+shared unit's files (its `filelist` check) and the wiki mirror.
 
 ## Wiki mirror
 
 `wiki/src/` mirrors `src/` exactly: `rtl/<ip>/MAS.md` and `dv/<ip>/DV_PLAN.md`
 for every IP, `arch/<ip>/HAS.md` for every top-level IP, and
 `fpga/<ip>/FPGA.md` or `asic/<ip>/ASIC.md` when `src/fpga/<ip>/` or
-`src/asic/<ip>/` exists. Beside them, a fixed set of design-level pages:
+`src/asic/<ip>/` exists, and `rtl/common/<block>.md` and
+`dv/common/<block>.md` for every shared block. Beside them, a fixed set of design-level pages:
 `README.md`, `roadmap.md` and `decisions/NNNN-<slug>.md`. The [wiki BKM](../bkm/wiki.md#page-set) owns the
 page set.
 

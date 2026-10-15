@@ -3,7 +3,8 @@
 Four kinds of suite, all pure Python (no simulator):
 
 - ``tools``: the tools unit tests (``tools_tests`` in cfg/ci.yaml).
-- ``models:<ip>``: the reference-model unit tests in ``dv/<ip>/<models>/``.
+- ``models:<ip>``: the reference-model unit tests in ``dv/<ip>/<models>/``
+  (also for the shared unit, ``models:common``).
 - ``arch:<ip>``: the architecture-model self-tests in ``arch/<ip>/``.
 - ``perf:<ip>``: ``./build arch --ip <ip>``, the IP's perf scenarios.
 
@@ -21,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from arch.perf import ARCH_DIR, PERF_DIR
-from build.ip import REPO_ROOT, Context, Ip, discover
+from build.ip import REPO_ROOT, Context, Ip, units
 from ci.config import CiRules
 from regress.affected import changed_files, select_affected
 
@@ -42,7 +43,7 @@ def _has_tests(d: Path) -> bool:
 
 
 def plan(ctx: Context, rules: CiRules, affected_base: str | None) -> list[Suite]:
-    ips = discover(ctx.src_root)
+    ips = units(ctx.src_root)  # the shared unit's models run like an IP's
     if affected_base is None:
         run_tools = "all"
         hit = {ip.id: "all" for ip in ips}

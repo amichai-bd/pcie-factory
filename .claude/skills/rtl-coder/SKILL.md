@@ -32,7 +32,8 @@ redefines those rules. Work inside an issue worktree per
    bind checkers in `dv/<ip>/<ip>.dv.f`, `fpga/<ip>/` and `asic/<ip>/` constraints, and the
    tests named in the DV plan.
 5. Check `src/rtl/common/` before writing a generic block; add a `common_`
-   block only when a second consumer exists.
+   block only when a second consumer exists. A clock-domain crossing uses a
+   crossing cell there ([crossings](../../../wiki/bkm/rtl.md#clock-domain-crossings)).
 
 ## 2. While editing
 

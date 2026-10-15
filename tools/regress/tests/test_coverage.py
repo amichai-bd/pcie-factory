@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from build import sim
-from build.ip import REPO_ROOT, Context, discover, find_ip
+from build.ip import REPO_ROOT, Context, discover, find_ip, shared_unit
 from regress import coverage as cov
 from regress import run as regress
 from regress.schema import SchemaError, load_floors, load_ip
@@ -120,6 +120,21 @@ def test_dv_only_sources_from_filelists(fixture_src):
     assert regress.dv_only_sources(ip) == frozenset({(ip.dv_dir / "counter_tb.sv").resolve()})
 
 
+def test_dv_only_sources_of_the_shared_unit(fixture_src):
+    rtl, dv = fixture_src / "rtl/common", fixture_src / "dv/common"
+    rtl.mkdir()
+    dv.mkdir()
+    for b in ("common_a", "common_b"):
+        (rtl / f"{b}.sv").write_text(f"module {b}; endmodule\n")
+        (rtl / f"{b}.rtl.f").write_text(f"{b}.sv\n")
+    (dv / "common_tb.sv").write_text("module common_tb; endmodule\n")
+    (dv / "common.dv.f").write_text("common_tb.sv\n")
+    (dv / "common.sim.f").write_text(
+        "-F ../../rtl/common/common_a.rtl.f\n-F ../../rtl/common/common_b.rtl.f\n-F common.dv.f\n")
+    unit = shared_unit(fixture_src)
+    assert regress.dv_only_sources(unit) == frozenset({(dv / "common_tb.sv").resolve()})
+
+
 def entry(line=(8, 10), toggle=(1, 4), functional=(0, 0), groups=None):
     e = {m: {"covered": c, "total": t} for m, (c, t) in
          zip(cov.METRICS, (line, toggle, functional))}
@@ -216,7 +231,7 @@ def test_unknown_level_key_fails_test_loading_too(fixture_src):
 # ------------------------------------------------------------- run + report
 
 def fake_run(fixture_src, tmp_path, monkeypatch, fake_tool, levels, floors_text=None, tool_dir=None,
-             funcov_text=None):
+             funcov_text=None, ip="counter"):
     """regress.run with coverage, children faked: every test passes and
     leaves a coverage.dat (2/3 line points) and a funcov.json (1/2 bins)."""
     if floors_text:
@@ -236,7 +251,7 @@ def fake_run(fixture_src, tmp_path, monkeypatch, fake_tool, levels, floors_text=
     monkeypatch.setattr(sim, "run_test", run_test)
     ctx = Context(REPO_ROOT, fixture_src, tmp_path / "work")
     out, err = io.StringIO(), io.StringIO()
-    summary = regress.run(ctx, regress.select(ctx, levels, ["counter"]), levels, out=out, coverage=True)
+    summary = regress.run(ctx, regress.select(ctx, levels, [ip]), levels, out=out, coverage=True)
     assert all(s.coverage for s in specs) and specs
     code = regress.report(summary, out, err)
     return summary, code, out.getvalue(), err.getvalue(), ctx
@@ -297,6 +312,21 @@ def test_floor_of_an_unselected_level_is_not_checked(fixture_src, tmp_path, monk
     set_floors(fixture_src, 2, "coverage_floors: {line: 99}\n")
     summary, code, *_ = fake_run(fixture_src, tmp_path, monkeypatch, fake_tool, [0])
     assert code == 0 and summary["coverage"]["ips"]["counter"]["floors"] == {}
+
+
+def test_shared_unit_gets_coverage_like_an_ip(fixture_src, tmp_path, monkeypatch, fake_tool):
+    d = fixture_src / "dv/common"
+    (d / "regress").mkdir(parents=True)
+    (d / "common.sim.f").write_text("")
+    (d / "regress/level0.yaml").write_text(
+        "tests: [{name: cell, module: tests.t, top: common_c, timeout_s: 9}]\n"
+        "coverage_floors: {line: 70}\n")
+    summary, code, out, err, ctx = fake_run(fixture_src, tmp_path, monkeypatch, fake_tool, [0], ip="common")
+    c = summary["coverage"]["ips"]["common"]
+    assert list(summary["coverage"]["ips"]) == ["common"] and c["dir"] == "common/coverage"
+    assert c["line"]["pct"] == 66.67 and c["floors"] == {"line": 70.0}
+    assert code == 1 and "error: coverage floor: common: line 66.67% (2/3)" in err
+    assert (ctx.workdir / "common/coverage/merged.dat").is_file()
 
 
 def test_coverage_off_leaves_summary_unchanged(fixture_src, tmp_path, monkeypatch):
