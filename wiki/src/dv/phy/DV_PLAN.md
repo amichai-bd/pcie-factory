@@ -1,8 +1,5 @@
 # pcie_phy DV plan
 
-> **Power states wait on [#182](https://github.com/amichai-bd/pcie-factory/issues/182):**
-> `e2e_power` and `e2e_loopback` run once it lands ([Gaps](#gaps)).
-
 ## Strategy
 
 - **Reset contract:** an RTL port (`RtlPort`) checks every output against
@@ -88,9 +85,9 @@
   (direction, kind tlp, dllp or tlp_nullified, size, direction crossed
   with kind); `phy_e2e_control` (retrain, hot_reset, disable,
   usp_requests_ignored, polarity, reset_single, each sampled when its check
-  passes); `phy_e2e_power` (l0s, l1, l2, loopback; hit once
-  [#182](https://github.com/amichai-bd/pcie-factory/issues/182) enables
-  the tests). The run log also names the layers.
+  passes); `phy_e2e_power` (l0s, l1, l2, loopback; hit by `e2e_power` and
+  `e2e_loopback`, enabled with
+  [#182](https://github.com/amichai-bd/pcie-factory/issues/182)). The run log also names the layers.
 - **RTL by default:** every acceptance entry runs both layers as RTL
   (`MAC_RTL` 1, `PCS_RTL` 1). Each model-only copy, `<name>_model`, runs
   the same testcase with the models as a fast reference.
@@ -226,12 +223,12 @@ delivers the hooks, the cycle-model runs and this recipe):
 | [Link-up](../../arch/phy/HAS.md#targets) at `TIMEOUT_DIV` 1, simultaneous reset: release to `link_up_o` within 12.0 to 12.2 ms and training within 65.536 to 80 µs, on simulator clocks with no Python per cycle (about 3 minutes with coverage, so L2) | `e2e_link_up_spec` | 2 | 1; RTL, `CHAN_RTL` 1, `TIMEOUT_DIV` 1 |
 | Soak: offset from the seed in ±600 ppm, reset skew up to 2000 cycles with the link-up targets, six random impairments between lossless phases, TLPs up to 4118 bytes (a 4096-byte payload) | `e2e_soak_dsp_first`, `e2e_soak_usp_first` (RTL); the same names with `_model` | 2 | RTL 4 each, models 2 each |
 
-**Written, waiting on [#182](https://github.com/amichai-bd/pcie-factory/issues/182)** (no regression entry until then; #182 adds them at L1 with `MAC_RTL` 1, `PCS_RTL` 1, `ERR_TIMEOUT_DIV` 1024):
+**Power states and loopback** (L1, `MAC_RTL` 1, `PCS_RTL` 1, `ERR_TIMEOUT_DIV` 1024; enabled by [#182](https://github.com/amichai-bd/pcie-factory/issues/182), which carries electrical idle in order with the received words, so the whole EIOS reaches the MAC before RxElecIdle):
 
 | Feature | Testcase |
 | --- | --- |
 | [Power states](../../arch/phy/HAS.md#link-up-and-requests). L0s: both transmitters reach Tx_L0s.Idle within `L0S_IDLE_CYCLES` + 16 cycles of the request, a packet leaves L0s within 2·N_FTS + 16, and traffic is lossless. L1: entry within 64 cycles, `link_up_o` high, exit through Recovery within 4 µs. L2: entry within 64 cycles, exit through Detect within 100 µs. Lossless after each | `e2e_power` |
-| Loopback from each port as master: both reach Loopback.Active with `link_up_o` low, then Detect and back to L0. There is no traffic into the entry yet. The packet looped back in an earlier run was delivered in L0, after the master trained against its own echo, which is the #182 symptom. There is no mac defect: [#192](https://github.com/amichai-bd/pcie-factory/issues/192), and the mac HAS states the rule in [#193](https://github.com/amichai-bd/pcie-factory/pull/193). The PR that enables `e2e_loopback` adds traffic into the entry | `e2e_loopback` |
+| Loopback from each port as master: both reach Loopback.Active with `link_up_o` low, then Detect and back to L0. There is no traffic into the entry yet ([#198](https://github.com/amichai-bd/pcie-factory/issues/198)). Before #182 a packet looped back in an earlier run was delivered in L0, after the master trained against its own echo; there is no mac defect: [#192](https://github.com/amichai-bd/pcie-factory/issues/192), and the mac HAS states the rule in [#193](https://github.com/amichai-bd/pcie-factory/pull/193) | `e2e_loopback` |
 
 ### Removed checks
 
@@ -246,16 +243,16 @@ delivers the hooks, the cycle-model runs and this recipe):
 
 | Feature | Owning issue |
 | --- | --- |
-| L0s, L1, L2 and Loopback end to end (`e2e_power`, `e2e_loopback`). Today the pcs reports electrical idle before the EIOS ahead of it reaches PIPE, and cuts that EIOS short. The receiving MAC then goes to Recovery instead of L0s, L1 or L2, and a Loopback slave never sees the master's EIOS | [#182](https://github.com/amichai-bd/pcie-factory/issues/182) |
+| Traffic into the loopback entry: the master's packets echoed by the slave, which the stub's scoreboard cannot yet tell from its own (`e2e_loopback` runs without it) | [#198](https://github.com/amichai-bd/pcie-factory/issues/198) |
 | One layer RTL and the other a model (step 2 above): not planned in M1 ([ruling on #86](https://github.com/amichai-bd/pcie-factory/issues/86#issuecomment-6197199773)) | [#194](https://github.com/amichai-bd/pcie-factory/issues/194) (post-M1) |
 
 ## Coverage floors
 
-`phy_e2e_power` waits on
-[#182](https://github.com/amichai-bd/pcie-factory/issues/182), so the
-plan still has a gap. Per the [DV BKM](../../../bkm/dv.md#coverage),
-`level2.yaml` therefore sets per-covergroup floors only, for the
-covergroups whose plan rows are complete:
+Per the [DV BKM](../../../bkm/dv.md#coverage), `level2.yaml` sets
+per-covergroup floors for the covergroups whose plan rows are complete;
+`phy_e2e_power` joins them now that
+[#182](https://github.com/amichai-bd/pcie-factory/issues/182) enables its
+tests:
 
 | Covergroup | Floor |
 | --- | --- |
@@ -263,7 +260,8 @@ covergroups whose plan rows are complete:
 | `phy_e2e_events` | 100 |
 | `phy_e2e_packets` | 100 |
 | `phy_e2e_control` | 100 |
+| `phy_e2e_power` | 100 |
 
 The phy line, toggle and overall functional floors are set in
-[#90](https://github.com/amichai-bd/pcie-factory/issues/90) once #182 has
-landed ([ruling on #86](https://github.com/amichai-bd/pcie-factory/issues/86#issuecomment-6197199773)).
+[#90](https://github.com/amichai-bd/pcie-factory/issues/90), now that #182
+has landed ([ruling on #86](https://github.com/amichai-bd/pcie-factory/issues/86#issuecomment-6197199773)).

@@ -21,6 +21,7 @@ from models.pcie_pcs_model import P0, P0S, P1, P2
 from regress.funcov import Covergroup
 from tb.pcs_bench import COV_CTRL, Bench, regress_seed, seeded, start
 from tb.pcs_env import EdgeLog, now_ps, start_clocks
+from tb.pcs_rxbench import RX_LATENCY_MAX
 
 # RxElecIdle edges seen through the crossing, by RX clock offset sign.
 COV_RXIDLE = Covergroup("pcs_rx_elec_idle")
@@ -134,9 +135,10 @@ async def pipe_random_long(dut):
 
 @cocotb.test()
 async def rx_elec_idle(dut):
-    """RxElecIdle follows ser_rx_elec_idle_i through one RX flop and the
-    two-flop synchronizer: every level change, in order, two or three clk_i
-    edges after the RX edge that registered it; 1 while in reset."""
+    """RxElecIdle travels with the received words (RECEIVE.md, Electrical
+    idle): every level change of ser_rx_elec_idle_i reaches PIPE, in order,
+    with the first word received at the new level, so within the RX latency
+    target (12 cycles) of the RX edge that registered it; 1 while in reset."""
     rng = seeded(dut)
     # The seed's parity picks the sign: the regression's two explicit seeds
     # cover a fast and a slow RX clock.
@@ -176,9 +178,12 @@ async def rx_elec_idle(dut):
             last = v
     n = min(len(seen), len(launches))
     assert n >= 20, f"only {n} RxElecIdle changes"
+    worst = 0
     for i in range(n):
         (t_in, v_in), (t_out, v_out) = launches[i], seen[i]
         assert v_in == v_out, f"change {i}: RxElecIdle {v_out}, line {v_in}"
         edges = clk_edges.count(t_in, t_out)
-        assert edges in (2, 3), (
+        worst = max(worst, edges)
+        assert 1 <= edges <= RX_LATENCY_MAX, (
             f"change {i}: registered at {t_in} ps, out at {t_out} ps: {edges} clk_i edges")
+    dut._log.info("%d RxElecIdle changes, at most %d clk_i edges after the RX edge", n, worst)

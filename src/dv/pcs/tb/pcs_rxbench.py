@@ -21,6 +21,8 @@ from cocotb.triggers import FallingEdge
 
 from models.pcie_pcs_model import P0
 from models.pcie_pcs_rx_check import K_COM, K_SKP, Stream, Word, check_runs, check_skp_status
+
+K_IDL = 0x7C   # K28.3, the EIOS body
 from regress.funcov import Covergroup
 from tb.pcs_bench import Bench, regress_seed
 from tb.pcs_channel import Link, RxChannel
@@ -45,7 +47,8 @@ COV_RX.coverpoint("scenario", bins=["clean", "max_tlp", "dllp", "random", "polar
                                     "polarity_toggle", "errors", "close_errors", "slips",
                                     "error_bursts", "elec_idle", "loopback", "round_trip",
                                     "eb_stress"])
-COV_RX.coverpoint("relock", bins=["slip", "close_errors", "noise_lock"])
+COV_RX.coverpoint("relock", bins=["slip", "close_errors", "noise_lock", "mid_word"])
+COV_RX.coverpoint("ei_order", bins=["before_idle", "eios_whole", "idle_tail"])
 
 # The RxStatus codes the receive path gives within the targets, with the
 # clock offset that produces them (required at L2: pcs_rx_status floor 100).
@@ -122,6 +125,53 @@ class FillCheck:
                 f"t={now_ps()} ps: visible fill {fill} outside {FILL_MIN}..{FILL_MAX}")
 
 
+class ValidRule:
+    """RxValid against the lock tags of the word that made it, read on the
+    MAS-named observation nets of the top: `eb_valid`, `eb_status` (its
+    `udf` bit) and `eb_rx` (the elastic buffer's `t_rx_pair`: per symbol
+    the idle flag, lock, generation and code). A word sent (not underflow)
+    leaves with RxValid 1 exactly when both symbols are locked, or its
+    first is locked and its second began in idle (an idle tail; RECEIVE.md,
+    Decode and RxStatus). ``mid_word_ends`` counts the words whose first
+    symbol is locked and whose second is unlocked without idle: a lock end
+    by a relock request inside a word, which leaves with RxValid 0."""
+
+    SYM = 13                      # t_rx_sym: code[9:0], gen, lock, idle
+
+    def __init__(self, dut) -> None:
+        self.dut = dut
+        self.checked = 0
+        self.mid_word_ends = 0
+        self.idle_tails = 0
+        cocotb.start_soon(self._run())
+
+    async def _run(self) -> None:
+        dut = self.dut
+        want = None
+        while True:
+            await FallingEdge(dut.clk_i)
+            rst = int(dut.rst_i.value) or not int(dut.pipe_reset_ni.value)
+            if want is not None and not rst:
+                got = int(dut.pipe_rx_valid_o.value)
+                assert got == want, (f"t={now_ps()} ps: RxValid {got}, the word's lock "
+                                     f"tags give {want}")
+                self.checked += 1
+            want = None
+            if rst or not int(dut.eb_valid.value) or int(dut.eb_status.value) & 1:
+                if not rst:
+                    want = 0
+                continue
+            v = int(dut.eb_rx.value)
+            lock0, lock1 = (v >> 11) & 1, (v >> (self.SYM + 11)) & 1
+            idle1 = (v >> (self.SYM + 12)) & 1
+            want = int(bool(lock0 and (lock1 or idle1)))
+            if lock0 and not lock1:
+                if idle1:
+                    self.idle_tails += 1
+                else:
+                    self.mid_word_ends += 1
+
+
 class Recentre:
     """Counts the elastic buffer's recentring on its MAS-named observation
     nets: `u_elastic.r_recentre` (read side holds, clk_i) and
@@ -170,6 +220,7 @@ class RxBench:
                               source=source)
         self.fill = FillCheck(dut, lambda: self.chan.done)
         self.recentre = Recentre(dut)
+        self.valid_rule = ValidRule(dut)
         self.fill.on = self.fill_window
         self.b = Bench(dut, max_cycles, receive=True)
         self.b.tick = self._wrap(self.b.tick)
@@ -182,7 +233,11 @@ class RxBench:
             out = await tick()
             k, d = out["pipe_rx_datak_o"], out["pipe_rx_data_o"]
             w = Word(now_ps() - CLK_PS // 2, out["pipe_rx_valid_o"],
-                     ((k & 1, d & 0xFF), ((k >> 1) & 1, d >> 8)), out["pipe_rx_status_o"])
+                     ((k & 1, d & 0xFF), ((k >> 1) & 1, d >> 8)), out["pipe_rx_status_o"],
+                     out["pipe_rx_elec_idle_o"])
+            # Electrical idle is in order with the words: never a word under
+            # RxValid while RxElecIdle is 1.
+            assert not (w.valid and w.elec_idle), f"t={w.t} ps: RxValid 1 with RxElecIdle 1"
             self.words.append(w)
             if w.status != 3 and (w.valid or w.status in (5, 6)):
                 COV_RX.sample(status=w.status, ppm=ppm_bin(self.ppm))
@@ -347,6 +402,54 @@ def rd_settle_word(run) -> float:
     return run.words[-1].t
 
 
+def check_ei_order(rx: RxBench, link, runs, where: str) -> dict[str, int]:
+    """Electrical idle in order with the words (RECEIVE.md, Electrical
+    idle): before each idle gap, every sent symbol that starts in a word
+    received with ``ser_rx_elec_idle_i`` low leaves on PIPE under RxValid
+    before RxElecIdle rises for that gap, and a gap that follows an EIOS
+    shows the whole EIOS under RxValid. RxValid is never 1 with RxElecIdle
+    1 (checked every cycle by the bench). Returns the counts of gaps
+    checked, EIOS checked whole and idle tails, for the callers'
+    non-vacuity checks."""
+    placed = {s: t for r in runs for t, s in r.placed}
+    for r in runs:
+        placed.update({s: r.words[0].t for s in r.sent_of.values() if s not in placed})
+    line, chan = link.line, rx.chan
+
+    def starts_idle(s: int) -> bool:
+        b = rx.rx_bit(10 * s)
+        return bool(line.idle[(b // 20) * 20 + 19])
+
+    checked = eios_whole = 0
+    for a, _ in link.idles:
+        last = a - 1
+        while last >= 0 and (link.syms[last] == (1, K_SKP) or starts_idle(last)):
+            last -= 1
+        t_in = rx.arrival(last)
+        t_ei = next((w.t for w in rx.words if w.t > t_in and w.elec_idle), None)
+        assert t_ei is not None, f"{where}: RxElecIdle never rose for the gap at symbol {a}"
+        assert last in placed, (f"{where}: symbol {last} {link.syms[last]}, received before "
+                                f"the gap at {a}, never left under RxValid")
+        assert placed[last] < t_ei, (f"{where}: RxElecIdle at {t_ei} ps overtook symbol {last}, "
+                                     f"which left at {placed[last]} ps")
+        eios = [s for s in range(a - 5, a) if s >= 0]
+        if [link.syms[s] for s in eios[-4:]] == [(1, K_COM)] + [(1, K_IDL)] * 3 or \
+           [link.syms[s] for s in eios[:4]] == [(1, K_COM)] + [(1, K_IDL)] * 3:
+            com = next(s for s in eios if link.syms[s] == (1, K_COM))
+            whole = all(s in placed and placed[s] < t_ei for s in range(com, com + 4))
+            assert whole, f"{where}: the EIOS at symbol {com} not whole under RxValid before idle"
+            COV_RX.sample(ei_order="eios_whole")
+            eios_whole += 1
+        COV_RX.sample(ei_order="before_idle")
+        checked += 1
+    tails = sum(r.idle_tail for r in runs)
+    for _ in range(tails):
+        COV_RX.sample(ei_order="idle_tail")
+    rx.dut._log.info("%s: %d gaps in order before RxElecIdle, %d EIOS whole, %d idle tails",
+                     where, checked, eios_whole, tails)
+    return {"gaps": checked, "eios_whole": eios_whole, "idle_tails": tails}
+
+
 def check_idle(rx: RxBench, link, where: str) -> list:
     """Electrical-idle gaps: one run per gap and one before them, no buffer
     status, data intact, each lock started at its comma within the lock
@@ -371,4 +474,5 @@ def check_idle(rx: RxBench, link, where: str) -> list:
     check_skp_status(link.syms, [r for r in runs if not r.noise_lock], where)
     check_latency(rx, runs)
     check_lock_latency(rx, link, runs[1:], where)
+    rx.ei_order = check_ei_order(rx, link, runs, where)
     return runs

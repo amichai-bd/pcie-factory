@@ -102,7 +102,7 @@ COV_EVENTS.coverpoint("reset", bins={"a": "a", "b": "b"})
 COV_CONTROL = Covergroup("phy_e2e_control")
 COV_CONTROL.coverpoint("event", bins={n: n for n in (
     "retrain", "hot_reset", "disable", "usp_requests_ignored", "polarity", "reset_single")})
-COV_POWER = Covergroup("phy_e2e_power")       # enabled with #182
+COV_POWER = Covergroup("phy_e2e_power")
 COV_POWER.coverpoint("state", bins={n: n for n in ("l0s", "l1", "l2", "loopback")})
 
 # Reset values of pcie_phy's outputs, held while rst_i is high

@@ -224,7 +224,8 @@ class Line:
 
     def words(self) -> list[tuple[int, int, list[int]]]:
         """Per 20-bit word: (data, elec_idle, txpos of its bits). The idle
-        flag of a word is that of its last bit."""
+        flag of a word is that of its last bit: 1 for any word that holds an
+        idle bit (the HAS contract), its bits before the idle line data."""
         out = []
         for w in range(len(self.bits) // WORD_BITS):
             b = w * WORD_BITS
