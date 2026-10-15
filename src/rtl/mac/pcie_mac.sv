@@ -8,6 +8,8 @@
 // in wave 2.
 `default_nettype none
 
+`include "common_macros.svh"
+
 module pcie_mac #(
   parameter int unsigned TIMEOUT_DIV     = 1,    // 1..1024: divides Detect.Quiet and the Hot Reset dwell
   parameter int unsigned ERR_TIMEOUT_DIV = 1,    // 1..1024: divides error-path timeouts, floored at 16384 cycles
@@ -76,6 +78,127 @@ module pcie_mac #(
                            pipe_rx_elec_idle_i, pipe_rx_status_i,
                            TIMEOUT_DIV[0], ERR_TIMEOUT_DIV[0], N_FTS[0],
                            L0S_IDLE_CYCLES[0]};
+
+  // Ordered sets (wiki/src/rtl/mac_os/MAS.md). Wave 2 instances each sub-IP
+  // as it lands; the LTSSM and frame connections arrive with #78. Until
+  // then no ordered set is requested and the receive side only parses.
+  logic        os_tx_ack, os_tx_last, os_tx_skp_due, os_tx_valid, os_tx_compliance;
+  logic [15:0] os_tx_data;
+  logic [1:0]  os_tx_datak, os_rx_os_sym;
+  logic        os_rx_ts, os_rx_ts2, os_rx_ts_inv, os_rx_link_pad, os_rx_link_num;
+  logic        os_rx_lane_pad, os_rx_lane_num, os_rx_ts_bad, os_rx_skp, os_rx_eios;
+  logic        os_rx_fts;
+  logic [7:0]  os_rx_link, os_rx_lane, os_rx_n_fts;
+  logic [4:0]  os_rx_ctl;
+
+  pcie_mac_os #(
+    .N_FTS(N_FTS)
+  ) u_os (
+    .clk_i               (clk_i),
+    .rst_i               (rst_i),
+    .tx_ts_req_i         (1'b0),
+    .tx_skp_req_i        (1'b0),
+    .tx_eios_req_i       (1'b0),
+    .tx_fts_req_i        (1'b0),
+    .tx_compliance_req_i (1'b0),
+    .tx_ts2_i            (1'b0),
+    .tx_link_pad_i       (1'b1),
+    .tx_link_i           (8'd0),
+    .tx_lane_pad_i       (1'b1),
+    .tx_lane_i           (8'd0),
+    .tx_ctl_i            (3'd0),
+    .tx_ack_o            (os_tx_ack),
+    .tx_last_o           (os_tx_last),
+    .tx_skp_due_o        (os_tx_skp_due),
+    .tx_skp_ok_i         (1'b0),
+    .tx_count_i          (1'b0),
+    .tx_valid_o          (os_tx_valid),
+    .tx_data_o           (os_tx_data),
+    .tx_datak_o          (os_tx_datak),
+    .tx_compliance_o     (os_tx_compliance),
+    .rx_data_i           (pipe_rx_data_i),
+    .rx_datak_i          (pipe_rx_datak_i),
+    .rx_valid_i          (pipe_rx_valid_i),
+    .rx_elec_idle_i      (pipe_rx_elec_idle_i),
+    .rx_os_sym_o         (os_rx_os_sym),
+    .rx_ts_o             (os_rx_ts),
+    .rx_ts2_o            (os_rx_ts2),
+    .rx_ts_inv_o         (os_rx_ts_inv),
+    .rx_link_o           (os_rx_link),
+    .rx_link_pad_o       (os_rx_link_pad),
+    .rx_link_num_o       (os_rx_link_num),
+    .rx_lane_o           (os_rx_lane),
+    .rx_lane_pad_o       (os_rx_lane_pad),
+    .rx_lane_num_o       (os_rx_lane_num),
+    .rx_n_fts_o          (os_rx_n_fts),
+    .rx_ctl_o            (os_rx_ctl),
+    .rx_ts_bad_o         (os_rx_ts_bad),
+    .rx_skp_o            (os_rx_skp),
+    .rx_eios_o           (os_rx_eios),
+    .rx_fts_o            (os_rx_fts)
+  );
+
+  `COMMON_UNUSED_BITS(unused_os, {os_tx_ack, os_tx_last, os_tx_skp_due, os_tx_valid,
+                                  os_tx_compliance, os_tx_data, os_tx_datak, os_rx_os_sym,
+                                  os_rx_ts, os_rx_ts2, os_rx_ts_inv, os_rx_link,
+                                  os_rx_link_pad, os_rx_link_num, os_rx_lane,
+                                  os_rx_lane_pad, os_rx_lane_num, os_rx_n_fts, os_rx_ctl,
+                                  os_rx_ts_bad, os_rx_skp, os_rx_eios, os_rx_fts})
+
+  // Framing (wiki/src/rtl/mac_frame/MAS.md), inert until the integration (#78):
+  // the LTSSM controls are tied off (no L0), so it holds the line idle, and
+  // its outputs are not connected yet.
+  logic        frame_tx_ready;
+  logic        frame_rx_valid;
+  logic [15:0] frame_rx_data;
+  logic [4:0]  frame_rx_flags;   // sop, eop, dllp, err, nullify
+  logic        frame_skp_gnt;
+  logic        frame_tx_act;
+  logic [15:0] frame_tx_data;
+  logic [1:0]  frame_tx_datak;
+  logic        frame_tx_pkt;
+  logic        frame_rx_frame_err;
+  logic [1:0]  frame_rx_idle;
+
+  pcie_mac_frame u_frame (
+    .clk_i           (clk_i),
+    .rst_i           (rst_i),
+    .pkt_tx_valid_i  (pkt_tx_valid_i),
+    .pkt_tx_ready_o  (frame_tx_ready),
+    .pkt_tx_data_i   (pkt_tx_data_i),
+    .pkt_tx_sop_i    (pkt_tx_sop_i),
+    .pkt_tx_eop_i    (pkt_tx_eop_i),
+    .pkt_tx_dllp_i   (pkt_tx_dllp_i),
+    .pkt_tx_nullify_i(pkt_tx_nullify_i),
+    .pkt_rx_valid_o  (frame_rx_valid),
+    .pkt_rx_data_o   (frame_rx_data),
+    .pkt_rx_sop_o    (frame_rx_flags[0]),
+    .pkt_rx_eop_o    (frame_rx_flags[1]),
+    .pkt_rx_dllp_o   (frame_rx_flags[2]),
+    .pkt_rx_err_o    (frame_rx_flags[3]),
+    .pkt_rx_nullify_o(frame_rx_flags[4]),
+    .tx_l0_i         (1'b0),
+    .tx_stop_i       (1'b1),
+    .rx_l0_i         (1'b0),
+    .skp_req_i       (1'b0),
+    .skp_gnt_o       (frame_skp_gnt),
+    .tx_act_o        (frame_tx_act),
+    .tx_data_o       (frame_tx_data),
+    .tx_datak_o      (frame_tx_datak),
+    .tx_pkt_o        (frame_tx_pkt),
+    .rx_data_i       (pipe_rx_data_i),
+    .rx_datak_i      (pipe_rx_datak_i),
+    .rx_valid_i      (pipe_rx_valid_i),
+    .rx_elec_idle_i  (pipe_rx_elec_idle_i),
+    .rx_status_i     (pipe_rx_status_i),
+    .rx_frame_err_o  (frame_rx_frame_err),
+    .rx_idle_o       (frame_rx_idle)
+  );
+
+  `COMMON_UNUSED_BITS(unused_frame, {frame_tx_ready, frame_rx_valid, frame_rx_data,
+                                     frame_rx_flags, frame_skp_gnt, frame_tx_act,
+                                     frame_tx_data, frame_tx_datak, frame_tx_pkt,
+                                     frame_rx_frame_err, frame_rx_idle})
 
   // Reset values from the HAS: no packet traffic, link down in Detect.Quiet
   // (code 0), PCS held in reset, transmitter in electrical idle, P1.

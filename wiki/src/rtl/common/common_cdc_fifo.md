@@ -7,9 +7,11 @@ flow control on both sides and Gray-coded pointers crossing through
 any burst of events, between unrelated clocks. Like every shared block it
 has no HAS; this page owns its interface, behavior and structure.
 
-It holds `2**ADDR_W` words; depths that are not a power of two, almost-full
-or almost-empty thresholds and fill-level outputs are out of scope until a
-consumer needs them.
+It holds `2**ADDR_W` words. The read side also sees its fill and the word
+after the oldest (first consumer: the pcs elastic buffer,
+[#84](https://github.com/amichai-bd/pcie-factory/issues/84)). Depths that
+are not a power of two, almost-full or almost-empty thresholds and a
+write-side fill are out of scope until a consumer needs them.
 
 ## Interfaces
 
@@ -25,6 +27,8 @@ consumer needs them.
 | `dst_valid_o` | out | 1 | `dst_clk_i` | Not empty: `dst_data_o` is the oldest word. Does not depend on `dst_ready_i`. |
 | `dst_ready_i` | in | 1 | `dst_clk_i` | The word is taken at the edge when both are high. |
 | `dst_data_o` | out | `WIDTH` | `dst_clk_i` | Oldest word (first-word fall-through); undefined while `dst_valid_o` is low. |
+| `dst_fill_o` | out | `ADDR_W+1` | `dst_clk_i` | Read-side fill: the words whose write has crossed and that are not yet read, 0 to `2**ADDR_W`. Non-zero exactly when `dst_valid_o` is high. |
+| `dst_next_data_o` | out | `WIDTH` | `dst_clk_i` | The word after the oldest; undefined while `dst_fill_o` is below 2. |
 
 CDC declaration ([convention](../../../bkm/rtl.md#clock-domain-crossings)):
 `// cdc-cell: src=src_clk_i dst=dst_clk_i`.
@@ -58,6 +62,13 @@ CDC declaration ([convention](../../../bkm/rtl.md#clock-domain-crossings)):
   `src_clk_i` edge that wrote it; a read from a full FIFO raises
   `src_ready_o` two or three `src_clk_i` edges after the `dst_clk_i` edge
   that read it. Both flags are therefore conservative, never optimistic.
+- **Read-side fill:** `dst_fill_o` is the synchronized write pointer less
+  the read pointer. It is conservative like `dst_valid_o`: it counts a word
+  two or three `dst_clk_i` edges after the edge that wrote it, never
+  before, and drops in the cycle after a read. It never exceeds the words
+  written and not read.
+- **Look-ahead:** while `dst_fill_o` is 2 or more, `dst_next_data_o` is the
+  second-oldest word; both are read without popping.
 - Any clock ratio works. Sustained throughput needs a depth that covers the
   flag round trip (a pointer crossing each way); a shallow FIFO stalls
   between bursts.
@@ -76,6 +87,9 @@ CDC declaration ([convention](../../../bkm/rtl.md#clock-domain-crossings)):
   [`common_cdc_sync2`](common_cdc_sync2.md) through `COMMON_METAFLOP`. A Gray pointer changes one bit
   per update, as the synchronizer requires, and the registered Gray copy
   never glitches.
+- **Fill:** the synchronized write pointer `dst_wgray`, converted to binary
+  (`dst_wbin`, an XOR chain), less `rbin_q`. `dst_next_data_o` reads
+  `mem_q` at `raddr + 1`.
 - **Flags:** empty when `rgray_q` equals the synchronized write pointer;
   full when `wgray_q` XOR the synchronized read pointer is `FULL_XOR` (the
   two top bits set, the rest clear).
@@ -88,6 +102,7 @@ CDC declaration ([convention](../../../bkm/rtl.md#clock-domain-crossings)):
 | Flags compared in Gray code | No Gray-to-binary conversion on the flag path. | Binary compare after conversion. |
 | Registered memory, combinational read | First-word fall-through with no extra latency; small depths fit in flops or distributed RAM. | Synchronous-read RAM (one more cycle and an output register stage). |
 | Power-of-two depth only | Gray wrap is free. | Arbitrary depth (needs a modified Gray sequence). |
+| Read-side fill and look-ahead from the cell's own synchronized pointer | One crossing serves the flag, the fill and the look-ahead, so they always agree. A consumer that needs a fill (the pcs elastic buffer) does not duplicate the pointer crossing. | A second Gray counter through `common_cdc_sync2` in the consumer. |
 
 ## Timing
 
@@ -95,10 +110,12 @@ CDC declaration ([convention](../../../bkm/rtl.md#clock-domain-crossings)):
   `u_sync_rptr`, with the synchronizer's
   [timing exception](common_cdc_sync2.md#timing): the pointer bits must
   arrive with less skew than one period of the capturing clock.
-- `mem_q` to `dst_data_o` is a path between domains too: a word is read
-  only after its pointer has crossed, at least two `dst_clk_i` edges after
-  it was written, so it is stable when sampled. Constrain it like the
-  pointers.
+- `mem_q` to `dst_data_o` and `dst_next_data_o` are paths between domains
+  too: a word is read only after its pointer has crossed, at least two
+  `dst_clk_i` edges after it was written, so it is stable when sampled.
+  Constrain them like the pointers.
+- `dst_fill_o` is a Gray-to-binary conversion and a subtraction of
+  `dst_clk_i` registers.
 - Within each domain, the flag logic is a compare of two registered
   vectors.
 

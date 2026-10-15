@@ -1,0 +1,6 @@
+tests:
+  - name: smoke
+    module: tests.test_mac_frame
+    testcase: smoke
+    top: pcie_mac_frame
+    timeout_s: 120

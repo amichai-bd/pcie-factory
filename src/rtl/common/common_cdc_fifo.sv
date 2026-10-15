@@ -7,7 +7,9 @@
 // both sides, first-word fall-through on the read side. Each side sees the
 // other's pointer through common_cdc_sync2, so src_ready_o and dst_valid_o
 // are conservative: they recover two or three edges of their own clock
-// after the other side moves. Spec: wiki/src/rtl/common/common_cdc_fifo.md.
+// after the other side moves. The read side also sees its fill (the words
+// whose write has crossed) and the word after the oldest.
+// Spec: wiki/src/rtl/common/common_cdc_fifo.md.
 // cdc-cell: src=src_clk_i dst=dst_clk_i
 module common_cdc_fifo #(
   parameter int unsigned WIDTH  = 8,
@@ -22,7 +24,9 @@ module common_cdc_fifo #(
   input  logic             dst_rst_i,
   output logic             dst_valid_o,
   input  logic             dst_ready_i,
-  output logic [WIDTH-1:0] dst_data_o
+  output logic [WIDTH-1:0] dst_data_o,
+  output logic [ADDR_W:0]  dst_fill_o,
+  output logic [WIDTH-1:0] dst_next_data_o
 );
 
   localparam int unsigned DEPTH = 2 ** ADDR_W;
@@ -53,6 +57,8 @@ module common_cdc_fifo #(
   logic [PTR_W-1:0]  rgray_d;
   logic [PTR_W-1:0]  rgray_q;
   logic [PTR_W-1:0]  dst_wgray;
+  logic [PTR_W-1:0]  dst_wbin;
+  logic [ADDR_W-1:0] raddr_next;
 
   assign src_ready_o = (wgray_q ^ src_rgray) != FULL_XOR;
   assign push        = src_valid_i & src_ready_o;
@@ -71,6 +77,19 @@ module common_cdc_fifo #(
   assign rgray_d     = rbin_d ^ (rbin_d >> 1);
   assign raddr       = rbin_q[ADDR_W-1:0];
   assign dst_data_o  = mem_q[raddr];
+
+  // Read-side fill: the synchronized write pointer, back to binary, less
+  // the read pointer. The word after the oldest is defined while the fill
+  // is 2 or more.
+  always_comb begin
+    dst_wbin[PTR_W-1] = dst_wgray[PTR_W-1];
+    for (int i = PTR_W - 2; i >= 0; i--) begin
+      dst_wbin[i] = dst_wbin[i+1] ^ dst_wgray[i];
+    end
+  end
+  assign dst_fill_o      = dst_wbin - rbin_q;
+  assign raddr_next      = raddr + ADDR_W'(1);
+  assign dst_next_data_o = mem_q[raddr_next];
 
   `COMMON_DFF_RST(rbin_q, rbin_d, dst_clk_i, dst_rst_i)
   `COMMON_DFF_RST(rgray_q, rgray_d, dst_clk_i, dst_rst_i)

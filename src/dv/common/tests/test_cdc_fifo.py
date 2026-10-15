@@ -24,6 +24,8 @@ COV.coverpoint("clocks", bins=CLOCK_BINS)
 COV.coverpoint("src", bins=["push", "full_stall", "idle"])
 COV.coverpoint("dst", bins=["pop", "empty_stall", "hold", "idle"])
 COV.coverpoint("reset", bins={"in_flight": lambda words: words > 0})
+COV.coverpoint("fill", bins={"empty": lambda f: f[0] == 0, "one": lambda f: f[0] == 1,
+                             "some": lambda f: 1 < f[0] < f[1], "full": lambda f: f[0] == f[1]})
 COV.cross("clocks_x_src", "clocks", "src")
 COV.cross("clocks_x_dst", "clocks", "dst")
 
@@ -55,6 +57,7 @@ class Fifo:
         self.p_write = 0.0
         self.p_read = 0.0
         self.write_limit = None  # stop offering words after this many pushes
+        self.fill_max = 0
         self.ratio = clock_ratio(src_period, dst_period)
         cocotb.start_soon(self._writer())
         cocotb.start_soon(self._reader())
@@ -87,6 +90,7 @@ class Fifo:
         while True:
             await FallingEdge(dut.dst_clk_i)
             valid = int(dut.dst_valid_o.value)
+            self.check_fill(valid)
             if valid and not was_valid:
                 self.valid_rises.append(self.dst_edges.last_before(now()))
             was_valid = valid
@@ -106,6 +110,24 @@ class Fifo:
                 self.popped += 1
                 if not self.queue:
                     self.empty_after_data += 1
+
+    def check_fill(self, valid):
+        """dst_fill_o counts the visible words: non-zero exactly when
+        dst_valid_o is high, never more than the words accepted and not
+        read, and dst_next_data_o is the second-oldest word whenever the
+        fill is 2 or more (MAS, Behavior)."""
+        dut = self.dut
+        fill = int(dut.dst_fill_o.value)
+        assert (fill != 0) == bool(valid), (
+            f"read {self.popped}: dst_fill_o {fill} with dst_valid_o {valid}")
+        assert fill <= len(self.queue), (
+            f"read {self.popped}: dst_fill_o {fill} but only {len(self.queue)} word(s) written")
+        if fill >= 2:
+            got, want = int(dut.dst_next_data_o.value), self.queue[1][1]
+            assert got == want, (
+                f"read {self.popped}: dst_next_data_o expected {want:#x} got {got:#x}")
+        COV.sample(fill=(fill, self.depth))
+        self.fill_max = max(self.fill_max, fill)
 
     async def run(self, p_write, p_read, src_cycles):
         self.p_write, self.p_read = p_write, p_read
@@ -136,6 +158,7 @@ class Fifo:
             f"drain: {len(self.queue)} accepted word(s) never read after {limit} dst cycles")
         await falling_edges(self.dut.dst_clk_i, 2)
         assert int(self.dut.dst_valid_o.value) == 0, "drained FIFO still shows dst_valid_o"
+        assert int(self.dut.dst_fill_o.value) == 0, "drained FIFO shows a non-zero dst_fill_o"
         await falling_edges(self.dut.src_clk_i, 4)
         assert int(self.dut.src_ready_o.value) == 1, "drained FIFO still shows src_ready_o low"
 
@@ -186,6 +209,8 @@ async def fill_and_drain(dut, f, round_):
     assert int(dut.src_ready_o.value) == 0, f"round {round_}: src_ready_o high when full"
     await falling_edges(dut.dst_clk_i, 4)
     lag(f.dst_edges, f.push_times[pushed], f.valid_rises, f"round {round_}: dst_valid_o")
+    fill = int(dut.dst_fill_o.value)
+    assert fill == depth, f"round {round_}: dst_fill_o {fill} when full, expected {depth}"
 
     f.p_write, f.p_read = 0.0, 1.0
     while f.popped - popped < depth:
