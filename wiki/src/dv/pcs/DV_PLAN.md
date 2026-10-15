@@ -170,8 +170,14 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
 | Round trip: TxData through the encoder, line, aligner, buffer and decoder back to RxData, intact | `round_trip` | 1 | [1] |
 
 The model unit tests (`python3 -m pytest src/dv/pcs/models`) check the
-encoder model against published codes, the decoder model's column sizes
-and rules, the aligner model's locks, the traffic kinds, the receive
+encoder model against published codes (among them the A7 rule, D17.7 at
+RD- and D11.7 at RD+ with their primary forms at the other RD, and `Kx.7`
+as K23.7 and K28.7 at both RDs), the architecture model's `decode()`
+against a classic-table oracle typed from the published 5b/6b and 3b/4b
+tables (all 1024 codes at RD-, RD+ and an unknown RD: byte, K flag, RD
+after, error class), which is independent of the architecture model that
+the decoder model and `rx_decode_table` build on, the decoder model's
+column sizes and rules, the aligner model's locks, the traffic kinds, the receive
 scoreboard, and the RTL package's constants (`EB_*`, the raw COM and SKP
 codes) and the shared `common_pkg` codes (`SYM_EDB`, RxStatus, PowerDown)
 against the architecture model and the pages.
@@ -185,12 +191,12 @@ Every check of the removed leaf testbenches, and where it is now.
 | `smoke` (encoder) | Reset, latency 2, published anchors, compliance, EDB, RD hold | `tx_smoke` |
 | `exhaustive` (encoder) | Every symbol at both RDs in both lanes, EDB for 244 unsupported K, back to back and with idle cycles; coverage holes fail | `tx_table` (same words through PIPE TX; idle cycles are TxElecIdle); received side: `table_round_trip` |
 | `random_vs_model`, `long_random` (encoder) | Random words, idle, compliance, resets against the cycle model | `tx_random`, `tx_random_long` (both reset kinds with words in flight), `pipe_random` |
-| Encoder model unit tests | Published anchors in both lanes, compliance, EDB, pipeline | Kept: [`test_pcie_pcs_enc8b10b_model.py`](../../../../src/dv/pcs/models/test_pcie_pcs_enc8b10b_model.py) (the model also serves the `phy` e2e's encoder block hook) |
+| Encoder model unit tests | Published anchors in both lanes, compliance, EDB, pipeline | Kept: [`test_pcie_pcs_enc8b10b_model.py`](../../../../src/dv/pcs/models/test_pcie_pcs_enc8b10b_model.py), with A7 (D17.7, D11.7) and `Kx.7` (K23.7, K28.7) anchors added (the model also serves the `phy` e2e's encoder block hook) |
 | Encoder assertions `a_lane*_disparity`, `a_run_length` | Disparity per lane, run length | Kept in the RTL, live in every test |
 | `smoke` (decoder) | Commas at both RDs, a disparity error, a code error to EDB, reset | `rx_decode_smoke` |
 | `exhaustive` (decoder) | 1024 codes x both lanes at RD-, RD+ and unknown, with the RD after; class counts | `rx_decode_table`: both lanes at RD- and RD+ and lane 0 at unknown, with the RD after, and the counts; both lanes unknown through unlocked words (data and K; the code-error flag shows as EDB). The RD unknown after an unlocked word: RTL assertion `a_rd_unknown_after_unlocked`. Lane 1 at an unknown RD *with* the RD after it, and the lane-1 causes "lane 0 unlocked" and "generation split", are [gaps](#gaps) |
 | `random_vs_model`, `long_random` (decoder) | Encoded traffic with bit errors, random codes, RD slips; valid gaps, lock drops, generation changes, polarity, reset | `rx_decode_random`, `rx_decode_random_long` (errors, codes, RD slips, polarity, `pipe_reset_ni`, every word exact); valid gaps: `eb_underflow` (no error after an underflow word); lock drops and new generations: `rx_decode_table` (after the unlocked run), `rx_elec_idle_gaps`, `eb_lock_start`; same-cycle relocks: `rx_slips_training` |
-| Decoder model unit tests | Column sizes, K28.5, EDB, RD-unknown rules | Kept: [`test_pcie_pcs_dec8b10b_model.py`](../../../../src/dv/pcs/models/test_pcie_pcs_dec8b10b_model.py) |
+| Decoder model unit tests | Column sizes, K28.5, EDB, RD-unknown rules | Kept: [`test_pcie_pcs_dec8b10b_model.py`](../../../../src/dv/pcs/models/test_pcie_pcs_dec8b10b_model.py), with a classic-table cross-check of `decode()` at RD-, RD+ and an unknown RD added |
 | `lock_offsets` (aligner) | Lock from every bit offset at both RDs, one lock, symbols whole, no relock | `rx_lock_offsets` (one intact run per lock, the boundary checked by the data; comma position from the aligner model as coverage) |
 | `controls` (aligner) | Relock while hunting; relock at the eight phases of the TS1 COM period; idle drop; one-word idle pulses at eight phases; reset while locked | Idle pulses and reset: `rx_lock_controls`; relocks in TS1 traffic, same-cycle and to hunting: `rx_slips_training` (`pcs_align_relock`); idle drop: `rx_lock_offsets`, `rx_elec_idle_gaps`. A relock while hunting has no effect at the ports ([gap](#gaps)); the request phase is not a port, so the eight phases are covered as the two outcomes |
 | `slips` (aligner) | Closed loop: slips in TS1, FTS, packets, SKP sets, pairs, detected within 32 cycles; same-cycle relock re-armed through the generation; flips keep lock | `rx_slips_training`, `rx_slips_packets`, `rx_slips` (the closed loop is the real error counter; detection is checked as the end of errored words within 48 cycles, and RxValid falling within 48 cycles in packet traffic) |
@@ -225,6 +231,7 @@ slow-clock seeds.
 | --- | --- | --- | --- |
 | Encoder | A7 rule dropped at RD+ | `tx_table`, `tx_random`, `table_round_trip` | - |
 | Encoder | TxCompliance ignored | `tx_smoke`, `tx_table`, `tx_random`, `pipe_random` | - |
+| Encoder | Lane 1 encoded at lane 0's RD, not the RD between the symbols (`u_sym1.rd_i` from `rd_lane0`) | `tx_smoke`, `tx_table`, `tx_random`, `table_round_trip`, `pipe_random`, `round_trip` (RTL assertion `a_lane1_disparity`, at 256 to 416 ns) | - |
 | Decoder | Disparity errors not flagged | `rx_decode_smoke`, `rx_decode_table`, `rx_decode_random` | - |
 | Decoder | A polarity change keeps the RD known | `rx_decode_table`, `rx_decode_random`, `rx_polarity_toggle` | - |
 | Decoder | The RD stays known after an unlocked word | `rx_smoke`, `rx_decode_table`, `rx_elec_idle_gaps` (RTL assertion `a_rd_unknown_after_unlocked`) | - |
