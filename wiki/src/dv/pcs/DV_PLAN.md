@@ -120,13 +120,12 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
   levels selected): L0 line 87, toggle 87, `pcs_align_lock` 100; L1 (with
   L0, as in `ci-gate`) line 99, toggle 97 and every covergroup but `pcs_rx`
   at 100; L2 (L0 to L2, as nightly) line 99, toggle 97, functional 100.
-  Reached: L0 and L1 99.7% line (334/335), 97.8% toggle (3094/3162),
-  99.9% functional (2914/2916); the L0-to-L2 values are in each
-  validation's evidence. The line left is the encoder's assertion-only
-  `run6`. The threshold assertions compare the fill with literal
-  constants inline, so they add no constant nets to the toggle count; the
-  lowest-comma assertion's scan nets remain, some bits of which no legal
-  input sets.
+  The values reached are in each validation's evidence. The line left is
+  the encoder's assertion-only `run6`. The threshold assertions compare
+  the fill with literal constants inline, and the aligner indexes its
+  window with the boundary zero-extended in place (#152), so neither adds
+  nets whose bits never toggle; the lowest-comma assertion's scan nets
+  remain, some bits of which no legal input sets.
 
 ## Plan
 

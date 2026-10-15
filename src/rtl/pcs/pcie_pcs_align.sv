@@ -44,7 +44,6 @@ module pcie_pcs_align (
                                       // drops only when that word was idle
   logic                  hunt_ok;     // neither word of the window is idle
   logic                  acquire;     // lock taken at this edge
-  logic [5:0]            base;        // state_d.offset as a window bit index
 
   assign window = {in_q, in_prev_q};
 
@@ -77,8 +76,9 @@ module pcie_pcs_align (
     state_d.offset = acquire ? first_off : state_q.offset;
   end
 
-  assign base  = 6'(state_d.offset);
-  assign sym_d = window[base +: pcie_pcs_pkg::WORD_W];
+  // The boundary (0 to 9) indexes the window, zero-extended in place: no
+  // index net with bits that never toggle (#152).
+  assign sym_d = window[{2'b00, state_d.offset} +: pcie_pcs_pkg::WORD_W];
 
   `COMMON_DFF(in_q, data_i, clk_i)
   `COMMON_DFF(in_prev_q, in_q, clk_i)
