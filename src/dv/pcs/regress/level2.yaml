@@ -5,3 +5,45 @@ tests:
     top: pcie_pcs
     seeds: 6
     timeout_s: 900
+  - name: rx_max_tlp
+    module: tests.test_datapath
+    testcase: rx_max_tlp
+    top: pcie_pcs
+    seeds: [1, 2, 3, 4]
+    timeout_s: 1200
+  - name: rx_ppm_sweep
+    module: tests.test_datapath
+    testcase: rx_ppm
+    top: pcie_pcs
+    seeds: [3, 4, 5, 6, 7, 8]
+    timeout_s: 900
+  - name: rx_slips_sweep
+    module: tests.test_datapath
+    testcase: rx_slips
+    top: pcie_pcs
+    seeds: [3, 4, 5, 6]
+    timeout_s: 900
+  - name: rx_close_errors_sweep
+    module: tests.test_datapath
+    testcase: rx_close_errors
+    top: pcie_pcs
+    seeds: [3, 4, 5, 6]
+    timeout_s: 900
+  - name: rx_errors_sweep
+    module: tests.test_datapath
+    testcase: rx_errors
+    top: pcie_pcs
+    seeds: [3, 4, 5, 6]
+    timeout_s: 900
+  - name: rx_elec_idle_gaps_sweep
+    module: tests.test_datapath
+    testcase: rx_elec_idle_gaps
+    top: pcie_pcs
+    seeds: [3, 4, 5, 6]
+    timeout_s: 900
+  - name: rx_error_bursts_sweep
+    module: tests.test_datapath
+    testcase: rx_error_bursts
+    top: pcie_pcs
+    seeds: [3, 4, 5, 6, 7, 8]
+    timeout_s: 900

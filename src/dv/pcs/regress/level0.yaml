@@ -9,3 +9,9 @@ tests:
     testcase: pipe_detect
     top: pcie_pcs
     timeout_s: 60
+  - name: rx_smoke
+    module: tests.test_datapath
+    testcase: rx_smoke
+    top: pcie_pcs
+    seeds: [1]
+    timeout_s: 120

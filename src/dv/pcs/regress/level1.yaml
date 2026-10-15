@@ -17,3 +17,75 @@ tests:
     top: pcie_pcs
     seeds: [1, 2]
     timeout_s: 120
+  - name: rx_ppm
+    module: tests.test_datapath
+    testcase: rx_ppm
+    top: pcie_pcs
+    seeds: [1, 2]
+    timeout_s: 300
+  - name: rx_dllp
+    module: tests.test_datapath
+    testcase: rx_dllp
+    top: pcie_pcs
+    seeds: [1, 2]
+    timeout_s: 300
+  - name: rx_errors
+    module: tests.test_datapath
+    testcase: rx_errors
+    top: pcie_pcs
+    seeds: [1, 2]
+    timeout_s: 300
+  - name: rx_close_errors
+    module: tests.test_datapath
+    testcase: rx_close_errors
+    top: pcie_pcs
+    seeds: [1, 2]
+    timeout_s: 300
+  - name: rx_error_bursts
+    module: tests.test_datapath
+    testcase: rx_error_bursts
+    top: pcie_pcs
+    seeds: [1, 2]
+    timeout_s: 300
+  - name: rx_slips
+    module: tests.test_datapath
+    testcase: rx_slips
+    top: pcie_pcs
+    seeds: [1, 2]
+    timeout_s: 300
+  - name: rx_elec_idle_gaps
+    module: tests.test_datapath
+    testcase: rx_elec_idle_gaps
+    top: pcie_pcs
+    seeds: [1, 2]
+    timeout_s: 300
+  - name: eb_stress
+    module: tests.test_datapath
+    testcase: eb_stress
+    top: pcie_pcs
+    seeds: [1, 2]
+    timeout_s: 300
+  - name: rx_polarity
+    module: tests.test_datapath
+    testcase: rx_polarity
+    top: pcie_pcs
+    seeds: [1]
+    timeout_s: 300
+  - name: rx_polarity_toggle
+    module: tests.test_datapath
+    testcase: rx_polarity_toggle
+    top: pcie_pcs
+    seeds: [2]
+    timeout_s: 300
+  - name: loopback
+    module: tests.test_datapath
+    testcase: loopback
+    top: pcie_pcs
+    seeds: [1]
+    timeout_s: 300
+  - name: round_trip
+    module: tests.test_datapath
+    testcase: round_trip
+    top: pcie_pcs
+    seeds: [1]
+    timeout_s: 300
