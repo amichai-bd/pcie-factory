@@ -76,7 +76,9 @@ of each ancestor `P` whose id plus `_` prefixes its own (`X` is
 top-level IP may integrate other top-level IPs through `-F` and they stay
 top-level, with their own `arch/`, `fpga/` and `asic/`
 ([layout](../../project/layout.md#ips-and-sub-ips)). A `.rtl.f` that does
-not resolve reaches nothing here (the filelist check reports it).
+not resolve reaches nothing here (the filelist check reports it). A `-F`
+cycle is such a failure: no filelist in it resolves, so every IP in the
+cycle counts as top-level and the filelist check fails.
 
 Each IP has these files:
 

@@ -67,6 +67,14 @@ def test_broken_filelist_reaches_nothing(tmp_path):
     assert ips["a_b"].top_level  # the filelist check reports the broken -F
 
 
+def test_include_cycle_makes_every_ip_in_it_top_level(tmp_path):
+    # a_b and a_b_c include each other: neither resolves, so neither reaches
+    # the other and both are top-level (the filelist check reports the cycle).
+    make_ip(tmp_path, "a_b", ("a_b_c",))
+    make_ip(tmp_path, "a_b_c", ("a_b",))
+    assert all(ip.top_level for ip in discover(tmp_path))
+
+
 def test_discover_fixture(fixture_src):
     ips = discover(fixture_src)
     assert [ip.id for ip in ips] == ["counter", "counter_inc"]
