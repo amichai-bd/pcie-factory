@@ -67,13 +67,16 @@ A parent IP's model reuses a sub-IP's model instead of re-implementing it:
 Run the cheapest test that can reject the change:
 
 1. Pure-Python model unit tests.
-2. The focused sub-IP test for the changed behavior.
+2. The focused IP-level test for the changed block's behavior.
 3. Boundary, error and reset cases of the changed block.
 4. The smallest parent-IP test that covers the changed connections.
 5. Wider regression only when the changed contract can affect it.
 
-Every IP keeps focused sub-IP tests that localize failures; a slow
-system-level test never replaces them.
+Every IP keeps focused tests per internal block, driven through the IP's
+ports, and the blocks' RTL assertions, to localize failures; a slow
+system-level test never replaces them. Testbenches exist per IP and for the
+shared unit only, never per leaf module
+([granularity](rtl.md#granularity)).
 
 ## Regression lists
 
