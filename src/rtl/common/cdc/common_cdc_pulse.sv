@@ -33,11 +33,13 @@ module common_cdc_pulse #(
   // Source domain: every pulse flips the toggle level.
   assign toggle_d = toggle_q ^ src_pulse_i;
 
-  if (SRC_ASYNC_RESET) begin : g_src_arst
-    `COMMON_DFF_ARST_VAL(toggle_q, toggle_d, src_clk_i, src_rst_i, 1'b0)
-  end else begin : g_src_srst
-    `COMMON_DFF_RST(toggle_q, toggle_d, src_clk_i, src_rst_i)
-  end
+  generate
+    if (SRC_ASYNC_RESET) begin : g_src_arst
+      `COMMON_DFF_ARST_VAL(toggle_q, toggle_d, src_clk_i, src_rst_i, 1'b0)
+    end else begin : g_src_srst
+      `COMMON_DFF_RST(toggle_q, toggle_d, src_clk_i, src_rst_i)
+    end
+  endgenerate
 
   common_cdc_sync2 #(
     .WIDTH      (1),
@@ -50,11 +52,13 @@ module common_cdc_pulse #(
   );
 
   // Destination domain: a change of the synchronized level is one pulse.
-  if (DST_ASYNC_RESET) begin : g_dst_arst
-    `COMMON_DFF_ARST_VAL(seen_q, sync, dst_clk_i, dst_rst_i, 1'b0)
-  end else begin : g_dst_srst
-    `COMMON_DFF_RST(seen_q, sync, dst_clk_i, dst_rst_i)
-  end
+  generate
+    if (DST_ASYNC_RESET) begin : g_dst_arst
+      `COMMON_DFF_ARST_VAL(seen_q, sync, dst_clk_i, dst_rst_i, 1'b0)
+    end else begin : g_dst_srst
+      `COMMON_DFF_RST(seen_q, sync, dst_clk_i, dst_rst_i)
+    end
+  endgenerate
 
   assign dst_pulse_o = sync ^ seen_q;
 

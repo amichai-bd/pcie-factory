@@ -116,6 +116,9 @@ RULES = {
     "include-path": ("includes", "`include names a vocabulary header by its bare file name"),
     "vocabulary-include": ("includes",
                            "a file that uses a vocabulary macro `includes the vocabulary itself"),
+    "bare-generate": ("systemverilog-rules",
+                      "a module-level for, if or case (a generate construct) sits inside "
+                      "generate ... endgenerate (Quartus Lite rejects a bare generate region)"),
 }
 
 # A tool directive comment: a tool keyword followed by a directive word.
@@ -434,6 +437,119 @@ def find_nonblocking(text: str) -> list[int]:
     return hits
 
 
+_TOKEN_RE = re.compile(r"`?[A-Za-z_][\w$]*|\S")
+_OPEN = {"(": ")", "[": "]", "{": "}"}
+_PROCESSES = frozenset({"always", "always_comb", "always_ff", "always_latch", "initial", "final"})
+_ROUTINES = {"function": "endfunction", "task": "endtask"}
+_CASES = frozenset({"case", "casez", "casex"})
+
+
+def bare_generate(text: str) -> list[int]:
+    """Indices of module-level ``for``, ``if`` and ``case`` keywords (generate
+    constructs) outside a ``generate ... endgenerate`` region, in
+    comment-stripped ``text``. A token scan, not a parser: bracket groups
+    (expressions, port lists, macro arguments) are skipped whole; process
+    bodies (``always*``, ``initial``, ``final``) and functions or tasks are
+    skipped, so their ``for``/``if``/``case`` statements are procedural. Only
+    the outermost construct of a bare region is reported."""
+    toks = [(m.group(), m.start()) for m in _TOKEN_RE.finditer(text)]
+    n = len(toks)
+
+    def group(k: int) -> int:
+        """Index just past the bracket group opening at token ``k``."""
+        stack = []
+        while k < n:
+            t = toks[k][0]
+            if t in _OPEN:
+                stack.append(_OPEN[t])
+            elif stack and t == stack[-1]:
+                stack.pop()
+                if not stack:
+                    return k + 1
+            k += 1
+        return n
+
+    def until(k: int, opens: frozenset[str] | set[str], close: str) -> int:
+        """Index just past the ``close`` that matches the opener at ``k``."""
+        depth = 0
+        while k < n:
+            t = toks[k][0]
+            if t in _OPEN:
+                k = group(k)
+                continue
+            if t in opens:
+                depth += 1
+            elif t == close:
+                depth -= 1
+                if depth == 0:
+                    k += 1
+                    if k + 1 < n and toks[k][0] == ":":  # end : label
+                        k += 2
+                    return k
+            k += 1
+        return n
+
+    def statement(k: int) -> int:
+        """Index just past the statement (or generate item) at token ``k``."""
+        while k < n and toks[k][0] in ("@", "#"):  # timing control
+            k += 1
+            if k < n and toks[k][0] in _OPEN:
+                k = group(k)
+            elif k < n:
+                k += 1
+        if k >= n:
+            return n
+        t = toks[k][0]
+        if t in ("unique", "unique0", "priority"):
+            return statement(k + 1)
+        if t == "begin":
+            return until(k, {"begin"}, "end")
+        if t in _CASES:
+            return until(k, _CASES, "endcase")
+        if t in ("if", "for", "while", "repeat", "foreach"):
+            k += 1
+            if k < n and toks[k][0] == "(":
+                k = group(k)
+            k = statement(k)
+            if t == "if" and k < n and toks[k][0] == "else":
+                k = statement(k + 1)
+            return k
+        while k < n and toks[k][0] != ";":
+            k = group(k) if toks[k][0] in _OPEN else k + 1
+        return k + 1
+
+    hits: list[int] = []
+    module = False
+    regions = 0
+    k = 0
+    while k < n:
+        t, pos = toks[k]
+        if t in _OPEN:
+            k = group(k)
+            continue
+        if t in ("module", "macromodule"):
+            module = True
+        elif t == "endmodule":
+            module = False
+        elif t == "generate":
+            regions += 1
+        elif t == "endgenerate":
+            regions = max(regions - 1, 0)
+        elif module and regions == 0:
+            if t in _PROCESSES:
+                k = statement(k + 1)
+                continue
+            if t in _ROUTINES:
+                k = until(k, {t}, _ROUTINES[t])
+                continue
+            if t in ("for", "if") or t in _CASES:
+                hits.append(pos)
+                k = statement(k)
+                continue
+        k += 1
+    return hits
+
+
 def assert_argument_spans(text: str, vocab: Vocabulary) -> list[tuple[int, int]]:
     """Spans of the parenthesized argument lists of `` `COMMON_ASSERT*``
     calls in comment-stripped ``text``, for function-like macros a
@@ -565,6 +681,9 @@ def check_text(relpath: str, raw: str, expected_prefix: str | None,
         add("interface-union", m.start(), m.group())
     for m in re.finditer(r"\.\s*\*", body):
         add("wildcard-connection", m.start(), ".*")
+    for index in bare_generate(body):
+        add("bare-generate", index, f"module-level {_IDENT.match(body, index).group()} "
+            "outside generate ... endgenerate")
     packages = _package_spans(body)
     for m in re.finditer(r"\b(task|function)\b", body):
         if m.group(1) == "task" or not _in(m.start(), packages):

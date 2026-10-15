@@ -28,13 +28,15 @@ module common_cdc_sync2 #(
   logic [WIDTH-1:0] meta_q;
   logic [WIDTH-1:0] sync_q;
 
-  if (ASYNC_RESET) begin : g_arst
-    `COMMON_DFF_ARST_VAL(meta_q, src_data_i, dst_clk_i, dst_rst_i, RESET_VALUE)
-    `COMMON_DFF_ARST_VAL(sync_q, meta_q, dst_clk_i, dst_rst_i, RESET_VALUE)
-  end else begin : g_srst
-    `COMMON_DFF_RST_VAL(meta_q, src_data_i, dst_clk_i, dst_rst_i, RESET_VALUE)
-    `COMMON_DFF_RST_VAL(sync_q, meta_q, dst_clk_i, dst_rst_i, RESET_VALUE)
-  end
+  generate
+    if (ASYNC_RESET) begin : g_arst
+      `COMMON_DFF_ARST_VAL(meta_q, src_data_i, dst_clk_i, dst_rst_i, RESET_VALUE)
+      `COMMON_DFF_ARST_VAL(sync_q, meta_q, dst_clk_i, dst_rst_i, RESET_VALUE)
+    end else begin : g_srst
+      `COMMON_DFF_RST_VAL(meta_q, src_data_i, dst_clk_i, dst_rst_i, RESET_VALUE)
+      `COMMON_DFF_RST_VAL(sync_q, meta_q, dst_clk_i, dst_rst_i, RESET_VALUE)
+    end
+  endgenerate
 
   assign dst_data_o = sync_q;
 
