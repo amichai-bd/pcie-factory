@@ -1085,6 +1085,7 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
         lists += [(f"common/{block_name(f)}", f, block_name(f)) for f in shared_blocks(src_root)]
     plan: list[Target] = []
     headers_only = 0
+    packages_only = 0
     for label, rtl_f, top in lists:
         try:
             flat = resolve(rtl_f)
@@ -1093,6 +1094,9 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
             continue
         if not flat.sources:  # an include-only shared block holds no flops
             headers_only += 1
+            continue
+        if label.startswith(f"{SHARED_DIR}/") and not declared_modules(flat.sources):
+            packages_only += 1  # a package-only shared block holds no flops
             continue
         plan.append(Target(label, flat, top if top in declared_modules(flat.sources) else None))
     files = list(dict.fromkeys(s.resolve() for t in plan for s in t.flat.sources))
@@ -1155,5 +1159,7 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                       f"{len(plan)} Verilator --json-only run(s), {flops} flop(s), "
                       f"{len(directives)} cdc-cell directive(s), "
                       f"{len(domains)} cdc-domain annotation(s)"
-                      + (f", {headers_only} include-only block(s) skipped" if headers_only else ""))
+                      + (f", {headers_only} include-only block(s) skipped" if headers_only else "")
+                      + (f", {packages_only} package-only block(s) skipped"
+                         if packages_only else ""))
     return result

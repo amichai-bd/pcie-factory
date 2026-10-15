@@ -594,7 +594,8 @@ tests do that.
 sub-IP) is one target, with top `<prefix><id>` as for lint, and each
 `rtl/common/<block>.rtl.f` is another, with top `<block>`; an include-only
 block (no sources) holds no flops and is skipped, which the summary adds as
-`, N include-only block(s) skipped`. A top-level IP
+`, N include-only block(s) skipped`; so is a package-only block (sources
+that declare no module), added as `, N package-only block(s) skipped`. A top-level IP
 that another integrates is analyzed on its own and again inside the
 integrator, where its clocks come from the integrator's ports. With
 `--ip`, the targets are the top-level IPs among the selected IPs and their
