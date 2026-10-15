@@ -31,6 +31,7 @@ it; nothing calls a tool script directly.
 | `ci` | `ci-gate` helpers: unit-test suites and job summary ([CI spec](../tools/ci/SPEC.md)). |
 | `metrics` | Nightly metrics, the data guard and the `nightly-red` issue ([metrics spec](../tools/metrics/SPEC.md)). |
 | `wiki` | Wiki site build. |
+| `specs` | Local cache of official reference documents, outside the repository and never committed ([specs spec](../tools/specs/SPEC.md)). |
 | `clean` | Remove `workdir/` output. |
 
 Subcommands land with their issues (#6 core, #7 check, #10 labels, #11 ci, #12 wiki,
@@ -65,7 +66,7 @@ workdir/                    all generated output, ignored
 | --- | --- |
 | Verilator `--lint-only -Wall` per `.rtl.f`, waivers only in the reviewed waiver file | [RTL BKM](rtl.md#lint-and-style-checks) |
 | RTL style checker | [RTL BKM](rtl.md) |
-| Structural clock-domain crossings: no flop samples another clock's flop except through an approved crossing cell; `cdc-cell` directives | [RTL BKM](rtl.md#clock-domain-crossings) |
+| Structural clock-domain crossings: no flop samples another clock's flop or annotated input port except through an approved crossing cell; `cdc-cell` directives and `cdc-domain` port annotations | [RTL BKM](rtl.md#clock-domain-crossings) |
 | Source layout: kind-first `src/<kind>/<ip>/`, folders name IPs, `arch`/`fpga`/`asic` for top-level IPs only, flat prefixed sub-IPs | [layout](../project/layout.md#ips-and-sub-ips) |
 | Filelists: every path resolves, no duplicate after flattening, no orphan RTL; every IP has its DV filelists and three valid level files | [layout](../project/layout.md#per-ip-files) |
 | Wiki mirror: `wiki/src/` has every IP's required pages and no folder without a `src/` counterpart | [wiki BKM](wiki.md#page-set) |
@@ -73,6 +74,7 @@ workdir/                    all generated output, ignored
 | Neutrality: the word list in `cfg/checks.yaml`, with the scope and exemptions set by the contract | [`CLAUDE.md`](../../CLAUDE.md#design-neutrality) |
 | Citations: no long block quotes or quoted runs, and the citation form, in `src/` and `wiki/src/` (a heuristic; review is the main control) | [wiki BKM](wiki.md#citations) |
 | Publishability: no keys, tokens, URL credentials, IP addresses, home paths or personal email addresses in any file, with reviewed exemptions in `cfg/checks.yaml` | [wiki BKM](wiki.md#publishability) |
+| Spec cache: no PDF, no copy of a cached reference document or its text, and no run of its text longer than a quote, in any file; every listed document on the references page | [wiki BKM](wiki.md#citations) |
 
 `tools/` unit tests run when `tools/` or `cfg/` change. Doc line caps are a
 review guideline, not a check.
@@ -148,7 +150,8 @@ pushes to `main` and manual dispatch:
 1. The data guard: a `nightly/` branch may change only
    `wiki/tracker/data/**` ([metrics spec](../tools/metrics/SPEC.md#guard)).
    Other branches pass at once.
-2. `./build check`.
+2. `./build specs fetch`, best effort (`continue-on-error`, 3 minutes), so the
+   spec-cache check sees the reference documents; then `./build check`.
 3. `tools/` unit tests, when `tools/`, `cfg/` or `build` changed, and the
    model unit tests of the affected IPs (`./build ci unit`).
 4. `./build regress --level 0 --level 1` for the affected IPs.

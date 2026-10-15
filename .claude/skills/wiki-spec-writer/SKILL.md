@@ -50,6 +50,15 @@ owner and replace the copy with a link.
   [page set](../../../wiki/bkm/wiki.md#page-set).
 - Link to source, config and tests; never paste code, filelists or YAML.
 - Open choices and gaps name their owning issue; no ownerless TODO.
+- Self-contained: write out every rule the page relies on, in your own
+  words; a citation is for cross-checking and never replaces the rule (no
+  "behaves per §x"). Unsure points go in the Open items table with their
+  issue, never as guesses ([citations](../../../wiki/bkm/wiki.md#citations)).
+- Standards: when `./build specs list` shows the cited document present,
+  check every citation and claim against `./build specs path --absolute <id>` and
+  make the page agree with it. Paraphrase only; never paste its text into
+  the repository, a commit message, an issue, a PR or a comment. A newly cited standard gets an entry on
+  `wiki/src/references.md`, and its citation name is the `<standard>`.
 - Only `wiki/src/` names the design target or IPs; BKMs, tool SPECs and
   project pages stay neutral ([design neutrality](../../../CLAUDE.md#design-neutrality)).
 - Adapted text carries a provenance line (source path, commit, license).
