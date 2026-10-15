@@ -10,7 +10,7 @@ waivers:
     rule: SYNCASYNCNET
     match: "'rst_i'"
     reason: rst_i is the synchronous clk_i-side reset of the pcs top and reaches the RX reset synchronizer in u_elastic (crossing 2), as the pcs HAS requires.
-  - file: rtl/common/common_cdc_rst.sv
+  - file: rtl/common/cdc/common_cdc_rst.sv
     rule: SYNCASYNCNET
     match: "'pcie_pcs.u_elastic.u_rx_rst.sync_q'"
     reason: The pcs RX reset is asynchronous on the elastic buffer's write-side flops (RTL BKM) and synchronous in common_cdc_fifo and common_cdc_sync2 (their MAS); it releases synchronously.

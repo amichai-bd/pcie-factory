@@ -1,4 +1,4 @@
-"""Reference model of common_cdc_rst (wiki/src/rtl/common/common_cdc_rst.md#behavior).
+"""Reference model of common_cdc_rst (wiki/src/rtl/common/cdc/common_cdc_rst.md#behavior).
 Pure Python, so its unit tests run without a simulator.
 
 Times are integer picoseconds. The model takes the changes of src_rst_i and

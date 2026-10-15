@@ -54,8 +54,8 @@ def tree(tmp_path: Path, body: str, extra: dict[str, str] | None = None) -> Path
     shutil.copytree(CELLS, src / "rtl/common",
                     ignore=shutil.ignore_patterns("*.md"))
     (src / "rtl/blk/xy_blk.sv").write_text(HEAD + body + TAIL)
-    lines = ["-F ../common/common_cdc_sync2.rtl.f", "-F ../common/common_cdc_pulse.rtl.f",
-             "-F ../common/common_cdc_fifo.rtl.f", "-F ../common/common_cdc_rst.rtl.f"]
+    lines = ["-F ../common/cdc/common_cdc_sync2.rtl.f", "-F ../common/cdc/common_cdc_pulse.rtl.f",
+             "-F ../common/cdc/common_cdc_fifo.rtl.f", "-F ../common/cdc/common_cdc_rst.rtl.f"]
     for name, text in (extra or {}).items():
         (src / "rtl/blk" / name).write_text(text)
         lines.append(name)
@@ -624,7 +624,7 @@ def test_scan_directives(tmp_path):
 @needs_verilator
 def test_missing_directive_fails_and_the_cell_is_not_approved(tmp_path):
     src = tree(tmp_path, SYNC2)
-    cell = src / "rtl/common/common_cdc_sync2.sv"
+    cell = src / "rtl/common/cdc/common_cdc_sync2.sv"
     cell.write_text(cell.read_text().replace("// cdc-cell: src=async dst=dst_clk_i\n", ""))
     r = run(src)
     assert any("crossing cell common_cdc_sync2 has no cdc-cell directive" in f
@@ -637,7 +637,7 @@ def test_missing_directive_fails_and_the_cell_is_not_approved(tmp_path):
 @needs_verilator
 def test_malformed_directive_fails(tmp_path):
     src = tree(tmp_path, SYNC2)
-    cell = src / "rtl/common/common_cdc_sync2.sv"
+    cell = src / "rtl/common/cdc/common_cdc_sync2.sv"
     cell.write_text(cell.read_text().replace("src=async dst=dst_clk_i", "src=async"))
     r = run(src)
     assert any("malformed cdc-cell directive" in f for f in r.findings)
@@ -654,7 +654,7 @@ def test_malformed_directive_fails(tmp_path):
 ], ids=["dst-not-a-clock", "src-missing", "src-wrong-side"])
 def test_directive_must_match_ports(tmp_path, old, new, msg):
     src = tree(tmp_path, SYNC2)
-    cell = src / "rtl/common/common_cdc_sync2.sv"
+    cell = src / "rtl/common/cdc/common_cdc_sync2.sv"
     cell.write_text(cell.read_text().replace(old, new))
     r = run(src)
     assert any(f"crossing cell common_cdc_sync2: {msg}" in f for f in r.findings), r.findings
@@ -663,7 +663,7 @@ def test_directive_must_match_ports(tmp_path, old, new, msg):
 @needs_verilator
 def test_port_prefix_rule(tmp_path):
     src = tree(tmp_path, SYNC2)
-    cell = src / "rtl/common/common_cdc_sync2.sv"
+    cell = src / "rtl/common/cdc/common_cdc_sync2.sv"
     cell.write_text(cell.read_text().replace("dst_rst_i", "rst_i"))
     body = SYNC2.replace(".dst_rst_i (rst_b_i)", ".rst_i (rst_b_i)")
     (src / "rtl/blk/xy_blk.sv").write_text(HEAD + body + TAIL)

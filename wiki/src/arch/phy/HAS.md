@@ -130,9 +130,9 @@ Two 10-bit symbols per `clk_i` cycle (2.5 GT/s = 250 Msymbol/s = 2 x
   releases synchronously to `ser_rx_clk_i` within 3 of its cycles after
   `rst_i` falls. The elastic buffer is the only crossing of data. Every
   crossing uses an approved `common_` cell (Q17):
-  [`common_cdc_sync2`](../../rtl/common/common_cdc_sync2.md),
-  [`common_cdc_pulse`](../../rtl/common/common_cdc_pulse.md) or
-  [`common_cdc_fifo`](../../rtl/common/common_cdc_fifo.md).
+  [`common_cdc_sync2`](../../rtl/common/cdc/common_cdc_sync2.md),
+  [`common_cdc_pulse`](../../rtl/common/cdc/common_cdc_pulse.md) or
+  [`common_cdc_fifo`](../../rtl/common/cdc/common_cdc_fifo.md).
 - Reset values, held while `rst_i` is high: `pkt_tx_ready_o`,
   `pkt_rx_valid_o`, `pkt_rx_sop_o`, `pkt_rx_eop_o`, `pkt_rx_err_o`,
   `pkt_rx_nullify_o`, `link_up_o` and `rcv_err_o` 0; `ltssm_state_o` 0

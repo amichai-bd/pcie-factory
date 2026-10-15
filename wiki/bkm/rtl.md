@@ -335,11 +335,11 @@ cell instance the CDC check recognizes:
 
 | Crossing | Macro | Cell |
 | --- | --- | --- |
-| A level, or a Gray-coded vector, from a source flop; reset to `'0` | `` `COMMON_METAFLOP(INST, Q, D, DST_CLK, DST_RST)`` | [`common_cdc_sync2`](../src/rtl/common/common_cdc_sync2.md) |
+| A level, or a Gray-coded vector, from a source flop; reset to `'0` | `` `COMMON_METAFLOP(INST, Q, D, DST_CLK, DST_RST)`` | [`common_cdc_sync2`](../src/rtl/common/cdc/common_cdc_sync2.md) |
 | The same, reset to `VALUE` | `` `COMMON_METAFLOP_VAL(INST, Q, D, DST_CLK, DST_RST, VALUE)`` | `common_cdc_sync2` (`RESET_VALUE`) |
-| An event: one source cycle becomes one destination cycle | `` `COMMON_PULSE_SYNC(INST, Q, D, SRC_CLK, SRC_RST, DST_CLK, DST_RST)`` | [`common_cdc_pulse`](../src/rtl/common/common_cdc_pulse.md) |
-| A reset: asynchronous assertion, synchronous release after two `DST_CLK` edges | `` `COMMON_RESET_SYNC(INST, Q, D, DST_CLK)`` | [`common_cdc_rst`](../src/rtl/common/common_cdc_rst.md) |
-| Data, or a burst of events, with flow control | none yet: instantiate inside `src/rtl/common/` only | [`common_cdc_fifo`](../src/rtl/common/common_cdc_fifo.md) |
+| An event: one source cycle becomes one destination cycle | `` `COMMON_PULSE_SYNC(INST, Q, D, SRC_CLK, SRC_RST, DST_CLK, DST_RST)`` | [`common_cdc_pulse`](../src/rtl/common/cdc/common_cdc_pulse.md) |
+| A reset: asynchronous assertion, synchronous release after two `DST_CLK` edges | `` `COMMON_RESET_SYNC(INST, Q, D, DST_CLK)`` | [`common_cdc_rst`](../src/rtl/common/cdc/common_cdc_rst.md) |
+| Data, or a burst of events, with flow control | none yet: instantiate inside `src/rtl/common/` only | [`common_cdc_fifo`](../src/rtl/common/cdc/common_cdc_fifo.md) |
 
 `INST` names the instance, the width follows `Q`, and the caller's filelist
 includes the cell's filelist with `-F`.

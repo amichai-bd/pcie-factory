@@ -46,7 +46,7 @@ bit first.
   words that leave with `pipe_rx_valid_o` high. A word with a code or
   disparity error adds 1; eight error-free words in a row take 1 away (not
   below 0). At 3 the PCS sends one relock request (a
-  [`common_cdc_pulse`](../../rtl/common/common_cdc_pulse.md) to the aligner)
+  [`common_cdc_pulse`](../../rtl/common/cdc/common_cdc_pulse.md) to the aligner)
   and clears the counter. It sends no other request until a locked word
   with the other lock-generation value reaches PIPE, which proves the
   aligner has relocked. The counter also clears whenever the lock
@@ -77,7 +77,7 @@ that is neither. SKP is disparity neutral and its two columns are each
 other's complement, so a SKP can be added or removed without disturbing the
 decoder, and found without decoding.
 
-- **Storage.** A [`common_cdc_fifo`](../../rtl/common/common_cdc_fifo.md)
+- **Storage.** A [`common_cdc_fifo`](../../rtl/common/cdc/common_cdc_fifo.md)
   of 16 words (`ADDR_W` 4). A word holds two raw 10-bit symbols, the lock
   tag, the lock-generation bit, a removed-SKP flag per symbol and an
   overflow flag (25 bits).
@@ -88,7 +88,7 @@ decoder, and found without decoding.
   [#84](https://github.com/amichai-bd/pcie-factory/issues/84)). Nominal fill
   is 8 symbols.
 - **Fill high.** A `clk_i` flop is 1 while the visible fill is 9 or more;
-  a [`common_cdc_sync2`](../../rtl/common/common_cdc_sync2.md) brings it to
+  a [`common_cdc_sync2`](../../rtl/common/cdc/common_cdc_sync2.md) brings it to
   the write side.
 - **Remove (write side).** While fill high is seen, the write side drops a
   locked SKP that directly follows a COM: the first SKP of a SKP ordered

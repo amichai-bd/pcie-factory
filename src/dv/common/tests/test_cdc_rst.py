@@ -1,4 +1,4 @@
-"""common_cdc_rst tests (wiki/src/dv/common/common_cdc_rst.md).
+"""common_cdc_rst tests (wiki/src/dv/common/cdc/common_cdc_rst.md).
 
 The test drives src_rst_i at times that never coincide with a rising
 dst_clk_i edge (source changes on odd picoseconds, destination edges on

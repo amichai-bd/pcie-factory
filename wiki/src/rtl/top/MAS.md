@@ -33,4 +33,4 @@ source.
 | File | Holds |
 | --- | --- |
 | [`pcie_top.sv`](../../../../src/rtl/top/pcie_top.sv) | The module. |
-| [`top.rtl.f`](../../../../src/rtl/top/top.rtl.f) | `-F ../common/common_macros.rtl.f` (the RTL vocabulary), `-F ../common/common_cdc_sync2.rtl.f` (used only by the [board wrapper](../../fpga/top/FPGA.md)), `-F ../top_lfsr/top_lfsr.rtl.f`, then `pcie_top.sv`. |
+| [`top.rtl.f`](../../../../src/rtl/top/top.rtl.f) | `-F ../common/common_macros.rtl.f` (the RTL vocabulary), `-F ../common/cdc/common_cdc_sync2.rtl.f` (used only by the [board wrapper](../../fpga/top/FPGA.md)), `-F ../top_lfsr/top_lfsr.rtl.f`, then `pcie_top.sv`. |

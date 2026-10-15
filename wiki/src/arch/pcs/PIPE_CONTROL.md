@@ -129,7 +129,7 @@ loopback is allowed to the loopback slave
   until the cycle it is seen 0.
 - `pipe_rx_elec_idle_o` is `ser_rx_elec_idle_i` registered in the
   `ser_rx_clk_i` domain and brought to `clk_i` by a
-  [`common_cdc_sync2`](../../rtl/common/common_cdc_sync2.md): one RX cycle
+  [`common_cdc_sync2`](../../rtl/common/cdc/common_cdc_sync2.md): one RX cycle
   plus two or three `clk_i` edges late. It is 1 during reset.
 
 ## Differences from PIPE

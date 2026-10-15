@@ -1,4 +1,4 @@
-"""common_cdc_pulse tests (wiki/src/dv/common/common_cdc_pulse.md).
+"""common_cdc_pulse tests (wiki/src/dv/common/cdc/common_cdc_pulse.md).
 
 src_pulse_i is driven at falling src_clk_i edges, so the next rising edge
 samples it; dst_pulse_o is sampled at every falling dst_clk_i edge, and each

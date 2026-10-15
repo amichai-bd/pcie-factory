@@ -1,5 +1,5 @@
 """Clock-pair generator for the common_cdc_* tests
-(wiki/src/dv/common/common_cdc_sync2.md#strategy). Pure Python, so its
+(wiki/src/dv/common/cdc/common_cdc_sync2.md#strategy). Pure Python, so its
 unit tests run without a simulator.
 
 Times are integer picoseconds; periods are even so that both phases of
