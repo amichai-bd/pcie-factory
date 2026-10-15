@@ -655,6 +655,7 @@ class Mac:
                 self._on_ts(None)
             if self._pkt is not None:
                 self._pkt_end(err=True)
+                self._frame_err(self.state == L0 and self.rx_sub == RL0)
             scr.feed(k, b, False)
             self._p = 1
             return
@@ -711,9 +712,10 @@ class Mac:
                 self._pkt_end(err=False, edb=b == 0xFE)
             elif b in (0xFD, 0xFE) and self._resync:
                 self._resync = False
-            else:
-                if self._pkt is not None:
-                    self._pkt_end(err=True)
+            elif self._pkt is not None:
+                self._pkt_end(err=True)
+                self._frame_err(in_l0)
+            elif not self._resync:             # discarded without errors while resyncing
                 self._frame_err(in_l0)
         elif self._pkt is not None:
             self._pkt.append(d)
@@ -725,7 +727,8 @@ class Mac:
                 self.idle8 = True
         else:
             self.idle_run = 0
-            self._frame_err(in_l0)
+            if not self._resync:
+                self._frame_err(in_l0)
 
     def _frame_err(self, in_l0: bool) -> None:
         if in_l0:
