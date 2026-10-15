@@ -165,9 +165,10 @@ helper's API, outputs and floor rules).
 - **Floor margin.** Set a line or toggle floor 0.5 points below the merged
   value, rounded down to a tenth of a percent (86.28% gives 85.7). The
   seeds are fixed, so the value repeats exactly; the margin absorbs a small
-  RTL or test edit, while a lost entry or an untested feature drops line or
-  toggle coverage by more. A functional floor is 100 (the bins come from the
-  spec). The DV plan gives a reason for every point the floor leaves
+  RTL or test edit. Code floors catch broad losses; a lost feature is
+  caught by the functional floor, which is 100 (the bins come from the
+  spec), so a test whose features have no bins can go missing within the
+  margin. The DV plan gives a reason for every point the floor leaves
   uncovered, grouped by cause: unreachable by construction, an assertion
   that forbids it, a tool artefact, or not reached, with its cost or owning
   issue.
