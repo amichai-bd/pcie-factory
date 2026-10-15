@@ -1,0 +1,17 @@
+# Back-to-back DLLPs, the worst framing overhead, RX clock -600 ppm so the
+# elastic buffer adds SKPs (wiki/src/arch/phy/HAS.md#targets).
+description: Back-to-back DLLPs, worst-case SKP interval, RX clock -600 ppm.
+seed: 2
+workload:
+  kind: traffic
+  packets: 4000
+  mix: dllp
+  ppm: -600
+  skp_interval: 1180
+targets:
+  throughput_bytes_per_cycle: {min: 1.49}
+  tx_latency_cycles_max: {max: 6}
+  rx_latency_cycles_max: {max: 16}
+  eb_overflows: {max: 0}
+  packets_lost: {max: 0}
+  framing_errors: {max: 0}

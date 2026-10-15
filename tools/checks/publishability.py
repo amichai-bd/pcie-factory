@@ -50,7 +50,8 @@ RULES: dict[str, re.Pattern] = {
         r")(?![\w-])"),
     "url-credentials": re.compile(
         r"(?<![\w+.-])[A-Za-z][A-Za-z0-9+.-]*://(?P<v>[^\s/:@'\"<>]+:[^\s/@'\"<>]+)@"),
-    "ipv4": re.compile(r"(?<![\w.])(?P<v>\d{1,3}(?:\.\d{1,3}){3})(?![\w]|\.\d)"),
+    # After a section sign it is a section number in a citation, not an address.
+    "ipv4": re.compile(r"(?<![\w.§])(?P<v>\d{1,3}(?:\.\d{1,3}){3})(?![\w]|\.\d)"),
     "ipv6": re.compile(r"(?<![\w:.])(?P<v>(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4})(?![\w:])"),
     "home-path": re.compile(r"(?<![\w.-])(?P<v>/(?:home|Users)/[A-Za-z0-9._-]+)"),
     "email": re.compile(

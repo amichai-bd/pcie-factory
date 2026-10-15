@@ -1,0 +1,29 @@
+# pcie_phy MAS
+
+> **Draft for wave 2:** a stub until the stack integration
+> ([#86](https://github.com/amichai-bd/pcie-factory/issues/86)).
+
+How `pcie_phy` implements its [HAS](../../arch/phy/HAS.md): today a
+ports-only shell; later the `pcie_mac` and `pcie_pcs` instances joined by
+the [PIPE nets](../../arch/phy/HAS.md#pipe), with no logic of its own.
+
+## Microarchitecture
+
+The shell drives every output to its
+[reset value](../../arch/phy/HAS.md#clocks-and-resets) and folds every
+input, and `TIMEOUT_DIV`, into one `unused_inputs` net so lint stays clean.
+It instantiates nothing yet: `mac` and `pcs` do not exist, and the
+`-F` lines that join them wait for the integrating-IP support of
+[#107](https://github.com/amichai-bd/pcie-factory/issues/107).
+
+## Timing
+
+No logic and no clock-domain crossing in the shell. The stack's clocks and
+latency budgets are in the [HAS targets](../../arch/phy/HAS.md#targets).
+
+## Files
+
+| File | Holds |
+| --- | --- |
+| [`pcie_phy.sv`](../../../../src/rtl/phy/pcie_phy.sv) | The shell module. |
+| [`phy.rtl.f`](../../../../src/rtl/phy/phy.rtl.f) | `pcie_phy.sv`. |
