@@ -302,6 +302,30 @@ relock also gives) and when RxPolarity changes.
 with no word the RD holds, but `rd_known` clears on a polarity change;
 `pol` is the previous cycle's `polarity_i`.
 
+**Substituted words.** The top presents an underflow word (two all-zero
+symbols) with `in_valid_i` 0: `out_o` still gives EDB, EDB as K with the
+code-error flags, since all-zero is a code error at any RD, but the RD
+state does not advance, so the next real word is decoded at the RD the
+last real word left (the buffer lost nothing). No other word is
+substituted after decode. The word is unlocked, so its code errors do not
+give RxStatus 4: it leaves as RxStatus 6 with RxValid 0
+([receive path](#receive-path), step 4).
+
+**One-bit generation.** The decoder tells two locked runs apart only by a
+generation change or an unlocked symbol between them. Two lock takes with
+no unlocked symbol and no locked word of the middle run reaching the
+decoder would look like one run. A lock taken by hunting follows at least
+one unlocked aligner word; a same-cycle relock needs a relock request, and
+the top sends the next request only after a valid word of the new
+generation has left `rx_q`; the elastic buffer drops at most one unlocked
+word per 8 cycles and one unlocked symbol per side at a lock start, and
+loses locked words only on overflow, outside the targets (RxStatus 5). Were it
+to happen, the run's first word, which holds its comma or the symbol before
+it, would be decoded at a stale RD: data and K are the same at either RD,
+and the comma's unbalanced 6b block sets the RD, so the cost is at most
+one false disparity error (RxStatus 7): one errored word, which counts
+toward `ERR_LIMIT`.
+
 **Structure.** Two lanes, each a call of the package's pure `decode()`;
 `sym1` starts at `sym0`'s RD out, so the RD carries across the lanes
 combinationally. `decode()` matches the code against both columns with
