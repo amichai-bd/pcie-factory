@@ -140,7 +140,7 @@ async def tx_random_run(dut, cycles: int) -> None:
     flight, every word against the model; fails when a control never
     happened."""
     rng = seeded(dut)
-    b = await p0_bench(dut, cycles + 3000)
+    b = await p0_bench(dut, 2 * cycles + 3000)
     seen = {"idle": 0, "compliance": 0, "k": 0, "k_invalid": 0, "rst_i": 0, "pipe_reset": 0}
     for _ in range(cycles):
         r = rng.random()
@@ -185,8 +185,8 @@ async def tx_random(dut):
 
 @cocotb.test()
 async def tx_random_long(dut):
-    """L2: 50000 cycles of random transmit traffic."""
-    await tx_random_run(dut, 50000)
+    """L2: 100000 cycles of random transmit traffic."""
+    await tx_random_run(dut, 100000)
 
 
 def rd_setter(rd_now: int, rd_want: int) -> int:

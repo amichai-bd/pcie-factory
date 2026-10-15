@@ -300,5 +300,5 @@ async def rx_decode_random(dut):
 
 @cocotb.test()
 async def rx_decode_random_long(dut):
-    """L2: 150000 words of the same."""
-    await random_run(dut, 150000)
+    """L2: 200000 words of the same."""
+    await random_run(dut, 200000)

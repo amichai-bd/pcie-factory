@@ -9,7 +9,7 @@ tests:
     module: tests.test_tx
     testcase: tx_random_long
     top: pcie_pcs
-    seeds: 4
+    seeds: 8
     timeout_s: 900
   - name: rx_decode_random_long
     module: tests.test_decode
