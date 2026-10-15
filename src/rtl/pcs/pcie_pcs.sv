@@ -235,8 +235,10 @@ module pcie_pcs (
   );
 
   // One PIPE word per elastic-buffer word: RxValid when both symbols are
-  // locked; EDB, EDB as K symbols on underflow; the RxStatus precedence
-  // 4, 5, 6, 7, 1, 2, 0 (RECEIVE.md, Decode and RxStatus).
+  // locked; the RxStatus precedence 4, 5, 6, 7, 1, 2, 0 (RECEIVE.md, Decode
+  // and RxStatus). An underflow word holds two all-zero symbols (pcs_elastic
+  // MAS), a code error in both lanes, so the decoder already gives EDB, EDB
+  // as K symbols (a_udf_edb).
   logic                     word_valid;
   logic                     word_lock;
   logic [15:0]              word_data;
@@ -248,9 +250,8 @@ module pcie_pcs (
   assign word_lock     = dec_valid && (eb_lock == 2'b11);
   assign word_code_err = word_lock && (dec_code_err != 2'b00);
   assign word_disp_err = word_lock && (dec_disp_err != 2'b00);
-  assign word_data     = eb_udf ? {pcie_pcs_dec8b10b_pkg::K_EDB, pcie_pcs_dec8b10b_pkg::K_EDB}
-                                : dec_data;
-  assign word_k        = eb_udf ? 2'b11 : dec_k;
+  assign word_data     = dec_data;
+  assign word_k        = dec_k;
   assign word_valid    = eb_valid;
 
   always_comb begin
@@ -451,6 +452,10 @@ module pcie_pcs (
   // At most ERR_LIMIT - 1 errors are ever counted.
   `COMMON_ASSERT_NEVER(a_err_cnt_range, clk_i, pcs_rst,
                        err_cnt_q > pcie_pcs_pkg::ERR_CNT_W'(pcie_pcs_pkg::ERR_LIMIT - 1))
+  // An underflow word is EDB, EDB as K symbols.
+  `COMMON_ASSERT_NEVER(a_udf_edb, clk_i, pcs_rst, eb_valid && eb_udf
+                       && (dec_data != {pcie_pcs_dec8b10b_pkg::K_EDB, pcie_pcs_dec8b10b_pkg::K_EDB}
+                           || dec_k != 2'b11))
   // An underflow word never carries RxValid.
   `COMMON_ASSERT_NEVER(a_udf_not_valid, clk_i, pcs_rst, eb_valid && eb_udf && word_lock)
   // The power-acknowledge countdown never exceeds its start value.

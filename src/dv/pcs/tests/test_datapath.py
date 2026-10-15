@@ -44,7 +44,7 @@ COV_RX.coverpoint("scenario", bins=["clean", "max_tlp", "dllp", "random", "polar
                                     "polarity_toggle", "errors", "close_errors", "slips",
                                     "error_bursts", "elec_idle", "loopback", "round_trip",
                                     "eb_stress"])
-COV_RX.coverpoint("relock", bins=["slip", "close_errors"])
+COV_RX.coverpoint("relock", bins=["slip", "close_errors", "noise_lock"])
 
 # The RxStatus codes the receive path gives within the targets, with the
 # clock offset that produces them (required at L2: pcs_rx_status floor 100).
@@ -109,6 +109,16 @@ class RxBench:
             await self.b.tick()
         await self.b.run(drain)
 
+    def arrival(self, s: int) -> float:
+        """When the last bit of sent symbol s was sampled (slip-free lines;
+        a slip moves it by one bit)."""
+        w = self.chan.lead + (10 * s + 9) // 20
+        return self.chan.times[w] if w < len(self.chan.times) else float("inf")
+
+    def check(self, link, where: str, **kw):
+        """check_runs with this bench's arrival times."""
+        return check_runs(link.syms, self.words, where=where, arrival=self.arrival, **kw)
+
     def at_end(self, i: int) -> bool:
         """Word i is after the last word of the line reached PIPE."""
         return self.words[i].t > self.chan.times[min(len(self.chan.times) - 1,
@@ -137,7 +147,7 @@ def check_latency(rx: RxBench, runs, target: float = 12.0) -> float:
 def check_clean(rx: RxBench, link, where: str) -> list:
     """One lock, everything delivered in order, no error or buffer status,
     SKP changes on the COM's word, latency within target."""
-    runs = check_runs(link.syms, rx.words, where=where)
+    runs = rx.check(link, where)
     assert len(runs) == 1, f"{where}: {len(runs)} RxValid runs, expected one lock"
     r = runs[0]
     assert r.mismatches == 0, f"{where}: {r.mismatches} wrong symbols"
@@ -164,6 +174,26 @@ def lock_com(syms, r) -> int:
             return i
     raise AssertionError(f"run at {r.words[0].t} ps does not start at a COM: "
                          f"{syms[max(0, r.first - 6):r.first + 2]}")
+
+
+def check_lock_latency(rx: RxBench, link, runs, where: str, target: float = 10.0) -> float:
+    """HAS Lock target: the first word of each new lock on PIPE within
+    ``target`` cycles of the RX edge that sampled the last bit of the comma
+    that gave lock. A run that starts with an error word locked on noise
+    (a comma in the idle-exit noise), so its comma is not a sent one; it is
+    counted, not timed."""
+    worst, noise = 0.0, 0
+    for r in runs:
+        if r.noise_lock:
+            noise += 1
+            continue
+        com = lock_com(link.syms, r)
+        lat = (r.words[0].t - rx.chan.time_of_bit(10 * com + 6)) / CYCLE
+        worst = max(worst, lat)
+    rx.dut._log.info("%s: lock to RxValid max %.2f cycles over %d locks (%d on noise)",
+                     where, worst, len(runs) - noise, noise)
+    assert worst <= target, f"{where}: first locked word {worst:.2f} cycles after the comma"
+    return worst
 
 
 def flips(link) -> set[int]:
@@ -244,7 +274,7 @@ async def rx_polarity_toggle(dut):
     # lane shows mainly as wrong bytes rather than errors.
     wrong = False
     try:
-        runs = check_runs(link.syms, rx.words, where="inverted")
+        runs = rx.check(link, "inverted")
         wrong = any(r.mismatches for r in runs) or not runs
     except CheckError:
         wrong = True
@@ -255,7 +285,7 @@ async def rx_polarity_toggle(dut):
     after = rx.words[i0 + 1:]
     bad = [w for w in after if w.valid and w.status in (4, 7)]
     assert not bad, f"{len(bad)} error words after RxPolarity, first at {bad[0].t} ps"
-    runs = check_runs(link.syms, after, where="polarity_toggle")
+    runs = check_runs(link.syms, after, where="polarity_toggle", arrival=rx.arrival)
     assert sum(r.mismatches for r in runs) == 0
     COV_RX.sample(scenario="polarity_toggle")
 
@@ -270,7 +300,7 @@ async def rx_errors(dut):
     rx = RxBench(dut, rng, seeded_ppm(rng))
     await rx.start(link)
     await rx.run_line()
-    runs = check_runs(link.syms, rx.words, where="errors",
+    runs = rx.check(link, "errors",
                       flipped=flips(link))
     assert len(runs) == 1, f"errors: {len(runs)} runs, an isolated error cost lock"
     reports = sum(1 for w in rx.words if w.valid and w.status in (4, 7))
@@ -293,14 +323,13 @@ async def rx_error_bursts(dut):
     rx = RxBench(dut, rng, seeded_ppm(rng))
     await rx.start(link)
     await rx.run_line()
-    runs = check_runs(link.syms, rx.words, where="error_bursts",
+    runs = rx.check(link, "error_bursts",
                       flipped=flips(link))
     n = check_relocks(rx.words, RELOCK_DELAY, "error_bursts", rx.at_end)
     dut._log.info("error_bursts: %d bits, %d relock requests, %d runs",
                   len(link.line.errors), n, len(runs))
     assert len(runs) == n + 1
-    for r in runs[1:]:
-        lock_com(link.syms, r)
+    check_lock_latency(rx, link, runs[1:], "error_bursts")
     COV_RX.sample(scenario="error_bursts")
 
 
@@ -316,7 +345,7 @@ async def rx_close_errors(dut):
     rx = RxBench(dut, rng, seeded_ppm(rng))
     await rx.start(link)
     await rx.run_line()
-    runs = check_runs(link.syms, rx.words, where="close_errors",
+    runs = rx.check(link, "close_errors",
                       flipped=flips(link))
     check_relocks(rx.words, RELOCK_DELAY, "close_errors", rx.at_end)
     relocks = len(runs) - 1
@@ -330,6 +359,7 @@ async def rx_close_errors(dut):
         gap = com - prev.last
         assert gap <= arch.SKP_INTERVAL_MIN + 274 + 20, f"RxValid low over {gap} symbols"
         COV_RX.sample(relock="close_errors")
+    check_lock_latency(rx, link, runs[1:], "close_errors")
     COV_RX.sample(scenario="close_errors")
 
 
@@ -345,10 +375,12 @@ async def rx_slips(dut):
     await rx.run_line()
     slip_t = [rx.chan.time_of_bit(b) for b in link.line.slips]
 
-    def slip_possible(t):
-        return any(s <= t for s in slip_t)
+    def slip_possible(t0, t):
+        # A slip inside this run: after its start (less the RX latency) and
+        # before the symbol that lost the stream.
+        return any(t0 - 12 * CYCLE <= s <= t for s in slip_t)
 
-    runs = check_runs(link.syms, rx.words, slip_possible, where="slips")
+    runs = rx.check(link, "slips", slip_possible=slip_possible)
     falls = [r.words[-1].t for r in runs if not rx.at_end(rx.words.index(r.words[-1]) + 1)]
     # A slip that arrives while the aligner already hunts (lock dropped by
     # an earlier slip, not yet retaken) needs no detection, as in the arch
@@ -363,15 +395,19 @@ async def rx_slips(dut):
         COV_RX.sample(relock="slip")
     dut._log.info("slips: %d injected, %d in lock, %d runs", len(slip_t), len(in_lock), len(runs))
     assert in_lock, "no slip arrived in lock"
-    # Lock returns after the last slip only if a COM follows it well after
-    # the relock (64 symbols) and before the line ends: a comma needs a
-    # window of two words received out of electrical idle.
+    # Lock returns after the last slip if a COM follows it well after the
+    # relock (64 symbols); a COM in the line's last 8 symbols may or may not
+    # give lock before the line goes idle.
     last = link.line.slips[-1] // 10
-    regained = any(s == (1, K_COM) for s in link.syms[last + 64:len(link.syms) - 8])
-    want = len(in_lock) + (1 if regained else 0)
-    assert len(runs) == want, f"{len(runs)} runs for {len(in_lock)} slips in lock"
-    for r in runs[1:]:
-        lock_com(link.syms, r)
+    late = [i for i, x in enumerate(link.syms) if x == (1, K_COM) and i >= last + 64]
+    if any(i < len(link.syms) - 8 for i in late):
+        want = {len(in_lock) + 1}
+    elif late:
+        want = {len(in_lock), len(in_lock) + 1}
+    else:
+        want = {len(in_lock)}
+    assert len(runs) in want, f"{len(runs)} runs for {len(in_lock)} slips in lock"
+    check_lock_latency(rx, link, [r for r in runs[1:] if not r.lost], "slips")
     COV_RX.sample(scenario="slips")
 
 
@@ -386,22 +422,25 @@ async def rx_elec_idle_gaps(dut):
     rx = RxBench(dut, rng, seeded_ppm(rng))
     await rx.start(link)
     await rx.run_line()
-    runs = check_runs(link.syms, rx.words, where="elec_idle")
+    runs = rx.check(link, "elec_idle", lead_skip=lambda t: True)
     assert len(runs) == len(link.idles) + 1, f"{len(runs)} runs for {len(link.idles)} gaps"
-    # The first word of a lock may hold the symbol before the comma, which
-    # after electrical idle is noise: an error there is expected.
-    starts = {r.words[0].t for r in runs}
+    # Errors are expected only where a lock starts on noise: the first word
+    # of a lock may hold the symbol before the comma, and a lock taken on a
+    # comma in the idle-exit noise gives error words until the relock in the
+    # FTS sets (the same cycle, so RxValid stays high).
+    allowed = set()
+    for r in runs:
+        allowed.add(r.words[0].t)
+        if r.noise_lock:
+            clean_from = r.placed[0][0] if r.placed else r.words[-1].t
+            allowed.update(w.t for w in r.words if w.t < clean_from)
     bad = [(w.t, w.status) for w in rx.words if w.status in (5, 6)
-           or w.valid and w.status in (4, 7) and w.t not in starts]
-    assert not bad, f"error or buffer status after idle: {bad[:6]}, run starts {sorted(starts)}"
-    worst = 0.0
-    for r in runs[1:]:
-        com = lock_com(link.syms, r)
-        t_comma = rx.chan.time_of_bit(10 * com + 6)
-        lat = (r.words[0].t - t_comma) / CYCLE
-        worst = max(worst, lat)
-    dut._log.info("lock to RxValid max %.2f cycles", worst)
-    assert worst <= 10, f"first locked word {worst:.2f} cycles after the comma"
+           or w.valid and w.status in (4, 7) and w.t not in allowed]
+    assert not bad, f"error or buffer status after idle: {bad[:6]}"
+    noise = [r for r in runs if r.noise_lock]
+    for r in noise:
+        COV_RX.sample(relock="noise_lock")
+    check_lock_latency(rx, link, runs[1:], "elec_idle")
     COV_RX.sample(scenario="elec_idle")
 
 
@@ -438,7 +477,7 @@ async def loopback(dut):
         checked += src["pipe_rx_valid_o"]
     rx.b.mac.set(tx_detect_rx=0, tx_elec_idle=1)
     await rx.b.run(50)
-    check_runs(link.syms, rx.words, where="loopback",
+    rx.check(link, "loopback",
                       flipped=flips(link))
     assert checked > 500
     COV_CTRL.sample(tx="loopback")

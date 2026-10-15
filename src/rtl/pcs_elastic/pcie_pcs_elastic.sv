@@ -65,6 +65,8 @@ module pcie_pcs_elastic (
   logic                                                 w_pend_ovf_q;  // next written word follows a lost one
   logic                                                 w_pend_ovf_d;
   logic                                                 w_hold_valid_q;  // packing register holds a symbol
+  logic                                                 w_hold_live;     // ... and keeps it this cycle
+  logic                                                 w_flush;         // drop it: lock starts
   logic                                                 w_hold_valid_d;
   pcie_pcs_elastic_pkg::t_eb_sym                        w_hold_q;
   pcie_pcs_elastic_pkg::t_eb_sym                        w_hold_d;
@@ -103,6 +105,12 @@ module pcie_pcs_elastic (
     w_new0 = '{ovf: 1'b0, rem: w_pend_rem_q, gen: ser_rx_gen_i, lock: ser_rx_lock_i, sym: w_sym0};
     w_new1 = '{ovf: 1'b0, rem: w_rm0, gen: ser_rx_gen_i, lock: ser_rx_lock_i, sym: w_sym1};
 
+    // Lock start: a locked word that follows a held unlocked symbol starts a
+    // FIFO word of its own. The unlocked symbol is dropped, so the first
+    // locked word is not packed with it and tagged unlocked.
+    w_flush     = w_take & w_hold_valid_q & ser_rx_lock_i & ~w_hold_q.lock;
+    w_hold_live = w_hold_valid_q & ~w_flush;
+
     w_prev_com_d   = w_prev_com_q;
     w_pend_rem_d   = w_pend_rem_q;
     w_hold_valid_d = w_hold_valid_q;
@@ -113,7 +121,8 @@ module pcie_pcs_elastic (
     if (w_take) begin
       w_prev_com_d = pcie_pcs_elastic_pkg::is_com(w_sym1);
       w_pend_rem_d = w_rm1;
-      if (!w_hold_valid_q) begin
+      if (!w_hold_live) begin
+        w_hold_valid_d = 1'b0;
         if (w_rm0) begin
           w_hold_valid_d = 1'b1;
           w_hold_d       = w_new1;
@@ -228,6 +237,8 @@ module pcie_pcs_elastic (
   logic                                                 r_add1;  // copy of c2 owed after a COM in o1
   logic                                                 r_rem1;  // c2's removal reported on o1's COM
   logic                                                 r_two;   // two symbols consumed
+  logic                                                 r_flush;  // drop the leftover: lock starts
+  logic                                                 r_left_live;
 
   assign fill = {vis, 1'b0} + FILL_W'(r_left_valid_q)
               + FILL_W'(r_dup_q);
@@ -236,7 +247,13 @@ module pcie_pcs_elastic (
     head0 = '{ovf: head.ovf, rem: head.rem[0], gen: head.gen, lock: head.lock, sym: head.sym0};
     head1 = '{ovf: 1'b0, rem: head.rem[1], gen: head.gen, lock: head.lock, sym: head.sym1};
     next0 = '{ovf: head_next.ovf, rem: head_next.rem[0], gen: head_next.gen, lock: head_next.lock, sym: head_next.sym0};
-    if (r_left_valid_q) begin
+    // Lock start: a locked head word that follows an unlocked leftover
+    // symbol is sent from its first symbol. The leftover is dropped, so the
+    // first locked word is not paired with it.
+    r_flush     = r_left_valid_q & ~r_dup_q & ~r_rem_ack_q & r_head_valid & head.lock
+                & ~r_left_q.lock;
+    r_left_live = r_left_valid_q & ~r_flush;
+    if (r_left_live) begin
       c0 = r_left_q;
       c1 = head0;
       c2 = head1;
@@ -307,7 +324,7 @@ module pcie_pcs_elastic (
     if (r_go) begin
       r_dup_d     = r_add1;
       r_rem_ack_d = r_rem1;
-      if (r_left_valid_q) begin
+      if (r_left_live) begin
         r_pop          = r_two;
         r_left_valid_d = r_two;
         r_left_d       = head1;

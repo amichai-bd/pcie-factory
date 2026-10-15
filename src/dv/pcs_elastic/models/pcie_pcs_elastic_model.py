@@ -247,6 +247,7 @@ class Result:
     overflows: int = 0
     underflows: int = 0
     downgraded: int = 0    # locked symbols that left unlocked (lock change)
+    flushed: int = 0       # unlocked symbols dropped just before a lock (MAS, Lock start)
     back_to_back_coms: int = 0
     bare_coms: int = 0     # one-SKP sets that left as a bare COM
     # Every SKP ordered set sent locked: input index of its COM, word of the
@@ -366,6 +367,12 @@ def check(traffic: Traffic, words: list[Word], loss: bool = False,
                             "rem_ok": n > 0 and all(s.lock for s in skps),
                             "skp": skps[0].code if n else None}
                 i += 1
+                continue
+            # Lock start: the unlocked symbol right before the first symbol
+            # of a lock may be dropped, so the lock starts a word of its own.
+            if p + 1 < len(inp) and inp[p + 1].lock and not exp.lock:
+                r.flushed += 1
+                p += 1
                 continue
             if exp.lock == 0 and p % 2 == 0 and p + 1 < len(inp) and inp[p + 1].lock == 0:
                 r.dropped_words += 1

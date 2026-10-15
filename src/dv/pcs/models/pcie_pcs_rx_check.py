@@ -23,6 +23,7 @@ STATUS_SKP = {4: 1, 3: 0, 2: 2}   # SKPs left in a 3-SKP set -> RxStatus on its 
 ERROR_CODES = (4, 7)
 TRIM_MAX = 16                     # symbols before a reported error that may differ
 RESYNC_SLACK = 8                  # symbols the stream may be off after an error
+LATENCY_MAX_PS = 24 * 8000        # anchor: a word at most this long after its arrival
 
 
 @dataclass
@@ -40,6 +41,7 @@ class Run:
     last: int = -1                # sent index after its last matched symbol
     lost: bool = False            # stopped checking after an error (slip)
     lead_skipped: int = 0         # a pre-comma symbol at the start of the lock
+    noise_lock: bool = False      # the run starts with an error word (a lock on noise)
     mismatches: int = 0
     placed: list[tuple[int, int]] = field(default_factory=list)  # (word time, sent index)
 
@@ -89,8 +91,9 @@ class Stream:
             start = p + 1
 
 
-def check_runs(sent: list[tuple[int, int]], words: list[Word], slip_possible=lambda t: False,
-               where: str = "", flipped=frozenset()) -> list[Run]:
+def check_runs(sent: list[tuple[int, int]], words: list[Word], slip_possible=lambda t0, t: False,
+               where: str = "", flipped=frozenset(), arrival=None,
+               lead_skip=lambda t: False, latency_max: int = LATENCY_MAX_PS) -> list[Run]:
     """Align every run with the sent stream; raise CheckError on loss,
     duplication, reordering or an unexplained wrong symbol.
 
@@ -101,12 +104,24 @@ def check_runs(sent: list[tuple[int, int]], words: list[Word], slip_possible=lam
     an explained error the stream may also shift by up to RESYNC_SLACK
     symbols (a flipped bit can turn a SKP into another symbol, or the
     reverse). A run that loses the stream otherwise is accepted only when
-    ``slip_possible`` says a bit slip may explain it."""
+    ``slip_possible(run start, time)`` says a bit slip inside the run may
+    explain it.
+
+    A run is anchored on its first clean 24-symbol window. In periodic
+    traffic (training or FTS sets) that window matches many places; with
+    ``arrival`` (sent index -> ps when its last bit was sampled) a window
+    anchors only when exactly one match lies at most ``latency_max`` before
+    the word that holds it, so a run that starts in periodic traffic is
+    anchored further on, where the stream is unique, and its start is then
+    checked backwards from there. Symbol 0 of a run may be the symbol
+    before the lock's comma, unchecked, only for the first run (after the
+    initial electrical idle) or when ``lead_skip`` (the run's start time)
+    says the run starts after electrical idle."""
     stream = Stream(sent)
     n_sent = len(stream.syms)
     runs = runs_of(words)
     pos = 0
-    for r in runs:
+    for n_run, r in enumerate(runs):
         flat = [(s, w) for w in r.words for s in w.syms if s != (1, K_SKP)]
         syms = [s for s, _ in flat]
         # Symbol j is followed by a reported error within TRIM_MAX symbols.
@@ -120,28 +135,56 @@ def check_runs(sent: list[tuple[int, int]], words: list[Word], slip_possible=lam
         def explained(j: int, p: int) -> bool:
             return flag_after[j] or (0 <= p < n_sent and stream.index[p] in flipped)
 
-        # Anchor: the first 24 symbols of the run, from symbol 0 or 1 (the
-        # first word of a lock may hold the symbol before the comma), or
-        # failing that the first clean 24-symbol window found.
+        def plausible(k0: int, at: int) -> bool:
+            if arrival is None:
+                return True
+            lat = flat[k0][1].t - arrival(stream.index[at])
+            return 0 <= lat <= latency_max
+
         anchor = None
-        for k0 in list(range(0, 2)) + list(range(2, max(2, len(syms) - 24), 4)):
+        windows = list(range(0, min(32, len(syms)))) + list(range(32, max(32, len(syms) - 24), 4))
+        for k0 in windows:
             needle = syms[k0:k0 + 24]
             if len(needle) < min(24, len(syms)) or any(flag_after[k0:k0 + 24]):
                 continue
-            at = stream.find(needle, pos)
-            if at >= 0:
-                anchor = (k0, at - k0)
+            # Every match the window's time allows; the anchor must be the
+            # only one, so a window inside periodic traffic never anchors.
+            found, at = [], stream.find(needle, pos)
+            while at >= 0 and len(found) < 2:
+                if arrival is not None and flat[k0][1].t < arrival(stream.index[at]):
+                    break
+                if plausible(k0, at):
+                    found.append(at)
+                at = stream.find(needle, at + 1)
+                if arrival is None and found:
+                    break
+            if len(found) == 1:
+                anchor = (k0, found[0] - k0)
                 break
         if anchor is None:
-            if len(syms) < 24 and all(flag_after) or slip_possible(r.words[0].t):
+            if len(syms) < 24 and all(flag_after) or slip_possible(r.words[0].t, r.words[-1].t):
                 r.lost = True
                 continue
             raise CheckError(f"{where}: run at t={r.words[0].t} ps ({len(syms)} symbols) "
                              f"not found in the sent stream after {pos}: {syms[:8]}")
         k0, base = anchor
-        if k0 == 1:
-            r.lead_skipped = 1
-        r.first = stream.index[max(0, base + k0)]
+        # The symbols before the anchor, checked like the rest.
+        may_skip = n_run == 0 or lead_skip(r.words[0].t)
+        for j in range(k0):
+            p = base + j
+            if 0 <= p < n_sent and syms[j] == stream.syms[p]:
+                continue
+            if explained(j, p):
+                r.mismatches += 1
+                continue
+            if j == 0 and may_skip:
+                r.lead_skipped = 1
+                continue
+            raise CheckError(f"{where}: run at t={r.words[0].t} ps: symbol {j} got {syms[j]}, "
+                             f"sent {stream.syms[p] if 0 <= p < n_sent else None}, before the "
+                             f"anchor, no error reported")
+        r.first = stream.index[min(n_sent - 1, max(0, base + r.lead_skipped))]
+        r.noise_lock = any(w.status in ERROR_CODES for w in r.words[:1])
         j = k0
         while j < len(syms):
             p = base + j
@@ -160,7 +203,7 @@ def check_runs(sent: list[tuple[int, int]], words: list[Word], slip_possible=lam
                 r.mismatches += 1
                 j += 1
                 continue
-            if slip_possible(flat[j][1].t):
+            if slip_possible(r.words[0].t, flat[j][1].t):
                 r.lost = True
                 break
             ref = stream.syms[p:p + 4]
