@@ -222,11 +222,13 @@ and simulation.
   and constants: the structs its blocks exchange, its state types and reset
   constants. The leaf blocks of an IP share it and add no package of their
   own ([granularity](#granularity)); a sub-IP is an IP and has its own.
-- **One shared project package** in `src/rtl/common/` holds the types and
-  constants used by more than one IP, so no constant is defined twice. It
-  is a shared block, named and laid out like one (`common_<name>_pkg`, with
-  its filelist, MAS and DV plan:
-  [layout](../project/layout.md#shared-blocks)). A type or constant moves
+- **One shared project package, `common_pkg`**, holds the types and
+  constants used by more than one IP, so no constant is defined twice.
+  There is exactly one: `src/rtl/common/common_pkg.sv`, a shared block with
+  its own `common_pkg.rtl.f` and its page `wiki/src/rtl/common/common_pkg.md`
+  ([layout](../project/layout.md#shared-blocks)); RTL names its items
+  `common_pkg::t_name`. Because it sits under `src/`, it may hold
+  design-specific shared types and constants. A type or constant moves
   there when a second IP needs it, never by copy.
 - Package dependencies point down the hierarchy: an IP's package may use
   the shared package and a sub-IP's package; the shared package uses no IP
@@ -242,7 +244,7 @@ Signals that belong together and cross a module boundary inside an IP are
 one packed struct `typedef` in a package, carried by one port, not loose
 `logic` vectors side by side. The same holds for multi-field state such as
 an FSM register. Types an IP keeps to itself go in its package; types two
-IPs exchange go in the shared package.
+IPs exchange go in `common_pkg`.
 
 ```systemverilog
 // <prefix><ip>_pkg

@@ -78,8 +78,9 @@ Q19 of [decision record 0002](../src/decisions/0002-m1-grill.md#decisions)).
 ## Shared blocks
 
 `src/rtl/common/` holds the shared blocks, IP-neutral cells that IPs reuse
-(`common_<name>`), and the shared project package, a package-only shared
-block for types and constants used by more than one IP
+(`common_<name>`), and the one shared project package `common_pkg`
+(`common_pkg.sv`, `common_pkg.rtl.f`), a package-only shared block for the
+types and constants used by more than one IP, design-specific ones included
 ([packages](../bkm/rtl.md#types-and-constants-live-in-packages)). It is never an IP: no HAS, no `arch/`, `fpga/` or `asic/`
 folder, and no IP reaches it as a sub-IP. A **shared block** is one
 filelist `rtl/common/<block>.rtl.f`, directly in the folder and named after

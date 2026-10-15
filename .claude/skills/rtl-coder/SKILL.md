@@ -61,8 +61,8 @@ from the first line; `./build check` fails on each:
 Review enforces two more from the start:
 
 - [ ] Related signals that cross a module boundary inside the IP, and
-      multi-field state, are packed structs from the IP's package (the
-      shared package when two IPs use the type); flat `logic` only for
+      multi-field state, are packed structs from the IP's package
+      (`common_pkg` when two IPs use the type); flat `logic` only for
       single-meaning signals, top ports mirroring an external interface
       the HAS names, and parameter-width fields
       ([structs](../../../wiki/bkm/rtl.md#structs-at-interfaces)).
