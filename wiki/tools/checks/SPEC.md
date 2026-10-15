@@ -168,7 +168,7 @@ adding one is a reviewed change to that list, and any other `.svh`, in
 from them the macro names they `` `define`` (noting which are function-like, defined with a parameter list directly after the name) and the shared cells
 (`rtl/common/<cell>.sv`) their text names. A header is exempt from
 `raw-always-ff`, `nonblocking-assignment`, `raw-assertion`, `raw-initial`,
-`system-task`, `sampled-value`, `object-macro` and `vocabulary-include`, and may test
+`system-task`, `sampled-value`, `assert-label`, `object-macro` and `vocabulary-include`, and may test
 `SYNTHESIS` and `VERILATOR` (not `SIMULATION`); `clocking-block` applies to
 it too. A **design file** is any other `.sv`: in it
 `conditional-compilation` replaces `sim-ifdef` and `external-ifdef`, which
@@ -196,7 +196,8 @@ applies.
 | `raw-initial` | No `initial` or `final` outside a vocabulary header. | [rtl.md#assertions](../../bkm/rtl.md#assertions) |
 | `system-task` | No system task or function outside a vocabulary header (`$display`, `$write`, `$finish`, `$stop`, `$monitor`, `$strobe`, `$readmemh`, `$random`, ...; `$fatal`/`$error`/`$warning`/`$info` are `raw-assertion`'s), except the pure functions `$bits`, `$clog2`, `$signed`, `$unsigned`, `$size`, `$low`, `$high`, `$left`, `$right`, `$increment`, `$dimensions`, `$unpacked_dimensions`, `$countones`, `$countbits`, `$onehot`, `$onehot0`, `$isunknown`, and the sampled-value functions, which are `sampled-value`'s. A `$` inside an identifier is not a call. | [rtl.md#assertions](../../bkm/rtl.md#assertions) |
 | `sampled-value` | `$past`, `$stable`, `$rose`, `$fell`, `$changed` and `$sampled` outside a vocabulary header only inside the parenthesized arguments of a `` `COMMON_ASSERT*`` call whose macro a header defines as function-like. Anywhere else (plain logic, another macro's arguments, after the call, after an object-like macro such as the `COMMON_ASSERTIONS_SVH` include guard) they are findings: with a clock in scope, `assign q = $past(d);` is a register outside the `COMMON_DFF*` macros. The `_gclk` forms stay `system-task`'s. | [rtl.md#assertions](../../bkm/rtl.md#assertions) |
-| `clocking-block` | No `clocking` keyword (a clocking block, `default clocking` or `global clocking`) in any checked file, vocabulary headers included; reported once per block. A default clocking block gives sampled-value functions the implicit clock that turns them into registers. | [rtl.md#registers-and-memories](../../bkm/rtl.md#registers-and-memories) |
+| `assert-label` | Outside a vocabulary header, the first argument of a `` `COMMON_ASSERT*`` call (as `sampled-value` identifies one) is a single identifier (letters, digits, `_` and `$`, not starting with a digit or `$`). The macros paste that `NAME` or `LABEL` as a bare token (a statement label, a generate-block name), so anything else there, such as `x = $past(d); a_c` or a nested macro call, is design text outside the assertion: it simulates but is compiled out under `SYNTHESIS`. | [rtl.md#assertions](../../bkm/rtl.md#assertions) |
+| `clocking-block` | No `clocking` keyword (a clocking block, `default clocking` or `global clocking`) in any checked file, vocabulary headers included; reported once per block. A `$` is an identifier character, so `clocking$x` is a name, not the keyword. A default clocking block gives sampled-value functions the implicit clock that turns them into registers. | [rtl.md#registers-and-memories](../../bkm/rtl.md#registers-and-memories) |
 | `object-macro` | Outside a vocabulary header, no `` `NAME`` use of an object-like vocabulary macro (one `` `define``d without a parameter list: the include guards `COMMON_MACROS_SVH`, `COMMON_ASSERTIONS_SVH`). Design files use only the function-like forms; a guard expands to nothing, so text after it is ordinary design text. | [rtl.md#the-rtl-vocabulary](../../bkm/rtl.md#the-rtl-vocabulary) |
 | `local-define` | No `` `define``, `` `undef`` or `` `undefineall`` in a design file: macros live only in the vocabulary headers, which also closes token-pasting evasions such as `` `define NB <=``. | [rtl.md#no-conditional-compilation](../../bkm/rtl.md#no-conditional-compilation) |
 | `conditional-compilation` | No `` `ifdef``, `` `ifndef``, `` `elsif`` or `` `else`` in a design file, include guards included. | [rtl.md#no-conditional-compilation](../../bkm/rtl.md#no-conditional-compilation) |
@@ -824,7 +825,7 @@ staying top-level with `arch/`, `fpga/` and `asic/` while a prefixed one is a su
 an unconfirmed parent prefix (`test_layout.py`), one bad case per style
 rule (every design rule, include rule and `cdc-cell-macro` included),
 sampled-value functions passing in `COMMON_ASSERT*` arguments and failing
-elsewhere (including after the `COMMON_ASSERTIONS_SVH` guard), the `default clocking` plus `$past` hidden register, `object-macro` and function-like macro discovery, the
+elsewhere (including after the `COMMON_ASSERTIONS_SVH` guard), `assert-label` statements and nested macro calls in the `NAME` argument, the `default clocking` plus `$past` hidden register, `clocking` inside an identifier, `object-macro` and function-like macro discovery, the
 vocabulary header list matching `cfg/ci.yaml` `vocabulary_tests.paths`,
 the vocabulary header's exemptions and the `SIMULATION` limit, comparisons
 that are not nonblocking assignments, vocabulary discovery, the design-file
