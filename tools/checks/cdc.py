@@ -1005,8 +1005,10 @@ def pass_through_findings(design: Design, own: Directive) -> list[str]:
 
 def constant_net_inputs(design: Design) -> list[tuple[str, str]]:
     """Inner-cell ``src_*`` inputs that read only nets with no source: no
-    flop, cell output or input port reaches them through combinational
-    edges, so they carry a constant (or nothing)."""
+    live flop, cell output or input port reaches them through combinational
+    edges, so they carry a constant (or nothing). A flop that reads nothing
+    but, at most, a plain copy of itself (``q <= 1'b1``, ``q <= q``) never
+    changes, so it is not live; ``q <= ~q`` is."""
     d, out = design, []
     for desc, deps in d.src_inputs:
         stack, seen, live = list(deps), set(), False
@@ -1015,7 +1017,10 @@ def constant_net_inputs(design: Design) -> list[tuple[str, str]]:
             if n in seen:
                 continue
             seen.add(n)
-            if n in d.flops or n in d.pseudo or n in d.inputs:
+            if n in d.flops:
+                live = any((n[0], x) != n or k != ALIAS
+                           for x, k in d.flops[n].deps.items())
+            elif n in d.pseudo or n in d.inputs:
                 live = True
             stack.extend(u for u, _ in d.comb_in.get(n, ()))
         if not live:

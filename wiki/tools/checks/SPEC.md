@@ -649,7 +649,10 @@ module name:
   index that depends on a synchronized pointer in the same way, so a
   synchronized bit that only gates a read at a constant address does not
   qualify. Which read reaches which output is not tracked: one read at a
-  synchronized pointer qualifies the memory. A cell that synchronizes a
+  synchronized pointer qualifies the memory. A read inside a function body
+  is recorded with no index variables (function locals are not module
+  variables), so a cell that reads its memory only through a function
+  fails this condition. A cell that synchronizes a
   pointer and addresses the read with it, but whose pointer logic does not
   really guard the read, passes this structural test; its MAS and review
   own that case ([limits](#limits)). A flop's asynchronous reset is part of
@@ -658,8 +661,10 @@ module name:
 - when the cell is a target itself, no approved crossing cell instantiated
   inside it has a `src_*` input (other than its clock) that is connected
   to a constant, left unconnected (omitted or `()`), or connected to nets
-  that no flop, cell output or input port reaches through combinational
-  edges (a net driven only by constants, or not driven at all): a
+  that no live flop, cell output or input port reaches through
+  combinational edges (a net driven only by constants, or not driven at
+  all; a flop is not live when it reads nothing but, at most, a plain copy
+  of itself, as `q <= 1'b1` or `q <= q`, so it never changes): a
   synchronizer of `1'b1` crosses nothing, so it cannot stand in for a
   synchronized pointer. Verilator folds a net that is continuously
   assigned a constant into the pin, which then reads as a constant. The
@@ -785,9 +790,11 @@ Each is a known gap, not a promise; review and each cell's MAS cover them.
   by the synchronized value (`m[s]`), which has the same structure as a
   legitimate read at a synchronized pointer. Telling them apart needs the
   empty and full comparison that a FIFO's MAS and tests own.
-- **A flop counts as a live source.** An inner synchronizer's `src_*` input
-  fed by a flop that only ever holds a constant is not reported.
-
+- **Most flops count as live sources.** An inner synchronizer's `src_*`
+  input fed by a flop that changes only at reset (reset to one value, then
+  loaded with a constant) or whose next value is a constant expression
+  through other nets is not reported; only a flop that reads nothing but a
+  plain copy of itself is treated as constant.
 - **No reconvergence, glitch or timing analysis.** Two synchronizers whose
   outputs recombine, a multi-bit value that changes more than one bit per
   update, pulse spacing and the FIFO's read-path timing are not checked.
@@ -924,9 +931,11 @@ mismatches, a pass-through cell, a flop-then-wire cell, a memory read at
 a constant or source-side address, memory reads without a synchronized
 pointer (a one-entry memory, a free-running address, a held select, a
 one-entry memory read with a synchronized pointer, a read at a constant
-address gated by a synchronized bit) and one at a synchronized pointer,
+address gated by a synchronized bit, and the same with a second read at a
+free-running address) and one at a synchronized pointer,
 an inner synchronizer of a constant, of an empty or omitted pin, of a
-constant-assigned, `always_comb` constant or undriven net, the same
+constant-assigned, `always_comb` constant or undriven net, of a flop that
+loads a constant or holds its value (a toggling one is live), the same
 tie-offs in an IP top (which pass), co-sources listed and capped, port domains (an annotated port sampled
 in another domain, an unannotated one, legal crossings through each kind
 of cell input, a wrong cell side, every annotation finding, a missing annotation with

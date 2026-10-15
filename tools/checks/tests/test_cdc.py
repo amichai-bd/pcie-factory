@@ -818,8 +818,15 @@ SYNCED = """  logic m [{depth}];
     # A synchronized pointer gates the output, but the memory is read at a
     # constant address: the pointer does not address the read (#177 enconst).
     SYNCED.format(depth=2, windex="src_a_q", read="m[0] & ra_q"),
+    # The same, plus a second read at a free-running destination counter:
+    # an index that is not constant, but not a synchronized pointer either.
+    SYNCED.format(depth=2, windex="src_a_q", read="m[0] & ra_q") + """  logic fr_q;
+  logic x_q;
+  always_ff @(posedge dst_clk_i) fr_q <= ~fr_q;
+  always_ff @(posedge dst_clk_i) x_q <= m[fr_q];
+""",
 ], ids=["one-entry-qualifier", "free-running-address", "hold-select", "one-entry-synced",
-        "constant-address-synced-gate"])
+        "constant-address-synced-gate", "free-running-second-read"])
 def test_memory_read_without_a_synchronized_pointer_fails(tmp_path, body):
     r = run(cell_tree(tmp_path, MEM_CELL.format(body=body), "-F common_cdc_sync2.rtl.f\n"))
     assert any("output dst_q_o is driven by flop m (" in f for f in r.findings), r.findings
@@ -851,6 +858,15 @@ TIE_OFFS = {
                  "is driven only by constants"),
     "undriven-net": ("  common_cdc_sync2 u_s (.dst_clk_i(dst_clk_i), .dst_rst_i(1'b0), "
                      ".src_data_i(one),\n", "  logic one;\n", "is driven only by constants"),
+    # Flops that never change: one loads a constant, one holds its value.
+    "constant-flop": ("  common_cdc_sync2 u_s (.dst_clk_i(dst_clk_i), .dst_rst_i(1'b0), "
+                      ".src_data_i(one),\n",
+                      "  logic one;\n  always_ff @(posedge src_clk_i) one <= 1'b1;\n",
+                      "is driven only by constants"),
+    "hold-flop": ("  common_cdc_sync2 u_s (.dst_clk_i(dst_clk_i), .dst_rst_i(1'b0), "
+                  ".src_data_i(one),\n",
+                  "  logic one;\n  always_ff @(posedge src_clk_i) one <= one;\n",
+                  "is driven only by constants"),
 }
 
 
@@ -886,6 +902,7 @@ def test_ip_top_may_tie_off_a_crossing_cell_source_input(tmp_path, tie):
     # The constant-source rule is for crossing cells analyzed on their own:
     # an IP top that ties off an approved cell's src_* input passes.
     pin, decl, _ = TIE_OFFS[tie]
+    decl = decl.replace("src_clk_i", "clk_a_i")
     pin = pin.replace("dst_clk_i(dst_clk_i)", "dst_clk_i(clk_b_i)").replace(
         "dst_rst_i(1'b0)", "dst_rst_i(rst_b_i)")
     body = A_FLOP + f"""  logic s;
