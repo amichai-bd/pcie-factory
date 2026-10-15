@@ -25,6 +25,9 @@ global:
 shared_dv: [dv/common]       # relative to the source root
 models: models               # relative to each IP's src/dv/<ip>/
 tools_tests: [tools]         # repo-relative pytest paths
+vocabulary_tests:            # marked tools tests a source change selects
+  marker: vocabulary         # pytest marker (registered in tools/pytest.ini)
+  paths: [src/rtl/common/common_macros.svh, src/rtl/common/common_assertions.svh]
 ```
 
 | Key | Meaning |
@@ -33,6 +36,7 @@ tools_tests: [tools]         # repo-relative pytest paths
 | `shared_dv` | Shared DV Python that no filelist reaches; a change under one selects every IP. |
 | `models` | An IP's reference models and their unit tests. A change under a sub-IP's (or an integrated IP's) models directory also selects every ancestor IP, because parent models import sub-IP models ([DV BKM](../../bkm/dv.md#reusing-a-sub-ip-model)). `./build ci unit` runs the model tests of each selected IP. |
 | `tools_tests` | The pytest paths of the tools unit tests. |
+| `vocabulary_tests` | `marker`: a pytest marker on tools tests that build source files (the RTL vocabulary headers, with Verilator); `paths`: repo-relative files (a trailing `/` makes a prefix) whose change runs those tests. |
 
 A top-level IP's architecture models, self-tests and `perf/` scenarios
 live in `src/arch/<ip>/`, fixed by the [layout](../../project/layout.md), so
@@ -47,9 +51,12 @@ file and key. Never name an IP here.
 
 ## `./build ci unit`
 
-Runs the pure-Python unit-test suites a change needs; no simulator.
+Runs the unit-test suites a change needs. They are pure Python, except
+tools tests that call Verilator when it is installed (and skip otherwise).
 
 - **`tools`:** `python -m pytest -q <tools_tests>` from the repository root.
+- **`vocabulary`:** `python -m pytest -q -m <marker> <tools_tests>` from the
+  repository root: only the marked tools tests.
 - **`models:<ip>`:** `python -m pytest -q` inside `src/dv/<ip>/<models>/`, one
   session per IP (model modules are imported by bare name), for each IP whose
   models directory holds a `test_*.py`. The
@@ -66,6 +73,9 @@ files are those of [`regress --affected`](../regress/SPEC.md#selection)
 (merge base of `BASE` and `HEAD`, plus uncommitted and untracked files):
 
 - `tools` runs when a `global` path changed;
+- `vocabulary` runs when a `vocabulary_tests` path changed and no `global`
+  path did (`tools` already includes the marked tests); it never runs
+  without `--affected`, where `tools` runs;
 - `models:<ip>`, `arch:<ip>` and `perf:<ip>` run for each IP that
   `regress --affected BASE` selects.
 
@@ -201,7 +211,8 @@ same status. The guard base is not in the description; the run behind
 
 `tools/ci/tests/`: rule loading and every malformed-input case
 (`test_ci_config.py`), suite planning on a synthetic git repository
-(including an IP with an arch model and scenario), running the arch and perf
+(including an IP with an arch model and scenario, and a vocabulary header
+change selecting only the marked tools tests), running the arch and perf
 suites, and failure propagation (`test_ci_unit.py`), summary rendering
 (`test_ci_summary.py`), and the status mapping, the 140-character description cap, the data-branch-only rule,
 posted request, dry run, API failure and CLI wiring (`test_ci_status.py`,

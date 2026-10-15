@@ -16,8 +16,9 @@
   has ``common.dv.f``, ``common.sim.f`` and ``regress/level{0,1,2}.yaml``,
   its regression lists validate, and its ``common.sim.f`` reaches every
   block's filelist, so every shared block is tested.
-- No orphan RTL: every ``.sv``/``.svh`` below ``rtl/<name>/`` is reached by a
-  filelist directly in ``rtl/<name>/`` (for an IP, its ``.rtl.f``).
+- No orphan RTL: every ``.sv`` below ``rtl/<name>/`` is listed by a filelist
+  directly in ``rtl/<name>/`` (for an IP, its ``.rtl.f``), and every
+  ``.svh`` is listed or below one of its include directories.
 """
 
 from __future__ import annotations
@@ -88,8 +89,8 @@ def _shared_unit_findings(src_root: Path) -> list[str]:
             reached = resolve(unit.sim_f)
         except FilelistError:
             return out  # reported above as a filelist that does not resolve
-        for b in blocks:
-            if not reached.reaches(b):
+        for b in blocks:  # the block's own filelist, not only its include dir
+            if b.resolve() not in reached.filelists:
                 out.append(f"{rel(b, src_root)}: shared block not reached by "
                            f"{rel(unit.sim_f, src_root)} (every shared block is tested)")
     return out
@@ -140,7 +141,10 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
     for src in sources:
         home = _home(src, src_root)
         owners = [r for f, r in resolved.items() if f.parent == home]
-        if not any(r.reaches(src) for r in owners):
+        # A .sv must be a listed source; a .svh may be reached through
+        # +incdir+ (an include directory does not compile a module).
+        if not any(r.reaches(src) if src.suffix == ".svh" else src.resolve() in r.sources
+                   for r in owners):
             add(f"{rel(src, src_root)}: orphan: not reached by a filelist in "
                 f"{rel(home, src_root)}/")
 

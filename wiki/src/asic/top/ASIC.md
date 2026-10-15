@@ -21,8 +21,8 @@ target.
 
 ## Flow configuration
 
-`DESIGN_NAME` is `pcie_top`. The RTL imports a package in the module header
-and uses typed localparams, so the flow reads it with the slang
+`DESIGN_NAME` is `pcie_top`. The RTL references package types in its port
+list and uses typed localparams, so the flow reads it with the slang
 SystemVerilog frontend (`SYNTH_HDL_FRONTEND = slang`). The core is sized
 from the cell area at 30% utilization, with placement-density headroom for
 clock-tree and resizing buffers.

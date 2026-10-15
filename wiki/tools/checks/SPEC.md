@@ -125,11 +125,12 @@ Rule owners: [layout](../../project/layout.md#per-ip-files) and the
   - Below `fpga/`, no `.v`, `.vh`, `.vlt`, `.vc`, `.vhd` or
     `.vhdl` file exists (constraint and flow files are fine).
   - `dv/` filelists are not restricted.
-- **No orphans:** every `.sv`/`.svh` below `rtl/<name>/` is reached by a
-  filelist directly in `rtl/<name>/` (for an IP, its `.rtl.f`; for
-  `rtl/common/`, whichever filelist lives there). "Reached" is the
-  resolver's `reaches()`: listed as a source or under an include directory.
-  `fpga/` wrappers are not in any filelist and are not orphans.
+- **No orphans:** every `.sv` below `rtl/<name>/` is listed as a source by
+  a filelist directly in `rtl/<name>/` (for an IP, its `.rtl.f`; for
+  `rtl/common/`, whichever filelist lives there), and every `.svh` is
+  listed or below one of that filelist's include directories (an include
+  directory does not compile a module). `fpga/` wrappers are not in any
+  filelist and are not orphans.
 
 `rtl/common/` is never an IP; its filelists, the shared blocks (for example
 `common_lib.rtl.f`), are checked as filelists. Without `--ip`, the
@@ -140,8 +141,9 @@ or `dv/common/common.sim.f` exists:
   `dv/common/regress/level{0,1,2}.yaml` exist (`common: missing <path>`),
   and the regression lists pass the regress schema (including any coverage
   floors);
-- `common.sim.f` reaches every shared block's filelist, so every block is
-  tested (`rtl/common/<block>.rtl.f: shared block not reached by
+- `common.sim.f` reaches every shared block's filelist itself (through
+  `-F`; reaching only its folder as an include directory does not count),
+  so every block is tested (`rtl/common/<block>.rtl.f: shared block not reached by
   dv/common/common.sim.f`).
 
 ## Style check
@@ -155,30 +157,56 @@ every other text file that could reach Verilator: every file of any type below a
 counts both sets. It is lexical: comments and strings are blanked first,
 then each rule is a pattern or a bracket-aware scan of module headers. Rules
 it cannot check reliably (widths, latches, one driver, reset values,
-positional connections, logic in `always_ff`) stay
+positional connections, named macro operands) stay
 [review items](../../bkm/rtl.md#review-checklist).
+
+The **vocabulary headers** are exactly `rtl/common/common_macros.svh` and
+`rtl/common/common_assertions.svh` (`VOCABULARY_HEADERS` in `style.py`;
+adding one is a reviewed change to that list, and any other `.svh`, in
+`rtl/common/` or not, gets no exemption)
+([RTL vocabulary](../../bkm/rtl.md#the-rtl-vocabulary)). The checker reads
+from them the macro names they `` `define`` and the shared cells
+(`rtl/common/<cell>.sv`) their text names. A header is exempt from
+`raw-always-ff`, `nonblocking-assignment`, `raw-assertion`, `raw-initial`,
+`system-task` and `vocabulary-include`, and may test `SYNTHESIS` and
+`VERILATOR` (not `SIMULATION`). A **design file** is any other `.sv`: in it
+`conditional-compilation` replaces `sim-ifdef` and `external-ifdef`, which
+still apply to `.svh` and other includable files, and `local-define`
+applies.
 
 | Rule | Enforces | Owner |
 | --- | --- | --- |
 | `default-nettype` | A `.sv` file's first statement is `` `default_nettype none`` and its last is `` `default_nettype wire``. `.svh` include files are exempt: restoring `wire` inside an include would undo `none` in the file that includes it. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
 | `net-keyword` | No `wire`, `reg`, `tri`, `tri0`, `tri1`, `wand`, `wor`, `uwire` (the `default_nettype` directive is ignored). | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
-| `plain-always` | Only `always_comb` and `always_ff`: no `always` (including `always @*`) and no `always_latch`. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
+| `plain-always` | No `always` (including `always @*`) and no `always_latch`; `always_comb` is the only process keyword in design RTL (`always_ff` only inside the vocabulary headers, see `raw-always-ff`). | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
 | `interface-union` | No `interface`, `modport` or `union`. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
 | `wildcard-connection` | No `.*` port connections. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
-| `sim-ifdef` | No `` `ifdef``/`` `ifndef``/`` `elsif`` on `SYNTHESIS`, `SIMULATION` or `VERILATOR`, even when the RTL defines it. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
-| `external-ifdef` | No `` `ifdef``/`` `ifndef``/`` `elsif`` on a macro the RTL closure does not define (a vendor or tool macro such as `ALTERA_RESERVED_QIS`, or one nothing defines): such code is hidden from lint and simulation while another flow compiles it. A macro is defined when the file itself, or any closure that reaches it, `` `define``s it or passes it with `+define+`. A closure is an `rtl/` filelist's resolved sources, every file below its include directories (inside the source root) and its `+define+` names; a file reached by several closures gets their union, and an `fpga/<id>/` file also gets its IP's `.rtl.f` closure (the lint check links the wrapper with it). So an include guard (`` `ifndef X_SVH`` then `` `define X_SVH``) passes. Each name in a parenthesized expression (`` `ifdef (A && B)``) is checked; a directive with no name is a finding. The macro name (or the opening parenthesis) must be on the directive's line: the scan is lexical and fails closed, so a name on a later line, `SYNTHESIS` included, is reported as `` `ifdef/`ifndef/`elsif without a macro name`` (naming the directive found). Macro names may contain `$` after the first character. `SYNTHESIS`, `SIMULATION` and `VERILATOR` are left to `sim-ifdef`. Two cases are deliberately permissive: a file reached by several closures may condition on a macro only one of them defines (a sub-IP on a parent-only macro, which its own lint run does not define), and every file below an include directory counts as defining its macros, whether or not it is `` `include``d. In both cases the macro must still be `` `define``d by a file in the source tree, or passed with a filelist `+define+`, of a closure that reaches the file, so a macro that only a vendor or tool flow defines never passes. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
+| `sim-ifdef` | No `` `ifdef``/`` `ifndef``/`` `elsif`` on `SYNTHESIS`, `SIMULATION` or `VERILATOR`, even when the RTL defines it; a vocabulary header may test `SYNTHESIS` and `VERILATOR`. | [rtl.md#no-conditional-compilation](../../bkm/rtl.md#no-conditional-compilation) |
+| `external-ifdef` | No `` `ifdef``/`` `ifndef``/`` `elsif`` on a macro the RTL closure does not define (a vendor or tool macro such as `ALTERA_RESERVED_QIS`, or one nothing defines): such code is hidden from lint and simulation while another flow compiles it. A macro is defined when the file itself, or any closure that reaches it, `` `define``s it or passes it with `+define+`. A closure is an `rtl/` filelist's resolved sources, every file below its include directories (inside the source root) and its `+define+` names; a file reached by several closures gets their union, and an `fpga/<id>/` file also gets its IP's `.rtl.f` closure (the lint check links the wrapper with it). So an include guard (`` `ifndef X_SVH`` then `` `define X_SVH``) passes. Each name in a parenthesized expression (`` `ifdef (A && B)``) is checked; a directive with no name is a finding. The macro name (or the opening parenthesis) must be on the directive's line: the scan is lexical and fails closed, so a name on a later line, `SYNTHESIS` included, is reported as `` `ifdef/`ifndef/`elsif without a macro name`` (naming the directive found). Macro names may contain `$` after the first character. `SYNTHESIS`, `SIMULATION` and `VERILATOR` are left to `sim-ifdef`. Two cases are deliberately permissive: a file reached by several closures may condition on a macro only one of them defines (a sub-IP on a parent-only macro, which its own lint run does not define), and every file below an include directory counts as defining its macros, whether or not it is `` `include``d. In both cases the macro must still be `` `define``d by a file in the source tree, or passed with a filelist `+define+`, of a closure that reaches the file, so a macro that only a vendor or tool flow defines never passes. | [rtl.md#no-conditional-compilation](../../bkm/rtl.md#no-conditional-compilation) |
 | `task-function` | No `task`; `function` only inside a package. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
-| `typedef-outside-package` | `typedef` only inside `package ... endpackage`. | [rtl.md#types-and-constants-live-in-packages](../../bkm/rtl.md#types-and-constants-live-in-packages) |
+| `typedef-outside-package` | `typedef`, `enum` and `struct` only inside `package ... endpackage`, so an anonymous FSM `enum` or `struct` in a module is a finding (`union` is `interface-union`'s). | [rtl.md#types-and-constants-live-in-packages](../../bkm/rtl.md#types-and-constants-live-in-packages) |
 | `file-name` | A `.sv` declares exactly one module or package, named after the file. A package name ends in `_pkg` and a module name does not. The name starts with the owner's prefix: `common_` under `rtl/common/` or `dv/common/`, otherwise `<prefix><id>` of the owning IP (sub-IP `a_b` gives `<prefix>a_b`) followed by the end or `_`; `<prefix>` alone when no IP owns the file. `<prefix>` is read from the `Module/package/file prefix` row of `src/README.md`; a missing row is a finding. | [rtl.md#naming](../../bkm/rtl.md#naming) |
 | `port-suffix` | Every module port is ANSI with a direction. Inputs end in `_i`, outputs in `_o`, inouts in `_io`, each optionally with `n` before the direction letter for active-low (`rst_ni`). `ref` ports are not allowed. | [rtl.md#naming](../../bkm/rtl.md#naming) |
 | `verilator-config` | No `` `verilator_config`` block in any checked file, including includable files of any type (a listed or `` `include``d file would otherwise carry `lint_off` rules past the waiver file). | [rtl.md#lint-and-style-checks](../../bkm/rtl.md#lint-and-style-checks) |
 | `tool-pragma` | No tool directive comment: `verilator`, `synthesis`, `synopsys`, `pragma` or `altera` followed by a directive word (`lint_off`, `translate_off`, `full_case`, `public`, `protect`, `message_off`, ...). This covers inline lint waivers (`/* verilator lint_off */`). Prose that only starts with the tool name (`// Synthesis infers a flop`) is not flagged. | [rtl.md#lint-and-style-checks](../../bkm/rtl.md#lint-and-style-checks) |
+| `nonblocking-assignment` | No nonblocking assignment outside a vocabulary header: a `<=` at parenthesis/brace depth zero whose text back to the previous statement boundary (`;`, `,`, case-label `:`, `begin`, `end`, `else`, `)`, or a process keyword `always_comb`, `always_latch`, `always`, `always_ff`, `initial`, `final`, so `always_comb q <= d;` is caught) is an lvalue or a concatenation of lvalues. Comparisons (`if (a <= b)`, `for (...; i <= n; ...)`, `assign x = a <= b`, ternaries) are not flagged. | [rtl.md#registers-and-memories](../../bkm/rtl.md#registers-and-memories) |
+| `raw-always-ff` | No `always_ff` outside a vocabulary header. | [rtl.md#registers-and-memories](../../bkm/rtl.md#registers-and-memories) |
+| `raw-assertion` | No `assert`, `assume`, `cover`, `restrict`, `expect`, `property`, `sequence`, `$fatal`, `$error`, `$warning` or `$info` outside a vocabulary header. | [rtl.md#assertions](../../bkm/rtl.md#assertions) |
+| `raw-initial` | No `initial` or `final` outside a vocabulary header. | [rtl.md#assertions](../../bkm/rtl.md#assertions) |
+| `system-task` | No system task or function outside a vocabulary header (`$display`, `$write`, `$finish`, `$stop`, `$monitor`, `$strobe`, `$readmemh`, `$random`, ...; `$fatal`/`$error`/`$warning`/`$info` are `raw-assertion`'s), except the pure functions `$bits`, `$clog2`, `$signed`, `$unsigned`, `$size`, `$low`, `$high`, `$left`, `$right`, `$increment`, `$dimensions`, `$unpacked_dimensions`, `$countones`, `$countbits`, `$onehot`, `$onehot0`, `$isunknown` and the sampled-value functions `$past`, `$stable`, `$rose`, `$fell`, `$changed`, `$sampled` (for assertion-macro properties). A `$` inside an identifier is not a call. | [rtl.md#assertions](../../bkm/rtl.md#assertions) |
+| `local-define` | No `` `define``, `` `undef`` or `` `undefineall`` in a design file: macros live only in the vocabulary headers, which also closes token-pasting evasions such as `` `define NB <=``. | [rtl.md#no-conditional-compilation](../../bkm/rtl.md#no-conditional-compilation) |
+| `conditional-compilation` | No `` `ifdef``, `` `ifndef``, `` `elsif`` or `` `else`` in a design file, include guards included. | [rtl.md#no-conditional-compilation](../../bkm/rtl.md#no-conditional-compilation) |
+| `package-import` | No `import` (wildcard or named) anywhere; package items are named `pkg::item`. | [rtl.md#types-and-constants-live-in-packages](../../bkm/rtl.md#types-and-constants-live-in-packages) |
+| `include-path` | Every `` `include`` names a vocabulary header by its bare file name in quotes (no directory, no `<...>`, no other file). | [rtl.md#includes](../../bkm/rtl.md#includes) |
+| `vocabulary-include` | A file (other than a header) that calls a vocabulary macro `` `include``s a vocabulary header itself; reported at the first call. | [rtl.md#includes](../../bkm/rtl.md#includes) |
+| `cdc-cell-macro` | Outside `rtl/common/`, no file names a shared cell that a vocabulary macro instantiates (`common_cdc_sync2`, `common_cdc_pulse`, ...): it is instantiated only through its macro. | [rtl.md#clock-domain-crossings](../../bkm/rtl.md#clock-domain-crossings) |
 
-Provenance: the comment/string stripper, the package-span test and the
-net-keyword, SYNTHESIS-guard, module-function and pragma-comment ideas are
-adapted from nand2anything `tools/style/rtl_style.py` (commit `085ef4b`,
-same owner, no license file); its project inventories and macro rules were
-dropped.
+Provenance: the comment/string stripper, the package-span test, the
+nonblocking-assignment scan and the net-keyword, SYNTHESIS-guard,
+module-function, raw-initial, raw-assert and pragma-comment ideas are
+adapted from nand2anything `tools/style/rtl_style.py` (commit `085ef4b`),
+adapted with the owner's permission; its project inventories,
+transition-macro and legacy-name rules were dropped.
 
 ## Wiki mirror check
 
@@ -495,7 +523,11 @@ then `verilator.prefix` in `cfg/host.yaml`); see the
 - **Shared blocks:** without `--ip`, each `rtl/common/<block>.rtl.f` is
   linted the same way, labelled `common/<block>`, with top `<block>` when a
   module of that name is declared (otherwise Verilator picks). The summary
-  counts them as `N shared block(s)`.
+  counts them as `N shared block(s)`. An include-only block (a filelist
+  with include directories and no sources, such as the RTL vocabulary) is
+  not linted on its own: every closure that includes its headers lints
+  them. The summary then adds `, N include-only block(s) linted through
+  their users`.
 - An IP whose `.rtl.f` does not resolve is a lint finding (the filelist check
   reports the cause).
 - An IP whose `.rtl.f` closure lists a source that is not `.sv`/`.svh` (for
@@ -556,13 +588,17 @@ tests do that.
 
 **Targets.** Without `--ip`, each top-level IP (one that is no other IP's
 sub-IP) is one target, with top `<prefix><id>` as for lint, and each
-`rtl/common/<block>.rtl.f` is another, with top `<block>`. A top-level IP
+`rtl/common/<block>.rtl.f` is another, with top `<block>`; an include-only
+block (no sources) holds no flops and is skipped, which the summary adds as
+`, N include-only block(s) skipped`. A top-level IP
 that another integrates is analyzed on its own and again inside the
 integrator, where its clocks come from the integrator's ports. With
 `--ip`, the targets are the top-level IPs among the selected IPs and their
 ancestors (parents and integrators), because a sub-IP's clocks are known
 only at its top; shared blocks are skipped. Board wrappers in `fpga/<ip>/`
-are not analyzed.
+are not analyzed. A crossing cell instantiated through a vocabulary macro
+(`COMMON_METAFLOP`, `COMMON_PULSE_SYNC`, ...) is the same cell instance in
+the elaborated netlist.
 
 **Netlist.** For each target, Verilator runs
 `--json-only -Wno-fatal [--top-module T] +incdir+... -D... <sources>` with
@@ -771,8 +807,8 @@ Fixtures live in `tools/checks/tests/fixtures/`:
 
 | Fixture | Content |
 | --- | --- |
-| `good/src/`, `good/wiki/src/` | Kind-first tree: IP `blk` (package, include header, top) with flat sub-IP `blk_sub`, a shared block `common_lib` under `rtl/common/` with the shared unit's files in `dv/common/`, and a board wrapper, SDC and board settings file in `fpga/blk/`; the wiki mirror holds every required page, including the block's two pages. Every check passes. |
-| `integration/src/`, `integration/wiki/src/` | Top-level IP `sys` integrates top-level IPs `a` and `b` through `-F`; `a` and `b` each keep `arch/` (model and scenario), `fpga/` and `asic/`, and `a_x` is a sub-IP of `a`. Every check passes, and the `regress --affected` tests select `sys` when `a`, `a_x` or `b`'s models change. |
+| `good/src/`, `good/wiki/src/` | Kind-first tree: IP `blk` (package, an include directory with a header nothing includes, top) with flat sub-IP `blk_sub`, a shared block `common_lib` under `rtl/common/` beside a fixture vocabulary header `common_macros.svh` (its cell uses `COMMON_DFF_RST_EN`), with the shared unit's files in `dv/common/`, and a board wrapper, SDC and board settings file in `fpga/blk/`; the wiki mirror holds every required page, including the block's two pages. Every check passes. |
+| `integration/src/`, `integration/wiki/src/` | Top-level IP `sys` integrates top-level IPs `a` and `b` through `-F`; `a` and `b` each keep `arch/` (model and scenario), `fpga/` and `asic/`, and `a_x` is a sub-IP of `a`. `a` and `b` register through a fixture vocabulary in the include-only shared block `common_macros`. Every check passes, and the `regress --affected` tests select `sys` when `a`, `a_x` or `b`'s models change. |
 | `flows_bad/src/` | IP `blk` whose `fpga/blk/` has two SDC files and no board settings file or wrapper, and whose `asic/blk/sky130hd.mk` has no SDC beside it. It is used only by the flow-input tests (one finding per flow). |
 | `bad/src/`, `bad/wiki/src/` | IP `blk` with a duplicate source, an orphan, a missing and an invalid level file, style violations and lint warnings; IP `broken` with a missing source; an `asic/ghost/` folder that names no IP. The wiki mirror lacks pages, has a page outside an IP folder, an `fpga/blk/` page with no `src/fpga/blk/` and a folder that names no IP. Layout, filelist, style, wiki and lint fail. |
 
@@ -781,9 +817,15 @@ IP-first tree, a nested sub-IP, a sub-IP with `arch/`, `fpga/` or `asic/`, a
 folder that names no IP, misnamed or nested filelists in the shared folders, and a reached IP without its includer's prefix
 staying top-level with `arch/`, `fpga/` and `asic/` while a prefixed one is a sub-IP, and
 an unconfirmed parent prefix (`test_layout.py`), one bad case per style
-rule plus `external-ifdef` closure cases (a vendor and an undefined macro
-fail; include guards, `` `define``s in an include file, `+define+`, a parent
-closure and a board wrapper pass) (`test_style.py`), duplicate, diamond, orphan and regression cases
+rule (every design rule, include rule and `cdc-cell-macro` included),
+the vocabulary header's exemptions and the `SIMULATION` limit, comparisons
+that are not nonblocking assignments, vocabulary discovery, the design-file
+conditional reported once, and `external-ifdef` closure cases in include
+files (a vendor and an undefined macro fail; include guards, `` `define``s
+in an include file, `+define+` and a board-wrapper folder pass)
+(`test_style.py`), the repository's vocabulary headers built by Verilator
+(each assertion form fires with `--assert`, none is present under
+`SYNTHESIS`, the parameter check is in both views) (`test_vocabulary_headers.py`), duplicate, diamond, orphan and regression cases
 the shared unit's files, lists and block coverage, and a `-F` cycle between two top-level IPs (`test_filelists_check.py`), each wiki mirror rule: every required page,
 `asic/` and `fpga/` pages following the source folders, the top-level
 `arch/` exemption without targets and its limit, HAS targets requiring

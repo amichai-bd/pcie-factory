@@ -34,7 +34,7 @@ CDC declaration ([convention](../../../bkm/rtl.md#clock-domain-crossings)):
 | Name | Type | Default | Legal range | Effect |
 | --- | --- | --- | --- | --- |
 | `WIDTH` | `int unsigned` | 8 | 1 or more | Word width. |
-| `ADDR_W` | `int unsigned` | 2 | 1 or more; less is an elaboration `$error` (`g_addr_w_check`) | Depth is `2**ADDR_W` words. |
+| `ADDR_W` | `int unsigned` | 2 | 1 or more; less is an elaboration-time `$fatal` that lint and the simulation build report (`COMMON_ASSERT_PARAM` block `g_addr_w_check`) | Depth is `2**ADDR_W` words. |
 
 ## Behavior
 
@@ -65,13 +65,15 @@ CDC declaration ([convention](../../../bkm/rtl.md#clock-domain-crossings)):
 ## Microarchitecture
 
 - **Storage:** `mem_q`, `2**ADDR_W` words, written in the source domain
-  (no reset) and read combinationally at the read address.
+  by one `COMMON_MEM_WRITE` port at `waddr` (no reset) and read
+  combinationally at `raddr`. The pointer registers are `COMMON_DFF_RST`
+  forms ([RTL vocabulary](../../../bkm/rtl.md#registers-and-memories)).
 - **Pointers:** each side keeps an `ADDR_W+1`-bit binary pointer
   (`wbin_q`, `rbin_q`) for addressing and a registered Gray copy
   (`wgray_q`, `rgray_q`). The extra bit tells full from empty.
 - **Crossings:** `u_sync_wptr` brings `wgray_q` into the destination
   domain and `u_sync_rptr` brings `rgray_q` into the source domain, both
-  [`common_cdc_sync2`](common_cdc_sync2.md). A Gray pointer changes one bit
+  [`common_cdc_sync2`](common_cdc_sync2.md) through `COMMON_METAFLOP`. A Gray pointer changes one bit
   per update, as the synchronizer requires, and the registered Gray copy
   never glitches.
 - **Flags:** empty when `rgray_q` equals the synchronized write pointer;
@@ -105,4 +107,4 @@ CDC declaration ([convention](../../../bkm/rtl.md#clock-domain-crossings)):
 | File | Holds |
 | --- | --- |
 | [`common_cdc_fifo.sv`](../../../../src/rtl/common/common_cdc_fifo.sv) | The module. |
-| [`common_cdc_fifo.rtl.f`](../../../../src/rtl/common/common_cdc_fifo.rtl.f) | `-F common_cdc_sync2.rtl.f`, then the module. |
+| [`common_cdc_fifo.rtl.f`](../../../../src/rtl/common/common_cdc_fifo.rtl.f) | `-F common_macros.rtl.f` (the vocabulary), `-F common_cdc_sync2.rtl.f`, then the module. |

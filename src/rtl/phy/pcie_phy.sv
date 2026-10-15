@@ -6,6 +6,8 @@
 // value. The mac and pcs instances arrive with the stack integration.
 `default_nettype none
 
+`include "common_macros.svh"
+
 module pcie_phy #(
   parameter int unsigned TIMEOUT_DIV = 1  // 1..1024: divides Detect.Quiet and Hot Reset waits; 1 for silicon
 ) (
@@ -54,13 +56,12 @@ module pcie_phy #(
 );
 
   // Inputs the shell does not use yet; the stack integration consumes them.
-  logic unused_inputs;
-  assign unused_inputs = ^{rst_i, port_role_i, pkt_tx_valid_i, pkt_tx_data_i,
-                           pkt_tx_sop_i, pkt_tx_eop_i, pkt_tx_dllp_i,
-                           pkt_tx_nullify_i, retrain_req_i, hot_reset_req_i, disable_req_i,
-                           loopback_req_i, pm_state_req_i, ser_tx_rxdet_i,
-                           ser_rx_clk_i, ser_rx_data_i, ser_rx_elec_idle_i,
-                           clk_i, TIMEOUT_DIV[0]};
+  `COMMON_UNUSED_BITS(unused_inputs, {rst_i, port_role_i, pkt_tx_valid_i, pkt_tx_data_i,
+                                       pkt_tx_sop_i, pkt_tx_eop_i, pkt_tx_dllp_i,
+                                       pkt_tx_nullify_i, retrain_req_i, hot_reset_req_i,
+                                       disable_req_i, loopback_req_i, pm_state_req_i,
+                                       ser_tx_rxdet_i, ser_rx_clk_i, ser_rx_data_i,
+                                       ser_rx_elec_idle_i, clk_i, TIMEOUT_DIV[0]})
 
   // Reset values from the HAS: no packet traffic, link down in Detect.Quiet
   // (code 0), transmitter in electrical idle.

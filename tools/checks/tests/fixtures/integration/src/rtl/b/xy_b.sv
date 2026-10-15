@@ -1,5 +1,7 @@
 `default_nettype none
 
+`include "common_macros.svh"
+
 // Registered inverter.
 module xy_b (
     input  logic       clk_i,
@@ -7,10 +9,10 @@ module xy_b (
     input  logic [7:0] d_i,
     output logic [7:0] q_o
 );
-  always_ff @(posedge clk_i) begin
-    if (rst_i) q_o <= '0;
-    else q_o <= ~d_i;
-  end
+  logic [7:0] inv_d;
+
+  assign inv_d = ~d_i;
+  `COMMON_DFF_RST(q_o, inv_d, clk_i, rst_i)
 endmodule
 
 `default_nettype wire

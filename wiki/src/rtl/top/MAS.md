@@ -7,8 +7,10 @@ source.
 ## Microarchitecture
 
 `pcie_top_lfsr` (instance `u_lfsr`) with `advance_i = valid_i` and
-`reseed_i = reseed_i`. One XOR stage, a `valid_q` register with reset, and a
-`data_q` register enabled by `valid_i`.
+`reseed_i = reseed_i`. One XOR stage, a `valid_q` register with reset
+(`COMMON_DFF_RST`), and a `data_q` register enabled by `valid_i`
+(`COMMON_DFF_EN`). Types come from `pcie_top_lfsr_pkg` by explicit
+`pcie_top_lfsr_pkg::t_byte` references.
 
 ## Decisions
 
@@ -31,4 +33,4 @@ source.
 | File | Holds |
 | --- | --- |
 | [`pcie_top.sv`](../../../../src/rtl/top/pcie_top.sv) | The module. |
-| [`top.rtl.f`](../../../../src/rtl/top/top.rtl.f) | `-F ../top_lfsr/top_lfsr.rtl.f`, then `pcie_top.sv`. |
+| [`top.rtl.f`](../../../../src/rtl/top/top.rtl.f) | `-F ../common/common_macros.rtl.f` (the RTL vocabulary), `-F ../common/common_cdc_sync2.rtl.f` (used only by the [board wrapper](../../fpga/top/FPGA.md)), `-F ../top_lfsr/top_lfsr.rtl.f`, then `pcie_top.sv`. |

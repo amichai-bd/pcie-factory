@@ -118,3 +118,16 @@ def test_fixture_filelists(fixture_src):
     assert [p.name for p in r.sources] == ["inc.sv", "counter.sv"]
     assert r.defines == {"COUNTER_FIXTURE": None}
     assert [p.name for p in r.incdirs] == ["include"]
+
+
+def test_synthesis_defines(tmp_path):
+    from build.filelist import synthesis_defines
+
+    f = tmp_path / "a.f"
+    f.write_text("+define+W=8\n")
+    flat = resolve(f)
+    assert synthesis_defines(flat, f) == {"W": "8", "SYNTHESIS": None}
+    assert flat.defines == {"W": "8"}  # the resolved view is unchanged
+    f.write_text("+define+SYNTHESIS\n")
+    with pytest.raises(FilelistError, match="only the synthesis flows set"):
+        synthesis_defines(resolve(f), f)

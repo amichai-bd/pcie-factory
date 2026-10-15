@@ -198,6 +198,12 @@ def test_e2e_pass_fail_timeout_and_build_error(fixture_src, tmp_path):
     bad = sim.run_test(spec, work, verilator, "neg", "tests.test_negative", "always_fails", 1, 60)
     assert bad.status == "fail" and "always_fails" in bad.detail
 
+    # Builds pass --assert: an RTL assertion stops the simulation.
+    fired = sim.run_test(spec, work, verilator, "asrt", "tests.test_negative", "assertion_fires",
+                         1, 60)
+    assert fired.status in ("fail", "error"), fired.detail
+    assert "en_low_in_reset failed" in fired.log.read_text()
+
     hung = sim.run_test(spec, work, verilator, "hang", "tests.test_negative", "hangs", 1, 3)
     assert hung.status == "timeout"
     hang_dir = (work / "counter/hang/1").resolve()
