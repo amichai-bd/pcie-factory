@@ -65,6 +65,7 @@ FRAME_START_CODES = frozenset(code8b10b.encode(k, True, rd)[0]
 COM_CODES = frozenset(code8b10b.encode(code8b10b.K_COM, True, rd)[0] for rd in (-1, 1))
 SKP_CODES = frozenset(code8b10b.encode(code8b10b.K_SKP, True, rd)[0] for rd in (-1, 1))
 POLLING_ACTIVE_CODE = stack.mac_arch.CODES[stack.mac_arch.PA]
+LOOPBACK_ACTIVE_CODE = 0x1D  # ltssm_state_o of Loopback.Active (mac HAS, LTSSM page)
 REQUESTS = ("hot_reset_req_i", "disable_req_i", "loopback_req_i", "pm_state_req_i")
 
 CORE_PS = 8000
@@ -217,6 +218,112 @@ class Scoreboard:
             f"observed {lost} lost, {flagged} flagged err, {bad} failed the check code")
 
 
+class LineLog:
+    """The 20-bit words on one RTL port's lines, in order: ``tx`` holds
+    (edge, ser_tx_data_o, ser_tx_elec_idle_o) per core edge; ``rx`` holds
+    (edge, ltssm_state_o, ser_rx_data_i, ser_rx_elec_idle_i) per word the
+    channel delivers, with the port's last sampled LTSSM code."""
+
+    def __init__(self) -> None:
+        self.tx: list = []
+        self.rx: list = []
+
+
+def line_symbols(words, rd_check: bool) -> list:
+    """Decode line words ([9:0] first) into (edge, k, byte) per symbol,
+    with the running disparity carried from symbol to symbol (unknown
+    at the start and after electrical idle, until a code fixes it). A word in electrical idle breaks the stream.
+    With ``rd_check`` a code or disparity error fails at once."""
+    out, rd = [], None
+    for edge, word, ei in words:
+        if ei:
+            rd = None
+            continue
+        for code in (word & 0x3FF, word >> 10):
+            byte, k, rd_out, code_err, disp_err = code8b10b.decode(code, rd)
+            assert not (rd_check and (code_err or disp_err)), (
+                f"loopback echo, edge {edge}: code {code:#05x} is a "
+                f"{'code' if code_err else 'disparity'} error")
+            if rd is None:
+                # Unknown until a code fixes it: a neutral code (D10.2,
+                # D21.5, ...) leaves either disparity as it was.
+                after = code8b10b.rd_after(code, -1), code8b10b.rd_after(code, 1)
+                rd_out = after[0] if after[0] == after[1] else None
+            rd = rd_out
+            out.append((edge, k, byte))
+    return out
+
+
+class LoopbackScoreboard:
+    """The loopback master's echo (wiki/src/dv/phy/DV_PLAN.md). While the
+    master is in Loopback.Active, every symbol it receives on
+    ``ser_rx_data_i`` must be one it sent on ``ser_tx_data_o``, in order,
+    with nothing dropped, added or changed between the first and the last:
+    the received symbols are one contiguous run of the sent ones. SKP
+    symbols are left out of both sides, since the slave may add or remove
+    them (pcs PIPE control, Loopback). ``check`` also counts the master's
+    data pattern in the echo: data symbols each one more (mod 256) than the
+    data symbol before them."""
+
+    def __init__(self, port: RtlPort, name: str) -> None:
+        self.port, self.name = port, name
+        self.log = LineLog()
+
+    def start(self) -> None:
+        self.port.line = self.log
+
+    def stop(self) -> None:
+        self.port.line = None
+
+    def check(self, min_pattern: int) -> dict:
+        tx = [(e, k, b) for e, k, b in line_symbols(self.log.tx, rd_check=False)
+              if not (k and b == code8b10b.K_SKP)]
+        echo = [(e, w, ei) for e, code, w, ei in self.log.rx if code == LOOPBACK_ACTIVE_CODE]
+        assert echo, f"{self.name}: no word received in Loopback.Active"
+        assert not any(ei for _, _, ei in echo), (
+            f"{self.name}: electrical idle received in Loopback.Active")
+        rx = [(e, k, b) for e, k, b in line_symbols(echo, rd_check=True)
+              if not (k and b == code8b10b.K_SKP)]
+        sent = bytes(v for _, k, b in tx for v in (k, b))
+        got = bytes(v for _, k, b in rx for v in (k, b))
+        # Every place the first 8 received symbols were sent is a candidate
+        # (training sets repeat); the echo must match one of them in full.
+        best = None                        # (symbols matched, base) of the best candidate
+        at = sent.find(got[:16])
+        while at >= 0:
+            if at % 2 == 0:
+                if sent[at:at + len(got)] == got:
+                    best = None
+                    break
+                n = next(j for j in range(len(rx)) if 2 * j >= len(sent) - at
+                         or sent[at + 2 * j:at + 2 * j + 2] != got[2 * j:2 * j + 2])
+                if best is None or n > best[0]:
+                    best = (n, at // 2)
+            at = sent.find(got[:16], at + 1)
+        else:
+            assert best is not None, (
+                f"{self.name}: the first received symbols "
+                f"{[(k, hex(b)) for _, k, b in rx[:8]]} (edge {rx[0][0]}) were never sent")
+            j, base = best
+            edge, k, b = rx[j]
+            want = (f"sent symbol {base + j} k={tx[base + j][1]} {tx[base + j][2]:#04x}"
+                    if base + j < len(tx) else f"nothing (only {len(tx)} symbols sent)")
+            raise AssertionError(
+                f"{self.name}: echo symbol {j} of {len(rx)}, received at edge {edge}: expected "
+                f"the {want}, observed k={k} {b:#04x}")
+        pattern, prev = 0, None
+        for _, k, b in rx:
+            if k:
+                continue
+            pattern += prev is not None and b == (prev + 1) & 0xFF
+            prev = b
+        assert pattern >= min_pattern, (
+            f"{self.name}: expected at least {min_pattern} pattern symbols echoed, "
+            f"observed {pattern} (of {len(rx)} symbols received)")
+        return {"symbols": len(rx), "pattern": pattern, "first_edge": rx[0][0],
+                "last_edge": rx[-1][0]}
+
+
 # ------------------------------------------------------------ RTL port
 
 class RtlPort:
@@ -253,6 +360,7 @@ class RtlPort:
         self.tx_starts: list = []          # (edge, time ps) per STP/SDP sent in [9:0]
         self.tx_skps: list = []            # edge per SKP ordered set sent
         self.rx_sops: list = []            # (edge, time ps) per sop beat delivered
+        self.line: LineLog | None = None   # set: record the line words (LoopbackScoreboard)
         for name in ("pkt_tx_valid_i", "pkt_tx_data_i", "pkt_tx_sop_i", "pkt_tx_eop_i",
                      "pkt_tx_dllp_i", "pkt_tx_nullify_i", "retrain_req_i", "hot_reset_req_i",
                      "disable_req_i", "loopback_req_i", "pm_state_req_i", "ser_tx_rxdet_i",
@@ -304,6 +412,8 @@ class RtlPort:
             self.tx_starts.append((self.edges, t_rise))
         if self.trace and not ei and (word & 0x3FF) in COM_CODES and (word >> 10) in SKP_CODES:
             self.tx_skps.append(self.edges)
+        if self.line is not None:
+            self.line.tx.append((self.edges, word, ei))
         # Drive.
         s["rst_i"].value = int(self.rst)
         # In reset the lower inputs are random too: ser_tx_rxdet_i here, the
@@ -346,6 +456,8 @@ class RtlPort:
         While this port is in reset, the receive lines are random instead."""
         if self.rst and self.rng:
             word, ei = self.rng.getrandbits(20), bool(self.rng.getrandbits(1))
+        if self.line is not None:
+            self.line.rx.append((self.edges, self._code, word, ei))
         self.s["ser_rx_data_i"].value = word
         self.s["ser_rx_elec_idle_i"].value = int(ei)
 
