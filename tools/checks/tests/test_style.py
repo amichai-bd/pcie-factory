@@ -348,6 +348,12 @@ def test_vocabulary_from_tree(tmp_path):
     assert style.vocabulary(tmp_path / "none") == style.Vocabulary()
 
 
+def test_repository_vocabulary_covers_the_wrapped_cells():
+    # Each crossing cell a vocabulary macro wraps falls under cdc-cell-macro.
+    cells = style.vocabulary(REPO_ROOT / "src").cells
+    assert {"common_cdc_sync2", "common_cdc_pulse", "common_cdc_rst"} <= cells
+
+
 @pytest.mark.parametrize("name, prefix, body, detail", [
     ("xy_a_x.sv", "xy_a", GOOD, "module xy_a_m in file xy_a_x.sv"),
     ("xy_b_m.sv", "xy_b", GOOD.replace("xy_a_m", "xy_b_m").replace("xy_a_pkg", "xy_b_pkg"),
