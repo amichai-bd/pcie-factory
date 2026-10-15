@@ -29,8 +29,7 @@ module pcie_mac_frame (
   // Transmit symbols, before scrambling
   output logic                  tx_act_o,        // the frame drives the line this cycle
   output common_pkg::t_word       tx_word_o,       // [7:0] first on the line
-  output logic                  tx_pkt_o,        // this word carries a packet symbol
-  output logic                  tx_open_o,       // packet symbols remain after this word
+  output pcie_mac_pkg::t_fr_tx_stat tx_stat_o, // this word's status for the LTSSM
 
   // Receive symbols, after descrambling, with the PIPE status of the word
   input  common_pkg::t_word       rx_word_i,
@@ -120,8 +119,10 @@ module pcie_mac_frame (
   assign pkt_tx_ready_o = tx_ready;
   assign tx_word_o.data      = tx_word;
   assign tx_word_o.datak     = tx_word_k;
-  assign tx_pkt_o       = tx_word_pkt && !rst_i;
-  assign tx_open_o      = txc_d.line_open && !rst_i;
+  assign tx_stat_o.idle  = tx_act_o && !tx_word_pkt;
+  assign tx_stat_o.pkt   = tx_word_pkt && !rst_i;
+  assign tx_stat_o.open  = txc_d.line_open && !rst_i;
+  assign tx_stat_o.offer = pkt_tx_valid_i;
 
   // The upper layer's contract (HAS, Transmit): sop starts a packet, and
   // only outside one.
