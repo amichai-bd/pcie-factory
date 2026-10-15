@@ -31,7 +31,7 @@ tools_tests: [tools]         # repo-relative pytest paths
 | --- | --- |
 | `global` | A change under a prefix, or to one of the files, selects every IP and the tools unit tests. |
 | `shared_dv` | Shared DV Python that no filelist reaches; a change under one selects every IP. |
-| `models` | An IP's reference models and their unit tests. A change under a sub-IP's models directory also selects every ancestor IP, because parent models import sub-IP models ([DV BKM](../../bkm/dv.md#reusing-a-sub-ip-model)). `./build ci unit` runs the model tests of each selected IP. |
+| `models` | An IP's reference models and their unit tests. A change under a sub-IP's (or an integrated IP's) models directory also selects every ancestor IP, because parent models import sub-IP models ([DV BKM](../../bkm/dv.md#reusing-a-sub-ip-model)). `./build ci unit` runs the model tests of each selected IP. |
 | `tools_tests` | The pytest paths of the tools unit tests. |
 
 A top-level IP's architecture models, self-tests and `perf/` scenarios
@@ -207,5 +207,5 @@ suites, and failure propagation (`test_ci_unit.py`), summary rendering
 posted request, dry run, API failure and CLI wiring (`test_ci_status.py`,
 `gh` faked). The affected-IP rules are tested in
 `tools/regress/tests/test_affected.py` against the real `cfg/ci.yaml`,
-including sub-IP changes selecting every ancestor (on the fixture and on
+including sub-IP and integrated-IP changes selecting every ancestor (on the fixtures and on
 the repository's own `src/`, IPs discovered, never named).

@@ -14,8 +14,11 @@ Rules, owned by the layout page (wiki/project/layout.md):
 - ``rtl/common/`` holds filelists only directly in it, each a shared block
   ``common_<name>.rtl.f``, and ``dv/common/`` none but ``common.dv.f`` and
   ``common.sim.f`` (the shared unit);
-- a sub-IP's id is prefixed with the id of an IP that reaches it and
-  ``_`` (``<parent>_<sub>``).
+- an IP is a sub-IP only when its id is ``<parent>_<name>`` and the
+  parent's ``.rtl.f`` reaches it (:attr:`build.ip.Ip.parents`); any other IP
+  is top-level, even when another IP's filelist includes it;
+- an id ``<other>_<name>`` claims IP ``<other>`` as its parent, so that
+  IP's ``.rtl.f`` must reach it (include it with ``-F``, or rename it).
 """
 
 from __future__ import annotations
@@ -82,7 +85,7 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                 continue
             if kind in TOP_LEVEL_KINDS and not ip.top_level:
                 add(f"{where}/: {kind}/ is for top-level IPs only "
-                    f"({ip.id} is a sub-IP of {', '.join(ip.ancestors)})")
+                    f"({ip.id} is a sub-IP of {', '.join(ip.parents)})")
             allowed = {"rtl": {ip.rtl_f}, "dv": {ip.dv_f, ip.sim_f}}.get(kind)
             if allowed is not None:
                 for f in _filelists(d):
@@ -94,9 +97,11 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
     for ip in ips:
         if ip_ids is not None and ip.id not in ip_ids:
             continue
-        if ip.ancestors and not any(ip.id.startswith(a + "_") for a in ip.ancestors):
-            add(f"rtl/{ip.id}/: sub-IP id must start with the id of an IP that reaches it "
-                f"and '_' ({' or '.join(a + '_' for a in ip.ancestors)}...)")
+        for other in ips:
+            if ip.id.startswith(other.id + "_") and other.id not in ip.ancestors:
+                add(f"rtl/{ip.id}/: id names {other.id} as its parent, but "
+                    f"rtl/{other.id}/{other.id}.rtl.f does not reach it; include it there "
+                    f"with -F ../{ip.id}/{ip.id}.rtl.f, or rename it")
 
     result.checked = f"{folders} IP or shared folder(s) under {', '.join(k + '/' for k in KINDS)}"
     return result
