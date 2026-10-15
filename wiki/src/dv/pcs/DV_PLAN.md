@@ -36,7 +36,7 @@ Levels 1 and 2 have no entries yet (`tests: []`).
 | Feature | Owning issue |
 | --- | --- |
 | [8b/10b encoder](../../arch/pcs/8B10B.md) in the `pcs` top (unit-tested in the [`pcs_enc8b10b` DV plan](../pcs_enc8b10b/DV_PLAN.md)) | [#85](https://github.com/amichai-bd/pcie-factory/issues/85) |
-| [8b/10b decoder](../../arch/pcs/8B10B.md#decoder-and-error-classes) | [#82](https://github.com/amichai-bd/pcie-factory/issues/82) |
+| [8b/10b decoder](../../arch/pcs/8B10B.md#decoder-and-error-classes) in the `pcs` top (unit-tested in the [`pcs_dec8b10b` DV plan](../pcs_dec8b10b/DV_PLAN.md)) | [#85](https://github.com/amichai-bd/pcie-factory/issues/85) |
 | [Comma alignment and symbol lock](../../arch/pcs/RECEIVE.md#comma-alignment-and-symbol-lock) | [#83](https://github.com/amichai-bd/pcie-factory/issues/83) |
 | [Elastic buffer](../../arch/pcs/RECEIVE.md#elastic-buffer) | [#84](https://github.com/amichai-bd/pcie-factory/issues/84) |
 | [PIPE control](../../arch/pcs/PIPE_CONTROL.md), [RxStatus](../../arch/pcs/RECEIVE.md#decode-and-rxstatus), [targets](../../arch/pcs/HAS.md#targets), crossings | [#85](https://github.com/amichai-bd/pcie-factory/issues/85) |

@@ -21,6 +21,10 @@ not change. Today that is the encoder
 [`pcs_enc8b10b`](../pcs_enc8b10b/MAS.md) (`u_enc`): reset while `rst_i` is 1
 or `pipe_reset_ni` is 0, a word valid in P0 with `pipe_tx_elec_idle_i` 0,
 fed from `pipe_tx_data_i`, `pipe_tx_datak_i` and `pipe_tx_compliance_i`.
+The decoder [`pcs_dec8b10b`](../pcs_dec8b10b/MAS.md) is reached by the
+filelist but not instantiated: its input is the elastic buffer's read side
+([#84](https://github.com/amichai-bd/pcie-factory/issues/84)), and feeding
+it from `ser_rx_data_i` would cross clock domains without a cell.
 
 ## Timing
 
@@ -32,4 +36,4 @@ are in the [HAS targets](../../arch/pcs/HAS.md#targets).
 | File | Holds |
 | --- | --- |
 | [`pcie_pcs.sv`](../../../../src/rtl/pcs/pcie_pcs.sv) | The shell module. |
-| [`pcs.rtl.f`](../../../../src/rtl/pcs/pcs.rtl.f) | `-F ../pcs_enc8b10b/pcs_enc8b10b.rtl.f`, then `pcie_pcs.sv`. |
+| [`pcs.rtl.f`](../../../../src/rtl/pcs/pcs.rtl.f) | `-F ../pcs_enc8b10b/pcs_enc8b10b.rtl.f`, `-F ../pcs_dec8b10b/pcs_dec8b10b.rtl.f` (the [`pcs_dec8b10b`](../pcs_dec8b10b/MAS.md) sub-IP, not yet instantiated), `-F ../pcs_align/pcs_align.rtl.f` (the [`pcs_align`](../pcs_align/MAS.md) sub-IP, not yet instantiated), then `pcie_pcs.sv`. |

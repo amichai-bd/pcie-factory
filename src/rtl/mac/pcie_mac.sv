@@ -94,7 +94,21 @@ module pcie_mac #(
   logic [7:0]  os_rx_link, os_rx_lane, os_rx_n_fts;
   logic [4:0]  os_rx_ctl;
 
+  // Frame signals (wiki/src/rtl/mac_frame/MAS.md).
+  logic        frame_tx_ready;
+  logic        frame_rx_valid;
+  logic [15:0] frame_rx_data;
+  logic [4:0]  frame_rx_flags;   // sop, eop, dllp, err, nullify
+  logic        frame_skp_gnt;
+  logic        frame_tx_act;
+  logic [15:0] frame_tx_data;
+  logic [1:0]  frame_tx_datak;
+  logic        frame_tx_pkt;
+  logic        frame_rx_frame_err;
+  logic [1:0]  frame_rx_idle;
+
   // LTSSM signals (wiki/src/rtl/mac_ltssm/MAS.md).
+  logic        ltssm_fr_tx_idle;   // the frame's idle word is on the line
   logic        ltssm_link_up, ltssm_reset_n, ltssm_tx_elec_idle, ltssm_tx_detect_rx;
   logic        ltssm_rx_polarity, ltssm_tx_ts_req, ltssm_tx_compliance_req, ltssm_tx_ts2;
   logic        ltssm_tx_link_pad, ltssm_tx_lane_pad, ltssm_tx_l0, ltssm_tx_stop, ltssm_rx_l0;
@@ -204,15 +218,60 @@ module pcie_mac #(
     .tx_stop_o           (ltssm_tx_stop),
     .rx_l0_o             (ltssm_rx_l0),
     .partner_n_fts_o     (ltssm_partner_n_fts),
-    .fr_tx_idle_i        (1'b0),
-    .fr_rx_idle_i        (2'd0)
+    .fr_tx_idle_i        (ltssm_fr_tx_idle),
+    .fr_rx_idle_i        (frame_rx_idle)
   );
 
   `COMMON_UNUSED_BITS(unused_os, {os_tx_skp_due, os_tx_compliance, os_tx_data, os_tx_datak})
   `COMMON_UNUSED_BITS(unused_ltssm, {ltssm_link_up, ltssm_reset_n, ltssm_tx_elec_idle,
-                                     ltssm_tx_detect_rx, ltssm_rx_polarity, ltssm_tx_l0,
-                                     ltssm_tx_stop, ltssm_rx_l0, ltssm_state,
+                                     ltssm_tx_detect_rx, ltssm_rx_polarity, ltssm_state,
                                      ltssm_power_down, ltssm_partner_n_fts})
+
+  // Framing (wiki/src/rtl/mac_frame/MAS.md), inert until the integration (#78):
+  // its LTSSM controls come from u_ltssm, which stays in Detect.Quiet (no
+  // L0), so it holds the line idle; its other outputs are not connected yet.
+  pcie_mac_frame u_frame (
+    .clk_i           (clk_i),
+    .rst_i           (rst_i),
+    .pkt_tx_valid_i  (pkt_tx_valid_i),
+    .pkt_tx_ready_o  (frame_tx_ready),
+    .pkt_tx_data_i   (pkt_tx_data_i),
+    .pkt_tx_sop_i    (pkt_tx_sop_i),
+    .pkt_tx_eop_i    (pkt_tx_eop_i),
+    .pkt_tx_dllp_i   (pkt_tx_dllp_i),
+    .pkt_tx_nullify_i(pkt_tx_nullify_i),
+    .pkt_rx_valid_o  (frame_rx_valid),
+    .pkt_rx_data_o   (frame_rx_data),
+    .pkt_rx_sop_o    (frame_rx_flags[0]),
+    .pkt_rx_eop_o    (frame_rx_flags[1]),
+    .pkt_rx_dllp_o   (frame_rx_flags[2]),
+    .pkt_rx_err_o    (frame_rx_flags[3]),
+    .pkt_rx_nullify_o(frame_rx_flags[4]),
+    .tx_l0_i         (ltssm_tx_l0),
+    .tx_stop_i       (ltssm_tx_stop),
+    .rx_l0_i         (ltssm_rx_l0),
+    .skp_req_i       (1'b0),
+    .skp_gnt_o       (frame_skp_gnt),
+    .tx_act_o        (frame_tx_act),
+    .tx_data_o       (frame_tx_data),
+    .tx_datak_o      (frame_tx_datak),
+    .tx_pkt_o        (frame_tx_pkt),
+    .rx_data_i       (pipe_rx_data_i),
+    .rx_datak_i      (pipe_rx_datak_i),
+    .rx_valid_i      (pipe_rx_valid_i),
+    .rx_elec_idle_i  (pipe_rx_elec_idle_i),
+    .rx_status_i     (pipe_rx_status_i),
+    .rx_frame_err_o  (frame_rx_frame_err),
+    .rx_idle_o       (frame_rx_idle)
+  );
+
+  // The frame's idle word reaches the line only when the ordered-set block
+  // is not sending (the transmit-word selection itself arrives with #78).
+  assign ltssm_fr_tx_idle = frame_tx_act && !frame_tx_pkt && !os_tx_valid;
+
+  `COMMON_UNUSED_BITS(unused_frame, {frame_tx_ready, frame_rx_valid, frame_rx_data,
+                                     frame_rx_flags, frame_skp_gnt, frame_tx_data,
+                                     frame_tx_datak, frame_rx_frame_err})
 
   // Reset values from the HAS: no packet traffic, link down in Detect.Quiet
   // (code 0), PCS held in reset, transmitter in electrical idle, P1.
