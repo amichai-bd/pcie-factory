@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from build.ip import (DiscoveryError, block_name, discover, find_ip, locate, make_context,
+from build.ip import (DiscoveryError, block_dir, block_group, block_name, discover, find_ip, locate, make_context,
                       owner_ip, shared_blocks, shared_unit, units)
 
 
@@ -122,6 +122,19 @@ def test_shared_unit_and_blocks(tmp_path):
     assert shared_blocks(tmp_path) == [common / "common_x.rtl.f", common / "common_y.rtl.f"]
     assert block_name(common / "common_x.rtl.f") == "common_x"
     assert shared_blocks(tmp_path / "nope") == []
+    # Group folders one level down hold blocks too; deeper filelists do not.
+    (common / "grp").mkdir()
+    (common / "grp/common_w.rtl.f").write_text("")
+    (common / "grp/deep").mkdir()
+    (common / "grp/deep/common_v.rtl.f").write_text("")
+    (common / ".hidden").mkdir()
+    (common / ".hidden/common_u.rtl.f").write_text("")
+    assert shared_blocks(tmp_path) == [common / "grp/common_w.rtl.f", common / "common_x.rtl.f",
+                                       common / "common_y.rtl.f"]
+    assert block_group(common / "grp/common_w.rtl.f") == "grp"
+    assert block_group(common / "common_x.rtl.f") is None
+    assert block_dir(common / "grp/common_w.rtl.f") == "grp/"
+    assert block_dir(common / "common_x.rtl.f") == ""
     # No dv/common/common.sim.f: no shared unit, units() is discover().
     assert shared_unit(tmp_path) is None
     assert [ip.id for ip in units(tmp_path)] == ["a"]

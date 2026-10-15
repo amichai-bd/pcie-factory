@@ -18,8 +18,10 @@
 │   ├── lint_waivers.yaml        # reviewed Verilator waivers (optional; checks SPEC)
 │   ├── specs.yaml               # reference documents cached outside the repo (specs SPEC)
 │   ├── rtl/
-│   │   ├── common/              # shared blocks: common_<name>.sv, <block>.rtl.f, the
-│   │   │                        #   vocabulary headers common_*.svh (never an IP)
+│   │   ├── common/              # shared blocks (never an IP): the vocabulary headers
+│   │   │   │                    #   common_*.svh, common_pkg, their .rtl.f
+│   │   │   ├── cdc/             # crossing cells: common_cdc_<name>.sv, <block>.rtl.f
+│   │   │   └── ram/             # the RAM family: common_<name>.sv, <block>.rtl.f
 │   │   ├── <ip>/                # <ip>.rtl.f + synthesizable sources
 │   │   └── <ip>_<sub>/          # a sub-IP: a flat sibling with a prefixed id
 │   ├── dv/
@@ -35,7 +37,7 @@
 │   ├── tools/<tool>/SPEC.md
 │   ├── src/                     # mirrors src/: rtl/<ip>/MAS.md, dv/<ip>/DV_PLAN.md,
 │   │                            #   arch/<ip>/HAS.md, fpga/<ip>/FPGA.md, asic/<ip>/ASIC.md,
-│   │                            #   {rtl,dv}/common/<block>.md;
+│   │                            #   {rtl,dv}/common/[<group>/]<block>.md;
 │   │                            #   plus README.md, roadmap.md, references.md,
 │   │                            #   decisions/NNNN-<slug>.md
 │   └── tracker/                 # index.md, data/
@@ -83,13 +85,30 @@ Q19 of [decision record 0002](../src/decisions/0002-m1-grill.md#decisions)).
 types and constants used by more than one IP, design-specific ones included
 ([packages](../bkm/rtl.md#types-and-constants-live-in-packages)). It is never an IP: no HAS, no `arch/`, `fpga/` or `asic/`
 folder, and no IP reaches it as a sub-IP. A **shared block** is one
-filelist `rtl/common/<block>.rtl.f`, directly in the folder and named after
-the block's top module; it lists the block's sources and includes the
-blocks it uses with `-F`. An IP includes a block the same way, from its own
-`.rtl.f`. The `.svh` files directly in `rtl/common/` are the shared RTL
-vocabulary headers ([RTL BKM](../bkm/rtl.md#the-rtl-vocabulary)); their
-block `common_macros.rtl.f` is **include-only** (`+incdir+.`, no sources)
-and every filelist whose sources use the vocabulary includes it with `-F`.
+filelist `rtl/common/[<group>/]<block>.rtl.f`, named after the block's top
+module, with its sources beside it; it lists the block's sources and
+includes the blocks it uses with `-F`. An IP includes a block the same way,
+from its own `.rtl.f`. The `.svh` files directly in `rtl/common/` are the
+shared RTL vocabulary headers ([RTL BKM](../bkm/rtl.md#the-rtl-vocabulary));
+their block `common_macros.rtl.f` is **include-only** (`+incdir+.`, no
+sources) and every filelist whose sources use the vocabulary includes it
+with `-F`.
+
+Blocks are grouped by function in **group folders** one level down; names
+do not change with the folder:
+
+| Folder | Holds |
+| --- | --- |
+| `rtl/common/` | The vocabulary (`common_macros.svh`, `common_assertions.svh`, `common_macros.rtl.f`) and the shared package (`common_pkg.sv`, `common_pkg.rtl.f`): blocks that match no group. |
+| `rtl/common/cdc/` | The clock-domain crossing cells, `common_cdc_*` ([crossings](../bkm/rtl.md#clock-domain-crossings)). |
+| `rtl/common/ram/` | The RAM family, `common_*_ram` and `common_*_ram_*`. |
+
+`layout.shared_groups` in [`cfg/checks.yaml`](../../cfg/checks.yaml) lists
+each group folder with the block-name patterns it holds; the `layout`
+check fails a block outside the folder its name matches, a block in a
+group folder its name does not match, an unlisted group folder, and any
+filelist deeper than one group folder. A new group is a reviewed change to
+that list and to this table.
 
 The shared blocks are verified together as the **shared unit**, id
 `common`, laid out like an IP's DV folder:
@@ -97,14 +116,16 @@ The shared blocks are verified together as the **shared unit**, id
 | File | Rule |
 | --- | --- |
 | `dv/common/common.dv.f` | Simulation-only SystemVerilog for the blocks' tests. |
-| `dv/common/common.sim.f` | `-F ../../rtl/common/<block>.rtl.f` for every block, include-only ones too (so every block is tested), then `-F common.dv.f`. |
+| `dv/common/common.sim.f` | `-F ../../rtl/common/[<group>/]<block>.rtl.f` for every block, include-only ones too (so every block is tested), then `-F common.dv.f`. |
 | `dv/common/tb/`, `tests/`, `models/`, `regress/level{0,1,2}.yaml` | As for an IP; tests name the block as `top`, and `./build ci unit` runs the `models/` tests. |
 
 `./build sim`, `regress` and `clean` take `--ip common`; output goes to
 `workdir/common/`. IP tests cannot import from `dv/common/`: `sim` puts
-only the tested unit's own DV folder on the Python path. Each block has a MAS `wiki/src/rtl/common/<block>.md` and
-a DV plan `wiki/src/dv/common/<block>.md`
-([wiki BKM](../bkm/wiki.md#page-set)).
+only the tested unit's own DV folder on the Python path. `dv/common/` stays
+one testbench for every group. Each block has a MAS
+`wiki/src/rtl/common/[<group>/]<block>.md` and a DV plan
+`wiki/src/dv/common/[<group>/]<block>.md`, in the same group folder as its
+filelist ([wiki BKM](../bkm/wiki.md#page-set)).
 
 ## Per-IP files
 
@@ -125,8 +146,8 @@ shared unit's files (its `filelist` check) and the wiki mirror.
 `wiki/src/` mirrors `src/` exactly: `rtl/<ip>/MAS.md` and `dv/<ip>/DV_PLAN.md`
 for every IP, `arch/<ip>/HAS.md` for every top-level IP, and
 `fpga/<ip>/FPGA.md` or `asic/<ip>/ASIC.md` when `src/fpga/<ip>/` or
-`src/asic/<ip>/` exists, and `rtl/common/<block>.md` and
-`dv/common/<block>.md` for every shared block. Beside them, a fixed set of design-level pages:
+`src/asic/<ip>/` exists, and `rtl/common/[<group>/]<block>.md` and
+`dv/common/[<group>/]<block>.md` for every shared block. Beside them, a fixed set of design-level pages:
 `README.md`, `roadmap.md` and `decisions/NNNN-<slug>.md`. The [wiki BKM](../bkm/wiki.md#page-set) owns the
 page set.
 

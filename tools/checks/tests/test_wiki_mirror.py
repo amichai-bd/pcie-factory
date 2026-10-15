@@ -274,9 +274,34 @@ def test_extra_pages_and_shared_folders(good):
     assert run(good).findings == [
         "wiki/src/dv/common/MAS.md: names no shared block (no src/rtl/common/MAS.rtl.f)",
         "wiki/src/fpga/common/: names no IP (no src/rtl/common/common.rtl.f)",
-        "wiki/src/rtl/common/sub/: rtl/common/ holds only block pages",
+        "wiki/src/rtl/common/sub/: rtl/common/ holds only block pages and the group folders "
+        "of rtl/common/",
         "wiki/src/rtl/common/common.md: names no shared block "
         "(no src/rtl/common/common.rtl.f)",
+    ]
+
+
+def test_shared_group_folders(good):
+    # A block in a group folder has its pages in the same group folder.
+    write(good / "src/rtl/common/grp/common_two.rtl.f")
+    write(good / "wiki/src/rtl/common/grp/common_two.md")
+    assert run(good).findings == [
+        "wiki/src/dv/common/grp/common_two.md: missing (required for shared block common_two)"]
+    write(good / "wiki/src/dv/common/grp/common_two.md")
+    assert run(good).passed
+    # A page of another block, a nested folder or an unknown group folder fails.
+    write(good / "wiki/src/dv/common/grp/common_other.md")
+    write(good / "wiki/src/dv/common/grp/sub/x.md")
+    write(good / "wiki/src/rtl/common/nogroup/common_two.md")
+    write(good / "wiki/src/rtl/common/common_two.md")
+    assert run(good).findings == [
+        "wiki/src/dv/common/grp/sub/: dv/common/grp/ holds only block pages",
+        "wiki/src/dv/common/grp/common_other.md: names no shared block "
+        "(no src/rtl/common/grp/common_other.rtl.f)",
+        "wiki/src/rtl/common/nogroup/: rtl/common/ holds only block pages and the group "
+        "folders of rtl/common/",
+        "wiki/src/rtl/common/common_two.md: names no shared block "
+        "(no src/rtl/common/common_two.rtl.f)",
     ]
 
 

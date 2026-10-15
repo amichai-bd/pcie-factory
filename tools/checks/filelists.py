@@ -17,7 +17,8 @@
   its regression lists validate, and its ``common.sim.f`` reaches every
   block's filelist, so every shared block is tested.
 - No orphan RTL: every ``.sv`` below ``rtl/<name>/`` is listed by a filelist
-  directly in ``rtl/<name>/`` (for an IP, its ``.rtl.f``), and every
+  directly in ``rtl/<name>/`` (for an IP, its ``.rtl.f``; for ``common/``,
+  also one in a group folder ``rtl/common/<group>/``), and every
   ``.svh`` is listed or below one of its include directories.
 """
 
@@ -140,7 +141,10 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
     sources = [f for f in kind_files(src_root, ("rtl",)) if selected(f, ips, ip_ids)]
     for src in sources:
         home = _home(src, src_root)
-        owners = [r for f, r in resolved.items() if f.parent == home]
+        # The shared folder's filelists also sit in its group folders.
+        shared_home = home.name == SHARED_DIR and home.parent.name == "rtl"
+        owners = [r for f, r in resolved.items()
+                  if f.parent == home or (shared_home and f.parent.parent == home)]
         # A .sv must be a listed source; a .svh may be reached through
         # +incdir+ (an include directory does not compile a module).
         if not any(r.reaches(src) if src.suffix == ".svh" else src.resolve() in r.sources

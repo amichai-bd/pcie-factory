@@ -5,7 +5,7 @@ resolved ``rtl/<id>/<id>.rtl.f``. The top is ``<prefix><id>`` when a module of t
 otherwise Verilator picks it (several candidates raise MULTITOP). Each
 ``fpga/<id>/*.sv`` board wrapper is linted again with the IP's sources plus the
 wrapper, with the wrapper (named after its file) as top. Without ``--ip``,
-each shared block's ``rtl/common/<block>.rtl.f`` is linted the same way, with
+each shared block's ``rtl/common/[<group>/]<block>.rtl.f`` is linted the same way, with
 top ``<block>``; a block with no sources (include directories only) is not
 linted on its own, since every closure that includes its headers lints them.
 

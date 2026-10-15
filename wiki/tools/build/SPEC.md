@@ -93,7 +93,7 @@ Each IP has these files:
 
 ### Shared unit
 
-The shared blocks in `rtl/common/` are verified together as the **shared
+The shared blocks in `rtl/common/` and its group folders are verified together as the **shared
 unit**, id `common` ([layout](../../project/layout.md#shared-blocks)). It
 exists when `dv/common/common.sim.f` exists (`build.ip.shared_unit`), and
 it has an IP's DV files: `dv/common/common.sim.f`, `dv/common/` as the
@@ -105,8 +105,13 @@ or `asic/`, and `check`, `fpga`, `asic`, `arch` and `labels` do not take it.
 (`build.ip.units`), so `--ip common` works there and its output is
 `workdir/common/`.
 
-A **shared block** is a filelist `rtl/common/<block>.rtl.f`
-(`build.ip.shared_blocks`); its top module is `<block>`.
+A **shared block** is a filelist `rtl/common/<block>.rtl.f` or, one folder
+down, `rtl/common/<group>/<block>.rtl.f` (`build.ip.shared_blocks`, sorted
+by block name; deeper filelists are not blocks); its top module is
+`<block>`. `build.ip.block_group` gives its group folder (none for a block
+directly in `rtl/common/`), and its wiki pages sit in the same group folder
+under `wiki/src/{rtl,dv}/common/`. Which blocks belong in which group is a
+`layout` check rule ([checks SPEC](../checks/SPEC.md#layout-check)).
 
 ## Filelists
 

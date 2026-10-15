@@ -116,6 +116,24 @@ def test_orphan_and_include_header(good):
     ]
 
 
+def test_group_folder_block_owns_its_sources(good):
+    # A block in a group folder owns its sources; it must still be tested.
+    grp = good / "rtl/common/grp"
+    grp.mkdir()
+    (grp / "common_two.sv").write_text("")
+    (grp / "common_two.rtl.f").write_text("common_two.sv\n")
+    (grp / "common_spare.sv").write_text("")
+    assert run(good).findings == [
+        "rtl/common/grp/common_two.rtl.f: shared block not reached by "
+        "dv/common/common.sim.f (every shared block is tested)",
+        "rtl/common/grp/common_spare.sv: orphan: not reached by a filelist in rtl/common/",
+    ]
+    sim = good / "dv/common/common.sim.f"
+    sim.write_text("-F ../../rtl/common/grp/common_two.rtl.f\n" + sim.read_text())
+    (grp / "common_spare.sv").unlink()
+    assert run(good).passed
+
+
 def test_source_reached_only_from_another_rtl_dir_is_orphan(good):
     # Listed by the parent's filelist, but its own folder has no list reaching it.
     (good / "rtl/blk_sub/xy_blk_sub2.sv").write_text("")

@@ -81,10 +81,22 @@ IPs, sub-IPs and top-level IPs are as the
   its `dv/<id>/` none but `<id>.dv.f` and `<id>.sim.f`, so a sub-IP cannot
   nest inside its parent's folder.
 - **Shared folders** ([layout](../../project/layout.md#shared-blocks)):
-  `rtl/common/` holds filelists only directly in it, each a shared block
-  named `common_<name>.rtl.f`, and `dv/common/` holds no filelist but
+  `rtl/common/` holds filelists only directly in it or one folder down in a
+  group folder `rtl/common/<group>/`, each a shared block named
+  `common_<name>.rtl.f`, and `dv/common/` holds no filelist but
   `common.dv.f` and `common.sim.f` (the shared unit). Anything else is
   `<path>: rtl/common/ holds no filelist but ...`.
+- **Shared-block groups.** `layout.shared_groups` in `cfg/checks.yaml` maps
+  each group folder name (lower case) to its block-name `fnmatch` patterns
+  (each starting `common_`); a missing or malformed section is a
+  configuration error (exit 2). Each of these is a finding:
+  - a block whose name matches a group's pattern but that is not in that
+    group's folder (`<path>: block <b> belongs in rtl/common/<group>/ ...`);
+  - a block in a group folder that matches none of that group's patterns;
+  - a block that matches more than one group;
+  - a folder in `rtl/common/` that is not a listed group.
+
+  Blocks that match no group stay directly in `rtl/common/`.
 - **Flat sub-IP naming.** Naming is what makes an IP a sub-IP: an IP
   reached by `P`'s filelist is a sub-IP only when its id is `P_<name>`.
   Any other reached IP is an integrated top-level IP, which keeps its own
@@ -127,13 +139,14 @@ Rule owners: [layout](../../project/layout.md#per-ip-files) and the
   - `dv/` filelists are not restricted.
 - **No orphans:** every `.sv` below `rtl/<name>/` is listed as a source by
   a filelist directly in `rtl/<name>/` (for an IP, its `.rtl.f`; for
-  `rtl/common/`, whichever filelist lives there), and every `.svh` is
+  `rtl/common/`, any filelist there or in one of its group folders), and every `.svh` is
   listed or below one of that filelist's include directories (an include
   directory does not compile a module). `fpga/` wrappers are not in any
   filelist and are not orphans.
 
 `rtl/common/` is never an IP; its filelists, the shared blocks (for example
-`common_lib.rtl.f`), are checked as filelists. Without `--ip`, the
+`common_lib.rtl.f`, or `<group>/common_x.rtl.f` in a group folder), are
+checked as filelists. Without `--ip`, the
 [shared unit](../build/SPEC.md#shared-unit) is checked when a shared block
 or `dv/common/common.sim.f` exists:
 
@@ -143,7 +156,7 @@ or `dv/common/common.sim.f` exists:
   floors);
 - `common.sim.f` reaches every shared block's filelist itself (through
   `-F`; reaching only its folder as an include directory does not count),
-  so every block is tested (`rtl/common/<block>.rtl.f: shared block not reached by
+  so every block is tested (`rtl/common/[<group>/]<block>.rtl.f: shared block not reached by
   dv/common/common.sim.f`).
 
 ## Style check
@@ -166,7 +179,7 @@ adding one is a reviewed change to that list, and any other `.svh`, in
 `rtl/common/` or not, gets no exemption)
 ([RTL vocabulary](../../bkm/rtl.md#the-rtl-vocabulary)). The checker reads
 from them the macro names they `` `define`` (noting which are function-like, defined with a parameter list directly after the name) and the shared cells
-(`rtl/common/<cell>.sv`) their text names. A header is exempt from
+(`rtl/common/<cell>.sv` or `rtl/common/<group>/<cell>.sv`) their text names. A header is exempt from
 `raw-always-ff`, `nonblocking-assignment`, `raw-assertion`, `raw-initial`,
 `system-task`, `sampled-value`, `assert-label`, `object-macro` and `vocabulary-include`, and may test
 `SYNTHESIS` and `VERILATOR` (not `SIMULATION`); `clocking-block` applies to
@@ -255,12 +268,14 @@ next to `src/`); a missing wiki tree is an empty one. Code: `wiki_mirror.py`.
   `./build arch`, not here. No Python file in it imports DV, RTL or tools
   code ([import rule](../arch/SPEC.md#import-rule)): each such import is
   `src/arch/<id>/<file>:<line>: imports <module> (<origin>); ...`.
-- **Shared blocks.** Every shared block `src/rtl/common/<block>.rtl.f`
-  has its MAS `rtl/common/<block>.md` and its DV plan `dv/common/<block>.md`
+- **Shared blocks.** Every shared block `src/rtl/common/[<group>/]<block>.rtl.f`
+  has its MAS `rtl/common/[<group>/]<block>.md` and its DV plan
+  `dv/common/[<group>/]<block>.md`, in the same group folder
   (`...: missing (required for shared block <block>)`). The folders
   `rtl/common/` and `dv/common/` hold nothing else: a page that names no
-  block is `wiki/src/<kind>/common/<page>: names no shared block`, and a
-  subfolder is a finding. `common/` under any other kind names no IP.
+  block in that folder is `wiki/src/<kind>/common/[<group>/]<page>: names no
+  shared block`, and a subfolder that is not the group folder of a block, or
+  any folder inside a group folder, is a finding. `common/` under any other kind names no IP.
 - **No sub-IP `arch/`.** `wiki/src/arch/<sub>/` is a finding here;
   `src/arch/<sub>/` is a [layout check](#layout-check) finding.
 - **Placement.** Every file sits in, or below, an IP folder
@@ -528,7 +543,7 @@ then `verilator.prefix` in `cfg/host.yaml`); see the
   which fails).
 - **Board wrapper:** each `fpga/<id>/*.sv` of the IP is linted in a second run with
   the IP's sources plus the wrapper, with the wrapper's file stem as top.
-- **Shared blocks:** without `--ip`, each `rtl/common/<block>.rtl.f` is
+- **Shared blocks:** without `--ip`, each `rtl/common/[<group>/]<block>.rtl.f` is
   linted the same way, labelled `common/<block>`, with top `<block>` when a
   module of that name is declared (otherwise Verilator picks). The summary
   counts them as `N shared block(s)`. An include-only block (a filelist
@@ -596,7 +611,7 @@ tests do that.
 
 **Targets.** Without `--ip`, each top-level IP (one that is no other IP's
 sub-IP) is one target, with top `<prefix><id>` as for lint, and each
-`rtl/common/<block>.rtl.f` is another, with top `<block>`; an include-only
+`rtl/common/[<group>/]<block>.rtl.f` is another, with top `<block>`; an include-only
 block (no sources) holds no flops and is skipped, which the summary adds as
 `, N include-only block(s) skipped`; so is a package-only block (sources
 that declare no module), added as `, N package-only block(s) skipped`. A top-level IP
@@ -622,7 +637,8 @@ version. A nonzero Verilator exit is a finding. Warnings are left to lint.
 comment line that starts with `cdc-cell` is a directive and must match
 `// cdc-cell: src=<port|async> dst=<port>` exactly, with `src` and `dst`
 different, on the line directly above a `module` line. Only a
-`common_cdc_*` module in `rtl/common/` may carry one, and every such module
+`common_cdc_*` module in `rtl/common/` or one of its group folders (the
+[layout check](#layout-check) keeps them in `cdc/`) may carry one, and every such module
 must. Each broken rule is a finding at the directive's line. A cell with a
 valid directive is then checked against its elaborated ports, once per
 module name:
@@ -827,7 +843,9 @@ Fixtures live in `tools/checks/tests/fixtures/`:
 
 Tests also build variants in temporary directories: the superseded
 IP-first tree, a nested sub-IP, a sub-IP with `arch/`, `fpga/` or `asic/`, a
-folder that names no IP, misnamed or nested filelists in the shared folders, and a reached IP without its includer's prefix
+folder that names no IP, misnamed or too deeply nested filelists in the shared folders, the
+shared-block group rules (a block outside its group, in the wrong group or in an unlisted folder)
+and their configuration, and a reached IP without its includer's prefix
 staying top-level with `arch/`, `fpga/` and `asic/` while a prefixed one is a sub-IP, and
 an unconfirmed parent prefix (`test_layout.py`), one bad case per style
 rule (every design rule, include rule and `cdc-cell-macro` included),
@@ -835,14 +853,14 @@ sampled-value functions passing in `COMMON_ASSERT*` arguments and failing
 elsewhere (including after the `COMMON_ASSERTIONS_SVH` guard), `assert-label` statements and nested macro calls in the `NAME` argument, the `default clocking` plus `$past` hidden register, `clocking` inside an identifier, `object-macro` and function-like macro discovery, the
 vocabulary header list matching `cfg/ci.yaml` `vocabulary_tests.paths`,
 the vocabulary header's exemptions and the `SIMULATION` limit, comparisons
-that are not nonblocking assignments, vocabulary discovery, the design-file
+that are not nonblocking assignments, vocabulary discovery (cells in a group folder included), the design-file
 conditional reported once, and `external-ifdef` closure cases in include
 files (a vendor and an undefined macro fail; include guards, `` `define``s
 in an include file, `+define+` and a board-wrapper folder pass)
 (`test_style.py`), the repository's vocabulary headers built by Verilator
 (each assertion form fires with `--assert`, none is present under
 `SYNTHESIS`, the parameter check is in both views) (`test_vocabulary_headers.py`), duplicate, diamond, orphan and regression cases
-the shared unit's files, lists and block coverage, and a `-F` cycle between two top-level IPs (`test_filelists_check.py`), each wiki mirror rule: every required page,
+the shared unit's files, lists and block coverage, a block in a group folder owning its sources, and a `-F` cycle between two top-level IPs (`test_filelists_check.py`), each wiki mirror rule: every required page,
 `asic/` and `fpga/` pages following the source folders, the top-level
 `arch/` exemption without targets and its limit, HAS targets requiring
 `src/arch/<ip>/` (and only a level-2 heading counting), a source `arch/`
@@ -850,7 +868,7 @@ without a model or scenario or with two models, a sub-IP `arch/` page, a
 sub-IP turning top-level when no IP reaches it, the IP-first wiki tree, the
 design-level pages and look-alikes (misnamed root pages, bad record names,
 a folder in `decisions/`, a design-level page inside a kind folder), orphan
-and empty folders, extra pages, shared block pages (required, and nothing else in the shared folders), a non-IP source folder, hidden entries,
+and empty folders, extra pages, shared block pages (required, and nothing else in the shared folders, group folders included), a non-IP source folder, hidden entries,
 `--ip`, and a missing wiki tree (`test_wiki_mirror.py`), a small git repository with forbidden words,
 slug URLs, a look-alike slug and an invalid config (`test_neutrality.py`),
 one case per flow-input finding (board settings, SDC and wrapper counts,
@@ -882,7 +900,8 @@ does not exempt a nested zip, a stale entry and each allow config error, ignored
 files, a listed id with no page heading, an invalid list and a cache
 inside the repository (`test_spec_cache.py`); no fixture PDF or document
 text is stored, and the PDF signature is assembled at run time,
-waivers (used, stale, invalid), output parsing and the command line
+waivers (used, stale, invalid), output parsing, a shared block in a group
+folder, and the command line
 (`test_lint.py`, `test_check_run.py`), and the CDC check on a small IP
 beside a copy of the repository's crossing cells (`test_cdc.py`): a single
 clock, a legal crossing through each cell, an asynchronous reset, a raw
@@ -892,7 +911,8 @@ clocked cell input fed from the wrong domain, a generated clock, a
 clock-gating cell (a `(derived)` domain), one finding per source domain
 and once per generate loop, logic in
 front of a `src=async` input (in the connection, one and two assignments
-away) against plain wires, every directive finding, a missing and a
+away) against plain wires, every directive finding (a cell one group folder
+down accepted, deeper refused), a missing and a
 malformed directive (the cell is then looked inside), port and clock
 mismatches, a pass-through cell, a flop-then-wire cell, a memory read at
 a constant or source-side address, memory reads without a synchronized

@@ -18,8 +18,10 @@ page set:
   at the root and
   decision records ``decisions/NNNN-<slug>.md``;
 - the shared folders ``rtl/common/`` and ``dv/common/`` hold one page
-  ``<block>.md`` per shared block (``src/rtl/common/<block>.rtl.f``): its
-  MAS under ``rtl/``, its DV plan under ``dv/``, and nothing else;
+  ``<block>.md`` per shared block, in the block's group folder when it has
+  one (``src/rtl/common/[<group>/]<block>.rtl.f`` gives
+  ``<kind>/common/[<group>/]<block>.md``): its MAS under ``rtl/``, its DV
+  plan under ``dv/``, and nothing else;
 - a top-level IP whose ``arch/<id>/HAS.md`` has a ``## Targets`` section
   (any level-2 heading starting with the word ``Targets``, outside fenced
   code) has ``src/arch/<id>/`` with one model ``<prefix><id>_arch.py`` and
@@ -36,7 +38,7 @@ from pathlib import Path
 
 from arch import imports
 from arch.perf import ARCH_DIR, PERF_DIR, ArchError, find_model, model_name
-from build.ip import KINDS, SHARED_DIR, Ip, block_name, shared_blocks
+from build.ip import KINDS, SHARED_DIR, Ip, block_dir, block_name, shared_blocks
 from checks.common import CheckResult
 
 # The page each IP folder under a kind holds.
@@ -141,14 +143,16 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
             if not (wiki / page).is_file():
                 add(f"{label(wiki / page)}: missing (required for IP {ip.id})")
         result.findings += arch_findings(ip, wiki, label)
-    blocks = {block_name(f) for f in shared_blocks(src_root)}
+    # Each block's page path below <kind>/common/: [<group>/]<block>.md.
+    blocks = {f"{block_dir(f)}{block_name(f)}.md": f for f in shared_blocks(src_root)}
+    groups = {block_dir(f).rstrip("/") for f in blocks.values()} - {""}
     if ip_ids is None:
-        for b in sorted(blocks):
+        for b, f in sorted(blocks.items()):
             for kind in SHARED_KINDS:
                 pages += 1
-                page = wiki / kind / SHARED_DIR / f"{b}.md"
+                page = wiki / kind / SHARED_DIR / b
                 if not page.is_file():
-                    add(f"{label(page)}: missing (required for shared block {b})")
+                    add(f"{label(page)}: missing (required for shared block {block_name(f)})")
 
     kinds = ", ".join(k + "/" for k in KINDS)
     for dirpath, dirs, files in os.walk(wiki) if wiki.is_dir() else ():
@@ -181,15 +185,20 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                     continue
                 add(f"{label(here / f)}: not in an IP folder <kind>/<ip>/ ({kinds})")
             continue
-        if len(parts) == 2 and ip_id == SHARED_DIR and parts[0] in SHARED_KINDS:
+        if len(parts) in (2, 3) and ip_id == SHARED_DIR and parts[0] in SHARED_KINDS:
             folders += 1
+            sub = "/".join(parts[2:])
+            where = f"{parts[0]}/{SHARED_DIR}/" + (sub + "/" if sub else "")
             for d in dirs:
-                add(f"{label(here / d)}/: {parts[0]}/{SHARED_DIR}/ holds only block pages")
-            dirs[:] = []
+                if sub or d not in groups:
+                    add(f"{label(here / d)}/: {where} holds only block pages"
+                        + ("" if sub else " and the group folders of rtl/common/"))
+            dirs[:] = [] if sub else [d for d in dirs if d in groups]
             for f in files:
-                if not (f.endswith(".md") and f[:-3] in blocks):
+                page = (sub + "/" if sub else "") + f
+                if page not in blocks:
                     add(f"{label(here / f)}: names no shared block "
-                        f"(no {label(src_root / 'rtl' / SHARED_DIR / f[:-3])}.rtl.f)")
+                        f"(no {label(src_root / 'rtl' / SHARED_DIR / page[:-3])}.rtl.f)")
             continue
         if len(parts) == 2:
             folders += 1

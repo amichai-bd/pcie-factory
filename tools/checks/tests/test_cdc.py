@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from build import sim
-from build.ip import REPO_ROOT, discover
+from build.ip import REPO_ROOT, discover, shared_blocks
 from checks import cdc
 
 needs_verilator = pytest.mark.skipif(sim.find_verilator() is None,
@@ -19,10 +19,10 @@ needs_verilator = pytest.mark.skipif(sim.find_verilator() is None,
 
 CELLS = REPO_ROOT / "src/rtl/common"
 # Crossing cells in the copied tree, each a shared block the check analyzes.
-N_CELLS = len(list(CELLS.glob("common_cdc_*.rtl.f")))
+N_CELLS = len([f for f in shared_blocks(REPO_ROOT / "src") if f.name.startswith("common_cdc_")])
 # Shared blocks the check analyzes: those whose filelist lists a module
 # source (not the include-only vocabulary block or a package-only block).
-N_BLOCKS = sum(1 for f in CELLS.glob("*.rtl.f")
+N_BLOCKS = sum(1 for f in shared_blocks(REPO_ROOT / "src")
                if any(ln.strip().endswith(".sv") and not ln.strip().endswith("_pkg.sv")
                       for ln in f.read_text().splitlines()))
 
@@ -600,9 +600,17 @@ def test_scan_directives(tmp_path):
                    "// cdc-cell: src=async dst=dst_clk_i\nmodule common_other;\nendmodule\n")
     ip = src / "rtl/blk/xy_blk.sv"
     ip.write_text("// cdc-cell: src=async dst=dst_clk_i\nmodule common_cdc_mine;\nendmodule\n")
-    found, findings = cdc.scan_directives([good, bad, ip], src)
-    assert list(found.values()) == [cdc.Directive("common_cdc_ok", "src_clk_i", "dst_clk_i",
-                                                  good.resolve(), 1)]
+    # A group folder one level down holds cells too; a deeper folder does not.
+    (common / "grp/deep").mkdir(parents=True)
+    grouped = common / "grp/common_cdc_grouped.sv"
+    grouped.write_text("// cdc-cell: src=async dst=dst_clk_i\nmodule common_cdc_grouped;\n"
+                       "endmodule\n")
+    deep = common / "grp/deep/common_cdc_deep.sv"
+    deep.write_text("// cdc-cell: src=async dst=dst_clk_i\nmodule common_cdc_deep;\nendmodule\n")
+    found, findings = cdc.scan_directives([good, bad, ip, grouped, deep], src)
+    assert list(found.values()) == [
+        cdc.Directive("common_cdc_ok", "src_clk_i", "dst_clk_i", good.resolve(), 1),
+        cdc.Directive("common_cdc_grouped", "async", "dst_clk_i", grouped.resolve(), 1)]
     assert findings == [
         "rtl/common/common_cdc_bad.sv:1: malformed cdc-cell directive (expected "
         "'// cdc-cell: src=<clock port|async> dst=<clock port>')",
@@ -611,13 +619,15 @@ def test_scan_directives(tmp_path):
         "rtl/common/common_cdc_bad.sv:8: malformed cdc-cell directive on common_cdc_same: "
         "src and dst name the same port",
         "rtl/common/common_cdc_bad.sv:14: cdc-cell directive on common_other: only "
-        "common_cdc_* modules in rtl/common/ carry one",
+        "common_cdc_* modules under rtl/common/ carry one",
         "rtl/common/common_cdc_bad.sv:6: crossing cell common_cdc_gap has no cdc-cell "
         "directive on the line above its module line",
         "rtl/common/common_cdc_bad.sv:11: crossing cell common_cdc_none has no cdc-cell "
         "directive on the line above its module line",
         "rtl/blk/xy_blk.sv:1: cdc-cell directive on common_cdc_mine: only common_cdc_* "
-        "modules in rtl/common/ carry one",
+        "modules under rtl/common/ carry one",
+        "rtl/common/grp/deep/common_cdc_deep.sv:1: cdc-cell directive on common_cdc_deep: "
+        "only common_cdc_* modules under rtl/common/ carry one",
     ]
 
 
@@ -817,14 +827,14 @@ SYNCED = """  logic m [{depth}];
     SYNCED.format(depth=1, windex="0", read="m[0] & ra_q"),
 ], ids=["one-entry-qualifier", "free-running-address", "hold-select", "one-entry-synced"])
 def test_memory_read_without_a_synchronized_pointer_fails(tmp_path, body):
-    r = run(cell_tree(tmp_path, MEM_CELL.format(body=body), "-F common_cdc_sync2.rtl.f\n"))
+    r = run(cell_tree(tmp_path, MEM_CELL.format(body=body), "-F cdc/common_cdc_sync2.rtl.f\n"))
     assert any("output dst_q_o is driven by flop m (" in f for f in r.findings), r.findings
 
 
 @needs_verilator
 def test_memory_read_at_a_synchronized_pointer_passes(tmp_path):
     body = SYNCED.format(depth=2, windex="src_a_q", read="m[ra_q]")
-    r = run(cell_tree(tmp_path, MEM_CELL.format(body=body), "-F common_cdc_sync2.rtl.f\n"))
+    r = run(cell_tree(tmp_path, MEM_CELL.format(body=body), "-F cdc/common_cdc_sync2.rtl.f\n"))
     assert r.passed, r.findings
 
 
@@ -845,7 +855,7 @@ def test_crossing_cell_with_a_constant_source_input_inside_a_cell_fails(tmp_path
   always_ff @(posedge dst_clk_i) ra_q <= s ? ra_q + 2'd1 : ra_q;
   assign dst_q_o = m[ra_q];
 """
-    r = run(cell_tree(tmp_path, MEM_CELL.format(body=body), "-F common_cdc_sync2.rtl.f\n"))
+    r = run(cell_tree(tmp_path, MEM_CELL.format(body=body), "-F cdc/common_cdc_sync2.rtl.f\n"))
     assert r.findings == ["common/common_cdc_bad: rtl/common/common_cdc_bad.sv:2: crossing "
                           "cell common_cdc_bad: source-side input of cell u_s.src_data_i "
                           "(rtl/common/common_cdc_bad.sv:17) is a constant, so that cell "

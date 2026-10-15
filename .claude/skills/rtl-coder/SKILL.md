@@ -31,8 +31,10 @@ redefines those rules. Work inside an issue worktree per
    (`grep -rn '<module>' src/`), filelists that reach the file through `-F`,
    bind checkers in `dv/<ip>/<ip>.dv.f`, `fpga/<ip>/` and `asic/<ip>/` constraints, and the
    tests named in the DV plan.
-5. Check `src/rtl/common/` before writing a generic block; add a `common_`
-   block only when a second consumer exists. A clock-domain crossing uses a
+5. Check `src/rtl/common/` and its group folders (`cdc/` crossing cells,
+   `ram/` the RAM family) before writing a generic block; add a `common_`
+   block only when a second consumer exists, in the group folder its name
+   matches ([shared blocks](../../../wiki/project/layout.md#shared-blocks)). A clock-domain crossing uses a
    crossing macro (`COMMON_METAFLOP`, `COMMON_METAFLOP_VAL`,
    `COMMON_PULSE_SYNC`), which instantiates the crossing cell; outside
    `src/rtl/common/` never instantiate a wrapped cell directly
@@ -95,7 +97,8 @@ Then:
 Update `src/rtl/<ip>/<ip>.rtl.f` in the same edit as the source:
 
 - [ ] New file listed once, in order: the vocabulary block
-      (`-F ../common/common_macros.rtl.f`) and any crossing cell's filelist,
+      (`-F ../common/common_macros.rtl.f`) and any crossing cell's filelist
+      (`-F ../common/cdc/<cell>.rtl.f`),
       packages, leaves, then the IP top.
 - [ ] Sub-IP and `common_` blocks included with `-F <their>.rtl.f`, never by
       listing their files.
