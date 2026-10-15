@@ -46,6 +46,24 @@
   and no `rcv_err_o`, with both ports in L0 at the end. Loss and flagged
   packets are allowed only while an impairment is in flight; an undetected
   corruption never is.
+- **Loopback echo scoreboard:** `LoopbackScoreboard` checks the master's
+  echo at its line ports. `RtlPort` records the master's `ser_tx_data_o`
+  words and the words it receives on `ser_rx_data_i`, each received word
+  tagged with the master's `ltssm_state_o`. Both streams are decoded with
+  running disparity, and SKP symbols are left out of both, because the
+  slave may add or remove them
+  ([pcs loopback](../../arch/pcs/PIPE_CONTROL.md#loopback)). The symbols
+  received while the master is in Loopback.Active must decode with no code
+  or disparity error. They must also form one contiguous run of the
+  symbols sent, in order, with nothing dropped, added or changed. A
+  mismatch gives the symbol index, the master's cycle, and the expected
+  and observed symbol. The master's
+  [data pattern](../../arch/mac/LTSSM.md#what-each-state-transmits) is the
+  traffic, so the echo must also hold at least 1.9 pattern symbols per
+  held cycle. A pattern symbol is a data symbol one more (mod 256) than
+  the data symbol before it. The master sends 2 per cycle, and the margin
+  covers the SKP ordered sets and the training sets that are still
+  returning at entry.
 - **Models** ([`models/`](../../../../src/dv/phy/models/), with pytest
   unit tests that need no simulator):
   - mac: the [`pcie_mac` architecture model](../../arch/mac/MODEL.md),
@@ -228,7 +246,7 @@ delivers the hooks, the cycle-model runs and this recipe):
 | Feature | Testcase |
 | --- | --- |
 | [Power states](../../arch/phy/HAS.md#link-up-and-requests). L0s: both transmitters reach Tx_L0s.Idle within `L0S_IDLE_CYCLES` + 16 cycles of the request, a packet leaves L0s within 2·N_FTS + 16, and traffic is lossless. L1: entry within 64 cycles, `link_up_o` high, exit through Recovery within 4 µs. L2: entry within 64 cycles, exit through Detect within 100 µs. Lossless after each | `e2e_power` |
-| Loopback from each port as master: both reach Loopback.Active with `link_up_o` low, then Detect and back to L0. There is no traffic into the entry yet ([#198](https://github.com/amichai-bd/pcie-factory/issues/198)). Before #182 a packet looped back in an earlier run was delivered in L0, after the master trained against its own echo; there is no mac defect: [#192](https://github.com/amichai-bd/pcie-factory/issues/192), and the mac HAS states the rule in [#193](https://github.com/amichai-bd/pcie-factory/pull/193) | `e2e_loopback` |
+| Loopback from each port as master, with packets flowing into the entry: both reach Loopback.Active with `link_up_o` low, then Detect and back to L0, lossless after. In Loopback.Active, the master's data pattern is echoed by the slave, and the [loopback echo scoreboard](#strategy) checks that every symbol is the master's own, in order and unchanged. At least 1.9 pattern symbols per held cycle (3800 in 2000 cycles) must come back. A packet of the master's own delivered back to it fails the packet scoreboard, either as not sent by the far port or as corrupted. Before #182, a packet looped back in an earlier run was delivered in L0 after the master trained against its own echo. This was not a mac defect ([#192](https://github.com/amichai-bd/pcie-factory/issues/192)); the mac HAS states the rule since [#193](https://github.com/amichai-bd/pcie-factory/pull/193). The echo check was added in [#198](https://github.com/amichai-bd/pcie-factory/issues/198) | `e2e_loopback` |
 
 ### Removed checks
 
@@ -243,8 +261,19 @@ delivers the hooks, the cycle-model runs and this recipe):
 
 | Feature | Owning issue |
 | --- | --- |
-| Traffic into the loopback entry: the master's packets echoed by the slave, which the stub's scoreboard cannot yet tell from its own (`e2e_loopback` runs without it) | [#198](https://github.com/amichai-bd/pcie-factory/issues/198) |
 | One layer RTL and the other a model (step 2 above): not planned in M1 ([ruling on #86](https://github.com/amichai-bd/pcie-factory/issues/86#issuecomment-6197199773)) | [#194](https://github.com/amichai-bd/pcie-factory/issues/194) (post-M1) |
+
+## Mutation evidence
+
+Each mutant was applied in the issue worktree and run with
+`./build sim --ip phy --test <entry>` at the entry's regression seed. Each
+mutant fails, and the unmutated RTL passes; each mutant was reverted
+afterwards.
+
+| Block | Mutant | Entry, seed | Result |
+| --- | --- | --- | --- |
+| pcs loopback (the slave's echo path) | `enc_in` in loopback flips bit 0 of each echoed data byte of 80h or more: `sym0.data ^ {7'd0, !sym0.k && sym0.data[7]}`. The training sets' data bytes are all below 80h, so the master still reaches Loopback.Active | `e2e_loopback`, 74580909 | Fails on the echo scoreboard at port a's cycle 11431 (master a): echo symbol 182 of 3999, expected the sent data symbol 792, 80h, observed 81h. Before #198 (no echo check), the same entry passes with this mutant. |
+| mac ordered sets (the master's pattern) | The pattern count never advances (`pat_d = pat_q`), so every pattern word is the same two bytes | `e2e_loopback`, 74580909 | Fails on the echo scoreboard: expected at least 3800 pattern symbols echoed, observed 1971 of 3999 received. The echo still matches what was sent; only the traffic check fails. |
 
 ## Coverage floors
 

@@ -13,7 +13,7 @@ import random
 import cocotb
 from cocotb.triggers import ClockCycles
 
-from tb.phy_e2e_env import COV_CONTROL, COV_POWER, RECOVERY_CODES, Env
+from tb.phy_e2e_env import COV_CONTROL, COV_POWER, RECOVERY_CODES, Env, LoopbackScoreboard
 
 
 def seed() -> int:
@@ -263,6 +263,7 @@ async def e2e_reset_single(dut):
 L0S_IDLE_CYCLES = 256          # pcie_mac default (the phy keeps it)
 N_FTS = 32                     # pcie_mac default
 L1_IDLE, L2_IDLE = 0x31, 0x34  # ltssm_state_o codes (mac HAS, LTSSM page)
+LOOPBACK_ECHO_MIN = 1.9        # pattern symbols echoed per held cycle (2 per cycle, see e2e_loopback)
 HOT_RESET, DISABLED, LOOPBACK_ACTIVE = 0x19, 0x18, 0x1D
 
 
@@ -364,8 +365,14 @@ async def directed_round(env: Env, port: int, req: str, state: int, hold: int = 
                          traffic: bool = True) -> None:
     """``req`` held high on ``port`` (while packets flow, with ``traffic``): both ports reach
     ``state`` with link_up_o low, stay there while it is held, then train
-    back to L0 when it drops (through Detect); lossless after."""
+    back to L0 when it drops (through Detect); lossless after. For
+    loopback, ``port`` is the master: the master's data pattern in
+    Loopback.Active is its traffic, and ``LoopbackScoreboard`` checks that
+    every symbol it receives there is its own, echoed in order, with at
+    least ``LOOPBACK_ECHO_MIN`` of ``hold`` echoed pattern symbols."""
     downs = [False, False]
+    echo = LoopbackScoreboard(env.ports[port], f"loopback master {'ab'[port]}") \
+        if req == "loopback" else None
 
     def watch(bench, j):
         downs[j] |= not bench.ports[j].link_up
@@ -375,6 +382,8 @@ async def directed_round(env: Env, port: int, req: str, state: int, hold: int = 
         env.send(0, 8)
         env.send(1, 8)
         await ClockCycles(env.dut.a_clk_i, 40, rising=False)
+    if echo:
+        echo.start()
     env.ports[port].request(**{req: 1})
     n = await env.until(lambda: all(p.code == state for p in env.ports), 5000, f"{req}: both in {state:#x}")
     env.log.info("%s on port %s: both in %#x after %d cycles", req, "ab"[port], state, n)
@@ -385,6 +394,12 @@ async def directed_round(env: Env, port: int, req: str, state: int, hold: int = 
             f"{[hex(p.code) for p in env.ports]}, link_up {[p.link_up for p in env.ports]}")
     env.ports[port].request(**{req: 0})
     n = await env.until(env.bench.both_l0, 50_000, f"{req} released: back to L0")
+    if echo:
+        echo.stop()
+        got = echo.check(min_pattern=int(LOOPBACK_ECHO_MIN * hold))
+        env.log.info("loopback master %s: %d symbols received in Loopback.Active (edges %d to %d), "
+                     "all its own in order; %d pattern symbols", "ab"[port], got["symbols"],
+                     got["first_edge"], got["last_edge"], got["pattern"])
     env.bench.hooks.remove(watch)
     assert downs == [True, True], f"{req}: link_up_o did not fall on both ports"
     assert all(0x00 in c[-12:] or 0x01 in c[-12:] for c in env.codes), f"{req}: not through Detect"
@@ -452,14 +467,20 @@ async def e2e_loopback(dut):
     master), then on port b: both reach Loopback.Active with link_up_o low and stay while it
     is held; when it drops the master leaves through Loopback.Exit, the
     slave follows on its EIOS, and both pass through Detect back to L0;
-    lossless after each."""
+    lossless after each. In Loopback.Active the master sends its data
+    pattern (two symbols a cycle) and the slave echoes it: every symbol
+    the master receives there is one it sent, in order and unchanged (SKP
+    symbols aside), and at least 1.9 pattern symbols per held cycle come
+    back (the rest of the 2 per cycle covers SKP ordered sets and the
+    training sets still returning at entry). Packets flow into each entry,
+    as in e2e_control: a packet of the master's own that came back to it
+    would fail its scoreboard, as not sent by the far port or as
+    corrupted."""
     env = await rtl_env(dut, "downstream", -300)
     assert env.err_timeout_div == 1024, "e2e_loopback needs ERR_TIMEOUT_DIV 1024"
     await env.lossless(8)
     for i in (0, 1):
-        # No traffic into the entry: a loopback slave echoes the master's
-        # own packets, which the stub's scoreboard cannot tell apart (#198).
-        await directed_round(env, i, "loopback", LOOPBACK_ACTIVE, traffic=False)
+        await directed_round(env, i, "loopback", LOOPBACK_ACTIVE)
     env.final_checks()
 
 
