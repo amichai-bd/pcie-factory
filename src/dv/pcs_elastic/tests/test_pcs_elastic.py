@@ -15,10 +15,12 @@ high, and the test checks its assertion and release timing.
 """
 
 import random
+from bisect import bisect_left
 
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import FallingEdge, RisingEdge, Timer
+from cocotb.utils import get_sim_time
 
 from models import pcie_pcs_elastic_model as m
 from regress.funcov import Covergroup
@@ -77,6 +79,9 @@ class Env:
         self.pause_left = 0
         self.pauses = 0
         self.track = True
+        self.take_ps: list[int] = []   # RX edge that takes each word written
+        self.fill_high: list[tuple[int, int]] = []  # (clk_i edge, fill it registers)
+        self.prev_fill = 0
         dut.rst_i.value = 1
         dut.ser_rx_valid_i.value = 0
         dut.ser_rx_sym_i.value = 0
@@ -122,6 +127,9 @@ class Env:
         self.write_done_cycle = None
         self.started_cycle = None
         self.fill_min, self.fill_max = 10**9, -1
+        self.take_ps = []
+        self.fill_high = []
+        self.prev_fill = 0
 
     async def _writer(self) -> None:
         dut = self.dut
@@ -145,6 +153,7 @@ class Env:
             dut.ser_rx_sym_i.value = a.code | (b.code << 10)
             dut.ser_rx_lock_i.value = a.lock
             dut.ser_rx_gen_i.value = a.gen
+            self.take_ps.append(int(get_sim_time("ps")) + self.rx_ps // 2)
             self.next_word += 1
 
     async def _reader(self) -> None:
@@ -156,12 +165,18 @@ class Env:
                 continue
             fill = int(dut.fill_o.value)
             valid = int(dut.rx_valid_o.value)
+            # fill_high_q takes (fill >= EB_HIGH) at the next rising edge.
+            self.fill_high.append((int(get_sim_time("ps")) + CLK_PS // 2, fill))
             if self.started_cycle is None:
+                # Start: the first word goes out in the first cycle whose
+                # fill is 8 or more, and not before.
+                assert valid == int(fill >= m.EB_NOMINAL), (
+                    f"cycle {self.cycle}: rx_valid_o {valid} before the start at visible "
+                    f"fill {fill} (previous cycle {self.prev_fill}); expected the first "
+                    f"word in the first cycle at {m.EB_NOMINAL} or more")
+                self.prev_fill = fill
                 if not valid:
                     continue
-                assert fill >= m.EB_NOMINAL, (
-                    f"cycle {self.cycle}: first word sent at visible fill {fill}, "
-                    f"expected at least {m.EB_NOMINAL}")
                 self.started_cycle = self.cycle
                 COV.sample(event="start")
             writing = self.write_done_cycle is None
@@ -181,10 +196,58 @@ class Env:
             w = m.Word(self.cycle, sym & 0x3FF, sym >> 10, (lock & 1, lock >> 1),
                        (gen & 1, gen >> 1), int(dut.rx_skp_add_o.value),
                        int(dut.rx_skp_rem_o.value), int(dut.rx_ovf_o.value),
-                       int(dut.rx_udf_o.value))
+                       int(dut.rx_udf_o.value), fill)
             self.words.append(w)
             if writing:
                 COV.sample(fill=fill)
+
+    def fill_seen(self, take_ps: int) -> int | None:
+        """The visible fill behind the fill high the write side sees at the
+        RX edge ``take_ps``: fill_high_q is (fill >= EB_HIGH) registered at
+        a clk_i edge, and its synchronizer's first flop samples it at the RX
+        edge two before ``take_ps``. None when a clk_i edge falls exactly on
+        that RX edge (a race in zero-delay simulation)."""
+        t1 = take_ps - 2 * self.rx_ps
+        i = bisect_left(self.fill_high, (t1, -1))
+        if i < len(self.fill_high) and self.fill_high[i][0] == t1:
+            return None
+        return self.fill_high[i - 1][1] if i else 0
+
+    def check_thresholds(self, r: m.Result) -> dict:
+        """Every SKP ordered set obeys the thresholds (RECEIVE.md, Elastic
+        buffer): its first SKP is removed exactly when the write side sees
+        fill high (visible fill 9 or more, through the synchronizer) as the
+        word holding that SKP is written; a SKP is added exactly when the
+        COM leaves at a visible fill of 7 or less and no SKP was removed."""
+        checked = {"rem": [0, 0], "add": [0, 0], "rem_at": {}, "add_at": {}}
+        for st in r.sets:
+            if st["n"] == 0:
+                continue
+            removed, added = st["change"] == "rem", st["change"] == "add"
+            if st["rem_ok"]:
+                seen = self.fill_seen(self.take_ps[(st["com_in"] + 1) // 2])
+                if seen is not None:
+                    want = int(seen >= m.EB_HIGH)
+                    assert removed == bool(want), (
+                        f"SKP set at input symbol {st['com_in']}: removed {removed}, but the "
+                        f"write side saw fill high {want} (visible fill {seen})")
+                    checked["rem"][want] += 1
+                    checked["rem_at"][seen] = checked["rem_at"].get(seen, 0) + 1
+            fill = self.words[st["com_word"]].fill
+            # Below fill 4 the symbol after the COM may not be visible yet,
+            # and then nothing is added (MAS, SKP addition).
+            if st["add_ok"] and not removed and fill >= m.FALLBACK_FILL:
+                want = int(fill <= m.EB_LOW)
+                assert added == bool(want), (
+                    f"SKP set at input symbol {st['com_in']}: added {added}, but its COM "
+                    f"left at visible fill {fill}")
+                checked["add"][want] += 1
+                checked["add_at"][fill] = checked["add_at"].get(fill, 0) + 1
+        self.dut._log.info("threshold checks: removal %s, addition %s (no change, change); "
+                           "removal decisions by fill %s, addition decisions by fill %s",
+                           checked["rem"], checked["add"], sorted(checked["rem_at"].items()),
+                           sorted(checked["add_at"].items()))
+        return checked
 
     async def run_until_written(self, slack_cycles: int = 200) -> None:
         """Wait until the writer has sent every word, then ``slack_cycles``."""
@@ -228,7 +291,7 @@ class Env:
 
 
 async def link(dut, ppm, kind, packets, skp_interval, idle_gaps=0, idle_symbols=0,
-               relocks=0) -> tuple[Env, m.Result]:
+               relocks=0, boundary=False) -> tuple[Env, m.Result]:
     """One run of partner traffic: no loss, no overflow or underflow while
     writing, visible fill within the HAS window throughout."""
     rng = random.Random(random.getrandbits(32))
@@ -242,6 +305,25 @@ async def link(dut, ppm, kind, packets, skp_interval, idle_gaps=0, idle_symbols=
     r = env.check()
     assert r.overflows == 0, f"{r.overflows} overflow(s)"
     assert m.FILL_MIN <= env.fill_min and env.fill_max <= m.FILL_MAX
+    # Within the targets the symbol after a COM is always visible, so every
+    # removal is reported on the COM's word.
+    assert r.rem_fallback == 0, (
+        f"{r.rem_fallback} removal(s) reported on the next word within the targets")
+    checked = env.check_thresholds(r)
+    if ppm >= 300 and not idle_gaps:
+        assert checked["rem"][0] and checked["rem"][1], (
+            f"threshold check vacuous: removal decisions {checked['rem']}")
+    if ppm <= -300 and not idle_gaps:
+        assert checked["add"][0] and checked["add"][1], (
+            f"threshold check vacuous: addition decisions {checked['add']}")
+    if boundary:
+        # Decisions right at the thresholds: removal seen at 8 (none) and 9
+        # (remove) on a fast RX clock, addition at 7 (add) and 8 (none) on a
+        # slow one.
+        at = checked["rem_at"] if ppm > 0 else checked["add_at"]
+        pair = (m.EB_HIGH - 1, m.EB_HIGH) if ppm > 0 else (m.EB_LOW, m.EB_LOW + 1)
+        assert all(at.get(f) for f in pair), (
+            f"no decision at fill {pair[0]} and {pair[1]}: {sorted(at.items())}")
     if abs(ppm) >= 300 and not idle_gaps:
         changes = r.added if ppm < 0 else r.removed
         assert changes, f"vacuous run: no SKP {'added' if ppm < 0 else 'removed'} at {ppm} ppm"
@@ -313,6 +395,49 @@ async def idle(dut, ppm):
     a new generation near the nominal fill."""
     env, r = await link(dut, ppm, "random", 60, 1180, idle_gaps=2, idle_symbols=6000)
     assert (r.dropped_words if ppm > 0 else env.holds), "vacuous run: no recentring"
+
+
+@cocotb.test()
+async def thresholds_swing(dut):
+    """L1: removal and addition decisions at both thresholds. The RX clock
+    is 0.3% fast, and in alternate 2000-cycle phases the writer pauses for
+    one cycle in about 0.6% of cycles, so the stream alternates between
+    fast and slow. SKP ordered sets every 48 to 96 symbols then hold the
+    fill at 7 to 9, with odd fills after additions. Every eligible SKP
+    must be removed exactly when the write side sees fill 9 or more, and
+    added exactly when its COM leaves at 7 or less."""
+    rng = random.Random(random.getrandbits(32))
+    env = Env(dut, rng, 3000)
+    env.pause_max = 1
+    env.fill_limits = False   # close pauses can dip the fill below 4
+
+    async def phases():
+        while True:
+            for p in (0.0, 0.006):
+                env.pause_p = p
+                for _ in range(2000):
+                    await FallingEdge(dut.ser_rx_clk_i)
+
+    await env.reset()
+    env.send(m.link_traffic(rng, "dense", 1500, rng.randrange(48, 97)))
+    cocotb.start_soon(phases())
+    await env.run_until_written()
+    # A pause can cost an underflow word (nothing is lost); the stream
+    # check stays exact.
+    r = env.check(udf_anywhere=True)
+    assert r.overflows == 0
+    checked = env.check_thresholds(r)
+    for name, pair in (("rem_at", (m.EB_HIGH - 1, m.EB_HIGH)),
+                       ("add_at", (m.EB_LOW, m.EB_LOW + 1))):
+        assert all(checked[name].get(f) for f in pair), (
+            f"no {name} decision at fill {pair}: {sorted(checked[name].items())}")
+
+
+@cocotb.test()
+async def thresholds_m600(dut):
+    """L1: the same at -600 ppm and the addition threshold: a SKP is added
+    exactly when its COM leaves at fill 7 or less, never at 8."""
+    await link(dut, -600, "dense", 600, random.randrange(48, 97), boundary=True)
 
 
 @cocotb.test()

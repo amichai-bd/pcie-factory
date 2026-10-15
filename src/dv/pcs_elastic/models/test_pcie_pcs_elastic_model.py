@@ -58,11 +58,11 @@ def _traffic(codes, lock=1, gen=1):
     return t
 
 
-def _words(codes, add=(), rem=(), ovf=(), lock=1, gen=1):
+def _words(codes, add=(), rem=(), ovf=(), lock=1, gen=1, fill=8):
     """Pack ``codes`` into output words; flag sets hold word indices."""
     assert len(codes) % 2 == 0
     return [m.Word(i, codes[2 * i], codes[2 * i + 1], (lock, lock), (gen, gen),
-                   int(i in add), int(i in rem), int(i in ovf), 0)
+                   int(i in add), int(i in rem), int(i in ovf), 0, fill)
             for i in range(len(codes) // 2)]
 
 
@@ -105,8 +105,24 @@ def test_remove_reported_on_com_word_or_next():
     assert (r.removed, r.rem_on_com) == (1, 1)
     out = D + [D[0], COM_M, SKP_M, SKP_M] + D + [D[1], D[2]]
     stream = D + [D[0], COM_M, SKP_M, SKP_M, SKP_M] + D + [D[1], D[2]]
-    r = m.check(_traffic(stream), _words(out, rem={3}))
+    r = m.check(_traffic(stream), _words(out, rem={3}, fill=2))
     assert (r.removed, r.rem_fallback) == (1, 1)
+
+
+def test_remove_on_next_word_needs_an_unseen_symbol():
+    """At a fill of 4 or more the symbol after the COM was visible, so the
+    status must be on the COM's word."""
+    out = D + [D[0], COM_M, SKP_M, SKP_M] + D + [D[1], D[2]]
+    stream = D + [D[0], COM_M, SKP_M, SKP_M, SKP_M] + D + [D[1], D[2]]
+    with pytest.raises(m.CheckError, match="not on the COM's word"):
+        m.check(_traffic(stream), _words(out, rem={3}, fill=4))
+
+
+def test_sets_are_recorded():
+    out = D + [COM_M, SKP_M, SKP_M] + D + [D[0]]
+    r = m.check(_traffic(STREAM + [D[0]]), _words(out, rem={2}))
+    assert [(s["com_in"], s["com_word"], s["n"], s["change"]) for s in r.sets] == \
+        [(4, 2, 3, "rem")]
 
 
 def test_unreported_removal_fails():

@@ -75,3 +75,15 @@ tests:
     top: pcie_pcs_elastic
     seeds: 2
     timeout_s: 300
+  - name: thresholds_swing
+    module: tests.test_pcs_elastic
+    testcase: thresholds_swing
+    top: pcie_pcs_elastic
+    seeds: 2
+    timeout_s: 300
+  - name: thresholds_m600
+    module: tests.test_pcs_elastic
+    testcase: thresholds_m600
+    top: pcie_pcs_elastic
+    seeds: 2
+    timeout_s: 300

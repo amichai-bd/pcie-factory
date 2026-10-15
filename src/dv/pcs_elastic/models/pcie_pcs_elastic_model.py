@@ -17,7 +17,8 @@ located from this file).
   * one SKP removed from a locked SKP ordered set (at most one per set),
     reported (RxStatus 2) on the word holding the set's COM, or on the word
     holding the symbol after the removed SKP when that was not yet visible
-    to the read side;
+    to the read side (accepted only when the COM's word went out at a
+    visible fill below 4, the only fill at which that can happen);
   * one SKP added to a SKP ordered set whose COM left locked (at most one
     per set), reported (RxStatus 1) on the word holding the COM;
   * an unlocked aligned word dropped by recentring;
@@ -52,6 +53,7 @@ FILL_MIN, FILL_MAX = 4, 12          # HAS targets, visible fill in symbols
 RESYNC_WINDOW = 4 * EB_WORDS * 2    # symbols searched after an overflow
 RESYNC_MATCH = 8                    # symbols that must agree to resync
 TAIL = 64                           # trailing symbols a run need not deliver
+FALLBACK_FILL = 4                   # below it the symbol after a COM may be unseen
 
 COM_CODES = frozenset(code8b10b.ENCODE[(code8b10b.K_COM, True, rd)][0] for rd in (-1, 1))
 SKP_CODES = frozenset(code8b10b.ENCODE[(code8b10b.K_SKP, True, rd)][0] for rd in (-1, 1))
@@ -229,6 +231,7 @@ class Word:
     rem: int
     ovf: int
     udf: int
+    fill: int = -1   # fill_o in that cycle; -1: not recorded
 
 
 @dataclass
@@ -246,6 +249,10 @@ class Result:
     downgraded: int = 0    # locked symbols that left unlocked (lock change)
     back_to_back_coms: int = 0
     bare_coms: int = 0     # one-SKP sets that left as a bare COM
+    # Every SKP ordered set sent locked: input index of its COM, word of the
+    # COM, SKPs in the input, change ("add", "rem" or None) and whether a
+    # removal and an addition were allowed.
+    sets: list[dict] = field(default_factory=list)
 
 
 class CheckError(AssertionError):
@@ -333,6 +340,7 @@ def check(traffic: Traffic, words: list[Word], loss: bool = False,
             elif sset["left"] != 0:
                 raise CheckError(f"{sset['left']} SKP(s) missing from a SKP ordered set: "
                                  + where(i))
+            r.sets.append(sset)
             sset = None
             continue   # re-examine this symbol outside the set
         if p < len(inp):
@@ -351,7 +359,8 @@ def check(traffic: Traffic, words: list[Word], loss: bool = False,
                     skps = inp[p:p + n]
                     if i > 0 and is_com(out[i - 1][0]) and out[i - 1][1]:
                         r.back_to_back_coms += 1
-                    sset = {"com_word": wi, "com_slot": slot, "left": n, "n": n,
+                    sset = {"com_in": p - 1, "com_word": wi, "com_slot": slot,
+                            "left": n, "n": n,
                             "next_word": None,
                             "change": None, "add_ok": bool(lock),
                             "rem_ok": n > 0 and all(s.lock for s in skps),
@@ -401,6 +410,12 @@ def check(traffic: Traffic, words: list[Word], loss: bool = False,
         if words[com_w].rem:
             r.rem_on_com += 1
         elif words[next_w].rem:
+            # Allowed only when the symbol after the COM was not yet visible
+            # as the COM left, which needs a fill below FALLBACK_FILL.
+            if not 0 <= words[com_w].fill < FALLBACK_FILL:
+                raise CheckError(f"removal reported on word {next_w}, not on the COM's word "
+                                 f"{com_w} (cycle {words[com_w].cycle}, fill "
+                                 f"{words[com_w].fill}): the symbol after the COM was visible")
             r.rem_fallback += 1
         else:
             raise CheckError(f"removal in the set whose COM left in word {com_w} (cycle "

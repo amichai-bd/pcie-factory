@@ -164,7 +164,7 @@ carries one `pipe_rx_status_o` code:
 | --- | --- | --- |
 | 0 | Data OK | Any other word. |
 | 1 | One SKP added | The word holding the COM of that SKP ordered set. |
-| 2 | One SKP removed | The word holding the COM of that SKP ordered set (the read side sees the removed flag on the symbol after the COM). |
+| 2 | One SKP removed | The word holding the COM of that SKP ordered set (the read side sees the removed flag on the symbol after the COM). Exception: if that symbol is not yet visible when the COM leaves (only at a visible fill below 4, outside the targets), the word holding that symbol. |
 | 3 | Receiver detected | Only with the receiver-detection PhyStatus pulse ([PIPE control](PIPE_CONTROL.md#receiver-detection)). |
 | 4 | 8b/10b code error | The word holding the symbol; that byte is EDB with its K bit set. |
 | 5 | Elastic-buffer overflow | The first word written after the lost one. |

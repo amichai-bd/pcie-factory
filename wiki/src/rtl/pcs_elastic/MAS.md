@@ -140,7 +140,10 @@ While it is high, no word is offered to the FIFO.
   `r_rem_ack_q` masks it when that symbol is still in the FIFO or leftover
   register. If the symbol after the COM was not visible when the COM left,
   the flag is reported on the word holding that symbol instead, as in the
-  arch model. Only an almost-empty buffer reaches this case.
+  arch model and the [RxStatus table](../../arch/pcs/RECEIVE.md#decode-and-rxstatus).
+  That needs a visible fill below 4 (a COM in the second slot with no
+  leftover and at most one visible word), so it never happens within the
+  targets.
 - **Overflow status.** `rx_ovf_o` marks a word holding a symbol with the
   overflow flag.
 
