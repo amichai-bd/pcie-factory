@@ -4,25 +4,26 @@
 [DevOps BKM](../../bkm/devops.md#static-checks) requires: the source layout
 check, the filelist and regression-list check, the RTL style checker, the
 wiki mirror check, the flow-input check, the neutrality check, the citation
-check and Verilator lint. It prints one
-summary line per check, then every violation, then an overall verdict. The
-code lives in `tools/checks/` (`run.py`, `layout.py`, `filelists.py`,
+check, the publishability check and Verilator lint. It prints one summary
+line per check, then every violation, then an overall verdict. The code
+lives in `tools/checks/` (`run.py`, `layout.py`, `filelists.py`,
 `style.py`, `wiki_mirror.py`, `flows.py`, `neutrality.py`, `citation.py`,
-`lint.py`).
+`publishability.py`, `lint.py`).
 
 ```
-./build check [--ip ID]... [--only layout|filelist|style|wiki|flows|neutrality|citation|lint]...
+./build check [--ip ID]...
+              [--only layout|filelist|style|wiki|flows|neutrality|citation|publishability|lint]...
               [--src-root DIR] [--workdir DIR]
 ```
 
 | Option | Meaning |
 | --- | --- |
-| `--ip ID` | Restrict layout, filelist, style, wiki, flows and lint to these IPs (repeatable). Files not owned by a selected IP, such as `src/rtl/common/`, are skipped. Neutrality always scans the whole repository, and citation the whole of `src/` and `wiki/src/`. |
-| `--only NAME` | Run only these checks (repeatable). The default is all eight. |
-| `--src-root DIR` | The source tree to check, as for every command ([build spec](../build/SPEC.md#command-line)). The wiki and citation checks read its sibling `wiki/src/`. Neutrality ignores it and scans the git repository that holds the launcher. |
+| `--ip ID` | Restrict layout, filelist, style, wiki, flows and lint to these IPs (repeatable). Files not owned by a selected IP, such as `src/rtl/common/`, are skipped. Neutrality and publishability always scan the whole repository, and citation the whole of `src/` and `wiki/src/`. |
+| `--only NAME` | Run only these checks (repeatable). The default is all nine. |
+| `--src-root DIR` | The source tree to check, as for every command ([build spec](../build/SPEC.md#command-line)). The wiki and citation checks read its sibling `wiki/src/`. Neutrality and publishability ignore it and scan the git repository that holds the launcher. |
 
-Checks run in the order layout, filelist, style, wiki, flows, neutrality, citation, lint
-(lint is the slowest). Output:
+Checks run in the order layout, filelist, style, wiki, flows, neutrality,
+citation, publishability, lint (lint is the slowest). Output:
 
 ```
 check: 2 IP(s) under /abs/src
@@ -34,19 +35,20 @@ check: 2 IP(s) under /abs/src
 [flows] PASS: 1 FPGA and 0 ASIC target(s) with their flows' dry-run validation; cfg/fpga.yaml
 [neutrality] PASS: 135 file(s) (tracked and untracked, not ignored) outside src/, ...
 [citation] PASS: 40 text file(s) under src/, wiki/src/; quotes up to 25 words; ...
+[publishability] PASS: 180 file(s) (tracked and untracked, not ignored); 7 rule(s); 5 allow entry(ies)
 [lint] blk: top=xy_blk
 [lint] PASS: 2 IP(s), 3 Verilator run(s) with -E audit, 0 waiver(s), 0 warning(s) waived
 check: FAIL (style)
 ```
 
-Paths in findings are relative to the source root (neutrality: to the
-repository root; wiki and citation: to the source root's parent, so
-`wiki/src/...`). With no IPs under `src/`, every check still runs and says
+Paths in findings are relative to the source root (neutrality and
+publishability: to the repository root; wiki and citation: to the source
+root's parent, so `wiki/src/...`). With no IPs under `src/`, every check still runs and says
 what it covered (zero IPs and files), and the command passes.
 
 **Exit codes:** `0` means every selected check passed. `1` means at least
 one check found a violation. `2` means a usage or configuration error: an
-unknown `--ip`, an invalid `cfg/checks.yaml` (either section) or waiver file, a git error,
+unknown `--ip`, an invalid `cfg/checks.yaml` (any section) or waiver file, a git error,
 or Verilator missing while there is something to lint. The flow settings
 (`cfg/fpga.yaml`, the ORFS entry of `cfg/host.yaml`) are flow inputs, not
 the check's own configuration: a problem there is a `flows` finding.
@@ -272,11 +274,15 @@ neutrality:
   repo_slug: owner/repo          # optional
 citation:                        # see the citation check
   max_quote_words: 25
+publishability:                  # see the publishability check
+  allow: [...]
 ```
 
-The top level holds `neutrality` and `citation` and nothing else. Both are
-required: the neutrality check rejects a missing `neutrality` and any
-unknown top-level key, and the citation check rejects a missing `citation`.
+The top level holds `neutrality`, `citation` and `publishability` and
+nothing else. All three are required: the neutrality check rejects a
+missing `neutrality` and any unknown top-level key, the citation check
+rejects a missing `citation`, and the
+[publishability check](#publishability-check) a missing `publishability`.
 Any other key (including an attempt to configure exempt paths), a missing
 key, a wrong type, a `words` list that is not one single-line flow list, or
 more than one `words` or `repo_slug` line (a duplicate YAML key could hide a
@@ -323,6 +329,65 @@ remains the main control: the
 requires the reviewer to confirm paraphrase-only for any PR that touches
 cited material. The threshold is set high enough that ordinary messages and
 string literals in tests pass.
+
+## Publishability check
+
+Rule owner: the [wiki BKM, publishability](../../bkm/wiki.md#publishability).
+Code: `publishability.py`. The scan covers every file
+`git ls-files --cached --others --exclude-standard` lists, in every tree:
+`src/`, `wiki/src/` and `wiki/tracker/data/` are public too, so nothing is
+exempt by location. Binary files (a NUL byte) are skipped. A symbolic link
+is never followed: its target string is scanned instead, so the check never
+reads outside the repository. File paths are scanned as well as contents. A finding is `<path>:<line>: <rule>: '<match>'`,
+or `<path> (path): <rule>: '<match>'` for a match in the path itself.
+
+| Rule | Flags | Not a finding |
+| --- | --- | --- |
+| `private-key` | A PEM private key header: `-----BEGIN ... PRIVATE KEY-----`. | Public keys and certificates. |
+| `token` | An access token shape, as a whole word: GitHub (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_` and 36 or more letters and digits; `github_pat_` and 22 or more), AWS key ids (`AKIA` or `ASIA` and 16 upper-case letters or digits), Google API keys (`AIza` and 35), Slack (`xoxb-` and similar), `sk-` keys with 32 or more characters, GitLab (`glpat-`) and npm (`npm_`) tokens. | Shorter look-alikes such as a `ghp_` prefix in prose. |
+| `url-credentials` | `<scheme>://<user>:<password>@` in any URL; the match is `<user>:<password>`. | A user without a password (`http://proxy@host`). |
+| `ipv4` | A dotted-quad IPv4 address. | Loopback (`127.0.0.0/8`), `0.0.0.0`, the documentation ranges (RFC 5737), invalid octets (`999.1.1.1`) and longer dotted runs (`1.2.3.4.5`). |
+| `ipv6` | A valid IPv6 address with at least three non-empty groups, or with two when one of them is at least three hex digits long. | `::1`, `::`, `2001:db8::/32` (RFC 3849), and text that is not an address or is too short to tell from code: `a[1::2]`, `pkg::name`, `a::b`, `fe::1`, times, MAC addresses. |
+| `home-path` | `/home/<name>` or `/Users/<name>`: a home directory names a user. | `/home/` alone and placeholders such as `/home/<user>`. |
+| `email` | `<local>@<domain>.<tld>`, except inside a `url-credentials` match. | No-reply addresses (local part `noreply` or `no-reply`, optionally with a `+`, `.`, `_` or `-` suffix; a local part ending in `+noreply`; a domain with a `noreply.` label, such as `users.noreply.github.com`), the reserved domains of RFC 2606 and RFC 6761 (`example.com`, `example.net`, `example.org`, `.example`, `.invalid`, `.test`, `.localhost`) and a domain without a letter TLD (`actions/checkout@v7.0.1`). |
+
+The rules and their built-in "not a finding" cases are fixed in the tool:
+they are the definition of the check. Any other match is exempt only by a
+reviewed entry in `publishability.allow`:
+
+```yaml
+publishability:
+  allow:                         # required; may be empty
+    - rule: email                # required; one of the rules above
+      match: git@github.com      # required; the exact matched text
+      path: tools/*              # optional fnmatch glob ('*' crosses '/'); default: every file
+      reason: the SSH user of a Git host remote URL, not a person   # required
+```
+
+An entry exempts a match only when the rule and the exact text are equal
+and the file path matches the glob. An entry that exempts nothing is
+**stale** and is a finding,
+`cfg/checks.yaml: publishability.allow[<i>] (<rule> '<match>'[ in <path>]): stale, matches nothing`.
+`cfg/checks.yaml` itself is scanned like any other file, except that a
+match equal to the `match` of an entry with the same rule is never a
+finding there, wherever the entry's glob points, so the allow list can
+name what it exempts. That mention is not a use: an entry whose text
+appears only in `cfg/checks.yaml` is stale. A missing or extra key, an unknown rule, an empty
+string or a wrong type is a configuration error (exit 2).
+
+**Limits.** The check is a pattern scan. It does not find a secret that has
+no recognizable shape (a password in prose or in a config value), phone
+numbers, host names, names of people, a home path written another way
+(`~jdoe`, `C:\Users\jdoe`), a two-group IPv6 address whose groups are both
+one or two hex digits (`fe::1`), or anything in a file that is not UTF-8 or
+ASCII-compatible: UTF-16 text has NUL bytes and is skipped as binary. Known
+false positives, each cleared by an allow entry when it is genuine:
+Python slices `x[<a>::<b>]` with a bound of three or more digits (IPv6), file names
+such as `<name>@2x.png` (email), templated URLs such as
+`https://<user>:${TOKEN}@<host>` (url-credentials) and four-part version strings
+that form a valid dotted quad (ipv4). Reviewers keep the whole
+[publishability list](../../bkm/wiki.md#publishability) as a review item;
+an `allow` entry is reviewed like code.
 
 ## Lint check
 
@@ -434,8 +499,16 @@ good tree with `asic/blk/` inputs and its own `cfg/` (`test_flows.py`),
 each citation finding with its pass and fail boundary (exactly
 `max_quote_words` words versus one more, every malformed citation variant, wrapped citations in Markdown (and not over a blank line), long indented malformed citations and unclosed backticks finishing quickly (a regression guard against backtracking),
 code blocks and spans, triple quotes, binary and hidden files) and every
-config error (`test_citation.py`), and waivers (used, stale, invalid),
-output parsing and the command line (`test_lint.py`, `test_check_run.py`). Negative cases include a `.vlt`
+config error (`test_citation.py`),
+a fixture that fails for every publishability rule and token shape,
+harmless look-alikes for each rule, every tree and file paths scanned,
+ignored and binary files skipped, symbolic links not followed, allow
+entries (exact match, path glob, per rule, stale, values named in the
+config, a path-less entry named only in the config being stale), linear
+scan time on 40k-character adversarial lines, and every config error
+(`test_publishability.py`),
+and waivers (used, stale, invalid), output parsing and the command line
+(`test_lint.py`, `test_check_run.py`). Negative cases include a `.vlt`
 and a `.v` file in an `rtl/` closure, a `w.txt` waiver reached by
 `` `include`` through an include directory under `rtl/` and through
 `+incdir+` of a `dv/` folder (both as a `` `verilator_config`` block and as a
@@ -444,4 +517,5 @@ allowed include directory and a listed source under `dv/` (both caught by
 the preprocessed audit), prose versus directive comments, a
 comment and a widened exempt path in the config, and look-alike slug hosts.
 Tests that run Verilator are skipped when it is not installed. `test_check_run.py` also runs the neutrality, wiki
-mirror and citation checks on this repository.
+mirror and citation checks on this repository, and `test_publishability.py` runs the
+publishability check on it.
