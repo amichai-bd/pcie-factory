@@ -36,11 +36,15 @@ target.
 
   | Exception | Reason |
   | --- | --- |
-  | `set_max_delay` of one period (8 ns) on every path from `clk` to `rx_clk` and from `rx_clk` to `clk` | Bounds each crossing to one cycle of the capturing clock: the skew between the bits of a synchronized Gray pointer, the elastic-buffer memory read that the pointer guards, and the RX reset's asynchronous assertion from `rst_i`. |
+  | `set_max_delay -ignore_clock_latency` of one period (8 ns) on every path from `clk` to `rx_clk` and from `rx_clk` to `clk` | Bounds each crossing to one cycle of the capturing clock: the skew between the bits of a synchronized Gray pointer, the elastic-buffer memory read that the pointer guards, and the RX reset's asynchronous assertion from `rst_i`. `-ignore_clock_latency` (an OpenSTA option, as in SDC 2.1) leaves the clock trees out, so the bound is on the data path alone, whatever the skew between the two trees. |
   | `set_false_path -hold` between the clocks, both directions | With no phase relationship a hold check has no meaning; the synchronizers resolve the arrival. |
 
   Inside each domain every path is timed normally, including the RX
-  reset's synchronous release.
+  reset's synchronous release. The exceptions are per clock pair, so they
+  would also bound an unsynchronized crossing, if one were added, without
+  flagging it. The guard against that is `./build check`: Verilator lint
+  and the structural CDC check, which require every crossing to go through
+  an approved cell.
 
 ## Flow configuration
 
@@ -57,9 +61,12 @@ headroom for the two clock trees and resizing buffers.
 generated config. Nightly runs it with every IP that has `src/asic/<ip>/`.
 Results, including the setup WNS and TNS of each clock
 (`timing.clocks.clk` and `timing.clocks.rx_clk`), are in `metrics.json` and,
-from the nightly run, on the tracker's `phy` page. The per-clock values are
-optional in the flow until a nightly shows them populated
-([#200](https://github.com/amichai-bd/pcie-factory/issues/200)); without them the run warns and keeps its other results.
+from the nightly run, on the tracker's `phy` page. The per-clock values come
+from the flow's separate, time-capped `clocks` step and are optional until
+a nightly shows them populated
+([#200](https://github.com/amichai-bd/pcie-factory/issues/200)): if that
+step fails, times out or writes no clock, the run warns and keeps its
+status and its other results.
 
 ## Files
 

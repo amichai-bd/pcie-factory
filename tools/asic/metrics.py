@@ -9,7 +9,9 @@ Inputs, all under the ORFS work home (``WORK_HOME``):
 - ``reports/<platform>/<nick>/base/synth_stat.txt``: Yosys ``stat``; fallback
   cell count and area when the JSON lacks them.
 - ``reports/<platform>/<nick>/base/asic_extra.json``: written by
-  ``extra_metrics.tcl`` (max fanout, logic depth, setup slack per clock).
+  ``extra_metrics.tcl`` (max fanout, logic depth).
+- ``reports/<platform>/<nick>/base/asic_clocks.json``: written by
+  ``clock_slacks.tcl`` (setup slack per clock; optional).
 
 Every parser is pure (text in, dict out) so unit tests run on fixtures.
 """
@@ -208,10 +210,10 @@ def _num(v):
     return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
-def clock_slacks(extra: dict) -> dict | None:
-    """``{clock: {setup_ws_ns, wns_ns, tns_ns}}`` from the extra metrics'
+def clock_slacks(doc: dict) -> dict | None:
+    """``{clock: {setup_ws_ns, wns_ns, tns_ns}}`` from ``asic_clocks.json``'s
     ``clocks``; None when absent, empty or malformed."""
-    clocks = extra.get("clocks")
+    clocks = doc.get("clocks")
     if not isinstance(clocks, dict):
         return None
     out = {}
@@ -224,24 +226,28 @@ def clock_slacks(extra: dict) -> dict | None:
     return out or None
 
 
-def clock_warning(extra: dict) -> str | None:
-    """Why ``timing.clocks`` is missing, or None when it is present."""
-    if clock_slacks(extra):
+def clock_warning(doc: dict) -> str | None:
+    """Why ``timing.clocks`` is missing, or None when it is present; ``doc``
+    is the parsed ``asic_clocks.json``."""
+    if clock_slacks(doc):
         return None
-    if not extra:
-        cause = "asic_extra.json is missing or unreadable (the extra step failed or did not run)"
-    elif "clocks" not in extra:
-        cause = "asic_extra.json has no clocks entry"
-    elif extra["clocks"] == {}:
-        cause = ("extra_metrics.tcl wrote no clock (its per-clock section failed or found no "
-                 "constrained endpoint; see the asic_extra lines in flow.log)")
+    if not doc:
+        cause = "asic_clocks.json is missing or unreadable (the clocks step failed or did not run)"
+    elif "clocks" not in doc:
+        cause = "asic_clocks.json has no clocks entry"
+    elif doc["clocks"] == {}:
+        cause = ("clock_slacks.tcl wrote no clock (it hit a Tcl error or found no "
+                 "constrained endpoint; see the asic_clocks lines in flow.log)")
     else:
-        cause = "the clocks entry in asic_extra.json is malformed"
+        cause = "the clocks entry in asic_clocks.json is malformed"
     return f"timing.clocks missing (optional, run not failed): {cause}"
 
 
-def summarize(step: dict, synth: dict, worst: dict | None, extra: dict) -> dict:
-    """Combine the parsed inputs into the metrics.json body (minus run info)."""
+def summarize(step: dict, synth: dict, worst: dict | None, extra: dict,
+              clocks: dict | None = None) -> dict:
+    """Combine the parsed inputs into the metrics.json body (minus run info);
+    ``clocks`` is the parsed ``asic_clocks.json``."""
+    clocks = clocks or {}
     ws = latest(step, "timing__setup__ws")
     tns = latest(step, "timing__setup__tns")
     cells = latest(step, "design__instance__count__stdcell")
@@ -252,7 +258,7 @@ def summarize(step: dict, synth: dict, worst: dict | None, extra: dict) -> dict:
             "wns_ns": None if ws is None else min(ws, 0.0),
             "tns_ns": tns,
             "hold_ws_ns": latest(step, "timing__hold__ws"),
-            "clocks": clock_slacks(extra),
+            "clocks": clock_slacks(clocks),
         },
         "area": {
             "stdcell_um2": area if area is not None else synth.get("area_um2"),
@@ -271,7 +277,7 @@ def summarize(step: dict, synth: dict, worst: dict | None, extra: dict) -> dict:
                        else {"from": None, "to": None}),
         "power_w": latest(step, "power__total"),
         "route_drc_errors": step.get("detailedroute__route__drc_errors"),
-        "warnings": [w for w in (clock_warning(extra),) if w],
+        "warnings": [w for w in (clock_warning(clocks),) if w],
     }
 
 
@@ -305,4 +311,5 @@ def collect(work_home: Path, platform: str, nick: str,
     synth = parse_synth_stat(_read(reports / "synth_stat.txt") or "")
     worst = parse_worst_path(_read(reports / "6_finish.rpt") or "")
     extra = parse_extra(_read(reports / "asic_extra.json") or "")
-    return summarize(step, synth, worst, extra), format_worst_path(worst)
+    clocks = parse_extra(_read(reports / "asic_clocks.json") or "")
+    return summarize(step, synth, worst, extra, clocks), format_worst_path(worst)

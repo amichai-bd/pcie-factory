@@ -1,5 +1,5 @@
 # Extra metrics ORFS does not report: max fanout and logic depth of the
-# final design, and setup slack per clock. Run by ./build asic through the ORFS `run` target, so the
+# final design. Run by ./build asic through the ORFS `run` target, so the
 # ORFS environment (SCRIPTS_DIR, RESULTS_DIR, REPORTS_DIR, platform files) is
 # set. Writes $REPORTS_DIR/asic_extra.json. Spec: wiki/tools/asic/SPEC.md.
 #
@@ -9,9 +9,6 @@
 #   register input pin other than its clock (data, enable, set or reset) or
 #   an output port, and starts at a register or an
 #   input port (both endpoints excluded, buffers and inverters included).
-# Setup slack per clock: worst slack and total negative slack over the
-#   constrained setup endpoints, grouped by the clock that captures each
-#   (ORFS reports only the totals over all clocks).
 
 source $::env(SCRIPTS_DIR)/load.tcl
 load_design 6_final.odb 6_final.sdc
@@ -159,66 +156,6 @@ foreach bt [$block getBTerms] {
 }
 asic_mark "logic depth $logic_depth ($logic_depth_endpoint)"
 
-# --- setup slack per clock ---
-# The parasitics ORFS's final report used: the extracted SPEF when the
-# platform has extraction rules, else global-route estimates.
-proc asic_clock_slacks {} {
-  set spef $::env(RESULTS_DIR)/6_final.spef
-  if { [file exists $spef] } {
-    read_spef $spef
-  } else {
-    estimate_parasitics -global_routing
-  }
-  set result {}
-  foreach clk [all_clocks] {
-    dict set result [get_property $clk name] [dict create ws "" tns 0.0]
-  }
-  # One path per endpoint: the worst one, so the sum of the negative ones is
-  # the TNS. The option names changed in OpenSTA; accept either.
-  if { [catch { set ends [find_timing_paths -path_delay max -group_path_count 1000000 \
-                            -endpoint_path_count 1 -unique_paths_to_endpoint] }] } {
-    set ends [find_timing_paths -path_delay max -group_count 1000000 \
-                -endpoint_count 1 -unique_paths_to_endpoint]
-  }
-  foreach end $ends {
-    set clk [get_property $end endpoint_clock]
-    if { $clk eq "" || $clk eq "NULL" } {
-      continue
-    }
-    set name [get_property $clk name]
-    set slack [expr { double([get_property $end slack]) }]
-    if { ![dict exists $result $name] } {
-      dict set result $name [dict create ws "" tns 0.0]
-    }
-    set ws [dict get $result $name ws]
-    if { $ws eq "" || $slack < $ws } {
-      dict set result $name ws $slack
-    }
-    if { $slack < 0 } {
-      dict set result $name tns [expr { [dict get $result $name tns] + $slack }]
-    }
-  }
-  return $result
-}
-
-# A failure here leaves the clocks out (the metrics then count as
-# incomplete) but keeps max fanout and logic depth.
-set clock_slacks {}
-if { [catch { set clock_slacks [asic_clock_slacks] } err] } {
-  asic_mark "clock slacks failed: $err"
-  set clock_slacks {}
-}
-dict for {name v} $clock_slacks {
-  asic_mark "clock $name: setup ws [dict get $v ws], tns [dict get $v tns]"
-}
-
-proc asic_json_number { v } {
-  if { $v eq "" } {
-    return "null"
-  }
-  return [format %.4f $v]
-}
-
 proc asic_json_string { s } {
   return "\"[string map {\\ \\\\ \" \\\"} $s]\""
 }
@@ -228,16 +165,7 @@ puts $out "{"
 puts $out "  \"max_fanout\": $max_fanout,"
 puts $out "  \"max_fanout_net\": [asic_json_string $max_fanout_net],"
 puts $out "  \"logic_depth\": $logic_depth,"
-puts $out "  \"logic_depth_endpoint\": [asic_json_string $logic_depth_endpoint],"
-set clocks {}
-dict for {name v} $clock_slacks {
-  lappend clocks "    [asic_json_string $name]: {\"setup_ws\": [asic_json_number [dict get $v ws]], \"setup_tns\": [asic_json_number [dict get $v tns]]}"
-}
-if { [llength $clocks] } {
-  puts $out "  \"clocks\": {\n[join $clocks ",\n"]\n  }"
-} else {
-  puts $out "  \"clocks\": {}"
-}
+puts $out "  \"logic_depth_endpoint\": [asic_json_string $logic_depth_endpoint]"
 puts $out "}"
 close $out
 asic_mark "wrote $::env(REPORTS_DIR)/asic_extra.json"

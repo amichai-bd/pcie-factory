@@ -35,9 +35,14 @@ set_output_delay [expr {0.2 * $clk_period}]    -clock clk    [all_outputs]
 #   of the clock it is captured by, which bounds the skew between the bits of
 #   a synchronized Gray pointer and the elastic-buffer memory read that the
 #   pointer guards;
+#   -ignore_clock_latency (an OpenSTA set_max_delay option, as in SDC 2.1;
+#   OpenSTA's doc/OpenSTA.pdf) leaves both clock trees out, so the bound is on
+#   the data path alone, the same for every bit whatever the tree skew;
 # - hold: none, since there is no phase relationship (the synchronizers
 #   resolve the arrival).
-set_max_delay $rx_clk_period -from [get_clocks clk]    -to [get_clocks rx_clk]
-set_max_delay $clk_period    -from [get_clocks rx_clk] -to [get_clocks clk]
+# The exception is per clock pair, so it would also bound an unsynchronized
+# crossing; the lint and cdc-domain checks of ./build check are the guard.
+set_max_delay -ignore_clock_latency $rx_clk_period -from [get_clocks clk]    -to [get_clocks rx_clk]
+set_max_delay -ignore_clock_latency $clk_period    -from [get_clocks rx_clk] -to [get_clocks clk]
 set_false_path -hold -from [get_clocks clk]    -to [get_clocks rx_clk]
 set_false_path -hold -from [get_clocks rx_clk] -to [get_clocks clk]

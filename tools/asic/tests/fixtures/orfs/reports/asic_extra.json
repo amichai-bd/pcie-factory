@@ -2,8 +2,5 @@
   "max_fanout": 25,
   "max_fanout_net": "net11",
   "logic_depth": 4,
-  "logic_depth_endpoint": "u_inc.state_q\\[5\\]$_SDFFE_PP1P_/D",
-  "clocks": {
-    "clk": {"setup_ws": 6.0134, "setup_tns": 0.0000}
-  }
+  "logic_depth_endpoint": "u_inc.state_q\\[5\\]$_SDFFE_PP1P_/D"
 }
