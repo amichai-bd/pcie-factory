@@ -174,6 +174,7 @@ listed entry; each fails, and the unmutated RTL passes.
 | LTSSM | `Rx_L0s.Entry` left after 2 cycles, not 3 | `arcs_quick` | Fails at cycle 26961: `ltssm_state_o` 0x26 (`Rx_L0s.Idle`), the shadow 0x25. |
 | LTSSM | `Tx_L0s.FTS` sends one FTS fewer than the partner's N_FTS | `arcs_quick` | Fails at cycle 27126: transmitted COM, SKP; the shadow COM, FTS. |
 | LTSSM | L2.Idle's P2 straight to Detect's P1 (not through P0) | `arcs_quick` | Stops on the RTL assertion `a_pd_via_p0`. |
+| LTSSM | The latched Recovery exit not held by `Rx_L0s.Entry` (`l0_blocked` without the `.Entry` term) | `arcs_quick` | Fails at cycle 27912: `ltssm_state_o` 0x10 (Recovery.RcvrLock), the shadow still in L0 with `Rx_L0s.Entry` (0x21). The shadow compare catches it; the arc observer alone would accept Entry to Off as Entry, Idle, Off. |
 
 ## Gaps
 
