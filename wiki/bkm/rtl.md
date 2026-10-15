@@ -30,8 +30,10 @@ two vocabulary headers, `src/rtl/common/common_macros.svh` and
    blocking logic in `always_comb` or `assign`, and `always_comb` is the
    only process keyword a design file writes
    ([registers and memories](#registers-and-memories)). No approved cell
-   needs an exemption: the crossing cells use the macros too.
-   Rules `raw-always-ff`, `nonblocking-assignment`.
+   needs an exemption: the crossing cells use the macros too. No file
+   declares a clocking block (`default clocking` would let
+   `assign q = $past(d);` simulate as a register outside the macros).
+   Rules `raw-always-ff`, `nonblocking-assignment`, `clocking-block`.
 2. **No assertion written directly.** No `assert`, `assume`, `cover`,
    `property`, `sequence`, `$fatal`, `$error`, `$warning`, `$info`,
    `initial` or `final` in a design file, and no other system task either
@@ -40,10 +42,11 @@ two vocabulary headers, `src/rtl/common/common_macros.svh` and
    hand-written assertion that synthesis silently drops. Only pure system
    functions are allowed (`$bits`, `$clog2`, `$signed`, `$unsigned`,
    `$size`, `$low`, `$high`, `$left`, `$right`, `$countones`, `$onehot*`,
-   `$isunknown`, and the sampled-value functions inside an assertion
-   macro's property). Use the `COMMON_ASSERT*` macros, including
+   `$isunknown`); the sampled-value functions (`$past`, `$stable`, `$rose`,
+   `$fell`, `$changed`, `$sampled`) are allowed only inside the arguments
+   of a `COMMON_ASSERT*` macro. Use the `COMMON_ASSERT*` macros, including
    `COMMON_ASSERT_PARAM` for parameter checks ([assertions](#assertions)).
-   Rules `raw-assertion`, `raw-initial`, `system-task`.
+   Rules `raw-assertion`, `raw-initial`, `system-task`, `sampled-value`.
 3. **No conditional compilation in a design file.** No `` `ifdef``,
    `` `ifndef``, `` `elsif`` or `` `else`` in a `.sv`, not even an include
    guard. Flow selection (synthesis guards, Verilator lint sinks, assertion

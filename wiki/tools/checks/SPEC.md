@@ -168,8 +168,9 @@ adding one is a reviewed change to that list, and any other `.svh`, in
 from them the macro names they `` `define`` and the shared cells
 (`rtl/common/<cell>.sv`) their text names. A header is exempt from
 `raw-always-ff`, `nonblocking-assignment`, `raw-assertion`, `raw-initial`,
-`system-task` and `vocabulary-include`, and may test `SYNTHESIS` and
-`VERILATOR` (not `SIMULATION`). A **design file** is any other `.sv`: in it
+`system-task`, `sampled-value` and `vocabulary-include`, and may test
+`SYNTHESIS` and `VERILATOR` (not `SIMULATION`); `clocking-block` applies to
+it too. A **design file** is any other `.sv`: in it
 `conditional-compilation` replaces `sim-ifdef` and `external-ifdef`, which
 still apply to `.svh` and other includable files, and `local-define`
 applies.
@@ -193,7 +194,9 @@ applies.
 | `raw-always-ff` | No `always_ff` outside a vocabulary header. | [rtl.md#registers-and-memories](../../bkm/rtl.md#registers-and-memories) |
 | `raw-assertion` | No `assert`, `assume`, `cover`, `restrict`, `expect`, `property`, `sequence`, `$fatal`, `$error`, `$warning` or `$info` outside a vocabulary header. | [rtl.md#assertions](../../bkm/rtl.md#assertions) |
 | `raw-initial` | No `initial` or `final` outside a vocabulary header. | [rtl.md#assertions](../../bkm/rtl.md#assertions) |
-| `system-task` | No system task or function outside a vocabulary header (`$display`, `$write`, `$finish`, `$stop`, `$monitor`, `$strobe`, `$readmemh`, `$random`, ...; `$fatal`/`$error`/`$warning`/`$info` are `raw-assertion`'s), except the pure functions `$bits`, `$clog2`, `$signed`, `$unsigned`, `$size`, `$low`, `$high`, `$left`, `$right`, `$increment`, `$dimensions`, `$unpacked_dimensions`, `$countones`, `$countbits`, `$onehot`, `$onehot0`, `$isunknown` and the sampled-value functions `$past`, `$stable`, `$rose`, `$fell`, `$changed`, `$sampled` (for assertion-macro properties). A `$` inside an identifier is not a call. | [rtl.md#assertions](../../bkm/rtl.md#assertions) |
+| `system-task` | No system task or function outside a vocabulary header (`$display`, `$write`, `$finish`, `$stop`, `$monitor`, `$strobe`, `$readmemh`, `$random`, ...; `$fatal`/`$error`/`$warning`/`$info` are `raw-assertion`'s), except the pure functions `$bits`, `$clog2`, `$signed`, `$unsigned`, `$size`, `$low`, `$high`, `$left`, `$right`, `$increment`, `$dimensions`, `$unpacked_dimensions`, `$countones`, `$countbits`, `$onehot`, `$onehot0`, `$isunknown`, and the sampled-value functions, which are `sampled-value`'s. A `$` inside an identifier is not a call. | [rtl.md#assertions](../../bkm/rtl.md#assertions) |
+| `sampled-value` | `$past`, `$stable`, `$rose`, `$fell`, `$changed` and `$sampled` outside a vocabulary header only inside the parenthesized arguments of a `` `COMMON_ASSERT*`` call whose macro a header defines. Anywhere else (plain logic, another macro's arguments, after the call) they are findings: with a clock in scope, `assign q = $past(d);` is a register outside the `COMMON_DFF*` macros. The `_gclk` forms stay `system-task`'s. | [rtl.md#assertions](../../bkm/rtl.md#assertions) |
+| `clocking-block` | No `clocking` keyword (a clocking block, `default clocking` or `global clocking`) in any checked file, vocabulary headers included; reported once per block. A default clocking block gives sampled-value functions the implicit clock that turns them into registers. | [rtl.md#registers-and-memories](../../bkm/rtl.md#registers-and-memories) |
 | `local-define` | No `` `define``, `` `undef`` or `` `undefineall`` in a design file: macros live only in the vocabulary headers, which also closes token-pasting evasions such as `` `define NB <=``. | [rtl.md#no-conditional-compilation](../../bkm/rtl.md#no-conditional-compilation) |
 | `conditional-compilation` | No `` `ifdef``, `` `ifndef``, `` `elsif`` or `` `else`` in a design file, include guards included. | [rtl.md#no-conditional-compilation](../../bkm/rtl.md#no-conditional-compilation) |
 | `package-import` | No `import` (wildcard or named) anywhere; package items are named `pkg::item`. | [rtl.md#types-and-constants-live-in-packages](../../bkm/rtl.md#types-and-constants-live-in-packages) |
@@ -818,6 +821,9 @@ folder that names no IP, misnamed or nested filelists in the shared folders, and
 staying top-level with `arch/`, `fpga/` and `asic/` while a prefixed one is a sub-IP, and
 an unconfirmed parent prefix (`test_layout.py`), one bad case per style
 rule (every design rule, include rule and `cdc-cell-macro` included),
+sampled-value functions passing in `COMMON_ASSERT*` arguments and failing
+elsewhere, the `default clocking` plus `$past` hidden register, the
+vocabulary header list matching `cfg/ci.yaml` `vocabulary_tests.paths`,
 the vocabulary header's exemptions and the `SIMULATION` limit, comparisons
 that are not nonblocking assignments, vocabulary discovery, the design-file
 conditional reported once, and `external-ifdef` closure cases in include

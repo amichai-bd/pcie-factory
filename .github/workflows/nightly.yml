@@ -2,7 +2,8 @@
 # (Nightly, Metrics) and wiki/tools/metrics/SPEC.md (Workflows).
 #
 # Three jobs, each with only the token permissions it needs:
-#   nightly  read-only: checks, L0+L1+L2 with coverage, arch perf, FPGA and ASIC flows, metrics files
+#   nightly  read-only: checks, unit suites (arch perf included), L0+L1+L2 with coverage,
+#            FPGA and ASIC flows, metrics files
 #   publish  contents/pull-requests/actions write: commits ONLY the data files
 #            on nightly/<date>, opens the type:data PR, dispatches ci-gate on it
 #   report   issues write: opens/updates/closes the single nightly-red issue
@@ -87,7 +88,11 @@ jobs:
           . workdir/nightly/lib.sh
           run_step check ./build check
 
-      - name: Unit tests (every suite, the Verilator-built vocabulary tests included)
+      # The only place the nightly runs the architecture-model perf
+      # scenarios: `ci unit` holds a perf:<ip> suite (./build arch --ip <ip>)
+      # for every IP with src/arch/<ip>/perf/, writing workdir/<ip>/arch/perf.json
+      # for the metrics arch section. There is no separate arch step.
+      - name: Unit tests (every suite, the Verilator-built vocabulary tests and arch perf included)
         id: unit
         if: ${{ !cancelled() }}
         run: |
@@ -100,17 +105,6 @@ jobs:
         run: |
           . workdir/nightly/lib.sh
           run_step regress ./build regress --level 0 --level 1 --level 2 --jobs "$(nproc)" --coverage
-
-      - name: Architecture-model perf (IPs with src/arch/<ip>/)
-        id: arch
-        if: ${{ !cancelled() }}
-        run: |
-          . workdir/nightly/lib.sh
-          ips=$(find src/arch -mindepth 1 -maxdepth 1 -type d -not -name '.*' -printf '%f\n' 2>/dev/null | sort)
-          if [ -z "$ips" ]; then skip_step "arch: no IP has arch/<ip>/ inputs"
-          elif ./build arch --help 2>/dev/null | grep -q -- '--ip'; then
-            run_step arch bash -c 'rc=0; for ip in "$@"; do ./build arch --ip "$ip" || rc=1; done; exit $rc' _ $ips
-          else skip_step "arch: ./build arch is not available on this commit"; fi
 
       - name: FPGA flow (IPs with src/fpga/<ip>/)
         id: fpga
@@ -151,7 +145,6 @@ jobs:
             --step "check=${{ steps.check.outputs.result || 'fail' }}" \
             --step "unit=${{ steps.unit.outputs.result || 'fail' }}" \
             --step "regress=${{ steps.regress.outputs.result || 'fail' }}" \
-            --step "arch=${{ steps.arch.outputs.result || 'fail' }}" \
             --step "fpga=${{ steps.fpga.outputs.result || 'fail' }}" \
             --step "asic=${{ steps.asic.outputs.result || 'fail' }}"
 

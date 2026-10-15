@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from build.ip import discover
+from build.ip import REPO_ROOT, SHARED_DIR, discover
+from ci.config import load_rules
 from checks import style
 from checks.style import RULES, check_text, module_ports
 
@@ -161,6 +162,14 @@ DFF = "`COMMON_DFF_RST(q_q, q_d, clk_i, rst)"
     ("include-path", mutate('`include "common_macros.svh"',
                             '`include "common_macros.svh"\n`include "xy_a_defs.svh"'), None),
     ("vocabulary-include", GOOD.replace('`include "common_macros.svh"\n', ""), None),
+    # The hidden register: a sampled-value function outside an assertion
+    # macro, given a clock by a default clocking block.
+    ("sampled-value", mutate("  assign q_o = q_q;", "  assign q_o = $past(d_i);"), None),
+    ("sampled-value", mutate("    q_d = d_i;", "    q_d = $rose(d_i[0]) ? d_i : q_q;"), None),
+    ("clocking-block", mutate("  logic         rst;", "  default clocking cb @(posedge clk_i);\n"
+                              "  endclocking\n  logic         rst;"), None),
+    ("clocking-block", mutate("  logic         rst;", "  global clocking gc @(posedge clk_i); "
+                              "endclocking\n  logic         rst;"), None),
     ("cdc-cell-macro", mutate("  sub u_sub", "  common_cdc_sync2 #(.WIDTH(1)) u_s (.dst_clk_i(clk_i),"
                               " .dst_rst_i(rst), .src_data_i(q_q[0]), .dst_data_o());\n  sub u_sub"),
      None),
@@ -175,7 +184,8 @@ def test_every_rule_is_tested_and_documented():
               "port-suffix", "tool-pragma", "file-name", "verilator-config", "external-ifdef",
               "nonblocking-assignment", "conditional-compilation", "raw-always-ff",
               "raw-assertion", "raw-initial", "package-import", "include-path",
-              "vocabulary-include", "cdc-cell-macro", "system-task", "local-define"}
+              "vocabulary-include", "cdc-cell-macro", "system-task", "local-define",
+              "sampled-value", "clocking-block"}
     assert tested == set(RULES)
     spec = (Path(__file__).resolve().parents[3] / "wiki/tools/checks/SPEC.md").read_text()
     for rule, (anchor, _) in RULES.items():
@@ -206,11 +216,58 @@ def test_pure_system_functions_pass():
     text = mutate("    q_d = d_i;", "    q_d = d_i + W'($clog2(W)) + W'($bits(q_q)) + W'($countones(d_i))"
                   " + W'($signed(d_i)) + W'($unsigned(d_i)) + W'($size(d_i)) + W'($high(d_i));")
     assert check(text) == []
-    # Sampled-value functions are allowed in assertion macro properties.
-    vocab = style.Vocabulary(VOCAB.headers, VOCAB.names, VOCAB.macros | {"COMMON_ASSERT"},
-                             VOCAB.cells)
-    text = mutate(DFF, DFF + "\n  `COMMON_ASSERT(a_s, clk_i, rst, $past(q_d) == q_q || $stable(q_q))")
-    assert check_text("xy_a_m.sv", text, "xy_a", vocab=vocab) == []
+
+
+
+ASSERT_VOCAB = style.Vocabulary(VOCAB.headers, VOCAB.names,
+                                VOCAB.macros | {"COMMON_ASSERT", "COMMON_ASSERT_CLOCKED"},
+                                VOCAB.cells)
+
+
+def test_sampled_value_functions_pass_in_assertion_macros():
+    text = mutate(DFF, DFF + "\n  `COMMON_ASSERT(a_s, clk_i, rst, $past(q_d) == q_q || $stable(q_q))"
+                  "\n  `COMMON_ASSERT(a_e, clk_i, rst,\n    ($rose(d_i[0]) || $fell(d_i[0])) |->"
+                  " $changed(d_i) && $sampled(q_q) == q_q)"
+                  "\n  `COMMON_ASSERT_CLOCKED(a_c, clk_i, rst, q_q == $past(q_d))")
+    assert check_text("xy_a_m.sv", text, "xy_a", vocab=ASSERT_VOCAB) == []
+
+
+@pytest.mark.parametrize("extra", [
+    # After the macro's closing parenthesis.
+    "  `COMMON_ASSERT(a_s, clk_i, rst, q_q == q_d) assign busy_x = $past(q_q[0]);",
+    # In a non-assertion vocabulary macro's arguments.
+    "  `COMMON_DFF_RST(q_x, $past(q_d), clk_i, rst)",
+    # In a macro the headers do not define.
+    "  `COMMON_ASSERT_X(a_s, clk_i, rst, $stable(q_q))",
+    # In plain logic.
+    "  logic s;\n  assign s = $sampled(d_i[0]);",
+])
+def test_sampled_value_outside_assertion_macro_fires(extra):
+    text = mutate(DFF, DFF + "\n" + extra)
+    found = check_text("xy_a_m.sv", text, "xy_a", vocab=ASSERT_VOCAB)
+    assert "sampled-value" in rules(found), found
+
+
+def test_hidden_register_through_default_clocking():
+    # The #128 review evasion: passed style, linted clean and simulated as a
+    # one-cycle register outside the COMMON_DFF* macros.
+    text = mutate("  assign q_o = q_q;", "  default clocking cb @(posedge clk_i); endclocking\n"
+                  "  assign q_o = $past(d_i);")
+    found = check_text("xy_a_m.sv", text, "xy_a", vocab=ASSERT_VOCAB)
+    assert rules(found) == ["clocking-block", "sampled-value"], found
+    assert len(found) == 2, found  # clocking is reported once, not at endclocking
+    assert any(":21: clocking-block: clocking" in f for f in found), found
+    assert any(":22: sampled-value: $past outside a COMMON_ASSERT* macro argument" in f
+               for f in found), found
+
+
+def test_clocking_block_fires_in_vocabulary_header():
+    text = ("`ifndef COMMON_MACROS_SVH\n`define COMMON_MACROS_SVH\n"
+            "`define COMMON_X(C) default clocking cb @(posedge C); endclocking\n`endif\n")
+    assert rules(check(text, HEADER)) == ["clocking-block"]
+    # A header may still use sampled-value functions in its macro bodies.
+    text = "`define COMMON_ASSERT_S(N, C, S) N: assert property (@(posedge C) $stable(S));\n"
+    assert check(text, HEADER) == []
 
 
 def test_only_listed_headers_are_exempt(tmp_path):
@@ -225,6 +282,15 @@ def test_only_listed_headers_are_exempt(tmp_path):
     found = rules(check_text("rtl/common/common_extra.svh", body, "common_", vocab=VOCAB))
     assert {"raw-always-ff", "nonblocking-assignment"} <= set(found), found
     assert style.VOCABULARY_HEADERS == ("common_macros.svh", "common_assertions.svh")
+
+
+def test_vocabulary_headers_match_ci_config():
+    # cfg/ci.yaml names the header files whose change runs the vocabulary
+    # tests; it must list exactly the headers the style check exempts.
+    rules_ = load_rules(REPO_ROOT / "cfg")
+    expected = {f"src/rtl/{SHARED_DIR}/{name}" for name in style.VOCABULARY_HEADERS}
+    assert set(rules_.vocabulary_paths) == expected
+    assert len(rules_.vocabulary_paths) == len(style.VOCABULARY_HEADERS)
 
 
 def test_nonblocking_ignores_comparisons():

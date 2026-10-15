@@ -13,14 +13,17 @@ wildcard-connection and external-ifdef rules are new. The vocabulary rules
 (raw-always-ff, raw-assertion, raw-initial: constructs reserved for the
 shared macro headers) follow the same tool's clocked-process, raw-assert and
 raw-initial rules, and nonblocking-assignment ports its scan;
-system-task, local-define, conditional-compilation, package-import,
-include-path, vocabulary-include and cdc-cell-macro are new.
+system-task, sampled-value, clocking-block, local-define,
+conditional-compilation, package-import, include-path, vocabulary-include
+and cdc-cell-macro are new.
 
 The vocabulary headers are the files named in ``VOCABULARY_HEADERS``,
 directly in ``rtl/common/`` (the RTL BKM's shared vocabulary). They alone
 may hold ``always_ff``, ``<=``, assertions, system tasks, ``initial``
 blocks and ``SYNTHESIS``/``VERILATOR`` conditionals; RTL reaches them with
-a bare-name `` `include``. Any other ``.svh`` gets no exemption.
+a bare-name `` `include``. Any other ``.svh`` gets no exemption. Elsewhere
+the sampled-value functions are legal only inside `` `COMMON_ASSERT*``
+arguments, and no file, header or not, may declare a clocking block.
 """
 
 from __future__ import annotations
@@ -84,7 +87,15 @@ RULES = {
     "raw-initial": ("assertions", "no initial or final block outside the vocabulary headers"),
     "system-task": ("assertions",
                     "no system task or function ($display, $finish, $readmemh, ...) outside the "
-                    "vocabulary headers, except pure functions ($bits, $clog2, $signed, ...)"),
+                    "vocabulary headers, except pure functions ($bits, $clog2, $signed, ...) and "
+                    "the sampled-value functions (see sampled-value)"),
+    "sampled-value": ("assertions",
+                      "$past, $stable, $rose, $fell, $changed and $sampled only inside the "
+                      "arguments of a COMMON_ASSERT* vocabulary macro (elsewhere $past is a "
+                      "register outside the COMMON_DFF* macros)"),
+    "clocking-block": ("registers-and-memories",
+                       "no clocking block (clocking, default clocking, global clocking) in any "
+                       "checked file: it gives sampled-value functions an implicit clock"),
     "local-define": ("no-conditional-compilation",
                      "no `define or `undef in a .sv (macros live only in the vocabulary headers)"),
     "package-import": ("types-and-constants-live-in-packages",
@@ -131,16 +142,25 @@ _INCLUDE_RE = re.compile(r"`include\b[ \t]*(\"[^\"\n]*\"|<[^>\n]*>)?")
 _ASSERTION_RE = re.compile(r"\b(assert|assume|cover|restrict|expect|property|sequence)\b"
                            r"|\$(fatal|error|warning|info)\b")
 _SYSTEM_RE = re.compile(r"(?<![\w$])\$[A-Za-z_][\w$]*")
-# Pure system functions design RTL may call: constant and width functions,
-# conversions, bit counts, and the sampled-value functions that assertion
-# macro properties use. Every other system task or function ($display,
-# $finish, $stop, $readmemh, $random, ...) is a finding outside the headers.
+# Pure system functions design RTL may call anywhere: constant and width
+# functions, conversions and bit counts. Every other system task or function
+# ($display, $finish, $stop, $readmemh, $random, ...) is a finding outside
+# the headers, except the sampled-value functions below.
 PURE_SYSTEM_FUNCTIONS = frozenset({
     "$bits", "$clog2", "$signed", "$unsigned", "$size", "$low", "$high", "$left", "$right",
     "$increment", "$dimensions", "$unpacked_dimensions", "$countones", "$countbits",
-    "$onehot", "$onehot0", "$isunknown", "$past", "$stable", "$rose", "$fell", "$changed",
-    "$sampled",
+    "$onehot", "$onehot0", "$isunknown",
 })
+# Sampled-value functions: legal only inside the arguments of an assertion
+# macro (rule sampled-value). Outside one, with a default clocking block in
+# scope, `assign r = $past(d);` is a register that bypasses the DFF macros.
+# The _gclk forms need global clocking and stay system-task findings.
+SAMPLED_VALUE_FUNCTIONS = frozenset({"$past", "$stable", "$rose", "$fell", "$changed",
+                                     "$sampled"})
+# Vocabulary macros whose arguments may hold sampled-value functions: the
+# assertion forms, by name prefix (the macro must also be defined by a header).
+ASSERT_MACRO_PREFIX = COMMON_PREFIX.upper() + "ASSERT"
+_CLOCKING_RE = re.compile(r"\bclocking\b")
 # The vocabulary headers, by file name directly in rtl/common/. Adding one
 # is a reviewed change: a listed header is exempt from the design rules.
 VOCABULARY_HEADERS = ("common_macros.svh", "common_assertions.svh")
@@ -390,6 +410,18 @@ def find_nonblocking(text: str) -> list[int]:
     return hits
 
 
+def assert_argument_spans(text: str, vocab: Vocabulary) -> list[tuple[int, int]]:
+    """Spans of the parenthesized argument lists of `` `COMMON_ASSERT*``
+    calls in comment-stripped ``text``, for macros a vocabulary header
+    defines."""
+    spans = []
+    for m in re.finditer(r"`([A-Za-z_][\w$]*)\s*\(", text):
+        if m.group(1).startswith(ASSERT_MACRO_PREFIX) and m.group(1) in vocab.macros:
+            start = m.end() - 1
+            spans.append((start, _balanced(text, start)))
+    return spans
+
+
 def vocabulary_findings(relpath: str, text: str, vocab: Vocabulary) -> list[str]:
     """The vocabulary rules on comment-stripped ``text``: constructs
     reserved for the vocabulary headers, ``import``, and the include
@@ -410,9 +442,16 @@ def vocabulary_findings(relpath: str, text: str, vocab: Vocabulary) -> list[str]
             add("raw-assertion", m.start(), m.group())
         for m in re.finditer(r"\b(initial|final)\b", text):
             add("raw-initial", m.start(), m.group())
+        asserts = assert_argument_spans(text, vocab)
         for m in _SYSTEM_RE.finditer(text):
-            if m.group() not in PURE_SYSTEM_FUNCTIONS and not _ASSERTION_RE.fullmatch(m.group()):
+            if m.group() in SAMPLED_VALUE_FUNCTIONS:
+                if not _in(m.start(), asserts):
+                    add("sampled-value", m.start(),
+                        f"{m.group()} outside a {ASSERT_MACRO_PREFIX}* macro argument")
+            elif m.group() not in PURE_SYSTEM_FUNCTIONS and not _ASSERTION_RE.fullmatch(m.group()):
                 add("system-task", m.start(), m.group())
+    for m in _CLOCKING_RE.finditer(text):
+        add("clocking-block", m.start(), m.group())
     for m in re.finditer(r"\bimport\b", text):
         add("package-import", m.start(), "import (name items as <pkg>::<name>)")
     if not relpath.startswith(f"rtl/{SHARED_DIR}/"):
