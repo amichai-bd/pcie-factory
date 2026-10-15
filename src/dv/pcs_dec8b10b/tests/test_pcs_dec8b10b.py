@@ -28,12 +28,19 @@ COV_CLASS.coverpoint("case", bins={
 COV_CLASS.coverpoint("kind", bins={"data": 0, "k": 1})
 COV_CLASS.cross("lane_x_case", "lane", "case")
 
-# Why the RD was unknown for a symbol.
+# Why the RD was unknown for a symbol, per lane: every (lane, cause) pair
+# the MAS allows. Lane 1 follows lane 0 in the same word, so its RD is
+# unknown only when it is unlocked, lane 0 is unlocked, or the two symbols'
+# generations differ (a relock between them).
 COV_UNKNOWN = Covergroup("pcs_dec8b10b_rd_unknown")
-COV_UNKNOWN.coverpoint("cause", bins=[
-    "unlocked", "lane0_unlocked", "gen_change", "polarity_change",
-    "after_reset", "after_unlocked"])
-COV_UNKNOWN.coverpoint("lane", bins={"l0": 0, "l1": 1})
+COV_UNKNOWN.coverpoint("lane_cause", bins={
+    f"l{lane}_{cause}": (lane, cause)
+    for lane, causes in (
+        (0, ("unlocked", "gen_change", "polarity_change", "after_reset",
+             "after_unlocked")),
+        (1, ("unlocked", "lane0_unlocked", "gen_change")))
+    for cause in causes
+})
 
 # Recovery: the RD an errored symbol leaves, carried to the next symbol in
 # the same word (lane) or in the next word (cycle).
@@ -110,7 +117,7 @@ class Bench:
             cls = "code" if s.code_err else "disp" if s.disp_err else "valid"
             COV_CLASS.sample(lane=lane, case=(RD_NAME[s.rd_in], cls), kind=s.k)
             if s.rd_in is None:
-                COV_UNKNOWN.sample(lane=lane, cause=self._cause(lane, lock, gen, pol))
+                COV_UNKNOWN.sample(lane_cause=(lane, self._cause(lane, lock, gen, pol)))
         # Recovery: the RD after an errored symbol, used by the next one.
         if exp[0].rd_in is not None and self.last_err is not None:
             COV_RECOVERY.sample(err=self.last_err[0], rd_after=self.last_err[1],
@@ -173,9 +180,11 @@ async def smoke(dut):
     assert exp[0].rd_in is None and not exp[0].disp_err
 
 
-async def _exhaustive_lane(b, lane, mode):
+async def _exhaustive_lane(b, lane, mode, gen_split=False):
     """Every code in ``lane`` at RD ``mode`` (-1, 1 or None), each followed
-    by a probe that shows the RD it left. Returns class counts."""
+    by a probe that shows the RD it left. Lane 1's RD is made unknown by an
+    unlocked lane 0, or with ``gen_split`` by a new lock generation on lane
+    1 alone (both locked). Returns class counts."""
     counts = {"valid": 0, "disp": 0, "code": 0}
     for c in range(1024):
         await b.prime(-1 if mode is None else mode)
@@ -187,6 +196,10 @@ async def _exhaustive_lane(b, lane, mode):
             if mode is not None:
                 set0 = m.setter(b.model.rd, mode)
                 exp = await b.step((set0, c))
+            elif gen_split:
+                g = b.gen
+                b.gen ^= 1                    # relock between the two symbols
+                exp = await b.step((m.PROBE, c), gen=(g, g ^ 1))
             else:
                 exp = await b.step((m.PROBE, c), lock=(0, 1))
         s = exp[lane]
@@ -199,20 +212,23 @@ async def _exhaustive_lane(b, lane, mode):
 
 @cocotb.test()
 async def exhaustive(dut):
-    """L1: all 1024 codes, in both lanes, at RD-, RD+ and unknown; the
-    class counts are checked against the code's own table sizes."""
+    """L1: all 1024 codes, in both lanes, at RD-, RD+ and unknown (lane 1
+    unknown both through an unlocked lane 0 and through a generation split);
+    the class counts are checked against the code's own table sizes."""
     b = Bench(dut)
     await b.start()
-    for lane in (0, 1):
-        for mode in (-1, 1, None):
-            counts = await _exhaustive_lane(b, lane, mode)
-            dut._log.info("lane %d RD %s: %s", lane, mode, counts)
-            if mode is None:
-                want = {"valid": VALID_ANY, "disp": 0, "code": 1024 - VALID_ANY}
-            else:
-                want = {"valid": PER_COLUMN, "disp": VALID_ANY - PER_COLUMN,
-                        "code": 1024 - VALID_ANY}
-            assert counts == want, f"lane {lane} RD {mode}: counts {counts}, expected {want}"
+    passes = [(0, -1, False), (0, 1, False), (0, None, False),
+              (1, -1, False), (1, 1, False), (1, None, False), (1, None, True)]
+    for lane, mode, gen_split in passes:
+        counts = await _exhaustive_lane(b, lane, mode, gen_split)
+        dut._log.info("lane %d RD %s gen_split %s: %s", lane, mode, gen_split, counts)
+        if mode is None:
+            want = {"valid": VALID_ANY, "disp": 0, "code": 1024 - VALID_ANY}
+        else:
+            want = {"valid": PER_COLUMN, "disp": VALID_ANY - PER_COLUMN,
+                    "code": 1024 - VALID_ANY}
+        assert counts == want, (f"lane {lane} RD {mode} gen_split {gen_split}: "
+                                f"counts {counts}, expected {want}")
     assert VALID_ANY == 2 * PER_COLUMN - BOTH_COLUMNS
 
 
@@ -245,8 +261,8 @@ async def random_run(b, rng, cycles):
     changes, errors and resets, compared with the model every cycle; fails
     when an event never happened."""
     line = Line(rng)
-    seen = {"gap": 0, "unlock": 0, "gen": 0, "pol": 0, "rst": 0,
-            "code_err": 0, "disp_err": 0}
+    seen = {"gap": 0, "unlock": 0, "gen": 0, "relock": 0, "gen_split": 0,
+            "pol": 0, "rst": 0, "code_err": 0, "disp_err": 0}
     lock = 1
     for _ in range(cycles):
         r = rng.random()
@@ -260,6 +276,17 @@ async def random_run(b, rng, cycles):
             if lock:
                 b.gen ^= 1
                 seen["gen"] += 1
+        gens = None
+        if lock and rng.random() < 0.01:
+            # A relock in the same cycle: a new generation from lane 0, or
+            # from lane 1 (the word straddles the relock).
+            g = b.gen
+            b.gen ^= 1
+            if rng.random() < 0.5:
+                gens = (g, g ^ 1)
+                seen["gen_split"] += 1
+            else:
+                seen["relock"] += 1
         if rng.random() < 0.01:
             b.pol ^= 1
             seen["pol"] += 1
@@ -270,7 +297,7 @@ async def random_run(b, rng, cycles):
         locks = (lock, lock)
         if rng.random() < 0.01:
             locks = (rng.randrange(2), rng.randrange(2))
-        exp = await b.step(syms, lock=locks, valid=valid)
+        exp = await b.step(syms, lock=locks, gen=gens, valid=valid)
         seen["code_err"] += sum(s.code_err for s in exp) * valid
         seen["disp_err"] += sum(s.disp_err for s in exp) * valid
     b.dut._log.info("events: %s", seen)

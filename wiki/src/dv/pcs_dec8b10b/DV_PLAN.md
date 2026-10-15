@@ -23,15 +23,18 @@
   only at RD-, so its disparity flag shows the RD the tested code left.
 - **Random tests** draw from cocotb's seeded `random` and log the seed.
   They fail if any event never happened: a valid gap, a lock drop, a
-  generation change, a polarity change, a reset, a code error or a
-  disparity error.
+  generation change after an unlocked run, a same-cycle relock (a new
+  generation on lane 0), a generation split (a new generation on lane 1
+  only, both symbols locked), a polarity change, a reset, a code error or
+  a disparity error.
 - **Functional coverage:**
   - `pcs_dec8b10b_class`: lane × (RD neg, pos or unknown × valid,
     disparity or code error; there is no unknown/disparity bin), and data
     or K.
-  - `pcs_dec8b10b_rd_unknown`: why a symbol's RD was unknown (unlocked,
-    lane 0 unlocked, generation change, polarity change, after reset, after
-    an unlocked word), and the lane.
+  - `pcs_dec8b10b_rd_unknown`: why a symbol's RD was unknown, as one bin
+    per (lane, cause) pair the MAS allows. For lane 0: unlocked, generation
+    change, polarity change, after reset, after an unlocked word. For lane
+    1: unlocked, lane 0 unlocked, generation change.
   - `pcs_dec8b10b_recovery`: error class × the RD it left × carried to the
     next lane or the next word.
 - **Floors:** line, toggle and functional at 100% in `level1.yaml` and
@@ -49,7 +52,7 @@
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Commas at both RDs, disparity error, code error to EDB, reset](../../rtl/pcs_dec8b10b/MAS.md#behavior) | `smoke` | 0 | 1; directed |
-| [Every code in both lanes at RD-, RD+ and unknown: byte, K, error class and precedence, and the RD after it (recovery after an error)](../../rtl/pcs_dec8b10b/MAS.md#behavior) | `exhaustive` | 1 | 1; 6 × 1024 codes. The class counts must be 268 valid, 196 disparity, 560 code per known RD, and 464 valid, 560 code at unknown RD. |
+| [Every code in both lanes at RD-, RD+ and unknown: byte, K, error class and precedence, and the RD after it (recovery after an error)](../../rtl/pcs_dec8b10b/MAS.md#behavior) | `exhaustive` | 1 | 1; 7 × 1024 codes. Lane 1 is made unknown twice: through an unlocked lane 0, and through generations `(g, g^1)` with both symbols locked. The class counts must be 268 valid, 196 disparity, 560 code per known RD, and 464 valid, 560 code at unknown RD. |
 | [RD carry across lanes and cycles, valid gaps, lock and generation, polarity, reset](../../rtl/pcs_dec8b10b/MAS.md#behavior) | `random_vs_model` | 1 | 3; 20000 cycles of encoded traffic with bit errors, random codes, transmitter RD slips and every control event |
 | The same, long | `long_random` | 2 | 4; 200000 cycles each |
 
@@ -69,3 +72,5 @@ Each mutation was applied to a scratch copy of `src/` and run with
 | Lane 1 starts from the stored RD, not lane 0's (no lane carry) | FAIL | FAIL | FAIL |
 | A polarity change keeps the RD known | pass | pass | FAIL |
 | A7 rule swapped between RD- and RD+ | pass | FAIL | FAIL |
+| Lane 1 ignores its generation (`known1` without `in_gen_i[1] == in_gen_i[0]`) | pass | FAIL | FAIL |
+| Lane 0 ignores its generation (`known0` without `in_gen_i[0] == gen_q`) | pass | FAIL | FAIL |
