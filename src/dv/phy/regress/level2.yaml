@@ -1,4 +1,10 @@
 tests:
+  - name: e2e_link_up_spec
+    module: tests.test_phy_e2e
+    testcase: e2e_link_up_spec
+    top: pcie_phy_e2e_tb
+    params: {MAC_RTL: 1, PCS_RTL: 1, CHAN_RTL: 1, TIMEOUT_DIV: 1}
+    timeout_s: 900
   - name: e2e_soak_dsp_first
     module: tests.test_phy_e2e
     testcase: e2e_soak_dsp_first

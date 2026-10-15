@@ -572,7 +572,7 @@ async def e2e_targets(dut):
 
 @cocotb.test()
 async def e2e_link_up_spec(dut):
-    """L1, RTL over the RTL channel, TIMEOUT_DIV 1 (silicon timeouts),
+    """L2, RTL over the RTL channel, TIMEOUT_DIV 1 (silicon timeouts),
     simultaneous reset: each port's rst_i release to link_up_o within
     12.0 to 12.2 ms, and Polling.Active entry to L0 within 65.536 to 80 us
     (HAS Targets). No Python runs per cycle: the clocks are simulator
