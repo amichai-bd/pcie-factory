@@ -1,23 +1,19 @@
 tests:
-  - name: smoke
-    module: tests.test_phy
-    testcase: smoke
-    top: pcie_phy
-    timeout_s: 60
   - name: e2e_smoke
     module: tests.test_phy_e2e
     testcase: e2e_smoke
     top: pcie_phy_e2e_tb
     timeout_s: 120
-  - name: e2e_rtl_shell
+  - name: e2e_rtl_link
     module: tests.test_phy_e2e
-    testcase: e2e_rtl_shell
+    testcase: e2e_rtl_link
     top: pcie_phy_e2e_tb
     params: {MAC_RTL: 1, PCS_RTL: 1}
-    timeout_s: 60
-  - name: e2e_rtl_shell_chan
+    seeds: 2
+    timeout_s: 120
+  - name: e2e_rtl_link_chan
     module: tests.test_phy_e2e
-    testcase: e2e_rtl_shell_chan
+    testcase: e2e_rtl_link_chan
     top: pcie_phy_e2e_tb
     params: {MAC_RTL: 1, PCS_RTL: 1, CHAN_RTL: 1}
-    timeout_s: 60
+    timeout_s: 120

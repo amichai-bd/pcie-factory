@@ -155,7 +155,7 @@ class Bench:
                  release: tuple[int, int] = (RESET_CYCLES, RESET_CYCLES)) -> None:
         self.ports = tuple(ports)
         self.channels = (Channel(rng, delay_words), Channel(rng, delay_words))  # a->b, b->a
-        self.release = release
+        self.release = list(release)       # port i is in reset while cycles[i] < release[i]
         self.cycles = [0, 0]
         self.hooks: list = []          # called after every edge with (bench, i)
 
@@ -168,6 +168,10 @@ class Bench:
         self.cycles[i] += 1
         for h in self.hooks:
             h(self, i)
+
+    def reset(self, i: int, cycles: int) -> None:
+        """Hold port i in reset for its next ``cycles`` edges."""
+        self.release[i] = self.cycles[i] + cycles
 
     def both_l0(self) -> bool:
         return all(p.code == L0_CODE and p.link_up for p in self.ports)
