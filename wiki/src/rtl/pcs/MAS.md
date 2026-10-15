@@ -54,6 +54,7 @@ import.
 | `t_dec_sym`, `t_dec_pair` | One decoded symbol (`t_k_byte`, code error, disparity error); two of them. Decoder to top. |
 | `t_align` | The aligner's lock state: lock, generation, boundary. |
 | `t_dec`, `t_dec_state`, `t_match` and the functions `six_minus` to `decode` | The decoder's per-symbol result, RD state and the pure decode functions. |
+| `ones` | The number of ones in a symbol or zero-extended sub-block, for the encoder's and decoder's disparity tests (Quartus Lite does not synthesize the count-ones system function). |
 | `EB_ADDR_W`, `EB_NOMINAL`, `EB_HIGH`, `EB_LOW`, `EB_HOLDOFF`, `EB_FILL_W`, `HOLDOFF_W` | 4, 8, 9, 7, 8, 6 and 4 ([elastic buffer](../../arch/pcs/RECEIVE.md#elastic-buffer)). |
 | `COM_RD_MINUS`, `COM_RD_PLUS`, `SKP_RD_MINUS`, `SKP_RD_PLUS`, `IDL_RD_MINUS`, `IDL_RD_PLUS`, `is_com`, `is_skp`, `is_idl`, `eios_step` | The raw COM, SKP and IDL codes in both columns, matched without decoding; `eios_step` advances the aligner's EIOS progress by one symbol. |
 | `t_eb_word`, `t_eb_sym`, `t_eb_status`, `t_eb_wr`, `t_eb_rd` | The 28-bit FIFO word (a lock and an idle flag per symbol), one read-side symbol with its flags, the read side's word status (SKP added, removed, overflow, underflow), and the write- and read-side state. |
