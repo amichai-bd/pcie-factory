@@ -1057,7 +1057,10 @@ class Mac:
             self.txq.clear()
             self.compl_words = 0
             if self.pd != want and not self.pd_pending and self.tx_ei:
-                self.pd = want
+                # PIPE moves between P0 and one low-power state only, so a
+                # change between two of those (L2.Idle's P2 to Detect's P1)
+                # goes through P0 (LTSSM.md, Common rules).
+                self.pd = want if P0 in (self.pd, want) else P0
                 self.pd_pending = True
             if not self.tx_ei:
                 self.tx_ei = True

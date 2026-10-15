@@ -963,7 +963,9 @@ module pcie_mac_ltssm #(
     r_d.tx_mode    = pcie_mac_pkg::TX_NONE;
     if (!active) begin
       if (r_q.pd != want_pd && !pd_pending_c && r_q.tx_ei) begin
-        r_d.pd         = want_pd;
+        // Between two low-power states (P2 to P1) through P0.
+        r_d.pd         = (r_q.pd == common_pkg::PD_P0 || want_pd == common_pkg::PD_P0)
+                       ? want_pd : common_pkg::PD_P0;
         r_d.pd_pending = 1'b1;
       end
       r_d.tx_ei     = 1'b1;
@@ -1075,6 +1077,9 @@ module pcie_mac_ltssm #(
   `COMMON_ASSERT_NEVER(a_pd_one_change, clk_i, rst_i, r_d.pd != r_q.pd && pd_pending_c)
   `COMMON_ASSERT_NEVER(a_pd_change_in_ei, clk_i, rst_i, r_d.pd != r_q.pd && !r_q.tx_ei)
   `COMMON_ASSERT_NEVER(a_pd_wait_pcs, clk_i, rst_i, r_d.pd != r_q.pd && !r_q.pcs_ready)
+  `COMMON_ASSERT_NEVER(a_pd_via_p0, clk_i, rst_i,
+                       r_d.pd != r_q.pd && r_q.pd != common_pkg::PD_P0
+                       && r_d.pd != common_pkg::PD_P0)
   `COMMON_ASSERT_NEVER(a_detect_rx_p1_ei, clk_i, rst_i,
                        r_q.detect_rx && (r_q.pd != common_pkg::PD_P1 || !r_q.tx_ei
                                          || st != common_pkg::LTSSM_DETECT_ACTIVE))

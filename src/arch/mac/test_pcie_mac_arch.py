@@ -288,6 +288,34 @@ def test_skp_adjust_keeps_the_skp_schedule_and_power_entry(adjust):
     p.run_until(m.both_l0, 20_000)
 
 
+def test_power_down_moves_only_to_and_from_p0():
+    # Model fix (#79): L2.Idle (P2) to Detect.Quiet (P1) goes through P0, the
+    # PIPE rule the pcs page states; every change is acknowledged first.
+    p = trained()
+    a, b = p.macs
+    seen = {0: [m.P1], 1: [m.P1]}
+
+    def watch(q):
+        for i, mac in enumerate(q.macs):
+            if mac.pd != seen[i][-1]:
+                seen[i].append(mac.pd)
+        return False
+
+    p.hooks.append(watch)
+    for req, idle in ((1, None), (2, m.L1I), (3, m.L2I)):
+        a.pm_state_req = b.pm_state_req = req
+        if idle is None:
+            p.run_until(lambda q: a.tx_sub == m.TI and b.tx_sub == m.TI, 5000, skip=False)
+        else:
+            p.run_until(lambda q: a.state == idle and b.state == idle, 5000, skip=False)
+        a.pm_state_req = b.pm_state_req = 0
+        p.run_until(lambda q: m.both_l0(q) and a.tx_sub == m.TL0, 50_000, skip=False)
+    for pds in seen.values():
+        assert m.P2 in pds and m.P0S in pds
+        for x, y in zip(pds, pds[1:]):
+            assert m.P0 in (x, y), f"PowerDown {x} to {y}"
+
+
 def test_l1_needs_the_request_and_a_received_eios_in_both_roles():
     p = trained()
     a, b = p.macs                            # a downstream, b upstream
