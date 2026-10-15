@@ -47,3 +47,7 @@ tests:
     top: pcie_pcs
     seeds: [3, 4, 5, 6, 7, 8]
     timeout_s: 900
+coverage_floors:
+  line: 98
+  toggle: 96
+  functional: {pcs_pipe_power: 100, pcs_rx_status: 100}
