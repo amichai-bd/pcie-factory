@@ -14,7 +14,7 @@ import random
 from collections import deque
 
 import cocotb
-from cocotb.triggers import FallingEdge
+from cocotb.triggers import FallingEdge, Timer
 
 from tb.harness import (COV_ARCS, COV_OS_RX, COV_PKT, CORE_ARCS, FIELDS_IN,  # noqa: F401
                         Harness, arch)
@@ -122,6 +122,27 @@ async def reset_values(h, role, rng, cycles=48):
             assert o[name] == want, f"{role} reset cycle {c}: {name} expected {want} got {o[name]}"
     h.inputs.update({n: 0 for n, _ in FIELDS_IN})
     h._write()
+
+
+async def reset_in_packet(h, role):
+    """HAS reset values: reset wins over the sop-to-eop ready rule. With a
+    packet half accepted, rst_i rises: pkt_tx_ready_o falls in that same
+    cycle although the packet is open; after reset and training a clean
+    packet goes through intact."""
+    h.send(arch.Packet(False, bytes(range(200))))
+    await h.run_until(lambda q: q.upper.cur is not None and q.upper.cur[1] >= 4, 2000,
+                      "a packet half accepted")
+    assert h._read()["pkt_tx_ready_o"] == 1, f"{role}: ready low inside a packet"
+    h.dut.rst_i.value = 1                    # valid and the next beat stay driven
+    await Timer(1, unit="ns")
+    got = h._read()["pkt_tx_ready_o"]
+    assert got == 0, f"{role}: pkt_tx_ready_o {got} with rst_i high inside a packet"
+    await train(h, role)
+    q = arch.Packet(False, bytes(range(100, 140)))
+    h.send(q)
+    await h.drain()
+    h.check_partner()
+    assert h.partner.rx_packets[-1] == q, f"{role}: the packet after reset arrived bad"
 
 
 # ------------------------------------------------------------------ recipes
@@ -314,7 +335,7 @@ async def run_arcs(dut, roles, episodes, require_all):
 async def smoke(dut):
     """L0, both roles: HAS reset values; training to L0; the scrambler's
     known answer on the line; a TLP, a DLLP and a nullified TLP each way;
-    a retrain each way."""
+    a retrain each way; reset inside a packet, then a clean packet."""
     rng = rng_for(dut)
     h = Harness(dut)
     await h.start()
@@ -339,6 +360,7 @@ async def smoke(dut):
         h.partner.retrain_req = True
         await h.run_until(took(h, arch.L0, arch.RL, t), LIMIT, "Recovery on a received TS")
         await h.run_until(h.both_l0, LIMIT)
+        await reset_in_packet(h, role)
         dut._log.info("%s: %d cycles checked", role, h.checks)
 
 

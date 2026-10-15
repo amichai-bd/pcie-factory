@@ -317,6 +317,44 @@ package pcie_mac_pkg;
 
   typedef logic [1:0] t_rxq_cnt;
 
+  // Frame state (Q25): reset and unreset registers in separate structs.
+  typedef struct packed {
+    logic up_open;    // a packet's sop was accepted, its eop not yet
+    logic line_open;  // the packet's start is on the line, its end not yet
+  } t_fr_tx_ctl;
+
+  typedef struct packed {
+    t_byte carry;     // packet byte for [7:0] of the next word
+    logic  dllp;
+    logic  tail_edb;  // the packet's end symbol is EDB (nullified TLP)
+  } t_fr_tx_data;
+
+  typedef struct packed {
+    t_os_state os;      // ordered-set skipping
+    logic      in_pkt;  // a packet is open
+    logic      resync;  // after a framing error: discard to STP, SDP, END or EDB
+    logic      hold_v;  // one byte waiting for its pair
+    logic      pend_v;  // a full beat waiting to learn whether it is the last
+  } t_fr_rx_ctl;
+
+  localparam t_fr_rx_ctl FR_RX_CTL_RESET = '{os: OS_NONE, default: '0};
+
+  typedef struct packed {
+    t_ts_cnt    ts_cnt;
+    logic       pkt_dllp;
+    logic       pkt_bad;    // a word inside it had an RxStatus error
+    logic       pkt_first;  // its first beat is not formed yet
+    t_len       len;        // bytes so far, saturating
+    t_byte      hold;
+    t_beat_data pend;
+    logic       pend_sop;
+  } t_fr_rx_data;
+
+  typedef struct packed {
+    t_rx_beat q0;  // presented
+    t_rx_beat q1;
+  } t_fr_rxq;
+
   // -------------------------------------------------------------- LTSSM
 
   // What the transmit datapath sends while pipe_tx_elec_idle_o is 0

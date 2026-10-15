@@ -378,14 +378,22 @@ def test_compliance_flag_on_the_first_word_of_each_pattern_only():
 
 
 def test_compliance_words_do_not_count_for_the_skp_schedule():
+    """Pattern words are not counted; the rest of a TS still being sent when
+    Polling.Active times out into Polling.Compliance is (SYMBOLS.md, SKP
+    schedule)."""
     p = m.make_pair()
     a, b = p.macs
     b.inject.mute = True
     p.run_until(lambda q: a.state == m.PC, 400_000)
+    left = len(a.txq)                       # TS symbols still to send
+    assert left > 0 and a.compl_words == 0, "the timeout fell on a TS boundary"
+    credit = a.skp_credit
+    p.run(left // 2)
+    assert a.skp_credit == credit + left, "the TS words finished in Polling.Compliance"
     p.run(4)
     credit = a.skp_credit
     p.run(200)
-    assert a.skp_credit == credit
+    assert a.skp_credit == credit, "compliance pattern words were counted"
 
 
 def test_empty_packet_is_dropped_and_counted_without_resync():
@@ -404,14 +412,15 @@ def test_leaving_rx_l0_ends_a_resync_and_cuts_silently():
     assert b._resync
     b.step(_rx(m.COM, m.EIDL))                   # EIOS: Rx_L0s.Entry
     assert b.rx_sub == m.RE and not b._resync
-    frames = b.framing_errors
     q = m.make_pair()
     q.run_until(m.both_l0, 100_000)
     c = q.macs[1]
-    c.step(_rx(m.STP, m.END))                    # open, then end it empty in L0
-    c._pkt = bytearray()                         # an empty packet open again
+    c.step(_rx(m.STP, (0, 0x11)))                # a packet opens in L0
+    c._pkt = bytearray()                         # ... and holds no byte yet
+    frames, errs = c.framing_errors, c.rcv_errors
     c._set_rx(m.RE)                              # leaving Rx_L0 cuts it
-    assert c._pkt is None and c.rx_packets == [] and frames == b.framing_errors
+    assert c._pkt is None and c.rx_packets == []
+    assert (c.framing_errors, c.rcv_errors) == (frames, errs), "the cut counted an error"
 
 
 def test_upstream_learns_n_only_from_a_ts1_link_number():

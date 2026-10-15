@@ -119,8 +119,10 @@ are in [`common_pkg`](../common/common_pkg.md). Everything is named
 | `t_fr_ctl` | LTSSM, frame | tx_l0, tx_stop, rx_l0. |
 | `t_link_req` | ports, LTSSM | retrain, hot_reset, disable_link, loopback, pm_state. |
 
-Internal state structs: `t_rx_state` (the ordered-set parser), `t_rx_beat`
-(the frame's receive queue entry), `t_regs` (every LTSSM register).
+Internal state structs: `t_rx_state` (the ordered-set parser); the
+frame's `t_fr_tx_ctl` and `t_fr_tx_data` (transmit), `t_fr_rx_ctl` and
+`t_fr_rx_data` (parser) and `t_fr_rxq` (the receive queue of `t_rx_beat`),
+split into reset and unreset registers; `t_regs` (every LTSSM register).
 
 ## Scrambler
 

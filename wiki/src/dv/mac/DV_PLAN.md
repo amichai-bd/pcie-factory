@@ -34,7 +34,10 @@ shows where each of their checks went.
     `pipe_tx_compliance_o`, the transmitted symbols (so the scrambler, the
     ordered sets, the SKP placement, the framing and the packet start
     times), `rcv_err_o` (one pulse for a word with any receiver error) and
-    every delivered packet (bytes, `dllp`, `err`, `nullify`, in order).
+    every delivered packet (bytes, `dllp`, `err`, `nullify`, in order),
+    with its `sop` beat within the [HAS RX latency](../../arch/mac/HAS.md#targets)
+    of the STP or SDP the shadow parsed (3 cycles, 4 from `[15:8]`; for a
+    packet whose next two words arrive without an RxValid gap).
     Every observed state change must be an arc of the HAS list.
   - **Receive decoder:** `RxDecoder`, written from the
     [symbols page](../../arch/mac/SYMBOLS.md#ordered-sets), decodes each
@@ -64,7 +67,8 @@ shows where each of their checks went.
     ignored, abort by an L0 exit, abort by a bubble) and size (to past one
     SKP interval), receive outcome, kind crossed with start lane, and each
     receive error kind (framing, RxStatus, cut by RxValid, electrical idle
-    or leaving `Rx_L0`, empty packet).
+    or leaving `Rx_L0`, empty packet), and the receive latency per lane (3
+    from `[7:0]`, 4 from `[15:8]`).
   - Floors: level 1 holds `mac_os_tx`, `mac_os_rx` and `mac_frame` at
     100% (reached by levels 0 and 1); level 2 holds functional coverage at
     100% (all four covergroups, so every core arc in each role), line at
@@ -84,7 +88,7 @@ shows where each of their checks went.
 
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
-| [Reset values](../../arch/mac/HAS.md#reset-values) with every input toggling; training to L0; the scrambler's [known answer](../../arch/mac/SYMBOLS.md#scrambling) on the line after a SKP; a TLP, a DLLP and a nullified TLP each way; a retrain each way; both roles | `smoke` | 0 | 1 |
+| [Reset values](../../arch/mac/HAS.md#reset-values) with every input toggling; training to L0; the scrambler's [known answer](../../arch/mac/SYMBOLS.md#scrambling) on the line after a SKP; a TLP, a DLLP and a nullified TLP each way; a retrain each way; reset with a packet half accepted (`pkt_tx_ready_o` falls at once), then a clean packet; both roles | `smoke` | 0 | 1 |
 | [Core arcs without an error-path timeout](../../arch/mac/ARCS.md), both roles: retrain by request, received TS and electrical idle; no receiver; Configuration walks to the PAD and renumbering exits; RcvrCfg's mismatching TS1; Recovery.Idle's lane PAD; Polling.Compliance in and out; an upstream port learning link 255 | `arcs_quick` | 1 | 1; 28 of 38 arcs per role |
 | [Polarity](../../arch/mac/ARCS.md#detect-and-polling): set once in Polling, cleared in Detect.Quiet, packets on an inverted wire | `polarity` | 1 | 1 |
 | [Transmit and receive streams](../../arch/mac/HAS.md#transmit): random TLPs (to 512 bytes, some past the SKP interval) and DLLPs both ways, nullified ones, gaps, lane shifts, DUT retrains inside packets (aborts); SKP deferral and back-to-back SKP | `traffic` | 1 | 3 |
@@ -110,16 +114,17 @@ is the every-cycle comparison above; "decoder" the receive decoder.
 | --- | --- | --- |
 | `known_answer` (scrambler) | Known answer; COM in either lane, SKP hold, other K, disable, data bytes equal to COM or SKP, `valid_i` hold, reset | `smoke` (known answer from the HAS bytes); every rule through the shadow on both directions: TX in every entry, RX COM in `[15:8]` in `ts_fields` and `traffic` (lane shifts), BCh/1Ch data in `traffic` payloads, `valid_i` hold in `rx_errors` (RxValid drops) and electrical idle everywhere, reset in every `fresh` |
 | `random_vs_model`, `round_trip`, `disable` (scrambler) | Random words vs the model; descramble returns the stream; `scr_i` 0 passes but advances | `traffic`, `random_soak` (both directions against the shadow and the partner); TS symbols unscrambled but advancing in every training |
-| `long_random` (scrambler) | The full LFSR period, 100000 random cycles | Period: the word model's unit test (a COM reseeds the line at least every SKP interval, so the mac never runs the full period); long runs: `traffic_long` |
+| `long_random` (scrambler) | The full LFSR period, 100000 random cycles | Period: the word model's unit test. Through the ports, the transmit LFSR never runs a full period (the mac sends a COM at least every SKP interval); the receive LFSR could, with a partner stretching its SKP interval, but the per-symbol shadow checks on every reachable state plus the model's period test suffice, since the LFSR is linear. Long runs: `traffic_long` |
 | `smoke` (ordered sets) | Every set sent and recognised, both phases; back-to-back TS | Sent: TS1, TS2, SKP, compliance by the shadow in every entry (EIOS, FTS and requested SKP are [gaps](#gaps)); recognised: `ts_fields` (decoder, `mac_os_rx` event x lane) |
 | `ts_fields` (ordered sets) | Link and lane 0 to 255 and PAD, control bits, N_FTS, K fields | Receive: `ts_fields` (every byte); transmit: link 0, 255 and learned values (`arcs_quick`, `traffic`, `random_soak`), N_FTS 1, 32, 255 (`smoke_n_fts_*`); control bits sent are a [gap](#gaps) |
 | `malformed` (ordered sets) | Identifier positions, K and unknown identifiers, cut TS, both phases | `ts_fields` (mangled sets), `random_soak` (`corrupt`) |
 | `random_vs_model`, `long_random*` (ordered sets) | Requests, SKP schedule and an impaired line vs the model | The shadow in every entry (SKP placement exact), `random_soak`, `traffic_long` |
 | Model unit tests (ordered sets) | The cycle model vs the arch parser | The decoder and the shadow in every entry |
-| `smoke` (frame) | Reset over the sop-to-eop ready rule; resync ends when `rx_l0` falls; exact framing of a TLP, a DLLP and a nullified TLP; abort by an L0 exit and by a bubble | `smoke` (reset values, framing through the shadow), `rx_errors` (resync then retrain), `traffic` (L0-exit aborts), `tx_bubble` |
+| `smoke` (frame) | Reset over the sop-to-eop ready rule; resync ends when `rx_l0` falls; exact framing of a TLP, a DLLP and a nullified TLP; abort by an L0 exit and by a bubble | `smoke` (reset with a packet half accepted: ready falls at once, then a clean packet; framing through the shadow), `rx_errors` (resync then retrain), `traffic` (L0-exit aborts), `tx_bubble` |
 | `tx_random`, `tx_long` (frame) | Random streams with back-pressure; ready rules; SKP deferral and back to back | `traffic`, `traffic_long`: a packet the model would not start, or a SKP placed otherwise, fails the shadow's symbol comparison |
-| `rx_random`, `rx_long` (frame) | Deframing, realignment, flags, framing errors, cuts; status outputs | `rx_errors`, `rx_errors_long`; `rcv_err_o` every cycle; idle marks through the LTSSM's idle counts |
+| `rx_random`, `rx_long` (frame) | Deframing, realignment, flags, framing errors, cuts; status outputs | `rx_errors`, `rx_errors_long`; `rcv_err_o` every cycle; idle marks through the LTSSM's idle counts; the `sop` latency bound in every entry (the old bench bounded the `eop` beat at 3 cycles after the reference; the bound is now the HAS one, on `sop`, from the pins) |
 | `smoke`, `arcs_quick`, `polarity`, `random_soak`, `arcs_full_*`, `dividers` (LTSSM) | As the plan rows of the same name, with a BFM in place of the ordered-set and frame blocks | Same names, through the real blocks; the partner's N_FTS now compared every cycle ([#158](https://github.com/amichai-bd/pcie-factory/issues/158)) |
+| LTSSM harness per-cycle request checks | One request at a time, none in electrical idle, compliance only in Polling.Compliance, the frame's line only in the Idle states and L0, packets and receive only in L0 | `u_os`'s `a_one_request` (`$onehot0` on the requests) and the top's `a_one_line_source` and `a_no_line_in_ei` in every run; what each state sends, and when, through the shadow's symbol comparison; packet starts and receive through the shadow's packets |
 | LTSSM gap: dividers at 1 | Detect.Quiet 12 ms | `train_spec` |
 | `smoke` (mac shell) | Reset values with toggling inputs | `smoke` |
 
@@ -134,6 +139,8 @@ listed entry; each fails, and the unmutated RTL passes.
 | Ordered sets | Received N_FTS taken from the data-rate symbol | `ts_fields` | Fails at cycle 1562: received TS field `n_fts` B9h expected, 02h observed. |
 | Frame | Resync kept while `rx_l0` is 0 | `rx_errors` | Fails at cycle 12732: `ltssm_state_o` 0x12 (Recovery.Idle, no idle symbols counted), the shadow back in L0. (Ready ignoring a due SKP stops `traffic` on `u_os`'s `a_count_while_valid`.) |
 | LTSSM | Polling.Active needs 512 TS1, not 1024 | `smoke` | Fails at cycle 5647: `ltssm_state_o` 0x06, the shadow in Polling.Active (0x04). |
+| Frame | Reset no longer wins over ready inside a packet (`tx_ready = up_open \|\| (!rst_i && tx_start_ok)`) | `smoke` | Fails: `pkt_tx_ready_o` 1 with `rst_i` high inside a packet. |
+| Top | One extra register on the `pkt_rx_*` outputs | `smoke` | Fails at cycle 10298: `sop` 4 cycles after its STP in lane 0, the HAS allows 3. |
 | Top | The frame's idle marks registered (one cycle behind the events) | `smoke` | Fails at cycle 10272: `ltssm_state_o` 0x0D, the shadow already in L0 (0x20). |
 
 ## Gaps

@@ -79,6 +79,7 @@ COV_PKT.coverpoint("tx_size", bins={"one_beat": 2, "short": range(4, 64),
 COV_PKT.coverpoint("rx_outcome", bins=["good", "nullify", "err"])
 COV_PKT.coverpoint("rx_kind", bins=["tlp", "dllp"])
 COV_PKT.coverpoint("rx_lane", bins=[0, 1])
+COV_PKT.coverpoint("rx_latency", bins=["3_lane0", "4_lane1"])
 COV_PKT.cross("rx_kind_x_lane", "rx_kind", "rx_lane")
 COV_PKT.coverpoint("rx_error", bins=["framing", "status", "cut_valid", "cut_elec_idle",
                                      "cut_rx_l0", "empty"])
@@ -342,7 +343,7 @@ class Upper:
             COV_PKT.sample(tx_size=len(pkt.data))
         return True
 
-    def receive(self, o: dict, where: str) -> object:
+    def receive(self, o: dict, where: str, now: int = 0) -> object:
         """Take one cycle of receive outputs; returns a finished packet."""
         if not o["pkt_rx_valid_o"]:
             assert not (o["pkt_rx_sop_o"] or o["pkt_rx_eop_o"] or o["pkt_rx_err_o"]
@@ -351,6 +352,7 @@ class Upper:
         if o["pkt_rx_sop_o"]:
             assert not self.rx_open, f"{where}: sop inside a packet"
             self.rx_open, self.rx_beats, self.rx_dllp = True, [], o["pkt_rx_dllp_o"]
+            self.rx_sop_at = now
         assert self.rx_open, f"{where}: a beat outside a packet"
         assert o["pkt_rx_dllp_o"] == self.rx_dllp, f"{where}: dllp changed inside a packet"
         if not o["pkt_rx_eop_o"]:
@@ -363,7 +365,7 @@ class Upper:
             return None
         self.rx_open = False
         got = (bool(self.rx_dllp), bytes(self.rx_beats), bool(o["pkt_rx_err_o"]),
-               bool(o["pkt_rx_nullify_o"]))
+               bool(o["pkt_rx_nullify_o"]), self.rx_sop_at)
         self.got.append(got)
         return got
 
@@ -428,6 +430,9 @@ class Harness:
         self.compare_tx = True
         self.line_hook = None
         self.rx_matched = 0
+        self.sh_starts: list = []
+        self.sh_open = None
+        self.sh_pkt = None
         self.dut.port_role_i.value = int(role == "upstream")
         for name in REQUESTS:
             self.inputs[name] = 0
@@ -534,13 +539,44 @@ class Harness:
         if ev["ts_bad"]:
             COV_OS_RX.sample(ts_bad=ev["why"])
 
+    def _track_starts(self, sh, open_start, delivered) -> None:
+        """Note where each packet the shadow delivers started: the iteration
+        whose step parsed its STP or SDP, that symbol's lane, and whether the
+        two words after it were received without a gap (the HAS latency
+        assumes a packet's bytes follow)."""
+        for _ in range(len(sh.rx_packets) - delivered):
+            self.sh_starts.append(open_start)
+        rx = self.rx_prev
+        if self.sh_open is not None and self.now - self.sh_open[0] <= 2 \
+                and (not rx.valid or rx.elec_idle):
+            self.sh_open[2] = False
+        pkt = sh._pkt
+        if pkt is not None and pkt is not self.sh_pkt:
+            lanes = [i for i, (k, b) in enumerate(rx.syms) if k and b in (0xFB, 0x5C)]
+            self.sh_open = [self.now, lanes[-1] if lanes else 0, True]
+        self.sh_pkt = pkt              # held, so a new packet is a new object
+
     def _check_rx_packet(self, got) -> None:
         where = self.where()
         sh = self.shadow.rx_packets
         assert self.rx_matched < len(sh), f"{where}: packet delivered the shadow did not get: {got}"
         want = sh[self.rx_matched]
         self.rx_matched += 1
-        dllp, data, err, nullify = got
+        dllp, data, err, nullify, sop_at = got
+        start = self.sh_starts[self.rx_matched - 1]
+        if start is not None and start[2]:
+            # HAS RX latency: at most 3 cycles from the STP or SDP on
+            # pipe_rx_data_i to the sop beat, plus 1 from [15:8]. The shadow's
+            # step at iteration k parses the word on the pins in the cycle
+            # before edge k-1; a beat read at iteration j is on the pins in
+            # the cycle after edge j.
+            at, lane, _ = start
+            latency = sop_at - at + 2
+            if latency > 3 + lane:
+                raise AssertionError(f"{where}: sop beat {latency} cycles after its "
+                                     f"{'SDP' if dllp else 'STP'} in lane {lane}, the HAS "
+                                     f"allows {3 + lane}")
+            COV_PKT.sample(rx_latency=f"{latency}_lane{lane}")
         n = len(want.data)
         ok = (dllp == want.dllp and err == want.err and nullify == want.nullify
               and data[:n] == want.data and len(data) in (n, n + 1)
@@ -572,7 +608,10 @@ class Harness:
         sh.pm_state_req = self.req["pm_state_req_i"]
         errs = sh.rcv_errors
         prev_tx = self.sh_tx
+        open_start = self.sh_open
+        delivered = len(sh.rx_packets)
         self.sh_tx = sh.step(self.rx_prev)
+        self._track_starts(sh, open_start, delivered)
         errs = sh.rcv_errors - errs if not self.rst_sampled else 0
         self._compare(o, obs, sh, self.sh_tx, prev_tx, errs)
         if o["rcv_err_o"]:
@@ -586,7 +625,7 @@ class Harness:
             self.decoder.reset()
         else:
             self._check_events(obs, self.decoder.word(self.rx_dut))
-        got = up.receive(o, self.where())
+        got = up.receive(o, self.where(), self.now)
         if got is not None:
             self._check_rx_packet(got)
         self._observe(o)

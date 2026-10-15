@@ -42,16 +42,8 @@ module pcie_mac_frame (
 
   // ------------------------------------------------------------ transmit
 
-  logic tx_up_open_q;    // a packet's sop was accepted, its eop not yet
-  logic tx_up_open_d;
-  logic tx_line_open_q;  // the packet's start is on the line, its end not yet
-  logic tx_line_open_d;
-  pcie_mac_pkg::t_byte tx_carry_q;  // packet byte for [7:0] of the next word
-  pcie_mac_pkg::t_byte tx_carry_d;
-  logic tx_dllp_q;
-  logic tx_dllp_d;
-  logic tx_tail_edb_q;   // the packet's end symbol is EDB (nullified TLP)
-  logic tx_tail_edb_d;
+  pcie_mac_pkg::t_fr_tx_ctl  txc_q, txc_d;  // packet open upstream and on the line
+  pcie_mac_pkg::t_fr_tx_data txd_q, txd_d;  // carried byte, DLLP tag, end symbol
 
   logic tx_start_ok;
   logic tx_ready;
@@ -63,19 +55,19 @@ module pcie_mac_frame (
 
   // Between packets, ready needs L0 and Tx_L0, no stop, no SKP due and the
   // previous packet's end sent; from sop to eop it is 1 whatever happens.
-  assign tx_start_ok = ctl_i.tx_l0 && !ctl_i.tx_stop && !skp_req_i && !tx_line_open_q;
-  assign tx_ready    = !rst_i && (tx_up_open_q || tx_start_ok);
+  assign tx_start_ok = ctl_i.tx_l0 && !ctl_i.tx_stop && !skp_req_i && !txc_q.line_open;
+  assign tx_ready    = !rst_i && (txc_q.up_open || tx_start_ok);
   assign tx_accept   = pkt_tx_valid_i && tx_ready;
   // A packet open on the line ends with EDB when the line leaves L0 or the
   // upper layer leaves a bubble inside it.
-  assign tx_abort    = tx_line_open_q && (!ctl_i.tx_l0 || (tx_up_open_q && !pkt_tx_valid_i));
+  assign tx_abort    = txc_q.line_open && (!ctl_i.tx_l0 || (txc_q.up_open && !pkt_tx_valid_i));
 
   always_comb begin
-    tx_up_open_d   = tx_up_open_q;
-    tx_line_open_d = tx_line_open_q;
-    tx_carry_d     = tx_carry_q;
-    tx_dllp_d      = tx_dllp_q;
-    tx_tail_edb_d  = tx_tail_edb_q;
+    txc_d.up_open   = txc_q.up_open;
+    txc_d.line_open = txc_q.line_open;
+    txd_d.carry     = txd_q.carry;
+    txd_d.dllp      = txd_q.dllp;
+    txd_d.tail_edb  = txd_q.tail_edb;
     tx_word        = {common_pkg::IDLE_DATA, common_pkg::IDLE_DATA};
     tx_word_k      = 2'b00;
     tx_word_pkt    = 1'b0;
@@ -84,51 +76,46 @@ module pcie_mac_frame (
       tx_word        = {common_pkg::IDLE_DATA, common_pkg::SYM_EDB};
       tx_word_k      = 2'b01;
       tx_word_pkt    = 1'b1;
-      tx_line_open_d = 1'b0;
+      txc_d.line_open = 1'b0;
       if (tx_accept && pkt_tx_i.eop) begin
-        tx_up_open_d = 1'b0;
+        txc_d.up_open = 1'b0;
       end
-    end else if (tx_line_open_q && tx_up_open_q) begin
+    end else if (txc_q.line_open && txc_q.up_open) begin
       // A beat inside the packet (valid is 1 here, or tx_abort would be).
-      tx_word     = {pkt_tx_i.data[7:0], tx_carry_q};
+      tx_word     = {pkt_tx_i.data[7:0], txd_q.carry};
       tx_word_pkt = 1'b1;
-      tx_carry_d  = pkt_tx_i.data[15:8];
+      txd_d.carry  = pkt_tx_i.data[15:8];
       if (pkt_tx_i.eop) begin
-        tx_up_open_d  = 1'b0;
-        tx_tail_edb_d = pkt_tx_i.nullify && !tx_dllp_q;
+        txc_d.up_open  = 1'b0;
+        txd_d.tail_edb = pkt_tx_i.nullify && !txd_q.dllp;
       end
-    end else if (tx_line_open_q) begin
+    end else if (txc_q.line_open) begin
       // The end word: last byte, then END or EDB.
-      tx_word        = {(tx_tail_edb_q ? common_pkg::SYM_EDB : common_pkg::SYM_END),
-                        tx_carry_q};
+      tx_word        = {(txd_q.tail_edb ? common_pkg::SYM_EDB : common_pkg::SYM_END),
+                        txd_q.carry};
       tx_word_k      = 2'b10;
       tx_word_pkt    = 1'b1;
-      tx_line_open_d = 1'b0;
-    end else if (tx_accept && !tx_up_open_q) begin
+      txc_d.line_open = 1'b0;
+    end else if (tx_accept && !txc_q.up_open) begin
       // The sop beat: STP or SDP, then the first byte.
       tx_word        = {pkt_tx_i.data[7:0],
                         (pkt_tx_i.dllp ? common_pkg::SYM_SDP : common_pkg::SYM_STP)};
       tx_word_k      = 2'b01;
       tx_word_pkt    = 1'b1;
-      tx_carry_d     = pkt_tx_i.data[15:8];
-      tx_line_open_d = 1'b1;
-      tx_up_open_d   = !pkt_tx_i.eop;
-      tx_dllp_d      = pkt_tx_i.dllp;
-      tx_tail_edb_d  = pkt_tx_i.eop && pkt_tx_i.nullify && !pkt_tx_i.dllp;
+      txd_d.carry     = pkt_tx_i.data[15:8];
+      txc_d.line_open = 1'b1;
+      txc_d.up_open   = !pkt_tx_i.eop;
+      txd_d.dllp      = pkt_tx_i.dllp;
+      txd_d.tail_edb  = pkt_tx_i.eop && pkt_tx_i.nullify && !pkt_tx_i.dllp;
     end else if (tx_accept && pkt_tx_i.eop) begin
       // The rest of an aborted packet is taken and discarded.
-      tx_up_open_d = 1'b0;
+      txc_d.up_open = 1'b0;
     end
   end
 
-  `COMMON_DFF_RST(tx_up_open_q, tx_up_open_d, clk_i, rst_i)
-  `COMMON_DFF_RST(tx_line_open_q, tx_line_open_d, clk_i, rst_i)
-  `COMMON_DFF(tx_carry_q, tx_carry_d, clk_i)
-  `COMMON_DFF(tx_dllp_q, tx_dllp_d, clk_i)
-  `COMMON_DFF(tx_tail_edb_q, tx_tail_edb_d, clk_i)
 
-  assign skp_gnt_o      = !rst_i && ctl_i.tx_l0 && skp_req_i && !tx_line_open_q;
-  assign tx_act_o       = !rst_i && (ctl_i.tx_l0 || tx_line_open_q) && !skp_gnt_o;
+  assign skp_gnt_o      = !rst_i && ctl_i.tx_l0 && skp_req_i && !txc_q.line_open;
+  assign tx_act_o       = !rst_i && (ctl_i.tx_l0 || txc_q.line_open) && !skp_gnt_o;
   assign pkt_tx_ready_o = tx_ready;
   assign tx_word_o.data      = tx_word;
   assign tx_word_o.datak     = tx_word_k;
@@ -137,46 +124,19 @@ module pcie_mac_frame (
   // The upper layer's contract (HAS, Transmit): sop starts a packet, and
   // only outside one.
   `COMMON_ASSERT_NEVER(a_tx_beat_without_sop, clk_i, rst_i,
-                       tx_accept && !tx_up_open_q && !pkt_tx_i.sop)
+                       tx_accept && !txc_q.up_open && !pkt_tx_i.sop)
   `COMMON_ASSERT_NEVER(a_tx_sop_inside_packet, clk_i, rst_i,
-                       tx_accept && tx_up_open_q && pkt_tx_i.sop)
-  `COMMON_ASSERT_NEVER(a_tx_ready_inside_packet, clk_i, rst_i, tx_up_open_q && !tx_ready)
-  `COMMON_ASSERT_NEVER(a_tx_skp_inside_packet, clk_i, rst_i, skp_gnt_o && tx_line_open_q)
+                       tx_accept && txc_q.up_open && pkt_tx_i.sop)
+  `COMMON_ASSERT_NEVER(a_tx_ready_inside_packet, clk_i, rst_i, txc_q.up_open && !tx_ready)
+  `COMMON_ASSERT_NEVER(a_tx_skp_inside_packet, clk_i, rst_i, skp_gnt_o && txc_q.line_open)
 
   // ------------------------------------------------------------- receive
 
-  pcie_mac_pkg::t_os_state os_q;
-  pcie_mac_pkg::t_os_state os_d;
-  pcie_mac_pkg::t_ts_cnt   ts_cnt_q;
-  pcie_mac_pkg::t_ts_cnt   ts_cnt_d;
-  logic in_pkt_q;      // a packet is open
-  logic in_pkt_d;
-  logic pkt_dllp_q;
-  logic pkt_dllp_d;
-  logic pkt_bad_q;     // a word inside it had an RxStatus error
-  logic pkt_bad_d;
-  logic pkt_first_q;   // its first beat is not formed yet
-  logic pkt_first_d;
-  pcie_mac_pkg::t_len len_q;  // bytes so far, saturating
-  pcie_mac_pkg::t_len len_d;
-  logic resync_q;      // after a framing error: discard to STP, SDP, END or EDB
-  logic resync_d;
-  logic hold_v_q;      // one byte waiting for its pair
-  logic hold_v_d;
-  pcie_mac_pkg::t_byte hold_q;
-  pcie_mac_pkg::t_byte hold_d;
-  logic pend_v_q;      // a full beat waiting to learn whether it is the last
-  logic pend_v_d;
-  pcie_mac_pkg::t_beat_data pend_q;
-  pcie_mac_pkg::t_beat_data pend_d;
-  logic pend_sop_q;
-  logic pend_sop_d;
+  pcie_mac_pkg::t_fr_rx_ctl  rxc_q, rxc_d;  // ordered-set skip, packet, resync, held/pending valid
+  pcie_mac_pkg::t_fr_rx_data rxd_q, rxd_d;  // TS count, packet tags and length, held byte, pending beat
 
-  // Output queue: q0 is presented, q1 behind it.
-  pcie_mac_pkg::t_rx_beat q0_q;
-  pcie_mac_pkg::t_rx_beat q0_d;
-  pcie_mac_pkg::t_rx_beat q1_q;
-  pcie_mac_pkg::t_rx_beat q1_d;
+  // Output queue: rxq.q0 is presented, rxq.q1 behind it.
+  pcie_mac_pkg::t_fr_rxq     rxq_q, rxq_d;
   pcie_mac_pkg::t_rxq_cnt cnt_q;
   pcie_mac_pkg::t_rxq_cnt cnt_d;
   pcie_mac_pkg::t_rxq_cnt cnt_left;  // after this cycle's pop
@@ -209,19 +169,19 @@ module pcie_mac_frame (
   // electrical idle); steps 1 and 2 are the symbols, [7:0] first. Each step
   // ends at most one packet or adds one byte, so it pushes at most one beat.
   always_comb begin
-    os_d        = os_q;
-    ts_cnt_d    = ts_cnt_q;
-    in_pkt_d    = in_pkt_q;
-    pkt_dllp_d  = pkt_dllp_q;
-    pkt_bad_d   = pkt_bad_q;
-    pkt_first_d = pkt_first_q;
-    len_d       = len_q;
-    resync_d    = resync_q;
-    hold_v_d    = hold_v_q;
-    hold_d      = hold_q;
-    pend_v_d    = pend_v_q;
-    pend_d      = pend_q;
-    pend_sop_d  = pend_sop_q;
+    rxc_d.os        = rxc_q.os;
+    rxd_d.ts_cnt    = rxd_q.ts_cnt;
+    rxc_d.in_pkt    = rxc_q.in_pkt;
+    rxd_d.pkt_dllp  = rxd_q.pkt_dllp;
+    rxd_d.pkt_bad   = rxd_q.pkt_bad;
+    rxd_d.pkt_first = rxd_q.pkt_first;
+    rxd_d.len       = rxd_q.len;
+    rxc_d.resync    = rxc_q.resync;
+    rxc_d.hold_v    = rxc_q.hold_v;
+    rxd_d.hold      = rxd_q.hold;
+    rxc_d.pend_v    = rxc_q.pend_v;
+    rxd_d.pend      = rxd_q.pend;
+    rxd_d.pend_sop  = rxd_q.pend_sop;
     push_a      = '0;
     push_b      = '0;
     npush       = 2'd0;
@@ -242,11 +202,11 @@ module pcie_mac_frame (
     // Resync belongs to L0's receive: it ends when the receiver leaves
     // Rx_L0 (an L0 exit or receive L0s), so idle counts work in Recovery.
     if (!ctl_i.rx_l0) begin
-      resync_d = 1'b0;
+      rxc_d.resync = 1'b0;
     end
 
-    if (in_pkt_q && rx_i.status[2]) begin
-      pkt_bad_d = 1'b1;
+    if (rxc_q.in_pkt && rx_i.status[2]) begin
+      rxd_d.pkt_bad = 1'b1;
     end
 
     for (int unsigned s = 0; s < 3; s++) begin
@@ -258,7 +218,7 @@ module pcie_mac_frame (
       sym_k    = 1'b0;
       sym_b    = '0;
       if (s == 0) begin
-        if (in_pkt_d && (!ctl_i.rx_l0 || !sym_ok)) begin
+        if (rxc_d.in_pkt && (!ctl_i.rx_l0 || !sym_ok)) begin
           do_end  = 1'b1;
           end_err = 1'b1;
         end
@@ -269,44 +229,44 @@ module pcie_mac_frame (
         if (sym_k && sym_b == common_pkg::SYM_COM) begin
           // An ordered set starts, in every state; inside a packet it is a
           // framing error that ends the packet bad.
-          os_d = pcie_mac_pkg::OS_FIRST;
-          if (in_pkt_d) begin
+          rxc_d.os = pcie_mac_pkg::OS_FIRST;
+          if (rxc_d.in_pkt) begin
             do_end  = 1'b1;
             end_err = 1'b1;
             if (ctl_i.rx_l0) begin
               ferr     = 1'b1;
-              resync_d = 1'b1;
+              rxc_d.resync = 1'b1;
             end
           end
         end else begin
-          case (os_d)
+          case (rxc_d.os)
             pcie_mac_pkg::OS_FIRST: begin
               if (sym_k && sym_b == common_pkg::SYM_SKP) begin
-                os_d = pcie_mac_pkg::OS_SKP;
+                rxc_d.os = pcie_mac_pkg::OS_SKP;
               end else if (sym_k && (sym_b == common_pkg::SYM_IDL
                                      || sym_b == common_pkg::SYM_FTS)) begin
-                os_d = pcie_mac_pkg::OS_RUN;
+                rxc_d.os = pcie_mac_pkg::OS_RUN;
               end else begin
-                os_d     = pcie_mac_pkg::OS_TS;
-                ts_cnt_d = pcie_mac_pkg::t_ts_cnt'(1);
+                rxc_d.os     = pcie_mac_pkg::OS_TS;
+                rxd_d.ts_cnt = pcie_mac_pkg::t_ts_cnt'(1);
               end
             end
             pcie_mac_pkg::OS_TS: begin
-              ts_cnt_d = ts_cnt_d + pcie_mac_pkg::t_ts_cnt'(1);
-              if (ts_cnt_d == pcie_mac_pkg::t_ts_cnt'(pcie_mac_pkg::TS_BODY)) begin
-                os_d = pcie_mac_pkg::OS_NONE;
+              rxd_d.ts_cnt = rxd_d.ts_cnt + pcie_mac_pkg::t_ts_cnt'(1);
+              if (rxd_d.ts_cnt == pcie_mac_pkg::t_ts_cnt'(pcie_mac_pkg::TS_BODY)) begin
+                rxc_d.os = pcie_mac_pkg::OS_NONE;
               end
             end
             pcie_mac_pkg::OS_SKP: begin
               if (!(sym_k && sym_b == common_pkg::SYM_SKP)) begin
-                os_d  = pcie_mac_pkg::OS_NONE;
+                rxc_d.os  = pcie_mac_pkg::OS_NONE;
                 parse = 1'b1;
               end
             end
             pcie_mac_pkg::OS_RUN: begin
               if (!(sym_k && (sym_b == common_pkg::SYM_IDL
                               || sym_b == common_pkg::SYM_FTS))) begin
-                os_d  = pcie_mac_pkg::OS_NONE;
+                rxc_d.os  = pcie_mac_pkg::OS_NONE;
                 parse = 1'b1;
               end
             end
@@ -315,62 +275,62 @@ module pcie_mac_frame (
         end
         if (parse && sym_k) begin
           if (sym_b == common_pkg::SYM_STP || sym_b == common_pkg::SYM_SDP) begin
-            if (in_pkt_d) begin
+            if (rxc_d.in_pkt) begin
               do_end  = 1'b1;
               end_err = 1'b1;
               ferr    = ferr || ctl_i.rx_l0;
             end
             do_start = ctl_i.rx_l0;
-            resync_d = 1'b0;
+            rxc_d.resync = 1'b0;
           end else if ((sym_b == common_pkg::SYM_END
-                        || sym_b == common_pkg::SYM_EDB) && in_pkt_d) begin
+                        || sym_b == common_pkg::SYM_EDB) && rxc_d.in_pkt) begin
             do_end  = 1'b1;
             end_edb = sym_b == common_pkg::SYM_EDB;
           end else if ((sym_b == common_pkg::SYM_END
-                        || sym_b == common_pkg::SYM_EDB) && resync_d) begin
-            resync_d = 1'b0;
-          end else if (in_pkt_d) begin
+                        || sym_b == common_pkg::SYM_EDB) && rxc_d.resync) begin
+            rxc_d.resync = 1'b0;
+          end else if (rxc_d.in_pkt) begin
             do_end  = 1'b1;
             end_err = 1'b1;
             if (ctl_i.rx_l0) begin
               ferr     = 1'b1;
-              resync_d = 1'b1;
+              rxc_d.resync = 1'b1;
             end
-          end else if (!resync_d && ctl_i.rx_l0) begin
+          end else if (!rxc_d.resync && ctl_i.rx_l0) begin
             ferr     = 1'b1;
-            resync_d = 1'b1;
+            rxc_d.resync = 1'b1;
           end
         end else if (parse) begin
-          if (in_pkt_d) begin
+          if (rxc_d.in_pkt) begin
             do_add = 1'b1;
-          end else if (resync_d) begin
+          end else if (rxc_d.resync) begin
             // discarded
           end else if (sym_b == common_pkg::IDLE_DATA) begin
             idle[s-1] = 1'b1;
           end else if (ctl_i.rx_l0) begin
             ferr     = 1'b1;
-            resync_d = 1'b1;
+            rxc_d.resync = 1'b1;
           end
         end
       end
 
       if (do_end) begin
-        bad = end_err || pkt_bad_d || hold_v_d
-              || (pkt_dllp_d && len_d != pcie_mac_pkg::t_len'(pcie_mac_pkg::DLLP_BYTES))
-              || (end_edb && pkt_dllp_d);
+        bad = end_err || rxd_d.pkt_bad || rxc_d.hold_v
+              || (rxd_d.pkt_dllp && rxd_d.len != pcie_mac_pkg::t_len'(pcie_mac_pkg::DLLP_BYTES))
+              || (end_edb && rxd_d.pkt_dllp);
         beat         = '0;
         beat.eop     = 1'b1;
-        beat.dllp    = pkt_dllp_d;
+        beat.dllp    = rxd_d.pkt_dllp;
         beat.err     = bad;
         beat.nullify = end_edb && !bad;
-        if (pend_v_d) begin
-          beat.data = pend_d;
-          beat.sop  = pend_sop_d;
+        if (rxc_d.pend_v) begin
+          beat.data = rxd_d.pend;
+          beat.sop  = rxd_d.pend_sop;
         end else begin
-          beat.data = {common_pkg::IDLE_DATA, hold_d};
-          beat.sop  = pkt_first_d;
+          beat.data = {common_pkg::IDLE_DATA, rxd_d.hold};
+          beat.sop  = rxd_d.pkt_first;
         end
-        if (pend_v_d || hold_v_d) begin
+        if (rxc_d.pend_v || rxc_d.hold_v) begin
           if (npush == 2'd0) begin
             push_a = beat;
           end else begin
@@ -382,45 +342,45 @@ module pcie_mac_frame (
           // delivered and counts as a framing error in L0 (MAS, Receive).
           ferr = ferr || ctl_i.rx_l0;
         end
-        in_pkt_d = 1'b0;
-        pend_v_d = 1'b0;
-        hold_v_d = 1'b0;
+        rxc_d.in_pkt = 1'b0;
+        rxc_d.pend_v = 1'b0;
+        rxc_d.hold_v = 1'b0;
       end
 
       if (do_start) begin
-        in_pkt_d    = 1'b1;
-        pkt_dllp_d  = sym_b == common_pkg::SYM_SDP;
-        pkt_bad_d   = 1'b0;
-        pkt_first_d = 1'b1;
-        len_d       = '0;
+        rxc_d.in_pkt    = 1'b1;
+        rxd_d.pkt_dllp  = sym_b == common_pkg::SYM_SDP;
+        rxd_d.pkt_bad   = 1'b0;
+        rxd_d.pkt_first = 1'b1;
+        rxd_d.len       = '0;
       end
 
       if (do_add) begin
-        if (len_d != '1) begin
-          len_d = len_d + pcie_mac_pkg::t_len'(1);
+        if (rxd_d.len != '1) begin
+          rxd_d.len = rxd_d.len + pcie_mac_pkg::t_len'(1);
         end
-        if (pend_v_d) begin
+        if (rxc_d.pend_v) begin
           // A byte follows the pending beat: it is not the last. Always the
           // cycle's first push: a pending beat and a held byte never
           // coexist, so an earlier step of this cycle formed no beat.
           beat      = '0;
-          beat.data = pend_d;
-          beat.sop  = pend_sop_d;
-          beat.dllp = pkt_dllp_d;
+          beat.data = rxd_d.pend;
+          beat.sop  = rxd_d.pend_sop;
+          beat.dllp = rxd_d.pkt_dllp;
           push_late = push_late || npush != 2'd0;
           push_a    = beat;
           npush     = 2'd1;
-          pend_v_d = 1'b0;
+          rxc_d.pend_v = 1'b0;
         end
-        if (hold_v_d) begin
-          pend_d      = {sym_b, hold_d};
-          pend_v_d    = 1'b1;
-          pend_sop_d  = pkt_first_d;
-          pkt_first_d = 1'b0;
-          hold_v_d    = 1'b0;
+        if (rxc_d.hold_v) begin
+          rxd_d.pend      = {sym_b, rxd_d.hold};
+          rxc_d.pend_v    = 1'b1;
+          rxd_d.pend_sop  = rxd_d.pkt_first;
+          rxd_d.pkt_first = 1'b0;
+          rxc_d.hold_v    = 1'b0;
         end else begin
-          hold_d   = sym_b;
-          hold_v_d = 1'b1;
+          rxd_d.hold   = sym_b;
+          rxc_d.hold_v = 1'b1;
         end
       end
     end
@@ -432,35 +392,26 @@ module pcie_mac_frame (
   assign cnt_sum  = {1'b0, cnt_left} + {1'b0, npush};
 
   always_comb begin
-    q0_d = q0_q;
-    q1_d = q1_q;
+    rxq_d.q0 = rxq_q.q0;
+    rxq_d.q1 = rxq_q.q1;
     if (cnt_left == '0) begin
-      q0_d = push_a;
-      q1_d = push_b;
+      rxq_d.q0 = push_a;
+      rxq_d.q1 = push_b;
     end else begin
-      q0_d = q1_q;
-      q1_d = push_a;
+      rxq_d.q0 = rxq_q.q1;
+      rxq_d.q1 = push_a;
     end
     cnt_d = cnt_sum[1:0];
   end
 
-  `COMMON_DFF_RST_VAL(os_q, os_d, clk_i, rst_i, pcie_mac_pkg::OS_NONE)
-  `COMMON_DFF(ts_cnt_q, ts_cnt_d, clk_i)
-  `COMMON_DFF_RST(in_pkt_q, in_pkt_d, clk_i, rst_i)
-  `COMMON_DFF(pkt_dllp_q, pkt_dllp_d, clk_i)
-  `COMMON_DFF(pkt_bad_q, pkt_bad_d, clk_i)
-  `COMMON_DFF(pkt_first_q, pkt_first_d, clk_i)
-  `COMMON_DFF(len_q, len_d, clk_i)
-  `COMMON_DFF_RST(resync_q, resync_d, clk_i, rst_i)
-  `COMMON_DFF_RST(hold_v_q, hold_v_d, clk_i, rst_i)
-  `COMMON_DFF(hold_q, hold_d, clk_i)
-  `COMMON_DFF_RST(pend_v_q, pend_v_d, clk_i, rst_i)
-  `COMMON_DFF(pend_q, pend_d, clk_i)
-  `COMMON_DFF(pend_sop_q, pend_sop_d, clk_i)
-  `COMMON_DFF(q0_q, q0_d, clk_i)
-  `COMMON_DFF(q1_q, q1_d, clk_i)
   `COMMON_DFF_RST(cnt_q, cnt_d, clk_i, rst_i)
   `COMMON_DFF_RST(ferr_q, ferr, clk_i, rst_i)
+
+  `COMMON_DFF_RST(txc_q, txc_d, clk_i, rst_i)
+  `COMMON_DFF(txd_q, txd_d, clk_i)
+  `COMMON_DFF_RST_VAL(rxc_q, rxc_d, clk_i, rst_i, pcie_mac_pkg::FR_RX_CTL_RESET)
+  `COMMON_DFF(rxd_q, rxd_d, clk_i)
+  `COMMON_DFF(rxq_q, rxq_d, clk_i)
 
   `COMMON_UNUSED_BITS(unused_rx_status, {rx_i.phy_status, rx_i.status[1:0]})
 
@@ -468,12 +419,12 @@ module pcie_mac_frame (
 
   assign rx_out_valid     = !rst_i && cnt_q != '0;
   assign pkt_rx_o.valid   = rx_out_valid;
-  assign pkt_rx_o.data    = q0_q.data;
-  assign pkt_rx_o.sop     = rx_out_valid && q0_q.sop;
-  assign pkt_rx_o.eop     = rx_out_valid && q0_q.eop;
-  assign pkt_rx_o.dllp    = q0_q.dllp;
-  assign pkt_rx_o.err     = rx_out_valid && q0_q.eop && q0_q.err;
-  assign pkt_rx_o.nullify = rx_out_valid && q0_q.eop && q0_q.nullify;
+  assign pkt_rx_o.data    = rxq_q.q0.data;
+  assign pkt_rx_o.sop     = rx_out_valid && rxq_q.q0.sop;
+  assign pkt_rx_o.eop     = rx_out_valid && rxq_q.q0.eop;
+  assign pkt_rx_o.dllp    = rxq_q.q0.dllp;
+  assign pkt_rx_o.err     = rx_out_valid && rxq_q.q0.eop && rxq_q.q0.err;
+  assign pkt_rx_o.nullify = rx_out_valid && rxq_q.q0.eop && rxq_q.q0.nullify;
   assign rx_frame_err_o   = !rst_i && ferr_q;
   assign rx_idle_o        = rst_i ? 2'b00 : idle;
 
@@ -484,7 +435,7 @@ module pcie_mac_frame (
   `COMMON_ASSERT_NEVER(a_rx_pend_push_first, clk_i, rst_i, push_late)
   `COMMON_ASSERT_NEVER(a_rx_err_and_nullify, clk_i, rst_i, pkt_rx_o.err && pkt_rx_o.nullify)
   `COMMON_ASSERT_NEVER(a_rx_flags_without_eop, clk_i, rst_i,
-                       rx_out_valid && !q0_q.eop && (q0_q.err || q0_q.nullify))
+                       rx_out_valid && !rxq_q.q0.eop && (rxq_q.q0.err || rxq_q.q0.nullify))
 
 endmodule
 

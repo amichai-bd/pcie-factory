@@ -18,12 +18,12 @@ module pcie_mac_scrambler (
 
   localparam int unsigned SYMS   = 2;        // symbols per clk_i cycle, [7:0] first
   localparam int unsigned BYTE_W = pcie_mac_pkg::BYTE_W;
+  localparam pcie_mac_pkg::t_lfsr LFSR_SEED = 16'hFFFF;
 
   logic [15:0] in_data;
   logic [1:0]  in_datak;
   assign in_data  = word_i.data;
   assign in_datak = word_i.datak;
-  localparam pcie_mac_pkg::t_lfsr LFSR_SEED = 16'hFFFF;
 
   pcie_mac_pkg::t_lfsr            state_q;     // LFSR before symbol 0
   pcie_mac_pkg::t_lfsr            state_next;  // LFSR after the last symbol
