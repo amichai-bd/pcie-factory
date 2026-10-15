@@ -11,7 +11,8 @@ cells of the [HAS crossing table](../../arch/pcs/HAS.md#clock-domain-crossings).
 
 The shell drives every output to its
 [reset value](../../arch/pcs/HAS.md#reset-values) and folds every input into
-one `unused_inputs` net so lint stays clean. Every input other than the two
+one `unused_inputs` net so lint stays clean. Its filelist already reaches
+the sub-IPs that exist, but the shell does not instantiate them yet. Every input other than the two
 clocks carries its `cdc-domain` annotation from the HAS
 [port table](../../arch/pcs/HAS.md#interfaces). It instantiates nothing yet.
 
@@ -25,4 +26,4 @@ are in the [HAS targets](../../arch/pcs/HAS.md#targets).
 | File | Holds |
 | --- | --- |
 | [`pcie_pcs.sv`](../../../../src/rtl/pcs/pcie_pcs.sv) | The shell module. |
-| [`pcs.rtl.f`](../../../../src/rtl/pcs/pcs.rtl.f) | `pcie_pcs.sv`. |
+| [`pcs.rtl.f`](../../../../src/rtl/pcs/pcs.rtl.f) | `-F` of the sub-IP filelists that exist ([`pcs_dec8b10b`](../pcs_dec8b10b/MAS.md)), then `pcie_pcs.sv`. |
