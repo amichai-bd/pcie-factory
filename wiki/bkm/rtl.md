@@ -45,8 +45,10 @@ two vocabulary headers, `src/rtl/common/common_macros.svh` and
    `$isunknown`); the sampled-value functions (`$past`, `$stable`, `$rose`,
    `$fell`, `$changed`, `$sampled`) are allowed only inside the arguments
    of a `COMMON_ASSERT*` macro. Use the `COMMON_ASSERT*` macros, including
-   `COMMON_ASSERT_PARAM` for parameter checks ([assertions](#assertions)).
-   Rules `raw-assertion`, `raw-initial`, `system-task`, `sampled-value`.
+   `COMMON_ASSERT_PARAM` for parameter checks ([assertions](#assertions)),
+   and give each a plain identifier as its name or label: the macro pastes
+   it as a bare token. Rules `raw-assertion`, `raw-initial`, `system-task`,
+   `sampled-value`, `assert-label`.
 3. **No conditional compilation in a design file.** No `` `ifdef``,
    `` `ifndef``, `` `elsif`` or `` `else`` in a `.sv`, not even an include
    guard. Flow selection (synthesis guards, Verilator lint sinks, assertion
@@ -371,7 +373,8 @@ includes the cell's filelist with `-F`.
   dual-clock memory read: the other-domain sources are memories of two or
   more entries, and every own-side source reaching the output depends,
   through own-side flops, on a crossing cell inside the cell (a
-  synchronized pointer). A pointer that is synchronized but does not
+  synchronized pointer); a crossing cell inside a cell never has a
+  constant source-side input. A pointer that is synchronized but does not
   really guard the read is left to the cell's MAS and review.
 - **Port domains.** An input port declares the clock it is synchronous to
   with a comment ending its declaration line, naming another input port of

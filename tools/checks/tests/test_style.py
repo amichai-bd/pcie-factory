@@ -186,7 +186,7 @@ def test_every_rule_is_tested_and_documented():
               "nonblocking-assignment", "conditional-compilation", "raw-always-ff",
               "raw-assertion", "raw-initial", "package-import", "include-path",
               "vocabulary-include", "cdc-cell-macro", "system-task", "local-define",
-              "sampled-value", "clocking-block", "object-macro"}
+              "sampled-value", "clocking-block", "object-macro", "assert-label"}
     assert tested == set(RULES)
     spec = (Path(__file__).resolve().parents[3] / "wiki/tools/checks/SPEC.md").read_text()
     for rule, (anchor, _) in RULES.items():
@@ -293,6 +293,38 @@ def test_hidden_register_through_default_clocking():
     assert any(":21: clocking-block: clocking" in f for f in found), found
     assert any(":22: sampled-value: $past outside a COMMON_ASSERT* macro argument" in f
                for f in found), found
+
+
+@pytest.mark.parametrize("name", ["clocking$x", "x$clocking", "clocking$"])
+def test_clocking_inside_identifier_passes(name):
+    # `$` is an identifier character: these are names, not the keyword.
+    text = mutate("  logic         rst;", f"  logic         rst, {name};")
+    assert check(text) == []
+
+
+@pytest.mark.parametrize("call, label", [
+    # #138: the NAME argument is pasted as a bare token, so a statement in it
+    # assigns in simulation only (compiled out under SYNTHESIS).
+    ("`COMMON_ASSERT_CLOCKED(x = $past(d_i); a_c, clk_i, rst, 1'b1)", "x = $past(d_i); a_c"),
+    ("`COMMON_ASSERT_CLOCKED(x = d_i; a_c, clk_i, rst, 1'b1)", "x = d_i; a_c"),
+    # A nested macro call in the label (the #135 re-review case).
+    ("`COMMON_ASSERT(`COMMON_DFF_RST(q_x, $past(q_d), clk_i, rst) a_n, clk_i, rst, 1'b1)",
+     "`COMMON_DFF_RST(q_x, $past(q_d), clk_i, rst) a_n"),
+    ("`COMMON_ASSERT(a_b[0], clk_i, rst, 1'b1)", "a_b[0]"),
+    ("`COMMON_ASSERT(, clk_i, rst, 1'b1)", ""),
+])
+def test_assert_label_must_be_an_identifier(call, label):
+    text = mutate(DFF, DFF + "\n  " + call)
+    found = check_text("xy_a_m.sv", text, "xy_a", vocab=ASSERT_VOCAB)
+    hits = [f for f in found if ": assert-label: " in f]
+    assert len(hits) == 1 and f"{label!r} is not a single identifier" in hits[0], found
+    assert ":21: assert-label:" in hits[0], found
+
+
+def test_assert_label_identifier_passes():
+    text = mutate(DFF, DFF + "\n  `COMMON_ASSERT(\n    a_x$1 , clk_i, rst, 1'b1)"
+                  "\n  `COMMON_ASSERT_CLOCKED(_a, clk_i, rst, q_q == q_d)")
+    assert check_text("xy_a_m.sv", text, "xy_a", vocab=ASSERT_VOCAB) == []
 
 
 def test_clocking_block_fires_in_vocabulary_header():

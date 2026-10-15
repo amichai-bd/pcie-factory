@@ -295,8 +295,6 @@ class TxMonitor:
                     COV_OS_TX.sample(kind=self._last_kind)
                 elif not k and b == arch.D21_5:
                     COV_OS_TX.sample(kind="compliance")
-                elif k and b == 0x7C:
-                    COV_OS_TX.sample(kind="EIOS")
                 elif not k or b == PAD:
                     self._p, self._ts, self._last_kind = 2, [(k, b)], "TS"
                 continue

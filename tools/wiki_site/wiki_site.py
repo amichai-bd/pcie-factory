@@ -107,12 +107,18 @@ def out_path(rel: str) -> str:
 
 
 def skill_text(text: str) -> str:
-    """A SKILL.md without its YAML frontmatter. The `description` (one line,
-    indented continuation lines, or a `>`/`|` block) becomes an escaped HTML
-    quote under the first H1, so it is shown literally, never as Markdown."""
+    """A SKILL.md without its YAML frontmatter (see `skill_page`)."""
+    return skill_page(text)[0]
+
+
+def skill_page(text: str) -> tuple[str, str]:
+    """(Markdown, description) of a SKILL.md. The frontmatter is dropped; the
+    `description` (one line, indented continuation lines, or a `>`/`|` block)
+    becomes an escaped HTML quote under the first H1, so it is shown
+    literally, never as Markdown, and is returned for the search text."""
     m = FRONTMATTER.match(text)
     if not m:
-        return text
+        return text, ""
     meta: dict[str, str] = {}
     key = None
     for line in (m.group(1) or "").splitlines():
@@ -126,7 +132,7 @@ def skill_text(text: str) -> str:
     body = text[m.end():]
     desc = " ".join(meta.get("description", "").split())
     if not desc:
-        return body
+        return body, ""
     lines = body.split("\n")
     at, fence = 0, None
     for i, line in enumerate(lines):
@@ -137,7 +143,7 @@ def skill_text(text: str) -> str:
             at = i + 1
             break
     quote_html = f'<blockquote class="skill-description"><p>{escape(desc)}</p></blockquote>'
-    return "\n".join(lines[:at] + ["", quote_html, ""] + lines[at:])
+    return "\n".join(lines[:at] + ["", quote_html, ""] + lines[at:]), desc
 
 
 def inline_text(token) -> str:
@@ -286,7 +292,11 @@ class Site:
         skill_dir = self.root / SKILLS
         for f in sorted(skill_dir.glob("*/SKILL.md")) if skill_dir.is_dir() else ():
             src = f.relative_to(self.root).as_posix()
-            self._add(src, f"skills/{f.parent.name}.html", skill_text(read(src)))
+            md, desc = skill_page(read(src))
+            self._add(src, f"skills/{f.parent.name}.html", md)
+            if desc:  # the quote is an HTML block, so add it to the search text here
+                page = self.pages[src]
+                page.text = f"{desc} {page.text}"[:TEXT_LIMIT].rstrip()
             skills.pages.append(src)
         if skills.pages:
             self.sections.append(skills)
