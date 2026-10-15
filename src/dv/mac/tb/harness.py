@@ -38,17 +38,21 @@ sys.path.append(str(Path(__file__).resolve().parents[3] / "arch" / "mac"))
 import pcie_mac_arch as arch  # noqa: E402
 
 # The states the mac implements today (Detect, Polling, Configuration, L0,
-# Recovery, and the Off/L0 states of the sub-machines; the control states)
-# and the arcs of the HAS arc list among them.
+# Recovery, and the Off/L0 states of the sub-machines; the power states, L0s
+# sub-states, L1 and L2; the control states) and the arcs of the HAS arc list
+# among them: all of it.
 CORE_STATES = {arch.DQ, arch.DA, arch.PA, arch.PC, arch.PCFG, arch.LWS, arch.LWA,
                arch.LNW, arch.LNA, arch.CC, arch.CI, arch.L0, arch.RL, arch.RC,
                arch.RI, arch.TOFF, arch.TL0, arch.ROFF, arch.RL0}
+POWER_STATES = {arch.L1E, arch.L1I, arch.L2I, arch.TE, arch.TI, arch.TF,
+                arch.RE, arch.RXI, arch.RF}
 CORE_ARCS = {name: arc for name, arc in arch.ARCS.items()
-             if arc[0] in CORE_STATES and arc[1] in CORE_STATES}
+             if arc[0] in CORE_STATES | POWER_STATES and arc[1] in CORE_STATES | POWER_STATES}
 CONTROL_STATES = {arch.DIS, arch.HR, arch.LBE, arch.LBA, arch.LBX}
 CONTROL_ARCS = {name: arc for name, arc in arch.ARCS.items()
                 if (arc[0] in CONTROL_STATES or arc[1] in CONTROL_STATES)}
 DONE_ARCS = {**CORE_ARCS, **CONTROL_ARCS}
+assert DONE_ARCS == arch.ARCS, "the harness arc sets must cover the HAS arc list"
 
 COV_ARCS = Covergroup("mac_ltssm_arcs")
 COV_ARCS.coverpoint("arc", bins=dict(DONE_ARCS))
@@ -56,12 +60,12 @@ COV_ARCS.coverpoint("port_role", bins={r: r for r in arch.ROLES})
 COV_ARCS.cross("arc_x_port_role", "arc", "port_role")
 
 COV_OS_TX = Covergroup("mac_os_tx")
-COV_OS_TX.coverpoint("kind", bins=["TS1", "TS2", "SKP", "compliance", "EIOS"])
+COV_OS_TX.coverpoint("kind", bins=["TS1", "TS2", "SKP", "compliance", "EIOS", "FTS"])
 COV_OS_TX.coverpoint("ctl", bins={"none": 0, "hot_reset": arch.CTL_HOT_RESET,
                                   "disable": arch.CTL_DISABLE, "loopback": arch.CTL_LOOPBACK})
 COV_OS_TX.coverpoint("link", bins={"pad": "pad", "zero": 0, "mid": range(1, 255), "max": 255})
 COV_OS_TX.coverpoint("lane", bins={"pad": "pad", "zero": 0})
-COV_OS_TX.coverpoint("skp_burst", bins=["single", "back_to_back"])
+COV_OS_TX.coverpoint("skp_burst", bins=["single", "back_to_back", "after_fts"])
 
 COV_OS_RX = Covergroup("mac_os_rx")
 COV_OS_RX.coverpoint("event", bins=["TS1", "TS2", "TS1_inv", "TS2_inv", "SKP", "EIOS", "FTS"])
@@ -132,6 +136,7 @@ TS_FIELDS = ("ts2", "ts_inv", "link", "link_pad", "link_num", "lane", "lane_pad"
 EVENTS = ("os_sym", "ts", "ts_bad", "skp", "eios", "fts")
 
 CODE_STATE = {c: n for n, _, c in arch.MAIN_STATES}
+SUB_STATES = {n for n, _, _ in arch.TX_STATES + arch.RX_STATES}
 TX_SUB = {c: n for n, _, c in arch.TX_STATES if c is not None}
 RX_SUB = {c: n for n, _, c in arch.RX_STATES if c is not None}
 
@@ -259,6 +264,7 @@ class TxMonitor:
         self._p = 0
         self._ts: list = []
         self._last_skp_end = None
+        self._last_kind = None
         self.n = 0
         self.syms: deque = deque(maxlen=4096)
 
@@ -280,14 +286,19 @@ class TxMonitor:
                 self._p = 0
                 if k and b == 0x1C:
                     burst = "back_to_back" if self._last_skp_end == self.n - 2 else "single"
+                    if self._last_kind == "FTS":
+                        burst = "after_fts"
                     COV_OS_TX.sample(kind="SKP", skp_burst=burst)
-                    self._p = 3
+                    self._p, self._last_kind = 3, "SKP"
+                elif k and b in (0x7C, 0x3C):
+                    self._last_kind = "EIOS" if b == 0x7C else "FTS"
+                    COV_OS_TX.sample(kind=self._last_kind)
                 elif not k and b == arch.D21_5:
                     COV_OS_TX.sample(kind="compliance")
                 elif k and b == 0x7C:
                     COV_OS_TX.sample(kind="EIOS")
                 elif not k or b == PAD:
-                    self._p, self._ts = 2, [(k, b)]
+                    self._p, self._ts, self._last_kind = 2, [(k, b)], "TS"
                 continue
             if self._p == 3:
                 if k and b == 0x1C:
@@ -636,6 +647,7 @@ class Harness:
         prev_tx = self.sh_tx
         open_start = self.sh_open
         delivered = len(sh.rx_packets)
+        self.sh_eios_before = sh.eios_rx       # the follower's Disabled exit cause
         self.sh_tx = sh.step(self.rx_prev)
         self._track_starts(sh, open_start, delivered)
         errs = sh.rcv_errors - errs if not self.rst_sampled else 0
@@ -694,12 +706,22 @@ class Harness:
             a.state, a.tx_sub, a.rx_sub = main, tx, rx
             return
         for old, new in ((a.state, main), (a.tx_sub, tx), (a.rx_sub, rx)):
-            if old != new:
-                a.arcs.append((self.now, old, new))
-                COV_ARCS.sample(arc=(old, new), port_role=self.role)
-                if (old, new) not in arch.ARC_SET:
+            if old == new:
+                continue
+            path = [old, new]
+            if (old, new) not in arch.ARC_SET:
+                # A sub-machine may take a timed arc and leave with the main
+                # machine in one step (Rx_L0s.Entry to .Idle, Tx_L0s.FTS to
+                # Tx_L0, then Off); the code shows only the ends.
+                mids = [m for m in SUB_STATES
+                        if (old, m) in arch.ARC_SET and (m, new) in arch.ARC_SET]
+                if len(mids) != 1:
                     raise AssertionError(f"cycle {self.now - self.t0}: {old} -> {new} "
                                          "is not an arc of the HAS arc list")
+                path = [old, mids[0], new]
+            for x, y in zip(path, path[1:]):
+                a.arcs.append((self.now, x, y))
+                COV_ARCS.sample(arc=(x, y), port_role=self.role)
         if a.state != main:
             self._control_cov(a.state, main)
         a.state, a.tx_sub, a.rx_sub = main, tx, rx
@@ -721,10 +743,10 @@ class Harness:
         elif old == arch.DIS:
             if self.ctl_directed:
                 how = "directed"
-            elif self.now - self.ctl_entered >= self.shadow.err(arch.T2MS):
-                how = "following_timeout"
+            elif self.sh_eios_before:
+                how = "following_eios"         # by cause: an EIOS was received
             else:
-                how = "following_eios"
+                how = "following_timeout"
             COV_CTL.sample(disabled_exit=how)
         elif old == arch.L0 and new == arch.RL:
             for name, on in (("hot_reset", dsp and req["hot_reset_req_i"]),
