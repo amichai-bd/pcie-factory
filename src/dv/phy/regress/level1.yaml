@@ -1,7 +1,25 @@
 tests:
-  - name: e2e_power
+  - name: e2e_polarity
     module: tests.test_phy_e2e
-    testcase: e2e_power
+    testcase: e2e_polarity
+    top: pcie_phy_e2e_tb
+    params: {MAC_RTL: 1, PCS_RTL: 1}
+    timeout_s: 300
+  - name: e2e_link_up_spec
+    module: tests.test_phy_e2e
+    testcase: e2e_link_up_spec
+    top: pcie_phy_e2e_tb
+    params: {MAC_RTL: 1, PCS_RTL: 1, CHAN_RTL: 1, TIMEOUT_DIV: 1}
+    timeout_s: 300
+  - name: e2e_targets
+    module: tests.test_phy_e2e
+    testcase: e2e_targets
+    top: pcie_phy_e2e_tb
+    params: {MAC_RTL: 1, PCS_RTL: 1, CHAN_RTL: 1}
+    timeout_s: 300
+  - name: e2e_control
+    module: tests.test_phy_e2e
+    testcase: e2e_control
     top: pcie_phy_e2e_tb
     params: {MAC_RTL: 1, PCS_RTL: 1, ERR_TIMEOUT_DIV: 1024}
     timeout_s: 300
@@ -104,15 +122,3 @@ tests:
     testcase: e2e_encoder_block
     top: pcie_phy_e2e_tb
     timeout_s: 180
-  - name: dbg_l0s
-    module: tests.test_phy_e2e
-    testcase: dbg_l0s
-    top: pcie_phy_e2e_tb
-    params: {MAC_RTL: 1, PCS_RTL: 1, CHAN_RTL: 1}
-    timeout_s: 300
-  - name: dbg_states
-    module: tests.test_phy_e2e
-    testcase: dbg_states
-    top: pcie_phy_e2e_tb
-    params: {MAC_RTL: 1, PCS_RTL: 1, CHAN_RTL: 1, ERR_TIMEOUT_DIV: 1024}
-    timeout_s: 300

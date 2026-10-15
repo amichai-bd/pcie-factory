@@ -91,6 +91,13 @@ COV_EVENTS.coverpoint("recovery", bins={"directed": "directed", "autonomous": "a
 # A port reset while packets flow (RTL ports): reset values held, retrained.
 COV_EVENTS.coverpoint("reset", bins={"a": "a", "b": "b"})
 
+# Link control and power end to end (RTL ports; tests/test_phy_e2e.py).
+COV_CONTROL = Covergroup("phy_e2e_control")
+COV_CONTROL.coverpoint("event", bins={n: n for n in (
+    "retrain", "hot_reset", "disable", "usp_requests_ignored", "polarity", "reset_single")})
+COV_POWER = Covergroup("phy_e2e_power")       # enabled with #182
+COV_POWER.coverpoint("state", bins={n: n for n in ("l0s", "l1", "l2", "loopback")})
+
 # Reset values of pcie_phy's outputs, held while rst_i is high
 # (wiki/src/arch/phy/HAS.md#clocks-and-resets); ltssm_state_o 0 is
 # Detect.Quiet.
