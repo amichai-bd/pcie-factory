@@ -1,0 +1,13 @@
+coverage_floors: {line: 98, toggle: 99, functional: 100}
+tests:
+  - name: exhaustive
+    module: tests.test_pcs_enc8b10b
+    testcase: exhaustive
+    top: pcie_pcs_enc8b10b
+    timeout_s: 180
+  - name: random_vs_model
+    module: tests.test_pcs_enc8b10b
+    testcase: random_vs_model
+    top: pcie_pcs_enc8b10b
+    seeds: 3
+    timeout_s: 180
