@@ -515,12 +515,15 @@ flop on another and fails unless the path goes through an approved
 crossing cell. It does not prove a crossing correct; the cell's MAS and its
 tests do that.
 
-**Targets.** Without `--ip`, each top-level IP (no other IP reaches it) is
-one target, with top `<prefix><id>` as for lint, and each
-`rtl/common/<block>.rtl.f` is another, with top `<block>`. With `--ip`,
-the targets are the top-level IPs among the selected IPs and their
-ancestors, because a sub-IP's clocks are known only at its top; shared
-blocks are skipped. Board wrappers in `fpga/<ip>/` are not analyzed.
+**Targets.** Without `--ip`, each top-level IP (one that is no other IP's
+sub-IP) is one target, with top `<prefix><id>` as for lint, and each
+`rtl/common/<block>.rtl.f` is another, with top `<block>`. A top-level IP
+that another integrates is analyzed on its own and again inside the
+integrator, where its clocks come from the integrator's ports. With
+`--ip`, the targets are the top-level IPs among the selected IPs and their
+ancestors (parents and integrators), because a sub-IP's clocks are known
+only at its top; shared blocks are skipped. Board wrappers in `fpga/<ip>/`
+are not analyzed.
 
 **Netlist.** For each target, Verilator runs
 `--json-only -Wno-fatal [--top-module T] +incdir+... -D... <sources>` with
@@ -701,7 +704,7 @@ clocked cell input fed from the wrong domain, a generated clock, logic in
 front of a `src=async` input (in the connection, one and two assignments
 away) against plain wires, every directive finding, a missing and a
 malformed directive (the cell is then looked inside), port and clock
-mismatches, `--ip` selection, the version pin, and the repository itself. Negative cases include a `.vlt`
+mismatches, `--ip` selection (a sub-IP and an integrated top-level IP), the version pin, and the repository itself. Negative cases include a `.vlt`
 and a `.v` file in an `rtl/` closure, a `w.txt` waiver reached by
 `` `include`` through an include directory under `rtl/` and through
 `+incdir+` of a `dv/` folder (both as a `` `verilator_config`` block and as a

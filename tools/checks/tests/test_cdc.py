@@ -413,3 +413,16 @@ def test_repository_passes():
     src = REPO_ROOT / "src"
     r = run(src)
     assert r.passed, r.findings
+
+
+@needs_verilator
+def test_integrated_top_level_ip_is_analyzed_alone_and_in_its_integrator(tmp_path):
+    src = tree(tmp_path, A_FLOP + "  assign y_o = a_q;\n")
+    (src / "rtl/oth").mkdir()
+    (src / "rtl/oth/xy_oth.sv").write_text("module xy_oth;\nendmodule\n")
+    (src / "rtl/oth/oth.rtl.f").write_text("xy_oth.sv\n")
+    rtl_f = src / "rtl/blk/blk.rtl.f"
+    rtl_f.write_text("-F ../oth/oth.rtl.f\n" + rtl_f.read_text())
+    assert run(src).checked.startswith("2 top-level IP(s), 3 shared block(s)")
+    assert run(src, {"oth"}).checked.startswith("2 top-level IP(s), 0 shared block(s)")
+    assert run(src, {"blk"}).checked.startswith("1 top-level IP(s), 0 shared block(s)")
