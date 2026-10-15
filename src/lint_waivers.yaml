@@ -16,7 +16,7 @@ waivers:
   - file: rtl/pcs/pcie_pcs.sv
     rule: SYNCASYNCNET
     match: "'rst_i'"
-    reason: rst_i drives the RX reset synchronizer and the synchronous clk_i-side reset, as the pcs HAS requires.
+    reason: rst_i is the synchronous clk_i-side reset of the pcs top and reaches the RX reset synchronizer in u_elastic (crossing 2), as the pcs HAS requires.
   - file: rtl/common/common_cdc_rst.sv
     rule: SYNCASYNCNET
     match: "'pcie_pcs.u_elastic.u_rx_rst.sync_q'"

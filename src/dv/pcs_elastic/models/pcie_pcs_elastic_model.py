@@ -247,6 +247,8 @@ class Result:
     overflows: int = 0
     underflows: int = 0
     downgraded: int = 0    # locked symbols that left unlocked (lock change)
+    flushed: int = 0       # unlocked symbols dropped just before a lock (MAS, Lock start)
+    late_lock_start: int = 0  # locked symbols that left unlocked at a lock start
     back_to_back_coms: int = 0
     bare_coms: int = 0     # one-SKP sets that left as a bare COM
     # Every SKP ordered set sent locked: input index of its COM, word of the
@@ -350,6 +352,10 @@ def check(traffic: Traffic, words: list[Word], loss: bool = False,
             if code == exp.code and lock_ok and gen_ok:
                 if lock != exp.lock:
                     r.downgraded += 1
+                    # The first locked symbols after unlocked ones (a lock
+                    # start) should leave locked (MAS, Lock start).
+                    if any(not inp[k].lock for k in range(max(0, p - 2), p)):
+                        r.late_lock_start += 1
                 p += 1
                 r.delivered += 1
                 if exp.lock and is_com(code):
@@ -366,6 +372,28 @@ def check(traffic: Traffic, words: list[Word], loss: bool = False,
                             "rem_ok": n > 0 and all(s.lock for s in skps),
                             "skp": skps[0].code if n else None}
                 i += 1
+                continue
+            # Lock start: the unlocked symbol before the first symbol of a
+            # lock may be dropped, so the lock starts a word of its own. On
+            # the read side it is the leftover symbol, which whole unlocked
+            # words dropped by recentring may separate from the lock.
+            if not exp.lock:
+                q = p + 1
+                while q + 1 < len(inp) and q % 2 == 0 and not inp[q].lock \
+                        and not inp[q + 1].lock and inp[q].code != code:
+                    q += 2
+                if q < len(inp) and inp[q].lock and inp[q].code == code:
+                    r.flushed += 1
+                    r.dropped_words += (q - p - 1) // 2
+                    p = q
+                    continue
+            # A dropped word right after a symbol that also matched the
+            # dropped word's first symbol: the earlier match was greedy, so
+            # take it as the symbol after the dropped word instead.
+            if (p % 2 == 1 and not inp[p - 1].lock and not exp.lock and p + 2 < len(inp)
+                    and inp[p + 1].code == inp[p - 1].code and inp[p + 2].code == code):
+                r.dropped_words += 1
+                p += 2
                 continue
             if exp.lock == 0 and p % 2 == 0 and p + 1 < len(inp) and inp[p + 1].lock == 0:
                 r.dropped_words += 1
