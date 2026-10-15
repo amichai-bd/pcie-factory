@@ -107,7 +107,7 @@ shows where each of their checks went.
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Reset values](../../arch/mac/HAS.md#reset-values) with every input toggling; training to L0; the scrambler's [known answer](../../arch/mac/SYMBOLS.md#scrambling) on the line after a SKP; a TLP, a DLLP and a nullified TLP each way; a retrain each way; reset with a packet half accepted (`pkt_tx_ready_o` falls at once), then a clean packet; both roles | `smoke` | 0 | 1 |
-| [Core arcs without an error-path timeout](../../arch/mac/ARCS.md), both roles: retrain by request, received TS and electrical idle; no receiver; Configuration walks to the PAD and renumbering exits; RcvrCfg's mismatching TS1; Recovery.Idle's lane PAD; Polling.Compliance in and out; an upstream port learning link 255. [Power states](../../arch/mac/ARCS.md#l0s-sub-machines) (`ep_power`): transmit and receive L0s left by a packet each way (EIOS, P0s, FTS, the closing SKP), a retrain in `Rx_L0s.Idle` and one in `Rx_L0s.Entry` (the exit latched until `.Idle`), the `Rx_L0s.FTS` timeout (partner `fts_extra` 200), L1 and L2 entered by both requests and left by request 0, the upstream wait for L1 withdrawn | `arcs_quick` | 1 | 1; 43 of 53 arcs per role, every power arc |
+| [Core arcs without an error-path timeout](../../arch/mac/ARCS.md), both roles: retrain by request, received TS and electrical idle; no receiver; Configuration walks to the PAD and renumbering exits; RcvrCfg's mismatching TS1; Recovery.Idle's lane PAD; Polling.Compliance in and out; an upstream port learning link 255. [Power states](../../arch/mac/ARCS.md#l0s-sub-machines) (`ep_power`): transmit and receive L0s left by a packet each way (EIOS, P0s, FTS, the closing SKP), a retrain in `Rx_L0s.Idle` and one in `Rx_L0s.Entry` (the exit latched until `.Idle`), the `Rx_L0s.FTS` timeout (partner `fts_extra` 200), L1 requested after an EIOS already started receive L0s (the upstream port still sends its EIOS first), L1 and L2 entered by both requests and left by request 0, the upstream wait for L1 withdrawn | `arcs_quick` | 1 | 1; 43 of 53 arcs per role, every power arc |
 | [Polarity](../../arch/mac/ARCS.md#detect-and-polling): set once in Polling, cleared in Detect.Quiet, packets on an inverted wire | `polarity` | 1 | 1 |
 | [Transmit and receive streams](../../arch/mac/HAS.md#transmit): random TLPs (to 512 bytes, some past the SKP interval) and DLLPs both ways, nullified ones, gaps, lane shifts, DUT retrains inside packets (aborts); SKP deferral and back-to-back SKP | `traffic` | 1 | 3 |
 | The same, longer | `traffic_long` | 2 | 4 |
@@ -153,7 +153,7 @@ is the every-cycle comparison above; "decoder" the receive decoder.
 ## Mutation evidence
 
 Each mutant was built in a scratch copy of the tree and run against the
-listed entry; each fails, and the unmutated RTL passes.
+listed entry; each fails, and the unmutated RTL passes. Each entry runs its first regression seed (`arcs_quick` 1797099791, `smoke` 1824675579, `smoke_n_fts_1` 1972127776, `smoke_n_fts_255` 908217547, and so on, as listed in the regression files).
 
 | Block | Mutant | Entry | Result |
 | --- | --- | --- | --- |
@@ -175,6 +175,10 @@ listed entry; each fails, and the unmutated RTL passes.
 | LTSSM | `Tx_L0s.FTS` sends one FTS fewer than the partner's N_FTS | `arcs_quick` | Fails at cycle 27126: transmitted COM, SKP; the shadow COM, FTS. |
 | LTSSM | L2.Idle's P2 straight to Detect's P1 (not through P0) | `arcs_quick` | Stops on the RTL assertion `a_pd_via_p0`. |
 | LTSSM | The latched Recovery exit not held by `Rx_L0s.Entry` (`l0_blocked` without the `.Entry` term) | `arcs_quick` | Fails at cycle 27912: `ltssm_state_o` 0x10 (Recovery.RcvrLock), the shadow still in L0 with `Rx_L0s.Entry` (0x21). The shadow compare catches it; the arc observer alone would accept Entry to Off as Entry, Idle, Off. |
+| LTSSM | The `Rx_L0s.FTS` timeout one cycle longer (`FTS_TO` + 1) | `arcs_quick`; `smoke_n_fts_1`; `smoke_n_fts_255` | Fail at cycles 28615, 28373 and 30417: `ltssm_state_o` 0x23 (`Rx_L0s.FTS`), the shadow already in Recovery.RcvrLock (0x10). |
+| LTSSM | The `Rx_L0s.FTS` timeout one cycle shorter (`FTS_TO` - 1) | `arcs_quick`; `smoke_n_fts_1`; `smoke_n_fts_255` | Fail at cycles 28614, 28372 and 30416: `ltssm_state_o` 0x10, the shadow still in L0 with `Rx_L0s.FTS` (0x23). |
+| LTSSM | Transmit L0s entry one idle cycle late (`idle_cnt` > `L0S_IDLE_CYCLES`) | `arcs_quick` | Fails at cycle 26959: `ltssm_state_o` 0x21, the shadow 0x25 (`Tx_L0s.Entry`). |
+| LTSSM | The upstream port enters L1 without its own EIOS first (no `pm_wait` needed) | `arcs_quick` | Fails at cycle 29515 (upstream): `ltssm_state_o` 0x30 (L1.Entry), the shadow still in L0 (0x22) sending its EIOS; caught by the `ep_power` recipe that requests L1 after an EIOS already started receive L0s. |
 
 ## Gaps
 

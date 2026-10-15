@@ -51,8 +51,7 @@ module pcie_mac_ltssm #(
   output logic                    rx_scr_off_o,     // receive scrambling off: combinational,
                                                     // the value of the step that takes the word
   output logic [7:0]              partner_n_fts_o,  // FTS the partner needs (255 until learned)
-  input  logic                    fr_tx_idle_i,     // this cycle's line word is two idle symbols
-  input  pcie_mac_pkg::t_fr_tx_stat fr_tx_i,        // this cycle's line word and the upper offer
+  input  pcie_mac_pkg::t_fr_tx_stat fr_tx_i,        // this cycle's line word: idle, packet, offer
   input  logic [1:0]              fr_rx_idle_i      // symbol i of this word is idle
 );
 
@@ -323,7 +322,7 @@ module pcie_mac_ltssm #(
         idle8_c = 1'b1;
       end
     end
-    idle_sent       = fr_tx_idle_i ? 2'd2 : 2'd0;
+    idle_sent       = fr_tx_i.idle ? 2'd2 : 2'd0;
     idle_after_c    = r_q.idle_after_on
                     ? pcie_mac_pkg::after_next(r_q.idle_after, idle_sent) : '0;
     idle_after_on_c = r_q.idle_after_on || (|rx_idle);
@@ -1300,6 +1299,10 @@ module pcie_mac_ltssm #(
   // (L0 may send one EIOS per transmit L0s entry.)
   `COMMON_ASSERT_NEVER(a_one_eios, clk_i, rst_i,
                        !in_l0 && r_q.eios_done && r_q.tx_mode == pcie_mac_pkg::TX_EIOS)
+  // In L0 an EIOS is requested only while one is queued (one per transmit
+  // L0s entry or upstream wait), and never once the transmitter is idle.
+  `COMMON_ASSERT_NEVER(a_l0_eios_queued, clk_i, rst_i,
+                       in_l0 && r_q.tx_mode == pcie_mac_pkg::TX_EIOS && !r_q.pm.eios_q)
   `COMMON_ASSERT_NEVER(a_scr_on_in_training, clk_i, rst_i,
                        r_q.scr_off && (in_detect || in_polling))
 

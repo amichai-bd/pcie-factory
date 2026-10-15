@@ -5,15 +5,18 @@ file git lists (tracked, plus untracked files that are not ignored), like
 the publishability check, and flags:
 
 - ``pdf``: a PDF (a ``.pdf`` name, or the PDF signature in its first 1 KiB);
-- ``archive``: a ``.zip``, ``.gz``, ``.tgz``, ``.7z`` or ``.tar*`` file, or
-  one with a zip, gzip or 7z signature, unless ``spec_cache.allow`` in
+- ``archive``: a ``.zip``, ``.gz``, ``.tgz``, ``.7z``, ``.xz``, ``.bz2``,
+  ``.zst``, ``.rar``, ``.lz4`` or ``.tar*`` file, or one with the signature
+  of any of these formats, unless ``spec_cache.allow`` in
   ``cfg/checks.yaml`` exempts its path with a reason (an archive can hide a
-  document from every other rule);
+  document from every other rule). An allow glob matches whole path
+  segments: ``*`` never crosses a ``/``;
 - ``cached-file``: a file byte-identical to a cached document or its text;
 - ``cached-text``: a text file sharing a run of more than
   ``citation.max_quote_words`` consecutive words with a cached text. UTF-8
-  files are read as such; a file with a UTF-16 byte-order mark, or one with
-  NUL bytes that decodes cleanly as UTF-16, is decoded first.
+  files are read as such; a file with a UTF-32 or UTF-16 byte-order mark,
+  or one with NUL bytes that decodes cleanly as UTF-32 or UTF-16, is
+  decoded first.
 
 It also requires every id in the reference list (``<src_root>/specs.yaml``)
 to be an entry heading on ``wiki/src/references.md``. Without a cache, only
@@ -41,9 +44,21 @@ PAGE = "references.md"
 PDF_WINDOW = 1024
 # The PDF signature, assembled so that this file does not carry it.
 PDF_MAGIC = b"%" + b"PDF-"
-# .zip, .gz, .tgz, .7z, and .tar alone or with a compression suffix.
-_ARCHIVE_NAME = re.compile(r"\.(?:zip|gz|tgz|7z|tar(?:\.[a-z0-9]+)?)$")
-ARCHIVE_MAGIC = (b"PK\x03\x04", b"PK\x05\x06", b"\x1f\x8b", b"7z\xbc\xaf\x27\x1c")
+# Compressed and archive names, and .tar alone or with a compression suffix.
+_ARCHIVE_NAME = re.compile(
+    r"\.(?:zip|gz|tgz|7z|xz|bz2|zst|rar|lz4|tar(?:\.[a-z0-9]+)?)$")
+ARCHIVE_MAGIC = (
+    b"PK\x03\x04", b"PK\x05\x06",       # zip
+    b"\x1f\x8b",                         # gzip
+    b"7z\xbc\xaf\x27\x1c",                 # 7z
+    b"\xfd7zXZ\x00",                      # xz
+    b"\x28\xb5\x2f\xfd",                   # zstd
+    b"Rar!\x1a\x07",                      # rar (4 and 5)
+    b"\x04\x22\x4d\x18",                   # lz4 frame
+)
+# bzip2: "BZh", a block size digit, then a block or end-of-stream marker,
+# so a text file that starts with "BZh" is not an archive.
+_BZIP2 = re.compile(rb"BZh[1-9](?:1AY&SY|\x17rE8P\x90)")
 _WORD = re.compile(r"[a-z0-9]+")
 _HEADING = re.compile(r"^#{2,6}[ \t]+`?([a-z0-9][a-z0-9-]*)`?[ \t]*$", re.MULTILINE)
 
@@ -94,26 +109,40 @@ def is_pdf(path: str, data: bytes) -> bool:
 
 def is_archive(path: str, data: bytes) -> bool:
     name = path.lower().rsplit("/", 1)[-1]
-    return bool(_ARCHIVE_NAME.search(name)) or data.startswith(ARCHIVE_MAGIC)
+    return (bool(_ARCHIVE_NAME.search(name)) or data.startswith(ARCHIVE_MAGIC)
+            or bool(_BZIP2.match(data)))
+
+
+def allowed(path: str, pattern: str) -> bool:
+    """``path`` matches the fnmatch ``pattern`` segment by segment, so
+    ``*`` never crosses a ``/`` and ``*.zip`` matches only a top-level zip."""
+    ps, gs = path.split("/"), pattern.split("/")
+    return len(ps) == len(gs) and all(fnmatchcase(p, g) for p, g in zip(ps, gs))
 
 
 def texts(data: bytes) -> list[str]:
     """The readings of ``data`` to scan for words: UTF-8 (or UTF-8 with a
-    BOM); UTF-16 with a BOM; or, for data with NUL bytes, each UTF-16 byte
-    order that decodes cleanly. Empty for other binary data."""
+    BOM); UTF-32 or UTF-16 with a BOM; or, for data with NUL bytes, each
+    UTF-32 and UTF-16 byte order that decodes cleanly. Empty for other
+    binary data."""
     if data.startswith(codecs.BOM_UTF8):
         return [data[3:].decode("utf-8", errors="replace")]
+    # Before UTF-16: the UTF-32 LE mark starts with the UTF-16 LE one.
+    if data.startswith((codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE)):
+        return [data.decode("utf-32", errors="replace")]
     if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
         return [data.decode("utf-16", errors="replace")]
     if b"\0" not in data:
         return [data.decode("utf-8", errors="replace")]
     out = []
-    if len(data) % 2 == 0:
-        for enc in ("utf-16-le", "utf-16-be"):
-            try:
-                out.append(data.decode(enc))
-            except UnicodeDecodeError:
-                pass
+    encs = ("utf-16-le", "utf-16-be") if len(data) % 2 == 0 else ()
+    if len(data) % 4 == 0:
+        encs = ("utf-32-le", "utf-32-be") + encs
+    for enc in encs:
+        try:
+            out.append(data.decode(enc))
+        except UnicodeDecodeError:
+            pass
     return out
 
 
@@ -187,7 +216,7 @@ def run(repo_root: Path, src_root: Path, cache: Path | None = None,
             add(f"{f}: pdf: a PDF document; reference documents are never committed")
             continue
         if is_archive(f, data):
-            hit = [i for i, e in enumerate(allow) if fnmatchcase(f, e.path)]
+            hit = [i for i, e in enumerate(allow) if allowed(f, e.path)]
             used.update(hit)
             if not hit:
                 add(f"{f}: archive: an archive can hide a reference document; "
