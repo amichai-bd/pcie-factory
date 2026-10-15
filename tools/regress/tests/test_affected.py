@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from build.ip import REPO_ROOT, discover
+from build.ip import REPO_ROOT, discover, units
 from ci.config import load_rules
 from regress.affected import GitError, changed_files, select_affected
 
@@ -124,6 +124,19 @@ def test_shared_rtl_change_selects_only_reaching_ips(repo):
     (repo / "src/rtl/common").mkdir(parents=True)
     (repo / "src/rtl/common/common_x.sv").write_text("")
     assert affected(repo) == {}
+
+
+def test_shared_unit_owns_the_common_folders(repo):
+    (repo / "src/dv/common").mkdir(parents=True)
+    (repo / "src/dv/common/common.sim.f").write_text("-F ../../rtl/common/common_x.rtl.f\n")
+    git(repo, "add", "-A")
+    commit(repo)
+    git(repo, "branch", "-f", "main")
+    (repo / "src/rtl/common").mkdir(parents=True)
+    (repo / "src/rtl/common/common_x.sv").write_text("")
+    root, changed = changed_files("main", repo / "src")
+    hit = select_affected(units(repo / "src"), root, changed, repo / "src", RULES)
+    assert hit == {"common": "changed: src/rtl/common/common_x.sv"}
 
 
 def test_sub_ip_model_change_selects_ancestors(repo):

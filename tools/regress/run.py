@@ -12,7 +12,7 @@ from pathlib import Path
 
 from build import sim
 from build.filelist import resolve
-from build.ip import Context, Ip, discover, find_ip
+from build.ip import Context, Ip, find_ip, shared_blocks, units
 from ci.config import load_rules
 from regress import coverage as cov
 from regress.affected import changed_files, select_affected
@@ -66,7 +66,7 @@ def select(
     affected_base: str | None = None,
     base_seed: int | None = None,
 ) -> Selection:
-    all_ips = discover(ctx.src_root)
+    all_ips = units(ctx.src_root)  # every IP and the shared unit
     tests = load_all(all_ips)  # validate everything, not only the selection
     if ip_ids:
         chosen = [find_ip(all_ips, i) for i in dict.fromkeys(ip_ids)]
@@ -171,10 +171,13 @@ def run(
 
 
 def dv_only_sources(ip: Ip) -> frozenset[Path]:
-    """Sources ``<ip>.sim.f`` reaches that ``<ip>.rtl.f`` does not."""
-    if not (ip.sim_f.is_file() and ip.rtl_f.is_file()):
+    """Sources ``<ip>.sim.f`` reaches that ``<ip>.rtl.f`` does not. The
+    shared unit has no ``.rtl.f``: its RTL is every shared block's."""
+    rtl_fs = shared_blocks(ip.src_root) if ip.shared else [ip.rtl_f]
+    if not (ip.sim_f.is_file() and rtl_fs and all(f.is_file() for f in rtl_fs)):
         return frozenset()
-    return frozenset(resolve(ip.sim_f).sources) - frozenset(resolve(ip.rtl_f).sources)
+    rtl = frozenset(s for f in rtl_fs for s in resolve(f).sources)
+    return frozenset(resolve(ip.sim_f).sources) - rtl
 
 
 def collect_coverage(

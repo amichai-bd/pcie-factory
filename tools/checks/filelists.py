@@ -11,6 +11,11 @@
   `` `include`` takes any name), and below ``fpga/`` no
   ``.v``/``.vh``/``.vlt``/``.vc``/``.vhd``/``.vhdl`` file. Anything else
   could carry a waiver past the style check and the reviewed waiver file.
+- The shared unit: when ``rtl/common/`` holds a shared block (a
+  ``<block>.rtl.f``) or ``dv/common/common.sim.f`` exists, ``dv/common/``
+  has ``common.dv.f``, ``common.sim.f`` and ``regress/level{0,1,2}.yaml``,
+  its regression lists validate, and its ``common.sim.f`` reaches every
+  block's filelist, so every shared block is tested.
 - No orphan RTL: every ``.sv``/``.svh`` below ``rtl/<name>/`` is reached by a
   filelist directly in ``rtl/<name>/`` (for an IP, its ``.rtl.f``).
 """
@@ -21,7 +26,7 @@ from collections import Counter
 from pathlib import Path
 
 from build.filelist import FilelistError, _parse_line, resolve
-from build.ip import Ip
+from build.ip import SHARED_DIR, Ip, shared_blocks, shared_unit
 from checks.common import (
     FOREIGN_SUFFIXES,
     SV_SUFFIXES,
@@ -65,6 +70,31 @@ def _home(path: Path, src_root: Path) -> Path:
     return Path(src_root).resolve() / parts[0] / parts[1]
 
 
+def _shared_unit_findings(src_root: Path) -> list[str]:
+    """The shared unit's files, regression lists and block coverage."""
+    unit = Ip(SHARED_DIR, Path(src_root).resolve(), shared=True)  # files may be missing
+    blocks = shared_blocks(src_root)
+    out = []
+    for need in (unit.dv_f, unit.sim_f, *(unit.level_file(lv) for lv in LEVELS)):
+        if not need.is_file():
+            out.append(f"{SHARED_DIR}: missing {rel(need, src_root)}")
+    try:
+        load_ip(unit)
+        load_floors(unit)
+    except SchemaError as exc:
+        out.append(f"{SHARED_DIR}: regression list: {exc}")
+    if unit.sim_f.is_file():
+        try:
+            reached = resolve(unit.sim_f)
+        except FilelistError:
+            return out  # reported above as a filelist that does not resolve
+        for b in blocks:
+            if not reached.reaches(b):
+                out.append(f"{rel(b, src_root)}: shared block not reached by "
+                           f"{rel(unit.sim_f, src_root)} (every shared block is tested)")
+    return out
+
+
 def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
     result = CheckResult("filelist")
     add = result.findings.append
@@ -102,6 +132,10 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
         except SchemaError as exc:
             add(f"{ip.id}: regression list: {exc}")
 
+    shared = ip_ids is None and bool(shared_blocks(src_root) or shared_unit(src_root))
+    if shared:
+        result.findings += _shared_unit_findings(src_root)
+
     sources = [f for f in kind_files(src_root, ("rtl",)) if selected(f, ips, ip_ids)]
     for src in sources:
         home = _home(src, src_root)
@@ -120,6 +154,6 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
         add(f"{rel(f, src_root)}: {f.suffix} file not allowed under fpga/ "
             "(SystemVerilog .sv/.svh only; waivers go in the waiver file)")
 
-    result.checked = (f"{len(lists)} filelist(s), {len(chosen)} IP(s) "
-                      f"with regression lists, {len(sources)} RTL file(s) for orphans")
+    result.checked = (f"{len(lists)} filelist(s), {len(chosen)} IP(s)"
+                      f"{' and the shared unit' if shared else ''} with regression lists, {len(sources)} RTL file(s) for orphans")
     return result

@@ -35,6 +35,8 @@ src/                                wiki/src/
   dv/<ip>/    tests, models, regress  dv/<ip>/DV_PLAN.md every IP and sub-IP
   fpga/<ip>/  SDC, QSF Tcl, wrapper   fpga/<ip>/FPGA.md  iff src/fpga/<ip>/ exists
   asic/<ip>/  SDC, <platform>.mk      asic/<ip>/ASIC.md  iff src/asic/<ip>/ exists
+  rtl/common/ shared blocks           rtl/common/<block>.md  MAS, every shared block
+  dv/common/  shared unit tests       dv/common/<block>.md   DV plan, every shared block
 ```
 
 A sub-IP `<ip>_<sub>` is a flat sibling under each kind; which IPs are
@@ -46,6 +48,7 @@ top-level follows from filelist `-F` reachability
 | `wiki/src/arch/<ip>/` | `HAS.md` | Every top-level IP (one no other IP's `.rtl.f` reaches); sub-IPs have none |
 | `wiki/src/rtl/<ip>/` | `MAS.md` | Every IP and sub-IP |
 | `wiki/src/dv/<ip>/` | `DV_PLAN.md` | Every IP and sub-IP |
+| `wiki/src/rtl/common/`, `wiki/src/dv/common/` | `<block>.md`: the block's MAS, and its DV plan | Every shared block `src/rtl/common/<block>.rtl.f` ([layout](../project/layout.md#shared-blocks)); nothing else |
 | `wiki/src/fpga/<ip>/` | `FPGA.md` | Exactly the IPs with `src/fpga/<ip>/` |
 | `wiki/src/asic/<ip>/` | `ASIC.md` | Exactly the IPs with `src/asic/<ip>/` |
 | `wiki/src/` | `README.md`, `roadmap.md`, `decisions/NNNN-<slug>.md` | Fixed set of design-level pages: index and decision index, product roadmap, design decision records |
@@ -56,7 +59,10 @@ top-level follows from filelist `-F` reachability
 
 Every folder under `wiki/src/` has a `src/` counterpart, and every page
 there sits in an IP folder `<kind>/<ip>/` (or below one), except the
-design-level pages above (`decisions/` is flat and holds only records). The
+design-level pages above (`decisions/` is flat and holds only records) and
+each shared block's pages directly in `rtl/common/` and `dv/common/`. A
+shared block has no HAS, so its MAS also owns its purpose, interfaces,
+parameters and behavior, as a sub-IP's does. The
 one other exception: a top-level IP's `arch/<ip>/` needs `src/arch/<ip>/` only once its HAS
 defines targets (a `## Targets` section: a level-2 heading starting with
 the word `Targets`, outside fenced code); then the

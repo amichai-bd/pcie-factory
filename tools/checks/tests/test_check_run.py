@@ -31,7 +31,7 @@ def test_empty_src_passes_and_reports_coverage(tmp_path, capsys):
     assert "[filelist] PASS: 0 filelist(s), 0 IP(s)" in out.out
     assert "[wiki] PASS: 0 required page(s), 0 wiki folder(s)" in out.out
     assert "[citation] PASS: 0 text file(s)" in out.out
-    assert "[lint] PASS: 0 IP(s), 0 Verilator run(s)" in out.out
+    assert "[lint] PASS: 0 IP(s), 0 shared block(s), 0 Verilator run(s)" in out.out
     assert lines[-1] == "check: PASS"
 
 
