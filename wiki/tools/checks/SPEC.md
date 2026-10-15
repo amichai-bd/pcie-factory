@@ -4,26 +4,28 @@
 [DevOps BKM](../../bkm/devops.md#static-checks) requires: the source layout
 check, the filelist and regression-list check, the RTL style checker, the
 wiki mirror check, the flow-input check, the neutrality check, the citation
-check, the publishability check and Verilator lint. It prints one summary
+check, the publishability check, Verilator lint and the structural
+clock-domain-crossing (CDC) check. It prints one summary
 line per check, then every violation, then an overall verdict. The code
 lives in `tools/checks/` (`run.py`, `layout.py`, `filelists.py`,
 `style.py`, `wiki_mirror.py`, `flows.py`, `neutrality.py`, `citation.py`,
-`publishability.py`, `lint.py`).
+`publishability.py`, `lint.py`, `cdc.py`).
 
 ```
 ./build check [--ip ID]...
-              [--only layout|filelist|style|wiki|flows|neutrality|citation|publishability|lint]...
+              [--only layout|filelist|style|wiki|flows|neutrality|citation|publishability|lint|cdc]...
               [--src-root DIR] [--workdir DIR]
 ```
 
 | Option | Meaning |
 | --- | --- |
-| `--ip ID` | Restrict layout, filelist, style, wiki, flows and lint to these IPs (repeatable). Files not owned by a selected IP, such as `src/rtl/common/`, are skipped. Neutrality and publishability always scan the whole repository, and citation the whole of `src/` and `wiki/src/`. |
-| `--only NAME` | Run only these checks (repeatable). The default is all nine. |
+| `--ip ID` | Restrict layout, filelist, style, wiki, flows, lint and cdc to these IPs (repeatable; cdc analyzes the top-level IPs among them and their ancestors). Files not owned by a selected IP, such as `src/rtl/common/`, are skipped. Neutrality and publishability always scan the whole repository, and citation the whole of `src/` and `wiki/src/`. |
+| `--only NAME` | Run only these checks (repeatable). The default is all ten. |
 | `--src-root DIR` | The source tree to check, as for every command ([build spec](../build/SPEC.md#command-line)). The wiki and citation checks read its sibling `wiki/src/`. Neutrality and publishability ignore it and scan the git repository that holds the launcher. |
 
 Checks run in the order layout, filelist, style, wiki, flows, neutrality,
-citation, publishability, lint (lint is the slowest). Output:
+citation, publishability, lint, cdc (lint and cdc are the slowest; lint's
+preprocessed audit covers the sources cdc elaborates). Output:
 
 ```
 check: 2 IP(s) under /abs/src
@@ -39,6 +41,9 @@ check: 2 IP(s) under /abs/src
 [lint] blk: top=xy_blk
 [lint] common/common_lib: top=common_lib
 [lint] PASS: 2 IP(s), 1 shared block(s), 4 Verilator run(s) with -E audit, 0 waiver(s), 0 warning(s) waived
+[cdc] blk: top=xy_blk
+[cdc] common/common_lib: top=common_lib
+[cdc] PASS: 1 top-level IP(s), 1 shared block(s), 2 Verilator --json-only run(s), 2 flop(s), 0 cdc-cell directive(s)
 check: FAIL (style)
 ```
 
@@ -50,7 +55,7 @@ what it covered (zero IPs and files), and the command passes.
 **Exit codes:** `0` means every selected check passed. `1` means at least
 one check found a violation. `2` means a usage or configuration error: an
 unknown `--ip`, an invalid `cfg/checks.yaml` (any section) or waiver file, a git error,
-or Verilator missing while there is something to lint. The flow settings
+or Verilator missing while there is something to lint or analyze. The flow settings
 (`cfg/fpga.yaml`, the ORFS entry of `cfg/host.yaml`) are flow inputs, not
 the check's own configuration: a problem there is a `flows` finding.
 
@@ -501,6 +506,143 @@ a wrong type is a configuration error. A waiver that matches no warning is
 **stale** and fails the check; the stale test runs only without `--ip`,
 since a filtered run cannot see every warning.
 
+## CDC check
+
+Rule owner: [RTL BKM](../../bkm/rtl.md#clock-domain-crossings).
+
+The check is structural: it finds every path from a flop on one clock to a
+flop on another and fails unless the path goes through an approved
+crossing cell. It does not prove a crossing correct; the cell's MAS and its
+tests do that.
+
+**Targets.** Without `--ip`, each top-level IP (one that is no other IP's
+sub-IP) is one target, with top `<prefix><id>` as for lint, and each
+`rtl/common/<block>.rtl.f` is another, with top `<block>`. A top-level IP
+that another integrates is analyzed on its own and again inside the
+integrator, where its clocks come from the integrator's ports. With
+`--ip`, the targets are the top-level IPs among the selected IPs and their
+ancestors (parents and integrators), because a sub-IP's clocks are known
+only at its top; shared blocks are skipped. Board wrappers in `fpga/<ip>/`
+are not analyzed.
+
+**Netlist.** For each target, Verilator runs
+`--json-only -Wno-fatal [--top-module T] +incdir+... -D... <sources>` with
+the resolved `.rtl.f`, writing the JSON tree and meta files to a temporary
+directory that is removed afterwards (nothing is written under `workdir/`).
+The JSON format is not stable across Verilator releases, so the check
+reads `verilator.version` in `cfg/host.yaml` and fails with one finding,
+without analyzing anything, when `verilator --version` reports another
+version. A nonzero Verilator exit is a finding. Warnings are left to lint.
+
+**Directives.** Every source of every target is scanned as text. A
+comment line that starts with `cdc-cell` is a directive and must match
+`// cdc-cell: src=<port|async> dst=<port>` exactly, with `src` and `dst`
+different, on the line directly above a `module` line. Only a
+`common_cdc_*` module in `rtl/common/` may carry one, and every such module
+must. Each broken rule is a finding at the directive's line. A cell with a
+valid directive is then checked against its elaborated ports, once per
+module name:
+
+- every port is `src_*` or `dst_*`;
+- `dst` names a `dst_*` input port, and `src` a `src_*` input port or `async`;
+- a `src=async` cell has no `src_*` output;
+- when the cell is a target itself, each of its flops is clocked by a port
+  its directive names.
+
+A cell that passes is **approved**. A `common_cdc_*` module that fails is
+analyzed like any other module, so its own synchronizer flops are then
+reported as raw crossings too.
+
+**Graph.** The netlist is flattened per instance into a variable-level
+graph. Edges are classed `alias` (one whole variable to another, as in a
+port connection or `assign a = b`), `wire` (only routing: constant selects,
+concatenations and extensions) or `logic` (anything else, including any
+assignment under a condition in combinational code, a dynamic index and a
+function call):
+
+- **Combinational edges** come from continuous assignments, `always_comb`,
+  `always_latch`, `always` without an edge, blocking assignments inside a
+  clocked block, and port connections of ordinary instances. An assignment's
+  target depends on its right-hand side, the indices on its left-hand side,
+  and the conditions of the `if`, `case` and loop statements around it.
+- **Flops** are the targets of nonblocking assignments in a block with an
+  edge (`posedge`, `negedge` or `edge`) in its sensitivity list. A flop's
+  data input is everything its assignments read, enclosing conditions such
+  as a synchronous reset included. With several edges (an asynchronous
+  reset), the clock is the one signal of the list that the block does not
+  read; when that is not exactly one signal, or an edge is on an
+  expression, the flop is a finding.
+- **Approved cell instances** are black boxes. Each output is a source in
+  the domain of its side's clock pin; each input other than the clocks is a
+  sink in its side's domain, except the `src_*` inputs of a `src=async`
+  cell. A clock pin that does not connect to a plain signal is a finding.
+
+**Domains.** A clock signal is followed backward through `alias` edges
+(ports and plain assignments) while it has exactly one driver. When that
+ends at an input port of the target's top, the domain is that port's name;
+each top input is its own domain, so two inputs that carry related clocks
+are still different domains. When it ends at a flop or a cell output, the
+domain is that signal, marked `(generated)`; anywhere else (a clock mux, a
+gate, an inverter), it is that signal, marked `(derived)`. A generated or
+derived clock is therefore a domain of its own, and a path between it and
+its source clock is reported. A `posedge` and a `negedge` flop on the same
+clock share a domain.
+
+**Rule.** Every flop and every cell output's set of reaching sources is
+propagated forward through combinational edges to a fixed point (loops
+terminate). For each flop and each clocked cell input:
+
+- a source flop or approved-cell output in another domain is a finding
+  that names both, both clocks and both source lines, and says whether the
+  path is `directly` (alias or wire edges only) or `through combinational
+  logic`;
+- input ports of the top carry no domain, so a path from one is never a
+  finding.
+
+For each `src=async` cell input, the inputs it reads are walked backward
+through alias and wire edges until a flop, a cell output or a top input; a
+logic edge on the way, or logic in the connection expression itself, is a
+finding that names where the logic is.
+
+Findings are prefixed with the target's label (`<ip>` or `common/<block>`);
+directive findings are not. The summary counts targets, Verilator runs,
+flops in the analyzed netlists and valid directives.
+
+### Limits
+
+Each is a known gap, not a promise; review and each cell's MAS cover them.
+
+- **No reconvergence, glitch or timing analysis.** Two synchronizers whose
+  outputs recombine, a multi-bit value that changes more than one bit per
+  update, pulse spacing and the FIFO's read-path timing are not checked.
+- **No reset-domain analysis.** A reset is read like any other data input,
+  so a reset from another clock is reported as a crossing, but reset
+  assertion and release ordering is not checked.
+- **Variable granularity.** Dependencies are tracked per variable, not per
+  bit or field: a vector or struct that mixes bits from two domains is one
+  node, which can over-report. Arrays (memories) are one node, so a write
+  in one domain and a combinational read in another is not a crossing
+  until a flop samples it.
+- **Clocks are signals, not waveforms.** A clock mux or gate is its own
+  `(derived)` domain; a divided clock is its own `(generated)` domain.
+  Related clocks at the top (one source, two ports) are treated as
+  unrelated. Clock expressions in a sensitivity list are a finding, not
+  analyzed.
+- **IP boundary.** A top input port has no domain, so a crossing whose
+  launching flop is outside the analyzed top is not seen; it is seen at the
+  top-level IP that holds both flops.
+- **What Verilator keeps.** The JSON is Verilator's elaborated netlist
+  before inlining: parameters are resolved, each parameterization is its
+  own module, generate blocks are unrolled, and constant-only drivers may
+  be folded into initial values. Logic that elaboration removes cannot be
+  reported; logic it keeps is analyzed as written. Variables of packages
+  are constants here and are not tracked.
+- **Unsupported constructs** that the check reports rather than guess:
+  hierarchical references, interface instances, an instance of a module
+  Verilator did not elaborate. Task output arguments are not modeled, and
+  a variable assigned with a blocking assignment in a clocked block is
+  treated as combinational, even if it holds state across clock edges.
+
 ## Unit tests
 
 ```
@@ -552,8 +694,17 @@ entries (exact match, path glob, per rule, stale, values named in the
 config, a path-less entry named only in the config being stale), linear
 scan time on 40k-character adversarial lines, and every config error
 (`test_publishability.py`),
-and waivers (used, stale, invalid), output parsing and the command line
-(`test_lint.py`, `test_check_run.py`). Negative cases include a `.vlt`
+waivers (used, stale, invalid), output parsing and the command line
+(`test_lint.py`, `test_check_run.py`), and the CDC check on a small IP
+beside a copy of the repository's crossing cells (`test_cdc.py`): a single
+clock, a legal crossing through each cell, an asynchronous reset, a raw
+crossing (both flops and clocks named), a crossing through combinational
+logic and through the hierarchy, a cell output used in the wrong domain, a
+clocked cell input fed from the wrong domain, a generated clock, logic in
+front of a `src=async` input (in the connection, one and two assignments
+away) against plain wires, every directive finding, a missing and a
+malformed directive (the cell is then looked inside), port and clock
+mismatches, `--ip` selection (a sub-IP and an integrated top-level IP), the version pin, and the repository itself. Negative cases include a `.vlt`
 and a `.v` file in an `rtl/` closure, a `w.txt` waiver reached by
 `` `include`` through an include directory under `rtl/` and through
 `+incdir+` of a `dv/` folder (both as a `` `verilator_config`` block and as a
