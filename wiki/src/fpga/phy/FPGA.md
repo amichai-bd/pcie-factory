@@ -79,9 +79,10 @@ switches pass through two-flop synchronizers (`COMMON_METAFLOP` instances
 of `common_cdc_sync2`, reset tied low): `SW[2]` to `ser_rx_clk_i`, the
 others to `clk_i`.
 
-The wrapper's reset flop `rst_q`, and the pcs RX reset seen from it, carry
-the same `SYNCASYNCNET` lint waivers as the `phy` top
-([`src/lint_waivers.yaml`](../../../../src/lint_waivers.yaml)).
+The wrapper's reset flop `rst_q`, which drives the phy `rst_i`, carries
+the same `SYNCASYNCNET` lint waiver as the `phy` top's `rst_i`
+([`src/lint_waivers.yaml`](../../../../src/lint_waivers.yaml)). The pcs
+RX reset needs none: every consumer takes it asynchronously (#170).
 
 ## Constraints
 

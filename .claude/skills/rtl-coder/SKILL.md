@@ -35,8 +35,8 @@ redefines those rules. Work inside an issue worktree per
    `ram/` the RAM family) before writing a generic block; add a `common_`
    block only when a second consumer exists, in the group folder its name
    matches ([shared blocks](../../../wiki/project/layout.md#shared-blocks)). A clock-domain crossing uses a
-   crossing macro (`COMMON_METAFLOP`, `COMMON_METAFLOP_VAL`,
-   `COMMON_PULSE_SYNC`), which instantiates the crossing cell; outside
+   crossing macro (`COMMON_METAFLOP*`, `COMMON_PULSE_SYNC*`), which
+   instantiates the crossing cell; outside
    `src/rtl/common/` never instantiate a wrapped cell directly
    ([crossings](../../../wiki/bkm/rtl.md#clock-domain-crossings)).
 

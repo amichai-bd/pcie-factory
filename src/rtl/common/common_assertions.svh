@@ -10,8 +10,9 @@
 // (commit 085ef4b), adapted with the owner's permission. Renamed to the
 // neutral COMMON_ prefix; one fatal severity and one SYNTHESIS guard; the
 // error-severity family, its disable switch, the default-action,
-// unguarded, asynchronous-reset, armed, history and initial forms and the
-// compatibility aliases were dropped (see the MAS page for the reasons).
+// unguarded, armed, history and initial forms and the compatibility aliases
+// were dropped (see the MAS page for the reasons); an asynchronous-reset
+// clocked form was added back for asynchronously reset domains (#170).
 `ifndef COMMON_ASSERTIONS_SVH
 `define COMMON_ASSERTIONS_SVH
 
@@ -57,6 +58,17 @@
     end \
   end
 
+// The same check for a domain whose RESET is asynchronous (a
+// COMMON_RESET_SYNC output that its flops take through COMMON_DFF_ARST_*):
+// RESET is in the sensitivity list, as in those flops, so the net keeps one
+// reset style. Checked at posedge CLK while RESET is low; never in reset.
+`define COMMON_ASSERT_CLOCKED_ARST(NAME, CLK, RESET, CONDITION) \
+  always_ff @(posedge (CLK) or posedge (RESET)) begin \
+    if (!(RESET)) begin \
+      NAME: assert (CONDITION) else $fatal(1, "assertion %s failed in %m", `"NAME`"); \
+    end \
+  end
+
 `else
 
 `define COMMON_ASSERT(NAME, CLK, RESET, PROPERTY)
@@ -64,11 +76,15 @@
 `define COMMON_ASSERT_STABLE_WHEN(NAME, CLK, RESET, HOLD, SIGNAL)
 `define COMMON_ASSERT_CLOCKED(NAME, CLK, RESET, CONDITION)
 `define COMMON_ASSERT_CLOCKED_WHEN(NAME, CLK, RESET, GUARD, CONDITION)
+`define COMMON_ASSERT_CLOCKED_ARST(NAME, CLK, RESET, CONDITION)
 
 `endif
 
 `define COMMON_ASSERT_NEVER(NAME, CLK, RESET, CONDITION) \
   `COMMON_ASSERT(NAME, CLK, RESET, !(CONDITION))
+
+`define COMMON_ASSERT_NEVER_ARST(NAME, CLK, RESET, CONDITION) \
+  `COMMON_ASSERT_CLOCKED_ARST(NAME, CLK, RESET, !(CONDITION))
 
 `define COMMON_ASSERT_KNOWN(NAME, CLK, RESET, SIGNAL) \
   `COMMON_ASSERT(NAME, CLK, RESET, !$isunknown(SIGNAL))

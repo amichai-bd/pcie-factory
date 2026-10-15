@@ -40,7 +40,9 @@ module common_macros_fixture (
   output logic [15:0] wrd_o,
   output logic [7:0]  meta_o,
   output logic [7:0]  meta_val_o,
+  output logic [7:0]  meta_arst_o,   // COMMON_METAFLOP_ARST on arst_i
   output logic        pulse_o,
+  output logic        pulse_arst_o,  // COMMON_PULSE_SYNC_ARST: destination reset arst_i
   output logic        rst_sync_o    // arst_i through the reset synchronizer
 );
 
@@ -96,7 +98,9 @@ module common_macros_fixture (
   // Crossings (data_i stands for a source-domain flop).
   `COMMON_METAFLOP(u_meta, meta_o, data_i, clk_i, rst_i)
   `COMMON_METAFLOP_VAL(u_meta_val, meta_val_o, data_i, clk_i, rst_i, META_VAL)
+  `COMMON_METAFLOP_ARST(u_meta_arst, meta_arst_o, data_i, clk_i, arst_i)
   `COMMON_PULSE_SYNC(u_pulse, pulse_o, pulse_i, src_clk_i, src_rst_i, clk_i, rst_i)
+  `COMMON_PULSE_SYNC_ARST(u_pulse_arst, pulse_arst_o, pulse_i, src_clk_i, src_rst_i, clk_i, arst_i)
   `COMMON_RESET_SYNC(u_rst_sync, rst_sync_o, arst_i, clk_i)
 
   `COMMON_UNUSED_BITS(unused_upper, data_i[7:4])

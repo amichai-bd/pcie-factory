@@ -5,7 +5,10 @@ fails, and is absent when ``SYNTHESIS`` is defined (as the FPGA and ASIC
 flows define it); the parameter check stays in every build.
 
 Each form gets its own trigger bit, chosen at run time with ``+case=<n>``,
-so two builds (simulation and synthesis view) cover every form; the
+so two builds (simulation and synthesis view) cover every form; case
+``RESET_GATED`` checks that the ``_ARST`` forms stay quiet in reset (the
+asynchronous reset rises between edges just after their trigger bits, is
+held over clock edges, and falls after they clear); the
 parameter check is proven by a lint run and a preprocessor run.
 ``COMMON_ASSERT_KNOWN`` cannot fail in two-state Verilator and is checked
 only for expansion.
@@ -40,7 +43,11 @@ CASES = {
     3: "a_stable",
     4: "a_clocked",
     5: "a_clocked_when",
+    6: "a_clocked_arst",
+    7: "a_never_arst",
 }
+# Both _ARST trigger bits high only while the asynchronous reset is high.
+RESET_GATED = 8
 
 DUT = """`default_nettype none
 `include "common_macros.svh"
@@ -49,7 +56,8 @@ module vh_dut #(
 ) (
   input  logic       clk_i,
   input  logic       rst_i,
-  input  logic [5:0] bad_i
+  input  logic       arst_i,
+  input  logic [7:0] bad_i
 );
   logic [3:0] cnt_d, cnt_q;
   logic       hold, guard;
@@ -64,21 +72,30 @@ module vh_dut #(
   `COMMON_ASSERT_STABLE_WHEN(a_stable, clk_i, rst_i, hold, cnt_q)
   `COMMON_ASSERT_CLOCKED(a_clocked, clk_i, rst_i, !bad_i[4])
   `COMMON_ASSERT_CLOCKED_WHEN(a_clocked_when, clk_i, rst_i, guard, 1'b0)
+  `COMMON_ASSERT_CLOCKED_ARST(a_clocked_arst, clk_i, arst_i, !bad_i[6])
+  `COMMON_ASSERT_NEVER_ARST(a_never_arst, clk_i, arst_i, bad_i[7])
   `COMMON_ASSERT_PARAM(g_bad_param, BAD_PARAM == 0, "vh_dut: BAD_PARAM must be 0")
 endmodule
 `default_nettype wire
 """
 
 TB = """module vh_tb;
-  logic clk = 1'b0, rst = 1'b1;
-  logic [5:0] bad = '0;
+  logic clk = 1'b0, rst = 1'b1, arst = 1'b1;
+  logic [7:0] bad = '0;
   int unsigned sel;
-  vh_dut #(.BAD_PARAM(`BAD_PARAM)) u_dut (.clk_i(clk), .rst_i(rst), .bad_i(bad));
+  vh_dut #(.BAD_PARAM(`BAD_PARAM)) u_dut (.clk_i(clk), .rst_i(rst), .arst_i(arst), .bad_i(bad));
   always #5 clk = ~clk;
   initial begin
     if (!$value$plusargs("case=%d", sel)) sel = 99;
     #22 rst = 1'b0;
-    #20 if (sel < 6) bad[sel] = 1'b1;
+    arst = 1'b0;
+    #20 if (sel < 8) bad[sel] = 1'b1;
+    if (sel == 8) begin  // edges at 45 and 55 in reset; the rise at 43 too
+      bad[7:6] = 2'b11;
+      #1 arst = 1'b1;
+      #15 bad[7:6] = 2'b00;
+      #1 arst = 1'b0;
+    end
     #60 $display("vh_tb: end");
     $finish;
   end
@@ -117,6 +134,11 @@ def test_each_assertion_form_fires_and_compiles_out(tmp_path):
     synthesis = _build(tmp_path, "synth_view", ["-DBAD_PARAM=0", "-DSYNTHESIS"])
     quiet = _run(simulation, 99)
     assert quiet.returncode == 0 and "vh_tb: end" in quiet.stdout, quiet.stdout + quiet.stderr
+    # The _ARST forms are gated by their reset: triggers held only while it
+    # is high never fire, at its rising edge or at clock edges. (The release
+    # edge itself is not exercised.)
+    gated = _run(simulation, RESET_GATED)
+    assert gated.returncode == 0 and "vh_tb: end" in gated.stdout, gated.stdout + gated.stderr
     for case, label in CASES.items():
         fired = _run(simulation, case)
         out = fired.stdout + fired.stderr

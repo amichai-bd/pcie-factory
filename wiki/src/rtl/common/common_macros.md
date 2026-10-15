@@ -16,7 +16,7 @@ owner's permission.
 
 | Item | Use |
 | --- | --- |
-| `` `include "common_macros.svh"`` | The one include a design file writes, after `` `default_nettype none``. It defines the `COMMON_DFF*`, `COMMON_MEM*`, `COMMON_UNUSED_BITS`, `COMMON_METAFLOP*`, `COMMON_PULSE_SYNC` and `COMMON_RESET_SYNC` forms and includes `common_assertions.svh`. |
+| `` `include "common_macros.svh"`` | The one include a design file writes, after `` `default_nettype none``. It defines the `COMMON_DFF*`, `COMMON_MEM*`, `COMMON_UNUSED_BITS`, `COMMON_METAFLOP*`, `COMMON_PULSE_SYNC*` and `COMMON_RESET_SYNC` forms and includes `common_assertions.svh`. |
 | `common_assertions.svh` | The `COMMON_ASSERT*` forms. It includes `common_macros.svh` back (both are guarded), so either include order works. |
 | `-F ../common/common_macros.rtl.f` | Puts `src/rtl/common/` on the include path. A user of a crossing macro also includes the cell's filelist. |
 | `SYNTHESIS` | Defined only by the FPGA and ASIC flows; removes every assertion form but `COMMON_ASSERT_PARAM`. |
@@ -30,16 +30,21 @@ owner's permission.
   expression argument cannot change the event. The array forms loop over
   `$low(MEM)` to `$high(MEM)` with a macro-owned `int common_i`; the lane
   form loops over `$bits(LANE_ENABLE)` with `common_l`.
-- **Crossings:** `COMMON_METAFLOP` and `COMMON_METAFLOP_VAL` instantiate
+- **Crossings:** `COMMON_METAFLOP`, `COMMON_METAFLOP_VAL` and
+  `COMMON_METAFLOP_ARST` instantiate
   [`common_cdc_sync2`](cdc/common_cdc_sync2.md) with `WIDTH` `$bits(Q)` (and
-  `RESET_VALUE`); `COMMON_PULSE_SYNC` instantiates
-  [`common_cdc_pulse`](cdc/common_cdc_pulse.md); `COMMON_RESET_SYNC`
+  `RESET_VALUE`, or `ASYNC_RESET` 1); `COMMON_PULSE_SYNC` and
+  `COMMON_PULSE_SYNC_ARST` instantiate
+  [`common_cdc_pulse`](cdc/common_cdc_pulse.md) (the second with
+  `DST_ASYNC_RESET` 1); `COMMON_RESET_SYNC`
   instantiates [`common_cdc_rst`](cdc/common_cdc_rst.md) with its default two
   stages. The instance is named by `INST`, so the CDC check, waves and
   constraints see an ordinary cell instance.
 - **Assertions:** concurrent forms use `assert property` with
   `@(posedge (CLK))` and `disable iff (RESET)`; clocked forms are an
-  `always_ff` with no state whose body runs while `!(RESET)`. Every failure
+  `always_ff` with no state whose body runs while `!(RESET)`, and
+  `COMMON_ASSERT_CLOCKED_ARST` adds `posedge (RESET)` to its event list
+  (`COMMON_ASSERT_NEVER_ARST` negates its condition into it). Every failure
   action is `$fatal(1, "assertion <NAME> failed in %m")`.
   `COMMON_ASSERT_STABLE_WHEN` declares `NAME_hold_q` (a `COMMON_DFF_RST` of
   `HOLD`) and checks `NAME_hold_q |-> $stable(SIGNAL)`.
@@ -63,6 +68,7 @@ owner's permission.
 | `COMMON_ASSERT_PARAM`: elaboration-time `$fatal` in the simulation view, the source's `initial $fatal` under `SYNTHESIS` | Lint and the simulation build reject a bad parameter at elaboration, as the FIFO's own `$error` did; synthesis keeps the form the source proved in Quartus and Yosys. **Limit:** synthesis accepts a bad parameter (the `initial $fatal` is ignored), because elaboration-time system tasks are not proven in Quartus Lite and slang here, and no other construct fails elaboration in every tool without failing for good parameters too (a missing module is reported by Verilator even in an unselected branch). Every IP closure is linted by `./build check`, which is the gate. | The source's `initial $fatal` everywhere (a bad parameter only failed at simulation time zero, so lint missed it); an elaboration `$fatal` in synthesis too (unproven in the FPGA and ASIC frontends). |
 | `COMMON_ASSERT_CLOCKED(NAME, CLK, RESET, CONDITION)` and `_WHEN(NAME, CLK, RESET, GUARD, CONDITION)` | A leading `NAME` labels every assertion, like the concurrent forms, and the failure is fatal. **This signature differs from the source**, whose `ASSERT_CLOCKED(CLK, RESET, CONDITION)` has no label and uses the default action, with separate `_FATAL`/`_ERROR` forms taking a `MESSAGE`. | The source's unlabelled default-action signature. |
 | Crossing macros wrap the cells | One vocabulary for RTL while every crossing stays an approved cell the CDC check recognizes. | Macros that expand to raw flop chains (invisible to the cell rule). |
+| Asynchronous-reset crossing and assertion forms (`COMMON_METAFLOP_ARST`, `COMMON_PULSE_SYNC_ARST`, `COMMON_ASSERT_CLOCKED_ARST`, `COMMON_ASSERT_NEVER_ARST`; #170) | A reset net has one consumer style ([RTL BKM](../../../bkm/rtl.md#reset-and-clocks)). Verilator counts a read of the net in the body of an edge process that is not sensitive to it as a synchronous use, which `disable iff` and the synchronous clocked forms are, so a domain on a `COMMON_RESET_SYNC` output needs crossing cells and checks that take the reset in their event list. The assertion form is a clocked immediate check, because Verilator 5.052 rejects `or` in a property's clocking event. `COMMON_PULSE_SYNC_ARST` makes only the destination side asynchronous, the case of a crossing into the domain; the source keeps its domain's reset. | Waivers per net (the rule could not hold); a concurrent property clocked on `posedge CLK or posedge RESET` (not accepted by Verilator); a disable on a flopped copy of the reset (one more cycle unchecked after release). |
 
 Forms of the source dropped (named without the source's prefix), with the reason:
 
@@ -75,7 +81,7 @@ Forms of the source dropped (named without the source's prefix), with the reason
 | `ASSERT_PROPERTY*` (default action) | One fatal severity. |
 | `ASSERT_ERROR*`, `DISABLE_ASSERTIONS` | One severity, one guard (`COMMON_ASSERT_STABLE_WHEN` keeps the stable-when form). |
 | `ASSERT_AFTER_RESET`, `ASSERT_HISTORY_RST`, `ASSERT_INITIAL` | No use yet. |
-| `ASSERT_CLOCKED_ERROR*`, `*_FATAL*` names, `*_ARST*`, `*_UNGUARDED` | One severity (`COMMON_ASSERT_CLOCKED*` is fatal), synchronous resets only, no unguarded checks in synthesis. |
+| `ASSERT_CLOCKED_ERROR*`, `*_FATAL*` names, `*_UNGUARDED` | One severity (`COMMON_ASSERT_CLOCKED*` is fatal), no unguarded checks in synthesis. The asynchronous-reset clocked check came back as `COMMON_ASSERT_CLOCKED_ARST` (#170), in this header's labelled fatal signature. |
 
 ## Timing
 

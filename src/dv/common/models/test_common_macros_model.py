@@ -63,3 +63,18 @@ def test_reset_synchronizer_asserts_at_once_and_releases_after_two_edges():
     assert m.outputs()["rst_sync"] == 0
     m.edge(Inputs(arst=1))
     assert m.outputs()["rst_sync"] == 1
+
+
+def test_async_level_synchronizer_clears_at_once():
+    m = MacroModel()
+    m.edge(Inputs(data=7))
+    m.edge(Inputs(data=7))
+    assert m.outputs()["meta_arst"] == 7
+    m.async_reset()
+    assert m.outputs()["meta_arst"] == 0
+    m.edge(Inputs(data=9))
+    assert m.outputs()["meta_arst"] == 0
+    m.edge(Inputs(data=9))
+    assert m.outputs()["meta_arst"] == 9
+    m.edge(Inputs(arst=1, data=9))
+    assert m.outputs()["meta_arst"] == 0

@@ -27,16 +27,21 @@ module common_cdc_rst #(
   // Elaboration-time guard: one flop alone gives no time to resolve.
   `COMMON_ASSERT_PARAM(g_stages_check, STAGES >= 2, "common_cdc_rst: STAGES must be at least 2")
 
-  logic [STAGES-1:0] sync_d;
-  logic [STAGES-1:0] sync_q;
+  // The first STAGES-1 stages, and the last stage on its own: out_q drives
+  // dst_rst_o and is read by no flop of this cell, so the net that the
+  // consumers take as an asynchronous reset is never also flop data here.
+  logic [STAGES-2:0] sync_d;
+  logic [STAGES-2:0] sync_q;
+  logic              out_q;
 
   // Release: a zero enters at the bottom and shifts up one stage per edge.
-  assign sync_d = {sync_q[STAGES-2:0], 1'b0};
+  assign sync_d = sync_q << 1;
 
   // Assertion: src_rst_i sets every stage at once, with no clock edge.
   `COMMON_DFF_ARST_VAL(sync_q, sync_d, dst_clk_i, src_rst_i, '1)
+  `COMMON_DFF_ARST_VAL(out_q, sync_q[STAGES-2], dst_clk_i, src_rst_i, 1'b1)
 
-  assign dst_rst_o = sync_q[STAGES-1];
+  assign dst_rst_o = out_q;
 
 endmodule
 

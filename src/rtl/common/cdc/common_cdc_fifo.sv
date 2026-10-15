@@ -8,12 +8,18 @@
 // other's pointer through common_cdc_sync2, so src_ready_o and dst_valid_o
 // are conservative: they recover two or three edges of their own clock
 // after the other side moves. The read side also sees its fill (the words
-// whose write has crossed) and the word after the oldest.
+// whose write has crossed) and the word after the oldest. Each side's
+// pointers reset synchronously by default; SRC_ASYNC_RESET or
+// DST_ASYNC_RESET 1 makes that side's pointers and pointer synchronizer
+// reset at once, with no edge of its clock (its reset must then come from a
+// COMMON_RESET_SYNC on that clock).
 // Spec: wiki/src/rtl/common/cdc/common_cdc_fifo.md.
 // cdc-cell: src=src_clk_i dst=dst_clk_i
 module common_cdc_fifo #(
-  parameter int unsigned WIDTH  = 8,
-  parameter int unsigned ADDR_W = 2
+  parameter int unsigned WIDTH           = 8,
+  parameter int unsigned ADDR_W          = 2,
+  parameter bit          SRC_ASYNC_RESET = 1'b0,
+  parameter bit          DST_ASYNC_RESET = 1'b0
 ) (
   input  logic             src_clk_i,
   input  logic             src_rst_i,
@@ -67,8 +73,13 @@ module common_cdc_fifo #(
 
   assign waddr       = wbin_q[ADDR_W-1:0];
 
-  `COMMON_DFF_RST(wbin_q, wbin_d, src_clk_i, src_rst_i)
-  `COMMON_DFF_RST(wgray_q, wgray_d, src_clk_i, src_rst_i)
+  if (SRC_ASYNC_RESET) begin : g_src_arst
+    `COMMON_DFF_ARST_VAL(wbin_q, wbin_d, src_clk_i, src_rst_i, '0)
+    `COMMON_DFF_ARST_VAL(wgray_q, wgray_d, src_clk_i, src_rst_i, '0)
+  end else begin : g_src_srst
+    `COMMON_DFF_RST(wbin_q, wbin_d, src_clk_i, src_rst_i)
+    `COMMON_DFF_RST(wgray_q, wgray_d, src_clk_i, src_rst_i)
+  end
   `COMMON_MEM_WRITE(mem_q, src_clk_i, push, waddr, src_data_i)
 
   assign dst_valid_o = rgray_q != dst_wgray;
@@ -91,13 +102,35 @@ module common_cdc_fifo #(
   assign raddr_next      = raddr + ADDR_W'(1);
   assign dst_next_data_o = mem_q[raddr_next];
 
-  `COMMON_DFF_RST(rbin_q, rbin_d, dst_clk_i, dst_rst_i)
-  `COMMON_DFF_RST(rgray_q, rgray_d, dst_clk_i, dst_rst_i)
+  if (DST_ASYNC_RESET) begin : g_dst_arst
+    `COMMON_DFF_ARST_VAL(rbin_q, rbin_d, dst_clk_i, dst_rst_i, '0)
+    `COMMON_DFF_ARST_VAL(rgray_q, rgray_d, dst_clk_i, dst_rst_i, '0)
+  end else begin : g_dst_srst
+    `COMMON_DFF_RST(rbin_q, rbin_d, dst_clk_i, dst_rst_i)
+    `COMMON_DFF_RST(rgray_q, rgray_d, dst_clk_i, dst_rst_i)
+  end
 
   // Pointer crossings: one Gray bit changes per update, as the synchronizer
-  // requires.
-  `COMMON_METAFLOP(u_sync_wptr, dst_wgray, wgray_q, dst_clk_i, dst_rst_i)
-  `COMMON_METAFLOP(u_sync_rptr, src_rgray, rgray_q, src_clk_i, src_rst_i)
+  // requires. Each synchronizer resets with the side that reads it.
+  common_cdc_sync2 #(
+    .WIDTH      (PTR_W),
+    .ASYNC_RESET(DST_ASYNC_RESET)
+  ) u_sync_wptr (
+    .dst_clk_i (dst_clk_i),
+    .dst_rst_i (dst_rst_i),
+    .src_data_i(wgray_q),
+    .dst_data_o(dst_wgray)
+  );
+
+  common_cdc_sync2 #(
+    .WIDTH      (PTR_W),
+    .ASYNC_RESET(SRC_ASYNC_RESET)
+  ) u_sync_rptr (
+    .dst_clk_i (src_clk_i),
+    .dst_rst_i (src_rst_i),
+    .src_data_i(rgray_q),
+    .dst_data_o(src_rgray)
+  );
 
 endmodule
 
