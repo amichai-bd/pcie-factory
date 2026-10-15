@@ -309,7 +309,8 @@ async def ep_power(h, role):
     """The power states against the partner (wiki/src/arch/mac/ARCS.md#l0,
     #l0s-sub-machines, #l1-and-l2): transmit and receive L0s, left by a
     packet each way; a retrain while the receiver is in Rx_L0s.Idle, and
-    one in Rx_L0s.Entry (the exit waits for it); the
+    one in Rx_L0s.Entry (the exit waits for it); L1 requested after an
+    EIOS already started receive L0s; the
     Rx_L0s.FTS timeout (the partner sends 200 FTS too many); L1 and L2,
     entered by both requests and left by request 0; and the upstream wait
     for L1 withdrawn (back through Recovery)."""
@@ -350,6 +351,17 @@ async def ep_power(h, role):
     await h.run_until(lambda q: q.a.rx_sub == arch.RXI, LIMIT, "receive L0s")
     p.tx_packets.append(arch.Packet(False, bytes(8)))
     await h.run_until(took(h, arch.RF, arch.ROFF, t), LIMIT, "Rx_L0s.FTS timeout")
+    await settle(h)
+    # L1 requested after an EIOS already put the receiver in receive L0s (the
+    # HAS edge case): the downstream port enters at once, the upstream port
+    # only after its own EIOS (its wait); the pair recovers through Recovery.
+    t = h.now
+    p.pm_state_req = 1
+    await h.run_until(lambda q: q.a.rx_sub == arch.RXI, LIMIT, "receive L0s")
+    h.request(pm_state=2)
+    p.pm_state_req = 2
+    await h.run_until(took(h, arch.L0, arch.L1E, t), LIMIT, "L1 on an earlier EIOS")
+    await h.run(200)
     await settle(h)
     # L1 and L2, entered and left by both ports' requests.
     for req, idle, out in ((2, arch.L1I, arch.RL), (3, arch.L2I, arch.DQ)):

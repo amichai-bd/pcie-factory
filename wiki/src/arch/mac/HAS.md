@@ -189,6 +189,12 @@ Framing, idle, SKP and scrambling are on the
   sent in L0, [arcs, L0](ARCS.md#l0)); a packet offered during that wait
   is taken after the port is back in L0. A beat offered in `Tx_L0s.Idle` starts the L0s exit
   ([arcs](ARCS.md#l0s-sub-machines)).
+- A pending L1 or L2 entry is not an exit from L0 for this rule (the
+  model's reading): while a downstream port's entry waits, for a packet on
+  the line to end or for the receiver to leave `Rx_L0s.Entry`, the port
+  stays in `Tx_L0` and may start a packet between packets, and the entry
+  then waits for that packet's end. Only a Recovery exit that waits stops
+  new packets.
 - From an accepted `sop` to its `eop`, `pkt_tx_ready_o` is 1 every cycle,
   whatever the LTSSM does, except during reset (above). If the LTSSM
   leaves L0 inside a packet, the MAC ends it on the line with EDB and takes
@@ -308,6 +314,7 @@ confirmed; each owner confirms or corrects the rule and the model together.
 | Recovery.RcvrLock timeout target (Configuration when any TS was received, else Detect), Configuration.Lanenum.Accept's 2 ms timeout (taken from its neighbours), and the x1 reading of the Lanenum substates for the upstream role. | [#164](https://github.com/amichai-bd/pcie-factory/issues/164) |
 | Electrical-idle inference in L0 at 2.5 GT/s (here: `pipe_rx_elec_idle_i` without an EIOS goes to Recovery). | [#164](https://github.com/amichai-bd/pcie-factory/issues/164) |
 | The `Rx_L0s.FTS` timeout (the smaller of 2 x N_FTS + 32 and 4 x N_FTS + 12 cycles here, so it stays within twice the time of N_FTS + 3 FTS), its exit on the SKP ordered set, and the 7 µs bound on the L0s idle time (expected in the active-state power management rules, [cite: PCIe Base Spec, rev 3.0, §5.4.1.1.1]). Also the L1/L2 entry edge case: an EIOS received before the request counts (the receiver is in `Rx_L0s.Entry` or `Rx_L0s.Idle`), so a downstream port can enter L1 or L2 when its partner had only entered transmit L0s; the pair then recovers through Recovery. | [#164](https://github.com/amichai-bd/pcie-factory/issues/164) |
+| The upstream port can enter L1 or L2 one step after starting its wait (its receiver already in `Rx_L0s.Entry` or `.Idle`); if its EIOS has started but not finished, L1.Entry or L2.Idle queues a second EIOS. The model does the same, and the partner only sees one more EIOS before electrical idle; whether one EIOS should be sent is to be confirmed. | [#164](https://github.com/amichai-bd/pcie-factory/issues/164) |
 | The control-state rules in [Decisions](#decisions) (Disabled's 16 TS1 and the following port's exit, Hot Reset's dwell restart, Loopback's 2 ms entry timeout and 20 ns exit idle) and the Disable Scrambling rule (2 consecutive TS2 in Configuration.Complete, effective from Configuration.Idle to Detect.Quiet): this design's reading, to be checked against the cited sections; Compliance Receive, the modified compliance pattern and directed compliance entry stay out. | [#164](https://github.com/amichai-bd/pcie-factory/issues/164) |
 | Section-level citations for the EIOS, FTS and lane polarity inversion definitions (cited here through the states that use them). | [#149](https://github.com/amichai-bd/pcie-factory/issues/149) |
 | The `phy` HAS says `retrain_req_i` serves a replay-timeout retrain; the rule is the REPLAY_NUM rollover ([Link control](#link-control)). Correct the `phy` wording with the stack integration. | [#86](https://github.com/amichai-bd/pcie-factory/issues/86) |
