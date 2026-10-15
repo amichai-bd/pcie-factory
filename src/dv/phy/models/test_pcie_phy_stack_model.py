@@ -4,6 +4,8 @@ Run: python3 -m pytest src/dv/phy/models
 """
 
 import random
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -98,3 +100,47 @@ def test_line_dropout_takes_the_receiver_to_recovery():
     b.channels[0].idle(48)
     b.run(lambda x: any(c in m.RECOVERY_CODES for c in codes), 5_000, 300)
     b.run(lambda x: x.both_l0(), 20_000, 300)
+
+
+def _word_scrambler():
+    """The pcie_mac_scrambler sub-IP's cycle model (its own DV model)."""
+    d = Path(__file__).resolve().parents[2] / "mac_scrambler" / "models"
+    if str(d) not in sys.path:
+        sys.path.append(str(d))
+    import pcie_mac_scrambler_model
+    return pcie_mac_scrambler_model.WordScrambler()
+
+
+def test_tx_scrambler_block_swaps_in():
+    """Port a's transmit scrambling done by the sub-IP's word-level model
+    (one cycle later): the pair still trains and passes packets both ways;
+    with a block that does not scramble, training fails."""
+    rng = random.Random(5)
+    b = m.Bench([m.ModelPort("downstream", tx_scrambler=_word_scrambler()),
+                 m.ModelPort("upstream")], rng)
+    b.run(lambda x: x.both_l0(), 40_000, -300)
+    pkts = mac_arch.make_packets(rng, 10, "random", 0, 0.2)
+    for p in pkts:
+        for port in b.ports:
+            port.send(p.dllp, p.data, p.nullify)
+    got = [[], []]
+
+    def done(x):
+        for i in (0, 1):
+            got[i] += x.ports[i].received()
+        return all(len(g) >= len(pkts) for g in got)
+
+    b.run(done, 40_000, -300)
+    want = [(p.dllp, p.data, p.nullify, False) for p in pkts]
+    assert got == [want, want]
+
+    class Passthrough:
+        valid = data = datak = 0
+
+        def clock(self, rst, valid, data, datak, scr):
+            self.valid, self.data, self.datak = (0, self.data, self.datak) if rst else (valid, data, datak)
+
+    bad = m.Bench([m.ModelPort("downstream", tx_scrambler=Passthrough()),
+                   m.ModelPort("upstream")], random.Random(5))
+    bad.run(lambda x: x.cycles[0] > 15_000, 20_000)
+    assert not bad.both_l0()

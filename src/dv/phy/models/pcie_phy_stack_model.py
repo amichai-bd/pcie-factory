@@ -10,6 +10,18 @@
   from each clock's coroutine; ``run`` here schedules the two edges in
   time order for the pure-Python tests (``ppm`` sets b's clock offset).
 
+Block hook, transmit scrambler: ``ModelPort(tx_scrambler=block)`` takes
+the scrambling out of the mac model and puts ``block`` between the mac and
+the pcs, at the ``pcie_mac_scrambler`` interface
+(wiki/src/rtl/mac_scrambler/MAS.md): each cycle the port reads the block's
+registered outputs (``valid``, ``data``, ``datak``), then calls
+``block.clock(rst, valid, data, datak, scr)`` with the mac's unscrambled
+word and its per-symbol ``scr`` bits. The block's one-cycle latency
+delays the whole PIPE transmit word by one cycle. ``WordScrambler``, the
+sub-IP's cycle model, is such a block; an adapter that drives a
+``pcie_mac_scrambler`` instance's pins at the falling edge is another
+(wiki/src/dv/phy/DV_PLAN.md, Model-to-RTL switch).
+
 A port is any object with ``rst``, ``core_edge(rxdet) -> (word, ei)``,
 ``rx_edge(word, ei)`` and ``present()``, plus the upper-layer view
 (``send``, ``received``, ``code``, ``link_up``, ``rcv_errors``,
@@ -41,15 +53,31 @@ def other(role: str) -> str:
     return ROLES[1 - ROLES.index(role)]
 
 
+class _Unscrambled:
+    """Stands in for the mac model's transmit ``Scrambler`` when a block
+    scrambles: passes every symbol through and records its ``scr`` bit."""
+
+    def __init__(self) -> None:
+        self.scr: list[int] = []
+
+    def feed(self, k: int, b: int, scramble: bool) -> int:
+        self.scr.append(int(scramble and not k))
+        return b
+
+
 class ModelPort:
-    """One pcie_phy as models: mac model over the pcs stand-in."""
+    """One pcie_phy as models: mac model over the pcs stand-in, with an
+    optional transmit-scrambler block (see the module docstring)."""
 
     kind = "model"
 
-    def __init__(self, role: str, timeout_div: int = 1024, **mac_kw) -> None:
+    def __init__(self, role: str, timeout_div: int = 1024, tx_scrambler=None,
+                 **mac_kw) -> None:
         self.role = role
         self.mac = mac_arch.Mac(role, timeout_div, 1, **mac_kw)
         self.pcs = PcsModel()
+        self.tx_scrambler = tx_scrambler
+        self._held = mac_arch.PipeTx(reset_n=False)
         self.rst = True
         self._seen = 0
 
@@ -59,8 +87,28 @@ class ModelPort:
 
     def core_edge(self, rxdet: bool) -> tuple[int, bool]:
         self.mac.rst = self.rst
-        tx = self.mac.step(self.pcs.out)
+        if self.tx_scrambler is None:
+            tx = self.mac.step(self.pcs.out)
+        else:
+            tx = self._through_block(self.mac.step)
         return self.pcs.core_edge(self.rst, tx, rxdet)
+
+    def _through_block(self, step) -> mac_arch.PipeTx:
+        """One mac step with its transmit word scrambled by the block."""
+        blk = self.tx_scrambler
+        rec = _Unscrambled()
+        self.mac.tx_scr = rec              # the mac re-creates its scrambler in reset
+        tx = step(self.pcs.out)
+        out = self._held
+        if blk.valid:                      # last cycle's word, scrambled
+            out.syms = ((blk.datak & 1, blk.data & 0xFF), (blk.datak >> 1 & 1, blk.data >> 8))
+        active = not tx.elec_idle and tx.reset_n
+        data = tx.syms[0][1] | tx.syms[1][1] << 8
+        datak = tx.syms[0][0] | tx.syms[1][0] << 1
+        scr = (rec.scr[0] | rec.scr[1] << 1) if active else 0
+        blk.clock(int(self.rst), int(active), data, datak, scr)
+        self._held = tx
+        return out
 
     def rx_edge(self, word: int, ei: bool) -> None:
         self.pcs.rx_edge(self.rst, word, ei)

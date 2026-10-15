@@ -65,7 +65,8 @@
   line takes the receiver to Recovery on its own. A lossless phase follows
   every recovery. The stub does not replay lost packets.
 - **Functional coverage:** `phy_e2e_layers` (mac, pcs and channel, each
-  `model` or `rtl`, and mac crossed with pcs), the coverage hook that
+  `model` or `rtl`, mac crossed with pcs, and `tx_scrambler`: the mac
+  model's own or the block), the coverage hook that
   records which layers were RTL in each run; `phy_e2e_run` (port a's role,
   the offset ±300, ±600 or other, crossed); `phy_e2e_events`
   (impairment, recovery directed or autonomous); `phy_e2e_packets`
@@ -99,10 +100,39 @@ runs it.
 | --- | --- | --- | --- |
 | `pcs_enc8b10b`, `pcs_dec8b10b` | [#81](https://github.com/amichai-bd/pcie-factory/issues/81), [#82](https://github.com/amichai-bd/pcie-factory/issues/82) | `PcsModel`'s `encode`/`decode` hooks (the `pcs` model's 8b/10b) | `pcie_pcs` instantiates it and an entry sets `PCS_RTL: 1` |
 | `pcs_align` | [#83](https://github.com/amichai-bd/pcie-factory/issues/83) | `PcsModel.rx_edge` (comma hunt, lock) | as above |
-| `mac_scrambler` | [#74](https://github.com/amichai-bd/pcie-factory/issues/74) | `pcie_mac_arch.Scrambler` | `pcie_mac` instantiates it and an entry sets `MAC_RTL: 1` |
+| `mac_scrambler` (on main) | [#74](https://github.com/amichai-bd/pcie-factory/issues/74) | Transmit: the block hook below, today with the sub-IP's cycle model. Receive: `pcie_mac_arch.Scrambler` | Transmit: the block hook with an RTL adapter (step 0). Both: `pcie_mac` instantiates it and an entry sets `MAC_RTL: 1` |
 | `mac_os`, `mac_frame`, `mac_ltssm` | [#75](https://github.com/amichai-bd/pcie-factory/issues/75), [#76](https://github.com/amichai-bd/pcie-factory/issues/76), [#77](https://github.com/amichai-bd/pcie-factory/issues/77) | `pcie_mac_arch.Mac` | as above |
 
-The steps, in [#86](https://github.com/amichai-bd/pcie-factory/issues/86):
+**Block hook, transmit scrambler.** `ModelPort(tx_scrambler=block)`
+takes scrambling out of the mac model and puts `block` between the mac and
+the pcs at the [`pcie_mac_scrambler` interface](../../rtl/mac_scrambler/MAS.md#interfaces):
+each cycle the port reads the block's registered `valid`, `data` and
+`datak`, then clocks it with the mac's unscrambled word, `valid` (the
+word is sent), `datak` and the per-symbol `scr` bits the mac model would
+have scrambled with. The block's one cycle of latency delays the whole
+PIPE transmit word. `e2e_scrambler_block` runs it on both ports with
+`WordScrambler`, the sub-IP's own cycle model
+([`src/dv/mac_scrambler/models/`](../../../../src/dv/mac_scrambler/models/pcie_mac_scrambler_model.py)).
+The receive side has no hook: which received symbols are descrambled
+depends on the mac's parsing, so it switches with the mac layer.
+
+The steps:
+
+0. **Scrambler RTL, transmit** (once the block is in the `phy` build: it is
+   reached through `mac.rtl.f`, which `phy.rtl.f` includes only with
+   [#86](https://github.com/amichai-bd/pcie-factory/issues/86); a `.dv.f`
+   never lists RTL). Add a `pcie_mac_scrambler` instance per port to the top
+   behind a parameter, its ports as top ports `a_scr_*`/`b_scr_*` on the
+   port's clock; in the environment, an adapter whose `valid`, `data` and
+   `datak` read `*_scr_valid_o`, `*_scr_data_o` and `*_scr_datak_o` and
+   whose `clock(rst, valid, data, datak, scr)` drives the inputs. Driven at
+   a falling edge and read at the next, it has the same one-cycle timing as
+   the model. Pass it as `tx_scrambler`, add the `rtl` bin to the
+   `tx_scrambler` coverpoint and a copy of `e2e_scrambler_block` with the
+   parameter set. The 8b/10b blocks follow the same pattern through
+   `PcsModel`'s `encode`/`decode` hooks.
+
+In [#86](https://github.com/amichai-bd/pcie-factory/issues/86):
 
 1. **Whole stack.** When `pcie_phy` integrates `pcie_mac` and `pcie_pcs`,
    add `params: {MAC_RTL: 1, PCS_RTL: 1}` to copies of the e2e entries (or
@@ -127,6 +157,7 @@ The steps, in [#86](https://github.com/amichai-bd/pcie-factory/issues/86):
 | Symbol errors each way: flagged or lost packets only, directed Recovery, lossless after | `e2e_symbol_errors` | 1 | 2; usp first, +600 ppm |
 | Bit slips each way: relock, directed Recovery, lossless after | `e2e_bit_slips` | 1 | 2; dsp first, -600 ppm |
 | Electrical-idle dropout each way: Recovery on its own, lossless after | `e2e_elec_idle` | 1 | 2; usp first, +300 ppm |
+| Transmit scrambling by the `pcie_mac_scrambler` block (its cycle model) on both ports: train, lossless, an idle dropout, lossless | `e2e_scrambler_block` | 1 | 1; dsp first, -300 ppm |
 | Soak: offset from the seed in ±600 ppm, reset skew up to 2000 cycles, six random impairments between lossless phases, TLPs up to 4118 bytes (a 4096-byte payload) | `e2e_soak_dsp_first`, `e2e_soak_usp_first` | 2 | 4 each |
 
 ## Gaps
@@ -134,4 +165,5 @@ The steps, in [#86](https://github.com/amichai-bd/pcie-factory/issues/86):
 | Feature | Owning issue |
 | --- | --- |
 | Any layer as RTL with traffic (`phy_e2e_layers` `rtl` bins are hit only by `e2e_rtl_shell`, and `channel` `rtl` by none), the per-layer instances, the HAS [targets](../../arch/phy/HAS.md#targets) on the RTL | [#86](https://github.com/amichai-bd/pcie-factory/issues/86) |
+| The `pcie_mac_scrambler` RTL in the e2e (step 0 above) | [#86](https://github.com/amichai-bd/pcie-factory/issues/86) |
 | L0s, L1, L2, Hot Reset, Disabled, Loopback and polarity inversion end to end | [#86](https://github.com/amichai-bd/pcie-factory/issues/86) |

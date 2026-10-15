@@ -43,6 +43,9 @@ from cocotb.triggers import ClockCycles, FallingEdge, Timer
 from regress.funcov import Covergroup
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "models"))
+# The pcie_mac_scrambler sub-IP's cycle model, a transmit-scrambler block.
+sys.path.append(str(Path(__file__).resolve().parents[2] / "mac_scrambler" / "models"))
+import pcie_mac_scrambler_model  # noqa: E402
 import pcie_phy_stack_model as stack  # noqa: E402
 from pcie_phy_stack_model import L0_CODE, RECOVERY_CODES, ModelPort  # noqa: E402
 
@@ -56,6 +59,8 @@ COV_LAYERS = Covergroup("phy_e2e_layers")
 for _layer in LAYERS:
     COV_LAYERS.coverpoint(_layer, bins={"model": "model", "rtl": "rtl"})
 COV_LAYERS.cross("mac_x_pcs", "mac", "pcs")
+# Block-level swaps inside a model layer (the DV plan's switch table).
+COV_LAYERS.coverpoint("tx_scrambler", bins={"mac_model": "mac_model", "block_model": "block_model"})
 
 COV_RUN = Covergroup("phy_e2e_run")
 COV_RUN.coverpoint("a_role", bins={"downstream": "downstream", "upstream": "upstream"})
@@ -289,7 +294,8 @@ class Env:
     clock offset from a's; ``seed`` draws everything random."""
 
     def __init__(self, dut, a_role: str = "downstream", ppm: float = 0, seed: int = 0,
-                 skew_max: int = 64, delay_words: int = 4) -> None:
+                 skew_max: int = 64, delay_words: int = 4,
+                 tx_scrambler: str = "mac_model") -> None:
         self.dut = dut
         self.log = dut._log
         self.rng = random.Random(seed)
@@ -301,9 +307,12 @@ class Env:
         self.timeout_div = int(dut.cfg_timeout_div_o.value)
         self.a_role, self.ppm = a_role, ppm
         self.log.info("phy e2e: COCOTB_RANDOM_SEED %s, test seed %d, layers %s, a %s, b %s, b clock %+g ppm, "
-                      "TIMEOUT_DIV %d", os.environ.get("COCOTB_RANDOM_SEED", "-"), seed, " ".join(f"{k}={v}" for k, v in self.layers.items()),
-                      a_role, stack.other(a_role), ppm, self.timeout_div)
-        COV_LAYERS.sample(**self.layers)
+                      "TIMEOUT_DIV %d, tx scrambler %s", os.environ.get("COCOTB_RANDOM_SEED", "-"), seed,
+                      " ".join(f"{k}={v}" for k, v in self.layers.items()),
+                      a_role, stack.other(a_role), ppm, self.timeout_div, tx_scrambler)
+        if tx_scrambler not in ("mac_model", "block_model"):
+            raise ValueError(f"tx_scrambler: expected mac_model or block_model, got {tx_scrambler}")
+        COV_LAYERS.sample(**self.layers, tx_scrambler=tx_scrambler)
         COV_RUN.sample(a_role=a_role, ppm=ppm)
         roles = (a_role, stack.other(a_role))
         if self.layers["mac"] != self.layers["pcs"]:
@@ -313,8 +322,13 @@ class Env:
         if self.layers["channel"] == "rtl" and self.layers["pcs"] == "model":
             raise ValueError("an RTL channel needs the pcs as RTL (CHAN_RTL needs PCS_RTL)")
         if self.layers["mac"] == "model":
-            ports = [ModelPort(r, self.timeout_div) for r in roles]
+            ports = [ModelPort(r, self.timeout_div,
+                               tx_scrambler=(pcie_mac_scrambler_model.WordScrambler()
+                                             if tx_scrambler == "block_model" else None))
+                     for r in roles]
         else:
+            if tx_scrambler != "mac_model":
+                raise ValueError("a scrambler block swaps in only inside the mac model")
             ports = [RtlPort(dut, f"{p}_", r) for p, r in zip("ab", roles)]
         skew = self.rng.randrange(skew_max + 1)
         self.bench = stack.Bench(ports, self.rng, delay_words,

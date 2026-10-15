@@ -131,6 +131,21 @@ async def e2e_elec_idle(dut):
     await impairment_run(dut, "idle", "upstream", 300)
 
 
+@cocotb.test()
+async def e2e_scrambler_block(dut):
+    """L1: both ports' transmit scrambling done by the pcie_mac_scrambler
+    block (its cycle model, at its MAS interface, one cycle of latency)
+    instead of the mac model: train, lossless traffic, an idle dropout and
+    lossless again. The step to its RTL is in the DV plan."""
+    env = Env(dut, a_role="downstream", ppm=-300, seed=seed(), tx_scrambler="block_model")
+    env.start()
+    await env.train()
+    await env.lossless(30)
+    await env.impair("idle", 0)
+    await env.lossless(12)
+    env.final_checks()
+
+
 # ---------------------------------------------------------------- level 2
 
 async def soak(dut, a_role: str) -> None:
