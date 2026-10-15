@@ -142,6 +142,44 @@ def test_per_ip_pages_and_sidebar(tmp_path):
     assert {"wiki/tracker/ip/alpha/index.md", "wiki/tracker/ip/beta/core/index.md"} <= set(nav)
 
 
+def menu(html: str) -> str:
+    return html.split('<ul class="menu">')[1].split("</aside>")[0]
+
+
+def test_tracker_is_its_own_tab(tmp_path):
+    root = tree(tmp_path, fixtures=True)
+    (root / "wiki/other.md").write_text("# Other\n", encoding="utf-8")
+    problems, out = build(root)
+    assert problems == []
+    site = wiki_site.Site(tmp_path, SHA, URL)
+    # the tracker is not a wiki section; its own nav is the landing, then the IPs
+    assert all(f.rel != "tracker" for f in site.sections)
+    top, sections = site.nav("tracker/ip/alpha/index.html")
+    assert top == ["wiki/tracker/index.md"] and [f.rel for f in sections] == ["tracker/ip"]
+    assert site.nav("other.html") == (site.top, site.sections)
+    tabs = '<div class="navbar-tabs"><a{w} href="{r}index.html">Wiki</a><a{t} href="{r}tracker/index.html">Tracker</a></div>'
+    on = ' class="active" aria-current="page"'
+    other = (out / "other.html").read_text()
+    assert tabs.format(w=on, t="", r="") in other
+    assert "tracker/" not in menu(other)  # the wiki sidebar does not list the tracker
+    for page, r in (("tracker/index.html", "../"), ("tracker/ip/beta/core/index.html", "../../../../")):
+        html = (out / page).read_text()
+        assert tabs.format(w="", t=on, r=r) in html
+        assert '<nav class="sidebar-tabs" aria-label="Site sections">' in html  # phone drawer copy
+        nav = menu(html)
+        assert "Other" not in nav and "Home" not in nav  # no wiki tree on tracker pages
+        assert f'href="{r}tracker/ip/alpha/index.html">' in nav and "<details open>" in nav
+    # the home page links to the tracker; URLs are unchanged
+    assert 'href="tracker/index.html"' in (out / "index.html").read_text()
+
+
+def test_no_tracker_no_tabs(tmp_path):
+    (tmp_path / "wiki").mkdir()
+    (tmp_path / "wiki/index.md").write_text("# Home\n", encoding="utf-8")
+    problems, out = build(tmp_path)
+    assert problems == [] and "tabs" not in (out / "index.html").read_text()
+
+
 # -------------------------------------------------------------- no data
 @pytest.mark.parametrize("with_dir", [True, False])
 def test_no_data_builds_with_clear_message(tmp_path, with_dir):
