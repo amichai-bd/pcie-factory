@@ -13,11 +13,18 @@ The shell drives every output to its
 [reset value](../../arch/pcs/HAS.md#reset-values) and folds every input into
 one `unused_inputs` net so lint stays clean. Every input other than the two
 clocks carries its `cdc-domain` annotation from the HAS
-[port table](../../arch/pcs/HAS.md#interfaces). It instantiates nothing yet.
+[port table](../../arch/pcs/HAS.md#interfaces).
+
+Wave-2 sub-IPs are instantiated as they arrive, with their outputs folded
+into `unused_inputs` until the top connects them; the shell's outputs do
+not change. Today that is the encoder
+[`pcs_enc8b10b`](../pcs_enc8b10b/MAS.md) (`u_enc`): reset while `rst_i` is 1
+or `pipe_reset_ni` is 0, a word valid in P0 with `pipe_tx_elec_idle_i` 0,
+fed from `pipe_tx_data_i`, `pipe_tx_datak_i` and `pipe_tx_compliance_i`.
 
 ## Timing
 
-No logic and no clock-domain crossing in the shell. The latency budgets
+The shell's only logic is the encoder, and it has no clock-domain crossing. The latency budgets
 are in the [HAS targets](../../arch/pcs/HAS.md#targets).
 
 ## Files
@@ -25,4 +32,4 @@ are in the [HAS targets](../../arch/pcs/HAS.md#targets).
 | File | Holds |
 | --- | --- |
 | [`pcie_pcs.sv`](../../../../src/rtl/pcs/pcie_pcs.sv) | The shell module. |
-| [`pcs.rtl.f`](../../../../src/rtl/pcs/pcs.rtl.f) | `-F ../pcs_align/pcs_align.rtl.f` (the [`pcs_align`](../pcs_align/MAS.md) sub-IP, not yet instantiated), then `pcie_pcs.sv`. |
+| [`pcs.rtl.f`](../../../../src/rtl/pcs/pcs.rtl.f) | `-F ../pcs_enc8b10b/pcs_enc8b10b.rtl.f`, `-F ../pcs_align/pcs_align.rtl.f` (the [`pcs_align`](../pcs_align/MAS.md) sub-IP, not yet instantiated), then `pcie_pcs.sv`. |
