@@ -13,7 +13,7 @@ wildcard-connection and external-ifdef rules are new. The vocabulary rules
 (raw-always-ff, raw-assertion, raw-initial: constructs reserved for the
 shared macro headers) follow the same tool's clocked-process, raw-assert and
 raw-initial rules, and nonblocking-assignment ports its scan;
-system-task, sampled-value, clocking-block, local-define,
+system-task, sampled-value, clocking-block, object-macro, local-define,
 conditional-compilation, package-import, include-path, vocabulary-include
 and cdc-cell-macro are new.
 
@@ -103,6 +103,10 @@ RULES = {
     "cdc-cell-macro": ("clock-domain-crossings",
                        "outside rtl/common/, a crossing cell a vocabulary macro wraps is "
                        "instantiated only through that macro (COMMON_METAFLOP, ...)"),
+    "object-macro": ("the-rtl-vocabulary",
+                     "outside the vocabulary headers, no use of an object-like vocabulary macro "
+                     "(an include guard such as COMMON_MACROS_SVH); only the function-like "
+                     "forms are vocabulary"),
     "include-path": ("includes", "`include names a vocabulary header by its bare file name"),
     "vocabulary-include": ("includes",
                            "a file that uses a vocabulary macro `includes the vocabulary itself"),
@@ -138,6 +142,9 @@ _HEADER_GUARDS = ("SYNTHESIS", "VERILATOR")
 # name or "(" must be on the directive's line; macro names may contain $.
 _COND_RE = re.compile(r"`(ifdef|ifndef|elsif)\b[ \t]*(\(|[A-Za-z_][\w$]*)?")
 _DEFINE_RE = re.compile(r"`define\s+([A-Za-z_][\w$]*)")
+# A function-like macro: the parameter list's "(" follows the name directly
+# (IEEE 1800 22.5.1); with a space between, the "(" is part of the body.
+_FUNCTION_DEFINE_RE = re.compile(r"`define\s+([A-Za-z_][\w$]*)\(")
 _INCLUDE_RE = re.compile(r"`include\b[ \t]*(\"[^\"\n]*\"|<[^>\n]*>)?")
 _ASSERTION_RE = re.compile(r"\b(assert|assume|cover|restrict|expect|property|sequence)\b"
                            r"|\$(fatal|error|warning|info)\b")
@@ -158,7 +165,9 @@ PURE_SYSTEM_FUNCTIONS = frozenset({
 SAMPLED_VALUE_FUNCTIONS = frozenset({"$past", "$stable", "$rose", "$fell", "$changed",
                                      "$sampled"})
 # Vocabulary macros whose arguments may hold sampled-value functions: the
-# assertion forms, by name prefix (the macro must also be defined by a header).
+# assertion forms, by name prefix, and only function-like macros a header
+# defines (an object-like one, such as the COMMON_ASSERTIONS_SVH guard,
+# takes no arguments, so a "(" after it is plain design text).
 ASSERT_MACRO_PREFIX = COMMON_PREFIX.upper() + "ASSERT"
 _CLOCKING_RE = re.compile(r"\bclocking\b")
 # The vocabulary headers, by file name directly in rtl/common/. Adding one
@@ -169,13 +178,16 @@ VOCABULARY_HEADERS = ("common_macros.svh", "common_assertions.svh")
 @dataclass(frozen=True)
 class Vocabulary:
     """The shared vocabulary headers: ``VOCABULARY_HEADERS`` found in
-    ``rtl/common/`` (paths relative to the source root), their file names, the macros they define and the
-    shared cells (``rtl/common/<cell>.sv``) their macros instantiate."""
+    ``rtl/common/`` (paths relative to the source root), their file names, the macros they define, the
+    shared cells (``rtl/common/<cell>.sv``) their macros instantiate, and
+    the function-like macros among ``macros`` (defined with a parameter
+    list; the rest are object-like, such as the include guards)."""
 
     headers: frozenset[str] = frozenset()
     names: frozenset[str] = frozenset()
     macros: frozenset[str] = frozenset()
     cells: frozenset[str] = frozenset()
+    functions: frozenset[str] = frozenset()
 
 
 def vocabulary(src_root: Path) -> Vocabulary:
@@ -183,13 +195,16 @@ def vocabulary(src_root: Path) -> Vocabulary:
     d = Path(src_root) / "rtl" / SHARED_DIR
     files = [d / name for name in VOCABULARY_HEADERS if (d / name).is_file()]
     macros: set[str] = set()
+    functions: set[str] = set()
     cells: set[str] = set()
     for f in files:
         text = strip_comments_and_strings(f.read_text(errors="replace"))
         macros |= defined_macros(text)
+        functions |= set(_FUNCTION_DEFINE_RE.findall(text))
         cells |= {name for name in _IDENT.findall(text) if (d / f"{name}.sv").is_file()}
     return Vocabulary(frozenset(f"rtl/{SHARED_DIR}/{f.name}" for f in files),
-                      frozenset(f.name for f in files), frozenset(macros), frozenset(cells))
+                      frozenset(f.name for f in files), frozenset(macros), frozenset(cells),
+                      frozenset(functions))
 
 
 def _package_spans(text: str) -> list[tuple[int, int]]:
@@ -412,11 +427,11 @@ def find_nonblocking(text: str) -> list[int]:
 
 def assert_argument_spans(text: str, vocab: Vocabulary) -> list[tuple[int, int]]:
     """Spans of the parenthesized argument lists of `` `COMMON_ASSERT*``
-    calls in comment-stripped ``text``, for macros a vocabulary header
-    defines."""
+    calls in comment-stripped ``text``, for function-like macros a
+    vocabulary header defines."""
     spans = []
     for m in re.finditer(r"`([A-Za-z_][\w$]*)\s*\(", text):
-        if m.group(1).startswith(ASSERT_MACRO_PREFIX) and m.group(1) in vocab.macros:
+        if m.group(1).startswith(ASSERT_MACRO_PREFIX) and m.group(1) in vocab.functions:
             start = m.end() - 1
             spans.append((start, _balanced(text, start)))
     return spans
@@ -450,6 +465,10 @@ def vocabulary_findings(relpath: str, text: str, vocab: Vocabulary) -> list[str]
                         f"{m.group()} outside a {ASSERT_MACRO_PREFIX}* macro argument")
             elif m.group() not in PURE_SYSTEM_FUNCTIONS and not _ASSERTION_RE.fullmatch(m.group()):
                 add("system-task", m.start(), m.group())
+        for m in re.finditer(r"`([A-Za-z_][\w$]*)", text):
+            if m.group(1) in vocab.macros and m.group(1) not in vocab.functions:
+                add("object-macro", m.start(), f"`{m.group(1)} is an object-like vocabulary "
+                    "macro (an include guard), not a vocabulary form")
     for m in _CLOCKING_RE.finditer(text):
         add("clocking-block", m.start(), m.group())
     for m in re.finditer(r"\bimport\b", text):

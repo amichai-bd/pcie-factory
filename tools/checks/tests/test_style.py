@@ -40,7 +40,8 @@ endmodule
 HEADER = "rtl/common/common_macros.svh"
 VOCAB = style.Vocabulary(frozenset({HEADER}), frozenset({"common_macros.svh"}),
                          frozenset({"COMMON_MACROS_SVH", "COMMON_DFF_RST", "COMMON_METAFLOP"}),
-                         frozenset({"common_cdc_sync2"}))
+                         frozenset({"common_cdc_sync2"}),
+                         frozenset({"COMMON_DFF_RST", "COMMON_METAFLOP"}))
 
 
 def rules(findings):
@@ -185,7 +186,7 @@ def test_every_rule_is_tested_and_documented():
               "nonblocking-assignment", "conditional-compilation", "raw-always-ff",
               "raw-assertion", "raw-initial", "package-import", "include-path",
               "vocabulary-include", "cdc-cell-macro", "system-task", "local-define",
-              "sampled-value", "clocking-block"}
+              "sampled-value", "clocking-block", "object-macro"}
     assert tested == set(RULES)
     spec = (Path(__file__).resolve().parents[3] / "wiki/tools/checks/SPEC.md").read_text()
     for rule, (anchor, _) in RULES.items():
@@ -220,8 +221,10 @@ def test_pure_system_functions_pass():
 
 
 ASSERT_VOCAB = style.Vocabulary(VOCAB.headers, VOCAB.names,
-                                VOCAB.macros | {"COMMON_ASSERT", "COMMON_ASSERT_CLOCKED"},
-                                VOCAB.cells)
+                                VOCAB.macros | {"COMMON_ASSERT", "COMMON_ASSERT_CLOCKED",
+                                                "COMMON_ASSERTIONS_SVH"},
+                                VOCAB.cells,
+                                VOCAB.functions | {"COMMON_ASSERT", "COMMON_ASSERT_CLOCKED"})
 
 
 def test_sampled_value_functions_pass_in_assertion_macros():
@@ -241,11 +244,42 @@ def test_sampled_value_functions_pass_in_assertion_macros():
     "  `COMMON_ASSERT_X(a_s, clk_i, rst, $stable(q_q))",
     # In plain logic.
     "  logic s;\n  assign s = $sampled(d_i[0]);",
+    # After an object-like macro whose name has the assertion prefix: the
+    # include guard expands to nothing, so the "(...)" is design text (the
+    # #135 review case, a hidden register in a DFF macro's next value).
+    "  `COMMON_DFF_RST(q_x, `COMMON_ASSERTIONS_SVH($past(q_d)), clk_i, rst)",
 ])
 def test_sampled_value_outside_assertion_macro_fires(extra):
     text = mutate(DFF, DFF + "\n" + extra)
     found = check_text("xy_a_m.sv", text, "xy_a", vocab=ASSERT_VOCAB)
     assert "sampled-value" in rules(found), found
+
+
+def test_include_guard_is_not_an_assertion_macro():
+    # The #135 review evasion: style, lint and cdc passed while
+    # `state_q <= ($past(state_d))` hid a second register stage.
+    text = mutate(DFF, "`COMMON_DFF_RST(q_q, `COMMON_ASSERTIONS_SVH($past(q_d)), clk_i, rst)")
+    found = check_text("xy_a_m.sv", text, "xy_a", vocab=ASSERT_VOCAB)
+    assert rules(found) == ["object-macro", "sampled-value"], found
+    # Any object-like vocabulary macro is a finding outside the headers.
+    text = mutate("  assign q_o = q_q;", "  assign q_o = q_q `COMMON_MACROS_SVH;")
+    assert rules(check(text)) == ["object-macro"]
+    # The headers may name their own guards.
+    assert check("`ifndef COMMON_MACROS_SVH\n`define COMMON_MACROS_SVH\n"
+                 "`define COMMON_Y `COMMON_MACROS_SVH\n`endif\n", HEADER) == []
+
+
+def test_vocabulary_function_like_macros(tmp_path):
+    d = tmp_path / "rtl" / "common"
+    d.mkdir(parents=True)
+    (d / "common_assertions.svh").write_text(
+        "`ifndef COMMON_ASSERTIONS_SVH\n`define COMMON_ASSERTIONS_SVH\n"
+        "`define COMMON_ASSERT(N, C, R, P) N: assert property (P);\n"
+        "`define COMMON_ASSERT_SPACED (X) X\n`endif\n")
+    v = style.vocabulary(tmp_path)
+    assert v.macros == {"COMMON_ASSERTIONS_SVH", "COMMON_ASSERT", "COMMON_ASSERT_SPACED"}
+    # With a space before "(" the parenthesis is the body, not a parameter list.
+    assert v.functions == {"COMMON_ASSERT"}
 
 
 def test_hidden_register_through_default_clocking():

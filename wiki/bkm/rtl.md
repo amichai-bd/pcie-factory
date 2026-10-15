@@ -77,7 +77,9 @@ its implementation notes are in its
 one process, instance or declaration group; none hides an event
 expression, several unrelated registers or a synchronizer chain. A new form
 enters the headers only for a repeated, narrowly specified idiom, with a
-test in the [macro DV plan](../src/dv/common/common_macros.md).
+test in the [macro DV plan](../src/dv/common/common_macros.md). Design
+files call only the function-like forms; the headers' object-like macros
+(their include guards) are theirs alone (rule `object-macro`).
 
 ### Includes
 
