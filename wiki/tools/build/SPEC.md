@@ -228,7 +228,10 @@ flat sub-IP (`counter_inc`), and it exercises `-F`, `+incdir+`, `+define+`, `par
 test per level. The end-to-end tests (real build, pass, fail, timeout, build
 error, waves, a broken filelist in one IP, and the `regress` and `sim` CLI)
 are skipped when Verilator or cocotb is missing. Process-control tests use a
-sleeping shell script in place of the child, so they need no simulator. `test_ip.py` covers discovery on synthetic kind-first trees: flat
+sleeping shell script in place of the child, so they need no simulator. A
+killed group's grandchildren (such as the simulator executable) exit
+asynchronously after the leader is reaped, so tests that check the group is
+gone poll with a deadline instead of asserting right after the kill. `test_ip.py` covers discovery on synthetic kind-first trees: flat
 sub-IPs, top-level versus sub-IP by `-F` reachability and id prefix (direct,
 transitive and from two parents), integrated top-level IPs (a reached IP
 without its includer's prefix stays top-level), `common/` and name mismatches that are not IPs, a broken
