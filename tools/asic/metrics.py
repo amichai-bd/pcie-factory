@@ -11,7 +11,7 @@ Inputs, all under the ORFS work home (``WORK_HOME``):
 - ``reports/<platform>/<nick>/base/asic_extra.json``: written by
   ``extra_metrics.tcl`` (max fanout, logic depth).
 - ``reports/<platform>/<nick>/base/asic_clocks.json``: written by
-  ``clock_slacks.tcl`` (setup slack per clock; optional).
+  ``clock_slacks.tcl`` (setup slack per clock).
 
 Every parser is pure (text in, dict out) so unit tests run on fixtures.
 """
@@ -27,14 +27,9 @@ STAGES = ("finish", "detailedroute", "globalroute", "cts", "detailedplace",
           "globalplace", "placeopt", "floorplan", "synth")
 
 # Metrics that must be present for a run to count as complete.
-REQUIRED = ("timing.setup_ws_ns", "timing.tns_ns", "area.stdcell_um2", "cells",
-            "utilization", "max_fanout.value", "logic_depth.value",
+REQUIRED = ("timing.setup_ws_ns", "timing.tns_ns", "timing.clocks", "area.stdcell_um2",
+            "cells", "utilization", "max_fanout.value", "logic_depth.value",
             "worst_path.from", "worst_path.to")
-
-
-# Metrics recorded when present and warned about when not, never failing the
-# run: the per-clock slacks stay optional until a nightly shows them populated.
-OPTIONAL = ("timing.clocks",)
 
 
 def merge_step_json(texts: list[str]) -> dict:
@@ -228,7 +223,8 @@ def clock_slacks(doc: dict) -> dict | None:
 
 def clock_warning(doc: dict) -> str | None:
     """Why ``timing.clocks`` is missing, or None when it is present; ``doc``
-    is the parsed ``asic_clocks.json``."""
+    is the parsed ``asic_clocks.json``. The metric is required, so the run
+    is already incomplete; this names the cause."""
     if clock_slacks(doc):
         return None
     if not doc:
@@ -240,7 +236,7 @@ def clock_warning(doc: dict) -> str | None:
                  "constrained endpoint; see the asic_clocks lines in flow.log)")
     else:
         cause = "the clocks entry in asic_clocks.json is malformed"
-    return f"timing.clocks missing (optional, run not failed): {cause}"
+    return f"timing.clocks missing (required, run incomplete): {cause}"
 
 
 def summarize(step: dict, synth: dict, worst: dict | None, extra: dict,

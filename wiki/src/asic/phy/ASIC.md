@@ -62,11 +62,10 @@ generated config. Nightly runs it with every IP that has `src/asic/<ip>/`.
 Results, including the setup WNS and TNS of each clock
 (`timing.clocks.clk` and `timing.clocks.rx_clk`), are in `metrics.json` and,
 from the nightly run, on the tracker's `phy` page. The per-clock values come
-from the flow's separate, time-capped `clocks` step and are optional until
-a nightly shows them populated
+from the flow's separate `clocks` step and are required
 ([#200](https://github.com/amichai-bd/pcie-factory/issues/200)): if that
-step fails, times out or writes no clock, the run warns and keeps its
-status and its other results.
+step fails, times out or writes no clock, the run fails, and `metrics.json`
+still holds the other results.
 
 ## Files
 
