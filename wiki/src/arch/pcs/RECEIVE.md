@@ -31,7 +31,11 @@ bit first.
   received with `ser_rx_elec_idle_i` high, the aligner searches the window
   at bit offsets 0 to 19 for a [comma](8B10B.md#comma). At the lowest
   offset `p` where one starts, it sets the symbol boundary to `p mod 10`
-  and takes **symbol lock** at once, in that cycle.
+  and takes **symbol lock** at once, in that cycle. Each time it takes
+  lock it flips a **lock-generation** bit, which travels with every word
+  through the elastic buffer. A relock in comma-dense traffic (training
+  sets, FTS) can retake lock in the same cycle it dropped, so no unlocked
+  word separates the two runs; the generation bit still tells them apart.
 - **Locked.** The boundary is frozen. Each cycle the aligner sends the two
   10-bit symbols that start at the boundary and at the boundary plus 10,
   tagged locked. Commas at other offsets are ignored.
@@ -41,14 +45,22 @@ bit first.
 - **Relock request.** On the `clk_i` side an error counter watches the
   words that leave with `pipe_rx_valid_o` high. A word with a code or
   disparity error adds 1; eight error-free words in a row take 1 away (not
-  below 0). At 4 the PCS sends one relock request (a
+  below 0). At 3 the PCS sends one relock request (a
   [`common_cdc_pulse`](../../rtl/common/common_cdc_pulse.md) to the aligner)
-  and clears the counter. It sends no other request until
-  `pipe_rx_valid_o` has fallen and risen again; the counter also clears
-  when `pipe_rx_valid_o` rises.
+  and clears the counter. It sends no other request until a locked word
+  with the other lock-generation value reaches PIPE, which proves the
+  aligner has relocked. The counter also clears whenever the lock
+  generation of the words on PIPE changes. The request needs no unlocked
+  word to re-arm, so it works however soon lock returns, and even when
+  recentring drops the unlocked words.
 
-So isolated errors never cost lock, while a bit slip, which turns nearly
-every later symbol into an error, is caught within a few words. Lock is
+A single flipped bit marks at most two words: the symbol it hits (a code
+or disparity error) and, through the corrupted running disparity, at most
+one later symbol. So isolated errors never reach 3 and never cost lock. A
+bit slip makes errors recur: in packet traffic nearly every symbol, and in
+training sets at least every shifted COM, since a one-bit shift turns the
+D10.2 identifiers into valid D21.5 codes. It is caught within a few words
+either way (the model's [slip scenarios](HAS.md#architecture-model)). Lock is
 taken on the first comma rather than on several: a false lock leads to
 errors and a relock, and lock on one comma keeps L0s exit (FTS ordered
 sets, one comma each) short. The receiver gets the partner's symbols from
@@ -67,14 +79,15 @@ decoder, and found without decoding.
 
 - **Storage.** A [`common_cdc_fifo`](../../rtl/common/common_cdc_fifo.md)
   of 16 words (`ADDR_W` 4). A word holds two raw 10-bit symbols, the lock
-  tag, a removed-SKP flag per symbol and an overflow flag (24 bits).
+  tag, the lock-generation bit, a removed-SKP flag per symbol and an
+  overflow flag (25 bits).
 - **Visible fill.** The read side's fill is twice the words it can see
   (the FIFO's read-side occupancy: written words whose pointer has
   crossed) plus the symbols held in its one-symbol leftover register. The
   FIFO does not output this today; it gains a read-side fill output in
   [#84](https://github.com/amichai-bd/pcie-factory/issues/84). Nominal fill
   is 8 symbols.
-- **Fill high.** A `clk_i` flop is 1 while the visible fill is 10 or more;
+- **Fill high.** A `clk_i` flop is 1 while the visible fill is 9 or more;
   a [`common_cdc_sync2`](../../rtl/common/common_cdc_sync2.md) brings it to
   the write side.
 - **Remove (write side).** While fill high is seen, the write side drops a
@@ -85,19 +98,22 @@ decoder, and found without decoding.
   joins the remaining symbols back into two-symbol words, so that cycle may
   write no word.
 - **Add (read side).** When the read side sends a locked COM while the
-  visible fill is 6 or less, it looks at the next symbol (in its leftover
+  visible fill is 7 or less, it looks at the next symbol (in its leftover
   register or at the FIFO head, without reading it); if that is a SKP, it
   sends one extra copy of it right after the COM: at most one per set. (A
   copy is the right code: it is sent at the same RD as the original, and
   SKP leaves RD unchanged.) That cycle may read no word. If the next symbol
   is not yet visible, nothing is added for that set.
-- **Start.** After reset the read side reads nothing until the visible
-  fill reaches 8; `pipe_rx_valid_o` stays 0.
+- **Start.** After `rst_i` the read side reads nothing until the visible
+  fill reaches 8; `pipe_rx_valid_o` stays 0. `pipe_reset_ni` does not
+  restart this: the read side, its leftover symbol and recentring keep
+  running through a PIPE reset, so the buffer never fills up behind it
+  ([PIPE control](PIPE_CONTROL.md#reset-and-phystatus)).
 - **Unlocked recentring.** Data that is not locked has no SKP to work
   with, yet electrical idle can last milliseconds. While fill high is seen
   and the word is unlocked, the write side drops the whole word, at most
   once per 8 cycles; while the head word is unlocked and the visible fill
-  is 6 or less, the read side reads nothing for a cycle, at most once per
+  is 7 or less, the read side reads nothing for a cycle, at most once per
   8 cycles. The fill is therefore near 8 whenever lock returns.
 - **Overflow and underflow.** If the write side finds the FIFO full, the
   word is lost and the next word written carries the overflow flag
@@ -116,13 +132,20 @@ decoder, and found without decoding.
 | Correction rate | at least 1/1538 = 650 ppm | One SKP per ordered set, more than the 600 ppm drift. |
 | Longest gap | 1538 + 4123 = 5661 symbols | A set falls due one symbol into a 4124-symbol maximum TLP (4122 bytes plus STP and END). |
 | Drift over that gap | 5661 x 0.0006 = 3.4 symbols | Followed by at least 3 back-to-back sets, one correction each. |
-| Visible-fill excursion | at most ±6 around 8: 3.4 of drift, 2 of dead band (6 to 10), 1 for word granularity, about 1 of control lag | The window [2, 14] lies inside 0 to 16. |
-| Write-side view | at most 14/2 + 3 + 3 = 13 words | Each side sees the other's pointer two or three edges late, so the write side counts up to 3 read words, and the read side up to 3 written words, that have already happened. |
-| Storage | 16 words | 13 < 16. Eight words would not hold even the nominal 4 visible words plus 6 in flight. PIPE's minimum for a half-full buffer at 600 ppm is 7 symbols [cite: PIPE Spec, rev 3.0, §6.13]; the pointer lag is what makes this one larger. |
+| Thresholds | add at 7 or less, remove at 9 or more | No dead band: only a fill of exactly 8 is left alone at a SKP set. |
+| Sampling jitter | 1 symbol | Words arrive and leave on two unrelated clocks, so the visible fill can read one symbol off between cycles. |
+| Lowest fill | 8 - 3.4 - 1 = 3.6, so at least 4 | The fill is 8 when a long gap starts, drifts down 3.4 and reads up to 1 low. |
+| Highest fill | 8 + 3.4 + 1 = 12.4, so at most 12 | The same upward. |
+| Removal lag | at most 1 extra removal per burst of sets | Fill high reaches the write side two or three RX edges late, and back-to-back sets are two cycles apart. That removal lands after a high excursion, so the fill stays well above the lowest. |
+| Underflow margin | 2 symbols | The read side underflows below 2 symbols; the lowest fill is 4. |
+| Overflow margin (visible window) | 4 symbols | The highest fill, 12, is within the 16-symbol window the `phy` budget states. |
+| Write-side view | at most 12/2 + 3 + 3 = 12 words | Each side sees the other's pointer two or three edges late. The write side therefore counts up to 3 already-read words, and the read side misses up to 3 already-written words. |
+| Storage | 16 words (32 symbols) | 12 < 16 leaves 4 words of margin. Eight words would not hold the nominal 4 visible words plus 6 in flight. PIPE's minimum for a half-full buffer at 600 ppm is 7 symbols [cite: PIPE Spec, rev 3.0, §6.13]; the pointer lag is what makes this one larger. |
 
-The model measures, at ±600 ppm with maximum TLPs and the longest
-interval, a visible fill of 3 to 13 symbols and a write-side view of at
-most 10 words (scenarios in the [HAS](HAS.md#architecture-model)).
+The model measures, at ±600 ppm with maximum TLPs and both interval
+limits over 12 seeds, a visible fill of 4 to 12 symbols and a write-side
+view of at most 10 words (scenarios in the
+[HAS](HAS.md#architecture-model)).
 
 ## Decode and RxStatus
 
@@ -150,7 +173,8 @@ carries one `pipe_rx_status_o` code:
 
 When several apply to one word, the first in this order wins: 4, 5, 6, 7,
 1, 2, then 0; errors therefore win over SKP changes. Codes 4 and 7 are
-reported only while `pipe_rx_valid_o` is 1; while it is 0 the code is 0.
+reported only while `pipe_rx_valid_o` is 1 (an unlocked word's decode
+errors are not reported); codes 3, 5 and 6 do not depend on it.
 A code error is always reported as 4, a disparity error as 7 (PIPE also
 allows reporting it as 4; this PCS does not). If the COMs of two SKP
 ordered sets share a word, one code covers both changes.

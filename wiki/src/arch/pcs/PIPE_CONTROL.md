@@ -19,19 +19,23 @@ runs these rules as `PipeControl`.
   input.
 - **PhyStatus.** `pipe_phy_status_o` is 1 during the PCS reset and in the
   16 cycles after its last cycle; it is 0 from the 17th cycle on, which
-  tells the MAC the PCS is ready and in the PowerDown state it sees.
-  PowerDown changes in those 16 cycles take effect silently (no pulse)
-  [cite: PIPE Spec, rev 3.0, §6.2].
+  tells the MAC the PCS is ready and in the PowerDown state it sees
+  [cite: PIPE Spec, rev 3.0, §6.2]. This stack's rule: a PowerDown change
+  within those 16 cycles takes effect with no pulse. The MAC makes none,
+  since it starts nothing before PhyStatus falls.
 - **MAC during reset.** While it holds the PCS in reset, the MAC keeps
   `pipe_tx_detect_rx_i` 0, `pipe_tx_elec_idle_i` 1, `pipe_tx_compliance_i`
   0, `pipe_rx_polarity_i` 0 and `pipe_power_down_i` at P1
   [cite: PIPE Spec, rev 3.0, §6.2].
-- **What `pipe_reset_ni` resets.** PIPE control, the transmit path and the
-  read side's decode state (started flag, leftover symbol, RD, error
-  counter). It does not reset the elastic buffer's FIFO or the
-  `ser_rx_clk_i` domain, which reset only with `rst_i` (see
-  [Clocks and reset](HAS.md#clocks-and-reset)), so the FIFO's two sides
-  always reset together.
+- **What `pipe_reset_ni` resets.** PIPE control (PhyStatus, PowerDown,
+  receiver detection), the transmit path (RD, loopback), the decoder's RD,
+  and the error counter with its relock wait. While it is 0, the receive
+  outputs are gated: `pipe_rx_valid_o` 0 and `pipe_rx_status_o` 0. It does
+  not reset the `ser_rx_clk_i` domain, the FIFO, or the elastic buffer's
+  read side (started flag, leftover symbol, recentring); those reset only
+  with `rst_i` (see [Clocks and reset](HAS.md#clocks-and-reset)). The
+  read side keeps reading and discarding words during a PIPE reset, so the
+  buffer stays near its nominal fill instead of filling behind it.
 
 ## PowerDown
 
@@ -140,4 +144,10 @@ revisited.
 | RxElecIdle is asynchronous [cite: PIPE Spec, rev 3.0, §5.1]. | Synchronized to `clk_i`. | Stricter; the MAC samples it like any PIPE input. |
 | In P2 the PHY stops PCLK; PhyStatus rises before PCLK stops and, on exit, stays high until PCLK is stable [cite: PIPE Spec, rev 3.0, §6.3]. | `clk_i` (PCLK) keeps running in P2; entry and exit are acknowledged with the same one-cycle pulse as every change. | PCLK is the stack's core clock, not a PHY output ([`phy` decisions](../phy/HAS.md#decisions)). |
 | In P2 with TxElecIdle 0 the PHY sends a beacon [cite: PIPE Spec, rev 3.0, §6.9]. | No beacon; the transmitter stays idle in P2. | Beacon is out of scope ([`phy` HAS](../phy/HAS.md#link-up-and-requests)). |
-| Loopback, polarity and receive latencies are the PHY vendor's to state [cite: PIPE Spec, rev 3.0, §6.19]. | Fixed here: two cycles to transmit, the next word for polarity, and the [targets](HAS.md#targets). | A testable contract. |
+
+**Values PIPE leaves to the PHY.** Transmit, receive and loopback-enable
+latencies are the PHY's to state [cite: PIPE Spec, rev 3.0, §6.19]; this
+PCS fixes them at two cycles to transmit and the RX latency of the
+[targets](HAS.md#targets). PIPE bounds polarity inversion at 20 PCLK
+cycles [cite: PIPE Spec, rev 3.0, §6.16]; this PCS inverts from the next
+word, well within it.

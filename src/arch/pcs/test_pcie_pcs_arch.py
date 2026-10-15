@@ -134,7 +134,7 @@ def run(ppm, seed=1, **kw):
 def test_elastic_buffer_is_lossless_and_corrects_toward_the_offset(ppm):
     syms, _, st = run(ppm)
     assert st["overflow"] == st["underflow"] == st["wrong"] == 0
-    assert m.EB_LOW - 2 <= st["fill_min"] and st["fill_max"] <= m.EB_HIGH + 2
+    assert 4 <= st["fill_min"] and st["fill_max"] <= 12     # HAS Targets
     if ppm > 0:
         assert st["skp_removed"] > 0 and st["skp_added"] <= 1
     if ppm < 0:
@@ -147,6 +147,20 @@ def test_bit_slip_requests_relock_and_lock_returns():
     _, ln, st = run(300, slips=2, packets=300)
     assert len(ln.slips) == 2 and st["relocks"] == 2
     assert st["locks"] == 3
+
+
+@pytest.mark.parametrize("seed", [1, 2, 3])
+def test_relock_rearms_in_comma_dense_traffic(seed):
+    """A relock in training sets can retake lock in the same cycle, so
+    RxValid need not fall; the lock generation must still re-arm it."""
+    rng = random.Random(seed)
+    syms, idles = m.make_stream(rng, 2, "dllp", 6, 1180, 0, 0, lead_ts=3000)
+    ln = m.channel(rng, m.tx_encode(syms)[0], idles, 12, 0)
+    st = m.receive(ln, syms, 300, seed)
+    slips = [(b // 20) * st["t_rx"] for b in ln.slips] + [1e30]
+    for a, b in zip(slips, slips[1:]):
+        assert any(a <= r < b for r in st["relock_req"]), "slip without a relock"
+    assert len(st["gen_starts"]) == len(ln.slips) + 1
 
 
 def test_isolated_errors_never_cost_lock():

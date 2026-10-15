@@ -8,11 +8,11 @@ workload:
   ppm: 300
   slips: 6
 targets:
-  eb_fill_symbols_min: {min: 2}
-  eb_fill_symbols_max: {max: 14}
+  eb_fill_symbols_min: {min: 4}
+  eb_fill_symbols_max: {max: 12}
   eb_write_view_words_max: {max: 12}
   eb_overflows: {max: 0}
   eb_underflows: {max: 0}
-  slips_detected: {min: 6}
+  slips_missed: {max: 0}
   slip_detect_cycles_max: {max: 32}
   lock_to_rx_valid_cycles_max: {max: 10}

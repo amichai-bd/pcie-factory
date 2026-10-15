@@ -14,7 +14,7 @@ from cocotb.triggers import FallingEdge
 
 from regress.funcov import Covergroup
 
-# Reset values of the outputs (wiki/src/arch/pcs/HAS.md#reset).
+# Reset values of the outputs (wiki/src/arch/pcs/HAS.md#reset-values).
 RESET_VALUES = {
     "pipe_rx_valid_o": 0,
     "pipe_phy_status_o": 1,

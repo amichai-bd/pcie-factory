@@ -27,8 +27,8 @@ import random
 from array import array
 
 import pcie_pcs_8b10b as code8b10b
-from pcie_pcs_8b10b import (K_COM, K_END, K_FTS, K_SKP, K_STP, decode, encode,
-                            has_comma, raw_is)
+from pcie_pcs_8b10b import (K_COM, K_END, K_FTS, K_PAD, K_SKP, K_STP, decode,
+                            encode, has_comma, raw_is)
 
 # ---------------------------------------------------------------- constants
 
@@ -44,12 +44,12 @@ EB_ADDR_W = 4                 # 16 words of two symbols
 EB_WORDS = 1 << EB_ADDR_W
 EB_NOMINAL = 8                # visible fill, symbols
 EB_WINDOW = 16                # visible-fill window the budget states
-EB_HIGH = EB_NOMINAL + 2      # fill-high level at or above this
-EB_LOW = EB_NOMINAL - 2       # add a SKP at or below this
+EB_HIGH = EB_NOMINAL + 1      # fill-high level at or above this
+EB_LOW = EB_NOMINAL - 1       # add a SKP at or below this
 EB_HOLDOFF_WORDS = 8          # unlocked recentring: one word per 8 cycles
 
 # Symbol lock (HAS, Comma alignment and symbol lock).
-ERR_LIMIT = 4                 # errored words that request a relock
+ERR_LIMIT = 3                 # errored words that request a relock (one bit error marks at most 2)
 ERR_DECAY_WORDS = 8           # clean words that forgive one
 
 # PIPE control timing (HAS, PIPE control), clk_i cycles.
@@ -131,16 +131,14 @@ def make_stream(rng: random.Random, packets: int, mix: str, tlp_bytes: int,
                 skp_interval: int, idle_gaps: int, idle_symbols: int,
                 lead_ts: int = 32) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
     """The symbol stream a partner sends: ``lead_ts`` training ordered sets
-    (COM and 15 data symbols), then back-to-back packets (STP, random data
-    standing in for scrambled bytes, END), with a SKP ordered set (COM and
-    three SKP) every ``skp_interval`` symbols, deferred to the end of a
-    packet. ``idle_gaps`` electrical-idle gaps of ``idle_symbols`` are spread
+    (COM, two PAD, N_FTS, rate, control, ten TS1 identifiers D10.2), then
+    back-to-back packets (STP, random data standing in for scrambled bytes,
+    END), with a SKP ordered set (COM and three SKP) every ``skp_interval``
+    symbols throughout, deferred to the end of an ordered set or packet. ``idle_gaps`` electrical-idle gaps of ``idle_symbols`` are spread
     between packets; each is followed by 32 FTS ordered sets (COM and three
     FTS) to regain lock. Returns the symbols and the idle ranges."""
     out: list[tuple[int, int]] = []
     idles: list[tuple[int, int]] = []
-    for _ in range(lead_ts):
-        out.extend([(1, K_COM)] + [(0, 0x4A)] * 15)
     credit = 0
     every = max(1, packets // (idle_gaps + 1)) if idle_gaps else 0
 
@@ -150,6 +148,12 @@ def make_stream(rng: random.Random, packets: int, mix: str, tlp_bytes: int,
             credit -= skp_interval
             out.extend([(1, K_COM), (1, K_SKP), (1, K_SKP), (1, K_SKP)])
             credit += 4
+
+    ts1 = [(1, K_COM), (1, K_PAD), (1, K_PAD), (0, 0x80), (0, 0x02), (0, 0x00)] + [(0, 0x4A)] * 10
+    for _ in range(lead_ts):
+        boundary()
+        out.extend(ts1)
+        credit += len(ts1)
 
     for p in range(packets):
         boundary()
@@ -290,10 +294,10 @@ class _Reg:
 class _Sym:
     """One symbol in the receive path."""
 
-    __slots__ = ("code", "lock", "t_in", "txpos", "removed_before", "ovf")
+    __slots__ = ("code", "lock", "gen", "t_in", "txpos", "removed_before", "ovf")
 
-    def __init__(self, code: int, lock: int, t_in: float, txpos: int) -> None:
-        self.code, self.lock, self.t_in, self.txpos = code, lock, t_in, txpos
+    def __init__(self, code: int, lock: int, gen: int, t_in: float, txpos: int) -> None:
+        self.code, self.lock, self.gen, self.t_in, self.txpos = code, lock, gen, t_in, txpos
         self.removed_before = False
         self.ovf = False
 
@@ -315,6 +319,7 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
     in_t = prev_t = 0.0
     idle_q = idle_prev_q = 1
     lock = 0
+    gen = 0                      # lock generation: flips at every lock acquisition
     offset = 0
     aligned: list[_Sym] = []
     hold: list[_Sym] = []
@@ -344,6 +349,8 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
     err_count = 0
     clean = 0
     relock_wait = False
+    wait_gen = 0
+    last_gen = -1
     read_holdoff = 0
 
     st = {"overflow": 0, "underflow": 0, "skp_added": 0, "skp_removed": 0,
@@ -355,6 +362,7 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
     lock_events: list[float] = []        # RX lock acquired (time)
     first_valid_after: list[float] = []  # PIPE RxValid rising (time)
     relock_req_times: list[float] = []
+    gen_starts: list[float] = []         # first PIPE word of each lock generation
     delivered_txpos: list[int] = []
     last_valid = 0
 
@@ -413,7 +421,7 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
             if not lock and not idle_q and not idle_prev_q:
                 for p in range(20):
                     if has_comma((window >> p) & 0x3FF):
-                        lock, offset = 1, p % 10
+                        lock, offset, gen = 1, p % 10, gen ^ 1
                         lock_events.append(t)
                         st["locks"] += 1
                         break
@@ -425,7 +433,7 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
                 tp = tx_all[p]
                 if tp >= 0 and (tp % 10 or any(tx_all[p + i] != tp + i for i in range(10))):
                     tp = -1
-                aligned.append(_Sym(c, lock, in_t if p + 10 > 20 else prev_t, tp // 10 if tp >= 0 else -1))
+                aligned.append(_Sym(c, lock, gen, in_t if p + 10 > 20 else prev_t, tp // 10 if tp >= 0 else -1))
             # Input register.
             in_prev_q, prev_txpos, prev_t, idle_prev_q = in_q, in_txpos, in_t, idle_q
             base = 20 * n
@@ -519,7 +527,13 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
                 status_counts[status] += 1
                 if not last_valid:
                     first_valid_after.append(t)
-                    err_count = clean = 0
+                g = out[-1][0].gen
+                if g != last_gen:
+                    err_count = clean = 0        # a new locked run
+                    last_gen = g
+                    gen_starts.append(t)
+                if relock_wait and g != wait_gen:
+                    relock_wait = False          # the aligner has relocked
                 errored = any(ce or de for _, _, _, ce, de in out)
                 if relock_wait:
                     pass
@@ -530,7 +544,7 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
                         relock_toggle.set(relock_toggle.value ^ 1, t)
                         relock_req_times.append(t)
                         st["relocks"] += 1
-                        err_count, relock_wait = 0, True
+                        err_count, relock_wait, wait_gen = 0, True, g
                 else:
                     clean += 1
                     if clean >= ERR_DECAY_WORDS:
@@ -544,8 +558,6 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
                     delivered_txpos.append(s.txpos)
                     if not ce and sent[s.txpos] != (k, b):
                         st["wrong"] += 1
-            else:
-                relock_wait = False
             last_valid = valid
         else:
             last_valid = 0
@@ -557,6 +569,7 @@ def receive(line: Line, sent: list[tuple[int, int]], ppm: float, seed: int,
     st["status_counts"] = status_counts
     st["lock_events"] = lock_events
     st["valid_rise"] = first_valid_after
+    st["gen_starts"] = gen_starts
     st["relock_req"] = relock_req_times
     st["delivered_txpos"] = delivered_txpos
     st["t_rx"] = t_rx
@@ -709,7 +722,8 @@ def code_properties() -> dict[str, int]:
 
 _KINDS = {
     "link": {"kind", "packets", "mix", "tlp_bytes", "skp_interval", "ppm",
-             "slips", "errors", "idle_gaps", "idle_symbols", "polarity"},
+             "slips", "errors", "idle_gaps", "idle_symbols", "polarity",
+             "training_sets"},
     "pipe": {"kind", "rxdet"},
     "code": {"kind"},
 }
@@ -753,7 +767,9 @@ def link(workload: dict, seed: int) -> dict[str, float]:
     polarity = workload.get("polarity", False)
     if not isinstance(polarity, bool):
         raise ValueError("workload.polarity: expected true or false")
-    syms, idles = make_stream(rng, packets, mix, tlp_bytes, interval, gaps, idle_symbols)
+    training = _int(workload, "training_sets", 32, 1, 100_000)
+    syms, idles = make_stream(rng, packets, mix, tlp_bytes, interval, gaps, idle_symbols,
+                              lead_ts=training)
     codes, _ = tx_encode(syms)
     tx = line_stats(codes)
     line = channel(rng, codes, idles, slips, errors, polarity)
@@ -774,20 +790,31 @@ def link(workload: dict, seed: int) -> dict[str, float]:
         lost = sum(1 for a, b in zip(d, exp) if a != b)
         tail = len(expected) - first - len(d)
         lost += max(0, tail - IN_FLIGHT_SYMBOLS)   # the last symbols still in flight
-    # Slips: time to the relock request and to RxValid again.
+    # Slips: time to the relock request, before the next slip, and to the
+    # first word of the new lock on PIPE.
+    # A slip while the aligner is already hunting (after a relock request,
+    # before the lock that answers it) needs no detection and is skipped.
     detect, recover = [], []
-    for b in line.slips:
-        ts = bit_time(b)
+    slip_times = [bit_time(b) for b in line.slips]
+    in_lock = 0
+    for ts, nxt in zip(slip_times, slip_times[1:] + [1e30]):
+        last_req = max([x for x in st["relock_req"] if x <= ts], default=None)
+        if last_req is not None and _after(st["lock_events"], last_req) is None:
+            continue
+        if last_req is not None and _after(st["lock_events"], last_req) > ts:
+            continue
+        in_lock += 1
         r = _after(st["relock_req"], ts)
-        v = _after(st["valid_rise"], r) if r is not None else None
-        if r is not None:
-            detect.append((r - ts) / CORE_NS)
+        if r is None or r >= nxt:
+            continue
+        detect.append((r - ts) / CORE_NS)
+        v = _after(st["gen_starts"], r)
         if v is not None:
             recover.append((v - ts) / CORE_NS)
     # Lock: from each lock acquisition to RxValid on PIPE.
     lock_lat = []
     for tl in st["lock_events"]:
-        v = _after(st["valid_rise"], tl)
+        v = _after(st["gen_starts"], tl)
         if v is not None:
             lock_lat.append((v - tl) / CORE_NS)
     # Errors: every flipped bit is reported, as a code or disparity error.
@@ -813,6 +840,7 @@ def link(workload: dict, seed: int) -> dict[str, float]:
         "lock_to_rx_valid_cycles_max": round(max(lock_lat), 3) if lock_lat else 0,
         "slips_injected": len(line.slips),
         "slips_detected": len(detect),
+        "slips_missed": in_lock - len(detect),
         "slip_detect_cycles_max": round(max(detect), 3) if detect else 0,
         "slip_recover_cycles_max": round(max(recover), 3) if recover else 0,
         "errors_injected": len(line.errors),
@@ -828,7 +856,8 @@ def link(workload: dict, seed: int) -> dict[str, float]:
 def perf(workload: dict, seed: int) -> dict[str, float]:
     """Measure one workload against the HAS targets.
 
-    ``kind: link``: a partner sends ``lead`` training sets then ``packets``
+    ``kind: link``: a partner sends ``training_sets`` training ordered sets
+    (default 32; a COM every 16 symbols, so comma-dense) then ``packets``
     packets (``mix`` ``tlp`` of ``tlp_bytes``, ``dllp`` or ``random``) with
     a SKP ordered set every ``skp_interval`` symbols; the channel applies
     ``ppm``, ``slips`` bit slips, ``errors`` single-bit flips, ``idle_gaps``

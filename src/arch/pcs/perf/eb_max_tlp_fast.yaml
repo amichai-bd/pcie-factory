@@ -9,8 +9,8 @@ workload:
   skp_interval: 1538
   ppm: 600
 targets:
-  eb_fill_symbols_min: {min: 2}
-  eb_fill_symbols_max: {max: 14}
+  eb_fill_symbols_min: {min: 4}
+  eb_fill_symbols_max: {max: 12}
   eb_write_view_words_max: {max: 12}
   eb_overflows: {max: 0}
   eb_underflows: {max: 0}

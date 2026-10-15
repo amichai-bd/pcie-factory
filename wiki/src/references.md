@@ -34,7 +34,7 @@ how. External links are not fetched in CI.
 | Official link | [PCI-SIG specifications](https://pcisig.com/specifications) |
 | Access | Members only (download for PCI-SIG members); hard copies for purchase. |
 | Local cache | `local`: the captain places a copy they hold under their own license at `./build specs path --local pcie-base`; the factory works without it. |
-| Relied on by | [`phy` HAS](arch/phy/HAS.md) and its [architecture model](../../src/arch/phy/pcie_phy_arch.py); the `mac` and `pcs` HAS pages ([#72](https://github.com/amichai-bd/pcie-factory/issues/72), [#73](https://github.com/amichai-bd/pcie-factory/issues/73)). |
+| Relied on by | [`phy` HAS](arch/phy/HAS.md) and its [architecture model](../../src/arch/phy/pcie_phy_arch.py); the [`pcs` HAS](arch/pcs/HAS.md) and its [architecture model](../../src/arch/pcs/pcie_pcs_arch.py); the `mac` HAS ([#72](https://github.com/amichai-bd/pcie-factory/issues/72)). |
 | Verified | The publisher's domain answers, behind a bot challenge that blocks automated reads; the page content was not read. |
 
 ## pipe
@@ -48,7 +48,7 @@ how. External links are not fetched in CI.
 | Official link | [Intel download (PDF)](https://www.intel.com/content/dam/doc/white-paper/usb3-phy-interface-pci-express-paper.pdf) |
 | Access | Free download; its license allows reproduction for internal use only. |
 | Local cache | Downloaded and pinned by sha256 in [`src/specs.yaml`](../../src/specs.yaml). |
-| Relied on by | [`phy` HAS](arch/phy/HAS.md) and its [PIPE page](arch/phy/PIPE.md); `pcs` ([#73](https://github.com/amichai-bd/pcie-factory/issues/73)). |
+| Relied on by | [`phy` HAS](arch/phy/HAS.md) and its [PIPE page](arch/phy/PIPE.md); the `pcs` [PIPE control](arch/pcs/PIPE_CONTROL.md) and [receive path](arch/pcs/RECEIVE.md) pages. |
 | Verified | Downloaded; the title page states Version 3.0. The publisher's later revisions are separate documents and are not used. |
 
 ## 8b10b
@@ -61,7 +61,7 @@ how. External links are not fetched in CI.
 | Publisher | IBM |
 | Official link | [DOI 10.1147/rd.275.0440](https://doi.org/10.1147/rd.275.0440) |
 | Access | Publisher's paywall (subscription or purchase). |
-| Relied on by | The 8b/10b coding in the [`phy` HAS](arch/phy/HAS.md) and `pcs` ([#73](https://github.com/amichai-bd/pcie-factory/issues/73)). |
+| Relied on by | The 8b/10b coding in the [`phy` HAS](arch/phy/HAS.md) and the `pcs` [8b/10b page](arch/pcs/8B10B.md) and [model](../../src/arch/pcs/pcie_pcs_8b10b.py). |
 | Verified | The DOI resolves to the publisher's article page; title, authors, journal, volume, issue, pages and year read from the DOI registry record. |
 
 ## de2-115
