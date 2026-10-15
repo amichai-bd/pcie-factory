@@ -360,6 +360,8 @@ package pcie_mac_pkg;
     logic      resync;  // after a framing error: discard to STP, SDP, END or EDB
     logic      hold_v;  // one byte waiting for its pair
     logic      pend_v;  // a full beat waiting to learn whether it is the last
+    logic      tail_v;     // a packet ended by EDB in [15:8]: its beat waits a word
+    logic      tail_ferr;  // EDB in [15:8] outside a packet: its error waits a word
   } t_fr_rx_ctl;
 
   localparam t_fr_rx_ctl FR_RX_CTL_RESET = '{os: OS_NONE, default: '0};
@@ -373,6 +375,7 @@ package pcie_mac_pkg;
     t_byte      hold;
     t_beat_data pend;
     logic       pend_sop;
+    t_rx_beat   tail;       // the eop beat of a packet ended by EDB in [15:8]
   } t_fr_rx_data;
 
   typedef struct packed {

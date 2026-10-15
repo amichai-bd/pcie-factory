@@ -226,7 +226,34 @@ Each packet reaches the upper stream as beats:
   both.
 - A packet cut short by the LTSSM leaving L0 or `Rx_L0`, electrical idle
   or loss of `pipe_rx_valid_i` still ends with an `eop` beat carrying
-  `err`.
+  `err`. Cut by electrical idle or `pipe_rx_valid_i` 0 while in `Rx_L0`,
+  it also counts one framing error, a [receiver error](#receiver-errors):
+  every packet must end with END or EDB
+  [cite: PCIe Base Spec, rev 3.0, §4.2.1.2]. Cut by leaving L0 or
+  `Rx_L0` it counts none.
+- **Idle tail.** When the line goes into electrical idle in the second
+  half of a word, the PCS still delivers that word under RxValid 1 with no
+  error, with an EDB the line never carried in `[15:8]`; the next word has
+  `pipe_rx_elec_idle_i` 1 ([PCS receive path](../pcs/RECEIVE.md#decode-and-rxstatus),
+  [differences from PIPE](../pcs/PIPE_CONTROL.md#differences-from-pipe)).
+  The word alone cannot tell it from a received EDB, so an EDB in `[15:8]`
+  counts only once the next word is received (`pipe_rx_valid_i` 1,
+  `pipe_rx_elec_idle_i` 0). If it is not, the EDB is not a received symbol
+  and the stream was cut after `[7:0]`:
+  - Inside a packet (the line idled mid-TLP without an EIOS), the packet
+    ends bad as a cut, with the framing error above, never nullified.
+  - Outside a packet it is no error. This covers the last IDL of an EIOS
+    in `Rx_L0`, for example at an upstream port that has requested L1 or
+    L2 and not yet started its wait, so it is still in `Rx_L0`
+    ([arcs, L0](ARCS.md#l0); [cite: PCIe Base Spec, rev 3.0, §4.2.6.5]).
+  - Either way the outcome is known one word later: a packet ended by EDB
+    in `[15:8]` reaches the upper stream one cycle later than one ended by
+    END, and a framing error for an EDB in `[15:8]` outside a packet is
+    reported with the next word, only if that word is received.
+  - A received EDB in `[15:8]` followed at once by a loss of lock
+    (`pipe_rx_valid_i` 0) is treated the same way, as a cut. This is
+    harmless: the TLP is discarded either way, and the receiver error is
+    still counted.
 - A packet with no data byte (STP or SDP followed at once by its end) is
   never delivered; in L0 it counts as a framing error unless leaving
   `Rx_L0` cut it ([symbols page](SYMBOLS.md#receive)).
@@ -272,6 +299,8 @@ pulse.
 | Disable Scrambling and Compliance Receive never sent; a received Disable Scrambling is honoured ([symbols page](SYMBOLS.md#scrambling)), Compliance Receive ignored; no modified compliance pattern and no directed compliance entry | No configuration space in M1 to request them; a partner that disables scrambling must still interoperate; Polling.Compliance is reached by the electrical-idle path. | Ignoring a received Disable Scrambling (the link would not come up with such a partner); sending them. |
 | Control states: Disabled sends 16 TS1 then one EIOS; a following port leaves on an EIOS then EI exit, or after 2 ms with no EIOS; a following Hot Reset restarts its 2 ms dwell on each TS1 that keeps a run of 2 with the bit; the Loopback master gives up after 2 ms without its echo; Loopback.Exit holds electrical idle 20 ns; TS link and lane are those of the state left ([LTSSM page](LTSSM.md#what-each-state-transmits)) | Each port leaves on what it can observe; the directing port controls how long the pair stays; fixed counts keep model and RTL step for step. | Timers only, without the EIOS (a follower could leave before the directing port's EIOS). |
 | A DLLP ended by EDB is an error, not a nullify | DLLPs cannot be nullified. | Reporting it as nullified. |
+| An EDB in `[15:8]` counts only if the next word is received ([idle tail](#receive), #197) | The PCS's idle-tail EDB is identical to a received EDB in its own word; only the next word, in electrical idle, tells them apart. Waiting one word costs one cycle on that packet's `eop` and, for well-formed packets, nothing on `sop`; one rule covers the idle mid-TLP and the EIOS tail in every LTSSM state. A partner that idles straight after an EDB, without an EIOS, is then also a cut. | Reading the next word from the PIPE input pins (an unregistered path into the frame, and a model that needs the next word); `rx_l0` 0 once an EIOS is noted for L1 or L2 (fixes only that case; every other EIOS tail would still rely on the LTSSM leaving `Rx_L0` before the tail word, a zero-cycle margin); changing the PCS's idle tail (#182). |
+| A packet cut by electrical idle or RxValid 0 in `Rx_L0` is a framing error | It did not end with END or EDB; the idle mid-TLP case must give a receiver error, and the same cut one symbol earlier must not differ. No resync: nothing follows until the line is received again. | An error for the idle-tail cut only. |
 | Reset wins over ready from `sop` to `eop` | Reset must be immediate; the upper layer is reset with the MAC. | Finishing the packet in reset. |
 | The architecture model is also the DV link partner | One statement of the LTSSM serves the arch and the DV (Q4); its injection hooks reach every arc. | A separate DV-only partner. |
 | Shared codes in `common_pkg`, private types in `pcie_mac_pkg` | One source for each code and type, referenced by package name (Q22, Q24). | Literals or copies in each block. |
@@ -297,7 +326,7 @@ the MAC.
 | Throughput | For back-to-back packets of n bytes, at least 2 x n/(n+2) x 1176/1180 bytes per cycle: at least 1.97 for 274-byte TLPs, 1.49 for DLLPs. | `tlp_274`, `dllp` |
 | Lossless | Random TLPs and DLLPs, nullified TLPs, any SKP interval: every packet delivered with its flags, no framing error. | `mixed` |
 | TX latency | At most 3 cycles from an accepted beat to its first symbol on `pipe_tx_data_o`. | budget, `MacBudget` |
-| RX latency | At most 3 cycles from a packet's first symbol on `pipe_rx_data_i` to its `sop` beat, plus 1 when it starts in `[15:8]`. | budget, `MacBudget` |
+| RX latency | At most 3 cycles from a packet's first symbol on `pipe_rx_data_i` to its `sop` beat, plus 1 when it starts in `[15:8]`. A packet whose only beat ends with EDB in `[15:8]` (2 bytes or fewer, never a well-formed TLP or DLLP) takes 1 more: that beat is also its `eop`, which waits for the next word ([idle tail](#receive)). | budget, `MacBudget` |
 | Arc coverage | The link-partner model drives every arc of the [arc list](ARCS.md) (64) on the other model, in each port role. | `arc_smoke` (ci-gate), `partner_arc_sweep` (level 2) |
 | Clock | 125 MHz on the `phy` ASIC flow and 50 MHz on the `phy` FPGA (DE2-115) flow. The FPGA figure is a timing and resource target only, with no board bring-up at line rate; the design's rates, including PIPE at 125 MHz, are unchanged ([Q26](../../decisions/0002-m1-grill.md#decisions)). | `phy` flows |
 
