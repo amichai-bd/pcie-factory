@@ -1,16 +1,16 @@
 # pcie_phy DV plan
 
-> **Scaffold, wave 2:** every layer runs as a model today. The stack RTL
-> of [#86](https://github.com/amichai-bd/pcie-factory/issues/86) takes it over.
+> **In progress:** the stack is RTL; [#86](https://github.com/amichai-bd/pcie-factory/issues/86)
+> part 2 moves the acceptance entries to it.
 
 ## Strategy
 
-- **Shell test:** [`tests/test_phy.py`](../../../../src/dv/phy/tests/test_phy.py)
-  drives `pcie_phy` directly. With `clk_i` and a slightly offset
-  `ser_rx_clk_i` running and every input toggled at random, it checks each
-  output against its [reset value](../../arch/phy/HAS.md#clocks-and-resets)
-  at every falling `clk_i` edge, in both port roles. The `phy_shell`
-  covergroup bins `port_role` and `rst`, crossed.
+- **Reset contract:** an RTL port (`RtlPort`) checks every output against
+  its [reset value](../../arch/phy/HAS.md#clocks-and-resets) at each
+  falling edge that follows a rising edge with `rst_i` high. While in
+  reset, the upper-layer inputs (packet stream and link requests, not
+  `port_role_i`) toggle at random. This is checked in the first reset, in
+  both port roles, and in resets asserted while packets flow.
 - **Back-to-back e2e:**
   [`tests/test_phy_e2e.py`](../../../../src/dv/phy/tests/test_phy_e2e.py)
   joins a downstream and an upstream stack, port a and port b, over the
@@ -24,7 +24,8 @@
   holds two `pcie_phy` instances, each on its own clock, with each one's
   `ser_rx_clk_i` the far port's clock (the recovered clock follows the far
   transmitter). Every other `pcie_phy` port is a top port prefixed `a_` or
-  `b_`. `a_clk_i` runs at 125 MHz and `b_clk_i` `ppm` off it, with period
+  `b_`. With the layers as models, the instances are held in reset.
+  `a_clk_i` runs at 125 MHz and `b_clk_i` `ppm` off it, with period
   8 ns × (1 + ppm × 10⁻⁶): **a positive ppm makes b the slower clock**. The
   edges are dithered to the picosecond so the average offset is exact.
 - **Environment:**
@@ -72,11 +73,12 @@
   out of order.
 - **Functional coverage:** `phy_e2e_layers` (mac, pcs and channel, each
   `model` or `rtl`, mac crossed with pcs, `tx_scrambler`: the mac
-  model's own or the block, and `tx_encoder`: the pcs stand-in's own or
-  the block), the coverage hook that
+  model's own, the block's cycle model, or `rtl` when the mac layer is RTL;
+  `tx_encoder`: the same for the pcs stand-in), the coverage hook that
   records which layers were RTL in each run; `phy_e2e_run` (port a's role,
   the offset ±300, ±600 or other, crossed); `phy_e2e_events`
-  (impairment, recovery directed or autonomous); `phy_e2e_packets`
+  (impairment, recovery directed or autonomous, reset of port a or b while
+  packets flow); `phy_e2e_packets`
   (direction, kind tlp, dllp or tlp_nullified, size, direction crossed
   with kind). The run log also names the layers.
 - **Out of scope here:** L0s, L1, L2, Hot Reset, Disabled and Loopback
@@ -96,10 +98,13 @@ echoes them on `cfg_*_o` and the environment builds the ports from them.
 | pcs | `PCS_RTL` | `PcsModel` | `pcie_pcs` inside `u_a`/`u_b` |
 | channel | `CHAN_RTL` | `Channel` in Python: offset, impairments | One register per direction in the top: ideal, no Python per cycle; needs `PCS_RTL` 1 |
 
-Today the RTL side of mac and pcs is the whole `pcie_phy` instance, so the
-two switch together (the environment rejects a mixed choice); with both at
-1 the environment drives the instance pins through `RtlPort`, which has the
-same interface as the model port. The sub-IPs enter the e2e through their
+The RTL side of mac and pcs is the whole `pcie_phy` instance, so the two
+switch together (the environment rejects a mixed choice). With both at 1,
+the environment drives the instance pins through `RtlPort`, which has the
+same interface as the model port. A beat that `RtlPort` offers at a
+falling edge is taken at the next rising edge if `pkt_tx_ready_o`, read at
+that same falling edge, is 1. Ready depends on the MAC state and
+`rst_i`, not on valid, so it holds from one rising edge to the next. The sub-IPs enter the e2e through their
 layer: once `pcie_mac` or `pcie_pcs` instantiates a block, the layer's RTL
 runs it.
 
@@ -139,7 +144,13 @@ The steps, all owned by
 amended acceptance of [#131](https://github.com/amichai-bd/pcie-factory/issues/131)
 delivers the hooks, the cycle-model runs and this recipe):
 
-0. **Scrambler and encoder RTL, transmit** (once a block is in the `phy`
+0. **Done by the whole stack.** The `pcie_mac_scrambler` and
+   `pcie_pcs_enc8b10b` RTL run inside the RTL layers in every
+   `MAC_RTL`/`PCS_RTL` entry, and the `tx_scrambler` and `tx_encoder` `rtl`
+   bins record them. Per-block adapters would only duplicate that, so none
+   were added. The hooks stay as model references (`e2e_scrambler_block`,
+   `e2e_encoder_block`). The original recipe, kept for a future per-block
+   swap: **Scrambler and encoder RTL, transmit** (once a block is in the `phy`
    build: it is reached through `mac.rtl.f` or `pcs.rtl.f`, which `phy.rtl.f` includes only with
    [#86](https://github.com/amichai-bd/pcie-factory/issues/86); a `.dv.f`
    never lists RTL). Add a `pcie_mac_scrambler` instance per port to the top
@@ -156,14 +167,15 @@ delivers the hooks, the cycle-model runs and this recipe):
    after its inputs, the RTL adds a cycle of latency over the model, which
    the hook absorbs because it takes electrical idle from `valid_o`.
 
-1. **Whole stack.** When `pcie_phy` integrates `pcie_mac` and `pcie_pcs`,
-   add `params: {MAC_RTL: 1, PCS_RTL: 1}` to copies of the e2e entries (or
-   flip existing ones). The shell-contract part of `e2e_rtl_shell` and
-   `e2e_rtl_shell_chan` (`shell_contract` in the test module) then fails by
-   design and is removed; their RTL-plumbing part (`rtl_plumbing`: the
-   `cfg_*_o` echo, `RtlPort` for both ports, `rst_i` and `port_role_i`
-   driven through reset per role) stays. `CHAN_RTL: 1` gives a fast ideal-channel run of the same tests
-   minus the impairments.
+1. **Whole stack.** `pcie_phy` integrates `pcie_mac` and `pcie_pcs`. The
+   shell-contract checks are gone: `e2e_rtl_shell` and `e2e_rtl_shell_chan`
+   became `e2e_rtl_link` and `e2e_rtl_link_chan` (see the
+   [mapping](#removed-checks)). Their RTL-plumbing part stays
+   (`rtl_plumbing`: the `cfg_*_o` echo, `RtlPort` for both ports, `rst_i`
+   and `port_role_i` driven through reset per role). The acceptance entries
+   gain `params: {MAC_RTL: 1, PCS_RTL: 1}` in the second part of
+   [#86](https://github.com/amichai-bd/pcie-factory/issues/86). `CHAN_RTL: 1`
+   runs the same tests over an ideal channel, minus the impairments.
 2. **One layer RTL, the other a model.** With `mac.rtl.f` and `pcs.rtl.f`
    reached from `phy.rtl.f`, add per-port `pcie_mac` and `pcie_pcs`
    instances to the top behind the parameters, with their PIPE nets as top
@@ -175,10 +187,9 @@ delivers the hooks, the cycle-model runs and this recipe):
 
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
-| [Reset values of the shell, both roles](../../arch/phy/HAS.md#clocks-and-resets) | `smoke` | 0 | 1; 128 cycles with random inputs |
 | [Link-up](../../arch/phy/HAS.md#link-up-and-requests), [packet stream](../../arch/phy/HAS.md#packet-stream) both ways, a symbol-error burst and a directed retrain, all models | `e2e_smoke` | 0 | 1; dsp first, b +300 ppm |
-| RTL path of the switch, channel model: `cfg_*_o` echo, `RtlPort` for both instances, `rst_i` and `port_role_i` through reset per role; then the shell reset contract with traffic queued | `e2e_rtl_shell` | 0 | 1; `MAC_RTL` 1, `PCS_RTL` 1; usp first, -300 ppm |
-| The same with the RTL channel (the top joins the lines; the environment steps only the ports) | `e2e_rtl_shell_chan` | 0 | 1; `MAC_RTL` 1, `PCS_RTL` 1, `CHAN_RTL` 1 |
+| The RTL stack, channel model. RTL path: `cfg_*_o` echo, `RtlPort` for both instances, `rst_i` and `port_role_i` through reset per role. [Reset values](../../arch/phy/HAS.md#clocks-and-resets) with the upper-layer inputs random. [Link-up](../../arch/phy/HAS.md#link-up-and-requests) to L0, then 16 packets each way, lossless. Both ports reset while packets flow, once together and once with b up to 64 cycles later: reset values held, back to L0, and 8 packets each way lossless after each | `e2e_rtl_link` | 0 | 2; `MAC_RTL` 1, `PCS_RTL` 1; usp first, -300 ppm |
+| The same over the RTL channel (the top joins the lines; the environment steps only the ports) | `e2e_rtl_link_chan` | 0 | 1; `MAC_RTL` 1, `PCS_RTL` 1, `CHAN_RTL` 1 |
 | [Lossless](../../arch/phy/HAS.md#targets) at ±600 ppm and ±300 ppm, each port-role order: random mix, TLPs up to 1046 bytes, DLLPs | `e2e_dsp_first_pos600`, `e2e_dsp_first_neg300`, `e2e_usp_first_neg600`, `e2e_usp_first_pos300` | 1 | 1 each |
 | Symbol errors each way: flagged or lost packets only, directed Recovery, lossless after | `e2e_symbol_errors` | 1 | 2; usp first, +600 ppm |
 | Bit slips each way: relock, directed Recovery, lossless after | `e2e_bit_slips` | 1 | 2; dsp first, -600 ppm |
@@ -187,10 +198,19 @@ delivers the hooks, the cycle-model runs and this recipe):
 | 8b/10b transmit by the `pcs_enc8b10b` block (its cycle model) on both ports: train, lossless, a bit slip each way, lossless | `e2e_encoder_block` | 1 | 1; usp first, +600 ppm |
 | Soak: offset from the seed in ±600 ppm, reset skew up to 2000 cycles, six random impairments between lossless phases, TLPs up to 4118 bytes (a 4096-byte payload) | `e2e_soak_dsp_first`, `e2e_soak_usp_first` | 2 | 4 each |
 
+### Removed checks
+
+| Removed check | Now covered by |
+| --- | --- |
+| `smoke` (`tests/test_phy.py`): every output at its reset value in reset, both roles, random inputs | `e2e_rtl_link` and `e2e_rtl_link_chan`: `RtlPort` checks the reset values on every edge in reset, both roles, with random upper-layer inputs. The lower inputs come from the channel. |
+| `smoke`: reset values after reset (the shell's constant outputs) | Dropped: the stack trains after reset ([link-up](../../arch/phy/HAS.md#link-up-and-requests)). |
+| `e2e_rtl_shell(_chan)` `shell_contract`: Detect.Quiet, electrical idle and no beat with traffic queued | Dropped (shell only); replaced by link-up, traffic and resets mid-traffic in `e2e_rtl_link(_chan)` |
+| `e2e_rtl_shell(_chan)` `rtl_plumbing` | Kept unchanged in `e2e_rtl_link(_chan)` |
+
 ## Gaps
 
 | Feature | Owning issue |
 | --- | --- |
-| Any layer as RTL with traffic (`phy_e2e_layers` `rtl` bins are hit only by `e2e_rtl_shell` and `e2e_rtl_shell_chan`), the per-layer instances, the HAS [targets](../../arch/phy/HAS.md#targets) on the RTL | [#86](https://github.com/amichai-bd/pcie-factory/issues/86) |
-| The `pcie_mac_scrambler` and `pcie_pcs_enc8b10b` RTL in the e2e (step 0 above), and replacing the shell-contract part of `e2e_rtl_shell` (step 1) | [#86](https://github.com/amichai-bd/pcie-factory/issues/86) |
+| The acceptance entries (ppm, impairments, soak) with the RTL layers; a port reset alone (its partner waits out the error-path timeouts); the HAS [targets](../../arch/phy/HAS.md#targets) on the RTL (link-up time, throughput, latency); coverage floors | [#86](https://github.com/amichai-bd/pcie-factory/issues/86) |
+| One layer RTL and the other a model (step 2 above); open whether M1 needs it | [#86](https://github.com/amichai-bd/pcie-factory/issues/86) |
 | L0s, L1, L2, Hot Reset, Disabled, Loopback and polarity inversion end to end | [#86](https://github.com/amichai-bd/pcie-factory/issues/86) |
