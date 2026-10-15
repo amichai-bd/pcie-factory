@@ -992,8 +992,10 @@ async def rx_idle_tail(dut):
     line idles mid-TLP with no EIOS) end bad with one receiver error, as
     does the cut one symbol earlier; a received EDB in [15:8] outside a
     packet is one framing error, then resync (the control for the next
-    cases); an EIOS whose last IDL is an idle tail starts receive L0s with
-    no receiver error. Upstream only: an EIOS with an idle tail received in
+    cases), and without the resync when the receiver leaves Rx_L0 as the
+    next word arrives; a 3-byte DLLP from [15:8] ends in the receive
+    queue's second slot, one bad DLLP; an EIOS whose last IDL is an idle
+    tail starts receive L0s with no receiver error. Upstream only: an EIOS with an idle tail received in
     Rx_L0 while the port has L1 requested but has not started its wait (a
     packet of its own on the line) raises no receiver error. The expected
     outcomes come from the HAS, not the shadow; the shadow checks every
@@ -1045,6 +1047,30 @@ async def rx_idle_tail(dut):
                 f"{role}: a received EDB outside a packet, then {after}, gave {pulses} "
                 f"receiver errors, {got}; expected 1 (then resync)")
             await settle(h)
+        # The same EDB, then the receiver leaves Rx_L0 (a retrain 0 to 2
+        # cycles after the word, so the next word arrives as it leaves): the
+        # deferred framing error is taken without a resync (#90). The
+        # shadow checks rcv_err_o and the state every cycle.
+        for delay in range(3):
+            c = Crafter()
+            c.symbols(skp + [IDLE, arch.EDB] + [IDLE] * 40)
+            h.line_hook = c
+            await h.run(2 + delay)
+            h.request(retrain=1)
+            await h.run(40)
+            h.line_hook = None
+            await settle(h)
+        # A wrong-length DLLP of 3 bytes from [15:8] (#90): its last byte is
+        # the second beat pushed in its word, so the receive queue's second
+        # slot carries a DLLP's end. One bad DLLP, one receiver error.
+        c = Crafter()
+        c.symbols(skp + [IDLE, arch.SDP, (0, 1), (0, 2), (0, 3), arch.END] + [IDLE] * 4)
+        pulses, got = await _tail_burst(h, c, "3-byte DLLP")
+        assert [(g[0], g[2], g[3]) for g in got] == [(True, True, False)], (
+            f"{role}: a 3-byte DLLP delivered {got}, expected one bad DLLP")
+        assert pulses == 1, f"{role}: {pulses} receiver errors for a 3-byte DLLP, expected 1"
+        h.line_hook = None
+        await settle(h)
         # An EIOS ending in an idle tail: receive L0s, no receiver error.
         c = Crafter(hold_idle=True)
         c.symbols(skp + eios_odd)
