@@ -52,7 +52,7 @@ Level 1 has no entries yet (`tests: []`).
 | [Scrambling](../../arch/mac/SYMBOLS.md#scrambling) | [#74](https://github.com/amichai-bd/pcie-factory/issues/74) |
 | [Ordered sets and TS fields](../../arch/mac/SYMBOLS.md#ordered-sets) | [#75](https://github.com/amichai-bd/pcie-factory/issues/75) |
 | [Framing](../../arch/mac/SYMBOLS.md#framing), [transmit](../../arch/mac/HAS.md#transmit) and [receive](../../arch/mac/HAS.md#receive) streams | [#76](https://github.com/amichai-bd/pcie-factory/issues/76) |
-| LTSSM arcs: Detect, Polling, Configuration, L0, Recovery | [#77](https://github.com/amichai-bd/pcie-factory/issues/77) |
+| LTSSM arcs: Detect, Polling, Configuration, L0, Recovery, on the `mac` top (the sub-IP alone: [`mac_ltssm` DV plan](../mac_ltssm/DV_PLAN.md)) | [#78](https://github.com/amichai-bd/pcie-factory/issues/78) |
 | The `mac` top against the link partner, [targets](../../arch/mac/HAS.md#targets) | [#78](https://github.com/amichai-bd/pcie-factory/issues/78) |
 | LTSSM arcs: L0s, L1, L2 | [#79](https://github.com/amichai-bd/pcie-factory/issues/79) |
 | LTSSM arcs: Hot Reset, Disabled, Loopback, Polling.Compliance | [#80](https://github.com/amichai-bd/pcie-factory/issues/80) |

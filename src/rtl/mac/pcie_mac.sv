@@ -4,8 +4,8 @@
 // wiki/src/rtl/mac/MAS.md.
 //
 // Wave-1 shell: the ports of the HAS with every output tied to its reset
-// value. The sub-IPs (mac_scrambler, mac_os, mac_frame, mac_ltssm) arrive
-// in wave 2.
+// value. The wave-2 sub-IPs are instanced as they land, inert and
+// unconnected until the integration (#78).
 `default_nettype none
 
 module pcie_mac #(
@@ -76,6 +76,83 @@ module pcie_mac #(
                            pipe_rx_elec_idle_i, pipe_rx_status_i,
                            TIMEOUT_DIV[0], ERR_TIMEOUT_DIV[0], N_FTS[0],
                            L0S_IDLE_CYCLES[0]};
+
+  // Wave-2 sub-IP, elaborated but inert until the integration (#78): the
+  // PCS status is tied to "not ready", so the LTSSM stays in Detect.Quiet,
+  // and its outputs are not connected yet.
+  logic        ltssm_link_up, ltssm_reset_n, ltssm_tx_elec_idle, ltssm_tx_detect_rx;
+  logic        ltssm_rx_polarity, ltssm_tx_ts_req, ltssm_tx_compliance_req, ltssm_tx_ts2;
+  logic        ltssm_tx_link_pad, ltssm_tx_lane_pad, ltssm_tx_l0, ltssm_tx_stop, ltssm_rx_l0;
+  logic [5:0]  ltssm_state;
+  logic [1:0]  ltssm_power_down;
+  logic [7:0]  ltssm_tx_link, ltssm_tx_lane, ltssm_partner_n_fts;
+  logic [2:0]  ltssm_tx_ctl;
+
+  pcie_mac_ltssm #(
+    .TIMEOUT_DIV     (TIMEOUT_DIV),
+    .ERR_TIMEOUT_DIV (ERR_TIMEOUT_DIV)
+  ) u_ltssm (
+    .clk_i               (clk_i),
+    .rst_i               (rst_i),
+    .port_role_i         (port_role_i),
+    .link_up_o           (ltssm_link_up),
+    .ltssm_state_o       (ltssm_state),
+    .retrain_req_i       (1'b0),
+    .hot_reset_req_i     (1'b0),
+    .disable_req_i       (1'b0),
+    .loopback_req_i      (1'b0),
+    .pm_state_req_i      (2'd0),
+    .pipe_reset_no       (ltssm_reset_n),
+    .pipe_tx_elec_idle_o (ltssm_tx_elec_idle),
+    .pipe_tx_detect_rx_o (ltssm_tx_detect_rx),
+    .pipe_rx_polarity_o  (ltssm_rx_polarity),
+    .pipe_power_down_o   (ltssm_power_down),
+    .pipe_phy_status_i   (1'b1),
+    .pipe_rx_valid_i     (1'b0),
+    .pipe_rx_elec_idle_i (1'b1),
+    .pipe_rx_status_i    (3'd0),
+    .tx_ts_req_o         (ltssm_tx_ts_req),
+    .tx_compliance_req_o (ltssm_tx_compliance_req),
+    .tx_ts2_o            (ltssm_tx_ts2),
+    .tx_link_pad_o       (ltssm_tx_link_pad),
+    .tx_link_o           (ltssm_tx_link),
+    .tx_lane_pad_o       (ltssm_tx_lane_pad),
+    .tx_lane_o           (ltssm_tx_lane),
+    .tx_ctl_o            (ltssm_tx_ctl),
+    .os_tx_ack_i         (1'b0),
+    .os_tx_valid_i       (1'b0),
+    .os_tx_last_i        (1'b0),
+    .os_rx_ts_i          (1'b0),
+    .os_rx_ts_bad_i      (1'b0),
+    .os_rx_ts2_i         (1'b0),
+    .os_rx_ts_inv_i      (1'b0),
+    .os_rx_link_i        (8'd0),
+    .os_rx_link_pad_i    (1'b0),
+    .os_rx_link_num_i    (1'b0),
+    .os_rx_lane_i        (8'd0),
+    .os_rx_lane_pad_i    (1'b0),
+    .os_rx_lane_num_i    (1'b0),
+    .os_rx_n_fts_i       (8'd0),
+    .os_rx_ctl_i         (5'd0),
+    .os_rx_skp_i         (1'b0),
+    .os_rx_eios_i        (1'b0),
+    .os_rx_fts_i         (1'b0),
+    .os_rx_os_sym_i      (2'd0),
+    .tx_l0_o             (ltssm_tx_l0),
+    .tx_stop_o           (ltssm_tx_stop),
+    .rx_l0_o             (ltssm_rx_l0),
+    .partner_n_fts_o     (ltssm_partner_n_fts),
+    .fr_tx_idle_i        (1'b0),
+    .fr_rx_idle_i        (2'd0)
+  );
+
+  logic unused_ltssm;
+  assign unused_ltssm = ^{ltssm_link_up, ltssm_reset_n, ltssm_tx_elec_idle,
+                          ltssm_tx_detect_rx, ltssm_rx_polarity, ltssm_tx_ts_req,
+                          ltssm_tx_compliance_req, ltssm_tx_ts2, ltssm_tx_link_pad,
+                          ltssm_tx_lane_pad, ltssm_tx_l0, ltssm_tx_stop, ltssm_rx_l0,
+                          ltssm_state, ltssm_power_down, ltssm_tx_link, ltssm_tx_lane,
+                          ltssm_partner_n_fts, ltssm_tx_ctl};
 
   // Reset values from the HAS: no packet traffic, link down in Detect.Quiet
   // (code 0), PCS held in reset, transmitter in electrical idle, P1.

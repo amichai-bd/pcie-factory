@@ -13,13 +13,15 @@ ports-only shell; later the instances of the four sub-IPs
 The shell drives every output to its
 [reset value](../../arch/mac/HAS.md#reset-values), taking the
 `ltssm_state_o` and PowerDown codes from `pcie_mac_pkg`, and folds every
-input and parameter into one `unused_inputs` net so lint stays clean. It
-instantiates nothing yet; the sub-IP folders, their `-F` lines and their
-MAS pages arrive with
-[#74](https://github.com/amichai-bd/pcie-factory/issues/74),
-[#75](https://github.com/amichai-bd/pcie-factory/issues/75),
-[#76](https://github.com/amichai-bd/pcie-factory/issues/76) and
-[#77](https://github.com/amichai-bd/pcie-factory/issues/77).
+input and parameter into one `unused_inputs` net so lint stays clean.
+`mac.rtl.f` reaches each wave-2 sub-IP with `-F` as it lands, and the shell
+instances it inert, its outputs folded into an `unused_<sub>` net until the
+integration: [`mac_ltssm`](../mac_ltssm/MAS.md) as `u_ltssm`
+([#77](https://github.com/amichai-bd/pcie-factory/issues/77)), with the PCS
+status tied to "not ready" so it stays in Detect.Quiet. The others arrive
+with [#74](https://github.com/amichai-bd/pcie-factory/issues/74),
+[#75](https://github.com/amichai-bd/pcie-factory/issues/75) and
+[#76](https://github.com/amichai-bd/pcie-factory/issues/76).
 
 ## Timing
 
@@ -31,5 +33,5 @@ The latency budgets are in the [HAS targets](../../arch/mac/HAS.md#targets).
 | File | Holds |
 | --- | --- |
 | [`pcie_mac_pkg.sv`](../../../../src/rtl/mac/pcie_mac_pkg.sv) | `t_ltssm_state`, `t_l0s_sub`, `t_power_down` ([HAS, Package](../../arch/mac/HAS.md#package)). |
-| [`pcie_mac.sv`](../../../../src/rtl/mac/pcie_mac.sv) | The shell module. |
-| [`mac.rtl.f`](../../../../src/rtl/mac/mac.rtl.f) | `pcie_mac_pkg.sv`, then `pcie_mac.sv`. |
+| [`pcie_mac.sv`](../../../../src/rtl/mac/pcie_mac.sv) | The shell module and the inert sub-IP instances. |
+| [`mac.rtl.f`](../../../../src/rtl/mac/mac.rtl.f) | The sub-IP filelists (`-F ../mac_ltssm/mac_ltssm.rtl.f`), then `pcie_mac_pkg.sv` and `pcie_mac.sv`. |
