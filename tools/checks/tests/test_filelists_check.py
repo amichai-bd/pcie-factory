@@ -56,6 +56,21 @@ def test_diamond_include_is_not_a_duplicate(good):
     assert run(good).passed
 
 
+def test_include_cycle_makes_every_ip_in_it_top_level_and_fails(good):
+    # The sub-IP includes its parent back: neither filelist resolves, so
+    # discovery sees no reach (both IPs are top-level) and the check fails.
+    f = good / "rtl/blk_sub/blk_sub.rtl.f"
+    f.write_text("-F ../blk/blk.rtl.f\n" + f.read_text())
+    ips = discover(good)
+    assert all(ip.top_level for ip in ips)
+    r = filelists.run(good, ips, None)
+    assert not r.passed
+    text = "\n".join(r.findings)
+    for ip in ("blk", "blk_sub"):
+        assert f"rtl/{ip}/{ip}.rtl.f: does not resolve" in text
+    assert "cycle" in text
+
+
 def test_orphan_and_include_header(good):
     (good / "rtl/blk/xy_blk_extra.sv").write_text("")
     (good / "rtl/blk/include/sub").mkdir()

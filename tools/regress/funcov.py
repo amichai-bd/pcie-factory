@@ -19,7 +19,11 @@ values names each bin after its value. A ``tuple`` is one value, not a
 collection, so ``{"a__b": ("A", "B")}`` is hit by the sampled arc
 ``("A", "B")`` only. Matching is type-strict: a value matches a bin value
 of the same type only (``True`` is not ``1``, ``1`` is not ``1.0``), item by
-item inside tuples. A sampled value hits every bin it matches. A cross has
+item inside tuples: an ``IntEnum`` member, a numpy integer, a cocotb
+``LogicArray`` or a namedtuple never hits a plain ``int`` or ``tuple`` bin.
+When a sample hits no bin and no value bin of its coverpoint has its type,
+a :class:`CoverageWarning` is issued once per coverpoint and type. A
+sampled value hits every bin it matches. A cross has
 one bin per combination of its coverpoints' bins and is hit when every one of
 its coverpoints is sampled in the same ``sample`` call. Predicates must be
 pure functions of the value: ``sample`` reuses the bins computed for an equal
@@ -37,7 +41,8 @@ import atexit
 import json
 import os
 import re
-from collections.abc import Iterator, Mapping, MappingView
+import warnings
+from collections.abc import Iterator, Mapping, MappingView, Sequence
 from itertools import product
 from pathlib import Path
 
@@ -52,6 +57,10 @@ _GROUPS: dict[str, "Covergroup"] = {}
 
 class CoverageError(ValueError):
     pass
+
+
+class CoverageWarning(UserWarning):
+    """A sample whose type no value bin of its coverpoint has."""
 
 
 def _check_name(kind: str, name) -> str:
@@ -76,14 +85,21 @@ def _same(value, spec) -> bool:
     return value == spec
 
 
-def _matcher(where: str, spec):
-    """The match function of one bin spec. Classes, iterators (generators)
-    and mapping views are rejected: a class is callable but not a predicate
-    of the value, and the others are consumed or never equal a sample."""
+def _reject_class(where: str, spec, what: str = "bin spec") -> None:
     if isinstance(spec, type):
-        raise CoverageError(f"{where}: bin spec {spec.__name__} is a class, not a value, "
+        raise CoverageError(f"{where}: {what} {spec.__name__} is a class, not a value, "
                             f"collection or predicate (use lambda v: isinstance(v, {spec.__name__}))")
-    if isinstance(spec, (Iterator, MappingView, Mapping)):
+
+
+def _matcher(where: str, spec):
+    """The match function of one bin spec. Classes (also as collection
+    items), iterators (generators), mappings, mapping views and sequences
+    other than a tuple, ``str``, ``bytes`` or a collection (a ``deque``) are
+    rejected: a class is callable but not a predicate of the value, and the
+    others are consumed or never equal a sample."""
+    _reject_class(where, spec)
+    if isinstance(spec, (Iterator, MappingView, Mapping)) or (
+            isinstance(spec, Sequence) and not isinstance(spec, (tuple, str, bytes, *COLLECTIONS))):
         raise CoverageError(f"{where}: bin spec of type {type(spec).__name__} is not a value, "
                             f"collection or predicate (use a list, set or range)")
     if callable(spec):
@@ -92,8 +108,23 @@ def _matcher(where: str, spec):
         return lambda v: type(v) is int and v in spec
     if isinstance(spec, COLLECTIONS):
         values = list(spec)
+        for s in values:
+            _reject_class(where, s, "collection item")
         return lambda v: any(_same(v, s) for s in values)
     return lambda v: _same(v, spec)
+
+
+def _value_types(specs) -> frozenset[type]:
+    """The types the value bins among ``specs`` match (predicates add none)."""
+    out: set[type] = set()
+    for spec in specs:
+        if isinstance(spec, range):
+            out.add(int)
+        elif isinstance(spec, COLLECTIONS):
+            out.update(type(s) for s in spec)
+        elif not callable(spec):
+            out.add(type(spec))
+    return frozenset(out)
 
 
 def _memo_key(value):
@@ -117,6 +148,8 @@ class Covergroup:
         self.name = name
         self._points: dict[str, list[tuple[str, object]]] = {}
         self._crosses: dict[str, tuple[str, ...]] = {}
+        self._types: dict[str, frozenset[type]] = {}  # coverpoint -> value bin types
+        self._warned: set[tuple[str, type]] = set()
         self._plans: dict[tuple, tuple] = {}  # sampled values -> increments
         self.counts: dict[str, dict[str, int]] = {}
         _GROUPS[name] = self
@@ -137,6 +170,7 @@ class Covergroup:
         if len(set(names)) != len(names):
             raise CoverageError(f"{self.name}.{name}: duplicate bin names")
         self._points[name] = [(b, _matcher(f"{self.name}.{name}.{b}", spec)) for b, spec in items]
+        self._types[name] = _value_types(spec for _, spec in items)
         self.counts[name] = dict.fromkeys(names, 0)
         return self
 
@@ -182,11 +216,25 @@ class Covergroup:
             if bins is None:
                 raise CoverageError(f"{self.name}: unknown coverpoint {point!r}")
             hit[point] = [b for b, match in bins if match(value)]
+            if not hit[point]:
+                self._warn_type(point, value)
             out += [(self.counts[point], b) for b in hit[point]]
         for name, points in self._crosses.items():
             if all(p in hit for p in points):
                 out += [(self.counts[name], CROSS_SEP.join(c)) for c in product(*[hit[p] for p in points])]
         return tuple(out)
+
+    def _warn_type(self, point: str, value) -> None:
+        """Warn once per coverpoint and type when ``value`` hit no bin and
+        no value bin has its type (type-strict matching cannot hit it)."""
+        types, kind = self._types[point], type(value)
+        if not types or kind in types or (point, kind) in self._warned:
+            return
+        self._warned.add((point, kind))
+        names = ", ".join(sorted(t.__name__ for t in types))
+        warnings.warn(f"{self.name}.{point}: sampled {kind.__name__} {value!r} has the type of "
+                      f"none of its value bins ({names}); matching is type-strict, so sample "
+                      "plain values (int(sig.value), tuple(arc))", CoverageWarning, stacklevel=4)
 
 
 def groups() -> dict[str, dict[str, dict[str, int]]]:

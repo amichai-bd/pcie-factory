@@ -110,7 +110,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           . workdir/nightly/lib.sh
-          if ! find src/fpga -mindepth 1 -maxdepth 1 -type d 2>/dev/null | grep -q .; then skip_step "fpga: no IP has fpga/<ip>/ inputs"
+          if ! find src/fpga -mindepth 1 -maxdepth 1 -type d -not -name '.*' 2>/dev/null | grep -q .; then skip_step "fpga: no IP has fpga/<ip>/ inputs"
           elif ./build fpga --help 2>/dev/null | grep -q -- '--all'; then run_step fpga ./build fpga --all
           else skip_step "fpga: ./build fpga --all is not available on this commit"; fi
 
