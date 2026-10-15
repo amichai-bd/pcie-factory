@@ -194,3 +194,12 @@ def test_bad_coverage_floor_is_a_finding(good):
     r = run(good)
     assert not r.passed
     assert any("coverage_floors: line must be a percentage" in str(f) for f in r.findings), r.findings
+
+
+def test_cycle_between_top_level_ips_fails(tmp_path):
+    src = tmp_path / "src"
+    shutil.copytree(FIXTURES / "integration/src", src)
+    b = src / "rtl/b/b.rtl.f"
+    b.write_text("-F ../sys/sys.rtl.f\n" + b.read_text())
+    text = "\n".join(run(src).findings)
+    assert "rtl/b/b.rtl.f: does not resolve" in text and "-F cycle" in text

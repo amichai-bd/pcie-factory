@@ -11,8 +11,9 @@ Rules, owned by the layout page (wiki/project/layout.md):
 - an IP's ``rtl/<id>/`` holds no filelist but ``<id>.rtl.f``, and its
   ``dv/<id>/`` none but ``<id>.dv.f`` and ``<id>.sim.f`` (sub-IPs are flat
   siblings, never nested);
-- a sub-IP's id is prefixed with the id of an IP that reaches it and
-  ``_`` (``<parent>_<sub>``).
+- an IP is a sub-IP only when its id is ``<parent>_<name>`` and the
+  parent's ``.rtl.f`` reaches it (:attr:`build.ip.Ip.parents`); any other IP
+  is top-level, even when another IP's filelist includes it.
 """
 
 from __future__ import annotations
@@ -61,7 +62,7 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                 continue
             if kind in TOP_LEVEL_KINDS and not ip.top_level:
                 add(f"{where}/: {kind}/ is for top-level IPs only "
-                    f"({ip.id} is a sub-IP of {', '.join(ip.ancestors)})")
+                    f"({ip.id} is a sub-IP of {', '.join(ip.parents)})")
             allowed = {"rtl": {ip.rtl_f}, "dv": {ip.dv_f, ip.sim_f}}.get(kind)
             if allowed is not None:
                 for f in _filelists(d):
@@ -69,13 +70,6 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                         add(f"{rel(f, src_root)}: only "
                             f"{', '.join(sorted(p.name for p in allowed))} may live in "
                             f"{where}/ (a sub-IP is a flat sibling {kind}/{ip.id}_<sub>/)")
-
-    for ip in ips:
-        if ip_ids is not None and ip.id not in ip_ids:
-            continue
-        if ip.ancestors and not any(ip.id.startswith(a + "_") for a in ip.ancestors):
-            add(f"rtl/{ip.id}/: sub-IP id must start with the id of an IP that reaches it "
-                f"and '_' ({' or '.join(a + '_' for a in ip.ancestors)}...)")
 
     result.checked = f"{folders} IP or shared folder(s) under {', '.join(k + '/' for k in KINDS)}"
     return result

@@ -41,6 +41,23 @@ def test_top_level_versus_sub_ip(tmp_path):
     assert ips["a"].top_level and ips["d"].top_level
     assert ips["a_b"].ancestors == ("a",) and not ips["a_b"].top_level
     assert ips["a_b_c"].ancestors == ("a", "a_b", "d")
+    assert ips["a_b_c"].parents == ("a", "a_b") and not ips["a_b_c"].top_level
+
+
+def test_integrated_ips_stay_top_level(tmp_path):
+    # sys integrates a and b; a reaches its sub-IP a_x; a_y is reached only
+    # by sys, so its prefix alone does not make it a sub-IP of a.
+    make_ip(tmp_path, "a_x")
+    make_ip(tmp_path, "a_y")
+    make_ip(tmp_path, "a", ("a_x",))
+    make_ip(tmp_path, "b")
+    make_ip(tmp_path, "sys", ("a", "b", "a_y"))
+    ips = {ip.id: ip for ip in discover(tmp_path)}
+    for top in ("sys", "a", "b", "a_y"):
+        assert ips[top].top_level and ips[top].parents == (), top
+    assert ips["a"].ancestors == ("sys",) and ips["b"].ancestors == ("sys",)
+    assert ips["a_x"].ancestors == ("a", "sys") and ips["a_x"].parents == ("a",)
+    assert not ips["a_x"].top_level
 
 
 def test_broken_filelist_reaches_nothing(tmp_path):

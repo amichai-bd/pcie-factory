@@ -68,11 +68,15 @@ hidden folders are skipped. IPs are sorted by id. No IP name is hard-coded
 anywhere in `tools/` or `cfg/`. The id `regress` is reserved because
 `workdir/regress/` holds the regression summary.
 
-Each IP's `rtl/<id>/<id>.rtl.f` is resolved once at discovery. IP `X` is a
-**sub-IP** of every IP whose resolved `.rtl.f` tree includes `X`'s `.rtl.f`
-(its **ancestors**, direct or through another sub-IP); a **top-level IP**
-has no ancestors. A `.rtl.f` that does not resolve reaches nothing here
-(the filelist check reports it).
+Each IP's `rtl/<id>/<id>.rtl.f` is resolved once at discovery. Every IP
+whose resolved `.rtl.f` tree includes `X`'s `.rtl.f`, directly or through
+another IP, is an **ancestor** of `X` (`Ip.ancestors`). `X` is a **sub-IP**
+of each ancestor `P` whose id plus `_` prefixes its own (`X` is
+`P_<name>`; `Ip.parents`); a **top-level IP** has no such parent. So a
+top-level IP may integrate other top-level IPs through `-F` and they stay
+top-level, with their own `arch/`, `fpga/` and `asic/`
+([layout](../../project/layout.md#ips-and-sub-ips)). A `.rtl.f` that does
+not resolve reaches nothing here (the filelist check reports it).
 
 Each IP has these files:
 
@@ -205,8 +209,9 @@ test per level. The end-to-end tests (real build, pass, fail, timeout, build
 error, waves, a broken filelist in one IP, and the `regress` and `sim` CLI)
 are skipped when Verilator or cocotb is missing. Process-control tests use a
 sleeping shell script in place of the child, so they need no simulator. `test_ip.py` covers discovery on synthetic kind-first trees: flat
-sub-IPs, top-level versus sub-IP by `-F` reachability (direct, transitive and
-from two parents), `common/` and name mismatches that are not IPs, a broken
+sub-IPs, top-level versus sub-IP by `-F` reachability and id prefix (direct,
+transitive and from two parents), integrated top-level IPs (a reached IP
+without its includer's prefix stays top-level), `common/` and name mismatches that are not IPs, a broken
 filelist, ownership by kind folder (never by id prefix) and `locate`.
 
 Python dependencies (pinned in `tools/requirements.txt`): `PyYAML`,

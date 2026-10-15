@@ -56,7 +56,8 @@ the check's own configuration: a problem there is a `flows` finding.
 ## Layout check
 
 Rule owner: the [layout page](../../project/layout.md#ips-and-sub-ips)
-(captain decision in the [decision record](../../project/decisions/0001-m0-grill.md#updates)).
+(captain decisions in the [M0 record](../../project/decisions/0001-m0-grill.md#updates)
+and Q19 of [0002](../../src/decisions/0002-m1-grill.md#decisions)).
 IPs, sub-IPs and top-level IPs are as the
 [build spec](../build/SPEC.md#ip-discovery) discovers them. Code: `layout.py`.
 
@@ -71,10 +72,12 @@ IPs, sub-IPs and top-level IPs are as the
 - An IP's `rtl/<id>/` holds no filelist but `<id>.rtl.f` (at any depth), and
   its `dv/<id>/` none but `<id>.dv.f` and `<id>.sim.f`, so a sub-IP cannot
   nest inside its parent's folder.
-- **Flat sub-IP naming.** A sub-IP's id starts with the id of an IP that
-  reaches it plus `_` (`<ip>_<sub>`).
+- **Flat sub-IP naming.** Naming is what makes an IP a sub-IP: an IP
+  reached by `P`'s filelist is a sub-IP only when its id is `P_<name>`.
+  Any other reached IP is an integrated top-level IP, which keeps its own
+  `arch/`, `fpga/` and `asic/` (the `integration/` fixture).
 
-With `--ip`, only the selected IPs' folders and naming are checked; the
+With `--ip`, only the selected IPs' folders are checked; the
 kind-folder rule runs only without `--ip`.
 
 ## Filelist check
@@ -475,16 +478,18 @@ Fixtures live in `tools/checks/tests/fixtures/`:
 | Fixture | Content |
 | --- | --- |
 | `good/src/`, `good/wiki/src/` | Kind-first tree: IP `blk` (package, include header, top) with flat sub-IP `blk_sub`, a shared block under `rtl/common/`, and a board wrapper, SDC and board settings file in `fpga/blk/`; the wiki mirror holds every required page. Every check passes. |
+| `integration/src/`, `integration/wiki/src/` | Top-level IP `sys` integrates top-level IPs `a` and `b` through `-F`; `a` and `b` each keep `arch/` (model and scenario), `fpga/` and `asic/`, and `a_x` is a sub-IP of `a`. Every check passes, and the `regress --affected` tests select `sys` when `a`, `a_x` or `b`'s models change. |
 | `flows_bad/src/` | IP `blk` whose `fpga/blk/` has two SDC files and no board settings file or wrapper, and whose `asic/blk/sky130hd.mk` has no SDC beside it. Only the flow-input check is meant to fail on it (with one finding per flow). |
 | `bad/src/`, `bad/wiki/src/` | IP `blk` with a duplicate source, an orphan, a missing and an invalid level file, style violations and lint warnings; IP `broken` with a missing source; an `asic/ghost/` folder that names no IP. The wiki mirror lacks pages, has a page outside an IP folder, an `fpga/blk/` page with no `src/fpga/blk/` and a folder that names no IP. Layout, filelist, style, wiki and lint fail. |
 
 Tests also build variants in temporary directories: the superseded
 IP-first tree, a nested sub-IP, a sub-IP with `arch/`, `fpga/` or `asic/`, a
-folder that names no IP and an unprefixed sub-IP id (`test_layout.py`), one bad case per style
+folder that names no IP, and a reached IP without its includer's prefix
+staying top-level with `arch/`, `fpga/` and `asic/` while a prefixed one is a sub-IP (`test_layout.py`), one bad case per style
 rule plus `external-ifdef` closure cases (a vendor and an undefined macro
 fail; include guards, `` `define``s in an include file, `+define+`, a parent
 closure and a board wrapper pass) (`test_style.py`), duplicate, diamond, orphan and regression cases
-(`test_filelists_check.py`), each wiki mirror rule: every required page,
+and a `-F` cycle between two top-level IPs (`test_filelists_check.py`), each wiki mirror rule: every required page,
 `asic/` and `fpga/` pages following the source folders, the top-level
 `arch/` exemption without targets and its limit, HAS targets requiring
 `src/arch/<ip>/` (and only a level-2 heading counting), a source `arch/`

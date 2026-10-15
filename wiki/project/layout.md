@@ -49,12 +49,19 @@ target and the prefix `<prefix>` used below.
 ## IPs and sub-IPs
 
 An IP is a folder `src/rtl/<id>/` holding `<id>.rtl.f`; its id names its
-folder under every kind. An IP is a **sub-IP** of every IP whose `.rtl.f`
-reaches its `.rtl.f` through `-F` (directly or through another sub-IP); a
-**top-level IP** is one no other IP reaches. Sub-IPs are flat siblings, never
-nested: a sub-IP's id is a reaching IP's id plus `_<sub>`
+folder under every kind. An IP is a **sub-IP** of a parent only when both
+hold: its id is `<parent>_<name>`, and the parent's `.rtl.f` reaches its
+`.rtl.f` through `-F` (directly or through another IP). Every other IP is
+**top-level**. Sub-IPs are flat siblings, never nested
 (`src/rtl/<ip>_<sub>/`). `common/` under `rtl/` and `dv/` holds shared blocks
 and is never an IP.
+
+A top-level IP may **integrate** other top-level IPs through `-F`
+(`sys.rtl.f` including `a.rtl.f` and `b.rtl.f`). They stay top-level, with
+their own HAS, `arch/`, `fpga/` and `asic/`, and `regress --affected` still
+selects the integrating IP when one of them changes
+([regress selection](../tools/regress/SPEC.md#selection);
+Q19 of [decision record 0002](../src/decisions/0002-m1-grill.md#decisions)).
 
 ## Per-IP files
 

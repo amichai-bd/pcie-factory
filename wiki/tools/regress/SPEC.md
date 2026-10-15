@@ -87,16 +87,20 @@ Three rules decide which tests run:
     filelist, so their users cannot be told apart.
   - A changed file lies in the IP's **own files**: under `src/<kind>/<ip>/`
     for any kind. A change in sub-IP `a_b`'s folders therefore selects
-    `a_b`; it selects the parent `a` only through the next two cases. A
+    `a_b`; it selects the parent `a` only through the next two cases, and
+    the same holds for a top-level IP integrating another (`sys` including
+    `a` is selected when its `sim.f` reaches the changed file). A
     change under a top-level IP's `src/arch/<ip>/` (the architecture model,
     [arch BKM](../../bkm/arch.md)) is one of its own files, so it selects
     that IP alone.
   - A changed file lies in the `models` directory (`src/dv/<sub>/models/`)
-    of one of the IP's sub-IPs (an IP its `.rtl.f` reaches, see
+    of an IP the IP's `.rtl.f` reaches (a sub-IP, or a top-level IP it
+    integrates; its ancestors in
     [IP discovery](../build/SPEC.md#ip-discovery)): parent models import
     sub-IP models by path ([DV BKM](../../bkm/dv.md#reusing-a-sub-ip-model)),
     which no filelist shows. A change in `src/dv/a_b/models/` selects `a_b`
-    and every ancestor, such as `a`.
+    and every ancestor, such as `a` and any IP integrating `a`; the reason
+    reads `sub-IP model` for a parent and `integrated IP model` otherwise.
   - The IP's `dv/<ip>/<ip>.sim.f` **reaches** a changed file: a source, a
     filelist in its `-F` tree, or a file in one of its include directories.
   - The IP's `sim.f` doesn't resolve (for example, a source it lists was
