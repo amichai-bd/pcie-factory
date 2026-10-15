@@ -1,0 +1,17 @@
+# Random TLP sizes and DLLPs with nullified TLPs, plus a run of maximum-size
+# TLPs that defer SKPs, RX clock +300 ppm: lossless framing and the latency
+# bound (wiki/src/arch/phy/HAS.md#targets).
+description: Random TLP and DLLP mix, 5% nullified TLPs, RX clock +300 ppm.
+seed: 3
+workload:
+  kind: traffic
+  packets: 3000
+  mix: random
+  nullify_ratio: 0.05
+  ppm: 300
+  skp_interval: 1538
+targets:
+  rx_latency_cycles_max: {max: 16}
+  eb_overflows: {max: 0}
+  packets_lost: {max: 0}
+  framing_errors: {max: 0}

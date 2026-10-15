@@ -1,0 +1,13 @@
+# Two stacks back to back with TIMEOUT_DIV 1024 (Detect.Quiet divided,
+# training at spec counts) and up to 2000 cycles of reset skew: the e2e
+# link-up budget (wiki/src/arch/phy/HAS.md#targets).
+description: Link-up of two stacks back to back, TIMEOUT_DIV 1024, reset skew up to 2000 cycles.
+seed: 6
+workload:
+  kind: link_up
+  timeout_div: 1024
+  skew_cycles: 2000
+  channel_cycles: 2
+targets:
+  link_up_us_max: {max: 100}
+  training_us_max: {min: 65.536, max: 80}

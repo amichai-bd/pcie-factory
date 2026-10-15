@@ -1,0 +1,19 @@
+# Back-to-back 256-byte-payload TLPs (274 bytes with sequence number and
+# LCRC), SKP every 1180 symbols, RX clock +600 ppm: the throughput, latency
+# and elastic-buffer targets (wiki/src/arch/phy/HAS.md#targets).
+description: Back-to-back 274-byte TLPs, worst-case SKP interval, RX clock +600 ppm.
+seed: 1
+workload:
+  kind: traffic
+  packets: 2000
+  mix: tlp
+  tlp_bytes: 274
+  ppm: 600
+  skp_interval: 1180
+targets:
+  throughput_bytes_per_cycle: {min: 1.97}
+  tx_latency_cycles_max: {max: 6}
+  rx_latency_cycles_max: {max: 16}
+  eb_overflows: {max: 0}
+  packets_lost: {max: 0}
+  framing_errors: {max: 0}

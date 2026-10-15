@@ -100,6 +100,7 @@ def test_each_rule_fails_its_fixture(repo, rule, text, value):
     "serve on 127.0.0.1:8000 or 0.0.0.0",          # loopback, unspecified
     "doc ranges 192.0.2.1 198.51.100.7 203.0.113.9 2001:db8::1 ::1",
     "version 1.2.3, not 999.1.1.1 nor 1.2.3.4.5",  # not an address
+    "[cite: Example Bus Spec, rev 2.1, §4.3.2.1], also §10.2.6.11",  # section numbers
     "a[1::2], pkg::name, a::b, std::vector, 12:30:45, aa:bb:cc:dd:ee:ff",
     "uses: actions/checkout" + AT + "v7.0.1",       # not an email domain
     "user" + AT + "example.com, a" + AT + "b.example, x" + AT + "host.invalid, t" + AT + "x.test",

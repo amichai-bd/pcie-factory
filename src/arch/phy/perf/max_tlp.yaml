@@ -1,0 +1,18 @@
+# Maximum-size TLPs (4096-byte payload, 4DW header, ECRC), so every SKP falls
+# due inside a packet and waits for its end, RX clock +600 ppm: the elastic
+# buffer and latency targets (wiki/src/arch/phy/HAS.md#targets).
+description: Back-to-back 4122-byte TLPs, longest SKP interval, RX clock +600 ppm.
+seed: 4
+workload:
+  kind: traffic
+  packets: 200
+  mix: tlp
+  tlp_bytes: 4122
+  ppm: 600
+  skp_interval: 1538
+targets:
+  throughput_bytes_per_cycle: {min: 1.97}
+  rx_latency_cycles_max: {max: 16}
+  eb_fill_symbols_max: {max: 12}
+  eb_overflows: {max: 0}
+  packets_lost: {max: 0}
