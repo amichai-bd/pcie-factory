@@ -2,7 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from build.ip import DiscoveryError, discover, find_ip, locate, make_context, owner_ip
+from build.ip import (DiscoveryError, block_name, discover, find_ip, locate, make_context,
+                      owner_ip, shared_blocks, shared_unit, units)
 
 
 def make_ip(root: Path, ip: str, reaches: tuple[str, ...] = ()) -> None:
@@ -109,6 +110,48 @@ def test_owner_by_kind_folder(tmp_path):
     assert owner_ip(ips, tmp_path / "rtl/a_bc/x.sv") is None
     assert owner_ip(ips, tmp_path / "rtl/common/c.sv") is None
     assert owner_ip(ips, tmp_path / "README.md") is None
+
+
+def test_shared_unit_and_blocks(tmp_path):
+    make_ip(tmp_path, "a")
+    common = tmp_path / "rtl/common"
+    common.mkdir(parents=True)
+    (common / "common_y.rtl.f").write_text("")
+    (common / "common_x.rtl.f").write_text("")
+    (common / "notes.md").write_text("")
+    assert shared_blocks(tmp_path) == [common / "common_x.rtl.f", common / "common_y.rtl.f"]
+    assert block_name(common / "common_x.rtl.f") == "common_x"
+    assert shared_blocks(tmp_path / "nope") == []
+    # No dv/common/common.sim.f: no shared unit, units() is discover().
+    assert shared_unit(tmp_path) is None
+    assert [ip.id for ip in units(tmp_path)] == ["a"]
+    (tmp_path / "dv/common").mkdir(parents=True)
+    (tmp_path / "dv/common/common.sim.f").write_text("")
+    unit = shared_unit(tmp_path)
+    assert unit.id == "common" and unit.shared and not unit.top_level
+    assert unit.sim_f == tmp_path / "dv/common/common.sim.f"
+    assert unit.level_file(0) == tmp_path / "dv/common/regress/level0.yaml"
+    assert [ip.id for ip in units(tmp_path)] == ["a", "common"]
+    assert [ip.id for ip in discover(tmp_path)] == ["a"]  # never an IP
+    assert owner_ip(units(tmp_path), common / "common_x.sv").id == "common"
+
+
+def test_shared_unit_is_in_no_ip_relation(tmp_path):
+    """The shared unit is never a parent, ancestor or sub-IP, even when IPs
+    include its blocks with -F."""
+    common = tmp_path / "rtl/common"
+    common.mkdir(parents=True)
+    (common / "common_x.rtl.f").write_text("")
+    (tmp_path / "dv/common").mkdir(parents=True)
+    (tmp_path / "dv/common/common.sim.f").write_text("-F ../../rtl/common/common_x.rtl.f\n")
+    make_ip(tmp_path, "a_b")
+    make_ip(tmp_path, "a", ("a_b",))
+    (tmp_path / "rtl/a/a.rtl.f").write_text("-F ../common/common_x.rtl.f\n-F ../a_b/a_b.rtl.f\n")
+    got = {ip.id: ip for ip in units(tmp_path)}
+    assert got["common"].ancestors == () and got["common"].parents == ()
+    assert not got["common"].top_level
+    assert got["a"].top_level and got["a"].ancestors == ()
+    assert got["a_b"].parents == ("a",)
 
 
 def test_locate(tmp_path):

@@ -28,7 +28,7 @@ def write(path: Path, text: str = "") -> None:
 def test_good_fixture_passes(good):
     r = run(good)
     assert r.passed, r.findings
-    assert r.checked == "6 IP or shared folder(s) under rtl/, dv/, arch/, fpga/, asic/"
+    assert r.checked == "7 IP or shared folder(s) under rtl/, dv/, arch/, fpga/, asic/"
 
 
 def test_bad_fixture_fails():
@@ -85,12 +85,27 @@ def test_top_level_only_kinds(good):
 def test_folders_must_name_an_ip(good):
     (good / "dv/nope").mkdir()
     (good / "fpga/common").mkdir()  # common/ is for rtl/ and dv/ only
-    (good / "dv/common").mkdir()    # fine
+    (good / "dv/common/tests").mkdir()  # fine
     write(good / "rtl/stray.sv")
     assert run(good).findings == [
         "rtl/stray.sv: a kind folder holds only IP folders",
         "dv/nope/: names no IP (no rtl/nope/nope.rtl.f)",
         "fpga/common/: names no IP (no rtl/common/common.rtl.f)",
+    ]
+
+
+def test_shared_folder_filelist_names(good):
+    write(good / "rtl/common/lib.rtl.f")             # no common_ prefix
+    write(good / "rtl/common/sub/common_x.rtl.f")    # not directly in rtl/common/
+    write(good / "dv/common/common_x.sim.f")         # not the shared unit's lists
+    write(good / "dv/common/tb/common.dv.f")
+    assert run(good).findings == [
+        "rtl/common/lib.rtl.f: rtl/common/ holds no filelist but "
+        "common_<name>.rtl.f directly in it (one per shared block)",
+        "rtl/common/sub/common_x.rtl.f: rtl/common/ holds no filelist but "
+        "common_<name>.rtl.f directly in it (one per shared block)",
+        "dv/common/common_x.sim.f: dv/common/ holds no filelist but common.dv.f and common.sim.f",
+        "dv/common/tb/common.dv.f: dv/common/ holds no filelist but common.dv.f and common.sim.f",
     ]
 
 

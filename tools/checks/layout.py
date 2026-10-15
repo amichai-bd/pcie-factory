@@ -11,6 +11,9 @@ Rules, owned by the layout page (wiki/project/layout.md):
 - an IP's ``rtl/<id>/`` holds no filelist but ``<id>.rtl.f``, and its
   ``dv/<id>/`` none but ``<id>.dv.f`` and ``<id>.sim.f`` (sub-IPs are flat
   siblings, never nested);
+- ``rtl/common/`` holds filelists only directly in it, each a shared block
+  ``common_<name>.rtl.f``, and ``dv/common/`` none but ``common.dv.f`` and
+  ``common.sim.f`` (the shared unit);
 - an IP is a sub-IP only when its id is ``<parent>_<name>`` and the
   parent's ``.rtl.f`` reaches it (:attr:`build.ip.Ip.parents`); any other IP
   is top-level, even when another IP's filelist includes it;
@@ -23,12 +26,29 @@ from __future__ import annotations
 from pathlib import Path
 
 from build.ip import KINDS, SHARED_DIR, TOP_LEVEL_KINDS, Ip
-from checks.common import CheckResult, rel
+from checks.common import COMMON_PREFIX, CheckResult, rel
 
 
 def _filelists(d: Path) -> list[Path]:
     return sorted(p for p in d.rglob("*.f")
                   if p.is_file() and not any(x.startswith(".") for x in p.relative_to(d).parts))
+
+
+def _shared_findings(d: Path, kind: str, src_root: Path) -> list[str]:
+    """Filelist names in ``rtl/common/`` (shared blocks) and ``dv/common/``
+    (the shared unit)."""
+    out = []
+    for f in _filelists(d):
+        if kind == "dv" and f.parent == d and f.name in (f"{SHARED_DIR}.dv.f",
+                                                          f"{SHARED_DIR}.sim.f"):
+            continue
+        if kind == "rtl" and f.parent == d and f.name.startswith(COMMON_PREFIX) \
+                and f.name.endswith(".rtl.f"):
+            continue
+        want = (f"{COMMON_PREFIX}<name>.rtl.f directly in it (one per shared block)"
+                if kind == "rtl" else f"{SHARED_DIR}.dv.f and {SHARED_DIR}.sim.f")
+        out.append(f"{rel(f, src_root)}: {kind}/{SHARED_DIR}/ holds no filelist but {want}")
+    return out
 
 
 def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
@@ -57,6 +77,7 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                 continue
             folders += 1
             if d.name == SHARED_DIR and kind in ("rtl", "dv"):
+                result.findings += _shared_findings(d, kind, src_root)
                 continue
             ip = by_id.get(d.name)
             if ip is None:

@@ -52,7 +52,9 @@ Runs the pure-Python unit-test suites a change needs; no simulator.
 - **`tools`:** `python -m pytest -q <tools_tests>` from the repository root.
 - **`models:<ip>`:** `python -m pytest -q` inside `src/dv/<ip>/<models>/`, one
   session per IP (model modules are imported by bare name), for each IP whose
-  models directory holds a `test_*.py`.
+  models directory holds a `test_*.py`. The
+  [shared unit](../build/SPEC.md#shared-unit) counts as an IP here
+  (`models:common`, in `src/dv/common/<models>/`).
 - **`arch:<ip>`:** the same inside `src/arch/<ip>/`, for each IP whose arch
   folder holds a `test_*.py` (the model self-tests).
 - **`perf:<ip>`:** `./build arch --ip <ip>` with the same `--src-root` and

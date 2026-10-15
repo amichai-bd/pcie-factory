@@ -60,7 +60,7 @@ These validation rules apply:
 Every error names the file and the entry index, plus the test name whenever
 the entry has a string `name`. For example:
 `.../level0.yaml: tests[2] (counts): missing key(s): top`. Validation covers
-every discovered IP, not only the selected ones.
+every discovered IP and the shared unit, not only the selected ones.
 
 ## Selection
 
@@ -71,7 +71,9 @@ Three rules decide which tests run:
   is required.
 - **`--ip ID`** (repeatable) restricts the run to those IPs. IPs are flat:
   selecting a parent doesn't select its sub-IPs. Without `--ip`, every
-  discovered IP is selected.
+  discovered IP and the [shared unit](../build/SPEC.md#shared-unit) (`common`)
+  are selected; `--ip common` selects the shared unit. Everything this page
+  says about an IP's lists, seeds and output applies to it.
 - **`--affected BASE`** narrows the selection (combined with `--ip`, the
   result is the intersection) to IPs that are affected by changes since
   `git merge-base BASE HEAD`. The changed files are the committed diff, the
@@ -86,7 +88,8 @@ Three rules decide which tests run:
     (`<src-root>/dv/common/`): shared DV Python helpers are reached by no
     filelist, so their users cannot be told apart.
   - A changed file lies in the IP's **own files**: under `src/<kind>/<ip>/`
-    for any kind. A change in sub-IP `a_b`'s folders therefore selects
+    for any kind (for the shared unit, `src/rtl/common/` or
+    `src/dv/common/`; the latter also selects every IP by the previous rule). A change in sub-IP `a_b`'s folders therefore selects
     `a_b`; it selects the parent `a` only through the next two cases, and
     the same holds for a top-level IP integrating another (`sys` including
     `a` is selected when its `sim.f` reaches the changed file). A
@@ -217,7 +220,9 @@ The fields mean the following:
 
 `--coverage` turns every build of the run into a coverage build and, after
 the tests, merges each selected IP's coverage, prints a table and checks the
-IP's floors. Without it, nothing below happens and the summary's `coverage`
+IP's floors. The [shared unit](../build/SPEC.md#shared-unit) is a unit like
+an IP here: `common` gets its own row, `workdir/common/coverage/` and
+floors from `dv/common/regress/`. Without it, nothing below happens and the summary's `coverage`
 is `null`.
 
 | Metric | Source | Unit |
@@ -254,7 +259,9 @@ every coverage run of the IP:
 Code coverage counts the RTL that `<ip>.rtl.f` reaches, so a parent IP's
 code coverage includes its sub-IPs' RTL as its tests exercise it. Points in
 DV-only sources (files `<ip>.sim.f` reaches through `<ip>.dv.f` but
-`<ip>.rtl.f` does not, such as testbench tops and bind checkers) are left out
+`<ip>.rtl.f` does not, such as testbench tops and bind checkers; for the
+shared unit, files `common.sim.f` reaches that no shared block's `.rtl.f`
+does) are left out
 of the table and the floors; `merged.dat` and `merged.info` still hold
 them. A point is attributed to the file Verilator reports, so an
 `` `include``d file counts unless it is itself a DV-only source. A metric

@@ -1,0 +1,28 @@
+tests:
+  - name: sync2_long
+    module: tests.test_cdc_sync2
+    testcase: long_ratio
+    top: common_cdc_sync2
+    params: {WIDTH: 8}
+    seeds: 8
+    timeout_s: 600
+  - name: pulse_long
+    module: tests.test_cdc_pulse
+    testcase: long_ratio
+    top: common_cdc_pulse
+    seeds: 8
+    timeout_s: 600
+  - name: fifo_long_depth2
+    module: tests.test_cdc_fifo
+    testcase: long_traffic
+    top: common_cdc_fifo
+    params: {ADDR_W: 1, WIDTH: 4}
+    seeds: 4
+    timeout_s: 600
+  - name: fifo_long_depth16
+    module: tests.test_cdc_fifo
+    testcase: long_traffic
+    top: common_cdc_fifo
+    params: {ADDR_W: 4, WIDTH: 16}
+    seeds: 4
+    timeout_s: 600
