@@ -19,6 +19,10 @@ python:
   minimum: "3.11"                   # python3 on PATH must be at least this
   requirements: tools/requirements.txt   # exact pins for cocotb, pytest, PyYAML, ...
 
+specs:
+  fetch: "true"                     # cloud session-start runs `./build specs fetch`, best effort ("false" to skip)
+  text_package: poppler-utils       # Debian/Ubuntu package with pdftotext, which extracts document text
+
 hosts:
   cloud:
     description: Claude Code cloud session (Ubuntu); provisioned by .claude/hooks/session-start.sh
@@ -37,3 +41,4 @@ hosts:
     orfs_image: "openroad/orfs:26Q4-142-gd4b96380b@sha256:f00e7890ebca6af80a973c2e7a5ccf7ff992c1a65903ac8bee39dfd4a458c811"   # ./build asic pin; the runners also export it as ORFS_IMAGE
     orfs_commit: d4b96380b10e          # ORFS revision in that image
     orfs_cores: 4                     # NUM_CORES and docker --cpus for ./build asic
+    pdftotext:                        # extracts cached reference text (./build specs); not reported yet

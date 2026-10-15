@@ -4,27 +4,27 @@
 [DevOps BKM](../../bkm/devops.md#static-checks) requires: the source layout
 check, the filelist and regression-list check, the RTL style checker, the
 wiki mirror check, the flow-input check, the neutrality check, the citation
-check, the publishability check, Verilator lint and the structural
+check, the publishability check, the spec-cache check, Verilator lint and the structural
 clock-domain-crossing (CDC) check. It prints one summary
 line per check, then every violation, then an overall verdict. The code
 lives in `tools/checks/` (`run.py`, `layout.py`, `filelists.py`,
 `style.py`, `wiki_mirror.py`, `flows.py`, `neutrality.py`, `citation.py`,
-`publishability.py`, `lint.py`, `cdc.py`).
+`publishability.py`, `spec_cache.py`, `lint.py`, `cdc.py`).
 
 ```
 ./build check [--ip ID]...
-              [--only layout|filelist|style|wiki|flows|neutrality|citation|publishability|lint|cdc]...
+              [--only layout|filelist|style|wiki|flows|neutrality|citation|publishability|spec-cache|lint|cdc]...
               [--src-root DIR] [--workdir DIR]
 ```
 
 | Option | Meaning |
 | --- | --- |
-| `--ip ID` | Restrict layout, filelist, style, wiki, flows, lint and cdc to these IPs (repeatable; cdc analyzes the top-level IPs among them and their ancestors). Files not owned by a selected IP, such as `src/rtl/common/`, are skipped. Neutrality and publishability always scan the whole repository, and citation the whole of `src/` and `wiki/src/`. |
-| `--only NAME` | Run only these checks (repeatable). The default is all ten. |
-| `--src-root DIR` | The source tree to check, as for every command ([build spec](../build/SPEC.md#command-line)). The wiki and citation checks read its sibling `wiki/src/`. Neutrality and publishability ignore it and scan the git repository that holds the launcher. |
+| `--ip ID` | Restrict layout, filelist, style, wiki, flows, lint and cdc to these IPs (repeatable; cdc analyzes the top-level IPs among them and their ancestors). Files not owned by a selected IP, such as `src/rtl/common/`, are skipped. Neutrality, publishability and spec-cache always scan the whole repository, and citation the whole of `src/` and `wiki/src/`. |
+| `--only NAME` | Run only these checks (repeatable). The default is all eleven. |
+| `--src-root DIR` | The source tree to check, as for every command ([build spec](../build/SPEC.md#command-line)). The wiki, citation and spec-cache checks read its sibling `wiki/src/`; spec-cache reads its `specs.yaml`. Neutrality, publishability and spec-cache scan the git repository that holds the launcher. |
 
 Checks run in the order layout, filelist, style, wiki, flows, neutrality,
-citation, publishability, lint, cdc (lint and cdc are the slowest; lint's
+citation, publishability, spec-cache, lint, cdc (lint and cdc are the slowest; lint's
 preprocessed audit covers the sources cdc elaborates). Output:
 
 ```
@@ -38,6 +38,7 @@ check: 2 IP(s) under /abs/src
 [neutrality] PASS: 135 file(s) (tracked and untracked, not ignored) outside src/, ...
 [citation] PASS: 40 text file(s) under src/, wiki/src/; quotes up to 25 words; ...
 [publishability] PASS: 180 file(s) (tracked and untracked, not ignored); 7 rule(s); 5 allow entry(ies)
+[spec-cache] PASS: 180 file(s) (tracked and untracked, not ignored); 2 listed document(s); 2 cached file(s) in ~/.cache/<repo>/specs; runs of 26 words
 [lint] blk: top=xy_blk
 [lint] common/common_lib: top=common_lib
 [lint] PASS: 2 IP(s), 1 shared block(s), 4 Verilator run(s) with -E audit, 0 waiver(s), 0 warning(s) waived
@@ -54,7 +55,8 @@ what it covered (zero IPs and files), and the command passes.
 
 **Exit codes:** `0` means every selected check passed. `1` means at least
 one check found a violation. `2` means a usage or configuration error: an
-unknown `--ip`, an invalid `cfg/checks.yaml` (any section) or waiver file, a git error,
+unknown `--ip`, an invalid `cfg/checks.yaml` (any section), waiver file or
+reference list (`src/specs.yaml`), a reference cache inside the repository, a git error,
 or Verilator missing while there is something to lint or analyze. The flow settings
 (`cfg/fpga.yaml`, the ORFS entry of `cfg/host.yaml`) are flow inputs, not
 the check's own configuration: a problem there is a `flows` finding.
@@ -191,7 +193,7 @@ next to `src/`); a missing wiki tree is an empty one. Code: `wiki_mirror.py`.
   `src/asic/<id>/` has `asic/<id>/ASIC.md`. A missing one is
   `wiki/src/<kind>/<id>/<page>: missing (required for IP <id>)`.
 - **Design-level pages.** The only files outside an IP folder are
-  `README.md` and `roadmap.md` at the root of the wiki tree and decision
+  `README.md`, `roadmap.md` and `references.md` at the root of the wiki tree and decision
   records `decisions/NNNN-<slug>.md` (four digits, a lower-case
   hyphenated slug). Any other file outside an IP folder is
   `<path>: not in an IP folder <kind>/<ip>/ (...)`; a misnamed file in
@@ -430,6 +432,27 @@ such as `<name>@2x.png` (email), templated URLs such as
 that form a valid dotted quad (ipv4). Reviewers keep the whole
 [publishability list](../../bkm/wiki.md#publishability) as a review item;
 an `allow` entry is reviewed like code.
+
+## Spec-cache check
+
+Rule owner: the [wiki BKM, citations](../../bkm/wiki.md#citations); the
+cache belongs to the [specs tool](../specs/SPEC.md). Code: `spec_cache.py`.
+It scans the same files as the publishability check (every file `git
+ls-files --cached --others --exclude-standard` lists; symbolic links are not
+followed) and fails on:
+
+| Rule | Finding |
+| --- | --- |
+| `pdf` | `<path>: pdf: ...` for any file named `*.pdf` (any case) or starting with `%PDF-`. No allow list: reference documents, datasheets and manuals are never committed, so a PDF has no place in the repository. |
+| `cached-file` | `<path>: cached-file: identical to the cached <name>`: the file's sha256 equals a cached document's or extracted text's. |
+| `cached-text` | `<path>:<line>: cached-text: <n> or more consecutive words match the cached <name>; ...`: a text file shares a run of `n` = `citation.max_quote_words` + 1 words with an extracted text. Words are lower-case runs of letters and digits, so layout, case and punctuation do not hide a copy; `<line>` is where the first such run starts. |
+| list | `src/specs.yaml: document '<id>' has no entry heading on wiki/src/references.md`: every listed id is a level-2 to level-6 heading of exactly that id on the public references page. |
+
+The cache is found as `./build specs` finds it. Without one (a host that
+never fetched, or a blocked network), `cached-file` and `cached-text` have
+nothing to compare and only `pdf` and the list rule apply; the summary
+says so. `cached-text` is a heuristic like the citation check: it cannot
+find a reworded copy, so review stays the main control.
 
 ## Lint check
 
@@ -694,6 +717,12 @@ entries (exact match, path glob, per rule, stale, values named in the
 config, a path-less entry named only in the config being stale), linear
 scan time on 40k-character adversarial lines, and every config error
 (`test_publishability.py`),
+a temporary git repository with a fake cache: a PDF by name and by
+content (with and without a cache), a copy of a cached text, a run one word
+longer than the quote limit across a line break with other case and
+punctuation versus a run at the limit, ignored files, a listed id with no
+page heading, an invalid list and a cache inside the repository
+(`test_spec_cache.py`); no fixture PDF or document text is stored,
 waivers (used, stale, invalid), output parsing and the command line
 (`test_lint.py`, `test_check_run.py`), and the CDC check on a small IP
 beside a copy of the repository's crossing cells (`test_cdc.py`): a single

@@ -5,13 +5,13 @@ from __future__ import annotations
 import sys
 
 from build.ip import Context, discover, find_ip
-from checks import cdc, citation, filelists, flows, layout, lint, neutrality, publishability, style, wiki_mirror
+from checks import cdc, citation, filelists, flows, layout, lint, neutrality, publishability, spec_cache, style, wiki_mirror
 from checks.common import CheckResult
 
 # Report order. Lint and cdc run last: they are the slowest and need
 # Verilator; lint audits the sources that cdc then elaborates.
 CHECKS = ("layout", "filelist", "style", "wiki", "flows", "neutrality", "citation", "publishability",
-          "lint", "cdc")
+          "spec-cache", "lint", "cdc")
 
 
 def run_checks(ctx: Context, ip_ids: list[str] | None, only: list[str] | None,
@@ -43,6 +43,8 @@ def run_checks(ctx: Context, ip_ids: list[str] | None, only: list[str] | None,
             r = citation.run(ctx.repo_root, ctx.src_root)
         elif name == "publishability":
             r = publishability.run(ctx.repo_root)
+        elif name == "spec-cache":
+            r = spec_cache.run(ctx.repo_root, ctx.src_root)
         elif name == "lint":
             r = lint.run(ctx.src_root, ips, ids)
         else:

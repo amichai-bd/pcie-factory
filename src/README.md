@@ -18,3 +18,8 @@ integrate other top-level IPs through `-F`; they stay top-level. An id
 packages use `pcie_<id>`. The [layout page](../wiki/project/layout.md) owns
 the per-IP file rules. The specs are in `wiki/src/`, which mirrors this tree
 exactly ([wiki BKM](../wiki/bkm/wiki.md#page-set)).
+
+The official specifications the design follows are listed, with links and
+access terms, on the [references page](../wiki/src/references.md);
+[`specs.yaml`](specs.yaml) lists those that `./build specs fetch` caches
+locally, outside the repository, and never commits.

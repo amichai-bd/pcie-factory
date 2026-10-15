@@ -17,6 +17,7 @@ Owns the pinned host toolchain and how each host gets it. Code:
 | Python | `python3` >= 3.11 | `cfg/host.yaml` `python.minimum` |
 | ORFS (Omarchy only) | `openroad/orfs` Docker image pinned by tag and digest, with its ORFS commit | `cfg/host.yaml` `hosts.omarchy.orfs_image`, `orfs_commit`; read by the [asic tool](../asic/SPEC.md#orfs-runners) |
 | cocotb, pytest, PyYAML, markdown-it-py, Pygments | exact `name==version` | `tools/requirements.txt` |
+| `pdftotext` (reference text, best effort) | Cloud: the `specs.text_package` apt package, unversioned; Omarchy: `hosts.omarchy.pdftotext` once reported | `cfg/host.yaml` `specs` |
 
 Change a pin only in its source of truth; the hook reads both files and
 hard-codes no version. `tools/requirements.txt` holds only exact `==` pins,
@@ -45,7 +46,9 @@ and must match the pins above; an entry not yet reported stays empty.
 ORFS run only there and are recorded there too:
 Quartus Prime Lite `25.1std.0 Build 1129` at `/opt/intelFPGA_lite/25.1/quartus`
 (`quartus_root`, `quartus_version`), as printed by the fpga workflow's
-discovery step. The [fpga tool](../fpga/SPEC.md#finding-quartus) falls back to
+discovery step. `ci-gate` runs `./build specs fetch` there best effort; its
+`pdftotext` (`hosts.omarchy.pdftotext`) is not reported yet, and without it
+the documents are cached without text. The [fpga tool](../fpga/SPEC.md#finding-quartus) falls back to
 `<quartus_root>/bin`.
 
 ### Cloud session-start hook
@@ -78,7 +81,13 @@ is ready.
    interpreter.
 6. Appends `export PATH="<prefix>/bin:$PATH"` to `$CLAUDE_ENV_FILE` when set,
    once per file.
-7. Prints `verilator --version` and the versions of Python, cocotb, pytest,
+7. **Reference documents,** when `specs.fetch` is `"true"`: installs
+   `specs.text_package` with apt when `pdftotext` is missing (running
+   `apt-get update` only if the first install fails), then runs
+   `./build specs fetch` ([specs spec](../specs/SPEC.md)). Each step has a
+   300 s timeout, and any failure (a blocked network, a sha256 mismatch,
+   no package) prints a line and continues: this step never fails the hook.
+8. Prints `verilator --version` and the versions of Python, cocotb, pytest,
    PyYAML, markdown-it-py and Pygments. The imports double as a self-check.
 
 **Why the system interpreter, not a venv.** `./build`, pytest and cocotb's

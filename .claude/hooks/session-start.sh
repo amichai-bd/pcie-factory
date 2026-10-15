@@ -54,7 +54,7 @@ def parse(path):
     return root
 
 host = parse(sys.argv[1])
-v, py = host["verilator"], host["python"]
+v, py, specs = host["verilator"], host["python"], host["specs"]
 minimum = tuple(int(x) for x in py["minimum"].split("."))
 if sys.version_info[:len(minimum)] < minimum:
     sys.exit(f"session-start: python3 {sys.version.split()[0]} < required {py['minimum']}")
@@ -66,6 +66,8 @@ values = {
     "VERILATOR_PREFIX": v["prefix"],
     "VERILATOR_DEPS": " ".join(v["build_deps"]),
     "REQUIREMENTS": py["requirements"],
+    "SPECS_FETCH": specs["fetch"],
+    "SPECS_TEXT_PACKAGE": specs["text_package"],
 }
 for key, value in values.items():
     if not isinstance(value, str) or not value:
@@ -176,6 +178,20 @@ fi
 if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
   line="export PATH=\"$PREFIX/bin:\$PATH\""
   grep -qxF "$line" "$CLAUDE_ENV_FILE" 2>/dev/null || echo "$line" >>"$CLAUDE_ENV_FILE"
+fi
+
+# Reference documents (wiki/tools/specs/SPEC.md): best effort, so a blocked
+# network, a sha256 mismatch or a missing text extractor is reported and
+# never fails the session start. The cache lives outside the repository.
+if [ "$SPECS_FETCH" = true ]; then
+  if ! command -v pdftotext >/dev/null 2>&1; then
+    echo "session-start: installing $SPECS_TEXT_PACKAGE (best effort)"
+    export DEBIAN_FRONTEND=noninteractive
+    { timeout 300 apt-get install -y -q "$SPECS_TEXT_PACKAGE" \
+      || { timeout 300 apt-get update -q && timeout 300 apt-get install -y -q "$SPECS_TEXT_PACKAGE"; }; } \
+      >/dev/null 2>&1 || echo "session-start: $SPECS_TEXT_PACKAGE not installed; text will not be extracted"
+  fi
+  timeout 300 "$ROOT/build" specs fetch || echo "session-start: specs fetch incomplete (see above); continuing"
 fi
 
 "$VERILATOR" --version

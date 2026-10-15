@@ -52,7 +52,7 @@ prefix, so an integrated top-level IP keeps its own HAS
 | `wiki/src/rtl/common/`, `wiki/src/dv/common/` | `<block>.md`: the block's MAS, and its DV plan | Every shared block `src/rtl/common/<block>.rtl.f` ([layout](../project/layout.md#shared-blocks)); nothing else |
 | `wiki/src/fpga/<ip>/` | `FPGA.md` | Exactly the IPs with `src/fpga/<ip>/` |
 | `wiki/src/asic/<ip>/` | `ASIC.md` | Exactly the IPs with `src/asic/<ip>/` |
-| `wiki/src/` | `README.md`, `roadmap.md`, `decisions/NNNN-<slug>.md` | Fixed set of design-level pages: index and decision index, product roadmap, design decision records |
+| `wiki/src/` | `README.md`, `roadmap.md`, `references.md`, `decisions/NNNN-<slug>.md` | Fixed set of design-level pages: index and decision index, product roadmap, the official references (see [citations](#citations)), design decision records |
 | `wiki/tools/<tool>/` | `SPEC.md` | Every tool under `tools/` |
 | `wiki/bkm/` | One page per discipline | Fixed set ([index](README.md)) |
 | `wiki/project/` | Architecture, layout, roadmap, decisions | Fixed set |
@@ -185,13 +185,33 @@ or vendor manual, or a datasheet. "Standard" below means any of them.
   "section N.M" appear only inside a citation, whatever they refer to.
   Internal cross-references link by heading name instead
   (`[Timing](MAS.md#timing)`).
-- **No standard text in the repository.** Nobody fetches or stores a
-  standard's text, or excerpts of it, here.
+- **Self-contained specs.** A spec page writes out, in its own words,
+  every rule it relies on, complete enough to implement and verify the
+  design without the standard. A citation points to the source for
+  cross-checking only; it never stands in for the rule, so "behaves per
+  §4.2" is not a rule. A point the author is unsure of goes in the page's
+  Open items table with its owning issue, never as a guess.
+- **References page.** Every standard the design follows has one entry on
+  `wiki/src/references.md`: a stable id as its heading, the citation name
+  used as `<standard>`, revision, publisher, the publisher's own link,
+  access terms and the pages that rely on it. It holds links and metadata
+  only, and is public.
+- **Local copies, never committed.** Where the license allows a local copy,
+  `./build specs fetch` caches the document and its text outside the
+  repository ([specs tool](../tools/specs/SPEC.md)). When
+  `./build specs list` shows it present, the author checks every citation
+  and every claim drawn from it against `./build specs path <id>`, and the
+  page must agree with it; the reviewer spot-checks against it. Still
+  paraphrase only. A standard's document, its text or excerpts of it are
+  never committed: not in specs, code, tests, fixtures or PR text.
 
 `./build check` flags long block quotes and quoted runs, and citation-form
 errors, in `src/` and `wiki/src/`
-([checks SPEC](../tools/checks/SPEC.md#citation-check)). It is a heuristic:
-it cannot tell a paraphrase from copied text. Review is the main control, so
+([checks SPEC](../tools/checks/SPEC.md#citation-check)), and anywhere in the
+repository any PDF, any copy of a cached document or its text, and any run
+of cached text longer than a quote
+([spec-cache check](../tools/checks/SPEC.md#spec-cache-check)). Both are heuristics:
+neither can tell a paraphrase from reworded copied text. Review is the main control, so
 the reviewer confirms paraphrase-only on every PR that touches cited
 material ([pr-reviewer](../../.claude/skills/pr-reviewer/SKILL.md#3-check)).
 
@@ -217,8 +237,9 @@ which is also published as a site. Nothing committed may contain:
   role name (no network addresses, internal host names or user accounts other
   than the runner service account);
 - unredistributable vendor content (copied tool reports or licensed IP
-  text). Standards, manuals and datasheets are never quoted at all; they are
-  paraphrased and cited ([citations](#citations)).
+  text). Standards, manuals and datasheets are never quoted at all, nor
+  committed in any form; they are paraphrased and cited, and linked from
+  the references page ([citations](#citations)).
 
 `./build check` runs the
 [publishability check](../tools/checks/SPEC.md#publishability-check) on every
