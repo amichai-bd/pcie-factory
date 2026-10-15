@@ -1,6 +1,7 @@
 # Regression level budgets, read by ./build regress (see wiki/tools/regress/SPEC.md).
-# budget_s is compared with the serial-equivalent runtime (sum of test runtimes)
-# of the level; exceeding it prints a warning. The DevOps BKM owns these values.
+# budget_s is CPU time: it is compared with the sum of the level's per-test
+# CPU time (user + system of each test's process tree), which host load barely
+# changes; exceeding it prints a warning. The DevOps BKM owns these values.
 level0:
   description: Fast local confidence; run while developing and in ci-gate.
   budget_s: 120

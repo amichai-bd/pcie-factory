@@ -22,6 +22,7 @@ workflow. [`./build regress --affected`](../regress/SPEC.md#selection) and
 global:
   prefixes: [tools/, cfg/]   # repo-relative; each ends with '/'
   files: [build]             # repo-relative exact paths
+  levels: [0]                # regression levels an IP selected only by these runs
 shared_dv: [dv/common]       # relative to the source root
 models: models               # relative to each IP's src/dv/<ip>/
 tools_tests: [tools]         # repo-relative pytest paths
@@ -32,7 +33,7 @@ vocabulary_tests:            # marked tools tests a source change selects
 
 | Key | Meaning |
 | --- | --- |
-| `global` | A change under a prefix, or to one of the files, selects every IP and the tools unit tests. |
+| `global` | A change under a prefix, or to one of the files, selects every IP and the tools unit tests. An IP that only such a change selects runs only the regression `levels` (a non-empty list of level numbers) among those requested; an IP another rule selects runs every requested level ([regress selection](../regress/SPEC.md#selection)). |
 | `shared_dv` | Shared DV Python that no filelist reaches; a change under one selects every IP. |
 | `models` | An IP's reference models and their unit tests. A change under a sub-IP's (or an integrated IP's) models directory also selects every ancestor IP, because parent models import sub-IP models ([DV BKM](../../bkm/dv.md#reusing-a-sub-ip-model)). `./build ci unit` runs the model tests of each selected IP. |
 | `tools_tests` | The pytest paths of the tools unit tests. |
@@ -142,12 +143,16 @@ requests to `main`, pushes to `main` and manual dispatch:
    is the base of the branch's open PR into `main` (else of any open PR,
    else `main`; the history is unshallowed first). Any other push or
    dispatch skips it. Only a `nightly/` branch can fail it.
-4. `./build check`.
+4. `./build check`, then `./build wiki build --strict` (a few seconds; it
+   gates a docs-only change, which selects no IP and no suite).
 5. `./build ci unit`, then `./build regress --level 0 --level 1 --jobs
    $(nproc)`. On a pull request both get `--affected HEAD^1`: the checkout is
    the merge commit, whose first parent is the base tip it merged onto, so
    the diff is exactly the PR's change against the tree under test. On a push
-   or dispatch neither gets `--affected` (every IP, every suite).
+   or dispatch neither gets `--affected` (every IP, every suite). With
+   `--affected`, a change only under `global` paths runs the tools unit
+   tests and level 0 of every IP; a change in an IP's sources or DV runs
+   L0 and L1 of that IP and of every IP whose filelists reach it.
 6. Steps 3 to 5 all run even if an earlier step fails (only cancellation
    stops them); then the job summary
    (step outcomes plus `./build ci summary`) and the `regress-summary`

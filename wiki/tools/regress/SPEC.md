@@ -84,6 +84,12 @@ Three rules decide which tests run:
   (defaults shown):
   - Every IP is affected when any change is under a `global` path: `tools/`
     or `cfg/`, or the `build` launcher (relative to the git repository root).
+    An IP that only such a change selects runs only the levels in
+    `global.levels` (default `[0]`) among those requested, and its reason
+    reads `global change: <path> (level 0 only)`; an IP that any other rule
+    below selects runs every requested level. A tools change is proved by
+    the tools unit tests and a smoke of every IP that shows the tools still
+    drive its simulations; a design or DV change by that IP's full set.
   - Every IP is affected when any change is under a `shared_dv` directory
     (`<src-root>/dv/common/`): shared DV Python helpers are reached by no
     filelist, so their users cannot be told apart.
@@ -177,10 +183,10 @@ when it finishes, even if it selected no tests:
   "builds": [{"ip": "a", "build": "a_top", "status": "pass",
               "runtime_s": 2.1, "log": "a/build/a_top/build.log"}],
   "tests": [{"ip": "a", "level": 0, "name": "smoke", "seed": 123,
-             "status": "pass", "runtime_s": 0.9,
+             "status": "pass", "runtime_s": 0.9, "cpu_s": 0.8,
              "log": "a/smoke/123/sim.log", "detail": "1 case(s) passed"}],
   "totals": {"level0": {"tests": 1, "passed": 1, "failed": 0,
-                        "runtime_s": 0.9, "budget_s": 120,
+                        "runtime_s": 0.9, "cpu_s": 0.8, "budget_s": 120,
                         "over_budget": false}},
   "wall_s": 3.4,
   "coverage": {"ips": {"a": {
@@ -203,7 +209,12 @@ The fields mean the following:
 - Log paths are relative to the workdir.
 - `failed` counts every status other than `pass`.
 - `runtime_s` in `totals` is the serial-equivalent runtime of the level, the
-  sum of its test runtimes. It doesn't depend on `--jobs`.
+  sum of its test runtimes (wall time). It doesn't depend on `--jobs`, but
+  host load stretches it.
+- `cpu_s` of a test is the user plus system CPU time of its child process
+  tree (the cocotb runner and the simulator under it, from `wait4`); 0 for a
+  test killed on its timeout. `cpu_s` in `totals` is the level's sum, the
+  number the [budget](#budgets) is compared with.
 - `coverage` is `null` without `--coverage`. Otherwise it holds, per
   selected IP, the passing runs merged (`runs`) and the files found, each
   metric's `covered`, `total` and `pct` (2 decimals; `null` with no
@@ -426,9 +437,13 @@ and `functional.json` lists it as `a_fsm_arcs.arc.<arc>`.
 exactly two keys, `description` and a positive `budget_s`, and no other keys
 are allowed. The DevOps BKM owns the values.
 
-When a level's total `runtime_s` exceeds its budget, the run prints
-`warning: levelN runtime Xs exceeds its budget of Ys` to stderr and sets
-`over_budget` in the summary. The warning doesn't change the exit code.
+A budget is CPU time: when a level's total `cpu_s` exceeds its budget, the
+run prints `warning: levelN CPU time Xs (the sum of its tests' CPU time)
+exceeds its budget of Ys` to stderr and sets `over_budget` in the summary.
+The per-level line prints both numbers, `levelN: P/T passed, CPU Xs
+(budget Ys), test wall time Zs`. The warning doesn't change the exit code.
+Why CPU time and why a warning: the
+[DevOps BKM](../../bkm/devops.md#levels-and-budgets).
 
 ## Exit codes
 
