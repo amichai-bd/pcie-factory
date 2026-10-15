@@ -2,9 +2,12 @@
 
 The source tree is kind-first: ``<src_root>/<kind>/<ip>/`` with ``<kind>``
 one of :data:`KINDS`. An IP is a directory ``<src_root>/rtl/<id>/`` that
-holds ``<id>.rtl.f``; its id is the directory name. Sub-IPs are flat
-siblings: an IP is a sub-IP of every IP whose ``.rtl.f`` reaches its
-``.rtl.f`` through ``-F``, and a top-level IP is one no other IP reaches.
+holds ``<id>.rtl.f``; its id is the directory name. Every IP whose
+``.rtl.f`` reaches another's ``.rtl.f`` through ``-F`` is that IP's
+ancestor (it integrates it). Sub-IPs are flat siblings: an IP is a sub-IP
+of each ancestor ``<parent>`` when its id is ``<parent>_<name>``, and
+top-level when it has no such parent, even when another top-level IP
+integrates it.
 ``<kind>/common/`` holds shared blocks and is never an IP; with its tests in
 ``dv/common/`` it is the **shared unit**, which ``sim``, ``regress`` and
 ``clean`` accept like an IP (:func:`units`). IP names are never hard-coded.
@@ -63,14 +66,21 @@ class Ip:
 
     id: str
     src_root: Path
-    # IPs whose rtl filelist reaches this one's through -F, sorted.
+    # IPs whose rtl filelist reaches this one's through -F, sorted: its
+    # parents and any top-level IP that integrates it.
     ancestors: tuple[str, ...] = ()
     # The shared unit (id ``common``): not an IP, never top-level.
     shared: bool = False
 
     @property
+    def parents(self) -> tuple[str, ...]:
+        """Ancestors whose id, with ``_``, prefixes this one's: the IPs this
+        is a sub-IP of."""
+        return tuple(a for a in self.ancestors if self.id.startswith(a + "_"))
+
+    @property
     def top_level(self) -> bool:
-        return not self.ancestors and not self.shared
+        return not self.parents and not self.shared
 
     def dir(self, kind: str) -> Path:
         """``<src_root>/<kind>/<id>``, whether or not it exists."""

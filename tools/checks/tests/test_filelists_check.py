@@ -251,3 +251,12 @@ def test_bad_shared_unit_coverage_floor_is_a_finding(good):
     f = run(good).findings
     assert any(x.startswith("common: regression list: ")
                and "coverage_floors: line must be a percentage" in x for x in f), f
+
+
+def test_cycle_between_top_level_ips_fails(tmp_path):
+    src = tmp_path / "src"
+    shutil.copytree(FIXTURES / "integration/src", src)
+    b = src / "rtl/b/b.rtl.f"
+    b.write_text("-F ../sys/sys.rtl.f\n" + b.read_text())
+    text = "\n".join(run(src).findings)
+    assert "rtl/b/b.rtl.f: does not resolve" in text and "-F cycle" in text

@@ -56,6 +56,21 @@ def test_good_fixture_passes_all(capsys):
     assert "check: 2 IP(s)" in out.out and out.out.splitlines()[-1] == "check: PASS"
 
 
+@needs_verilator
+def test_integration_fixture_passes_all(capsys):
+    """Top-level sys integrates top-level a and b (each with arch/, fpga/,
+    asic/); a_x is a sub-IP of a."""
+    code, out = check(capsys, "--src-root", str(FIXTURES / "integration/src"))
+    assert code == 0, out.out
+    assert "check: 4 IP(s)" in out.out and out.out.splitlines()[-1] == "check: PASS"
+
+
+@pytest.mark.parametrize("only", ["layout", "filelist", "style", "wiki", "flows"])
+def test_integration_fixture_passes_each_check(only, capsys):
+    code, out = check(capsys, "--src-root", str(FIXTURES / "integration/src"), "--only", only)
+    assert code == 0, out.out
+
+
 def test_only_and_ip_selection(capsys):
     code, out = check(capsys, "--src-root", str(FIXTURES / "bad/src"),
                       "--only", "style", "--only", "filelist", "--ip", "broken")

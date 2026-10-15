@@ -191,14 +191,15 @@ the exact selection.
 | A file reached through `-F` from an IP's filelists | That IP |
 | `tools/**`, `cfg/**` or the `build` launcher | All IPs |
 | Shared DV helpers under `src/dv/common/` (reached by no filelist) | All IPs |
-| A sub-IP's models under `src/dv/<sub>/models/` | The sub-IP and every ancestor IP (every IP whose `.rtl.f` reaches it) |
+| A sub-IP's or integrated IP's models under `src/dv/<id>/models/` | That IP and every ancestor IP (every IP whose `.rtl.f` reaches it) |
 | Push to `main`, manual dispatch | All IPs |
 | Docs only | Checks only |
 
 A sub-IP is an IP in its own right: a change inside its folders
 (`src/<kind>/<ip>_<sub>/`) selects the sub-IP, and selects the parent only
 when the parent's filelists reach the changed file or the change is in the
-sub-IP's models.
+sub-IP's models. An integrated top-level IP is selected the same way
+relative to the IP that integrates it.
 
 Superseded PR runs are cancelled; every push to `main` keeps its run.
 

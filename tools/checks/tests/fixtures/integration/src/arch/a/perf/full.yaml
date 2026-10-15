@@ -1,0 +1,5 @@
+description: Full rate.
+seed: 1
+workload: {}
+targets:
+  rate: {min: 1.0}
