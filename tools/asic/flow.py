@@ -444,6 +444,8 @@ def _run(ctx: Context, plan: Plan, orfs: Orfs, timeout_s: float, name: str) -> t
                                                VARIANT)
     plan.worst_path_txt.write_text(worst_text)
     absent = asic_metrics.missing(summary)
+    for warning in summary["warnings"]:
+        print(f"[asic] warning: {warning}", flush=True)
     if status == "pass" and absent:
         status = f"incomplete: missing {', '.join(absent)}"
     doc = {

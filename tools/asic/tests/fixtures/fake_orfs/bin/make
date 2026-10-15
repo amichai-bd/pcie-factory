@@ -2,7 +2,8 @@
 # Fake ORFS make for tools/asic unit tests. Understands the arguments
 # ./build asic passes (-C DIR, NAME=VALUE, one target) and copies the fixture
 # reports under tests/fixtures/orfs/ into WORK_HOME like the real flow.
-# FAKE_MAKE: ok (default) | fail (exit 3) | sleep (hang) | noextra (no asic_extra.json).
+# FAKE_MAKE: ok (default) | fail (exit 3) | sleep (hang) | noextra (no asic_extra.json)
+# | noclocks (asic_extra.json with an empty clocks entry).
 set -euo pipefail
 echo "fake make $*"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/orfs"
@@ -32,7 +33,12 @@ case "$target" in
     ;;
   run)
     [ "$mode" = noextra ] && exit 0
-    cp "$here"/reports/asic_extra.json "$reports/"
+    if [ "$mode" = noclocks ]; then
+      printf '{"max_fanout": 25, "max_fanout_net": "net11", "logic_depth": 4, "logic_depth_endpoint": "x/D", "clocks": {}}\n' \
+        > "$reports/asic_extra.json"
+    else
+      cp "$here"/reports/asic_extra.json "$reports/"
+    fi
     ;;
   *) echo "fake make: unknown target $target" >&2; exit 2 ;;
 esac

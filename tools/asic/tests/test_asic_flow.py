@@ -304,7 +304,19 @@ def test_run_missing_metric_is_exit_1(ctx, monkeypatch):
     orfs = flow.load_orfs(ctx.cfg_dir, dict(__import__("os").environ))
     code, doc = flow.run(ctx, plan, orfs, timeout_s=60)
     assert code == 1
-    assert doc["status"] == "incomplete: missing timing.clocks, max_fanout.value, logic_depth.value"
+    assert doc["status"] == "incomplete: missing max_fanout.value, logic_depth.value"
+
+
+def test_run_empty_clocks_warns_not_fails(ctx, monkeypatch, capsys):
+    native_env(monkeypatch, "noclocks")
+    plan = plan_for(ctx)
+    orfs = flow.load_orfs(ctx.cfg_dir, dict(__import__("os").environ))
+    code, doc = flow.run(ctx, plan, orfs, timeout_s=60)
+    assert code == 0 and doc["status"] == "pass"
+    assert doc["timing"]["clocks"] is None and doc["max_fanout"]["value"] == 25
+    assert doc["warnings"] == [flow.asic_metrics.clock_warning({"clocks": {}})]
+    assert "[asic] warning: timing.clocks missing (optional, run not failed): extra_metrics.tcl " \
+        "wrote no clock" in capsys.readouterr().out
 
 
 def test_fake_orfs_is_executable():

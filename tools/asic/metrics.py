@@ -25,9 +25,14 @@ STAGES = ("finish", "detailedroute", "globalroute", "cts", "detailedplace",
           "globalplace", "placeopt", "floorplan", "synth")
 
 # Metrics that must be present for a run to count as complete.
-REQUIRED = ("timing.setup_ws_ns", "timing.tns_ns", "timing.clocks", "area.stdcell_um2", "cells",
+REQUIRED = ("timing.setup_ws_ns", "timing.tns_ns", "area.stdcell_um2", "cells",
             "utilization", "max_fanout.value", "logic_depth.value",
             "worst_path.from", "worst_path.to")
+
+
+# Metrics recorded when present and warned about when not, never failing the
+# run: the per-clock slacks stay optional until a nightly shows them populated.
+OPTIONAL = ("timing.clocks",)
 
 
 def merge_step_json(texts: list[str]) -> dict:
@@ -219,6 +224,22 @@ def clock_slacks(extra: dict) -> dict | None:
     return out or None
 
 
+def clock_warning(extra: dict) -> str | None:
+    """Why ``timing.clocks`` is missing, or None when it is present."""
+    if clock_slacks(extra):
+        return None
+    if not extra:
+        cause = "asic_extra.json is missing or unreadable (the extra step failed or did not run)"
+    elif "clocks" not in extra:
+        cause = "asic_extra.json has no clocks entry"
+    elif extra["clocks"] == {}:
+        cause = ("extra_metrics.tcl wrote no clock (its per-clock section failed or found no "
+                 "constrained endpoint; see the asic_extra lines in flow.log)")
+    else:
+        cause = "the clocks entry in asic_extra.json is malformed"
+    return f"timing.clocks missing (optional, run not failed): {cause}"
+
+
 def summarize(step: dict, synth: dict, worst: dict | None, extra: dict) -> dict:
     """Combine the parsed inputs into the metrics.json body (minus run info)."""
     ws = latest(step, "timing__setup__ws")
@@ -250,6 +271,7 @@ def summarize(step: dict, synth: dict, worst: dict | None, extra: dict) -> dict:
                        else {"from": None, "to": None}),
         "power_w": latest(step, "power__total"),
         "route_drc_errors": step.get("detailedroute__route__drc_errors"),
+        "warnings": [w for w in (clock_warning(extra),) if w],
     }
 
 

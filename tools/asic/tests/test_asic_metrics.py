@@ -166,11 +166,22 @@ def test_clock_slacks_per_clock():
     assert clocks["idle"] == {"setup_ws_ns": None, "wns_ns": None, "tns_ns": 0.0}
 
 
-@pytest.mark.parametrize("extra", [{}, {"clocks": {}}, {"clocks": [1]}, {"clocks": {"c": 3}}])
-def test_clock_slacks_missing_is_incomplete(extra):
+@pytest.mark.parametrize("extra, cause", [
+    ({}, "asic_extra.json is missing or unreadable"),
+    ({"max_fanout": 3}, "asic_extra.json has no clocks entry"),
+    ({"clocks": {}}, "extra_metrics.tcl wrote no clock"),
+    ({"clocks": [1]}, "malformed"), ({"clocks": {"c": 3}}, "malformed")])
+def test_clock_slacks_missing_warns_not_fails(extra, cause):
     summary = metrics.summarize({}, {}, None, extra)
     assert summary["timing"]["clocks"] is None
-    assert "timing.clocks" in metrics.missing(summary)
+    assert "timing.clocks" not in metrics.missing(summary)
+    assert len(summary["warnings"]) == 1 and cause in summary["warnings"][0]
+    assert summary["warnings"][0].startswith("timing.clocks missing (optional, run not failed): ")
+
+
+def test_full_extra_has_no_warning():
+    extra = metrics.parse_extra(text("reports/asic_extra.json"))
+    assert metrics.summarize({}, {}, None, extra)["warnings"] == []
 
 
 def test_clock_slacks_reject_non_numbers():

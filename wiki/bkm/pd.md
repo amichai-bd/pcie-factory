@@ -73,7 +73,7 @@ how each value is derived. It holds at least:
 
 | Metric | Meaning |
 | --- | --- |
-| WNS, TNS | Worst and total negative setup slack (ns), over all SDC clocks and per clock |
+| WNS, TNS | Worst and total negative setup slack (ns), over all SDC clocks and per clock (per clock optional until [#200](https://github.com/amichai-bd/pcie-factory/issues/200)) |
 | Area | Standard-cell area (µm²), plus core and die area and utilization (fraction of core) |
 | Cells | Standard-cell instances after route (tap, clock and repair buffers included, fill excluded), and the synthesis count |
 | Max fanout | Largest data-net fanout in the final design (clock nets excluded) |

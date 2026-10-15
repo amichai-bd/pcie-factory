@@ -57,7 +57,9 @@ headroom for the two clock trees and resizing buffers.
 generated config. Nightly runs it with every IP that has `src/asic/<ip>/`.
 Results, including the setup WNS and TNS of each clock
 (`timing.clocks.clk` and `timing.clocks.rx_clk`), are in `metrics.json` and,
-from the nightly run, on the tracker's `phy` page.
+from the nightly run, on the tracker's `phy` page. The per-clock values are
+optional in the flow until a nightly shows them populated
+([#200](https://github.com/amichai-bd/pcie-factory/issues/200)); without them the run warns and keeps its other results.
 
 ## Files
 
