@@ -110,7 +110,7 @@ the model's step returns. The DV compares with these offsets every cycle
 | Path | Cycles |
 | --- | --- |
 | Accepted transmit beat to its first symbol on `pipe_tx_data_o` | 1 (the scrambler register; HAS budget 3) |
-| Received STP or SDP to the `sop` beat | 3, plus 1 when it is in `[15:8]` (descrambler 1, frame 2; HAS budget 3 + 1); 1 more for a packet whose only beat ends with EDB in `[15:8]` (idle tail) |
+| Received STP or SDP to the `sop` beat | 3, plus 1 when it is in `[15:8]` (descrambler 1, frame 2; HAS budget 3 + 1); 1 more for a one-beat packet ended by EDB in `[15:8]` |
 | A received word to the LTSSM step that takes it | 1 edge after the word is sampled (the receive stage) |
 
 ## Package
@@ -298,7 +298,7 @@ ended by EDB; else a TLP ended by EDB is nullified.
 
 - **Empty packets.** STP or SDP followed at once by its end has no beat:
   it is dropped. Ended by END or EDB, or cut by RxValid or electrical idle,
-  in `Rx_L0`, it is a framing error, the one framing error that sets no
+  in `Rx_L0`, it is a framing error; like any cut in `Rx_L0`, it sets no
   resync; cut by leaving `Rx_L0` it is dropped silently
   ([#153](https://github.com/amichai-bd/pcie-factory/issues/153);
   [HAS](../../arch/mac/HAS.md#receive)).

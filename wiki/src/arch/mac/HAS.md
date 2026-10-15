@@ -250,6 +250,10 @@ Each packet reaches the upper stream as beats:
     in `[15:8]` reaches the upper stream one cycle later than one ended by
     END, and a framing error for an EDB in `[15:8]` outside a packet is
     reported with the next word, only if that word is received.
+  - A received EDB in `[15:8]` followed at once by a loss of lock
+    (`pipe_rx_valid_i` 0) is treated the same way, as a cut. This is
+    harmless: the TLP is discarded either way, and the receiver error is
+    still counted.
 - A packet with no data byte (STP or SDP followed at once by its end) is
   never delivered; in L0 it counts as a framing error unless leaving
   `Rx_L0` cut it ([symbols page](SYMBOLS.md#receive)).

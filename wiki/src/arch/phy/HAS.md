@@ -232,7 +232,7 @@ layer hands them down (sequence number, TLP, LCRC), not TLP payload.
 | Throughput | For back-to-back packets of n bytes, at least 2 x n/(n+2) x 1176/1180 bytes per cycle: framing plus a SKP ordered set in every 1180 symbols. At least 1.97 bytes per cycle (246 MB/s; about 231 MB/s of payload) for 274-byte TLPs with 256-byte payloads, and 1.49 for DLLPs. |
 | Lossless | No packet lost or corrupted and no elastic-buffer overflow at ±600 ppm, any SKP interval in range, up to maximum-size TLPs. |
 | TX latency | At most 6 cycles from an accepted beat to its first symbol on `ser_tx_data_o`. |
-| RX latency | At most 16 cycles from a packet's first symbol on `ser_rx_data_i` (once aligned) to its `sop` beat, with the elastic buffer at 12 symbols or fewer. A packet of 2 bytes or fewer ended by EDB, never a well-formed TLP or DLLP, may take 1 more ([`mac` HAS, Targets](../mac/HAS.md#targets)). |
+| RX latency | At most 16 cycles from a packet's first symbol on `ser_rx_data_i` (once aligned) to its `sop` beat, with the elastic buffer at 12 symbols or fewer. A packet of 2 bytes or fewer ended by EDB in `[15:8]`, never a well-formed TLP or DLLP, may take 1 more ([`mac` HAS, Targets](../mac/HAS.md#targets)). |
 | Clocks | `clk_i` and `ser_rx_clk_i` at 125 MHz on the ASIC flow and 50 MHz on the FPGA (DE2-115) flow. The FPGA figure is a timing and resource target only, with no board bring-up at line rate; the design's rates, including PIPE at 125 MHz, are unchanged ([Q26](../../decisions/0002-m1-grill.md#decisions)). |
 
 The budgets the `mac` and `pcs` HAS pages must meet or rebalance: MAC
