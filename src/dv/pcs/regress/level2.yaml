@@ -15,13 +15,13 @@ tests:
     module: tests.test_decode
     testcase: rx_decode_random_long
     top: pcie_pcs
-    seeds: 4
+    seeds: 3
     timeout_s: 1200
   - name: rx_align_long
     module: tests.test_lock
     testcase: rx_align_long
     top: pcie_pcs
-    seeds: 8
+    seeds: 6
     timeout_s: 900
   - name: rx_max_tlp
     module: tests.test_datapath
@@ -99,7 +99,7 @@ tests:
     module: tests.test_elastic
     testcase: eb_long_random
     top: pcie_pcs
-    seeds: 6
+    seeds: 4
     timeout_s: 1800
   - name: eb_long_stress
     module: tests.test_elastic

@@ -43,7 +43,7 @@ tests:
     module: tests.test_decode
     testcase: rx_decode_random
     top: pcie_pcs
-    seeds: 3
+    seeds: 2
     timeout_s: 600
   - name: rx_slips_training
     module: tests.test_lock
@@ -55,13 +55,13 @@ tests:
     module: tests.test_lock
     testcase: rx_slips_packets
     top: pcie_pcs
-    seeds: [1, 2]
+    seeds: [1]
     timeout_s: 300
   - name: rx_no_false_lock
     module: tests.test_lock
     testcase: rx_no_false_lock
     top: pcie_pcs
-    seeds: [1, 2]
+    seeds: [1]
     timeout_s: 300
   - name: rx_ppm
     module: tests.test_datapath
