@@ -45,3 +45,4 @@ tests:
     seeds: 2
     timeout_s: 1200
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
+coverage_floors: {functional: {mac_os_tx: 100, mac_os_rx: 100, mac_frame: 100}}

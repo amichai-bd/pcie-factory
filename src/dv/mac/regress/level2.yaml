@@ -54,3 +54,4 @@ tests:
     testcase: partner_arc_sweep
     top: pcie_mac_tb
     timeout_s: 900
+coverage_floors: {line: 84, toggle: 73, functional: 100}

@@ -65,8 +65,12 @@ shows where each of their checks went.
     SKP interval), receive outcome, kind crossed with start lane, and each
     receive error kind (framing, RxStatus, cut by RxValid, electrical idle
     or leaving `Rx_L0`, empty packet).
-  - Level 2 floors: functional 100 (all four covergroups), and line and
-    toggle at the merged level 0 to 2 value, rounded down. The line holes
+  - Floors: level 1 holds `mac_os_tx`, `mac_os_rx` and `mac_frame` at
+    100% (reached by levels 0 and 1); level 2 holds functional coverage at
+    100% (all four covergroups, so every core arc in each role), line at
+    84% and toggle at 73%, just below the merged level 0 to 2 values
+    (84.7%, 73.3%; the parameter variants of `dividers`, `train_spec` and
+    `smoke_n_fts_*` add their own points). The line holes
     are the [gaps](#gaps): the stubbed arcs and the power and control
     states, EIOS, FTS and requested-SKP transmit, the SKP-count
     saturation and the unreachable `default` arms.
