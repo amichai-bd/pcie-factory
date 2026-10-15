@@ -2,5 +2,6 @@ tests:
   - name: smoke
     module: tests.test_mac
     testcase: smoke
-    top: pcie_mac
-    timeout_s: 60
+    top: pcie_mac_tb
+    timeout_s: 180
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}

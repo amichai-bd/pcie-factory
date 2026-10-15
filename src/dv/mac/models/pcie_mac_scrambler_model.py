@@ -1,9 +1,10 @@
-"""Cycle model of pcie_mac_scrambler (wiki/src/rtl/mac_scrambler/MAS.md).
+"""Cycle model of the mac scrambler block, pcie_mac_scrambler
+(wiki/src/rtl/mac/MAS.md#scrambler).
 
 The symbol rules are not restated here: each symbol goes through the mac
 architecture model's ``Scrambler`` (wiki/src/arch/mac/SYMBOLS.md#scrambling),
 imported from src/arch/mac, located from this file (DV may import arch). This
-module adds only what the sub-IP adds: two symbols per word in line order,
+module adds only what the block adds: two symbols per word in line order,
 ``valid_i`` holding the LFSR, and the one-cycle output register.
 """
 
@@ -19,7 +20,7 @@ SYMS = 2
 
 
 class WordScrambler:
-    """One instance of the sub-IP. ``clock`` applies one rising edge with the
+    """One instance of the block. ``clock`` applies one rising edge with the
     given inputs; ``valid``, ``data`` and ``datak`` are then the registered
     outputs (``data``/``datak`` hold when ``valid_i`` is 0)."""
 

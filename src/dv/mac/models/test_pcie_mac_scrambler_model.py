@@ -2,7 +2,7 @@
 model's Scrambler against an independent bit-serial statement of
 wiki/src/arch/mac/SYMBOLS.md#scrambling. No simulator needed.
 
-Run: python3 -m pytest src/dv/mac_scrambler/models
+Run: python3 -m pytest src/dv/mac/models
 """
 
 import random

@@ -127,8 +127,8 @@ def test_tx_encoder_block_swaps_in():
 
 
 def _word_scrambler():
-    """The pcie_mac_scrambler sub-IP's cycle model (its own DV model)."""
-    d = Path(__file__).resolve().parents[2] / "mac_scrambler" / "models"
+    """The mac scrambler block's cycle model (the mac DV models)."""
+    d = Path(__file__).resolve().parents[2] / "mac" / "models"
     if str(d) not in sys.path:
         sys.path.append(str(d))
     import pcie_mac_scrambler_model
@@ -136,7 +136,7 @@ def _word_scrambler():
 
 
 def test_tx_scrambler_block_swaps_in():
-    """Port a's transmit scrambling done by the sub-IP's word-level model
+    """Port a's transmit scrambling done by the mac scrambler's word-level model
     (one cycle later): the pair still trains and passes packets both ways;
     with a block that does not scramble, training fails."""
     rng = random.Random(5)

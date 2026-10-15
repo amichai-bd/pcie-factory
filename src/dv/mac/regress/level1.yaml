@@ -1,1 +1,47 @@
-tests: []
+tests:
+  - name: arcs_quick
+    module: tests.test_mac
+    testcase: arcs_quick
+    top: pcie_mac_tb
+    timeout_s: 900
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
+  - name: polarity
+    module: tests.test_mac
+    testcase: polarity
+    top: pcie_mac_tb
+    timeout_s: 600
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
+  - name: traffic
+    module: tests.test_mac
+    testcase: traffic
+    top: pcie_mac_tb
+    seeds: 3
+    timeout_s: 600
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
+  - name: tx_bubble
+    module: tests.test_mac
+    testcase: tx_bubble
+    top: pcie_mac_tb
+    timeout_s: 300
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
+  - name: rx_errors
+    module: tests.test_mac
+    testcase: rx_errors
+    top: pcie_mac_tb
+    seeds: 2
+    timeout_s: 600
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
+  - name: ts_fields
+    module: tests.test_mac
+    testcase: ts_fields
+    top: pcie_mac_tb
+    seeds: 2
+    timeout_s: 600
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
+  - name: random_soak
+    module: tests.test_mac
+    testcase: random_soak
+    top: pcie_mac_tb
+    seeds: 2
+    timeout_s: 1200
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
