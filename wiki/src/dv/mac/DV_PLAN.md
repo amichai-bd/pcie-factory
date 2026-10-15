@@ -141,4 +141,5 @@ listed entry; each fails, and the unmutated RTL passes.
 | Feature | Owning issue |
 | --- | --- |
 | L0s sub-machines, L1, L2, the arcs into them; EIOS, FTS and requested-SKP transmit (the LTSSM never requests them yet) | [#79](https://github.com/amichai-bd/pcie-factory/issues/79) |
+| The partner model's `skp_adjust` hook leaves its transmit queue odd, so after it the partner sends no further SKP ordered set in L0; tests use it only where that does not matter (`traffic`, `ts_fields`) | [#79](https://github.com/amichai-bd/pcie-factory/issues/79) (the transmit SKP paths) |
 | Disabled, Hot Reset, Loopback, the arcs into them; training control bits sent; L0 to Recovery on `hot_reset_req_i`, `disable_req_i` and `loopback_req_i` | [#80](https://github.com/amichai-bd/pcie-factory/issues/80) |

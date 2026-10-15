@@ -4,7 +4,7 @@ Every arc of the [`pcie_mac` LTSSM](LTSSM.md), with its condition and
 timeout, under the [common rules](LTSSM.md#common-rules); citations point
 to the PCIe Base Spec rev 3.0 for cross-checking only (Q21). This list is
 the 100% arc-coverage target of the LTSSM tests
-([#77](https://github.com/amichai-bd/pcie-factory/issues/77),
+([#146](https://github.com/amichai-bd/pcie-factory/issues/146),
 [#79](https://github.com/amichai-bd/pcie-factory/issues/79),
 [#80](https://github.com/amichai-bd/pcie-factory/issues/80),
 [#90](https://github.com/amichai-bd/pcie-factory/issues/90)), **in each
