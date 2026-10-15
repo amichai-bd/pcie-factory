@@ -154,10 +154,16 @@ helper's API, outputs and floor rules).
   unreachable case to explain in the DV plan, or a bin to remove with a
   reason; never a bin to delete silently.
 - **Floors are optional and per IP.** Add `coverage_floors` to a level file
-  once the IP's DV plan has no gaps, at or just below the merged value that
-  level's runs reach (usually in `level2.yaml`, which the nightly runs).
+  once the IP's DV plan has no gaps (for a per-covergroup floor, once the
+  plan rows that covergroup covers have none), at or just below the merged
+  value that level's runs reach (usually in `level2.yaml`, which the nightly runs).
   Raise a floor when coverage improves; lowering one needs a reason in the
   PR, like a budget.
+- **Require a set of cases with its own covergroup.** When the plan needs
+  every one of a listed set, such as each state-machine arc, put exactly
+  that set in one covergroup (arcs as named `(from, to)` tuple bins) and
+  give it a per-covergroup floor of 100, so other covergroups can still be
+  incomplete ([worked example](../tools/regress/SPEC.md#functional-coverage)).
 - Nightly runs L0+L1+L2 with `--coverage`; the tracker charts each IP's
   coverage over time ([DevOps BKM](devops.md#nightly)).
 

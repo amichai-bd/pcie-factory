@@ -8,4 +8,5 @@ workload:
   reseed_every: 128
 targets:
   throughput_ratio: {min: 1.0}
+  latency_cycles_min: {min: 1}
   latency_cycles_max: {max: 1}

@@ -1,0 +1,32 @@
+{
+  "host": "someone",
+  "ip": "blk",
+  "model": "/home/someone/src/arch/blk/xy_blk_arch.py",
+  "scenarios": [
+    {
+      "description": "Planted by someone@example.com, see run.log",
+      "detail": "assert failed in /opt/tool",
+      "log": "logs/run.log",
+      "metrics": {"lat": 1, "rate": 1.0, "secret_count": 7},
+      "name": "full",
+      "seed": 3,
+      "status": "pass",
+      "targets": [
+        {"max": 1, "metric": "lat", "status": "pass", "value": 1},
+        {"metric": "rate", "min": 1.0, "status": "pass", "value": 1.0, "note": "secret title"}
+      ],
+      "workload": {"path": "/home/someone/w", "rate": 1.0}
+    },
+    {
+      "description": "Half rate.",
+      "metrics": {"rate": 0.5},
+      "name": "half",
+      "seed": 4,
+      "status": "fail",
+      "targets": [{"metric": "rate", "min": 1.0, "status": "fail", "value": 0.5}],
+      "workload": {"rate": 0.5}
+    }
+  ],
+  "schema": 1,
+  "status": "fail"
+}

@@ -81,6 +81,52 @@ def test_flow_sections_whitelist(cfg):
         "status": "unavailable", "reason": "missing"}
 
 
+def test_arch_section_whitelists(tmp_path):
+    a = record.arch_section(FIXTURES / "workdir", ["blk", "blk_sub", "other"])
+    assert a == {"status": "ok", "ips": {"blk": {"status": "fail", "scenarios": {
+        "full": {"status": "pass", "targets": {"lat": 1, "rate": 1.0}},
+        "half": {"status": "fail", "targets": {"rate": 0.5}}}}}}
+    assert record.arch_section(tmp_path, ["blk"]) == {"status": "unavailable", "reason": "missing"}
+
+
+@pytest.mark.parametrize("doc", [
+    "not json",
+    "[]",
+    {"status": "maybe", "scenarios": []},
+    {"status": "pass"},
+    {"status": "pass", "scenarios": [{"name": "/abs", "status": "pass"}]},
+    {"status": "pass", "scenarios": [{"name": "a", "status": "skipped"}]},
+    {"status": "pass", "scenarios": [{"name": "a", "status": "pass",
+                                      "targets": [{"metric": "x y", "value": 1}]}]},
+    {"status": "pass", "scenarios": [{"name": "a", "status": "pass",
+                                      "targets": [{"metric": "x", "value": "1"}]}]},
+    {"status": "pass", "scenarios": [{"name": "a", "status": "pass",
+                                      "targets": [{"metric": "x", "value": True}]}]},
+    {"status": "pass", "scenarios": [{"name": "a", "status": "pass",
+                                      "targets": [{"metric": "x", "value": 10 ** 400}]}]},  # OverflowError
+    {"status": "pass", "scenarios": [{"name": "a", "status": "pass",
+                                      "targets": [{"metric": "x", "value": float("inf")}]}]},
+])
+def test_arch_section_invalid_file(tmp_path, doc):
+    path = tmp_path / "blk/arch/perf.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(doc if isinstance(doc, str) else json.dumps(doc))
+    assert record.arch_section(tmp_path, ["blk"]) == {"status": "ok", "ips": {"blk": {"status": "invalid"}}}
+
+
+def test_huge_numbers_are_invalid_not_a_crash(tmp_path, cfg):
+    """A number too large for a float (OverflowError) marks the input invalid."""
+    s = tmp_path / "summary.json"
+    s.write_text(json.dumps({"tests": [{"ip": "a", "level": 0, "name": "t", "seed": 1,
+                                        "status": "pass", "runtime_s": 10 ** 400}],
+                             "totals": {}, "levels": [0], "passed": True, "wall_s": 1}))
+    assert record.tests_section(s, cfg) == {"status": "unavailable", "reason": "invalid"}
+    s.write_text(json.dumps({"coverage": {"passed": True, "ips": {"a": {
+        m: {"covered": 1, "total": 1, "pct": 10 ** 400} for m in record.COVERAGE_METRICS}
+        | {"floors": {}, "failures": []}}}}))
+    assert record.coverage_section(s) == {"status": "unavailable", "reason": "invalid"}
+
+
 def test_pick_drops_unsafe_strings():
     doc = {"a": "/abs/path", "b": "ok value", "c": {"x": 1, "y": {"deep": 2}}, "d": [1, 2]}
     assert record.pick(doc, ["a", "b", "c.*", "d", "missing.x"]) == {"b": "ok value", "c": {"x": 1}}
@@ -147,6 +193,8 @@ def test_collect_end_to_end_is_publishable(repo, tmp_path, cfg, monkeypatch):
     assert rec["code"]["repo_size_kb"] == 1234
     assert set(rec["code"]["ips"]) == {"blk", "blk_sub"}
     assert rec["tests"]["status"] == rec["fpga"]["status"] == rec["asic"]["status"] == "ok"
+    assert rec["arch"]["ips"]["blk"]["scenarios"]["full"] == {"status": "pass",
+                                                              "targets": {"lat": 1, "rate": 1.0}}
     assert rec["coverage"]["ips"]["blk"]["line"]["pct"] == 80.0
     assert rec["github"]["issues"]["status"] == "ok"
     assert rec["distributions"]["test_runtime_s"] == [0.75, 1.5, 38.0, 40.25]
@@ -168,7 +216,7 @@ def test_collect_without_github_or_producers(repo, tmp_path, cfg, monkeypatch):
                      started=None, repo=None)
     assert cli.collect(_ctx(repo, tmp_path / "empty"), args) == 0
     rec = json.loads(out.read_text())
-    for key in ("tests", "coverage", "fpga", "asic"):
+    for key in ("tests", "coverage", "fpga", "asic", "arch"):
         assert rec[key] == {"status": "unavailable", "reason": "missing"}
     assert rec["github"]["ci"] == {"status": "unavailable", "reason": "disabled"}
     assert rec["meta"]["nightly"]["result"] is None

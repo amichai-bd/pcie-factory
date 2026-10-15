@@ -216,7 +216,7 @@ def _clean_args(p: argparse.ArgumentParser) -> None:
 
 def _check_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--ip", action="append",
-                   help="restrict every check but neutrality to this IP id; repeatable")
+                   help="restrict layout, filelist, style, wiki, flows and lint to this IP id; repeatable")
     p.add_argument("--only", action="append", choices=CHECKS,
                    help="run only this check; repeatable (default: all)")
 
@@ -277,7 +277,7 @@ COMMANDS = {
     "sim": ("run one test of one IP", cmd_sim, _sim_args),
     "regress": ("run regression levels", cmd_regress, _regress_args),
     "clean": ("remove generated output", cmd_clean, _clean_args),
-    "check": ("static checks: layout, filelist, style, wiki mirror, flow inputs, neutrality, lint", cmd_check, _check_args),
+    "check": ("static checks: layout, filelist, style, wiki mirror, flow inputs, neutrality, citation, publishability, lint", cmd_check, _check_args),
     "labels": ("GitHub label sync and check", cmd_labels, _labels_args),
     "ci": ("ci-gate helpers: unit suites, job summary, data-branch status", cmd_ci, _ci_args),
     "wiki": ("build or serve the wiki site", cmd_wiki, _wiki_args),

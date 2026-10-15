@@ -24,6 +24,7 @@ targets:
   rate: {min: 1.0}
   lat: {max: 1}
 """
+README = "| Item | Value |\n| --- | --- |\n| Module/package/file prefix | `xy_` |\n"
 
 
 def make_ip(root: Path, ip_id: str, reaches: str = "") -> None:
@@ -37,6 +38,7 @@ def tree(tmp_path):
     """IP blk (with sub-IP blk_sub) whose arch/blk/ has a model and one scenario."""
     make_ip(tmp_path, "blk_sub")
     make_ip(tmp_path, "blk", reaches="blk_sub")
+    (tmp_path / "src/README.md").write_text(README)
     arch = tmp_path / "src/arch/blk"
     (arch / "perf").mkdir(parents=True)
     (arch / "xy_blk_arch.py").write_text(MODEL)
@@ -144,14 +146,20 @@ def test_sub_ip_is_rejected(tree):
 
 def test_model_lookup(tree):
     model = tree / "src/arch/blk/xy_blk_arch.py"
-    (tree / "src/arch/blk/test_xy_blk_arch.py").write_text("")  # tests do not count
+    for other in ("test_xy_blk_arch.py", "zz_blk_arch.py", "xy_xblk_arch.py", "xy_blk_arch2.py"):
+        (tree / "src/arch/blk" / other).write_text(MODEL)  # only the exact name counts
     assert perf.find_model(ip(tree)) == model
-    (tree / "src/arch/blk/zz_blk_arch.py").write_text(MODEL)
-    with pytest.raises(perf.ArchError, match="exactly one model.*xy_blk_arch.py, zz_blk_arch.py"):
+    model.unlink()
+    with pytest.raises(perf.ArchError, match="no model xy_blk_arch.py"):
         perf.find_model(ip(tree))
-    for p in (model, tree / "src/arch/blk/zz_blk_arch.py"):
-        p.unlink()
-    with pytest.raises(perf.ArchError, match="found: none"):
+
+
+def test_model_name_needs_the_declared_prefix(tree):
+    (tree / "src/README.md").write_text("# no prefix table\n")
+    with pytest.raises(perf.ArchError, match="README.md: declares no module prefix"):
+        perf.find_model(ip(tree))
+    (tree / "src/README.md").write_text(README.replace("xy_", "ab_"))
+    with pytest.raises(perf.ArchError, match="no model ab_blk_arch.py"):
         perf.find_model(ip(tree))
 
 

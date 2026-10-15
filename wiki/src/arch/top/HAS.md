@@ -102,5 +102,5 @@ check the throughput and latency targets; `./build arch --ip top` writes
 
 | Scenario | Workload | Targets checked |
 | --- | --- | --- |
-| `back_to_back` | 4096 random bytes, no bubbles or re-seeds | `throughput_bytes_per_cycle` >= 1, `latency_cycles_max` <= 1 |
-| `bubbles_reseed` | 4096 random bytes offered in half the cycles, a re-seed every 128 bytes | `throughput_ratio` (output over offered rate) >= 1, `latency_cycles_max` <= 1 |
+| `back_to_back` | 4096 random bytes, no bubbles or re-seeds | `throughput_bytes_per_cycle` >= 1, `latency_cycles_min` >= 1, `latency_cycles_max` <= 1 |
+| `bubbles_reseed` | 4096 random bytes offered in half the cycles, a re-seed every 128 bytes | `throughput_ratio` (output over offered rate) >= 1, `latency_cycles_min` >= 1, `latency_cycles_max` <= 1 |

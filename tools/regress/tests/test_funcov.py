@@ -45,6 +45,65 @@ def test_list_bins_are_named_after_values_and_unhashable_values_work():
     assert funcov.groups()["l"] == {"x": {"0": 0, "1": 0, "2": 2}, "w": {"empty": 1, "some": 1}}
 
 
+def test_tuple_bin_is_one_value_an_arc():
+    cg = Covergroup("arcs")
+    cg.coverpoint("arc", bins={"a__b": ("A", "B"), "b__a": ("B", "A"),
+                               "into_b": [("A", "B"), ("C", "B")]})  # a list stays a collection
+    cg.sample(arc="B")         # a bare state hits no arc
+    cg.sample(arc=("A", "B"))
+    cg.sample(arc=("A", "B"))  # memoized path
+    cg.sample(arc=("C", "B"))
+    assert funcov.groups()["arcs"]["arc"] == {"a__b": 2, "b__a": 0, "into_b": 3}
+
+
+def test_memo_tells_bool_int_and_float_apart():
+    cg = Covergroup("t")
+    cg.coverpoint("v", bins={"flag": lambda v: isinstance(v, bool), "int": lambda v: type(v) is int,
+                             "pair_flag": lambda v: isinstance(v, tuple) and isinstance(v[0], bool)})
+    for v in (True, 1, 1.0, (True, 0), (1, 0), True, 1):
+        cg.sample(v=v)
+    assert funcov.groups()["t"]["v"] == {"flag": 2, "int": 2, "pair_flag": 1}
+
+
+def test_matching_is_type_strict():
+    cg = Covergroup("s")
+    cg.coverpoint("v", bins={"one": 1, "one_l": [1], "r2": range(2), "flt": 1.0, "yes": True,
+                             "pair": (1, 0), "fs": [frozenset({1})]})
+    cg.sample(v=True)
+    cg.sample(v=1)
+    cg.sample(v=1.0)
+    cg.sample(v=(True, 0))
+    cg.sample(v=(1, 0))
+    cg.sample(v=frozenset({True}))
+    cg.sample(v=frozenset({1}))
+    assert funcov.groups()["s"]["v"] == {"one": 1, "one_l": 1, "r2": 1, "flt": 1, "yes": 1,
+                                         "pair": 1, "fs": 1}
+
+
+def test_frozenset_memo_keeps_item_types():
+    cg = Covergroup("f")
+    cg.coverpoint("v", bins={"has_bool": lambda v: any(type(x) is bool for x in v)})
+    for v in (frozenset({True}), frozenset({1}), frozenset({True})):
+        cg.sample(v=v)
+    assert funcov.groups()["f"]["v"] == {"has_bool": 2}
+
+
+@pytest.mark.parametrize("spec, message", [
+    (str, "bin spec str is a class"),
+    (int, "bin spec int is a class"),
+    (__import__("enum").Enum("Colour", "RED BLUE"), "bin spec Colour is a class"),
+    ((x for x in (1, 2)), "bin spec of type generator "),
+    (iter([1, 2]), "bin spec of type list_iterator "),
+    ({1: 2}.keys(), "bin spec of type dict_keys "),
+    ({1: 2}.values(), "bin spec of type dict_values "),
+    ({1: 2}.items(), "bin spec of type dict_items "),
+    ({1: 2}, "bin spec of type dict "),
+])
+def test_bin_specs_that_could_never_mean_a_value_are_rejected(spec, message):
+    with pytest.raises(CoverageError, match=r"^c\.p\.b: " + message):
+        Covergroup("c").coverpoint("p", bins={"b": spec})
+
+
 @pytest.mark.parametrize("build, message", [
     (lambda: Covergroup("bad name"), "covergroup name"),
     (lambda: (Covergroup("a"), Covergroup("a")), "already exists"),

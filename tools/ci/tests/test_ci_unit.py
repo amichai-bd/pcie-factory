@@ -36,6 +36,8 @@ def repo(tmp_path, fixture_src):
     (r / "tools").mkdir()
     (r / "tools/x.py").write_text("")
     (r / "README.md").write_text("")
+    (r / "src/README.md").write_text("| Item | Value |\n| --- | --- |\n"
+                                     "| Module/package/file prefix | `xy_` |\n")
     git(r, "init", "-q", "-b", "main")
     git(r, "add", "-A")
     git(r, "commit", "-qm", "base")

@@ -46,6 +46,16 @@ def test_code_stats_from_tree(repo, cfg):
     assert stats["by_dir"]["src"]["files"] == 5
 
 
+def test_arch_python_is_its_own_kind(repo, cfg):
+    commit(repo, {"src/arch/blk/xy_blk_arch.py": "# model\ndef perf(w, s):\n    return {}\n",
+                  "src/arch/blk/perf/full.yaml": "seed: 1\n"}, "arch", "2026-01-03T00:00:00")
+    stats = TreeReader(repo, cfg).stats("HEAD")[0]
+    assert stats["kinds"]["arch_py"] == {"files": 1, "lines": 3, "code": 2}
+    blk = stats["ips"]["blk"]["kinds"]
+    assert blk["arch_py"]["files"] == 1 and "dv_py" in blk
+    assert blk["config"]["files"] == 2  # the filelist and the scenario
+
+
 def test_stats_deterministic(repo, cfg):
     a = TreeReader(repo, cfg).stats("HEAD")[0]
     b = TreeReader(repo, cfg).stats("HEAD")[0]

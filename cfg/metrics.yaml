@@ -25,6 +25,7 @@ kinds:
   rtl_sv: ["src/rtl/**/*.sv", "src/rtl/**/*.svh", "src/rtl/**/*.v"]
   dv_sv: ["src/dv/**/*.sv", "src/dv/**/*.svh"]
   dv_py: ["src/dv/**/*.py"]
+  arch_py: ["src/arch/**/*.py"]
   tools_py: ["tools/**/*.py", "build"]
   wiki_md: ["wiki/**/*.md", "*.md"]
   config: ["cfg/**/*.yaml", "src/**/*.yaml", "src/**/*.f", "src/fpga/**", "src/asic/**"]

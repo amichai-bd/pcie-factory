@@ -14,10 +14,16 @@ per-run results of each IP. See wiki/tools/regress/SPEC.md#functional-coverage.
     cg.sample(valid=1, data=0x3C)
 
 Bins are a mapping from name to a value, a collection of values (``range``,
-``list``, ``set``, ...) or a predicate ``value -> bool``; a list of values
-names each bin after its value. A sampled value hits every bin it matches. A
-cross has one bin per combination of its coverpoints' bins and is hit when
-every one of its coverpoints is sampled in the same ``sample`` call.
+``list``, ``set``, ``frozenset``) or a predicate ``value -> bool``; a list of
+values names each bin after its value. A ``tuple`` is one value, not a
+collection, so ``{"a__b": ("A", "B")}`` is hit by the sampled arc
+``("A", "B")`` only. Matching is type-strict: a value matches a bin value
+of the same type only (``True`` is not ``1``, ``1`` is not ``1.0``), item by
+item inside tuples. A sampled value hits every bin it matches. A cross has
+one bin per combination of its coverpoints' bins and is hit when every one of
+its coverpoints is sampled in the same ``sample`` call. Predicates must be
+pure functions of the value: ``sample`` reuses the bins computed for an equal
+value of the same type.
 
 Sampling always counts; the results are written only when the sim tool asks
 for coverage (``./build regress --coverage``), which sets ``FUNCOV_FILE`` to
@@ -31,6 +37,7 @@ import atexit
 import json
 import os
 import re
+from collections.abc import Iterator, Mapping, MappingView
 from itertools import product
 from pathlib import Path
 
@@ -53,13 +60,51 @@ def _check_name(kind: str, name) -> str:
     return name
 
 
-def _matcher(spec):
+COLLECTIONS = (range, list, set, frozenset)  # a tuple is a single value (an arc)
+_NESTED = (tuple, frozenset)  # values whose items' types the memo key keeps
+
+
+def _same(value, spec) -> bool:
+    """Type-strict equality: same type and equal, item by item inside tuples
+    and frozensets, so ``True`` is not ``1`` and ``1`` is not ``1.0``."""
+    if type(value) is not type(spec):
+        return False
+    if type(spec) is tuple:
+        return len(value) == len(spec) and all(_same(v, s) for v, s in zip(value, spec))
+    if type(spec) is frozenset:
+        return _memo_key(value) == _memo_key(spec)
+    return value == spec
+
+
+def _matcher(where: str, spec):
+    """The match function of one bin spec. Classes, iterators (generators)
+    and mapping views are rejected: a class is callable but not a predicate
+    of the value, and the others are consumed or never equal a sample."""
+    if isinstance(spec, type):
+        raise CoverageError(f"{where}: bin spec {spec.__name__} is a class, not a value, "
+                            f"collection or predicate (use lambda v: isinstance(v, {spec.__name__}))")
+    if isinstance(spec, (Iterator, MappingView, Mapping)):
+        raise CoverageError(f"{where}: bin spec of type {type(spec).__name__} is not a value, "
+                            f"collection or predicate (use a list, set or range)")
     if callable(spec):
         return spec
-    if isinstance(spec, (range, list, tuple, set, frozenset)):
-        values = spec
-        return lambda v: v in values
-    return lambda v: v == spec
+    if isinstance(spec, range):
+        return lambda v: type(v) is int and v in spec
+    if isinstance(spec, COLLECTIONS):
+        values = list(spec)
+        return lambda v: any(_same(v, s) for s in values)
+    return lambda v: _same(v, spec)
+
+
+def _memo_key(value):
+    """A hashable key that keeps item types inside tuples and frozensets;
+    raises TypeError for an unhashable value."""
+    if type(value) is tuple:
+        return (tuple, tuple((type(v), _memo_key(v)) for v in value))
+    if type(value) is frozenset:
+        return (frozenset, frozenset((type(v), _memo_key(v)) for v in value))
+    hash(value)
+    return value
 
 
 class Covergroup:
@@ -91,7 +136,7 @@ class Covergroup:
         names = [_check_name("bin", str(b)) for b, _ in items]
         if len(set(names)) != len(names):
             raise CoverageError(f"{self.name}.{name}: duplicate bin names")
-        self._points[name] = [(b, _matcher(spec)) for b, spec in items]
+        self._points[name] = [(b, _matcher(f"{self.name}.{name}.{b}", spec)) for b, spec in items]
         self.counts[name] = dict.fromkeys(names, 0)
         return self
 
@@ -113,7 +158,11 @@ class Covergroup:
         """Count every bin each named coverpoint's value hits, then the
         crosses whose coverpoints were all sampled."""
         try:
-            key = tuple(values.items())
+            types = tuple(map(type, values.values()))  # so True, 1 and 1.0 differ
+            if tuple in types or frozenset in types:
+                key = (tuple((k, _memo_key(v)) for k, v in values.items()), types)
+            else:
+                key = (tuple(values.items()), types)
             plan = self._plans.get(key)
         except TypeError:  # an unhashable value: plan without the memo
             key, plan = None, None

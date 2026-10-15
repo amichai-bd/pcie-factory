@@ -71,6 +71,7 @@ workdir/                    all generated output, ignored
 | Flow inputs: `src/fpga/<ip>/` and `src/asic/<ip>/` pass the FPGA and ASIC flows' `--dry-run` validation, without the vendor tools | [checks spec](../tools/checks/SPEC.md#flow-input-check) |
 | Neutrality: the word list in `cfg/checks.yaml`, with the scope and exemptions set by the contract | [`CLAUDE.md`](../../CLAUDE.md#design-neutrality) |
 | Citations: no long block quotes or quoted runs, and the citation form, in `src/` and `wiki/src/` (a heuristic; review is the main control) | [wiki BKM](wiki.md#citations) |
+| Publishability: no keys, tokens, URL credentials, IP addresses, home paths or personal email addresses in any file, with reviewed exemptions in `cfg/checks.yaml` | [wiki BKM](wiki.md#publishability) |
 
 `tools/` unit tests run when `tools/` or `cfg/` change. Doc line caps are a
 review guideline, not a check.
@@ -94,7 +95,7 @@ by raising the budget silently.
 
 | Change | Run before review |
 | --- | --- |
-| Docs only | Link check and the neutrality check |
+| Docs only | Link check and the neutrality and publishability checks |
 | `tools/`, `cfg/` | `./build check`, the tool unit tests, L0 of all IPs |
 | RTL or DV | `./build check`, `./build regress --level 0 --level 1 --affected origin/main` |
 | Architecture models (`arch/`) | `./build check`, the model self-tests, `./build arch --ip <ip>` ([arch BKM](arch.md#evidence)) |
@@ -109,11 +110,11 @@ Missing evidence is a review finding.
 
 ## Continuous integration
 
-Workflows live in `.github/workflows/` (`ci`, `nightly`, `pages`, `fpga`, `asic`) and run on
-self-hosted runners selected with `runs-on: [self-hosted, linux, x64]`. The
-runners are registered to this repository only, so no workflow names the
-design target. The CI host is the Omarchy machine; `cfg/host.yaml` pins its
-toolchain.
+Workflows live in `.github/workflows/` (`ci`, `nightly`, `pages`, `fpga`,
+`asic`) and run on self-hosted runners selected with
+`runs-on: [self-hosted, linux, x64]`. The runners are registered to this
+repository only, so no workflow names the design target. The CI host is
+the Omarchy machine; `cfg/host.yaml` pins its toolchain.
 
 **Forks.** The repository is public, so fork code must not reach these
 runners. Every job that a `pull_request` can trigger carries
@@ -130,7 +131,9 @@ approval setting (approval for first-time contributors only); the captain
 accepts the residual risk that a returning outside contributor's fork could
 run code on the runners. Maintainers **never approve a fork PR's workflow
 run**. Fork changes reach CI only by review and re-push: a maintainer reviews
-the diff, pushes its commits to a branch in this repository and merges
+the whole diff, including every workflow and `./build` change, and only then
+pushes its commits to a branch in this repository, because the re-push is
+when fork code reaches the self-hosted runners. The maintainer merges
 through a PR from that branch, whose `ci-gate` is the gate (a skipped job
 counts as passing a required check, so a fork PR's own run proves nothing).
 Workflows never use `pull_request_target` with a PR checkout and never echo
@@ -157,14 +160,16 @@ job mirrors the gate's result as a `ci-gate` commit status on the tested
 commit; the required check is bound to GitHub Actions, which accepts a
 status that app posts. Only that job holds `statuses: write`, and only for
 a dispatch on a `nightly/` ref (push triggers only on `main`), never for a
-`pull_request` (so never for a fork); its state is the gate job's own result (a failure, cancellation
-or skip blocks the merge). A person or another app cannot post a status
-that counts, because protection only accepts `ci-gate` from GitHub Actions;
-a workflow a writer adds could, exactly as a writer can already edit
-`ci.yml` in their own PR, so review stays the control for writers
+`pull_request` (so never for a fork); its state is the gate job's own
+result (a failure, cancellation or skip blocks the merge). A person or
+another app cannot post a status that counts, because protection only
+accepts `ci-gate` from GitHub Actions; a workflow a writer adds could,
+exactly as a writer can already edit `ci.yml` in their own PR, so review
+stays the control for writers
 ([CI spec](../tools/ci/SPEC.md#build-ci-status)). Any writer can dispatch
 `ci.yml` on any `nightly/*` ref, and the status binds to the tested commit,
-not to a PR or its base ([what a status vouches for](../tools/ci/SPEC.md#the-workflow)).
+not to a PR or its base
+([what a status vouches for](../tools/ci/SPEC.md#the-workflow)).
 
 **Review is process, not enforcement.** Branch protection on `main`
 requires `ci-gate` only, with no required approving reviews. The
@@ -190,8 +195,9 @@ the exact selection.
 | Docs only | Checks only |
 
 A sub-IP is an IP in its own right: a change inside its folders
-(`src/<kind>/<ip>_<sub>/`) selects the sub-IP, and selects the parent only when the parent's filelists
-reach the changed file or the change is in the sub-IP's models.
+(`src/<kind>/<ip>_<sub>/`) selects the sub-IP, and selects the parent only
+when the parent's filelists reach the changed file or the change is in the
+sub-IP's models.
 
 Superseded PR runs are cancelled; every push to `main` keeps its run.
 
@@ -204,7 +210,8 @@ permissions and data PR mechanics):
 1. `./build check`, then `./build regress --level 0 --level 1 --level 2
    --coverage` across all IPs (merged line, toggle and functional coverage
    per IP, with any floors checked; [regress SPEC](../tools/regress/SPEC.md#coverage)).
-2. `./build fpga` and `./build asic` for every IP with `src/fpga/<ip>/` or `src/asic/<ip>/`
+2. `./build arch` for every IP with `src/arch/<ip>/`, and `./build fpga` and
+   `./build asic` for every IP with `src/fpga/<ip>/` or `src/asic/<ip>/`
    inputs.
 3. Metrics: the per-commit series `wiki/tracker/data/commits.jsonl` and the
    nightly record `wiki/tracker/data/<date>.json` (versioned schemas).
@@ -237,6 +244,7 @@ Every trend is plotted against commits on `main`, in order. The data:
 | Distributions | Issue close and first-response times, PR lead time, size and review rounds, CI and nightly durations, test runtimes, file sizes |
 | FPGA | Per [FPGA BKM](fpga.md#metrics) |
 | ASIC | Per [PD BKM](pd.md#metrics) |
+| Arch | Per IP and perf scenario: status and the target metrics' values ([arch BKM](arch.md#evidence)) |
 
 The [metrics spec](../tools/metrics/SPEC.md) owns the schemas field by
 field. Records hold only counts, durations, label names and SHAs, never

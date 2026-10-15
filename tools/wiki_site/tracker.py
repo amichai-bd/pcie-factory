@@ -37,11 +37,13 @@ BLANK_LINE = re.compile(r"\n[ \t]*\n")  # ends a Markdown HTML block (line endin
 STALE_DAYS = 7  # an open issue with no activity for longer is stale
 CI_WINDOW = 20  # ci-gate pass rate window, in runs on main
 
-# Code kinds (cfg/metrics.yaml keys) in their fixed colour order; unknown
-# kinds follow, sorted.
+# Code kinds (cfg/metrics.yaml keys) in their fixed colour order: the first
+# SLOTS own their slot; later and unknown kinds (sorted) take a slot left free
+# by an absent kind, else they are not drawn and the chart says so.
 KINDS = {
     "rtl_sv": "RTL SV", "dv_sv": "DV SV", "dv_py": "DV Python", "tools_py": "Tools Python",
     "wiki_md": "Markdown", "config": "Config", "workflows": "Workflows", "skills": "Skills",
+    "arch_py": "Arch Python",
 }
 
 
@@ -270,6 +272,10 @@ def test_slowest(r):          return dig(r, "tests.slowest")
 def fpga_ip(r, ip):           return flow_ips(r, "fpga").get(ip)
 def asic_ip(r, ip):           return flow_ips(r, "asic").get(ip)
 def coverage_ip(r, ip):       return flow_ips(r, "coverage").get(ip)  # {line, toggle, functional: {pct}}
+def arch_ip(r, ip):           return flow_ips(r, "arch").get(ip)  # {status, scenarios: {name: {status, targets}}}
+def arch_scenarios(r, ip):    return mapping(arch_ip(r, ip), "scenarios")
+def arch_status(r, ip, sc):   return text(arch_scenarios(r, ip).get(sc), "status")
+def arch_value(r, ip, sc, m): return num(mapping(arch_scenarios(r, ip).get(sc), "targets").get(m))
 def issues_open(r):           return first(r, "github.issues.open")
 def issues_by_label(r):       return mapping(r, "github.issues.open_by_label")
 def issues_window(r, w, k):   return first(r, f"github.issues.windows.{w}.{k}")
@@ -481,30 +487,36 @@ class Page:
             f"{note_html}<details><summary>{escape(summary)}</summary>{table_html}</details></figure>")
 
     def trend(self, cid: str, title: str, unit: str, series: list[dict], note: str = "",
-              hidden: int = 0) -> bool:
-        """series: {label, color: 1..8 | status, points: [Point], get: data -> value,
-        line: bool, shape}. Draws nothing and returns False without values."""
-        cols = []
-        for s in series[:SLOTS]:
+              ymin: float | None = None) -> bool:
+        """series: {label, color: 1..8 | status | None, points: [Point], get: data -> value,
+        line: bool, shape}. The first SLOTS series with a colour are drawn; any
+        other series with values is named in the note and kept in the data
+        table. Draws nothing and returns False without values."""
+        cols, extra = [], []
+        for i, s in enumerate(series):
             pts = [(p, s["get"](p.data)) for p in s["points"]]
             pts = [(p, v) for p, v in pts if v is not None]
             if pts:
-                cols.append((s, pts))
+                (cols if i < SLOTS and s.get("color") is not None else extra).append((s, pts))
         if not cols:
             return False
-        hidden += max(0, len(series) - SLOTS)
-        if hidden:
-            note = (note + " " if note else "") + f"{hidden} more series not drawn; the per-IP pages have them."
+        if extra:
+            note = (note + " " if note else "") + (
+                f"{len(extra)} more series not drawn (no colour slot left): "
+                f"{', '.join(s['label'] for s, _ in extra)}; the data table has their values.")
         whole = all(float(v).is_integer() for _, pts in cols for _, v in pts)
         self.charts[cid] = {"kind": "trend", "unit": unit, "integer": whole, "series": [
             {"label": s["label"], "color": str(s["color"]), "line": s.get("line", True),
              "shape": s.get("shape", "circle"), "points": [[p.idx, v] for p, v in pts]}
             for s, pts in cols]}
-        idxs = sorted({p.idx for _, pts in cols for p, _ in pts})[-TABLE_ROWS:]
-        look = [{p.idx: v for p, v in pts} for _, pts in cols]
+        if ymin is not None:
+            self.charts[cid]["ymin"] = ymin
+        idxs = sorted({p.idx for _, pts in cols + extra for p, _ in pts})[-TABLE_ROWS:]
+        look = [{p.idx: v for p, v in pts} for _, pts in cols + extra]
         rows = [[f"<code>{escape(self.axis[i][0])}</code>", escape(self.axis[i][1])]
                 + [escape(fmt(m.get(i))) for m in look] for i in reversed(idxs)]
-        head = ["Commit", "Date"] + [escape(s["label"]) for s, _ in cols]
+        head = ["Commit", "Date"] + [escape(s["label"]) for s, _ in cols] \
+            + [escape(s["label"]) + " (not drawn)" for s, _ in extra]
         self._figure(cid, title, unit, note, table(head, rows), f"Data table (latest {len(idxs)} commits)")
         return True
 
@@ -572,20 +584,27 @@ def kinds_of(points: list[Point], getter) -> list[str]:
 
 
 def kind_slot(kind: str) -> int | None:
-    """Known kinds own a fixed slot; unknown kinds get none (folded out)."""
-    return list(KINDS).index(kind) + 1 if kind in KINDS else None
+    """The first SLOTS known kinds own a fixed slot; other kinds own none."""
+    i = list(KINDS).index(kind) if kind in KINDS else SLOTS
+    return i + 1 if i < SLOTS else None
 
 
 def kind_series(points, kinds, get_kinds, what) -> list[dict]:
-    out = []
-    spare = [i + 1 for i in range(SLOTS) if list(KINDS)[i] not in kinds]
-    for k in kinds:
-        slot = kind_slot(k) or (spare.pop(0) if spare else None)
-        if slot is None:
-            continue
-        out.append({"label": KINDS.get(k, k), "color": slot, "points": points,
-                    "get": lambda r, k=k: kind_value(get_kinds(r).get(k), what)})
-    return out
+    """Kinds with a slot first; a kind left without one follows them, so
+    `Page.trend` leaves it out of the plot and names it in the chart's note.
+    A kind that is zero (or missing) at every point counts as absent: it
+    gives up its fixed slot, and takes a free slot only after every kind
+    with data has one."""
+    def live(k):
+        return any(kind_value(get_kinds(p.data).get(k), what) for p in points)
+    present = [k for k in kinds if live(k)]
+    out, rest = [], []
+    spare = [i + 1 for i in range(SLOTS) if list(KINDS)[i] not in present]
+    for k in present + [k for k in kinds if k not in present]:
+        slot = (kind_slot(k) if k in present else None) or (spare.pop(0) if spare else None)
+        (out if slot else rest).append({"label": KINDS.get(k, k), "color": slot, "points": points,
+                                        "get": lambda r, k=k: kind_value(get_kinds(r).get(k), what)})
+    return out + rest
 
 
 def levels_of(points: list[Point], getter) -> list[str]:
@@ -603,7 +622,7 @@ def ip_ids(d: Data) -> tuple[list[str], list[str]]:
     seen: set[str] = set()
     for p in d.commits + d.nightly:
         for m in (mapping(p.data, "code.ips", "code.by_ip"), mapping(p.data, "tests.ips", "tests.by_ip"),
-                  flow_ips(p.data, "fpga"), flow_ips(p.data, "asic")):
+                  flow_ips(p.data, "fpga"), flow_ips(p.data, "asic"), flow_ips(p.data, "arch")):
             seen.update(k for k in m if isinstance(k, str))
     good = sorted(i for i in seen if IP_ID.match(i) and ".." not in i.split("/"))
     return good, [f"wiki/tracker/{DATA_DIR}: IP id {i!r} is not a safe path; skipped"
@@ -740,7 +759,7 @@ def code_section(p: Page, d: Data, ips: list[str]) -> None:
                        [{"label": "Total", "color": 1, "points": pts, "get": lambda r: code_total(r, "loc")}])
     drew |= p.trend("loc-ip", "Lines of code per IP", "lines",
                     [{"label": ip, "color": i + 1, "points": pts, "get": lambda r, ip=ip: code_ip_total(r, ip, "loc")}
-                     for i, ip in enumerate(ips[:SLOTS])], hidden=max(0, len(ips) - SLOTS))
+                     for i, ip in enumerate(ips)])
     drew |= histograms(p, d, "code")
     if not drew:
         p.html(empty("No code metrics yet."))
@@ -847,6 +866,92 @@ def physical_section(p: Page, d: Data, ips: list[str], name: str, metrics: list[
         p.html(empty(f"No {name} metrics yet."))
 
 
+ARCH_STATS = {"min", "max", "mean", "median", "avg", "p50", "p90", "p99", "total"}
+
+
+def metric_unit(metric: str) -> str:
+    """The unit a metric name carries (the arch BKM: `latency_cycles_max` is
+    in cycles, `throughput_bytes_per_cycle` in bytes per cycle): the words
+    after the first, less a trailing statistic; `value` when none is left."""
+    words = [w for w in metric.split("_") if w]
+    while len(words) > 1 and words[-1].lower() in ARCH_STATS:
+        words.pop()
+    return " ".join(words[1:]) or "value"
+
+
+def chart_id(prefix: str, name: str, taken: set[str]) -> str:
+    """`prefix-name` with unsafe characters folded to `-`, unique on the page."""
+    base = f"{prefix}-{re.sub(r'[^A-Za-z0-9_-]+', '-', name)}"
+    cid, n = base, 2
+    while cid in taken:
+        cid, n = f"{base}-{n}", n + 1
+    taken.add(cid)
+    return cid
+
+
+def arch_keys(points: list[Point], ips: list[str]) -> list[tuple[str, str, str]]:
+    """Every (IP, scenario, target metric) in the records, sorted."""
+    found = set()
+    for p in points:
+        for ip in ips:
+            for sc, entry in arch_scenarios(p.data, ip).items():
+                for m in mapping(entry, "targets"):
+                    if isinstance(sc, str) and isinstance(m, str):
+                        found.add((ip, sc, m))
+    return sorted(found)
+
+
+def arch_table(points: list[Point], ips: list[str], with_ip: bool):
+    """(latest point with arch data, rows) of each IP and scenario's status
+    and target values; rows are escaped HTML cells."""
+    latest = next((p for p in reversed(points) if any(arch_scenarios(p.data, ip) for ip in ips)), None)
+    if latest is None:
+        return None, []
+    rows = []
+    for ip in ips:
+        for sc, entry in sorted((k, v) for k, v in arch_scenarios(latest.data, ip).items() if isinstance(k, str)):
+            vals = ", ".join(f"{m} = {fmt(num(v))}" for m, v in sorted(mapping(entry, "targets").items())
+                             if isinstance(m, str))
+            status = text(entry, "status")
+            rows.append(([escape(ip)] if with_ip else []) + [
+                f"<code>{escape(sc)}</code>", badge(status_of(status), status) if status else "–",
+                escape(vals) or "–"])
+    return latest, rows
+
+
+def arch_trends(p: Page, points: list[Point], ips: list[str], prefix: str, per_ip: bool) -> bool:
+    """One chart per target metric; a series per IP and scenario (per scenario
+    on an IP page), with a fixed slot in sorted order."""
+    keys = arch_keys(points, ips)
+    taken: set[str] = set()
+    drew = False
+    for metric in sorted({m for _, _, m in keys}):
+        series = [{"label": sc if per_ip else f"{ip} / {sc}", "color": i + 1, "points": points,
+                   "get": lambda r, ip=ip, sc=sc, m=metric: arch_value(r, ip, sc, m)}
+                  for i, (ip, sc) in enumerate((ip, sc) for ip, sc, m in keys if m == metric)]
+        drew |= p.trend(chart_id(prefix, metric, taken), metric, metric_unit(metric), series)
+    return drew
+
+
+def arch_section(p: Page, d: Data, ips: list[str]) -> None:
+    """Architecture-model perf: scenario status and target metrics."""
+    p.md("## Architecture model")
+    n = d.nightly
+    latest, rows = arch_table(n, ips, with_ip=True)
+    if rows:
+        p.html(f'<p class="tracker-subhead">Perf scenarios, from the {escape(latest.date)} nightly</p>')
+        p.html(table(["IP", "Scenario", "Status", "Target metrics"], rows))
+    with_data = [ip for ip in ips if any(arch_scenarios(r.data, ip) for r in n)]
+    drew = p.trend("arch-failing", "Perf scenarios not passing", "scenarios", [
+        {"label": ip, "color": i + 1, "points": n,
+         "get": lambda r, ip=ip: (lambda scs: sum(text(e, "status") != "pass" for e in scs.values())
+                                  if scs else None)(arch_scenarios(r, ip))}
+        for i, ip in enumerate(with_data)], ymin=0)
+    drew |= arch_trends(p, n, ips, "arch", per_ip=False)
+    if not rows and not drew:
+        p.html(empty("No architecture-model metrics yet."))
+
+
 def ip_page(ip: str, d: Data) -> Page:
     p = Page(d.axis, f"{IP_DIR}/{ip}/index.md")
     up = "../" * (ip.count("/") + 1)
@@ -855,7 +960,7 @@ def ip_page(ip: str, d: Data) -> Page:
            f'<a href="{up}index.md">all IPs</a>.</p>')
     c = [x for x in d.commits if code_ip(x.data, ip)]
     n = [x for x in d.nightly if test_ip_levels(x.data, ip) or fpga_ip(x.data, ip) or asic_ip(x.data, ip)
-         or code_ip(x.data, ip)]
+         or code_ip(x.data, ip) or arch_ip(x.data, ip)]
     if not c and not n:
         p.html(empty("No data yet for this IP."))
         return p
@@ -868,6 +973,8 @@ def ip_page(ip: str, d: Data) -> Page:
     for name, metrics, getter in (("FPGA", FPGA, fpga_ip), ("ASIC", ASIC, asic_ip)):
         rows += [(f"{name} {m.label}", m.unit, n,
                   lambda r, m=m, g=getter: m.get(g(r, ip)) if isinstance(g(r, ip), dict) else None) for m in metrics]
+    rows += [(f"Arch {sc} {m}", "", n, lambda r, sc=sc, m=m: arch_value(r, ip, sc, m))
+             for _, sc, m in arch_keys(n, [ip])]
     p.md("## Latest vs 7 and 30 days ago")
     p.html(compare(rows))
     p.md("## Code")
@@ -890,7 +997,19 @@ def ip_page(ip: str, d: Data) -> Page:
         if not drew:
             p.html(empty(f"No {name} metrics yet for this IP."))
     ip_coverage(p, n, ip)
+    ip_arch(p, n, ip)
     return p
+
+
+def ip_arch(p: Page, n: list[Point], ip: str) -> None:
+    """The IP's perf scenarios: latest status, and a chart per target metric."""
+    p.md("## Architecture model")
+    latest, rows = arch_table(n, [ip], with_ip=False)
+    if rows:
+        p.html(f'<p class="tracker-subhead">Perf scenarios, from the {escape(latest.date)} nightly</p>')
+        p.html(table(["Scenario", "Status", "Target metrics"], rows))
+    if not arch_trends(p, n, [ip], "ip-arch", per_ip=True) and not rows:
+        p.html(empty("No architecture-model metrics yet for this IP."))
 
 
 def ip_coverage(p: Page, n: list[Point], ip: str) -> None:
@@ -917,13 +1036,15 @@ def ip_index(ips: list[str], d: Data) -> Page:
     for ip in ips:
         fp, asic = fpga_ip(night, ip), asic_ip(night, ip)
         fp, asic = (fp if isinstance(fp, dict) else None), (asic if isinstance(asic, dict) else None)
+        arch = text(arch_ip(night, ip), "status")
         rows.append([f'<a href="{quote(ip)}/index.md">{escape(ip)}</a>',
                      escape(fmt(code_ip_total(code, ip, "loc"))),
                      escape(fmt(FPGA[0].get(fp) if fp else None)),
                      escape(fmt(FPGA[3].get(fp) if fp else None, "MHz")),
                      escape(fmt(ASIC[0].get(asic) if asic else None, "ns")),
-                     escape(fmt(ASIC[2].get(asic) if asic else None, "µm²"))])
-    p.html(table(["IP", "Lines of code", "FPGA LEs", "Fmax", "ASIC WNS", "Std-cell area"], rows))
+                     escape(fmt(ASIC[2].get(asic) if asic else None, "µm²")),
+                     badge(status_of(arch), arch) if arch else "–"])
+    p.html(table(["IP", "Lines of code", "FPGA LEs", "Fmax", "ASIC WNS", "Std-cell area", "Arch model"], rows))
     return p
 
 
@@ -953,6 +1074,7 @@ def render(data_dir: Path) -> tuple[str, dict[str, str], list[str]]:
     flow_section(p, d)
     physical_section(p, d, ips, "FPGA", FPGA, fpga_ip)
     physical_section(p, d, ips, "ASIC", ASIC, asic_ip)
+    arch_section(p, d, ips)
     p.md("## Per-IP pages")
     p.html("<ul>" + "".join(f'<li><a href="{IP_DIR}/{quote(ip)}/index.md">{escape(ip)}</a></li>' for ip in ips)
            + "</ul>" if ips else empty("No record names an IP yet."))

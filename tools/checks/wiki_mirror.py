@@ -19,9 +19,12 @@ page set:
 - the shared folders ``rtl/common/`` and ``dv/common/`` hold one page
   ``<block>.md`` per shared block (``src/rtl/common/<block>.rtl.f``): its
   MAS under ``rtl/``, its DV plan under ``dv/``, and nothing else;
-- a top-level IP whose ``arch/<id>/HAS.md`` has a ``## Targets`` section has
-  ``src/arch/<id>/`` with one model ``*<id>_arch.py`` and at least one
-  ``perf/*.yaml`` scenario (the arch BKM).
+- a top-level IP whose ``arch/<id>/HAS.md`` has a ``## Targets`` section
+  (any level-2 heading starting with the word ``Targets``, outside fenced
+  code) has ``src/arch/<id>/`` with one model ``<prefix><id>_arch.py`` and
+  at least one ``perf/*.yaml`` scenario (the arch BKM);
+- no Python file under ``src/arch/<id>/`` imports DV, RTL or tools code
+  (``arch.imports``).
 """
 
 from __future__ import annotations
@@ -30,7 +33,8 @@ import os
 import re
 from pathlib import Path
 
-from arch.perf import ARCH_DIR, PERF_DIR, ArchError, find_model
+from arch import imports
+from arch.perf import ARCH_DIR, PERF_DIR, ArchError, find_model, model_name
 from build.ip import KINDS, SHARED_DIR, Ip, block_name, shared_blocks
 from checks.common import CheckResult
 
@@ -53,15 +57,30 @@ def wiki_root(src_root: Path) -> Path:
 SHARED_KINDS = ("rtl", "dv")
 
 
-# A HAS defines performance targets in a level-2 "Targets" section.
-_TARGETS = re.compile(r"^##[ \t]+Targets[ \t]*$", re.M)
+# A HAS defines performance targets in a level-2 section whose heading
+# starts with the word "Targets" ("## Targets", "## Targets (draft)").
+_TARGETS = re.compile(r"^ {0,3}##[ \t]+Targets\b", re.I)
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 
 
 def defines_targets(has: Path) -> bool:
+    """True when ``has`` has a Targets heading outside fenced code blocks."""
     try:
-        return bool(_TARGETS.search(has.read_text(encoding="utf-8")))
-    except OSError:
+        lines = has.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
         return False
+    fence = None  # the open fence's character and length
+    for line in lines:
+        m = _FENCE.match(line)
+        if fence is None:
+            if m:
+                fence = (m.group(1)[0], len(m.group(1)))
+            elif _TARGETS.match(line):
+                return True
+        elif m and m.group(1)[0] == fence[0] and len(m.group(1)) >= fence[1] \
+                and not line[m.end():].strip():
+            fence = None
+    return False
 
 
 def arch_findings(ip: Ip, wiki: Path, label) -> list[str]:
@@ -78,9 +97,19 @@ def arch_findings(ip: Ip, wiki: Path, label) -> list[str]:
     try:
         find_model(ip)
     except ArchError:
-        found.append(f"{label(src_arch)}/: no single model <prefix>{ip.id}_{ARCH_DIR}.py")
+        try:
+            name = model_name(ip)
+        except ArchError:
+            name = f"<prefix>{ip.id}_{ARCH_DIR}.py"
+        found.append(f"{label(src_arch)}/: no model {name}")
     if not any((src_arch / PERF_DIR).glob("*.yaml")):
         found.append(f"{label(src_arch)}/: no perf scenario {PERF_DIR}/*.yaml")
+    for f in imports.scan(ip):
+        if f.origin == "syntax":
+            found.append(f"{label(f.path)}:{f.line}: cannot parse for the import scan")
+        else:
+            found.append(f"{label(f.path)}:{f.line}: imports {f.module} ({f.origin}); "
+                         f"arch never imports DV, RTL or tools code")
     return found
 
 
