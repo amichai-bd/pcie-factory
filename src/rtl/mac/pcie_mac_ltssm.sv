@@ -4,10 +4,10 @@
 // wiki/src/arch/mac/LTSSM.md and ARCS.md).
 //
 // Core states: Detect, Polling, Configuration (x1, both port roles), L0 and
-// Recovery. The power states (L0s sub-machines, L1, L2) and the control
-// states (Disabled, Hot Reset, Loopback) have their own blocks below, still
-// stubs; their arcs out of the core states are stubbed where the arc list
-// places them, so their priority is already fixed.
+// Recovery; the control states: Disabled, Hot Reset, Loopback (master and
+// slave). The power states (L0s sub-machines, L1, L2) have their own block
+// below, still a stub; their arcs out of the core states are stubbed where
+// the arc list places them, so their priority is already fixed.
 //
 // One step per clk_i cycle, in the order of the architecture model's step
 // (src/arch/mac/pcie_mac_arch.py, Mac.step): PIPE status, then the received
@@ -46,6 +46,9 @@ module pcie_mac_ltssm #(
 
   // Frame block (mac_frame): the data source of idle symbols and packets
   output pcie_mac_pkg::t_fr_ctl   fr_o,
+  output pcie_mac_pkg::t_line_ctl line_o,           // SKP hold, transmit scrambling off
+  output logic                    rx_scr_off_o,     // receive scrambling off: combinational,
+                                                    // the value of the step that takes the word
   output logic [7:0]              partner_n_fts_o,  // FTS the partner needs (255 until learned)
   input  logic                    fr_tx_idle_i,     // this cycle's line word is two idle symbols
   input  logic [1:0]              fr_rx_idle_i      // symbol i of this word is idle
@@ -63,6 +66,7 @@ module pcie_mac_ltssm #(
   // Timeouts in cycles: T is divided by TIMEOUT_DIV, E by ERR_TIMEOUT_DIV
   // with the floor (wiki/src/arch/mac/LTSSM.md#common-rules).
   localparam int unsigned T_QUIET = pcie_mac_pkg::DETECT_QUIET_CYCLES / TIMEOUT_DIV;
+  localparam int unsigned T_DWELL = pcie_mac_pkg::HOT_RESET_CYCLES / TIMEOUT_DIV;
   localparam int unsigned T_E2    = pcie_mac_pkg::err_timeout(
                                       pcie_mac_pkg::T2MS_CYCLES, ERR_TIMEOUT_DIV);
   localparam int unsigned T_E24   = pcie_mac_pkg::err_timeout(
@@ -78,6 +82,10 @@ module pcie_mac_ltssm #(
   localparam pcie_mac_pkg::t_after AFTER_COUNT = AW'(pcie_mac_pkg::AFTER_COUNT);
   localparam pcie_mac_pkg::t_ts_sent MIN_TS1   = SW'(pcie_mac_pkg::POLLING_MIN_TS1);
   localparam logic [7:0] IDLE_TO_RLOCK_MAX = 8'(pcie_mac_pkg::IDLE_TO_RLOCK_MAX);
+  localparam logic [pcie_mac_pkg::DIS_TS_W-1:0] DISABLE_TS1 =
+    pcie_mac_pkg::DIS_TS_W'(pcie_mac_pkg::DISABLE_TS1);
+  localparam logic [pcie_mac_pkg::EI_CNT_W-1:0] TX_IDLE_MIN =
+    pcie_mac_pkg::EI_CNT_W'(pcie_mac_pkg::TX_IDLE_MIN);
 
   // ------------------------------------------------------------- registers
 
@@ -301,6 +309,61 @@ module pcie_mac_ltssm #(
     end
   end
 
+  // Control states (wiki/src/arch/mac/ARCS.md#control-states): what a
+  // received TS matches (a control bit in a TS1; Configuration.Complete's
+  // Disable Scrambling in a go TS2), its runs, and the counts of the states.
+  logic m_hr, m_dis, m_lb, m_dscr;
+  logic ctl_hr, ctl_dis, ctl_lb;
+  pcie_mac_pkg::t_run run_hr_c, run_dis_c, run_lb_c, run_dscr_c;
+  logic dscr_c, hr_restart, eios_done_c, ei_after_eios_c;
+  logic [pcie_mac_pkg::DIS_TS_W-1:0] dis_ts_c;
+
+  assign ctl_hr  = ts1 && os_ts_i.ctl[pcie_mac_pkg::CTL_HOT_RESET];
+  assign ctl_dis = ts1 && os_ts_i.ctl[pcie_mac_pkg::CTL_DISABLE];
+  assign ctl_lb  = ts1 && os_ts_i.ctl[pcie_mac_pkg::CTL_LOOPBACK];
+
+  always_comb begin
+    m_hr   = 1'b0;
+    m_dis  = 1'b0;
+    m_lb   = 1'b0;
+    m_dscr = 1'b0;
+    case (st)
+      common_pkg::LTSSM_CFG_LINKWIDTH_START: begin
+        m_dis = ctl_dis;
+        m_lb  = ctl_lb;
+      end
+      common_pkg::LTSSM_CFG_COMPLETE:
+        m_dscr = ts2 && link_is_n && lane_zero && os_ts_i.ctl[pcie_mac_pkg::CTL_NO_SCRAMBLE];
+      common_pkg::LTSSM_RECOVERY_IDLE: begin
+        m_hr  = ctl_hr;
+        m_dis = ctl_dis;
+        m_lb  = ctl_lb;
+      end
+      common_pkg::LTSSM_HOT_RESET:      m_hr = ctl_hr;
+      common_pkg::LTSSM_LOOPBACK_ENTRY: m_lb = ctl_lb;
+      default: ;
+    endcase
+  end
+
+  always_comb begin
+    run_hr_c   = pcie_mac_pkg::run_next(r_q.run_hr,   ts_good, ts_bad, m_hr);
+    run_dis_c  = pcie_mac_pkg::run_next(r_q.run_dis,  ts_good, ts_bad, m_dis);
+    run_lb_c   = pcie_mac_pkg::run_next(r_q.run_lb,   ts_good, ts_bad, m_lb);
+    run_dscr_c = pcie_mac_pkg::run_next(r_q.run_dscr, ts_good, ts_bad, m_dscr);
+    dscr_c     = r_q.dscr || (run_dscr_c >= RUN_SHORT);
+    // A following Hot Reset restarts its dwell on every TS1 that extends a
+    // run of 2 with Hot Reset set.
+    hr_restart = ts_good && m_hr && (run_hr_c >= RUN_SHORT);
+    // TS1 started in Disabled (the request the block took in the last cycle).
+    dis_ts_c   = r_q.dis_ts;
+    if (st == common_pkg::LTSSM_DISABLED && ts_start && r_q.dis_ts != DISABLE_TS1) begin
+      dis_ts_c = r_q.dis_ts + 1'b1;
+    end
+    eios_done_c     = r_q.eios_done || (os_tx_i.ack && r_q.tx_mode == pcie_mac_pkg::TX_EIOS);
+    // Electrical idle in a word after one with an EIOS.
+    ei_after_eios_c = r_q.ei_after_eios || (pipe_rx_i.elec_idle && r_q.eios_rx);
+  end
+
   // ---------------------------------------------------------- 3. the arcs
 
   // The state's timeout: the cycle count since entry reaches it this step.
@@ -326,7 +389,16 @@ module pcie_mac_ltssm #(
       common_pkg::LTSSM_CFG_LANENUM_ACCEPT,
       common_pkg::LTSSM_CFG_COMPLETE,
       common_pkg::LTSSM_CFG_IDLE,
-      common_pkg::LTSSM_RECOVERY_IDLE:        limit = TW'(T_E2);
+      common_pkg::LTSSM_RECOVERY_IDLE,
+      common_pkg::LTSSM_LOOPBACK_ENTRY:       limit = TW'(T_E2);
+      common_pkg::LTSSM_DISABLED: begin       // following only
+        limit      = TW'(T_E2);
+        timed_exit = 1'b0;
+      end
+      common_pkg::LTSSM_HOT_RESET: begin      // the dwell; directed waits for the request
+        limit      = TW'(T_DWELL);
+        timed_exit = 1'b0;
+      end
       default:                                        timed_exit = 1'b0;
     endcase
   end
@@ -391,12 +463,12 @@ module pcie_mac_ltssm #(
   end
 
   // Configuration, x1 (wiki/src/arch/mac/ARCS.md#configuration).
-  // Stubbed: Linkwidth.Start to Loopback.Entry and to Disabled (control
-  // states), listed first as on the arcs page.
-  logic stub_lws_loopback, stub_lws_disabled;
+  // Linkwidth.Start to Loopback.Entry and to Disabled (control states) come
+  // first, as on the arcs page.
+  logic lws_loopback, lws_disabled;
 
-  assign stub_lws_loopback = 1'b0;
-  assign stub_lws_disabled = 1'b0;
+  assign lws_loopback = req_i.loopback || run_lb_c >= RUN_SHORT;
+  assign lws_disabled = (dsp && req_i.disable_link) || run_dis_c >= RUN_SHORT;
 
   always_comb begin
     cfg_go        = 1'b0;
@@ -404,10 +476,10 @@ module pcie_mac_ltssm #(
     cfg_rlock_inc = 1'b0;
     case (st)
       common_pkg::LTSSM_CFG_LINKWIDTH_START:
-        if (stub_lws_loopback) begin
+        if (lws_loopback) begin
           cfg_go = 1'b1;
           cfg_to = common_pkg::LTSSM_LOOPBACK_ENTRY;
-        end else if (stub_lws_disabled) begin
+        end else if (lws_disabled) begin
           cfg_go = 1'b1;
           cfg_to = common_pkg::LTSSM_DISABLED;
         end else if (run_go_c >= RUN_SHORT) begin
@@ -493,14 +565,16 @@ module pcie_mac_ltssm #(
     end
   end
 
-  // Recovery (wiki/src/arch/mac/ARCS.md#recovery). Stubbed: Recovery.Idle
-  // to Hot Reset, Disabled and Loopback.Entry (control states), first in
-  // priority as on the arcs page.
-  logic stub_ri_hot_reset, stub_ri_disabled, stub_ri_loopback;
+  // Recovery (wiki/src/arch/mac/ARCS.md#recovery). Recovery.Idle to Hot
+  // Reset, Disabled and Loopback.Entry come first, as on the arcs page; a
+  // directed request wins over every received control bit, in that order.
+  logic ri_directed, ri_hot_reset, ri_disabled, ri_loopback;
 
-  assign stub_ri_hot_reset = 1'b0;
-  assign stub_ri_disabled  = 1'b0;
-  assign stub_ri_loopback  = 1'b0;
+  assign ri_directed  = (dsp && (req_i.hot_reset || req_i.disable_link)) || req_i.loopback;
+  assign ri_hot_reset = (dsp && req_i.hot_reset) || (!ri_directed && run_hr_c >= RUN_SHORT);
+  assign ri_disabled  = (dsp && req_i.disable_link)
+                     || (!ri_directed && run_dis_c >= RUN_SHORT);
+  assign ri_loopback  = req_i.loopback || (!ri_directed && run_lb_c >= RUN_SHORT);
 
   always_comb begin
     rec_go        = 1'b0;
@@ -528,13 +602,13 @@ module pcie_mac_ltssm #(
           rec_go = 1'b1;
         end
       common_pkg::LTSSM_RECOVERY_IDLE:
-        if (stub_ri_hot_reset) begin
+        if (ri_hot_reset) begin
           rec_go = 1'b1;
           rec_to = common_pkg::LTSSM_HOT_RESET;
-        end else if (stub_ri_disabled) begin
+        end else if (ri_disabled) begin
           rec_go = 1'b1;
           rec_to = common_pkg::LTSSM_DISABLED;
-        end else if (stub_ri_loopback) begin
+        end else if (ri_loopback) begin
           rec_go = 1'b1;
           rec_to = common_pkg::LTSSM_LOOPBACK_ENTRY;
         end else if (run_pad_c >= RUN_SHORT) begin
@@ -562,11 +636,61 @@ module pcie_mac_ltssm #(
   end
 
   // Control states, Disabled, Hot Reset and Loopback
-  // (wiki/src/arch/mac/ARCS.md#control-states): stub, never entered in the
-  // core build.
+  // (wiki/src/arch/mac/ARCS.md#control-states). A port directs Disabled or
+  // Hot Reset, or is the Loopback master, by its request at entry
+  // (r_q.directed); every exit goes to Detect.Quiet but Loopback's inner
+  // arcs.
   always_comb begin
     ctl_go = 1'b0;
-    ctl_to = st;
+    ctl_to = common_pkg::LTSSM_DETECT_QUIET;
+    case (st)
+      common_pkg::LTSSM_DISABLED:
+        if (r_q.directed) begin
+          // The 16 TS1 and the EIOS sent, in electrical idle, request low.
+          ctl_go = !req_i.disable_link && dis_ts_c == DISABLE_TS1 && r_q.tx_ei;
+        end else begin
+          // An EIOS, then electrical idle and its exit; or no EIOS by the timeout.
+          ctl_go = (eios_rx_c && r_q.ei_after_eios && !pipe_rx_i.elec_idle)
+                || (timeout && !eios_rx_c);
+        end
+      common_pkg::LTSSM_HOT_RESET:
+        // The dwell from entry (directed, then the request low), or from the
+        // last TS1 that kept a run of 2 with Hot Reset set (following).
+        ctl_go = timeout && (r_q.directed ? !req_i.hot_reset : !hr_restart);
+      common_pkg::LTSSM_LOOPBACK_ENTRY:
+        if (!r_q.directed || run_lb_c >= RUN_SHORT) begin
+          ctl_go = 1'b1;
+          ctl_to = common_pkg::LTSSM_LOOPBACK_ACTIVE;
+        end else if (timeout) begin
+          ctl_go = 1'b1;
+          ctl_to = common_pkg::LTSSM_LOOPBACK_EXIT;
+        end
+      common_pkg::LTSSM_LOOPBACK_ACTIVE: begin
+        ctl_go = r_q.directed ? !req_i.loopback : eios_rx_c;
+        ctl_to = common_pkg::LTSSM_LOOPBACK_EXIT;
+      end
+      common_pkg::LTSSM_LOOPBACK_EXIT:
+        // The EIOS sent and 3 cycles (20 ns) of electrical idle.
+        ctl_go = r_q.tx_ei && r_q.ei_cycles >= TX_IDLE_MIN;
+      default: ;
+    endcase
+  end
+
+  // Directed or master, decided at entry: the request then (Disabled, Hot
+  // Reset downstream only); Loopback.Active keeps Loopback.Entry's.
+  logic directed_c;
+
+  always_comb begin
+    directed_c = r_q.directed;
+    if (go) begin
+      case (nxt)
+        common_pkg::LTSSM_DISABLED:        directed_c = dsp && req_i.disable_link;
+        common_pkg::LTSSM_HOT_RESET:       directed_c = dsp && req_i.hot_reset;
+        common_pkg::LTSSM_LOOPBACK_ENTRY:  directed_c = req_i.loopback;
+        common_pkg::LTSSM_LOOPBACK_ACTIVE: directed_c = r_q.directed;
+        default:                           directed_c = 1'b0;
+      endcase
+    end
   end
 
   // The arc of this step.
@@ -614,6 +738,13 @@ module pcie_mac_ltssm #(
   common_pkg::t_power_down want_pd;
   logic                            active;
 
+  // Control states: Disabled's 16 TS1 sent, and the state's EIOS still to
+  // send (an EIOS goes out only from a transmitter that is sending).
+  logic dis_ts_done, eios_left;
+
+  assign dis_ts_done = !go && dis_ts_c == DISABLE_TS1;
+  assign eios_left   = !(!go && eios_done_c) && !r_q.tx_ei;
+
   always_comb begin
     mode    = pcie_mac_pkg::TX_TS;
     want_pd = common_pkg::PD_P0;
@@ -636,6 +767,20 @@ module pcie_mac_ltssm #(
       common_pkg::LTSSM_CFG_COMPLETE,
       common_pkg::LTSSM_RECOVERY_RCVRLOCK,
       common_pkg::LTSSM_RECOVERY_RCVRCFG:   mode = pcie_mac_pkg::TX_TS;
+      common_pkg::LTSSM_DISABLED:
+        if (!dis_ts_done) begin
+          mode = pcie_mac_pkg::TX_TS;       // 16 TS1 with Disable Link
+        end else begin
+          mode    = eios_left ? pcie_mac_pkg::TX_EIOS : pcie_mac_pkg::TX_NONE;
+          want_pd = common_pkg::PD_P1;
+        end
+      common_pkg::LTSSM_HOT_RESET:          mode = pcie_mac_pkg::TX_TS;
+      common_pkg::LTSSM_LOOPBACK_ENTRY:
+        mode = directed_c ? pcie_mac_pkg::TX_TS : pcie_mac_pkg::TX_LOOP;
+      common_pkg::LTSSM_LOOPBACK_ACTIVE:
+        mode = directed_c ? pcie_mac_pkg::TX_PATTERN : pcie_mac_pkg::TX_LOOP;
+      common_pkg::LTSSM_LOOPBACK_EXIT:
+        mode = eios_left ? pcie_mac_pkg::TX_EIOS : pcie_mac_pkg::TX_NONE;
       default:                                      mode = pcie_mac_pkg::TX_NONE;
     endcase
   end
@@ -677,6 +822,19 @@ module pcie_mac_ltssm #(
     r_d.eios_rx       = eios_rx_c;
     r_d.retrain       = retrain_c;
     r_d.reset_n       = 1'b1;
+    r_d.directed      = directed_c;
+    r_d.run_hr        = run_hr_c;
+    r_d.run_dis       = run_dis_c;
+    r_d.run_lb        = run_lb_c;
+    r_d.run_dscr      = run_dscr_c;
+    r_d.dscr          = dscr_c;
+    r_d.dis_ts        = dis_ts_c;
+    r_d.eios_done     = eios_done_c;
+    r_d.ei_after_eios = ei_after_eios_c;
+    // A following Hot Reset restarts its dwell.
+    if (st == common_pkg::LTSSM_HOT_RESET && !r_q.directed && hr_restart) begin
+      r_d.timer = '0;
+    end
 
     // State entry: the timer and every per-state count restart.
     if (go) begin
@@ -701,6 +859,19 @@ module pcie_mac_ltssm #(
       r_d.left_ei       = 1'b0;
       r_d.eios_rx       = 1'b0;
       r_d.retrain       = 1'b0;
+      r_d.run_hr        = '0;
+      r_d.run_dis       = '0;
+      r_d.run_lb        = '0;
+      r_d.run_dscr      = '0;
+      r_d.dscr          = 1'b0;
+      r_d.dis_ts        = '0;
+      r_d.eios_done     = 1'b0;
+      r_d.ei_after_eios = 1'b0;
+      // Disable Scrambling: from Configuration.Idle to Detect.Quiet.
+      if (st == common_pkg::LTSSM_CFG_COMPLETE && nxt == common_pkg::LTSSM_CFG_IDLE
+          && dscr_c) begin
+        r_d.scr_off = 1'b1;
+      end
       if (rlock_inc) begin
         r_d.idle_to_rlock = r_q.idle_to_rlock + 8'd1;
       end
@@ -709,7 +880,11 @@ module pcie_mac_ltssm #(
           r_d.link_up  = 1'b0;
           r_d.rx_link  = '0;
           r_d.polarity = 1'b0;
+          r_d.scr_off  = 1'b0;
         end
+        common_pkg::LTSSM_DISABLED,
+        common_pkg::LTSSM_HOT_RESET,
+        common_pkg::LTSSM_LOOPBACK_ENTRY: r_d.link_up = 1'b0;
         common_pkg::LTSSM_DETECT_ACTIVE: begin
           r_d.detect_done  = 1'b0;
           r_d.detect_found = 1'b0;
@@ -729,12 +904,16 @@ module pcie_mac_ltssm #(
     // transmitter already in electrical idle; receiver detection in P1.
     r_d.pd_pending = pd_pending_c;
     r_d.tx_mode    = pcie_mac_pkg::TX_NONE;
+    r_d.ei_cycles  = '0;
     if (!active) begin
       if (r_q.pd != want_pd && !pd_pending_c && r_q.tx_ei) begin
         r_d.pd         = want_pd;
         r_d.pd_pending = 1'b1;
       end
-      r_d.tx_ei = 1'b1;
+      r_d.tx_ei     = 1'b1;
+      r_d.ei_cycles = !r_q.tx_ei ? pcie_mac_pkg::EI_CNT_W'(1)
+                    : (r_q.ei_cycles == TX_IDLE_MIN) ? r_q.ei_cycles
+                    : r_q.ei_cycles + 1'b1;
       if (r_d.state == common_pkg::LTSSM_DETECT_ACTIVE
           && r_d.pd == common_pkg::PD_P1 && !r_d.pd_pending) begin
         r_d.detect_rx = !r_d.detect_done;
@@ -759,6 +938,17 @@ module pcie_mac_ltssm #(
                    || nxt == common_pkg::LTSSM_POLLING_CONFIGURATION
                    || nxt == common_pkg::LTSSM_CFG_LINKWIDTH_START
                    || nxt == common_pkg::LTSSM_CFG_LINKWIDTH_ACCEPT;
+    // Disabled and Loopback.Entry send the link and lane of the state they
+    // came from: Linkwidth.Start's, else link N and lane 0.
+    if (nxt == common_pkg::LTSSM_DISABLED || nxt == common_pkg::LTSSM_LOOPBACK_ENTRY) begin
+      if (!go) begin
+        r_d.tx_link_pad = r_q.tx_link_pad;
+        r_d.tx_lane_pad = r_q.tx_lane_pad;
+      end else begin
+        r_d.tx_link_pad = st == common_pkg::LTSSM_CFG_LINKWIDTH_START && !dsp;
+        r_d.tx_lane_pad = st == common_pkg::LTSSM_CFG_LINKWIDTH_START;
+      end
+    end
   end
 
   // ---------------------------------------------------------------- outputs
@@ -768,13 +958,14 @@ module pcie_mac_ltssm #(
                                      : r_q.state;
   assign pipe_o.reset_n       = r_q.reset_n;
   assign pipe_o.tx_elec_idle = r_q.tx_ei;
-  assign pipe_o.tx_detect_rx = r_q.detect_rx;
+  assign pipe_o.tx_detect_rx = r_q.detect_rx || r_q.tx_mode == pcie_mac_pkg::TX_LOOP;
   assign pipe_o.rx_polarity  = r_q.polarity;
   assign pipe_o.power_down   = r_q.pd;
   assign os_req_o.ts         = r_q.tx_mode == pcie_mac_pkg::TX_TS;
   assign os_req_o.compliance = r_q.tx_mode == pcie_mac_pkg::TX_COMPLIANCE;
   assign fr_o.tx_l0             = r_q.tx_mode == pcie_mac_pkg::TX_IDLE
-                            || r_q.tx_mode == pcie_mac_pkg::TX_L0;
+                            || r_q.tx_mode == pcie_mac_pkg::TX_L0
+                            || r_q.tx_mode == pcie_mac_pkg::TX_LOOP;
   assign fr_o.tx_stop           = r_q.tx_mode != pcie_mac_pkg::TX_L0;
   assign fr_o.rx_l0             = in_l0 && r_q.rx_sub == common_pkg::L0S_SUB_L0;
   assign ts_o.ts2            = r_q.tx_ts2;
@@ -782,15 +973,24 @@ module pcie_mac_ltssm #(
   assign ts_o.link           = r_q.tx_link;
   assign ts_o.lane_pad       = r_q.tx_lane_pad;
   assign ts_o.lane           = 8'd0;          // x1: the lane number is always 0
-  assign ts_o.ctl            = '0;            // control bits: control states only
+  assign ts_o.ctl            = {st == common_pkg::LTSSM_LOOPBACK_ENTRY,
+                                st == common_pkg::LTSSM_DISABLED,
+                                st == common_pkg::LTSSM_HOT_RESET};
   assign partner_n_fts_o     = r_q.partner_n_fts;
-  assign os_req_o.skp        = 1'b0;           // requested SKP, EIOS, FTS: power states
-  assign os_req_o.eios       = 1'b0;
+  assign os_req_o.skp        = 1'b0;           // requested SKP, FTS: power states
+  assign os_req_o.eios       = r_q.tx_mode == pcie_mac_pkg::TX_EIOS;
   assign os_req_o.fts        = 1'b0;
+  assign os_req_o.pattern    = r_q.tx_mode == pcie_mac_pkg::TX_PATTERN;
+  // The loopback slave's line holds the SKP schedule; Disable Scrambling on
+  // transmit with the word of this state, on receive with the word the next
+  // step takes (MAS, LTSSM).
+  assign line_o.skp_hold     = r_q.tx_mode == pcie_mac_pkg::TX_LOOP;
+  assign line_o.tx_scr_off   = r_q.scr_off;
+  assign rx_scr_off_o       = r_d.scr_off;
 
   // Inputs the core states do not use yet: the power states read
   // req_i.pm_state, SKP and FTS, the control states the control bits.
-  `COMMON_UNUSED_BITS(unused_core, {req_i.pm_state, os_ts_i.ctl, os_rx_i.skp, os_rx_i.fts,
+  `COMMON_UNUSED_BITS(unused_core, {req_i.pm_state, os_ts_i.ctl[4], os_rx_i.skp, os_rx_i.fts,
                                     os_tx_i.compliance})
 
   // ------------------------------------------------------------- invariants
@@ -801,7 +1001,7 @@ module pcie_mac_ltssm #(
   `COMMON_ASSERT(a_state_one_group, clk_i, rst_i,
                  $onehot({in_detect, in_polling, in_cfg, in_l0, in_recovery, in_power,
                           in_control}))
-  `COMMON_ASSERT_NEVER(a_no_stub_state, clk_i, rst_i, in_power || in_control)
+  `COMMON_ASSERT_NEVER(a_no_stub_state, clk_i, rst_i, in_power)
   // The sub-machines stay in Tx_L0 and Rx_L0 until the power states arrive.
   `COMMON_ASSERT_NEVER(a_l0s_core_only, clk_i, rst_i,
                        in_l0 && (r_q.tx_sub != common_pkg::L0S_SUB_L0
@@ -840,6 +1040,22 @@ module pcie_mac_ltssm #(
   `COMMON_ASSERT_NEVER(a_link_down_in_training, clk_i, rst_i,
                        r_q.link_up && (in_detect || in_polling))
 
+  // Control states: the link is down in them; the loopback modes only in
+  // Loopback, the pattern only from the master; one EIOS per state;
+  // scrambling is never off before Configuration.Idle.
+  `COMMON_ASSERT_NEVER(a_link_down_in_control, clk_i, rst_i, r_q.link_up && in_control)
+  `COMMON_ASSERT_NEVER(a_loop_in_loopback, clk_i, rst_i,
+                       r_q.tx_mode == pcie_mac_pkg::TX_LOOP
+                       && st != common_pkg::LTSSM_LOOPBACK_ENTRY
+                       && st != common_pkg::LTSSM_LOOPBACK_ACTIVE)
+  `COMMON_ASSERT_NEVER(a_pattern_from_master, clk_i, rst_i,
+                       r_q.tx_mode == pcie_mac_pkg::TX_PATTERN
+                       && !(st == common_pkg::LTSSM_LOOPBACK_ACTIVE && r_q.directed))
+  `COMMON_ASSERT_NEVER(a_one_eios, clk_i, rst_i,
+                       r_q.eios_done && r_q.tx_mode == pcie_mac_pkg::TX_EIOS)
+  `COMMON_ASSERT_NEVER(a_scr_on_in_training, clk_i, rst_i,
+                       r_q.scr_off && (in_detect || in_polling))
+
   // Counters stay in range: runs to 8, counts after the first to 16, TS
   // sent to 1024, and idle_to_rlock never wraps.
   `COMMON_ASSERT_NEVER(a_runs_in_range, clk_i, rst_i,
@@ -850,6 +1066,10 @@ module pcie_mac_ltssm #(
                        r_q.after > AFTER_COUNT || r_q.mism_after > AFTER_COUNT
                        || r_q.idle_after > AFTER_COUNT)
   `COMMON_ASSERT_NEVER(a_ts_sent_in_range, clk_i, rst_i, r_q.ts_sent > MIN_TS1)
+  `COMMON_ASSERT_NEVER(a_ctl_counts_in_range, clk_i, rst_i,
+                       r_q.run_hr > RUN_LONG || r_q.run_dis > RUN_LONG
+                       || r_q.run_lb > RUN_LONG || r_q.run_dscr > RUN_LONG
+                       || r_q.dis_ts > DISABLE_TS1)
   `COMMON_ASSERT_NEVER(a_idle_to_rlock_no_wrap, clk_i, rst_i,
                        rlock_inc && r_q.idle_to_rlock == IDLE_TO_RLOCK_MAX)
   // A state whose timeout always exits never outlives it.

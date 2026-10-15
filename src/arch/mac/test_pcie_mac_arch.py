@@ -453,3 +453,126 @@ def test_rtl_shared_package_symbol_codes_match_the_model():
             "TS1_ID": m.TS1_ID, "TS2_ID": m.TS2_ID, "TS1_ID_INV": m.TS1_ID ^ 0xFF,
             "TS2_ID_INV": m.TS2_ID ^ 0xFF, "COMPL_D21_5": m.D21_5, "COMPL_D10_2": m.D10_2}
     assert got == want
+
+
+# --------------------------------------------- control states (#80)
+
+def _sent_ts(mac):
+    """Record (state, kind, link, lane, ctl) of every TS ``mac`` queues."""
+    log = []
+    queue = mac._queue_ts
+
+    def rec(kind, link, lane, ctl=0):
+        log.append((mac.state, kind, link, lane, ctl))
+        queue(kind, link, lane, ctl)
+    mac._queue_ts = rec
+    return log
+
+
+@pytest.mark.parametrize("role", m.ROLES)
+def test_control_ts_fields_are_those_of_the_state_left(role):
+    """Disabled and Loopback.Entry send the link and lane of the state they
+    came from: Configuration.Linkwidth.Start's (downstream link 0, upstream
+    PAD; lane PAD), or link N and lane 0 from Recovery.Idle (LTSSM.md)."""
+    lws = (0 if role == "downstream" else None, None)
+    for attr, st, bit in (("loopback_req", m.LBE, m.CTL_LOOPBACK),
+                          ("disable_req", m.DIS, m.CTL_DISABLE)):
+        # From Configuration.Linkwidth.Start, the device's own request.
+        p = m.make_pair(role)
+        a, b = p.macs
+        log = _sent_ts(a)
+        dsp = a if a.dsp else b
+        setattr(a if attr == "loopback_req" else dsp, attr, True)
+        p.run_until(lambda q: a.state == st, 400_000)
+        p.run(200)
+        sent = [(lk, ln, c) for s, k, lk, ln, c in log if s == st]
+        assert sent and set(sent) == {(*lws, bit)}, (role, st, set(sent))
+        # From Recovery.Idle, after training with link 0.
+        p = trained(role)
+        a, b = p.macs
+        log = _sent_ts(a)
+        setattr(a if attr == "loopback_req" else (a if a.dsp else b), attr, True)
+        p.run_until(lambda q: a.state == st, 400_000)
+        p.run(200)
+        sent = [(lk, ln, c) for s, k, lk, ln, c in log if s == st]
+        assert sent and set(sent) == {(0, 0, bit)}, (role, st, set(sent))
+
+
+def test_disabled_follower_needs_an_eios_then_electrical_idle():
+    """A following port leaves Disabled on an EIOS received and then EI exit;
+    electrical idle and its exit before the EIOS do not count (ARCS.md)."""
+    p = trained("downstream")
+    a, b = p.macs
+    a.disable_req = True
+    p.run_until(lambda q: b.state == m.DIS, 20_000)
+    assert not b.directed
+    data = _rx((0, 0), (0, 0))
+    ei = m.PipeRx(elec_idle=True, phy_status=False)
+    eios = (_rx((1, 0xBC), (1, 0x7C)), _rx((1, 0x7C), (1, 0x7C)))
+    for rx in [ei] * 4 + [data] * 4 + list(eios) + [data] * 4:
+        b.step(rx)
+    assert b.state == m.DIS, "left Disabled on an EI exit seen before the EIOS"
+    for rx in [ei] * 3:
+        b.step(rx)
+    assert b.state == m.DIS
+    b.step(data)
+    assert b.state == m.DQ
+
+
+@pytest.mark.parametrize("role", m.ROLES)
+def test_loopback_slave_sends_nothing_new_in_loopback_entry(role):
+    """The slave leaves Loopback.Entry at once and starts no TS there: it
+    loops back from the first word (LTSSM.md, What each state transmits)."""
+    p = trained(role)
+    a, b = p.macs
+    log = _sent_ts(a)
+    words = []
+    step = a.step
+    a.step = lambda rx: words.append((a.state, step(rx))) or words[-1][1]
+    b.loopback_req = True
+    p.run_until(lambda q: a.state == m.LBA, 20_000)
+    assert not [t for t in log if t[0] == m.LBE], "the slave started a TS in Loopback.Entry"
+    lbe = [w for s, w in words if s == m.LBE]
+    assert lbe and all(w.detect_rx and not w.elec_idle for w in lbe)
+    assert not a.lb_master
+
+
+@pytest.mark.parametrize("role", m.ROLES)
+def test_disable_scrambling_from_configuration_idle_to_detect(role):
+    """2 consecutive TS2 with Disable Scrambling received in
+    Configuration.Complete, or one sent there, disable scrambling from
+    Configuration.Idle: idle symbols go out as 00h and packets still pass;
+    Detect.Quiet enables it again. The bit in TS1 only is ignored."""
+    p = m.make_pair(role)
+    a, b = p.macs
+    b.inject.ts = {"ctl": m.CTL_NO_SCRAMBLE}
+    p.run_until(lambda q: b.state == m.CC, 400_000)
+    p.run_until(m.both_l0, 100_000)
+    assert a.scr_off and b.scr_off
+    words = []
+    step = a.step
+    a.step = lambda rx: words.append(step(rx)) or words[-1]
+    a.tx_packets.append(m.Packet(False, bytes(range(1, 41))))
+    b.tx_packets.append(m.Packet(True, bytes(range(1, 7))))
+    p.run(400)
+    assert [x.data for x in b.rx_packets] == [bytes(range(1, 41))]
+    assert [x.data for x in a.rx_packets] == [bytes(range(1, 7))]
+    data = [s for w in words if not w.elec_idle for s in w.syms if not s[0]]
+    assert data.count((0, 0)) > 100 and (0, 40) in data, "data symbols were scrambled"
+    a.retrain_req = True                     # Recovery keeps it disabled
+    p.run_until(lambda q: a.state == m.RL, 1000)
+    p.run_until(m.both_l0, 100_000)
+    assert a.scr_off
+    b.inject.freeze = True
+    a.retrain_req = True
+    p.run_until(lambda q: a.state == m.DQ, 400_000)
+    assert not a.scr_off
+    # TS1 only: Configuration.Complete sees TS2 without it, nothing changes.
+    p = m.make_pair(role)
+    a, b = p.macs
+    p.run_until(lambda q: b.state == m.LWS, 400_000)
+    b.inject.ts = {"ctl": m.CTL_NO_SCRAMBLE, "kind": "TS1"}
+    p.run_until(lambda q: b.state == m.LNA, 400_000)
+    b.inject.ts = {}
+    p.run_until(m.both_l0, 100_000)
+    assert not a.scr_off and not b.scr_off

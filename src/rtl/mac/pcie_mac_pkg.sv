@@ -40,6 +40,7 @@ package pcie_mac_pkg;
     logic eios;
     logic fts;
     logic compliance;
+    logic pattern;     // the loopback master's data pattern (one word per unit)
   } t_os_req;
 
   // TS fields sent with a TS request.
@@ -91,6 +92,13 @@ package pcie_mac_pkg;
     logic rx_l0;    // main state L0 and Rx_L0: receive packets
   } t_fr_ctl;
 
+  // LTSSM control of the transmit line: SKP schedule and scrambling (MAS,
+  // Top).
+  typedef struct packed {
+    logic skp_hold;    // loopback slave: the SKP count holds, no SKP is scheduled
+    logic tx_scr_off;  // Disable Scrambling: send data symbols as they are
+  } t_line_ctl;
+
   // Link-control requests of the upper layer.
   typedef struct packed {
     logic       retrain;    // pulse: L0 to Recovery
@@ -138,6 +146,11 @@ package pcie_mac_pkg;
   // Training control bits.
   localparam int unsigned TX_CTL_W = 3;  // Hot Reset, Disable Link, Loopback
   localparam int unsigned RX_CTL_W = 5;  // ... Disable Scrambling, Compliance Receive
+  // Their bit positions (SYMBOLS.md, TS1 and TS2).
+  localparam int unsigned CTL_HOT_RESET   = 0;
+  localparam int unsigned CTL_DISABLE     = 1;
+  localparam int unsigned CTL_LOOPBACK    = 2;
+  localparam int unsigned CTL_NO_SCRAMBLE = 3;
 
   // SKP schedule: symbols between SKP ordered sets, and the count width.
   localparam int unsigned SKP_INTERVAL = 1180;
@@ -155,7 +168,8 @@ package pcie_mac_pkg;
     KIND_SKP   = 3'd1,
     KIND_EIOS  = 3'd2,
     KIND_FTS   = 3'd3,
-    KIND_COMPL = 3'd4
+    KIND_COMPL = 3'd4,
+    KIND_PAT   = 3'd5   // loopback master pattern: one word
   } t_tx_kind;
 
   // Receive parser phases (MAS, Ordered sets, receive).
@@ -358,19 +372,22 @@ package pcie_mac_pkg;
   // -------------------------------------------------------------- LTSSM
 
   // What the transmit datapath sends while pipe_tx_elec_idle_o is 0
-  // (MAS, LTSSM). Codes 5 to 7 are reserved for the power and control
-  // states.
+  // (MAS, LTSSM).
   typedef enum logic [2:0] {
     TX_NONE       = 3'd0,  // electrical idle: nothing is sent
     TX_TS         = 3'd1,  // TS1 or TS2 with the tx_ts_* fields
     TX_IDLE       = 3'd2,  // idle data symbols
     TX_COMPLIANCE = 3'd3,  // the compliance pattern
-    TX_L0         = 3'd4   // L0: packets, idle between them
+    TX_L0         = 3'd4,  // L0: packets, idle between them
+    TX_EIOS       = 3'd5,  // one EIOS, then electrical idle
+    TX_PATTERN    = 3'd6,  // the loopback master's data pattern
+    TX_LOOP       = 3'd7   // loopback slave: idle data, TxDetectRx high
   } t_tx_mode;
 
   // Timeouts in clk_i cycles (8 ns), wiki/src/arch/mac/ARCS.md.
   localparam int unsigned TIMER_W             = 23;         // holds 48 ms
   localparam int unsigned DETECT_QUIET_CYCLES = 1_500_000;  // 12 ms, T
+  localparam int unsigned HOT_RESET_CYCLES    = 250_000;    // 2 ms Hot Reset dwell, T
   localparam int unsigned T2MS_CYCLES         = 250_000;    // 2 ms, E
   localparam int unsigned T24MS_CYCLES        = 3_000_000;  // 24 ms, E
   localparam int unsigned T48MS_CYCLES        = 6_000_000;  // 48 ms, E
@@ -386,6 +403,10 @@ package pcie_mac_pkg;
   localparam int unsigned AFTER_W           = 5;     // saturates at 16
   localparam int unsigned AFTER_COUNT       = 16;    // "16 sent after receiving one"
   localparam int unsigned IDLE_TO_RLOCK_MAX = 255;
+  localparam int unsigned DISABLE_TS1       = 16;    // TS1 sent in Disabled
+  localparam int unsigned DIS_TS_W          = 5;
+  localparam int unsigned TX_IDLE_MIN       = 3;     // 20 ns of electrical idle, in cycles
+  localparam int unsigned EI_CNT_W          = 2;     // saturates at TX_IDLE_MIN
 
   typedef logic [TIMER_W-1:0]   t_timer;
   typedef logic [TS_SENT_W-1:0] t_ts_sent;
@@ -472,6 +493,18 @@ package pcie_mac_pkg;
     logic         left_ei;         // pipe_rx_elec_idle_i was 0 since entry
     logic         eios_rx;         // EIOS received (since entry or Rx_L0 entry)
     logic         retrain;         // retrain_req_i latched in L0
+    // control states (wiki/src/arch/mac/ARCS.md#control-states)
+    logic         directed;        // Disabled, Hot Reset directed; Loopback master
+    t_run         run_hr;          // run of TS1 with Hot Reset set
+    t_run         run_dis;         // run of TS1 with Disable Link set
+    t_run         run_lb;          // run of TS1 with Loopback set
+    t_run         run_dscr;        // Configuration.Complete: go TS2 with Disable Scrambling
+    logic         dscr;            // ... 2 consecutive received (latched)
+    logic         scr_off;         // scrambling disabled, Configuration.Idle to Detect.Quiet
+    logic [DIS_TS_W-1:0] dis_ts;   // TS1 started in Disabled, to 16
+    logic         eios_done;       // this state's EIOS has started
+    logic [EI_CNT_W-1:0] ei_cycles; // cycles in electrical idle, saturating at 3
+    logic         ei_after_eios;   // electrical idle received after an EIOS
   } t_regs;
 
   localparam t_regs REGS_RESET = '{

@@ -138,12 +138,18 @@ idle or packets ([symbols page](SYMBOLS.md#skp-schedule)).
 | Recovery.RcvrCfg | P0 | TS2, link `N`, lane 0. |
 | L1.Entry, L1.Idle | P1 | One EIOS, then electrical idle. |
 | L2.Idle | P2 | One EIOS, then electrical idle. |
-| Disabled | P0, then P1 | 16 TS1 with Disable Link set, one EIOS, then electrical idle. |
+| Disabled | P0, then P1 | 16 TS1 with Disable Link set, link and lane as in the state it came from (below), one EIOS, then electrical idle. |
 | Hot Reset | P0 | TS1, link `N`, lane 0, Hot Reset set, continuously. |
-| Loopback.Entry | P0 | Master: TS1 with Loopback set, link and lane as in the state it came from. Slave: nothing (leaves at once). |
-| Loopback.Active | P0 | Master: a data pattern (a byte count, not scrambled). Slave: `pipe_tx_detect_rx_o` high, so the PCS retransmits what it receives. |
+| Loopback.Entry | P0 | Master: TS1 with Loopback set, link and lane as in the state it came from (below). Slave: nothing of its own: it sends as in Loopback.Active, which it enters in the next step. |
+| Loopback.Active | P0 | Master: a data pattern, not scrambled: two data symbols per word, a byte count mod 256 that runs on from one loopback to the next (0 after reset). Slave: idle symbols, with `pipe_tx_detect_rx_o` high, so the PCS retransmits what it receives instead; the SKP count holds ([symbols page](SYMBOLS.md#skp-schedule)). |
 | Loopback.Exit | P0 | One EIOS, then electrical idle. |
+
+*As in the state it came from*: from Configuration.Linkwidth.Start, that
+state's link and lane (downstream link 0, upstream PAD; lane PAD); from
+Recovery.Idle, link `N` and lane 0.
 
 Every TS carries N_FTS from the `N_FTS` parameter, the 2.5 GT/s data
 rate and no control bit unless the table says so
-([symbols page](SYMBOLS.md#ts1-and-ts2)).
+([symbols page](SYMBOLS.md#ts1-and-ts2)). From Configuration.Idle to the
+next Detect.Quiet, scrambling may be disabled
+([symbols page](SYMBOLS.md#scrambling)).

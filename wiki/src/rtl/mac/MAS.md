@@ -18,6 +18,9 @@ flowchart LR
   up["upper layer"] -- "pkt_tx_*" --> fr["u_frame"]
   fr -- "pkt_rx_*" --> up
   lt["u_ltssm"] -- "t_fr_ctl" --> fr
+  lt -- "t_line_ctl: SKP hold" --> os
+  lt -- "scrambling off" --> txs
+  lt -- "rx_scr_off" --> rxs
   fr -- "idle sent, rx idle" --> lt
   lt -- "t_os_req, t_ts_tx" --> os["u_os"]
   os -- "t_os_tx" --> lt
@@ -48,8 +51,13 @@ transmitter in electrical idle (`a_no_line_in_ei`).
 - A **requested** set (`t_os_req`) reaches `u_os` only while the frame does
   not act, so a set waits for the frame's abort word to finish.
 - A **scheduled SKP** may start (`u_os.tx_skp_ok_i`) on the frame's grant
-  (`skp_gnt_o`), or at a set boundary while the LTSSM asks for TS; never in
-  electrical idle or in the compliance pattern.
+  (`skp_gnt_o`), or at a set boundary while the LTSSM asks for TS or the
+  loopback pattern; never in electrical idle, in the compliance pattern or
+  as a loopback slave.
+- **Loopback slave.** While the LTSSM's `line_o.skp_hold` is 1, `u_os`
+  counts no word and schedules no SKP (`tx_skp_hold_i`), and the frame's
+  `skp_req_i` drops the SKP-due term (a set still finishing keeps it), so
+  the frame sends idle symbols with the count held.
 - The frame's `skp_req_i` is `u_os`'s SKP-due output OR a set in progress
   (`os_cont_q`: the last word was not the last of its set), so the frame
   yields the line from the moment a SKP is due to the last word of any
@@ -60,12 +68,18 @@ transmitter in electrical idle (`a_no_line_in_ei`).
   a frame word without a packet symbol.
 
 **Scramblers.** `u_tx_scr` takes every line word, scrambling the frame's
-data symbols (packet and idle) and passing ordered-set symbols
-(`scr_i` = `{2{fr_tx_act}}`). `u_rx_scr` takes every parsed receive word
-(RxValid 1, RxElecIdle 0) and descrambles the data symbols outside an
-ordered set: its `scr_i` is the inverse of `u_os`'s `os_sym` marks of the
-same raw word. On both sides a word that is not parsed or sent holds the
+data symbols (packet and idle) and passing ordered-set symbols and the
+loopback pattern (`scr_i` = `{2{fr_tx_act && !line_o.tx_scr_off}}`).
+`u_rx_scr` takes every parsed receive word (RxValid 1, RxElecIdle 0) and
+descrambles the data symbols outside an ordered set: its `scr_i` is the
+inverse of `u_os`'s `os_sym` marks of the same raw word, all 0 while
+`rx_scr_off` is 1. On both sides a word that is not parsed or sent holds the
 LFSR (the scrambler's `valid_i`, [#140](https://github.com/amichai-bd/pcie-factory/issues/140)).
+Disable Scrambling ([symbols page](../../arch/mac/SYMBOLS.md#scrambling)):
+`tx_scr_off` is the LTSSM's registered flag, which goes with the word the
+state sends; `rx_scr_off` is its next value, because the raw word is
+descrambled one cycle before the LTSSM step that takes it, and the model
+descrambles a word with the flag of the step before.
 
 **Receive stage.** `u_os` parses the raw PIPE word; its events and TS
 fields (`os_rx_q`, `os_ts_q`) and the word's PIPE status (`rx_st_q`) are
@@ -111,12 +125,13 @@ are in [`common_pkg`](../common/common_pkg.md). Everything is named
 | Struct | Between | Fields |
 | --- | --- | --- |
 | `t_pkt_tx`, `t_pkt_rx` | ports, frame | The packet beat; valid and ready stay single wires on transmit. |
-| `t_os_req` | LTSSM, top, os | One request each: ts, skp, eios, fts, compliance. |
+| `t_os_req` | LTSSM, top, os | One request each: ts, skp, eios, fts, compliance, pattern (the loopback master's). |
 | `t_ts_tx` | LTSSM, os | TS fields sent: ts2, link and lane (PAD flag, byte), control bits 2:0. |
 | `t_os_tx` | os, LTSSM, top | The line word's events: valid, ack (a requested set starts), last, compliance. |
 | `t_os_rx` | os, top, LTSSM | Receive events: `os_sym[1:0]`, ts, ts_bad, skp, eios, fts. |
 | `t_ts_rx` | os, top, LTSSM | Received TS fields: ts2, ts_inv, link and lane (byte, PAD, number), N_FTS, control bits 4:0. |
 | `t_fr_ctl` | LTSSM, frame | tx_l0, tx_stop, rx_l0. |
+| `t_line_ctl` | LTSSM, top, os | skp_hold (loopback slave), tx_scr_off (Disable Scrambling, transmit). |
 | `t_link_req` | ports, LTSSM | retrain, hot_reset, disable_link, loopback, pm_state. |
 
 Internal state structs: `t_rx_state` (the ordered-set parser); the
@@ -158,14 +173,15 @@ a COM in symbol 1 reseeds (`a_com_reseeds`), a word of two SKP holds
 
 | Decision | Rationale | Rejected |
 | --- | --- | --- |
-| Per-symbol `scr_i`; K symbols never changed | The user knows which data symbols are TS or pattern symbols; one port serves TS, compliance, loopback and a future disable. | A global disable port; classifying TS inside the block. |
+| Per-symbol `scr_i`; K symbols never changed | The user knows which data symbols are TS or pattern symbols; one port serves TS, compliance, loopback and Disable Scrambling. | A global disable port; classifying TS inside the block. |
 | COM and SKP decoded inside | The LFSR rules hold for every user and both directions. | Reseed and advance controls from the user. |
 | Registered output | PIPE transmit leaves from a flop. | Combinational output. |
 
 ## Ordered sets
 
-`pcie_mac_os` sends TS1, TS2, SKP, EIOS, FTS and the compliance pattern,
-keeps the [SKP schedule](../../arch/mac/SYMBOLS.md#skp-schedule), and
+`pcie_mac_os` sends TS1, TS2, SKP, EIOS, FTS, the compliance pattern and
+the loopback master's data pattern, keeps the
+[SKP schedule](../../arch/mac/SYMBOLS.md#skp-schedule), and
 recognises received ordered sets, decoding the TS fields. It makes no
 LTSSM decision (no run counting, no comparison with `N`).
 
@@ -176,6 +192,7 @@ LTSSM decision (no run counting, no comparison with `N`).
 | `tx_skp_due_o` | out | 1 | At least 1180 counted symbols since the last SKP. |
 | `tx_skp_ok_i` | in | 1 | A scheduled SKP may start this cycle. |
 | `tx_count_i` | in | 1 | The data source put a counted word on the line; never with `tx_o.valid`. |
+| `tx_skp_hold_i` | in | 1 | Loopback slave: no word is counted and no scheduled SKP starts. |
 | `tx_o` | out | `t_os_tx` | valid (this block owns the word), ack (a requested set starts), last, compliance (`[7:0]` is the first COM of a pattern unit). |
 | `tx_word_o` | out | `t_word` | The word; 0 when not valid. |
 | `rx_word_i`, `rx_i` | in | `t_word`, `t_pipe_rx` | The raw PIPE word and its RxValid and RxElecIdle. |
@@ -186,15 +203,17 @@ LTSSM decision (no run counting, no comparison with `N`).
 (02h, control), then five words of the identifier (4Ah TS1, 45h TS2; link
 and lane PAD when flagged); SKP (COM, SKP), (SKP, SKP); EIOS with IDL; FTS
 with FTS; compliance (COM, D21.5) with `tx_o.compliance`, then (COM,
-D10.2). With no set in progress it starts, first, a scheduled SKP when
-due and `tx_skp_ok_i`, else the requested set (`tx_o.ack`); the first word
+D10.2); the pattern is one word of two data symbols, a byte count and
+the count plus 1 (`pat_q`, mod 256, from 0 at reset, +2 per pattern word).
+With no set in progress it starts, first, a scheduled SKP when
+due, `tx_skp_ok_i` and not `tx_skp_hold_i`, else the requested set (`tx_o.ack`); the first word
 goes out in the start cycle and a set always completes. The TS fields are
 registered at the start of every set (a SKP start loads them too; only a
 TS reads them, [#149](https://github.com/amichai-bd/pcie-factory/issues/149)).
 The SKP count adds 2 per counted word (every word of this block but the
-compliance pattern, and every `tx_count_i`), a scheduled SKP subtracts
-1180, a requested SKP restarts it at 0, and it saturates (an assertion
-fails first).
+compliance pattern, and every `tx_count_i`; none while `tx_skp_hold_i`),
+a scheduled SKP subtracts 1180, a requested SKP restarts it at 0, and it
+saturates (an assertion fails first).
 
 **Receive.** Parsed symbols (RxValid 1, RxElecIdle 0), `[7:0]` first, move
 a five-phase parser (`t_rx_state`, function `rx_step`): a COM starts a set
@@ -228,7 +247,7 @@ counts the SKP interval.
 | --- | --- | --- | --- |
 | `pkt_tx_valid_i`, `pkt_tx_ready_o`, `pkt_tx_i` | in, out, in | 1, 1, `t_pkt_tx` | Upper transmit; ready is combinational from registers, `ctl_i`, `skp_req_i` and `rst_i`, never from valid. |
 | `pkt_rx_o` | out | `t_pkt_rx` | Upper receive beat; no ready. |
-| `ctl_i` | in | `t_fr_ctl` | From the LTSSM. `tx_l0`: the line is the frame's; 1 in L0 and also in Configuration.Idle and Recovery.Idle, where the frame is the only source of idle symbols, with `tx_stop` 1 so no packet starts. `tx_stop`: start no packet. `rx_l0`: main state L0 with `Rx_L0`. |
+| `ctl_i` | in | `t_fr_ctl` | From the LTSSM. `tx_l0`: the line is the frame's; 1 in L0 and also in Configuration.Idle and Recovery.Idle, where the frame is the only source of idle symbols, and as a loopback slave, with `tx_stop` 1 so no packet starts. `tx_stop`: start no packet. `rx_l0`: main state L0 with `Rx_L0`. |
 | `skp_req_i`, `skp_gnt_o` | in, out | 1, 1 | SKP due or a set in progress; the line is the ordered-set block's this cycle. |
 | `tx_act_o`, `tx_word_o`, `tx_pkt_o` | out | 1, `t_word`, 1 | The frame drives the line with this unscrambled word; it carries a packet symbol. |
 | `rx_word_i`, `rx_i` | in | `t_word`, `t_pipe_rx` | The descrambled word and its PIPE status. |
@@ -290,27 +309,30 @@ ended by EDB; else a TLP ended by EDB is nullified.
 ## LTSSM
 
 `pcie_mac_ltssm` is the main machine, its timers, the PIPE power, receiver
-detection and polarity control, and the transmit control of `u_os` and
-`u_frame`: the [LTSSM page](../../arch/mac/LTSSM.md) and the
-[arcs page](../../arch/mac/ARCS.md) for the **core states** (Detect,
-Polling, Configuration x1 in both roles, L0, Recovery). The power states
-([#79](https://github.com/amichai-bd/pcie-factory/issues/79)) and the
-control states ([#80](https://github.com/amichai-bd/pcie-factory/issues/80))
-have empty blocks, and the arcs into them are [stubbed](#stubbed-arcs).
+detection, polarity, loopback and scrambling control, and the transmit
+control of `u_os` and `u_frame`: the [LTSSM page](../../arch/mac/LTSSM.md)
+and the [arcs page](../../arch/mac/ARCS.md) for the **core states**
+(Detect, Polling, Configuration x1 in both roles, L0, Recovery) and the
+[control states](#control-states) (Disabled, Hot Reset, Loopback master
+and slave). The power states
+([#79](https://github.com/amichai-bd/pcie-factory/issues/79)) have an
+empty block, and the arcs into them are [stubbed](#stubbed-arcs).
 Parameters `TIMEOUT_DIV` and `ERR_TIMEOUT_DIV` as in the HAS.
 
 | Port | Dir | Type | Description |
 | --- | --- | --- | --- |
 | `port_role_i`, `link_up_o`, `ltssm_state_o` | in, out, out | 1, 1, 6 | As the HAS ports. |
-| `req_i` | in | `t_link_req` | Link control; hot reset, disable and loopback only take L0 to Recovery today. |
+| `req_i` | in | `t_link_req` | Link control; `pm_state` is unused until the power states (#79). |
 | `pipe_o`, `pipe_rx_i` | out, in | `t_pipe_ctl`, `t_pipe_rx` | PIPE control and status. |
-| `os_req_o`, `ts_o`, `os_tx_i` | out, out, in | `t_os_req`, `t_ts_tx`, `t_os_tx` | Requests (TS or compliance only), TS fields, the line word's events. |
+| `os_req_o`, `ts_o`, `os_tx_i` | out, out, in | `t_os_req`, `t_ts_tx`, `t_os_tx` | Requests (TS, compliance, EIOS, loopback pattern), TS fields with the control bits, the line word's events. |
 | `os_rx_i`, `os_ts_i` | in | `t_os_rx`, `t_ts_rx` | Receive events and fields of the word. |
 | `fr_o` | out | `t_fr_ctl` | The frame's controls. |
+| `line_o` | out | `t_line_ctl` | SKP hold (loopback slave) and transmit scrambling off. |
+| `rx_scr_off_o` | out | 1 | Receive scrambling off, for the word the next step takes: the next value of the flag, the one output that is not a register ([Top](#top)). |
 | `partner_n_fts_o` | out | 8 | The partner's N_FTS from the TS2 that advance Configuration.Complete or Recovery.RcvrCfg; 255 until learned (for `Tx_L0s.FTS`, #79). |
 | `fr_tx_idle_i`, `fr_rx_idle_i` | in | 1, 2 | The line word is the frame's two idle symbols; the received word's idle marks. |
 
-Every output is a register. One step per cycle, in the model's order:
+Every output but `rx_scr_off_o` is a register. One step per cycle, in the model's order:
 
 1. **PIPE status.** The first low PhyStatus after reset marks the PCS
    ready; after that a high cycle completes receiver detection (while
@@ -322,7 +344,10 @@ Every output is a register. One step per cycle, in the model's order:
    TS ending in the word first); electrical idle, EIOS and a retrain in L0
    are noted; TS (`os_tx_i.ack` with a TS request) and idle words sent in
    the previous cycle are counted. Upstream, `N` is learned from a TS1
-   whose link field is a data symbol in Configuration.Linkwidth.Start.
+   whose link field is a data symbol in Configuration.Linkwidth.Start. The
+   control runs (`run_hr`, `run_dis`, `run_lb`: TS1 with the bit;
+   `run_dscr`: Configuration.Complete's go TS2 with Disable Scrambling)
+   count in the states whose arcs read them.
 3. **The arc**, in the arcs page's row order; on entry the timer and every
    per-state count restart.
 4. **PIPE control and transmit mode** of the state the step ends in: the
@@ -330,23 +355,65 @@ Every output is a register. One step per cycle, in the model's order:
    unfinished (`os_tx_i.valid` and not `last`), in P0 with no change
    pending; otherwise it is in electrical idle and only then may PowerDown
    move, one change at a time. Detect.Active raises TxDetectRx in P1.
-   `fr_o.tx_l0` is 1 in Configuration.Idle, Recovery.Idle and L0 while
-   active, with `tx_stop` 1 outside L0.
+   `fr_o.tx_l0` is 1 in Configuration.Idle, Recovery.Idle, L0 and as a
+   loopback slave while active, with `tx_stop` 1 outside L0.
+
+| Transmit mode (`t_tx_mode`) | States | Line |
+| --- | --- | --- |
+| `TX_NONE` | Detect; after an EIOS | Electrical idle. |
+| `TX_TS` | Polling, Configuration, RcvrLock, RcvrCfg; Disabled (16 TS1), Hot Reset, Loopback.Entry master | `u_os` TS with `ts_o`; the control bits follow the state. |
+| `TX_IDLE`, `TX_L0` | Configuration.Idle, Recovery.Idle; L0 | The frame. |
+| `TX_COMPLIANCE` | Polling.Compliance | `u_os` compliance pattern. |
+| `TX_EIOS` | Disabled after its 16 TS1, Loopback.Exit | One `u_os` EIOS (`eios_done` once taken), only from a transmitter that is sending. |
+| `TX_PATTERN` | Loopback.Active master | `u_os` pattern words. |
+| `TX_LOOP` | Loopback.Entry and .Active slave | The frame's idle, TxDetectRx high, `line_o.skp_hold`. |
 
 `link_up_o` is set on every entry to L0 and cleared on entry to
-Detect.Quiet and Polling.Active. Polling.Active advances on the live run of
+Detect.Quiet, Polling.Active, Disabled, Hot Reset and Loopback.Entry. Polling.Active advances on the live run of
 8 matching TS together with 1024 TS1 sent, as the model does (the
 [LTSSM page](../../arch/mac/LTSSM.md#common-rules) states this exception to
 the latched runs).
 
+### Control states
+
+One `always_comb` proposes the control states' arcs
+([arcs page](../../arch/mac/ARCS.md#control-states)); the arcs into them
+sit first in Configuration.Linkwidth.Start's and Recovery.Idle's blocks.
+
+- **Directed or master** (`directed`) is the request at entry: Disabled
+  and Hot Reset downstream only, Loopback.Entry in either role;
+  Loopback.Active keeps Loopback.Entry's. In Recovery.Idle a directed
+  request wins over every received control bit (`ri_directed`), Hot Reset
+  before Disabled before Loopback; in Linkwidth.Start Loopback (requested
+  or received) comes before Disabled.
+- **Disabled** sends TS1 until `dis_ts` counts 16 started, then requests
+  one EIOS, then electrical idle with PowerDown P1. Directed, it leaves
+  once in electrical idle with the request low. Following, it leaves on
+  an EIOS received and then EI exit (`ei_after_eios`: electrical idle in a
+  word after the one with the EIOS), or on the 2 ms timeout with no EIOS.
+- **Hot Reset** sends TS1 with the bit. Its timer is the dwell (2 ms,
+  divided by `TIMEOUT_DIV`): directed, from entry, and it waits for the
+  request to fall; following, the timer restarts on each TS1 that keeps a
+  run of 2 with the bit (`hr_restart`), and the step that restarts it
+  never leaves.
+- **Loopback.Entry**: the master sends TS1 with Loopback and leaves on 2
+  received back, or on the 2 ms timeout to Loopback.Exit; the slave leaves
+  in its first step. **Loopback.Active**: the master sends the pattern and
+  leaves when its request falls; the slave loops and leaves on an EIOS.
+  **Loopback.Exit** sends one EIOS and leaves after 3 cycles of electrical
+  idle (`ei_cycles`).
+- **TS fields.** Disabled and Loopback.Entry keep the link and lane of the
+  state they came from: Linkwidth.Start's, else link `N` and lane 0.
+- **Disable Scrambling.** `dscr` latches 2 consecutive matching TS2 with
+  the bit in Configuration.Complete; the arc to Configuration.Idle then
+  sets `scr_off`, and entry to Detect.Quiet clears it.
+
 ### Stubbed arcs
 
 Each sits in its state's priority order with a constant-0 condition:
-`cfg_linkwidth_start__loopback_entry`, `cfg_linkwidth_start__disabled`,
-`recovery_idle__hot_reset`, `recovery_idle__disabled`,
-`recovery_idle__loopback_entry` (#80); `l0__l1_entry`, `l0__l2_idle`
-(#79). The sub-machines stay in `Tx_L0` and `Rx_L0` in L0, and an EIOS
-received in L0 is only noted (`a_l0s_core_only`, `a_no_stub_state`).
+`l0__l1_entry`, `l0__l2_idle` (#79). The sub-machines stay in `Tx_L0` and
+`Rx_L0` in L0, and an EIOS received in L0 is only noted
+(`a_l0s_core_only`, `a_no_stub_state`).
 
 Structure: every register is a field of `t_regs`, one
 `COMMON_DFF_RST_VAL` with `REGS_RESET`; one match decode of the received
@@ -354,22 +421,27 @@ fields; one `always_comb` per state group proposes the arc; one builds the
 next registers. Assertions cover the legal state, one group, nothing sent
 in Detect, the transmitter only in P0, one PowerDown change at a time in
 electrical idle, detection only in Detect.Active, polarity only in
-Polling, the link down in Detect and Polling, counters in range and
-timeouts always taken.
+Polling, the link down in Detect, Polling and the control states, the
+loopback modes only in Loopback and the pattern only from the master,
+one EIOS per state, scrambling on in Detect and Polling, counters in
+range and timeouts always taken.
 
 | Decision | Rationale | Rejected |
 | --- | --- | --- |
 | Step for step the model's `Mac` | The DV compares every cycle (Q4). | A looser arc-sequence comparison. |
 | A started set keeps the transmitter active | The model finishes an ordered set before electrical idle. | Cutting a TS at a state change. |
 | Stubs as constant-0 conditions in place | #79 and #80 add states without moving arcs. | Leaving the arcs out. |
+| The loopback pattern and the EIOS from `u_os`, the slave's idle from the frame | One source per symbol kind; the line mux and the SKP schedule stay as they are. | A pattern generator in the LTSSM; a third line source. |
+| Receive scrambling off from the next-state flag | The model descrambles a word with the flag of the step before the one that takes it; the receive stage puts the descrambler one cycle earlier. | The registered flag (one word late: the first idle word in Configuration.Idle would be descrambled). |
 
 ## Timing
 
 One clock, `clk_i`, one synchronous reset, no crossing. The longest paths
 are the frame's two receive symbol steps into its queue, the descrambled
-word through the frame's idle marks into the LTSSM's run counters, and
-the line mux through the transmit scrambler's two lanes; each a few
-levels of logic at 125 MHz.
+word through the frame's idle marks into the LTSSM's run counters, the
+line mux through the transmit scrambler's two lanes, and the LTSSM's arc
+selection through `rx_scr_off_o` into the receive descrambler's data
+register; each a few levels of logic at 125 MHz.
 
 ## Files
 
