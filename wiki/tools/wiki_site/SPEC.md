@@ -233,7 +233,7 @@ form the axis.
 | Coverage | Line, toggle and functional coverage (`coverage.ips.<ip>.<metric>.pct`), one chart per metric with a series per IP. |
 | Issues and pull requests | Open issues and PRs, issues opened and closed and PRs merged in the trailing 7 days; histograms of issue time to close and to first response or claim, PR lead time, PR size and review rounds; open issues by label. |
 | FPGA, ASIC | One chart per metric with a series per IP: LEs, registers, M9K blocks, worst-clock Fmax and setup slack; WNS, TNS, std-cell area, cells, max fanout and logic depth. |
-| Architecture model | From `arch.ips.<ip>.scenarios`: a table of each IP and perf scenario's latest status and target-metric values; perf scenarios not passing, a series per IP; and one chart per target metric with a series per IP and scenario (`<ip> / <scenario>`). A chart's unit is the one its metric name carries: the words after the first, less a trailing statistic (`latency_cycles_max` is in cycles). |
+| Architecture model | From `arch.ips.<ip>.scenarios`: a table of each IP and perf scenario's latest status and target-metric values; perf scenarios not passing, a series per IP, on a y axis from 0; and one chart per target metric with a series per IP and scenario (`<ip> / <scenario>`). A chart's unit is the one its metric name carries: the words after the first, less a trailing statistic (`latency_cycles_max` is in cycles). |
 
 **`/tracker/ip/<id>/`** (`<id>` may contain `/`, as sub-IP ids did in records
 written before the kind-first layout) shows that
@@ -251,9 +251,13 @@ vendored Chart.js and `tracker.js` only on pages that have one, and redraws on
 a theme change. Colours are CSS custom properties: eight categorical slots
 (light and dark steps validated for colour-vision deficiency), assigned in a
 fixed order per entity (code kind, level, or IP in sorted order) and never
-cycled; a ninth series is not drawn and the chart says so. The first eight
-code kinds own their slot; a later kind (`arch_py`) or an unknown one takes
-a slot left free by an absent kind, else it is the series not drawn. In the FPGA and
+cycled; a ninth series is not drawn, the chart's note names it, and the
+data table keeps its values in a column marked "(not drawn)". The first
+eight code kinds own their slot; a kind that is missing or zero at every
+point counts as absent and gives its slot up. A later kind (`arch_py`) or an
+unknown one takes a slot left free by an absent kind, then an absent kind
+with zeros takes any slot still free; a kind left without one is not
+drawn. In the FPGA and
 ASIC charts the slots go, in sorted order, to the IPs with data in that flow,
 so an IP is never dropped while a slot is free. Every light slot clears 3:1
 contrast on the page background. Status (good,

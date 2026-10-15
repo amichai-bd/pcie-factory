@@ -487,30 +487,36 @@ class Page:
             f"{note_html}<details><summary>{escape(summary)}</summary>{table_html}</details></figure>")
 
     def trend(self, cid: str, title: str, unit: str, series: list[dict], note: str = "",
-              hidden: int = 0) -> bool:
-        """series: {label, color: 1..8 | status, points: [Point], get: data -> value,
-        line: bool, shape}. Draws nothing and returns False without values."""
-        cols = []
-        for s in series[:SLOTS]:
+              ymin: float | None = None) -> bool:
+        """series: {label, color: 1..8 | status | None, points: [Point], get: data -> value,
+        line: bool, shape}. The first SLOTS series with a colour are drawn; any
+        other series with values is named in the note and kept in the data
+        table. Draws nothing and returns False without values."""
+        cols, extra = [], []
+        for i, s in enumerate(series):
             pts = [(p, s["get"](p.data)) for p in s["points"]]
             pts = [(p, v) for p, v in pts if v is not None]
             if pts:
-                cols.append((s, pts))
+                (cols if i < SLOTS and s.get("color") is not None else extra).append((s, pts))
         if not cols:
             return False
-        hidden += max(0, len(series) - SLOTS)
-        if hidden:
-            note = (note + " " if note else "") + f"{hidden} more series not drawn; the per-IP pages have them."
+        if extra:
+            note = (note + " " if note else "") + (
+                f"{len(extra)} more series not drawn (no colour slot left): "
+                f"{', '.join(s['label'] for s, _ in extra)}; the data table has their values.")
         whole = all(float(v).is_integer() for _, pts in cols for _, v in pts)
         self.charts[cid] = {"kind": "trend", "unit": unit, "integer": whole, "series": [
             {"label": s["label"], "color": str(s["color"]), "line": s.get("line", True),
              "shape": s.get("shape", "circle"), "points": [[p.idx, v] for p, v in pts]}
             for s, pts in cols]}
-        idxs = sorted({p.idx for _, pts in cols for p, _ in pts})[-TABLE_ROWS:]
-        look = [{p.idx: v for p, v in pts} for _, pts in cols]
+        if ymin is not None:
+            self.charts[cid]["ymin"] = ymin
+        idxs = sorted({p.idx for _, pts in cols + extra for p, _ in pts})[-TABLE_ROWS:]
+        look = [{p.idx: v for p, v in pts} for _, pts in cols + extra]
         rows = [[f"<code>{escape(self.axis[i][0])}</code>", escape(self.axis[i][1])]
                 + [escape(fmt(m.get(i))) for m in look] for i in reversed(idxs)]
-        head = ["Commit", "Date"] + [escape(s["label"]) for s, _ in cols]
+        head = ["Commit", "Date"] + [escape(s["label"]) for s, _ in cols] \
+            + [escape(s["label"]) + " (not drawn)" for s, _ in extra]
         self._figure(cid, title, unit, note, table(head, rows), f"Data table (latest {len(idxs)} commits)")
         return True
 
@@ -585,11 +591,17 @@ def kind_slot(kind: str) -> int | None:
 
 def kind_series(points, kinds, get_kinds, what) -> list[dict]:
     """Kinds with a slot first; a kind left without one follows them, so
-    `Page.trend` leaves it out and counts it in the chart's note."""
+    `Page.trend` leaves it out of the plot and names it in the chart's note.
+    A kind that is zero (or missing) at every point counts as absent: it
+    gives up its fixed slot, and takes a free slot only after every kind
+    with data has one."""
+    def live(k):
+        return any(kind_value(get_kinds(p.data).get(k), what) for p in points)
+    present = [k for k in kinds if live(k)]
     out, rest = [], []
-    spare = [i + 1 for i in range(SLOTS) if list(KINDS)[i] not in kinds]
-    for k in kinds:
-        slot = kind_slot(k) or (spare.pop(0) if spare else None)
+    spare = [i + 1 for i in range(SLOTS) if list(KINDS)[i] not in present]
+    for k in present + [k for k in kinds if k not in present]:
+        slot = (kind_slot(k) if k in present else None) or (spare.pop(0) if spare else None)
         (out if slot else rest).append({"label": KINDS.get(k, k), "color": slot, "points": points,
                                         "get": lambda r, k=k: kind_value(get_kinds(r).get(k), what)})
     return out + rest
@@ -747,7 +759,7 @@ def code_section(p: Page, d: Data, ips: list[str]) -> None:
                        [{"label": "Total", "color": 1, "points": pts, "get": lambda r: code_total(r, "loc")}])
     drew |= p.trend("loc-ip", "Lines of code per IP", "lines",
                     [{"label": ip, "color": i + 1, "points": pts, "get": lambda r, ip=ip: code_ip_total(r, ip, "loc")}
-                     for i, ip in enumerate(ips[:SLOTS])], hidden=max(0, len(ips) - SLOTS))
+                     for i, ip in enumerate(ips)])
     drew |= histograms(p, d, "code")
     if not drew:
         p.html(empty("No code metrics yet."))
@@ -917,8 +929,7 @@ def arch_trends(p: Page, points: list[Point], ips: list[str], prefix: str, per_i
         series = [{"label": sc if per_ip else f"{ip} / {sc}", "color": i + 1, "points": points,
                    "get": lambda r, ip=ip, sc=sc, m=metric: arch_value(r, ip, sc, m)}
                   for i, (ip, sc) in enumerate((ip, sc) for ip, sc, m in keys if m == metric)]
-        drew |= p.trend(chart_id(prefix, metric, taken), metric, metric_unit(metric), series[:SLOTS],
-                        hidden=max(0, len(series) - SLOTS))
+        drew |= p.trend(chart_id(prefix, metric, taken), metric, metric_unit(metric), series)
     return drew
 
 
@@ -935,7 +946,7 @@ def arch_section(p: Page, d: Data, ips: list[str]) -> None:
         {"label": ip, "color": i + 1, "points": n,
          "get": lambda r, ip=ip: (lambda scs: sum(text(e, "status") != "pass" for e in scs.values())
                                   if scs else None)(arch_scenarios(r, ip))}
-        for i, ip in enumerate(with_data)])
+        for i, ip in enumerate(with_data)], ymin=0)
     drew |= arch_trends(p, n, ips, "arch", per_ip=False)
     if not rows and not drew:
         p.html(empty("No architecture-model metrics yet."))

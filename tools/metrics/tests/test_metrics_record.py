@@ -102,12 +102,29 @@ def test_arch_section_whitelists(tmp_path):
                                       "targets": [{"metric": "x", "value": "1"}]}]},
     {"status": "pass", "scenarios": [{"name": "a", "status": "pass",
                                       "targets": [{"metric": "x", "value": True}]}]},
+    {"status": "pass", "scenarios": [{"name": "a", "status": "pass",
+                                      "targets": [{"metric": "x", "value": 10 ** 400}]}]},  # OverflowError
+    {"status": "pass", "scenarios": [{"name": "a", "status": "pass",
+                                      "targets": [{"metric": "x", "value": float("inf")}]}]},
 ])
 def test_arch_section_invalid_file(tmp_path, doc):
     path = tmp_path / "blk/arch/perf.json"
     path.parent.mkdir(parents=True)
     path.write_text(doc if isinstance(doc, str) else json.dumps(doc))
     assert record.arch_section(tmp_path, ["blk"]) == {"status": "ok", "ips": {"blk": {"status": "invalid"}}}
+
+
+def test_huge_numbers_are_invalid_not_a_crash(tmp_path, cfg):
+    """A number too large for a float (OverflowError) marks the input invalid."""
+    s = tmp_path / "summary.json"
+    s.write_text(json.dumps({"tests": [{"ip": "a", "level": 0, "name": "t", "seed": 1,
+                                        "status": "pass", "runtime_s": 10 ** 400}],
+                             "totals": {}, "levels": [0], "passed": True, "wall_s": 1}))
+    assert record.tests_section(s, cfg) == {"status": "unavailable", "reason": "invalid"}
+    s.write_text(json.dumps({"coverage": {"passed": True, "ips": {"a": {
+        m: {"covered": 1, "total": 1, "pct": 10 ** 400} for m in record.COVERAGE_METRICS}
+        | {"floors": {}, "failures": []}}}}))
+    assert record.coverage_section(s) == {"status": "unavailable", "reason": "invalid"}
 
 
 def test_pick_drops_unsafe_strings():

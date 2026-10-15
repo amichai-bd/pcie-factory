@@ -183,7 +183,7 @@ def tests_section(summary_path: Path, cfg: Config) -> dict:
         levels = [int(x) for x in s["levels"]]
         passed = bool(s["passed"])
         wall = float(s["wall_s"])
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError, OverflowError):
         return {"status": "unavailable", "reason": "invalid"}
     runs.sort(key=lambda r: (r["ip"], r["level"], r["name"], r["seed"]))
     ips: dict = {}
@@ -232,7 +232,7 @@ def coverage_section(summary_path: Path) -> dict:
             row["floors_passed"] = not e["failures"]
             ips[ip] = row
         passed = bool(cov["passed"])
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError):
         return {"status": "unavailable", "reason": "invalid"}
     return {"status": "ok", "passed": passed, "ips": ips}
 
@@ -291,7 +291,7 @@ def arch_section(workdir: Path, ip_ids: list[str]) -> dict:
             continue
         try:
             ips[ip] = _arch_ip(json.loads(path.read_text()))
-        except (OSError, ValueError, KeyError, TypeError):
+        except (OSError, ValueError, KeyError, TypeError, OverflowError):
             ips[ip] = {"status": "invalid"}
     if not ips:
         return {"status": "unavailable", "reason": "missing"}

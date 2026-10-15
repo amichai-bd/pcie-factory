@@ -475,16 +475,53 @@ def test_metric_unit():
 
 
 def test_code_kind_beyond_the_slots_is_noted(tmp_path):
-    kinds = {k: {"files": 1, "lines": 1, "code": 1} for k in tracker.KINDS}  # nine kinds
+    kinds = {k: {"files": 1, "lines": 1, "code": 1} for k in tracker.KINDS}  # nine kinds with data
     problems, out = build(tree(tmp_path, {"commits.jsonl": commit(1, "2026-09-01", code={"kinds": kinds})}))
     assert problems == []
     html = (out / "tracker/index.html").read_text()
     labels = [s["label"] for s in chart_data(html)["charts"]["loc-kind"]["series"]]
     assert len(labels) == 8 and "Arch Python" not in labels and "Skills" in labels
-    assert "1 more series not drawn" in html
-    # with a kind absent, Arch Python takes its free slot
-    del kinds["workflows"]
+    # the note names the hidden series, and the data table keeps its values
+    assert "1 more series not drawn (no colour slot left): Arch Python; the data table has their values." in html
+    assert "<th>Arch Python (not drawn)</th>" in html
+
+
+@pytest.mark.parametrize("gone", [None, {"files": 0, "lines": 0, "code": 0}])
+def test_code_kind_without_data_gives_up_its_slot(tmp_path, gone):
+    kinds = {k: {"files": 1, "lines": 1, "code": 1} for k in tracker.KINDS}
+    if gone is None:
+        del kinds["workflows"]          # absent
+    else:
+        kinds["workflows"] = gone       # zero everywhere counts as absent
     problems, out = build(tree(tmp_path, {"commits.jsonl": commit(1, "2026-09-01", code={"kinds": kinds})}))
+    assert problems == []
+    html = (out / "tracker/index.html").read_text()
+    series = {s["label"]: s["color"] for s in chart_data(html)["charts"]["loc-kind"]["series"]}
+    assert series["Arch Python"] == "7" and series["Skills"] == "8" and "Workflows" not in series
+    if gone is not None:
+        assert "(no colour slot left): Workflows;" in html  # the zero kind is named, not dropped
+    # a kind that is non-zero at any point keeps its fixed slot
+    kinds["workflows"] = {"files": 0, "lines": 0, "code": 0}
+    lines = commit(1, "2026-09-01", code={"kinds": kinds}) + commit(
+        2, "2026-09-02", code={"kinds": {**kinds, "workflows": {"files": 1, "lines": 1, "code": 1}}})
+    problems, out = build(tree(tmp_path, {"commits.jsonl": lines}))
     series = {s["label"]: s["color"] for s in chart_data((out / "tracker/index.html").read_text())
               ["charts"]["loc-kind"]["series"]}
-    assert series["Arch Python"] == "7" and "Workflows" not in series
+    assert series["Workflows"] == "7" and "Arch Python" not in series
+
+
+def test_ip_series_beyond_the_slots_are_named(tmp_path):
+    ips = [f"ip{i}" for i in range(10)]
+    rec = commit(1, "2026-09-01", code={"ips": {ip: {"code": 1, "files": 1} for ip in ips}})
+    problems, out = build(tree(tmp_path, {"commits.jsonl": rec}))
+    html = (out / "tracker/index.html").read_text()
+    assert len(chart_data(html)["charts"]["loc-ip"]["series"]) == 8
+    assert "2 more series not drawn (no colour slot left): ip8, ip9;" in html
+    assert "<th>ip9 (not drawn)</th>" in html
+
+
+def test_arch_failing_chart_starts_at_zero(tmp_path):
+    rec = nightly("2026-09-05", 1, "pass", arch=arch(full=("pass", {"lat": 1})))
+    problems, out = build(tree(tmp_path, {"2026-09-05.json": rec}))
+    charts = chart_data((out / "tracker/index.html").read_text())["charts"]
+    assert charts["arch-failing"]["ymin"] == 0 and "ymin" not in charts["arch-lat"]

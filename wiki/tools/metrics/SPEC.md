@@ -225,7 +225,9 @@ Bounds, other metrics, descriptions, seeds, workloads, `detail`, the model
 file name and any unknown field are dropped. A file that does not parse, or
 whose status, scenario name (`[a-z0-9][a-z0-9_]*`), metric name
 (`[A-Za-z0-9_]+`) or value breaks these rules, makes that IP
-`{"status": "invalid"}`.
+`{"status": "invalid"}`. A number too large for a float in this file, or
+in the regression summary, marks that input `invalid` too; it never fails
+the command.
 
 ### `distributions`
 

@@ -92,7 +92,11 @@ Arch never imports DV, RTL or tools code ([arch BKM](../../bkm/arch.md#dv-and-ar
 (`import x.y`, `from x import y`, and `importlib.import_module` or
 `__import__` with a constant name) that names
 
-- a tools module or package (`tools/<name>.py`, `tools/<name>/`),
+- `tools` or `src` themselves (`import tools.x`, `from src.dv... import`),
+- a tools name importable at top level: `tools/<name>.py`, any folder
+  `tools/<name>/` (a package or not), and the modules directly in a tool
+  folder without `__init__.py`, which runs with that folder on `sys.path`
+  (`tools/<tool>/<module>.py`),
 - a Python module or package under any other kind folder (`src/<kind>/`
   other than `arch/`: DV models and tests, and any Python beside RTL or
   flow inputs), or

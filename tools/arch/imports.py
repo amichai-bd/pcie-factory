@@ -4,8 +4,11 @@ The arch BKM's dependency rule (DV may import arch, never the reverse) is
 checked statically: every ``*.py`` under ``src/arch/<ip>/`` is parsed and
 each imported top-level module name is compared with
 
-- the Python modules and packages of the tools (``tools/<name>.py``,
-  ``tools/<name>/``),
+- ``tools`` and ``src`` themselves (``import tools.x``, ``from src.dv ...``),
+- the tools' top-level importable names: ``tools/<name>.py``, every folder
+  ``tools/<name>/`` (a package or not), and the modules directly in a tool
+  folder without ``__init__.py``, which run with that folder on ``sys.path``
+  (``tools/<tool>/<module>.py``),
 - the Python modules and packages under every other kind folder of the
   source tree (``src/<kind>/...`` for each kind but ``arch``: DV models and
   tests, and any Python beside RTL or flow inputs),
@@ -52,18 +55,21 @@ def _modules(root: Path) -> set[str]:
 
 
 def _tool_modules(tools_root: Path) -> set[str]:
-    names = set()
+    names = {"tools"}
     for p in sorted(tools_root.iterdir()) if tools_root.is_dir() else ():
         if p.suffix == ".py" and p.stem != "conftest":
             names.add(p.stem)
-        elif p.is_dir() and (p / "__init__.py").is_file():
+        elif p.is_dir() and not p.name.startswith((".", "_")):
             names.add(p.name)
+            if not (p / "__init__.py").is_file():  # a script folder: its modules are top-level
+                names.update(m.stem for m in p.glob("*.py") if m.stem != "conftest")
     return names
 
 
 def forbidden_names(src_root: Path, tools_root: Path = TOOLS_ROOT) -> dict[str, str]:
     """``{module name: origin}`` an arch model must not import."""
     out = {name: "DV framework" for name in DV_FRAMEWORKS}
+    out["src"] = "src"
     stdlib = set(sys.stdlib_module_names)  # resolves to the standard library first
     for kind_dir in sorted(Path(src_root).iterdir()) if Path(src_root).is_dir() else ():
         if kind_dir.is_dir() and kind_dir.name != ARCH and not kind_dir.name.startswith("."):

@@ -178,6 +178,16 @@ def test_arch_never_imports_dv_rtl_or_tools(good):
         f"src/arch/blk/xy_blk_arch.py:3: imports build (tools); {rule}",
         f"src/arch/blk/xy_blk_arch.py:5: imports checks (tools); {rule}",
     ]
+    # tools/ and src/ as packages, a tool folder without __init__.py and its modules
+    write(good / "src/arch/blk/xy_blk_arch.py",
+          "import tools.metrics\nfrom src.dv.blk import x\nimport wiki_site\nfrom tracker import render\n"
+          "def perf(workload, seed):\n    return {}\n")
+    assert run(good).findings == [
+        f"src/arch/blk/xy_blk_arch.py:1: imports tools (tools); {rule}",
+        f"src/arch/blk/xy_blk_arch.py:2: imports src (src); {rule}",
+        f"src/arch/blk/xy_blk_arch.py:3: imports wiki_site (tools); {rule}",
+        f"src/arch/blk/xy_blk_arch.py:4: imports tracker (tools); {rule}",
+    ]
     write(good / "src/arch/blk/xy_blk_arch.py", "def perf(:\n")
     assert run(good).findings == ["src/arch/blk/xy_blk_arch.py:1: cannot parse for the import scan"]
 
