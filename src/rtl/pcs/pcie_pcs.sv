@@ -3,7 +3,8 @@
 // wiki/src/arch/pcs/HAS.md; structure: wiki/src/rtl/pcs/MAS.md.
 //
 // Wave-1 shell: the ports of the HAS with every output tied to its reset
-// value. The sub-IPs and crossing cells arrive in wave 2.
+// value. Wave-2 sub-IPs are instantiated as they arrive, their outputs held
+// unused until the top (#85) connects them; the crossing cells come with it.
 `default_nettype none
 
 module pcie_pcs (
@@ -40,14 +41,34 @@ module pcie_pcs (
   input  logic        ser_rx_elec_idle_i    // cdc-domain: ser_rx_clk_i
 );
 
-  // Inputs the shell does not use yet; the wave-2 RTL consumes them.
+  // Transmit encoder (pcs_enc8b10b), reset with the PCS clk_i side. Its
+  // outputs are not connected to ser_tx_* until the top (#85).
+  logic        tx_rst;
+  logic        tx_valid;
+  logic        enc_valid;
+  logic [19:0] enc_data;
+
+  assign tx_rst   = rst_i || !pipe_reset_ni;
+  assign tx_valid = (pipe_power_down_i == 2'd0) && !pipe_tx_elec_idle_i;  // P0, not idle
+
+  pcie_pcs_enc8b10b u_enc (
+    .clk_i        (clk_i),
+    .rst_i        (tx_rst),
+    .valid_i      (tx_valid),
+    .data_i       (pipe_tx_data_i),
+    .datak_i      (pipe_tx_datak_i),
+    .compliance_i (pipe_tx_compliance_i),
+    .valid_o      (enc_valid),
+    .data_o       (enc_data)
+  );
+
+  // Inputs and sub-IP outputs the shell does not use yet; the wave-2 RTL
+  // consumes them.
   logic unused_inputs;
-  assign unused_inputs = ^{clk_i, rst_i, pipe_reset_ni, pipe_tx_data_i,
-                           pipe_tx_datak_i, pipe_tx_detect_rx_i,
-                           pipe_tx_elec_idle_i, pipe_tx_compliance_i,
-                           pipe_rx_polarity_i, pipe_power_down_i,
-                           ser_tx_rxdet_i, ser_rx_clk_i, ser_rx_data_i,
-                           ser_rx_elec_idle_i};
+  assign unused_inputs = ^{pipe_tx_detect_rx_i, pipe_rx_polarity_i,
+                           ser_tx_rxdet_i, ser_rx_clk_i,
+                           ser_rx_data_i, ser_rx_elec_idle_i, enc_valid,
+                           enc_data};
 
   // Reset values from the HAS: PhyStatus high, no received data, receiver
   // and transmitter in electrical idle.

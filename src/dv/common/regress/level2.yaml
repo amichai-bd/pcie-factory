@@ -26,3 +26,16 @@ tests:
     params: {ADDR_W: 4, WIDTH: 16}
     seeds: 4
     timeout_s: 600
+  - name: rst_long
+    module: tests.test_cdc_rst
+    testcase: long_ratio
+    top: common_cdc_rst
+    seeds: 8
+    timeout_s: 600
+  - name: rst_long_stages4
+    module: tests.test_cdc_rst
+    testcase: long_ratio
+    top: common_cdc_rst
+    params: {STAGES: 4}
+    seeds: 4
+    timeout_s: 600
