@@ -80,7 +80,7 @@ network:
 ```text
 python3 -m pytest tools/<tool>/tests -q        # focused
 python3 -m pytest tools -q                     # all tool tests
-./build check                                  # layout, filelists, RTL style, wiki mirror, flow inputs, neutrality, citation, publishability, lint
+./build check                                  # layout, filelists, RTL style, wiki mirror, flow inputs, neutrality, citation, publishability, lint, cdc
 ```
 
 The [build SPEC](../../../wiki/tools/build/SPEC.md#unit-tests)

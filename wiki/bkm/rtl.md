@@ -130,9 +130,12 @@ crossing cells in `src/rtl/common/`; each MAS owns its cell's rules
   source domain). `dst` names its destination clock input. Port names give
   every other port's domain: `src_*` ports belong to the source domain and
   `dst_*` ports to the destination domain. Only `common_cdc_*` modules in
-  `src/rtl/common/` carry the directive. The structural CDC check
-  ([#70](https://github.com/amichai-bd/pcie-factory/issues/70)) reads it;
-  until that check exists, review enforces this section.
+  `src/rtl/common/` carry the directive.
+- **Check.** `./build check` runs the structural
+  [CDC check](../tools/checks/SPEC.md#cdc-check): it enforces the directive,
+  the port prefixes, the cell-only crossing rule and the `src=async` rule.
+  It does no reconvergence, glitch or reset-crossing analysis, and it does
+  not see crossings at an IP's own input ports; review still owns those.
 
 ## Assertions
 
