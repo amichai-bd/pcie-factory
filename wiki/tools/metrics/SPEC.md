@@ -97,7 +97,7 @@ change), then the sections below.
 | `date` | UTC date of the run; the file name. |
 | `commit`, `commit_short`, `commit_date` | `HEAD` SHA (40 and 12 hex) and its committer date (UTC); on the scheduled run, the main commit the night ran on: the x-axis key shared with the series. |
 | `tools` | `python`, `git`, `gh`, `verilator`, `cocotb`, `pytest`, `pyyaml`: version strings only, `null` when absent. |
-| `nightly.steps` | `{name: pass\|fail\|skipped}` from `--step` (the nightly passes `check`, `regress`, `arch`, `fpga`, `asic`). |
+| `nightly.steps` | `{name: pass\|fail\|skipped}` from `--step` (the nightly passes `check`, `unit`, `regress`, `arch`, `fpga`, `asic`). |
 | `nightly.result` | `fail` if any step failed, else `pass`; `null` without steps. |
 | `nightly.duration_s` | Seconds from `--started` (the nightly job's start) to `generated_at`: the nightly wall time up to metrics collection; `null` without `--started`. |
 

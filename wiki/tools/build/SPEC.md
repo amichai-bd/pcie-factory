@@ -144,6 +144,13 @@ cycle and is flattened once.
 file anywhere below one of the include directories. Subdirectories count
 (``include "sub/x.svh"``), and so do new files.
 
+`synthesis_defines(resolved, filelist)` returns the defines a synthesis
+flow (FPGA, ASIC) passes: the filelist's plus `SYNTHESIS`
+(`SYNTHESIS_DEFINE`), which compiles out the
+[assertion macros](../../bkm/rtl.md#assertions). A filelist that defines
+`SYNTHESIS` itself is an error, since simulation would then compile the
+synthesis view.
+
 ## Simulation: `./build sim`
 
 ```
@@ -175,7 +182,9 @@ If none of these has it, the command fails with exit code 2.
 Sources, include directories and defines come from the resolved
 `dv/<id>/<id>.sim.f`. A bare define is passed as `-DNAME=`. The test entry's
 `top` is the HDL toplevel, and its `params` become top-level parameter
-overrides (`-G`).
+overrides (`-G`). Every build passes `--assert` (`BUILD_ARGS` in `sim.py`),
+so the [assertion macros](../../bkm/rtl.md#assertions) are live in every
+simulation; `SYNTHESIS` is never defined.
 
 Each build and each test runs in a child process
 (`python3 -B tools/build/sim.py build|test <job.json>`). The parent never
@@ -228,7 +237,10 @@ flat sub-IP (`counter_inc`), and it exercises `-F`, `+incdir+`, `+define+`, `par
 test per level. The end-to-end tests (real build, pass, fail, timeout, build
 error, waves, a broken filelist in one IP, and the `regress` and `sim` CLI)
 are skipped when Verilator or cocotb is missing. Process-control tests use a
-sleeping shell script in place of the child, so they need no simulator. `test_ip.py` covers discovery on synthetic kind-first trees: flat
+sleeping shell script in place of the child, so they need no simulator. A
+killed group's grandchildren (such as the simulator executable) exit
+asynchronously after the leader is reaped, so tests that check the group is
+gone poll with a deadline instead of asserting right after the kill. `test_ip.py` covers discovery on synthetic kind-first trees: flat
 sub-IPs, top-level versus sub-IP by `-F` reachability and id prefix (direct,
 transitive and from two parents), integrated top-level IPs (a reached IP
 without its includer's prefix stays top-level), `common/` and name mismatches that are not IPs, a broken

@@ -163,3 +163,18 @@ def _resolve_into(path: Path, result: Resolved, stack: list[Path]) -> None:
                 raise FilelistError(f"{where}: source not found: {value}")
             if target not in result.sources:
                 result.sources.append(target)
+
+
+# The macro every synthesis flow defines (FPGA and ASIC): the RTL BKM's
+# assertion macros compile out under it. Simulation and lint never define it.
+SYNTHESIS_DEFINE = "SYNTHESIS"
+
+
+def synthesis_defines(flat: Resolved, filelist: Path | str) -> dict[str, str | None]:
+    """``flat``'s defines plus ``SYNTHESIS`` for a synthesis flow. A
+    filelist may not define it itself: simulation would then compile the
+    synthesis view."""
+    if SYNTHESIS_DEFINE in flat.defines:
+        raise FilelistError(f"{filelist}: defines {SYNTHESIS_DEFINE}, which only the "
+                            "synthesis flows set")
+    return {**flat.defines, SYNTHESIS_DEFINE: None}

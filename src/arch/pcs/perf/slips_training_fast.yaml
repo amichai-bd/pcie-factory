@@ -1,0 +1,21 @@
+# Bit slips in comma-dense training traffic: the relock request must re-arm
+# even when lock is retaken in the same cycle (wiki/src/arch/pcs/RECEIVE.md,
+# wiki/src/arch/pcs/HAS.md#targets).
+description: Twelve bit slips in 3000 training ordered sets, RX clock 300 ppm.
+seed: 11
+workload:
+  kind: link
+  training_sets: 3000
+  packets: 2
+  mix: dllp
+  ppm: 300
+  slips: 12
+targets:
+  eb_fill_symbols_min: {min: 4}
+  eb_fill_symbols_max: {max: 12}
+  eb_write_view_words_max: {max: 12}
+  eb_overflows: {max: 0}
+  eb_underflows: {max: 0}
+  slips_missed: {max: 0}
+  slip_detect_cycles_max: {max: 32}
+  lock_to_rx_valid_cycles_max: {max: 10}

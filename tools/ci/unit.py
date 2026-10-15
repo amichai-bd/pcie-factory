@@ -3,6 +3,8 @@
 Four kinds of suite, all pure Python (no simulator):
 
 - ``tools``: the tools unit tests (``tools_tests`` in cfg/ci.yaml).
+- ``vocabulary``: only the tools tests marked ``vocabulary_tests.marker``,
+  when a ``vocabulary_tests.paths`` path changed and no global path did.
 - ``models:<ip>``: the reference-model unit tests in ``dv/<ip>/<models>/``
   (also for the shared unit, ``models:common``).
 - ``arch:<ip>``: the architecture-model self-tests in ``arch/<ip>/``.
@@ -56,6 +58,12 @@ def plan(ctx: Context, rules: CiRules, affected_base: str | None) -> list[Suite]
     if run_tools:
         suites.append(Suite("tools", run_tools, ctx.repo_root,
                             ("-m", "pytest", "-q", *rules.tools_tests)))
+    elif affected_base is not None:
+        vocab = [rel for rel in changed if rules.is_vocabulary(rel)]
+        if vocab and rules.vocabulary_marker:
+            suites.append(Suite("vocabulary", f"vocabulary change: {vocab[0]}", ctx.repo_root,
+                                ("-m", "pytest", "-q", "-m", rules.vocabulary_marker,
+                                 *rules.tools_tests)))
     for ip in ips:
         if ip.id not in hit:
             continue

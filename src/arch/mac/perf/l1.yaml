@@ -1,0 +1,10 @@
+# L1 entry when both ports are directed, and exit through Recovery
+# (wiki/src/arch/mac/HAS.md#targets).
+description: L1 entry and exit back to L0.
+seed: 6
+workload:
+  kind: l1
+  state: 2
+targets:
+  entry_cycles: {max: 64}
+  exit_us: {max: 4}

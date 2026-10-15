@@ -61,18 +61,38 @@ def group_alive(pgid: int) -> bool:
     return False
 
 
-def group_dies(pgid: int, within_s: float = 30.0) -> bool:
-    """Poll until no live process is left in group ``pgid``. ``killpg`` only
-    queues SIGKILL and ``wait()`` reaps only the group leader, so a
-    grandchild can still be running for a moment after the code under test
-    returns, especially on a loaded host. Poll with a deadline; never assert
-    right after the kill."""
+def cwd_alive(path: Path) -> bool:
+    """True if a live (non-zombie) process runs in directory ``path``.
+    A zombie has no cwd, so ``readlink`` fails and it is not counted."""
+    for proc_dir in Path("/proc").glob("[0-9]*"):
+        try:
+            if Path(os.readlink(proc_dir / "cwd")).resolve() == path:
+                return True
+        except OSError:
+            pass
+    return False
+
+
+def dies(alive, within_s: float = 30.0) -> bool:
+    """Poll until ``alive()`` is false; False if it is still true after
+    ``within_s``. ``killpg`` only queues SIGKILL and ``wait()`` reaps only the
+    group leader, so a grandchild (such as the simulator executable) can still
+    be running for a moment after the code under test returns, especially on
+    a loaded host. Poll with a deadline; never assert right after the kill.
+    The deadline is far above the kill latency (well under a second), and a
+    process that was abandoned instead of killed never dies, so it still
+    fails."""
     deadline = time.monotonic() + within_s
-    while group_alive(pgid):
+    while alive():
         if time.monotonic() > deadline:
             return False
         time.sleep(0.05)
     return True
+
+
+def group_dies(pgid: int, within_s: float = 30.0) -> bool:
+    """Poll until no live process is left in group ``pgid`` (see ``dies``)."""
+    return dies(lambda: group_alive(pgid), within_s)
 
 
 @needs_proc
@@ -178,17 +198,18 @@ def test_e2e_pass_fail_timeout_and_build_error(fixture_src, tmp_path):
     bad = sim.run_test(spec, work, verilator, "neg", "tests.test_negative", "always_fails", 1, 60)
     assert bad.status == "fail" and "always_fails" in bad.detail
 
+    # Builds pass --assert: an RTL assertion stops the simulation.
+    fired = sim.run_test(spec, work, verilator, "asrt", "tests.test_negative", "assertion_fires",
+                         1, 60)
+    assert fired.status in ("fail", "error"), fired.detail
+    assert "en_low_in_reset failed" in fired.log.read_text()
+
     hung = sim.run_test(spec, work, verilator, "hang", "tests.test_negative", "hangs", 1, 3)
     assert hung.status == "timeout"
     hang_dir = (work / "counter/hang/1").resolve()
-    survivors = []
-    for proc_dir in Path("/proc").glob("[0-9]*"):
-        try:
-            if Path(os.readlink(proc_dir / "cwd")).resolve() == hang_dir:
-                survivors.append(proc_dir.name)
-        except OSError:
-            pass
-    assert survivors == []  # the simulator was killed, not just abandoned
+    # The simulator was killed, not just abandoned. It is a grandchild in the
+    # killed group and may take a moment to exit after run_test returns.
+    assert dies(lambda: cwd_alive(hang_dir))
 
     (ip.rtl_dir / "counter.sv").write_text("module counter(; endmodule\n")
     assert sim.build(sim.BuildSpec(ip, "counter"), work, verilator).status == "error"

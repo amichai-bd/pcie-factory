@@ -4,7 +4,7 @@
 
 export DESIGN_NAME = pcie_top
 
-# The RTL uses a package imported in the module header and typed localparams;
+# The RTL uses package types in its port list and typed localparams;
 # read it with the slang SystemVerilog frontend (built into the ORFS Yosys)
 # instead of Yosys's own partial SV parser.
 export SYNTH_HDL_FRONTEND = slang

@@ -78,8 +78,9 @@ for scrambled `00h` data). The sequence is maximal-length: it repeats after
 
 One 16-bit state register `state_q`. A combinational loop unrolls the eight
 shifts to compute both `key_o` and the advanced state. A second
-`always_comb` selects `state_d` (re-seed, advance or hold); the
-`always_ff` applies reset.
+`always_comb` selects `state_d` (re-seed, advance or hold); a
+`COMMON_DFF_RST_VAL` register applies reset to `LFSR_SEED`. Package items
+are referenced as `pcie_top_lfsr_pkg::<item>`.
 
 ## Decisions
 
@@ -112,4 +113,4 @@ shifts to compute both `key_o` and the advanced state. A second
 | --- | --- |
 | [`pcie_top_lfsr_pkg.sv`](../../../../src/rtl/top_lfsr/pcie_top_lfsr_pkg.sv) | `LFSR_W`, `BYTE_W`, `t_lfsr`, `t_byte`, `LFSR_TAPS` (`16'h0039`), `LFSR_SEED` (`16'hFFFF`). |
 | [`pcie_top_lfsr.sv`](../../../../src/rtl/top_lfsr/pcie_top_lfsr.sv) | The module. |
-| [`top_lfsr.rtl.f`](../../../../src/rtl/top_lfsr/top_lfsr.rtl.f) | Package, then module. |
+| [`top_lfsr.rtl.f`](../../../../src/rtl/top_lfsr/top_lfsr.rtl.f) | `-F ../common/common_macros.rtl.f` (the RTL vocabulary), the package, then the module. |

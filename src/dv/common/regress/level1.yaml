@@ -55,3 +55,9 @@ tests:
     params: {STAGES: 3}
     seeds: 2
     timeout_s: 120
+  - name: macros_random
+    module: tests.test_macros
+    testcase: random_ops
+    top: common_macros_fixture
+    seeds: 3
+    timeout_s: 120

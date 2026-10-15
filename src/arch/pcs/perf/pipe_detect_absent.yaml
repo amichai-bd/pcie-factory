@@ -1,0 +1,11 @@
+# Receiver detection with no far-end receiver reports RxStatus 0
+# (wiki/src/arch/pcs/PIPE_CONTROL.md, wiki/src/arch/pcs/HAS.md#targets).
+description: Reset, receiver detection (no receiver), then every PowerDown change.
+seed: 0
+workload:
+  kind: pipe
+  rxdet: 0
+targets:
+  rx_detect_cycles: {min: 64, max: 64}
+  rx_detect_status: {min: 0, max: 0}
+  pulses: {min: 8, max: 8}

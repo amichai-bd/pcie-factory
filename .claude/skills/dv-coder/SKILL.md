@@ -39,6 +39,12 @@ Place files under `src/dv/<ip>/` per the [directory structure](../../../wiki/bkm
 | SV testbench top, bind or assertion module | `tb/`, listed in `<ip>.dv.f` |
 | cocotb testcases | `tests/test_<feature>.py` |
 
+- SV under `dv/` may use the RTL vocabulary (`` `include "common_macros.svh"``,
+  reached through the RTL filelist) and may also write raw assertions; the
+  [design rules](../../../wiki/bkm/rtl.md#design-rules) bind RTL only.
+  Simulation builds pass `--assert`, so an RTL `COMMON_ASSERT*` that fails
+  stops the test: a test never drives a module outside the contract its
+  assertions state, unless it is a negative test outside the regression.
 - Drive and observe documented ports only; bind checkers use internal
   signals the MAS names. Never read Verilator internals.
 - Bound every test in cycles and wall time; mismatch messages give operation,

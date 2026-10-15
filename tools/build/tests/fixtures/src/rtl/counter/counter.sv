@@ -20,4 +20,10 @@ module counter #(
     if (rst) q <= '0;
     else if (en) q <= nxt;
   end
+
+  // en is held low during reset. Only tests/test_negative.py breaks this,
+  // to prove that simulation builds enable assertions (--assert).
+  always_ff @(posedge clk) begin
+    if (rst) assert (!en) else $fatal(1, "en_low_in_reset failed");
+  end
 endmodule

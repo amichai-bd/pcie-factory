@@ -69,7 +69,8 @@ def test_config_mk_flattens_filelist(ctx):
     files = text.split("export VERILOG_FILES = ", 1)[1].split("export ", 1)[0]
     assert files.index("inc.sv") < files.index("counter.sv")
     assert f"export VERILOG_INCLUDE_DIRS = {src / 'rtl' / 'counter' / 'include'}" in text
-    assert "-DCOUNTER_FIXTURE" in text
+    # The flow adds SYNTHESIS: the assertion macros compile out.
+    assert "export VERILOG_DEFINES = -DCOUNTER_FIXTURE -DSYNTHESIS" in text
     assert plan.design == "counter" and plan.clock_period_ns == 8.5
 
 

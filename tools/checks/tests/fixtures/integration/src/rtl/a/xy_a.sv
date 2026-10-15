@@ -1,5 +1,7 @@
 `default_nettype none
 
+`include "common_macros.svh"
+
 // Registered incrementer.
 module xy_a (
     input  logic       clk_i,
@@ -11,10 +13,7 @@ module xy_a (
 
   xy_a_x u_inc (.a_i(d_i), .y_o(inc_d));
 
-  always_ff @(posedge clk_i) begin
-    if (rst_i) q_o <= '0;
-    else q_o <= inc_d;
-  end
+  `COMMON_DFF_RST(q_o, inc_d, clk_i, rst_i)
 endmodule
 
 `default_nettype wire

@@ -19,7 +19,10 @@ control, the lower symbol interface, clocks and the stack targets; its
 **References.** Rules come from the PCIe Base Spec rev 3.0, Gen1 rules only
 (Q9), and PIPE from rev 3.0 of Intel's PIPE specification, cited as
 `PIPE Spec` ([PIPE page](PIPE.md)). Both are paraphrased and cited, never
-copied ([wiki BKM](../../../bkm/wiki.md#citations)).
+copied ([wiki BKM](../../../bkm/wiki.md#citations)); their links and access
+terms are on the [references page](../../references.md)
+([`pcie-base`](../../references.md#pcie-base), [`pipe`](../../references.md#pipe),
+[`8b10b`](../../references.md#8b10b)).
 
 ## Position
 
@@ -262,8 +265,7 @@ LTSSM. `./build arch --ip phy` writes `workdir/phy/arch/perf.json`.
 
 | Item | Owner |
 | --- | --- |
-| Cite the electrical sub-block's exact sections for receiver detection and the ±300 ppm transmitter tolerance (the citations above use the nearest confident sections). | [#73](https://github.com/amichai-bd/pcie-factory/issues/73) |
-| Refine the PIPE citations from chapter to section level, and confirm the TxCompliance byte and the P0s PhyStatus handshake in 16-bit mode. | [#73](https://github.com/amichai-bd/pcie-factory/issues/73) |
-| How the elastic buffer and the RX-domain reset (asynchronous assertion, synchronous release; possibly a new approved `common_` cell) are built. | [#73](https://github.com/amichai-bd/pcie-factory/issues/73) |
+| Cite the electrical sub-block's exact sections for receiver detection and the ±300 ppm transmitter tolerance (the citations above use the nearest confident sections). | [#85](https://github.com/amichai-bd/pcie-factory/issues/85) |
+| Refine the PIPE citations on the [PIPE page](PIPE.md) from chapter to section level. The TxCompliance byte (`[7:0]`) and the P0s PhyStatus pulse were confirmed against PIPE rev 3.0, and the stack's differences from PIPE listed, in the [`pcs` PIPE control page](../pcs/PIPE_CONTROL.md#differences-from-pipe). | [#85](https://github.com/amichai-bd/pcie-factory/issues/85) |
 | LTSSM state codes; what `ltssm_state_o` shows when transmit and receive L0s differ (a code cannot show both; a status bit or a rule); the exact rules behind the model's reduced LTSSM. | [#72](https://github.com/amichai-bd/pcie-factory/issues/72) |
 | Stack integration of `pcie_mac` and `pcie_pcs`. | [#86](https://github.com/amichai-bd/pcie-factory/issues/86) |

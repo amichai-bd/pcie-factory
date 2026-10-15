@@ -1,0 +1,8 @@
+# A retrain request in L0, through Recovery, back to L0 on both ports
+# (wiki/src/arch/mac/HAS.md#targets).
+description: Retrain from L0 through Recovery back to L0.
+seed: 3
+workload:
+  kind: retrain
+targets:
+  recovery_us_max: {max: 4}

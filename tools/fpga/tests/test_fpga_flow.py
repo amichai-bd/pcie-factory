@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from build.filelist import FilelistError
 from build.ip import Ip, discover, find_ip
 from cli.main import main
 from fpga import flow
@@ -66,7 +67,8 @@ def test_plan_resolves_inputs(src, tmp_path):
     assert p.top == TOP
     assert [s.name for s in p.sources] == ["widget_pkg.sv", "widget.sv", f"{TOP}.sv"]
     assert p.out_dir == tmp_path / "work" / "widget" / "fpga"
-    assert p.defines == {"WIDTH": "8", "FAST": None}
+    # The flow adds SYNTHESIS: the assertion macros compile out.
+    assert p.defines == {"WIDTH": "8", "FAST": None, "SYNTHESIS": None}
     assert [name for name, _ in p.steps] == ["project", "map", "fit", "sta", "worst_path"]
 
 
@@ -80,6 +82,7 @@ def test_project_tcl(src, tmp_path):
     assert f"set_global_assignment -name SEARCH_PATH {{{src / 'rtl/widget/inc'}}}" in lines
     assert "set_global_assignment -name VERILOG_MACRO {WIDTH=8}" in lines
     assert "set_global_assignment -name VERILOG_MACRO {FAST}" in lines
+    assert "set_global_assignment -name VERILOG_MACRO {SYNTHESIS}" in lines
     files = [ln for ln in lines if "SYSTEMVERILOG_FILE" in ln]
     assert [Path(f.split("{")[1].rstrip("}")).name for f in files] == [
         "widget_pkg.sv", "widget.sv", f"{TOP}.sv"]
@@ -115,6 +118,7 @@ def test_lint_command(src, tmp_path):
     cmd = flow.lint_command(make_plan(src, tmp_path), "verilator")
     assert cmd[:5] == ["verilator", "--lint-only", "-Wall", "--top-module", TOP]
     assert "+define+WIDTH=8" in cmd and "+define+FAST" in cmd
+    assert not any("SYNTHESIS" in c for c in cmd)  # lint sees the simulation view
     assert cmd[-1].endswith(f"{TOP}.sv")
 
 
@@ -340,3 +344,10 @@ def test_cli_requires_ip_or_all():
     with pytest.raises(SystemExit) as exc:
         main(["fpga"])
     assert exc.value.code == 2
+
+
+def test_filelist_may_not_define_synthesis(src, tmp_path):
+    f = widget(src).rtl_f
+    f.write_text(f.read_text() + "+define+SYNTHESIS\n")
+    with pytest.raises(FilelistError, match="only the synthesis flows set"):
+        make_plan(src, tmp_path)

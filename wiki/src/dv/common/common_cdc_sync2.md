@@ -54,3 +54,6 @@
 | [Transfer](../../rtl/common/common_cdc_sync2.md#behavior), long and wide | `sync2_long` | 2 | 8; `WIDTH` 8, 2000 updates, ratio up to 16:1 |
 
 Every [interface](../../rtl/common/common_cdc_sync2.md#interfaces) port is exercised by all three entries.
+A nonzero `RESET_VALUE`, and the `COMMON_METAFLOP` and `COMMON_METAFLOP_VAL`
+wrappers, are covered by the [macro plan](common_macros.md) (`macros_contract`,
+`macros_random`).

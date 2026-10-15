@@ -10,6 +10,9 @@ global:
 shared_dv: [dv/common]
 models: models
 tools_tests: [tools]
+vocabulary_tests:
+  marker: vocabulary
+  paths: [src/rtl/common/h.svh, src/x/]
 """
 
 
@@ -23,6 +26,15 @@ def test_real_config_loads():
     assert r.global_prefixes == ("tools/", "cfg/") and r.global_files == ("build",)
     assert r.shared_dv == ("dv/common",) and r.models == "models"
     assert r.tools_tests == ("tools",)
+    assert r.vocabulary_marker == "vocabulary"
+    assert r.vocabulary_paths == ("src/rtl/common/common_macros.svh",
+                                  "src/rtl/common/common_assertions.svh")
+
+
+def test_is_vocabulary(tmp_path):
+    r = load_rules(write(tmp_path, GOOD))
+    assert r.is_vocabulary("src/rtl/common/h.svh") and r.is_vocabulary("src/x/y.sv")
+    assert not r.is_vocabulary("src/rtl/common/h.sv") and not r.is_vocabulary("src/xy")
 
 
 def test_is_global(tmp_path):
@@ -44,6 +56,9 @@ def test_is_global(tmp_path):
     (GOOD.replace("models: models", "models: ../models"), "models: .*relative path inside the tree"),
     (GOOD + "arch: arch\n", "unknown \\['arch'\\]"),
     (GOOD.replace("tools_tests: [tools]", "tools_tests: [/abs]"), "relative path"),
+    (GOOD.replace("  marker: vocabulary\n", ""), "vocabulary_tests: must be a mapping"),
+    (GOOD.replace("marker: vocabulary", "marker: not a name"), "pytest marker name"),
+    (GOOD.replace("[src/rtl/common/h.svh, src/x/]", "[../h]"), "relative path inside the tree"),
 ])
 def test_malformed(tmp_path, text, msg):
     with pytest.raises(CiConfigError, match=msg):

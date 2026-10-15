@@ -47,9 +47,13 @@ None.
 ## Microarchitecture
 
 Toggle synchronizer. In the source domain `toggle_q` flips on every event.
-A [`common_cdc_sync2`](common_cdc_sync2.md) instance (`u_sync`) brings the
-level into the destination domain; `seen_q` delays it by one cycle, and
-`dst_pulse_o` is the XOR of the two, high for one cycle after every change.
+A [`common_cdc_sync2`](common_cdc_sync2.md) instance (`u_sync`, through
+`COMMON_METAFLOP`) brings the level into the destination domain; `seen_q`
+delays it by one cycle, and `dst_pulse_o` is the XOR of the two, high for
+one cycle after every change. Both flops are `COMMON_DFF_RST` forms
+([RTL vocabulary](../../../bkm/rtl.md#registers-and-memories)). Outside
+`src/rtl/common/`, RTL instantiates this cell only through
+`COMMON_PULSE_SYNC` ([crossings](../../../bkm/rtl.md#clock-domain-crossings)).
 
 ## Decisions
 
@@ -71,4 +75,4 @@ level into the destination domain; `seen_q` delays it by one cycle, and
 | File | Holds |
 | --- | --- |
 | [`common_cdc_pulse.sv`](../../../../src/rtl/common/common_cdc_pulse.sv) | The module. |
-| [`common_cdc_pulse.rtl.f`](../../../../src/rtl/common/common_cdc_pulse.rtl.f) | `-F common_cdc_sync2.rtl.f`, then the module. |
+| [`common_cdc_pulse.rtl.f`](../../../../src/rtl/common/common_cdc_pulse.rtl.f) | `-F common_macros.rtl.f` (the vocabulary), `-F common_cdc_sync2.rtl.f`, then the module. |

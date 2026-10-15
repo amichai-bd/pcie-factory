@@ -9,12 +9,24 @@ net-keyword, SYNTHESIS-guard, module-function and pragma-comment rules are
 adapted from nand2anything tools/style/rtl_style.py (commit 085ef4b, same
 owner, no license file). Project inventories, macros and exceptions were
 dropped; the file-name, port-suffix, nettype, always, interface/union and
-wildcard-connection and external-ifdef rules are new.
+wildcard-connection and external-ifdef rules are new. The vocabulary rules
+(raw-always-ff, raw-assertion, raw-initial: constructs reserved for the
+shared macro headers) follow the same tool's clocked-process, raw-assert and
+raw-initial rules, and nonblocking-assignment ports its scan;
+system-task, local-define, conditional-compilation, package-import,
+include-path, vocabulary-include and cdc-cell-macro are new.
+
+The vocabulary headers are the files named in ``VOCABULARY_HEADERS``,
+directly in ``rtl/common/`` (the RTL BKM's shared vocabulary). They alone
+may hold ``always_ff``, ``<=``, assertions, system tasks, ``initial``
+blocks and ``SYNTHESIS``/``VERILATOR`` conditionals; RTL reaches them with
+a bare-name `` `include``. Any other ``.svh`` gets no exemption.
 """
 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from build.filelist import FilelistError, Resolved, resolve
@@ -37,16 +49,21 @@ RULES = {
     "default-nettype": ("systemverilog-rules",
                         "`.sv` starts with `default_nettype none and ends with `default_nettype wire"),
     "net-keyword": ("systemverilog-rules", "no wire/reg/tri nets; use logic"),
-    "plain-always": ("systemverilog-rules", "only always_comb and always_ff (no always, always_latch)"),
+    "plain-always": ("systemverilog-rules",
+                     "no always (including always @*) and no always_latch; always_comb is the only "
+                     "process keyword in design RTL (always_ff only inside the vocabulary headers, "
+                     "see raw-always-ff)"),
     "interface-union": ("systemverilog-rules", "no interface, modport or union in synthesizable RTL"),
     "wildcard-connection": ("systemverilog-rules", "named connections only; no .*"),
-    "sim-ifdef": ("systemverilog-rules", "no `ifdef/`ifndef/`elsif on SYNTHESIS, SIMULATION or VERILATOR"),
-    "external-ifdef": ("systemverilog-rules",
+    "sim-ifdef": ("no-conditional-compilation",
+                  "no `ifdef/`ifndef/`elsif on SYNTHESIS, SIMULATION or VERILATOR "
+                  "(the vocabulary headers may use SYNTHESIS and VERILATOR)"),
+    "external-ifdef": ("no-conditional-compilation",
                        "no `ifdef/`ifndef/`elsif on a macro the RTL closure does not `define "
                        "(vendor or tool macros); include guards pass"),
     "task-function": ("systemverilog-rules", "no tasks; functions only inside a package"),
     "typedef-outside-package": ("types-and-constants-live-in-packages",
-                                "typedefs only inside a package"),
+                                "typedef, enum and struct declarations only inside a package"),
     "file-name": ("naming", "one module or package per .sv, named after the file, "
                   "with the owner's prefix; packages end in _pkg"),
     "port-suffix": ("naming", "ANSI ports with direction; _i/_o/_io suffix (n before it for active-low)"),
@@ -54,6 +71,30 @@ RULES = {
                          "no `verilator_config blocks (lint_off and friends outside the waiver file)"),
     "tool-pragma": ("lint-and-style-checks",
                     "no tool directive comments (verilator lint_off, synthesis translate_off, ...)"),
+    "nonblocking-assignment": ("registers-and-memories",
+                               "no nonblocking assignment (<=) outside the vocabulary headers"),
+    "conditional-compilation": ("no-conditional-compilation",
+                                "no `ifdef/`ifndef/`elsif/`else in a .sv file (only the vocabulary "
+                                "headers select by flow; include guards only in .svh files)"),
+    "raw-always-ff": ("registers-and-memories",
+                      "no always_ff outside the vocabulary headers (use a COMMON_DFF* or COMMON_MEM* macro)"),
+    "raw-assertion": ("assertions",
+                      "no assert, assume, cover, property, sequence or $fatal/$error/$warning/$info "
+                      "outside the vocabulary headers (use a COMMON_ASSERT* macro)"),
+    "raw-initial": ("assertions", "no initial or final block outside the vocabulary headers"),
+    "system-task": ("assertions",
+                    "no system task or function ($display, $finish, $readmemh, ...) outside the "
+                    "vocabulary headers, except pure functions ($bits, $clog2, $signed, ...)"),
+    "local-define": ("no-conditional-compilation",
+                     "no `define or `undef in a .sv (macros live only in the vocabulary headers)"),
+    "package-import": ("types-and-constants-live-in-packages",
+                       "no import; name package items explicitly as <pkg>::<name>"),
+    "cdc-cell-macro": ("clock-domain-crossings",
+                       "outside rtl/common/, a crossing cell a vocabulary macro wraps is "
+                       "instantiated only through that macro (COMMON_METAFLOP, ...)"),
+    "include-path": ("includes", "`include names a vocabulary header by its bare file name"),
+    "vocabulary-include": ("includes",
+                           "a file that uses a vocabulary macro `includes the vocabulary itself"),
 }
 
 # A tool directive comment: a tool keyword followed by a directive word.
@@ -78,10 +119,57 @@ _SUFFIX = {"input": re.compile(r"_n?i$"), "output": re.compile(r"_n?o$"),
 _IDENT = re.compile(r"[A-Za-z_][\w$]*")
 # Tool macros the sim-ifdef rule owns; external-ifdef leaves them to it.
 _SIM_MACROS = ("SYNTHESIS", "SIMULATION", "VERILATOR")
+# The guards the vocabulary headers may use: SYNTHESIS (defined by the
+# synthesis flows) omits simulation-only forms; VERILATOR keeps lint-only
+# sinks out of synthesis.
+_HEADER_GUARDS = ("SYNTHESIS", "VERILATOR")
 # `ifdef NAME, or a parenthesized macro expression (`ifdef (A && !B)). The
 # name or "(" must be on the directive's line; macro names may contain $.
 _COND_RE = re.compile(r"`(ifdef|ifndef|elsif)\b[ \t]*(\(|[A-Za-z_][\w$]*)?")
 _DEFINE_RE = re.compile(r"`define\s+([A-Za-z_][\w$]*)")
+_INCLUDE_RE = re.compile(r"`include\b[ \t]*(\"[^\"\n]*\"|<[^>\n]*>)?")
+_ASSERTION_RE = re.compile(r"\b(assert|assume|cover|restrict|expect|property|sequence)\b"
+                           r"|\$(fatal|error|warning|info)\b")
+_SYSTEM_RE = re.compile(r"(?<![\w$])\$[A-Za-z_][\w$]*")
+# Pure system functions design RTL may call: constant and width functions,
+# conversions, bit counts, and the sampled-value functions that assertion
+# macro properties use. Every other system task or function ($display,
+# $finish, $stop, $readmemh, $random, ...) is a finding outside the headers.
+PURE_SYSTEM_FUNCTIONS = frozenset({
+    "$bits", "$clog2", "$signed", "$unsigned", "$size", "$low", "$high", "$left", "$right",
+    "$increment", "$dimensions", "$unpacked_dimensions", "$countones", "$countbits",
+    "$onehot", "$onehot0", "$isunknown", "$past", "$stable", "$rose", "$fell", "$changed",
+    "$sampled",
+})
+# The vocabulary headers, by file name directly in rtl/common/. Adding one
+# is a reviewed change: a listed header is exempt from the design rules.
+VOCABULARY_HEADERS = ("common_macros.svh", "common_assertions.svh")
+
+
+@dataclass(frozen=True)
+class Vocabulary:
+    """The shared vocabulary headers: ``VOCABULARY_HEADERS`` found in
+    ``rtl/common/`` (paths relative to the source root), their file names, the macros they define and the
+    shared cells (``rtl/common/<cell>.sv``) their macros instantiate."""
+
+    headers: frozenset[str] = frozenset()
+    names: frozenset[str] = frozenset()
+    macros: frozenset[str] = frozenset()
+    cells: frozenset[str] = frozenset()
+
+
+def vocabulary(src_root: Path) -> Vocabulary:
+    """Read the vocabulary headers directly in ``<src_root>/rtl/common/``."""
+    d = Path(src_root) / "rtl" / SHARED_DIR
+    files = [d / name for name in VOCABULARY_HEADERS if (d / name).is_file()]
+    macros: set[str] = set()
+    cells: set[str] = set()
+    for f in files:
+        text = strip_comments_and_strings(f.read_text(errors="replace"))
+        macros |= defined_macros(text)
+        cells |= {name for name in _IDENT.findall(text) if (d / f"{name}.sv").is_file()}
+    return Vocabulary(frozenset(f"rtl/{SHARED_DIR}/{f.name}" for f in files),
+                      frozenset(f.name for f in files), frozenset(macros), frozenset(cells))
 
 
 def _package_spans(text: str) -> list[tuple[int, int]]:
@@ -185,13 +273,14 @@ def defined_macros(text: str) -> set[str]:
     return set(_DEFINE_RE.findall(text))
 
 
-def ifdef_findings(relpath: str, text: str, defined: frozenset[str] | set[str] = frozenset()
-                   ) -> list[str]:
+def ifdef_findings(relpath: str, text: str, defined: frozenset[str] | set[str] = frozenset(),
+                   allow_sim: bool = False) -> list[str]:
     """``sim-ifdef`` and ``external-ifdef`` findings in comment-stripped
     ``text``. A macro is internal when this file or ``defined`` (the rest of
     its RTL closure: `` `define``s and filelist ``+define+``) defines it, so
     an include guard passes; any other macro can only come from a tool or
-    vendor flow and would hide code from lint.
+    vendor flow and would hide code from lint. ``allow_sim`` (the
+    vocabulary headers only) permits the ``SYNTHESIS``/``VERILATOR`` guards.
 
     Lexical limitation, failing closed: the macro name (or the opening
     parenthesis of an expression) must be on the directive's line. A name on
@@ -209,20 +298,24 @@ def ifdef_findings(relpath: str, text: str, defined: frozenset[str] | set[str] =
             out.append(f"{relpath}:{line}: external-ifdef: `{directive} without a macro name")
         for name in names:
             if name in _SIM_MACROS:
-                out.append(f"{relpath}:{line}: sim-ifdef: `{directive} {name}")
+                if not (allow_sim and name in _HEADER_GUARDS):
+                    out.append(f"{relpath}:{line}: sim-ifdef: `{directive} {name}")
             elif name not in known:
                 out.append(f"{relpath}:{line}: external-ifdef: `{directive} {name} "
                            "is not `define'd by the RTL closure")
     return out
 
 
-def directive_findings(relpath: str, raw: str, defined: frozenset[str] | set[str] = frozenset()
-                       ) -> list[str]:
+def directive_findings(relpath: str, raw: str, defined: frozenset[str] | set[str] = frozenset(),
+                       header: bool = False, conditionals: bool = True) -> list[str]:
     """Findings that matter for files that can be `` `include``d whatever
     their suffix: ``tool-pragma``, ``verilator-config``, and the two
-    conditional-compilation rules (``sim-ifdef``, ``external-ifdef``)."""
+    conditional-compilation rules (``sim-ifdef``, ``external-ifdef``).
+    ``header`` marks a vocabulary header (its guards pass ``sim-ifdef``);
+    ``conditionals=False`` leaves conditionals to ``conditional-compilation``
+    (design ``.sv`` files)."""
     text = strip_comments_and_strings(raw)
-    out = ifdef_findings(relpath, text, defined)
+    out = ifdef_findings(relpath, text, defined, allow_sim=header) if conditionals else []
     for m in _COMMENT_RE.finditer(raw):
         body = (m.group("line") if m.group("line") is not None else m.group("block")).strip()
         if _PRAGMA_RE.match(body):
@@ -232,11 +325,138 @@ def directive_findings(relpath: str, raw: str, defined: frozenset[str] | set[str
     return out
 
 
+_CONCAT_LVALUE = re.compile(r"^\{[^{}]*\}$")
+_LVALUE = re.compile(r"^[A-Za-z_][\w$]*(?:\s*(?:\.[A-Za-z_][\w$]*|"
+                     r"\[[^\[\]]*(?:\[[^\[\]]*\][^\[\]]*)*\]))*$")
+
+
+def find_nonblocking(text: str) -> list[int]:
+    """Indices of ``<=`` that are nonblocking assignments, not comparisons,
+    in comment-stripped ``text``: ``<=`` at parenthesis/brace depth zero
+    whose text back to the previous statement boundary (``;``, ``,``,
+    case-label ``:``, ``begin``, ``end``, ``else``, ``)``) is an lvalue or
+    a concatenation of lvalues. ``if (a <= b)``, ``i <= n`` in a ``for``
+    header, ``assign x = a <= b`` and ternaries are not flagged.
+
+    Provenance: adapted from nand2anything tools/style/rtl_style.py
+    ``find_nonblocking`` (commit 085ef4b), adapted with the owner's
+    permission."""
+    hits = []
+    depth = brackets = boundary = 0
+    concat_starts: list[int] = []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == "(":
+            depth += 1
+            boundary = i + 1
+        elif c == ")":
+            depth = max(depth - 1, 0)
+            boundary = i + 1
+        elif c == "{":
+            if depth == 0:
+                concat_starts.append(i)
+            depth += 1
+        elif c == "}":
+            depth = max(depth - 1, 0)
+            if depth == 0 and concat_starts:
+                boundary = concat_starts.pop()
+            elif depth == 0:
+                boundary = i + 1
+        elif c == "[":
+            brackets += 1
+        elif c == "]":
+            brackets = max(brackets - 1, 0)
+        elif c in ";," or (c == ":" and brackets == 0 and depth == 0):
+            boundary = i + 1
+        elif text.startswith("<=", i):
+            if depth == 0 and (i + 2 >= n or text[i + 2] != "="):
+                prefix = text[boundary:i].strip()
+                prefix = re.sub(r"^(?:begin|end|else)\b", "", prefix).strip()
+                if prefix and (_LVALUE.match(prefix) or _CONCAT_LVALUE.match(prefix)):
+                    hits.append(i)
+            i += 2
+            continue
+        elif c.isalpha() or c == "_":
+            j = i
+            while j < n and (text[j].isalnum() or text[j] in "_$"):
+                j += 1
+            if text[i:j] in ("begin", "end", "else", "always_comb", "always_latch", "always",
+                             "always_ff", "initial", "final"):
+                boundary = j
+            i = j
+            continue
+        i += 1
+    return hits
+
+
+def vocabulary_findings(relpath: str, text: str, vocab: Vocabulary) -> list[str]:
+    """The vocabulary rules on comment-stripped ``text``: constructs
+    reserved for the vocabulary headers, ``import``, and the include
+    rules. Strings are blanked, so `` `include`` paths are read from the
+    raw-length text through the string's span."""
+    header = relpath in vocab.headers
+    out: list[str] = []
+
+    def add(rule: str, index: int, detail: str) -> None:
+        out.append(f"{relpath}:{line_of(text, index)}: {rule}: {detail.strip()}")
+
+    if not header:
+        for m in re.finditer(r"\balways_ff\b", text):
+            add("raw-always-ff", m.start(), m.group())
+        for index in find_nonblocking(text):
+            add("nonblocking-assignment", index, "<=")
+        for m in _ASSERTION_RE.finditer(text):
+            add("raw-assertion", m.start(), m.group())
+        for m in re.finditer(r"\b(initial|final)\b", text):
+            add("raw-initial", m.start(), m.group())
+        for m in _SYSTEM_RE.finditer(text):
+            if m.group() not in PURE_SYSTEM_FUNCTIONS and not _ASSERTION_RE.fullmatch(m.group()):
+                add("system-task", m.start(), m.group())
+    for m in re.finditer(r"\bimport\b", text):
+        add("package-import", m.start(), "import (name items as <pkg>::<name>)")
+    if not relpath.startswith(f"rtl/{SHARED_DIR}/"):
+        for m in re.finditer(r"\b[A-Za-z_]\w*\b", text):
+            if m.group() in vocab.cells and text[m.start() - 1:m.start()] != "`":
+                add("cdc-cell-macro", m.start(), f"{m.group()} instantiated directly "
+                    "(use its vocabulary macro)")
+    return out
+
+
+def include_findings(relpath: str, raw: str, text: str, vocab: Vocabulary) -> list[str]:
+    """``include-path`` and ``vocabulary-include``: every `` `include``
+    names a vocabulary header by its bare file name, and a file that uses a
+    vocabulary macro includes one itself (headers are exempt)."""
+    out: list[str] = []
+    included = False
+    for m in _INCLUDE_RE.finditer(text):
+        line = line_of(text, m.start())
+        target = raw[m.start(1):m.end(1)] if m.group(1) else ""
+        name = target[1:-1]
+        if not target.startswith('"') or name not in vocab.names:
+            shown = target or "(no file name)"
+            out.append(f"{relpath}:{line}: include-path: `include {shown} is not a vocabulary "
+                       f"header named by its bare file name"
+                       + (f" ({', '.join(sorted(vocab.names))})" if vocab.names else ""))
+        else:
+            included = True
+    if relpath not in vocab.headers and not included and vocab.macros:
+        for m in re.finditer(r"`([A-Za-z_][\w$]*)", text):
+            if m.group(1) in vocab.macros:
+                out.append(f"{relpath}:{line_of(text, m.start())}: vocabulary-include: "
+                           f"uses `{m.group(1)} without `include of a vocabulary header")
+                break
+    return out
+
+
 def check_text(relpath: str, raw: str, expected_prefix: str | None,
-               defined: frozenset[str] | set[str] = frozenset()) -> list[str]:
+               defined: frozenset[str] | set[str] = frozenset(),
+               vocab: Vocabulary = Vocabulary()) -> list[str]:
     """Apply every rule to one file; ``expected_prefix`` is the name prefix
     a unit in this file must start with (None: no prefix declared);
-    ``defined`` holds the macros the rest of its RTL closure defines."""
+    ``defined`` holds the macros the rest of its RTL closure defines;
+    ``vocab`` describes the vocabulary headers (``relpath`` is relative to
+    the source root, so a header is recognized by its path)."""
     text = strip_comments_and_strings(raw)
     path = Path(relpath)
     out: list[str] = []
@@ -244,7 +464,16 @@ def check_text(relpath: str, raw: str, expected_prefix: str | None,
     def add(rule: str, index: int, detail: str) -> None:
         out.append(f"{relpath}:{line_of(text, index)}: {rule}: {detail.strip()}")
 
-    out += directive_findings(relpath, raw, defined)
+    header = relpath in vocab.headers
+    design = path.suffix == ".sv" and not header
+    out += directive_findings(relpath, raw, defined, header=header, conditionals=not design)
+    if design:
+        for m in re.finditer(r"`(ifdef|ifndef|elsif|else)\b", text):
+            add("conditional-compilation", m.start(), m.group())
+        for m in re.finditer(r"`(define|undef|undefineall)\b", text):
+            add("local-define", m.start(), m.group())
+    out += vocabulary_findings(relpath, text, vocab)
+    out += include_findings(relpath, raw, text, vocab)
 
     if path.suffix == ".sv":
         tokens = text.split()
@@ -267,9 +496,9 @@ def check_text(relpath: str, raw: str, expected_prefix: str | None,
     for m in re.finditer(r"\b(task|function)\b", body):
         if m.group(1) == "task" or not _in(m.start(), packages):
             add("task-function", m.start(), m.group())
-    for m in re.finditer(r"\btypedef\b", body):
+    for m in re.finditer(r"\b(typedef|enum|struct)\b", body):
         if not _in(m.start(), packages):
-            add("typedef-outside-package", m.start(), "typedef")
+            add("typedef-outside-package", m.start(), m.group())
 
     if path.suffix == ".sv":
         units = list(_UNIT_RE.finditer(body))
@@ -398,13 +627,15 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
     result = CheckResult("style", f"{len(files)} RTL file(s), {len(RULES)} rule(s); "
                          f"{len(extra)} other includable or fpga/ file(s) for directives")
     closures, by_fpga = closure_macros(src_root, ips)
+    vocab = vocabulary(src_root)
     for f in files:
         exp = expected_prefix(f, src_root, ips, prefix)
         result.findings += check_text(rel(f, src_root), f.read_text(errors="replace"), exp,
-                                      _defined_for(f, closures, by_fpga))
+                                      _defined_for(f, closures, by_fpga), vocab)
     for f in extra:
         text = _text(f)
         if text is not None:  # binary files cannot carry directives
             result.findings += directive_findings(rel(f, src_root), text,
-                                                  _defined_for(f, closures, by_fpga))
+                                                  _defined_for(f, closures, by_fpga),
+                                                  header=rel(f, src_root) in vocab.headers)
     return result

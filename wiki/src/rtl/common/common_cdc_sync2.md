@@ -4,7 +4,11 @@
 (or a Gray-coded vector) that a flop in another clock domain drives into
 the `dst_clk_i` domain. It is the base crossing cell: the
 [pulse synchronizer](common_cdc_pulse.md) and the
-[async FIFO](common_cdc_fifo.md) use it for their own crossings. Like every
+[async FIFO](common_cdc_fifo.md) use it for their own crossings. Outside
+`src/rtl/common/`, RTL instantiates it only through the vocabulary macros
+`COMMON_METAFLOP` (reset to zero) and `COMMON_METAFLOP_VAL` (reset to a
+value), which take `WIDTH` from the destination signal
+([crossings](../../../bkm/rtl.md#clock-domain-crossings)). Like every
 shared block it has no HAS; this page owns its interface, behavior and
 structure, and the [RTL BKM](../../../bkm/rtl.md#clock-domain-crossings)
 owns when a crossing must use it.
@@ -33,11 +37,13 @@ CDC declaration ([convention](../../../bkm/rtl.md#clock-domain-crossings)):
 | Name | Type | Default | Legal range | Effect |
 | --- | --- | --- | --- | --- |
 | `WIDTH` | `int unsigned` | 1 | 1 or more | Number of bits, each synchronized on its own. |
+| `RESET_VALUE` | `logic [WIDTH-1:0]` | `'0` | any | Value both flops load in reset. |
 
 ## Behavior
 
 - **Reset:** while `dst_rst_i` is high at a `dst_clk_i` edge, both flops
-  load zero, so `dst_data_o` is zero from the first edge in reset; after
+  load `RESET_VALUE`, so `dst_data_o` is `RESET_VALUE` from the first edge
+  in reset; after
   release it follows `src_data_i` as below.
 - **Transfer:** a value on `src_data_i` appears on `dst_data_o` after two
   `dst_clk_i` rising edges, or three when the first flop resolves late
@@ -54,9 +60,9 @@ each two or three `dst_clk_i` edges after it was driven.
 
 ## Microarchitecture
 
-Two registers per bit, `meta_q` (may go metastable) and `sync_q`, both in
-one `always_ff` on `dst_clk_i` with the synchronous reset. `dst_data_o` is
-`sync_q`; no logic sits between the flops.
+Two registers per bit, `meta_q` (may go metastable) and `sync_q`, each one
+`COMMON_DFF_RST_VAL` on `dst_clk_i` with the synchronous reset and
+`RESET_VALUE`. `dst_data_o` is `sync_q`; no logic sits between the flops.
 
 ## Decisions
 
@@ -64,7 +70,8 @@ one `always_ff` on `dst_clk_i` with the synchronous reset. `dst_data_o` is
 | --- | --- | --- |
 | Two flops | The usual structure; one full `dst_clk_i` period to resolve. | A `STAGES` parameter (add it when a fast clock needs more MTBF). |
 | Synchronous reset in the destination domain | The repository default ([RTL BKM](../../../bkm/rtl.md#reset-and-clocks)); the reset mux before `meta_q` has a stable select, so it does not glitch. | Asynchronous reset (needs its own reset synchronizer). |
-| Zero reset value | Every current consumer (pulse toggle, FIFO pointers) resets to zero. | A `RESET_VALUE` parameter (no consumer). |
+| `RESET_VALUE` parameter, default zero | `COMMON_METAFLOP_VAL` needs it for levels whose idle value is one; the pulse toggle and FIFO pointers keep zero. | A fixed zero reset (forces an inverted level at the consumer). |
+| One level synchronizer: this cell, not a port of nand2anything's scalar `cdc_bit_sync` | The source's `cdc_bit_sync` overlaps it: a scalar `WIDTH` 1 level is this cell, and `RESET_VALUE` now covers its reset value. Its other differences do not fit here: an asynchronous reset (the repository resets synchronously per domain), a `STAGES` parameter (no clock needs more than two flops yet) and a Quartus synchronizer attribute (vendor-specific). | Porting `cdc_bit_sync` beside this cell (two cells for one crossing). |
 
 ## Timing
 
@@ -81,4 +88,4 @@ one `always_ff` on `dst_clk_i` with the synchronous reset. `dst_data_o` is
 | File | Holds |
 | --- | --- |
 | [`common_cdc_sync2.sv`](../../../../src/rtl/common/common_cdc_sync2.sv) | The module. |
-| [`common_cdc_sync2.rtl.f`](../../../../src/rtl/common/common_cdc_sync2.rtl.f) | The module; consumers include it with `-F`. |
+| [`common_cdc_sync2.rtl.f`](../../../../src/rtl/common/common_cdc_sync2.rtl.f) | `-F common_macros.rtl.f` (the vocabulary), then the module; consumers include it with `-F`. |
