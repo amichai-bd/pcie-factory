@@ -28,6 +28,8 @@ tools_tests: [tools]
 # listed path (relative to the repository root; a trailing '/' is a prefix)
 # changes and no global path did, `./build ci unit --affected` runs the tools
 # tests carrying this pytest marker. A global change runs them with the rest.
+# paths must name exactly the vocabulary headers of the RTL style check
+# (VOCABULARY_HEADERS in tools/checks/style.py); a checks unit test enforces it.
 vocabulary_tests:
   marker: vocabulary
   paths: [src/rtl/common/common_macros.svh, src/rtl/common/common_assertions.svh]
