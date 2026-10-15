@@ -93,6 +93,12 @@ tests:
     top: pcie_pcs
     seeds: [1, 2]
     timeout_s: 300
+  - name: rx_relock_mid_word
+    module: tests.test_datapath
+    testcase: rx_relock_mid_word
+    top: pcie_pcs
+    seeds: [1, 2]
+    timeout_s: 300
   - name: rx_slips
     module: tests.test_datapath
     testcase: rx_slips

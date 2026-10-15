@@ -47,7 +47,7 @@ COV_RX.coverpoint("scenario", bins=["clean", "max_tlp", "dllp", "random", "polar
                                     "polarity_toggle", "errors", "close_errors", "slips",
                                     "error_bursts", "elec_idle", "loopback", "round_trip",
                                     "eb_stress"])
-COV_RX.coverpoint("relock", bins=["slip", "close_errors", "noise_lock"])
+COV_RX.coverpoint("relock", bins=["slip", "close_errors", "noise_lock", "mid_word"])
 COV_RX.coverpoint("ei_order", bins=["before_idle", "eios_whole", "idle_tail"])
 
 # The RxStatus codes the receive path gives within the targets, with the
@@ -125,6 +125,53 @@ class FillCheck:
                 f"t={now_ps()} ps: visible fill {fill} outside {FILL_MIN}..{FILL_MAX}")
 
 
+class ValidRule:
+    """RxValid against the lock tags of the word that made it, read on the
+    MAS-named observation nets of the top: `eb_valid`, `eb_status` (its
+    `udf` bit) and `eb_rx` (the elastic buffer's `t_rx_pair`: per symbol
+    the idle flag, lock, generation and code). A word sent (not underflow)
+    leaves with RxValid 1 exactly when both symbols are locked, or its
+    first is locked and its second began in idle (an idle tail; RECEIVE.md,
+    Decode and RxStatus). ``mid_word_ends`` counts the words whose first
+    symbol is locked and whose second is unlocked without idle: a lock end
+    by a relock request inside a word, which leaves with RxValid 0."""
+
+    SYM = 13                      # t_rx_sym: code[9:0], gen, lock, idle
+
+    def __init__(self, dut) -> None:
+        self.dut = dut
+        self.checked = 0
+        self.mid_word_ends = 0
+        self.idle_tails = 0
+        cocotb.start_soon(self._run())
+
+    async def _run(self) -> None:
+        dut = self.dut
+        want = None
+        while True:
+            await FallingEdge(dut.clk_i)
+            rst = int(dut.rst_i.value) or not int(dut.pipe_reset_ni.value)
+            if want is not None and not rst:
+                got = int(dut.pipe_rx_valid_o.value)
+                assert got == want, (f"t={now_ps()} ps: RxValid {got}, the word's lock "
+                                     f"tags give {want}")
+                self.checked += 1
+            want = None
+            if rst or not int(dut.eb_valid.value) or int(dut.eb_status.value) & 1:
+                if not rst:
+                    want = 0
+                continue
+            v = int(dut.eb_rx.value)
+            lock0, lock1 = (v >> 11) & 1, (v >> (self.SYM + 11)) & 1
+            idle1 = (v >> (self.SYM + 12)) & 1
+            want = int(bool(lock0 and (lock1 or idle1)))
+            if lock0 and not lock1:
+                if idle1:
+                    self.idle_tails += 1
+                else:
+                    self.mid_word_ends += 1
+
+
 class Recentre:
     """Counts the elastic buffer's recentring on its MAS-named observation
     nets: `u_elastic.r_recentre` (read side holds, clk_i) and
@@ -173,6 +220,7 @@ class RxBench:
                               source=source)
         self.fill = FillCheck(dut, lambda: self.chan.done)
         self.recentre = Recentre(dut)
+        self.valid_rule = ValidRule(dut)
         self.fill.on = self.fill_window
         self.b = Bench(dut, max_cycles, receive=True)
         self.b.tick = self._wrap(self.b.tick)

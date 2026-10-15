@@ -174,6 +174,10 @@ RxValid then stays low until the next comma (in packet traffic up to one
 SKP interval plus a packet), from which data resumes (#73 sign-off; the DV
 plan's `rx_close_errors`).
 
+The elastic buffer's outputs `eb_valid`, `eb_rx` and `eb_status`, like
+`eb_fill`, are observation nets for DV (the RxValid rule against each
+word's lock tags).
+
 ### Receive electrical idle
 
 No crossing of its own: the aligner tags each word with its idle flag,

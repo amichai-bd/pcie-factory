@@ -184,6 +184,32 @@ async def rx_close_errors(dut):
 
 
 @cocotb.test()
+async def rx_relock_mid_word(dut):
+    """A relock end inside a PIPE word (#182): close bit-error pairs at
+    -600 or +600 ppm (the seed's parity), whose SKP corrections leave the
+    elastic buffer's word parity odd at some relocks, so the last locked
+    symbol shares a word with an unlocked one that did not begin in idle.
+    That word leaves with RxValid 0 (RECEIVE.md, Decode and RxStatus),
+    checked against the word's lock tags (``ValidRule``); at least one such
+    word must occur. The data stays intact and every relock is predicted."""
+    rng = seeded(dut)
+    link = build_link(rng, 120, "tlp", 274, arch.SKP_INTERVAL_MIN, close_pairs=16,
+                      pair_gap=rng.choice([2, 3, 4]))
+    sign = 1 if regress_seed() % 2 else -1
+    rx = RxBench(dut, rng, sign * 600.0)
+    await rx.start(link)
+    await rx.run_line()
+    runs = rx.check(link, "relock_mid_word", flipped=flips(link))
+    check_relocks(rx.words, RELOCK_DELAY, "relock_mid_word", rx.at_end)
+    vr = rx.valid_rule
+    dut._log.info("relock_mid_word: %d relocks, %d words checked, %d lock ends inside a word",
+                  len(runs) - 1, vr.checked, vr.mid_word_ends)
+    assert len(runs) - 1 == len(link.close_errors), "a relock missing"
+    assert vr.mid_word_ends > 0, "vacuous: no relock ended inside a word"
+    COV_RX.sample(relock="mid_word")
+
+
+@cocotb.test()
 async def rx_slips(dut):
     """Bit slips in packet traffic: each is caught by the relock rule (lock
     drops within the HAS 32 cycles plus the receive latency), lock is
