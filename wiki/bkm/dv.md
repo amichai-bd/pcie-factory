@@ -164,11 +164,27 @@ helper's API, outputs and floor rules).
   value that level's runs reach (usually in `level2.yaml`, which the nightly runs).
   Raise a floor when coverage improves; lowering one needs a reason in the
   PR, like a budget.
+- **Floor margin.** Set a line or toggle floor to the higher of its
+  existing value and the merged value less 0.5 points, rounded down to a
+  tenth of a percent (86.28% gives 85.7): a floor is never lowered to fit
+  the margin, so an old floor may leave less than 0.5 points. The
+  seeds are fixed, so the value repeats exactly; the margin absorbs a small
+  RTL or test edit. Code floors catch broad losses; a lost feature is
+  caught by the functional floor where it is 100 (the bins come from the
+  spec), so a test whose features have no bins can go missing within the
+  margin. The DV plan gives a reason for every point the floor leaves
+  uncovered, grouped by cause: unreachable by construction, an assertion
+  that forbids it, a tool artefact, or not reached, with its cost or owning
+  issue.
 - **Require a set of cases with its own covergroup.** When the plan needs
   every one of a listed set, such as each state-machine arc, put exactly
   that set in one covergroup (arcs as named `(from, to)` tuple bins) and
   give it a per-covergroup floor of 100, so other covergroups can still be
   incomplete ([worked example](../tools/regress/SPEC.md#functional-coverage)).
+  Once every covergroup is complete, a combined functional floor of 100
+  satisfies this too; name the covergroups it must hold in the level
+  file's comment, since a combined floor does not notice a covergroup that
+  is renamed or no longer declared (its bins just leave the total).
 - Nightly runs L0+L1+L2 with `--coverage`; the tracker charts each IP's
   coverage over time ([DevOps BKM](devops.md#nightly)).
 

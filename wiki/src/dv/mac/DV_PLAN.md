@@ -92,13 +92,11 @@ shows where each of their checks went.
   - Floors: level 1 holds `mac_os_tx`, `mac_os_rx` and `mac_frame` at
     100% (reached by levels 0 and 1); level 2 holds functional coverage at
     100% (all five covergroups, so all 64 arcs of the HAS list in each
-    role), line at 86% and toggle at 78%, just below the merged level 0 to
-    2 values (86.3%, 78.1%). The parameter variants of `dividers`,
-    `train_spec` and `smoke_n_fts_*` add their own points, so `dividers`
-    also runs the control recipes and `smoke_n_fts_*` run the level-1 arc
-    and control recipes. The line holes left are the SKP-count saturation,
-    the unreachable `default` arms and the error-path timeouts in the
-    parameter variants.
+    role), line at 86% and toggle at 78.2%, per the
+    [DV BKM](../../../bkm/dv.md#coverage) rule (the existing floor or the
+    merged level 0 to 2 value less 0.5 points, the higher): the merged
+    values are 86.34% and 78.78%, so the line floor, kept at 86, leaves
+    0.34 points (7 line points) of margin. Every point left is in [coverage holes](#coverage-holes).
 - **Model unit tests** without a simulator: the architecture model's
   self-tests (`./build arch --ip mac`) and the scrambler's word model
   ([`models/`](../../../../src/dv/mac/models/), also the `phy` e2e's
@@ -110,13 +108,13 @@ shows where each of their checks went.
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Reset values](../../arch/mac/HAS.md#reset-values) with every input toggling; training to L0; the scrambler's [known answer](../../arch/mac/SYMBOLS.md#scrambling) on the line after a SKP; a TLP, a DLLP and a nullified TLP each way; a retrain each way; reset with a packet half accepted (`pkt_tx_ready_o` falls at once), then a clean packet; both roles | `smoke` | 0 | 1 |
-| [Core arcs without an error-path timeout](../../arch/mac/ARCS.md), both roles: retrain by request, received TS and electrical idle; no receiver; Configuration walks to the PAD and renumbering exits; RcvrCfg's mismatching TS1; Recovery.Idle's lane PAD; Polling.Compliance in and out; an upstream port learning link 255. [Power states](../../arch/mac/ARCS.md#l0s-sub-machines) (`ep_power`): transmit and receive L0s left by a packet each way (EIOS, P0s, FTS, the closing SKP), a retrain in `Rx_L0s.Idle` and one in `Rx_L0s.Entry` (the exit latched until `.Idle`), the `Rx_L0s.FTS` timeout (partner `fts_extra` 200), L1 requested after an EIOS already started receive L0s (the upstream port still sends its EIOS first), L1 and L2 entered by both requests and left by request 0, the upstream wait for L1 withdrawn | `arcs_quick` | 1 | 1; 43 of 53 arcs per role, every power arc |
+| [Core arcs without an error-path timeout](../../arch/mac/ARCS.md), both roles: retrain by request, received TS and electrical idle; no receiver; Configuration walks to the PAD and renumbering exits; RcvrCfg's mismatching TS1; Recovery.Idle's lane PAD; Polling.Compliance in and out; an upstream port learning link 255. [Power states](../../arch/mac/ARCS.md#l0s-sub-machines) (`ep_power`): transmit and receive L0s left by a packet each way (EIOS, P0s, FTS, the closing SKP), a retrain in `Rx_L0s.Idle` and one in `Rx_L0s.Entry` (the exit latched until `.Idle`), the `Rx_L0s.FTS` timeout with the DUT's transmitter in `Tx_L0s.Idle` (the Recovery exit held while `Tx_L0s.FTS` sends its FTS; partner `fts_extra` 200 + 2 x N_FTS, so its SKP never ends `Rx_L0s.FTS` first), L1 requested after an EIOS already started receive L0s (the upstream port still sends its EIOS first), L1 and L2 entered by both requests and left by request 0, the upstream wait for L1 withdrawn | `arcs_quick` | 1 | 1; 43 of 53 arcs per role, every power arc |
 | [Polarity](../../arch/mac/ARCS.md#detect-and-polling): set once in Polling, cleared in Detect.Quiet, packets on an inverted wire | `polarity` | 1 | 1 |
 | [Transmit and receive streams](../../arch/mac/HAS.md#transmit): random TLPs (to 512 bytes, some past the SKP interval) and DLLPs both ways, nullified ones, gaps, lane shifts, DUT retrains inside packets (aborts); SKP deferral and back-to-back SKP | `traffic` | 1 | 3 |
-| The same, longer | `traffic_long` | 2 | 4 |
+| The same, longer, the long TLPs up to the largest (4122 bytes), whose SKP deferral takes the SKP credit past 4096 | `traffic_long` | 2 | 4 |
 | [Abort by a bubble](../../arch/mac/HAS.md#transmit): EDB, the rest taken and discarded, later packets intact | `tx_bubble` | 1 | 1; symbol comparison stops at the bubble |
 | [Receive rules](../../arch/mac/SYMBOLS.md#receive): crafted streams in L0 with every malformed case, empty packets, RxValid drops (a framing error inside a packet), RxStatus errors, either lane; electrical idle, a retrain inside a packet and during a resync | `rx_errors` | 1 | 2 |
-| [Idle tail](../../arch/mac/HAS.md#receive) (#197), directed, both roles, outcomes from the HAS: a nullified TLP then idle data stays nullified with no error; the same symbols then electrical idle (idle mid-TLP, no EIOS) end bad with exactly one receiver error, as does the cut one symbol earlier; a received EDB in `[15:8]` outside a packet is one framing error, then resync; an EIOS ending in an idle tail starts receive L0s with no error. Upstream: an EIOS with an idle tail in `Rx_L0` while L1 is requested and the DUT's own packet keeps its wait from starting gives no error (asserted still in L0 with `Rx_L0` and the packet open), then L1 | `rx_idle_tail` | 1 | 1; deterministic; fails on the pre-fix RTL and model |
+| [Idle tail](../../arch/mac/HAS.md#receive) (#197), directed, both roles, outcomes from the HAS: a nullified TLP then idle data stays nullified with no error; the same symbols then electrical idle (idle mid-TLP, no EIOS) end bad with exactly one receiver error, as does the cut one symbol earlier; a received EDB in `[15:8]` outside a packet is one framing error, then resync, and without resync when a retrain 0 to 2 cycles later takes the receiver out of `Rx_L0` as the next word arrives (#90); a 3-byte DLLP from `[15:8]`, whose end is the second beat pushed in its word (the receive queue's second slot), is one bad DLLP with one receiver error (#90); an EIOS ending in an idle tail starts receive L0s with no error. Upstream: an EIOS with an idle tail in `Rx_L0` while L1 is requested and the DUT's own packet keeps its wait from starting gives no error (asserted still in L0 with `Rx_L0` and the packet open), then L1 | `rx_idle_tail` | 1 | 1; deterministic; fails on the pre-fix RTL and model |
 | The same, more seeds | `rx_errors_long` | 2 | 6 |
 | [Received TS fields and events](../../arch/mac/SYMBOLS.md#ts1-and-ts2): every link, lane and N_FTS byte, PAD, each control bit, TS2, both lanes; EIOS and FTS at both lanes; K link and lane fields, K, unknown and mismatched identifiers, a TS cut by COM; inverted TS1 and TS2 at both lanes | `ts_fields` | 1 | 2 |
 | Random partner resets, mutes, freezes, retrains, wrong TS fields and N_FTS, inverted wire, symbol errors, power requests on either side (L0s, L1, L2, mixed) with traffic, both roles | `random_soak` | 1 | 2 |
@@ -124,7 +122,7 @@ shows where each of their checks went.
 | The same, upstream | `arcs_full_upstream` | 2 | 1 |
 | [Timeout dividers](../../arch/mac/HAS.md#parameters) and the error-timeout floor; the control-state recipes at these dividers (Hot Reset dwell 976 cycles, the 2 ms control timeouts at their floor) | `dividers` | 2 | 1; Polling.Active 23437 cycles |
 | [Training targets](../../arch/mac/HAS.md#targets) at dividers 1: link-up 12.0 to 12.2 ms, training 65.536 to 80 µs, both roles | `train_spec` | 2 | 1 |
-| [`N_FTS`](../../arch/mac/HAS.md#parameters) 1 and 255 in every TS sent; then the `arcs_quick` and `control_quick` recipes in both roles (testcase `smoke_arcs`): in the power episode the partner sends that many FTS, and the `Rx_L0s.FTS` timeout is at its extremes (16 and 542 cycles) | `smoke_n_fts_1`, `smoke_n_fts_255` | 2 | 1 each |
+| [`N_FTS`](../../arch/mac/HAS.md#parameters) 1 and 255 in every TS sent; then the `arcs_quick` and `control_quick` recipes in both roles (testcase `smoke_arcs`): in the power episode the partner sends that many FTS, and the `Rx_L0s.FTS` timeout is at its extremes (16 and 542 cycles). With the DUT downstream the partner advertises the same N_FTS, upstream the default 32, so the DUT sends 1 or 255 FTS, and 32, on its own L0s exits | `smoke_n_fts_1`, `smoke_n_fts_255` | 2 | 1 each |
 | [The link partner reaches every arc in each role](../../arch/mac/MODEL.md#arc-sweep) | `partner_arc_sweep` | 2 | 1; the model alone, the DUT is only clocked |
 | [Control states](../../arch/mac/ARCS.md#control-states) without a timeout, both roles: Hot Reset and Disabled directed by the downstream port (the DUT, or the partner with the DUT following), held then released; L0 to Recovery on `hot_reset_req_i`, `disable_req_i`, `loopback_req_i`; an upstream DUT ignoring the first two in L0 and through a retrain; several requests at once (row priority in Recovery.Idle and Linkwidth.Start); Loopback with the DUT master (pattern returned unbroken past a SKP) and slave, from L0 and from Configuration.Linkwidth.Start; Disabled from Linkwidth.Start; control bits and EIOS sent | `control_quick` | 1 | 1; 10 of 11 control arcs per role |
 | Every control-state arc, downstream: the above, plus following Hot Reset and Disabled on partner TS1 with the bit (the dwell restarted while they arrive; Disabled's timeout with no EIOS) and the Loopback master's entry timeout | `control_full_downstream` | 2 | 1 |
@@ -184,8 +182,13 @@ listed entry; each fails, and the unmutated RTL passes. Each entry runs its firs
 | LTSSM | `Tx_L0s.FTS` sends one FTS fewer than the partner's N_FTS | `arcs_quick` | Fails at cycle 27126: transmitted COM, SKP; the shadow COM, FTS. |
 | LTSSM | L2.Idle's P2 straight to Detect's P1 (not through P0) | `arcs_quick` | Stops on the RTL assertion `a_pd_via_p0`. |
 | LTSSM | The latched Recovery exit not held by `Rx_L0s.Entry` (`l0_blocked` without the `.Entry` term) | `arcs_quick` | Fails at cycle 27912: `ltssm_state_o` 0x10 (Recovery.RcvrLock), the shadow still in L0 with `Rx_L0s.Entry` (0x21). The shadow compare catches it; the arc observer alone would accept Entry to Off as Entry, Idle, Off. |
-| LTSSM | The `Rx_L0s.FTS` timeout one cycle longer (`FTS_TO` + 1) | `arcs_quick`; `smoke_n_fts_1`; `smoke_n_fts_255` | Fail at cycles 28615, 28373 and 30417: `ltssm_state_o` 0x23 (`Rx_L0s.FTS`), the shadow already in Recovery.RcvrLock (0x10). |
-| LTSSM | The `Rx_L0s.FTS` timeout one cycle shorter (`FTS_TO` - 1) | `arcs_quick`; `smoke_n_fts_1`; `smoke_n_fts_255` | Fail at cycles 28614, 28372 and 30416: `ltssm_state_o` 0x10, the shadow still in L0 with `Rx_L0s.FTS` (0x23). |
+| LTSSM | The `Rx_L0s.FTS` timeout one cycle longer (`FTS_TO` + 1) | `arcs_quick`; `smoke_n_fts_1`; `smoke_n_fts_255` | Fail at cycles 28622, 28379 and 31537: `ltssm_state_o` 0x2B (`Tx_L0s.Idle`, `Rx_L0s.FTS`), the shadow already in `Tx_L0s.FTS` for the held Recovery exit (0x2F). Before #90 the timeout came with the transmitter in `Tx_L0`, and they failed with the DUT still in `Rx_L0s.FTS` (0x23) and the shadow in Recovery.RcvrLock (0x10). |
+| LTSSM | The `Rx_L0s.FTS` timeout one cycle shorter (`FTS_TO` - 1) | `arcs_quick`; `smoke_n_fts_1`; `smoke_n_fts_255` | Fail at cycles 28621, 28378 and 31536: `ltssm_state_o` 0x2F, the shadow still in `Tx_L0s.Idle` with `Rx_L0s.FTS` (0x2B). |
+| LTSSM | `Tx_L0s.Idle` ignores a held Recovery exit (`l0_pending` dropped from its exit condition) | `arcs_quick` | Fails at cycle 28622: `ltssm_state_o` 0x2B, the shadow already in `Tx_L0s.FTS` (0x2F). Passed `arcs_quick` before #90, whose timeout came with the transmitter in `Tx_L0`. |
+| LTSSM | The FTS count compared on its low 6 bits (`fts_sent[5:0] != partner_n_fts[5:0]`) | `smoke_n_fts_255` | Fails at cycle 27636: the closing SKP (1Ch) sent where the shadow sends a 64th FTS (3Ch). Passed before #90, when the partner advertised N_FTS 32. |
+| Ordered sets | The SKP credit 12 bits wide, not 14 | `traffic_long`, 644855963 | Stops on `a_skp_credit_saturates` at cycle 38997, in a 4 KB TLP. Passed before #90 (TLPs to 2800 bytes). |
+| Frame | The second beat pushed in a word loses its `dllp` flag (`push_b.dllp` forced 0) | `rx_idle_tail` | Fails at cycle 12571 (downstream): `dllp changed inside a packet` on the 3-byte DLLP. Passed `rx_idle_tail` before #90, and no entry reached the case. |
+| Frame | The deferred framing error of an EDB in `[15:8]` dropped when the receiver has left `Rx_L0` (`ferr = rx_l0`) | `rx_idle_tail` | Fails at cycle 12006 (downstream): `rcv_err_o` 0, the shadow 1, in Recovery.RcvrLock. Passed before #90. |
 | LTSSM | Transmit L0s entry one idle cycle late (`idle_cnt` > `L0S_IDLE_CYCLES`) | `arcs_quick` | Fails at cycle 26959: `ltssm_state_o` 0x21, the shadow 0x25 (`Tx_L0s.Entry`). |
 | Frame | An EDB in `[15:8]` ends the packet at once (no wait for the next word; the pre-#197 rule) | `rx_idle_tail`; `rx_errors` | Fail at cycle 10287 (`rx_idle_tail`), 10408 (`rx_errors` seed 112185741) and 10701 (seed 1906893083): a packet delivered nullified that the shadow had not yet got. |
 | Frame | The waiting beat keeps its flags when the next word is not received | `rx_idle_tail` | Fails at cycle 10583: `rcv_err_o` 0, the shadow 1 (idle mid-TLP). |
@@ -200,3 +203,30 @@ listed entry; each fails, and the unmutated RTL passes. Each entry runs its firs
 
 None: every feature of the HAS has a test, and every arc of the HAS list
 is covered in each port role.
+
+## Coverage holes
+
+Merged over levels 0 to 2 (the nightly run), 290 of the 2123 line points
+and 3703 of the 17454 toggle points are not hit. Verilator counts each
+parameter set of a block apart
+([regress SPEC](../../../tools/regress/SPEC.md#coverage)), and the mac is
+built with five (`TIMEOUT_DIV`, `ERR_TIMEOUT_DIV` and `N_FTS` of the
+entries), so most holes are copies. Every hole, by cause:
+
+| Cause | Line | Toggle | Points |
+| --- | ---: | ---: | --- |
+| Hit in another parameter set | 252 | 2687 | The copies built for `train_spec` (dividers 1: training only), `dividers` (no error-path timeout or traffic recipe) and `smoke_n_fts_*` (the level-1 arc and control recipes only). Each of these points is hit in another copy. |
+| Unreachable by construction | 25 | 420 | Lines: the `default` arms of the LTSSM's state groups, transmit mode and the ordered-set kind; the `in_control` fall-through; the frame's `rx_l0` test on a COM or K symbol inside a packet at symbols 1 and 2 (with `rx_l0` 0 the packet already ended at symbol 0); the `detect_rx` clear outside Detect.Active (the state leaves only with it 0). Toggles: the run counts above 1 in `r_q`/`r_d` and above 2 in `run_*_c` (each state is left as its run reaches 2, which clears it); `mism_after[4]` (RcvrCfg is left as the count reaches 16); the second receive queue slot (`rxq.q1`, `push_b`: filled only by the one-byte tail of an odd-length packet, so the upper byte is idle filler, `sop` and `nullify` are 0); `cnt_left[1]` (the queue holds at most 2 beats); bit 13 of the SKP credit (the largest TLP defers a SKP by about 2060 words, below 8192 credit). |
+| Constant by design | 0 | 546 | The lane field of every TS sent (one lane: lane 0, PAD is a separate flag); bits 4 to 7 of the identifier sent (TS1 4Ah and TS2 45h share them); bit 3 of the lane byte (PAD F7h and 0); bit 0 of the idle count, the loopback pattern and the SKP credit (they step by 2); next-state bits that are equal in every target of a state group (`det_to`, `pol_to`, `l0_to`, `pwr_to`, `ctl_to`); `r_d.reset_n` (1 in every state; PIPE reset comes only from `rst_i`); `tail.eop` (the held idle-tail beat is always a packet's last). |
+| Forbidden by an assertion | 3 | 10 | The SKP credit saturation and the sign of its sum (`a_skp_credit_saturates`); `push_late` (`a_rx_pend_push_first`); `cnt_sum[2]` (`a_rx_queue_overflow`). |
+| Tool artefact | 2 | 0 | The two early `return` branches of `run_next` (package): Verilator never counts a branch whose body is a function `return` (the block count less the fall-through count gives about 81 million hits). |
+| Elaboration only | 3 | 0 | `err_timeout` (package), called only for `localparam` values. |
+| Not reached: cost | 5 | 40 | The LTSSM timer's saturation and its bits 21 and 22: a dwell of 2^21 cycles (16.8 ms) needs the 24 or 48 ms timeouts at divider 1, over a quarter of an hour of simulation each; the dividers entries check the same timeouts scaled. |
+
+[#90](https://github.com/amichai-bd/pcie-factory/issues/90) closed with
+tests: the `Rx_L0s.FTS` timeout held while `Tx_L0s.FTS` runs (`arcs_quick`; the timeout flag `rx_fts_to` now toggles), 64 or more FTS sent
+(`smoke_n_fts_255`), a SKP credit past 4096 (`traffic_long`), and in
+`rx_idle_tail` a stray EDB in `[15:8]` as the receiver leaves `Rx_L0` and
+a 3-byte DLLP ending in the receive queue's second slot; each new
+stimulus catches a mutant the old one missed ([mutation
+evidence](#mutation-evidence)).
