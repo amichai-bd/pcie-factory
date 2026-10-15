@@ -157,7 +157,12 @@ listed entry; each fails, and the unmutated RTL passes. Each entry runs its firs
 
 | Block | Mutant | Entry | Result |
 | --- | --- | --- | --- |
-| Scrambler | K symbols XORed when `scr_i` is 1 | `smoke` | Fails at cycle 10274: STP sent as A3h, the shadow FBh. (SKP advancing the LFSR stops `smoke` on the RTL assertion `a_skp_holds`.) |
+| Scrambler | K symbols XORed when `scr_i` is 1 | `smoke` | Fails at cycle 10274: STP sent as A3h, the shadow FBh. |
+| Scrambler | SKP advances the LFSR | `smoke` | Stops on `a_skp_holds_lane` (lane 1) at the first SKP ordered set; before the per-lane assertions (#140), on `a_skp_holds`. |
+| Scrambler | No lane chaining: symbol 1 keyed with the LFSR before symbol 0 | `smoke` | Fails at cycle 10231 in Configuration.Idle: idle symbols sent as 8Dh, 8Dh, the shadow 8Dh, BEh. |
+| Scrambler | COM does not reset the LFSR | `smoke` | Stops on `a_com_reseeds_lane` (lane 0); without it, fails at cycle 10231: idle symbols 3Eh, 79h, the shadow 8Dh, BEh. |
+| Scrambler | Key bit order reversed (key bit *i* in bit 7 - *i*) | `smoke` | Fails at cycle 10231: idle symbols B1h, 7Dh, the shadow 8Dh, BEh. |
+| Scrambler | No `valid_i` hold (the LFSR advances on words not sent or received) | `rx_errors` | Fails at cycle 10288: `rcv_err_o` 1, the shadow 0 (a word with RxValid 0 inside a burst moves the receive LFSR). `smoke` and `random_soak` pass: on transmit every gap in the line ends with a COM. |
 | Ordered sets | Received N_FTS taken from the data-rate symbol | `ts_fields` | Fails at cycle 1562: received TS field `n_fts` B9h expected, 02h observed. |
 | Frame | Resync kept while `rx_l0` is 0 | `rx_errors` | Fails at cycle 12732: `ltssm_state_o` 0x12 (Recovery.Idle, no idle symbols counted), the shadow back in L0. (Ready ignoring a due SKP stops `traffic` on `u_os`'s `a_count_while_valid`.) |
 | LTSSM | Polling.Active needs 512 TS1, not 1024 | `smoke` | Fails at cycle 5647: `ltssm_state_o` 0x06, the shadow in Polling.Active (0x04). |
