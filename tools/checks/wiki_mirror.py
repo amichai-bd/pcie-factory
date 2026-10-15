@@ -14,7 +14,8 @@ page set:
   and has a source counterpart (``src/<kind>/<id>/...``), except a
   top-level IP's ``arch/<id>/`` while its HAS defines no targets;
 - every file sits in an IP folder ``<kind>/<id>/`` or below one, except
-  the design-level pages: ``README.md`` and ``roadmap.md`` at the root and
+  the design-level pages: ``README.md``, ``roadmap.md`` and ``references.md``
+  at the root and
   decision records ``decisions/NNNN-<slug>.md``;
 - the shared folders ``rtl/common/`` and ``dv/common/`` hold one page
   ``<block>.md`` per shared block (``src/rtl/common/<block>.rtl.f``): its
@@ -43,7 +44,7 @@ PAGES = {"arch": "HAS.md", "rtl": "MAS.md", "dv": "DV_PLAN.md",
          "fpga": "FPGA.md", "asic": "ASIC.md"}
 
 # Design-level pages outside the IP folders (the wiki BKM's page set).
-ROOT_PAGES = ("README.md", "roadmap.md")
+ROOT_PAGES = ("README.md", "roadmap.md", "references.md")
 DECISIONS = "decisions"
 _DECISION = re.compile(r"\A[0-9]{4}-[a-z0-9]+(-[a-z0-9]+)*\.md\Z")
 

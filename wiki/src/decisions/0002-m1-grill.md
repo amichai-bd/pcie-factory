@@ -47,6 +47,7 @@ M1 is done when all of the following hold on `main`:
 | Q18 | **Kind-first layout (captain decision, supersedes M0's IP-first layout):** sources live at `src/<kind>/<ip>/` with `<kind>` in `rtl`, `dv`, `arch`, `fpga`, `asic`. Sub-IPs are **flat siblings with prefixed names** (`src/rtl/mac_scrambler/`); parentage comes from filelist `-F`. `arch`, `fpga` and `asic` exist only for top-level IPs. `wiki/src/` mirrors the tree exactly (`wiki/src/rtl/<ip>/MAS.md`, `wiki/src/dv/<ip>/DV_PLAN.md`, `wiki/src/arch/<ip>/HAS.md`, `wiki/src/fpga/<ip>/FPGA.md`, `wiki/src/asic/<ip>/ASIC.md`). Migration is #92, which lands first. |
 | Q19 | **Integration IPs (captain decision):** an IP is a sub-IP only when its id is `<parent>_<name>` and that parent's filelist reaches it. A top-level IP (such as `phy`) may include other top-level IPs (`mac`, `pcs`) through its filelist; they keep their own HAS, arch, FPGA and ASIC, and `--affected` still selects the integrating IP. An IP whose id is `<other-ip>_<name>` but that `<other-ip>`'s filelist does not reach is a layout-check finding (include it with `-F`, or rename it). Implemented by #107. |
 | Q20 | **Physical FPGA access is separate (captain decision, 2026-10-15):** work that needs the real DE2-115 connected to the captain's computer (programming the board, on-board evidence) is tracked in its own issue (#89), outside M1. M1's FPGA evidence is nightly synthesis and timing only. |
+| Q21 | **Our HAS/MAS are the normative protocol spec where no official spec is legally available (captain decision, 2026-10-15).** HAS and MAS pages are self-contained: every protocol rule the design implements is written out in our own words, complete enough to implement and verify without the official document. Citations only point to the official source for cross-checking; they never stand in for the rule. Uncertain points go into the page's Open items table, not guesses. Where an official spec is legally available locally (PIPE, #117), the HAS must agree with it. The public references page (#117) lists every official source of truth. |
 
 ## Updates
 
@@ -66,3 +67,10 @@ M1 is done when all of the following hold on `main`:
   clock is the core clock `clk_i`, which is also PIPE PCLK; only the RX
   recovered clock is a separate clock
   ([`phy` HAS, Decisions](../arch/phy/HAS.md#decisions)).
+- **2026-10-15:** Q21 (our HAS and MAS are the normative protocol spec
+  where no official spec is legally available) added, copied verbatim from
+  the epic body above. The wiki BKM's
+  [citations](../../bkm/wiki.md#citations) rule now requires self-contained
+  spec pages, and the [references page](../references.md) lists every
+  official source of truth
+  ([#117](https://github.com/amichai-bd/pcie-factory/issues/117)).
