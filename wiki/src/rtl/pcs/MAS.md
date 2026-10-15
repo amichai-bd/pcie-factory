@@ -1,11 +1,11 @@
 # pcie_pcs MAS
 
-> **In progress ([#85](https://github.com/amichai-bd/pcie-factory/issues/85)):**
-> PIPE control, the RX-domain reset, crossing 5 and the transmit path
-> through `pcs_enc8b10b` are built. The receive path (`pcs_align`,
-> `pcs_elastic`, `pcs_dec8b10b`), the error counter with crossing 4,
-> RxPolarity and loopback join as those sub-IPs reach `main`; until then
-> `pipe_rx_valid_o` is 0 and the receive data outputs are 0.
+**In progress ([#85](https://github.com/amichai-bd/pcie-factory/issues/85)):**
+PIPE control, the RX-domain reset, crossing 5 and the transmit path
+through `pcs_enc8b10b` are built. The receive path (`pcs_align`,
+`pcs_elastic`, `pcs_dec8b10b`), the error counter with crossing 4,
+RxPolarity and loopback join as those sub-IPs reach `main`; until then
+`pipe_rx_valid_o` is 0 and the receive data outputs are 0.
 
 How `pcie_pcs` implements its [HAS](../../arch/pcs/HAS.md): PIPE control in
 the top, the four sub-IPs behind it, and the crossing cells of the

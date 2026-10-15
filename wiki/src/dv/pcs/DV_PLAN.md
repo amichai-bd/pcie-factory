@@ -1,8 +1,8 @@
 # pcie_pcs DV plan
 
-> **In progress ([#85](https://github.com/amichai-bd/pcie-factory/issues/85)):**
-> PIPE control and the transmit path are covered; the receive-path rows
-> join with their sub-IPs (see [Gaps](#gaps)).
+**In progress ([#85](https://github.com/amichai-bd/pcie-factory/issues/85)):**
+PIPE control and the transmit path are covered; the receive-path rows
+join with their sub-IPs (see [Gaps](#gaps)).
 
 ## Strategy
 
