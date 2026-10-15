@@ -7,15 +7,16 @@
 // the STAGES-th dst_clk_i rising edge after src_rst_i falls (STAGES + 1
 // when the first flop resolves late). src_rst_i must be glitch-free: a flop
 // output or a reset input pin, with no logic between. Every flop that takes
-// dst_rst_o is a COMMON_DFF_ARST_* register. RTL outside rtl/common/
-// instantiates it through COMMON_RESET_SYNC. Spec:
+// dst_rst_o is a COMMON_DFF_ARST_* register (the CDC check's reset= rule).
+// RTL outside rtl/common/ instantiates it through COMMON_RESET_SYNC or
+// COMMON_RESET_SYNC_STAGES. Spec:
 // wiki/src/rtl/common/cdc/common_cdc_rst.md.
 //
 // Provenance: adapted from nand2anything src/common/rtl/n2a_reset_sync.sv
 // (commit 085ef4b, same owner, adapted with the owner's permission);
 // the module and its ports renamed for the cdc-cell convention, and its
 // vendor attribute dropped.
-// cdc-cell: src=async dst=dst_clk_i
+// cdc-cell: src=async dst=dst_clk_i reset=dst_rst_o
 module common_cdc_rst #(
   parameter int unsigned STAGES = 2
 ) (

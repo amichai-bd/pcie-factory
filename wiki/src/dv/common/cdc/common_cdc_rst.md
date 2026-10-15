@@ -52,11 +52,14 @@
     (`released`).
 
   It crosses ratio with width, and width with next. `dst_fast,under_period`
-  and `dst_fast_4x,under_period` are unreachable: one source cycle is
-  already longer than a destination period. The `glitch` test covers
-  sub-period pulses for any phase instead. The derived seeds of L0 to L2
-  hit every other bin. No coverage floor is set yet
-  ([DV BKM](../../../../bkm/dv.md#coverage)).
+  and `dst_fast_4x,under_period` are unreachable: random pulses last at
+  least one source cycle, which is already longer than a destination
+  period when the destination is faster. They are declared in the cross's
+  `unreachable` list ([regress SPEC](../../../../tools/regress/SPEC.md#functional-coverage)),
+  so they are not bins and do not count as misses, and a sample of one
+  fails the test (#139). The `glitch` test covers sub-period pulses for
+  any phase instead. The derived seeds of L0 to L2 hit every bin. No
+  coverage floor is set yet ([DV BKM](../../../../bkm/dv.md#coverage)).
 - **Mutation evidence** (local, not a regression entry): `rst_smoke`,
   `rst_glitch` and `rst_random` each fail on every one of these mutants:
   - no synchronizer flops (`dst_rst_o = src_rst_i`, a combinational
@@ -76,7 +79,10 @@
 - **Out of scope:** metastability and late resolution (as in the sync2
   plan), and a source change at the time of a destination edge, which is a
   race in zero-delay simulation. Whether consumers take the reset through
-  the cell is the structural CDC check's job, and its unit tests cover it.
+  the cell, and take it asynchronously, is the structural CDC check's job,
+  and its unit tests cover it. `STAGES` through
+  `COMMON_RESET_SYNC_STAGES` is covered by the
+  [macros plan](../common_macros.md).
 
 ## Plan
 

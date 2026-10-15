@@ -16,7 +16,7 @@ owner's permission.
 
 | Item | Use |
 | --- | --- |
-| `` `include "common_macros.svh"`` | The one include a design file writes, after `` `default_nettype none``. It defines the `COMMON_DFF*`, `COMMON_MEM*`, `COMMON_UNUSED_BITS`, `COMMON_METAFLOP*`, `COMMON_PULSE_SYNC*` and `COMMON_RESET_SYNC` forms and includes `common_assertions.svh`. |
+| `` `include "common_macros.svh"`` | The one include a design file writes, after `` `default_nettype none``. It defines the `COMMON_DFF*`, `COMMON_MEM*`, `COMMON_UNUSED_BITS`, `COMMON_METAFLOP*`, `COMMON_PULSE_SYNC*` and `COMMON_RESET_SYNC*` forms and includes `common_assertions.svh`. |
 | `common_assertions.svh` | The `COMMON_ASSERT*` forms. It includes `common_macros.svh` back (both are guarded), so either include order works. |
 | `-F ../common/common_macros.rtl.f` | Puts `src/rtl/common/` on the include path. A user of a crossing macro also includes the cell's filelist. |
 | `SYNTHESIS` | Defined only by the FPGA and ASIC flows; removes every assertion form but `COMMON_ASSERT_PARAM`. |
@@ -38,7 +38,9 @@ owner's permission.
   [`common_cdc_pulse`](cdc/common_cdc_pulse.md) (the second with
   `DST_ASYNC_RESET` 1); `COMMON_RESET_SYNC`
   instantiates [`common_cdc_rst`](cdc/common_cdc_rst.md) with its default two
-  stages. The instance is named by `INST`, so the CDC check, waves and
+  stages, and `COMMON_RESET_SYNC_STAGES` with `STAGES` set to its
+  `NUM_STAGES` argument (named apart from the parameter, which a macro
+  argument named `STAGES` would replace in `.STAGES(...)` too). The instance is named by `INST`, so the CDC check, waves and
   constraints see an ordinary cell instance.
 - **Assertions:** concurrent forms use `assert property` with
   `@(posedge (CLK))` and `disable iff (RESET)`; clocked forms are an
