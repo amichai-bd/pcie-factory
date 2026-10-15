@@ -14,10 +14,12 @@ The shell drives every output to its
 [reset value](../../arch/mac/HAS.md#reset-values), taking the
 `ltssm_state_o` and PowerDown codes from `pcie_mac_pkg`, and folds every
 input and parameter into one `unused_inputs` net so lint stays clean. It
-instantiates nothing yet. [`mac.rtl.f`](../../../../src/rtl/mac/mac.rtl.f)
-already reaches [`mac_scrambler`](../mac_scrambler/MAS.md) with `-F`; the
-other sub-IP folders, their `-F` lines and their MAS pages arrive with
-[#75](https://github.com/amichai-bd/pcie-factory/issues/75),
+instances [`pcie_mac_os`](../mac_os/MAS.md) as `u_os`, with the PIPE
+receive inputs connected, no ordered set requested and every output into
+one `COMMON_UNUSED_BITS` net, until the integration connects it.
+[`mac.rtl.f`](../../../../src/rtl/mac/mac.rtl.f) also reaches
+[`mac_scrambler`](../mac_scrambler/MAS.md) with `-F`; the other sub-IP
+folders, their `-F` lines and their MAS pages arrive with
 [#76](https://github.com/amichai-bd/pcie-factory/issues/76) and
 [#77](https://github.com/amichai-bd/pcie-factory/issues/77).
 
@@ -32,4 +34,4 @@ The latency budgets are in the [HAS targets](../../arch/mac/HAS.md#targets).
 | --- | --- |
 | [`pcie_mac_pkg.sv`](../../../../src/rtl/mac/pcie_mac_pkg.sv) | `t_ltssm_state`, `t_l0s_sub`, `t_power_down` ([HAS, Package](../../arch/mac/HAS.md#package)). |
 | [`pcie_mac.sv`](../../../../src/rtl/mac/pcie_mac.sv) | The shell module. |
-| [`mac.rtl.f`](../../../../src/rtl/mac/mac.rtl.f) | `-F ../mac_scrambler/mac_scrambler.rtl.f`, then `pcie_mac_pkg.sv` and `pcie_mac.sv`. |
+| [`mac.rtl.f`](../../../../src/rtl/mac/mac.rtl.f) | `-F` of the [`mac_scrambler`](../mac_scrambler/MAS.md) and [`mac_os`](../mac_os/MAS.md) filelists, then `pcie_mac_pkg.sv` and `pcie_mac.sv`. |

@@ -1,0 +1,6 @@
+tests:
+  - name: smoke
+    module: tests.test_mac_os
+    testcase: smoke
+    top: pcie_mac_os
+    timeout_s: 60
