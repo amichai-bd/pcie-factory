@@ -109,7 +109,9 @@ commands, seeds, counts and every non-pass entry in the PR. Evidence shows
 behavior, not command success. Treat every warning (lint, simulation, flow)
 as a failure unless a reviewed waiver explains it. Logs, waves and reports
 stay under `workdir/`; the PR summarizes them and never commits them.
-Missing evidence is a review finding.
+Missing evidence is a review finding. The author owns all evidence: the
+reviewer audits it and the `ci-gate` result and never re-runs anything; a
+claim without recorded proof goes back to the author to run.
 
 ## Continuous integration
 
