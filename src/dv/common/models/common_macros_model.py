@@ -8,8 +8,9 @@ reset/enable priority, the register arrays copy a whole next-state array,
 the memory read ports return the data stored before this edge's write, and
 each level synchronizer shows its input two edges later; the one on the
 asynchronous reset (COMMON_METAFLOP_ARST) clears at once on assertion. The
-reset synchronizer on the asynchronous reset is high at once on assertion
-and falls at the second edge after release. Values are 8-bit.
+reset synchronizers on the asynchronous reset are high at once on assertion
+and fall at the second (COMMON_RESET_SYNC) or third
+(COMMON_RESET_SYNC_STAGES with 3) edge after release. Values are 8-bit.
 """
 
 from __future__ import annotations
@@ -72,6 +73,7 @@ class MacroModel:
     meta_val: list[int | None] = field(default_factory=lambda: [None, None])
     meta_arst: list[int | None] = field(default_factory=lambda: [None, None])
     rst_sync: list[int | None] = field(default_factory=lambda: [None, None])
+    rst_sync3: list[int | None] = field(default_factory=lambda: [None, None, None])
 
     def edge(self, i: Inputs) -> None:
         """Apply one rising clock edge with inputs ``i`` (held across it)."""
@@ -121,6 +123,7 @@ class MacroModel:
         self.meta_val = [META_VAL, META_VAL] if i.rst else [d, self.meta_val[0]]
         self.meta_arst = [0, 0] if i.arst else [d, self.meta_arst[0]]
         self.rst_sync = [1, 1] if i.arst else [0, self.rst_sync[0]]
+        self.rst_sync3 = [1, 1, 1] if i.arst else [0] + self.rst_sync3[:2]
 
     def async_reset(self) -> None:
         """An asynchronous reset assertion between edges."""
@@ -128,6 +131,7 @@ class MacroModel:
         self.arst_en = ARST_EN_VAL
         self.meta_arst = [0, 0]
         self.rst_sync = [1, 1]
+        self.rst_sync3 = [1, 1, 1]
 
     def outputs(self) -> dict[str, int | None]:
         """Expected fixture outputs (name without the ``_o`` suffix)."""
@@ -136,7 +140,7 @@ class MacroModel:
                "arst_en": self.arst_en, "rd": self.rd, "rd_en": self.rd_en, "wrd": self.wrd,
                "meta": self.meta[1], "meta_val": self.meta_val[1],
                "meta_arst": self.meta_arst[1],
-               "rst_sync": self.rst_sync[1]}
+               "rst_sync": self.rst_sync[1], "rst_sync3": self.rst_sync3[2]}
         for k in range(ARRAY):
             out[f"arr_en_{k}"] = self.arr_en[k]
             out[f"arr_rst_en_{k}"] = self.arr_rst_en[k]

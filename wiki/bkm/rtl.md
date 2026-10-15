@@ -333,7 +333,11 @@ page refers to it as `<prefix>`.
 
   A synchronous reset net has only synchronous consumers. Lint enforces
   the rule: a net used both ways is Verilator `SYNCASYNCNET`
-  ([lint](#lint-and-style-checks)). The input of a `COMMON_RESET_SYNC` is
+  ([lint](#lint-and-style-checks)). The CDC check also finds a flop that
+  takes a `COMMON_RESET_SYNC*` output (the cell's `reset=` output), as a
+  synchronous reset or as data, without being asynchronously reset by
+  that net itself, even when no flop takes it
+  asynchronously ([CDC check](../tools/checks/SPEC.md#cdc-check)). The input of a `COMMON_RESET_SYNC` is
   the one exception, since the cell takes it asynchronously by design: when
   that input is also a synchronous reset of its own domain, the reviewed
   waiver names that net.
@@ -361,6 +365,7 @@ cell instance the CDC check recognizes:
 | An event: one source cycle becomes one destination cycle | `` `COMMON_PULSE_SYNC(INST, Q, D, SRC_CLK, SRC_RST, DST_CLK, DST_RST)`` | [`common_cdc_pulse`](../src/rtl/common/cdc/common_cdc_pulse.md) |
 | The same, the destination side reset asynchronously (`DST_RST` from a `COMMON_RESET_SYNC`; `SRC_RST` stays synchronous) | `` `COMMON_PULSE_SYNC_ARST(INST, Q, D, SRC_CLK, SRC_RST, DST_CLK, DST_RST)`` | `common_cdc_pulse` (`DST_ASYNC_RESET` 1) |
 | A reset: asynchronous assertion, synchronous release after two `DST_CLK` edges | `` `COMMON_RESET_SYNC(INST, Q, D, DST_CLK)`` | [`common_cdc_rst`](../src/rtl/common/cdc/common_cdc_rst.md) |
+| The same, released after `NUM_STAGES` edges (2 or more), for a clock that needs more resolution time | `` `COMMON_RESET_SYNC_STAGES(INST, Q, D, DST_CLK, NUM_STAGES)`` | [`common_cdc_rst`](../src/rtl/common/cdc/common_cdc_rst.md) (`STAGES`) |
 | Data, or a burst of events, with flow control | none: no macro wraps it, so RTL instantiates it, with `SRC_ASYNC_RESET` or `DST_ASYNC_RESET` 1 on a side whose reset is asynchronous | [`common_cdc_fifo`](../src/rtl/common/cdc/common_cdc_fifo.md) |
 
 `INST` names the instance, the width follows `Q`, and the caller's filelist
@@ -380,13 +385,16 @@ includes the cell's filelist with `-F`.
   line directly above its `module` line:
 
   ```systemverilog
-  // cdc-cell: src=<source clock port | async> dst=<destination clock port>
+  // cdc-cell: src=<source clock port | async> dst=<destination clock port> [reset=<dst_* output>]
   module common_cdc_<name> ...
   ```
 
   `src` names the cell's source clock input, or is `async` when the cell has
   no source clock (its source inputs must come straight from a flop in the
-  source domain). `dst` names its destination clock input. Port names give
+  source domain). `dst` names its destination clock input. `reset`, on a
+  reset synchronizer only, names the output that carries the synchronized
+  reset, whose consumers the CDC check holds to the
+  [reset rule](#reset-and-clocks). Port names give
   every other port's domain: `src_*` ports belong to the source domain and
   `dst_*` ports to the destination domain. Only `common_cdc_*` modules
   under `src/rtl/common/` carry the directive, and the `layout` check keeps

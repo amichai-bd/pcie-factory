@@ -43,7 +43,8 @@ module common_macros_fixture (
   output logic [7:0]  meta_arst_o,   // COMMON_METAFLOP_ARST on arst_i
   output logic        pulse_o,
   output logic        pulse_arst_o,  // COMMON_PULSE_SYNC_ARST: destination reset arst_i
-  output logic        rst_sync_o    // arst_i through the reset synchronizer
+  output logic        rst_sync_o,   // arst_i through the reset synchronizer
+  output logic        rst_sync3_o   // the same with three stages (COMMON_RESET_SYNC_STAGES)
 );
 
   localparam int unsigned DEPTH = 8;
@@ -102,6 +103,7 @@ module common_macros_fixture (
   `COMMON_PULSE_SYNC(u_pulse, pulse_o, pulse_i, src_clk_i, src_rst_i, clk_i, rst_i)
   `COMMON_PULSE_SYNC_ARST(u_pulse_arst, pulse_arst_o, pulse_i, src_clk_i, src_rst_i, clk_i, arst_i)
   `COMMON_RESET_SYNC(u_rst_sync, rst_sync_o, arst_i, clk_i)
+  `COMMON_RESET_SYNC_STAGES(u_rst_sync3, rst_sync3_o, arst_i, clk_i, 3)
 
   `COMMON_UNUSED_BITS(unused_upper, data_i[7:4])
 
