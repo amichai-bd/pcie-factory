@@ -1,7 +1,7 @@
 // 8b/10b decoder of the pcs receive path: RxPolarity inversion, then two
 // symbols per clock decoded with the running disparity, code and disparity
 // errors and EDB substitution. Interface and behavior:
-// wiki/src/rtl/pcs_dec8b10b/MAS.md; the code: wiki/src/arch/pcs/8B10B.md.
+// wiki/src/rtl/pcs/MAS.md#decoder; the code: wiki/src/arch/pcs/8B10B.md.
 `default_nettype none
 
 `include "common_macros.svh"
@@ -31,12 +31,12 @@ module pcie_pcs_dec8b10b (
   logic pol_d;
 
   logic                              pol_change;
-  pcie_pcs_dec8b10b_pkg::t_sym10     sym0;
-  pcie_pcs_dec8b10b_pkg::t_sym10     sym1;
+  pcie_pcs_pkg::t_sym10     sym0;
+  pcie_pcs_pkg::t_sym10     sym1;
   logic                              known0;
   logic                              known1;
-  pcie_pcs_dec8b10b_pkg::t_dec       dec0;
-  pcie_pcs_dec8b10b_pkg::t_dec       dec1;
+  pcie_pcs_pkg::t_dec       dec0;
+  pcie_pcs_pkg::t_dec       dec1;
 
   // RxPolarity: inversion applies in the cycle polarity_i is 1; a change
   // makes the RD unknown from that cycle's word.
@@ -49,8 +49,8 @@ module pcie_pcs_dec8b10b (
   assign known0 = rd_known_q && !pol_change && in_lock_i[0] && (in_gen_i[0] == gen_q);
   assign known1 = in_lock_i[0] && in_lock_i[1] && (in_gen_i[1] == in_gen_i[0]);
 
-  assign dec0 = pcie_pcs_dec8b10b_pkg::decode(sym0, known0, rd_pos_q);
-  assign dec1 = pcie_pcs_dec8b10b_pkg::decode(sym1, known1, dec0.rd_pos);
+  assign dec0 = pcie_pcs_pkg::decode(sym0, known0, rd_pos_q);
+  assign dec1 = pcie_pcs_pkg::decode(sym1, known1, dec0.rd_pos);
 
   assign out_data_o     = {dec1.data, dec0.data};
   assign out_k_o        = {dec1.k, dec0.k};
@@ -80,8 +80,8 @@ module pcie_pcs_dec8b10b (
   `COMMON_ASSERT_NEVER(a_one_error_class, clk_i, rst_i,
                        |(out_code_err_o & out_disp_err_o))
   `COMMON_ASSERT_NEVER(a_code_err_edb, clk_i, rst_i,
-                       (dec0.code_err && (dec0.data != pcie_pcs_dec8b10b_pkg::K_EDB || !dec0.k)) ||
-                       (dec1.code_err && (dec1.data != pcie_pcs_dec8b10b_pkg::K_EDB || !dec1.k)))
+                       (dec0.code_err && (dec0.data != pcie_pcs_pkg::K_EDB || !dec0.k)) ||
+                       (dec1.code_err && (dec1.data != pcie_pcs_pkg::K_EDB || !dec1.k)))
   `COMMON_ASSERT_NEVER(a_disp_err_known_rd, clk_i, rst_i,
                        (dec0.disp_err && !known0) || (dec1.disp_err && !known1))
 

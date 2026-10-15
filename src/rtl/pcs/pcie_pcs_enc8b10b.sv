@@ -1,6 +1,6 @@
 // Two-symbol 8b/10b encoder with the transmit running disparity: two bytes
 // and K flags per clk_i cycle in, two 10-bit symbols out two cycles later.
-// Interfaces and behavior: wiki/src/rtl/pcs_enc8b10b/MAS.md; the code:
+// Interfaces and behavior: wiki/src/rtl/pcs/MAS.md#encoder; the code:
 // wiki/src/arch/pcs/8B10B.md.
 `default_nettype none
 
@@ -33,8 +33,8 @@ module pcie_pcs_enc8b10b (
   logic        rd_lane0;       // RD before the [7:0] symbol
   logic        rd_mid;         // RD between the two symbols
   logic        rd_next;        // RD after the [15:8] symbol
-  pcie_pcs_enc8b10b_pkg::t_sym10 code0;
-  pcie_pcs_enc8b10b_pkg::t_sym10 code1;
+  pcie_pcs_pkg::t_sym10 code0;
+  pcie_pcs_pkg::t_sym10 code1;
   logic [19:0] codes;
   logic [7:0]  byte0;
   logic [7:0]  byte1;

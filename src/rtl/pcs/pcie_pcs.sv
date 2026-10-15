@@ -4,10 +4,11 @@
 //
 // The top holds PIPE control (reset and PhyStatus, PowerDown acknowledge,
 // receiver detection, RxElecIdle), RxStatus and RxValid, the error counter
-// that requests a relock, loopback, and the crossings 4 and 5. The four
-// sub-IPs do the rest: pcs_enc8b10b (transmit), pcs_align (comma lock,
-// ser_rx_clk_i), pcs_elastic (SKP elastic buffer, crossings 1 to 3) and
-// pcs_dec8b10b (polarity and decode, clk_i).
+// that requests a relock, loopback, and the crossings 4 and 5. Four
+// blocks of the IP do the rest: pcie_pcs_enc8b10b (transmit),
+// pcie_pcs_align (comma lock, ser_rx_clk_i), pcie_pcs_elastic (SKP elastic
+// buffer, crossings 1 to 3) and pcie_pcs_dec8b10b (polarity and decode,
+// clk_i).
 `default_nettype none
 
 `include "common_macros.svh"
@@ -236,8 +237,8 @@ module pcie_pcs (
 
   // One PIPE word per elastic-buffer word: RxValid when both symbols are
   // locked; the RxStatus precedence 4, 5, 6, 7, 1, 2, 0 (RECEIVE.md, Decode
-  // and RxStatus). An underflow word holds two all-zero symbols (pcs_elastic
-  // MAS), a code error in both lanes, so the decoder already gives EDB, EDB
+  // and RxStatus). An underflow word holds two all-zero symbols (elastic
+  // buffer MAS), a code error in both lanes, so the decoder already gives EDB, EDB
   // as K symbols (a_udf_edb).
   logic                     word_valid;
   logic                     word_lock;
@@ -375,7 +376,7 @@ module pcie_pcs (
 
   // ------------------------------------------------------------------
   // Transmit path: P0 and not TxElecIdle sends a word through the encoder
-  // (pcs_enc8b10b), which holds the whole two-cycle TX latency; its outputs
+  // (pcie_pcs_enc8b10b), which holds the whole two-cycle TX latency; its outputs
   // drive ser_tx_* with no further register.
   // ------------------------------------------------------------------
 
@@ -454,7 +455,7 @@ module pcie_pcs (
                        err_cnt_q > pcie_pcs_pkg::ERR_CNT_W'(pcie_pcs_pkg::ERR_LIMIT - 1))
   // An underflow word is EDB, EDB as K symbols.
   `COMMON_ASSERT_NEVER(a_udf_edb, clk_i, pcs_rst, eb_valid && eb_udf
-                       && (dec_data != {pcie_pcs_dec8b10b_pkg::K_EDB, pcie_pcs_dec8b10b_pkg::K_EDB}
+                       && (dec_data != {pcie_pcs_pkg::K_EDB, pcie_pcs_pkg::K_EDB}
                            || dec_k != 2'b11))
   // An underflow word never carries RxValid.
   `COMMON_ASSERT_NEVER(a_udf_not_valid, clk_i, pcs_rst, eb_valid && eb_udf && word_lock)

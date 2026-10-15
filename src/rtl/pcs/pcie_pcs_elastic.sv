@@ -1,6 +1,6 @@
 // SKP elastic buffer from ser_rx_clk_i to clk_i: SKP removal and packing on
 // the write side, a 16-word common_cdc_fifo, SKP addition, start and
-// recentring on the read side (wiki/src/rtl/pcs_elastic/MAS.md).
+// recentring on the read side (wiki/src/rtl/pcs/MAS.md#elastic-buffer).
 `default_nettype none
 
 `include "common_macros.svh"
@@ -53,8 +53,8 @@ module pcie_pcs_elastic (
 
   // ------------------------------------------------------------ write side
 
-  pcie_pcs_elastic_pkg::t_sym10                         w_sym0;
-  pcie_pcs_elastic_pkg::t_sym10                         w_sym1;
+  pcie_pcs_pkg::t_sym10                         w_sym0;
+  pcie_pcs_pkg::t_sym10                         w_sym1;
   logic                                                 fill_high_rx;  // synchronized fill high
   logic [HOLDOFF_W-1:0]           w_holdoff_q;
   logic [HOLDOFF_W-1:0]           w_holdoff_d;
@@ -68,10 +68,10 @@ module pcie_pcs_elastic (
   logic                                                 w_hold_live;     // ... and keeps it this cycle
   logic                                                 w_flush;         // drop it: lock starts
   logic                                                 w_hold_valid_d;
-  pcie_pcs_elastic_pkg::t_eb_sym                        w_hold_q;
-  pcie_pcs_elastic_pkg::t_eb_sym                        w_hold_d;
-  pcie_pcs_elastic_pkg::t_eb_sym                        w_new0;
-  pcie_pcs_elastic_pkg::t_eb_sym                        w_new1;
+  pcie_pcs_pkg::t_eb_sym                        w_hold_q;
+  pcie_pcs_pkg::t_eb_sym                        w_hold_d;
+  pcie_pcs_pkg::t_eb_sym                        w_new0;
+  pcie_pcs_pkg::t_eb_sym                        w_new1;
   logic                                                 w_drop;   // unlocked word dropped (recentring)
   logic                                                 w_take;   // word taken in
   logic                                                 w_rm0;    // sym0 is a removed SKP
@@ -79,9 +79,9 @@ module pcie_pcs_elastic (
   logic                                                 w_wr;     // a packed word is ready
   logic                                                 w_push;
   logic                                                 w_ready;
-  pcie_pcs_elastic_pkg::t_eb_sym                        w_first;  // the packed word's symbols
-  pcie_pcs_elastic_pkg::t_eb_sym                        w_second;
-  pcie_pcs_elastic_pkg::t_eb_word                       w_word;
+  pcie_pcs_pkg::t_eb_sym                        w_first;  // the packed word's symbols
+  pcie_pcs_pkg::t_eb_sym                        w_second;
+  pcie_pcs_pkg::t_eb_word                       w_word;
 
   assign w_sym0 = ser_rx_sym_i[9:0];
   assign w_sym1 = ser_rx_sym_i[19:10];
@@ -99,9 +99,9 @@ module pcie_pcs_elastic (
     // Remove the first SKP after a locked COM while fill high is seen; at
     // most one of the two symbols can be such a SKP.
     w_rm0  = w_take & ser_rx_lock_i & fill_high_rx & w_prev_com_q
-           & pcie_pcs_elastic_pkg::is_skp(w_sym0);
-    w_rm1  = w_take & ser_rx_lock_i & fill_high_rx & pcie_pcs_elastic_pkg::is_com(w_sym0)
-           & pcie_pcs_elastic_pkg::is_skp(w_sym1);
+           & pcie_pcs_pkg::is_skp(w_sym0);
+    w_rm1  = w_take & ser_rx_lock_i & fill_high_rx & pcie_pcs_pkg::is_com(w_sym0)
+           & pcie_pcs_pkg::is_skp(w_sym1);
     w_new0 = '{ovf: 1'b0, rem: w_pend_rem_q, gen: ser_rx_gen_i, lock: ser_rx_lock_i, sym: w_sym0};
     w_new1 = '{ovf: 1'b0, rem: w_rm0, gen: ser_rx_gen_i, lock: ser_rx_lock_i, sym: w_sym1};
 
@@ -119,7 +119,7 @@ module pcie_pcs_elastic (
     w_first        = w_hold_q;
     w_second       = w_new0;
     if (w_take) begin
-      w_prev_com_d = pcie_pcs_elastic_pkg::is_com(w_sym1);
+      w_prev_com_d = pcie_pcs_pkg::is_com(w_sym1);
       w_pend_rem_d = w_rm1;
       if (!w_hold_live) begin
         w_hold_valid_d = 1'b0;
@@ -177,14 +177,14 @@ module pcie_pcs_elastic (
 
   // ------------------------------------------------------------------ FIFO
 
-  pcie_pcs_elastic_pkg::t_eb_word                       head;   // oldest visible word
-  pcie_pcs_elastic_pkg::t_eb_word                       head_next;   // the word after the head
+  pcie_pcs_pkg::t_eb_word                       head;   // oldest visible word
+  pcie_pcs_pkg::t_eb_word                       head_next;   // the word after the head
   logic [EB_ADDR_W:0]             vis;    // visible words
   logic                                                 r_head_valid;
   logic                                                 r_pop;
 
   common_cdc_fifo #(
-    .WIDTH ($bits(pcie_pcs_elastic_pkg::t_eb_word)),
+    .WIDTH ($bits(pcie_pcs_pkg::t_eb_word)),
     .ADDR_W(EB_ADDR_W)
   ) u_fifo (
     .src_clk_i      (ser_rx_clk_i),
@@ -207,8 +207,8 @@ module pcie_pcs_elastic (
   logic                                                 r_started;
   logic                                                 r_left_valid_q;  // leftover register holds a symbol
   logic                                                 r_left_valid_d;
-  pcie_pcs_elastic_pkg::t_eb_sym                        r_left_q;
-  pcie_pcs_elastic_pkg::t_eb_sym                        r_left_d;
+  pcie_pcs_pkg::t_eb_sym                        r_left_q;
+  pcie_pcs_pkg::t_eb_sym                        r_left_d;
   logic                                                 r_dup_q;   // send the next symbol twice
   logic                                                 r_dup_d;
   logic                                                 r_rem_ack_q;  // next symbol's removed flag already reported
@@ -223,16 +223,16 @@ module pcie_pcs_elastic (
   logic                                                 r_recentre;
   logic                                                 r_udf;
   logic                                                 r_go;
-  pcie_pcs_elastic_pkg::t_eb_sym                        head0;
-  pcie_pcs_elastic_pkg::t_eb_sym                        head1;
-  pcie_pcs_elastic_pkg::t_eb_sym                        next0;
-  pcie_pcs_elastic_pkg::t_eb_sym                        c0;   // the next three symbols in order
-  pcie_pcs_elastic_pkg::t_eb_sym                        c1;
-  pcie_pcs_elastic_pkg::t_eb_sym                        c2;
+  pcie_pcs_pkg::t_eb_sym                        head0;
+  pcie_pcs_pkg::t_eb_sym                        head1;
+  pcie_pcs_pkg::t_eb_sym                        next0;
+  pcie_pcs_pkg::t_eb_sym                        c0;   // the next three symbols in order
+  pcie_pcs_pkg::t_eb_sym                        c1;
+  pcie_pcs_pkg::t_eb_sym                        c2;
   logic                                                 v1;
   logic                                                 v2;
-  pcie_pcs_elastic_pkg::t_eb_sym                        o0;   // the two symbols sent
-  pcie_pcs_elastic_pkg::t_eb_sym                        o1;
+  pcie_pcs_pkg::t_eb_sym                        o0;   // the two symbols sent
+  pcie_pcs_pkg::t_eb_sym                        o1;
   logic                                                 r_add0;  // copy of c1 sent after a COM in o0
   logic                                                 r_add1;  // copy of c2 owed after a COM in o1
   logic                                                 r_rem1;  // c2's removal reported on o1's COM
@@ -299,17 +299,17 @@ module pcie_pcs_elastic (
       o1     = c0;
       r_two  = 1'b0;
     end else begin
-      if ((c0.lock && pcie_pcs_elastic_pkg::is_com(c0.sym)) && v1 && !c1.rem
-          && pcie_pcs_elastic_pkg::is_skp(c1.sym) && r_low) begin
+      if ((c0.lock && pcie_pcs_pkg::is_com(c0.sym)) && v1 && !c1.rem
+          && pcie_pcs_pkg::is_skp(c1.sym) && r_low) begin
         // Add a copy of the SKP right after the COM.
         r_add0 = 1'b1;
         o1     = '{ovf: 1'b0, rem: 1'b0, gen: c1.gen, lock: c1.lock, sym: c1.sym};
         r_two  = 1'b0;
-      end else if ((c1.lock && pcie_pcs_elastic_pkg::is_com(c1.sym)) && v2) begin
+      end else if ((c1.lock && pcie_pcs_pkg::is_com(c1.sym)) && v2) begin
         // A COM in the second slot: look at the symbol after it.
         if (c2.rem) begin
           r_rem1 = 1'b1;
-        end else if (pcie_pcs_elastic_pkg::is_skp(c2.sym) && r_low) begin
+        end else if (pcie_pcs_pkg::is_skp(c2.sym) && r_low) begin
           r_add1 = 1'b1;
         end
       end
@@ -368,7 +368,7 @@ module pcie_pcs_elastic (
   `COMMON_ASSERT_NEVER(a_send_needs_symbols, clk_i, rst_i, r_go & ~r_dup_q & ~r_add0 & ~v1)
   `COMMON_ASSERT_NEVER(a_add_only_low, clk_i, rst_i, rx_skp_add_o & ~r_low)
   `COMMON_ASSERT_NEVER(a_owed_copy_is_skp, clk_i, rst_i,
-                       r_dup_q & r_go & ~pcie_pcs_elastic_pkg::is_skp(c0.sym))
+                       r_dup_q & r_go & ~pcie_pcs_pkg::is_skp(c0.sym))
 
 endmodule
 

@@ -1,7 +1,7 @@
 // One 8b/10b symbol, combinational: byte, K flag and running disparity in,
 // 10-bit code and running disparity out. The code rules are in
 // wiki/src/arch/pcs/8B10B.md; the structure in
-// wiki/src/rtl/pcs_enc8b10b/MAS.md.
+// wiki/src/rtl/pcs/MAS.md#encoder.
 //
 // Bit order: data_i is HGFEDCBA (x = EDCBA, y = HGF). code_o[0] is line bit
 // a, then b c d e i f g h j, so code_o[5:0] is the 6b sub-block {i,e,d,c,b,a}
@@ -13,7 +13,7 @@ module pcie_pcs_enc8b10b_sym (
   input  logic [7:0] data_i,  // HGFEDCBA
   input  logic       k_i,     // 1: K symbol
   input  logic       rd_i,    // running disparity before the symbol
-  output pcie_pcs_enc8b10b_pkg::t_sym10 code_o,  // bit 0 first on the line
+  output pcie_pcs_pkg::t_sym10 code_o,  // bit 0 first on the line
   output logic       rd_o     // running disparity after the symbol
 );
 
@@ -40,8 +40,8 @@ module pcie_pcs_enc8b10b_sym (
   assign k_valid = (x_in == 5'd28)
                 || ((y_in == 3'd7) && ((x_in == 5'd23) || (x_in == 5'd27)
                                     || (x_in == 5'd29) || (x_in == 5'd30)));
-  assign x       = (k_i && !k_valid) ? pcie_pcs_enc8b10b_pkg::K_EDB[4:0] : x_in;
-  assign y       = (k_i && !k_valid) ? pcie_pcs_enc8b10b_pkg::K_EDB[7:5] : y_in;
+  assign x       = (k_i && !k_valid) ? pcie_pcs_pkg::K_EDB[4:0] : x_in;
+  assign y       = (k_i && !k_valid) ? pcie_pcs_pkg::K_EDB[7:5] : y_in;
   assign k28     = k_i && (x == 5'd28);
 
   // 6b sub-block, RD- form. Two or three ones in EDCBA: sent as is, with i
