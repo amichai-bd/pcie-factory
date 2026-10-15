@@ -38,7 +38,7 @@ COV_CTRL.coverpoint("reset", bins={"rst_i": "rst_i", "pipe_reset_short": "pipe_r
                                    "pipe_reset_long": "pipe_reset_long"})
 COV_CTRL.coverpoint("detect", bins={"present": 3, "absent": 0})
 COV_CTRL.coverpoint("tx", bins=["data", "compliance", "k_invalid", "idle_p0", "loopback",
-                                "idle_not_p0"])
+                                "idle_not_p0", "p2_no_beacon"])
 COV_CTRL.coverpoint("change_before_ready", bins={"no_pulse": 1})
 
 # RxElecIdle edges seen through the crossing, by RX clock offset sign.
@@ -185,9 +185,13 @@ class Bench:
     async def detect(self, present: int) -> None:
         """Receiver detection in P1: 64 cycles, then RxStatus 3 or 0."""
         assert self.mac.ins["pipe_power_down_i"] == P1
-        self.mac.set(tx_elec_idle=1, ser_tx_rxdet=present)
-        self.mac.set(tx_detect_rx=1)
-        i = await self.until_pulse(80)
+        # ser_tx_rxdet_i carries the result only in detection cycle 63, the
+        # cycle the HAS samples it, and the opposite value in every other.
+        self.mac.set(tx_elec_idle=1, tx_detect_rx=1, ser_tx_rxdet=1 - present)
+        for i in range(1, 81):
+            self.mac.set(ser_tx_rxdet=present if i == 63 else 1 - present)
+            if (await self.tick())["pipe_phy_status_o"]:
+                break
         assert i == 64, f"cycle {self.mac.cycle}: detection took {i} cycles, expected 64"
         code = self.out["pipe_rx_status_o"]
         assert code == (3 if present else 0), f"cycle {self.mac.cycle}: RxStatus {code}"
@@ -289,6 +293,12 @@ async def pipe_power(dut):
         outs = await b.run(10, tx_elec_idle=1)
         assert all(o["ser_tx_elec_idle_o"] for o in outs[2:]), "transmitter active outside P0"
         COV_CTRL.sample(tx="idle_not_p0")
+        if nxt == P2:
+            # No beacon: in P2 the transmitter stays idle with TxElecIdle 0.
+            outs = await b.run(10, tx_elec_idle=0)
+            assert all(o["ser_tx_elec_idle_o"] for o in outs), "beacon or data in P2"
+            COV_CTRL.sample(tx="p2_no_beacon")
+            await b.run(1, tx_elec_idle=1)
         await b.power(P0)
     assert b.checked_words > 0
 
