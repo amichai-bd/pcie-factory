@@ -146,13 +146,13 @@ depends on the mac's parsing, so it switches with the mac layer.
 
 **Block hook, transmit encoder.** `ModelPort(tx_encoder=block)` replaces
 `PcsModel`'s encoder and transmit pipeline with `block` at the
-[`pcie_pcs_enc8b10b` interface](../../rtl/pcs_enc8b10b/MAS.md#interfaces):
+[`pcie_pcs_enc8b10b` interface](../../rtl/pcs/MAS.md#encoder):
 each cycle the stand-in clocks it with `rst` (PIPE reset), `valid` (the
 transmitter is not in electrical idle), the PIPE word, `datak` and
 `compliance`, then sends `data_o`, in electrical idle while `valid_o` is 0;
 the block's latency is the transmit latency. `e2e_encoder_block` runs it on
-both ports with `Encoder`, the sub-IP's own cycle model
-([`src/dv/pcs_enc8b10b/models/`](../../../../src/dv/pcs_enc8b10b/models/pcie_pcs_enc8b10b_model.py)).
+both ports with `Encoder`, the encoder block's cycle model in the `pcs` DV
+([`src/dv/pcs/models/`](../../../../src/dv/pcs/models/pcie_pcs_enc8b10b_model.py)).
 
 The steps, all owned by
 [#86](https://github.com/amichai-bd/pcie-factory/issues/86) (the
@@ -211,7 +211,7 @@ delivers the hooks, the cycle-model runs and this recipe):
 | Bit slips each way: relock, directed Recovery, lossless after | `e2e_bit_slips` (RTL), `e2e_bit_slips_model` | 1 | 2 each; dsp first, -600 ppm |
 | Electrical-idle dropout each way: Recovery on its own, lossless after | `e2e_elec_idle` (RTL), `e2e_elec_idle_model` | 1 | 2 each; usp first, +300 ppm |
 | Transmit scrambling by the `pcie_mac_scrambler` block (its cycle model) on both ports: train, lossless, an idle dropout, lossless | `e2e_scrambler_block` | 1 | 1; models; dsp first, -300 ppm |
-| 8b/10b transmit by the `pcs_enc8b10b` block (its cycle model) on both ports: train, lossless, a bit slip each way, lossless | `e2e_encoder_block` | 1 | 1; models; usp first, +600 ppm |
+| 8b/10b transmit by the `pcs` encoder block (its cycle model) on both ports: train, lossless, a bit slip each way, lossless | `e2e_encoder_block` | 1 | 1; models; usp first, +600 ppm |
 | A port reset alone while packets flow, a then b: reset values held, the partner leaves L0 through Recovery's divided timeout, both back in L0, lossless after | `e2e_reset_single` | 1 | 1; RTL, `ERR_TIMEOUT_DIV` 1024; dsp first, +300 ppm |
 | [Link control](../../arch/phy/HAS.md#link-up-and-requests): `retrain_req_i` on each port (Recovery and back within 4 µs, `link_up_o` high); `hot_reset_req_i` and `disable_req_i` on the upstream port ignored for 4000 cycles with traffic; Hot Reset and Disabled from the downstream port while packets flow (both ports in the state with `link_up_o` low while held, Detect, back to L0); lossless after each | `e2e_control` | 1 | 1; RTL, `ERR_TIMEOUT_DIV` 1024; usp first, +300 ppm |
 | [Polarity](../../arch/phy/PIPE.md#handshakes): the a-to-b lane inverted from reset; b sets RxPolarity in training, link-up targets, lossless, then a reset of both ports and lossless | `e2e_polarity` | 1 | 1; RTL; dsp first, -300 ppm |

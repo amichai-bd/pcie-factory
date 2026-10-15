@@ -25,12 +25,12 @@ Loopback (TxDetectRx in P0) is not modelled.
 Block hooks:
 
 - ``tx_encoder``: a block at the ``pcie_pcs_enc8b10b`` interface
-  (wiki/src/rtl/pcs_enc8b10b/MAS.md) replaces the transmit encoder and its
+  (wiki/src/rtl/pcs/MAS.md#encoder) replaces the transmit encoder and its
   pipeline. Each cycle the stand-in calls ``block.clock(rst, valid, data,
   datak, compliance)`` with the PIPE transmit word (``valid`` is 0 in
   electrical idle), then sends ``block.data_o`` with electrical idle
   ``not block.valid_o``; the block's own latency is the transmit latency.
-  ``Encoder``, the sub-IP's cycle model, is such a block; an adapter that
+  ``Encoder``, the encoder block's cycle model, is such a block; an adapter that
   drives a ``pcie_pcs_enc8b10b`` instance's pins at the falling edge is
   another (wiki/src/dv/phy/DV_PLAN.md, Model-to-RTL switch).
 - ``encode`` and ``decode``: the symbol-level 8b/10b functions of the

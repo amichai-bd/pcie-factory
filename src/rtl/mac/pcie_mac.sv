@@ -83,7 +83,7 @@ module pcie_mac #(
 
   assign rx_word   = '{data: pipe_rx_data_i, datak: pipe_rx_datak_i};
   assign rx_st     = '{phy_status: pipe_phy_status_i, valid: pipe_rx_valid_i,
-                       elec_idle: pipe_rx_elec_idle_i, status: pipe_rx_status_i};
+                       elec_idle: pipe_rx_elec_idle_i, status: common_pkg::t_rx_status'(pipe_rx_status_i)};
   assign rx_parsed = pipe_rx_valid_i && !pipe_rx_elec_idle_i;
 
   pcie_mac_pkg::t_link_req link_req;

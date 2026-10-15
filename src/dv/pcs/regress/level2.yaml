@@ -5,6 +5,24 @@ tests:
     top: pcie_pcs
     seeds: 6
     timeout_s: 900
+  - name: tx_random_long
+    module: tests.test_tx
+    testcase: tx_random_long
+    top: pcie_pcs
+    seeds: 8
+    timeout_s: 900
+  - name: rx_decode_random_long
+    module: tests.test_decode
+    testcase: rx_decode_random_long
+    top: pcie_pcs
+    seeds: 4
+    timeout_s: 1200
+  - name: rx_align_long
+    module: tests.test_lock
+    testcase: rx_align_long
+    top: pcie_pcs
+    seeds: 8
+    timeout_s: 900
   - name: rx_max_tlp
     module: tests.test_datapath
     testcase: rx_max_tlp
@@ -47,7 +65,65 @@ tests:
     top: pcie_pcs
     seeds: [3, 4, 5, 6, 7, 8]
     timeout_s: 900
-coverage_floors:
-  line: 98
-  toggle: 96
-  functional: {pcs_pipe_power: 100, pcs_rx_status: 100}
+  - name: rx_slips_training_sweep
+    module: tests.test_lock
+    testcase: rx_slips_training
+    top: pcie_pcs
+    seeds: [3, 4, 5, 6]
+    timeout_s: 900
+  - name: eb_dense_sweep
+    module: tests.test_elastic
+    testcase: eb_dense
+    top: pcie_pcs
+    seeds: [3, 4, 5, 6, 7, 8]
+    timeout_s: 900
+  - name: eb_lock_start_sweep
+    module: tests.test_elastic
+    testcase: eb_lock_start
+    top: pcie_pcs
+    seeds: [3, 4, 5, 6, 7, 8, 9, 10]
+    timeout_s: 900
+  - name: rx_reset_traffic_sweep
+    module: tests.test_elastic
+    testcase: rx_reset_traffic
+    top: pcie_pcs
+    seeds: [3, 4, 5, 6]
+    timeout_s: 900
+  - name: eb_long_tlp
+    module: tests.test_elastic
+    testcase: eb_long_tlp
+    top: pcie_pcs
+    seeds: [1, 2, 3, 4, 5, 6]
+    timeout_s: 1800
+  - name: eb_long_random
+    module: tests.test_elastic
+    testcase: eb_long_random
+    top: pcie_pcs
+    seeds: 6
+    timeout_s: 1800
+  - name: eb_long_stress
+    module: tests.test_elastic
+    testcase: eb_long_stress
+    top: pcie_pcs
+    seeds: [1, 2, 3, 4, 5, 6]
+    timeout_s: 1800
+  - name: eb_long_idle
+    module: tests.test_elastic
+    testcase: eb_long_idle
+    top: pcie_pcs
+    seeds: [1, 2, 3, 4]
+    timeout_s: 1800
+  - name: eb_random_offset_sweep
+    module: tests.test_elastic
+    testcase: eb_random_offset
+    top: pcie_pcs
+    seeds: [3, 4, 5, 6]
+    timeout_s: 900
+  - name: eb_short_burst_sweep
+    module: tests.test_elastic
+    testcase: eb_short_burst
+    top: pcie_pcs
+    seeds: [2, 3]
+    timeout_s: 900
+# Floors at the merged L0 to L2 values (the nightly runs the three together).
+coverage_floors: {line: 99, toggle: 97, functional: 100}

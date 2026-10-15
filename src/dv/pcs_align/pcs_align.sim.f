@@ -1,2 +1,0 @@
--F ../../rtl/pcs_align/pcs_align.rtl.f
--F pcs_align.dv.f

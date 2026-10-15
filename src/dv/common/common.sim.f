@@ -5,4 +5,9 @@
 -F ../../rtl/common/common_cdc_pulse.rtl.f
 -F ../../rtl/common/common_cdc_fifo.rtl.f
 -F ../../rtl/common/common_cdc_rst.rtl.f
+-F ../../rtl/common/common_sync_ram.rtl.f
+-F ../../rtl/common/common_sync_ram_held.rtl.f
+-F ../../rtl/common/common_sync_ram_wt.rtl.f
+-F ../../rtl/common/common_sdp_ram.rtl.f
+-F ../../rtl/common/common_tdp_ram.rtl.f
 -F common.dv.f

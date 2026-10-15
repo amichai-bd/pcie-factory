@@ -34,3 +34,33 @@ tests:
     testcase: contract
     top: common_macros_fixture
     timeout_s: 60
+  - name: sync_ram_contract
+    module: tests.test_ram
+    testcase: contract
+    top: common_sync_ram
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    timeout_s: 60
+  - name: sync_ram_held_contract
+    module: tests.test_ram
+    testcase: contract
+    top: common_sync_ram_held
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    timeout_s: 60
+  - name: sync_ram_wt_contract
+    module: tests.test_ram
+    testcase: contract
+    top: common_sync_ram_wt
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    timeout_s: 60
+  - name: sdp_ram_contract
+    module: tests.test_ram
+    testcase: contract
+    top: common_sdp_ram
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    timeout_s: 60
+  - name: tdp_ram_contract
+    module: tests.test_ram
+    testcase: contract
+    top: common_tdp_ram
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    timeout_s: 60
