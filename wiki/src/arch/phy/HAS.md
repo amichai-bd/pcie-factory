@@ -233,7 +233,7 @@ layer hands them down (sequence number, TLP, LCRC), not TLP payload.
 | Lossless | No packet lost or corrupted and no elastic-buffer overflow at ±600 ppm, any SKP interval in range, up to maximum-size TLPs. |
 | TX latency | At most 6 cycles from an accepted beat to its first symbol on `ser_tx_data_o`. |
 | RX latency | At most 16 cycles from a packet's first symbol on `ser_rx_data_i` (once aligned) to its `sop` beat, with the elastic buffer at 12 symbols or fewer. |
-| Clocks | `clk_i` and `ser_rx_clk_i` at 125 MHz on the FPGA and ASIC flows. |
+| Clocks | `clk_i` and `ser_rx_clk_i` at 125 MHz on the ASIC flow and 50 MHz on the FPGA (DE2-115) flow. The FPGA figure is a timing and resource target only, with no board bring-up at line rate; the design's rates, including PIPE at 125 MHz, are unchanged ([Q26](../../decisions/0002-m1-grill.md#decisions)). |
 
 The budgets the `mac` and `pcs` HAS pages must meet or rebalance: MAC
 transmit 3 and receive 3 cycles (+1 for a packet in the high byte), PCS
