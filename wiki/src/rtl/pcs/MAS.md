@@ -99,8 +99,10 @@ electrical idle. A reset drops the two words in flight.
    generation from the elastic buffer, which restart its RD at each locked
    run.
 4. **Word forming** (combinational): `word_lock` (the future RxValid) is a
-   decoded word with both symbols locked. An underflow word is EDB, EDB
-   (`pcie_pcs_dec8b10b_pkg::K_EDB`) as K symbols. RxStatus, first match
+   decoded word with both symbols locked. An underflow word holds two
+   all-zero symbols, a code error in both lanes, so the decoder already
+   gives EDB, EDB (`pcie_pcs_dec8b10b_pkg::K_EDB`) as K symbols; the top
+   adds no multiplexer and asserts it (`a_udf_edb`). RxStatus, first match
    wins: 4 (`word_lock` and a code error), 5 (overflow flag), 6
    (underflow), 7 (`word_lock` and a disparity error), 1 (SKP added), 2
    (SKP removed), 0; 0 in a cycle with no word.
@@ -128,6 +130,13 @@ words in a row take 1 away. Nothing counts while `wait_q` is set.
 ser_rx_clk_i, rx_rst)`` brings the request to the aligner; requests are
 far more than two RX cycles apart, since each waits for a new lock.
 
+A single flipped bit marks at most two words, so isolated errors never
+relock. **Two close bit errors relock by design** when their errored
+symbols fall in three PIPE words within the decay window: lock drops, and
+RxValid then stays low until the next comma (in packet traffic up to one
+SKP interval plus a packet), from which data resumes (#73 sign-off; the DV
+plan's `rx_close_errors`).
+
 ### Receive electrical idle (crossing 5)
 
 `rx_active_q` registers not `ser_rx_elec_idle_i` on `ser_rx_clk_i`
@@ -142,6 +151,7 @@ or not the synchronized level.
 | `a_detected_only_with_pulse` | RxStatus 3 only with the detection PhyStatus pulse. |
 | `a_phy_status_one_cycle` | Once ready, a PhyStatus pulse lasts one cycle. |
 | `a_err_cnt_range` | The error count never exceeds `ERR_LIMIT` - 1. |
+| `a_udf_edb` | An underflow word is EDB, EDB as K symbols. |
 | `a_udf_not_valid` | An underflow word never carries RxValid. |
 | `a_ack_cnt_range` | The acknowledge countdown never exceeds 4. |
 
@@ -153,6 +163,7 @@ or not the synchronized level.
 | PowerDown state is the value seen, `power_q` only detects changes | The arch model's `PipeControl` does the same, and the transmitter then follows PowerDown with the same two-cycle latency as TxElecIdle. | A registered state (one more cycle of latency on the line). |
 | `ser_tx_*` straight from the encoder | The encoder already spends the two-cycle TX latency ([`pcs_enc8b10b`](../pcs_enc8b10b/MAS.md#decisions)). | A line register in the top (three cycles). |
 | One PIPE receive register after the decoder | The elastic buffer and the decoder are combinational, so the PIPE outputs, the status and the counter's inputs are registered together in one place. Measured RX latency is at most 10.9 cycles, within the 12 of the [targets](../../arch/pcs/HAS.md#targets). | Registering inside the decoder (the sideband flags would need matching delays). |
+| The first locked word starts a word of its own | `pcs_elastic` drops an unlocked symbol held in its packing or leftover register at a lock start ([its MAS](../pcs_elastic/MAS.md#behavior)); without it the first locked word was paired with an unlocked symbol and RxValid started one word late, up to 11 cycles after the comma (#85 review). | Changing the HAS lock target. |
 | Loopback from the PIPE receive register | The HAS loops back the words "as they appear on `pipe_rx_data_o`", two cycles later on the line; it reuses the register and the decoder's EDB substitution. | A separate loopback path before the decoder (re-encoding raw symbols would keep the far end's RD and errors). |
 | One RX reset synchronizer, in `pcs_elastic` | Firstmate ruling on #85: one crossing 2 for the PCS, exported on `ser_rx_rst_o`. | A second synchronizer in the top. |
 | Synchronous use of `rx_rst` in the RX domain | Consistent with the aligner, `common_cdc_pulse` and `common_cdc_fifo`; `common_cdc_rst` holds it for at least 7 RX cycles and `ser_rx_clk_i` always runs (firstmate ruling on #85, BKM wording in #145). | `COMMON_DFF_ARST_VAL` in the top. |
@@ -169,9 +180,11 @@ that one net with that reason.
 - RX: aligner (two RX edges), FIFO write and pointer crossing (two or
   three `clk_i` edges), the visible fill, then the combinational read side
   and decoder into the PIPE register. Measured: at most 10.9 cycles from a
-  symbol's last bit on `ser_rx_data_i` to `pipe_rx_data_o`, and at most
-  9.9 cycles from the comma that gives lock to the first RxValid word
-  (targets 12 and 10).
+  symbol's last bit on `ser_rx_data_i` to `pipe_rx_data_o` (target 12),
+  and at most 9.6 cycles from the comma that gives lock to the first RxValid
+  word (target 10): 9.0 after electrical idle over 40 seeds at up to
+  ±600 ppm, 9.6 after close-error relocks, 9.0 after slips and error bursts
+  (16 seeds each).
 - Relock: from the word that makes the request to RxValid low, at most
   20 cycles (crossing 4, the aligner, the buffer and the register).
 - RxElecIdle: one RX cycle plus two or three `clk_i` edges.

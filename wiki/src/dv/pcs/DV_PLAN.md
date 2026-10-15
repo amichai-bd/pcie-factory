@@ -38,16 +38,30 @@ integration, PIPE control and the HAS [targets](../../arch/pcs/HAS.md#targets).
 - **Receive scoreboard** ([`models/pcie_pcs_rx_check.py`](../../../../src/dv/pcs/models/pcie_pcs_rx_check.py),
   with pytest unit tests): every RxValid run must be a contiguous piece of
   the sent stream with SKP set aside (no loss, duplication or reordering).
-  A wrong symbol is accepted only before a reported error (RxStatus 4 or 7,
-  within 16 symbols) or on a symbol the channel flipped (two flips can
-  cancel each other's disparity). The first word of a lock may hold the
-  symbol before the comma. Every SKP ordered set leaves with 2, 3 or 4 SKP
-  and its COM's word carries RxStatus 2, 0 or 1 to match. The relock rule
-  (`ERR_LIMIT` 3, `ERR_DECAY_WORDS` 8, one request per lock), applied to
-  the words seen on PIPE, predicts every RxValid drop: each prediction drops
-  RxValid within 20 cycles, and no drop happens without one (idle, slips
-  and the end of the line aside). This follows `pcs_align`'s
-  `ErrorCounter` testbench model, at the PIPE boundary.
+  - A run is anchored on a 24-symbol window that has exactly one match
+    consistent with the time its symbols arrived on the line (at most 24
+    cycles before they leave on PIPE), so a run that starts in periodic
+    training or FTS sets is anchored where the stream is unique. Its first
+    symbols are then checked backwards from the anchor. This places, for
+    example, a lock taken on a comma in the idle-exit noise, whose error
+    words precede a same-cycle relock inside the FTS sets.
+  - A wrong symbol is accepted only before a reported error (RxStatus 4 or
+    7, within 16 symbols) or on a symbol the channel flipped (two flips can
+    cancel each other's disparity).
+  - Symbol 0 of a run may be the symbol before the lock's comma, unchecked,
+    only when the run starts after electrical idle (the first run, and the
+    idle-gap tests).
+  - Every SKP ordered set leaves with 2, 3 or 4 SKP and its COM's word
+    carries RxStatus 2, 0 or 1 to match.
+  - The relock rule (`ERR_LIMIT` 3, `ERR_DECAY_WORDS` 8, one request per
+    lock), applied to the words seen on PIPE, predicts every RxValid drop:
+    each prediction drops RxValid within 20 cycles, and no drop happens
+    without one (idle, slips and the end of the line aside). This follows
+    `pcs_align`'s `ErrorCounter` testbench model, at the PIPE boundary.
+  - The HAS lock target (the first locked word within 10 cycles of the
+    comma's last bit) is measured after every lock: after electrical idle,
+    slips, close-error relocks and error bursts. A lock taken on noise has
+    no sent comma; it is counted, not timed.
 - **Functional coverage:** `pcs_pipe_power` (the six PowerDown arcs);
   `pcs_pipe_control` (reset kinds, detection results, transmit states, a
   PowerDown change before ready); `pcs_rx_elec_idle` (RxElecIdle entry and
@@ -78,15 +92,15 @@ integration, PIPE control and the HAS [targets](../../arch/pcs/HAS.md#targets).
 | [Polarity](../../arch/pcs/RECEIVE.md#decode-and-rxstatus): an inverted lane with RxPolarity 1 is intact | `rx_polarity` | 1 | [1] |
 | RxPolarity applies from the next word: wrong data before, every word after correct with no error | `rx_polarity_toggle` | 1 | [2] |
 | Isolated bit errors: each reported (4 or 7), no relock, data intact around them | `rx_errors` / `rx_errors_sweep` | 1 / 2 | [1, 2] / [3..6] |
-| Two close bit errors relock by design; RxValid stays low until the next comma (at most one SKP interval plus a packet); data resumes from that COM | `rx_close_errors` / `rx_close_errors_sweep` | 1 / 2 | [1, 2] / [3..6]; 8 pairs each |
-| [Relock rule](../../arch/pcs/RECEIVE.md#comma-alignment-and-symbol-lock) (limit, decay, one request per lock, crossing 4) against error bursts | `rx_error_bursts` / `rx_error_bursts_sweep` | 1 / 2 | [1, 2] / [3..8]; 16 bursts |
-| Bit slips: each in lock drops lock within 48 cycles (32 plus the RX latency), lock regained at the next COM, data intact | `rx_slips` / `rx_slips_sweep` | 1 / 2 | [1, 2] / [3..6]; 4 slips, up to 300 ppm |
-| Electrical idle gaps: RxValid low, no buffer status, lock within 10 cycles of the FTS comma, data intact | `rx_elec_idle_gaps` / `rx_elec_idle_gaps_sweep` | 1 / 2 | [1, 2] / [3..6]; 3 gaps |
+| Two close bit errors relock by design; RxValid stays low until the next comma (at most one SKP interval plus a packet); data resumes from that COM, lock within 10 cycles | `rx_close_errors` / `rx_close_errors_sweep` | 1 / 2 | [1, 2] / [3..6]; 8 pairs each |
+| [Relock rule](../../arch/pcs/RECEIVE.md#comma-alignment-and-symbol-lock) (limit, decay, one request per lock, crossing 4) against error bursts; lock within 10 cycles | `rx_error_bursts` / `rx_error_bursts_sweep` | 1 / 2 | [1, 2] / [3..8]; 16 bursts |
+| Bit slips: each in lock drops lock within 48 cycles (32 plus the RX latency), lock regained at the next COM within 10 cycles, every run's data intact (a run may lose the stream only after a slip inside it) | `rx_slips` / `rx_slips_sweep` | 1 / 2 | [1, 2] / [3..6]; 4 slips, up to 300 ppm |
+| Electrical idle gaps: RxValid low, no buffer status, lock within 10 cycles of the FTS comma, data intact; errors only where a lock starts on noise | `rx_elec_idle_gaps` / `rx_elec_idle_gaps_sweep` | 1 / 2 | [1, 2] / [3, 4, 5, 6, 12, 14, 22, 24, 28, 30, 34, 36]; 3 gaps; even seeds slow (22 and 30 were 10.7 and 11.0 cycles before the lock-start fix; 12, 14, 24, 28 and 34 lock on noise) |
 | [Loopback](../../arch/pcs/PIPE_CONTROL.md#loopback): received words re-encoded two cycles after they are on PIPE, with errors as EDB | `loopback` | 1 | [1] |
 | Round trip: TxData through the encoder, line, aligner, buffer and decoder back to RxData, intact | `round_trip` | 1 | [1] |
 | Buffer overflow (RxStatus 5) at +4000 ppm and underflow (RxStatus 6, EDB EDB as K, RxValid 0) at -4000 ppm, outside the targets on purpose | `eb_stress` | 1 | [1, 2] |
 
-**Mutation evidence** (scratch edits of `pcie_pcs.sv`, each reverted):
+**Mutation evidence** (scratch edits, each reverted):
 
 | Mutant | Caught by |
 | --- | --- |
@@ -101,14 +115,15 @@ integration, PIPE control and the HAS [targets](../../arch/pcs/HAS.md#targets).
 | Loopback ignored | `loopback` |
 | RxPolarity ignored | `rx_polarity`, `rx_polarity_toggle` |
 | Overflow status dropped | `eb_stress` |
+| RxValid from symbol 0's lock alone | `rx_elec_idle_gaps` |
+| No lock-start drop in `pcs_elastic` (write or read side) | `rx_elec_idle_gaps` seeds 22 and 30 (the lock target); `pcs_elastic`'s `lock_start_p600` and `lock_start_m600` |
 
-Two mutants survive, both understood. An underflow word without the
-explicit K flags is equivalent: the decoder sees an all-zero symbol, a code
-error, and returns EDB with K set anyway. RxValid from symbol 1's lock
-alone differs only on the first word of a lock packed from an unlocked and
-a locked symbol. At PIPE that word looks like a lock's first word holding
-the symbol before its comma, which the HAS allows, so it cannot be told
-apart there. The elastic buffer's unit DV covers the per-symbol tags.
+RxValid from symbol 1's lock alone is equivalent now. Since the elastic
+buffer drops an unlocked symbol at a lock start, a word whose second
+symbol is locked and first is not no longer occurs; the remaining mixed
+word, at a lock end, has its second symbol unlocked. The underflow word's
+EDB, EDB comes from the decoder, so the top has no multiplexer to mutate
+(`a_udf_edb` asserts it).
 
 ## Gaps
 
