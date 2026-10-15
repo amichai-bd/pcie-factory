@@ -13,8 +13,9 @@
   reads return the data stored before the same edge's write, lane enables
   merge, a level synchronizer delays two edges and resets to its value
   (at once on the asynchronous reset for `COMMON_METAFLOP_ARST`),
-  and the reset synchronizer is high at once on assertion and falls at the
-  second edge after release.
+  and the reset synchronizers are high at once on assertion and fall at the
+  second (`COMMON_RESET_SYNC`) or third (`COMMON_RESET_SYNC_STAGES` with 3)
+  edge after release.
   Unwritten words and never-loaded registers are unknown and not compared.
   Its pytest tests run in `./build ci unit` (`models:common`).
 - **Tests:** [`tests/test_macros.py`](../../../../src/dv/common/tests/test_macros.py)
@@ -52,5 +53,5 @@
 
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
-| [Registers](../../../bkm/rtl.md#registers-and-memories): reset values, capture, enable hold, asynchronous assertion between edges; register arrays; memory read-during-write and lane merge; `COMMON_METAFLOP` latency, `COMMON_METAFLOP_VAL` reset value, `COMMON_METAFLOP_ARST` cleared before any edge and between edges; five `COMMON_PULSE_SYNC` and five `COMMON_PULSE_SYNC_ARST` events, then a high `COMMON_PULSE_SYNC_ARST` pulse dropped between edges by the asynchronous reset while the synchronous form's stays high; `COMMON_RESET_SYNC` on the asynchronous reset: high before any edge and between edges, released at the second edge after the fall | `macros_contract` | 0 | 1 |
+| [Registers](../../../bkm/rtl.md#registers-and-memories): reset values, capture, enable hold, asynchronous assertion between edges; register arrays; memory read-during-write and lane merge; `COMMON_METAFLOP` latency, `COMMON_METAFLOP_VAL` reset value, `COMMON_METAFLOP_ARST` cleared before any edge and between edges; five `COMMON_PULSE_SYNC` and five `COMMON_PULSE_SYNC_ARST` events, then a high `COMMON_PULSE_SYNC_ARST` pulse dropped between edges by the asynchronous reset while the synchronous form's stays high; `COMMON_RESET_SYNC` on the asynchronous reset: high before any edge and between edges, released at the second edge after the fall; `COMMON_RESET_SYNC_STAGES` with 3 the same, still high at the second edge and released at the third | `macros_contract` | 0 | 1 |
 | Every register, array, memory, level-crossing and reset-synchronizer form under random reset, enable, data and memory traffic, against the model | `macros_random` | 1 | 3; 2000 cycles |

@@ -20,13 +20,17 @@ from tb.cdc_env import CLOCK_BINS, EdgeLog, clock_ratio, now, random_periods, st
 
 # Functional coverage (DV plan, Strategy): per pulse, the clock ratio class,
 # its width against one destination period, and whether the next pulse
-# comes while the release is still under way.
+# comes while the release is still under way. A pulse launched on the
+# source grid lasts at least one source cycle, which is longer than a
+# destination period when the destination is faster, so those two crosses
+# are unreachable: left out, and a sample of one fails the test.
 COV = Covergroup("common_cdc_rst")
 COV.coverpoint("clocks", bins=CLOCK_BINS)
 COV.coverpoint("width", bins={"under_period": lambda w: w < 1.0,
                               "over_period": lambda w: w >= 1.0})
 COV.coverpoint("next", bins=["mid_release", "released"])
-COV.cross("clocks_x_width", "clocks", "width")
+COV.cross("clocks_x_width", "clocks", "width",
+          unreachable=[("dst_fast", "under_period"), ("dst_fast_4x", "under_period")])
 COV.cross("width_x_next", "width", "next")
 
 

@@ -193,3 +193,34 @@ def test_merge_sums_and_unions_and_summarize_lists_holes():
     assert s["groups"]["g"]["items"]["p"] == {"covered": 1, "total": 3}
     assert funcov.summarize({}) == {"covered": 0, "total": 0, "groups": {}, "uncovered": []}
     json.dumps(s)  # serializable
+
+
+def test_unreachable_cross_combinations_are_left_out():
+    cg = Covergroup("u")
+    cg.coverpoint("clk", bins=["fast", "slow"])
+    cg.coverpoint("w", bins=["short", "long"])
+    cg.cross("clk_x_w", "clk", "w", unreachable=[("fast", "short")])
+    cg.sample(clk="slow", w="short")
+    cg.sample(clk="fast", w="long")
+    assert funcov.groups()["u"]["clk_x_w"] == {"fast,long": 1, "slow,short": 1, "slow,long": 0}
+    s = funcov.summarize(funcov.merge([{"groups": funcov.groups()}]))
+    assert s["groups"]["u"]["items"]["clk_x_w"] == {"covered": 2, "total": 3}
+    with pytest.raises(CoverageError, match=r"u\.clk_x_w: sampled the combination fast,short"):
+        cg.sample(clk="fast", w="short")
+    cg.sample(clk="fast")  # no cross without w
+    assert funcov.groups()["u"]["clk"] == {"fast": 2, "slow": 1}
+
+
+@pytest.mark.parametrize("unreachable, message", [
+    ([("fast",)], "one bin name per coverpoint"),
+    ([("fast", "huge")], "one bin name per coverpoint"),
+    (["fast,short"], "one bin name per coverpoint"),
+    ([("fast", "short"), ("fast", "long"), ("slow", "short"), ("slow", "long")],
+     "every combination is unreachable"),
+])
+def test_unreachable_definition_errors(unreachable, message):
+    cg = Covergroup("u")
+    cg.coverpoint("clk", bins=["fast", "slow"])
+    cg.coverpoint("w", bins=["short", "long"])
+    with pytest.raises(CoverageError, match=message):
+        cg.cross("clk_x_w", "clk", "w", unreachable=unreachable)

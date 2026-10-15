@@ -235,6 +235,17 @@
     .dst_rst_o(Q) \
   );
 
+// The same, released NUM_STAGES DST_CLK edges after D falls (2 or more):
+// more stages for a destination clock that needs more resolution time.
+`define COMMON_RESET_SYNC_STAGES(INST, Q, D, DST_CLK, NUM_STAGES) \
+  common_cdc_rst #( \
+    .STAGES(NUM_STAGES) \
+  ) INST ( \
+    .dst_clk_i(DST_CLK), \
+    .src_rst_i(D), \
+    .dst_rst_o(Q) \
+  );
+
 `include "common_assertions.svh"
 
 `endif

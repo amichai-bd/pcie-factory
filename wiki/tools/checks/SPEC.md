@@ -641,8 +641,10 @@ version. A nonzero Verilator exit is a finding. Warnings are left to lint.
 
 **Directives.** Every source of every target is scanned as text. A
 comment line that starts with `cdc-cell` is a directive and must match
-`// cdc-cell: src=<port|async> dst=<port>` exactly, with `src` and `dst`
-different, on the line directly above a `module` line. Only a
+`// cdc-cell: src=<port|async> dst=<port> [reset=<port>]` exactly, with `src` and `dst`
+different, on the line directly above a `module` line. The optional
+`reset` token names the output that carries a synchronized reset (a reset
+synchronizer's). Only a
 `common_cdc_*` module in `rtl/common/` or one of its group folders (the
 [layout check](#layout-check) keeps them in `cdc/`) may carry one, and every such module
 must. Each broken rule is a finding at the directive's line. A cell with a
@@ -652,6 +654,7 @@ module name:
 - every port is `src_*` or `dst_*`;
 - `dst` names a `dst_*` input port, and `src` a `src_*` input port or `async`;
 - a `src=async` cell has no `src_*` output;
+- `reset`, when present, names a `dst_*` output port;
 - when the cell is a target itself, each of its flops is clocked by a port
   its directive names, and no output has a purely combinational path from
   an input of the other side (a `dst_*` output from a `src_*` input, or the
@@ -798,6 +801,24 @@ through alias and wire edges until a flop, a cell output or a top input; a
 logic edge on the way, or logic in the connection expression itself, is a
 finding that names where the logic is.
 
+**Synchronized resets.** An approved cell's output that its directive names
+with `reset=` asserts asynchronously, so every flop that takes it must be
+asynchronously reset by it ([RTL BKM](../../bkm/rtl.md#reset-and-clocks)).
+The nodes it reaches are found by a forward walk through combinational
+edges of any kind, stopping at flops and cell outputs. A flop whose data
+input (its assignments' reads and enclosing conditions, a synchronous
+reset included) reaches one is a finding that names the flop and the
+output, unless one of the flop's asynchronous reset signals (the other
+edges of its sensitivity list) is that output itself, reached through
+`alias` and `wire` edges only: such a flop is in reset whenever the reset
+is high, so reading the reset as data as well, for example to gate a write
+during reset, changes nothing. An asynchronous reset that is logic of the
+output (`~r`, `r & e`) is not high whenever the output is, so it exempts
+nothing, and that flop's read is a finding. Lint's
+`SYNCASYNCNET` sees only a net read both in an edge process sensitive to
+it and in one that is not; this rule also covers a domain whose flops all
+take the reset synchronously, and a read through combinational logic.
+
 Findings are prefixed with the target's label (`<ip>` or `common/<block>`);
 directive and annotation text findings are not. Identical findings, such
 as one per iteration of a generate loop, are reported once. The summary
@@ -832,7 +853,12 @@ Each is a known gap, not a promise; review and each cell's MAS cover them.
   any other data input: a reset from another domain's flop, or from an
   input port annotated with another domain, is reported as a crossing.
   Reset assertion and release ordering is not checked, and a reset from an
-  input port without an annotation is not checked at all.
+  input port without an annotation is not checked at all. The
+  [synchronized-reset rule](#cdc-check) covers flops only: a crossing
+  cell's reset input, or an assertion's, fed from a `reset=` output is not
+  checked for its asynchronous form (the cell's `*_ASYNC_RESET` parameter,
+  the assertion's `_ARST` form); review and lint's `SYNCASYNCNET` cover
+  them.
 - **Variable granularity.** Dependencies are tracked per variable, not per
   bit or field: a vector or struct that mixes bits from two domains is one
   node, which can over-report. Arrays (memories) are one node, so a write
@@ -959,7 +985,12 @@ clocked cell input fed from the wrong domain, a generated clock, a
 clock-gating cell (a `(derived)` domain), one finding per source domain
 and once per generate loop, logic in
 front of a `src=async` input (in the connection, one and two assignments
-away) against plain wires, every directive finding (a cell one group folder
+away) against plain wires, a synchronized reset taken as a synchronous
+reset, as data, through logic, by a flop reset asynchronously by another
+reset and by one reset asynchronously by logic of it (gated, inverted)
+against one reset by it (alone, also reading it as data, and through a
+plain wire), a cell
+without the `reset=` token, the token's port rule and grammar, every directive finding (a cell one group folder
 down accepted, deeper refused), a missing and a
 malformed directive (the cell is then looked inside), port and clock
 mismatches, a pass-through cell, a flop-then-wire cell, a memory read at
