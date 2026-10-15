@@ -42,3 +42,10 @@ publishability:
       match: AKIAABCDEFGHIJKLMNOP
       path: tools/metrics/tests/test_metrics_record.py
       reason: fake key-shaped string (the alphabet) planted to test that metrics records refuse it
+
+spec_cache:
+  # Reviewed exemptions from the spec-cache check's archive rule only (a
+  # .zip, .gz, .tgz, .7z or .tar* file can hide a reference document). Each
+  # entry is an fnmatch `path` glob and a `reason`; one that matches no
+  # archive fails the check as stale. PDFs and cached text are never exempt.
+  allow: []

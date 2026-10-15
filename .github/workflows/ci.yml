@@ -107,6 +107,16 @@ jobs:
           git fetch --quiet origin "$base"
           ./build metrics guard --branch "$GITHUB_REF_NAME" --base "origin/$base"
 
+      - name: Reference documents (best effort)
+        # `./build specs fetch` (wiki/tools/specs/SPEC.md) caches the listed
+        # reference documents outside the checkout, so that the spec-cache
+        # check can compare committed files with them. A blocked network or
+        # a sha256 mismatch is reported in the log and never fails the job.
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 3
+        run: ./build specs fetch
+
       - name: Static checks
         id: check
         if: ${{ !cancelled() }}

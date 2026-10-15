@@ -18,6 +18,8 @@ How it is built is in the [MAS](../../rtl/top/MAS.md); how it is verified in the
 [FPGA](../../fpga/top/FPGA.md) and [ASIC](../../asic/top/ASIC.md) pages. Its
 [architecture model](#architecture-model) states this page's behavior and
 targets as executable Python.
+The official sources it relies on (the board manual for FPGA, the PDK and
+flow documentation for ASIC) are on the [references page](../../references.md).
 
 ## Position
 
