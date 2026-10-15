@@ -1,0 +1,12 @@
+tests:
+  - name: lock_offsets
+    module: tests.test_pcs_align
+    testcase: lock_offsets
+    top: pcie_pcs_align
+    timeout_s: 120
+  - name: controls
+    module: tests.test_pcs_align
+    testcase: controls
+    top: pcie_pcs_align
+    timeout_s: 120
+coverage_floors: {functional: {pcs_align_relock: 100}}
