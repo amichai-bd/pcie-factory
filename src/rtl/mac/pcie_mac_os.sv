@@ -1,7 +1,7 @@
 // Ordered sets of pcie_mac: TS1/TS2, SKP (with the SKP schedule), EIOS,
 // FTS and the compliance pattern, sent and recognised two symbols per
 // clock, with the received TS fields decoded for the LTSSM.
-// Interface, behavior and structure: wiki/src/rtl/mac_os/MAS.md; rules:
+// Interface, behavior and structure: wiki/src/rtl/mac/MAS.md; rules:
 // wiki/src/arch/mac/SYMBOLS.md.
 `default_nettype none
 
@@ -24,7 +24,7 @@ module pcie_mac_os #(
   input  logic [7:0]  tx_link_i,
   input  logic        tx_lane_pad_i,
   input  logic [7:0]  tx_lane_i,
-  input  logic [pcie_mac_os_pkg::TX_CTL_W-1:0] tx_ctl_i,            // Hot Reset, Disable Link, Loopback
+  input  logic [pcie_mac_pkg::TX_CTL_W-1:0] tx_ctl_i,            // Hot Reset, Disable Link, Loopback
   output logic        tx_ack_o,             // a requested set starts this cycle
   output logic        tx_last_o,            // last word of a set this cycle
   output logic        tx_skp_due_o,
@@ -55,7 +55,7 @@ module pcie_mac_os #(
   output logic        rx_lane_pad_o,
   output logic        rx_lane_num_o,
   output logic [7:0]  rx_n_fts_o,
-  output logic [pcie_mac_os_pkg::RX_CTL_W-1:0] rx_ctl_o,            // ..., Disable Scrambling, Compliance Receive
+  output logic [pcie_mac_pkg::RX_CTL_W-1:0] rx_ctl_o,            // ..., Disable Scrambling, Compliance Receive
   output logic        rx_ts_bad_o,
   output logic        rx_skp_o,
   output logic        rx_eios_o,
@@ -70,25 +70,25 @@ module pcie_mac_os #(
   // ------------------------------------------------------------- transmit
 
   logic                                       tx_busy_q, tx_busy_d;
-  pcie_mac_os_pkg::t_tx_kind                  tx_kind_q, tx_kind_d, kind;
-  logic [pcie_mac_os_pkg::TX_IDX_W-1:0]       tx_idx_q, tx_idx_d, idx;
-  logic [pcie_mac_os_pkg::SKP_CREDIT_W-1:0]   skp_credit_q, skp_credit_d;
+  pcie_mac_pkg::t_tx_kind                  tx_kind_q, tx_kind_d, kind;
+  logic [pcie_mac_pkg::TX_IDX_W-1:0]       tx_idx_q, tx_idx_d, idx;
+  logic [pcie_mac_pkg::SKP_CREDIT_W-1:0]   skp_credit_q, skp_credit_d;
 
   // TS fields taken at tx_ack_o.
   logic       f_ts2_q, f_lane_pad_q;
   logic [7:0] f_lane_q;
-  logic [pcie_mac_os_pkg::TX_CTL_W-1:0] f_ctl_q;
+  logic [pcie_mac_pkg::TX_CTL_W-1:0] f_ctl_q;
 
   logic       req_any, start_sched, start_req, start, last, counted;
   logic       f_ts2, f_lane_pad;
   logic [7:0] f_lane;
-  logic [pcie_mac_os_pkg::TX_CTL_W-1:0] f_ctl;
+  logic [pcie_mac_pkg::TX_CTL_W-1:0] f_ctl;
   logic [7:0] id_byte, link_byte, lane_byte;
   logic       link_k, lane_k;
 
   assign req_any = tx_ts_req_i | tx_skp_req_i | tx_eios_req_i | tx_fts_req_i
                  | tx_compliance_req_i;
-  assign tx_skp_due_o = (skp_credit_q >= pcie_mac_os_pkg::SKP_CREDIT_W'(pcie_mac_os_pkg::SKP_INTERVAL));
+  assign tx_skp_due_o = (skp_credit_q >= pcie_mac_pkg::SKP_CREDIT_W'(pcie_mac_pkg::SKP_INTERVAL));
   assign start_sched  = !tx_busy_q && tx_skp_due_o && tx_skp_ok_i;
   assign start_req    = !tx_busy_q && !start_sched && req_any;
   assign start        = start_sched | start_req;
@@ -100,27 +100,27 @@ module pcie_mac_os #(
     if (start) begin
       idx = '0;
       if (start_sched || tx_skp_req_i) begin
-        kind = pcie_mac_os_pkg::KIND_SKP;
+        kind = pcie_mac_pkg::KIND_SKP;
       end else if (tx_eios_req_i) begin
-        kind = pcie_mac_os_pkg::KIND_EIOS;
+        kind = pcie_mac_pkg::KIND_EIOS;
       end else if (tx_fts_req_i) begin
-        kind = pcie_mac_os_pkg::KIND_FTS;
+        kind = pcie_mac_pkg::KIND_FTS;
       end else if (tx_compliance_req_i) begin
-        kind = pcie_mac_os_pkg::KIND_COMPL;
+        kind = pcie_mac_pkg::KIND_COMPL;
       end else begin
-        kind = pcie_mac_os_pkg::KIND_TS;
+        kind = pcie_mac_pkg::KIND_TS;
       end
     end
   end
 
-  assign last = (kind == pcie_mac_os_pkg::KIND_TS)
-              ? (idx == pcie_mac_os_pkg::TX_IDX_W'(pcie_mac_os_pkg::TS_WORDS - 1))
-              : (idx == pcie_mac_os_pkg::TX_IDX_W'(pcie_mac_os_pkg::OS_WORDS - 1));
+  assign last = (kind == pcie_mac_pkg::KIND_TS)
+              ? (idx == pcie_mac_pkg::TX_IDX_W'(pcie_mac_pkg::TS_WORDS - 1))
+              : (idx == pcie_mac_pkg::TX_IDX_W'(pcie_mac_pkg::OS_WORDS - 1));
 
   assign tx_valid_o = tx_busy_q | start;
   assign tx_ack_o   = start_req;
   assign tx_last_o  = tx_valid_o & last;
-  assign tx_compliance_o = tx_valid_o && (kind == pcie_mac_os_pkg::KIND_COMPL)
+  assign tx_compliance_o = tx_valid_o && (kind == pcie_mac_pkg::KIND_COMPL)
                         && (idx == '0);
 
   // Fields: from the inputs in the start cycle, from the registers after.
@@ -129,11 +129,11 @@ module pcie_mac_os #(
   assign f_lane     = start ? tx_lane_i     : f_lane_q;
   assign f_ctl      = start ? tx_ctl_i      : f_ctl_q;
 
-  assign id_byte   = f_ts2 ? pcie_mac_os_pkg::TS2_ID : pcie_mac_os_pkg::TS1_ID;
+  assign id_byte   = f_ts2 ? common_pkg::TS2_ID : common_pkg::TS1_ID;
   assign link_k    = tx_link_pad_i;  // word 0 only, the start cycle
-  assign link_byte = tx_link_pad_i ? pcie_mac_os_pkg::SYM_PAD : tx_link_i;
+  assign link_byte = tx_link_pad_i ? common_pkg::SYM_PAD : tx_link_i;
   assign lane_k    = f_lane_pad;
-  assign lane_byte = f_lane_pad ? pcie_mac_os_pkg::SYM_PAD : f_lane;
+  assign lane_byte = f_lane_pad ? common_pkg::SYM_PAD : f_lane;
 
   // The word: {[15:8], [7:0]} and its K flags.
   always_comb begin
@@ -141,38 +141,38 @@ module pcie_mac_os #(
     tx_datak_o = 2'b00;
     if (tx_valid_o) begin
       case (kind)
-        pcie_mac_os_pkg::KIND_TS: begin
+        pcie_mac_pkg::KIND_TS: begin
           case (idx)
             3'd0: begin
-              tx_data_o  = {link_byte, pcie_mac_os_pkg::SYM_COM};
+              tx_data_o  = {link_byte, common_pkg::SYM_COM};
               tx_datak_o = {link_k, 1'b1};
             end
             3'd1: begin
               tx_data_o  = {N_FTS_BYTE, lane_byte};
               tx_datak_o = {1'b0, lane_k};
             end
-            3'd2: tx_data_o = {5'd0, f_ctl, pcie_mac_os_pkg::RATE_GEN1};
+            3'd2: tx_data_o = {5'd0, f_ctl, common_pkg::RATE_GEN1};
             default: tx_data_o = {id_byte, id_byte};
           endcase
         end
-        pcie_mac_os_pkg::KIND_SKP: begin
-          tx_data_o  = {pcie_mac_os_pkg::SYM_SKP,
-                        (idx == '0) ? pcie_mac_os_pkg::SYM_COM : pcie_mac_os_pkg::SYM_SKP};
+        pcie_mac_pkg::KIND_SKP: begin
+          tx_data_o  = {common_pkg::SYM_SKP,
+                        (idx == '0) ? common_pkg::SYM_COM : common_pkg::SYM_SKP};
           tx_datak_o = 2'b11;
         end
-        pcie_mac_os_pkg::KIND_EIOS: begin
-          tx_data_o  = {pcie_mac_os_pkg::SYM_IDL,
-                        (idx == '0) ? pcie_mac_os_pkg::SYM_COM : pcie_mac_os_pkg::SYM_IDL};
+        pcie_mac_pkg::KIND_EIOS: begin
+          tx_data_o  = {common_pkg::SYM_IDL,
+                        (idx == '0) ? common_pkg::SYM_COM : common_pkg::SYM_IDL};
           tx_datak_o = 2'b11;
         end
-        pcie_mac_os_pkg::KIND_FTS: begin
-          tx_data_o  = {pcie_mac_os_pkg::SYM_FTS,
-                        (idx == '0) ? pcie_mac_os_pkg::SYM_COM : pcie_mac_os_pkg::SYM_FTS};
+        pcie_mac_pkg::KIND_FTS: begin
+          tx_data_o  = {common_pkg::SYM_FTS,
+                        (idx == '0) ? common_pkg::SYM_COM : common_pkg::SYM_FTS};
           tx_datak_o = 2'b11;
         end
-        pcie_mac_os_pkg::KIND_COMPL: begin
-          tx_data_o  = {(idx == '0) ? pcie_mac_os_pkg::COMPL_D21_5 : pcie_mac_os_pkg::COMPL_D10_2,
-                        pcie_mac_os_pkg::SYM_COM};
+        pcie_mac_pkg::KIND_COMPL: begin
+          tx_data_o  = {(idx == '0) ? common_pkg::COMPL_D21_5 : common_pkg::COMPL_D10_2,
+                        common_pkg::SYM_COM};
           tx_datak_o = 2'b01;
         end
         default: ;
@@ -192,29 +192,29 @@ module pcie_mac_os #(
 
   // SKP count: +2 per counted word; a scheduled SKP takes 1180, a requested
   // one restarts it. Saturates (an assertion fails first).
-  assign counted = (tx_valid_o && (kind != pcie_mac_os_pkg::KIND_COMPL)) || tx_count_i;
+  assign counted = (tx_valid_o && (kind != pcie_mac_pkg::KIND_COMPL)) || tx_count_i;
 
-  logic [pcie_mac_os_pkg::SKP_CREDIT_W:0] sum;
+  logic [pcie_mac_pkg::SKP_CREDIT_W:0] sum;
 
   always_comb begin
     sum = {1'b0, skp_credit_q};
     if (start_req && tx_skp_req_i) begin
       sum = '0;
     end else if (start_sched) begin
-      sum = sum - (pcie_mac_os_pkg::SKP_CREDIT_W + 1)'(pcie_mac_os_pkg::SKP_INTERVAL);
+      sum = sum - (pcie_mac_pkg::SKP_CREDIT_W + 1)'(pcie_mac_pkg::SKP_INTERVAL);
     end
     if (counted) begin
-      sum = sum + (pcie_mac_os_pkg::SKP_CREDIT_W + 1)'(2);
+      sum = sum + (pcie_mac_pkg::SKP_CREDIT_W + 1)'(2);
     end
-    if (sum[pcie_mac_os_pkg::SKP_CREDIT_W]) begin
-      skp_credit_d = pcie_mac_os_pkg::SKP_CREDIT_MAX;
+    if (sum[pcie_mac_pkg::SKP_CREDIT_W]) begin
+      skp_credit_d = pcie_mac_pkg::SKP_CREDIT_MAX;
     end else begin
-      skp_credit_d = sum[pcie_mac_os_pkg::SKP_CREDIT_W-1:0];
+      skp_credit_d = sum[pcie_mac_pkg::SKP_CREDIT_W-1:0];
     end
   end
 
   `COMMON_DFF_RST(tx_busy_q, tx_busy_d, clk_i, rst_i)
-  `COMMON_DFF_RST_VAL(tx_kind_q, tx_kind_d, clk_i, rst_i, pcie_mac_os_pkg::KIND_TS)
+  `COMMON_DFF_RST_VAL(tx_kind_q, tx_kind_d, clk_i, rst_i, pcie_mac_pkg::KIND_TS)
   `COMMON_DFF_RST(tx_idx_q, tx_idx_d, clk_i, rst_i)
   `COMMON_DFF_RST(skp_credit_q, skp_credit_d, clk_i, rst_i)
   `COMMON_DFF_EN(f_ts2_q, tx_ts2_i, clk_i, start)
@@ -227,13 +227,13 @@ module pcie_mac_os #(
                            tx_compliance_req_i}))
   `COMMON_ASSERT_NEVER(a_count_while_valid, clk_i, rst_i, tx_count_i && tx_valid_o)
   `COMMON_ASSERT_NEVER(a_skp_credit_saturates, clk_i, rst_i,
-                       skp_credit_q == pcie_mac_os_pkg::SKP_CREDIT_MAX)
+                       skp_credit_q == pcie_mac_pkg::SKP_CREDIT_MAX)
 
   // -------------------------------------------------------------- receive
 
-  pcie_mac_os_pkg::t_rx_state rx_q, rx_d;
-  pcie_mac_os_pkg::t_rx_step  step0, step1;
-  pcie_mac_os_pkg::t_rx_ev    ev0, ev1;
+  pcie_mac_pkg::t_rx_state rx_q, rx_d;
+  pcie_mac_pkg::t_rx_step  step0, step1;
+  pcie_mac_pkg::t_rx_ev    ev0, ev1;
   logic                       rx_qual;
   logic [7:0]                 sym0, sym1;
   logic                       k0, k1;
@@ -246,8 +246,8 @@ module pcie_mac_os #(
 
   // [7:0] then [15:8], one symbol step each.
   always_comb begin
-    step0 = pcie_mac_os_pkg::rx_step(rx_q, k0, sym0);
-    step1 = pcie_mac_os_pkg::rx_step(step0.st, k1, sym1);
+    step0 = pcie_mac_pkg::rx_step(rx_q, k0, sym0);
+    step1 = pcie_mac_pkg::rx_step(step0.st, k1, sym1);
     ev0   = '0;
     ev1   = '0;
     rx_d  = rx_q;
@@ -258,7 +258,7 @@ module pcie_mac_os #(
     end
   end
 
-  `COMMON_DFF_RST_VAL(rx_q, rx_d, clk_i, rst_i, pcie_mac_os_pkg::RX_STATE_RESET)
+  `COMMON_DFF_RST_VAL(rx_q, rx_d, clk_i, rst_i, pcie_mac_pkg::RX_STATE_RESET)
 
   assign rx_os_sym_o = {ev1.os_sym, ev0.os_sym};
   assign rx_ts_o     = ev0.ts | ev1.ts;
@@ -268,15 +268,15 @@ module pcie_mac_os #(
   assign rx_fts_o    = ev0.fts | ev1.fts;
 
   // Fields of the TS completing this cycle; all were filled in earlier cycles.
-  assign rx_ts2_o      = (rx_q.id == pcie_mac_os_pkg::TS2_ID)
-                       || (rx_q.id == pcie_mac_os_pkg::TS2_ID_INV);
-  assign rx_ts_inv_o   = (rx_q.id == pcie_mac_os_pkg::TS1_ID_INV)
-                       || (rx_q.id == pcie_mac_os_pkg::TS2_ID_INV);
+  assign rx_ts2_o      = (rx_q.id == common_pkg::TS2_ID)
+                       || (rx_q.id == common_pkg::TS2_ID_INV);
+  assign rx_ts_inv_o   = (rx_q.id == common_pkg::TS1_ID_INV)
+                       || (rx_q.id == common_pkg::TS2_ID_INV);
   assign rx_link_o     = rx_q.link;
-  assign rx_link_pad_o = rx_q.link_k && (rx_q.link == pcie_mac_os_pkg::SYM_PAD);
+  assign rx_link_pad_o = rx_q.link_k && (rx_q.link == common_pkg::SYM_PAD);
   assign rx_link_num_o = !rx_q.link_k;
   assign rx_lane_o     = rx_q.lane;
-  assign rx_lane_pad_o = rx_q.lane_k && (rx_q.lane == pcie_mac_os_pkg::SYM_PAD);
+  assign rx_lane_pad_o = rx_q.lane_k && (rx_q.lane == common_pkg::SYM_PAD);
   assign rx_lane_num_o = !rx_q.lane_k;
   assign rx_n_fts_o    = rx_q.n_fts;
   assign rx_ctl_o      = rx_q.ctl;

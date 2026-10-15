@@ -1,5 +1,5 @@
 // Scrambler and descrambler, two symbols per clk_i cycle: one instance per
-// direction (wiki/src/rtl/mac_scrambler/MAS.md; rules in
+// direction (wiki/src/rtl/mac/MAS.md#scrambler; rules in
 // wiki/src/arch/mac/SYMBOLS.md#scrambling). Adapted from the seed
 // pcie_top_lfsr (same repository, Apache-2.0).
 `default_nettype none
@@ -19,16 +19,12 @@ module pcie_mac_scrambler (
 );
 
   localparam int unsigned SYMS   = 2;        // symbols per clk_i cycle, [7:0] first
-  localparam int unsigned BYTE_W = pcie_mac_scrambler_pkg::BYTE_W;
-  localparam pcie_mac_scrambler_pkg::t_lfsr LFSR_SEED = 16'hFFFF;
-  // The K symbols the scrambler acts on: COM (K28.5) and SKP (K28.0)
-  // [cite: PCIe Base Spec, rev 3.0, §4.2.1.1].
-  localparam pcie_mac_scrambler_pkg::t_byte SYM_COM = 8'hBC;
-  localparam pcie_mac_scrambler_pkg::t_byte SYM_SKP = 8'h1C;
+  localparam int unsigned BYTE_W = pcie_mac_pkg::BYTE_W;
+  localparam pcie_mac_pkg::t_lfsr LFSR_SEED = 16'hFFFF;
 
-  pcie_mac_scrambler_pkg::t_lfsr            state_q;     // LFSR before symbol 0
-  pcie_mac_scrambler_pkg::t_lfsr            state_next;  // LFSR after the last symbol
-  pcie_mac_scrambler_pkg::t_lfsr [SYMS:0]   lane_state;  // LFSR before symbol i; [SYMS] after all
+  pcie_mac_pkg::t_lfsr            state_q;     // LFSR before symbol 0
+  pcie_mac_pkg::t_lfsr            state_next;  // LFSR after the last symbol
+  pcie_mac_pkg::t_lfsr [SYMS:0]   lane_state;  // LFSR before symbol i; [SYMS] after all
   logic [SYMS-1:0]                          sym_com;
   logic [SYMS-1:0]                          sym_skp;
   logic [SYMS-1:0]                          sym_scr;     // data symbols to XOR
@@ -38,8 +34,8 @@ module pcie_mac_scrambler (
   logic [1:0]                               datak_q;
 
   for (genvar i = 0; i < SYMS; i++) begin : g_lane
-    assign sym_com[i] = datak_i[i] && (data_i[BYTE_W*i +: BYTE_W] == SYM_COM);
-    assign sym_skp[i] = datak_i[i] && (data_i[BYTE_W*i +: BYTE_W] == SYM_SKP);
+    assign sym_com[i] = datak_i[i] && (data_i[BYTE_W*i +: BYTE_W] == common_pkg::SYM_COM);
+    assign sym_skp[i] = datak_i[i] && (data_i[BYTE_W*i +: BYTE_W] == common_pkg::SYM_SKP);
   end
 
   // K symbols are never changed, whatever scr_i says.
@@ -55,14 +51,14 @@ module pcie_mac_scrambler (
     for (int unsigned i = 0; i < SYMS; i++) begin
       if (sym_scr[i]) begin
         data_d[BYTE_W*i +: BYTE_W] = data_i[BYTE_W*i +: BYTE_W]
-                                   ^ pcie_mac_scrambler_pkg::lfsr_key(lane_state[i]);
+                                   ^ pcie_mac_pkg::lfsr_key(lane_state[i]);
       end
       if (sym_com[i]) begin
         lane_state[i+1] = LFSR_SEED;
       end else if (sym_skp[i]) begin
         lane_state[i+1] = lane_state[i];
       end else begin
-        lane_state[i+1] = pcie_mac_scrambler_pkg::lfsr_advance(lane_state[i]);
+        lane_state[i+1] = pcie_mac_pkg::lfsr_advance(lane_state[i]);
       end
     end
   end

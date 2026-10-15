@@ -79,8 +79,8 @@ module pcie_mac #(
                            TIMEOUT_DIV[0], ERR_TIMEOUT_DIV[0], N_FTS[0],
                            L0S_IDLE_CYCLES[0]};
 
-  // Ordered sets (wiki/src/rtl/mac_os/MAS.md) and the LTSSM
-  // (wiki/src/rtl/mac_ltssm/MAS.md), joined port to port; the frame
+  // Ordered sets (wiki/src/rtl/mac/MAS.md) and the LTSSM
+  // (wiki/src/rtl/mac/MAS.md), joined port to port; the frame
   // connections, the transmit word and the outputs arrive with #78. Until
   // then the LTSSM's PCS status is tied to "not ready", so it stays in
   // Detect.Quiet and requests no ordered set, and the receive side only
@@ -94,7 +94,7 @@ module pcie_mac #(
   logic [7:0]  os_rx_link, os_rx_lane, os_rx_n_fts;
   logic [4:0]  os_rx_ctl;
 
-  // Frame signals (wiki/src/rtl/mac_frame/MAS.md).
+  // Frame signals (wiki/src/rtl/mac/MAS.md).
   logic        frame_tx_ready;
   logic        frame_rx_valid;
   logic [15:0] frame_rx_data;
@@ -107,7 +107,7 @@ module pcie_mac #(
   logic        frame_rx_frame_err;
   logic [1:0]  frame_rx_idle;
 
-  // LTSSM signals (wiki/src/rtl/mac_ltssm/MAS.md).
+  // LTSSM signals (wiki/src/rtl/mac/MAS.md).
   logic        ltssm_fr_tx_idle;   // the frame's idle word is on the line
   logic        ltssm_link_up, ltssm_reset_n, ltssm_tx_elec_idle, ltssm_tx_detect_rx;
   logic        ltssm_rx_polarity, ltssm_tx_ts_req, ltssm_tx_compliance_req, ltssm_tx_ts2;
@@ -227,7 +227,7 @@ module pcie_mac #(
                                      ltssm_tx_detect_rx, ltssm_rx_polarity, ltssm_state,
                                      ltssm_power_down, ltssm_partner_n_fts})
 
-  // Framing (wiki/src/rtl/mac_frame/MAS.md), inert until the integration (#78):
+  // Framing (wiki/src/rtl/mac/MAS.md), inert until the integration (#78):
   // its LTSSM controls come from u_ltssm, which stays in Detect.Quiet (no
   // L0), so it holds the line idle; its other outputs are not connected yet.
   pcie_mac_frame u_frame (
@@ -284,7 +284,7 @@ module pcie_mac #(
   assign pkt_rx_err_o         = 1'b0;
   assign pkt_rx_nullify_o     = 1'b0;
   assign link_up_o            = 1'b0;
-  assign ltssm_state_o        = pcie_mac_pkg::LTSSM_DETECT_QUIET;
+  assign ltssm_state_o        = common_pkg::LTSSM_DETECT_QUIET;
   assign rcv_err_o            = 1'b0;
   assign pipe_reset_no        = 1'b0;
   assign pipe_tx_data_o       = 16'd0;
@@ -293,7 +293,7 @@ module pcie_mac #(
   assign pipe_tx_elec_idle_o  = 1'b1;
   assign pipe_tx_compliance_o = 1'b0;
   assign pipe_rx_polarity_o   = 1'b0;
-  assign pipe_power_down_o    = pcie_mac_pkg::PD_P1;
+  assign pipe_power_down_o    = common_pkg::PD_P1;
 
 endmodule
 

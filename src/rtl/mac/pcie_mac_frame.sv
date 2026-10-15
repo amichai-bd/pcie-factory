@@ -1,7 +1,7 @@
 // Packet framing between the upper packet stream and the L0 symbol stream:
 // STP/SDP, END and EDB, logical idle, ready and SKP deferral on transmit;
 // ordered-set skipping, deframing, realignment, err/nullify and framing
-// errors on receive. Interface and behavior: wiki/src/rtl/mac_frame/MAS.md;
+// errors on receive. Interface and behavior: wiki/src/rtl/mac/MAS.md;
 // the rules: wiki/src/arch/mac/HAS.md (Transmit, Receive) and
 // wiki/src/arch/mac/SYMBOLS.md (Framing).
 `default_nettype none
@@ -63,8 +63,8 @@ module pcie_mac_frame (
   logic tx_up_open_d;
   logic tx_line_open_q;  // the packet's start is on the line, its end not yet
   logic tx_line_open_d;
-  pcie_mac_frame_pkg::t_byte tx_carry_q;  // packet byte for [7:0] of the next word
-  pcie_mac_frame_pkg::t_byte tx_carry_d;
+  pcie_mac_pkg::t_byte tx_carry_q;  // packet byte for [7:0] of the next word
+  pcie_mac_pkg::t_byte tx_carry_d;
   logic tx_dllp_q;
   logic tx_dllp_d;
   logic tx_tail_edb_q;   // the packet's end symbol is EDB (nullified TLP)
@@ -93,12 +93,12 @@ module pcie_mac_frame (
     tx_carry_d     = tx_carry_q;
     tx_dllp_d      = tx_dllp_q;
     tx_tail_edb_d  = tx_tail_edb_q;
-    tx_word        = {pcie_mac_frame_pkg::IDLE_DATA, pcie_mac_frame_pkg::IDLE_DATA};
+    tx_word        = {common_pkg::IDLE_DATA, common_pkg::IDLE_DATA};
     tx_word_k      = 2'b00;
     tx_word_pkt    = 1'b0;
     if (tx_abort) begin
       // EDB replaces the unsent symbols; one idle keeps the next set in [7:0].
-      tx_word        = {pcie_mac_frame_pkg::IDLE_DATA, pcie_mac_frame_pkg::SYM_EDB};
+      tx_word        = {common_pkg::IDLE_DATA, common_pkg::SYM_EDB};
       tx_word_k      = 2'b01;
       tx_word_pkt    = 1'b1;
       tx_line_open_d = 1'b0;
@@ -116,7 +116,7 @@ module pcie_mac_frame (
       end
     end else if (tx_line_open_q) begin
       // The end word: last byte, then END or EDB.
-      tx_word        = {(tx_tail_edb_q ? pcie_mac_frame_pkg::SYM_EDB : pcie_mac_frame_pkg::SYM_END),
+      tx_word        = {(tx_tail_edb_q ? common_pkg::SYM_EDB : common_pkg::SYM_END),
                         tx_carry_q};
       tx_word_k      = 2'b10;
       tx_word_pkt    = 1'b1;
@@ -124,7 +124,7 @@ module pcie_mac_frame (
     end else if (tx_accept && !tx_up_open_q) begin
       // The sop beat: STP or SDP, then the first byte.
       tx_word        = {pkt_tx_data_i[7:0],
-                        (pkt_tx_dllp_i ? pcie_mac_frame_pkg::SYM_SDP : pcie_mac_frame_pkg::SYM_STP)};
+                        (pkt_tx_dllp_i ? common_pkg::SYM_SDP : common_pkg::SYM_STP)};
       tx_word_k      = 2'b01;
       tx_word_pkt    = 1'b1;
       tx_carry_d     = pkt_tx_data_i[15:8];
@@ -162,10 +162,10 @@ module pcie_mac_frame (
 
   // ------------------------------------------------------------- receive
 
-  pcie_mac_frame_pkg::t_os_state os_q;
-  pcie_mac_frame_pkg::t_os_state os_d;
-  pcie_mac_frame_pkg::t_ts_cnt   ts_cnt_q;
-  pcie_mac_frame_pkg::t_ts_cnt   ts_cnt_d;
+  pcie_mac_pkg::t_os_state os_q;
+  pcie_mac_pkg::t_os_state os_d;
+  pcie_mac_pkg::t_ts_cnt   ts_cnt_q;
+  pcie_mac_pkg::t_ts_cnt   ts_cnt_d;
   logic in_pkt_q;      // a packet is open
   logic in_pkt_d;
   logic pkt_dllp_q;
@@ -174,33 +174,33 @@ module pcie_mac_frame (
   logic pkt_bad_d;
   logic pkt_first_q;   // its first beat is not formed yet
   logic pkt_first_d;
-  pcie_mac_frame_pkg::t_len len_q;  // bytes so far, saturating
-  pcie_mac_frame_pkg::t_len len_d;
+  pcie_mac_pkg::t_len len_q;  // bytes so far, saturating
+  pcie_mac_pkg::t_len len_d;
   logic resync_q;      // after a framing error: discard to STP, SDP, END or EDB
   logic resync_d;
   logic hold_v_q;      // one byte waiting for its pair
   logic hold_v_d;
-  pcie_mac_frame_pkg::t_byte hold_q;
-  pcie_mac_frame_pkg::t_byte hold_d;
+  pcie_mac_pkg::t_byte hold_q;
+  pcie_mac_pkg::t_byte hold_d;
   logic pend_v_q;      // a full beat waiting to learn whether it is the last
   logic pend_v_d;
-  pcie_mac_frame_pkg::t_beat_data pend_q;
-  pcie_mac_frame_pkg::t_beat_data pend_d;
+  pcie_mac_pkg::t_beat_data pend_q;
+  pcie_mac_pkg::t_beat_data pend_d;
   logic pend_sop_q;
   logic pend_sop_d;
 
   // Output queue: q0 is presented, q1 behind it.
-  pcie_mac_frame_pkg::t_rx_beat q0_q;
-  pcie_mac_frame_pkg::t_rx_beat q0_d;
-  pcie_mac_frame_pkg::t_rx_beat q1_q;
-  pcie_mac_frame_pkg::t_rx_beat q1_d;
-  pcie_mac_frame_pkg::t_rxq_cnt cnt_q;
-  pcie_mac_frame_pkg::t_rxq_cnt cnt_d;
-  pcie_mac_frame_pkg::t_rxq_cnt cnt_left;  // after this cycle's pop
+  pcie_mac_pkg::t_rx_beat q0_q;
+  pcie_mac_pkg::t_rx_beat q0_d;
+  pcie_mac_pkg::t_rx_beat q1_q;
+  pcie_mac_pkg::t_rx_beat q1_d;
+  pcie_mac_pkg::t_rxq_cnt cnt_q;
+  pcie_mac_pkg::t_rxq_cnt cnt_d;
+  pcie_mac_pkg::t_rxq_cnt cnt_left;  // after this cycle's pop
   logic [2:0] cnt_sum;                     // cnt_left plus pushes, before the check
 
-  pcie_mac_frame_pkg::t_rx_beat push_a;
-  pcie_mac_frame_pkg::t_rx_beat push_b;
+  pcie_mac_pkg::t_rx_beat push_a;
+  pcie_mac_pkg::t_rx_beat push_b;
   logic [1:0] npush;
   logic       push_late;  // a pending-beat push that is not the first (never)
   logic       ferr;
@@ -211,7 +211,7 @@ module pcie_mac_frame (
   // Per-step scratch of the parser.
   logic       sym_ok;
   logic       sym_k;
-  pcie_mac_frame_pkg::t_byte sym_b;
+  pcie_mac_pkg::t_byte sym_b;
   logic       parse;
   logic       do_end;
   logic       end_err;
@@ -219,7 +219,7 @@ module pcie_mac_frame (
   logic       do_add;
   logic       do_start;
   logic       bad;
-  pcie_mac_frame_pkg::t_rx_beat beat;
+  pcie_mac_pkg::t_rx_beat beat;
 
   assign sym_ok = rx_valid_i && !rx_elec_idle_i;
 
@@ -284,10 +284,10 @@ module pcie_mac_frame (
         sym_k = rx_datak_i[s-1];
         sym_b = rx_data_i[8*(s-1) +: 8];
         parse = 1'b0;
-        if (sym_k && sym_b == pcie_mac_frame_pkg::SYM_COM) begin
+        if (sym_k && sym_b == common_pkg::SYM_COM) begin
           // An ordered set starts, in every state; inside a packet it is a
           // framing error that ends the packet bad.
-          os_d = pcie_mac_frame_pkg::OS_FIRST;
+          os_d = pcie_mac_pkg::OS_FIRST;
           if (in_pkt_d) begin
             do_end  = 1'b1;
             end_err = 1'b1;
@@ -298,33 +298,33 @@ module pcie_mac_frame (
           end
         end else begin
           case (os_d)
-            pcie_mac_frame_pkg::OS_FIRST: begin
-              if (sym_k && sym_b == pcie_mac_frame_pkg::SYM_SKP) begin
-                os_d = pcie_mac_frame_pkg::OS_SKP;
-              end else if (sym_k && (sym_b == pcie_mac_frame_pkg::SYM_IDL
-                                     || sym_b == pcie_mac_frame_pkg::SYM_FTS)) begin
-                os_d = pcie_mac_frame_pkg::OS_RUN;
+            pcie_mac_pkg::OS_FIRST: begin
+              if (sym_k && sym_b == common_pkg::SYM_SKP) begin
+                os_d = pcie_mac_pkg::OS_SKP;
+              end else if (sym_k && (sym_b == common_pkg::SYM_IDL
+                                     || sym_b == common_pkg::SYM_FTS)) begin
+                os_d = pcie_mac_pkg::OS_RUN;
               end else begin
-                os_d     = pcie_mac_frame_pkg::OS_TS;
-                ts_cnt_d = pcie_mac_frame_pkg::t_ts_cnt'(1);
+                os_d     = pcie_mac_pkg::OS_TS;
+                ts_cnt_d = pcie_mac_pkg::t_ts_cnt'(1);
               end
             end
-            pcie_mac_frame_pkg::OS_TS: begin
-              ts_cnt_d = ts_cnt_d + pcie_mac_frame_pkg::t_ts_cnt'(1);
-              if (ts_cnt_d == pcie_mac_frame_pkg::t_ts_cnt'(pcie_mac_frame_pkg::TS_BODY)) begin
-                os_d = pcie_mac_frame_pkg::OS_NONE;
+            pcie_mac_pkg::OS_TS: begin
+              ts_cnt_d = ts_cnt_d + pcie_mac_pkg::t_ts_cnt'(1);
+              if (ts_cnt_d == pcie_mac_pkg::t_ts_cnt'(pcie_mac_pkg::TS_BODY)) begin
+                os_d = pcie_mac_pkg::OS_NONE;
               end
             end
-            pcie_mac_frame_pkg::OS_SKP: begin
-              if (!(sym_k && sym_b == pcie_mac_frame_pkg::SYM_SKP)) begin
-                os_d  = pcie_mac_frame_pkg::OS_NONE;
+            pcie_mac_pkg::OS_SKP: begin
+              if (!(sym_k && sym_b == common_pkg::SYM_SKP)) begin
+                os_d  = pcie_mac_pkg::OS_NONE;
                 parse = 1'b1;
               end
             end
-            pcie_mac_frame_pkg::OS_RUN: begin
-              if (!(sym_k && (sym_b == pcie_mac_frame_pkg::SYM_IDL
-                              || sym_b == pcie_mac_frame_pkg::SYM_FTS))) begin
-                os_d  = pcie_mac_frame_pkg::OS_NONE;
+            pcie_mac_pkg::OS_RUN: begin
+              if (!(sym_k && (sym_b == common_pkg::SYM_IDL
+                              || sym_b == common_pkg::SYM_FTS))) begin
+                os_d  = pcie_mac_pkg::OS_NONE;
                 parse = 1'b1;
               end
             end
@@ -332,7 +332,7 @@ module pcie_mac_frame (
           endcase
         end
         if (parse && sym_k) begin
-          if (sym_b == pcie_mac_frame_pkg::SYM_STP || sym_b == pcie_mac_frame_pkg::SYM_SDP) begin
+          if (sym_b == common_pkg::SYM_STP || sym_b == common_pkg::SYM_SDP) begin
             if (in_pkt_d) begin
               do_end  = 1'b1;
               end_err = 1'b1;
@@ -340,12 +340,12 @@ module pcie_mac_frame (
             end
             do_start = rx_l0_i;
             resync_d = 1'b0;
-          end else if ((sym_b == pcie_mac_frame_pkg::SYM_END
-                        || sym_b == pcie_mac_frame_pkg::SYM_EDB) && in_pkt_d) begin
+          end else if ((sym_b == common_pkg::SYM_END
+                        || sym_b == common_pkg::SYM_EDB) && in_pkt_d) begin
             do_end  = 1'b1;
-            end_edb = sym_b == pcie_mac_frame_pkg::SYM_EDB;
-          end else if ((sym_b == pcie_mac_frame_pkg::SYM_END
-                        || sym_b == pcie_mac_frame_pkg::SYM_EDB) && resync_d) begin
+            end_edb = sym_b == common_pkg::SYM_EDB;
+          end else if ((sym_b == common_pkg::SYM_END
+                        || sym_b == common_pkg::SYM_EDB) && resync_d) begin
             resync_d = 1'b0;
           end else if (in_pkt_d) begin
             do_end  = 1'b1;
@@ -363,7 +363,7 @@ module pcie_mac_frame (
             do_add = 1'b1;
           end else if (resync_d) begin
             // discarded
-          end else if (sym_b == pcie_mac_frame_pkg::IDLE_DATA) begin
+          end else if (sym_b == common_pkg::IDLE_DATA) begin
             idle[s-1] = 1'b1;
           end else if (rx_l0_i) begin
             ferr     = 1'b1;
@@ -374,7 +374,7 @@ module pcie_mac_frame (
 
       if (do_end) begin
         bad = end_err || pkt_bad_d || hold_v_d
-              || (pkt_dllp_d && len_d != pcie_mac_frame_pkg::t_len'(pcie_mac_frame_pkg::DLLP_BYTES))
+              || (pkt_dllp_d && len_d != pcie_mac_pkg::t_len'(pcie_mac_pkg::DLLP_BYTES))
               || (end_edb && pkt_dllp_d);
         beat         = '0;
         beat.eop     = 1'b1;
@@ -385,7 +385,7 @@ module pcie_mac_frame (
           beat.data = pend_d;
           beat.sop  = pend_sop_d;
         end else begin
-          beat.data = {pcie_mac_frame_pkg::IDLE_DATA, hold_d};
+          beat.data = {common_pkg::IDLE_DATA, hold_d};
           beat.sop  = pkt_first_d;
         end
         if (pend_v_d || hold_v_d) begin
@@ -407,7 +407,7 @@ module pcie_mac_frame (
 
       if (do_start) begin
         in_pkt_d    = 1'b1;
-        pkt_dllp_d  = sym_b == pcie_mac_frame_pkg::SYM_SDP;
+        pkt_dllp_d  = sym_b == common_pkg::SYM_SDP;
         pkt_bad_d   = 1'b0;
         pkt_first_d = 1'b1;
         len_d       = '0;
@@ -415,7 +415,7 @@ module pcie_mac_frame (
 
       if (do_add) begin
         if (len_d != '1) begin
-          len_d = len_d + pcie_mac_frame_pkg::t_len'(1);
+          len_d = len_d + pcie_mac_pkg::t_len'(1);
         end
         if (pend_v_d) begin
           // A byte follows the pending beat: it is not the last. Always the
@@ -446,7 +446,7 @@ module pcie_mac_frame (
 
   // The queue pops q0 every cycle it holds a beat; pushes go behind what is
   // left.
-  assign cnt_left = (cnt_q == '0) ? '0 : cnt_q - pcie_mac_frame_pkg::t_rxq_cnt'(1);
+  assign cnt_left = (cnt_q == '0) ? '0 : cnt_q - pcie_mac_pkg::t_rxq_cnt'(1);
   assign cnt_sum  = {1'b0, cnt_left} + {1'b0, npush};
 
   always_comb begin
@@ -462,7 +462,7 @@ module pcie_mac_frame (
     cnt_d = cnt_sum[1:0];
   end
 
-  `COMMON_DFF_RST_VAL(os_q, os_d, clk_i, rst_i, pcie_mac_frame_pkg::OS_NONE)
+  `COMMON_DFF_RST_VAL(os_q, os_d, clk_i, rst_i, pcie_mac_pkg::OS_NONE)
   `COMMON_DFF(ts_cnt_q, ts_cnt_d, clk_i)
   `COMMON_DFF_RST(in_pkt_q, in_pkt_d, clk_i, rst_i)
   `COMMON_DFF(pkt_dllp_q, pkt_dllp_d, clk_i)

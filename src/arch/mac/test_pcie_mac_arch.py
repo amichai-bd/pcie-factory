@@ -40,7 +40,7 @@ def test_state_codes_match_the_has_encoding_table():
 
 
 def test_rtl_package_encoding_matches_the_model():
-    pkg = (HERE.parents[1] / "rtl" / "mac" / "pcie_mac_pkg.sv").read_text()
+    pkg = (HERE.parents[1] / "rtl" / "common" / "common_pkg.sv").read_text()
     got = {k: int(v, 16) for k, v in re.findall(r"LTSSM_([A-Z0-9_]+)\s*=\s*6'h([0-9A-F]{2})", pkg)}
     want = {short.upper(): code for _, short, code in m.MAIN_STATES}
     assert got == want
