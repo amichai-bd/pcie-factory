@@ -36,7 +36,7 @@ COV.coverpoint("change", bins=["add_com_slot0", "add_com_slot1", "rem_on_com",
                                "rem_on_next", "bare_com", "back_to_back_coms"])
 COV.coverpoint("event", bins=["overflow", "underflow", "write_drop", "read_hold",
                               "lock_downgrade", "relock", "start", "reset_restart",
-                              "write_pause"])
+                              "write_pause", "lock_start_flush"])
 COV.coverpoint("fill", bins={"4_5": [4, 5], "6_7": [6, 7], "8": [8], "9_10": [9, 10],
                              "11_12": [11, 12]})
 # Corrections per offset class: only the reachable direction of each
@@ -267,10 +267,11 @@ class Env:
         self.dut._log.info(
             "%+.1f ppm: %d words, %d symbols delivered, fill %d..%d, +%d -%d SKP "
             "(rem on COM %d, on next %d), %d dropped words, %d read holds, %d lost, "
-            "%d overflows, %d underflows, %d downgraded, %d bare COMs, %d back-to-back COMs",
+            "%d overflows, %d underflows, %d downgraded, %d flushed at lock start, %d bare COMs, "
+            "%d back-to-back COMs",
             self.ppm, len(self.words), r.delivered, self.fill_min, self.fill_max, r.added,
             r.removed, r.rem_on_com, r.rem_fallback, r.dropped_words, self.holds,
-            r.lost_symbols, r.overflows, r.underflows, r.downgraded, r.bare_coms,
+            r.lost_symbols, r.overflows, r.underflows, r.downgraded, r.flushed, r.bare_coms,
             r.back_to_back_coms)
         ppm = int(round(self.ppm))
         for name, n in (("add_com_slot0", r.add_slot[0]), ("add_com_slot1", r.add_slot[1]),
@@ -280,7 +281,8 @@ class Env:
                 COV.sample(change=name)
         for name, n in (("overflow", r.overflows), ("underflow", r.underflows),
                         ("write_drop", r.dropped_words), ("read_hold", self.holds),
-                        ("lock_downgrade", r.downgraded), ("relock", self.traffic.relocks)):
+                        ("lock_downgrade", r.downgraded), ("relock", self.traffic.relocks),
+                        ("lock_start_flush", r.flushed)):
             if n:
                 COV.sample(event=name)
         COV.sample(ppm=ppm)
@@ -450,6 +452,33 @@ async def idle_m600(dut):
 async def idle_p600(dut):
     """L1: electrical idle at +600 ppm: the write side recentres."""
     await idle(dut, 600)
+
+
+async def lock_start(dut, ppm):
+    """Lock start (MAS, Lock start): after electrical idle, the first locked
+    word is never packed with an unlocked symbol, on the write side (the
+    packing register) or the read side (the leftover register); that
+    unlocked symbol is dropped instead. So no word leaves with an unlocked
+    symbol before a locked one, and lock reaches PIPE one word earlier."""
+    env, r = await link(dut, ppm, "random", 120, 1180, idle_gaps=12, idle_symbols=1500)
+    late = [w for w in env.words if not w.udf and w.lock == (0, 1)]
+    assert not late, (f"{len(late)} word(s) with an unlocked symbol before a locked one, "
+                      f"first at cycle {late[0].cycle}")
+    assert r.late_lock_start == 0, (
+        f"{r.late_lock_start} locked symbol(s) left unlocked at a lock start")
+    assert r.flushed, "vacuous run: no lock started behind a held unlocked symbol"
+
+
+@cocotb.test()
+async def lock_start_m600(dut):
+    """L1: lock start behind held unlocked symbols, RX clock 600 ppm slow."""
+    await lock_start(dut, -600)
+
+
+@cocotb.test()
+async def lock_start_p600(dut):
+    """L1: the same, RX clock 600 ppm fast."""
+    await lock_start(dut, 600)
 
 
 @cocotb.test()

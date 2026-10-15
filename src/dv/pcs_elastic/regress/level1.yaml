@@ -47,6 +47,18 @@ tests:
     testcase: idle_p600
     top: pcie_pcs_elastic
     timeout_s: 300
+  - name: lock_start_m600
+    module: tests.test_pcs_elastic
+    testcase: lock_start_m600
+    top: pcie_pcs_elastic
+    seeds: 2
+    timeout_s: 300
+  - name: lock_start_p600
+    module: tests.test_pcs_elastic
+    testcase: lock_start_p600
+    top: pcie_pcs_elastic
+    seeds: 2
+    timeout_s: 300
   - name: pause_corners
     module: tests.test_pcs_elastic
     testcase: pause_corners

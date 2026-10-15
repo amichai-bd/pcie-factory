@@ -17,6 +17,10 @@
     ([RxStatus table](../../arch/pcs/RECEIVE.md#decode-and-rxstatus)). The
     in-target runs also assert that this never happens;
   - an unlocked aligned word dropped by recentring;
+  - the one unlocked symbol before a lock start, dropped
+    ([lock start](../../rtl/pcs_elastic/MAS.md#behavior)); a locked symbol
+    leaving unlocked right after unlocked ones is counted as a late lock
+    start, which the lock-start tests require to be zero;
   - in the loss tests, words lost to overflow, each loss marked by the
     overflow flag;
   - a symbol leaving unlocked only next to a lock or generation change.
@@ -79,7 +83,7 @@
     reported on the COM's word or on the next word, a bare COM, back-to-back
     COMs;
   - `event`: overflow, underflow, write-side drop, read-side hold, lock
-    downgrade, relock, start, reset restart, write pause;
+    downgrade, relock, start, reset restart, write pause, lock-start drop;
   - `fill`: 4–5, 6–7, 8, 9–10 and 11–12 symbols while writing;
   - `offset_correction`: each fixed offset class with the correction it
     needs (additions at -600 and -300, removals at +300 and +600), and a
@@ -109,6 +113,7 @@
 | [Recentring](../../rtl/pcs_elastic/MAS.md#behavior), read-side holds through electrical idle, relock with a new generation | `idle_m600` | 1 | 1; two 6000-symbol gaps |
 | Recentring, write-side drops through electrical idle | `idle_p600` | 1 | 1; two 6000-symbol gaps |
 | [Lock generation](../../rtl/pcs_elastic/MAS.md#interfaces) carried per word through same-cycle relocks | `relock_generation` | 1 | 2; 12 relocks |
+| [Lock start](../../rtl/pcs_elastic/MAS.md#behavior): after electrical idle the first locked symbols never share a word with an unlocked one; the held (write side, fast RX clock) or leftover (read side, slow RX clock) unlocked symbol is dropped | `lock_start_m600`, `lock_start_p600` | 1 | 2 each; 12 gaps of 1500 symbols |
 | [Thresholds](../../rtl/pcs_elastic/MAS.md#behavior): removal decided at fill 8 and 9, addition at 7 and 8, with odd fills | `thresholds_swing` | 1 | 2; dense sets, alternating fast and slow phases |
 | Addition threshold at -600 ppm with dense sets | `thresholds_m600` | 1 | 2; additions decided at fill 7 and 8 |
 | [Corners](../../rtl/pcs_elastic/MAS.md#behavior): bare COM, back-to-back sets, removal reported on the next word, `ser_rx_valid_i` pauses, underflow and overflow mixed with SKP changes | `pause_corners` | 1 | 3; +4% with about 4% write pauses, dense sets |
@@ -154,6 +159,8 @@ entry:
 | Add threshold at 5 instead of 7 | `short_burst_m600` | FAIL: visible fill 2 outside 4..12 |
 | Overflow flag never set | `overflow` | FAIL: symbol mismatch with no flag |
 | Generation bit not carried | `relock_generation` | FAIL: generation mismatch |
+| No write-side lock-start drop (`w_flush` 0) | `lock_start_p600` | FAIL: late lock start |
+| No read-side lock-start drop (`r_flush` 0) | `lock_start_m600` | FAIL: late lock start |
 | Removal status of a slot-1 COM on the next word (`r_rem1` never set) | `ppm_p600` | FAIL: removal reported on the next word at fill 10 |
 | Fill high at 10 (`EB_HIGH` 10) | `thresholds_swing` | FAIL: no removal at a seen fill of 9 |
 | Fill high at 8 (`EB_HIGH` 8) | `thresholds_swing` | FAIL: underflow while writing |
