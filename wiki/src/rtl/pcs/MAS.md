@@ -23,7 +23,9 @@ or `pipe_reset_ni` is 0, a word valid in P0 with `pipe_tx_elec_idle_i` 0,
 fed from `pipe_tx_data_i`, `pipe_tx_datak_i` and `pipe_tx_compliance_i`;
 and the [elastic buffer](../pcs_elastic/MAS.md) (`u_elastic`) with its
 write side idle (`ser_rx_valid_i` 0), so lint and the CDC check see its
-crossings.
+crossings. The decoder [`pcs_dec8b10b`](../pcs_dec8b10b/MAS.md) is reached
+by the filelist but not instantiated: its input is the elastic buffer's
+read side, which the top ([#85](https://github.com/amichai-bd/pcie-factory/issues/85)) connects.
 
 ## Timing
 
@@ -37,4 +39,4 @@ are in the [HAS targets](../../arch/pcs/HAS.md#targets).
 | File | Holds |
 | --- | --- |
 | [`pcie_pcs.sv`](../../../../src/rtl/pcs/pcie_pcs.sv) | The shell module. |
-| [`pcs.rtl.f`](../../../../src/rtl/pcs/pcs.rtl.f) | `-F ../pcs_enc8b10b/pcs_enc8b10b.rtl.f`, `-F ../pcs_align/pcs_align.rtl.f` (the [`pcs_align`](../pcs_align/MAS.md) sub-IP, not yet instantiated), `-F ../pcs_elastic/pcs_elastic.rtl.f`, then `pcie_pcs.sv`. |
+| [`pcs.rtl.f`](../../../../src/rtl/pcs/pcs.rtl.f) | `-F ../pcs_enc8b10b/pcs_enc8b10b.rtl.f`, `-F ../pcs_dec8b10b/pcs_dec8b10b.rtl.f` (the [`pcs_dec8b10b`](../pcs_dec8b10b/MAS.md) sub-IP, not yet instantiated), `-F ../pcs_align/pcs_align.rtl.f` (the [`pcs_align`](../pcs_align/MAS.md) sub-IP, not yet instantiated), `-F ../pcs_elastic/pcs_elastic.rtl.f`, then `pcie_pcs.sv`. |

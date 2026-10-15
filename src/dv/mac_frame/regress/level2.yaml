@@ -1,0 +1,14 @@
+tests:
+  - name: tx_long
+    module: tests.test_mac_frame
+    testcase: tx_long
+    top: pcie_mac_frame
+    seeds: 8
+    timeout_s: 1200
+  - name: rx_long
+    module: tests.test_mac_frame
+    testcase: rx_long
+    top: pcie_mac_frame
+    seeds: 8
+    timeout_s: 1200
+coverage_floors: {line: 97, toggle: 90, functional: 100}
