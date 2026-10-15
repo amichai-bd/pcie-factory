@@ -1,6 +1,6 @@
 ---
 name: pr-reviewer
-description: Use when acting as, or spawning, the independent reviewer crewmate for a pull request. Read-only review of the exact head SHA for code and wiki alignment, BKM conformance, test adequacy, neutrality and evidence, ending in one REVIEW-VERDICT comment.
+description: Use when acting as, or spawning, the independent reviewer crewmate for a pull request. Read-only review of the exact head SHA for code and wiki alignment, BKM conformance, test adequacy, neutrality and evidence, ending in one REVIEW-VERDICT that the firstmate posts verbatim.
 ---
 
 # PR reviewer
@@ -15,21 +15,32 @@ one GitHub identity and cannot approve their own PRs).
 
 ## Part 1: firstmate spawns the reviewer
 
-- Use a **fresh** crewmate (Claude Code subagent or session) that did not
-  author the change. The firstmate does not review; a crewmate does.
-- Read the PR head SHA (`pull_request_read` method `get`). Optionally create a
-  detached worktree for reading: `git worktree add --detach
-  worktrees/review-<pr> <sha>`.
-- Hand off: repo, PR number, head SHA, issue number, worktree path, this
-  skill, and the expected report (verdict comment URL, reviewed SHA).
+- Use a **fresh** crewmate that did not author the change. As a Claude Code
+  subagent, spawn the `pr-reviewer` agent type
+  ([`.claude/agents/pr-reviewer.md`](../../agents/pr-reviewer.md)). It loads
+  this skill and has only read and GitHub tools, with no shell, so it cannot
+  run anything. The firstmate does not review; a crewmate does.
+- Read the PR head SHA (`pull_request_read` method `get`). Do not create a
+  worktree for the reviewer: it reads with `git show`/`git diff` on the
+  fetched head or through the GitHub API, and runs nothing.
+- Hand off: repo, PR number, head SHA, issue number, this skill, and the
+  expected report (the verdict text and the reviewed SHA).
 - After the implementer pushes fixes, re-engage a reviewer (the same one may
-  continue) with the new head SHA. Remove the review worktree when done.
+  continue) with the new head SHA. A re-review checks only the fixes and the
+  merge delta.
 
 ## Part 2: reviewer procedure
 
-Rules: **read-only.** Never edit, commit, push, label, approve natively, mark
-ready or merge. Write scratch notes only under the review worktree's
-`workdir/` or the session scratchpad.
+Rules: **read-only, and review only.** Never edit, commit, push, label,
+approve natively, mark ready or merge. **Never build or run anything:** no
+`./build check`, `regress`, `sim`, `arch` or flows, no `pytest`, no
+mutants, no worktree to run in. Allowed commands are read-only: `git show`,
+`git diff`, `git log`, `grep`, reading files and the GitHub API. The
+`pr-reviewer` agent type has no shell at all. For a citation spot-check the
+firstmate passes the cached document's path in the hand-off, from
+`./build specs path --absolute <id>`, and the reviewer reads it. Write scratch
+notes only in the session scratchpad. Report every blocking finding in one
+round.
 
 ### 1. Pin the head
 
@@ -54,7 +65,7 @@ Read: the issue (acceptance, scope, comments), `CLAUDE.md`, the diff
 | Tests | DV_PLAN items lack tests in `src/dv/<ip>/regress/level{0,1,2}.yaml`, tests sit at the wrong level, or tools lack unit tests. Important negative and boundary cases missing. |
 | Evidence | See below. |
 | Publishability | The change adds content that may not be public ([wiki BKM](../../../wiki/bkm/wiki.md#publishability)); the repository and site are public. A workflow lets a fork PR run on the self-hosted runners. |
-| Citations | The PR touches material that relies on an external document such as a standard, manual or datasheet (a `[cite: ...]`, or text derived from one) and does not paraphrase it: copied sentences, tables or figures; or a citation outside the [citation form](../../../wiki/bkm/wiki.md#citations). A "behaves per §x" pointer that stands in for a rule the page should state (specs are self-contained; unsure points belong in Open items). A field layout that reproduces the standard's table, its column structure or its prose instead of stating this design's use of each field (positions and code values are fine). A cited standard missing from `wiki/src/references.md`. Confirm paraphrase-only in the verdict by reading the cited passages: when `./build specs list` shows the document present, spot-check citations and claims against `./build specs path --absolute <id>`, and never paste its text into a comment, verdict or PR description. `./build check` only flags long quotes, form errors and cached-text copies. |
+| Citations | The PR touches material that relies on an external document such as a standard, manual or datasheet (a `[cite: ...]`, or text derived from one) and does not paraphrase it: copied sentences, tables or figures; or a citation outside the [citation form](../../../wiki/bkm/wiki.md#citations). A "behaves per §x" pointer that stands in for a rule the page should state (specs are self-contained; unsure points belong in Open items). A field layout that reproduces the standard's table, its column structure or its prose instead of stating this design's use of each field (positions and code values are fine). A cited standard missing from `wiki/src/references.md`. Confirm paraphrase-only in the verdict by reading the cited passages: when the firstmate's hand-off gives a cached document's path, spot-check citations and claims against that text, and never paste its text into a comment, verdict or PR description. CI's `./build check` only flags long quotes, form errors and cached-text copies. |
 | Neutrality | Outside `src/` and `wiki/src/`, any design-target, protocol or IP name (repo slug in URLs exempt). Check with `grep -rniI` on the changed paths. |
 | Hygiene | Generated output, logs or credentials committed; provenance note missing on adapted content; unexplained warnings or waivers. |
 
@@ -62,14 +73,17 @@ Read: the issue (acceptance, scope, comments), `CLAUDE.md`, the diff
 (`pull_request_read` method `get_check_runs`); red or missing is a finding.
 Also audit the local validation recorded in the PR body: it must name the head SHA, exact
 commands, results, seeds and versions, and cover the required levels for the
-affected IPs. Missing, stale or implausible evidence is a finding. Do not
-rerun regressions yourself; you may run cheap read-only checks (grep, YAML
-parse, link check) to confirm a claim.
+affected IPs. Missing, stale or implausible evidence is a finding. Never
+rerun anything to confirm a claim. When a claim lacks recorded proof (a test
+that can fail, a caught mutant, a timing bound), raise a blocking finding
+that asks the author to run it and record the result in the PR.
 
-### 4. Post the verdict
+### 4. Write the verdict
 
-Post **exactly one** PR comment (`add_issue_comment` on the PR number, or
-`gh pr comment --body-file`). Format:
+Write **exactly one** verdict and return it to the firstmate. The reviewer
+never writes to GitHub. The firstmate posts it **verbatim** as one PR comment,
+with a one-line note that it was posted on the reviewer's behalf (captain
+ruling). Format:
 
 ```markdown
 REVIEW-VERDICT: APPROVE @<full-head-sha>
@@ -99,11 +113,12 @@ _Generated by [Claude Code](https://claude.ai/code)_
 
 ### 5. Re-review
 
-On a new head, review the delta and whether each earlier Blocking item is
-fixed or soundly rebutted, then post one new verdict for the new SHA. Earlier
-verdicts are stale.
+On a new head, review only the delta (the fixes and any merge from the base)
+and whether each earlier Blocking item is fixed or soundly rebutted, then
+write one new verdict for the new SHA. Earlier verdicts are stale.
 
 ### 6. Report
 
-Return to the firstmate: verdict, reviewed SHA, comment URL, and a one-line
-summary of blocking items. Merge stays with the firstmate.
+Return to the firstmate: the full verdict text, the reviewed SHA and a
+one-line summary of blocking items. The firstmate posts the verdict
+verbatim, without editing it, and keeps the merge.
