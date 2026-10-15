@@ -165,13 +165,10 @@ in `ci-gate`), on `[self-hosted, linux, x64]`, the host with ORFS. Input
 folder, found with `find`, one `./build asic --ip <id>` each
 (the job fails if any fails). A discovery step prints only `ORFS_IMAGE`, the
 docker version, the local ORFS images (name, tag, digest) and where
-`openroad`, `yosys` and `klayout` are on `PATH`. Two artifacts are kept 14
-days and uploaded even when a run fails: `asic-metrics` holds
-`metrics.json` and `worst_path.txt` per IP, and `asic-logs` each IP's
-`flow.log` (every step's command line and tool output). `flow.log` keeps
-real paths, but the only host path in it is the runner's checkout, which
-the job log already prints; it has no environment dump or secret. ORFS
-reports, results and netlists are never uploaded. The job keeps the fork guard (`if:` requires
+`openroad`, `yosys` and `klayout` are on `PATH`. The `asic-metrics` artifact
+(14-day retention) holds only `metrics.json` and `worst_path.txt` per IP,
+never raw ORFS reports or logs; the redacted failure excerpt printed to the
+job log is the only part of `flow.log` that leaves the host. The job keeps the fork guard (`if:` requires
 a non-`pull_request` event or a head repository equal to this one), so fork
 code never runs on the self-hosted host if a trigger is added later.
 

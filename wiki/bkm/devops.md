@@ -235,10 +235,10 @@ permissions and data PR mechanics):
    per IP, with any floors checked; [regress SPEC](../tools/regress/SPEC.md#coverage)).
 2. `./build fpga` and `./build asic` for every IP with `src/fpga/<ip>/` or
    `src/asic/<ip>/` inputs. A failed step prints every error line of its
-   log before the tail ([failure excerpt](../tools/build/SPEC.md#failure-excerpt)),
-   and the step logs (FPGA `logs/<step>.log`, ASIC `flow.log`; tool output
-   only) are uploaded as the `flow-logs` artifact, kept 14 days. The `fpga`
-   and `asic` workflows upload them as `fpga-logs` and `asic-logs`.
+   log before the tail ([failure excerpt](../tools/build/SPEC.md#failure-excerpt))
+   to the job log. That excerpt is the only part of a vendor log that
+   leaves the host: the logs themselves stay in `workdir/` and are never
+   uploaded as artifacts (publishability).
 3. Metrics: the per-commit series `wiki/tracker/data/commits.jsonl` and the
    nightly record `wiki/tracker/data/<date>.json` (versioned schemas).
 4. A data PR from branch `nightly/<date>`, labelled `type:data`, under the

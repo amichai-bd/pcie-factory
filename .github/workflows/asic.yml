@@ -1,8 +1,7 @@
 # ASIC flow (ORFS); see wiki/tools/asic/SPEC.md and wiki/bkm/pd.md.
 # On demand only (nightly L2 dispatches it); never part of ci-gate. Runs on the
-# self-hosted host that has ORFS. Artifacts: asic-metrics (metrics.json and
-# the worst-path summary) and asic-logs (each IP's flow.log, every step's
-# command and output); never ORFS reports, results or netlists.
+# self-hosted host that has ORFS and uploads only metrics.json and the
+# worst-path summary, never raw ORFS reports or logs.
 name: asic
 
 on:
@@ -65,12 +64,3 @@ jobs:
           path: |
             workdir/**/asic/metrics.json
             workdir/**/asic/worst_path.txt
-      - name: Upload flow logs
-        # Tool output only (wiki/tools/asic/SPEC.md#workflow), also on failure.
-        if: always()
-        uses: actions/upload-artifact@v6.0.0
-        with:
-          name: asic-logs
-          if-no-files-found: warn
-          retention-days: 14
-          path: workdir/**/asic/flow.log

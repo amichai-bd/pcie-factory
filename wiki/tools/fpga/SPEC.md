@@ -163,14 +163,12 @@ itself. The job still carries the fork guard
 out with `persist-credentials: false`.
 
 A discovery step prints only the `quartus_sh`, Verilator and Python paths
-and versions. Two artifacts are kept 14 days and uploaded even when a step
-fails: `fpga-metrics` holds this tool's own output, `metrics.json` and
-`worst_path.txt`, and `fpga-logs` the step logs `logs/<step>.log`, for each
-IP. A step log is the tool's message stream: its command line, Verilator or
-Quartus messages (with Quartus' standard banner) and source paths under the
-runner's checkout, which the job log already prints; no environment dump or
-secret. Quartus reports, project files, databases and bitstreams stay in
-`workdir/` on the host and are never uploaded or committed.
+and versions. The artifact `fpga-metrics` (kept 14 days, uploaded even when a
+step fails) holds only this tool's own output, `metrics.json` and
+`worst_path.txt`, for each IP. Quartus reports and logs carry the vendor's
+notice, so they stay in `workdir/` on the host and are never uploaded or
+committed; the failure excerpt printed to the job log is the only part of a
+log that leaves the host.
 
 ## Unit tests
 

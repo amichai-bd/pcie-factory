@@ -50,9 +50,8 @@ resolver, plus only what is in `src/asic/<ip>/`:
 ORFS logs, reports, results (netlists, DEF, ODB, GDS) and `metrics.json` go
 under `workdir/<ip>/asic/` only and are never committed. Each run starts from
 a clean work directory so stale results never mask a failure. The `asic`
-workflow publishes `metrics.json` and the tool's `worst_path.txt` summary
-as its `asic-metrics` artifact and each IP's `flow.log` as `asic-logs`, never
-ORFS reports or results.
+workflow publishes only `metrics.json` and the tool's `worst_path.txt`
+summary as its `asic-metrics` artifact, never raw ORFS reports or logs.
 
 ## Acceptance ladder
 

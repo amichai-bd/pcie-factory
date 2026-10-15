@@ -2,9 +2,8 @@
 # On demand only: Quartus runs in nightly L2 (which calls ./build fpga --all)
 # or by manual dispatch here, never on pull requests (decision Q26). A
 # dispatch compiles one IP, or every IP with a src/fpga/<ip>/ folder when `ip` is
-# empty. Artifacts: fpga-metrics, our own summary (metrics.json and
-# worst_path.txt), and fpga-logs, the per-step tool logs (logs/<step>.log);
-# Quartus reports, project files and bitstreams stay in workdir/ on the host.
+# empty. The artifact holds only our own summary (metrics.json and
+# worst_path.txt); Quartus reports and logs stay in workdir/ on the host.
 name: fpga
 
 on:
@@ -53,12 +52,3 @@ jobs:
           path: |
             workdir/**/fpga/metrics.json
             workdir/**/fpga/worst_path.txt
-      - name: Upload step logs
-        # Tool output only (wiki/tools/fpga/SPEC.md#workflow), also on failure.
-        if: always()
-        uses: actions/upload-artifact@v6.0.0
-        with:
-          name: fpga-logs
-          if-no-files-found: warn
-          retention-days: 14
-          path: workdir/**/fpga/logs/*.log
