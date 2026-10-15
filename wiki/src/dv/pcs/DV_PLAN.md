@@ -127,7 +127,9 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
   L0, as in `ci-gate`) line 99, toggle 97 and every covergroup but `pcs_rx`
   at 100; L2 (L0 to L2, as nightly) line 98.6, toggle 97.5, functional
   100: the merged values (99.15%, 98.04%) less the
-  [DV BKM](../../../bkm/dv.md#coverage) margin. Every point left is in
+  [DV BKM](../../../bkm/dv.md#coverage) margin. A run applies the highest
+  floor of its selected levels, so in the nightly the line floor that
+  binds is level 1's 99. Every point left is in
   [coverage holes](#coverage-holes).
 
 ## Plan

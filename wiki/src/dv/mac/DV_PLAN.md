@@ -92,8 +92,8 @@ shows where each of their checks went.
   - Floors: level 1 holds `mac_os_tx`, `mac_os_rx` and `mac_frame` at
     100% (reached by levels 0 and 1); level 2 holds functional coverage at
     100% (all five covergroups, so all 64 arcs of the HAS list in each
-    role), line at 85.7% and toggle at 78.1%, the merged level 0 to 2
-    values (86.28%, 78.63%) less the [DV BKM](../../../bkm/dv.md#coverage)
+    role), line at 85.7% and toggle at 78.2%, the merged level 0 to 2
+    values (86.29%, 78.75%) less the [DV BKM](../../../bkm/dv.md#coverage)
     margin. Every point left is in [coverage holes](#coverage-holes).
 - **Model unit tests** without a simulator: the architecture model's
   self-tests (`./build arch --ip mac`) and the scrambler's word model
@@ -202,8 +202,8 @@ is covered in each port role.
 
 ## Coverage holes
 
-Merged over levels 0 to 2 (the nightly run), 290 of the 2113 line points
-and 3711 of the 17362 toggle points are not hit. Verilator counts each
+Merged over levels 0 to 2 (the nightly run), 291 of the 2123 line points
+and 3709 of the 17454 toggle points are not hit. Verilator counts each
 parameter set of a block apart
 ([regress SPEC](../../../tools/regress/SPEC.md#coverage)), and the mac is
 built with five (`TIMEOUT_DIV`, `ERR_TIMEOUT_DIV` and `N_FTS` of the
@@ -211,15 +211,14 @@ entries), so most holes are copies. Every hole, by cause:
 
 | Cause | Line | Toggle | Points |
 | --- | ---: | ---: | --- |
-| Hit in another parameter set | 252 | 2671 | The copies built for `train_spec` (dividers 1: training only), `dividers` (no error-path timeout or traffic recipe) and `smoke_n_fts_*` (the level-1 arc and control recipes only). Each of these points is hit in another copy. |
+| Hit in another parameter set | 252 | 2687 | The copies built for `train_spec` (dividers 1: training only), `dividers` (no error-path timeout or traffic recipe) and `smoke_n_fts_*` (the level-1 arc and control recipes only). Each of these points is hit in another copy. |
 | Unreachable by construction | 25 | 420 | Lines: the `default` arms of the LTSSM's state groups, transmit mode and the ordered-set kind; the `in_control` fall-through; the frame's `rx_l0` test on a COM or K symbol inside a packet at symbols 1 and 2 (with `rx_l0` 0 the packet already ended at symbol 0); the `detect_rx` clear outside Detect.Active (the state leaves only with it 0). Toggles: the run counts above 1 in `r_q`/`r_d` and above 2 in `run_*_c` (each state is left as its run reaches 2, which clears it); `mism_after[4]` (RcvrCfg is left as the count reaches 16); the second receive queue slot (`rxq.q1`, `push_b`: filled only by the one-byte tail of an odd-length packet, so the upper byte is idle filler, `sop` and `nullify` are 0); `cnt_left[1]` (the queue holds at most 2 beats); bit 13 of the SKP credit (the largest TLP defers a SKP by about 2060 words, below 8192 credit). |
-| Constant by design | 0 | 544 | The lane field of every TS sent (one lane: lane 0, PAD is a separate flag); bits 4 to 7 of the identifier sent (TS1 4Ah and TS2 45h share them); bit 3 of the lane byte (PAD F7h and 0); bit 0 of the idle count, the loopback pattern and the SKP credit (they step by 2); next-state bits that are equal in every target of a state group (`det_to`, `pol_to`, `l0_to`, `pwr_to`, `ctl_to`); `r_d.reset_n` (1 in every state; PIPE reset comes only from `rst_i`). |
+| Constant by design | 0 | 546 | The lane field of every TS sent (one lane: lane 0, PAD is a separate flag); bits 4 to 7 of the identifier sent (TS1 4Ah and TS2 45h share them); bit 3 of the lane byte (PAD F7h and 0); bit 0 of the idle count, the loopback pattern and the SKP credit (they step by 2); next-state bits that are equal in every target of a state group (`det_to`, `pol_to`, `l0_to`, `pwr_to`, `ctl_to`); `r_d.reset_n` (1 in every state; PIPE reset comes only from `rst_i`); `tail.eop` (the held idle-tail beat is always a packet's last). |
 | Forbidden by an assertion | 3 | 10 | The SKP credit saturation and the sign of its sum (`a_skp_credit_saturates`); `push_late` (`a_rx_pend_push_first`); `cnt_sum[2]` (`a_rx_queue_overflow`). |
 | Tool artefact | 2 | 0 | The two early `return` branches of `run_next` (package): Verilator never counts a branch whose body is a function `return` (the block count less the fall-through count gives about 81 million hits). |
 | Elaboration only | 3 | 0 | `err_timeout` (package), called only for `localparam` values. |
 | Not reached: cost | 5 | 40 | The LTSSM timer's saturation and its bits 21 and 22: a dwell of 2^21 cycles (16.8 ms) needs the 24 or 48 ms timeouts at divider 1, over a quarter of an hour of simulation each; the dividers entries check the same timeouts scaled. |
-| Not reached: owned | 0 | 20 | `pm.ev_eios_pm`: an EIOS received while L1 or L2 is requested whose L0 exit cannot be taken at once (an upstream port before its wait); [#197](https://github.com/amichai-bd/pcie-factory/issues/197) adds that case. |
-| Not reached | 0 | 6 | `dllp` in the second queue slot: an odd-length DLLP whose end lands in that word phase; `rx_errors` crafts odd lengths but not at that phase. |
+| Not reached | 1 | 6 | Line: a stray EDB in `[15:8]` outside a packet, then a received word after the receiver has left `Rx_L0` (the framing error without resync); the receiver would have to leave `Rx_L0` in the very next word. The error itself is checked in `rx_idle_tail`. Toggles: `dllp` in the second queue slot, an odd-length DLLP whose end lands in that word phase; `rx_errors` crafts odd lengths but not at that phase. |
 
 [#90](https://github.com/amichai-bd/pcie-factory/issues/90) closed with
 tests: the `Rx_L0s.FTS` timeout held while `Tx_L0s.FTS` runs (`arcs_quick`; the timeout flag `rx_fts_to` now toggles), 64 or more FTS sent
