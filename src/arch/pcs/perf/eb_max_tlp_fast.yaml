@@ -1,0 +1,22 @@
+# Longest gap between SKP ordered sets (a SKP due inside a maximum TLP) with the RX clock fast: the elastic buffer must remove fast enough (wiki/src/arch/pcs/HAS.md#targets).
+description: Back-to-back 4122-byte TLPs, longest SKP interval, RX clock +600 ppm.
+seed: 1
+workload:
+  kind: link
+  packets: 40
+  mix: tlp
+  tlp_bytes: 4122
+  skp_interval: 1538
+  ppm: 600
+targets:
+  eb_fill_symbols_min: {min: 2}
+  eb_fill_symbols_max: {max: 14}
+  eb_write_view_words_max: {max: 12}
+  eb_overflows: {max: 0}
+  eb_underflows: {max: 0}
+  rx_latency_cycles_max: {max: 12}
+  symbols_lost: {max: 0}
+  skp_status_off_com: {max: 0}
+  symbols_wrong: {max: 0}
+  relocks: {max: 0}
+  tx_run_length_max: {max: 5}

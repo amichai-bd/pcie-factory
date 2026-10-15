@@ -1,0 +1,14 @@
+# Exhaustive properties of the computed 8b/10b code
+# (wiki/src/arch/pcs/8B10B.md, wiki/src/arch/pcs/HAS.md#targets).
+description: Every data and K code at both disparities, and every pair of symbols.
+seed: 0
+workload:
+  kind: code
+targets:
+  roundtrip_errors: {max: 0}
+  disparity_violations: {max: 0}
+  run_length_max: {max: 5}
+  misaligned_commas: {max: 0}
+  aligned_comma_symbols: {min: 3, max: 3}
+  skp_com_not_complementary: {max: 0}
+  skp_not_neutral: {max: 0}

@@ -1,0 +1,21 @@
+# Short packets and frequent SKP ordered sets with the RX clock fast (wiki/src/arch/pcs/HAS.md#targets).
+description: Back-to-back DLLPs, shortest SKP interval, RX clock +600 ppm.
+seed: 3
+workload:
+  kind: link
+  packets: 3000
+  mix: dllp
+  skp_interval: 1180
+  ppm: 600
+targets:
+  eb_fill_symbols_min: {min: 2}
+  eb_fill_symbols_max: {max: 14}
+  eb_write_view_words_max: {max: 12}
+  eb_overflows: {max: 0}
+  eb_underflows: {max: 0}
+  rx_latency_cycles_max: {max: 12}
+  symbols_lost: {max: 0}
+  skp_status_off_com: {max: 0}
+  symbols_wrong: {max: 0}
+  relocks: {max: 0}
+  tx_run_length_max: {max: 5}

@@ -1,0 +1,18 @@
+# Bit slips: each is detected through the error counter and lock is regained at the next comma (wiki/src/arch/pcs/HAS.md#targets).
+description: Random traffic with six bit slips, RX clock +300 ppm.
+seed: 6
+workload:
+  kind: link
+  packets: 600
+  mix: random
+  ppm: 300
+  slips: 6
+targets:
+  eb_fill_symbols_min: {min: 2}
+  eb_fill_symbols_max: {max: 14}
+  eb_write_view_words_max: {max: 12}
+  eb_overflows: {max: 0}
+  eb_underflows: {max: 0}
+  slips_detected: {min: 6}
+  slip_detect_cycles_max: {max: 32}
+  lock_to_rx_valid_cycles_max: {max: 10}

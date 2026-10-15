@@ -1,0 +1,6 @@
+tests:
+  - name: smoke
+    module: tests.test_pcs
+    testcase: smoke
+    top: pcie_pcs
+    timeout_s: 60
