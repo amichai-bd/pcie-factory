@@ -38,21 +38,27 @@ sys.path.append(str(Path(__file__).resolve().parents[3] / "arch" / "mac"))
 import pcie_mac_arch as arch  # noqa: E402
 
 # The states the mac implements today (Detect, Polling, Configuration, L0,
-# Recovery, and the Off/L0 states of the sub-machines) and the arcs of the
-# HAS arc list among them.
+# Recovery, and the Off/L0 states of the sub-machines; the control states)
+# and the arcs of the HAS arc list among them.
 CORE_STATES = {arch.DQ, arch.DA, arch.PA, arch.PC, arch.PCFG, arch.LWS, arch.LWA,
                arch.LNW, arch.LNA, arch.CC, arch.CI, arch.L0, arch.RL, arch.RC,
                arch.RI, arch.TOFF, arch.TL0, arch.ROFF, arch.RL0}
 CORE_ARCS = {name: arc for name, arc in arch.ARCS.items()
              if arc[0] in CORE_STATES and arc[1] in CORE_STATES}
+CONTROL_STATES = {arch.DIS, arch.HR, arch.LBE, arch.LBA, arch.LBX}
+CONTROL_ARCS = {name: arc for name, arc in arch.ARCS.items()
+                if (arc[0] in CONTROL_STATES or arc[1] in CONTROL_STATES)}
+DONE_ARCS = {**CORE_ARCS, **CONTROL_ARCS}
 
 COV_ARCS = Covergroup("mac_ltssm_arcs")
-COV_ARCS.coverpoint("arc", bins=dict(CORE_ARCS))
+COV_ARCS.coverpoint("arc", bins=dict(DONE_ARCS))
 COV_ARCS.coverpoint("port_role", bins={r: r for r in arch.ROLES})
 COV_ARCS.cross("arc_x_port_role", "arc", "port_role")
 
 COV_OS_TX = Covergroup("mac_os_tx")
-COV_OS_TX.coverpoint("kind", bins=["TS1", "TS2", "SKP", "compliance"])
+COV_OS_TX.coverpoint("kind", bins=["TS1", "TS2", "SKP", "compliance", "EIOS"])
+COV_OS_TX.coverpoint("ctl", bins={"none": 0, "hot_reset": arch.CTL_HOT_RESET,
+                                  "disable": arch.CTL_DISABLE, "loopback": arch.CTL_LOOPBACK})
 COV_OS_TX.coverpoint("link", bins={"pad": "pad", "zero": 0, "mid": range(1, 255), "max": 255})
 COV_OS_TX.coverpoint("lane", bins={"pad": "pad", "zero": 0})
 COV_OS_TX.coverpoint("skp_burst", bins=["single", "back_to_back"])
@@ -68,6 +74,21 @@ COV_OS_RX.coverpoint("link", bins={"zero": 0, "mid": range(1, 255), "max": 255})
 COV_OS_RX.coverpoint("n_fts", bins={"zero": 0, "mid": range(1, 255), "max": 255})
 COV_OS_RX.coverpoint("ctl_bit", bins=["hot_reset", "disable", "loopback", "no_scramble",
                                       "compliance_rx"])
+
+# Control states (wiki/src/arch/mac/ARCS.md#control-states): how the DUT
+# entered each (directed or following, master or slave) in each role, how
+# a Disabled port left, which request took it out of L0, and Disable
+# Scrambling in each role.
+COV_CTL = Covergroup("mac_control")
+COV_CTL.coverpoint("entry", bins=[
+    "hot_reset_directed_downstream", "hot_reset_following_downstream",
+    "hot_reset_following_upstream", "disabled_directed_downstream",
+    "disabled_following_downstream", "disabled_following_upstream",
+    "loopback_master_downstream", "loopback_master_upstream",
+    "loopback_slave_downstream", "loopback_slave_upstream"])
+COV_CTL.coverpoint("disabled_exit", bins=["directed", "following_eios", "following_timeout"])
+COV_CTL.coverpoint("l0_exit_request", bins=["hot_reset", "disable", "loopback"])
+COV_CTL.coverpoint("scrambling_off", bins=list(arch.ROLES))
 
 COV_PKT = Covergroup("mac_frame")
 COV_PKT.coverpoint("tx_outcome", bins=["tlp_end", "tlp_nullify", "dllp_end",
@@ -252,7 +273,8 @@ class TxMonitor:
                     link, lane, ident = self._ts[0], self._ts[1], self._ts[5]
                     COV_OS_TX.sample(kind="TS2" if ident == (0, 0x45) else "TS1",
                                      link="pad" if link == (1, PAD) else link[1],
-                                     lane="pad" if lane == (1, PAD) else lane[1])
+                                     lane="pad" if lane == (1, PAD) else lane[1],
+                                     ctl=self._ts[4][1])
                 continue
             if self._p == 1:
                 self._p = 0
@@ -262,6 +284,8 @@ class TxMonitor:
                     self._p = 3
                 elif not k and b == arch.D21_5:
                     COV_OS_TX.sample(kind="compliance")
+                elif k and b == 0x7C:
+                    COV_OS_TX.sample(kind="EIOS")
                 elif not k or b == PAD:
                     self._p, self._ts = 2, [(k, b)]
                 continue
@@ -390,6 +414,8 @@ class Harness:
         self.rcv_pulses = 0
         self.rx_matched = 0
         self.abort_kind = "abort_l0_exit"
+        self.ctl_directed = False
+        self.ctl_entered = 0
 
     async def start(self) -> None:
         self.dut.rst_i.value = 1
@@ -674,7 +700,38 @@ class Harness:
                 if (old, new) not in arch.ARC_SET:
                     raise AssertionError(f"cycle {self.now - self.t0}: {old} -> {new} "
                                          "is not an arc of the HAS arc list")
+        if a.state != main:
+            self._control_cov(a.state, main)
         a.state, a.tx_sub, a.rx_sub = main, tx, rx
+
+    def _control_cov(self, old: str, new: str) -> None:
+        """Control-state coverage of a main-state change, from the requests
+        the DUT sampled for the step that took it."""
+        req, dsp = self.req, self.a.dsp
+        if new in (arch.HR, arch.DIS):
+            name = "hot_reset" if new == arch.HR else "disabled"
+            on = req["hot_reset_req_i" if new == arch.HR else "disable_req_i"]
+            self.ctl_directed = bool(dsp and on)
+            self.ctl_entered = self.now
+            how = "directed" if self.ctl_directed else "following"
+            COV_CTL.sample(entry=f"{name}_{how}_{self.role}")
+        elif new == arch.LBE:
+            how = "master" if req["loopback_req_i"] else "slave"
+            COV_CTL.sample(entry=f"loopback_{how}_{self.role}")
+        elif old == arch.DIS:
+            if self.ctl_directed:
+                how = "directed"
+            elif self.now - self.ctl_entered >= self.shadow.err(arch.T2MS):
+                how = "following_timeout"
+            else:
+                how = "following_eios"
+            COV_CTL.sample(disabled_exit=how)
+        elif old == arch.L0 and new == arch.RL:
+            for name, on in (("hot_reset", dsp and req["hot_reset_req_i"]),
+                             ("disable", dsp and req["disable_req_i"]),
+                             ("loopback", req["loopback_req_i"])):
+                if on:
+                    COV_CTL.sample(l0_exit_request=name)
 
     # ------------------------------------------------------------- waiting
 

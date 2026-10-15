@@ -55,7 +55,7 @@ A training set is 16 symbols. In order, after COM:
 | 2 | Lane number | 0 or PAD, likewise. | Compared with 0 or PAD per state. |
 | 3 | N_FTS | The `N_FTS` parameter: the FTS ordered sets this receiver needs to leave L0s. | Taken as the partner's N_FTS from the TS2 that complete Configuration.Complete and Recovery.RcvrCfg; it sets how many FTS this port sends on an L0s exit. Before the first, 255. |
 | 4 | Data rate identifier | 02h: 2.5 GT/s only, no speed change. | Ignored (Gen1 only). |
-| 5 | Training control | Bit 0 Hot Reset, bit 1 Disable Link, bit 2 Loopback; set only where the LTSSM page says. Bits 3 (Disable Scrambling) and 4 (Compliance Receive) are never set; bits 7:5 are 0. | Bits 0 to 2 per state; all other bits ignored ([HAS, open items](HAS.md#open-items)). |
+| 5 | Training control | Bit 0 Hot Reset, bit 1 Disable Link, bit 2 Loopback; set only where the LTSSM page says. Bits 3 (Disable Scrambling) and 4 (Compliance Receive) are never set; bits 7:5 are 0. | Bits 0 to 2 per state ([arcs page](ARCS.md)); bit 3 in Configuration.Complete ([Scrambling](#scrambling)); all other bits ignored. |
 | 6 to 15 | Identifier | Ten times D10.2 (4Ah) for TS1, D5.2 (45h) for TS2. | All ten must be the same data symbol: 4Ah is TS1, 45h is TS2, and their bit-inverses B5h and BAh are a TS1 or TS2 received with inverted polarity. Anything else is a TS that fails to decode. |
 
 TS symbols are never scrambled, but they advance the scrambler.
@@ -63,7 +63,9 @@ TS symbols are never scrambled, but they advance the scrambler.
 ## SKP schedule
 
 The MAC counts the symbols it sends, other than in electrical idle, in
-the compliance pattern and as a loopback slave. When the count reaches
+the compliance pattern and as a loopback slave (Loopback.Entry and
+Loopback.Active, including the rest of a TS it finishes there; a slave
+sends no SKP ordered set, and its count holds). When the count reaches
 1180 it sends a SKP ordered set at the next ordered-set or packet boundary
 and subtracts 1180, so every SKP that falls due inside a packet goes out
 after it and all that are due go out back to back. In `Tx_L0s.FTS` the
@@ -85,8 +87,20 @@ One LFSR per direction, G(X) = X^16 + X^5 + X^4 + X^3 + 1, 16 bits
   unchanged.
 - **What is scrambled.** Each data symbol of a packet and each idle data
   symbol is XORed with its key byte (the key of the LFSR value before the
-  symbol's advance). K symbols, TS1 and TS2 symbols, the compliance pattern
-  and the loopback master's pattern are sent as they are.
+  symbol's advance), unless scrambling is disabled (below). K symbols, TS1
+  and TS2 symbols, the compliance pattern and the loopback master's
+  pattern are sent as they are.
+- **Disable Scrambling.** A port that, in Configuration.Complete, receives
+  2 consecutive TS2 with link `N`, lane 0 and the Disable Scrambling bit
+  set, or sends a TS2 with the bit set there, disables scrambling on entry
+  to Configuration.Idle: from then on packet and idle data symbols are sent
+  and taken as they are, in both directions, while the LFSRs still reset
+  and advance as above. On receive it holds from the first word the step
+  after that entry takes. Recovery keeps it disabled; entry to
+  Detect.Quiet enables it again. This MAC never sets the bit (there is no
+  configuration space to request it); the model's injection can, which
+  disables the model's own scrambling the same way
+  [cite: PCIe Base Spec, rev 3.0, §4.2.1.3].
 - **Descrambling** is the same operation on received symbols with the
   receive LFSR.
 - **Known answer.** After a reset, the first sixteen key bytes are FFh,

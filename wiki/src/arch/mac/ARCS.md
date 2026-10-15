@@ -171,8 +171,8 @@ is the Loopback *master* when it enters Loopback.Entry with
 
 | Arc | From | To | Condition | Timeout |
 | --- | --- | --- | --- | --- |
-| `disabled__detect_quiet` | Disabled | Detect.Quiet | Directing: the 16 TS1 and the EIOS are sent, the transmitter is in electrical idle and `disable_req_i` is low. Following: an EIOS was received and then EI exit, or the timeout with no EIOS received. | Following: 2 ms, E |
-| `hot_reset__detect_quiet` | Hot Reset | Detect.Quiet | Directing: the timeout from entry has expired and `hot_reset_req_i` is low. Following: the timeout has expired since entry or since the last 2 consecutive TS1 with Hot Reset set were received, whichever is later. | 2 ms, T |
+| `disabled__detect_quiet` | Disabled | Detect.Quiet | Directing: the 16 TS1 and the EIOS are sent, the transmitter is in electrical idle and `disable_req_i` is low. Following: an EIOS was received and then EI exit (`pipe_rx_elec_idle_i` 1 in a cycle after the EIOS and 0 now; electrical idle before the EIOS does not count), or the timeout with no EIOS received. | Following: 2 ms, E |
+| `hot_reset__detect_quiet` | Hot Reset | Detect.Quiet | Directing: the timeout from entry has expired and `hot_reset_req_i` is low. Following: the timeout has expired since entry or since the last TS1 with Hot Reset set that ended a run of at least 2 consecutive such TS1, whichever is later. | 2 ms, T |
 | `loopback_entry__loopback_active` | Loopback.Entry | Loopback.Active | Master: 2 consecutive TS1 with Loopback set received (its own, looped back by the slave). Slave: at once. | - |
 | `loopback_entry__loopback_exit` | Loopback.Entry | Loopback.Exit | Master: timeout. | 2 ms, E |
 | `loopback_active__loopback_exit` | Loopback.Active | Loopback.Exit | Master: `loopback_req_i` low. Slave: an EIOS received. | - |

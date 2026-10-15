@@ -108,6 +108,8 @@ module pcie_mac #(
   // LTSSM (MAS, LTSSM).
   pcie_mac_pkg::t_os_req ltssm_os_req;
   pcie_mac_pkg::t_fr_ctl fr_ctl;
+  pcie_mac_pkg::t_line_ctl line_ctl;
+  logic                  rx_scr_off;
   common_pkg::t_pipe_ctl   ltssm_pipe, pipe_q;
   common_pkg::t_pipe_rx    rx_st_q;
   logic [7:0]            partner_n_fts;
@@ -146,6 +148,8 @@ module pcie_mac #(
     .os_rx_i         (os_rx_q),
     .os_ts_i         (os_ts_q),
     .fr_o            (fr_ctl),
+    .line_o          (line_ctl),
+    .rx_scr_off_o    (rx_scr_off),
     .partner_n_fts_o (partner_n_fts),
     .fr_tx_idle_i    (fr_tx_idle),
     .fr_rx_idle_i    (fr_rx_idle)
@@ -156,13 +160,17 @@ module pcie_mac #(
   // word) to finish; a scheduled SKP starts on the frame's grant, or at a
   // set boundary while the LTSSM asks for TS (never in electrical idle or
   // in the compliance pattern). The frame sees a SKP as requested from the
-  // moment it is due to the last word of a set in progress.
+  // moment it is due to the last word of a set in progress. The loopback
+  // master's pattern takes a scheduled SKP like a TS; a loopback slave
+  // schedules none (line_ctl.skp_hold).
   assign os_req = '{ts:         ltssm_os_req.ts && !fr_tx_act,
                     skp:        ltssm_os_req.skp && !fr_tx_act,
                     eios:       ltssm_os_req.eios && !fr_tx_act,
                     fts:        ltssm_os_req.fts && !fr_tx_act,
-                    compliance: ltssm_os_req.compliance && !fr_tx_act};
-  assign os_skp_ok = fr_skp_gnt || (ltssm_os_req.ts && !fr_tx_act);
+                    compliance: ltssm_os_req.compliance && !fr_tx_act,
+                    pattern:    ltssm_os_req.pattern && !fr_tx_act};
+  assign os_skp_ok = fr_skp_gnt
+                  || ((ltssm_os_req.ts || ltssm_os_req.pattern) && !fr_tx_act);
 
   pcie_mac_os #(
     .N_FTS (N_FTS)
@@ -174,6 +182,7 @@ module pcie_mac #(
     .tx_skp_due_o (os_skp_due),
     .tx_skp_ok_i  (os_skp_ok),
     .tx_count_i   (fr_tx_act),
+    .tx_skp_hold_i (line_ctl.skp_hold),
     .tx_o         (os_tx),
     .tx_word_o    (os_word),
     .rx_word_i    (rx_word),
@@ -192,7 +201,7 @@ module pcie_mac #(
     .pkt_tx_i       (pkt_tx),
     .pkt_rx_o       (pkt_rx),
     .ctl_i          (fr_ctl),
-    .skp_req_i      (os_skp_due || os_cont_q),
+    .skp_req_i      ((os_skp_due && !line_ctl.skp_hold) || os_cont_q),
     .skp_gnt_o      (fr_skp_gnt),
     .tx_act_o       (fr_tx_act),
     .tx_word_o      (fr_word),
@@ -208,25 +217,35 @@ module pcie_mac #(
   assign line_valid = fr_tx_act || os_tx.valid;
 
   // Transmit scrambler: the frame's data symbols (packets and idle) are
-  // scrambled, ordered-set symbols are sent as they are.
+  // scrambled unless scrambling is disabled; ordered-set symbols and the
+  // loopback pattern are sent as they are.
+  logic tx_scr_on;
+
+  assign tx_scr_on = fr_tx_act && !line_ctl.tx_scr_off;
+
   pcie_mac_scrambler u_tx_scr (
     .clk_i   (clk_i),
     .rst_i   (rst_i),
     .valid_i (line_valid),
     .word_i  (line_word),
-    .scr_i   ({2{fr_tx_act}}),
+    .scr_i   ({2{tx_scr_on}}),
     .valid_o (tx_scr_valid),
     .word_o  (tx_scr_word)
   );
 
   // Receive descrambler: every parsed word; data symbols outside an ordered
-  // set are descrambled (the parser's marks of the same raw word).
+  // set are descrambled (the parser's marks of the same raw word), unless
+  // scrambling is disabled for the step that takes this word.
+  logic [1:0] rx_scr_on;
+
+  assign rx_scr_on = ~os_rx.os_sym & {2{!rx_scr_off}};
+
   pcie_mac_scrambler u_rx_scr (
     .clk_i   (clk_i),
     .rst_i   (rst_i),
     .valid_i (rx_parsed),
     .word_i  (rx_word),
-    .scr_i   (~os_rx.os_sym),
+    .scr_i   (rx_scr_on),
     .valid_o (rx_scr_valid),
     .word_o  (rx_dscr_word)
   );
