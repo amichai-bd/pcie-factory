@@ -3,9 +3,10 @@
 // wiki/src/arch/pcs/HAS.md; structure: wiki/src/rtl/pcs/MAS.md.
 //
 // This revision holds PIPE control (reset and PhyStatus, PowerDown
-// acknowledge, receiver detection, transmit electrical idle, RxElecIdle)
-// and the RX-domain reset. The sub-IPs (encoder, decoder, aligner, elastic
-// buffer) join as they reach main; until then the data outputs are tied.
+// acknowledge, receiver detection, RxElecIdle), the RX-domain reset and the
+// transmit path through pcs_enc8b10b. The receive sub-IPs (decoder,
+// aligner, elastic buffer) join as they reach main; until then the receive
+// data outputs are tied.
 `default_nettype none
 
 `include "common_macros.svh"
@@ -153,18 +154,28 @@ module pcie_pcs (
   `COMMON_DFF_EN(rxdet_q, ser_tx_rxdet_i, clk_i, det_sample_en)
 
   // ------------------------------------------------------------------
-  // Transmit electrical idle: P0 and not TxElecIdle sends a word; the line
-  // follows two cycles later, the encoder's latency.
+  // Transmit path: P0 and not TxElecIdle sends a word through the encoder
+  // (pcs_enc8b10b), which holds the whole two-cycle TX latency; its outputs
+  // drive ser_tx_* with no further register. Loopback joins with the
+  // receive path.
   // ------------------------------------------------------------------
 
-  logic tx_word;
-  logic tx_word_q1;
-  logic tx_word_q2;
+  logic        tx_word;
+  logic        enc_valid;
+  logic [19:0] enc_data;
 
   assign tx_word = (power == pcie_pcs_pkg::P0) && !pipe_tx_elec_idle_i;
 
-  `COMMON_DFF_RST(tx_word_q1, tx_word, clk_i, pcs_rst)
-  `COMMON_DFF_RST(tx_word_q2, tx_word_q1, clk_i, pcs_rst)
+  pcie_pcs_enc8b10b u_enc (
+    .clk_i        (clk_i),
+    .rst_i        (pcs_rst),
+    .valid_i      (tx_word),
+    .data_i       (pipe_tx_data_i),
+    .datak_i      (pipe_tx_datak_i),
+    .compliance_i (pipe_tx_compliance_i),
+    .valid_o      (enc_valid),
+    .data_o       (enc_data)
+  );
 
   // ------------------------------------------------------------------
   // Crossing 5: receiver active (not electrical idle), registered in the
@@ -195,13 +206,11 @@ module pcie_pcs (
   assign pipe_rx_data_o      = 16'd0;
   assign pipe_rx_datak_o     = 2'd0;
   assign pipe_rx_elec_idle_o = pcs_rst || !rx_active_sync;
-  assign ser_tx_elec_idle_o  = pcs_rst || !tx_word_q2;
-  assign ser_tx_data_o       = 20'd0;
+  assign ser_tx_elec_idle_o  = pcs_rst || !enc_valid;
+  assign ser_tx_data_o       = enc_data;
 
   // Inputs the data path consumes once its sub-IPs are integrated.
-  `COMMON_UNUSED_BITS(unused_data_inputs, {pipe_tx_data_i, pipe_tx_datak_i,
-                                           pipe_tx_compliance_i, pipe_rx_polarity_i,
-                                           ser_rx_data_i})
+  `COMMON_UNUSED_BITS(unused_data_inputs, {pipe_rx_polarity_i, ser_rx_data_i})
 
   // ------------------------------------------------------------------
   // Assertions

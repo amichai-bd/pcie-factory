@@ -1,0 +1,7 @@
+tests:
+  - name: long_random
+    module: tests.test_pcs_enc8b10b
+    testcase: long_random
+    top: pcie_pcs_enc8b10b
+    seeds: 8
+    timeout_s: 900
