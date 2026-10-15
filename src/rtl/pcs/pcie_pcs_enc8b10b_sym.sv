@@ -3,18 +3,17 @@
 // wiki/src/arch/pcs/8B10B.md; the structure in
 // wiki/src/rtl/pcs/MAS.md#encoder.
 //
-// Bit order: data_i is HGFEDCBA (x = EDCBA, y = HGF). code_o[0] is line bit
+// Bit order: sym_i.data is HGFEDCBA (x = EDCBA, y = HGF). code_o[0] is line bit
 // a, then b c d e i f g h j, so code_o[5:0] is the 6b sub-block {i,e,d,c,b,a}
 // and code_o[9:6] the 4b sub-block {j,h,g,f}. Running disparity: 0 negative,
 // 1 positive.
 `default_nettype none
 
 module pcie_pcs_enc8b10b_sym (
-  input  logic [7:0] data_i,  // HGFEDCBA
-  input  logic       k_i,     // 1: K symbol
-  input  logic       rd_i,    // running disparity before the symbol
-  output pcie_pcs_pkg::t_sym10 code_o,  // bit 0 first on the line
-  output logic       rd_o     // running disparity after the symbol
+  input  pcie_pcs_pkg::t_k_byte sym_i,   // HGFEDCBA and the K flag
+  input  logic                  rd_i,    // running disparity before the symbol
+  output pcie_pcs_pkg::t_sym10  code_o,  // bit 0 first on the line
+  output logic                  rd_o     // running disparity after the symbol
 );
 
   logic [4:0] x_in;
@@ -35,14 +34,14 @@ module pcie_pcs_enc8b10b_sym (
   logic       four_inv;
   logic [3:0] four;
 
-  assign x_in    = data_i[4:0];
-  assign y_in    = data_i[7:5];
+  assign x_in    = sym_i.data[4:0];
+  assign y_in    = sym_i.data[7:5];
   assign k_valid = (x_in == 5'd28)
                 || ((y_in == 3'd7) && ((x_in == 5'd23) || (x_in == 5'd27)
                                     || (x_in == 5'd29) || (x_in == 5'd30)));
-  assign x       = (k_i && !k_valid) ? pcie_pcs_pkg::K_EDB[4:0] : x_in;
-  assign y       = (k_i && !k_valid) ? pcie_pcs_pkg::K_EDB[7:5] : y_in;
-  assign k28     = k_i && (x == 5'd28);
+  assign x       = (sym_i.k && !k_valid) ? pcie_pcs_pkg::K_EDB[4:0] : x_in;
+  assign y       = (sym_i.k && !k_valid) ? pcie_pcs_pkg::K_EDB[7:5] : y_in;
+  assign k28     = sym_i.k && (x == 5'd28);
 
   // 6b sub-block, RD- form. Two or three ones in EDCBA: sent as is, with i
   // set for two ones. Every other x, and D24, uses a fixed form with four
@@ -79,7 +78,7 @@ module pcie_pcs_enc8b10b_sym (
 
   // Dx.7 uses A7 where P7 would extend e and i to a run of five equal bits:
   // P7 is fgh = 111 at RD- and 000 at RD+. Every Kx.7, K28.7 included, uses A7.
-  assign alt7 = k_i || (!rd6 && six[4] && six[5]) || (rd6 && !six[4] && !six[5]);
+  assign alt7 = sym_i.k || (!rd6 && six[4] && six[5]) || (rd6 && !six[4] && !six[5]);
 
   // 4b sub-block, RD- form. Literals are {j,h,g,f}; the comment gives line
   // order fghj.

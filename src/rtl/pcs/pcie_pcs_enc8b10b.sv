@@ -7,59 +7,47 @@
 `include "common_macros.svh"
 
 module pcie_pcs_enc8b10b (
-  input  logic        clk_i,
-  input  logic        rst_i,         // synchronous, active high: RD negative, nothing in flight
-  input  logic        valid_i,       // a word to send; 0: no word, RD holds
-  input  logic [15:0] data_i,        // [7:0] first on the line
-  input  logic [1:0]  datak_i,       // bit i: byte i is a K symbol
-  input  logic        compliance_i,  // RD negative before the [7:0] symbol
-  output logic        valid_o,       // valid_i two cycles later
-  output logic [19:0] data_o         // [9:0] first, bit 0 first on the line
+  input  logic                   clk_i,
+  input  logic                   rst_i,    // synchronous, active high: RD negative, nothing in flight
+  input  logic                   valid_i,  // a word to send; 0: no word, RD holds
+  input  pcie_pcs_pkg::t_tx_word word_i,   // two symbols, sym0 first on the line; TxCompliance
+  output logic                   valid_o,  // valid_i two cycles later
+  output pcie_pcs_pkg::t_word    data_o    // [9:0] first, bit 0 first on the line
 );
 
   // Stage 1: input register.
-  logic        in_valid_q;
-  logic [15:0] in_data_q;
-  logic [1:0]  in_datak_q;
-  logic        in_compliance_q;
+  logic                   in_valid_q;
+  pcie_pcs_pkg::t_tx_word in_word_q;
 
   `COMMON_DFF_RST(in_valid_q, valid_i, clk_i, rst_i)
-  `COMMON_DFF(in_data_q, data_i, clk_i)
-  `COMMON_DFF(in_datak_q, datak_i, clk_i)
-  `COMMON_DFF(in_compliance_q, compliance_i, clk_i)
+  `COMMON_DFF(in_word_q, word_i, clk_i)
 
   // Stage 2: encode both lanes, lane 0 first, and register the symbols.
-  logic        rd_q;           // transmit running disparity, 1 positive
-  logic        rd_lane0;       // RD before the [7:0] symbol
-  logic        rd_mid;         // RD between the two symbols
-  logic        rd_next;        // RD after the [15:8] symbol
+  logic                 rd_q;      // transmit running disparity, 1 positive
+  logic                 rd_lane0;  // RD before the sym0 symbol
+  logic                 rd_mid;    // RD between the two symbols
+  logic                 rd_next;   // RD after the sym1 symbol
   pcie_pcs_pkg::t_sym10 code0;
   pcie_pcs_pkg::t_sym10 code1;
-  logic [19:0] codes;
-  logic [7:0]  byte0;
-  logic [7:0]  byte1;
-  logic        k0;
-  logic        k1;
-  logic        out_valid_q;
-  logic [19:0] out_data_q;
+  pcie_pcs_pkg::t_word  codes;
+  pcie_pcs_pkg::t_k_byte sym0;
+  pcie_pcs_pkg::t_k_byte sym1;
+  logic                 out_valid_q;
+  pcie_pcs_pkg::t_word  out_data_q;
 
-  assign rd_lane0 = in_compliance_q ? 1'b0 : rd_q;
-  assign byte0    = in_data_q[7:0];
-  assign byte1    = in_data_q[15:8];
-  assign k0       = in_datak_q[0];
-  assign k1       = in_datak_q[1];
+  assign rd_lane0 = in_word_q.compliance ? 1'b0 : rd_q;
+  assign sym0     = in_word_q.sym0;
+  assign sym1     = in_word_q.sym1;
 
   pcie_pcs_enc8b10b_sym u_sym0 (
-    .data_i (byte0),
-    .k_i    (k0),
+    .sym_i  (sym0),
     .rd_i   (rd_lane0),
     .code_o (code0),
     .rd_o   (rd_mid)
   );
 
   pcie_pcs_enc8b10b_sym u_sym1 (
-    .data_i (byte1),
-    .k_i    (k1),
+    .sym_i  (sym1),
     .rd_i   (rd_mid),
     .code_o (code1),
     .rd_o   (rd_next)

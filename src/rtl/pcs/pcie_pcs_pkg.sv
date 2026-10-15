@@ -48,6 +48,23 @@ package pcie_pcs_pkg;
   localparam int unsigned ERR_CNT_W    = $clog2(ERR_LIMIT + 1);
   localparam int unsigned CLEAN_CNT_W  = $clog2(ERR_DECAY_WORDS + 1);
 
+  // Receiver detection: cycles counted, and the detection already reported
+  // (wiki/src/arch/pcs/PIPE_CONTROL.md#receiver-detection).
+  typedef struct packed {
+    logic [DETECT_CNT_W-1:0] cnt;
+    logic                    done;
+  } t_detect;
+
+  // Error counter and relock request (RECEIVE.md, Relock request).
+  typedef struct packed {
+    logic [ERR_CNT_W-1:0]   err_cnt;    // errored words counted
+    logic [CLEAN_CNT_W-1:0] clean_cnt;  // clean words in a row
+    logic                   last_gen;   // generation of the last RxValid word
+    logic                   gen_known;  // last_gen holds a word's generation
+    logic                   wait_relock; // a request is out: wait for a new generation
+    logic                   wait_gen;   // the generation that made the request
+  } t_relock;
+
   // ------------------------------------------------------------ symbols
 
   localparam int unsigned SYM_W    = 10;            // one 10-bit symbol
@@ -68,6 +85,59 @@ package pcie_pcs_pkg;
   // received code error (wiki/src/arch/pcs/8B10B.md#k-symbols).
   localparam logic [BYTE_W-1:0] K_EDB = 8'hFE;
 
+  // A byte with its K flag: one symbol before encoding or after decoding.
+  typedef struct packed {
+    logic  k;
+    t_byte data;
+  } t_k_byte;
+
+  // One PIPE transmit word for the encoder: two symbols, sym0 first on the
+  // line, and TxCompliance (negative RD before sym0).
+  typedef struct packed {
+    logic    compliance;
+    t_k_byte sym1;
+    t_k_byte sym0;
+  } t_tx_word;
+
+  // One received raw symbol with its lock tags (aligner to elastic buffer to
+  // decoder).
+  typedef struct packed {
+    logic   lock;  // received under symbol lock
+    logic   gen;   // lock-generation bit
+    t_sym10 code;  // bit 0 first on the line
+  } t_rx_sym;
+
+  // Two received symbols, sym0 the earlier, each with its own lock tags.
+  // The aligner tags both with its word's lock; the elastic buffer's read
+  // side may pair symbols of two FIFO words.
+  typedef struct packed {
+    t_rx_sym sym1;
+    t_rx_sym sym0;
+  } t_rx_pair;
+
+  // One decoded symbol (decoder to the top).
+  typedef struct packed {
+    logic    code_err;  // valid at neither RD; sym is EDB as K
+    logic    disp_err;  // valid only at the other RD (RD known)
+    t_k_byte sym;
+  } t_dec_sym;
+
+  typedef struct packed {
+    t_dec_sym sym1;
+    t_dec_sym sym0;     // the earlier symbol
+  } t_dec_pair;
+
+  // The PIPE receive register: one word as it leaves on PIPE, with the
+  // error-counter inputs (RECEIVE.md, Decode and RxStatus).
+  typedef struct packed {
+    logic       valid;    // RxValid: both symbols locked
+    t_rx_status status;   // RxStatus
+    logic       errored;  // a code or disparity error under RxValid
+    logic       gen;      // lock generation of the last RxValid word
+    t_k_byte    sym1;
+    t_k_byte    sym0;     // RxData[7:0], RxDataK[0]
+  } t_rx_word;
+
   // Raw codes of COM (K28.5) and SKP (K28.0), bit 0 first, in both columns
   // (wiki/src/arch/pcs/8B10B.md, K symbols). The two columns are each
   // other's complement, so these four values also match an inverted lane.
@@ -77,6 +147,16 @@ package pcie_pcs_pkg;
   localparam t_sym10 SKP_RD_PLUS  = 10'h343;  // line order 1100001011
 
   // ------------------------------------------------------ elastic buffer
+
+  // Sizes and fill levels, in symbols unless noted
+  // (wiki/src/arch/pcs/RECEIVE.md#elastic-buffer).
+  localparam int unsigned EB_ADDR_W  = 4;   // 16 words of two symbols
+  localparam int unsigned EB_NOMINAL = 8;   // start level and nominal fill
+  localparam int unsigned EB_HIGH    = 9;   // fill high at or above this
+  localparam int unsigned EB_LOW     = 7;   // add a SKP at or below this
+  localparam int unsigned EB_HOLDOFF = 8;   // recentring: at most once per 8 cycles
+  localparam int unsigned EB_FILL_W  = 6;   // visible fill, 0 to 34 symbols
+  localparam int unsigned HOLDOFF_W  = 4;
 
   // One FIFO word (25 bits). sym0 is the earlier symbol; ovf marks the
   // first word written after a lost one and belongs to sym0.
@@ -98,6 +178,36 @@ package pcie_pcs_pkg;
     t_sym10 sym;
   } t_eb_sym;
 
+  // The read side's status of one word (elastic buffer to the top).
+  typedef struct packed {
+    logic skp_add;  // a SKP was added after a COM of this word
+    logic skp_rem;  // a SKP was removed after a COM of this word
+    logic ovf;      // words were lost just before this one
+    logic udf;      // no symbol to send: an underflow word
+  } t_eb_status;
+
+  // Write-side state: the recentring holdoff, the removal and overflow
+  // marks, and the packing register.
+  typedef struct packed {
+    logic [HOLDOFF_W-1:0] holdoff;
+    logic                 prev_com;    // last symbol taken was a COM
+    logic                 pend_rem;    // next kept symbol follows a removed SKP
+    logic                 pend_ovf;    // next written word follows a lost one
+    logic                 hold_valid;  // the packing register holds a symbol
+    t_eb_sym              hold;
+  } t_eb_wr;
+
+  // Read-side state: start, the leftover register, the owed SKP copy, the
+  // reported removal and the recentring holdoff.
+  typedef struct packed {
+    logic                 started;
+    logic                 left_valid;  // the leftover register holds a symbol
+    t_eb_sym              left;
+    logic                 dup;         // send the next symbol twice
+    logic                 rem_ack;     // next symbol's removed flag already reported
+    logic [HOLDOFF_W-1:0] holdoff;
+  } t_eb_rd;
+
   function automatic logic is_com(t_sym10 s);
     return (s == COM_RD_MINUS) || (s == COM_RD_PLUS);
   endfunction
@@ -105,6 +215,15 @@ package pcie_pcs_pkg;
   function automatic logic is_skp(t_sym10 s);
     return (s == SKP_RD_MINUS) || (s == SKP_RD_PLUS);
   endfunction
+
+  // ------------------------------------------------------------ aligner
+
+  // Lock state of the aligner.
+  typedef struct packed {
+    logic    lock;
+    logic    gen;     // lock generation, flips at every lock
+    t_offset offset;  // symbol boundary in the window
+  } t_align;
 
   // ------------------------------------------------------------ decoder
 
@@ -119,14 +238,19 @@ package pcie_pcs_pkg;
     t_byte data;
   } t_match;
 
-  // One decoded symbol.
+  // One decoded symbol and the running disparity after it.
   typedef struct packed {
-    t_byte data;      // decoded byte, or K_EDB on a code error
-    logic  k;         // K flag (set with K_EDB on a code error)
-    logic  code_err;  // valid at neither RD
-    logic  disp_err;  // valid only at the other RD (RD known)
-    logic  rd_pos;    // running disparity after the code: 1 positive
+    t_dec_sym sym;     // EDB as K on a code error
+    logic     rd_pos;  // running disparity after the code: 1 positive
   } t_dec;
+
+  // Running-disparity state, after the last symbol of the last word.
+  typedef struct packed {
+    logic rd_known;  // RD is known (the last symbol was locked)
+    logic rd_pos;    // RD positive
+    logic gen;       // lock generation of the last symbol
+    logic pol;       // polarity in the previous cycle
+  } t_dec_state;
 
   // ------------------------------------------------------------ sub-blocks
 
@@ -323,19 +447,19 @@ package pcie_pcs_pkg;
       rd_in = !m_neg.valid && m_pos.valid;
     end
     if (rd_known && m_cur.valid) begin
-      d.data = m_cur.data;
-      d.k    = m_cur.k;
+      d.sym.sym.data = m_cur.data;
+      d.sym.sym.k    = m_cur.k;
     end else if (rd_known && m_oth.valid) begin
-      d.data     = m_oth.data;
-      d.k        = m_oth.k;
-      d.disp_err = 1'b1;
+      d.sym.sym.data = m_oth.data;
+      d.sym.sym.k    = m_oth.k;
+      d.sym.disp_err = 1'b1;
     end else if (!rd_known && (m_neg.valid || m_pos.valid)) begin
-      d.data = m_neg.valid ? m_neg.data : m_pos.data;
-      d.k    = m_neg.valid ? m_neg.k : m_pos.k;
+      d.sym.sym.data = m_neg.valid ? m_neg.data : m_pos.data;
+      d.sym.sym.k    = m_neg.valid ? m_neg.k : m_pos.k;
     end else begin
-      d.data     = K_EDB;
-      d.k        = 1'b1;
-      d.code_err = 1'b1;
+      d.sym.sym.data = K_EDB;
+      d.sym.sym.k    = 1'b1;
+      d.sym.code_err = 1'b1;
     end
     d.rd_pos = rd_after4(line[3:0], rd_after6(line[9:4], rd_in));
     return d;

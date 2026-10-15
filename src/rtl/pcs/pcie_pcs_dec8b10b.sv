@@ -7,83 +7,66 @@
 `include "common_macros.svh"
 
 module pcie_pcs_dec8b10b (
-  input  logic        clk_i,
-  input  logic        rst_i,           // synchronous, active high: RD unknown
-  input  logic        in_valid_i,      // a word is presented this cycle
-  input  logic [19:0] in_sym_i,        // [9:0] earlier symbol, bit 0 first on the line
-  input  logic [1:0]  in_lock_i,       // per symbol: received under symbol lock
-  input  logic [1:0]  in_gen_i,        // per symbol: lock-generation bit
-  input  logic        polarity_i,      // invert every received bit this cycle
-  output logic [15:0] out_data_o,      // [7:0] is the earlier byte; EDB on a code error
-  output logic [1:0]  out_k_o,
-  output logic [1:0]  out_code_err_o,
-  output logic [1:0]  out_disp_err_o
+  input  logic                    clk_i,
+  input  logic                    rst_i,       // synchronous, active high: RD unknown
+  input  logic                    in_valid_i,  // a word is presented this cycle
+  input  pcie_pcs_pkg::t_rx_pair  in_i,        // two raw symbols with their lock tags
+  input  logic                    polarity_i,  // invert every received bit this cycle
+  output pcie_pcs_pkg::t_dec_pair out_o        // sym0 the earlier; EDB on a code error
 );
 
   // Running-disparity state, after the last symbol of the last word.
-  logic rd_known_q;   // RD is known (the last symbol was locked)
-  logic rd_known_d;
-  logic rd_pos_q;     // RD positive
-  logic rd_pos_d;
-  logic gen_q;        // lock generation of the last symbol
-  logic gen_d;
-  logic pol_q;        // polarity_i in the previous cycle
-  logic pol_d;
+  pcie_pcs_pkg::t_dec_state state_q;
+  pcie_pcs_pkg::t_dec_state state_d;
 
-  logic                              pol_change;
-  pcie_pcs_pkg::t_sym10     sym0;
-  pcie_pcs_pkg::t_sym10     sym1;
-  logic                              known0;
-  logic                              known1;
-  pcie_pcs_pkg::t_dec       dec0;
-  pcie_pcs_pkg::t_dec       dec1;
+  logic                 pol_change;
+  pcie_pcs_pkg::t_sym10 sym0;
+  pcie_pcs_pkg::t_sym10 sym1;
+  logic                 known0;
+  logic                 known1;
+  pcie_pcs_pkg::t_dec   dec0;
+  pcie_pcs_pkg::t_dec   dec1;
 
   // RxPolarity: inversion applies in the cycle polarity_i is 1; a change
   // makes the RD unknown from that cycle's word.
-  assign pol_change = polarity_i != pol_q;
-  assign sym0 = in_sym_i[9:0]   ^ {10{polarity_i}};
-  assign sym1 = in_sym_i[19:10] ^ {10{polarity_i}};
+  assign pol_change = polarity_i != state_q.pol;
+  assign sym0 = in_i.sym0.code ^ {10{polarity_i}};
+  assign sym1 = in_i.sym1.code ^ {10{polarity_i}};
 
   // The RD is known for a locked symbol whose predecessor was a locked
   // symbol of the same lock generation, with no polarity change between.
-  assign known0 = rd_known_q && !pol_change && in_lock_i[0] && (in_gen_i[0] == gen_q);
-  assign known1 = in_lock_i[0] && in_lock_i[1] && (in_gen_i[1] == in_gen_i[0]);
+  assign known0 = state_q.rd_known && !pol_change && in_i.sym0.lock
+                  && (in_i.sym0.gen == state_q.gen);
+  assign known1 = in_i.sym0.lock && in_i.sym1.lock && (in_i.sym1.gen == in_i.sym0.gen);
 
-  assign dec0 = pcie_pcs_pkg::decode(sym0, known0, rd_pos_q);
+  assign dec0 = pcie_pcs_pkg::decode(sym0, known0, state_q.rd_pos);
   assign dec1 = pcie_pcs_pkg::decode(sym1, known1, dec0.rd_pos);
 
-  assign out_data_o     = {dec1.data, dec0.data};
-  assign out_k_o        = {dec1.k, dec0.k};
-  assign out_code_err_o = {dec1.code_err, dec0.code_err};
-  assign out_disp_err_o = {dec1.disp_err, dec0.disp_err};
+  assign out_o = '{sym1: dec1.sym, sym0: dec0.sym};
 
   always_comb begin
-    rd_known_d = rd_known_q && !pol_change;
-    rd_pos_d   = rd_pos_q;
-    gen_d      = gen_q;
+    state_d          = state_q;
+    state_d.rd_known = state_q.rd_known && !pol_change;
     if (in_valid_i) begin
-      rd_known_d = in_lock_i[1];
-      rd_pos_d   = dec1.rd_pos;
-      gen_d      = in_gen_i[1];
+      state_d.rd_known = in_i.sym1.lock;
+      state_d.rd_pos   = dec1.rd_pos;
+      state_d.gen      = in_i.sym1.gen;
     end
+    state_d.pol = polarity_i;
   end
 
-  assign pol_d = polarity_i;
+  `COMMON_DFF_RST(state_q, state_d, clk_i, rst_i)
 
-  `COMMON_DFF_RST(rd_known_q, rd_known_d, clk_i, rst_i)
-  `COMMON_DFF(rd_pos_q, rd_pos_d, clk_i)
-  `COMMON_DFF(gen_q, gen_d, clk_i)
-  `COMMON_DFF_RST(pol_q, pol_d, clk_i, rst_i)
-
-  // Invariants (MAS, Behavior): one error class per symbol; a code error
+  // Invariants (MAS, Decoder): one error class per symbol; a code error
   // always yields EDB as K; a disparity error needs a known RD.
   `COMMON_ASSERT_NEVER(a_one_error_class, clk_i, rst_i,
-                       |(out_code_err_o & out_disp_err_o))
+                       (dec0.sym.code_err && dec0.sym.disp_err) ||
+                       (dec1.sym.code_err && dec1.sym.disp_err))
   `COMMON_ASSERT_NEVER(a_code_err_edb, clk_i, rst_i,
-                       (dec0.code_err && (dec0.data != pcie_pcs_pkg::K_EDB || !dec0.k)) ||
-                       (dec1.code_err && (dec1.data != pcie_pcs_pkg::K_EDB || !dec1.k)))
+                       (dec0.sym.code_err && (dec0.sym.sym.data != pcie_pcs_pkg::K_EDB || !dec0.sym.sym.k)) ||
+                       (dec1.sym.code_err && (dec1.sym.sym.data != pcie_pcs_pkg::K_EDB || !dec1.sym.sym.k)))
   `COMMON_ASSERT_NEVER(a_disp_err_known_rd, clk_i, rst_i,
-                       (dec0.disp_err && !known0) || (dec1.disp_err && !known1))
+                       (dec0.sym.disp_err && !known0) || (dec1.sym.disp_err && !known1))
 
 endmodule
 
