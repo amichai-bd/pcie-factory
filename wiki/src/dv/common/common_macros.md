@@ -42,4 +42,3 @@
 | --- | --- | --- | --- |
 | [Registers](../../../bkm/rtl.md#registers-and-memories): reset values, capture, enable hold, asynchronous assertion between edges; register arrays; memory read-during-write and lane merge; `COMMON_METAFLOP` latency, `COMMON_METAFLOP_VAL` reset value; five `COMMON_PULSE_SYNC` events | `macros_contract` | 0 | 1 |
 | Every register, array, memory and level-crossing form under random reset, enable, data and memory traffic, against the model | `macros_random` | 1 | 3; 2000 cycles |
-

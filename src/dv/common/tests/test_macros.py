@@ -173,4 +173,3 @@ async def random_ops(dut):
         else:
             COV.sample(ctrl=(i.rst, i.en), mem=mem)
         await step(dut, model, i, n)
-
