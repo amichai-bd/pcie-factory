@@ -41,6 +41,7 @@ from pathlib import Path
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles, FallingEdge, Timer
+from cocotb.utils import get_sim_time
 
 from regress.funcov import Covergroup
 
@@ -52,7 +53,19 @@ import pcie_mac_scrambler_model  # noqa: E402
 sys.path.append(str(Path(__file__).resolve().parents[2] / "pcs" / "models"))
 import pcie_pcs_enc8b10b_model  # noqa: E402
 import pcie_phy_stack_model as stack  # noqa: E402
+from pcie_phy_pcs_model import code8b10b  # noqa: E402
 from pcie_phy_stack_model import L0_CODE, RECOVERY_CODES, ModelPort  # noqa: E402
+
+# The 10-bit codes of STP and SDP at either running disparity: a packet's
+# first symbol on the line (always in [9:0] of a word, HAS Packet stream).
+FRAME_START_CODES = frozenset(code8b10b.encode(k, True, rd)[0]
+                              for k in (code8b10b.K_STP, code8b10b.K_SDP) for rd in (-1, 1))
+# COM then SKP in one word: the first word of a SKP ordered set (a SKP
+# ordered set starts in [9:0], HAS Packet stream).
+COM_CODES = frozenset(code8b10b.encode(code8b10b.K_COM, True, rd)[0] for rd in (-1, 1))
+SKP_CODES = frozenset(code8b10b.encode(code8b10b.K_SKP, True, rd)[0] for rd in (-1, 1))
+POLLING_ACTIVE_CODE = stack.mac_arch.CODES[stack.mac_arch.PA]
+REQUESTS = ("hot_reset_req_i", "disable_req_i", "loopback_req_i", "pm_state_req_i")
 
 CORE_PS = 8000
 B_PHASE_PS = 2960            # b's first edge, so the two clocks rarely coincide
@@ -63,7 +76,10 @@ LAYERS = ("mac", "pcs", "channel")
 COV_LAYERS = Covergroup("phy_e2e_layers")
 for _layer in LAYERS:
     COV_LAYERS.coverpoint(_layer, bins={"model": "model", "rtl": "rtl"})
-COV_LAYERS.cross("mac_x_pcs", "mac", "pcs")
+# mac and pcs as one choice: both models or both RTL. The mixed choices
+# (DV plan step 2) are not planned in M1 (firstmate ruling on #86;
+# post-M1 #194), so this coverpoint replaces the mac x pcs cross.
+COV_LAYERS.coverpoint("stack", bins={"all_model": "model", "all_rtl": "rtl"})
 # Block-level swaps inside a model layer (the DV plan's switch table).
 COV_LAYERS.coverpoint("tx_scrambler", bins={"mac_model": "mac_model", "block_model": "block_model",
                                              "rtl": "rtl"})
@@ -81,6 +97,13 @@ COV_EVENTS.coverpoint("impairment", bins={"flip": "flip", "slip": "slip", "idle"
 COV_EVENTS.coverpoint("recovery", bins={"directed": "directed", "autonomous": "autonomous"})
 # A port reset while packets flow (RTL ports): reset values held, retrained.
 COV_EVENTS.coverpoint("reset", bins={"a": "a", "b": "b"})
+
+# Link control and power end to end (RTL ports; tests/test_phy_e2e.py).
+COV_CONTROL = Covergroup("phy_e2e_control")
+COV_CONTROL.coverpoint("event", bins={n: n for n in (
+    "retrain", "hot_reset", "disable", "usp_requests_ignored", "polarity", "reset_single")})
+COV_POWER = Covergroup("phy_e2e_power")
+COV_POWER.coverpoint("state", bins={n: n for n in ("l0s", "l1", "l2", "loopback")})
 
 # Reset values of pcie_phy's outputs, held while rst_i is high
 # (wiki/src/arch/phy/HAS.md#clocks-and-resets); ltssm_state_o 0 is
@@ -224,6 +247,12 @@ class RtlPort:
         self._up = False
         self._rcv = 0
         self._retrain = False
+        self.req = dict.fromkeys(REQUESTS, 0)   # level requests, driven outside reset
+        self.trace = False                 # log beats and frame starts with times
+        self.tx_log: list = []             # (edge, sop, eop, rising-edge time ps) per beat taken
+        self.tx_starts: list = []          # (edge, time ps) per STP/SDP sent in [9:0]
+        self.tx_skps: list = []            # edge per SKP ordered set sent
+        self.rx_sops: list = []            # (edge, time ps) per sop beat delivered
         for name in ("pkt_tx_valid_i", "pkt_tx_data_i", "pkt_tx_sop_i", "pkt_tx_eop_i",
                      "pkt_tx_dllp_i", "pkt_tx_nullify_i", "retrain_req_i", "hot_reset_req_i",
                      "disable_req_i", "loopback_req_i", "pm_state_req_i", "ser_tx_rxdet_i",
@@ -248,12 +277,18 @@ class RtlPort:
                     f"port {self.name} ({self.role}) in reset, edge {self.edges}: {name} "
                     f"expected {want}, observed {got}")
             self.reset_checks += 1
+        if self.trace:
+            t_rise = get_sim_time("ps") - CORE_PS // 2
         if self.offer is not None and self._take:
+            if self.trace:
+                self.tx_log.append((self.edges, self.offer[1], self.offer[2], t_rise))
             self.offer = None              # taken at the rising edge just passed
         ready = int(s["pkt_tx_ready_o"].value)   # holds through the next rising edge
         if int(s["pkt_rx_valid_o"].value):
             beat = int(s["pkt_rx_data_o"].value)
             if int(s["pkt_rx_sop_o"].value):
+                if self.trace:
+                    self.rx_sops.append((self.edges, t_rise))
                 self.rx_beats = []
                 self.rx_dllp = bool(int(s["pkt_rx_dllp_o"].value))
             self.rx_beats += [beat & 0xFF, beat >> 8]
@@ -265,6 +300,10 @@ class RtlPort:
         self._up = bool(int(s["link_up_o"].value))
         self._rcv += int(s["rcv_err_o"].value)
         word, ei = int(s["ser_tx_data_o"].value), bool(int(s["ser_tx_elec_idle_o"].value))
+        if self.trace and not ei and (word & 0x3FF) in FRAME_START_CODES:
+            self.tx_starts.append((self.edges, t_rise))
+        if self.trace and not ei and (word & 0x3FF) in COM_CODES and (word >> 10) in SKP_CODES:
+            self.tx_skps.append(self.edges)
         # Drive.
         s["rst_i"].value = int(self.rst)
         # In reset the lower inputs are random too: ser_tx_rxdet_i here, the
@@ -283,8 +322,8 @@ class RtlPort:
             for name, width in RESET_NOISE.items():
                 s[name].value = self.rng.getrandbits(width) if self.rng else 0
             return word, ei
-        for name in ("hot_reset_req_i", "disable_req_i", "loopback_req_i", "pm_state_req_i"):
-            s[name].value = 0
+        for name, v in self.req.items():
+            s[name].value = v
         s["retrain_req_i"].value = int(self._retrain)
         self._retrain = False
         if self.offer is None and self.tx:
@@ -338,6 +377,14 @@ class RtlPort:
     def retrain(self) -> None:
         self._retrain = True
 
+    def request(self, **kw) -> None:
+        """Set level requests: ``hot_reset``, ``disable``, ``loopback`` (0/1)
+        and ``pm_state`` (0..3); held until changed, dropped in reset."""
+        for k, v in kw.items():
+            name = f"{k}_req_i"
+            assert name in self.req, f"request: unknown {k}"
+            self.req[name] = int(v)
+
 
 # ------------------------------------------------------------- clocks
 
@@ -376,11 +423,14 @@ class Env:
             "channel": "rtl" if int(dut.cfg_chan_rtl_o.value) else "model",
         }
         self.timeout_div = int(dut.cfg_timeout_div_o.value)
+        self.err_timeout_div = int(dut.cfg_err_timeout_div_o.value)
         self.a_role, self.ppm = a_role, ppm
         self.log.info("phy e2e: COCOTB_RANDOM_SEED %s, test seed %d, layers %s, a %s, b %s, b clock %+g ppm, "
-                      "TIMEOUT_DIV %d, tx scrambler %s, tx encoder %s", os.environ.get("COCOTB_RANDOM_SEED", "-"), seed,
+                      "TIMEOUT_DIV %d, ERR_TIMEOUT_DIV %d, tx scrambler %s, tx encoder %s",
+                      os.environ.get("COCOTB_RANDOM_SEED", "-"), seed,
                       " ".join(f"{k}={v}" for k, v in self.layers.items()),
-                      a_role, stack.other(a_role), ppm, self.timeout_div, tx_scrambler, tx_encoder)
+                      a_role, stack.other(a_role), ppm, self.timeout_div, self.err_timeout_div,
+                      tx_scrambler, tx_encoder)
         if tx_scrambler not in ("mac_model", "block_model"):
             raise ValueError(f"tx_scrambler: expected mac_model or block_model, got {tx_scrambler}")
         if tx_encoder not in ("pcs_model", "block_model"):
@@ -389,7 +439,7 @@ class Env:
         # block inside it (the DV plan's step 0).
         # Sampled once the pair has trained (train()), so a bin means the
         # layer ran, not only that it was built.
-        self._cov_layers: dict | None = dict(self.layers,
+        self._cov_layers: dict | None = dict(self.layers, stack=self.layers["mac"],
                                 tx_scrambler="rtl" if self.layers["mac"] == "rtl" else tx_scrambler,
                                 tx_encoder="rtl" if self.layers["pcs"] == "rtl" else tx_encoder)
         COV_RUN.sample(a_role=a_role, ppm=ppm)
@@ -401,7 +451,7 @@ class Env:
         if self.layers["channel"] == "rtl" and self.layers["pcs"] == "model":
             raise ValueError("an RTL channel needs the pcs as RTL (CHAN_RTL needs PCS_RTL)")
         if self.layers["mac"] == "model":
-            ports = [ModelPort(r, self.timeout_div,
+            ports = [ModelPort(r, self.timeout_div, err_timeout_div=self.err_timeout_div,
                                tx_scrambler=(pcie_mac_scrambler_model.WordScrambler()
                                              if tx_scrambler == "block_model" else None),
                                tx_encoder=(pcie_pcs_enc8b10b_model.Encoder()
@@ -422,9 +472,23 @@ class Env:
         self.codes: tuple[list, list] = ([0], [0])   # distinct ltssm codes in order
         self.bench.hooks.append(self._monitor)
         self.seq = [0, 0]
+        # Link-up times per port, in its own cycles: reset release, first
+        # Polling.Active, link_up_o rising (wiki/src/arch/phy/HAS.md#targets).
+        self.linkups: tuple[list, list] = ([], [])
+        self._lu = [{"release": None, "poll": None}, {"release": None, "poll": None}]
 
     def _monitor(self, bench, i: int) -> None:
         p = self.ports[i]
+        lu, n = self._lu[i], bench.cycles[i]
+        if p.rst:
+            lu.update(release=n + 1, poll=None, up=p.link_up)
+        elif lu["release"] is not None:
+            if lu["poll"] is None and p.code == POLLING_ACTIVE_CODE:
+                lu["poll"] = n
+            if p.link_up and not lu["up"]:
+                self.linkups[i].append((lu["release"], lu["poll"], n))
+                lu["release"] = None
+            lu["up"] = p.link_up
         if p.code != self.codes[i][-1]:
             self.codes[i].append(p.code)
         for pkt in p.received():           # port i receives what the far port sent
@@ -455,6 +519,26 @@ class Env:
                 f"b link_up {self.ports[1].link_up})")
             await ClockCycles(self.dut.a_clk_i, poll, rising=False)
         return self.bench.cycles[0] - start
+
+    def check_link_up(self, max_us: float, train_us: tuple = (65.536, 80.0),
+                      min_us: float = 0.0) -> list:
+        """The HAS link-up targets on each port's last link-up from reset:
+        release of rst_i to link_up_o within [``min_us``, ``max_us``], and
+        Polling.Active entry to L0 within ``train_us``. Returns the times."""
+        out = []
+        for i in (0, 1):
+            assert self.linkups[i], f"port {'ab'[i]}: no link-up from reset recorded"
+            rel, poll, up = self.linkups[i][-1]
+            assert poll is not None, f"port {'ab'[i]}: link-up without Polling.Active"
+            lu_us, tr_us = (up - rel) * CORE_PS / 1e6, (up - poll) * CORE_PS / 1e6
+            self.log.info("port %s: reset release to link_up %.3f us (%d cycles), "
+                          "Polling.Active to L0 %.3f us", "ab"[i], lu_us, up - rel, tr_us)
+            assert min_us <= lu_us <= max_us, (
+                f"port {'ab'[i]}: link-up {lu_us:.3f} us, expected {min_us} to {max_us} us")
+            assert train_us[0] <= tr_us <= train_us[1], (
+                f"port {'ab'[i]}: training {tr_us:.3f} us, expected {train_us[0]} to {train_us[1]} us")
+            out.append((lu_us, tr_us))
+        return out
 
     async def train(self, limit_cycles: int = 40_000) -> int:
         """Both ports in L0 with link_up; returns a's cycles from start."""
@@ -495,9 +579,10 @@ class Env:
         await self.until(lambda: all(p.tx_idle() for p in self.ports), 200_000, "transmit queues empty")
         await ClockCycles(self.dut.a_clk_i, cycles, rising=False)
 
-    async def lossless(self, n: int, **kw) -> None:
+    async def lossless(self, n: int, l0s: bool = False, **kw) -> None:
         """A lossless phase: ``n`` packets each way, all delivered exactly,
-        no flagged packet and no receiver error."""
+        no flagged packet and no receiver error, both ports in L0 at the end
+        (with ``l0s``, L0 with either L0s sub-machine anywhere)."""
         for s in self.sb:
             s.mark()
         rcv = [p.rcv_errors for p in self.ports]
@@ -509,7 +594,9 @@ class Env:
             p = self.ports[1 - i]
             assert p.rcv_errors == rcv[1 - i], (
                 f"port {'ab'[1 - i]}: {p.rcv_errors - rcv[1 - i]} receiver errors in a lossless phase")
-        assert all(p.code == L0_CODE and p.link_up for p in self.ports), "left L0 in a lossless phase"
+        in_l0 = (lambda c: c & 0xF0 == L0_CODE) if l0s else (lambda c: c == L0_CODE)
+        assert all(in_l0(p.code) and p.link_up for p in self.ports), (
+            f"left L0 in a lossless phase: codes {[hex(p.code) for p in self.ports]}")
 
     # ---------------------------------------------------- impairments
 
@@ -562,37 +649,48 @@ class Env:
         for s in self.sb:
             s.next = len(s.sent)
 
-    async def reset_ports(self, cycles: int = 16, skew: int = 0, traffic: int = 12,
-                          limit_cycles: int = 40_000) -> int:
-        """Assert both RTL ports' rst_i while packets flow both ways, a's for
-        ``cycles`` of its edges and b's for ``cycles`` + ``skew`` of its own.
-        Every output holds its reset value from the first rising edge in
-        reset (RtlPort checks each sampled edge); both ports then train back
-        to L0. Packets cut by the reset are the data-link layer's to replay,
-        so the scoreboards skip what was in flight. Returns a's cycles from
-        the reset to both ports in L0.
+    async def reset_ports(self, which: tuple = (0, 1), cycles: int = 16, skew: int = 0,
+                          traffic: int = 12, limit_cycles: int = 40_000) -> int:
+        """Assert the rst_i of the RTL ports in ``which`` (0 a, 1 b) while
+        packets flow both ways: a's for ``cycles`` of its edges, b's for
+        ``cycles`` + ``skew`` of its own. Every output of a port in reset
+        holds its reset value from the first rising edge in reset (RtlPort
+        checks each sampled edge). Both ports then leave L0 (link_up_o
+        falls on each; a port not reset loses its partner and goes through
+        Recovery to Detect) and train back to L0. Packets cut by the reset
+        are the data-link layer's to replay, so the scoreboards skip what
+        was in flight. Returns a's cycles from the reset to both in L0.
 
-        One port reset alone leaves its partner in Recovery until the
-        error-path timeouts (24 ms at spec values), which the phy does not
-        divide; that case is not run here."""
+        A port reset alone keeps its partner in Recovery until the error-path
+        timeouts, so that case needs a small ``ERR_TIMEOUT_DIV`` and a
+        larger ``limit_cycles``."""
         assert all(isinstance(p, RtlPort) for p in self.ports), "reset_ports drives RTL ports"
         self.send(0, traffic)
         self.send(1, traffic)
         await ClockCycles(self.dut.a_clk_i, 60, rising=False)   # inside the traffic
         checks = [p.reset_checks for p in self.ports]
-        self.bench.reset(0, cycles)
-        self.bench.reset(1, cycles + skew)
-        n = await self.until(lambda: self.bench.cycles[1] > self.bench.release[1]
+        downs = [False, False]
+
+        def watch(bench, j):
+            downs[j] |= not bench.ports[j].link_up
+
+        self.bench.hooks.append(watch)
+        held = {i: cycles + (skew if i else 0) for i in which}
+        for i, n in held.items():
+            self.bench.reset(i, n)
+        n = await self.until(lambda: all(downs) and all(self.bench.cycles[i] > self.bench.release[i]
+                                                        for i in which)
                              and self.bench.both_l0(), limit_cycles,
-                             "reset mid-traffic: both ports back in L0")
-        for i, p in enumerate(self.ports):
-            want = cycles + (skew if i else 0) - 1
-            assert p.reset_checks - checks[i] >= want, (
-                f"port {'ab'[i]}: expected at least {want} edges checked in reset, "
+                             f"reset of {'+'.join('ab'[i] for i in which)} mid-traffic: both ports back in L0")
+        self.bench.hooks.remove(watch)
+        for i, want in held.items():
+            p = self.ports[i]
+            assert p.reset_checks - checks[i] >= want - 1, (
+                f"port {'ab'[i]}: expected at least {want - 1} edges checked in reset, "
                 f"observed {p.reset_checks - checks[i]}")
             COV_EVENTS.sample(reset="ab"[i])
-        self.log.info("reset mid-traffic (%d cycles, skew %d): both in L0 again after %d cycles; "
-                      "scoreboards: %s", cycles, skew, n,
+        self.log.info("reset of %s mid-traffic (%d cycles, skew %d): both in L0 again after %d cycles; "
+                      "scoreboards: %s", "+".join("ab"[i] for i in which), cycles, skew, n,
                       [(s.name, s.delivered, s.lost, s.flagged, s.check_failed) for s in self.sb])
         await self.settle()
         for s in self.sb:

@@ -263,8 +263,10 @@ class Module:
     flops: list[Flop] = field(default_factory=list)
     cells: list[CellRef] = field(default_factory=list)
     unsupported: list[str] = field(default_factory=list)
-    # Memory reads: (memory var addr, the variables its index reads).
-    mem_reads: list[tuple[str, set[str]]] = field(default_factory=list)
+    # Memory reads: (memory var addr, the variables its index reads, what
+    # the read value is assigned to: var addrs of this module, or
+    # ("pin", instance, port addr) for an instance input; empty when unknown).
+    mem_reads: list[tuple[str, set[str], tuple]] = field(default_factory=list)
 
 
 class Netlist:
@@ -357,7 +359,7 @@ def _build_model(nl: Netlist, mod: dict) -> Module:
                     for c in _children(n, skip={"fromp"}):
                         idx |= {x["varp"] for x in _walk(c) if x["type"] == "VARREF"
                                 and x["varp"] in m.vars}
-                    m.mem_reads.append((mem["varp"], idx))
+                    m.mem_reads.append((mem["varp"], idx, ()))
             elif t in ("VARXREF",):
                 m.unsupported.append(f"hierarchical reference {n.get('name')} at "
                                      f"{nl.where(n.get('loc', ''))}")
@@ -376,6 +378,18 @@ def _build_model(nl: Netlist, mod: dict) -> Module:
                 reads(c, acc, LOGIC)
         func_reads[faddr] = set(acc)
         return func_reads[faddr]
+
+    def tag(start: int, targets: tuple) -> None:
+        """Give the memory reads recorded since ``start`` their targets."""
+        for i in range(start, len(m.mem_reads)):
+            mem, idx, t = m.mem_reads[i]
+            if not t:
+                m.mem_reads[i] = (mem, idx, targets)
+
+    def written(node: dict) -> tuple:
+        """The variables a statement subtree writes."""
+        return tuple(dict.fromkeys(n["varp"] for n in _walk(node) if n["type"] == "VARREF"
+                                   and n.get("access") in ("WR", "RW") and n["varp"] in m.vars))
 
     def writes(node: dict | None) -> tuple[list[str], dict[str, int]]:
         """Targets written by an lvalue, and the variables it reads (indices)."""
@@ -407,7 +421,9 @@ def _build_model(nl: Netlist, mod: dict) -> Module:
         if conds and not clocked:
             kind = LOGIC  # a mux
         deps: dict[str, int] = {}
+        start = len(m.mem_reads)
         reads(rhs, deps, kind)
+        tag(start, tuple(tg))
         for v, k in list(idx.items()) + list(conds.items()):
             deps[v] = min(deps.get(v, LOGIC), k)
         return tg, deps
@@ -426,6 +442,7 @@ def _build_model(nl: Netlist, mod: dict) -> Module:
                 statements(_children(n, _STMT_KEYS), conds, clocked, flop_out, comb_out)
             else:
                 c = dict(conds)
+                start = len(m.mem_reads)
                 for ch in _children(n, skip=_STMT_KEYS):
                     reads(ch, c, LOGIC)
                 if t == "LOOP":  # its exit tests sit among its statements
@@ -433,6 +450,7 @@ def _build_model(nl: Netlist, mod: dict) -> Module:
                         if ch["type"] == "LOOPTEST":
                             for g in _children(ch):
                                 reads(g, c, LOGIC)
+                tag(start, written(n))  # a condition steers every target below it
                 statements(_children(n, _STMT_KEYS), c, clocked, flop_out, comb_out)
 
     def always(n: dict) -> None:
@@ -462,8 +480,10 @@ def _build_model(nl: Netlist, mod: dict) -> Module:
             clock = sens[0]
         else:
             body: dict[str, int] = {}
+            start = len(m.mem_reads)
             for ch in _children(n, {"stmtsp"}):
                 reads(ch, body, LOGIC)
+            del m.mem_reads[start:]  # already recorded with their targets
             cands = [s for s in dict.fromkeys(sens) if s not in body]
             if len(cands) == 1:
                 clock = cands[0]
@@ -486,7 +506,9 @@ def _build_model(nl: Netlist, mod: dict) -> Module:
                 continue
             kind = ALIAS if expr["type"] == "VARREF" else WIRE if _pure(expr) else LOGIC
             rd: dict[str, int] = {}
+            start = len(m.mem_reads)
             reads(expr, rd, kind)
+            tag(start, (("pin", scope + n["name"], p["modVarp"]),))
             tg, idx = writes(expr)
             for v, k in idx.items():
                 rd[v] = min(rd.get(v, LOGIC), k)
@@ -571,7 +593,8 @@ class Design:
     memories: dict[Node, int] = field(default_factory=dict)   # unpacked array -> depth
     const_inputs: list[tuple[str, str]] = field(default_factory=list)  # (cell src_* input, how)
     src_inputs: list[tuple[str, dict[Node, int]]] = field(default_factory=list)  # read src_* inputs
-    mem_reads: dict[Node, list[set[Node]]] = field(default_factory=dict)  # memory -> read indices
+    # memory -> its reads: (the nodes the read value is assigned to, index nodes)
+    mem_reads: dict[Node, list[tuple[set[Node], set[Node]]]] = field(default_factory=dict)
     findings: list[str] = field(default_factory=list)
 
     def name(self, n: Node) -> str:
@@ -609,8 +632,9 @@ def flatten(nl: Netlist, cells: dict[str, Directive],
                 if a in port_clocks:
                     d.port_clock[(path, a)] = (path, port_clocks[a])
         d.findings += m.unsupported
-        for mem, idx in m.mem_reads:
-            d.mem_reads.setdefault((path, mem), []).append({(path, x) for x in idx})
+        for mem, idx, targets in m.mem_reads:
+            tgs = {(path + (t[1],), t[2]) if isinstance(t, tuple) else (path, t) for t in targets}
+            d.mem_reads.setdefault((path, mem), []).append((tgs, {(path, x) for x in idx}))
         for tg, dep, k in m.comb:
             d.edge((path, tg), (path, dep), k)
         for f in m.flops:
@@ -1052,11 +1076,28 @@ def _synchronized(analysis: Analysis, start: Node, want: str) -> bool:
     return False
 
 
-def _read_at_pointer(analysis: Analysis, mem: Node, want: str) -> bool:
-    """True when some read of memory ``mem`` has an index that depends on
-    a synchronized pointer (``_synchronized`` from an index variable)."""
-    return any(_synchronized(analysis, x, want)
-               for idx in analysis.d.mem_reads.get(mem, ()) for x in idx)
+def _cone(analysis: Analysis, start: Node) -> set[Node]:
+    """The nodes on combinational paths into ``start`` (itself included),
+    stopping at sources: where a value read there can reach ``start``
+    without passing a flop."""
+    d, seen, stack = analysis.d, set(), [start]
+    while stack:
+        n = stack.pop()
+        if n in seen or (n != start and analysis.is_source(n)):
+            continue
+        seen.add(n)
+        stack.extend(u for u, _ in d.comb_in.get(n, ()))
+    return seen
+
+
+def _read_at_pointer(analysis: Analysis, mem: Node, want: str, cone: set[Node]) -> bool:
+    """True when memory ``mem`` has reads whose value reaches the output
+    (their target is in ``cone``) and every one of them has an index that
+    depends on a synchronized pointer (``_synchronized`` from an index
+    variable)."""
+    reached = [idx for tgs, idx in analysis.d.mem_reads.get(mem, ()) if tgs & cone]
+    return bool(reached) and all(any(_synchronized(analysis, x, want) for x in idx)
+                                 for idx in reached)
 
 
 def output_domain_findings(analysis: Analysis, own: Directive) -> list[str]:
@@ -1082,7 +1123,8 @@ def output_domain_findings(analysis: Analysis, own: Directive) -> list[str]:
         own_side = [n for n in srcs if doms[n] == want]
         if (foreign and own_side and all(d.memories.get(n, 0) >= 2 for n in foreign)
                 and all(_synchronized(analysis, n, want) for n in own_side)
-                and all(_read_at_pointer(analysis, n, want) for n in foreign)):
+                and all(_read_at_pointer(analysis, n, want, _cone(analysis, ((), a)))
+                        for n in foreign)):
             continue
         out += [f"{head}: output {v.name} is driven by {analysis.describe(n)} on clock "
                 f"{doms[n]}, not by its own side's clock {want}" for n in foreign]

@@ -1,13 +1,37 @@
 tests:
+  - name: e2e_link_up_spec
+    module: tests.test_phy_e2e
+    testcase: e2e_link_up_spec
+    top: pcie_phy_e2e_tb
+    params: {MAC_RTL: 1, PCS_RTL: 1, CHAN_RTL: 1, TIMEOUT_DIV: 1}
+    timeout_s: 900
   - name: e2e_soak_dsp_first
     module: tests.test_phy_e2e
     testcase: e2e_soak_dsp_first
     top: pcie_phy_e2e_tb
+    params: {MAC_RTL: 1, PCS_RTL: 1}
     seeds: 4
     timeout_s: 900
   - name: e2e_soak_usp_first
     module: tests.test_phy_e2e
     testcase: e2e_soak_usp_first
     top: pcie_phy_e2e_tb
+    params: {MAC_RTL: 1, PCS_RTL: 1}
     seeds: 4
     timeout_s: 900
+  - name: e2e_soak_dsp_first_model
+    module: tests.test_phy_e2e
+    testcase: e2e_soak_dsp_first
+    top: pcie_phy_e2e_tb
+    seeds: 2
+    timeout_s: 900
+  - name: e2e_soak_usp_first_model
+    module: tests.test_phy_e2e
+    testcase: e2e_soak_usp_first
+    top: pcie_phy_e2e_tb
+    seeds: 2
+    timeout_s: 900
+# Per-covergroup floors only; the line, toggle and overall functional
+# floors are set in #90 now that #182 has landed (firstmate ruling on #86).
+coverage_floors:
+  functional: {phy_e2e_run: 100, phy_e2e_events: 100, phy_e2e_packets: 100, phy_e2e_control: 100, phy_e2e_power: 100}

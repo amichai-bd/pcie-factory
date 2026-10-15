@@ -78,7 +78,20 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
     (#162 re-review);
   - the relock rule (`ERR_LIMIT` 3, `ERR_DECAY_WORDS` 8, one request per
     lock) applied to the words on PIPE predicts every RxValid drop in packet
-    traffic, within 20 cycles.
+    traffic, within 20 cycles;
+  - **RxValid rule** (`ValidRule`, every receive test): RxValid against
+    the lock tags of the word that made it, read on the top's MAS-named
+    observation nets `eb_valid`, `eb_status` and `eb_rx`: 1 exactly for a
+    word with both symbols locked or an idle tail, 0 for an underflow word
+    and for a lock end by a relock inside a word;
+  - **electrical idle in order** (#182; RECEIVE.md, Electrical idle):
+    every cycle, RxValid is never 1 with RxElecIdle 1; before each idle
+    gap (`check_ei_order`, in every idle test), the last sent symbol that
+    starts in a word received with `ser_rx_elec_idle_i` low leaves under
+    RxValid before RxElecIdle rises, and a gap that follows an EIOS shows
+    all four EIOS symbols under RxValid before it. A run whose last word
+    ends in EDB and is followed by RxElecIdle is an idle tail; that EDB is
+    not checked against the stream.
 - **Exact-timing decode harness** ([`tb/pcs_direct.py`](../../../../src/dv/pcs/tb/pcs_direct.py)):
   at 0 ppm and a fixed phase, after lock, every word leaves on PIPE a fixed
   number of cycles after it is driven (measured on a marker word: 9). The
@@ -104,21 +117,21 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
   | `pcs_dec_recovery` | Error class x the RD it left x carried to the next lane or word. |
   | `pcs_align_lock` | The comma position 0 to 19 in the aligner's window x its form, at each lock. |
   | `pcs_align_relock` | Lock from hunting, same-cycle relock, relock to hunting, idle drop, reset drop. |
+  | `pcs_align_eios` | The RX bit phase (0 to 19) of the word boundary where the line goes idle after an EIOS. |
   | `pcs_align_impairments` | Slips in TS1, FTS and packet traffic by direction, on a SKP set's COM and SKP, close slip pairs; flips in TS1 and packets. |
   | `pcs_elastic` | Offset classes, SKP changes (addition after a COM in either half of a word, removal, bare COM, back-to-back sets), events (overflow, underflow, recentring both ways, lock start, rst_i and pipe_reset_ni with traffic), the correction each offset class needs. |
-  | `pcs_rx`, `pcs_rx_status` | Every receive RxStatus code, offset signs, scenarios and relock causes; each code within the targets with the offset that produces it. |
+  | `pcs_rx`, `pcs_rx_status` | Every receive RxStatus code, offset signs, scenarios and relock causes; each code within the targets with the offset that produces it; electrical idle in order (`ei_order`: a gap checked, a whole EIOS, an idle tail). |
 
 - **Coverage floors** (each level's file; floors apply to the merged
   levels selected): L0 line 87, toggle 87, `pcs_align_lock` 100; L1 (with
   L0, as in `ci-gate`) line 99, toggle 97 and every covergroup but `pcs_rx`
   at 100; L2 (L0 to L2, as nightly) line 99, toggle 97, functional 100.
-  Reached: L0 and L1 99.7% line (334/335), 97.8% toggle (3094/3162),
-  99.9% functional (2914/2916); the L0-to-L2 values are in each
-  validation's evidence. The line left is the encoder's assertion-only
-  `run6`. The threshold assertions compare the fill with literal
-  constants inline, so they add no constant nets to the toggle count; the
-  lowest-comma assertion's scan nets remain, some bits of which no legal
-  input sets.
+  The values reached are in each validation's evidence. The line left is
+  the encoder's assertion-only `run6`. The threshold assertions compare
+  the fill with literal constants inline, and the aligner indexes its
+  window with the boundary zero-extended in place (#152), so neither adds
+  nets whose bits never toggle; the lowest-comma assertion's scan nets
+  remain, some bits of which no legal input sets.
 
 ## Plan
 
@@ -133,7 +146,7 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
 | One-word electrical-idle pulses at the eight phases of the TS1 COM period (the window holding the idle word never locks), `rst_i` with traffic in flight (lock and data return at the next comma) | `rx_lock_controls` | 0 | [1] |
 | [PowerDown](../../arch/pcs/PIPE_CONTROL.md#powerdown): every arc acknowledged after 4 cycles, transmitter idle outside P0, no beacon in P2 | `pipe_power` | 1 | 2 |
 | PIPE control and the transmit path under random legal MAC sequences | `pipe_random` / `pipe_random_long` | 1 / 2 | 3; 60 operations / 6; 400 |
-| [RxElecIdle](../../arch/pcs/PIPE_CONTROL.md#receive-status-signals) through crossing 5: every change, in order, 2 or 3 `clk_i` edges after the RX edge that registered it | `rx_elec_idle` | 1 | [1, 2]: fast, slow |
+| [RxElecIdle](../../arch/pcs/PIPE_CONTROL.md#receive-status-signals) with the received words: every change, in order, 1 to 12 `clk_i` edges (the RX latency target) after the RX edge that registered it (measured: at most 10) | `rx_elec_idle` | 1 | [1, 2]: fast, slow |
 | Every data byte and K-flagged byte at RD- and RD+ in both lanes through PIPE TX, back to back and with TxElecIdle between words; fails on a hole in `pcs_tx_codes` or the EDB and RD-hold bins | `tx_table` | 1 | 1; 5120 words twice |
 | Random transmit traffic with TxCompliance, idle gaps, unsupported K and resets of both kinds with words in flight, every word against the model | `tx_random` / `tx_random_long` | 1 / 2 | 3; 5000 cycles / 8; 100000 |
 | Every symbol at both RDs in both lanes through PIPE TX, the line and PIPE RX, intact, no error; fails on a hole in `pcs_rx_codes` | `table_round_trip` | 1 | [1] |
@@ -153,6 +166,9 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
 | Sizes that strand corrections at ±600 ppm | `eb_stress_sizes` | 1 | [1, 2]: fast, slow |
 | Dense SKP sets (one to five SKPs every 48 to 96 symbols) at ±600 ppm: additions after a COM in either half of a word, removals leaving a bare COM, sets back to back | `eb_dense` / `eb_dense_sweep` | 1 / 2 | [1, 2] / [3..8] |
 | Recentring through two 6000-symbol electrical-idle gaps in 60 packets at -600 ppm (read side holds) and +600 ppm (write side drops); non-vacuous: `Recentre` counts the MAS observation nets `r_recentre` (read-side hold) and `w_drop` (write-side drop), and the test requires a hold at -600 ppm and a drop at +600 ppm | `eb_idle_m600`, `eb_idle_p600` | 1 | [1] each |
+| A relock end inside a PIPE word: close bit-error pairs at ±600 ppm, the SKP corrections leaving an odd word parity at some relocks; that word (last locked symbol, then an unlocked one) leaves with RxValid 0, and at least one occurs (`ValidRule`) | `rx_relock_mid_word` | 1 | [1, 2]; odd seeds fast |
+| [Electrical idle in order](../../arch/pcs/RECEIVE.md#electrical-idle): an EIOS before each of eight 1500-symbol idle gaps at ±600 ppm, the SKP corrections changing the word parity between gaps: the whole EIOS under RxValid before RxElecIdle, idle tails (EIOS ending in the first half of a word) reach PIPE; non-vacuous: every gap's EIOS checked whole and at least one idle tail per run | `rx_eios_idle` / `rx_eios_idle_sweep` | 1 / 2 | [1, 2] / [3..8]; odd seeds fast |
+| [EIOS completion](../../arch/pcs/RECEIVE.md#comma-alignment-and-symbol-lock): an EIOS before idle at every RX bit phase 0 to 19 of the transmitter's word boundary (filler bits), at +300 or -300 ppm: all 20 EIOS whole under RxValid before RxElecIdle (at phases 10 to 19 the last IDL starts in the idle-flagged word) | `rx_eios_phases` | 1 | [1, 2]; odd seeds fast |
 | Lock start after twelve 1500-symbol idle gaps in 120 packets: every run starts at its comma or the symbol before it, within the lock target; recentring required as in `eb_idle_*` | `eb_lock_start` / `eb_lock_start_sweep` | 1 / 2 | [1, 2] / [3..10]; odd seeds fast |
 | Overflow at +2% with no SKP: RxStatus 5 on the first word after each loss, the rest in order | `eb_overflow` | 1 | [1] |
 | Underflow at -2% with no SKP: RxStatus 6, EDB EDB as K, RxValid 0, nothing lost, no error after an underflow word (the decoder's RD held across it) | `eb_underflow` | 1 | [1] |
@@ -251,10 +267,21 @@ slow-clock seeds.
 | Elastic buffer | Start at 10 (`EB_NOMINAL` 10) | `rx_smoke`, `eb_tlp_m600` (`a_start_at_8`) | - |
 | Elastic buffer | Removal of a second-slot COM's SKP not reported (`r_rem1` dropped) | `eb_tlp_p600`, `eb_dense` | `rx_ppm` seed 1 |
 | Top | Relock at 2 errored words | `rx_errors`, `rx_error_bursts`, `rx_decode_table` | - |
-| Top | RxValid from symbol 0's lock alone | `eb_idle_m600`, `eb_lock_start` seed 2, `rx_elec_idle_gaps` seed 2, `rx_close_errors` seed 2 (a locked-then-unlocked word at a lock end on a slow RX clock) | fast-clock seeds |
+| Top | RxValid from symbol 0's lock alone | `rx_relock_mid_word` seeds 1 and 2, `rx_close_errors` seeds 1 and 2, `rx_slips` seed 1 (`ValidRule`: RxValid 1 on a word whose second symbol lost lock by a relock) | `eb_idle_m600` seed 1 (its lock ends are before idle, now valid idle tails) |
+| Aligner | Lock dropped on the idle word itself (`idle_q` in `keep`, the rule before #182) | `rx_eios_idle` seeds 1 and 2, `eb_idle_m600` seed 1, `rx_elec_idle_gaps` seed 1 (the last symbol before the gap never leaves under RxValid) | - |
+| Top | No idle tail (`word_tail` 0) | `rx_eios_idle` seeds 1 and 2, `eb_idle_m600` seed 1 (`ValidRule` fires first: RxValid 0 on a word its lock tags make an idle tail; without it, the EIOS's last symbol is lost) | `rx_elec_idle_gaps` seed 1 |
+| Aligner | No EIOS completion (`tail` 0) | `rx_eios_phases` seeds 1 and 2 (the EIOS not whole before idle at a phase of 10 to 19) | `rx_eios_idle` seed 1, `eb_idle_m600` seed 1 (phase 0) |
+| Elastic buffer | Recentring hold on the head word's lock (`head0` instead of `c0`, the rule before #182) | `rx_eios_idle` seed 2, `eb_idle_m600` seed 1, `eb_lock_start` seed 2, `rx_elec_idle_gaps` seed 2 (a locked leftover held behind an unlocked head splits a run before idle) | `rx_eios_idle` seed 1, `rx_eios_phases` seed 2 |
+| Top | RxElecIdle straight from `ser_rx_elec_idle_i` (a fast path, the defect of #182) | `rx_eios_idle` seed 1, `rx_eios_phases` seed 1, `eb_idle_m600` seed 1 (RxValid 1 with RxElecIdle 1), `rx_elec_idle` seed 1 (out of order) | - |
+| Top | RxElecIdle from symbol 1's idle flag (one symbol early) | `rx_eios_idle` seeds 1 and 2, `eb_idle_m600` seed 1 (RxValid 1 with RxElecIdle 1 on an idle tail) | `rx_elec_idle_gaps` seed 1 |
+| Elastic buffer | One lock tag per FIFO word (the rule before #182) | `rx_eios_idle` seed 1 (an EIOS split across two FIFO words loses its last IDL) | `rx_eios_idle` seed 2, `eb_idle_m600` seed 1, `rx_elec_idle_gaps` seed 1 |
 | Top | Decoder reset by `rst_i` only (not `pipe_reset_ni`) | `rx_decode_smoke` | `rx_decode_random` seed 1, `rx_reset_traffic` seed 1 |
 
-Every mutant is caught; none survives the L1 list. Each entry named runs
+Every mutant is caught; none survives the L1 list. #182 made the lock
+end before electrical idle a valid word on purpose (an idle tail), which
+was where **RxValid from symbol 0's lock alone** used to be caught; it is
+now caught at a relock end inside a word by the directed
+`rx_relock_mid_word` and by `ValidRule` in every receive test. Each entry named runs
 in L0 or L1 at the seed shown (the first regression seed otherwise).
 
 The #162 re-review corrected the old top's row for the lock-start drop:

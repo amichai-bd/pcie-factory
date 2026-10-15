@@ -56,6 +56,7 @@ module pcie_pcs_elastic (
   pcie_pcs_pkg::t_eb_sym  w_first;      // the packed word's symbols
   pcie_pcs_pkg::t_eb_sym  w_second;
   pcie_pcs_pkg::t_eb_word w_word;
+  logic                   w_split;      // two locked symbols of different generations
 
   assign w_sym0 = ser_rx_i.sym0.code;
   assign w_sym1 = ser_rx_i.sym1.code;
@@ -77,10 +78,10 @@ module pcie_pcs_elastic (
     w_rm0  = w_take & w_lock & fill_high_rx & w_q.prev_com & pcie_pcs_pkg::is_skp(w_sym0);
     w_rm1  = w_take & w_lock & fill_high_rx & pcie_pcs_pkg::is_com(w_sym0)
            & pcie_pcs_pkg::is_skp(w_sym1);
-    w_new0 = '{ovf: 1'b0, rem: w_q.pend_rem, gen: ser_rx_i.sym0.gen, lock: ser_rx_i.sym0.lock,
-               sym: w_sym0};
-    w_new1 = '{ovf: 1'b0, rem: w_rm0, gen: ser_rx_i.sym1.gen, lock: ser_rx_i.sym1.lock,
-               sym: w_sym1};
+    w_new0 = '{ovf: 1'b0, rem: w_q.pend_rem, idle: ser_rx_i.sym0.idle, gen: ser_rx_i.sym0.gen,
+               lock: ser_rx_i.sym0.lock, sym: w_sym0};
+    w_new1 = '{ovf: 1'b0, rem: w_rm0, idle: ser_rx_i.sym1.idle, gen: ser_rx_i.sym1.gen,
+               lock: ser_rx_i.sym1.lock, sym: w_sym1};
 
     // Lock start: a locked word that follows a held unlocked symbol starts a
     // FIFO word of its own. The unlocked symbol is dropped, so the first
@@ -121,12 +122,16 @@ module pcie_pcs_elastic (
         end
       end
     end
-    // A word whose symbols differ in lock or generation is tagged unlocked
-    // with the newer symbol's generation.
+    // Each symbol keeps its own lock, so a lock end may split a word: the
+    // last locked symbol, then an unlocked one. Two locked symbols of
+    // different generations (a same-cycle relock) are both tagged unlocked
+    // with the newer generation.
+    w_split  = w_first.lock & w_second.lock & (w_first.gen != w_second.gen);
     w_word = '{ovf:  w_q.pend_ovf,
                rem:  {w_second.rem, w_first.rem},
-               gen:  w_second.gen,
-               lock: w_first.lock & w_second.lock & (w_first.gen == w_second.gen),
+               idle: {w_second.idle, w_first.idle},
+               gen:  w_second.lock ? w_second.gen : w_first.gen,
+               lock: {w_second.lock & ~w_split, w_first.lock & ~w_split},
                sym1: w_second.sym,
                sym0: w_first.sym};
     // A word offered while the FIFO is full is lost; the next one written
@@ -141,10 +146,20 @@ module pcie_pcs_elastic (
 
   `COMMON_ASSERT_NEVER(a_one_removal, ser_rx_clk_i, rx_rst, w_rm0 & w_rm1)
   `COMMON_ASSERT_NEVER(a_rem_after_com, ser_rx_clk_i, rx_rst, w_rm0 & w_q.pend_rem)
-  // The aligner tags both symbols of a word with one lock and generation.
+  // The aligner tags both symbols of a word with one lock, generation and
+  // idle flag, except an EIOS tail word (sym0 the locked last IDL, sym1
+  // idle), and never locks an idle symbol.
   `COMMON_ASSERT_NEVER(a_word_one_lock, ser_rx_clk_i, rx_rst,
-                       ser_rx_valid_i & ((ser_rx_i.sym1.lock != ser_rx_i.sym0.lock)
-                                       | (ser_rx_i.sym1.gen != ser_rx_i.sym0.gen)))
+                       ser_rx_valid_i & ((ser_rx_i.sym1.gen != ser_rx_i.sym0.gen)
+                                       | (((ser_rx_i.sym1.lock != ser_rx_i.sym0.lock)
+                                           | (ser_rx_i.sym1.idle != ser_rx_i.sym0.idle))
+                                          & ~(ser_rx_i.sym0.lock & ~ser_rx_i.sym0.idle
+                                              & ~ser_rx_i.sym1.lock & ser_rx_i.sym1.idle))))
+  `COMMON_ASSERT_NEVER(a_idle_unlocked, ser_rx_clk_i, rx_rst,
+                       ser_rx_valid_i & ser_rx_i.sym0.idle & ser_rx_i.sym0.lock)
+  // Lock start: a FIFO word never holds an unlocked symbol before a locked one.
+  `COMMON_ASSERT_NEVER(a_no_unlocked_then_locked, ser_rx_clk_i, rx_rst,
+                       w_push & ~w_word.lock[0] & w_word.lock[1])
 
   // ------------------------------------------------------------------ FIFO
 
@@ -207,14 +222,16 @@ module pcie_pcs_elastic (
 
   always_comb begin
     r_d   = r_q;
-    head0 = '{ovf: head.ovf, rem: head.rem[0], gen: head.gen, lock: head.lock, sym: head.sym0};
-    head1 = '{ovf: 1'b0, rem: head.rem[1], gen: head.gen, lock: head.lock, sym: head.sym1};
-    next0 = '{ovf: head_next.ovf, rem: head_next.rem[0], gen: head_next.gen,
-              lock: head_next.lock, sym: head_next.sym0};
+    head0 = '{ovf: head.ovf, rem: head.rem[0], idle: head.idle[0], gen: head.gen,
+              lock: head.lock[0], sym: head.sym0};
+    head1 = '{ovf: 1'b0, rem: head.rem[1], idle: head.idle[1], gen: head.gen,
+              lock: head.lock[1], sym: head.sym1};
+    next0 = '{ovf: head_next.ovf, rem: head_next.rem[0], idle: head_next.idle[0],
+              gen: head_next.gen, lock: head_next.lock[0], sym: head_next.sym0};
     // Lock start: a locked head word that follows an unlocked leftover
     // symbol is sent from its first symbol. The leftover is dropped, so the
     // first locked word is not paired with it.
-    r_flush     = r_q.left_valid & ~r_q.dup & ~r_q.rem_ack & r_head_valid & head.lock
+    r_flush     = r_q.left_valid & ~r_q.dup & ~r_q.rem_ack & r_head_valid & head0.lock
                 & ~r_q.left.lock;
     r_left_live = r_q.left_valid & ~r_flush;
     if (r_left_live) begin
@@ -238,9 +255,10 @@ module pcie_pcs_elastic (
     r_low         = fill <= pcie_pcs_pkg::EB_FILL_W'(pcie_pcs_pkg::EB_LOW);
     fill_high_d   = fill >= pcie_pcs_pkg::EB_FILL_W'(pcie_pcs_pkg::EB_HIGH);
     r_holdoff_dec = (r_q.holdoff != '0) ? r_q.holdoff - 1'b1 : '0;
-    // Unlocked recentring: skip a cycle while the head word is unlocked and
-    // the fill is low, at most once per EB_HOLDOFF cycles.
-    r_recentre    = r_started & r_head_valid & ~head.lock & r_low & (r_holdoff_dec == '0);
+    // Unlocked recentring: skip a cycle while the next symbol to send is
+    // unlocked and the fill is low, at most once per EB_HOLDOFF cycles (a
+    // locked leftover is never held back behind an unlocked head).
+    r_recentre    = r_started & r_head_valid & ~c0.lock & r_low & (r_holdoff_dec == '0);
     r_udf         = r_started & ~r_recentre & (fill < pcie_pcs_pkg::EB_FILL_W'(2));
     r_go          = r_started & ~r_recentre & ~r_udf;
     r_d.started   = r_started;
@@ -258,7 +276,7 @@ module pcie_pcs_elastic (
     r_two  = 1'b1;
     if (r_q.dup) begin
       // The copy owed from the last cycle, then the symbol itself.
-      o0     = '{ovf: 1'b0, rem: 1'b0, gen: c0.gen, lock: c0.lock, sym: c0.sym};
+      o0     = '{ovf: 1'b0, rem: 1'b0, idle: c0.idle, gen: c0.gen, lock: c0.lock, sym: c0.sym};
       o1     = c0;
       r_two  = 1'b0;
     end else begin
@@ -266,7 +284,7 @@ module pcie_pcs_elastic (
           && pcie_pcs_pkg::is_skp(c1.sym) && r_low) begin
         // Add a copy of the SKP right after the COM.
         r_add0 = 1'b1;
-        o1     = '{ovf: 1'b0, rem: 1'b0, gen: c1.gen, lock: c1.lock, sym: c1.sym};
+        o1     = '{ovf: 1'b0, rem: 1'b0, idle: c1.idle, gen: c1.gen, lock: c1.lock, sym: c1.sym};
         r_two  = 1'b0;
       end else if ((c1.lock && pcie_pcs_pkg::is_com(c1.sym)) && v2) begin
         // A COM in the second slot: look at the symbol after it.
@@ -294,8 +312,8 @@ module pcie_pcs_elastic (
     end
 
     rx_valid_o  = r_go | r_udf;
-    rx_o        = '{sym1: '{lock: o1.lock, gen: o1.gen, code: o1.sym},
-                    sym0: '{lock: o0.lock, gen: o0.gen, code: o0.sym}};
+    rx_o        = '{sym1: '{idle: o1.idle, lock: o1.lock, gen: o1.gen, code: o1.sym},
+                    sym0: '{idle: o0.idle, lock: o0.lock, gen: o0.gen, code: o0.sym}};
     if (!r_go) begin
       rx_o = '0;
     end
@@ -315,7 +333,8 @@ module pcie_pcs_elastic (
   // The word after the head is only looked at for its first symbol, and
   // only the symbol and removed flag of c2; the write side never sets a
   // symbol's own overflow flag (the word's flag is w_q.pend_ovf).
-  `COMMON_UNUSED_BITS(unused_bits, {head_next.sym1, head_next.rem[1], c2.ovf, c2.gen,
+  `COMMON_UNUSED_BITS(unused_bits, {head_next.sym1, head_next.rem[1], head_next.idle[1],
+                                    head_next.lock[1], c2.ovf, c2.gen, c2.idle,
                                     c2.lock, w_first.ovf, w_second.ovf})
 
   `COMMON_ASSERT_NEVER(a_pop_empty, clk_i, rst_i, r_pop & ~r_head_valid)
