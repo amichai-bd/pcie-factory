@@ -19,6 +19,16 @@ tests:
     testcase: smoke
     top: common_cdc_fifo
     timeout_s: 60
+  - name: rst_smoke
+    module: tests.test_cdc_rst
+    testcase: smoke
+    top: common_cdc_rst
+    timeout_s: 60
+  - name: rst_glitch
+    module: tests.test_cdc_rst
+    testcase: glitch
+    top: common_cdc_rst
+    timeout_s: 60
   - name: macros_contract
     module: tests.test_macros
     testcase: contract

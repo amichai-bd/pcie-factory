@@ -11,6 +11,14 @@ roadmap and decision records. Everything else in the wiki is design-neutral.
 | `decisions/NNNN-<slug>.md` | Design decision records (index below). |
 | `arch/<ip>/HAS.md`, `rtl/<ip>/MAS.md`, `dv/<ip>/DV_PLAN.md`, `fpga/<ip>/FPGA.md`, `asic/<ip>/ASIC.md` | Per-IP specs mirroring the kind-first `src/` ([page set](../bkm/wiki.md#page-set)). |
 
+## Worked examples
+
+Design pages that show a design-neutral BKM rule applied.
+
+| Rule | Example |
+| --- | --- |
+| [Field layouts](../bkm/wiki.md#citations) | [TS1 and TS2 fields](arch/mac/SYMBOLS.md#ts1-and-ts2): index, field, what this MAC sends, how it uses the field on receive. |
+
 ## Decisions
 
 Numbers are shared with the factory records in

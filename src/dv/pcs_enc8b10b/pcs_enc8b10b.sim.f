@@ -1,0 +1,2 @@
+-F ../../rtl/pcs_enc8b10b/pcs_enc8b10b.rtl.f
+-F pcs_enc8b10b.dv.f

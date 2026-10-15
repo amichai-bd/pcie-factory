@@ -11,7 +11,9 @@
   [`models/common_macros_model.py`](../../../../src/dv/common/models/common_macros_model.py),
   a cycle model: reset beats enable, arrays copy a whole next-state array,
   reads return the data stored before the same edge's write, lane enables
-  merge, a level synchronizer delays two edges and resets to its value.
+  merge, a level synchronizer delays two edges and resets to its value,
+  and the reset synchronizer is high at once on assertion and falls at the
+  second edge after release.
   Unwritten words and never-loaded registers are unknown and not compared.
   Its pytest tests run in `./build ci unit` (`models:common`).
 - **Tests:** [`tests/test_macros.py`](../../../../src/dv/common/tests/test_macros.py)
@@ -37,12 +39,13 @@
   (write, read-enable, same-address read-during-write, idle) and the lane
   enables of each write. No coverage floor yet.
 - **Out of scope:** the cells behind the crossing macros (their own plans:
-  [sync2](common_cdc_sync2.md), [pulse](common_cdc_pulse.md)); here only
-  the wiring, width, latency and reset value.
+  [sync2](common_cdc_sync2.md), [pulse](common_cdc_pulse.md),
+  [rst](common_cdc_rst.md)); here only the wiring, width, latency and reset
+  value.
 
 ## Plan
 
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
-| [Registers](../../../bkm/rtl.md#registers-and-memories): reset values, capture, enable hold, asynchronous assertion between edges; register arrays; memory read-during-write and lane merge; `COMMON_METAFLOP` latency, `COMMON_METAFLOP_VAL` reset value; five `COMMON_PULSE_SYNC` events | `macros_contract` | 0 | 1 |
-| Every register, array, memory and level-crossing form under random reset, enable, data and memory traffic, against the model | `macros_random` | 1 | 3; 2000 cycles |
+| [Registers](../../../bkm/rtl.md#registers-and-memories): reset values, capture, enable hold, asynchronous assertion between edges; register arrays; memory read-during-write and lane merge; `COMMON_METAFLOP` latency, `COMMON_METAFLOP_VAL` reset value; five `COMMON_PULSE_SYNC` events; `COMMON_RESET_SYNC` on the asynchronous reset: high before any edge and between edges, released at the second edge after the fall | `macros_contract` | 0 | 1 |
+| Every register, array, memory, level-crossing and reset-synchronizer form under random reset, enable, data and memory traffic, against the model | `macros_random` | 1 | 3; 2000 cycles |
