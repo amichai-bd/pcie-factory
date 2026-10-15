@@ -128,8 +128,8 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
   at 100; L2 (L0 to L2, as nightly) line 99, toggle 97.5, functional
   100, per the [DV BKM](../../../bkm/dv.md#coverage) rule (the existing
   floor or the merged value less 0.5 points, the higher): the merged
-  values are 99.15% and 98.04%, so the line floor, kept at 99, leaves
-  0.15 points (half a line point) of margin. Every point left is in
+  values are 99.23% and 98.06%, so the line floor, kept at 99, leaves
+  0.23 points (under one line point) of margin. Every point left is in
   [coverage holes](#coverage-holes).
 
 ## Plan
@@ -304,8 +304,8 @@ stays covered as stated; none is dropped silently.
 
 ## Coverage holes
 
-Merged over levels 0 to 2 (the nightly run), 3 of the 354 line points and
-64 of the 3258 toggle points are not hit. Every hole, by cause:
+Merged over levels 0 to 2 (the nightly run), 3 of the 391 line points and
+64 of the 3300 toggle points are not hit. Every hole, by cause:
 
 | Cause | Line | Toggle | Points |
 | --- | ---: | ---: | --- |

@@ -95,8 +95,8 @@ shows where each of their checks went.
     role), line at 86% and toggle at 78.2%, per the
     [DV BKM](../../../bkm/dv.md#coverage) rule (the existing floor or the
     merged level 0 to 2 value less 0.5 points, the higher): the merged
-    values are 86.29% and 78.75%, so the line floor, kept at 86, leaves
-    0.29 points (6 line points) of margin. Every point left is in [coverage holes](#coverage-holes).
+    values are 86.34% and 78.78%, so the line floor, kept at 86, leaves
+    0.34 points (7 line points) of margin. Every point left is in [coverage holes](#coverage-holes).
 - **Model unit tests** without a simulator: the architecture model's
   self-tests (`./build arch --ip mac`) and the scrambler's word model
   ([`models/`](../../../../src/dv/mac/models/), also the `phy` e2e's
@@ -206,8 +206,8 @@ is covered in each port role.
 
 ## Coverage holes
 
-Merged over levels 0 to 2 (the nightly run), 291 of the 2123 line points
-and 3709 of the 17454 toggle points are not hit. Verilator counts each
+Merged over levels 0 to 2 (the nightly run), 290 of the 2123 line points
+and 3703 of the 17454 toggle points are not hit. Verilator counts each
 parameter set of a block apart
 ([regress SPEC](../../../tools/regress/SPEC.md#coverage)), and the mac is
 built with five (`TIMEOUT_DIV`, `ERR_TIMEOUT_DIV` and `N_FTS` of the
@@ -222,10 +222,11 @@ entries), so most holes are copies. Every hole, by cause:
 | Tool artefact | 2 | 0 | The two early `return` branches of `run_next` (package): Verilator never counts a branch whose body is a function `return` (the block count less the fall-through count gives about 81 million hits). |
 | Elaboration only | 3 | 0 | `err_timeout` (package), called only for `localparam` values. |
 | Not reached: cost | 5 | 40 | The LTSSM timer's saturation and its bits 21 and 22: a dwell of 2^21 cycles (16.8 ms) needs the 24 or 48 ms timeouts at divider 1, over a quarter of an hour of simulation each; the dividers entries check the same timeouts scaled. |
-| Not reached | 1 | 6 | Line: a stray EDB in `[15:8]` outside a packet, then a received word after the receiver has left `Rx_L0` (the framing error without resync); the receiver would have to leave `Rx_L0` in the very next word. The error itself is checked in `rx_idle_tail`. Toggles: `dllp` in the second queue slot, an odd-length DLLP whose end lands in that word phase; `rx_errors` crafts odd lengths but not at that phase. |
 
 [#90](https://github.com/amichai-bd/pcie-factory/issues/90) closed with
 tests: the `Rx_L0s.FTS` timeout held while `Tx_L0s.FTS` runs (`arcs_quick`; the timeout flag `rx_fts_to` now toggles), 64 or more FTS sent
-(`smoke_n_fts_255`) and a SKP credit past 4096 (`traffic_long`); each new
+(`smoke_n_fts_255`), a SKP credit past 4096 (`traffic_long`), and in
+`rx_idle_tail` a stray EDB in `[15:8]` as the receiver leaves `Rx_L0` and
+a 3-byte DLLP ending in the receive queue's second slot; each new
 stimulus catches a mutant the old one missed ([mutation
 evidence](#mutation-evidence)).

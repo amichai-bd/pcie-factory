@@ -278,8 +278,8 @@ afterwards.
 ## Coverage floors
 
 `level2.yaml` sets, per the [DV BKM](../../../bkm/dv.md#coverage), line
-78.2%, toggle 75.1% and functional 100%: the merged level 0 to 2 values
-(78.80%, 75.70%, 100%) less the BKM margin. Functional 100% holds every
+78.7%, toggle 75.2% and functional 100%: the merged level 0 to 2 values
+(79.27%, 75.77%, 100%) less the BKM margin. Functional 100% holds every
 bin of every `phy_e2e_*` covergroup, `phy_e2e_layers` included; its `stack`
 coverpoint has only the two planned choices, so the post-M1 gap
 ([#194](https://github.com/amichai-bd/pcie-factory/issues/194)) adds no
@@ -290,7 +290,7 @@ bin. It replaces the per-covergroup floors of `phy_e2e_run`, `_events`,
 
 The phy's code coverage counts the whole stack: `phy.rtl.f` reaches the
 mac and pcs RTL. Merged over levels 0 to 2 (the nightly run), 345 of the
-1627 line points and 3483 of the 14332 toggle points are not hit. Verilator
+1664 line points and 3483 of the 14374 toggle points are not hit. Verilator
 counts each parameter set of a block apart
 ([regress SPEC](../../../tools/regress/SPEC.md#coverage)), and the mac is
 built with three here. Every hole, by cause:
@@ -298,6 +298,6 @@ built with three here. Every hole, by cause:
 | Cause | Line | Toggle | Points |
 | --- | ---: | ---: | --- |
 | Hit in another parameter set or port | 221 | 1354 | The mac copies built for `e2e_link_up_spec` (dividers 1: training only) and for the entries without `ERR_TIMEOUT_DIV` (no error-path timeout), and port a's or b's copy of a point the other port hits. |
-| Not hit by the IP's own testbench either | 28 | 646 | The holes of the [mac](../mac/DV_PLAN.md#coverage-holes) and [pcs](../pcs/DV_PLAN.md#coverage-holes) plans (unreachable, constant, assertion-only, tool artefacts, the timer's top bits), counted in each copy and port; the reasons are there. |
-| Reached only by the IP's own testbench | 96 | 1474 | Behaviour two conforming stacks over a channel within the targets never produce; each is covered at the mac or pcs level: Polling.Compliance and TxCompliance; link numbers other than 0 (the downstream port sends 0), N_FTS other than 32 (both ports use the default) and the Disable Scrambling and Compliance Receive bits; malformed TS (K or unknown identifiers, cut sets); the Configuration and Recovery error exits (mismatching TS, PAD and renumbering runs, the error-path and Recovery.Idle timeouts and the `idle_to_rlock` count); the `Rx_L0s.FTS` timeout, the upstream wait withdrawn and a held retrain request; framing errors from a COM or K symbol inside a packet; receiver detection with no receiver; the elastic buffer's overflow and underflow (outside ±600 ppm) and the fill's top bits; an unsupported K sent as EDB; aligner offsets with bit 1 or 2 set (the e2e lines lock at few bit offsets; `rx_lock_offsets` sweeps all 20) and the EIOS idle tail. |
+| Not hit by the IP's own testbench either | 27 | 640 | The holes of the [mac](../mac/DV_PLAN.md#coverage-holes) and [pcs](../pcs/DV_PLAN.md#coverage-holes) plans (unreachable, constant, assertion-only, tool artefacts, the timer's top bits), counted in each copy and port; the reasons are there. |
+| Reached only by the IP's own testbench | 97 | 1480 | Behaviour two conforming stacks over a channel within the targets never produce; each is covered at the mac or pcs level: Polling.Compliance and TxCompliance; link numbers other than 0 (the downstream port sends 0), N_FTS other than 32 (both ports use the default) and the Disable Scrambling and Compliance Receive bits; malformed TS (K or unknown identifiers, cut sets); the Configuration and Recovery error exits (mismatching TS, PAD and renumbering runs, the error-path and Recovery.Idle timeouts and the `idle_to_rlock` count); the `Rx_L0s.FTS` timeout, the upstream wait withdrawn and a held retrain request; framing errors from a COM or K symbol inside a packet; receiver detection with no receiver; the elastic buffer's overflow and underflow (outside ±600 ppm) and the fill's top bits; an unsupported K sent as EDB; aligner offsets with bit 1 or 2 set (the e2e lines lock at few bit offsets; `rx_lock_offsets` sweeps all 20) and the EIOS idle tail. |
 | The stack's own nets | 0 | 9 | `pipe_tx_compliance` (no compliance, above) and `port_role_i`, which changes once per run, so each port's copy toggles one way. |
