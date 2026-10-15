@@ -171,9 +171,16 @@ or vendor manual, or a datasheet. "Standard" below means any of them.
 
 - **Paraphrase only.** Restate each requirement in your own words, as
   precisely as the page needs. Never copy sentences, tables, figures,
-  register or field layouts, state diagrams or pseudo-code from a standard.
-  Names that the standard defines, such as signals, fields and states, may be
-  used as names.
+  register or field layout tables, state diagrams or pseudo-code from a
+  standard. Names that the standard defines, such as signals, fields and
+  states, may be used as names.
+- **Field layouts.** A page that needs a standard's packet, frame, register
+  or ordered-set fields describes **this design's** use of each one: its
+  index or bit position, its name, what the design sends, and how it
+  interprets the field on receive. Positions, widths and code values are
+  functional facts, so they may be stated. The standard's table layout,
+  column structure, prose and figures are never copied. The design index
+  links a worked example ([worked examples](../src/README.md#worked-examples)).
 - **Cite every fact taken from a standard**, in Markdown and in code
   comments alike, in exactly this form:
   `[cite: <standard>, rev <revision>, §<section>]`, for example
