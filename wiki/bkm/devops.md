@@ -86,13 +86,23 @@ them with repeated `--level`.
 
 | Level | Contents | Budget | Runs |
 | --- | --- | --- | --- |
-| L0 | Smoke and fastest directed tests | ≤ ~2 min locally for all IPs | Locally while developing; in `ci-gate` |
-| L1 | Full directed set, a few seeds | L0+L1 of affected IPs plus checks ≤ 10 min | `ci-gate` |
-| L2 | Long tests, seed sweeps, FPGA and ASIC flows, metrics | Nightly window | Nightly |
+| L0 | Smoke and fastest directed tests | 120 s of CPU for all IPs | Locally while developing; in `ci-gate` |
+| L1 | Full directed set, a few seeds | 600 s of CPU for all IPs; `ci-gate` (L0+L1 of affected IPs plus checks) targets 10 min | `ci-gate` |
+| L2 | Long tests, seed sweeps, FPGA and ASIC flows, metrics | 7200 s of CPU; nightly window | Nightly |
 
-Budgets live in `cfg/levels.yaml`; `regress` warns when a level exceeds its
-budget. An over-budget level is fixed by moving or speeding up tests, never
-by raising the budget silently.
+Budgets live in `cfg/levels.yaml` and are **CPU time**: the sum, over a
+level's tests, of each test's user plus system CPU time (its process tree,
+simulator included). Wall time on the shared host varied about fourfold
+with load for the same tests (#166: a serial L1 sum of 152 s to 622 s), so a
+wall-time budget would measure the host, not the tests; CPU time barely
+changes with load, and any host can check it. `regress` prints both and
+warns, naming the CPU number, when a level exceeds its budget. It warns
+rather than fails: CPU time still varies a little between hosts and
+Python versions, and a red gate on a timing number would block correct
+changes; the warning is in the job summary, and the fix is to move or
+speed up tests, never to raise the budget silently.
+Measured for #166 with all IPs: L1 356.7 s of CPU against 600 s
+(134 tests at `32bb298`); L0 41.8 s against 120 s.
 
 ## Local evidence
 
@@ -153,7 +163,8 @@ pushes to `main` and manual dispatch:
    `wiki/tracker/data/**` ([metrics spec](../tools/metrics/SPEC.md#guard)).
    Other branches pass at once.
 2. `./build specs fetch`, best effort (`continue-on-error`, 3 minutes), so the
-   spec-cache check sees the reference documents; then `./build check`.
+   spec-cache check sees the reference documents; then `./build check`
+   and `./build wiki build --strict`.
 3. `tools/` unit tests, when `tools/`, `cfg/` or `build` changed (else only
    the Verilator-built vocabulary tests, when an RTL vocabulary header
    changed), and the model unit tests of the affected IPs (`./build ci unit`).
@@ -195,11 +206,12 @@ the exact selection.
 | --- | --- |
 | An IP's own files: under `src/<kind>/<ip>/` for any kind | That IP |
 | A file reached through `-F` from an IP's filelists | That IP |
-| `tools/**`, `cfg/**` or the `build` launcher | All IPs |
+| `tools/**`, `cfg/**` or the `build` launcher | All IPs, level 0 only (with the tools unit tests); an IP another row selects keeps every level |
+| A file the IP's DV or arch Python imports, directly or through other files: under the import root (`import_root`, the tools on `sys.path` in simulations), or another IP's arch or models module imported by name | That IP, every level (found by an import scan; no filelist shows these) |
 | Shared DV helpers under `src/dv/common/` (reached by no filelist) | All IPs |
 | A sub-IP's or integrated IP's models under `src/dv/<id>/models/` | That IP and every ancestor IP (every IP whose `.rtl.f` reaches it) |
 | Push to `main`, manual dispatch | All IPs |
-| Docs only | Checks only |
+| Docs only (wiki, README, skills) | Checks and the strict wiki build only |
 
 A sub-IP is an IP in its own right: a change inside its folders
 (`src/<kind>/<ip>_<sub>/`) selects the sub-IP, and selects the parent only

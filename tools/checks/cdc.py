@@ -263,6 +263,8 @@ class Module:
     flops: list[Flop] = field(default_factory=list)
     cells: list[CellRef] = field(default_factory=list)
     unsupported: list[str] = field(default_factory=list)
+    # Memory reads: (memory var addr, the variables its index reads).
+    mem_reads: list[tuple[str, set[str]]] = field(default_factory=list)
 
 
 class Netlist:
@@ -347,6 +349,15 @@ def _build_model(nl: Netlist, mod: dict) -> Module:
             if t == "VARREF" and n.get("access") in ("RD", "RW"):
                 if n["varp"] in m.vars:
                     out[n["varp"]] = min(out.get(n["varp"], LOGIC), kind)
+            elif t == "ARRAYSEL":
+                mem = _one(n, "fromp")
+                if mem is not None and mem["type"] == "VARREF" and mem["varp"] in m.vars \
+                        and m.vars[mem["varp"]].depth:
+                    idx: set[str] = set()
+                    for c in _children(n, skip={"fromp"}):
+                        idx |= {x["varp"] for x in _walk(c) if x["type"] == "VARREF"
+                                and x["varp"] in m.vars}
+                    m.mem_reads.append((mem["varp"], idx))
             elif t in ("VARXREF",):
                 m.unsupported.append(f"hierarchical reference {n.get('name')} at "
                                      f"{nl.where(n.get('loc', ''))}")
@@ -558,7 +569,9 @@ class Design:
     inputs: dict[Node, str] = field(default_factory=dict)
     inouts: set[Node] = field(default_factory=set)
     memories: dict[Node, int] = field(default_factory=dict)   # unpacked array -> depth
-    const_inputs: list[str] = field(default_factory=list)     # cell src_* inputs tied off
+    const_inputs: list[tuple[str, str]] = field(default_factory=list)  # (cell src_* input, how)
+    src_inputs: list[tuple[str, dict[Node, int]]] = field(default_factory=list)  # read src_* inputs
+    mem_reads: dict[Node, list[set[Node]]] = field(default_factory=dict)  # memory -> read indices
     findings: list[str] = field(default_factory=list)
 
     def name(self, n: Node) -> str:
@@ -596,6 +609,8 @@ def flatten(nl: Netlist, cells: dict[str, Directive],
                 if a in port_clocks:
                     d.port_clock[(path, a)] = (path, port_clocks[a])
         d.findings += m.unsupported
+        for mem, idx in m.mem_reads:
+            d.mem_reads.setdefault((path, mem), []).append({(path, x) for x in idx})
         for tg, dep, k in m.comb:
             d.edge((path, tg), (path, dep), k)
         for f in m.flops:
@@ -645,6 +660,11 @@ def _black_box(d: Design, path, prefix: str, c: CellRef, sub: Module, dv: Direct
             continue
         clocks[side] = (path, p.bare)
     clock_ports = {by_name.get(dv.src), by_name.get(dv.dst)}
+    for a in sorted(set(sub.vars) - set(pins) - clock_ports, key=lambda x: sub.vars[x].name):
+        info = sub.vars[a]
+        if info.direction == "INPUT" and info.name.startswith("src_"):
+            d.const_inputs.append((f"cell {prefix}{c.name}.{info.name} ({where})",
+                                   "is unconnected"))
     for p in c.pins:
         info = sub.vars.get(p.port)
         if info is None or p.port in clock_ports:
@@ -660,7 +680,10 @@ def _black_box(d: Design, path, prefix: str, c: CellRef, sub: Module, dv: Direct
                 d.edge((path, w), node, k)
         elif info.direction == "INPUT":
             if side == "src" and not p.reads:
-                d.const_inputs.append(f"cell {desc} ({where})")
+                d.const_inputs.append((f"cell {desc} ({where})", "is a constant"))
+            elif side == "src":
+                d.src_inputs.append((f"cell {desc} ({where})",
+                                     {(path, r): k for r, k in p.reads.items()}))
             if side == "src" and dv.src == ASYNC:
                 clock = None
             else:
@@ -982,6 +1005,31 @@ def pass_through_findings(design: Design, own: Directive) -> list[str]:
     return out
 
 
+def constant_net_inputs(design: Design) -> list[tuple[str, str]]:
+    """Inner-cell ``src_*`` inputs that read only nets with no source: no
+    live flop, cell output or input port reaches them through combinational
+    edges, so they carry a constant (or nothing). A flop that reads nothing
+    but, at most, a plain copy of itself (``q <= 1'b1``, ``q <= q``) never
+    changes, so it is not live; ``q <= ~q`` is."""
+    d, out = design, []
+    for desc, deps in d.src_inputs:
+        stack, seen, live = list(deps), set(), False
+        while stack and not live:
+            n = stack.pop()
+            if n in seen:
+                continue
+            seen.add(n)
+            if n in d.flops:
+                live = any((n[0], x) != n or k != ALIAS
+                           for x, k in d.flops[n].deps.items())
+            elif n in d.pseudo or n in d.inputs:
+                live = True
+            stack.extend(u for u, _ in d.comb_in.get(n, ()))
+        if not live:
+            out.append((desc, "is driven only by constants"))
+    return out
+
+
 def _synchronized(analysis: Analysis, start: Node, want: str) -> bool:
     """True when ``start`` (a source in domain ``want``) depends, through
     combinational edges and the data inputs of flops in ``want``, on the
@@ -1002,6 +1050,13 @@ def _synchronized(analysis: Analysis, start: Node, want: str) -> bool:
             stack.extend((n[0], x) for x in d.flops[n].deps)
         stack.extend(u for u, _ in d.comb_in.get(n, ()))
     return False
+
+
+def _read_at_pointer(analysis: Analysis, mem: Node, want: str) -> bool:
+    """True when some read of memory ``mem`` has an index that depends on
+    a synchronized pointer (``_synchronized`` from an index variable)."""
+    return any(_synchronized(analysis, x, want)
+               for idx in analysis.d.mem_reads.get(mem, ()) for x in idx)
 
 
 def output_domain_findings(analysis: Analysis, own: Directive) -> list[str]:
@@ -1026,7 +1081,8 @@ def output_domain_findings(analysis: Analysis, own: Directive) -> list[str]:
         foreign = [n for n in srcs if doms[n] != want]
         own_side = [n for n in srcs if doms[n] == want]
         if (foreign and own_side and all(d.memories.get(n, 0) >= 2 for n in foreign)
-                and all(_synchronized(analysis, n, want) for n in own_side)):
+                and all(_synchronized(analysis, n, want) for n in own_side)
+                and all(_read_at_pointer(analysis, n, want) for n in foreign)):
             continue
         out += [f"{head}: output {v.name} is driven by {analysis.describe(n)} on clock "
                 f"{doms[n]}, not by its own side's clock {want}" for n in foreign]
@@ -1073,8 +1129,8 @@ def analyze(nl: Netlist, directives: dict[tuple[Path, str], Directive],
                                 "not on a clock its cdc-cell directive names")
         findings += pass_through_findings(design, own)
         findings += [f"{rel(own.file, nl.src_root)}:{own.line}: crossing cell {own.module}: "
-                     f"source-side input of {x} is a constant, so that cell crosses nothing"
-                     for x in design.const_inputs]
+                     f"source-side input of {x} {how}, so that cell crosses nothing"
+                     for x, how in design.const_inputs + constant_net_inputs(design)]
         findings += output_domain_findings(analysis, own)
     else:  # a crossing cell's ports have their domains from src_*/dst_*
         findings += analysis.unannotated_inputs()

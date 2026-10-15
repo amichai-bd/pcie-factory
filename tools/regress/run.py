@@ -15,7 +15,7 @@ from build.filelist import resolve
 from build.ip import Context, Ip, find_ip, shared_blocks, units
 from ci.config import load_rules
 from regress import coverage as cov
-from regress.affected import changed_files, select_affected
+from regress.affected import changed_files, select_affected_levels
 from regress.schema import LevelBudget, TestEntry, load_budgets, load_floors, load_ip
 
 
@@ -77,14 +77,19 @@ def select(
     if affected_base is not None:
         rules = load_rules(ctx.cfg_dir)
         repo, changed = changed_files(affected_base, ctx.src_root)
-        hit = select_affected(all_ips, repo, changed, ctx.src_root, rules)
+        hit = select_affected_levels(all_ips, repo, changed, ctx.src_root, rules)
         chosen = [ip for ip in chosen if ip.id in hit]
-        reasons = {ip.id: hit[ip.id] for ip in chosen}
+        caps = {ip.id: hit[ip.id][1] for ip in chosen}
+        reasons = {ip.id: hit[ip.id][0] + ("" if caps[ip.id] is None else
+                   f" (level {', '.join(map(str, caps[ip.id]))} only)") for ip in chosen}
+    else:
+        caps = {}
     chosen.sort(key=lambda ip: ip.id)
     runs = []
     for ip in chosen:
+        cap = caps.get(ip.id)
         for entry in tests[ip.id]:
-            if entry.level in levels:
+            if entry.level in levels and (cap is None or entry.level in cap):
                 runs.extend((entry, s) for s in seeds_for(entry, base_seed))
     runs.sort(key=lambda r: (r[0].level, r[0].ip, r[0].name, r[1]))
     return Selection(chosen, reasons, runs)
@@ -232,6 +237,7 @@ def make_summary(
             "seed": seed,
             "status": res.status,
             "runtime_s": round(res.runtime_s, 3),
+            "cpu_s": round(res.cpu_s, 3),
             "log": rel(res.log),
             "detail": res.detail,
         })
@@ -239,14 +245,18 @@ def make_summary(
     for level in sorted(levels):
         rows = [t for t in tests if t["level"] == level]
         runtime = round(sum(t["runtime_s"] for t in rows), 3)
+        cpu = round(sum(t["cpu_s"] for t in rows), 3)
         budget = budgets[level].budget_s
         totals[f"level{level}"] = {
             "tests": len(rows),
             "passed": sum(t["status"] == "pass" for t in rows),
             "failed": sum(t["status"] != "pass" for t in rows),
             "runtime_s": runtime,
+            "cpu_s": cpu,
             "budget_s": budget,
-            "over_budget": runtime > budget,
+            # Budgets are CPU time (DevOps BKM, Levels and budgets): host
+            # load stretches wall time, not CPU time.
+            "over_budget": cpu > budget,
         }
     return {
         "levels": sorted(levels),
@@ -292,14 +302,14 @@ def report(summary: dict, out=None, err=None) -> int:
     out, err = out or sys.stdout, err or sys.stderr
     for key, t in summary["totals"].items():
         print(
-            f"{key}: {t['passed']}/{t['tests']} passed, {t['runtime_s']:.1f}s "
-            f"(budget {t['budget_s']:.0f}s)",
+            f"{key}: {t['passed']}/{t['tests']} passed, CPU {t['cpu_s']:.1f}s "
+            f"(budget {t['budget_s']:.0f}s), test wall time {t['runtime_s']:.1f}s",
             file=out,
         )
         if t["over_budget"]:
             print(
-                f"warning: {key} runtime {t['runtime_s']:.1f}s exceeds its "
-                f"budget of {t['budget_s']:.0f}s",
+                f"warning: {key} CPU time {t['cpu_s']:.1f}s (the sum of its tests' "
+                f"CPU time) exceeds its budget of {t['budget_s']:.0f}s",
                 file=err,
             )
     coverage = summary.get("coverage")
