@@ -123,7 +123,7 @@ this board and need no action; any other warning is a finding:
 | ID | Warning | Why it is accepted |
 | --- | --- | --- |
 | 292013 | LogicLock is only available with a subscription license | Lite edition; the flow uses no LogicLock regions. |
-| 169177 | Pins must meet requirements for 3.3, 3.0 and 2.5 V interfaces | Reported for the 3.3-V LVTTL `CLOCK_50` input that the board wires that way (AN 447). |
+| 169177 | Pins must meet requirements for 3.3, 3.0 and 2.5 V interfaces | Reported for 3.3-V LVTTL clock inputs that the board wires that way (`CLOCK_50`, `SMA_CLKIN`, `HSMC_CLKIN0` with JP6 at its default) (AN 447). |
 
 ## Review checklist
 
