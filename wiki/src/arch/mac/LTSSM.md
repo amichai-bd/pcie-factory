@@ -108,8 +108,11 @@ Recovery.Equalization, 0x35 for L2.TransmitWake.
 - **PIPE power.** Each state has a PowerDown value (table below). The MAC
   raises `pipe_tx_elec_idle_o`, then changes `pipe_power_down_o`, then
   waits for the `pipe_phy_status_i` pulse before it changes PowerDown again
-  or sends ([PIPE page](../phy/PIPE.md#handshakes)). States that end in
-  electrical idle send one EIOS first.
+  or sends ([PIPE page](../phy/PIPE.md#handshakes)). PowerDown moves only
+  between P0 and one low-power state, so a change between two low-power
+  states (L2.Idle's P2 to Detect.Quiet's P1) goes through P0, each step
+  acknowledged ([`pcs` PIPE control](../pcs/PIPE_CONTROL.md#powerdown)).
+  States that end in electrical idle send one EIOS first.
 
 ## What each state transmits
 

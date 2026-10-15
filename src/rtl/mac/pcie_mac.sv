@@ -119,7 +119,8 @@ module pcie_mac #(
   pcie_mac_pkg::t_pkt_tx pkt_tx;
   pcie_mac_pkg::t_pkt_rx pkt_rx;
   common_pkg::t_word       fr_word, rx_dscr_word;
-  logic                  fr_skp_gnt, fr_tx_act, fr_tx_pkt, fr_frame_err;
+  logic                  fr_skp_gnt, fr_tx_act, fr_tx_pkt, fr_tx_open, fr_frame_err;
+  pcie_mac_pkg::t_fr_tx_stat fr_tx_stat;   // the line word and the upper offer, for the LTSSM
   logic [1:0]            fr_rx_idle;
 
   // Transmit line and scrambler.
@@ -132,7 +133,9 @@ module pcie_mac #(
 
   pcie_mac_ltssm #(
     .TIMEOUT_DIV     (TIMEOUT_DIV),
-    .ERR_TIMEOUT_DIV (ERR_TIMEOUT_DIV)
+    .ERR_TIMEOUT_DIV (ERR_TIMEOUT_DIV),
+    .N_FTS           (N_FTS),
+    .L0S_IDLE_CYCLES (L0S_IDLE_CYCLES)
   ) u_ltssm (
     .clk_i           (clk_i),
     .rst_i           (rst_i),
@@ -152,6 +155,7 @@ module pcie_mac #(
     .rx_scr_off_o    (rx_scr_off),
     .partner_n_fts_o (partner_n_fts),
     .fr_tx_idle_i    (fr_tx_idle),
+    .fr_tx_i         (fr_tx_stat),
     .fr_rx_idle_i    (fr_rx_idle)
   );
 
@@ -206,6 +210,7 @@ module pcie_mac #(
     .tx_act_o       (fr_tx_act),
     .tx_word_o      (fr_word),
     .tx_pkt_o       (fr_tx_pkt),
+    .tx_open_o      (fr_tx_open),
     .rx_word_i      (rx_dscr_word),
     .rx_i           (rx_st_q),
     .rx_frame_err_o (fr_frame_err),
@@ -213,6 +218,7 @@ module pcie_mac #(
   );
 
   assign fr_tx_idle = fr_tx_act && !fr_tx_pkt;
+  assign fr_tx_stat = '{pkt: fr_tx_pkt, open: fr_tx_open, offer: pkt_tx_valid_i};
   assign line_word  = fr_tx_act ? fr_word : os_word;
   assign line_valid = fr_tx_act || os_tx.valid;
 
@@ -284,11 +290,11 @@ module pcie_mac #(
   assign pipe_rx_polarity_o   = pipe_q.rx_polarity;
   assign pipe_power_down_o    = pipe_q.power_down;
 
-  // Not used by the core LTSSM yet: the partner's N_FTS (transmit L0s,
-  // #79), the packet-symbol flag (L0s idle count, #79), L0S_IDLE_CYCLES,
-  // and the scramblers' valid outputs (the PIPE status qualifies the words).
-  `COMMON_UNUSED_BITS(unused_top, {partner_n_fts, fr_tx_pkt, L0S_IDLE_CYCLES[0],
-                                   tx_scr_valid, rx_scr_valid, pipe_q.reset_n})
+  // Not used here: the partner's N_FTS (an observation net for the DV; the
+  // LTSSM keeps its own), and the scramblers' valid outputs (the PIPE status
+  // qualifies the words).
+  `COMMON_UNUSED_BITS(unused_top, {partner_n_fts, tx_scr_valid, rx_scr_valid,
+                                   pipe_q.reset_n})
 
   // The line has one source at a time; the frame never drives it in
   // electrical idle.
