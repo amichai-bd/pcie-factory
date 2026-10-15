@@ -181,7 +181,7 @@ still marks them, for the Configuration.Idle and Recovery.Idle counts.
 
 | Choice | Rationale | Rejected |
 | --- | --- | --- |
-| The SKP schedule stays in `mac_os`; the frame only defers it with `skp_req_i`/`skp_gnt_o` | The [HAS split](../../arch/mac/HAS.md#position) gives the schedule to `mac_os`; the count runs in every state, not only in L0. | A second counter in the frame. |
+| The SKP schedule stays in `mac_os`; the frame only defers it with `skp_req_i`/`skp_gnt_o` | The [HAS split](../../arch/mac/HAS.md#position) gives the schedule to `mac_os`; the count runs in every state, not only in L0. `skp_req_i` is `mac_os`'s `tx_skp_due_o`, and `skp_gnt_o` serves as its `tx_skp_ok_i` (a boundary, given while due); `mac_os`'s `tx_count_i` (a counted word was sent) belongs to the line mux, which the restructure ([#146](https://github.com/amichai-bd/pcie-factory/issues/146)) wires. | A second counter in the frame. |
 | Combinational transmit word | Zero added latency inside the 3-cycle TX budget; the scrambler and PIPE registers follow. | A registered word (one more cycle, and the mux would need to look ahead). |
 | The frame parses ordered-set lengths itself | It needs to know which data symbols are packet or idle, independently of `mac_os`'s field decoding. | A per-symbol "in ordered set" input from `mac_os` (couples the two sub-IPs' timing). |
 | Hold the last complete beat until the next symbol | `eop`, `err` and `nullify` ride on the last beat, with no empty `eop` beat. | An extra empty `eop` beat (adds bytes). |
