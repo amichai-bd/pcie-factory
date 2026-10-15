@@ -92,9 +92,11 @@ shows where each of their checks went.
   - Floors: level 1 holds `mac_os_tx`, `mac_os_rx` and `mac_frame` at
     100% (reached by levels 0 and 1); level 2 holds functional coverage at
     100% (all five covergroups, so all 64 arcs of the HAS list in each
-    role), line at 85.7% and toggle at 78.2%, the merged level 0 to 2
-    values (86.29%, 78.75%) less the [DV BKM](../../../bkm/dv.md#coverage)
-    margin. Every point left is in [coverage holes](#coverage-holes).
+    role), line at 86% and toggle at 78.2%, per the
+    [DV BKM](../../../bkm/dv.md#coverage) rule (the existing floor or the
+    merged level 0 to 2 value less 0.5 points, the higher): the merged
+    values are 86.29% and 78.75%, so the line floor, kept at 86, leaves
+    0.29 points (6 line points) of margin. Every point left is in [coverage holes](#coverage-holes).
 - **Model unit tests** without a simulator: the architecture model's
   self-tests (`./build arch --ip mac`) and the scrambler's word model
   ([`models/`](../../../../src/dv/mac/models/), also the `phy` e2e's

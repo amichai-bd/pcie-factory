@@ -162,8 +162,10 @@ helper's API, outputs and floor rules).
   value that level's runs reach (usually in `level2.yaml`, which the nightly runs).
   Raise a floor when coverage improves; lowering one needs a reason in the
   PR, like a budget.
-- **Floor margin.** Set a line or toggle floor 0.5 points below the merged
-  value, rounded down to a tenth of a percent (86.28% gives 85.7). The
+- **Floor margin.** Set a line or toggle floor to the higher of its
+  existing value and the merged value less 0.5 points, rounded down to a
+  tenth of a percent (86.28% gives 85.7): a floor is never lowered to fit
+  the margin, so an old floor may leave less than 0.5 points. The
   seeds are fixed, so the value repeats exactly; the margin absorbs a small
   RTL or test edit. Code floors catch broad losses; a lost feature is
   caught by the functional floor, which is 100 (the bins come from the

@@ -125,11 +125,11 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
 - **Coverage floors** (each level's file; floors apply to the merged
   levels selected): L0 line 87, toggle 87, `pcs_align_lock` 100; L1 (with
   L0, as in `ci-gate`) line 99, toggle 97 and every covergroup but `pcs_rx`
-  at 100; L2 (L0 to L2, as nightly) line 98.6, toggle 97.5, functional
-  100: the merged values (99.15%, 98.04%) less the
-  [DV BKM](../../../bkm/dv.md#coverage) margin. A run applies the highest
-  floor of its selected levels, so in the nightly the line floor that
-  binds is level 1's 99. Every point left is in
+  at 100; L2 (L0 to L2, as nightly) line 99, toggle 97.5, functional
+  100, per the [DV BKM](../../../bkm/dv.md#coverage) rule (the existing
+  floor or the merged value less 0.5 points, the higher): the merged
+  values are 99.15% and 98.04%, so the line floor, kept at 99, leaves
+  0.15 points (half a line point) of margin. Every point left is in
   [coverage holes](#coverage-holes).
 
 ## Plan

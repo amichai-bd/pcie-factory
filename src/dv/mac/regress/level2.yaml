@@ -66,9 +66,11 @@ tests:
     testcase: partner_arc_sweep
     top: pcie_mac_tb
     timeout_s: 900
-# Floors: the merged L0 to L2 value (the nightly runs the three together)
-# minus 0.5 points, rounded down to 0.1 (DV BKM, Coverage). Every point
-# below 100% has a reason in the DV plan (#90).
-# Measured 86.29% line, 78.75% toggle; functional 100% holds every
+# Floors: the higher of the existing floor and the merged L0 to L2 value
+# (the nightly runs the three together) minus 0.5 points, rounded down to
+# 0.1 (DV BKM, Coverage); a floor is never lowered. Every point below 100%
+# has a reason in the DV plan (#90).
+# Measured 86.29% line (the existing 86 kept, 0.29 points of margin),
+# 78.75% toggle; functional 100% holds every
 # mac_ltssm_arcs arc in each role.
-coverage_floors: {line: 85.7, toggle: 78.2, functional: 100}
+coverage_floors: {line: 86, toggle: 78.2, functional: 100}
