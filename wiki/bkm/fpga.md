@@ -20,9 +20,9 @@ Quartus never runs in `ci-gate` or in cloud sessions. Its unit tests (project
 generation, report parsing) use hand-made fixture reports and run without
 Quartus. In a cloud session, `./build fpga --ip <ip> --dry-run` validates the
 inputs and generates the project scripts. On demand on the Omarchy host,
-the `fpga` workflow (manual dispatch only) compiles and uploads only
-`metrics.json` and `worst_path.txt`; the Quartus reports and logs stay in
-`workdir/` on the host.
+the `fpga` workflow (manual dispatch only) compiles and uploads
+`metrics.json`, `worst_path.txt` and the step logs; the Quartus reports,
+project and bitstream stay in `workdir/` on the host.
 
 ## Inputs
 

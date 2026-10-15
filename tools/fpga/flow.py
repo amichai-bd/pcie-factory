@@ -33,6 +33,7 @@ import yaml
 
 from build.filelist import SYNTHESIS_DEFINE, resolve, synthesis_defines
 from build.ip import REPO_ROOT, Ip
+from build.logexcerpt import excerpt
 from checks import lint as check_lint
 from checks.common import CheckConfigError
 from fpga import reports
@@ -362,7 +363,7 @@ def run(p: Plan, bin_dir: Path, timeout_s: float, verilator: Path | None) -> int
             flow["steps"][name] = {"status": res.status, "runtime_s": round(res.runtime_s, 1),
                                    "warnings": quartus_warnings(res.log)}
         if res.status != "pass":
-            _tail(res.log)
+            print_failure(res.log)
             return 1
     try:
         metrics = reports.collect(p.out_dir, p.top)
@@ -410,11 +411,16 @@ def print_summary(m: dict) -> None:
         print(f"  critical path {cp['from']} -> {cp['to']} (slack {cp['slack_ns']} ns)")
 
 
-def _tail(log: Path, lines: int = 30) -> None:
+# Quartus "Error (<id>):" and "Critical Warning[ (<id>)]:" messages, and
+# Verilator "%Error" lines from the lint step.
+ERROR_RE = re.compile(r"^\s*(?:Error \(\d+\)|Critical Warning(?: \(\d+\))?):|^%Error")
+
+
+def print_failure(log: Path) -> None:
+    """Every error line of a failed step's log (capped), then its tail."""
     try:
-        text = log.read_text(errors="replace").splitlines()
+        text = log.read_text(errors="replace")
     except OSError:
         return
-    print(f"--- last {min(lines, len(text))} lines of {log} ---")
-    for line in text[-lines:]:
-        print(line)
+    for line in excerpt(text, ERROR_RE, str(log)):
+        print(line, flush=True)

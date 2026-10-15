@@ -166,6 +166,19 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Upload FPGA and ASIC step logs
+        # Tool output only: per-step FPGA logs and each IP's ASIC flow.log
+        # (wiki/bkm/devops.md#nightly), also when a flow failed.
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: flow-logs
+          path: |
+            workdir/**/fpga/logs/*.log
+            workdir/**/asic/flow.log
+          if-no-files-found: warn
+          retention-days: 14
+
   publish:
     needs: nightly
     if: ${{ !cancelled() && needs.nightly.outputs.collected == 'true' }}

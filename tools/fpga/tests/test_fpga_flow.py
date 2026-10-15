@@ -215,8 +215,9 @@ def test_find_quartus_order(tmp_path, monkeypatch):
 # Running with fake Quartus
 
 
-def fake_quartus(bin_dir: Path, fail: str | None = None) -> Path:
-    """quartus_* scripts that log a closing line and copy the fixtures."""
+def fake_quartus(bin_dir: Path, fail: str | None = None, fail_body: str = "echo boom; exit 3") -> Path:
+    """quartus_* scripts that log a closing line and copy the fixtures; the
+    ``fail`` one runs ``fail_body`` instead."""
     ok = 'echo "Info: Quartus Prime X was successful. 0 errors, 2 warnings"'
     copy_reports = f"mkdir -p output_files && cp {FIX}/output_files/* output_files/"
     bodies = {
@@ -227,7 +228,7 @@ def fake_quartus(bin_dir: Path, fail: str | None = None) -> Path:
                         f'else {copy_reports}; fi\n{ok}'),
     }
     for name, body in bodies.items():
-        fake_exe(bin_dir / name, "echo boom; exit 3" if name == fail else body)
+        fake_exe(bin_dir / name, fail_body if name == fail else body)
     return bin_dir
 
 
@@ -253,6 +254,25 @@ def test_run_step_failure(src, tmp_path, capsys):
     out = capsys.readouterr().out
     assert "[fit] fail" in out and "boom" in out
     assert "[sta]" not in out
+
+
+def test_run_step_failure_prints_every_error_line_then_tail(src, tmp_path, capsys):
+    p = make_plan(src, tmp_path)
+    fixture = FIX / "map_fail.log"
+    bin_dir = fake_quartus(tmp_path / "bin", fail="quartus_map",
+                           fail_body=f"cat {fixture}; exit 3")
+    assert flow.run(p, bin_dir, 30, None) == 1
+    log_lines = (p.out_dir / "logs" / "map.log").read_text().splitlines()
+    errors = [line for line in log_lines if flow.ERROR_RE.search(line)]
+    # One critical warning and three errors, all before the last 30 lines.
+    assert [e.split(" (")[0] for e in errors] == ["Critical Warning"] + ["Error"] * 3
+    assert not any(e in log_lines[-30:] for e in errors)
+    out = capsys.readouterr().out.splitlines()
+    log = p.out_dir / "logs" / "map.log"
+    head = out.index(f"--- error lines in {log}: 4 ---")
+    tail = out.index(f"--- last 30 lines of {log} ---")
+    assert out[head + 1:head + 5] == errors
+    assert head < tail and out[tail + 1:] == log_lines[-30:]
 
 
 def test_run_lint_failure_stops(src, tmp_path):

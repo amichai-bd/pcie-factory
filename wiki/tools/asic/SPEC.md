@@ -100,7 +100,13 @@ the unit tests drive with a fake ORFS.
    client is not enough), the group is killed and the status is
    `<step>: timeout after <S>s`. Ctrl-C or SIGTERM (a cancelled CI job)
    cleans up the same way and exits 130.
-5. Parse the reports and write `metrics.json` and `worst_path.txt`, also on
+5. A step that fails or times out, the optional `clocks` step included,
+   prints the [failure excerpt](../build/SPEC.md#failure-excerpt) of its
+   part of `flow.log`, labelled `step <step> in <flow.log>`: every error
+   line (OpenROAD `[ERROR <code>]`, Yosys `ERROR:`, OpenSTA `Error:`, make
+   `make[<n>]: *** … Error <n>`), at most 50 with the total count, then the
+   last 30 lines.
+6. Parse the reports and write `metrics.json` and `worst_path.txt`, also on
    failure.
 
 Everything the command prints (commands, paths, errors) shows host paths as
@@ -159,9 +165,13 @@ in `ci-gate`), on `[self-hosted, linux, x64]`, the host with ORFS. Input
 folder, found with `find`, one `./build asic --ip <id>` each
 (the job fails if any fails). A discovery step prints only `ORFS_IMAGE`, the
 docker version, the local ORFS images (name, tag, digest) and where
-`openroad`, `yosys` and `klayout` are on `PATH`. The `asic-metrics` artifact
-(14-day retention) holds only `metrics.json` and `worst_path.txt` per IP,
-never raw ORFS reports or logs. The job keeps the fork guard (`if:` requires
+`openroad`, `yosys` and `klayout` are on `PATH`. Two artifacts are kept 14
+days and uploaded even when a run fails: `asic-metrics` holds
+`metrics.json` and `worst_path.txt` per IP, and `asic-logs` each IP's
+`flow.log` (every step's command line and tool output). `flow.log` keeps
+real paths, but the only host path in it is the runner's checkout, which
+the job log already prints; it has no environment dump or secret. ORFS
+reports, results and netlists are never uploaded. The job keeps the fork guard (`if:` requires
 a non-`pull_request` event or a head repository equal to this one), so fork
 code never runs on the self-hosted host if a trigger is added later.
 
@@ -171,7 +181,10 @@ code never runs on the self-hosted host if a trigger is added later.
 
 | Test file | Proves |
 | --- | --- |
-| `test_asic_flow.py` | `config.mk` generation (filelist order, include dirs, defines with `SYNTHESIS`, nickname and output path from the IP id, determinism); `.mk` validation (including `override`, `define` and the ORFS directory variables); SDC count; ORFS settings (digest required, `ORFS_IMAGE` ignored, cores, overrides); docker hardening flags and mounts; unique container names; step commands; `--dry-run`; and a full run against `fixtures/fake_orfs` (a fake `env.sh`, `make`, `openroad`, `yosys`): pass, step failure, timeout, SIGTERM, missing metrics; and, for the optional `clocks` step, an empty `clocks`, a failing step and a hanging one cut at its cap (each exit 0, `pass`, fanout and depth kept, a warning), each with the expected exit code and `status`. |
+| `test_asic_flow.py` | `config.mk` generation (filelist order, include dirs, defines with `SYNTHESIS`, nickname and output path from the IP id, determinism); `.mk` validation (including `override`, `define` and the ORFS directory variables); SDC count; ORFS settings (digest required, `ORFS_IMAGE` ignored, cores, overrides); docker hardening flags and mounts; unique container names; step commands; `--dry-run`; and a full run against `fixtures/fake_orfs` (a fake `env.sh`, `make`, `openroad`, `yosys`): pass, step failure, timeout, SIGTERM, missing metrics; a failing step that
+prints the hand-made `fixtures/flow_fail.log` (its error lines more than 30
+lines before the end) shows every error line, redacted, before the tail, and
+one without error lines says `none matched`; and, for the optional `clocks` step, an empty `clocks`, a failing step and a hanging one cut at its cap (each exit 0, `pass`, fanout and depth kept, a warning), each with the expected exit code and `status`. |
 | `test_asic_metrics.py` | Each parser, the per-clock slacks (sorted, `wns_ns`, non-numbers dropped; missing, empty or malformed `clocks` gives a warning naming the cause, never `incomplete`) and the worst-path summary on the fixture reports in `fixtures/orfs/` and on malformed or empty input. |
 
 `fixtures/orfs/` holds report files cut from a real run of the pinned image

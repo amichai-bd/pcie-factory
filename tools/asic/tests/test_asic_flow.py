@@ -3,7 +3,8 @@
 The run tests use a fake native ORFS root (tests/fixtures/fake_orfs) whose
 env.sh puts a fake ``make`` first on PATH. It copies the fixture reports into
 WORK_HOME, so the whole run, including metrics.json, is exercised without
-ORFS. FAKE_MAKE=fail|sleep switches it to a failure or a hang.
+ORFS. FAKE_MAKE=fail|faillog|sleep switches it to a failure, a failure that
+prints fixtures/flow_fail.log, or a hang.
 """
 
 from __future__ import annotations
@@ -292,6 +293,38 @@ def test_run_failure_is_exit_1(ctx, monkeypatch):
     assert code == 1 and doc["status"] == "flow: fail (exit 3)"
     assert plan.metrics_json.is_file()
     assert "timing.setup_ws_ns" in flow.asic_metrics.missing(doc)
+
+
+FAIL_LOG = HERE / "fixtures" / "flow_fail.log"
+
+
+def test_run_failure_prints_every_error_line_then_tail(ctx, monkeypatch, capsys):
+    native_env(monkeypatch, "faillog")
+    plan = plan_for(ctx)
+    orfs = flow.load_orfs(ctx.cfg_dir, dict(__import__("os").environ))
+    code, doc = flow.run(ctx, plan, orfs, timeout_s=60)
+    assert code == 1 and doc["status"] == "flow: fail (exit 2)"
+    fixture = FAIL_LOG.read_text().splitlines()
+    errors = [line for line in fixture if flow.ERROR_RE.search(line)]
+    # The fixture's tool errors sit before the last 30 lines: a tail-only
+    # excerpt misses them.
+    assert len(errors) == 5 and not any(e in fixture[-30:] for e in errors[:3])
+    out = capsys.readouterr().out.splitlines()
+    head = out.index("--- error lines in step flow in <workdir>/counter/asic/flow.log: 5 ---")
+    tail = out.index("--- last 30 lines of step flow in <workdir>/counter/asic/flow.log ---")
+    assert out[head + 1:head + 6] == errors
+    assert head < tail and out[tail + 1:tail + 31] == fixture[-30:]
+    assert not any(str(ctx.workdir) in line for line in out)
+
+
+def test_run_failure_without_error_lines_says_so(ctx, monkeypatch, capsys):
+    native_env(monkeypatch, "fail")
+    plan = plan_for(ctx)
+    orfs = flow.load_orfs(ctx.cfg_dir, dict(__import__("os").environ))
+    flow.run(ctx, plan, orfs, timeout_s=60)
+    out = capsys.readouterr().out
+    assert "--- error lines in step flow in <workdir>/counter/asic/flow.log: none matched ---" in out
+    assert "--- last 1 lines of step flow" in out
 
 
 def test_run_timeout_is_exit_1(ctx, monkeypatch):

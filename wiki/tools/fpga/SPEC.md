@@ -51,7 +51,12 @@ Everything runs in `workdir/<ip>/fpga/`, which a real run deletes and
 recreates first (`--dry-run` only overwrites the two scripts). Each step runs in its own process group, with stdout and stderr in
 `logs/<step>.log` (first line: the command). A step that exceeds the
 timeout has its group killed and counts as `timeout`. The first step that
-fails or times out stops the flow and prints the last 30 lines of its log.
+fails or times out stops the flow and prints its
+[failure excerpt](../build/SPEC.md#failure-excerpt): every error line of its
+log (Quartus `Error (<id>):` and `Critical Warning[ (<id>)]:` messages,
+Verilator `%Error` lines), at most 50 with the total count, then the last 30
+lines. The closing `Error:` summary block (`… was unsuccessful. N errors`)
+is not an error line; it is in the tail.
 
 | Step | Command | Does |
 | --- | --- | --- |
@@ -158,11 +163,14 @@ itself. The job still carries the fork guard
 out with `persist-credentials: false`.
 
 A discovery step prints only the `quartus_sh`, Verilator and Python paths
-and versions. The artifact `fpga-metrics` (kept 14 days, uploaded even when a
-step fails) holds only this tool's own output, `metrics.json` and
-`worst_path.txt`, for each IP. Quartus reports and logs carry the vendor's
-notice, so they stay in `workdir/` on the host and are never uploaded or
-committed.
+and versions. Two artifacts are kept 14 days and uploaded even when a step
+fails: `fpga-metrics` holds this tool's own output, `metrics.json` and
+`worst_path.txt`, and `fpga-logs` the step logs `logs/<step>.log`, for each
+IP. A step log is the tool's message stream: its command line, Verilator or
+Quartus messages (with Quartus' standard banner) and source paths under the
+runner's checkout, which the job log already prints; no environment dump or
+secret. Quartus reports, project files, databases and bitstreams stay in
+`workdir/` on the host and are never uploaded or committed.
 
 ## Unit tests
 
@@ -180,6 +188,8 @@ committed.
   lint waivers (a waived warning passes, an unwaived one or an invalid
   waiver file fails),
   `cfg/fpga.yaml` validation, and the run loop with fake `quartus_*` scripts
-  that replay the fixtures: metrics written, a failing step stops the flow,
+  that replay the fixtures: metrics written, a failing step stops the flow
+  and prints every error line of the hand-made `map_fail.log` (errors more
+  than 30 lines before its end) before the tail,
   lint failure, timing not met, and a step timeout killing its group; and
   the CLI (`--dry-run`, `--all`, missing Quartus, IP without `src/fpga/<ip>/`).

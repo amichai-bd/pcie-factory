@@ -25,6 +25,7 @@ import yaml
 
 from build.filelist import resolve, synthesis_defines
 from build.ip import Context, Ip
+from build.logexcerpt import excerpt
 
 from . import metrics as asic_metrics
 
@@ -59,6 +60,9 @@ DIGEST = "@sha256:"
 _PREFIX = r"^\s*(?:override\s+)?(?:export\s+)?(?:override\s+)?"
 _ASSIGN = re.compile(_PREFIX + r"([A-Za-z_][A-Za-z0-9_]*)\s*(?:\?|:|::|:::|\+|!)?=\s*(.*?)\s*$")
 _DEFINE = re.compile(_PREFIX + r"define\s+([A-Za-z_][A-Za-z0-9_]*)")
+# OpenROAD "[ERROR <code>]", Yosys "ERROR:", OpenSTA "Error:" and make's
+# "make[<n>]: *** ... Error <n>" lines.
+ERROR_RE = re.compile(r"\[ERROR\b|^(?:ERROR|Error):|^make(?:\[\d+\])?: \*\*\*")
 
 
 class AsicError(Exception):
@@ -414,6 +418,20 @@ def source_revision(repo_root: Path) -> str | None:
     return done.stdout.strip() or None if done.returncode == 0 else None
 
 
+def _section(log: Path, mark: int) -> str:
+    """One step's part of ``flow.log``: everything after byte ``mark``."""
+    with log.open(errors="replace") as fh:
+        fh.seek(mark)
+        return fh.read()
+
+
+def print_failure(ctx: Context, plan: Plan, step: str, text: str) -> None:
+    """Every error line of a failed step's output (capped), then its tail,
+    with host paths redacted."""
+    for line in excerpt(text, ERROR_RE, f"step {step} in {plan.flow_log}"):
+        print(redact(line, ctx), flush=True)
+
+
 def run(ctx: Context, plan: Plan, orfs: Orfs, timeout_s: float) -> tuple[int, dict]:
     """Run every step under one wall-clock budget, then write metrics.json."""
     write_inputs(plan, clean=True)
@@ -445,9 +463,9 @@ def _run(ctx: Context, plan: Plan, orfs: Orfs, timeout_s: float, name: str) -> t
             result = run_step(argv, log, budget, orfs, f"{name}-{step}")
             log.flush()
             if step == "versions":
-                with plan.flow_log.open() as fh:
-                    fh.seek(mark)
-                    versions = parse_versions(fh.read())
+                versions = parse_versions(_section(plan.flow_log, mark))
+            if result != "pass":
+                print_failure(ctx, plan, step, _section(plan.flow_log, mark))
             if result != "pass" and cap is not None:
                 limit = f"timeout after {max(budget, 1):.0f}s" if result == "timeout" else result
                 step_warnings.append(f"{step} step (optional): {limit}; run not failed")

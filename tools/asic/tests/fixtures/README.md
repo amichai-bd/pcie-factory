@@ -30,5 +30,11 @@ SKY130 PDK.
 `fake_orfs/` is a fake native ORFS root: `env.sh` puts `bin/` first on
 `PATH`, where `make` copies `orfs/` into `WORK_HOME` for the `finish` and
 `run` targets (`FAKE_MAKE=fail|sleep|noextra` simulate a failing, hanging or
-incomplete flow; `noclocks|clocksfail|clockssleep` an optional `clocks`
+incomplete flow, `faillog` a failing one that prints `flow_fail.log`; `noclocks|clocksfail|clockssleep` an optional `clocks`
 step that writes no clock, fails or hangs) and `openroad`/`yosys` print versions.
+
+`flow_fail.log` was written by hand in the message formats of Yosys
+(`ERROR:`), OpenROAD (`[ERROR GPL-0302]`), OpenSTA (`Error:`) and make
+(`make: *** ... Error 2`); it is not real tool output. Its error lines sit
+more than 30 lines before the end, so a failure excerpt that prints only
+the tail would miss them.

@@ -10,6 +10,7 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `tools/build/filelist.py` | The `.f` filelist resolver. |
 | `tools/build/ip.py` | Repository context (source root, workdir) and IP discovery. |
 | `tools/build/sim.py` | Verilator + cocotb build and test driver. |
+| `tools/build/logexcerpt.py` | The [failure excerpt](#failure-excerpt) the vendor flows print for a failed step. |
 | `tools/regress/` | Regression lists, selection and summary; see the [regress spec](../regress/SPEC.md). |
 | `tools/fpga/` | Quartus FPGA flow and report parsing; see the [fpga spec](../fpga/SPEC.md). |
 | `tools/labels/` | GitHub label standard, sync and check; see the [labels spec](../labels/SPEC.md). |
@@ -228,6 +229,21 @@ A test's status comes from `results.xml`:
 | `timeout` | The run exceeded `timeout_s` and was killed. |
 | `error` | The build failed, `results.xml` is missing, empty or unreadable (for example truncated), or the simulator exited nonzero without a recorded failure. |
 
+## Failure excerpt
+
+When a vendor flow step (`./build fpga`, `./build asic`) fails or times
+out, the flow prints an excerpt of that step's log, so the tool's own error
+messages reach the job log even when they are far from its end:
+
+1. `--- error lines in <log>: <N> ---`, or `<N> (first 50 shown)` when there
+   are more than 50, or `none matched`;
+2. the matching lines in log order, at most 50, then
+   `... <M> more error line(s) in <log>` when some were cut;
+3. `--- last <n> lines of <log> ---` and the last 30 lines.
+
+Each flow passes its tool's error pattern (in its own SPEC);
+`logexcerpt.py` knows no tool.
+
 ## Unit tests
 
 ```
@@ -251,7 +267,9 @@ transitive and from two parents), integrated top-level IPs (a reached IP
 without its includer's prefix stays top-level), `common/` and name mismatches that are not IPs, a broken
 filelist, ownership by kind folder (never by id prefix), `locate`, and the
 shared blocks and shared unit (`units` adds it only with
-`dv/common/common.sim.f`; it owns the `common/` folders).
+`dv/common/common.sim.f`; it owns the `common/` folders). `test_logexcerpt.py`
+covers the failure excerpt: error lines before the tail in log order, the
+cap with its count and cut note, exactly the cap, and no error lines.
 
 Python dependencies (pinned in `tools/requirements.txt`): `PyYAML`,
 `pytest`, `cocotb`.
