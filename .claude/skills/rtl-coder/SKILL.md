@@ -58,6 +58,19 @@ from the first line; `./build check` fails on each:
       constants in the package, named `<pkg>::<item>`; no `import`
       ([packages](../../../wiki/bkm/rtl.md#types-and-constants-live-in-packages)).
 
+Review enforces two more from the start:
+
+- [ ] Related signals that cross a module boundary inside the IP, and
+      multi-field state, are packed structs from the IP's package
+      (`common_pkg` when two IPs use the type); flat `logic` only for
+      single-meaning signals, top ports mirroring an external interface
+      the HAS names, and parameter-width fields
+      ([structs](../../../wiki/bkm/rtl.md#structs-at-interfaces)).
+- [ ] A new leaf block is a file in `src/rtl/<ip>/`, in the IP's filelist,
+      MAS and testbench; never a new sub-IP, package or testbench of its own
+      without captain approval
+      ([granularity](../../../wiki/bkm/rtl.md#granularity)).
+
 Then:
 
 - `` `include "common_macros.svh"`` after `` `default_nettype none`` in every
@@ -88,7 +101,8 @@ Update `src/rtl/<ip>/<ip>.rtl.f` in the same edit as the source:
       listing their files.
 - [ ] Removed or renamed file removed from the list; no orphan `.sv` left in
       `rtl/<ip>/`.
-- [ ] A new sub-IP is a flat sibling with a prefixed id, `src/rtl/<ip>_<sub>/`
+- [ ] A captain-approved sub-IP ([granularity](../../../wiki/bkm/rtl.md#granularity))
+      is a flat sibling with a prefixed id, `src/rtl/<ip>_<sub>/`
       with its own `<ip>_<sub>.rtl.f` (reached from the parent with `-F`),
       `src/dv/<ip>_<sub>/` lists and two wiki pages (see
       [wiki-spec-writer](../wiki-spec-writer/SKILL.md)); never a nested folder.
