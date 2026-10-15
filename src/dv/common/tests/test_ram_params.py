@@ -14,7 +14,7 @@ import cocotb
 from build import sim
 from build.ip import REPO_ROOT
 
-RTL = REPO_ROOT / "src" / "rtl" / "common"
+RTL = REPO_ROOT / "src" / "rtl" / "common" / "ram"
 BLOCKS = ("common_sync_ram", "common_sync_ram_held", "common_sync_ram_wt", "common_sdp_ram",
           "common_tdp_ram")
 
