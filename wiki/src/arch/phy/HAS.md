@@ -108,6 +108,7 @@ Two 10-bit symbols per `clk_i` cycle (2.5 GT/s = 250 Msymbol/s = 2 x
 
 | Name | Type | Default | Range | Effect |
 | --- | --- | --- | --- | --- |
+| `ERR_TIMEOUT_DIV` | `int unsigned` | 1 | 1 to 1024 | Passed to `pcie_mac`: divides the error-path timeouts (2, 24 and 48 ms), each floored at 16384 cycles, so training is unchanged ([`mac` HAS](../mac/HAS.md#parameters)). FPGA and ASIC builds use 1. DV uses 1024 where a port must wait one out (a partner reset alone, Disabled, Loopback). |
 | `TIMEOUT_DIV` | `int unsigned` | 1 | 1 to 1024 | Divides exactly two pure-wait timeouts: Detect.Quiet's 12 ms and the 2 ms Hot Reset dwell [cite: PCIe Base Spec, rev 3.0, §4.2.6.1] [cite: PCIe Base Spec, rev 3.0, §4.2.6.11]. Every other timeout and every ordered-set count stay at spec values, so training is unchanged. At 1024 the two become 1464 and 244 cycles, still above the 2 TS1 (16 cycles) a partner needs to follow a Hot Reset. FPGA and ASIC builds use 1; DV may use more. |
 
 ## Behavior
@@ -180,9 +181,10 @@ Two 10-bit symbols per `clk_i` cycle (2.5 GT/s = 250 Msymbol/s = 2 x
   [cite: PCIe Base Spec, rev 3.0, §4.2.6.9]
   [cite: PCIe Base Spec, rev 3.0, §4.2.6.11]. In the upstream role,
   `hot_reset_req_i` and `disable_req_i` are ignored.
-- `retrain_req_i` serves both the data-link layer's replay-timeout retrain
-  and a downstream port's Retrain Link request
-  [cite: PCIe Base Spec, rev 3.0, §4.2.6.5].
+- `retrain_req_i` serves two requests. The first is the data-link layer's
+  retrain, which it requests when its REPLAY_NUM counter rolls over
+  [cite: PCIe Base Spec, rev 3.0, §3.5.2.1]. The second is a downstream
+  port's Retrain Link request [cite: PCIe Base Spec, rev 3.0, §4.2.6.5].
 - **Power states.** The upper layer owns any handshake before a request
   (the data-link layer's DLLP exchange); the MAC acts on the directed state.
   - L0s (`pm_state_req_i` 1): the transmitter enters L0s when idle (the
@@ -210,6 +212,7 @@ Two 10-bit symbols per `clk_i` cycle (2.5 GT/s = 250 Msymbol/s = 2 x
 | No bubbles inside a transmit packet | The link cannot pause inside a TLP; a bubble would need a whole-packet buffer in the MAC. | A store-and-forward buffer. |
 | Leaving L0 inside a packet ends it with EDB | Ready never drops inside a packet, so the upper layer has one rule; the partner discards the packet and the data-link layer replays it. | Dropping ready and making the upper layer abandon the packet. |
 | Single-SKP add and remove | Standard PIPE elastic-buffer behavior; the MAC realigns packets that start in the high byte. | Pairs of SKPs (breaks with a partner that starts packets on odd symbols). |
+| `ERR_TIMEOUT_DIV` exposed | A port reset alone leaves its partner in Recovery for 24 ms (3 million cycles), too long for DV. The `mac` parameter passes through with the silicon default, ruled in [#86](https://github.com/amichai-bd/pcie-factory/issues/86). | Leaving single-port reset untested end to end. |
 | `TIMEOUT_DIV` scales two pure waits | Configuration by parameter; 12 ms is 1.5 million cycles in simulation, and no handshake depends on these waits. | Dividing every timeout (breaks training); a simulation-only `ifdef`. |
 | `ltssm_state_o` 6 bits | The Gen1 substates need about 25 codes; Gen2 and Gen3 add more. | 4 bits (major states only), 5 bits (no headroom). |
 
@@ -265,4 +268,4 @@ LTSSM. `./build arch --ip phy` writes `workdir/phy/arch/perf.json`.
 | Cite the electrical sub-block's exact sections for receiver detection and the ±300 ppm transmitter tolerance (the citations above use the nearest confident sections). | [#85](https://github.com/amichai-bd/pcie-factory/issues/85) |
 | Refine the PIPE citations on the [PIPE page](PIPE.md) from chapter to section level. The TxCompliance byte (`[7:0]`) and the P0s PhyStatus pulse were confirmed against PIPE rev 3.0, and the stack's differences from PIPE listed, in the [`pcs` PIPE control page](../pcs/PIPE_CONTROL.md#differences-from-pipe). | [#85](https://github.com/amichai-bd/pcie-factory/issues/85) |
 | LTSSM state codes; what `ltssm_state_o` shows when transmit and receive L0s differ (a code cannot show both; a status bit or a rule); the exact rules behind the model's reduced LTSSM. | [#72](https://github.com/amichai-bd/pcie-factory/issues/72) |
-| The stack targets measured on the RTL in the e2e. | [#86](https://github.com/amichai-bd/pcie-factory/issues/86) |
+| L0s, L1, L2 and Loopback end to end: the pcs must report electrical idle only after the words received before it, so the EIOS reaches the MAC first and whole. | [#182](https://github.com/amichai-bd/pcie-factory/issues/182) |
