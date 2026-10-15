@@ -225,7 +225,7 @@ class VarInfo:
     name: str          # scoped within the module (generate blocks)
     loc: str
     direction: str | None  # INPUT/OUTPUT/INOUT for ports, else None
-    memory: bool = False   # an unpacked array
+    depth: int = 0         # entries of an unpacked array, else 0
 
 
 @dataclass
@@ -280,7 +280,8 @@ class Netlist:
                 if m["type"] == "MODULE" and m.get("level") == 1]
         self.top = tops[0] if tops else None
         self._models: dict[str, Module] = {}
-        self.unpacked = {n["addr"] for n in _walk(tree) if n["type"] == "UNPACKARRAYDTYPE"}
+        self.unpacked = {n["addr"]: _depth(n.get("declRange", "")) for n in _walk(tree)
+                         if n["type"] == "UNPACKARRAYDTYPE"}
 
     def file_of(self, loc: str) -> Path | None:
         f = self.files.get(loc.split(",", 1)[0]) if loc else None
@@ -295,6 +296,12 @@ class Netlist:
         if addr not in self._models:
             self._models[addr] = _build_model(self, self.modules[addr])
         return self._models[addr]
+
+
+def _depth(decl_range: str) -> int:
+    """Entries of an unpacked dimension such as ``[0:3]``; 1 when unknown."""
+    m = re.fullmatch(r"\[\s*(-?\d+)\s*:\s*(-?\d+)\s*\]", decl_range.strip())
+    return abs(int(m.group(1)) - int(m.group(2))) + 1 if m else 1
 
 
 def _line(loc: str) -> int:
@@ -317,7 +324,7 @@ def _build_model(nl: Netlist, mod: dict) -> Module:
                 d = n.get("direction")
                 m.vars[n["addr"]] = VarInfo(scope + n["name"], n.get("loc", ""),
                                             d if d in ("INPUT", "OUTPUT", "INOUT") else None,
-                                            n.get("dtypep") in nl.unpacked)
+                                            nl.unpacked.get(n.get("dtypep"), 0))
             elif t in ("FUNC", "TASK"):
                 continue  # locals of a function are not module state
             elif t == "CELL":
@@ -548,7 +555,7 @@ class Design:
     sinks: list[Sink] = field(default_factory=list)
     inputs: dict[Node, str] = field(default_factory=dict)
     inouts: set[Node] = field(default_factory=set)
-    memories: set[Node] = field(default_factory=set)
+    memories: dict[Node, int] = field(default_factory=dict)   # unpacked array -> depth
     findings: list[str] = field(default_factory=list)
 
     def name(self, n: Node) -> str:
@@ -577,8 +584,8 @@ def flatten(nl: Netlist, cells: dict[str, Directive],
         for a, v in m.vars.items():
             d.names[(path, a)] = prefix + v.name
             d.locs[(path, a)] = v.loc
-            if v.memory:
-                d.memories.add((path, a))
+            if v.depth:
+                d.memories[(path, a)] = v.depth
             if not path and v.direction == "INOUT":
                 d.inouts.add((path, a))
             if not path and v.direction in ("INPUT", "INOUT"):
@@ -970,11 +977,35 @@ def pass_through_findings(design: Design, own: Directive) -> list[str]:
     return out
 
 
+def _synchronized(analysis: Analysis, start: Node, want: str) -> bool:
+    """True when ``start`` (a source in domain ``want``) depends, through
+    combinational edges and the data inputs of flops in ``want``, on the
+    output of an approved crossing cell in ``want``."""
+    d, seen, stack = analysis.d, set(), [start]
+    while stack:
+        n = stack.pop()
+        if n in seen:
+            continue
+        seen.add(n)
+        if n in d.pseudo:
+            if analysis.source_domain(n) == want:
+                return True
+            continue
+        if n in d.flops:
+            if analysis.source_domain(n) != want:
+                continue
+            stack.extend((n[0], x) for x in d.flops[n].deps)
+        stack.extend(u for u, _ in d.comb_in.get(n, ()))
+    return False
+
+
 def output_domain_findings(analysis: Analysis, own: Directive) -> list[str]:
     """A crossing cell analyzed on its own: every source reaching a side's
-    output is in that side's clock domain. A memory written in the other
-    domain may be read, when the read also depends on the output's own
-    domain (a dual-clock memory read at an address of the reading side)."""
+    output is in that side's clock domain. One exception, a dual-clock
+    memory read: the other-domain sources are all memories of two or more
+    entries, there is at least one own-side source, and every own-side
+    source depends, through own-side flops, on an approved crossing cell
+    inside this cell (a synchronized pointer)."""
     d, out = analysis.d, []
     head = f"{rel(own.file, d.nl.src_root)}:{own.line}: crossing cell {own.module}"
     top = d.nl.model(d.nl.top["addr"])
@@ -988,7 +1019,9 @@ def output_domain_findings(analysis: Analysis, own: Directive) -> list[str]:
         srcs = analysis.all_sources([((), a)])
         doms = {n: analysis.source_domain(n) for n in srcs}
         foreign = [n for n in srcs if doms[n] != want]
-        if foreign and all(n in d.memories for n in foreign) and want in doms.values():
+        own_side = [n for n in srcs if doms[n] == want]
+        if (foreign and own_side and all(d.memories.get(n, 0) >= 2 for n in foreign)
+                and all(_synchronized(analysis, n, want) for n in own_side)):
             continue
         out += [f"{head}: output {v.name} is driven by {analysis.describe(n)} on clock "
                 f"{doms[n]}, not by its own side's clock {want}" for n in foreign]

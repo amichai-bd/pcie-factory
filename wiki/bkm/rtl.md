@@ -132,8 +132,12 @@ crossing cells in `src/rtl/common/`; each MAS owns its cell's rules
   `dst_*` ports to the destination domain. Only `common_cdc_*` modules in
   `src/rtl/common/` carry the directive. A cell has no combinational path
   from an input on one side to an output on the other, and each output is
-  driven only from its own side's domain (a dual-clock memory read at an
-  address of the reading side is the one exception).
+  driven only from its own side's domain. The one exception is a
+  dual-clock memory read: the other-domain sources are memories of two or
+  more entries, and every own-side source reaching the output depends,
+  through own-side flops, on a crossing cell inside the cell (a
+  synchronized pointer). A pointer that is synchronized but does not
+  really guard the read is left to the cell's MAS and review.
 - **Port domains.** An input port declares the clock it is synchronous to
   with a comment ending its declaration line, naming another input port of
   the same module:

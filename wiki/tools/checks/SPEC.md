@@ -554,10 +554,16 @@ module name:
   output) that reaches a `src_*` or `dst_*` output, found by a backward
   walk through combinational edges, is in the domain of that side's clock,
   so a cell whose output comes from a flop of the other side and no flop
-  of its own cannot hide a crossing either. One exception: a memory (an
-  unpacked array) written in the other domain may be read when the output
-  also depends on a source of its own side, as in a dual-clock memory read
-  at an address of the reading side. A flop's asynchronous reset is part of
+  of its own cannot hide a crossing either. One exception, a dual-clock
+  memory read, applies when all three hold: every other-domain source of
+  the output is a memory (an unpacked array) of two or more entries; the
+  output has at least one source of its own side; and every such
+  own-side source depends, through combinational edges and the data
+  inputs of own-side flops, on an output in its side's domain of an
+  approved crossing cell instantiated inside this cell (a synchronized
+  pointer). A cell that synchronizes a pointer but does not really use it
+  to guard the read passes this structural test; its MAS and review own
+  that case. A flop's asynchronous reset is part of
   its data input, not of its output, so a reset synchronizer whose output
   comes from `dst` flops reset by a `src_*` input passes.
 
@@ -780,7 +786,10 @@ front of a `src=async` input (in the connection, one and two assignments
 away) against plain wires, every directive finding, a missing and a
 malformed directive (the cell is then looked inside), port and clock
 mismatches, a pass-through cell, a flop-then-wire cell, a memory read at
-a constant or source-side address, co-sources listed and capped, port domains (an annotated port sampled
+a constant or source-side address, memory reads without a synchronized
+pointer (a one-entry memory, a free-running address, a held select, a
+one-entry memory read with a synchronized pointer) and one at a
+synchronized pointer, co-sources listed and capped, port domains (an annotated port sampled
 in another domain, an unannotated one, legal crossings through each kind
 of cell input, a wrong cell side, every annotation finding, a missing annotation with
 two clock inputs, an exempt `inout` port, a reset-synchronizer cell form (`src=async`, an

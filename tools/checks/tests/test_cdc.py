@@ -664,11 +664,11 @@ def test_pass_through_cell_fails(tmp_path):
                           "input src_d_i, so the cell would hide a crossing"]
 
 
-def cell_tree(tmp_path: Path, cell: str) -> Path:
+def cell_tree(tmp_path: Path, cell: str, uses: str = "") -> Path:
     src = tree(tmp_path, A_FLOP + "  assign y_o = a_q;\n")
     common = src / "rtl/common"
     (common / "common_cdc_bad.sv").write_text(cell)
-    (common / "common_cdc_bad.rtl.f").write_text("common_cdc_bad.sv\n")
+    (common / "common_cdc_bad.rtl.f").write_text(uses + "common_cdc_bad.sv\n")
     return src
 
 
@@ -716,6 +716,74 @@ endmodule
 `default_nettype wire
 """))
     assert any("output dst_q_o is driven by flop mem_q" in f for f in r.findings), r.findings
+
+
+MEM_CELL = """`default_nettype none
+// cdc-cell: src=src_clk_i dst=dst_clk_i
+module common_cdc_bad (
+  input  logic src_clk_i,
+  input  logic src_d_i,
+  input  logic dst_clk_i,
+  output logic dst_q_o
+);
+{body}endmodule
+`default_nettype wire
+"""
+SYNCED = """  logic m [{depth}];
+  logic src_a_q;
+  logic ptr;
+  logic ra_q;
+  always_ff @(posedge src_clk_i) begin
+    src_a_q <= ~src_a_q;
+    m[{windex}] <= src_d_i;
+  end
+  common_cdc_sync2 u_s (.dst_clk_i(dst_clk_i), .dst_rst_i(1'b0), .src_data_i(src_a_q),
+                        .dst_data_o(ptr));
+  always_ff @(posedge dst_clk_i) ra_q <= ptr;
+  assign dst_q_o = {read};
+"""
+
+
+@needs_verilator
+@pytest.mark.parametrize("body", [
+    # One entry and a constant qualifier: a renamed register.
+    """  logic m [1];
+  logic z_q;
+  always_ff @(posedge src_clk_i) m[0] <= src_d_i;
+  always_ff @(posedge dst_clk_i) z_q <= 1'b1;
+  assign dst_q_o = m[0] & z_q;
+""",
+    # A free-running read address: no pointer crosses.
+    """  logic m [4];
+  logic [1:0] wa_q;
+  logic [1:0] ra_q;
+  always_ff @(posedge src_clk_i) begin
+    m[wa_q] <= src_d_i;
+    wa_q <= wa_q + 2'd1;
+  end
+  always_ff @(posedge dst_clk_i) ra_q <= ra_q + 2'd1;
+  assign dst_q_o = m[ra_q];
+""",
+    # A destination flop that only holds its value, used as a select.
+    """  logic m [2];
+  logic h_q;
+  always_ff @(posedge src_clk_i) m[0] <= src_d_i;
+  always_ff @(posedge dst_clk_i) h_q <= h_q;
+  assign dst_q_o = h_q ? m[1] : m[0];
+""",
+    # A synchronized pointer, but a one-entry memory.
+    SYNCED.format(depth=1, windex="0", read="m[0] & ra_q"),
+], ids=["one-entry-qualifier", "free-running-address", "hold-select", "one-entry-synced"])
+def test_memory_read_without_a_synchronized_pointer_fails(tmp_path, body):
+    r = run(cell_tree(tmp_path, MEM_CELL.format(body=body), "-F common_cdc_sync2.rtl.f\n"))
+    assert any("output dst_q_o is driven by flop m (" in f for f in r.findings), r.findings
+
+
+@needs_verilator
+def test_memory_read_at_a_synchronized_pointer_passes(tmp_path):
+    body = SYNCED.format(depth=2, windex="src_a_q", read="m[ra_q]")
+    r = run(cell_tree(tmp_path, MEM_CELL.format(body=body), "-F common_cdc_sync2.rtl.f\n"))
+    assert r.passed, r.findings
 
 
 # ---------------------------------------------------------------- selection, tooling
