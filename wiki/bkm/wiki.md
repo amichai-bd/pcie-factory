@@ -213,5 +213,12 @@ which is also published as a site. Nothing committed may contain:
   text). Standards, manuals and datasheets are never quoted at all; they are
   paraphrased and cited ([citations](#citations)).
 
-Reviewers check this on every PR. Content that cannot be public stays out of
-the repository; ask the captain where it belongs.
+`./build check` runs the
+[publishability check](../tools/checks/SPEC.md#publishability-check) on every
+file in the repository: it fails on private keys, access tokens,
+credentials in URLs, IP addresses, home-directory paths and personal email
+addresses. A flagged match that is safe to publish, such as a value planted
+in a test, is exempted only by a reviewed entry with a reason in
+`cfg/checks.yaml`. The check is a pattern scan, not a proof: reviewers
+still check every item above on every PR. Content that cannot be public
+stays out of the repository; ask the captain where it belongs.
