@@ -304,7 +304,7 @@ def test_run_missing_metric_is_exit_1(ctx, monkeypatch):
     orfs = flow.load_orfs(ctx.cfg_dir, dict(__import__("os").environ))
     code, doc = flow.run(ctx, plan, orfs, timeout_s=60)
     assert code == 1
-    assert doc["status"] == "incomplete: missing max_fanout.value, logic_depth.value"
+    assert doc["status"] == "incomplete: missing timing.clocks, max_fanout.value, logic_depth.value"
 
 
 def test_fake_orfs_is_executable():

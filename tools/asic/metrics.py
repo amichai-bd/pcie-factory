@@ -9,7 +9,7 @@ Inputs, all under the ORFS work home (``WORK_HOME``):
 - ``reports/<platform>/<nick>/base/synth_stat.txt``: Yosys ``stat``; fallback
   cell count and area when the JSON lacks them.
 - ``reports/<platform>/<nick>/base/asic_extra.json``: written by
-  ``extra_metrics.tcl`` (max fanout, logic depth).
+  ``extra_metrics.tcl`` (max fanout, logic depth, setup slack per clock).
 
 Every parser is pure (text in, dict out) so unit tests run on fixtures.
 """
@@ -25,7 +25,7 @@ STAGES = ("finish", "detailedroute", "globalroute", "cts", "detailedplace",
           "globalplace", "placeopt", "floorplan", "synth")
 
 # Metrics that must be present for a run to count as complete.
-REQUIRED = ("timing.setup_ws_ns", "timing.tns_ns", "area.stdcell_um2", "cells",
+REQUIRED = ("timing.setup_ws_ns", "timing.tns_ns", "timing.clocks", "area.stdcell_um2", "cells",
             "utilization", "max_fanout.value", "logic_depth.value",
             "worst_path.from", "worst_path.to")
 
@@ -199,6 +199,26 @@ def parse_extra(text: str) -> dict:
     return {k: _unescape(v) for k, v in data.items()}
 
 
+def _num(v):
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def clock_slacks(extra: dict) -> dict | None:
+    """``{clock: {setup_ws_ns, wns_ns, tns_ns}}`` from the extra metrics'
+    ``clocks``; None when absent, empty or malformed."""
+    clocks = extra.get("clocks")
+    if not isinstance(clocks, dict):
+        return None
+    out = {}
+    for name, v in sorted(clocks.items()):
+        if not isinstance(v, dict):
+            continue
+        ws, tns = _num(v.get("setup_ws")), _num(v.get("setup_tns"))
+        out[name] = {"setup_ws_ns": ws, "wns_ns": None if ws is None else min(ws, 0.0),
+                     "tns_ns": tns}
+    return out or None
+
+
 def summarize(step: dict, synth: dict, worst: dict | None, extra: dict) -> dict:
     """Combine the parsed inputs into the metrics.json body (minus run info)."""
     ws = latest(step, "timing__setup__ws")
@@ -211,6 +231,7 @@ def summarize(step: dict, synth: dict, worst: dict | None, extra: dict) -> dict:
             "wns_ns": None if ws is None else min(ws, 0.0),
             "tns_ns": tns,
             "hold_ws_ns": latest(step, "timing__hold__ws"),
+            "clocks": clock_slacks(extra),
         },
         "area": {
             "stdcell_um2": area if area is not None else synth.get("area_um2"),

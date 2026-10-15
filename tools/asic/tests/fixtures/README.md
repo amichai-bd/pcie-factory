@@ -10,12 +10,15 @@ small synthesis target, laid out as ORFS writes them under
 | `logs/1_synth.json`, `2_1_floorplan.json`, `4_1_cts.json`, `5_2_route.json`, `6_report.json` | Per-step metrics | Stage merge (`synth` vs `finish` counts), timing, area, utilization |
 | `reports/6_finish.rpt` | `report_metrics` at finish, cut to its `report_checks -path_delay min` and `max` sections | Worst setup path (input port to register, 4 cells), first-`max`-section selection |
 | `reports/synth_stat.txt` | Yosys `stat` (0.68 table format) | Synthesis cell count and area fallback |
-| `reports/asic_extra.json` | `tools/asic/extra_metrics.tcl` | Max fanout and logic depth |
+| `reports/asic_extra.json` | `tools/asic/extra_metrics.tcl` | Max fanout, logic depth and setup slack per clock |
 
 Edits from the real files: the top module and instance names were renamed
 to `counter` and `u_inc` (the fixture IP in `tools/build/tests/fixtures/src/`)
 to keep `tools/` design-neutral, and `6_finish.rpt` was cut to the two
-sections the parser reads. Otherwise the content is unchanged, so the parsers
+sections the parser reads. The run predates the per-clock slack section of
+`extra_metrics.tcl`, so the `clocks` entry of `asic_extra.json` was written
+by hand from the same run's single-clock `finish__timing__setup__ws` and
+`finish__timing__setup__tns`, in the script's output format. Otherwise the content is unchanged, so the parsers
 see real formatting.
 
 Publishability: every file is tool output for this repository's own RTL. None

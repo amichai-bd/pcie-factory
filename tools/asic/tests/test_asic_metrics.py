@@ -107,7 +107,9 @@ def test_summary_and_required():
     summary = metrics.summarize(step_metrics(), metrics.parse_synth_stat(text("reports/synth_stat.txt")),
                                 metrics.parse_worst_path(text("reports/6_finish.rpt")), extra)
     assert summary["timing"] == {"setup_ws_ns": pytest.approx(6.01343), "wns_ns": 0.0,
-                                 "tns_ns": 0, "hold_ws_ns": pytest.approx(0.248099)}
+                                 "tns_ns": 0, "hold_ws_ns": pytest.approx(0.248099),
+                                 "clocks": {"clk": {"setup_ws_ns": pytest.approx(6.0134),
+                                                    "wns_ns": 0.0, "tns_ns": 0.0}}}
     assert summary["area"]["stdcell_um2"] == pytest.approx(1443.88)
     assert summary["cells"] == 167 and summary["synth_cells"] == 105
     assert summary["utilization"] == pytest.approx(0.360963)
@@ -151,3 +153,26 @@ def test_collect_empty_work_home(tmp_path):
 @pytest.mark.parametrize("bad", ["", "{", "[1]"])
 def test_extra_malformed(bad):
     assert metrics.parse_extra(bad) == {}
+
+
+def test_clock_slacks_per_clock():
+    extra = {"clocks": {"b": {"setup_ws": -0.25, "setup_tns": -0.375},
+                        "a": {"setup_ws": 2.0, "setup_tns": 0.0},
+                        "idle": {"setup_ws": None, "setup_tns": 0.0}}}
+    clocks = metrics.summarize({}, {}, None, extra)["timing"]["clocks"]
+    assert list(clocks) == ["a", "b", "idle"]
+    assert clocks["b"] == {"setup_ws_ns": -0.25, "wns_ns": -0.25, "tns_ns": -0.375}
+    assert clocks["a"] == {"setup_ws_ns": 2.0, "wns_ns": 0.0, "tns_ns": 0.0}
+    assert clocks["idle"] == {"setup_ws_ns": None, "wns_ns": None, "tns_ns": 0.0}
+
+
+@pytest.mark.parametrize("extra", [{}, {"clocks": {}}, {"clocks": [1]}, {"clocks": {"c": 3}}])
+def test_clock_slacks_missing_is_incomplete(extra):
+    summary = metrics.summarize({}, {}, None, extra)
+    assert summary["timing"]["clocks"] is None
+    assert "timing.clocks" in metrics.missing(summary)
+
+
+def test_clock_slacks_reject_non_numbers():
+    clocks = metrics.clock_slacks({"clocks": {"c": {"setup_ws": "x", "setup_tns": True}}})
+    assert clocks == {"c": {"setup_ws_ns": None, "wns_ns": None, "tns_ns": None}}

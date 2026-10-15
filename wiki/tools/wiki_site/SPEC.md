@@ -252,7 +252,9 @@ form the axis.
 **`/tracker/ip/<id>/`** (`<id>` may contain `/`, as sub-IP ids did in records
 written before the kind-first layout) shows that
 IP's comparison table (with each scenario's target metrics), LOC by kind,
-tests per level, its FPGA and ASIC charts, one coverage chart with a series
+tests per level, its FPGA and ASIC charts (plus, when its ASIC records carry
+`timing.clocks`, WNS and TNS charts with a series per clock, sorted by
+name), one coverage chart with a series
 per metric, and its architecture model: the scenario status table and one
 chart per target metric with a series per scenario. `/tracker/ip/` lists the
 IPs, with their latest arch status; the tracker sidebar lists them under it

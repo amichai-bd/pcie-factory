@@ -82,7 +82,7 @@ the unit tests drive with a fake ORFS.
    | --- | --- | --- |
    | `versions` | `openroad -version`, `yosys -V`, `git describe` of the ORFS root | Toolchain record |
    | `flow` | `make -C <root>/flow DESIGN_CONFIG=… WORK_HOME=… FLOW_VARIANT=base NUM_CORES=<cores> finish` | Synthesis to final report |
-   | `extra` | the same `make … RUN_SCRIPT=tools/asic/extra_metrics.tcl run` | Max fanout and logic depth on `6_final.odb` |
+   | `extra` | the same `make … RUN_SCRIPT=tools/asic/extra_metrics.tcl run` | Max fanout, logic depth and setup slack per clock on `6_final.odb` |
 
 4. Each step runs in its own process group. Docker containers are named
    `asic-<nick>-<12 random hex>-<step>`, unique per run because several
@@ -118,6 +118,7 @@ others as `<workdir>` and `<src>`. The commands that run, `config.mk` and
 | `status` | `pass`, `<step>: fail (exit N)`, `<step>: timeout after S s` or `incomplete: missing <keys>`. |
 | `timing.setup_ws_ns`, `timing.tns_ns`, `timing.hold_ws_ns` | ORFS `*__timing__setup__ws`, `*__timing__setup__tns`, `*__timing__hold__ws`, latest stage. |
 | `timing.wns_ns` | `min(setup_ws_ns, 0)`. |
+| `timing.clocks.<clock>.setup_ws_ns`, `.tns_ns`, `.wns_ns` | `extra_metrics.tcl` on `6_final.odb` with the final report's parasitics (`6_final.spef` when ORFS extracted it, else global-route estimates): one worst setup path per constrained endpoint (`find_timing_paths -path_delay max -endpoint_path_count 1`), grouped by the clock that captures it; the worst slack and the sum of the negative slacks of each SDC clock (`null` worst slack for a clock with no endpoint); `wns_ns` is `min(setup_ws_ns, 0)`. ORFS reports only the totals over all clocks. A failure in this part leaves `clocks` empty and keeps the other extra metrics. |
 | `area.stdcell_um2`, `area.core_um2`, `area.die_um2` | `*__design__instance__area__stdcell`, `*__design__core__area`, `*__design__die__area`; Yosys `synth_stat.txt` area as fallback. |
 | `cells`, `synth_cells` | `*__design__instance__count__stdcell` after route (tap cells, clock and timing-repair buffers included, fill cells excluded); Yosys count after synthesis (`synth__…` JSON, else `synth_stat.txt`). |
 | `utilization` | `*__design__instance__utilization`, a fraction of the core area. |
@@ -131,8 +132,8 @@ others as `<workdir>` and `<src>`. The commands that run, `config.mk` and
 "Latest stage" means the first present of `finish`, `detailedroute`,
 `globalroute`, `cts`, `detailedplace`, `globalplace`, `placeopt`,
 `floorplan`, `synth`, over the merged `logs/…/*.json` files. Required (else
-`incomplete`): `timing.setup_ws_ns`, `timing.tns_ns`, `area.stdcell_um2`,
-`cells`, `utilization`, `max_fanout.value`, `logic_depth.value`,
+`incomplete`): `timing.setup_ws_ns`, `timing.tns_ns`, `timing.clocks` (at least one
+clock), `area.stdcell_um2`, `cells`, `utilization`, `max_fanout.value`, `logic_depth.value`,
 `worst_path.from`, `worst_path.to`. Units follow the platform: sky130hd
 liberty time is ns, area µm².
 
@@ -157,7 +158,7 @@ code never runs on the self-hosted host if a trigger is added later.
 | Test file | Proves |
 | --- | --- |
 | `test_asic_flow.py` | `config.mk` generation (filelist order, include dirs, defines with `SYNTHESIS`, nickname and output path from the IP id, determinism); `.mk` validation (including `override`, `define` and the ORFS directory variables); SDC count; ORFS settings (digest required, `ORFS_IMAGE` ignored, cores, overrides); docker hardening flags and mounts; unique container names; step commands; `--dry-run`; and a full run against `fixtures/fake_orfs` (a fake `env.sh`, `make`, `openroad`, `yosys`): pass, step failure, timeout, SIGTERM and missing metrics, each with the expected exit code and `status`. |
-| `test_asic_metrics.py` | Each parser and the worst-path summary on the fixture reports in `fixtures/orfs/` and on malformed or empty input. |
+| `test_asic_metrics.py` | Each parser, the per-clock slacks (sorted, `wns_ns`, non-numbers dropped, empty or malformed `clocks` incomplete) and the worst-path summary on the fixture reports in `fixtures/orfs/` and on malformed or empty input. |
 
 `fixtures/orfs/` holds report files cut from a real run of the pinned image
 on the first synthesis target (see its `README.md`); the fake `make` copies
