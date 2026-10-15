@@ -262,6 +262,39 @@ def test_upstream_does_not_enter_l1_when_the_downstream_retrains_instead():
     assert all(t not in (m.L1E, m.L1I) for _, _, t in b.arcs)
 
 
+def test_packet_offered_while_waiting_for_l1_is_not_taken():
+    p = trained()
+    a, b = p.macs                            # a downstream, b upstream
+    b.pm_state_req = 2
+    p.run_until(lambda q: b.pm_wait, 100)
+    b.tx_packets.append(m.Packet(False, bytes(range(16))))
+    p.run(200)
+    assert b.state == m.L0 and b.pm_wait and len(b.tx_packets) == 1
+    assert not a.rx_packets
+    a.pm_state_req = 2
+    p.run_until(lambda q: a.state == m.L1I and b.state == m.L1I, 1000)
+    assert len(b.tx_packets) == 1            # still queued through L1
+    a.pm_state_req = b.pm_state_req = 0
+    p.run_until(lambda q: a.rx_packets, 10_000)
+    assert a.rx_packets == [m.Packet(False, bytes(range(16)))]
+
+
+def test_rcvrcfg_leaves_for_configuration_only_after_16_ts2_sent():
+    p = trained()
+    a, b = p.macs
+    a.retrain_req = True
+    p.step()
+    p.run_until(lambda q: b.state == m.RL, 1000)
+    b.inject.freeze = True                   # TS1 with matching numbers
+    p.run_until(lambda q: a.state == m.RC, 1000)
+    b.inject.ts = {"kind": "TS1", "link": 3}
+    p.run_until(lambda q: a.mism8, 1000)
+    assert a.state == m.RC                   # 8 mismatching TS1 alone are not enough
+    assert a.sent_after_mism < 16
+    p.run_until(lambda q: a.state == m.LWS, 1000)
+    assert a.arcs[-1][1:] == (m.RC, m.LWS)
+
+
 def test_withdrawn_l1_request_returns_through_recovery():
     p = trained()
     a, b = p.macs
