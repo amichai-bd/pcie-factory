@@ -244,7 +244,7 @@ every coverage run of the IP:
 | Path | Content |
 | --- | --- |
 | `workdir/<ip>/coverage/merged.dat` | Merged Verilator coverage; `verilator_coverage --annotate <dir> merged.dat` shows it per source line. |
-| `workdir/<ip>/coverage/merged.info` | `verilator_coverage --write-info` output for lcov tools. It encodes every point as lcov branch data (`BRF`/`BRH`, no `LF`/`LH`), so lcov's line percentages don't match the table. |
+| `workdir/<ip>/coverage/merged.info` | `verilator_coverage --write-info` output for lcov tools. It holds per-line `DA` records and every point as branch data (`BRDA`, `BRF`/`BRH`), but no `LF`/`LH` line totals, so lcov's line summary doesn't match the table. |
 | `workdir/<ip>/coverage/functional.json` | Merged bins per covergroup and item, and a summary with every uncovered bin as `group.item.bin`. |
 
 Code coverage counts the RTL that `<ip>.rtl.f` reaches, so a parent IP's
@@ -269,7 +269,9 @@ The `floors` column is `none` (no floor applies), `ok` or `FAIL`.
 **Cost.** On the seed IPs' L0+L1+L2 (24 runs, `--jobs 4`), coverage builds
 added under 1% of CPU time and functional sampling about 8% (99.5 s to
 108 s of CPU, mean of three runs each); the designs are small, so the
-Python testbench dominates. Larger designs pay more for toggle coverage;
+Python testbench dominates. Type-strict bins raised the cost of one sample
+from about 0.8 µs to 1.2 µs, which kept the same run's CPU time within
+noise (75 to 79 s on another host, two runs each). Larger designs pay more for toggle coverage;
 re-measure when the nightly budget gets tight.
 
 ### Coverage floors
@@ -332,7 +334,18 @@ COV.sample(valid=1, data=0x3C)                 # every matching bin counts
 - A bin is a value, a collection of values (`range`, list, set,
   frozenset) or a predicate. A tuple is one value, not a collection:
   `("A", "B")` is hit by the sampled tuple `("A", "B")` only, never by a
-  bare `"A"` or `"B"`. A sampled value hits every bin it matches. A cross
+  bare `"A"` or `"B"`. A sampled value hits every bin it matches.
+- Matching is type-strict: a sampled value matches a bin value, or an item
+  of a collection, only when both have the same type and are equal, item
+  by item inside tuples and frozensets. `True` hits neither `1`, `[1]` nor
+  `range(2)`, and `1` doesn't hit `1.0`; a `range` matches `int` values
+  only. Sample plain Python values (`int(sig.value)`, an `Enum` member),
+  not simulator handles.
+- A class (`str`, `int`, an `Enum` class), an iterator or generator, a
+  mapping or a mapping view (`d.keys()`) as a bin spec raises
+  `CoverageError`: a class is callable but would hit every value, and the
+  others could never be hit. Write a predicate such as
+  `lambda v: isinstance(v, str)` instead. A cross
   bin is hit when each of its coverpoints is sampled in the same `sample`
   call and hits that bin.
 - Group, coverpoint, cross and bin names match
@@ -345,9 +358,10 @@ COV.sample(valid=1, data=0x3C)                 # every matching bin counts
   is `{"schema": 1, "groups": {group: {item: {bin: hits}}}}`, cross bins
   named `<bin>,<bin>`.
 - Repeated samples reuse the increments computed for the same values, so
-  sampling every cycle stays cheap (about 1 µs a sample). Values are the
-  same when they are equal and of the same type, also inside tuples, so
-  `True`, `1` and `1.0` are different values. A predicate is therefore
+  sampling every cycle stays cheap (about 1.2 µs a sample for four
+  coverpoints and two crosses). The reuse key matches the type-strict
+  bins: values are the same when they are equal and of the same type, also
+  inside tuples and frozensets. A predicate is therefore
   evaluated once per distinct value and must be a pure function of it: no
   state, no time, no reads of the DUT.
 
