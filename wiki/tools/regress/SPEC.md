@@ -290,7 +290,11 @@ shared unit, files `common.sim.f` reaches that no shared block's `.rtl.f`
 does) are left out
 of the table and the floors; `merged.dat` and `merged.info` still hold
 them. A point is attributed to the file Verilator reports, so an
-`` `include``d file counts unless it is itself a DV-only source. A metric
+`` `include``d file counts unless it is itself a DV-only source. Verilator
+keeps one set of points per parameterization of a module (the point's
+`page`), so a module built with several parameter sets, in one build or
+across the IP's builds, counts each set; a set whose builds run few tests
+lowers the metric. A metric
 with no points (for example, no test samples a covergroup) is reported
 `n/a`.
 

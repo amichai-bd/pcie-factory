@@ -31,7 +31,12 @@ tests:
     top: pcie_phy_e2e_tb
     seeds: 2
     timeout_s: 900
-# Per-covergroup floors only; the line, toggle and overall functional
-# floors are set in #90 now that #182 has landed (firstmate ruling on #86).
-coverage_floors:
-  functional: {phy_e2e_run: 100, phy_e2e_events: 100, phy_e2e_packets: 100, phy_e2e_control: 100, phy_e2e_power: 100}
+# Floors: the higher of the existing floor and the merged L0 to L2 value
+# (the nightly runs the three together) minus 0.5 points, rounded down to
+# 0.1 (DV BKM, Coverage); a floor is never lowered. Every point below 100%
+# has a reason in the DV plan (#90).
+# Measured 79.27% line, 75.77% toggle. Functional 100 must hold every bin
+# of phy_e2e_layers, phy_e2e_run, phy_e2e_events, phy_e2e_packets,
+# phy_e2e_control and phy_e2e_power; a renamed or undeclared covergroup
+# leaves the total, so keep this list.
+coverage_floors: {line: 78.7, toggle: 75.2, functional: 100}

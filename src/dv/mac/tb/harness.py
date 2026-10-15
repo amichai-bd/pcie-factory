@@ -445,8 +445,12 @@ class Harness:
         other = "upstream" if role == "downstream" else "downstream"
         self.role = role
         self.a.role, self.a.dsp = role, role == "downstream"
+        # The partner advertises the DUT's N_FTS when the DUT is downstream
+        # and the default when it is upstream, so an N_FTS variant sends
+        # both counts of FTS on its own L0s exits.
         self.partner = arch.Mac(other, self.timeout_div, self.err_timeout_div,
-                                link_number=partner_link)
+                                link_number=partner_link,
+                                n_fts=self.n_fts if role == "downstream" else arch.N_FTS_DEFAULT)
         self.shadow = arch.Mac(role, self.timeout_div, self.err_timeout_div,
                                n_fts=self.n_fts)
         self.link = arch.Link(delay)

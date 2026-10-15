@@ -80,13 +80,14 @@ def took(h, a, b, after=None):
     return h.took(a, b, after)
 
 
-def rand_packet(rng, max_tlp=256, p_big=0.0):
+def rand_packet(rng, max_tlp=256, p_big=0.0, big_max=2800):
     """A TLP (even length, 4 to max_tlp bytes; with ``p_big`` past one SKP
-    interval) or a 6-byte DLLP, some nullified (ignored for a DLLP)."""
+    interval, 1400 to big_max bytes) or a 6-byte DLLP, some nullified
+    (ignored for a DLLP)."""
     if rng.random() < 0.3:
         return arch.Packet(True, bytes(rng.randrange(256) for _ in range(6)),
                            nullify=rng.random() < 0.1)
-    n = 2 * rng.randint(700, 1400) if rng.random() < p_big else 2 * rng.randint(1, max_tlp // 2)
+    n = 2 * rng.randint(700, big_max // 2) if rng.random() < p_big else 2 * rng.randint(1, max_tlp // 2)
     return arch.Packet(False, bytes(rng.randrange(256) for _ in range(n)),
                        nullify=rng.random() < 0.15)
 
@@ -344,11 +345,16 @@ async def ep_power(h, role):
     h.request(retrain=1)
     await h.run_until(took(h, arch.RXI, arch.ROFF, t), LIMIT, "the latched exit")
     await settle(h)
-    # The Rx_L0s.FTS timeout.
+    # The Rx_L0s.FTS timeout, with the DUT's own transmitter in
+    # Tx_L0s.Idle: the timeout's Recovery exit waits for Tx_L0s.FTS, so it
+    # is latched (MAS, the latched L0 exit). The partner's extra FTS outlast
+    # the DUT's own N_FTS FTS, so its SKP cannot end Rx_L0s.FTS first.
     t = h.now
+    h.request(pm_state=1)
     p.pm_state_req = 1
-    p.inject.fts_extra = 200
-    await h.run_until(lambda q: q.a.rx_sub == arch.RXI, LIMIT, "receive L0s")
+    p.inject.fts_extra = 200 + 2 * h.n_fts
+    await h.run_until(lambda q: q.a.rx_sub == arch.RXI and q.a.tx_sub == arch.TI, LIMIT,
+                      "receive and transmit L0s")
     p.tx_packets.append(arch.Packet(False, bytes(8)))
     await h.run_until(took(h, arch.RF, arch.ROFF, t), LIMIT, "Rx_L0s.FTS timeout")
     await settle(h)
@@ -729,7 +735,7 @@ async def train_spec(dut):
         assert 65.536 <= trn_us <= 80, f"{role}: training {trn_us} us"
 
 
-async def traffic_run(dut, packets, p_big, p_retrain):
+async def traffic_run(dut, packets, p_big, p_retrain, big_max=2800):
     """Random packets both ways in each role, with gaps, long TLPs past the
     SKP interval, lane shifts from the partner's SKP ordered sets and DUT
     retrains inside packets (aborts); every symbol and delivered packet is
@@ -741,9 +747,9 @@ async def traffic_run(dut, packets, p_big, p_retrain):
         await train(h, role, partner_link=0 if role == "downstream" else rng.randrange(256))
         retrains = 0
         for i in range(packets):
-            h.send(rand_packet(rng, 512, p_big), gap=rng.choice((0, 0, 0, 1, 5, 40)))
+            h.send(rand_packet(rng, 512, p_big, big_max), gap=rng.choice((0, 0, 0, 1, 5, 40)))
             if rng.random() < 0.6:
-                h.partner.tx_packets.append(rand_packet(rng, 512, p_big))
+                h.partner.tx_packets.append(rand_packet(rng, 512, p_big, big_max))
             if rng.random() < 0.05:
                 h.partner.inject.skp_adjust = rng.choice((1, -1))
             if rng.random() < 0.3:
@@ -766,8 +772,10 @@ async def traffic(dut):
 
 @cocotb.test()
 async def traffic_long(dut):
-    """L2, seeded: the same, longer and with more long TLPs."""
-    await traffic_run(dut, 600, 0.1, 0.02)
+    """L2, seeded: the same, longer and with more long TLPs, up to the
+    largest (4122 bytes), whose SKP deferral takes the SKP credit past
+    4096."""
+    await traffic_run(dut, 600, 0.1, 0.02, big_max=4122)
 
 
 @cocotb.test()
@@ -984,8 +992,10 @@ async def rx_idle_tail(dut):
     line idles mid-TLP with no EIOS) end bad with one receiver error, as
     does the cut one symbol earlier; a received EDB in [15:8] outside a
     packet is one framing error, then resync (the control for the next
-    cases); an EIOS whose last IDL is an idle tail starts receive L0s with
-    no receiver error. Upstream only: an EIOS with an idle tail received in
+    cases), and without the resync when the receiver leaves Rx_L0 as the
+    next word arrives; a 3-byte DLLP from [15:8] ends in the receive
+    queue's second slot, one bad DLLP; an EIOS whose last IDL is an idle
+    tail starts receive L0s with no receiver error. Upstream only: an EIOS with an idle tail received in
     Rx_L0 while the port has L1 requested but has not started its wait (a
     packet of its own on the line) raises no receiver error. The expected
     outcomes come from the HAS, not the shadow; the shadow checks every
@@ -1037,6 +1047,30 @@ async def rx_idle_tail(dut):
                 f"{role}: a received EDB outside a packet, then {after}, gave {pulses} "
                 f"receiver errors, {got}; expected 1 (then resync)")
             await settle(h)
+        # The same EDB, then the receiver leaves Rx_L0 (a retrain 0 to 2
+        # cycles after the word, so the next word arrives as it leaves): the
+        # deferred framing error is taken without a resync (#90). The
+        # shadow checks rcv_err_o and the state every cycle.
+        for delay in range(3):
+            c = Crafter()
+            c.symbols(skp + [IDLE, arch.EDB] + [IDLE] * 40)
+            h.line_hook = c
+            await h.run(2 + delay)
+            h.request(retrain=1)
+            await h.run(40)
+            h.line_hook = None
+            await settle(h)
+        # A wrong-length DLLP of 3 bytes from [15:8] (#90): its last byte is
+        # the second beat pushed in its word, so the receive queue's second
+        # slot carries a DLLP's end. One bad DLLP, one receiver error.
+        c = Crafter()
+        c.symbols(skp + [IDLE, arch.SDP, (0, 1), (0, 2), (0, 3), arch.END] + [IDLE] * 4)
+        pulses, got = await _tail_burst(h, c, "3-byte DLLP")
+        assert [(g[0], g[2], g[3]) for g in got] == [(True, True, False)], (
+            f"{role}: a 3-byte DLLP delivered {got}, expected one bad DLLP")
+        assert pulses == 1, f"{role}: {pulses} receiver errors for a 3-byte DLLP, expected 1"
+        h.line_hook = None
+        await settle(h)
         # An EIOS ending in an idle tail: receive L0s, no receiver error.
         c = Crafter(hold_idle=True)
         c.symbols(skp + eios_odd)
