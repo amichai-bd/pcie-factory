@@ -102,6 +102,7 @@ RESET_VALUES = {
 
 # Upper-layer inputs an RtlPort toggles at random while its rst_i is high
 # (port_role_i stays: it changes only in reset, and the role is the run's).
+# The lower inputs are random in reset as well (RtlPort.core_edge, rx_edge).
 RESET_NOISE = {
     "pkt_tx_valid_i": 1, "pkt_tx_data_i": 16, "pkt_tx_sop_i": 1, "pkt_tx_eop_i": 1,
     "pkt_tx_dllp_i": 1, "pkt_tx_nullify_i": 1, "retrain_req_i": 1, "hot_reset_req_i": 1,
@@ -288,7 +289,11 @@ class RtlPort:
             self.tx_starts.append((self.edges, t_rise))
         # Drive.
         s["rst_i"].value = int(self.rst)
-        s["ser_tx_rxdet_i"].value = int(rxdet)
+        # In reset the lower inputs are random too: ser_tx_rxdet_i here, the
+        # receive lines in rx_edge (channel model; with CHAN_RTL the top
+        # drives them).
+        s["ser_tx_rxdet_i"].value = (self.rng.getrandbits(1) if self.rst and self.rng
+                                     else int(rxdet))
         self._rst_q = self.rst
         self._take = False
         if self.rst:
@@ -320,6 +325,10 @@ class RtlPort:
         return word, ei
 
     def rx_edge(self, word: int, ei: bool) -> None:
+        """The far port's word through the channel model, on ser_rx_clk_i.
+        While this port is in reset, the receive lines are random instead."""
+        if self.rst and self.rng:
+            word, ei = self.rng.getrandbits(20), bool(self.rng.getrandbits(1))
         self.s["ser_rx_data_i"].value = word
         self.s["ser_rx_elec_idle_i"].value = int(ei)
 
@@ -411,9 +420,11 @@ class Env:
             raise ValueError(f"tx_encoder: expected pcs_model or block_model, got {tx_encoder}")
         # With a layer in RTL, its transmit scrambler or encoder is the RTL
         # block inside it (the DV plan's step 0).
-        COV_LAYERS.sample(**self.layers,
-                          tx_scrambler="rtl" if self.layers["mac"] == "rtl" else tx_scrambler,
-                          tx_encoder="rtl" if self.layers["pcs"] == "rtl" else tx_encoder)
+        # Sampled once the pair has trained (train()), so a bin means the
+        # layer ran, not only that it was built.
+        self._cov_layers: dict | None = dict(self.layers,
+                                tx_scrambler="rtl" if self.layers["mac"] == "rtl" else tx_scrambler,
+                                tx_encoder="rtl" if self.layers["pcs"] == "rtl" else tx_encoder)
         COV_RUN.sample(a_role=a_role, ppm=ppm)
         roles = (a_role, stack.other(a_role))
         if self.layers["mac"] != self.layers["pcs"]:
@@ -515,6 +526,9 @@ class Env:
     async def train(self, limit_cycles: int = 40_000) -> int:
         """Both ports in L0 with link_up; returns a's cycles from start."""
         n = await self.until(self.bench.both_l0, limit_cycles, "training to L0")
+        if self._cov_layers is not None:
+            COV_LAYERS.sample(**self._cov_layers)
+            self._cov_layers = None
         self.log.info("both ports in L0 at a cycle %d", self.bench.cycles[0])
         for i, p in enumerate(self.ports):
             assert p.rcv_errors == 0, f"port {'ab'[i]}: {p.rcv_errors} receiver errors in training"

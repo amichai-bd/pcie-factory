@@ -8,8 +8,11 @@
 - **Reset contract:** an RTL port (`RtlPort`) checks every output against
   its [reset value](../../arch/phy/HAS.md#clocks-and-resets) at each
   falling edge that follows a rising edge with `rst_i` high. While in
-  reset, the upper-layer inputs (packet stream and link requests, not
-  `port_role_i`) toggle at random. This is checked in the first reset, in
+  reset, the inputs toggle at random:
+  - the upper-layer inputs, meaning the packet stream and the link
+    requests, but not `port_role_i`;
+  - `ser_tx_rxdet_i`;
+  - with the channel model, `ser_rx_data_i` and `ser_rx_elec_idle_i`. This is checked in the first reset, in
   both port roles, and in resets asserted while packets flow.
 - **Back-to-back e2e:**
   [`tests/test_phy_e2e.py`](../../../../src/dv/phy/tests/test_phy_e2e.py)
@@ -74,7 +77,8 @@
 - **Functional coverage:** `phy_e2e_layers` (mac, pcs and channel, each
   `model` or `rtl`, mac crossed with pcs, `tx_scrambler`: the mac
   model's own, the block's cycle model, or `rtl` when the mac layer is RTL;
-  `tx_encoder`: the same for the pcs stand-in), the coverage hook that
+  `tx_encoder`: the same for the pcs stand-in; sampled once the pair
+  has trained), the coverage hook that
   records which layers were RTL in each run; `phy_e2e_run` (port a's role,
   the offset ±300, ±600 or other, crossed); `phy_e2e_events`
   (impairment, recovery directed or autonomous, reset of port a or b while
@@ -144,7 +148,7 @@ The steps, all owned by
 amended acceptance of [#131](https://github.com/amichai-bd/pcie-factory/issues/131)
 delivers the hooks, the cycle-model runs and this recipe):
 
-0. **Done by the whole stack.** The `pcie_mac_scrambler` and
+0. **Done ([ruling on #86](https://github.com/amichai-bd/pcie-factory/issues/86#issuecomment-6195155836)).** The `pcie_mac_scrambler` and
    `pcie_pcs_enc8b10b` RTL run inside the RTL layers in every
    `MAC_RTL`/`PCS_RTL` entry, and the `tx_scrambler` and `tx_encoder` `rtl`
    bins record them. Per-block adapters would only duplicate that, so none
@@ -202,7 +206,7 @@ delivers the hooks, the cycle-model runs and this recipe):
 
 | Removed check | Now covered by |
 | --- | --- |
-| `smoke` (`tests/test_phy.py`): every output at its reset value in reset, both roles, random inputs | `e2e_rtl_link` and `e2e_rtl_link_chan`: `RtlPort` checks the reset values on every edge in reset, both roles, with random upper-layer inputs. The lower inputs come from the channel. |
+| `smoke` (`tests/test_phy.py`): every output at its reset value in reset, both roles, random inputs | `e2e_rtl_link` and `e2e_rtl_link_chan`. `RtlPort` checks the reset values on every edge in reset, in both roles. While in reset it drives random values on the upper-layer inputs and on `ser_tx_rxdet_i`. `e2e_rtl_link` also randomizes `ser_rx_data_i` and `ser_rx_elec_idle_i`; in `e2e_rtl_link_chan` the ideal channel drives those two. |
 | `smoke`: reset values after reset (the shell's constant outputs) | Dropped: the stack trains after reset ([link-up](../../arch/phy/HAS.md#link-up-and-requests)). |
 | `e2e_rtl_shell(_chan)` `shell_contract`: Detect.Quiet, electrical idle and no beat with traffic queued | Dropped (shell only); replaced by link-up, traffic and resets mid-traffic in `e2e_rtl_link(_chan)` |
 | `e2e_rtl_shell(_chan)` `rtl_plumbing` | Kept unchanged in `e2e_rtl_link(_chan)` |

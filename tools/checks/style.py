@@ -13,9 +13,9 @@ wildcard-connection and external-ifdef rules are new. The vocabulary rules
 (raw-always-ff, raw-assertion, raw-initial: constructs reserved for the
 shared macro headers) follow the same tool's clocked-process, raw-assert and
 raw-initial rules, and nonblocking-assignment ports its scan;
-system-task, sampled-value, clocking-block, object-macro, local-define,
-conditional-compilation, package-import, include-path, vocabulary-include
-and cdc-cell-macro are new.
+system-task, sampled-value, assert-label, clocking-block, object-macro,
+local-define, conditional-compilation, package-import, include-path,
+vocabulary-include and cdc-cell-macro are new.
 
 The vocabulary headers are the files named in ``VOCABULARY_HEADERS``,
 directly in ``rtl/common/`` (the RTL BKM's shared vocabulary). They alone
@@ -23,7 +23,9 @@ may hold ``always_ff``, ``<=``, assertions, system tasks, ``initial``
 blocks and ``SYNTHESIS``/``VERILATOR`` conditionals; RTL reaches them with
 a bare-name `` `include``. Any other ``.svh`` gets no exemption. Elsewhere
 the sampled-value functions are legal only inside `` `COMMON_ASSERT*``
-arguments, and no file, header or not, may declare a clocking block.
+arguments, whose first argument (the NAME or LABEL the macro pastes as a
+bare token) must be a single identifier, and no file, header or not, may
+declare a clocking block.
 """
 
 from __future__ import annotations
@@ -93,6 +95,10 @@ RULES = {
                       "$past, $stable, $rose, $fell, $changed and $sampled only inside the "
                       "arguments of a COMMON_ASSERT* vocabulary macro (elsewhere $past is a "
                       "register outside the COMMON_DFF* macros)"),
+    "assert-label": ("assertions",
+                     "the first argument (NAME or LABEL) of a COMMON_ASSERT* call is a single "
+                     "identifier: the macro pastes it as a bare token, so anything else is "
+                     "design text outside the assertion"),
     "clocking-block": ("registers-and-memories",
                        "no clocking block (clocking, default clocking, global clocking) in any "
                        "checked file: it gives sampled-value functions an implicit clock"),
@@ -169,7 +175,8 @@ SAMPLED_VALUE_FUNCTIONS = frozenset({"$past", "$stable", "$rose", "$fell", "$cha
 # defines (an object-like one, such as the COMMON_ASSERTIONS_SVH guard,
 # takes no arguments, so a "(" after it is plain design text).
 ASSERT_MACRO_PREFIX = COMMON_PREFIX.upper() + "ASSERT"
-_CLOCKING_RE = re.compile(r"\bclocking\b")
+# A `$` is an identifier character, so `clocking$x` is a name, not the keyword.
+_CLOCKING_RE = re.compile(r"(?<![\w$])clocking(?![\w$])")
 # The vocabulary headers, by file name directly in rtl/common/. Adding one
 # is a reviewed change: a listed header is exempt from the design rules.
 VOCABULARY_HEADERS = ("common_macros.svh", "common_assertions.svh")
@@ -458,6 +465,12 @@ def vocabulary_findings(relpath: str, text: str, vocab: Vocabulary) -> list[str]
         for m in re.finditer(r"\b(initial|final)\b", text):
             add("raw-initial", m.start(), m.group())
         asserts = assert_argument_spans(text, vocab)
+        for start, end in asserts:
+            offset, first = _split_top(text, start + 1, max(start + 1, end - 1))[0]
+            if not _IDENT.fullmatch(first.strip()):
+                add("assert-label", offset + len(first) - len(first.lstrip()),
+                    f"{ASSERT_MACRO_PREFIX}* first argument {' '.join(first.split())!r} "
+                    "is not a single identifier")
         for m in _SYSTEM_RE.finditer(text):
             if m.group() in SAMPLED_VALUE_FUNCTIONS:
                 if not _in(m.start(), asserts):

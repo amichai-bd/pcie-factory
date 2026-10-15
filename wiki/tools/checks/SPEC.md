@@ -168,7 +168,7 @@ adding one is a reviewed change to that list, and any other `.svh`, in
 from them the macro names they `` `define`` (noting which are function-like, defined with a parameter list directly after the name) and the shared cells
 (`rtl/common/<cell>.sv`) their text names. A header is exempt from
 `raw-always-ff`, `nonblocking-assignment`, `raw-assertion`, `raw-initial`,
-`system-task`, `sampled-value`, `object-macro` and `vocabulary-include`, and may test
+`system-task`, `sampled-value`, `assert-label`, `object-macro` and `vocabulary-include`, and may test
 `SYNTHESIS` and `VERILATOR` (not `SIMULATION`); `clocking-block` applies to
 it too. A **design file** is any other `.sv`: in it
 `conditional-compilation` replaces `sim-ifdef` and `external-ifdef`, which
@@ -196,7 +196,8 @@ applies.
 | `raw-initial` | No `initial` or `final` outside a vocabulary header. | [rtl.md#assertions](../../bkm/rtl.md#assertions) |
 | `system-task` | No system task or function outside a vocabulary header (`$display`, `$write`, `$finish`, `$stop`, `$monitor`, `$strobe`, `$readmemh`, `$random`, ...; `$fatal`/`$error`/`$warning`/`$info` are `raw-assertion`'s), except the pure functions `$bits`, `$clog2`, `$signed`, `$unsigned`, `$size`, `$low`, `$high`, `$left`, `$right`, `$increment`, `$dimensions`, `$unpacked_dimensions`, `$countones`, `$countbits`, `$onehot`, `$onehot0`, `$isunknown`, and the sampled-value functions, which are `sampled-value`'s. A `$` inside an identifier is not a call. | [rtl.md#assertions](../../bkm/rtl.md#assertions) |
 | `sampled-value` | `$past`, `$stable`, `$rose`, `$fell`, `$changed` and `$sampled` outside a vocabulary header only inside the parenthesized arguments of a `` `COMMON_ASSERT*`` call whose macro a header defines as function-like. Anywhere else (plain logic, another macro's arguments, after the call, after an object-like macro such as the `COMMON_ASSERTIONS_SVH` include guard) they are findings: with a clock in scope, `assign q = $past(d);` is a register outside the `COMMON_DFF*` macros. The `_gclk` forms stay `system-task`'s. | [rtl.md#assertions](../../bkm/rtl.md#assertions) |
-| `clocking-block` | No `clocking` keyword (a clocking block, `default clocking` or `global clocking`) in any checked file, vocabulary headers included; reported once per block. A default clocking block gives sampled-value functions the implicit clock that turns them into registers. | [rtl.md#registers-and-memories](../../bkm/rtl.md#registers-and-memories) |
+| `assert-label` | Outside a vocabulary header, the first argument of a `` `COMMON_ASSERT*`` call (as `sampled-value` identifies one) is a single identifier (letters, digits, `_` and `$`, not starting with a digit or `$`). The macros paste that `NAME` or `LABEL` as a bare token (a statement label, a generate-block name), so anything else there, such as `x = $past(d); a_c` or a nested macro call, is design text outside the assertion: it simulates but is compiled out under `SYNTHESIS`. | [rtl.md#assertions](../../bkm/rtl.md#assertions) |
+| `clocking-block` | No `clocking` keyword (a clocking block, `default clocking` or `global clocking`) in any checked file, vocabulary headers included; reported once per block. A `$` is an identifier character, so `clocking$x` is a name, not the keyword. A default clocking block gives sampled-value functions the implicit clock that turns them into registers. | [rtl.md#registers-and-memories](../../bkm/rtl.md#registers-and-memories) |
 | `object-macro` | Outside a vocabulary header, no `` `NAME`` use of an object-like vocabulary macro (one `` `define``d without a parameter list: the include guards `COMMON_MACROS_SVH`, `COMMON_ASSERTIONS_SVH`). Design files use only the function-like forms; a guard expands to nothing, so text after it is ordinary design text. | [rtl.md#the-rtl-vocabulary](../../bkm/rtl.md#the-rtl-vocabulary) |
 | `local-define` | No `` `define``, `` `undef`` or `` `undefineall`` in a design file: macros live only in the vocabulary headers, which also closes token-pasting evasions such as `` `define NB <=``. | [rtl.md#no-conditional-compilation](../../bkm/rtl.md#no-conditional-compilation) |
 | `conditional-compilation` | No `` `ifdef``, `` `ifndef``, `` `elsif`` or `` `else`` in a design file, include guards included. | [rtl.md#no-conditional-compilation](../../bkm/rtl.md#no-conditional-compilation) |
@@ -478,19 +479,22 @@ followed) and fails on:
 | Rule | Finding |
 | --- | --- |
 | `pdf` | `<path>: pdf: ...` for any file named `*.pdf` (any case) or with the PDF signature `%PDF-` anywhere in its first 1 KiB. No allow list: reference documents, datasheets and manuals are never committed, so a PDF has no place in the repository. |
-| `archive` | `<path>: archive: ...` for a `.zip`, `.gz`, `.tgz`, `.7z`, `.tar` or `.tar.<x>` file, or one starting with a zip, gzip or 7z signature, because an archive hides its content from every other rule. A reviewed `spec_cache.allow` entry exempts it (below). |
+| `archive` | `<path>: archive: ...` for a `.zip`, `.gz`, `.tgz`, `.7z`, `.xz`, `.bz2`, `.zst`, `.rar`, `.lz4`, `.tar` or `.tar.<x>` file, or one starting with a zip, gzip, 7z, xz, zstd, rar or lz4 signature or a bzip2 header (`BZh`, a block-size digit and a block or end-of-stream marker), because an archive hides its content from every other rule. A reviewed `spec_cache.allow` entry exempts it (below). |
 | `cached-file` | `<path>: cached-file: identical to the cached <name>`: the file's sha256 equals a cached document's or extracted text's. |
-| `cached-text` | `<path>:<line>: cached-text: <n> or more consecutive words match the cached <name>; ...`: a text file shares a run of `n` = `citation.max_quote_words` + 1 words with an extracted text. Words are lower-case runs of letters and digits, so layout, case and punctuation do not hide a copy; `<line>` is where the first such run starts. A file is read as UTF-8 (a UTF-8 byte-order mark is dropped); one with a UTF-16 byte-order mark is decoded as UTF-16; one with NUL bytes is scanned in each UTF-16 byte order that decodes cleanly, and skipped as binary when neither does. |
+| `cached-text` | `<path>:<line>: cached-text: <n> or more consecutive words match the cached <name>; ...`: a text file shares a run of `n` = `citation.max_quote_words` + 1 words with an extracted text. Words are lower-case runs of letters and digits, so layout, case and punctuation do not hide a copy; `<line>` is where the first such run starts. A file is read as UTF-8 (a UTF-8 byte-order mark is dropped); one with a UTF-32 or UTF-16 byte-order mark is decoded as such (UTF-32 first, since its little-endian mark starts with UTF-16's); one with NUL bytes is scanned in each UTF-32 (length a multiple of 4) and UTF-16 (even length) byte order that decodes cleanly, and skipped as binary when none does. |
 | list | `src/specs.yaml: document '<id>' has no entry heading on wiki/src/references.md`: every listed id is a level-2 to level-6 heading of exactly that id on the public references page. |
 
 ```yaml
 spec_cache:                     # optional section; no section means no entries
   allow:                        # required in the section; may be empty
-    - path: tools/x/tests/*.zip # required; fnmatch glob ('*' crosses '/')
+    - path: tools/x/tests/*.zip # required; fnmatch glob per path segment
       reason: a fixture bundle of our own files   # required
 ```
 
-An entry exempts only the `archive` rule, for archives whose path matches;
+An entry exempts only the `archive` rule, for archives whose path matches.
+The glob is matched one `/`-separated segment at a time and must have as
+many segments as the path, so `*` never crosses a folder: `*.zip` exempts
+only a zip at the repository root, never a nested one;
 an entry that matches no archive is **stale** and is a finding,
 `cfg/checks.yaml: spec_cache.allow[<i>] (<path>): stale, matches no archive`.
 A missing or extra key, an empty string or a wrong type is a configuration
@@ -645,7 +649,11 @@ module name:
   to guard the read passes this structural test; its MAS and review own
   that case. A flop's asynchronous reset is part of
   its data input, not of its output, so a reset synchronizer whose output
-  comes from `dst` flops reset by a `src_*` input passes.
+  comes from `dst` flops reset by a `src_*` input passes;
+- when the cell is a target itself, no approved crossing cell instantiated
+  inside it has a `src_*` input (other than its clock) connected to a
+  constant: a synchronizer of `1'b1` crosses nothing, so it cannot stand
+  in for a synchronized pointer.
 
 A cell that passes is **approved**. A `common_cdc_*` module that fails is
 analyzed like any other module, so its own synchronizer flops are then
@@ -824,7 +832,7 @@ staying top-level with `arch/`, `fpga/` and `asic/` while a prefixed one is a su
 an unconfirmed parent prefix (`test_layout.py`), one bad case per style
 rule (every design rule, include rule and `cdc-cell-macro` included),
 sampled-value functions passing in `COMMON_ASSERT*` arguments and failing
-elsewhere (including after the `COMMON_ASSERTIONS_SVH` guard), the `default clocking` plus `$past` hidden register, `object-macro` and function-like macro discovery, the
+elsewhere (including after the `COMMON_ASSERTIONS_SVH` guard), `assert-label` statements and nested macro calls in the `NAME` argument, the `default clocking` plus `$past` hidden register, `clocking` inside an identifier, `object-macro` and function-like macro discovery, the
 vocabulary header list matching `cfg/ci.yaml` `vocabulary_tests.paths`,
 the vocabulary header's exemptions and the `SIMULATION` limit, comparisons
 that are not nonblocking assignments, vocabulary discovery, the design-file
@@ -866,10 +874,11 @@ a temporary git repository with a fake cache: a PDF by name and by
 content (with and without a cache, the signature inside versus beyond the
 first 1 KiB), a copy of a cached text, a run one word
 longer than the quote limit across a line break with other case and
-punctuation versus a run at the limit, UTF-16 text with either
+punctuation versus a run at the limit, UTF-32 and UTF-16 text with either
 byte-order mark and without one and UTF-8 with a mark, binary data, every
 archive name and signature with and without an allow entry, archive
-look-alike names, a stale entry and each allow config error, ignored
+look-alike names (and a text file starting `BZh`), a `*.zip` entry that
+does not exempt a nested zip, a stale entry and each allow config error, ignored
 files, a listed id with no page heading, an invalid list and a cache
 inside the repository (`test_spec_cache.py`); no fixture PDF or document
 text is stored, and the PDF signature is assembled at run time,
@@ -889,7 +898,7 @@ mismatches, a pass-through cell, a flop-then-wire cell, a memory read at
 a constant or source-side address, memory reads without a synchronized
 pointer (a one-entry memory, a free-running address, a held select, a
 one-entry memory read with a synchronized pointer) and one at a
-synchronized pointer, co-sources listed and capped, port domains (an annotated port sampled
+synchronized pointer, an inner synchronizer of a constant, co-sources listed and capped, port domains (an annotated port sampled
 in another domain, an unannotated one, legal crossings through each kind
 of cell input, a wrong cell side, every annotation finding, a missing annotation with
 two clock inputs, an exempt `inout` port, a reset-synchronizer cell form (`src=async`, an

@@ -23,6 +23,14 @@ sandbox (a bot challenge and an unreachable host), so each still needs a
 human to open it and confirm it. The **Verified** line of each entry says
 how. External links are not fetched in CI.
 
+**Open human checks.** Each stays open until its owner records the result
+on the entry's **Verified** line and removes it here.
+
+| Check | Owner |
+| --- | --- |
+| Open the [`pcie-base`](#pcie-base) PCI-SIG link and the [`de2-115`](#de2-115) Terasic link in a browser and confirm each reaches the named document. | Captain |
+| Confirm the [`de2-115`](#de2-115) user manual revision and record it in its **Revision** line, replacing `rev unverified`. | Captain |
+
 ## pcie-base
 
 | Field | Value |
