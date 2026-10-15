@@ -92,7 +92,7 @@ The `Clock` column is each input's `cdc-domain` annotation in the RTL
 | `pipe_rx_datak_o` | out | 2 | `clk_i` | RxDataK. |
 | `pipe_rx_valid_o` | out | 1 | `clk_i` | RxValid: both symbols are under symbol lock. |
 | `pipe_phy_status_o` | out | 1 | `clk_i` | PhyStatus: high in and after reset, then one-cycle completion pulses. |
-| `pipe_rx_elec_idle_o` | out | 1 | `clk_i` | RxElecIdle, synchronized. |
+| `pipe_rx_elec_idle_o` | out | 1 | `clk_i` | RxElecIdle, in order with the received words ([receive path](RECEIVE.md#electrical-idle)). |
 | `pipe_rx_status_o` | out | 3 | `clk_i` | RxStatus per word ([codes](RECEIVE.md#decode-and-rxstatus)). |
 | `ser_tx_data_o` | out | 20 | `clk_i` | Two encoded symbols, `[9:0]` first, bit 0 first on the line. |
 | `ser_tx_elec_idle_o` | out | 1 | `clk_i` | The transmitter is in electrical idle. |
@@ -162,7 +162,7 @@ need testbench state live in DV bind modules
   `rst_i` falls, which meets the contract. There is one such
   synchronizer, inside the elastic buffer, exported on its `ser_rx_rst_o`; the
   whole `ser_rx_clk_i` domain (the aligner, the elastic buffer's write side
-  and FIFO write side, the crossing cells' RX sides and the top's RX flop)
+  and FIFO write side and the crossing cells' RX sides)
   resets on that output; the FIFO's read side resets on
   `rst_i`, so both sides are in reset together the whole time `rst_i` is
   high (at least 8 `clk_i` and 7 `ser_rx_clk_i` cycles), as the FIFO
@@ -196,17 +196,17 @@ cells; there are no others (Q17,
 
 | # | What crosses | From → to | Cell | Source-side reset | Destination-side reset | Owner |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Received words: two raw symbols, lock tag, lock generation, removed and overflow flags | `ser_rx_clk_i` → `clk_i` | [`common_cdc_fifo`](../../rtl/common/common_cdc_fifo.md), `WIDTH` 25, `ADDR_W` 4 (its pointers cross inside it through `common_cdc_sync2`) | RX reset (`src_rst_i`) | `rst_i` (`dst_rst_i`) | elastic buffer |
+| 1 | Received words: two raw symbols, a lock and an idle flag per symbol, lock generation, removed and overflow flags; electrical idle crosses here, with the words | `ser_rx_clk_i` → `clk_i` | [`common_cdc_fifo`](../../rtl/common/common_cdc_fifo.md), `WIDTH` 28, `ADDR_W` 4 (its pointers cross inside it through `common_cdc_sync2`) | RX reset (`src_rst_i`) | `rst_i` (`dst_rst_i`) | elastic buffer |
 | 2 | RX-domain reset, from `rst_i` | `clk_i` → `ser_rx_clk_i` | `common_cdc_rst` ([#119](https://github.com/amichai-bd/pcie-factory/issues/119)) | none (`rst_i` is the input) | none (it makes the RX reset) | elastic buffer (exported on `ser_rx_rst_o` for the rest of the RX domain) |
 | 3 | Fill high, a level from a `clk_i` flop | `clk_i` → `ser_rx_clk_i` | [`common_cdc_sync2`](../../rtl/common/common_cdc_sync2.md) | `rst_i` (the source flop) | RX reset (`dst_rst_i`) | elastic buffer |
 | 4 | Relock request, one event per request | `clk_i` → `ser_rx_clk_i` | [`common_cdc_pulse`](../../rtl/common/common_cdc_pulse.md) | `rst_i` (`src_rst_i`; never `pipe_reset_ni`, so both sides reset together) | RX reset (`dst_rst_i`) | top |
-| 5 | Receiver active (not `ser_rx_elec_idle_i`), a level from a `ser_rx_clk_i` flop | `ser_rx_clk_i` → `clk_i` | [`common_cdc_sync2`](../../rtl/common/common_cdc_sync2.md) | RX reset (the source flop) | `rst_i` (`dst_rst_i`) | top |
 
 "RX reset" is the output of crossing 2. No crossing cell resets on
 `pipe_reset_ni`.
 
-Crossing 5 carries the inverted level so that its reset value 0 gives
-`pipe_rx_elec_idle_o` 1. RxPolarity needs no crossing: it acts after the
+Electrical idle has no crossing of its own: it rides crossing 1 with the
+words, so it cannot overtake them (an earlier crossing 5 synchronized it
+alone and did; #182). RxPolarity needs no crossing: it acts after the
 buffer, on the `clk_i` side.
 
 ## Decisions
@@ -220,6 +220,7 @@ buffer, on the `clk_i` side.
 | 16-word FIFO, nominal visible fill 8, add at 7 or less, remove at 9 or more | Covers 3.4 symbols of drift, the sampling jitter and the pointer lag both ways, with fill 4 to 12 ([depth math](RECEIVE.md#depth-versus-clock-offset)). This rebalances the `phy` budget's "16 symbols centred at 8": the visible window is still 16 symbols centred at 8 (`PcsBudget.eb_depth_symbols`), and the storage is 32 symbols because each side sees the other's pointer late. A fill of 12 or less keeps RX latency at 12 or less, as the `phy` contract needs. | 8 words (the write side would see it full); a dead band of ±1 (the lowest fill would be 2.6, a margin of under one symbol to underflow). |
 | Lock on the first comma, relock on 3 errored words | Fast L0s exit and recovery; a false lock produces errors and relocks. Isolated errors never cost lock. | Several commas before lock (slow); relock on any error. |
 | Re-arm the relock request on a lock-generation bit carried in each word | A relock in comma-dense traffic can retake lock in the same cycle, so `pipe_rx_valid_o` need not fall; an unlocked word may also be dropped by recentring. The generation bit always changes. | Re-arming when `pipe_rx_valid_o` falls and rises (can stall for good); forcing an unlocked word per relock (recentring can drop it). |
+| Electrical idle carried with the words | The MAC must see the words received before the idle, the whole EIOS, before RxElecIdle (its L0 arcs treat idle without an EIOS as a link error); a flag per symbol through the FIFO keeps line order at any fill. RxElecIdle then takes the receive latency (at most 12 cycles) instead of about 4. | A separate synchronizer for the idle level (overtakes up to the whole receive latency); a fixed delay matched to the latency (breaks when the fill moves). |
 | Recentre while unlocked | Electrical idle can last long enough to drift any buffer empty or full; data then is not valid anyway. | Resetting the buffer on lock (a reset crossing per lock). |
 | RX-domain reset through `common_cdc_rst`, from `rst_i` only | Meets the `phy` contract as signed off (asynchronous assertion); `rst_i` also resets the FIFO's read side, so both sides reset together. Firstmate decision, 2026-10-15. | `common_cdc_sync2` (synchronous assertion, a `phy` contract change); including `pipe_reset_ni` (a short PIPE reset could reset one FIFO side alone). |
 | Acknowledge every PowerDown change with one pulse, P0s included | PIPE asks for it among P0, P0s and P1; P2 keeps the same pulse because `clk_i` never stops ([differences](PIPE_CONTROL.md#differences-from-pipe)). | No pulse for P0s; PIPE's P2 handshake (needs a stopped PCLK). |

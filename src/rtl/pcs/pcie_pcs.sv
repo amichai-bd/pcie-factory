@@ -401,6 +401,8 @@ module pcie_pcs (
   `COMMON_ASSERT_NEVER(a_udf_edb, clk_i, pcs_rst, eb_valid && eb_status.udf
                        && (dec.sym0.sym != '{k: 1'b1, data: common_pkg::SYM_EDB}
                            || dec.sym1.sym != '{k: 1'b1, data: common_pkg::SYM_EDB}))
+  // Electrical idle never overtakes a word: no RxValid while RxElecIdle.
+  `COMMON_ASSERT_NEVER(a_no_valid_in_idle, clk_i, pcs_rst, rx_q.valid && rx_q.idle)
   // An underflow word never carries RxValid.
   `COMMON_ASSERT_NEVER(a_udf_not_valid, clk_i, pcs_rst, eb_valid && eb_status.udf && word_lock)
   // The power-acknowledge countdown never exceeds its start value.

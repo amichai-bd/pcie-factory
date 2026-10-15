@@ -167,10 +167,11 @@ async def eb_dense(dut):
     assert all(stats.get(k) for k in want + ("back_to_back",)), f"dense: changes {stats}"
 
 
-async def eb_idle(dut, ppm: float, packets: int, gaps: int, symbols: int, where: str):
+async def eb_idle(dut, ppm: float, packets: int, gaps: int, symbols: int, where: str,
+                  eios: bool = False, interval: int = arch.SKP_INTERVAL_MIN):
     rng = seeded(dut)
-    link = build_link(rng, packets, "random", 0, arch.SKP_INTERVAL_MIN, idle_gaps=gaps,
-                      idle_symbols=symbols)
+    link = build_link(rng, packets, "random", 0, interval, idle_gaps=gaps,
+                      idle_symbols=symbols, eios=eios)
     rx = RxBench(dut, rng, ppm)
     await rx.start(link, max_cycles=len(link.syms) // 2 + 4000)
     await rx.run_line()
@@ -214,6 +215,18 @@ async def eb_lock_start(dut):
     on a fast RX clock, on its read side on a slow one), so every run starts
     at its lock comma or the symbol before it, within the lock target."""
     await eb_idle(dut, sign() * 600.0, 120, 12, 1500, "lock_start")
+
+
+@cocotb.test()
+async def rx_eios_idle(dut):
+    """L1: an EIOS before each of eight 1500-symbol electrical-idle gaps,
+    at -600 or +600 ppm (the seed's parity); the SKP corrections change the
+    elastic buffer's word parity between gaps, so the EIOS ends in either
+    half of a PIPE word (an idle tail when it ends in the first): every symbol
+    received before the idle, the whole EIOS included, leaves under RxValid
+    before RxElecIdle rises (RECEIVE.md, Electrical idle), and RxValid is
+    never 1 with RxElecIdle 1."""
+    await eb_idle(dut, sign() * 600.0, 80, 8, 1500, "eios_idle", eios=True)
 
 
 async def flow_error(dut, ppm: float, overflow: bool) -> None:

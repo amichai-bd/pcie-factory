@@ -39,9 +39,14 @@ bit first.
 - **Locked.** The boundary is frozen. Each cycle the aligner sends the two
   10-bit symbols that start at the boundary and at the boundary plus 10,
   tagged locked. Commas at other offsets are ignored.
-- **Loss of lock.** Lock drops in the cycle after `ser_rx_elec_idle_i` is
-  seen high, and when a relock request arrives from the `clk_i` side. The
-  aligner then hunts again.
+- **Loss of lock.** Lock drops for the first word whose symbols start in
+  a word received with `ser_rx_elec_idle_i` high (with the boundary at 0
+  to 9, both symbols of a word start in the previous word of the window),
+  so every symbol that starts in a word received before the idle leaves
+  locked, the tail of an EIOS included; and when a relock request arrives
+  from the `clk_i` side. The aligner then hunts again. Each word it sends
+  carries an **idle** flag: its symbols start in a word received in
+  electrical idle (such a word is never locked).
 - **Relock request.** On the `clk_i` side an error counter watches the
   words that leave with `pipe_rx_valid_o` high. A word with a code or
   disparity error adds 1; eight error-free words in a row take 1 away (not
@@ -112,9 +117,14 @@ decoder, and found without decoding.
 - **Unlocked recentring.** Data that is not locked has no SKP to work
   with, yet electrical idle can last milliseconds. While fill high is seen
   and the word is unlocked, the write side drops the whole word, at most
-  once per 8 cycles; while the head word is unlocked and the visible fill
-  is 7 or less, the read side reads nothing for a cycle, at most once per
-  8 cycles. The fill is therefore near 8 whenever lock returns.
+  once per 8 cycles; while the next symbol to send is unlocked and the
+  visible fill is 7 or less, the read side reads nothing for a cycle, at
+  most once per 8 cycles (a locked symbol is never held back behind an
+  unlocked one). The fill is therefore near 8 whenever lock returns.
+- **Tags.** Each symbol keeps its own lock and idle flags through the
+  buffer, so a lock end may fall inside a word: the last locked symbol,
+  then an unlocked one. Two locked symbols of different lock generations
+  (a same-cycle relock) are both treated as unlocked.
 - **Lock start.** When lock starts, an unlocked symbol still held in the
   write side's packing register or the read side's leftover register is
   dropped, so the first locked symbols start a word of their own and are
@@ -161,8 +171,12 @@ changes. Comma lock and SKP matching do not depend on polarity, so the MAC
 finds an inverted lane from the decoded training sets and sets RxPolarity
 [cite: PCIe Base Spec, rev 3.0, §4.2.4].
 
-`pipe_rx_valid_o` is 1 when both symbols of the word are locked. Each word
-carries one `pipe_rx_status_o` code:
+`pipe_rx_valid_o` is 1 when both symbols of the word are locked, and for
+an **idle tail**: a word whose first symbol is the last locked one and
+whose second began in electrical idle. An idle tail leaves its second
+symbol as EDB with its K bit set and reports no error for it, so a lock
+that ends in either half of a word reaches PIPE whole. Each word carries
+one `pipe_rx_status_o` code:
 
 | Code | Meaning | Word that carries it |
 | --- | --- | --- |
@@ -182,6 +196,19 @@ errors are not reported); codes 3, 5 and 6 do not depend on it.
 A code error is always reported as 4, a disparity error as 7 (PIPE also
 allows reporting it as 4; this PCS does not). If the COMs of two SKP
 ordered sets share a word, one code covers both changes.
+
+## Electrical idle
+
+Electrical idle travels with the words, so the MAC sees the receive
+stream in line order. `pipe_rx_elec_idle_o` takes the idle flag of the
+first symbol of each word that leaves the read side (an underflow word or
+a cycle with no word holds it), registered with the word, and is 1 during
+reset. It therefore rises only after every symbol that starts in a word
+received before the idle has left under `pipe_rx_valid_o`, the whole
+electrical idle ordered set included, and falls with the first word
+received after it; `pipe_rx_valid_o` is never 1 while it is 1. Its
+latency is the receive latency of that word: within the RX latency
+[target](HAS.md#targets).
 
 These codes, their meaning, the EDB substitutions, the reporting of SKP
 changes on the COM's word and the error precedence agree with PIPE

@@ -41,9 +41,9 @@ def build_link(rng: random.Random, packets: int, mix: str = "tlp", tlp_bytes: in
                skp_interval: int = arch.SKP_INTERVAL_MIN, slips: int = 0, errors: int = 0,
                idle_gaps: int = 0, idle_symbols: int = 0, polarity: bool = False,
                training: int = 32, close_pairs: int = 0, pair_gap: int = 4,
-               bursts: int = 0) -> Link:
+               bursts: int = 0, eios: bool = False) -> Link:
     syms, idles = arch.make_stream(rng, packets, mix, tlp_bytes, skp_interval, idle_gaps,
-                                   idle_symbols, lead_ts=training)
+                                   idle_symbols, lead_ts=training, eios=eios)
     codes, _ = arch.tx_encode(syms)
     line = arch.channel(rng, codes, idles, slips, errors, polarity)
     link = Link(syms, line, idles, 16 * training)

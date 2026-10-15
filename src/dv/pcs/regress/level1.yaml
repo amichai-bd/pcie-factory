@@ -201,6 +201,12 @@ tests:
     top: pcie_pcs
     seeds: [1, 2]
     timeout_s: 300
+  - name: rx_eios_idle
+    module: tests.test_elastic
+    testcase: rx_eios_idle
+    top: pcie_pcs
+    seeds: [1, 2]
+    timeout_s: 300
   - name: eb_overflow
     module: tests.test_elastic
     testcase: eb_overflow

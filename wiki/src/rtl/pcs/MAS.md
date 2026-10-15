@@ -14,7 +14,6 @@ exchange packed structs of [`pcie_pcs_pkg`](#package) (decision Q25); the
 flowchart LR
   subgraph rx["ser_rx_clk_i"]
     al["u_align<br/>pcie_pcs_align"]
-    act["rx_active_q"]
   end
   subgraph eb["u_elastic (pcie_pcs_elastic)"]
     wr["write side"] --> fifo["FIFO"] --> rd["read side"]
@@ -32,7 +31,7 @@ flowchart LR
   reg --> cnt -- "crossing 4<br/>u_relock_sync" --> al
   reg -- "loopback" --> enc
   pipe_tx["pipe_tx_*"] -- "t_tx_word" --> enc --> ser_tx["ser_tx_*"]
-  ser_rx_elec_idle_i --> act -- "crossing 5<br/>u_rx_active_sync" --> ctl
+  ser_rx_elec_idle_i --> al
 ```
 
 ## Package
@@ -47,17 +46,17 @@ import.
 | Item | Holds |
 | --- | --- |
 | `PHY_STATUS_RESET_CYCLES`, `RX_DETECT_CYCLES`, `POWER_ACK_CYCLES`, `ERR_LIMIT`, `ERR_DECAY_WORDS` and their counter widths | 16, 64, 4, 3 and 8 ([PIPE control](../../arch/pcs/PIPE_CONTROL.md), [relock](../../arch/pcs/RECEIVE.md#comma-alignment-and-symbol-lock)). |
-| `t_detect`, `t_relock`, `t_rx_word` | The top's receiver-detection state, error-counter state and PIPE receive register. |
+| `t_detect`, `t_relock`, `t_rx_word` | The top's receiver-detection state, error-counter state and PIPE receive register (with RxElecIdle). |
 | `SYM_W`, `BYTE_W`, `WORD_W`, `WINDOW_W`, `COMMA_W`, `OFFSET_W`; `t_sym10`, `t_byte`, `t_word`, `t_window`, `t_comma`, `t_offset` | Symbol, byte, two-symbol word and aligner widths and types. |
 | `t_k_byte` | A byte with its K flag. |
 | `t_tx_word` | Two `t_k_byte` and TxCompliance: the encoder's input. |
-| `t_rx_sym`, `t_rx_pair` | One raw symbol with its lock tag and generation; two of them. Aligner to elastic buffer to decoder. |
+| `t_rx_sym`, `t_rx_pair` | One raw symbol with its idle flag, lock tag and generation; two of them. Aligner to elastic buffer to decoder. |
 | `t_dec_sym`, `t_dec_pair` | One decoded symbol (`t_k_byte`, code error, disparity error); two of them. Decoder to top. |
 | `t_align` | The aligner's lock state: lock, generation, boundary. |
 | `t_dec`, `t_dec_state`, `t_match` and the functions `six_minus` to `decode` | The decoder's per-symbol result, RD state and the pure decode functions. |
 | `EB_ADDR_W`, `EB_NOMINAL`, `EB_HIGH`, `EB_LOW`, `EB_HOLDOFF`, `EB_FILL_W`, `HOLDOFF_W` | 4, 8, 9, 7, 8, 6 and 4 ([elastic buffer](../../arch/pcs/RECEIVE.md#elastic-buffer)). |
 | `COM_RD_MINUS`, `COM_RD_PLUS`, `SKP_RD_MINUS`, `SKP_RD_PLUS`, `is_com`, `is_skp` | The raw COM and SKP codes in both columns, matched without decoding. |
-| `t_eb_word`, `t_eb_sym`, `t_eb_status`, `t_eb_wr`, `t_eb_rd` | The 25-bit FIFO word, one read-side symbol with its flags, the read side's word status (SKP added, removed, overflow, underflow), and the write- and read-side state. |
+| `t_eb_word`, `t_eb_sym`, `t_eb_status`, `t_eb_wr`, `t_eb_rd` | The 28-bit FIFO word (a lock and an idle flag per symbol), one read-side symbol with its flags, the read side's word status (SKP added, removed, overflow, underflow), and the write- and read-side state. |
 
 ## Top
 
@@ -76,8 +75,8 @@ register, the error counter, loopback and crossings 4 and 5.
 - `rx_rst`, the RX-domain reset (crossing 2), is
   `u_elastic.ser_rx_rst_o`: the one `COMMON_RESET_SYNC` of the PCS, inside
   the elastic buffer, from `rst_i`. The elastic buffer's write side takes
-  it asynchronously; the aligner, the crossing cells' RX sides and
-  `rx_active_q` take it synchronously ([decisions](#decisions)).
+  it asynchronously; the aligner and the crossing cells' RX sides take it
+  synchronously ([decisions](#decisions)).
 - The elastic buffer's read side resets on `rst_i` only, so it keeps
   running through a PIPE reset, as the HAS requires.
 
@@ -121,17 +120,20 @@ electrical idle. A reset drops the two words in flight.
 1. **`u_align`** ([aligner](#aligner), `ser_rx_clk_i`, reset `rx_rst`)
    takes `ser_rx_data_i`, `ser_rx_elec_idle_i` and the relock pulse
    `relock_rx`, and sends a `t_rx_pair` every RX cycle, both symbols tagged
-   with its lock and generation.
+   with its idle flag, lock and generation.
 2. **`u_elastic`** ([elastic buffer](#elastic-buffer)) takes every aligned
    word (`ser_rx_valid_i` 1) and, on `clk_i`, sends a `t_rx_pair` with
-   per-symbol lock and generation and the word's `t_eb_status`. Its
+   per-symbol idle flag, lock and generation and the word's `t_eb_status`. Its
    outputs are combinational; `fill_o` is unused (debug only).
 3. **`u_dec`** ([decoder](#decoder), reset `pcs_rst`) decodes the word
    when it is sent and is not an underflow word, with `pipe_rx_polarity_i`
    of this cycle and the per-symbol lock and generation, which restart its
    RD at each locked run.
 4. **Word forming** (combinational): `word_lock` (the next RxValid) is a
-   decoded word with both symbols locked. An underflow word holds two
+   decoded word with both symbols locked, or an idle tail (`word_tail`:
+   symbol 0 locked, symbol 1 unlocked with its idle flag; RECEIVE.md,
+   Decode and RxStatus), whose symbol 1 leaves as EDB (K) and whose symbol
+   1 errors are not counted. An underflow word holds two
    all-zero symbols, a code error in both lanes, so the decoder already
    gives EDB, EDB (`common_pkg::SYM_EDB`) as K symbols; the top adds no
    multiplexer and asserts it (`a_udf_edb`). RxStatus, first match wins: 4
@@ -139,8 +141,9 @@ electrical idle. A reset drops the two words in flight.
    (`word_lock` and a disparity error), 1 (SKP added), 2 (SKP removed), 0;
    0 in a cycle with no word.
 5. **PIPE receive register** `rx_q` (`t_rx_word`, one stage, reset
-   `pcs_rst`): `valid`, `status` and `errored` every cycle, the two symbols
-   with every word sent, `gen` (the second symbol's lock generation) with
+   `pcs_rst`, `idle` to 1): `valid`, `status` and `errored` every cycle,
+   the two symbols with every word sent, `idle` (symbol 0's idle flag) with
+   every decoded word, `gen` (the first symbol's lock generation) with
    every locked word. `pipe_rx_valid_o` = `rx_q.valid` and not `pcs_rst`.
 
 ### Error counter and relock (crossing 4)
@@ -171,12 +174,13 @@ RxValid then stays low until the next comma (in packet traffic up to one
 SKP interval plus a packet), from which data resumes (#73 sign-off; the DV
 plan's `rx_close_errors`).
 
-### Receive electrical idle (crossing 5)
+### Receive electrical idle
 
-`rx_active_q` registers not `ser_rx_elec_idle_i` on `ser_rx_clk_i`
-(reset 0 on `rx_rst`), and `` `COMMON_METAFLOP(u_rx_active_sync, ...)``
-brings it to `clk_i` (reset on `rst_i`). `pipe_rx_elec_idle_o` = `pcs_rst`
-or not the synchronized level.
+No crossing of its own: the aligner tags each word with its idle flag,
+the flag crosses in the FIFO with the symbols, and `pipe_rx_elec_idle_o` =
+`pcs_rst` or `rx_q.idle`, so RxElecIdle follows the word order
+([RECEIVE.md, Electrical idle](../../arch/pcs/RECEIVE.md#electrical-idle);
+#182). It holds through cycles with no word and through underflow words.
 
 ### Assertions
 
@@ -187,6 +191,7 @@ or not the synchronized level.
 | `a_err_cnt_range` | The error count never exceeds `ERR_LIMIT` - 1. |
 | `a_udf_edb` | An underflow word is EDB, EDB as K symbols. |
 | `a_udf_not_valid` | An underflow word never carries RxValid. |
+| `a_no_valid_in_idle` | RxValid is never 1 with RxElecIdle 1. |
 | `a_ack_cnt_range` | The acknowledge countdown never exceeds 4. |
 
 ## Encoder
@@ -325,13 +330,15 @@ counter that decides a relock is the top's.
 | `data_i` | in | `t_word` | `ser_rx_data_i`: twenty received bits, bit 0 earliest. |
 | `elec_idle_i` | in | `logic` | `ser_rx_elec_idle_i`. |
 | `relock_i` | in | `logic` | One-cycle relock request (crossing 4). |
-| `rx_o` | out | `t_rx_pair` | Two symbols at the boundary, `sym0` first, both tagged with the word's lock and generation. |
+| `rx_o` | out | `t_rx_pair` | Two symbols at the boundary, `sym0` first, both tagged with the word's idle flag, lock and generation. |
 
 **Behavior**, each edge, from the 40-bit window of the two registered
 words (the previous one in bits 0 to 19):
 
-1. **Loss of lock.** Lock is kept only if `relock_i` is 0 and the current
-   word was not received in electrical idle.
+1. **Loss of lock.** Lock is kept only if `relock_i` is 0 and the
+   previous word (in which both output symbols start, the boundary being
+   0 to 9) was not received in electrical idle. So the last word before
+   the idle leaves locked, whatever the boundary (#182).
 2. **Hunt.** If lock is not kept and neither window word was received in
    idle, the window is searched at bit offsets 0 to 19 for a comma
    (`COMMA_MINUS` or `COMMA_PLUS`, module constants). At the lowest one,
@@ -339,8 +346,9 @@ words (the previous one in bits 0 to 19):
    generation flips; a relock that finds a comma in the same window keeps
    lock and only flips the generation.
 3. **Output.** The window bits from the next boundary, with the lock and
-   generation of steps 1 and 2. While unlocked, the last boundary is kept
-   and the words go out unlocked.
+   generation of steps 1 and 2 and the idle flag of the previous word
+   (`sym_idle_q`, reset 1). While unlocked, the last boundary is kept and
+   the words go out unlocked.
 
 Reset: lock, generation and boundary 0 (`state_q`, `t_align`), both idle
 flags 1 (no hunt for two words). The data registers are not reset.
@@ -355,6 +363,7 @@ holds the comma, so the word holding the comma is the first locked one.
 | `a_offset_in_symbol` | The boundary stays in 0 to 9. |
 | `a_no_lock_from_idle` | No lock from a window holding an idle word. |
 | `a_relock_drops_lock` | A relock request never keeps lock unless a comma retakes it. |
+| `a_lock_kept_into_idle`, `a_idle_word_unlocked` | Lock is never kept or taken for a word whose symbols start in an idle word, and an idle-tagged word is never locked. |
 | `a_gen_flips_only_on_lock` | The generation flips only when lock is taken. |
 | `a_lock_word_holds_comma` | The first word of a lock holds a comma at `sym0` or `sym1`. |
 | `a_lock_at_lowest_comma` | Lock is taken at the lowest comma offset of the window (an upward scan, independent of the downward priority scan). |
@@ -378,7 +387,7 @@ decode and no polarity. It holds crossings 1 to 3.
 | `ser_rx_valid_i` | in | `logic` | `ser_rx_clk_i` | A word this cycle (the top ties it to 1). |
 | `ser_rx_i` | in | `t_rx_pair` | `ser_rx_clk_i` | The aligner's word; its two symbols carry the same tags (`a_word_one_lock`). |
 | `rx_valid_o` | out | `logic` | `clk_i` | A word is sent: two symbols, or an underflow word. |
-| `rx_o` | out | `t_rx_pair` | `clk_i` | Two raw symbols with per-symbol lock and generation; 0 with no word or an underflow word. |
+| `rx_o` | out | `t_rx_pair` | `clk_i` | Two raw symbols with per-symbol idle flag, lock and generation; 0 with no word or an underflow word. |
 | `rx_status_o` | out | `t_eb_status` | `clk_i` | `skp_add` (a SKP added after a COM of this word), `skp_rem` (one removed), `ovf` (the first word after a lost one), `udf` (underflow word). |
 | `fill_o` | out | 6 | `clk_i` | The visible fill, 0 to 34 symbols; debug only. |
 | `ser_rx_rst_o` | out | `logic` | `ser_rx_clk_i` | The RX-domain reset: high asynchronously with `rst_i`, low at the second `ser_rx_clk_i` edge after `rst_i` falls. |
@@ -399,9 +408,12 @@ asynchronously by the RX reset), each cycle with a word:
   the first SKP of a set, at most one per set; the next kept symbol
   carries the removed flag. A set of one SKP leaves as a bare COM.
 - **Packing.** A one-symbol packing register joins the kept symbols into
-  FIFO words (`t_eb_word`: two symbols, a removed flag each, one lock tag,
-  one generation, an overflow flag). A word packed from symbols that differ
-  in lock or generation is tagged unlocked with the newer generation.
+  FIFO words (`t_eb_word`: two symbols, a removed flag, an idle flag and a
+  lock tag each, one generation, an overflow flag). Each symbol keeps its
+  own lock, so a lock end may split a word (the last locked symbol, then
+  an unlocked one); the generation is that of the locked symbols. Two
+  locked symbols of different generations (`w_split`, a same-cycle
+  relock) are both tagged unlocked with the newer generation.
 - **Lock start.** A locked word that arrives while the packing register
   holds an unlocked symbol drops that symbol and starts a FIFO word of its
   own, so the first locked symbols never share a word with an unlocked one
@@ -411,7 +423,7 @@ asynchronously by the RX reset), each cycle with a word:
   word written carries the overflow flag.
 
 **FIFO.** `u_fifo`, [`common_cdc_fifo`](../common/common_cdc_fifo.md),
-`WIDTH` 25, `ADDR_W` 4: head word, the word after it and the occupancy.
+`WIDTH` 28, `ADDR_W` 4: head word, the word after it and the occupancy.
 
 **Read side** (`clk_i`, state `r_q`, `t_eb_rd`, and `fill_high_q`, reset
 by `rst_i`), each cycle:
@@ -419,9 +431,11 @@ by `rst_i`), each cycle:
 - **Start.** Nothing is sent until the fill first reaches 8.
 - **Fill high.** `fill_high_q` is the fill at 9 or more; it crosses to the
   write side through `u_sync_fill_high` (crossing 3).
-- **Recentring.** While the head word is unlocked and the fill is 7 or
-  less, nothing is sent, at most once per 8 cycles; `r_recentre` is high
-  in the cycle of a hold (an observation net for DV).
+- **Recentring.** While the next symbol to send (`c0`: the leftover, or
+  the head's first symbol) is unlocked and the fill is 7 or less, nothing
+  is sent, at most once per 8 cycles, so a locked leftover is never held
+  behind an unlocked head; `r_recentre` is high in the cycle of a hold (an
+  observation net for DV).
 - **Underflow.** Below a fill of 2, an underflow word is sent; nothing is
   consumed, so no symbol is lost.
 - **Lock start.** A locked head word after an unlocked leftover symbol
@@ -442,7 +456,8 @@ by `rst_i`), each cycle:
 | Assertion | Invariant |
 | --- | --- |
 | `a_one_removal`, `a_rem_after_com` | One removal per cycle, none right after a pending removed flag. |
-| `a_word_one_lock` | The two symbols of an aligned word carry the same tags. |
+| `a_word_one_lock`, `a_idle_unlocked` | The two symbols of an aligned word carry the same tags; an idle word is never locked. |
+| `a_no_unlocked_then_locked` | No FIFO word holds an unlocked symbol before a locked one (lock start). |
 | `a_pop_empty`, `a_dup_needs_symbol`, `a_send_needs_symbols` | No pop from an empty FIFO; an owed copy and a send have their symbols. |
 | `a_add_only_low`, `a_owed_copy_is_skp` | Additions only at a fill of 7 or less; an owed copy is a SKP. |
 | `a_fill_high_at_9`, `a_start_at_8`, `a_add_at_7_or_less`, `a_add_when_due` | The RECEIVE.md thresholds written as the page's numbers, independent of the package constants: fill high (the write side's removal condition) exactly at a visible fill of 9 or more; the start exactly at 8; an addition only at 7 or less, and at 7 or less every possible addition (a locked COM, in either slot, before a visible SKP without the removed flag) is made. |
@@ -465,7 +480,7 @@ by `rst_i`), each cycle:
 | Drop an unlocked symbol at a lock start, on both sides of the buffer | Without it the first locked word was paired with an unlocked symbol and RxValid started a word late, up to 11 cycles after the comma (#85 review). | Changing the HAS lock target. |
 | Loopback from the PIPE receive register | The HAS loops back the words as they appear on `pipe_rx_data_o`; it reuses the register and the EDB substitution. | A loopback path before the decoder. |
 | One RX reset synchronizer, in the elastic buffer | Firstmate ruling on #85: one crossing 2, exported on `ser_rx_rst_o`. | A second synchronizer in the top. |
-| The RX reset: asynchronous on the elastic buffer's write-side flops, synchronous in the aligner, the crossing cells and `rx_active_q` | The flops as the leaf issues built them; `common_cdc_rst` holds the reset at least 7 RX cycles and `ser_rx_clk_i` always runs (`phy` contract). One style per net is [#170](https://github.com/amichai-bd/pcie-factory/issues/170) (it needs a common-cell change); until then [`src/lint_waivers.yaml`](../../../../src/lint_waivers.yaml) waives `SYNCASYNCNET` on `rst_i` and on the RX reset, each with its reason. | - |
+| The RX reset: asynchronous on the elastic buffer's write-side flops, synchronous in the aligner and the crossing cells | The flops as the leaf issues built them; `common_cdc_rst` holds the reset at least 7 RX cycles and `ser_rx_clk_i` always runs (`phy` contract). One style per net is [#170](https://github.com/amichai-bd/pcie-factory/issues/170) (it needs a common-cell change); until then [`src/lint_waivers.yaml`](../../../../src/lint_waivers.yaml) waives `SYNCASYNCNET` on `rst_i` and on the RX reset, each with its reason. | - |
 
 ## Timing
 
@@ -480,7 +495,11 @@ by `rst_i`), each cycle:
   measure 9 cycles at their clock phase).
 - Relock: from the word that makes the request to RxValid low, at most
   20 cycles (crossing 4, the aligner, the buffer and the register).
-- RxElecIdle: one RX cycle plus two or three `clk_i` edges.
+- RxElecIdle: with the words, so the receive latency of the first word
+  received at the new level, within the RX target; `rx_elec_idle`
+  measures at most 10 `clk_i` edges from the RX edge that registered the
+  change (it was one RX cycle plus two or three edges on the earlier
+  separate crossing, which overtook the words; #182).
 - PhyStatus: 16 cycles after reset, receiver detection in 64, PowerDown
   acknowledged after 4.
 - Critical path (`clk_i`): the FIFO head through the elastic buffer's
