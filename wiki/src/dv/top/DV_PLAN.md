@@ -16,6 +16,10 @@
   edge: `valid_o` always, `data_o` whenever `valid_o` is 1. Random tests
   draw from cocotb's seeded `random`, log the seed, and fail if any of
   bytes, bubbles, re-seeds or resets never occurred.
+- **Functional coverage:** the `top_stream` covergroup, sampled on every
+  driven cycle, bins `rst`, `valid` and `reseed` (low, high) and `data`
+  (zero, `FF`, other), crossed as valid × re-seed and valid × data. No
+  coverage floor is set yet ([DV BKM](../../../bkm/dv.md#coverage)).
 - **Layers:** LFSR detail (period, key sequence) is covered by the
   [`top_lfsr` DV plan](../../dv/top_lfsr/DV_PLAN.md); these tests cover the connections and the
   datapath. Regression lists are flat: these entries do not include the

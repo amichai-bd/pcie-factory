@@ -13,7 +13,19 @@ from collections import deque
 import cocotb
 from cocotb.triggers import FallingEdge
 
-from tb.cdc_env import EdgeLog, falling_edges, now, random_periods, start_clock
+from regress.funcov import Covergroup
+from tb.cdc_env import (CLOCK_BINS, EdgeLog, clock_ratio, falling_edges, now, random_periods,
+                        start_clock)
+
+# Functional coverage (DV plan, Strategy): each side's handshake outcome per
+# cycle under each clock ratio class, and resets with words in flight.
+COV = Covergroup("common_cdc_fifo")
+COV.coverpoint("clocks", bins=CLOCK_BINS)
+COV.coverpoint("src", bins=["push", "full_stall", "idle"])
+COV.coverpoint("dst", bins=["pop", "empty_stall", "hold", "idle"])
+COV.coverpoint("reset", bins={"in_flight": lambda words: words > 0})
+COV.cross("clocks_x_src", "clocks", "src")
+COV.cross("clocks_x_dst", "clocks", "dst")
 
 
 class Fifo:
@@ -43,6 +55,7 @@ class Fifo:
         self.p_write = 0.0
         self.p_read = 0.0
         self.write_limit = None  # stop offering words after this many pushes
+        self.ratio = clock_ratio(src_period, dst_period)
         cocotb.start_soon(self._writer())
         cocotb.start_soon(self._reader())
 
@@ -61,6 +74,8 @@ class Fifo:
             data = self.rng.getrandbits(self.width)
             dut.src_valid_i.value = int(offer)
             dut.src_data_i.value = data
+            COV.sample(clocks=self.ratio,
+                       src="push" if offer and ready else "full_stall" if offer else "idle")
             if offer and ready:
                 self.queue.append((self.pushed, data))
                 self.push_times.append(now() + self.src_period // 2)
@@ -77,6 +92,8 @@ class Fifo:
             was_valid = valid
             take = self.rng.random() < self.p_read
             dut.dst_ready_i.value = int(take)
+            COV.sample(clocks=self.ratio, dst="pop" if take and valid else
+                       "empty_stall" if take else "hold" if valid else "idle")
             if take and valid:
                 assert self.queue, (
                     f"read {self.popped}: dst_valid_o high but no word was written")
@@ -242,6 +259,7 @@ async def reset_in_flight(dut):
         await f.run(1.0, 0.3, 4 * f.depth)
         assert f.queue, f"round {round_}: nothing in flight before the reset"
         lost = len(f.queue)
+        COV.sample(reset=lost)
         # Stop both sides, then assert both resets over edges of both clocks
         # (words offered in reset would be dropped; the MAS reset rule).
         f.p_write, f.p_read = 0.0, 0.0

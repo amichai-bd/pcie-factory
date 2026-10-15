@@ -21,6 +21,12 @@
 - **Coverage guard:** the random tests force a full phase every round and
   fail unless the run reached full, reached empty after data and wrapped
   the pointers (more than `2 * 2**ADDR_W` words).
+- **Functional coverage:** the `common_cdc_fifo` covergroup bins the clock
+  ratio as in the [sync2 plan](common_cdc_sync2.md#strategy), each source
+  cycle (push, stalled by full, idle) and each destination cycle (pop,
+  stalled by empty, word held, idle), crossed with the ratio, and a reset
+  with words in flight. No coverage floor is set yet
+  ([DV BKM](../../../bkm/dv.md#coverage)).
 - **Clock ratios:** fixed 2:5 in L0; random in L1 and L2 as in the sync2
   plan, and in the directed full/empty tests with the faster side fixed by
   the test (ratio up to 8:1).

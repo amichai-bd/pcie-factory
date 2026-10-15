@@ -269,6 +269,7 @@ def test_ip_levels(r, ip):
 def test_slowest(r):          return dig(r, "tests.slowest")
 def fpga_ip(r, ip):           return flow_ips(r, "fpga").get(ip)
 def asic_ip(r, ip):           return flow_ips(r, "asic").get(ip)
+def coverage_ip(r, ip):       return flow_ips(r, "coverage").get(ip)  # {line, toggle, functional: {pct}}
 def issues_open(r):           return first(r, "github.issues.open")
 def issues_by_label(r):       return mapping(r, "github.issues.open_by_label")
 def issues_window(r, w, k):   return first(r, f"github.issues.windows.{w}.{k}")
@@ -325,6 +326,12 @@ ASIC = [
     Metric("asic-cells", "Cells", "cells", lambda m: first(m, "cells")),
     Metric("asic-fanout", "Max fanout", "pins", lambda m: first(m, "max_fanout")),
     Metric("asic-depth", "Logic depth", "cells", lambda m: first(m, "logic_depth")),
+]
+# Merged regression coverage per IP (`./build regress --coverage`), percent.
+COVERAGE = [
+    Metric("cov-line", "Line coverage", "%", lambda m: first(m, "line.pct")),
+    Metric("cov-toggle", "Toggle coverage", "%", lambda m: first(m, "toggle.pct")),
+    Metric("cov-functional", "Functional coverage", "%", lambda m: first(m, "functional.pct")),
 ]
 
 # Histograms: (key in `distributions`, title, unit shown, factor from stored unit, integer bins)
@@ -882,7 +889,18 @@ def ip_page(ip: str, d: Data) -> Page:
                  "get": lambda r, m=m, g=getter: m.get(g(r, ip)) if isinstance(g(r, ip), dict) else None}])
         if not drew:
             p.html(empty(f"No {name} metrics yet for this IP."))
+    ip_coverage(p, n, ip)
     return p
+
+
+def ip_coverage(p: Page, n: list[Point], ip: str) -> None:
+    """One chart: the IP's line, toggle and functional coverage."""
+    p.md("## Coverage")
+    if not p.trend("ip-coverage", "Coverage", "%", [
+            {"label": m.label, "color": i + 1, "points": n,
+             "get": lambda r, m=m: m.get(coverage_ip(r, ip)) if isinstance(coverage_ip(r, ip), dict) else None}
+            for i, m in enumerate(COVERAGE)]):
+        p.html(empty("No coverage metrics yet for this IP."))
 
 
 def ip_index(ips: list[str], d: Data) -> Page:
@@ -931,6 +949,7 @@ def render(data_dir: Path) -> tuple[str, dict[str, str], list[str]]:
     code_section(p, d, ips)
     ci_section(p, d)
     nightly_section(p, d)
+    physical_section(p, d, ips, "Coverage", COVERAGE, coverage_ip)
     flow_section(p, d)
     physical_section(p, d, ips, "FPGA", FPGA, fpga_ip)
     physical_section(p, d, ips, "ASIC", ASIC, asic_ip)

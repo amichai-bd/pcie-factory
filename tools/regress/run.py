@@ -13,8 +13,9 @@ from pathlib import Path
 from build import sim
 from build.ip import Context, Ip, find_ip, units
 from ci.config import load_rules
+from regress import coverage as cov
 from regress.affected import changed_files, select_affected
-from regress.schema import LevelBudget, TestEntry, load_budgets, load_ip
+from regress.schema import LevelBudget, TestEntry, load_budgets, load_floors, load_ip
 
 
 def default_seed(entry: TestEntry, index: int) -> int:
@@ -88,8 +89,8 @@ def select(
     return Selection(chosen, reasons, runs)
 
 
-def _spec(ips: dict[str, Ip], entry: TestEntry, waves: bool) -> sim.BuildSpec:
-    return sim.BuildSpec(ips[entry.ip], entry.top, dict(entry.params), waves)
+def _spec(ips: dict[str, Ip], entry: TestEntry, waves: bool, coverage: bool = False) -> sim.BuildSpec:
+    return sim.BuildSpec(ips[entry.ip], entry.top, dict(entry.params), waves, coverage)
 
 
 def run(
@@ -99,19 +100,24 @@ def run(
     jobs: int = 1,
     waves: bool = False,
     out=sys.stdout,
+    coverage: bool = False,
 ) -> dict:
-    """Build and run the selection; write and return the summary."""
+    """Build and run the selection; write and return the summary. With
+    ``coverage``, builds are coverage builds and each IP's coverage is
+    merged and checked against its floors."""
     remove_summary(ctx.workdir)
     verilator = sim.find_verilator()
     if verilator is None and selection.runs:
         raise sim.SimError(sim.not_found_message())
     budgets = load_budgets(ctx.cfg_dir)
+    floors = {ip.id: load_floors(ip) for ip in selection.ips} if coverage else {}
+    cov_tool = cov.find_tool(verilator) if coverage and verilator is not None else None
     ips = {ip.id: ip for ip in selection.ips}
     wall_start = time.monotonic()
 
     specs: dict[tuple[str, str], sim.BuildSpec] = {}
     for entry, _ in selection.runs:
-        spec = _spec(ips, entry, waves)
+        spec = _spec(ips, entry, waves, coverage)
         specs.setdefault((entry.ip, spec.key), spec)
 
     def do_build(spec: sim.BuildSpec):
@@ -123,7 +129,7 @@ def run(
 
     def do_test(run_item):
         entry, seed = run_item
-        spec = _spec(ips, entry, waves)
+        spec = _spec(ips, entry, waves, coverage)
         b = built[(entry.ip, spec.key)]
         if b.status != "pass":
             res = sim.Result("error", 0.0, b.log, b.detail)
@@ -142,12 +148,42 @@ def run(
 
     results = pmap(do_test, selection.runs, jobs)
 
+    coverage_doc = None
+    if coverage:
+        coverage_doc = collect_coverage(ctx, selection, levels, results, floors, cov_tool)
     summary = make_summary(
         ctx, selection, levels, budgets, list(built.items()), results,
-        time.monotonic() - wall_start,
+        time.monotonic() - wall_start, coverage_doc,
     )
     write_summary(ctx.workdir, summary)
     return summary
+
+
+def collect_coverage(
+    ctx: Context,
+    selection: Selection,
+    levels: list[int],
+    results: list[sim.Result],
+    floors: dict[str, dict[int, dict[str, float]]],
+    tool: Path | None,
+) -> dict:
+    """Merge each selected IP's passing runs and check its floors."""
+    ips = {ip.id: ip for ip in selection.ips}
+    passing: dict[str, list[Path]] = {ip: [] for ip in ips}
+    for (entry, seed), res in zip(selection.runs, results):
+        if res.status == "pass":
+            passing[entry.ip].append(sim.test_dir(ctx.workdir, ips[entry.ip], entry.name, seed))
+    out = {}
+    for ip_id, ip in sorted(ips.items()):
+        ip_dir = ip.work_dir(ctx.workdir) / cov.COVERAGE_DIR
+        entry = cov.merge_ip(ip_dir, passing[ip_id], tool)
+        names = {lv: ip.level_file(lv).name for lv in levels}
+        eff = cov.effective_floors(floors.get(ip_id, {}), levels, names)
+        entry["floors"] = {m: v for m, (v, _) in sorted(eff.items())}
+        entry["failures"] = cov.check_floors(entry, eff)
+        entry["dir"] = str(ip_dir.relative_to(ctx.workdir))
+        out[ip_id] = entry
+    return {"ips": out, "passed": not any(e["failures"] for e in out.values())}
 
 
 def make_summary(
@@ -158,6 +194,7 @@ def make_summary(
     builds: list,
     results: list[sim.Result],
     wall_s: float,
+    coverage: dict | None = None,
 ) -> dict:
     def rel(p: Path) -> str:
         try:
@@ -204,8 +241,10 @@ def make_summary(
         "tests": tests,
         "totals": totals,
         "wall_s": round(wall_s, 3),
+        "coverage": coverage,
         "passed": all(t["status"] == "pass" for t in tests)
-        and all(r.status == "pass" for _, r in builds),
+        and all(r.status == "pass" for _, r in builds)
+        and (coverage is None or coverage["passed"]),
     }
 
 
@@ -226,8 +265,9 @@ def write_summary(workdir: Path, summary: dict) -> Path:
     return path
 
 
-def report(summary: dict, out=sys.stdout, err=sys.stderr) -> int:
-    """Print totals and budget warnings; return the process exit code."""
+def report(summary: dict, out=None, err=None) -> int:
+    """Print totals, budget warnings and coverage; return the process exit code."""
+    out, err = out or sys.stdout, err or sys.stderr
     for key, t in summary["totals"].items():
         print(
             f"{key}: {t['passed']}/{t['tests']} passed, {t['runtime_s']:.1f}s "
@@ -240,5 +280,11 @@ def report(summary: dict, out=sys.stdout, err=sys.stderr) -> int:
                 f"budget of {t['budget_s']:.0f}s",
                 file=err,
             )
+    if summary.get("coverage"):
+        for line in cov.report_lines(summary["coverage"]):
+            print(line, file=out)
+        for ip_id, e in sorted(summary["coverage"]["ips"].items()):
+            for msg in e["failures"]:
+                print(f"error: coverage floor: {ip_id}: {msg}", file=err)
     print("PASSED" if summary["passed"] else "FAILED", file=out)
     return 0 if summary["passed"] else 1

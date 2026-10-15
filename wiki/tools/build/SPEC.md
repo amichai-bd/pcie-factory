@@ -172,8 +172,10 @@ overrides (`-G`).
 
 Each build and each test runs in a child process
 (`python3 -B tools/build/sim.py build|test <job.json>`). The parent never
-imports cocotb, and tests can run in parallel. Every child runs in its own
-process group:
+imports cocotb, and tests can run in parallel. The child's import path holds
+the IP's `src/dv/<ip>/` and `tools/`, so a test can import the
+[functional-coverage helper](../regress/SPEC.md#functional-coverage)
+`regress.funcov`. Every child runs in its own process group:
 
 - A test that runs past its `timeout_s` has its group killed.
 - A build has a fixed wall-clock bound, `BUILD_TIMEOUT_S` (1800 s) in
@@ -187,13 +189,14 @@ flat sibling):
 
 | Path | Content |
 | --- | --- |
-| `workdir/<ip>/build/<top>[-<hash>]/` | Verilator build and `build.log`. `<hash>` (8 hex digits) is added when the test has `params` or waves are on, so different elaborations never share a directory. |
-| `workdir/<ip>/<test>/<seed>/` | `results.xml`, `sim.log` (the full simulator output), and waves (`dump.vcd`) with `--waves`. This directory is cleared before each run. |
+| `workdir/<ip>/build/<top>[-<hash>]/` | Verilator build and `build.log`. `<hash>` (8 hex digits) is added when the test has `params`, waves are on or it is a coverage build, so different elaborations never share a directory. |
+| `workdir/<ip>/<test>/<seed>/` | `results.xml`, `sim.log` (the full simulator output), waves (`dump.vcd`) with `--waves`, and `coverage.dat` and `funcov.json` in a coverage run ([regress coverage](../regress/SPEC.md#coverage)). This directory is cleared before each run. |
 
 Because test directories share `workdir/<ip>/` with the tools' own output,
 a test may not be named `build`, `fpga` (the [fpga tool's](../fpga/SPEC.md#output) output),
-`asic` (the [asic tool's](../asic/SPEC.md#output) output) or `arch` (the
-[arch tool's](../arch/SPEC.md#behavior-and-output) output).
+`asic` (the [asic tool's](../asic/SPEC.md#output) output), `arch` (the
+[arch tool's](../arch/SPEC.md#behavior-and-output) output) or `coverage`
+(the [merged coverage](../regress/SPEC.md#coverage)).
 
 A test's status comes from `results.xml`:
 

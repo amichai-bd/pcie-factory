@@ -26,9 +26,11 @@ def test_empty_src_passes_and_reports_coverage(tmp_path, capsys):
     lines = out.out.splitlines()
     assert lines[0].startswith("check: 0 IP(s) under ")
     assert [ln.split("]")[0] for ln in lines[1:-1]] == [
-        "[layout", "[filelist", "[style", "[wiki", "[flows", "[neutrality", "[lint"]
+        "[layout", "[filelist", "[style", "[wiki", "[flows", "[neutrality", "[citation",
+        "[lint"]
     assert "[filelist] PASS: 0 filelist(s), 0 IP(s)" in out.out
     assert "[wiki] PASS: 0 required page(s), 0 wiki folder(s)" in out.out
+    assert "[citation] PASS: 0 text file(s)" in out.out
     assert "[lint] PASS: 0 IP(s), 0 shared block(s), 0 Verilator run(s)" in out.out
     assert lines[-1] == "check: PASS"
 
@@ -92,3 +94,20 @@ def test_launcher_wiki_mirror_on_repo():
                            "--only", "wiki"], capture_output=True, text=True)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "[wiki] PASS" in proc.stdout
+
+
+def test_launcher_citation_on_repo():
+    proc = subprocess.run([sys.executable, str(REPO_ROOT / "build"), "check",
+                           "--only", "citation"], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "[citation] PASS" in proc.stdout
+
+
+def test_citation_failure_exits_1(tmp_path, capsys):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "wiki/src").mkdir(parents=True)
+    (tmp_path / "wiki/src/x.md").write_text("Per [cite: Std, 2.0, 4.1].\n")
+    code, out = check(capsys, "--src-root", str(tmp_path / "src"), "--only", "citation")
+    assert code == 1
+    assert "wiki/src/x.md:1: malformed citation" in out.out
+    assert out.out.splitlines()[-1] == "check: FAIL (citation)"

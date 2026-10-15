@@ -13,6 +13,16 @@ from cocotb.clock import Clock
 from cocotb.triggers import FallingEdge
 
 from models.pcie_top_model import Scrambler
+from regress.funcov import Covergroup
+
+# Functional coverage of the controls and data classes, sampled on every
+# driven cycle (DV plan, Strategy).
+COV = Covergroup("top_stream")
+for _name in ("rst", "valid", "reseed"):
+    COV.coverpoint(_name, bins={"low": 0, "high": 1})
+COV.coverpoint("data", bins={"zero": 0, "ones": 0xFF, "other": range(1, 0xFF)})
+COV.cross("valid_x_reseed", "valid", "reseed")
+COV.cross("valid_x_data", "valid", "data")
 
 
 async def start(dut):
@@ -40,6 +50,7 @@ async def step(dut, model, idx, rst=0, valid=0, data=0, reseed=0):
     dut.valid_i.value = valid
     dut.data_i.value = data
     dut.reseed_i.value = reseed
+    COV.sample(rst=rst, valid=valid, reseed=reseed, data=data)
     model.clock(rst, valid, data, reseed)
     await FallingEdge(dut.clk_i)
 

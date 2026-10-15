@@ -36,7 +36,7 @@ from checks.common import (
     rel,
     selected,
 )
-from regress.schema import LEVELS, SchemaError, load_ip
+from regress.schema import LEVELS, SchemaError, load_floors, load_ip
 
 
 def all_filelists(src_root: Path) -> list[Path]:
@@ -80,6 +80,7 @@ def _shared_unit_findings(src_root: Path) -> list[str]:
             out.append(f"{SHARED_DIR}: missing {rel(need, src_root)}")
     try:
         load_ip(unit)
+        load_floors(unit)
     except SchemaError as exc:
         out.append(f"{SHARED_DIR}: regression list: {exc}")
     if unit.sim_f.is_file():
@@ -127,6 +128,7 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                 add(f"{ip.id}: missing {rel(need, src_root)}")
         try:
             load_ip(ip)
+            load_floors(ip)
         except SchemaError as exc:
             add(f"{ip.id}: regression list: {exc}")
 

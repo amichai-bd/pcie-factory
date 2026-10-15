@@ -87,7 +87,7 @@ def collect(ctx: Context, args, gh_factory=Gh) -> int:
                               cfg=cfg, now=now, raw=raw, steps=steps, started=started,
                               versions=record.tool_versions())
     record.write_checked(rec, out, record.host_terms())
-    for key in ("code", "tests", "fpga", "asic"):
+    for key in ("code", "tests", "coverage", "fpga", "asic"):
         print(f"[metrics] {key}: {rec[key]['status']}")
     for key, sec in rec["github"].items():
         print(f"[metrics] github.{key}: {sec['status']}"

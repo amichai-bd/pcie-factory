@@ -12,7 +12,17 @@ import random
 import cocotb
 from cocotb.triggers import FallingEdge
 
-from tb.cdc_env import EdgeLog, falling_edges, now, random_periods, start_clock
+from regress.funcov import Covergroup
+from tb.cdc_env import (CLOCK_BINS, EdgeLog, clock_ratio, falling_edges, now, random_periods,
+                        start_clock)
+
+# Functional coverage (DV plan, Strategy): the clock ratio class of each
+# pulse, and its spacing to the next one: back to back (one source cycle),
+# at the two-destination-period minimum, or wider.
+COV = Covergroup("common_cdc_pulse")
+COV.coverpoint("clocks", bins=CLOCK_BINS)
+COV.coverpoint("spacing", bins=["back_to_back", "minimum", "wider"])
+COV.cross("clocks_x_spacing", "clocks", "spacing")
 
 
 async def start(dut, src_period, dst_period, phase):
@@ -60,6 +70,8 @@ async def pulses(dut, rng, src_period, dst_period, count, max_extra):
         await FallingEdge(dut.src_clk_i)
         sampled.append(now() - half)  # the rising edge that sampled it
         gap = min_gap + rng.randrange(max_extra + 1)  # src cycles to the next one
+        COV.sample(clocks=clock_ratio(src_period, dst_period),
+                   spacing="back_to_back" if gap == 1 else "minimum" if gap == min_gap else "wider")
         if gap > 1:
             dut.src_pulse_i.value = 0
             await falling_edges(dut.src_clk_i, gap - 1)

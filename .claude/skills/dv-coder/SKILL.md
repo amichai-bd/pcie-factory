@@ -47,6 +47,10 @@ Place files under `src/dv/<ip>/` per the [directory structure](../../../wiki/bkm
   all randomness from it ([determinism](../../../wiki/bkm/dv.md#determinism-and-failure-quality)).
 - Include a check the test could fail on: a negative case or an after-drain
   check where a pass could otherwise be vacuous.
+- Cover the plan's features with `regress.funcov` covergroups (named bins
+  and crosses from the spec, sampled where stimulus is driven or results
+  observed); see [coverage](../../../wiki/bkm/dv.md#coverage) and the
+  [helper API](../../../wiki/tools/regress/SPEC.md#functional-coverage).
 
 ## 3. Filelists
 
@@ -76,12 +80,16 @@ owns the exact schema, validation and defaults.
       entries.
 - [ ] Required `name`, `module`, `top` and `timeout_s` set; `name` unique
       across all three levels of the IP and not a reserved name (`build`,
-      `fpga`, `asic`, `arch`).
+      `fpga`, `asic`, `arch`, `coverage`).
 - [ ] `seeds` is a count (default 1, derived seeds) or an explicit list,
       per the [regress SPEC](../../../wiki/tools/regress/SPEC.md#seeds);
       record the printed seeds as evidence.
 - [ ] A level with no tests keeps its file with `tests: []`
       ([regression lists](../../../wiki/bkm/dv.md#regression-lists)).
+- [ ] Optional `coverage_floors` (percent of `line`, `toggle`,
+      `functional`) only once the DV plan has no gaps, at or just below the
+      merged value ([coverage](../../../wiki/bkm/dv.md#coverage); schema in the
+      [regress SPEC](../../../wiki/tools/regress/SPEC.md#coverage-floors)).
 
 ## 5. DV plan alignment
 
@@ -104,6 +112,7 @@ python3 -m pytest src/dv/<ip>/models               # model unit tests
 ./build sim --ip <id> --test <name> [--seed N] [--waves]   # focused test
 ./build regress --level 0 --level 1 --affected origin/main --dry-run   # what runs
 ./build regress --level 0 --level 1 --affected origin/main   # before review
+./build regress --level 0 --level 1 --ip <id> --coverage     # merged coverage table
 ```
 
 The [build SPEC](../../../wiki/tools/build/SPEC.md#simulation-build-sim)

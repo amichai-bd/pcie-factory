@@ -13,6 +13,22 @@ from cocotb.utils import get_sim_time
 from models.common_cdc_clocks import random_periods  # noqa: F401  (re-exported)
 
 
+# Functional-coverage bins of a clock pair, on dst period / src period:
+# above 1 the source clock is faster.
+CLOCK_BINS = {
+    "src_fast_4x": lambda r: r >= 4.0,
+    "src_fast": lambda r: 1.25 <= r < 4.0,
+    "near_1to1": lambda r: 0.8 < r < 1.25,
+    "dst_fast": lambda r: 0.25 < r <= 0.8,
+    "dst_fast_4x": lambda r: r <= 0.25,
+}
+
+
+def clock_ratio(src_period: int, dst_period: int) -> float:
+    """The CLOCK_BINS value of a clock pair."""
+    return dst_period / src_period
+
+
 def now() -> int:
     return int(get_sim_time("ps"))
 

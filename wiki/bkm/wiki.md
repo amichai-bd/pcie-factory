@@ -160,6 +160,39 @@ the unit tests prove it.
 - Content adapted from another repository carries a provenance line
   (source path, commit, license).
 
+## Citations
+
+Specs and code that rely on an external document paraphrase it and cite it.
+They never reproduce it. An external document is anything that someone else
+owns and copyrights: a protocol, interface or file format standard, a board
+or vendor manual, or a datasheet. "Standard" below means any of them.
+
+- **Paraphrase only.** Restate each requirement in your own words, as
+  precisely as the page needs. Never copy sentences, tables, figures,
+  register or field layouts, state diagrams or pseudo-code from a standard.
+  Names that the standard defines, such as signals, fields and states, may be
+  used as names.
+- **Cite every fact taken from a standard**, in Markdown and in code
+  comments alike, in exactly this form:
+  `[cite: <standard>, rev <revision>, §<section>]`, for example
+  `[cite: Example Bus Spec, rev 2.1, §4.3.2]`. `<standard>` is the published
+  name, `<revision>` is its version or year, and `<section>` is one section
+  number (cite each section separately). In Markdown a citation may wrap
+  across lines like any other text.
+- **Section forms are reserved.** In `src/` and `wiki/src/`, `§` and
+  "section N.M" appear only inside a citation, whatever they refer to.
+  Internal cross-references link by heading name instead
+  (`[Timing](MAS.md#timing)`).
+- **No standard text in the repository.** Nobody fetches or stores a
+  standard's text, or excerpts of it, here.
+
+`./build check` flags long block quotes and quoted runs, and citation-form
+errors, in `src/` and `wiki/src/`
+([checks SPEC](../tools/checks/SPEC.md#citation-check)). It is a heuristic:
+it cannot tell a paraphrase from copied text. Review is the main control, so
+the reviewer confirms paraphrase-only on every PR that touches cited
+material ([pr-reviewer](../../.claude/skills/pr-reviewer/SKILL.md#3-check)).
+
 ## Site
 
 The repository is public and the wiki is published to GitHub Pages as a
@@ -181,8 +214,9 @@ which is also published as a site. Nothing committed may contain:
 - machine details beyond tool versions, install paths and the CI host's
   role name (no network addresses, internal host names or user accounts other
   than the runner service account);
-- unredistributable vendor content (copied tool reports, licensed IP text or
-  datasheet excerpts beyond short attributed quotes).
+- unredistributable vendor content (copied tool reports or licensed IP
+  text). Standards, manuals and datasheets are never quoted at all; they are
+  paraphrased and cited ([citations](#citations)).
 
 Reviewers check this on every PR. Content that cannot be public stays out of
 the repository; ask the captain where it belongs.

@@ -18,6 +18,11 @@
 - **Clock ratios:** fixed in L0 (fast-to-slow 2:5 and slow-to-fast 11:5,
   where the source pulses on consecutive cycles); random in L1 and L2 as in
   the sync2 plan.
+- **Functional coverage:** the `common_cdc_pulse` covergroup, sampled per
+  pulse, bins the clock ratio as in the [sync2 plan](common_cdc_sync2.md#strategy)
+  and the spacing to the next pulse (back to back, the minimum, wider),
+  crossed. No coverage floor is set yet
+  ([DV BKM](../../../bkm/dv.md#coverage)).
 - **Out of scope:** pulses that break the spacing rule (undefined by the
   MAS); metastability, as in the sync2 plan.
 

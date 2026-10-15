@@ -3,11 +3,12 @@
 `./build regress` runs per-IP regression levels on Verilator and cocotb, and
 it writes a JSON summary of the run. It uses the [build tool](../build/SPEC.md)
 for IP discovery, filelists and simulation. The code lives in
-`tools/regress/` (`schema.py`, `affected.py`, `run.py`).
+`tools/regress/` (`schema.py`, `affected.py`, `run.py`, and `coverage.py`
+and `funcov.py` for [coverage](#coverage)).
 
 ```
 ./build regress --level N [--level M]... [--ip ID]... [--affected BASE]
-                [--jobs N] [--seed S] [--waves] [--dry-run]
+                [--jobs N] [--seed S] [--waves] [--coverage] [--dry-run]
                 [--src-root DIR] [--workdir DIR]
 ```
 
@@ -31,6 +32,8 @@ tests:
     seeds: 2                  # optional, default 1; see Seeds
     timeout_s: 60             # required; per-run wall-clock limit (> 0)
     params: {W: 4}            # optional; toplevel parameters (int or string)
+coverage_floors:              # optional; see Coverage floors
+  line: 90
 ```
 
 | Key | Required | Type and default |
@@ -45,12 +48,14 @@ tests:
 
 These validation rules apply:
 
-- The top level is a mapping whose only key is `tests`, which holds a list.
+- The top level is a mapping with the key `tests`, which holds a list, and
+  optionally `coverage_floors` ([coverage floors](#coverage-floors)); no
+  other keys.
 - Each entry is a mapping with all four required keys, only the keys listed
   above, and values of the types shown.
 - `name` is unique across all three levels of the same IP. It also can't be
-  `build`, `fpga`, `asic` or `arch`, because the tools' output shares
-  `workdir/<ip>/`.
+  `build`, `fpga`, `asic`, `arch` or `coverage`, because the tools' output
+  shares `workdir/<ip>/`.
 
 Every error names the file and the entry index, plus the test name whenever
 the entry has a string `name`. For example:
@@ -174,6 +179,13 @@ when it finishes, even if it selected no tests:
                         "runtime_s": 0.9, "budget_s": 120,
                         "over_budget": false}},
   "wall_s": 3.4,
+  "coverage": {"ips": {"a": {
+      "runs": 1, "dat_files": 1, "funcov_files": 1, "dir": "a/coverage",
+      "line": {"covered": 15, "total": 15, "pct": 100.0},
+      "toggle": {"covered": 218, "total": 228, "pct": 95.61},
+      "functional": {"covered": 14, "total": 19, "pct": 73.68, "uncovered": 5},
+      "floors": {"line": 90.0}, "failures": []}},
+    "passed": true},
   "passed": true
 }
 ```
@@ -186,7 +198,120 @@ The fields mean the following:
 - `failed` counts every status other than `pass`.
 - `runtime_s` in `totals` is the serial-equivalent runtime of the level, the
   sum of its test runtimes. It doesn't depend on `--jobs`.
-- `passed` is true only when every build and every test passed.
+- `coverage` is `null` without `--coverage`. Otherwise it holds, per
+  selected IP, the passing runs merged (`runs`) and the files found, each
+  metric's `covered`, `total` and `pct` (2 decimals; `null` with no
+  points), the floors that applied, and the floor failure messages;
+  `coverage.passed` is false when any IP missed a floor.
+- `passed` is true only when every build and every test passed, and no
+  coverage floor was missed.
+
+## Coverage
+
+`--coverage` turns every build of the run into a coverage build and, after
+the tests, merges each selected IP's coverage, prints a table and checks the
+IP's floors. The [shared unit](../build/SPEC.md#shared-unit) is a unit like
+an IP here: `common` gets its own row, `workdir/common/coverage/` and
+floors from `dv/common/regress/`. Without it, nothing below happens and the summary's `coverage`
+is `null`.
+
+| Metric | Source | Unit |
+| --- | --- | --- |
+| `line` | Verilator `--coverage-line`: statement-block (`line`) and `branch` points | points hit at least once / points |
+| `toggle` | Verilator `--coverage-toggle`: each signal bit's 0→1 and 1→0 transitions | points hit / points |
+| `functional` | Bins and cross bins sampled through [`regress.funcov`](#functional-coverage) | bins hit / bins |
+
+A coverage build has its own build directory (the build key's hash includes
+it), so coverage and plain builds never share one. Each test run writes
+`coverage.dat` (via `+verilator+coverage+file+`) and, when its test samples a
+covergroup, `funcov.json` into its test directory.
+
+**Merge.** Only runs that passed are merged. Per IP,
+`verilator_coverage --write` (installed next to `verilator`) merges the
+`.dat` files, and the functional bins are summed over runs, the bin set
+being their union. A missing `verilator_coverage`, a failed merge or an
+unreadable `funcov.json` is an error (exit code 2). Output, replaced on
+every coverage run of the IP:
+
+| Path | Content |
+| --- | --- |
+| `workdir/<ip>/coverage/merged.dat` | Merged Verilator coverage; `verilator_coverage --annotate <dir> merged.dat` shows it per source line. |
+| `workdir/<ip>/coverage/merged.info` | The same as an lcov `.info` file. |
+| `workdir/<ip>/coverage/functional.json` | Merged bins per covergroup and item, and a summary with every uncovered bin as `group.item.bin`. |
+
+Coverage covers the IP's whole `sim.f`, so a parent IP's code coverage
+includes its sub-IPs' RTL as its tests exercise it. A metric with no points
+(for example, no test samples a covergroup) is reported `n/a`.
+
+**Table.** After the level totals, the run prints one row per selected IP:
+
+```
+coverage  line            toggle            functional      floors
+a         100.0% (15/15)  95.6% (218/228)   73.7% (14/19)   none
+```
+
+The `floors` column is `none` (no floor applies), `ok` or `FAIL`.
+
+**Cost.** On the seed IPs' L0+L1+L2 (24 runs, `--jobs 4`), coverage builds
+added under 1% of CPU time and functional sampling about 8% (99.5 s to
+108 s of CPU, mean of three runs each); the designs are small, so the
+Python testbench dominates. Larger designs pay more for toggle coverage;
+re-measure when the nightly budget gets tight.
+
+### Coverage floors
+
+A level file may set floors, in percent, for any of the three metrics:
+
+```yaml
+coverage_floors: {line: 90, toggle: 70, functional: 100}
+```
+
+- Each value is a number in `[0, 100]`; the mapping is non-empty and holds
+  only `line`, `toggle` and `functional`. Anything else is a validation
+  error (exit code 2), like a bad test entry.
+- Floors are checked only with `--coverage`, and only the floors of
+  selected levels apply. When several selected levels set a floor for the
+  same metric, the highest one applies.
+- The merged value must be at least the floor. A metric with no points
+  misses any floor. Each miss prints
+  `error: coverage floor: <ip>: <metric> <value>% (<hit>/<total>) is below its floor of <floor>% (level<N>.yaml)`
+  to stderr and makes the run fail (exit code 1), even when every test
+  passed.
+
+Floors are optional and set per IP; the DV BKM says when to add them.
+
+### Functional coverage
+
+`regress.funcov` is a small helper (standard library only) that a cocotb
+test imports to declare and sample covergroups:
+
+```python
+from regress.funcov import Covergroup
+
+COV = Covergroup("ctrl")                       # unique per simulation
+COV.coverpoint("valid", bins={"idle": 0, "busy": 1})
+COV.coverpoint("data", bins={"zero": 0, "max": 0xFF, "mid": range(1, 0xFF)})
+COV.coverpoint("len", [1, 2, 4])               # bins named "1", "2", "4"
+COV.cross("valid_x_data", "valid", "data")     # one bin per combination
+...
+COV.sample(valid=1, data=0x3C)                 # every matching bin counts
+```
+
+- A bin is a value, a collection of values (`range`, list, set) or a
+  predicate. A sampled value hits every bin it matches. A cross bin is hit
+  when each of its coverpoints is sampled in the same `sample` call and hits
+  that bin.
+- Group, coverpoint, cross and bin names match
+  `[A-Za-z0-9_][A-Za-z0-9_.-]*`; a duplicate name, an empty bin set, a cross
+  of fewer than two known coverpoints or an unknown coverpoint in `sample`
+  raises `CoverageError`.
+- Sampling always counts. The results are written only in a coverage run:
+  the sim tool sets `FUNCOV_FILE` to the run's `funcov.json`, and the helper
+  writes it at interpreter exit (or earlier with `funcov.write()`). The file
+  is `{"schema": 1, "groups": {group: {item: {bin: hits}}}}`, cross bins
+  named `<bin>,<bin>`.
+- Repeated samples reuse the increments computed for the same values, so
+  sampling every cycle stays cheap (about 1 µs a sample).
 
 ## Budgets
 
@@ -201,5 +326,5 @@ When a level's total `runtime_s` exceeds its budget, the run prints
 ## Exit codes
 
 - `0`: every selected test passed.
-- `1`: any build or test didn't pass.
+- `1`: any build or test didn't pass, or a coverage floor was missed.
 - `2`: a usage or configuration error.

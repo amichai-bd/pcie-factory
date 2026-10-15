@@ -12,7 +12,16 @@ import random
 import cocotb
 from cocotb.triggers import FallingEdge, Timer
 
-from tb.cdc_env import EdgeLog, falling_edges, now, random_periods, start_clock
+from regress.funcov import Covergroup
+from tb.cdc_env import (CLOCK_BINS, EdgeLog, clock_ratio, falling_edges, now, random_periods,
+                        start_clock)
+
+# Functional coverage (DV plan, Strategy): the clock ratio class of each
+# update, and how long the update was held, in destination periods.
+COV = Covergroup("common_cdc_sync2")
+COV.coverpoint("clocks", bins=CLOCK_BINS)
+COV.coverpoint("hold", bins={"min": lambda h: h < 3.0, "long": lambda h: h >= 3.0})
+COV.cross("clocks_x_hold", "clocks", "hold")
 
 
 async def reset(dut):
@@ -55,8 +64,9 @@ async def stream(dut, rng, src_period, dst_period, changes):
         value ^= 1 << rng.randrange(width)
         dut.src_data_i.value = value
         sent.append((now(), value))
-        hold = 2 * dst_period + rng.randrange(3 * dst_period)
-        await Timer(math.ceil(hold / src_period) * src_period, "ps")
+        hold = math.ceil((2 * dst_period + rng.randrange(3 * dst_period)) / src_period) * src_period
+        COV.sample(clocks=clock_ratio(src_period, dst_period), hold=hold / dst_period)
+        await Timer(hold, "ps")
     await falling_edges(dut.dst_clk_i, 4)
 
     seen = [v for i, (_, v) in enumerate(samples) if i == 0 or v != samples[i - 1][1]]

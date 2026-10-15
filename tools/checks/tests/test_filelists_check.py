@@ -218,3 +218,21 @@ def test_listed_source_outside_rtl_fails(good):
     assert run(good).findings == [
         "rtl/blk/blk.rtl.f: source dv/blk/xy_blk_cfg.svh is not below rtl/ "
         "(a synthesizable closure lists only rtl/ files)"]
+
+
+
+def test_bad_coverage_floor_is_a_finding(good):
+    ip = sorted(p.parent.parent.name for p in good.glob("dv/*/regress/level2.yaml"))[0]
+    level = good / f"dv/{ip}/regress/level2.yaml"
+    level.write_text(level.read_text() + "coverage_floors: {line: 120}\n")
+    r = run(good)
+    assert not r.passed
+    assert any("coverage_floors: line must be a percentage" in str(f) for f in r.findings), r.findings
+
+
+def test_bad_shared_unit_coverage_floor_is_a_finding(good):
+    level = good / "dv/common/regress/level2.yaml"
+    level.write_text(level.read_text() + "coverage_floors: {line: 120}\n")
+    f = run(good).findings
+    assert any(x.startswith("common: regression list: ")
+               and "coverage_floors: line must be a percentage" in x for x in f), f

@@ -12,6 +12,10 @@
   Inputs change and `key_o` is compared with the model at every falling
   clock edge. Random tests draw from cocotb's seeded `random`, log the seed,
   and fail if any control (advance, re-seed, reset) never fired.
+- **Functional coverage:** the `top_lfsr_controls` covergroup, sampled on
+  every driven cycle, bins `rst`, `reseed` and `advance` (low, high) and
+  crosses all three (8 combinations). No coverage floor is set yet
+  ([DV BKM](../../../bkm/dv.md#coverage)).
 - **Out of scope:** data, K codes and the SKP/COM rules belong to the
   parent ([top DV plan](../../dv/top/DV_PLAN.md)).
 
