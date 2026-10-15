@@ -303,6 +303,29 @@ def test_one_finding_per_source_domain(tmp_path):
 """
     [f] = blk(run(tree(tmp_path, body)))
     assert "flop b_q (clock clk_b_i" in f and "(clock clk_a_i" in f
+    # The other source of that domain is listed too.
+    named = f.split("; also from clk_a_i: ")
+    assert len(named) == 2
+    assert ("flop a2_q" in named[0]) != ("flop a2_q (rtl/blk/xy_blk.sv:" in named[1])
+    assert ("flop a_q" in named[0]) != ("flop a_q (rtl/blk/xy_blk.sv:" in named[1])
+
+
+@needs_verilator
+def test_co_sources_are_capped(tmp_path):
+    body = A_FLOP + """
+  logic [7:0] v_q;
+  logic b_q;
+  for (genvar i = 0; i < 8; i++) begin : g
+    logic r;
+    always_ff @(posedge clk_a_i) r <= x_i;
+    assign v_q[i] = r;
+  end
+  always_ff @(posedge clk_b_i) b_q <= ^v_q;
+  assign y_o = b_q;
+"""
+    [f] = blk(run(tree(tmp_path, body)))
+    also = f.split("; also from clk_a_i: ")[1]
+    assert also.count("flop g[") == cdc.CO_SOURCES and also.endswith(", and more")
 
 
 # ---------------------------------------------------------------- port domains
@@ -347,6 +370,16 @@ def test_unannotated_input_with_two_clocks_fails(tmp_path):
     assert blk(run(src)) == [
         f"blk: input port {p} (rtl/blk/xy_blk.sv:{n}) has no cdc-domain annotation, and the "
         "top has 2 clock inputs (clk_a_i, clk_b_i)" for p, n in (("rst_b_i", 6), ("x_i", 7))]
+
+
+@needs_verilator
+def test_inout_port_needs_no_annotation(tmp_path):
+    src = tree(tmp_path, SYNC2)
+    top = src / "rtl/blk/xy_blk.sv"
+    top.write_text(top.read_text().replace("  output logic y_o\n",
+                                           "  inout  wire  io_b,\n  output logic y_o\n"))
+    r = run(src)
+    assert r.passed, r.findings
 
 
 @needs_verilator
@@ -629,6 +662,60 @@ def test_pass_through_cell_fails(tmp_path):
     assert r.findings == ["common/common_cdc_wire: rtl/common/common_cdc_wire.sv:2: crossing "
                           "cell common_cdc_wire: output dst_q_o has a combinational path from "
                           "input src_d_i, so the cell would hide a crossing"]
+
+
+def cell_tree(tmp_path: Path, cell: str) -> Path:
+    src = tree(tmp_path, A_FLOP + "  assign y_o = a_q;\n")
+    common = src / "rtl/common"
+    (common / "common_cdc_bad.sv").write_text(cell)
+    (common / "common_cdc_bad.rtl.f").write_text("common_cdc_bad.sv\n")
+    return src
+
+
+@needs_verilator
+def test_flop_then_wire_cell_fails(tmp_path):
+    r = run(cell_tree(tmp_path, """`default_nettype none
+// cdc-cell: src=src_clk_i dst=dst_clk_i
+module common_cdc_bad (
+  input  logic src_clk_i,
+  input  logic src_d_i,
+  input  logic dst_clk_i,
+  output logic dst_q_o
+);
+  logic r_q;
+  always_ff @(posedge src_clk_i) r_q <= src_d_i;
+  assign dst_q_o = r_q;
+endmodule
+`default_nettype wire
+"""))
+    assert r.findings == ["common/common_cdc_bad: rtl/common/common_cdc_bad.sv:2: crossing "
+                          "cell common_cdc_bad: output dst_q_o is driven by flop r_q "
+                          "(rtl/common/common_cdc_bad.sv:9) on clock src_clk_i, not by its "
+                          "own side's clock dst_clk_i"]
+
+
+@needs_verilator
+@pytest.mark.parametrize("index", ["1'b0", "src_a_q"], ids=["constant", "src-address"])
+def test_memory_read_needs_an_address_of_the_reading_side(tmp_path, index):
+    r = run(cell_tree(tmp_path, f"""`default_nettype none
+// cdc-cell: src=src_clk_i dst=dst_clk_i
+module common_cdc_bad (
+  input  logic src_clk_i,
+  input  logic src_d_i,
+  input  logic dst_clk_i,
+  output logic dst_q_o
+);
+  logic mem_q [2];
+  logic src_a_q;
+  always_ff @(posedge src_clk_i) begin
+    src_a_q <= ~src_a_q;
+    mem_q[src_a_q] <= src_d_i;
+  end
+  assign dst_q_o = mem_q[{index}];
+endmodule
+`default_nettype wire
+"""))
+    assert any("output dst_q_o is driven by flop mem_q" in f for f in r.findings), r.findings
 
 
 # ---------------------------------------------------------------- selection, tooling

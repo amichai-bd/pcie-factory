@@ -34,6 +34,7 @@ from checks.common import COMMON_PREFIX, CheckResult, read_prefix, rel
 from checks.lint import declared_modules
 
 CDC_TIMEOUT_S = 600.0
+CO_SOURCES = 4   # other sources of the same domain listed in one finding
 CELL_PREFIX = COMMON_PREFIX + "cdc_"
 ASYNC = "async"
 SIDES = ("src", "dst")
@@ -224,6 +225,7 @@ class VarInfo:
     name: str          # scoped within the module (generate blocks)
     loc: str
     direction: str | None  # INPUT/OUTPUT/INOUT for ports, else None
+    memory: bool = False   # an unpacked array
 
 
 @dataclass
@@ -278,6 +280,7 @@ class Netlist:
                 if m["type"] == "MODULE" and m.get("level") == 1]
         self.top = tops[0] if tops else None
         self._models: dict[str, Module] = {}
+        self.unpacked = {n["addr"] for n in _walk(tree) if n["type"] == "UNPACKARRAYDTYPE"}
 
     def file_of(self, loc: str) -> Path | None:
         f = self.files.get(loc.split(",", 1)[0]) if loc else None
@@ -313,7 +316,8 @@ def _build_model(nl: Netlist, mod: dict) -> Module:
                     continue
                 d = n.get("direction")
                 m.vars[n["addr"]] = VarInfo(scope + n["name"], n.get("loc", ""),
-                                            d if d in ("INPUT", "OUTPUT", "INOUT") else None)
+                                            d if d in ("INPUT", "OUTPUT", "INOUT") else None,
+                                            n.get("dtypep") in nl.unpacked)
             elif t in ("FUNC", "TASK"):
                 continue  # locals of a function are not module state
             elif t == "CELL":
@@ -543,6 +547,8 @@ class Design:
     port_clock: dict[Node, Node] = field(default_factory=dict)  # annotated top input -> clock
     sinks: list[Sink] = field(default_factory=list)
     inputs: dict[Node, str] = field(default_factory=dict)
+    inouts: set[Node] = field(default_factory=set)
+    memories: set[Node] = field(default_factory=set)
     findings: list[str] = field(default_factory=list)
 
     def name(self, n: Node) -> str:
@@ -571,6 +577,10 @@ def flatten(nl: Netlist, cells: dict[str, Directive],
         for a, v in m.vars.items():
             d.names[(path, a)] = prefix + v.name
             d.locs[(path, a)] = v.loc
+            if v.memory:
+                d.memories.add((path, a))
+            if not path and v.direction == "INOUT":
+                d.inouts.add((path, a))
             if not path and v.direction in ("INPUT", "INOUT"):
                 d.inputs[(path, a)] = v.name
                 if a in port_clocks:
@@ -690,7 +700,7 @@ class Analysis:
 
     def unannotated_inputs(self) -> list[str]:
         """With more than one clock input, every other input port of the
-        top needs a cdc-domain annotation."""
+        top (not an inout) needs a cdc-domain annotation."""
         d = self.d
         clocks = self.clock_inputs()
         if len(clocks) < 2:
@@ -699,7 +709,7 @@ class Analysis:
         return [f"input port {d.inputs[n]} ({d.nl.where(d.locs.get(n, ''))}) has no "
                 f"cdc-domain annotation, and the top has {len(clocks)} clock inputs ({names})"
                 for n in sorted(d.inputs, key=d.name)
-                if n not in clocks and n not in d.port_clock]
+                if n not in clocks and n not in d.port_clock and n not in d.inouts]
 
     def is_source(self, n: Node) -> bool:
         d = self.d
@@ -768,8 +778,32 @@ class Analysis:
                     acc[dom] = cand
         return acc
 
+    def all_sources(self, deps, dom: str | None = None, cap: int = 0) -> list[Node]:
+        """The sources reaching ``deps`` through combinational edges, found
+        by a backward walk (only run for findings): all of them, or those
+        in ``dom``; at most ``cap`` when it is set."""
+        d, found, seen = self.d, [], set()
+        stack = list(deps)
+        while stack and not (cap and len(found) >= cap):
+            n = stack.pop()
+            if n in seen:
+                continue
+            seen.add(n)
+            if self.is_source(n):
+                if dom is None or self.source_domain(n) == dom:
+                    found.append(n)
+                continue
+            stack.extend(u for u, _ in d.comb_in.get(n, ()))
+        return sorted(found, key=d.name)
+
+    def describe(self, n: Node) -> str:
+        d = self.d
+        return f"{self.source_kind(n)} {d.name(n)} ({d.nl.where(d.locs.get(n, ''))})"
+
     def crossings(self) -> list[str]:
-        """One finding per sink and foreign source domain."""
+        """One finding per sink and foreign source domain; it names one
+        source and lists the other sources of that domain (up to
+        ``CO_SOURCES``)."""
         d, out = self.d, []
         for s in d.sinks:
             if s.clock is None:
@@ -780,10 +814,17 @@ class Analysis:
                 if sdom == dom:
                     continue
                 how = "through combinational logic" if k == LOGIC else "directly"
+                others = [n for n in self.all_sources(s.deps, sdom, CO_SOURCES + 2)
+                          if n != src][:CO_SOURCES + 1]
+                also = ""
+                if others:
+                    more = ", and more" if len(others) > CO_SOURCES else ""
+                    also = (f"; also from {sdom}: "
+                            + ", ".join(self.describe(n) for n in others[:CO_SOURCES]) + more)
                 out.append(f"{s.desc} (clock {dom}, {s.where}) samples "
                            f"{self.source_kind(src)} {d.name(src)} "
                            f"(clock {sdom}, {d.nl.where(d.locs.get(src, ''))}) {how}, "
-                           "with no crossing cell between them")
+                           f"with no crossing cell between them{also}")
         return out
 
     def _async_input(self, s: Sink) -> list[str]:
@@ -929,6 +970,31 @@ def pass_through_findings(design: Design, own: Directive) -> list[str]:
     return out
 
 
+def output_domain_findings(analysis: Analysis, own: Directive) -> list[str]:
+    """A crossing cell analyzed on its own: every source reaching a side's
+    output is in that side's clock domain. A memory written in the other
+    domain may be read, when the read also depends on the output's own
+    domain (a dual-clock memory read at an address of the reading side)."""
+    d, out = analysis.d, []
+    head = f"{rel(own.file, d.nl.src_root)}:{own.line}: crossing cell {own.module}"
+    top = d.nl.model(d.nl.top["addr"])
+    clocks = {v.name: ((), a) for a, v in top.vars.items() if v.direction == "INPUT"}
+    for a, v in sorted(top.vars.items(), key=lambda x: x[1].name):
+        side = v.name.split("_", 1)[0]
+        port = own.src if side == "src" else own.dst if side == "dst" else ASYNC
+        if v.direction != "OUTPUT" or port == ASYNC or port not in clocks:
+            continue
+        want = analysis.domain(clocks[port])
+        srcs = analysis.all_sources([((), a)])
+        doms = {n: analysis.source_domain(n) for n in srcs}
+        foreign = [n for n in srcs if doms[n] != want]
+        if foreign and all(n in d.memories for n in foreign) and want in doms.values():
+            continue
+        out += [f"{head}: output {v.name} is driven by {analysis.describe(n)} on clock "
+                f"{doms[n]}, not by its own side's clock {want}" for n in foreign]
+    return out
+
+
 def analyze(nl: Netlist, directives: dict[tuple[Path, str], Directive],
             checked_cells: dict[str, list[str]],
             domains: dict[tuple[Path, int], PortDomain] | None = None,
@@ -968,6 +1034,7 @@ def analyze(nl: Netlist, directives: dict[tuple[Path, str], Directive],
                                 f"{own.module}: flop {design.name(node)} runs on {dom}, "
                                 "not on a clock its cdc-cell directive names")
         findings += pass_through_findings(design, own)
+        findings += output_domain_findings(analysis, own)
     else:  # a crossing cell's ports have their domains from src_*/dst_*
         findings += analysis.unannotated_inputs()
     findings += analysis.crossings()

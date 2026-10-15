@@ -131,7 +131,9 @@ crossing cells in `src/rtl/common/`; each MAS owns its cell's rules
   every other port's domain: `src_*` ports belong to the source domain and
   `dst_*` ports to the destination domain. Only `common_cdc_*` modules in
   `src/rtl/common/` carry the directive. A cell has no combinational path
-  from an input on one side to an output on the other.
+  from an input on one side to an output on the other, and each output is
+  driven only from its own side's domain (a dual-clock memory read at an
+  address of the reading side is the one exception).
 - **Port domains.** An input port declares the clock it is synchronous to
   with a comment ending its declaration line, naming another input port of
   the same module:
@@ -146,8 +148,15 @@ crossing cells in `src/rtl/common/`; each MAS owns its cell's rules
   An IP or shared block with more than one clock input annotates every
   input port that is not a clock, as its HAS or MAS port table gives it
   (the `Clock` column), so the check sees a port sampled in the wrong
-  domain; a missing annotation is a finding. `common_cdc_*` cells are
-  exempt: their `src_*`/`dst_*` prefixes and directive give the domains. Name a second
+  domain. The check enforces this on each analyzed top (a top-level IP or
+  a shared block) with two or more
+  [clock inputs](../tools/checks/SPEC.md#cdc-check), counted as the
+  check defines them: a clock that reaches flops only through a gate or
+  an ICG is not counted, and a sub-IP is checked only through its top, so
+  review owns those cases. `inout` ports are exempt, and so are
+  `common_cdc_*` cells, whose `src_*`/`dst_*` prefixes and directive give
+  the domains. A reset that only feeds synchronizers is annotated with
+  the domain that also uses it directly, else the core clock. Name a second
   domain's ports with one prefix, its clock `<prefix>_clk_i` and the rest
   `<prefix>_<name>_i`, so the grouping is visible without the comment; the
   comment, not the name, is what the check reads. An integrator annotates

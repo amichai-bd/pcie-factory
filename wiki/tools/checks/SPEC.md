@@ -549,7 +549,17 @@ module name:
 - when the cell is a target itself, each of its flops is clocked by a port
   its directive names, and no output has a purely combinational path from
   an input of the other side (a `dst_*` output from a `src_*` input, or the
-  reverse), so a cell that is only wires cannot hide a crossing.
+  reverse), so a cell that is only wires cannot hide a crossing;
+- when the cell is a target itself, every source (flop or inner cell
+  output) that reaches a `src_*` or `dst_*` output, found by a backward
+  walk through combinational edges, is in the domain of that side's clock,
+  so a cell whose output comes from a flop of the other side and no flop
+  of its own cannot hide a crossing either. One exception: a memory (an
+  unpacked array) written in the other domain may be read when the output
+  also depends on a source of its own side, as in a dual-clock memory read
+  at an address of the reading side. A flop's asynchronous reset is part of
+  its data input, not of its output, so a reset synchronizer whose output
+  comes from `dst` flops reset by a `src_*` input passes.
 
 A cell that passes is **approved**. A `common_cdc_*` module that fails is
 analyzed like any other module, so its own synchronizer flops are then
@@ -578,9 +588,13 @@ port are traced instead, so an integrator annotates its own input ports.
 A port without an annotation has no domain.
 
 A **clock input** is an input port of the top in which the domain of a
-flop or of an approved cell's clock pin ends. When the top has two or more
+flop or of an approved cell's clock pin ends; a clock that reaches flops
+only through a gate, a mux or an ICG roots a `(derived)` domain instead
+and is not counted. When the top has two or more
 clock inputs, every other input port of the top without an annotation is
-a finding that names the port and the clock inputs. A target that is
+a finding that names the port and the clock inputs. An `inout` port is
+exempt: the annotation is only allowed on `input` lines, and an `inout`
+port is never a source. A target that is
 itself an approved crossing cell is exempt, because its `src_*` and
 `dst_*` prefixes and its directive already give every port's domain. A
 top with one clock input, or none, needs no annotation.
@@ -631,7 +645,10 @@ clocked cell input:
 - each other domain among its sources is one finding that names the sink,
   one source in that domain (a flop, a cell output or an input port), both
   clocks and both source lines, and says whether the path is `directly`
-  (alias or wire edges only) or `through combinational logic`;
+  (alias or wire edges only) or `through combinational logic`. A backward
+  walk, run only for findings, then lists up to four other sources of that
+  domain (`; also from <domain>: ...`, ending `, and more` when there are
+  further ones), so co-sources are visible before the first is fixed;
 - an input port of the top without an annotation carries no domain, so a
   path from one is never a finding (with two or more clock inputs, the
   missing annotation is itself a finding).
@@ -762,10 +779,11 @@ and once per generate loop, logic in
 front of a `src=async` input (in the connection, one and two assignments
 away) against plain wires, every directive finding, a missing and a
 malformed directive (the cell is then looked inside), port and clock
-mismatches, a pass-through cell, port domains (an annotated port sampled
+mismatches, a pass-through cell, a flop-then-wire cell, a memory read at
+a constant or source-side address, co-sources listed and capped, port domains (an annotated port sampled
 in another domain, an unannotated one, legal crossings through each kind
 of cell input, a wrong cell side, every annotation finding, a missing annotation with
-two clock inputs, a reset-synchronizer cell form (`src=async`, an
+two clock inputs, an exempt `inout` port, a reset-synchronizer cell form (`src=async`, an
 asynchronous-reset flop pair) against the same reset used raw, an
 annotation on a sub-module port checked but not applied, one on a
 function argument), `--ip` selection (a sub-IP and an integrated
