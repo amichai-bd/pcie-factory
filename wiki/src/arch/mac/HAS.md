@@ -299,7 +299,7 @@ the MAC.
 | TX latency | At most 3 cycles from an accepted beat to its first symbol on `pipe_tx_data_o`. | budget, `MacBudget` |
 | RX latency | At most 3 cycles from a packet's first symbol on `pipe_rx_data_i` to its `sop` beat, plus 1 when it starts in `[15:8]`. | budget, `MacBudget` |
 | Arc coverage | The link-partner model drives every arc of the [arc list](ARCS.md) (64) on the other model, in each port role. | `arc_smoke` (ci-gate), `partner_arc_sweep` (level 2) |
-| Clock | 125 MHz on the `phy` FPGA and ASIC flows. | `phy` flows |
+| Clock | 125 MHz on the `phy` ASIC flow and 50 MHz on the `phy` FPGA (DE2-115) flow. The FPGA figure is a timing and resource target only, with no board bring-up at line rate; the design's rates, including PIPE at 125 MHz, are unchanged ([Q26](../../decisions/0002-m1-grill.md#decisions)). | `phy` flows |
 
 ## Architecture model
 
