@@ -131,8 +131,9 @@ def test_exempt_trees_are_fixed(repo):
 
 
 @pytest.mark.parametrize("text, msg", [
-    ("neutrality: {words: [a]}\nextra: 1\n", "'neutrality' and only"),
-    ("publishability: {allow: []}\n", "'neutrality' and only"),
+    ("neutrality: {words: [a]}\nextra: 1\n", "top level must be"),
+    ("citation: {max_quote_words: 5}\n", "top level must be"),
+    ("publishability: {allow: []}\n", "top level must be"),
     ("neutrality: {repo_slug: a/b}\n", "'words' and optional"),
     ("neutrality: {words: [a], note: x}\n", "'words' and optional"),
     ("neutrality: {words: []}\n", "words is empty"),
@@ -149,6 +150,11 @@ def test_config_errors(repo, text, msg):
     write(repo, "cfg/checks.yaml", text)
     with pytest.raises(CheckConfigError, match=msg):
         neutrality.run(repo)
+
+
+def test_citation_section_allowed(repo):
+    write(repo, "cfg/checks.yaml", CONFIG + "citation:\n  max_quote_words: 5\n")
+    assert neutrality.run(repo).passed
 
 
 def test_missing_config(tmp_path):

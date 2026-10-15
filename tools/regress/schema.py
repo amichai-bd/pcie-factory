@@ -109,22 +109,57 @@ def parse_entry(raw, ip: str, level: int, where: str) -> TestEntry:
     return TestEntry(ip, level, name, module, top, float(timeout), testcase, seeds, dict(params))
 
 
+FLOOR_KEY = "coverage_floors"
+FLOOR_METRICS = ("line", "toggle", "functional")
+
+
+def _level_data(ip: Ip, level: int) -> dict | None:
+    """The validated top level of one level file; None when it is missing."""
+    path = ip.level_file(level)
+    if not path.is_file():
+        return None
+    data = _load_yaml(path)
+    if not isinstance(data, dict) or "tests" not in data or set(data) - {"tests", FLOOR_KEY}:
+        raise SchemaError(
+            f"{path}: top level must be a mapping with 'tests' and optionally "
+            f"'{FLOOR_KEY}' (an empty level is 'tests: []')"
+        )
+    if not isinstance(data["tests"], list):
+        raise SchemaError(f"{path}: 'tests' must be a list")
+    return data
+
+
 def load_level(ip: Ip, level: int) -> list[TestEntry]:
     """Tests of one IP at one level. A missing file or ``tests: []`` means
     no tests."""
-    path = ip.level_file(level)
-    if not path.is_file():
+    data = _level_data(ip, level)
+    if data is None:
         return []
-    data = _load_yaml(path)
-    if not isinstance(data, dict) or set(data) != {"tests"}:
-        raise SchemaError(
-            f"{path}: top level must be a mapping with only 'tests' "
-            "(an empty level is 'tests: []')"
-        )
-    tests = data["tests"]
-    if not isinstance(tests, list):
-        raise SchemaError(f"{path}: 'tests' must be a list")
-    return [parse_entry(raw, ip.id, level, f"{path}: tests[{i}]") for i, raw in enumerate(tests)]
+    path = ip.level_file(level)
+    return [parse_entry(raw, ip.id, level, f"{path}: tests[{i}]") for i, raw in enumerate(data["tests"])]
+
+
+def load_floors(ip: Ip) -> dict[int, dict[str, float]]:
+    """Coverage floors (percent) per level of one IP; levels without
+    ``coverage_floors`` are absent."""
+    out = {}
+    for level in LEVELS:
+        data = _level_data(ip, level)
+        if data is None or FLOOR_KEY not in data:
+            continue
+        where = f"{ip.level_file(level)}: {FLOOR_KEY}"
+        raw = data[FLOOR_KEY]
+        if not isinstance(raw, dict) or not raw:
+            raise SchemaError(f"{where}: must be a non-empty mapping of metric to percent")
+        unknown = set(raw) - set(FLOOR_METRICS)
+        if unknown:
+            raise SchemaError(f"{where}: unknown metric(s): {', '.join(sorted(map(str, unknown)))} "
+                              f"(known: {', '.join(FLOOR_METRICS)})")
+        for metric, value in raw.items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 100:
+                raise SchemaError(f"{where}: {metric} must be a percentage in [0, 100]")
+        out[level] = {m: float(v) for m, v in raw.items()}
+    return out
 
 
 def load_ip(ip: Ip) -> list[TestEntry]:

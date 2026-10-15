@@ -23,7 +23,7 @@ it; nothing calls a tool script directly.
 | --- | --- |
 | `check` | Static checks (below). |
 | `sim` | One test of one IP, one seed. |
-| `regress` | Regression by IP and level; `--affected <base>` selects IPs. |
+| `regress` | Regression by IP and level; `--affected <base>` selects IPs; `--coverage` merges coverage per IP. |
 | `fpga` | Quartus flow for one IP ([FPGA BKM](fpga.md)). |
 | `asic` | ORFS flow for one IP ([PD BKM](pd.md)). |
 | `arch` | Architecture-model perf scenarios of a top-level IP ([arch BKM](arch.md)). |
@@ -70,6 +70,7 @@ workdir/                    all generated output, ignored
 | Wiki mirror: `wiki/src/` has every IP's required pages and no folder without a `src/` counterpart | [wiki BKM](wiki.md#page-set) |
 | Flow inputs: `src/fpga/<ip>/` and `src/asic/<ip>/` pass the FPGA and ASIC flows' `--dry-run` validation, without the vendor tools | [checks spec](../tools/checks/SPEC.md#flow-input-check) |
 | Neutrality: the word list in `cfg/checks.yaml`, with the scope and exemptions set by the contract | [`CLAUDE.md`](../../CLAUDE.md#design-neutrality) |
+| Citations: no long block quotes or quoted runs, and the citation form, in `src/` and `wiki/src/` (a heuristic; review is the main control) | [wiki BKM](wiki.md#citations) |
 | Publishability: no keys, tokens, URL credentials, IP addresses, home paths or personal email addresses in any file, with reviewed exemptions in `cfg/checks.yaml` | [wiki BKM](wiki.md#publishability) |
 
 `tools/` unit tests run when `tools/` or `cfg/` change. Doc line caps are a
@@ -206,8 +207,9 @@ The nightly workflow runs daily on the same runners (the
 [metrics spec](../tools/metrics/SPEC.md#workflows) owns its jobs,
 permissions and data PR mechanics):
 
-1. `./build check`, then `./build regress --level 0 --level 1 --level 2`
-   across all IPs.
+1. `./build check`, then `./build regress --level 0 --level 1 --level 2
+   --coverage` across all IPs (merged line, toggle and functional coverage
+   per IP, with any floors checked; [regress SPEC](../tools/regress/SPEC.md#coverage)).
 2. `./build fpga` and `./build asic` for every IP with `src/fpga/<ip>/` or
    `src/asic/<ip>/` inputs.
 3. Metrics: the per-commit series `wiki/tracker/data/commits.jsonl` and the
@@ -234,6 +236,7 @@ Every trend is plotted against commits on `main`, in order. The data:
 | --- | --- |
 | Code | LOC and file counts by kind and IP; extension and directory distribution; commits, contributor count, repository size |
 | Tests | Counts, pass/fail, runtime per level and IP, slowest tests, seeds, nightly result |
+| Coverage | Line, toggle and functional coverage per IP, and whether its floors held |
 | GitHub flow | Issues by label, PRs merged, lead time, review rounds |
 | CI | `ci-gate` runs, pass rate, duration, latest result on main |
 | Health | Open PR and issue ages, stale issues, `nightly-red`, recent pass rate, review rounds, APPROVE at the merged head |

@@ -13,6 +13,11 @@ neutrality:
   # owner/repo exempt inside GitHub URLs; unset means "from the origin remote".
   # repo_slug: owner/repo
 
+citation:
+  # A Markdown block quote or a quoted run with more words than this is a
+  # finding; the citation form is fixed by the wiki BKM.
+  max_quote_words: 25
+
 publishability:
   # Reviewed exemptions only. Each entry exempts the exact matched text of
   # one rule (in the files its optional fnmatch `path` glob names) and says

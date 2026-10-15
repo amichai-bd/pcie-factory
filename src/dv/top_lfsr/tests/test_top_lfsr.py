@@ -12,9 +12,17 @@ from cocotb.clock import Clock
 from cocotb.triggers import FallingEdge
 
 from models.pcie_top_lfsr_model import Lfsr
+from regress.funcov import Covergroup
 
 # Published scrambler key bytes after a re-seed (see the model unit tests).
 KAT = [0xFF, 0x17, 0xC0, 0x14, 0xB2]
+
+# Functional coverage of the controls, sampled on every driven cycle
+# (DV plan, Strategy).
+COV = Covergroup("top_lfsr_controls")
+for _name in ("rst", "reseed", "advance"):
+    COV.coverpoint(_name, bins={"low": 0, "high": 1})
+COV.cross("rst_x_reseed_x_advance", "rst", "reseed", "advance")
 
 
 async def start(dut):
@@ -37,6 +45,7 @@ async def step(dut, model, idx, rst=0, reseed=0, advance=0):
     dut.rst_i.value = rst
     dut.reseed_i.value = reseed
     dut.advance_i.value = advance
+    COV.sample(rst=rst, reseed=reseed, advance=advance)
     model.clock(rst, reseed, advance)
     await FallingEdge(dut.clk_i)
 

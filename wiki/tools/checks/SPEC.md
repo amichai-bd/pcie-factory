@@ -3,27 +3,27 @@
 `./build check` runs the static checks that the
 [DevOps BKM](../../bkm/devops.md#static-checks) requires: the source layout
 check, the filelist and regression-list check, the RTL style checker, the
-wiki mirror check, the flow-input check, the neutrality check, the
-publishability check and Verilator lint. It prints one summary line per
-check, then every violation, then an overall verdict. The code lives in
-`tools/checks/` (`run.py`, `layout.py`, `filelists.py`, `style.py`,
-`wiki_mirror.py`, `flows.py`, `neutrality.py`, `publishability.py`,
-`lint.py`).
+wiki mirror check, the flow-input check, the neutrality check, the citation
+check, the publishability check and Verilator lint. It prints one summary
+line per check, then every violation, then an overall verdict. The code
+lives in `tools/checks/` (`run.py`, `layout.py`, `filelists.py`,
+`style.py`, `wiki_mirror.py`, `flows.py`, `neutrality.py`, `citation.py`,
+`publishability.py`, `lint.py`).
 
 ```
 ./build check [--ip ID]...
-              [--only layout|filelist|style|wiki|flows|neutrality|publishability|lint]...
+              [--only layout|filelist|style|wiki|flows|neutrality|citation|publishability|lint]...
               [--src-root DIR] [--workdir DIR]
 ```
 
 | Option | Meaning |
 | --- | --- |
-| `--ip ID` | Restrict layout, filelist, style, wiki, flows and lint to these IPs (repeatable). Files not owned by a selected IP, such as `src/rtl/common/`, are skipped. Neutrality and publishability always scan the whole repository. |
-| `--only NAME` | Run only these checks (repeatable). The default is all eight. |
-| `--src-root DIR` | The source tree to check, as for every command ([build spec](../build/SPEC.md#command-line)). The wiki check reads its sibling `wiki/src/`. Neutrality and publishability ignore it and scan the git repository that holds the launcher. |
+| `--ip ID` | Restrict layout, filelist, style, wiki, flows and lint to these IPs (repeatable). Files not owned by a selected IP, such as `src/rtl/common/`, are skipped. Neutrality and publishability always scan the whole repository, and citation the whole of `src/` and `wiki/src/`. |
+| `--only NAME` | Run only these checks (repeatable). The default is all nine. |
+| `--src-root DIR` | The source tree to check, as for every command ([build spec](../build/SPEC.md#command-line)). The wiki and citation checks read its sibling `wiki/src/`. Neutrality and publishability ignore it and scan the git repository that holds the launcher. |
 
 Checks run in the order layout, filelist, style, wiki, flows, neutrality,
-publishability, lint (lint is the slowest). Output:
+citation, publishability, lint (lint is the slowest). Output:
 
 ```
 check: 2 IP(s) under /abs/src
@@ -34,6 +34,7 @@ check: 2 IP(s) under /abs/src
 [wiki] PASS: 6 required page(s), 6 wiki folder(s) under wiki/src/ (all IPs)
 [flows] PASS: 1 FPGA and 0 ASIC target(s) with their flows' dry-run validation; cfg/fpga.yaml
 [neutrality] PASS: 135 file(s) (tracked and untracked, not ignored) outside src/, ...
+[citation] PASS: 40 text file(s) under src/, wiki/src/; quotes up to 25 words; ...
 [publishability] PASS: 180 file(s) (tracked and untracked, not ignored); 7 rule(s); 5 allow entry(ies)
 [lint] blk: top=xy_blk
 [lint] PASS: 2 IP(s), 3 Verilator run(s) with -E audit, 0 waiver(s), 0 warning(s) waived
@@ -41,7 +42,8 @@ check: FAIL (style)
 ```
 
 Paths in findings are relative to the source root (neutrality and
-publishability: to the repository root; wiki: to the source root's parent, so `wiki/src/...`). With no IPs under `src/`, every check still runs and says
+publishability: to the repository root; wiki and citation: to the source
+root's parent, so `wiki/src/...`). With no IPs under `src/`, every check still runs and says
 what it covered (zero IPs and files), and the command passes.
 
 **Exit codes:** `0` means every selected check passed. `1` means at least
@@ -87,7 +89,7 @@ Rule owners: [layout](../../project/layout.md#per-ip-files) and the
 - Every IP has `rtl/<id>/<id>.rtl.f`, `dv/<id>/<id>.dv.f`,
   `dv/<id>/<id>.sim.f` and `dv/<id>/regress/level{0,1,2}.yaml`, and its regression lists pass the
   [regress schema](../regress/SPEC.md#regression-lists) (including unique
-  test names).
+  test names and any [coverage floors](../regress/SPEC.md#coverage-floors)).
 - **SystemVerilog only.** These rules close every route by which a file
   could carry a waiver past the style check and the reviewed waiver file:
   a listed control file (`.vlt`), or any file reached by `` `include``,
@@ -270,14 +272,63 @@ which the word list covers. Hard-coded bare IP names stay a review item.
 neutrality:
   words: [<word>, ...]           # required, non-empty, one flow list on one line
   repo_slug: owner/repo          # optional
+citation:                        # see the citation check
+  max_quote_words: 25
+publishability:                  # see the publishability check
+  allow: [...]
 ```
 
+The top level holds `neutrality`, `citation` and `publishability` and
+nothing else. All three are required: the neutrality check rejects a
+missing `neutrality` and any unknown top-level key, the citation check
+rejects a missing `citation`, and the
+[publishability check](#publishability-check) a missing `publishability`.
 Any other key (including an attempt to configure exempt paths), a missing
 key, a wrong type, a `words` list that is not one single-line flow list, or
 more than one `words` or `repo_slug` line (a duplicate YAML key could hide a
-value) is a configuration error. The top level holds `neutrality` and
-`publishability` (see the [publishability check](#publishability-check)),
-nothing else.
+value) is a configuration error.
+
+## Citation check
+
+Rule owner: the [wiki BKM, citations](../../bkm/wiki.md#citations). Code:
+`citation.py`. Config: `citation.max_quote_words` in `cfg/checks.yaml`
+(the section and the key are required; the value is a positive integer;
+any other key is a configuration error).
+
+The check scans every text file below the source root and its sibling
+`wiki/src/` (in the repository, `src/` and `wiki/src/`), whatever the file
+type. Hidden files and folders and binary files (a NUL byte) are skipped.
+In Markdown files (`.md`), fenced code blocks and code spans (which do not cross a blank line) are
+blanked first: code is not prose. No pattern can backtrack exponentially
+(each whitespace run in a citation matches one way only), so a long
+malformed input cannot stall the check. A word is a run of letters and digits, with
+inner `'` or `-`. Findings, `<path>:<line>: <message>`:
+
+| Finding | Flags |
+| --- | --- |
+| `block quote of N words` | Markdown only: a run of consecutive `>` lines with more than `max_quote_words` words. |
+| `quoted run of N words` | Text between typographic double quotes, or between straight double quotes, with more than `max_quote_words` words. In Markdown a straight-quoted run may wrap lines within a paragraph (not across a blank line). In any other file it stays on one line, and a quote that is part of `""` or `"""` is not a delimiter, so Python docstrings are not quotes. |
+| `malformed citation` | `[cite:` (any case or spacing) that does not open exactly `[cite: <standard>, rev <revision>, §<section>]`. `<standard>` is words of letters, digits and `./+&()-` joined by single spaces; it starts with a letter or digit and ends with one or `)`. `<revision>` is letters, digits, `.` and `-`. `<section>` is one alphanumeric section number with `.` or `-` separators. In Markdown, which is hard-wrapped, each space of the form may instead be one line break (with indentation), so a wrapped citation is well-formed; in other files the citation stays on one line. The finding runs to the `]`, or to the end of the line (Markdown: of the paragraph) when there is none. |
+| `section reference ... outside a citation` | Every `§`, and every dotted section number (`4.3.2`, at least two levels) after `section`, `sec.`, `chapter` or `clause` (any case), outside a citation, whatever it refers to: in `src/` and `wiki/src/` these forms are reserved for citations, and internal cross-references link by heading name ([wiki BKM](../../bkm/wiki.md#citations)). One inside a malformed citation is reported once, as that. |
+
+**Limits.** The check is a heuristic. It cannot prove that text was not
+copied: a paraphrase and a copied sentence without quote marks look the
+same, and it never reads the source document.
+
+- **Misses:** a free-form reference with no section number or with a
+  single-level one ("section 4"), text in single typographic quotes
+  (‘...’), a quote split by stray quote marks, and a copied table without
+  quote marks.
+- **False positives:** an internal reference written as `§` or
+  "section N.M" (link by heading name instead); a stray quote mark in a
+  Markdown paragraph that pairs with the next one; and a legitimate block
+  quote of more than `max_quote_words` words in `wiki/src/`, such as a
+  provenance note (keep it short or write it as a plain paragraph). Review
+remains the main control: the
+[pr-reviewer](../../../.claude/skills/pr-reviewer/SKILL.md#3-check) checklist
+requires the reviewer to confirm paraphrase-only for any PR that touches
+cited material. The threshold is set high enough that ordinary messages and
+string literals in tests pass.
 
 ## Publishability check
 
@@ -445,6 +496,10 @@ wrapper module and listing, `cfg/fpga.yaml`, a missing `.mk`, SDC counts,
 a tool-owned variable, no `DESIGN_NAME`, an unpinned image, no ORFS, ORFS
 environment overrides ignored, `--ip`, nothing written) on a copy of the
 good tree with `asic/blk/` inputs and its own `cfg/` (`test_flows.py`),
+each citation finding with its pass and fail boundary (exactly
+`max_quote_words` words versus one more, every malformed citation variant, wrapped citations in Markdown (and not over a blank line), long indented malformed citations and unclosed backticks finishing quickly (a regression guard against backtracking),
+code blocks and spans, triple quotes, binary and hidden files) and every
+config error (`test_citation.py`),
 a fixture that fails for every publishability rule and token shape,
 harmless look-alikes for each rule, every tree and file paths scanned,
 ignored and binary files skipped, symbolic links not followed, allow
@@ -461,6 +516,6 @@ and a `.v` file in an `rtl/` closure, a `w.txt` waiver reached by
 allowed include directory and a listed source under `dv/` (both caught by
 the preprocessed audit), prose versus directive comments, a
 comment and a widened exempt path in the config, and look-alike slug hosts.
-Tests that run Verilator are skipped when it is not installed. `test_check_run.py` also runs the neutrality and wiki
-mirror checks on this repository, and `test_publishability.py` runs the
+Tests that run Verilator are skipped when it is not installed. `test_check_run.py` also runs the neutrality, wiki
+mirror and citation checks on this repository, and `test_publishability.py` runs the
 publishability check on it.

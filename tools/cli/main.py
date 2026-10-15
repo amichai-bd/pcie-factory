@@ -28,10 +28,11 @@ from labels import core as labels
 from metrics import cli as metrics
 from regress import run as regress
 from regress.affected import GitError
+from regress.coverage import CoverageError
 from regress.schema import LEVELS, SchemaError, load_ip
 
 WIKI_SITE = Path(__file__).resolve().parents[1] / "wiki_site"
-USER_ERRORS = (FilelistError, DiscoveryError, SchemaError, GitError, sim.SimError,
+USER_ERRORS = (FilelistError, DiscoveryError, SchemaError, GitError, sim.SimError, CoverageError,
                fpga.FpgaError, labels.LabelsError, CheckConfigError, CiConfigError,
                ArchError)
 
@@ -77,7 +78,8 @@ def cmd_regress(ctx: Context, args) -> int:
         return 0
     if not selection.runs:
         print("no tests selected")
-    summary = regress.run(ctx, selection, levels, jobs=args.jobs, waves=args.waves)
+    summary = regress.run(ctx, selection, levels, jobs=args.jobs, waves=args.waves,
+                          coverage=args.coverage)
     code = regress.report(summary)
     print(f"summary: {regress.summary_path(ctx.workdir)}")
     return code
@@ -201,6 +203,9 @@ def _regress_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--jobs", "-j", type=int, default=1, help="parallel builds/tests")
     p.add_argument("--seed", type=int, help="base seed; run i of a test uses seed+i")
     p.add_argument("--waves", action="store_true", help="dump waves for every test")
+    p.add_argument("--coverage", action="store_true",
+                   help="coverage builds; merge line, toggle and functional coverage per IP "
+                        "and check the floors")
     p.add_argument("--dry-run", action="store_true", help="print the selection only")
 
 
@@ -210,7 +215,7 @@ def _clean_args(p: argparse.ArgumentParser) -> None:
 
 def _check_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--ip", action="append",
-                   help="restrict every check but neutrality to this IP id; repeatable")
+                   help="restrict layout, filelist, style, wiki, flows and lint to this IP id; repeatable")
     p.add_argument("--only", action="append", choices=CHECKS,
                    help="run only this check; repeatable (default: all)")
 
@@ -271,7 +276,7 @@ COMMANDS = {
     "sim": ("run one test of one IP", cmd_sim, _sim_args),
     "regress": ("run regression levels", cmd_regress, _regress_args),
     "clean": ("remove generated output", cmd_clean, _clean_args),
-    "check": ("static checks: layout, filelist, style, wiki mirror, flow inputs, neutrality, publishability, lint", cmd_check, _check_args),
+    "check": ("static checks: layout, filelist, style, wiki mirror, flow inputs, neutrality, citation, publishability, lint", cmd_check, _check_args),
     "labels": ("GitHub label sync and check", cmd_labels, _labels_args),
     "ci": ("ci-gate helpers: unit suites, job summary, data-branch status", cmd_ci, _ci_args),
     "wiki": ("build or serve the wiki site", cmd_wiki, _wiki_args),
