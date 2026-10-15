@@ -25,7 +25,11 @@
   builds the real headers with Verilator `--assert`: each of
   `COMMON_ASSERT`, `_NO_RESET`, `_NEVER`, `_STABLE_WHEN`, `_CLOCKED` and
   `_CLOCKED_WHEN` stops its run when tripped, none is present with
-  `SYNTHESIS` defined, and `COMMON_ASSERT_PARAM` stops both views.
+  `SYNTHESIS` defined (two builds), a false `COMMON_ASSERT_PARAM` fails
+  Verilator lint at elaboration, and only its `initial $fatal` form is left
+  under `SYNTHESIS`. The tests carry the `vocabulary` marker, so
+  `./build ci unit --affected` runs them when a header changes, and the
+  nightly runs them with every suite.
   `COMMON_ASSERT_KNOWN` cannot fail in two-state Verilator; it is only
   compiled.
 - **Functional coverage:** the `common_macros` covergroup (random test)

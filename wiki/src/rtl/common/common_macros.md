@@ -41,9 +41,14 @@ owner's permission.
   `always_ff` with no state whose body runs while `!(RESET)`. Every failure
   action is `$fatal(1, "assertion <NAME> failed in %m")`.
   `COMMON_ASSERT_STABLE_WHEN` declares `NAME_hold_q` (a `COMMON_DFF_RST` of
-  `HOLD`) and checks `NAME_hold_q |-> $stable(SIGNAL)`. `COMMON_ASSERT_PARAM`
-  is a generate `if (!(CONDITION)) begin : LABEL initial $fatal(1, MESSAGE);
-  end`, outside the `SYNTHESIS` guard.
+  `HOLD`) and checks `NAME_hold_q |-> $stable(SIGNAL)`.
+- **Parameter check:** `COMMON_ASSERT_PARAM` is a generate
+  `if (!(CONDITION)) begin : LABEL ... end` in every flow. Without
+  `SYNTHESIS` the block holds an elaboration-time `$fatal(1, MESSAGE)`:
+  Verilator lint reports it (`USERFATAL`, a `./build check` lint finding,
+  as the FIFO's elaboration `$error` was before) and a simulation build
+  fails. With `SYNTHESIS` it holds the source's `initial $fatal(1,
+  MESSAGE)`.
 - **Unused bits:** under `VERILATOR`, `logic NAME; assign NAME = ^(BITS);`;
   empty otherwise.
 
@@ -54,7 +59,8 @@ owner's permission.
 | Prefix `COMMON_`, headers `common_*.svh` in `src/rtl/common/` | Design-neutral, the shared-block prefix; `.svh` because the filelist and FPGA rules allow only `.sv`/`.svh` under `rtl/`. | The source's project prefix and `.vh` files; a repository-root include path (`src/common/rtl/macros.vh`). |
 | An include-only block reached with `-F` | Consumers wire the include path the same way they include any block; the lint and CDC checks skip a block with no sources. | `+incdir+` of a relative path in every consumer filelist. |
 | One severity (`$fatal`) and one guard (`SYNTHESIS`) | Verilator stops on `$error` too, so the source's separate error family and its `DISABLE_ASSERTIONS` switch added nothing here. | Two severities and two guards. |
-| `COMMON_ASSERT_PARAM` as `initial $fatal` in a generate block | The source's form, proven in Quartus and Yosys; replaces the FIFO's elaboration `$error` so no design file writes a system task. | An elaboration-time `$error` (not used by the source flows). |
+| `COMMON_ASSERT_PARAM`: elaboration-time `$fatal` in the simulation view, the source's `initial $fatal` under `SYNTHESIS` | Lint and the simulation build reject a bad parameter at elaboration, as the FIFO's own `$error` did; synthesis keeps the form the source proved in Quartus and Yosys. **Limit:** synthesis accepts a bad parameter (the `initial $fatal` is ignored), because elaboration-time system tasks are not proven in Quartus Lite and slang here, and no other construct fails elaboration in every tool without failing for good parameters too (a missing module is reported by Verilator even in an unselected branch). Every IP closure is linted by `./build check`, which is the gate. | The source's `initial $fatal` everywhere (a bad parameter only failed at simulation time zero, so lint missed it); an elaboration `$fatal` in synthesis too (unproven in the FPGA and ASIC frontends). |
+| `COMMON_ASSERT_CLOCKED(NAME, CLK, RESET, CONDITION)` and `_WHEN(NAME, CLK, RESET, GUARD, CONDITION)` | A leading `NAME` labels every assertion, like the concurrent forms, and the failure is fatal. **This signature differs from the source**, whose `ASSERT_CLOCKED(CLK, RESET, CONDITION)` has no label and uses the default action, with separate `_FATAL`/`_ERROR` forms taking a `MESSAGE`. | The source's unlabelled default-action signature. |
 | Crossing macros wrap the cells | One vocabulary for RTL while every crossing stays an approved cell the CDC check recognizes. | Macros that expand to raw flop chains (invisible to the cell rule). |
 
 Forms of the source dropped (named without the source's prefix), with the reason:

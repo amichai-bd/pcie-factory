@@ -152,8 +152,9 @@ pushes to `main` and manual dispatch:
    Other branches pass at once.
 2. `./build specs fetch`, best effort (`continue-on-error`, 3 minutes), so the
    spec-cache check sees the reference documents; then `./build check`.
-3. `tools/` unit tests, when `tools/`, `cfg/` or `build` changed, and the
-   model unit tests of the affected IPs (`./build ci unit`).
+3. `tools/` unit tests, when `tools/`, `cfg/` or `build` changed (else only
+   the Verilator-built vocabulary tests, when an RTL vocabulary header
+   changed), and the model unit tests of the affected IPs (`./build ci unit`).
 4. `./build regress --level 0 --level 1` for the affected IPs.
 
 **`ci-gate` on the data PR.** The nightly opens its data PR with
@@ -212,8 +213,9 @@ The nightly workflow runs daily on the same runners (the
 [metrics spec](../tools/metrics/SPEC.md#workflows) owns its jobs,
 permissions and data PR mechanics):
 
-1. `./build check`, then `./build regress --level 0 --level 1 --level 2
-   --coverage` across all IPs (merged line, toggle and functional coverage
+1. `./build check`, `./build ci unit` (every unit suite, including the
+   Verilator-built vocabulary header tests), then `./build regress --level 0
+   --level 1 --level 2 --coverage` across all IPs (merged line, toggle and functional coverage
    per IP, with any floors checked; [regress SPEC](../tools/regress/SPEC.md#coverage)).
 2. `./build arch` for every IP with `src/arch/<ip>/`, and `./build fpga` and
    `./build asic` for every IP with `src/fpga/<ip>/` or `src/asic/<ip>/`

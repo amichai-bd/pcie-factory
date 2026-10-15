@@ -34,7 +34,7 @@ CDC declaration ([convention](../../../bkm/rtl.md#clock-domain-crossings)):
 | Name | Type | Default | Legal range | Effect |
 | --- | --- | --- | --- | --- |
 | `WIDTH` | `int unsigned` | 8 | 1 or more | Word width. |
-| `ADDR_W` | `int unsigned` | 2 | 1 or more; less stops simulation at time zero (`COMMON_ASSERT_PARAM` block `g_addr_w_check`) | Depth is `2**ADDR_W` words. |
+| `ADDR_W` | `int unsigned` | 2 | 1 or more; less is an elaboration-time `$fatal` that lint and the simulation build report (`COMMON_ASSERT_PARAM` block `g_addr_w_check`) | Depth is `2**ADDR_W` words. |
 
 ## Behavior
 

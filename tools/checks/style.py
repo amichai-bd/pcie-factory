@@ -12,13 +12,15 @@ dropped; the file-name, port-suffix, nettype, always, interface/union and
 wildcard-connection and external-ifdef rules are new. The vocabulary rules
 (raw-always-ff, raw-assertion, raw-initial: constructs reserved for the
 shared macro headers) follow the same tool's clocked-process, raw-assert and
-raw-initial rules; package-import, include-path and vocabulary-include are
-new.
+raw-initial rules, and nonblocking-assignment ports its scan;
+system-task, local-define, conditional-compilation, package-import,
+include-path, vocabulary-include and cdc-cell-macro are new.
 
-The vocabulary headers are the ``.svh`` files directly in ``rtl/common/``
-(the RTL BKM's shared vocabulary). They alone may hold ``always_ff``,
-assertions, ``initial`` blocks and ``SYNTHESIS``/``VERILATOR``
-conditionals; RTL reaches them with a bare-name `` `include``.
+The vocabulary headers are the files named in ``VOCABULARY_HEADERS``,
+directly in ``rtl/common/`` (the RTL BKM's shared vocabulary). They alone
+may hold ``always_ff``, ``<=``, assertions, system tasks, ``initial``
+blocks and ``SYNTHESIS``/``VERILATOR`` conditionals; RTL reaches them with
+a bare-name `` `include``. Any other ``.svh`` gets no exemption.
 """
 
 from __future__ import annotations
@@ -47,7 +49,10 @@ RULES = {
     "default-nettype": ("systemverilog-rules",
                         "`.sv` starts with `default_nettype none and ends with `default_nettype wire"),
     "net-keyword": ("systemverilog-rules", "no wire/reg/tri nets; use logic"),
-    "plain-always": ("systemverilog-rules", "only always_comb and always_ff (no always, always_latch)"),
+    "plain-always": ("systemverilog-rules",
+                     "no always (including always @*) and no always_latch; always_comb is the only "
+                     "process keyword in design RTL (always_ff only inside the vocabulary headers, "
+                     "see raw-always-ff)"),
     "interface-union": ("systemverilog-rules", "no interface, modport or union in synthesizable RTL"),
     "wildcard-connection": ("systemverilog-rules", "named connections only; no .*"),
     "sim-ifdef": ("no-conditional-compilation",
@@ -58,7 +63,7 @@ RULES = {
                        "(vendor or tool macros); include guards pass"),
     "task-function": ("systemverilog-rules", "no tasks; functions only inside a package"),
     "typedef-outside-package": ("types-and-constants-live-in-packages",
-                                "typedefs only inside a package"),
+                                "typedef, enum and struct declarations only inside a package"),
     "file-name": ("naming", "one module or package per .sv, named after the file, "
                   "with the owner's prefix; packages end in _pkg"),
     "port-suffix": ("naming", "ANSI ports with direction; _i/_o/_io suffix (n before it for active-low)"),
@@ -77,6 +82,11 @@ RULES = {
                       "no assert, assume, cover, property, sequence or $fatal/$error/$warning/$info "
                       "outside the vocabulary headers (use a COMMON_ASSERT* macro)"),
     "raw-initial": ("assertions", "no initial or final block outside the vocabulary headers"),
+    "system-task": ("assertions",
+                    "no system task or function ($display, $finish, $readmemh, ...) outside the "
+                    "vocabulary headers, except pure functions ($bits, $clog2, $signed, ...)"),
+    "local-define": ("no-conditional-compilation",
+                     "no `define or `undef in a .sv (macros live only in the vocabulary headers)"),
     "package-import": ("types-and-constants-live-in-packages",
                        "no import; name package items explicitly as <pkg>::<name>"),
     "cdc-cell-macro": ("clock-domain-crossings",
@@ -120,12 +130,26 @@ _DEFINE_RE = re.compile(r"`define\s+([A-Za-z_][\w$]*)")
 _INCLUDE_RE = re.compile(r"`include\b[ \t]*(\"[^\"\n]*\"|<[^>\n]*>)?")
 _ASSERTION_RE = re.compile(r"\b(assert|assume|cover|restrict|expect|property|sequence)\b"
                            r"|\$(fatal|error|warning|info)\b")
+_SYSTEM_RE = re.compile(r"(?<![\w$])\$[A-Za-z_][\w$]*")
+# Pure system functions design RTL may call: constant and width functions,
+# conversions, bit counts, and the sampled-value functions that assertion
+# macro properties use. Every other system task or function ($display,
+# $finish, $stop, $readmemh, $random, ...) is a finding outside the headers.
+PURE_SYSTEM_FUNCTIONS = frozenset({
+    "$bits", "$clog2", "$signed", "$unsigned", "$size", "$low", "$high", "$left", "$right",
+    "$increment", "$dimensions", "$unpacked_dimensions", "$countones", "$countbits",
+    "$onehot", "$onehot0", "$isunknown", "$past", "$stable", "$rose", "$fell", "$changed",
+    "$sampled",
+})
+# The vocabulary headers, by file name directly in rtl/common/. Adding one
+# is a reviewed change: a listed header is exempt from the design rules.
+VOCABULARY_HEADERS = ("common_macros.svh", "common_assertions.svh")
 
 
 @dataclass(frozen=True)
 class Vocabulary:
-    """The shared vocabulary headers: ``rtl/common/*.svh`` (paths relative
-    to the source root), their file names, the macros they define and the
+    """The shared vocabulary headers: ``VOCABULARY_HEADERS`` found in
+    ``rtl/common/`` (paths relative to the source root), their file names, the macros they define and the
     shared cells (``rtl/common/<cell>.sv``) their macros instantiate."""
 
     headers: frozenset[str] = frozenset()
@@ -137,7 +161,7 @@ class Vocabulary:
 def vocabulary(src_root: Path) -> Vocabulary:
     """Read the vocabulary headers directly in ``<src_root>/rtl/common/``."""
     d = Path(src_root) / "rtl" / SHARED_DIR
-    files = sorted(d.glob("*.svh")) if d.is_dir() else []
+    files = [d / name for name in VOCABULARY_HEADERS if (d / name).is_file()]
     macros: set[str] = set()
     cells: set[str] = set()
     for f in files:
@@ -357,7 +381,8 @@ def find_nonblocking(text: str) -> list[int]:
             j = i
             while j < n and (text[j].isalnum() or text[j] in "_$"):
                 j += 1
-            if text[i:j] in ("begin", "end", "else"):
+            if text[i:j] in ("begin", "end", "else", "always_comb", "always_latch", "always",
+                             "always_ff", "initial", "final"):
                 boundary = j
             i = j
             continue
@@ -385,6 +410,9 @@ def vocabulary_findings(relpath: str, text: str, vocab: Vocabulary) -> list[str]
             add("raw-assertion", m.start(), m.group())
         for m in re.finditer(r"\b(initial|final)\b", text):
             add("raw-initial", m.start(), m.group())
+        for m in _SYSTEM_RE.finditer(text):
+            if m.group() not in PURE_SYSTEM_FUNCTIONS and not _ASSERTION_RE.fullmatch(m.group()):
+                add("system-task", m.start(), m.group())
     for m in re.finditer(r"\bimport\b", text):
         add("package-import", m.start(), "import (name items as <pkg>::<name>)")
     if not relpath.startswith(f"rtl/{SHARED_DIR}/"):
@@ -442,6 +470,8 @@ def check_text(relpath: str, raw: str, expected_prefix: str | None,
     if design:
         for m in re.finditer(r"`(ifdef|ifndef|elsif|else)\b", text):
             add("conditional-compilation", m.start(), m.group())
+        for m in re.finditer(r"`(define|undef|undefineall)\b", text):
+            add("local-define", m.start(), m.group())
     out += vocabulary_findings(relpath, text, vocab)
     out += include_findings(relpath, raw, text, vocab)
 
@@ -466,9 +496,9 @@ def check_text(relpath: str, raw: str, expected_prefix: str | None,
     for m in re.finditer(r"\b(task|function)\b", body):
         if m.group(1) == "task" or not _in(m.start(), packages):
             add("task-function", m.start(), m.group())
-    for m in re.finditer(r"\btypedef\b", body):
+    for m in re.finditer(r"\b(typedef|enum|struct)\b", body):
         if not _in(m.start(), packages):
-            add("typedef-outside-package", m.start(), "typedef")
+            add("typedef-outside-package", m.start(), m.group())
 
     if path.suffix == ".sv":
         units = list(_UNIT_RE.finditer(body))

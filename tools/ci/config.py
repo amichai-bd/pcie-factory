@@ -8,7 +8,8 @@ from pathlib import Path, PurePosixPath
 import yaml
 
 CONFIG_NAME = "ci.yaml"
-_KEYS = {"global", "shared_dv", "models", "tools_tests"}
+_KEYS = {"global", "shared_dv", "models", "tools_tests", "vocabulary_tests"}
+_VOCABULARY_KEYS = {"marker", "paths"}
 _GLOBAL_KEYS = {"prefixes", "files"}
 
 
@@ -23,6 +24,13 @@ class CiRules:
     shared_dv: tuple[str, ...]
     models: str
     tools_tests: tuple[str, ...]
+    vocabulary_marker: str = ""
+    vocabulary_paths: tuple[str, ...] = ()
+
+    def is_vocabulary(self, rel: str) -> bool:
+        """True when ``rel`` is a path whose change runs the marked tests."""
+        return any(rel == p or (p.endswith("/") and rel.startswith(p))
+                   for p in self.vocabulary_paths)
 
     def is_global(self, rel: str) -> bool:
         """True when ``rel`` (relative to the repository root) selects every IP."""
@@ -65,10 +73,18 @@ def load_rules(cfg_dir: Path) -> CiRules:
     if not isinstance(models, str):
         raise CiConfigError(f"{path}: models: expected a string")
     _paths(f"{path}: models", [models])
+    v = data["vocabulary_tests"]
+    if not isinstance(v, dict) or set(v) != _VOCABULARY_KEYS:
+        raise CiConfigError(f"{path}: vocabulary_tests: must be a mapping with keys "
+                            f"{sorted(_VOCABULARY_KEYS)}")
+    if not isinstance(v["marker"], str) or not v["marker"].isidentifier():
+        raise CiConfigError(f"{path}: vocabulary_tests.marker: expected a pytest marker name")
     return CiRules(
         global_prefixes=_paths(f"{path}: global.prefixes", g["prefixes"], trailing_slash=True),
         global_files=_paths(f"{path}: global.files", g["files"]),
         shared_dv=_paths(f"{path}: shared_dv", data["shared_dv"]),
         models=models.rstrip("/"),
         tools_tests=_paths(f"{path}: tools_tests", data["tools_tests"]),
+        vocabulary_marker=v["marker"],
+        vocabulary_paths=_paths(f"{path}: vocabulary_tests.paths", v["paths"]),
     )

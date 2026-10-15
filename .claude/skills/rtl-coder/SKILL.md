@@ -47,12 +47,15 @@ from the first line; `./build check` fails on each:
       `COMMON_MEM*` macro with named operands; no `always_ff`, no `<=`
       ([registers and memories](../../../wiki/bkm/rtl.md#registers-and-memories)).
 - [ ] Every assertion and parameter check is a `COMMON_ASSERT*` macro; no
-      `assert`, `$error`, `$fatal` or `initial`
+      `assert`, `$error`, `$fatal`, `initial`, and no system task at all
+      (`$display`, `$finish`, `$stop`, `$readmemh`, ...; only pure functions
+      such as `$clog2`, `$bits`, `$signed`)
       ([assertions](../../../wiki/bkm/rtl.md#assertions)).
-- [ ] No `` `ifdef``/`` `ifndef``/`` `elsif``/`` `else`` in a `.sv`
+- [ ] No `` `ifdef``/`` `ifndef``/`` `elsif``/`` `else`` and no
+      `` `define``/`` `undef`` in a `.sv`
       ([no conditional compilation](../../../wiki/bkm/rtl.md#no-conditional-compilation)).
-- [ ] Types and shared constants in the package, named
-      `<pkg>::<item>`; no `import`
+- [ ] Types (every `enum` and `struct`, FSM states included) and shared
+      constants in the package, named `<pkg>::<item>`; no `import`
       ([packages](../../../wiki/bkm/rtl.md#types-and-constants-live-in-packages)).
 
 Then:
@@ -61,6 +64,9 @@ Then:
   file that calls a macro, and `-F ../common/common_macros.rtl.f` in its
   filelist ([includes](../../../wiki/bkm/rtl.md#includes)).
 - One module per file, named after the module.
+- Only `common_macros.svh` and `common_assertions.svh` are exempt from the
+  design rules. A new vocabulary header, or a new form in one, is a
+  reviewed change: name it in the checker's list and say so in the PR.
 - Apply the [SystemVerilog rules](../../../wiki/bkm/rtl.md#systemverilog-rules)
   and [reset and clocks](../../../wiki/bkm/rtl.md#reset-and-clocks) as you
   write; do not leave them for the checker.

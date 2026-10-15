@@ -105,6 +105,21 @@ def test_global_change_runs_everything(repo):
     assert got[0].reason == "global change: tools/x.py"
 
 
+def test_vocabulary_header_change_runs_marked_tools_tests(repo):
+    h = repo / "src/rtl/common/common_macros.svh"
+    h.parent.mkdir(parents=True)
+    h.write_text("`define COMMON_X 1\n")
+    got = unit.plan(ctx(repo), RULES, "main")
+    vocab = [s for s in got if s.name == "vocabulary"]
+    assert len(vocab) == 1 and "tools" not in names(got)
+    assert vocab[0].reason == "vocabulary change: src/rtl/common/common_macros.svh"
+    assert vocab[0].args == ("-m", "pytest", "-q", "-m", "vocabulary", "tools")
+    # A global change runs the whole tools suite, which includes them.
+    (repo / "tools/x.py").write_text("x = 1\n")
+    assert "vocabulary" not in names(unit.plan(ctx(repo), RULES, "main"))
+    assert "vocabulary" not in names(unit.plan(ctx(repo), RULES, None))
+
+
 def test_sub_ip_model_change_runs_parent_models(repo):
     (repo / "src/dv/counter_inc/models/inc_model.py").write_text("")
     assert names(unit.plan(ctx(repo), RULES, "main")) == [

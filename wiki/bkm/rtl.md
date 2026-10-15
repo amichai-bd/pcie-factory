@@ -20,30 +20,42 @@ code follows the [DV BKM](dv.md).
 
 Four rules come first. `./build check` enforces each one on every design
 file (every `.sv` below `rtl/` and `fpga/`); the only files exempt are the
-shared vocabulary headers `src/rtl/common/*.svh`
+two vocabulary headers, `src/rtl/common/common_macros.svh` and
+`src/rtl/common/common_assertions.svh`
 ([the RTL vocabulary](#the-rtl-vocabulary)).
 
 1. **No nonblocking assignment and no `always_ff` outside the vocabulary.**
    Every register, register array and memory port is one call of a
    `COMMON_DFF*` or `COMMON_MEM*` macro; next state is computed with
-   blocking logic in `always_comb` or `assign`
+   blocking logic in `always_comb` or `assign`, and `always_comb` is the
+   only process keyword a design file writes
    ([registers and memories](#registers-and-memories)). No approved cell
    needs an exemption: the crossing cells use the macros too.
    Rules `raw-always-ff`, `nonblocking-assignment`.
 2. **No assertion written directly.** No `assert`, `assume`, `cover`,
    `property`, `sequence`, `$fatal`, `$error`, `$warning`, `$info`,
-   `initial` or `final` in a design file: use the `COMMON_ASSERT*` macros,
-   including `COMMON_ASSERT_PARAM` for parameter checks
-   ([assertions](#assertions)). Rules `raw-assertion`, `raw-initial`.
+   `initial` or `final` in a design file, and no other system task either
+   (`$display`, `$write`, `$finish`, `$stop`, `$monitor`, `$strobe`,
+   `$readmem*`, `$random`, ...): an `if (bad) $display(...); $finish;` is a
+   hand-written assertion that synthesis silently drops. Only pure system
+   functions are allowed (`$bits`, `$clog2`, `$signed`, `$unsigned`,
+   `$size`, `$low`, `$high`, `$left`, `$right`, `$countones`, `$onehot*`,
+   `$isunknown`, and the sampled-value functions inside an assertion
+   macro's property). Use the `COMMON_ASSERT*` macros, including
+   `COMMON_ASSERT_PARAM` for parameter checks ([assertions](#assertions)).
+   Rules `raw-assertion`, `raw-initial`, `system-task`.
 3. **No conditional compilation in a design file.** No `` `ifdef``,
    `` `ifndef``, `` `elsif`` or `` `else`` in a `.sv`, not even an include
    guard. Flow selection (synthesis guards, Verilator lint sinks, assertion
-   compile-out) lives only inside the vocabulary headers
-   ([no conditional compilation](#no-conditional-compilation)). Rule
-   `conditional-compilation`.
+   compile-out) lives only inside the vocabulary headers, and so does every
+   macro: no `` `define`` or `` `undef`` in a design file either
+   ([no conditional compilation](#no-conditional-compilation)). Rules
+   `conditional-compilation`, `local-define`.
 4. **Types and shared constants live in packages and are named
-   explicitly.** Every `typedef` (struct, enum, alias) and every constant
-   used by more than one module lives in a package, and RTL references it
+   explicitly.** Every type, `typedef` or not (every `enum`, `struct` and
+   width alias: an FSM's state enum is `pkg::t_state` in the package, never
+   an anonymous `enum` in the module), and every constant used by more than
+   one module lives in a package, and RTL references it
    as `pkg_name::item`. No `import` at all, in a module, a port list or a
    package ([packages](#types-and-constants-live-in-packages)). Rules
    `package-import`, `typedef-outside-package`.
@@ -52,7 +64,10 @@ shared vocabulary headers `src/rtl/common/*.svh`
 
 `src/rtl/common/common_macros.svh` defines the register, memory, crossing
 and unused-bit forms and includes `common_assertions.svh`, which defines
-the assertion forms. Together they are the shared vocabulary, an
+the assertion forms. These two named files are the shared vocabulary and
+the only files exempt from the design rules; the checker lists them by
+name, so adding a header is a reviewed change to that list (a new `.svh`
+anywhere, `rtl/common/` included, gets no exemption). Together they form an
 include-only shared block (`common_macros.rtl.f` holds only `+incdir+.`;
 its implementation notes are in its
 [MAS](../src/rtl/common/common_macros.md)). Every form expands to exactly
@@ -133,7 +148,7 @@ only the FPGA and ASIC flows do ([FPGA](../tools/fpga/SPEC.md),
 | `` `COMMON_ASSERT_STABLE_WHEN(NAME, CLK, RESET, HOLD, SIGNAL)`` | `HOLD` at one edge keeps `SIGNAL` unchanged at the next; `HOLD` is sampled by a flop `NAME_hold_q` (assertion state only). |
 | `` `COMMON_ASSERT_CLOCKED(NAME, CLK, RESET, CONDITION)`` | Immediate check at `posedge CLK` while `!RESET`, in the active region. |
 | `` `COMMON_ASSERT_CLOCKED_WHEN(NAME, CLK, RESET, GUARD, CONDITION)`` | The same under a nested `if (GUARD)` (not `!GUARD \|\| CONDITION`, which differs for X). |
-| `` `COMMON_ASSERT_PARAM(LABEL, CONDITION, MESSAGE)`` | Module scope, every flow: a false `CONDITION` elaborates block `LABEL` whose `initial $fatal` stops simulation at time zero. |
+| `` `COMMON_ASSERT_PARAM(LABEL, CONDITION, MESSAGE)`` | Module scope, every flow: a false `CONDITION` elaborates block `LABEL`. In the simulation view it holds an elaboration-time `$fatal`, so `./build check` lint and the simulation build reject the parameters; under `SYNTHESIS` it holds a time-zero `initial $fatal`, which synthesis tools accept but ignore (lint is the gate). |
 
 - Assertions sit in the module whose invariant they state, on signals its
   MAS names, each with a label naming the invariant. They speed fault
@@ -178,6 +193,7 @@ and simulation.
   connections (`.port(sig)`) on every instance; no `.*`, no positional
   connections.
 - **Generate blocks** carry a `g_<name>` label.
+- **Macros** are only the vocabulary's: a design file defines none.
 - **No functions with side effects, no tasks** in RTL. Pure helper functions
   live in the owning package.
 - Small modules with one purpose. Comments explain protocol, timing,
@@ -185,8 +201,9 @@ and simulation.
 
 ## Types and constants live in packages
 
-- Every `typedef` (enum, packed struct, width alias) lives in a package
-  (`<prefix><ip>_pkg.sv`), never inside a module.
+- Every type (enum, packed struct, width alias) is a `typedef` in a package
+  (`<prefix><ip>_pkg.sv`), never declared inside a module, anonymous or
+  not.
 - A constant used by more than one module lives in the package; a
   `localparam` derived and used only inside one module stays local. A module
   `parameter` stays a parameter; when its default is shared, the default is

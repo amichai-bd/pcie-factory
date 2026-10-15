@@ -73,14 +73,24 @@
 `define COMMON_ASSERT_KNOWN(NAME, CLK, RESET, SIGNAL) \
   `COMMON_ASSERT(NAME, CLK, RESET, !$isunknown(SIGNAL))
 
-// Parameter check at module scope, present in every flow: a false
-// CONDITION elaborates a block LABEL that stops simulation at time zero
-// with MESSAGE.
+// Parameter check at module scope, present in every flow. A false
+// CONDITION elaborates a block LABEL holding MESSAGE. In the simulation
+// view (Verilator lint and simulation) it is an elaboration-time $fatal, so
+// lint and the simulation build reject the parameters. Synthesis keeps the
+// source's proven form, a time-zero initial $fatal, which Quartus and Yosys
+// accept but do not act on: lint, not synthesis, is the gate.
+`ifndef SYNTHESIS
+`define COMMON_ASSERT_PARAM(LABEL, CONDITION, MESSAGE) \
+  if (!(CONDITION)) begin : LABEL \
+    $fatal(1, MESSAGE); \
+  end
+`else
 `define COMMON_ASSERT_PARAM(LABEL, CONDITION, MESSAGE) \
   generate \
     if (!(CONDITION)) begin : LABEL \
       initial $fatal(1, MESSAGE); \
     end \
   endgenerate
+`endif
 
 `endif

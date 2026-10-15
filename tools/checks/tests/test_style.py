@@ -124,7 +124,27 @@ DFF = "`COMMON_DFF_RST(q_q, q_d, clk_i, rst)"
     ("raw-assertion", mutate(DFF, DFF + "\n  if (W < 1) begin : g_w\n    $error(\"W\");\n  end"),
      None),
     ("raw-assertion", mutate("    q_d = d_i;", "    q_d = d_i;\n    assert (q_d == d_i);"), None),
-    ("raw-initial", mutate(DFF, DFF + "\n  initial $display(\"x\");"), None),
+    ("raw-initial", mutate(DFF, DFF + "\n  initial q_q = '0;"), None),
+    # Rule 2 also bans the legacy hand-written assertion: $display + $finish.
+    ("system-task", mutate("    q_d = d_i;", "    q_d = d_i;\n    if (q_q == '1) begin\n"
+                           "      $display(\"bad\");\n      $finish;\n    end"), None),
+    ("system-task", mutate("    q_d = d_i;", "    q_d = d_i;\n    if (q_q == '1) $stop;"), None),
+    ("system-task", mutate(DFF, DFF + "\n  logic [7:0] m [4];\n  always_comb $readmemh(\"f\", m);"),
+     None),
+    ("system-task", mutate("    q_d = d_i;", "    q_d = W'($random);"), None),
+    # Rule 4: enums and structs only in packages, with or without typedef.
+    ("typedef-outside-package", mutate("  logic         rst;",
+                                       "  enum logic [1:0] {IDLE, RUN} state_q;\n  logic         rst;"),
+     None),
+    ("typedef-outside-package", mutate("  logic         rst;",
+                                       "  struct packed {logic a; logic b;} s_q;\n  logic         rst;"),
+     None),
+    # Macros live only in the headers: no token-pasting evasions.
+    ("local-define", mutate("  logic         rst;", "`define NB <=\n  logic         rst;"), None),
+    ("local-define", mutate("  logic         rst;", "`undef COMMON_DFF_RST\n  logic         rst;"),
+     None),
+    ("nonblocking-assignment", mutate("  always_comb begin\n    q_d = d_i;\n  end",
+                                      "  always_comb q_d <= d_i;"), None),
     ("conditional-compilation", mutate("  assign q_o = q_q;",
                                        "`ifdef SYNTHESIS\n  assign q_o = q_q;\n`endif"), None),
     ("conditional-compilation", mutate("  assign q_o = q_q;",
@@ -155,7 +175,7 @@ def test_every_rule_is_tested_and_documented():
               "port-suffix", "tool-pragma", "file-name", "verilator-config", "external-ifdef",
               "nonblocking-assignment", "conditional-compilation", "raw-always-ff",
               "raw-assertion", "raw-initial", "package-import", "include-path",
-              "vocabulary-include", "cdc-cell-macro"}
+              "vocabulary-include", "cdc-cell-macro", "system-task", "local-define"}
     assert tested == set(RULES)
     spec = (Path(__file__).resolve().parents[3] / "wiki/tools/checks/SPEC.md").read_text()
     for rule, (anchor, _) in RULES.items():
@@ -182,6 +202,31 @@ def test_vocabulary_header_may_hold_reserved_constructs():
     assert rules(check("`ifdef SIMULATION\n`endif\n", HEADER)) == ["sim-ifdef"]
 
 
+def test_pure_system_functions_pass():
+    text = mutate("    q_d = d_i;", "    q_d = d_i + W'($clog2(W)) + W'($bits(q_q)) + W'($countones(d_i))"
+                  " + W'($signed(d_i)) + W'($unsigned(d_i)) + W'($size(d_i)) + W'($high(d_i));")
+    assert check(text) == []
+    # Sampled-value functions are allowed in assertion macro properties.
+    vocab = style.Vocabulary(VOCAB.headers, VOCAB.names, VOCAB.macros | {"COMMON_ASSERT"},
+                             VOCAB.cells)
+    text = mutate(DFF, DFF + "\n  `COMMON_ASSERT(a_s, clk_i, rst, $past(q_d) == q_q || $stable(q_q))")
+    assert check_text("xy_a_m.sv", text, "xy_a", vocab=vocab) == []
+
+
+def test_only_listed_headers_are_exempt(tmp_path):
+    d = tmp_path / "rtl" / "common"
+    d.mkdir(parents=True)
+    (d / "common_macros.svh").write_text("`define COMMON_A(X) X\n")
+    (d / "common_extra.svh").write_text("`define COMMON_B(X) X\n")
+    v = style.vocabulary(tmp_path)
+    assert v.names == {"common_macros.svh"} and v.macros == {"COMMON_A"}
+    body = "`define COMMON_X(Q, D, C) always_ff @(posedge C) Q <= D;\n"
+    assert check_text("rtl/common/common_macros.svh", body, "common_", vocab=VOCAB) == []
+    found = rules(check_text("rtl/common/common_extra.svh", body, "common_", vocab=VOCAB))
+    assert {"raw-always-ff", "nonblocking-assignment"} <= set(found), found
+    assert style.VOCABULARY_HEADERS == ("common_macros.svh", "common_assertions.svh")
+
+
 def test_nonblocking_ignores_comparisons():
     text = mutate("    q_d = d_i;", "    q_d = (d_i <= q_q) ? d_i : q_q;\n"
                   "    for (int i = 0; i <= 3; i++) q_d[i] = d_i[i];\n"
@@ -193,6 +238,7 @@ def test_vocabulary_from_tree(tmp_path):
     d = tmp_path / "rtl" / "common"
     d.mkdir(parents=True)
     (d / "common_macros.svh").write_text("`define COMMON_A(X) X\n// `define COMMON_NOT\n")
+    (d / "common_other.svh").write_text("`define COMMON_OTHER(X) X\n")  # not a listed header
     (d / "common_cell.sv").write_text("")
     v = style.vocabulary(tmp_path)
     assert v.headers == {"rtl/common/common_macros.svh"} and v.names == {"common_macros.svh"}
@@ -390,7 +436,7 @@ def test_include_guard_passes_only_in_include_files():
     assert check_h("`ifndef X_DEFS_SVH\n`define X_DEFS_SVH\n`define X_W 8\n`endif\n") == []
     guarded = GOOD.replace("module xy_a_m", "`ifndef XY_A_M_SV\n`define XY_A_M_SV\nmodule xy_a_m")
     assert rules(check(guarded.replace("endmodule", "endmodule\n`endif"))) == [
-        "conditional-compilation"]
+        "conditional-compilation", "local-define"]
 
 
 def test_closure_defined_macro_passes():

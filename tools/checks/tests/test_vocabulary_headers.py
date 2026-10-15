@@ -5,8 +5,14 @@ fails, and is absent when ``SYNTHESIS`` is defined (as the FPGA and ASIC
 flows define it); the parameter check stays in every build.
 
 Each form gets its own trigger bit, chosen at run time with ``+case=<n>``,
-so one build covers every form. ``COMMON_ASSERT_KNOWN`` cannot fail in
-two-state Verilator and is checked only for expansion."""
+so two builds (simulation and synthesis view) cover every form; the
+parameter check is proven by a lint run and a preprocessor run.
+``COMMON_ASSERT_KNOWN`` cannot fail in two-state Verilator and is checked
+only for expansion.
+
+Marked ``vocabulary``: ``./build ci unit --affected`` runs them when a
+vocabulary header changes (cfg/ci.yaml ``vocabulary_tests``), besides every
+tools run."""
 
 from __future__ import annotations
 
@@ -21,6 +27,7 @@ from checks import style
 
 needs_verilator = pytest.mark.skipif(sim.find_verilator() is None,
                                      reason="Verilator not installed")
+pytestmark = pytest.mark.vocabulary
 
 SRC = REPO_ROOT / "src"
 INCDIR = SRC / "rtl" / "common"
@@ -119,12 +126,15 @@ def test_each_assertion_form_fires_and_compiles_out(tmp_path):
 
 
 @needs_verilator
-def test_parameter_check_is_in_every_build(tmp_path):
-    for name, defines in (("sim_bad", []), ("synth_bad", ["-DSYNTHESIS"])):
-        binary = _build(tmp_path, name, ["-DBAD_PARAM=1", *defines])
-        proc = _run(binary, 99)
-        out = proc.stdout + proc.stderr
-        assert proc.returncode != 0 and "BAD_PARAM must be 0" in out, (name, out)
+def test_parameter_check_fails_lint_at_elaboration(tmp_path):
+    (tmp_path / "vh_dut.sv").write_text(DUT)
+    base = [str(sim.find_verilator()), "--lint-only", "-Wall", "--top-module", "vh_dut",
+            f"+incdir+{INCDIR}", str(tmp_path / "vh_dut.sv")]
+    good = subprocess.run(base, capture_output=True, text=True, timeout=120)
+    assert good.returncode == 0, good.stdout + good.stderr
+    bad = subprocess.run(base + ["-GBAD_PARAM=1"], capture_output=True, text=True, timeout=120)
+    out = bad.stdout + bad.stderr
+    assert bad.returncode != 0 and "USERFATAL" in out and "BAD_PARAM must be 0" in out, out
 
 
 @needs_verilator
@@ -135,4 +145,5 @@ def test_synthesis_view_has_no_assertion(tmp_path):
     text = subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=True).stdout
     body = text[text.index("module vh_dut"):]
     assert "assert" not in body and "a_stable_hold_q" not in body
-    assert "$fatal" in body  # the parameter check only
+    # Only the parameter check is left, in the source's synthesis form.
+    assert body.count("$fatal") == 1 and "initial $fatal" in " ".join(body.split())

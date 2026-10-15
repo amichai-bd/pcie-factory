@@ -87,6 +87,13 @@ jobs:
           . workdir/nightly/lib.sh
           run_step check ./build check
 
+      - name: Unit tests (every suite, the Verilator-built vocabulary tests included)
+        id: unit
+        if: ${{ !cancelled() }}
+        run: |
+          . workdir/nightly/lib.sh
+          run_step unit ./build ci unit
+
       - name: Regression L0+L1+L2 with coverage (all IPs)
         id: regress
         if: ${{ !cancelled() }}
@@ -142,6 +149,7 @@ jobs:
           ./build metrics commits --ref origin/main --file "$out/commits.jsonl"
           ./build metrics collect --out "$out/$DATE.json" --started "$STARTED" \
             --step "check=${{ steps.check.outputs.result || 'fail' }}" \
+            --step "unit=${{ steps.unit.outputs.result || 'fail' }}" \
             --step "regress=${{ steps.regress.outputs.result || 'fail' }}" \
             --step "arch=${{ steps.arch.outputs.result || 'fail' }}" \
             --step "fpga=${{ steps.fpga.outputs.result || 'fail' }}" \
