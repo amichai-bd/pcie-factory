@@ -125,13 +125,10 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
 - **Coverage floors** (each level's file; floors apply to the merged
   levels selected): L0 line 87, toggle 87, `pcs_align_lock` 100; L1 (with
   L0, as in `ci-gate`) line 99, toggle 97 and every covergroup but `pcs_rx`
-  at 100; L2 (L0 to L2, as nightly) line 99, toggle 97, functional 100.
-  The values reached are in each validation's evidence. The line left is
-  the encoder's assertion-only `run6`. The threshold assertions compare
-  the fill with literal constants inline, and the aligner indexes its
-  window with the boundary zero-extended in place (#152), so neither adds
-  nets whose bits never toggle; the lowest-comma assertion's scan nets
-  remain, some bits of which no legal input sets.
+  at 100; L2 (L0 to L2, as nightly) line 98.6, toggle 97.5, functional
+  100: the merged values (99.15%, 98.04%) less the
+  [DV BKM](../../../bkm/dv.md#coverage) margin. Every point left is in
+  [coverage holes](#coverage-holes).
 
 ## Plan
 
@@ -302,3 +299,17 @@ stays covered as stated; none is dropped silently.
 | RX-domain reset timing (`ser_rx_rst_o` asserts with `rst_i`, releases on the second RX edge) | Internal net | [`common_cdc_rst`](../common/cdc/common_cdc_rst.md)'s library DV; `rx_reset_traffic` and `rx_lock_controls` restart after `rst_i` | `common` |
 | Decoder: lane 1 at an unknown RD with the RD it leaves; lane 1 unknown because lane 0 alone is unlocked, or because the two symbols' generations differ | The lock-start drop removes every word with an unlocked first symbol and a locked second one (a half-locked word occurs only at a lock end, locked then unlocked); a generation split needs a same-cycle relock with an odd leftover symbol, which no stimulus places deterministically; an unlocked lane 1's RD never reaches a probe, as the next word is decoded with the RD unknown | Lane 1's data and K at an unknown RD (`rx_decode_table`); lane 0 at an unknown RD with the RD it leaves (the same `decode()` function); the model unit tests | - |
 | Aligner: a relock request while hunting | It changes nothing on the ports | RTL assertion `a_relock_drops_lock` | - |
+
+## Coverage holes
+
+Merged over levels 0 to 2 (the nightly run), 3 of the 354 line points and
+64 of the 3258 toggle points are not hit. Every hole, by cause:
+
+| Cause | Line | Toggle | Points |
+| --- | ---: | ---: | --- |
+| Forbidden by an assertion | 1 | 2 | The encoder's `run6` (`a_run_length`: no run of six equal bits across a word). |
+| Tool artefact | 2 | 0 | The two early `return` branches of `eios_step` (package): Verilator never counts a branch whose body is a function `return`; the block count less the fall-through count gives their hits, and every EIOS check (`rx_eios_*`) depends on them. |
+| Constant by design | 0 | 30 | `edb` in the encoder symbol (the EDB code); the elastic buffer's `ser_rx_valid_i` (tied 1, see [gaps](#gaps)); the per-symbol `ovf` fields that are tied 0 (`w_new0`, `w_new1`, `head1`, the held and leftover slots; a word's overflow travels in `pend_ovf` and the head word's flag); `sync_d[0]` of the RX reset synchronizer (its input, a constant). |
+| Unreachable by construction | 0 | 28 | Counter top bits: the holdoff counters (loaded with 7, or 8 and decremented first), `clean_cnt[3]` (the decay restarts at 8), `ready_cnt_d[4]` (16 is only the reset value); the visible fill's top bit and those of the symbol fill (`vis[4]`, `dst_fill_o[4]`, `fill[5]`, `eb_fill[5]`, `fill_o[5]`: the reader sees the write pointer two to three RX cycles late and pops a word each cycle meanwhile, so it never sees all 16 words, even when the writer overflows in `eb_overflow`); `c0.rem` and `o0.rem` (a removal flag is acted on while its COM is in the second slot, and `rem_ack` clears it before the SKP reaches the first). |
+| Not reached | 0 | 4 | `c1.ovf`, `o1.ovf`: an overflowed word at the head while a leftover symbol is pending. Not reached by `eb_stress` at +4000 ppm (20 seeds tried) nor by an overflow experiment with dense SKP removals at +15000 to +35000 ppm (14 seeds, hundreds of overflow words). Outside the targets; the RxStatus 5 report itself is checked in `eb_overflow` and `eb_stress`. |
+

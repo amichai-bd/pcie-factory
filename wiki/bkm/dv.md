@@ -162,6 +162,15 @@ helper's API, outputs and floor rules).
   value that level's runs reach (usually in `level2.yaml`, which the nightly runs).
   Raise a floor when coverage improves; lowering one needs a reason in the
   PR, like a budget.
+- **Floor margin.** Set a line or toggle floor 0.5 points below the merged
+  value, rounded down to a tenth of a percent (86.28% gives 85.7). The
+  seeds are fixed, so the value repeats exactly; the margin absorbs a small
+  RTL or test edit, while a lost entry or an untested feature drops line or
+  toggle coverage by more. A functional floor is 100 (the bins come from the
+  spec). The DV plan gives a reason for every point the floor leaves
+  uncovered, grouped by cause: unreachable by construction, an assertion
+  that forbids it, a tool artefact, or not reached, with its cost or owning
+  issue.
 - **Require a set of cases with its own covergroup.** When the plan needs
   every one of a listed set, such as each state-machine arc, put exactly
   that set in one covergroup (arcs as named `(from, to)` tuple bins) and
