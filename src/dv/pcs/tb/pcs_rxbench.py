@@ -254,3 +254,45 @@ def check_lock_latency(rx: RxBench, link, runs, where: str,
 def flips(link) -> set[int]:
     """Sent symbols with a flipped bit (slip-free lines)."""
     return {b // 10 for b in link.line.errors}
+
+
+def rd_settle_word(run) -> float:
+    """The time of the word that settles a run's RD. A run that starts with
+    the RD unknown decodes a symbol valid at both RDs as if at RD- (8B10B.md,
+    Decoder), so the first symbol that is not the same code at both RDs may
+    show a disparity error; its word is the one returned."""
+    from models.pcie_pcs_model import arch
+    for w in run.words:
+        for k, v in w.syms:
+            if k and v not in arch.code8b10b.VALID_K:
+                return w.t
+            if arch.code8b10b.encode(v, bool(k), -1)[0] != arch.code8b10b.encode(v, bool(k), 1)[0]:
+                return w.t
+    return run.words[-1].t
+
+
+def check_idle(rx: RxBench, link, where: str) -> list:
+    """Electrical-idle gaps: one run per gap and one before them, no buffer
+    status, data intact, each lock started at its comma within the lock
+    target. Errors are expected only where a lock starts: the first word of
+    a lock may hold the symbol before the comma, and a lock taken on a
+    comma in the idle-exit noise gives error words until the relock in the
+    FTS sets (the same cycle, so RxValid stays high)."""
+    runs = rx.check(link, where, lead_skip=lambda t: True)
+    assert len(runs) == len(link.idles) + 1, f"{where}: {len(runs)} runs for {len(link.idles)} gaps"
+    allowed = set()
+    for r in runs:
+        allowed.add(r.words[0].t)
+        if r.noise_lock:
+            clean_from = r.placed[0][0] if r.placed else r.words[-1].t
+            allowed.update(w.t for w in r.words if w.t < clean_from)
+    bad = [(w.t, w.status) for w in rx.words if w.status in (5, 6)
+           or w.valid and w.status in (4, 7) and w.t not in allowed]
+    assert not bad, f"{where}: error or buffer status after idle: {bad[:6]}"
+    for r in runs:
+        if r.noise_lock:
+            COV_RX.sample(relock="noise_lock")
+    check_skp_status(link.syms, [r for r in runs if not r.noise_lock], where)
+    check_latency(rx, runs)
+    check_lock_latency(rx, link, runs[1:], where)
+    return runs

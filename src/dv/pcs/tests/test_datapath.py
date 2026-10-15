@@ -23,7 +23,7 @@ from models.pcie_pcs_rx_check import (K_COM, CheckError, Stream, check_relocks, 
                                       check_skp_status)
 from tb.pcs_bench import COV_CTRL, regress_seed, seeded
 from tb.pcs_channel import build_link
-from tb.pcs_rxbench import (COV_RX, CYCLE, RELOCK_DELAY, RxBench, check_clean,
+from tb.pcs_rxbench import (COV_RX, CYCLE, RELOCK_DELAY, RxBench, check_clean, check_idle,
                             check_lock_latency, flips, lock_com, seeded_ppm)
 
 # ------------------------------------------------------------------ tests
@@ -242,25 +242,7 @@ async def rx_elec_idle_gaps(dut):
     rx = RxBench(dut, rng, seeded_ppm(rng))
     await rx.start(link)
     await rx.run_line()
-    runs = rx.check(link, "elec_idle", lead_skip=lambda t: True)
-    assert len(runs) == len(link.idles) + 1, f"{len(runs)} runs for {len(link.idles)} gaps"
-    # Errors are expected only where a lock starts on noise: the first word
-    # of a lock may hold the symbol before the comma, and a lock taken on a
-    # comma in the idle-exit noise gives error words until the relock in the
-    # FTS sets (the same cycle, so RxValid stays high).
-    allowed = set()
-    for r in runs:
-        allowed.add(r.words[0].t)
-        if r.noise_lock:
-            clean_from = r.placed[0][0] if r.placed else r.words[-1].t
-            allowed.update(w.t for w in r.words if w.t < clean_from)
-    bad = [(w.t, w.status) for w in rx.words if w.status in (5, 6)
-           or w.valid and w.status in (4, 7) and w.t not in allowed]
-    assert not bad, f"error or buffer status after idle: {bad[:6]}"
-    noise = [r for r in runs if r.noise_lock]
-    for r in noise:
-        COV_RX.sample(relock="noise_lock")
-    check_lock_latency(rx, link, runs[1:], "elec_idle")
+    check_idle(rx, link, "elec_idle")
     COV_RX.sample(scenario="elec_idle")
 
 

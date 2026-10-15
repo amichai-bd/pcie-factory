@@ -247,7 +247,8 @@ def check_runs(sent: list[tuple[int, int]], words: list[Word], slip_possible=lam
     return runs
 
 
-def check_skp_status(sent: list[tuple[int, int]], runs: list[Run], where: str = "") -> int:
+def check_skp_status(sent: list[tuple[int, int]], runs: list[Run], where: str = "",
+                     stats: dict[str, int] | None = None) -> int:
     """In a clean run, every SKP ordered set leaves with one SKP fewer, the
     same number or one more than it was sent with (none for a COM sent with
     no SKP after it), and each word holding a COM carries the matching
@@ -255,7 +256,10 @@ def check_skp_status(sent: list[tuple[int, int]], runs: list[Run], where: str = 
     was removed, else 0 (RECEIVE.md, Elastic buffer). A word that holds no
     such change carries no SKP status either. Words that report an error or
     a buffer status (4 to 7) are left out. Returns the number of sets
-    checked."""
+    checked; ``stats`` counts additions by the COM's slot in its word
+    (``add_slot0``, ``add_slot1``), removals, bare COMs left by a removal
+    and sets sent back to back."""
+    stats = {} if stats is None else stats
     checked = 0
     for r in runs:
         flat = [(s, w) for w in r.words for s in w.syms]
@@ -285,6 +289,16 @@ def check_skp_status(sent: list[tuple[int, int]], runs: list[Run], where: str = 
                         raise CheckError(f"{where}SKP set at t={w.t} ps sent with {m} SKP "
                                          f"left with {n}")
                     seen.add(id(w))
+                    slot = 0 if i == 0 or flat[i - 1][1] is not w else 1
+                    key = None
+                    if n == m + 1:
+                        key = f"add_slot{slot}"
+                    elif n == m - 1:
+                        key = "bare_com" if n == 0 else "removed"
+                    if m and p + 1 + m < len(sent) and sent[p + 1 + m] == (1, K_COM):
+                        stats["back_to_back"] = stats.get("back_to_back", 0) + 1
+                    if key:
+                        stats[key] = stats.get(key, 0) + 1
                     if n == m + 1:
                         change[id(w)] = 1
                     elif n == m - 1 and change.get(id(w)) != 1:

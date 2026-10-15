@@ -1,79 +1,113 @@
 # pcie_pcs DV plan
 
-The `pcs` top is verified at its ports: PIPE above, the 2x10-bit symbol
-interface below. Each sub-IP keeps its own unit DV
-([`pcs_enc8b10b`](../pcs_enc8b10b/DV_PLAN.md),
-[`pcs_dec8b10b`](../pcs_dec8b10b/DV_PLAN.md),
-[`pcs_align`](../pcs_align/DV_PLAN.md),
-[`pcs_elastic`](../pcs_elastic/DV_PLAN.md)); these tests check the
-integration, PIPE control and the HAS [targets](../../arch/pcs/HAS.md#targets).
+One testbench for the whole IP (decision Q24): every test drives
+[`pcie_pcs`](../../arch/pcs/HAS.md) only through its ports, PIPE above and
+the 2x10-bit symbol interface below, and checks it there against the
+pages of the HAS and the architecture model. It replaces the four leaf
+testbenches (encoder, decoder, aligner, elastic buffer); the
+[mapping](#leaf-checks-old-to-new) shows where each of their checks went.
+The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
 
 ## Strategy
 
 - **Environment** ([`tb/pcs_env.py`](../../../../src/dv/pcs/tb/pcs_env.py)):
-  cocotb drives `pcie_pcs` directly (no SV testbench; `pcs.dv.f` is empty).
-  `clk_i` runs at 125 MHz; `ser_rx_clk_i` runs at a seeded offset of up to
-  ±600 ppm with a fractional period, its edges rounded to the picosecond, so
-  the offset accumulates exactly. `PipeMac` is the PIPE-side driver and
-  monitor: it drives a cycle's inputs at the falling `clk_i` edge and reads
-  that cycle's outputs once they settle, following the MAC's rules of
+  cocotb drives `pcie_pcs` directly (`pcs.dv.f` is empty). `clk_i` runs at
+  125 MHz; `ser_rx_clk_i` at a seeded offset with a fractional period, its
+  edges rounded to the picosecond, so the offset accumulates exactly.
+  `PipeMac` drives a cycle's PIPE inputs at the falling `clk_i` edge and
+  reads its outputs once they settle, following the MAC's rules of
   [PIPE control](../../arch/pcs/PIPE_CONTROL.md).
-- **PIPE bench** ([`tb/pcs_bench.py`](../../../../src/dv/pcs/tb/pcs_bench.py)):
-  every cycle, PhyStatus, the detection RxStatus and `ser_tx_elec_idle_o`
-  against `PipeRef` ([`models/pcie_pcs_model.py`](../../../../src/dv/pcs/models/pcie_pcs_model.py),
+- **PIPE bench** ([`tb/pcs_bench.py`](../../../../src/dv/pcs/tb/pcs_bench.py)),
+  every cycle of every test: PhyStatus, the detection RxStatus and
+  `ser_tx_elec_idle_o` against `PipeRef`
+  ([`models/pcie_pcs_model.py`](../../../../src/dv/pcs/models/pcie_pcs_model.py),
   the [architecture model](../../arch/pcs/HAS.md#architecture-model)'s
   `PipeControl` plus the two-cycle line latency); the HAS reset values in
-  every reset cycle; every word on `ser_tx_data_o` against the architecture
-  model's `tx_encode`. It also holds the MAC procedures (reset, PowerDown,
-  receiver detection, transmit).
-- **Channel model** ([`tb/pcs_channel.py`](../../../../src/dv/pcs/tb/pcs_channel.py)):
-  the architecture model's partner stream (training sets, packets, SKP
-  ordered sets every 1180 to 1538 symbols), encoder and channel (bit slips,
-  single-bit errors, electrical-idle gaps of noise, lane inversion), plus
-  close error pairs and error bursts. Close pairs are chosen by decoding the
-  corrupted line with the architecture model so that their errored symbols
-  span three PIPE words at either word parity. `RxChannel` drives the line
-  at the RX clock and records when each word was sampled; a queue source
-  closes the round trip.
+  every reset cycle; every word on `ser_tx_data_o`, exactly two cycles
+  after its PIPE word, against the architecture model's `tx_encode`
+  (running disparity, TxCompliance, unsupported K as EDB, RD held across
+  TxElecIdle, RD negative and the words in flight dropped at a reset). It
+  holds the MAC procedures (reset, PowerDown, receiver detection, transmit)
+  and samples the encoder coverage.
+- **Lines.** Three ways to build the received line:
+  - [`tb/pcs_channel.py`](../../../../src/dv/pcs/tb/pcs_channel.py): the
+    architecture model's partner stream, encoder and channel (bit slips,
+    single-bit errors, electrical-idle gaps of noise, lane inversion), plus
+    close error pairs and error bursts;
+  - [`tb/pcs_lines.py`](../../../../src/dv/pcs/tb/pcs_lines.py): a line
+    built bit by bit with the aligner block's line model
+    ([`models/pcie_pcs_align_model.py`](../../../../src/dv/pcs/models/pcie_pcs_align_model.py)):
+    filler that puts the comma at any bit offset, idle, noise, slips and
+    flips on chosen symbols, every received bit carrying its transmitted
+    index; training traffic numbers its TS1 sets (the N_FTS byte) so that
+    every window of it is unique;
+  - [`models/pcie_pcs_traffic.py`](../../../../src/dv/pcs/models/pcie_pcs_traffic.py):
+    the traffic kinds that load the elastic buffer's corners (maximum TLPs,
+    random sizes with SKP ordered sets of one to five SKPs, sizes that
+    strand corrections, a burst one set short, dense sets).
 - **Receive scoreboard** ([`models/pcie_pcs_rx_check.py`](../../../../src/dv/pcs/models/pcie_pcs_rx_check.py),
-  with pytest unit tests): every RxValid run must be a contiguous piece of
-  the sent stream with SKP set aside (no loss, duplication or reordering).
-  - A run is anchored on a 24-symbol window that has exactly one match
-    consistent with the time its symbols arrived on the line (at most 24
-    cycles before they leave on PIPE), so a run that starts in periodic
-    training or FTS sets is anchored where the stream is unique. Its first
-    symbols are then checked backwards from the anchor. This places, for
-    example, a lock taken on a comma in the idle-exit noise, whose error
-    words precede a same-cycle relock inside the FTS sets.
-  - A wrong symbol is accepted only before a reported error (RxStatus 4 or
-    7, within 16 symbols) or on a symbol the channel flipped (two flips can
-    cancel each other's disparity).
-  - Symbol 0 of a run may be the symbol before the lock's comma, unchecked,
-    only when the run starts after electrical idle (the first run, and the
-    idle-gap tests).
-  - Every SKP ordered set leaves with 2, 3 or 4 SKP and its COM's word
-    carries RxStatus 2, 0 or 1 to match.
-  - The relock rule (`ERR_LIMIT` 3, `ERR_DECAY_WORDS` 8, one request per
-    lock), applied to the words seen on PIPE, predicts every RxValid drop:
-    each prediction drops RxValid within 20 cycles, and no drop happens
-    without one (idle, slips and the end of the line aside). This follows
-    `pcs_align`'s `ErrorCounter` testbench model, at the PIPE boundary.
-  - The HAS lock target (the first locked word within 10 cycles of the
-    comma's last bit) is measured after every lock: after electrical idle,
-    slips, close-error relocks and error bursts. A lock taken on noise has
-    no sent comma; it is counted, not timed.
-- **Functional coverage:** `pcs_pipe_power` (the six PowerDown arcs);
-  `pcs_pipe_control` (reset kinds, detection results, transmit states, a
-  PowerDown change before ready); `pcs_rx_elec_idle` (RxElecIdle entry and
-  exit, fast and slow RX clock); `pcs_rx` (every receive RxStatus code,
-  clock offset signs, every scenario, both relock causes); `pcs_rx_status`
-  (each code within the targets with the offset that produces it: SKP added
-  at a slow RX clock, removed at a fast one, data and errors at both).
-- **Coverage floors** (`level2.yaml`, met by L2 alone): line 98, toggle 96,
-  `pcs_pipe_power` 100, `pcs_rx_status` 100. L0 to L2 together reach line
-  99.5%, toggle 97.8% and functional 100%. The two lines left are in the
-  sub-IPs: the encoder's assertion-only `run6` and an elastic-buffer
-  removal with a held symbol, both covered in their own DV.
+  with pytest unit tests), behind [`tb/pcs_rxbench.py`](../../../../src/dv/pcs/tb/pcs_rxbench.py):
+  - every RxValid run is a contiguous piece of the sent stream with SKP set
+    aside: no loss, duplication or reordering. A run is anchored on a
+    24-symbol window with exactly one match consistent with the time its
+    symbols arrived; a wrong symbol is accepted only before a reported
+    error (RxStatus 4 or 7) or on a symbol the channel flipped. A run that
+    loses the stream after a slip is re-anchored further on (a relock in
+    comma-dense traffic retakes lock in the same cycle and keeps RxValid
+    high);
+  - every SKP ordered set leaves with one SKP fewer, the same number or one
+    more than sent (none for a COM sent with no SKP), and the word holding
+    its COM carries RxStatus 2, 0 or 1 to match; no other word carries 1 or
+    2;
+  - **RX latency** (HAS target 12 cycles, which bounds the visible fill at
+    12 symbols) for every delivered symbol of every clean run;
+  - **lock start and the lock target** after every loss of lock: the run
+    starts at the comma that gave lock or the symbol before it (the
+    elastic buffer's lock-start drop), and its first word is on PIPE within
+    10 cycles of that comma's last bit. A run whose first word reports an
+    error and a later symbol differs from the stream is a lock on noise,
+    counted and not timed; an errored lead symbol alone does not make one
+    (#162 re-review);
+  - the relock rule (`ERR_LIMIT` 3, `ERR_DECAY_WORDS` 8, one request per
+    lock) applied to the words on PIPE predicts every RxValid drop in packet
+    traffic, within 20 cycles.
+- **Exact-timing decode harness** ([`tb/pcs_direct.py`](../../../../src/dv/pcs/tb/pcs_direct.py)):
+  at 0 ppm and a fixed phase, after lock, every word leaves on PIPE a fixed
+  number of cycles after it is driven (measured on a marker word: 9). The
+  line carries chosen codes at word boundaries, and every PIPE word
+  (RxData, RxDataK, RxValid, RxStatus) is compared with the decoder
+  block's cycle model ([`models/pcie_pcs_dec8b10b_model.py`](../../../../src/dv/pcs/models/pcie_pcs_dec8b10b_model.py),
+  which imports the architecture model's `decode()`), with RxPolarity and
+  `pipe_reset_ni` applied in the cycle each word is decoded. The RD is seen
+  through a probe word (D0.0 RD-, a disparity error after a code that
+  leaves RD+); the stimulus never reaches the relock limit.
+- **Functional coverage:**
+
+  | Covergroup | Contents |
+  | --- | --- |
+  | `pcs_pipe_power` | The six PowerDown arcs. |
+  | `pcs_pipe_control` | Reset kinds and lengths, detection results, transmit states, a PowerDown change before ready. |
+  | `pcs_rx_elec_idle` | RxElecIdle entry and exit at a fast and a slow RX clock. |
+  | `pcs_tx_codes` | Every valid symbol x RD x lane on `ser_tx_data_o` (1072 crosses). |
+  | `pcs_tx_controls` | Compliance x RD before the word, RD before x RD between the lanes, EDB per lane, RD held across TxElecIdle, a reset with a word in flight. |
+  | `pcs_rx_codes` | Every valid symbol x RD x lane received on PIPE after the round trip. |
+  | `pcs_dec_class` | Lane x (RD neg, pos, unknown x valid, disparity, code error). |
+  | `pcs_dec_rd_unknown` | Why lane 0's RD was unknown (polarity change, after reset, after an unlocked word, unlocked) and lane 1 unlocked. |
+  | `pcs_dec_recovery` | Error class x the RD it left x carried to the next lane or word. |
+  | `pcs_align_lock` | The comma position 0 to 19 in the aligner's window x its form, at each lock. |
+  | `pcs_align_relock` | Lock from hunting, same-cycle relock, relock to hunting, idle drop, reset drop. |
+  | `pcs_align_impairments` | Slips in TS1, FTS and packet traffic by direction, on a SKP set's COM and SKP, close slip pairs; flips in TS1 and packets. |
+  | `pcs_elastic` | Offset classes, SKP changes (addition after a COM in either half of a word, removal, bare COM, back-to-back sets), events (overflow, underflow, recentring both ways, lock start, rst_i and pipe_reset_ni with traffic), the correction each offset class needs. |
+  | `pcs_rx`, `pcs_rx_status` | Every receive RxStatus code, offset signs, scenarios and relock causes; each code within the targets with the offset that produces it. |
+
+- **Coverage floors** (each level's file; floors apply to the merged
+  levels selected): L0 line 87, toggle 87, `pcs_align_lock` 100; L1 (with
+  L0, as in `ci-gate`) line 99, toggle 97 and every covergroup but `pcs_rx`
+  at 100; L2 (L0 to L2, as nightly) line 99, toggle 97, functional 100.
+  Reached: L0 87.9% line, 87.5% toggle; L0 and L1 99.7% line, 97.8%
+  toggle, 99.9% functional; L0 to L2 99.7% line (330/331), 98.0% toggle
+  (3084/3148), 100% functional (2916 bins). The line left is the encoder's
+  assertion-only `run6`.
 
 ## Plan
 
@@ -82,49 +116,103 @@ integration, PIPE control and the HAS [targets](../../arch/pcs/HAS.md#targets).
 | [Reset and PhyStatus](../../arch/pcs/PIPE_CONTROL.md#reset-and-phystatus): reset values, 16 cycles after `rst_i` and after `pipe_reset_ni` (1 and 6 cycles), no pulse for a change before ready | `pipe_reset` | 0 | 1 |
 | [Receiver detection](../../arch/pcs/PIPE_CONTROL.md#receiver-detection): 64 cycles, RxStatus 3 or 0 from the cycle-63 sample, no second detection without TxDetectRx low | `pipe_detect` | 0 | 1 |
 | Receive path smoke: a short stream at 100 ppm arrives intact | `rx_smoke` | 0 | [1] |
+| [Encoder](../../rtl/pcs/MAS.md#encoder): TX latency 2, K28.5 at RD- (`0011111010`), a COM run, TxCompliance, unsupported K as EDB, RD held across TxElecIdle, `pipe_reset_ni` drops the words in flight | `tx_smoke` | 0 | 1 |
+| [Decoder](../../rtl/pcs/MAS.md#decoder): commas at the RD and at the other RD (RxStatus 7), code errors as EDB EDB K (RxStatus 4), `pipe_reset_ni` leaves the RD unknown | `rx_decode_smoke` | 0 | 1; exact timing |
+| [Aligner](../../rtl/pcs/MAS.md#aligner): lock from every bit offset 0 to 19, both comma forms, after electrical idle: one run each, intact from its comma, within the lock target | `rx_lock_offsets` | 0 | [1]; 40 locks |
+| One-word electrical-idle pulses at the eight phases of the TS1 COM period (the window holding the idle word never locks), `rst_i` with traffic in flight (lock and data return at the next comma) | `rx_lock_controls` | 0 | [1] |
 | [PowerDown](../../arch/pcs/PIPE_CONTROL.md#powerdown): every arc acknowledged after 4 cycles, transmitter idle outside P0, no beacon in P2 | `pipe_power` | 1 | 2 |
-| PIPE control and the [transmit path](../../arch/pcs/PIPE_CONTROL.md#transmit-path) under random legal MAC sequences | `pipe_random` | 1 | 3; 60 operations |
-| The same, longer | `pipe_random_long` | 2 | 6; 400 operations |
-| [RxElecIdle](../../arch/pcs/PIPE_CONTROL.md#receive-status-signals) through crossing 5: every change, in order, 2 or 3 `clk_i` edges after the RX edge that registered it | `rx_elec_idle` | 1 | [1, 2]: fast, slow RX clock |
-| [Elastic buffer](../../arch/pcs/RECEIVE.md#elastic-buffer) at 300 to 600 ppm, random packets, SKP every 1180: lossless, one lock, SKP changes on the COM's word, RX latency at most 12 | `rx_ppm` / `rx_ppm_sweep` | 1 / 2 | [1, 2] / [3..8]; odd seeds fast |
+| PIPE control and the transmit path under random legal MAC sequences | `pipe_random` / `pipe_random_long` | 1 / 2 | 3; 60 operations / 6; 400 |
+| [RxElecIdle](../../arch/pcs/PIPE_CONTROL.md#receive-status-signals) through crossing 5: every change, in order, 2 or 3 `clk_i` edges after the RX edge that registered it | `rx_elec_idle` | 1 | [1, 2]: fast, slow |
+| Every data byte and K-flagged byte at RD- and RD+ in both lanes through PIPE TX, back to back and with TxElecIdle between words; fails on a hole in `pcs_tx_codes` or the EDB and RD-hold bins | `tx_table` | 1 | 1; 5120 words twice |
+| Random transmit traffic with TxCompliance, idle gaps, unsupported K and resets of both kinds with words in flight, every word against the model | `tx_random` / `tx_random_long` | 1 / 2 | 3; 5000 cycles / 4; 50000 |
+| Every symbol at both RDs in both lanes through PIPE TX, the line and PIPE RX, intact, no error; fails on a hole in `pcs_rx_codes` | `table_round_trip` | 1 | [1] |
+| All 1024 codes through the ports: each lane at RD- and RD+, lane 0 at an unknown RD (polarity change), the RD each leaves (probe); both lanes unlocked (line in idle, data and K); class counts 268, 196, 560 at a known RD and 464, 560 at an unknown one; no error on the first locked word after the unlocked run although its COM would be a disparity error at the RD the unlocked symbols left | `rx_decode_table` | 1 | 1; about 100000 words, exact timing |
+| Random encoded traffic with bit errors, random codes, partner RD slips, RxPolarity changes (single-word pulses among them) and `pipe_reset_ni` pulses, every PIPE word against the decoder model | `rx_decode_random` / `rx_decode_random_long` | 1 / 2 | 3; 20000 words / 4; 150000 |
+| Bit slips in numbered TS1 and in FTS traffic, on SKP sets, slip pairs 2 to 90 symbols apart; isolated flips keep lock; every slip answered (no errored word later than 48 cycles after it), the data intact once lock is retaken in the same cycle or at the next comma | `rx_slips_training` / `rx_slips_training_sweep` | 1 / 2 | [1, 2] / [3..6]; up to 300 ppm |
+| Bit slips in packet traffic and on its SKP sets; flips in packets keep lock | `rx_slips_packets` | 1 | [1, 2] |
+| No false lock: encoded data at every bit offset and idle noise never give RxValid; unflagged noise may lock falsely and the true boundary follows | `rx_no_false_lock` | 1 | [1, 2] |
+| Long mixed traffic (training, packets) with slips, flips and idle gaps at up to ±600 ppm, every check | `rx_align_long` | 2 | 8; 40 segments |
+| [Elastic buffer](../../arch/pcs/RECEIVE.md#elastic-buffer) at 300 to 600 ppm, random packets, SKP every 1180: lossless, one lock, SKP sets within the rules, RX latency at most 12 | `rx_ppm` / `rx_ppm_sweep` | 1 / 2 | [1, 2] / [3..8]; odd seeds fast |
 | The same with back-to-back DLLPs | `rx_dllp` | 1 | [1, 2] |
 | The same with maximum TLPs (4122 bytes), SKP every 1538, 550 to 600 ppm | `rx_max_tlp` | 2 | [1..4] |
+| SKP addition at -600 ppm, maximum TLPs, SKP every 1538; removal at +600 ppm | `eb_tlp_m600`, `eb_tlp_p600` | 1 | [1] each |
+| Random sizes, SKP sets of one to five SKPs, random interval, at -300 and +300 ppm | `eb_random_m300`, `eb_random_p300` | 1 | [1] each |
+| The same at a seeded offset within ±600 ppm | `eb_random_offset` / `eb_random_offset_sweep` | 1 / 2 | [1, 2] / [3..6] |
+| A burst one SKP set short, then a maximum TLP, at -600 ppm (#73 sign-off case) | `eb_short_burst` / `eb_short_burst_sweep` | 1 / 2 | [1] / [2, 3] |
+| Sizes that strand corrections at ±600 ppm | `eb_stress_sizes` | 1 | [1, 2]: fast, slow |
+| Dense SKP sets (one to five SKPs every 48 to 96 symbols) at ±600 ppm: additions after a COM in either half of a word, removals leaving a bare COM, sets back to back | `eb_dense` / `eb_dense_sweep` | 1 / 2 | [1, 2] / [3..8] |
+| Recentring through two 6000-symbol electrical-idle gaps at -600 ppm (read side holds) and +600 ppm (write side drops) | `eb_idle_m600`, `eb_idle_p600` | 1 | [1] each |
+| Lock start after twelve 1500-symbol idle gaps: every run starts at its comma or the symbol before it, within the lock target | `eb_lock_start` / `eb_lock_start_sweep` | 1 / 2 | [1, 2] / [3..10]; odd seeds fast |
+| Overflow at +2% with no SKP: RxStatus 5 on the first word after each loss, the rest in order | `eb_overflow` | 1 | [1] |
+| Underflow at -2% with no SKP: RxStatus 6, EDB EDB as K, RxValid 0, nothing lost, no error after an underflow word (the decoder's RD held across it) | `eb_underflow` | 1 | [1] |
+| Outside the targets at ±4000 ppm with long packets: overflow (RxStatus 5) or underflow (RxStatus 6, EDB EDB, RxValid 0) | `eb_stress` | 1 | [1, 2] |
+| Reset with traffic in flight: `rst_i` (lock returns at a comma within the lock target, intact) and `pipe_reset_ni` (RxValid low, the stream resumes with the RD unknown, nothing out of order) | `rx_reset_traffic` / `rx_reset_traffic_sweep` | 1 / 2 | [1, 2] / [3..6] |
+| Long runs: maximum TLPs, random packets, stranding sizes and short bursts, three 20000-symbol idle gaps | `eb_long_tlp`, `eb_long_random`, `eb_long_stress`, `eb_long_idle` | 2 | [1..4], 6, [1..4], [1..4] |
 | [Polarity](../../arch/pcs/RECEIVE.md#decode-and-rxstatus): an inverted lane with RxPolarity 1 is intact | `rx_polarity` | 1 | [1] |
 | RxPolarity applies from the next word: wrong data before, every word after correct with no error | `rx_polarity_toggle` | 1 | [2] |
 | Isolated bit errors: each reported (4 or 7), no relock, data intact around them | `rx_errors` / `rx_errors_sweep` | 1 / 2 | [1, 2] / [3..6] |
-| Two close bit errors relock by design; RxValid stays low until the next comma (at most one SKP interval plus a packet); data resumes from that COM, lock within 10 cycles | `rx_close_errors` / `rx_close_errors_sweep` | 1 / 2 | [1, 2] / [3..6]; 8 pairs each |
-| [Relock rule](../../arch/pcs/RECEIVE.md#comma-alignment-and-symbol-lock) (limit, decay, one request per lock, crossing 4) against error bursts; lock within 10 cycles | `rx_error_bursts` / `rx_error_bursts_sweep` | 1 / 2 | [1, 2] / [3..8]; 16 bursts |
-| Bit slips: each in lock drops lock within 48 cycles (32 plus the RX latency), lock regained at the next COM within 10 cycles, every run's data intact (a run may lose the stream only after a slip inside it) | `rx_slips` / `rx_slips_sweep` | 1 / 2 | [1, 2] / [3..6]; 4 slips, up to 300 ppm |
-| Electrical idle gaps: RxValid low, no buffer status, lock within 10 cycles of the FTS comma, data intact; errors only where a lock starts on noise | `rx_elec_idle_gaps` / `rx_elec_idle_gaps_sweep` | 1 / 2 | [1, 2] / [3, 4, 5, 6, 12, 14, 22, 24, 28, 30, 34, 36]; 3 gaps; even seeds slow (22 and 30 were 10.7 and 11.0 cycles before the lock-start fix; 12, 14, 24, 28 and 34 lock on noise) |
-| [Loopback](../../arch/pcs/PIPE_CONTROL.md#loopback): received words re-encoded two cycles after they are on PIPE, with errors as EDB | `loopback` | 1 | [1] |
+| Two close bit errors relock by design; RxValid low until the next comma; data resumes from that COM within the lock target | `rx_close_errors` / `rx_close_errors_sweep` | 1 / 2 | [1, 2] / [3..6] |
+| [Relock rule](../../arch/pcs/RECEIVE.md#comma-alignment-and-symbol-lock) (limit, decay, one request per lock, crossing 4) against error bursts | `rx_error_bursts` / `rx_error_bursts_sweep` | 1 / 2 | [1, 2] / [3..8] |
+| Bit slips in packet traffic at up to 300 ppm: lock dropped within 48 cycles of each slip in lock, regained at the next COM within the lock target | `rx_slips` / `rx_slips_sweep` | 1 / 2 | [1, 2] / [3..6] |
+| Electrical-idle gaps: RxValid low, no buffer status, lock start and the lock target after each gap, data intact | `rx_elec_idle_gaps` / `rx_elec_idle_gaps_sweep` | 1 / 2 | [1, 2] / [3, 4, 5, 6, 12, 14, 22, 24, 28, 30, 34, 36]; 12, 14, 24, 28 and 34 lock once on noise |
+| [Loopback](../../arch/pcs/PIPE_CONTROL.md#loopback): received words re-encoded two cycles after they are on PIPE, errors as EDB | `loopback` | 1 | [1] |
 | Round trip: TxData through the encoder, line, aligner, buffer and decoder back to RxData, intact | `round_trip` | 1 | [1] |
-| Buffer overflow (RxStatus 5) at +4000 ppm and underflow (RxStatus 6, EDB EDB as K, RxValid 0) at -4000 ppm, outside the targets on purpose | `eb_stress` | 1 | [1, 2] |
 
-**Mutation evidence** (scratch edits, each reverted):
+The model unit tests (`python3 -m pytest src/dv/pcs/models`) check the
+encoder model against published codes, the decoder model's column sizes
+and rules, the aligner model's locks, the traffic kinds, the receive
+scoreboard, and the RTL package's constants (`EB_*`, the raw COM and SKP
+codes) and the shared `common_pkg` codes (`SYM_EDB`, RxStatus, PowerDown)
+against the architecture model and the pages.
 
-| Mutant | Caught by |
-| --- | --- |
-| Acknowledge pulse a cycle early | `pipe_reset`, `pipe_power`, `pipe_random` |
-| PhyStatus falls after 15 cycles | all PIPE tests |
-| `ser_tx_rxdet_i` sampled in detection cycle 62 | `pipe_detect`, `pipe_random` |
-| Transmitting outside P0 | `pipe_power` |
-| TxCompliance ignored | `pipe_random` |
-| No RxStatus 2 for a removed SKP | `rx_ppm`, `rx_ppm_sweep` |
-| Relock at 2 errored words | `rx_errors`, `rx_error_bursts` |
-| No error decay | `rx_errors`, `rx_error_bursts` |
-| Loopback ignored | `loopback` |
-| RxPolarity ignored | `rx_polarity`, `rx_polarity_toggle` |
-| Overflow status dropped | `eb_stress` |
-| RxValid from symbol 0's lock alone | `rx_elec_idle_gaps` |
-| No lock-start drop in `pcs_elastic` (write or read side) | `rx_elec_idle_gaps` seeds 22 and 30 (the lock target); `pcs_elastic`'s `lock_start_p600` and `lock_start_m600` |
+## Leaf checks, old to new
 
-RxValid from symbol 1's lock alone is equivalent now. Since the elastic
-buffer drops an unlocked symbol at a lock start, a word whose second
-symbol is locked and first is not no longer occurs; the remaining mixed
-word, at a lock end, has its second symbol unlocked. The underflow word's
-EDB, EDB comes from the decoder, so the top has no multiplexer to mutate
-(`a_udf_edb` asserts it).
+Every check of the removed leaf testbenches, and where it is now.
+
+| Old entry (block) | What it checked | Now |
+| --- | --- | --- |
+| `smoke` (encoder) | Reset, latency 2, published anchors, compliance, EDB, RD hold | `tx_smoke` |
+| `exhaustive` (encoder) | Every symbol at both RDs in both lanes, EDB for 244 unsupported K, back to back and with idle cycles; coverage holes fail | `tx_table` (same words through PIPE TX; idle cycles are TxElecIdle); received side: `table_round_trip` |
+| `random_vs_model`, `long_random` (encoder) | Random words, idle, compliance, resets against the cycle model | `tx_random`, `tx_random_long` (both reset kinds with words in flight), `pipe_random` |
+| Encoder model unit tests | Published anchors in both lanes, compliance, EDB, pipeline | Kept: [`test_pcie_pcs_enc8b10b_model.py`](../../../../src/dv/pcs/models/test_pcie_pcs_enc8b10b_model.py) (the model also serves the `phy` e2e's encoder block hook) |
+| Encoder assertions `a_lane*_disparity`, `a_run_length` | Disparity per lane, run length | Kept in the RTL, live in every test |
+| `smoke` (decoder) | Commas at both RDs, a disparity error, a code error to EDB, reset | `rx_decode_smoke` |
+| `exhaustive` (decoder) | 1024 codes x both lanes at RD-, RD+ and unknown, with the RD after; class counts | `rx_decode_table`: both lanes at RD- and RD+ and lane 0 at unknown, with the RD after, and the counts; both lanes unknown through unlocked words (data and K; the code-error flag shows as EDB). Lane 1 at an unknown RD *with* the RD after it, and the lane-1 causes "lane 0 unlocked" and "generation split", are [gaps](#gaps) |
+| `random_vs_model`, `long_random` (decoder) | Encoded traffic with bit errors, random codes, RD slips; valid gaps, lock drops, generation changes, polarity, reset | `rx_decode_random`, `rx_decode_random_long` (errors, codes, RD slips, polarity, `pipe_reset_ni`, every word exact); valid gaps: `eb_underflow` (no error after an underflow word); lock drops and new generations: `rx_decode_table` (after the unlocked run), `rx_elec_idle_gaps`, `eb_lock_start`; same-cycle relocks: `rx_slips_training` |
+| Decoder model unit tests | Column sizes, K28.5, EDB, RD-unknown rules | Kept: [`test_pcie_pcs_dec8b10b_model.py`](../../../../src/dv/pcs/models/test_pcie_pcs_dec8b10b_model.py) |
+| `lock_offsets` (aligner) | Lock from every bit offset at both RDs, one lock, symbols whole, no relock | `rx_lock_offsets` (one intact run per lock, the boundary checked by the data; comma position from the aligner model as coverage) |
+| `controls` (aligner) | Relock while hunting; relock at the eight phases of the TS1 COM period; idle drop; one-word idle pulses at eight phases; reset while locked | Idle pulses and reset: `rx_lock_controls`; relocks in TS1 traffic, same-cycle and to hunting: `rx_slips_training` (`pcs_align_relock`); idle drop: `rx_lock_offsets`, `rx_elec_idle_gaps`. A relock while hunting has no effect at the ports ([gap](#gaps)); the request phase is not a port, so the eight phases are covered as the two outcomes |
+| `slips` (aligner) | Closed loop: slips in TS1, FTS, packets, SKP sets, pairs, detected within 32 cycles; same-cycle relock re-armed through the generation; flips keep lock | `rx_slips_training`, `rx_slips_packets`, `rx_slips` (the closed loop is the real error counter; detection is checked as the end of errored words within 48 cycles, and RxValid falling within 48 cycles in packet traffic) |
+| `no_false_lock` (aligner) | Data at 20 offsets, idle noise, unflagged noise then recovery | `rx_no_false_lock` |
+| `long_random` (aligner) | 40 mixed segments, every check | `rx_align_long` |
+| Aligner model unit tests and assertions | The cycle model; offset range, no lock from idle, relock drops lock, generation flips only on lock, lock word holds a comma | Kept: [`test_pcie_pcs_align_model.py`](../../../../src/dv/pcs/models/test_pcie_pcs_align_model.py); the assertions in the RTL |
+| `smoke` (elastic buffer) | Reset, RX reset timing, start at fill 8, lossless, SKP sets of 1 to 5 | Lossless and sets of 1 to 5: `eb_random_*`, `eb_dense`; start: every test's first lock (the lock target). RX reset timing and the exact start fill are [gaps](#gaps) |
+| `ppm_m600`, `ppm_m300`, `ppm_p300`, `ppm_p600`, `random_offset` (elastic buffer) | Additions or removals per offset, fill 4 to 12 | `eb_tlp_m600`, `eb_random_m300`, `eb_random_p300`, `eb_tlp_p600`, `eb_random_offset`; fill at most 12 through the RX latency bound and at least 2 through no underflow |
+| `short_burst_m600`, `stress_sizes` | The reviewer's case; stranding sizes | `eb_short_burst`, `eb_stress_sizes` |
+| `idle_m600`, `idle_p600` | Recentring, read-side holds, write-side drops | `eb_idle_m600`, `eb_idle_p600` |
+| `lock_start_m600`, `lock_start_p600` | No locked word packed with an unlocked symbol | `eb_lock_start` (every run starts at its comma or the symbol before it), also in `rx_elec_idle_gaps` and every lock test |
+| `relock_generation` | Generation carried per word through same-cycle relocks | `rx_slips_training` (same-cycle relocks; the error counter re-arms on the generation, so the next slip is answered) |
+| `thresholds_swing`, `thresholds_m600`, their sweep | Removal exactly at a seen fill of 9, addition exactly at 7, both sides of each threshold | Through the ports: additions and removals in the right direction (`eb_*`), the fill bounds above, `eb_dense` both kinds of change. The exact decision fill is a [gap](#gaps) |
+| `pause_corners`, its sweep | Write pauses, bare COM, back-to-back sets, removal reported on the next word, overflow and underflow mixed with SKP changes | Bare COM, back-to-back sets: `eb_dense`; overflow and underflow: `eb_overflow`, `eb_underflow`, `eb_stress`. Write pauses and the next-word removal report are [gaps](#gaps) |
+| `overflow`, `underflow` | Losses flagged; underflow words, nothing lost | `eb_overflow`, `eb_underflow` |
+| `reset_restart` | Reset with traffic in flight, clean restart | `rx_reset_traffic` (`rst_i` and `pipe_reset_ni`), `rx_lock_controls` |
+| `long_m600`, `long_p600`, `long_random`, `long_stress`, `long_idle` | Long runs | `eb_long_tlp`, `eb_long_random`, `eb_long_stress`, `eb_long_idle` |
+| Elastic model unit tests | The stream checker; traffic kinds; RTL constants against the arch model | Traffic kinds and RTL constants kept in [`test_pcie_pcs_traffic.py`](../../../../src/dv/pcs/models/test_pcie_pcs_traffic.py); the checker read the buffer's internal words and is replaced by the receive scoreboard |
+
+## Mutation evidence
+
+MUTATION_TABLE
 
 ## Gaps
 
-None.
+These leaf checks are not reachable through the `pcie_pcs` ports. Each
+stays covered as stated; none is dropped silently.
+
+| Check | Why not through the ports | Covered by | Owner |
+| --- | --- | --- | --- |
+| Elastic buffer: removal exactly at a seen fill of 9 and addition exactly at 7, the start exactly at fill 8, the visible fill 4 to 12 | The fill (`fill_o`) is not a `pcie_pcs` port | The RX latency bound (at most 12 cycles: fill at most 12), no underflow inside the targets, the direction of every correction, RTL assertion `a_add_only_low` | Firstmate decision on #145 (an RTL assertion on the thresholds, or a DV observation port) |
+| Elastic buffer: write pauses (`ser_rx_valid_i` low) | The top ties it to 1: the aligner sends a word every RX cycle | Not needed by the IP | - |
+| Elastic buffer: removal reported on the next word | Needs a visible fill below 4, outside the targets | The scoreboard rejects a SKP status on a word with no COM change | - |
+| RX-domain reset timing (`ser_rx_rst_o` asserts with `rst_i`, releases on the second RX edge) | Internal net | [`common_cdc_rst`](../common/common_cdc_rst.md)'s library DV; `rx_reset_traffic` and `rx_lock_controls` restart after `rst_i` | `common` |
+| Decoder: lane 1 at an unknown RD with the RD it leaves; lane 1 unknown because lane 0 alone is unlocked, or because the two symbols' generations differ | After the lock-start drop a word is never half locked, and a generation split needs a same-cycle relock with an odd leftover symbol; an unlocked lane 1's RD never reaches a probe | Lane 1's data and K at an unknown RD (`rx_decode_table`); lane 0 at an unknown RD with the RD it leaves (the same `decode()` function); the model unit tests | - |
+| Aligner: a relock request while hunting | It changes nothing on the ports | RTL assertion `a_relock_drops_lock` | - |
