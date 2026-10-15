@@ -159,7 +159,9 @@ the previous one left:
 | Data, `scr_i` 1 | XOR the key of the value before it | advanced |
 | Data, `scr_i` 0 | unchanged | advanced |
 
-A data byte equal to BCh or 1Ch is data. `valid_i` 0 holds the LFSR;
+A data byte equal to BCh or 1Ch is data. `valid_i` 0 holds the LFSR: the
+top drives it with a line word on transmit and a parsed word on receive,
+the [hold rule](../../arch/mac/SYMBOLS.md#scrambling);
 `rst_i` sets it to FFFFh and `valid_o` to 0. One shift moves the LFSR
 left, the bit out of bit 15 is the key bit and, when 1, XORs 0039h in; a
 key byte is eight key bits, the first in bit 0 (package functions
@@ -170,8 +172,10 @@ Structure: `state_q` (16 bits), the two lanes chained combinationally
 (`lane_state`), an output register (`valid_q`, `data_q`, `datak_q`; 35
 flops). Assertions: the all-zero state is unreachable (`a_lfsr_nonzero`),
 a COM in symbol 1 reseeds (`a_com_reseeds`), a word of two SKP holds
-(`a_skp_holds`), only symbols with `scr_i` set change
-(`a_unscrambled_pass`).
+(`a_skp_holds`), and per lane (`g_lane_check`, either symbol) a COM
+loads the seed (`a_com_reseeds_lane`), a SKP holds (`a_skp_holds_lane`)
+and any other symbol advances (`a_other_advances_lane`); only symbols with
+`scr_i` set change (`a_unscrambled_pass`).
 
 | Decision | Rationale | Rejected |
 | --- | --- | --- |
