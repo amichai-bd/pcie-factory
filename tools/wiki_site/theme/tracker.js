@@ -54,6 +54,7 @@
     opts.scales.x.min = lo - 0.5;
     opts.scales.x.max = hi + 0.5;
     if (spec.integer) opts.scales.y.ticks.precision = 0;
+    if (typeof spec.ymin === "number") opts.scales.y.min = spec.ymin;  // a count starts at 0
     opts.scales.x.ticks.stepSize = 1;
     opts.scales.x.ticks.autoSkip = true;
     opts.scales.x.ticks.maxRotation = 0;

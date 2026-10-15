@@ -210,8 +210,9 @@ permissions and data PR mechanics):
 1. `./build check`, then `./build regress --level 0 --level 1 --level 2
    --coverage` across all IPs (merged line, toggle and functional coverage
    per IP, with any floors checked; [regress SPEC](../tools/regress/SPEC.md#coverage)).
-2. `./build fpga` and `./build asic` for every IP with `src/fpga/<ip>/` or
-   `src/asic/<ip>/` inputs.
+2. `./build arch` for every IP with `src/arch/<ip>/`, and `./build fpga` and
+   `./build asic` for every IP with `src/fpga/<ip>/` or `src/asic/<ip>/`
+   inputs.
 3. Metrics: the per-commit series `wiki/tracker/data/commits.jsonl` and the
    nightly record `wiki/tracker/data/<date>.json` (versioned schemas).
 4. A data PR from branch `nightly/<date>`, labelled `type:data`, under the
@@ -243,6 +244,7 @@ Every trend is plotted against commits on `main`, in order. The data:
 | Distributions | Issue close and first-response times, PR lead time, size and review rounds, CI and nightly durations, test runtimes, file sizes |
 | FPGA | Per [FPGA BKM](fpga.md#metrics) |
 | ASIC | Per [PD BKM](pd.md#metrics) |
+| Arch | Per IP and perf scenario: status and the target metrics' values ([arch BKM](arch.md#evidence)) |
 
 The [metrics spec](../tools/metrics/SPEC.md) owns the schemas field by
 field. Records hold only counts, durations, label names and SHAs, never

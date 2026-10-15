@@ -120,19 +120,76 @@ def test_has_targets_require_the_arch_model(good):
     assert run(good).passed
 
 
+@pytest.mark.parametrize("text, targets", [
+    ("## Targets\n", True),
+    ("## Targets (draft)\n", True),
+    ("##  targets and budgets\n", True),
+    ("   ## Targets\n", True),
+    ("### Targets\n", False),
+    ("## Performance targets\n", False),
+    ("## Targetsheet\n", False),
+    ("    ## Targets\n", False),                       # indented code
+    ("```\n## Targets\n```\n", False),                 # fenced code
+    ("~~~md\n## Targets\n~~~\n", False),
+    ("````\n```\n## Targets\n````\n", False),         # a shorter fence does not close
+    ("```\nx\n```\n## Targets\n", True),              # after the fence closes
+    ("```\n## Targets\n", False),                      # an unclosed fence runs to the end
+])
+def test_targets_heading(tmp_path, text, targets):
+    write(tmp_path / "HAS.md", "# Blk HAS\n\n" + text)
+    assert wiki_mirror.defines_targets(tmp_path / "HAS.md") is targets
+
+
 def test_src_arch_needs_a_model_and_a_scenario(good):
     add_arch(good)
     assert run(good).passed  # without HAS targets, an arch/ is still checked
     (good / "src/arch/blk/xy_blk_arch.py").unlink()
     (good / "src/arch/blk/perf/full.yaml").unlink()
+    write(good / "src/arch/blk/zz_blk_arch.py")  # not the exact <prefix><id>_arch.py
     assert run(good).findings == [
-        "src/arch/blk/: no single model <prefix>blk_arch.py",
+        "src/arch/blk/: no model xy_blk_arch.py",
         "src/arch/blk/: no perf scenario perf/*.yaml",
     ]
     write(good / "src/arch/blk/xy_blk_arch.py")
-    write(good / "src/arch/blk/zz_blk_arch.py")
     write(good / "src/arch/blk/perf/full.yaml")
-    assert run(good).findings == ["src/arch/blk/: no single model <prefix>blk_arch.py"]
+    assert run(good).passed
+
+
+def test_arch_never_imports_dv_rtl_or_tools(good):
+    add_arch(good)
+    write(good / "src/dv/blk/models/xy_blk_model.py", "")
+    write(good / "src/dv/blk/models/random.py", "")        # a stdlib name stays stdlib
+    write(good / "src/arch/blk/xy_blk_helper.py", "")       # a sibling is allowed
+    write(good / "src/dv/blk/models/xy_blk_helper.py", "")  # ...even when DV has the name
+    write(good / "src/arch/blk/test_xy_blk_arch.py",
+          "import random\nimport pytest\nimport xy_blk_helper\nimport xy_blk_arch\n")
+    assert run(good).passed
+    write(good / "src/arch/blk/xy_blk_arch.py",
+          "import xy_blk_model\n"
+          "from cocotb.triggers import Timer\n"
+          "import build.ip\n"
+          "import importlib\n"
+          "m = importlib.import_module('checks.common')\n"
+          "def perf(workload, seed):\n    return {}\n")
+    rule = "arch never imports DV, RTL or tools code"
+    assert run(good).findings == [
+        f"src/arch/blk/xy_blk_arch.py:1: imports xy_blk_model (src/dv); {rule}",
+        f"src/arch/blk/xy_blk_arch.py:2: imports cocotb (DV framework); {rule}",
+        f"src/arch/blk/xy_blk_arch.py:3: imports build (tools); {rule}",
+        f"src/arch/blk/xy_blk_arch.py:5: imports checks (tools); {rule}",
+    ]
+    # tools/ and src/ as packages, a tool folder without __init__.py and its modules
+    write(good / "src/arch/blk/xy_blk_arch.py",
+          "import tools.metrics\nfrom src.dv.blk import x\nimport wiki_site\nfrom tracker import render\n"
+          "def perf(workload, seed):\n    return {}\n")
+    assert run(good).findings == [
+        f"src/arch/blk/xy_blk_arch.py:1: imports tools (tools); {rule}",
+        f"src/arch/blk/xy_blk_arch.py:2: imports src (src); {rule}",
+        f"src/arch/blk/xy_blk_arch.py:3: imports wiki_site (tools); {rule}",
+        f"src/arch/blk/xy_blk_arch.py:4: imports tracker (tools); {rule}",
+    ]
+    write(good / "src/arch/blk/xy_blk_arch.py", "def perf(:\n")
+    assert run(good).findings == ["src/arch/blk/xy_blk_arch.py:1: cannot parse for the import scan"]
 
 
 def test_ip_first_layout_is_rejected(good):

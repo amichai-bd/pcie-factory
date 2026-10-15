@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import getpass
 import json
+import math
 import os
 import platform
 import re
@@ -182,7 +183,7 @@ def tests_section(summary_path: Path, cfg: Config) -> dict:
         levels = [int(x) for x in s["levels"]]
         passed = bool(s["passed"])
         wall = float(s["wall_s"])
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError, OverflowError):
         return {"status": "unavailable", "reason": "invalid"}
     runs.sort(key=lambda r: (r["ip"], r["level"], r["name"], r["seed"]))
     ips: dict = {}
@@ -231,7 +232,7 @@ def coverage_section(summary_path: Path) -> dict:
             row["floors_passed"] = not e["failures"]
             ips[ip] = row
         passed = bool(cov["passed"])
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError):
         return {"status": "unavailable", "reason": "invalid"}
     return {"status": "ok", "passed": passed, "ips": ips}
 
@@ -246,6 +247,51 @@ def flow_section(workdir: Path, ip_ids: list[str], kind: str, fields) -> dict:
         try:
             ips[ip] = {"status": "ok", **pick(json.loads(path.read_text()), fields)}
         except (OSError, ValueError):
+            ips[ip] = {"status": "invalid"}
+    if not ips:
+        return {"status": "unavailable", "reason": "missing"}
+    return {"status": "ok", "ips": ips}
+
+
+ARCH_STATUSES = ("pass", "fail", "error")
+_ARCH_NAME = re.compile(r"^[a-z0-9][a-z0-9_]{0,63}$")  # a scenario (the arch SPEC)
+_METRIC = re.compile(r"^[A-Za-z0-9_]{1,64}$")
+
+
+def _arch_ip(doc) -> dict:
+    """The whitelisted part of one ``perf.json``: the IP status, and per
+    scenario its status and the values of the metrics its targets name."""
+    status = doc["status"]
+    if status not in ARCH_STATUSES:
+        raise ValueError("bad status")
+    scenarios = {}
+    for sc in doc["scenarios"]:
+        name, st = sc["name"], sc["status"]
+        if not (isinstance(name, str) and _ARCH_NAME.match(name)) or st not in ARCH_STATUSES:
+            raise ValueError("bad scenario")
+        targets = {}
+        for t in sc.get("targets") or []:
+            metric, value = t["metric"], t["value"]
+            if not (isinstance(metric, str) and _METRIC.match(metric)):
+                raise ValueError("bad metric name")
+            if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                    or not math.isfinite(value):
+                raise ValueError("bad metric value")
+            targets[metric] = value
+        scenarios[name] = {"status": st, "targets": dict(sorted(targets.items()))}
+    return {"status": status, "scenarios": dict(sorted(scenarios.items()))}
+
+
+def arch_section(workdir: Path, ip_ids: list[str]) -> dict:
+    """``workdir/<ip>/arch/perf.json`` of each IP (``./build arch``), whitelisted."""
+    ips = {}
+    for ip in ip_ids:
+        path = workdir / ip / "arch" / "perf.json"
+        if not path.is_file():
+            continue
+        try:
+            ips[ip] = _arch_ip(json.loads(path.read_text()))
+        except (OSError, ValueError, KeyError, TypeError, OverflowError):
             ips[ip] = {"status": "invalid"}
     if not ips:
         return {"status": "unavailable", "reason": "missing"}
@@ -346,6 +392,7 @@ def build_record(*, repo: Path, workdir: Path, ip_ids: list[str], cfg: Config, n
         "coverage": coverage_section(workdir / "regress" / "summary.json"),
         "fpga": flow_section(workdir, ip_ids, "fpga", cfg.fpga_fields),
         "asic": flow_section(workdir, ip_ids, "asic", cfg.asic_fields),
+        "arch": arch_section(workdir, ip_ids),
         "distributions": dict(sorted(dist.items())),
     }
 

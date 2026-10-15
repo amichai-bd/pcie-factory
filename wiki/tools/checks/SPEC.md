@@ -178,13 +178,17 @@ next to `src/`); a missing wiki tree is an empty one. Code: `wiki_mirror.py`.
   only by the next rule. A folder without a counterpart is reported once
   and not descended.
 - **Arch model.** A top-level IP whose `arch/<id>/HAS.md` has a level-2
-  `## Targets` heading (it defines performance targets) needs
+  heading starting with the word `Targets` (`## Targets`,
+  `## Targets (draft)`, any case; it defines performance targets), outside
+  fenced code blocks, needs
   `src/arch/<id>/`; a missing one is
   `src/arch/<id>/: missing (wiki/src/arch/<id>/HAS.md defines targets; ...)`.
-  Any `src/arch/<id>/` of a top-level IP, required or not, holds exactly one
-  model `*<id>_arch.py` (not `test_*`) and at least one `perf/*.yaml`
-  scenario ([arch spec](../arch/SPEC.md#model)); their content is checked
-  by `./build arch`, not here.
+  Any `src/arch/<id>/` of a top-level IP, required or not, holds the model
+  `<prefix><id>_arch.py` and at least one `perf/*.yaml` scenario
+  ([arch spec](../arch/SPEC.md#model)); their content is checked by
+  `./build arch`, not here. No Python file in it imports DV, RTL or tools
+  code ([import rule](../arch/SPEC.md#import-rule)): each such import is
+  `src/arch/<id>/<file>:<line>: imports <module> (<origin>); ...`.
 - **No sub-IP `arch/`.** `wiki/src/arch/<sub>/` is a finding here;
   `src/arch/<sub>/` is a [layout check](#layout-check) finding.
 - **Placement.** Every file sits in, or below, an IP folder
