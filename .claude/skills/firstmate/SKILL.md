@@ -51,6 +51,9 @@ worktree.
 - The firstmate may implement an issue itself, but it never reviews its own
   implementation; a crewmate does.
 - An implementer never reviews, approves or merges its own PR.
+- Reviewers only review: spawn them as the `pr-reviewer` agent type, which
+  has no shell. Never hand a reviewer a worktree or ask it to run checks,
+  regressions or mutants ([pr-reviewer](../pr-reviewer/SKILL.md)).
 
 ## Captain decisions
 
@@ -73,8 +76,8 @@ findings, conflicts) is work.
 
 Every handoff names the expected final report. An implementer reports the PR
 URL, head SHA, what was delivered, validation commands and results, and any
-deviations or open questions. A reviewer reports the verdict comment URL and
-the reviewed SHA. Questions for the captain go through the firstmate, which
+deviations or open questions. A reviewer reports the full verdict text and the
+reviewed SHA, and the firstmate posts the verdict verbatim on the PR. Questions for the captain go through the firstmate, which
 decides whether to ask.
 
 ## Shared briefs
