@@ -828,6 +828,30 @@ def test_memory_read_at_a_synchronized_pointer_passes(tmp_path):
     assert r.passed, r.findings
 
 
+@needs_verilator
+def test_crossing_cell_with_a_constant_source_input_inside_a_cell_fails(tmp_path):
+    # A synchronizer of 1'b1 qualifies the read pointer: it looks like a
+    # synchronized pointer but nothing crosses.
+    body = """  logic m [4];
+  logic [1:0] wa_q;
+  logic [1:0] ra_q;
+  logic s;
+  always_ff @(posedge src_clk_i) begin
+    m[wa_q] <= src_d_i;
+    wa_q <= wa_q + 2'd1;
+  end
+  common_cdc_sync2 u_s (.dst_clk_i(dst_clk_i), .dst_rst_i(1'b0), .src_data_i(1'b1),
+                        .dst_data_o(s));
+  always_ff @(posedge dst_clk_i) ra_q <= s ? ra_q + 2'd1 : ra_q;
+  assign dst_q_o = m[ra_q];
+"""
+    r = run(cell_tree(tmp_path, MEM_CELL.format(body=body), "-F common_cdc_sync2.rtl.f\n"))
+    assert r.findings == ["common/common_cdc_bad: rtl/common/common_cdc_bad.sv:2: crossing "
+                          "cell common_cdc_bad: source-side input of cell u_s.src_data_i "
+                          "(rtl/common/common_cdc_bad.sv:17) is a constant, so that cell "
+                          "crosses nothing"]
+
+
 # ---------------------------------------------------------------- selection, tooling
 
 

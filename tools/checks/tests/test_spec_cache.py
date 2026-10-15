@@ -134,7 +134,12 @@ def test_pdf_signature_anywhere_in_first_kib(repo, tmp_path):
     CACHED_TEXT.encode("utf-16-le"),                    # no mark, clean UTF-16
     CACHED_TEXT.encode("utf-16-be"),
     b"\xef\xbb\xbf" + CACHED_TEXT[:80].encode() + b" end\n",  # UTF-8 with a BOM
-])
+    CACHED_TEXT.encode("utf-32"),                       # UTF-32 with a mark
+    b"\x00\x00\xfe\xff" + CACHED_TEXT.encode("utf-32-be"),  # big-endian mark
+    CACHED_TEXT.encode("utf-32-le"),                    # no mark, clean UTF-32
+    CACHED_TEXT.encode("utf-32-be"),
+], ids=["utf16-bom", "utf16be-bom", "utf16le", "utf16be", "utf8-bom",
+        "utf32-bom", "utf32be-bom", "utf32le", "utf32be"])
 def test_utf16_and_bom_text_is_decoded(repo, cache, data):
     write(repo, "notes/wide.txt", data)
     findings = run(repo, cache).findings
@@ -157,6 +162,16 @@ def test_binary_without_text_is_not_scanned(repo, cache):
     ("pkg/renamed.dat", b"PK\x03\x04rest"),
     ("pkg/renamed2.dat", b"\x1f\x8brest"),
     ("pkg/renamed3.dat", b"7z\xbc\xaf\x27\x1crest"),
+    ("pkg/docs.xz", b"anything"),
+    ("pkg/docs.bz2", b"anything"),
+    ("pkg/docs.zst", b"anything"),
+    ("pkg/docs.rar", b"anything"),
+    ("pkg/docs.lz4", b"anything"),
+    ("pkg/renamed4.dat", b"\xfd7zXZ\x00rest"),
+    ("pkg/renamed5.dat", b"BZh91AY&SYrest"),
+    ("pkg/renamed6.dat", b"\x28\xb5\x2f\xfdrest"),
+    ("pkg/renamed7.dat", b"Rar!\x1a\x07\x01\x00rest"),
+    ("pkg/renamed8.dat", b"\x04\x22\x4d\x18rest"),
 ])
 def test_archives_fail_unless_allowed(repo, cache, name, data):
     write(repo, name, data)
@@ -173,7 +188,18 @@ def test_archives_fail_unless_allowed(repo, cache, name, data):
 def test_archive_look_alikes_pass(repo, cache):
     write(repo, "docs/my.target.txt", "a build target\n")
     write(repo, "docs/tarball-notes.md", "notes\n")
+    write(repo, "docs/bzh.txt", "BZh9 is how a bzip2 stream starts\n")
     assert run(repo, cache).passed
+
+
+def test_allow_glob_does_not_cross_folders(repo, cache):
+    write(repo, "top.zip", b"anything")
+    write(repo, "pkg/nested.zip", b"anything")
+    write(repo, "cfg/checks.yaml", CONFIG + "spec_cache:\n  allow:\n"
+          "    - path: '*.zip'\n      reason: top-level fixture only\n")
+    assert run(repo, cache).findings == [
+        "pkg/nested.zip: archive: an archive can hide a reference document; "
+        "exempt it in cfg/checks.yaml spec_cache.allow with a reason"]
 
 
 def test_stale_archive_allow_entry_fails(repo, cache):
