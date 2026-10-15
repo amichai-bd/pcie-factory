@@ -107,6 +107,15 @@ While it is high, no word is offered to the FIFO.
   register) is tagged unlocked, with the newer symbol's generation. PIPE
   then sees that word as not valid, as the arch model does for a word with
   an unlocked symbol.
+- **Lock start.** When a locked word arrives while the packing register
+  holds an unlocked symbol, that symbol is dropped and the locked word is
+  packed on its own. The first locked symbols therefore start a FIFO word
+  instead of sharing one with an unlocked symbol, which would tag it
+  unlocked and hold RxValid back one word (the pcs
+  [lock target](../../arch/pcs/HAS.md#targets)). Losing an unlocked symbol
+  is harmless: PIPE never shows it as valid. A held *locked* symbol of the
+  old generation is kept (a same-cycle relock), and a word packed from it
+  is tagged unlocked as below.
 - **Overflow.** A word offered while the FIFO is full (`src_ready_o` low) is
   lost. The next word written carries the overflow flag on its first
   symbol.
@@ -123,6 +132,11 @@ While it is high, no word is offered to the FIFO.
 - **Underflow.** When the fill is below 2, an underflow word is sent
   (`rx_valid_o`, `rx_udf_o`, symbols and lock 0). Nothing is consumed, so no
   symbol is lost.
+- **Lock start.** When the head word is locked and the leftover symbol is
+  unlocked (and no copy or removal report is owed), the leftover symbol is
+  dropped and the head word is sent from its first symbol, so the first
+  locked word is not paired with an unlocked symbol (the same reason as on
+  the write side).
 - **Send.** Otherwise two symbols are sent: the leftover symbol first, then
   the head word. A symbol that is not sent stays in the leftover register.
   At most one word is read per cycle.
@@ -159,7 +173,8 @@ that word, and the top's precedence picks the code.
 - **Write side:** `w_holdoff_q` (recentring counter), `w_prev_com_q` (the
   last symbol taken was a COM), `w_pend_rem_q` (the next kept symbol follows
   a removed SKP), `w_pend_ovf_q` (the next word written follows a lost one),
-  and the packing register `w_hold_valid_q`/`w_hold_q`. Combinational logic
+  and the packing register `w_hold_valid_q`/`w_hold_q`; `w_flush` drops an
+  unlocked held symbol at a lock start. Combinational logic
   matches both symbols against `COM_RD_MINUS`/`COM_RD_PLUS` and
   `SKP_RD_MINUS`/`SKP_RD_PLUS`, then forms the word. At most one of the two
   symbols can be a removed SKP (`a_one_removal`).
@@ -167,7 +182,7 @@ that word, and the top's precedence picks the code.
   `WIDTH` 25 and `ADDR_W` 4. Its read side gives the head word, the word
   after it and the occupancy.
 - **Read side:** `r_started_q`, the leftover register `r_left_valid_q`/
-  `r_left_q`, `r_dup_q` (a copy is owed), `r_rem_ack_q` (the next symbol's
+  `r_left_q` (`r_flush` drops an unlocked leftover at a lock start), `r_dup_q` (a copy is owed), `r_rem_ack_q` (the next symbol's
   removed flag is already reported), `r_holdoff_q` and `fill_high_q`. The
   next three symbols in order (`c0` to `c2`, from the leftover register, the
   head and the word after it) feed one block of combinational logic. That
@@ -183,7 +198,8 @@ that word, and the top's precedence picks the code.
 | --- | --- | --- |
 | Add `dst_fill_o` and `dst_next_data_o` to `common_cdc_fifo` (the HAS open item) | The fill is the FIFO's own synchronized pointer difference, the measure the HAS decision names. The look-ahead for a COM in the second slot needs the word after the head in the same cycle. Without it, about half the SKP sets could not take an addition, which halves the correction rate below the 600 ppm drift. Both outputs are read-side only and keep the existing behavior. | Computing the fill here from a second crossing of the write pointer (the duplicate the HAS rejects); a local prefetch register (more state, the same result). |
 | A copy owed across words is one flag (`r_dup_q`), counted in the fill | The leftover register stays one symbol, as the HAS states. The arch model's stage then holds the same symbols. | A two-symbol leftover register. |
-| A word with mixed lock or generation is tagged unlocked | The HAS word has one lock tag and one generation bit. The case arises only at lock changes, where the arch model also delivers no valid word. | Per-symbol tags (27 bits, not the HAS's 25). |
+| A word with mixed lock or generation is tagged unlocked | The HAS word has one lock tag and one generation bit. The case remains only at a lock end and at a same-cycle relock (the lock start drops the unlocked symbol instead), where the arch model also delivers no valid word. | Per-symbol tags (27 bits, not the HAS's 25). |
+| Drop an unlocked symbol at a lock start, on both sides | Without it, the packing or leftover parity left from before an electrical-idle gap pairs the first locked symbols with an unlocked one, and RxValid starts one word late: up to 11 cycles from the comma against the HAS's 10 (#85 review). | Re-aligning the packing phase on every lock (the same drop, more logic); keeping the target off by a word. |
 | Underflow consumes nothing | No symbol is lost: the leftover symbol is sent after the EDB word. | Dropping the partial symbol (the arch model's simplification). |
 | Outputs are combinational | The decoder registers its output, so the elastic buffer adds no cycle to the RX latency budget (6 plus half the fill). | Registered outputs (one more cycle of latency). |
 | The RX-domain reset synchronizer lives here and leaves on `ser_rx_rst_o` | This module is the RX domain's first consumer and owns the FIFO reset pairing. One instance serves the whole RX domain, so the pcs keeps a single crossing 2. | A second synchronizer in the top. |
