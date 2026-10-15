@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from build import sim
+from build.filelist import resolve
 from build.ip import Context, Ip, discover, find_ip
 from ci.config import load_rules
 from regress import coverage as cov
@@ -111,7 +112,12 @@ def run(
         raise sim.SimError(sim.not_found_message())
     budgets = load_budgets(ctx.cfg_dir)
     floors = {ip.id: load_floors(ip) for ip in selection.ips} if coverage else {}
-    cov_tool = cov.find_tool(verilator) if coverage and verilator is not None else None
+    cov_tool, cov_error = None, None
+    if coverage and verilator is not None:
+        try:
+            cov_tool = cov.find_tool(verilator)
+        except cov.CoverageError as exc:  # recorded in the summary after the tests
+            cov_error = str(exc)
     ips = {ip.id: ip for ip in selection.ips}
     wall_start = time.monotonic()
 
@@ -150,13 +156,25 @@ def run(
 
     coverage_doc = None
     if coverage:
-        coverage_doc = collect_coverage(ctx, selection, levels, results, floors, cov_tool)
+        try:
+            if cov_error:
+                raise cov.CoverageError(cov_error)
+            coverage_doc = collect_coverage(ctx, selection, levels, results, floors, cov_tool)
+        except cov.CoverageError as exc:
+            coverage_doc = {"error": str(exc)}
     summary = make_summary(
         ctx, selection, levels, budgets, list(built.items()), results,
         time.monotonic() - wall_start, coverage_doc,
     )
     write_summary(ctx.workdir, summary)
     return summary
+
+
+def dv_only_sources(ip: Ip) -> frozenset[Path]:
+    """Sources ``<ip>.sim.f`` reaches that ``<ip>.rtl.f`` does not."""
+    if not (ip.sim_f.is_file() and ip.rtl_f.is_file()):
+        return frozenset()
+    return frozenset(resolve(ip.sim_f).sources) - frozenset(resolve(ip.rtl_f).sources)
 
 
 def collect_coverage(
@@ -176,10 +194,10 @@ def collect_coverage(
     out = {}
     for ip_id, ip in sorted(ips.items()):
         ip_dir = ip.work_dir(ctx.workdir) / cov.COVERAGE_DIR
-        entry = cov.merge_ip(ip_dir, passing[ip_id], tool)
+        entry = cov.merge_ip(ip_dir, passing[ip_id], tool, dv_only_sources(ip))
         names = {lv: ip.level_file(lv).name for lv in levels}
         eff = cov.effective_floors(floors.get(ip_id, {}), levels, names)
-        entry["floors"] = {m: v for m, (v, _) in sorted(eff.items())}
+        entry["floors"] = cov.floors_doc(eff)
         entry["failures"] = cov.check_floors(entry, eff)
         entry["dir"] = str(ip_dir.relative_to(ctx.workdir))
         out[ip_id] = entry
@@ -244,7 +262,7 @@ def make_summary(
         "coverage": coverage,
         "passed": all(t["status"] == "pass" for t in tests)
         and all(r.status == "pass" for _, r in builds)
-        and (coverage is None or coverage["passed"]),
+        and (coverage is None or coverage.get("passed") is True),
     }
 
 
@@ -266,7 +284,8 @@ def write_summary(workdir: Path, summary: dict) -> Path:
 
 
 def report(summary: dict, out=None, err=None) -> int:
-    """Print totals, budget warnings and coverage; return the process exit code."""
+    """Print totals, budget warnings and coverage; return the process exit
+    code (2 when coverage could not be merged)."""
     out, err = out or sys.stdout, err or sys.stderr
     for key, t in summary["totals"].items():
         print(
@@ -280,11 +299,18 @@ def report(summary: dict, out=None, err=None) -> int:
                 f"budget of {t['budget_s']:.0f}s",
                 file=err,
             )
-    if summary.get("coverage"):
-        for line in cov.report_lines(summary["coverage"]):
+    coverage = summary.get("coverage")
+    if coverage and "error" in coverage:
+        print(f"error: coverage: {coverage['error']}", file=err)
+    elif coverage:
+        for line in cov.report_lines(coverage):
             print(line, file=out)
-        for ip_id, e in sorted(summary["coverage"]["ips"].items()):
+        for ip_id, e in sorted(coverage["ips"].items()):
+            for msg in e.get("warnings", []):
+                print(f"warning: coverage: {ip_id}: {msg}", file=err)
             for msg in e["failures"]:
                 print(f"error: coverage floor: {ip_id}: {msg}", file=err)
     print("PASSED" if summary["passed"] else "FAILED", file=out)
+    if coverage and "error" in coverage:
+        return 2
     return 0 if summary["passed"] else 1
