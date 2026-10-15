@@ -4,7 +4,11 @@
 [FPGA flow](../../../tools/fpga/SPEC.md), following the
 [FPGA BKM](../../../bkm/fpga.md). It is a synthesis and timing harness, not
 a link: it gives nightly the stack's resources and timing on both clocks at
-125 MHz ([`phy` HAS, Targets](../../arch/phy/HAS.md#targets)). The board
+50 MHz ([`phy` HAS, Targets](../../arch/phy/HAS.md#targets)). 50 MHz is the
+FPGA timing and resource target only (captain decision Q26 in the
+[M1 decision record](../../decisions/0002-m1-grill.md)): no board bring-up
+runs at line rate (Q20), the ASIC target stays 125 MHz and the design's
+rates are unchanged. The board
 loopback demo is [#89](https://github.com/amichai-bd/pcie-factory/issues/89).
 The wrapper is board policy, not part of `phy.rtl.f`: the flow adds it on
 top of the IP's filelist.
@@ -13,8 +17,8 @@ top of the IP's filelist.
 
 | Port | Board signal | Pin(s) | Use |
 | --- | --- | --- | --- |
-| `clk_125_i` | `SMA_CLKIN` | `AH14` | 125 MHz core clock and PCLK (`clk_i`), from an external source. |
-| `rx_clk_i` | `HSMC_CLKIN0` | `AH15` | 125 MHz recovered RX clock (`ser_rx_clk_i`), as a serializer card on the HSMC connector would deliver it. |
+| `clk_i` | `CLOCK_50` | `Y2` | 50 MHz core clock and PCLK (`clk_i`), from the board's oscillator. |
+| `rx_clk_i` | `HSMC_CLKIN0` | `AH15` | 50 MHz recovered RX clock (`ser_rx_clk_i`), from an independent source, as a serializer card on the HSMC connector would deliver it. |
 | `key0_ni` | `KEY[0]` | `M23` | Held: reset (`rst_i`). |
 | `sw_i[0]` | `SW[0]` | `AB28` | `port_role_i`: 0 downstream, 1 upstream. |
 | `sw_i[1]` | `SW[1]` | `AC28` | Serial input of the `clk_i` stimulus register. |
@@ -22,6 +26,21 @@ top of the IP's filelist.
 | `ledr_o[5:0]` | `LEDR[5:0]` | `G19 F19 E19 F21 F18 E18` | `ltssm_state_o`, registered. |
 | `ledg_o[0]` | `LEDG[0]` | `E21` | `link_up_o`, registered. |
 | `ledg_o[1]` | `LEDG[1]` | `E22` | Parity of every other `pcie_phy` output, registered. |
+
+**Clock sources.** The core clock comes from the board's 50 MHz
+oscillator, so the core domain needs no external generator; it replaces
+`SMA_CLKIN` (`AH14`), the external SMA input used before. The board has a
+single 50 MHz oscillator, buffered to three pins, `CLOCK_50` (`Y2`),
+`CLOCK2_50` (`AG14`) and `CLOCK3_50` (`AG15`)
+[cite: Terasic DE2-115 User Manual, rev unverified, §4.5]. They are one
+source, so none of them can be the RX clock: the two clocks would then
+share a frequency and phase, which is not the
+[HAS](../../arch/phy/HAS.md#clocks-and-resets) RX clock contract. The RX
+clock stays on `HSMC_CLKIN0`, a dedicated clock input on the HSMC connector
+[cite: Terasic DE2-115 User Manual, rev unverified, §4.7], driven from off
+the board, so the two clocks stay asynchronous. `CLOCK_50` is used rather
+than `CLOCK2_50` or `CLOCK3_50` because its I/O standard is fixed at 3.3 V;
+`CLOCK3_50` follows jumper JP6.
 
 The board has pins for few of the stack's 105 port bits, so the wrapper
 bounds every `pcie_phy` port with flops on that port's clock, as a real
@@ -52,7 +71,7 @@ reset synchronizer's asynchronous set and
 straight from a flop. Every register powers up at 0, because the board file
 disables power-up don't-care. So `rst_q` is low for the first `clk_i` cycle
 after configuration, while the stack's registers hold their power-up zeros,
-and goes high at the first `clk_125_i` edge. A 4-bit power-on counter
+and goes high at the first `clk_i` edge. A 4-bit power-on counter
 (`por_cnt_q`) then keeps it high for at least 15 cycles, which meets the
 [HAS](../../arch/phy/HAS.md#clocks-and-resets) minimum of 8, and `KEY[0]`
 keeps it high while pressed. `KEY[0]` and the
@@ -69,16 +88,16 @@ RX reset needs none: every consumer takes it asynchronously (#170).
 
 | Constraint | Reason |
 | --- | --- |
-| `clk_core`: 8 ns on `clk_125_i` | `clk_i` at 125 MHz. |
-| `clk_rx`: 8 ns on `rx_clk_i` | `ser_rx_clk_i` at 125 MHz nominal; another oscillator, within 600 ppm of `clk_i`, with no phase relationship. |
+| `clk_core`: 20 ns on `clk_i` | `clk_i` at the 50 MHz FPGA target. |
+| `clk_rx`: 20 ns on `rx_clk_i` | `ser_rx_clk_i` at 50 MHz nominal; an independent source, within 600 ppm of `clk_i`, with no phase relationship. |
 | `derive_clock_uncertainty` | Quartus clock uncertainty for both clocks. |
-| `set_max_delay` 8 ns from `clk_core` to `clk_rx` and from `clk_rx` to `clk_core` | Every path between the domains is a crossing cell inside `pcie_pcs` ([`pcs` HAS crossings](../../arch/pcs/HAS.md#clock-domain-crossings); [`phy` MAS](../../rtl/phy/MAS.md#timing)): the [`common_cdc_fifo`](../../rtl/common/cdc/common_cdc_fifo.md#timing) Gray pointers and memory read, the [`common_cdc_rst`](../../rtl/common/cdc/common_cdc_rst.md#timing) asynchronous set from `rst_i`, and the [`common_cdc_sync2`](../../rtl/common/cdc/common_cdc_sync2.md#timing) inputs, alone or inside `common_cdc_pulse`. Their MAS pages ask for a max delay of at most one destination period. A false path or an asynchronous clock group is not used: either would let a Gray vector skew past one update. |
+| `set_max_delay` 20 ns (one destination period) from `clk_core` to `clk_rx` and from `clk_rx` to `clk_core` | Every path between the domains is a crossing cell inside `pcie_pcs` ([`pcs` HAS crossings](../../arch/pcs/HAS.md#clock-domain-crossings); [`phy` MAS](../../rtl/phy/MAS.md#timing)): the [`common_cdc_fifo`](../../rtl/common/cdc/common_cdc_fifo.md#timing) Gray pointers and memory read, the [`common_cdc_rst`](../../rtl/common/cdc/common_cdc_rst.md#timing) asynchronous set from `rst_i`, and the [`common_cdc_sync2`](../../rtl/common/cdc/common_cdc_sync2.md#timing) inputs, alone or inside `common_cdc_pulse`. Their MAS pages ask for a max delay of at most one destination period. A false path or an asynchronous clock group is not used: either would let a Gray vector skew past one update. |
 | `set_false_path -hold` both ways between `clk_core` and `clk_rx` | The clocks have no phase relationship, so a hold or removal check across them means nothing; each cell resolves metastability in its own flops. |
 | `set_false_path -from` `key0_ni`, `sw_i[*]` | Asynchronous board inputs, each through a two-flop synchronizer. |
 | `set_false_path -to` `ledr_o[*]`, `ledg_o[*]` | Static, human-visible outputs. |
 
 The board file sets the Cyclone IV E device, pins and I/O standards:
-3.3-V LVTTL for both clock inputs (`SMA_CLKIN` is a 3.3 V input,
+3.3-V LVTTL for both clock inputs (`CLOCK_50` is a 3.3 V input,
 `HSMC_CLKIN0` follows jumper JP6, 3.3 V by default) and 2.5 V for the key,
 switches and LEDs (jumper JP7 in its default position)
 [cite: Terasic DE2-115 User Manual, rev unverified, §4].

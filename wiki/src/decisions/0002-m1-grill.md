@@ -20,7 +20,7 @@ M1 is done when all of the following hold on `main`:
 3. **Function:** `./build regress --level 0 --level 1 --level 2` passes for `phy`, `mac`, `pcs` and the `common` library. These are the only testbenches (Q24); no leaf sub-IP folders remain. The `phy` e2e trains a downstream and an upstream instance back to back to L0 at Gen1 x1, and exchanges framed TLP- and DLLP-tagged packets in both directions under ±300 ppm, bit slips and injected symbol errors. The `mac` tests against the Python link partner enter and leave every Gen1 LTSSM state.
 4. **Coverage:** LTSSM transition coverage is 100% of the arcs listed in the `mac` HAS at L2. Verilator line and toggle coverage is in the nightly record and on the tracker, and the floor set by its issue is enforced.
 5. **CDC:** the clock-crossing check passes on every IP, and every crossing goes through an approved `common_` cell.
-6. **Physical:** nightly reports Quartus DE2-115 timing (125 MHz core clock and RX clock met) and ORFS sky130hd metrics for `phy` on the tracker. (The board loopback demo on physical hardware is tracked separately in #89, outside M1; see Q20.)
+6. **Physical:** nightly reports Quartus DE2-115 timing (50 MHz core clock and RX clock met, Q26) and ORFS sky130hd metrics for `phy` on the tracker. (The board loopback demo on physical hardware is tracked separately in #89, outside M1; see Q20.)
 7. **Factory:** the M0 follow-ups below are closed, the seed `top` IP is retired, `./build check` (including neutrality) passes, and ci, nightly and pages are green.
 
 ## Decisions
@@ -52,6 +52,7 @@ M1 is done when all of the following hold on `main`:
 | Q23 | **Functional simulation breadth first (captain, 2026-10-15).** Priority is working RTL+DV for many IPs and an end-to-end simulation as early as possible. RTL PRs get one independent review where only functional or correctness defects block; polish goes to follow-up issues. Blocks start against signed-off HAS interfaces without waiting for neighbours to merge. The `phy` back-to-back e2e testbench starts now, with arch models standing in for unbuilt blocks, which are replaced by RTL as they land. FPGA/ASIC synthesis stays at the end (#87/#88), full `phy` only, no per-module synthesis. |
 | Q24 | **Hierarchy, DV scope and packages (captain grill, 2026-10-15).** (1) Only `phy`, `mac` and `pcs` own a DV environment (one testbench each; `phy` is the back-to-back e2e). The `common/` cell library keeps its one library testbench. No other block gets a testbench. (2) No sub-IPs in M1: leaf blocks (scrambler, os, frame, ltssm, enc/dec 8b10b, align, elastic) are RTL files in `src/rtl/mac/` and `src/rtl/pcs/` under one filelist, with one MAS per IP (a section per block). The sub-IP tooling stays but is unused. (3) Packages: one shared `pcie_pkg` in `src/rtl/common/` (K codes, PIPE encodings, LTSSM states, ordered-set constants), plus `pcie_mac_pkg` and `pcie_pcs_pkg` for IP-private types; `phy` has none; no duplicated constants. (4) Leaf checks (8b/10b exhaustive, scrambler known answer, OS fields, elastic ppm, LTSSM arcs) become IP-level tests driven through IP ports; leaf invariants stay as RTL assertions. (5) Delivery: in-flight leaf PRs finish as planned, then one big restructuring PR per IP (#145 pcs, #146 mac) folds the leaves in, builds the single IP testbench and moves the tests. |
 | Q25 | **Structs at interfaces (captain decision, 2026-10-15; firstmate ruling on the epic).** Related signals that cross a module boundary inside an IP, and any multi-field state, are packed structs. They are declared in a package and referenced as `pkg::t_name`, with no import. Types shared between mac and pcs go in the shared package; IP-private types go in `pcie_mac_pkg` or `pcie_pcs_pkg`. Single-meaning signals, and IP top ports that mirror an external spec interface (the PIPE names in the HAS), stay flat `logic`. #146 adds the rule to the RTL BKM and applies it to mac; #145 applies it to pcs. |
+| Q26 | **FPGA timing target is 50 MHz (captain, 2026-10-15).** The DE2-115 (Quartus) evidence constrains `clk_i` and `ser_rx_clk_i` at **50 MHz**, not 125 MHz. The ASIC (sky130hd) target stays **125 MHz**, and the design's Gen1 rates (PIPE 16-bit at 125 MHz, Q7) are unchanged: on the FPGA the 50 MHz figure is a timing and resource target only, since no board bring-up runs at line rate (Q20). Applies to M2 (#203) as well. |
 
 ## Updates
 
@@ -90,3 +91,8 @@ M1 is done when all of the following hold on `main`:
 - **2026-10-15:** Done criteria 2 and 3 updated to the epic's current
   wording (Q24: one MAS and one DV_PLAN per IP; `phy`, `mac`, `pcs` and the
   `common` library are the only testbenches, no leaf sub-IP folders).
+- **2026-10-15:** Q26 (the FPGA timing target is 50 MHz; the ASIC target
+  stays 125 MHz) added and done criterion 6 changed to match, both copied
+  verbatim from the epic body above
+  ([#220](https://github.com/amichai-bd/pcie-factory/issues/220)). The
+  [`phy` FPGA page](../fpga/phy/FPGA.md) records the clock pins.

@@ -84,8 +84,11 @@ shows where each of their checks went.
     ignored, abort by an L0 exit, abort by a bubble) and size (to past one
     SKP interval), receive outcome, kind crossed with start lane, and each
     receive error kind (framing, RxStatus, cut by RxValid, electrical idle
-    or leaving `Rx_L0`, empty packet), and the receive latency per lane (3
-    from `[7:0]`, 4 from `[15:8]`).
+    or leaving `Rx_L0`, empty packet, the PCS's idle tail inside a packet
+    and outside one), and the receive latency per lane (3 from `[7:0]`, 4
+    from `[15:8]`). The latency bound is one cycle longer only for a
+    packet whose only beat ends with EDB in `[15:8]`
+    ([HAS, Targets](../../arch/mac/HAS.md#targets)).
   - Floors: level 1 holds `mac_os_tx`, `mac_os_rx` and `mac_frame` at
     100% (reached by levels 0 and 1); level 2 holds functional coverage at
     100% (all five covergroups, so all 64 arcs of the HAS list in each
@@ -112,7 +115,8 @@ shows where each of their checks went.
 | [Transmit and receive streams](../../arch/mac/HAS.md#transmit): random TLPs (to 512 bytes, some past the SKP interval) and DLLPs both ways, nullified ones, gaps, lane shifts, DUT retrains inside packets (aborts); SKP deferral and back-to-back SKP | `traffic` | 1 | 3 |
 | The same, longer | `traffic_long` | 2 | 4 |
 | [Abort by a bubble](../../arch/mac/HAS.md#transmit): EDB, the rest taken and discarded, later packets intact | `tx_bubble` | 1 | 1; symbol comparison stops at the bubble |
-| [Receive rules](../../arch/mac/SYMBOLS.md#receive): crafted streams in L0 with every malformed case, empty packets, RxValid drops, RxStatus errors, either lane; electrical idle, a retrain inside a packet and during a resync | `rx_errors` | 1 | 2 |
+| [Receive rules](../../arch/mac/SYMBOLS.md#receive): crafted streams in L0 with every malformed case, empty packets, RxValid drops (a framing error inside a packet), RxStatus errors, either lane; electrical idle, a retrain inside a packet and during a resync | `rx_errors` | 1 | 2 |
+| [Idle tail](../../arch/mac/HAS.md#receive) (#197), directed, both roles, outcomes from the HAS: a nullified TLP then idle data stays nullified with no error; the same symbols then electrical idle (idle mid-TLP, no EIOS) end bad with exactly one receiver error, as does the cut one symbol earlier; a received EDB in `[15:8]` outside a packet is one framing error, then resync; an EIOS ending in an idle tail starts receive L0s with no error. Upstream: an EIOS with an idle tail in `Rx_L0` while L1 is requested and the DUT's own packet keeps its wait from starting gives no error (asserted still in L0 with `Rx_L0` and the packet open), then L1 | `rx_idle_tail` | 1 | 1; deterministic; fails on the pre-fix RTL and model |
 | The same, more seeds | `rx_errors_long` | 2 | 6 |
 | [Received TS fields and events](../../arch/mac/SYMBOLS.md#ts1-and-ts2): every link, lane and N_FTS byte, PAD, each control bit, TS2, both lanes; EIOS and FTS at both lanes; K link and lane fields, K, unknown and mismatched identifiers, a TS cut by COM; inverted TS1 and TS2 at both lanes | `ts_fields` | 1 | 2 |
 | Random partner resets, mutes, freezes, retrains, wrong TS fields and N_FTS, inverted wire, symbol errors, power requests on either side (L0s, L1, L2, mixed) with traffic, both roles | `random_soak` | 1 | 2 |
@@ -183,6 +187,13 @@ listed entry; each fails, and the unmutated RTL passes. Each entry runs its firs
 | LTSSM | The `Rx_L0s.FTS` timeout one cycle longer (`FTS_TO` + 1) | `arcs_quick`; `smoke_n_fts_1`; `smoke_n_fts_255` | Fail at cycles 28615, 28373 and 30417: `ltssm_state_o` 0x23 (`Rx_L0s.FTS`), the shadow already in Recovery.RcvrLock (0x10). |
 | LTSSM | The `Rx_L0s.FTS` timeout one cycle shorter (`FTS_TO` - 1) | `arcs_quick`; `smoke_n_fts_1`; `smoke_n_fts_255` | Fail at cycles 28614, 28372 and 30416: `ltssm_state_o` 0x10, the shadow still in L0 with `Rx_L0s.FTS` (0x23). |
 | LTSSM | Transmit L0s entry one idle cycle late (`idle_cnt` > `L0S_IDLE_CYCLES`) | `arcs_quick` | Fails at cycle 26959: `ltssm_state_o` 0x21, the shadow 0x25 (`Tx_L0s.Entry`). |
+| Frame | An EDB in `[15:8]` ends the packet at once (no wait for the next word; the pre-#197 rule) | `rx_idle_tail`; `rx_errors` | Fail at cycle 10287 (`rx_idle_tail`), 10408 (`rx_errors` seed 112185741) and 10701 (seed 1906893083): a packet delivered nullified that the shadow had not yet got. |
+| Frame | The waiting beat keeps its flags when the next word is not received | `rx_idle_tail` | Fails at cycle 10583: `rcv_err_o` 0, the shadow 1 (idle mid-TLP). |
+| Frame | The waiting beat is cut but raises no framing error | `rx_idle_tail` | Fails at cycle 10583: `rcv_err_o` 0, the shadow 1. |
+| Frame | The deferred framing error outside a packet raised even when the next word is not received | `rx_idle_tail` | Fails at cycle 11753 (upstream): `rcv_err_o` 1, the shadow 0 (the EIOS tail; issue case 2). |
+| Frame | The deferred framing error outside a packet never raised | `rx_idle_tail`; `rx_errors` | Fail at cycle 11156 (`rx_idle_tail`), 11401 and 10972 (`rx_errors` seeds 112185741, 1906893083): `rcv_err_o` 0, the shadow 1. |
+| Frame | A cut by RxValid or electrical idle in `Rx_L0` raises no framing error | `rx_idle_tail`; `rx_errors` | Fail at cycle 10873 (`rx_idle_tail`, the even cut), 10666 and 10706 (`rx_errors` seeds 112185741, 1906893083): `rcv_err_o` 0, the shadow 1. |
+| Frame | The deferred framing error sets no resync | `rx_idle_tail` | Fails at cycle 11441: `rcv_err_o` 1, the shadow 0 (the data symbol a word after the EDB). `rx_errors` seeds 112185741 and 1906893083 pass it. |
 | LTSSM | The upstream port enters L1 without its own EIOS first (no `pm_wait` needed) | `arcs_quick` | Fails at cycle 29515 (upstream): `ltssm_state_o` 0x30 (L1.Entry), the shadow still in L0 (0x22) sending its EIOS; caught by the `ep_power` recipe that requests L1 after an EIOS already started receive L0s. |
 
 ## Gaps

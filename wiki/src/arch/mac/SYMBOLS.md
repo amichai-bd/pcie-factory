@@ -155,7 +155,14 @@ in `Rx_L0`. In that state:
   no discarding after it); cut by leaving L0 or `Rx_L0` it is dropped
   silently ([#153](https://github.com/amichai-bd/pcie-factory/issues/153)).
 - A packet is also cut short, and ends bad, when `pipe_rx_valid_i` falls,
-  `pipe_rx_elec_idle_i` rises, or the LTSSM leaves L0 or `Rx_L0`.
+  `pipe_rx_elec_idle_i` rises, or the LTSSM leaves L0 or `Rx_L0`. In
+  `Rx_L0` the first two are also a framing error, with no discarding after
+  it.
+- **Idle tail.** An EDB in `[15:8]` is parsed by the rows above only if the
+  next word is received (`pipe_rx_valid_i` 1, `pipe_rx_elec_idle_i` 0).
+  Otherwise it is the PCS's idle tail, not a received symbol: the stream
+  was cut after `[7:0]`, so an open packet ends as a cut and an EDB outside
+  a packet is no framing error ([HAS](HAS.md#receive)).
 - A packet ends bad when any word inside it had `pipe_rx_status_i` 4 to 7
   (decode, disparity, elastic-buffer overflow or underflow).
 - How a packet that ends reaches the upper stream (realigned, `err`,

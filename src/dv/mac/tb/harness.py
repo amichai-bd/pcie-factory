@@ -107,7 +107,7 @@ COV_PKT.coverpoint("rx_lane", bins=[0, 1])
 COV_PKT.coverpoint("rx_latency", bins=["3_lane0", "4_lane1"])
 COV_PKT.cross("rx_kind_x_lane", "rx_kind", "rx_lane")
 COV_PKT.coverpoint("rx_error", bins=["framing", "status", "cut_valid", "cut_elec_idle",
-                                     "cut_rx_l0", "empty"])
+                                     "cut_rx_l0", "empty", "idle_tail", "idle_tail_out"])
 
 # The packed buses of tb/pcie_mac_tb.sv, first field in the most
 # significant bits: (name, width).
@@ -605,12 +605,15 @@ class Harness:
             # step at iteration k parses the word on the pins in the cycle
             # before edge k-1; a beat read at iteration j is on the pins in
             # the cycle after edge j.
+            # A packet whose only beat ends with EDB in [15:8] waits one more
+            # word (HAS, Receive and Targets).
             at, lane, _ = start
             latency = sop_at - at + 2
-            if latency > 3 + lane:
+            allow = 3 + lane + int(getattr(want, "tail", False) and len(want.data) <= 2)
+            if latency > allow:
                 raise AssertionError(f"{where}: sop beat {latency} cycles after its "
                                      f"{'SDP' if dllp else 'STP'} in lane {lane}, the HAS "
-                                     f"allows {3 + lane}")
+                                     f"allows {allow}")
             COV_PKT.sample(rx_latency=f"{latency}_lane{lane}")
         n = len(want.data)
         ok = (dllp == want.dllp and err == want.err and nullify == want.nullify

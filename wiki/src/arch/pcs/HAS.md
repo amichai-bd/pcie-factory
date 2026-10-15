@@ -246,7 +246,7 @@ cycles from reset to PhyStatus low and 64 for receiver detection.
 | Symbol errors | Every isolated single-bit error reported (RxStatus 4 or 7); none costs lock. |
 | PIPE timing | PhyStatus low 16 cycles after reset; receiver detection 64 cycles; PowerDown acknowledged after 4 cycles. |
 | Code | No run of more than five equal bits on the line; no misaligned comma (K28.7 is never sent). |
-| Clocks | `clk_i` and `ser_rx_clk_i` at 125 MHz on the FPGA and ASIC flows. |
+| Clocks | `clk_i` and `ser_rx_clk_i` at 125 MHz on the ASIC flow and 50 MHz on the FPGA (DE2-115) flow. The FPGA figure is a timing and resource target only, with no board bring-up at line rate; the design's rates, including PIPE at 125 MHz, are unchanged ([Q26](../../decisions/0002-m1-grill.md#decisions)). |
 
 ## Architecture model
 

@@ -188,7 +188,8 @@ def test_dllp_ended_by_edb_is_an_error_not_a_nullify():
     p.run(100)
     assert b.rx_packets == [m.Packet(True, bytes(6))]
     d = (0, 0x11)
-    for w in ((m.SDP, d), (d, d), (d, d), (d, m.EDB)):
+    # The EDB in [15:8] counts once the next word is received (HAS, Receive).
+    for w in ((m.SDP, d), (d, d), (d, d), (d, m.EDB), (m.COM, m.SKP)):
         b.step(m.PipeRx(syms=w, valid=True, elec_idle=False, phy_status=False))
     got = b.rx_packets[-1]
     assert got.dllp and got.err and not got.nullify
@@ -434,6 +435,48 @@ def test_bad_workload_is_rejected(workload, msg):
 
 def _rx(*syms):
     return m.PipeRx(syms=syms, valid=True, elec_idle=False, phy_status=False)
+
+
+def test_edb_in_the_high_lane_counts_only_if_the_next_word_is_received():
+    """#197 (HAS, Receive): an EDB in [15:8] followed by electrical idle is the
+    PCS's idle tail. A packet it ends is cut (err, one framing error), not
+    nullified; outside a packet it raises no framing error."""
+    ei = m.PipeRx(elec_idle=True, phy_status=False)
+    sync = _rx(m.COM, m.SKP)
+    for nxt, cut in ((sync, False), (ei, True)):
+        b = trained().macs[1]
+        frames, n = b.framing_errors, len(b.rx_packets)
+        b.step(sync)
+        b.step(_rx(m.STP, (0, 1)))
+        b.step(_rx((0, 2), m.EDB))
+        assert len(b.rx_packets) == n, "the packet ended by EDB in [15:8] did not wait"
+        b.step(nxt)
+        got = b.rx_packets[-1]
+        assert len(b.rx_packets) == n + 1 and (got.err, got.nullify) == (cut, not cut)
+        assert b.framing_errors == frames + cut
+    for nxt, err in ((sync, True), (ei, False)):
+        b = trained().macs[1]
+        b.step(sync)
+        frames, errs = b.framing_errors, b.rcv_errors
+        b.step(_rx(m.SKP, m.EDB))                # EDB outside a packet, in [15:8]
+        assert (b.framing_errors, b.rcv_errors) == (frames, errs)
+        b.step(nxt)
+        assert (b.framing_errors, b.rcv_errors) == (frames + err, errs + err)
+        assert b._resync == err
+
+
+def test_a_packet_cut_in_rx_l0_is_a_framing_error_without_resync():
+    for cut in (m.PipeRx(elec_idle=True, phy_status=False),
+                m.PipeRx(valid=False, elec_idle=False, phy_status=False)):
+        b = trained().macs[1]
+        b.step(_rx(m.COM, m.SKP))
+        b.step(_rx(m.STP, (0, 1)))
+        b.step(_rx((0, 2), (0, 3)))
+        frames, errs, n = b.framing_errors, b.rcv_errors, len(b.rx_packets)
+        b.step(cut)
+        assert len(b.rx_packets) == n + 1 and b.rx_packets[-1].err
+        assert (b.framing_errors, b.rcv_errors) == (frames + 1, errs + 1)
+        assert not b._resync
 
 
 def test_compliance_flag_on_the_first_word_of_each_pattern_only():
