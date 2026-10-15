@@ -42,6 +42,24 @@ def test_top_level_versus_sub_ip(tmp_path):
     assert ips["a"].top_level and ips["d"].top_level
     assert ips["a_b"].ancestors == ("a",) and not ips["a_b"].top_level
     assert ips["a_b_c"].ancestors == ("a", "a_b", "d")
+    assert ips["a_b_c"].parents == ("a", "a_b") and not ips["a_b_c"].top_level
+
+
+def test_integrated_ips_stay_top_level(tmp_path):
+    # sys integrates a and b; a reaches its sub-IP a_x; a_y is reached only
+    # by sys, so its prefix alone does not make it a sub-IP of a (the layout
+    # check reports that unconfirmed prefix).
+    make_ip(tmp_path, "a_x")
+    make_ip(tmp_path, "a_y")
+    make_ip(tmp_path, "a", ("a_x",))
+    make_ip(tmp_path, "b")
+    make_ip(tmp_path, "sys", ("a", "b", "a_y"))
+    ips = {ip.id: ip for ip in discover(tmp_path)}
+    for top in ("sys", "a", "b", "a_y"):
+        assert ips[top].top_level and ips[top].parents == (), top
+    assert ips["a"].ancestors == ("sys",) and ips["b"].ancestors == ("sys",)
+    assert ips["a_x"].ancestors == ("a", "sys") and ips["a_x"].parents == ("a",)
+    assert not ips["a_x"].top_level
 
 
 def test_broken_filelist_reaches_nothing(tmp_path):
@@ -116,6 +134,24 @@ def test_shared_unit_and_blocks(tmp_path):
     assert [ip.id for ip in units(tmp_path)] == ["a", "common"]
     assert [ip.id for ip in discover(tmp_path)] == ["a"]  # never an IP
     assert owner_ip(units(tmp_path), common / "common_x.sv").id == "common"
+
+
+def test_shared_unit_is_in_no_ip_relation(tmp_path):
+    """The shared unit is never a parent, ancestor or sub-IP, even when IPs
+    include its blocks with -F."""
+    common = tmp_path / "rtl/common"
+    common.mkdir(parents=True)
+    (common / "common_x.rtl.f").write_text("")
+    (tmp_path / "dv/common").mkdir(parents=True)
+    (tmp_path / "dv/common/common.sim.f").write_text("-F ../../rtl/common/common_x.rtl.f\n")
+    make_ip(tmp_path, "a_b")
+    make_ip(tmp_path, "a", ("a_b",))
+    (tmp_path / "rtl/a/a.rtl.f").write_text("-F ../common/common_x.rtl.f\n-F ../a_b/a_b.rtl.f\n")
+    got = {ip.id: ip for ip in units(tmp_path)}
+    assert got["common"].ancestors == () and got["common"].parents == ()
+    assert not got["common"].top_level
+    assert got["a"].top_level and got["a"].ancestors == ()
+    assert got["a_b"].parents == ("a",)
 
 
 def test_locate(tmp_path):

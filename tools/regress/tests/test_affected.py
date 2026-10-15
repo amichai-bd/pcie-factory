@@ -213,3 +213,40 @@ def test_repo_sub_ip_change_selects_every_ancestor(tmp_path):
         assert got[sub.id] == f"changed: {rel}"
         for ancestor in sub.ancestors:
             assert got[ancestor] == f"reaches: {rel}"
+
+
+INTEGRATION = REPO_ROOT / "tools/checks/tests/fixtures/integration/src"
+
+
+@pytest.fixture
+def integration(tmp_path):
+    """A git repo holding the integration fixture: top-level sys includes
+    top-level a and b; a_x is a sub-IP of a."""
+    r = tmp_path / "repo"
+    shutil.copytree(INTEGRATION, r / "src")
+    git(r, "init", "-q", "-b", "main")
+    git(r, "add", "-A")
+    git(r, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base")
+    git(r, "checkout", "-qb", "feature")
+    return r
+
+
+def test_integrated_ip_change_selects_integrator(integration):
+    rel = "src/rtl/a/xy_a.sv"
+    (integration / rel).write_text((integration / rel).read_text() + "\n")
+    assert affected(integration) == {"a": f"changed: {rel}", "sys": f"reaches: {rel}"}
+
+
+def test_sub_ip_of_integrated_ip_selects_parent_and_integrator(integration):
+    rel = "src/rtl/a_x/xy_a_x.sv"
+    (integration / rel).write_text((integration / rel).read_text() + "\n")
+    assert affected(integration) == {
+        "a": f"reaches: {rel}", "a_x": f"changed: {rel}", "sys": f"reaches: {rel}"}
+
+
+def test_integrated_ip_model_change_selects_integrator(integration):
+    rel = "src/dv/b/models/b_model.py"
+    (integration / "src/dv/b/models").mkdir()
+    (integration / rel).write_text("")
+    assert affected(integration) == {
+        "b": f"changed: {rel}", "sys": f"integrated IP model: {rel}"}

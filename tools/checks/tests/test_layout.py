@@ -109,20 +109,52 @@ def test_shared_folder_filelist_names(good):
     ]
 
 
-def test_sub_ip_naming_is_prefixed_by_a_parent(good):
+def test_included_ip_without_parent_prefix_is_top_level(good):
+    """blk includes inc, whose id is not blk_<name>: inc stays top-level and
+    may have arch/, fpga/ and asic/."""
     write(good / "rtl/inc/inc.rtl.f")
     f = good / "rtl/blk/blk.rtl.f"
     f.write_text("-F ../inc/inc.rtl.f\n" + f.read_text())
-    assert run(good).findings == [
-        "rtl/inc/: sub-IP id must start with the id of an IP that reaches it and '_' "
-        "(blk_...)"]
-    # Reached through blk_sub too: either parent's prefix is fine.
+    for kind in ("arch", "fpga", "asic"):
+        (good / kind / "inc").mkdir(parents=True)
+    ips = {ip.id: ip for ip in discover(good)}
+    assert ips["inc"].top_level and ips["inc"].ancestors == ("blk",)
+    assert run(good).passed
+    # Reached through blk_sub too, a blk_sub_<name> id makes it a sub-IP.
     (good / "rtl/inc").rename(good / "rtl/blk_sub_inc")
     (good / "rtl/blk_sub_inc/inc.rtl.f").rename(good / "rtl/blk_sub_inc/blk_sub_inc.rtl.f")
     f.write_text(f.read_text().replace("-F ../inc/inc.rtl.f\n", ""))
     g = good / "rtl/blk_sub/blk_sub.rtl.f"
     g.write_text("-F ../blk_sub_inc/blk_sub_inc.rtl.f\n" + g.read_text())
+    for kind in ("arch", "fpga", "asic"):
+        (good / kind / "inc").rename(good / kind / "blk_sub_inc")
+    assert run(good).findings == [
+        f"{kind}/blk_sub_inc/: {kind}/ is for top-level IPs only "
+        "(blk_sub_inc is a sub-IP of blk, blk_sub)" for kind in ("arch", "fpga", "asic")]
+
+
+def test_unconfirmed_parent_prefix_is_a_finding(good):
+    """An id <other>_<name> claims <other> as its parent; when that IP's
+    filelist does not reach it, the name and the filelists disagree."""
+    write(good / "rtl/blk_orphan/blk_orphan.rtl.f")
+    assert run(good).findings == [
+        "rtl/blk_orphan/: id names blk as its parent, but rtl/blk/blk.rtl.f does not "
+        "reach it; include it there with -F ../blk_orphan/blk_orphan.rtl.f, or rename it"]
+    assert run(good, {"blk"}).passed  # reported for the misnamed IP only
+    # Reached only through an integrating IP: still not confirmed by blk.
+    write(good / "rtl/sys/sys.rtl.f",
+          "-F ../blk/blk.rtl.f\n-F ../blk_orphan/blk_orphan.rtl.f\n")
+    assert len(run(good, {"blk_orphan"}).findings) == 1
+    # Including it from blk confirms the parent.
+    f = good / "rtl/blk/blk.rtl.f"
+    f.write_text("-F ../blk_orphan/blk_orphan.rtl.f\n" + f.read_text())
     assert run(good).passed
+
+
+def test_integration_fixture_passes():
+    """Top-level sys integrates top-level a and b, which keep arch/, fpga/
+    and asic/; a_x is a sub-IP of a."""
+    assert run(FIXTURES / "integration/src").passed
 
 
 def test_ip_filter(good):
