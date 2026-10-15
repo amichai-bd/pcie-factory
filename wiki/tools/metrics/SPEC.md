@@ -201,7 +201,8 @@ reduced to `fpga_fields` / `asic_fields`. The owning schemas are in the
 FPGA and ASIC tool specs: the whitelist keeps device, resources
 (`used`/`total`), per-clock Fmax and slacks, worst slacks, `met`, critical
 path slack and delay, step status, runtime and warnings (FPGA); and
-design, platform, clock period, status, WNS/TNS/hold slack, areas, cells,
+design, platform, clock period, status, WNS/TNS/hold slack, per-clock
+setup slack, WNS and TNS, areas, cells,
 utilization, max fanout and logic depth values, worst-path slack, cells and
 group, power, DRC errors and elapsed time (ASIC). Net, pin and path names,
 tool paths, images and work directories are dropped. An IP whose file does

@@ -109,6 +109,9 @@ asic_fields:
   - timing.tns_ns
   - timing.hold_ws_ns
   - timing.wns_ns
+  - timing.clocks.*.setup_ws_ns
+  - timing.clocks.*.wns_ns
+  - timing.clocks.*.tns_ns
   - area.stdcell_um2
   - area.core_um2
   - area.die_um2

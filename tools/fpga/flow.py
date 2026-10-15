@@ -33,6 +33,8 @@ import yaml
 
 from build.filelist import SYNTHESIS_DEFINE, resolve, synthesis_defines
 from build.ip import REPO_ROOT, Ip
+from checks import lint as check_lint
+from checks.common import CheckConfigError
 from fpga import reports
 
 QUARTUS_SH = "quartus_sh"
@@ -185,8 +187,9 @@ def plan(ip: Ip, workdir: Path, board: str, part: str | None = None,
 def lint_command(p: Plan, verilator: Path | str) -> list[str]:
     """Verilator lint of the flattened sources plus the wrapper as top, in
     the simulation view like ``./build check`` (without ``SYNTHESIS``, so
-    assertion-only signals have their reader)."""
-    cmd = [str(verilator), "--lint-only", "-Wall", "--top-module", p.top]
+    assertion-only signals have their reader). ``-Wno-fatal`` lets every
+    warning print; ``lint_findings`` decides pass or fail."""
+    cmd = [str(verilator), "--lint-only", "-Wall", "-Wno-fatal", "--top-module", p.top]
     cmd += [f"+incdir+{d}" for d in p.incdirs]
     cmd += [f"+define+{n}" if v is None else f"+define+{n}={v}" for n, v in p.defines.items()
             if n != SYNTHESIS_DEFINE]
@@ -311,6 +314,23 @@ def run_step(name: str, cmd: list[str], cwd: Path, log: Path, timeout_s: float) 
     return StepResult(name, status, time.monotonic() - start, log)
 
 
+def lint_findings(log: Path, src_root: Path, exited_ok: bool) -> list[str]:
+    """Verilator messages in the lint log that the reviewed waivers in
+    ``<src_root>/lint_waivers.yaml`` do not cover, matched as the
+    ``./build check`` lint check matches them; a nonzero exit with no error
+    message is a finding too. Stale waivers are that check's business."""
+    try:
+        waivers = check_lint.load_waivers(src_root)
+        text = log.read_text(errors="replace")
+    except (CheckConfigError, OSError) as exc:
+        return [str(exc)]
+    msgs = check_lint.parse_output(text, src_root)
+    out = [m.render() for m in msgs if not any(w.covers(m) for w in waivers)]
+    if not exited_ok and not any(m.severity == "Error" for m in msgs):
+        out.append("verilator exited nonzero")
+    return out
+
+
 def quartus_cmd(cmd: list[str], bin_dir: Path) -> list[str]:
     return [str(bin_dir / cmd[0])] + cmd[1:]
 
@@ -330,6 +350,11 @@ def run(p: Plan, bin_dir: Path, timeout_s: float, verilator: Path | None) -> int
         full = cmd if name == "lint" else quartus_cmd(cmd, bin_dir)
         print(f"[{name}] {' '.join(full)}", flush=True)
         res = run_step(name, full, p.out_dir, logs / f"{name}.log", timeout_s)
+        if name == "lint" and res.status != "timeout":
+            findings = lint_findings(res.log, p.ip.src_root, res.status == "pass")
+            for f in findings:
+                print(f"[lint] {f}")
+            res.status = "fail" if findings else "pass"
         print(f"[{name}] {res.status} ({res.runtime_s:.1f}s) log: {res.log}", flush=True)
         if name == "lint":
             flow["lint"] = res.status

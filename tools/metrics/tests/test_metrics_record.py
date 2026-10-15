@@ -76,6 +76,9 @@ def test_flow_sections_whitelist(cfg):
     assert "project_dir" not in blk and "ip" not in blk
     a = record.flow_section(wd, ["blk"], "asic", cfg.asic_fields)["ips"]["blk"]
     assert a["max_fanout"] == {"value": 12} and a["logic_depth"] == {"value": 9}
+    assert a["timing"]["clocks"] == {
+        "aux_clock": {"setup_ws_ns": -0.5, "wns_ns": -0.5, "tns_ns": -2.0},
+        "core_clock": {"setup_ws_ns": 1.25, "wns_ns": 0.0, "tns_ns": 0.0}}
     assert not {"toolchain", "source", "work_home", "contact"} & set(a)
     assert record.flow_section(wd, ["none"], "asic", cfg.asic_fields) == {
         "status": "unavailable", "reason": "missing"}

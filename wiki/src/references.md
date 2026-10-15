@@ -82,7 +82,7 @@ on the entry's **Verified** line and removes it here.
 | Publisher | Terasic Technologies |
 | Official link | [DE2-115 product page (manual under Resources)](https://www.terasic.com.tw/cgi-bin/page/archive.pl?Language=English&No=502) |
 | Access | Free download from the board vendor. |
-| Relied on by | [`top` FPGA page](fpga/top/FPGA.md) and its [pin settings](../../src/fpga/top/de2_115.qsf.tcl). |
+| Relied on by | The [`top` FPGA page](fpga/top/FPGA.md) and its [pin settings](../../src/fpga/top/de2_115.qsf.tcl); the [`phy` FPGA page](fpga/phy/FPGA.md) and its [pin settings](../../src/fpga/phy/de2_115.qsf.tcl). |
 | Verified | **Not verified:** the vendor site did not answer from the cloud session on 2026-10-15; a human confirms the link and the manual revision. |
 
 ## sky130

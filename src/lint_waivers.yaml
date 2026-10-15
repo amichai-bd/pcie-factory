@@ -15,3 +15,9 @@ waivers:
     rule: SYNCASYNCNET
     match: "'rst_i'"
     reason: rst_i resets the stack synchronously and reaches the pcs RX reset synchronizer (pcs crossing 2), as the phy and pcs HAS require.
+  # The phy DE2-115 wrapper (#87) instantiates pcie_phy as the FPGA top:
+  # the same rst_i net, seen from the wrapper.
+  - file: fpga/phy/pcie_phy_de2_115.sv
+    rule: SYNCASYNCNET
+    match: "'pcie_phy_de2_115.rst_q'"
+    reason: rst_q drives pcie_phy rst_i, which resets the stack synchronously and reaches the pcs RX reset synchronizer (pcs crossing 2), as the phy and pcs HAS require; it is a flop with no logic after it, as common_cdc_rst requires.

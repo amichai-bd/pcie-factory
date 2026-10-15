@@ -116,7 +116,7 @@ def test_generate_is_deterministic(src, tmp_path):
 
 def test_lint_command(src, tmp_path):
     cmd = flow.lint_command(make_plan(src, tmp_path), "verilator")
-    assert cmd[:5] == ["verilator", "--lint-only", "-Wall", "--top-module", TOP]
+    assert cmd[:6] == ["verilator", "--lint-only", "-Wall", "-Wno-fatal", "--top-module", TOP]
     assert "+define+WIDTH=8" in cmd and "+define+FAST" in cmd
     assert not any("SYNTHESIS" in c for c in cmd)  # lint sees the simulation view
     assert cmd[-1].endswith(f"{TOP}.sv")
@@ -260,6 +260,41 @@ def test_run_lint_failure_stops(src, tmp_path):
     lint = fake_exe(tmp_path / "lintbin" / "verilator", "exit 1")
     assert flow.run(p, fake_quartus(tmp_path / "bin"), 30, lint) == 1
     assert not (p.out_dir / "output_files").exists()
+
+
+LINT_WARNING = (f"%Warning-SYNCASYNCNET: {{src}}/fpga/widget/{TOP}.sv:3:9: "
+                f"Signal flopped as both synchronous and async: '{TOP}.rst'")
+
+
+def warning_verilator(path: Path, src: Path) -> Path:
+    """A fake Verilator that prints one warning and exits 0, as -Wno-fatal does."""
+    return fake_exe(path, f"echo \"{LINT_WARNING.format(src=src)}\" >&2")
+
+
+def test_run_lint_unwaived_warning_fails(src, tmp_path, capsys):
+    p = make_plan(src, tmp_path)
+    lint = warning_verilator(tmp_path / "lintbin" / "verilator", src)
+    assert flow.run(p, fake_quartus(tmp_path / "bin"), 30, lint) == 1
+    assert not (p.out_dir / "output_files").exists()
+    assert "[lint] fail" in capsys.readouterr().out
+
+
+def test_run_lint_applies_waivers(src, tmp_path):
+    (src / "lint_waivers.yaml").write_text(
+        f"waivers:\n  - file: fpga/widget/{TOP}.sv\n    rule: SYNCASYNCNET\n"
+        f"    match: \"'{TOP}.rst'\"\n    reason: test\n")
+    p = make_plan(src, tmp_path)
+    lint = warning_verilator(tmp_path / "lintbin" / "verilator", src)
+    assert flow.run(p, fake_quartus(tmp_path / "bin"), 30, lint) == 0
+    m = json.loads((p.out_dir / "metrics.json").read_text())
+    assert m["flow"]["lint"] == "pass"
+
+
+def test_run_lint_bad_waiver_file_fails(src, tmp_path):
+    (src / "lint_waivers.yaml").write_text("waivers: 3\n")
+    p = make_plan(src, tmp_path)
+    lint = fake_exe(tmp_path / "lintbin" / "verilator", "exit 0")
+    assert flow.run(p, fake_quartus(tmp_path / "bin"), 30, lint) == 1
 
 
 def test_run_timing_not_met(src, tmp_path, monkeypatch):
