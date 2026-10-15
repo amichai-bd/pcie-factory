@@ -150,7 +150,10 @@ rates are.
   end's reference is within ±300 ppm
   [cite: PCIe Base Spec, rev 3.0, §4.2.7]. The elastic buffer is the only
   crossing of data; the PCS derives its RX-domain reset from `rst_i`. Every
-  crossing uses an approved `common_` cell (Q17).
+  crossing uses an approved `common_` cell (Q17):
+  [`common_cdc_sync2`](../../rtl/common/common_cdc_sync2.md),
+  [`common_cdc_pulse`](../../rtl/common/common_cdc_pulse.md) or
+  [`common_cdc_fifo`](../../rtl/common/common_cdc_fifo.md).
 - Reset values, held while `rst_i` is high: `pkt_tx_ready_o`,
   `pkt_rx_valid_o`, `pkt_rx_sop_o`, `pkt_rx_eop_o`, `pkt_rx_err_o`,
   `link_up_o` and `rcv_err_o` 0; `ltssm_state_o` 0 (Detect.Quiet);
@@ -270,5 +273,6 @@ LTSSM. `./build arch --ip phy` writes `workdir/phy/arch/perf.json`.
 | --- | --- |
 | Cite the electrical sub-block's exact sections for receiver detection and the ±300 ppm transmitter tolerance (the citations above use the nearest confident sections). | [#73](https://github.com/amichai-bd/pcie-factory/issues/73) |
 | Refine the PIPE citations from chapter to section level, confirm the published title of rev 3.0, and confirm the TxCompliance byte and the P0s PhyStatus handshake in 16-bit mode. | [#73](https://github.com/amichai-bd/pcie-factory/issues/73) |
+| How the elastic buffer (SKP add and remove across `ser_rx_clk_i`) and the RX-domain reset are built from the approved cells. | [#73](https://github.com/amichai-bd/pcie-factory/issues/73) |
 | LTSSM state codes, timeouts that `TIMEOUT_DIV` scales, and the exact rules behind the reduced LTSSM in the model. | [#72](https://github.com/amichai-bd/pcie-factory/issues/72) |
 | Stack integration of `pcie_mac` and `pcie_pcs`. | [#107](https://github.com/amichai-bd/pcie-factory/issues/107), [#86](https://github.com/amichai-bd/pcie-factory/issues/86) |
