@@ -28,8 +28,8 @@ waivers:
   # the same two nets, seen from the wrapper.
   - file: fpga/phy/pcie_phy_de2_115.sv
     rule: SYNCASYNCNET
-    match: "'pcie_phy_de2_115.rst'"
-    reason: rst drives pcie_phy rst_i, which resets the stack synchronously and reaches the pcs RX reset synchronizer (pcs crossing 2), as the phy and pcs HAS require; it is one flop and an inverter, so it does not glitch.
+    match: "'pcie_phy_de2_115.rst_q'"
+    reason: rst_q drives pcie_phy rst_i, which resets the stack synchronously and reaches the pcs RX reset synchronizer (pcs crossing 2), as the phy and pcs HAS require; it is a flop with no logic after it, as common_cdc_rst requires.
   - file: rtl/common/common_cdc_rst.sv
     rule: SYNCASYNCNET
     match: "'pcie_phy_de2_115.u_phy.u_pcs.u_elastic.u_rx_rst.sync_q'"

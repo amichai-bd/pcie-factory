@@ -39,18 +39,28 @@ system would:
   registers, so it never lengthens a `pcie_phy` path.
 - **Parameters.** `TIMEOUT_DIV` and `ERR_TIMEOUT_DIV` are 1, as the
   [HAS](../../arch/phy/HAS.md#parameters) asks for FPGA builds.
+- **Not a functional test.** The stimulus does not honour the HAS input
+  contracts. `port_role_i` follows a live switch, not only while in reset,
+  and the packet stream and link requests are arbitrary bit patterns. The
+  LEDs are therefore not a functional result: the harness exists for
+  resources and timing only.
 
-Reset is synchronous to `clk_i` and active high. A 4-bit power-on counter
-(`por_cnt_q`, which starts at 0 because the board file disables power-up
-don't-care) holds it for the first 15 cycles after configuration, which
-meets the [HAS](../../arch/phy/HAS.md#clocks-and-resets) minimum of 8, and `KEY[0]` holds it while pressed. `rst_i` is
-the inverse of one flop (`run_q`), so the reset that also drives the pcs RX
-reset synchronizer's asynchronous set cannot glitch. `KEY[0]` and the
+Reset is synchronous to `clk_i` and active high. It is the flop `rst_q`,
+with no logic between it and `rst_i`, because `rst_i` also drives the pcs RX
+reset synchronizer's asynchronous set and
+[`common_cdc_rst`](../../rtl/common/common_cdc_rst.md) takes that source
+straight from a flop. Every register powers up at 0, because the board file
+disables power-up don't-care. So `rst_q` is low for the first `clk_i` cycle
+after configuration, while the stack's registers hold their power-up zeros,
+and goes high at the first `clk_125_i` edge. A 4-bit power-on counter
+(`por_cnt_q`) then keeps it high for at least 15 cycles, which meets the
+[HAS](../../arch/phy/HAS.md#clocks-and-resets) minimum of 8, and `KEY[0]`
+keeps it high while pressed. `KEY[0]` and the
 switches pass through two-flop synchronizers (`COMMON_METAFLOP` instances
 of `common_cdc_sync2`, reset tied low): `SW[2]` to `ser_rx_clk_i`, the
 others to `clk_i`.
 
-The wrapper's top-level `rst` net, and the pcs RX reset seen from it, carry
+The wrapper's reset flop `rst_q`, and the pcs RX reset seen from it, carry
 the same `SYNCASYNCNET` lint waivers as the `phy` top
 ([`src/lint_waivers.yaml`](../../../../src/lint_waivers.yaml)).
 

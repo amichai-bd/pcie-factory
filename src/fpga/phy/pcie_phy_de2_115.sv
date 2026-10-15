@@ -47,13 +47,13 @@ module pcie_phy_de2_115 (
   logic [1:0]           sw_sync_q;
   logic                 rx_sw_sync_q;
 
-  // run_q is low from power-up, during the power-on count and while KEY[0]
-  // is held; rst is its inverse, one flop and an inverter, so the reset
-  // that reaches the pcs RX reset synchronizer's asynchronous set never
-  // glitches.
-  logic                 run_d;
-  logic                 run_q;
-  logic                 rst;
+  // rst_q is the stack reset, high during the power-on count and while
+  // KEY[0] is held. It is a flop with no logic after it, because it reaches
+  // the pcs RX reset synchronizer's asynchronous set (common_cdc_rst takes
+  // its source straight from a flop). It powers up 0 and goes high at the
+  // first clk_125_i edge.
+  logic                 rst_d;
+  logic                 rst_q;
 
   logic [STIM_W-1:0]    stim_d;
   logic [STIM_W-1:0]    stim_q;
@@ -99,11 +99,9 @@ module pcie_phy_de2_115 (
   `COMMON_METAFLOP(u_sw_sync, sw_sync_q, sw_core, clk_125_i, 1'b0)
   `COMMON_METAFLOP(u_rx_sw_sync, rx_sw_sync_q, sw_rx, rx_clk_i, 1'b0)
 
-  assign run_d = por_done & key_sync_q;
+  assign rst_d = ~(por_done & key_sync_q);
 
-  `COMMON_DFF(run_q, run_d, clk_125_i)
-
-  assign rst = ~run_q;
+  `COMMON_DFF(rst_q, rst_d, clk_125_i)
 
   // Serial-in shift registers: each stimulus bit is a distinct flop on the
   // domain of the input it drives. No reset; they start at 0.
@@ -119,7 +117,7 @@ module pcie_phy_de2_115 (
     .ERR_TIMEOUT_DIV (1)
   ) u_phy (
     .clk_i              (clk_125_i),
-    .rst_i              (rst),
+    .rst_i              (rst_q),
     .port_role_i        (sw_sync_q[0]),
     .pkt_tx_valid_i     (stim_q[0]),
     .pkt_tx_ready_o     (pkt_tx_ready),
