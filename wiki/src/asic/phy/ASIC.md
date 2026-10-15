@@ -67,6 +67,18 @@ from the flow's separate `clocks` step and are required
 step fails, times out or writes no clock, the run fails, and `metrics.json`
 still holds the other results.
 
+## Timing status
+
+The first nightly run (2026-10-15, at `7c267e2`) met `rx_clk` but not
+`clk`: setup WNS -1.754 ns, TNS -10.11 ns at 8 ns, logic depth 60
+([#235](https://github.com/amichai-bd/pcie-factory/issues/235)). The
+`clk` paths are one LTSSM step in the MAC, the PCS receive path through
+the elastic buffer's read side and the decoder, and the encoder's running
+disparity chain; #235 shortens them without moving a cycle
+([`mac` MAS](../../rtl/mac/MAS.md#timing),
+[`pcs` MAS](../../rtl/pcs/MAS.md#timing)). Only this flow measures the
+result: a manual `asic` workflow run, then the nightly.
+
 ## Files
 
 | File | Holds |

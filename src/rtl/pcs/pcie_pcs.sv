@@ -210,9 +210,9 @@ module pcie_pcs (
   // is locked and the second began in idle (an idle tail: the second
   // symbol goes out as EDB with no error, RECEIVE.md, Electrical idle);
   // the RxStatus precedence 4, 5, 6, 7, 1, 2, 0 (RECEIVE.md, Decode and
-  // RxStatus). An underflow word holds two all-zero symbols (elastic
-  // buffer MAS), a code error in both lanes, so the decoder already gives
-  // EDB, EDB as K symbols (a_udf_edb).
+  // RxStatus). An underflow word leaves as EDB, EDB (K): the elastic
+  // buffer's symbols are not forced in that cycle, so the decoder runs in
+  // parallel with its fill (MAS, Timing), and the register substitutes EDB.
   logic                     word_lock;
   logic                     word_tail;     // sym0 locked, sym1 began in idle
   logic                     word_code_err;
@@ -263,6 +263,10 @@ module pcie_pcs (
     if (eb_valid) begin
       rx_d.sym0 = dec.sym0.sym;
       rx_d.sym1 = word_tail ? '{k: 1'b1, data: common_pkg::SYM_EDB} : dec.sym1.sym;
+      if (eb_status.udf) begin
+        rx_d.sym0 = '{k: 1'b1, data: common_pkg::SYM_EDB};
+        rx_d.sym1 = '{k: 1'b1, data: common_pkg::SYM_EDB};
+      end
     end
     if (dec_valid) begin
       rx_d.idle = eb_rx.sym0.idle;
@@ -400,8 +404,8 @@ module pcie_pcs (
                        rl_q.err_cnt > pcie_pcs_pkg::ERR_CNT_W'(pcie_pcs_pkg::ERR_LIMIT - 1))
   // An underflow word is EDB, EDB as K symbols.
   `COMMON_ASSERT_NEVER(a_udf_edb, clk_i, pcs_rst, eb_valid && eb_status.udf
-                       && (dec.sym0.sym != '{k: 1'b1, data: common_pkg::SYM_EDB}
-                           || dec.sym1.sym != '{k: 1'b1, data: common_pkg::SYM_EDB}))
+                       && (rx_d.sym0 != '{k: 1'b1, data: common_pkg::SYM_EDB}
+                           || rx_d.sym1 != '{k: 1'b1, data: common_pkg::SYM_EDB}))
   // Electrical idle never overtakes a word: no RxValid while RxElecIdle.
   `COMMON_ASSERT_NEVER(a_no_valid_in_idle, clk_i, pcs_rst, rx_q.valid && rx_q.idle)
   // An underflow word never carries RxValid.
