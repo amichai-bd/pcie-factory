@@ -80,44 +80,39 @@ async def rtl_plumbing(dut, chan_rtl: int) -> Env:
     return env
 
 
-async def shell_contract(dut, env: Env) -> None:
-    """Shell-only: with traffic queued, the shell holds its reset contract
-    (Detect.Quiet, link down, electrical idle, no beat taken or delivered).
-    The stack RTL (#86) removes this part when the stack trains."""
-    idle_words = [0, 0]
-    start = list(env.bench.cycles)
-
-    def watch(bench, i):
-        idle_words[i] += int(bench.ports[i].s["ser_tx_elec_idle_o"].value)
-
-    env.bench.hooks.append(watch)
-    env.send(0, 4)
-    env.send(1, 4)
-    await ClockCycles(dut.a_clk_i, 2000, rising=False)
+async def rtl_link(dut, env: Env) -> None:
+    """Both RTL stacks from reset: every output at its reset value while
+    rst_i is high with the upper-layer inputs toggling at random, training
+    to L0 with link_up_o, packets both ways lossless, then both ports reset
+    while packets flow, simultaneously and then with b released up to 64
+    cycles later (reset values held, both ports retrain), each followed by
+    a lossless phase."""
+    await env.train()
     for i, p in enumerate(env.ports):
-        name = "ab"[i]
-        assert p.code == 0 and not p.link_up, f"port {name}: expected Detect.Quiet, link down"
-        assert idle_words[i] == env.bench.cycles[i] - start[i], \
-            f"port {name}: transmitter left electrical idle"
-        assert not p.tx_idle(), f"port {name}: a beat was accepted by the shell"
-        assert env.sb[1 - i].delivered == 0 and env.sb[1 - i].flagged == 0, \
-            f"port {name}: the shell delivered a packet"
+        assert p.reset_checks >= 7, (
+            f"port {'ab'[i]}: expected the reset values checked on at least 7 edges "
+            f"in the first reset, observed {p.reset_checks}")
+    await env.lossless(16)
+    for skew in (0, env.rng.randrange(1, 65)):
+        await env.reset_ports(skew=skew)
+        await env.lossless(8)
+    env.final_checks()
 
 
 @cocotb.test()
-async def e2e_rtl_shell(dut):
-    """L0, mac and pcs as RTL (the pcie_phy shell), channel model: the RTL
-    path's plumbing, then the shell's reset contract with traffic queued."""
+async def e2e_rtl_link(dut):
+    """L0, mac and pcs as RTL, channel model at -300 ppm, usp first: the
+    RTL path's plumbing, link-up, traffic and resets mid-traffic."""
     env = await rtl_plumbing(dut, 0)
-    await shell_contract(dut, env)
+    await rtl_link(dut, env)
 
 
 @cocotb.test()
-async def e2e_rtl_shell_chan(dut):
-    """L0, the same with the RTL channel (CHAN_RTL 1): the top joins the
+async def e2e_rtl_link_chan(dut):
+    """L0, the same over the RTL channel (CHAN_RTL 1): the top joins the
     lines and the environment only steps the ports."""
     env = await rtl_plumbing(dut, 1)
-    await shell_contract(dut, env)
+    await rtl_link(dut, env)
 
 
 # ---------------------------------------------------------------- level 1

@@ -65,8 +65,10 @@ for _layer in LAYERS:
     COV_LAYERS.coverpoint(_layer, bins={"model": "model", "rtl": "rtl"})
 COV_LAYERS.cross("mac_x_pcs", "mac", "pcs")
 # Block-level swaps inside a model layer (the DV plan's switch table).
-COV_LAYERS.coverpoint("tx_scrambler", bins={"mac_model": "mac_model", "block_model": "block_model"})
-COV_LAYERS.coverpoint("tx_encoder", bins={"pcs_model": "pcs_model", "block_model": "block_model"})
+COV_LAYERS.coverpoint("tx_scrambler", bins={"mac_model": "mac_model", "block_model": "block_model",
+                                             "rtl": "rtl"})
+COV_LAYERS.coverpoint("tx_encoder", bins={"pcs_model": "pcs_model", "block_model": "block_model",
+                                           "rtl": "rtl"})
 
 COV_RUN = Covergroup("phy_e2e_run")
 COV_RUN.coverpoint("a_role", bins={"downstream": "downstream", "upstream": "upstream"})
@@ -77,6 +79,26 @@ COV_RUN.cross("role_x_ppm", "a_role", "ppm")
 COV_EVENTS = Covergroup("phy_e2e_events")
 COV_EVENTS.coverpoint("impairment", bins={"flip": "flip", "slip": "slip", "idle": "idle"})
 COV_EVENTS.coverpoint("recovery", bins={"directed": "directed", "autonomous": "autonomous"})
+# A port reset while packets flow (RTL ports): reset values held, retrained.
+COV_EVENTS.coverpoint("reset", bins={"a": "a", "b": "b"})
+
+# Reset values of pcie_phy's outputs, held while rst_i is high
+# (wiki/src/arch/phy/HAS.md#clocks-and-resets); ltssm_state_o 0 is
+# Detect.Quiet.
+RESET_VALUES = {
+    "pkt_tx_ready_o": 0, "pkt_rx_valid_o": 0, "pkt_rx_sop_o": 0, "pkt_rx_eop_o": 0,
+    "pkt_rx_err_o": 0, "pkt_rx_nullify_o": 0, "link_up_o": 0, "ltssm_state_o": 0,
+    "rcv_err_o": 0, "ser_tx_elec_idle_o": 1,
+}
+
+# Upper-layer inputs an RtlPort toggles at random while its rst_i is high
+# (port_role_i stays: it changes only in reset, and the role is the run's).
+# The lower inputs are random in reset as well (RtlPort.core_edge, rx_edge).
+RESET_NOISE = {
+    "pkt_tx_valid_i": 1, "pkt_tx_data_i": 16, "pkt_tx_sop_i": 1, "pkt_tx_eop_i": 1,
+    "pkt_tx_dllp_i": 1, "pkt_tx_nullify_i": 1, "retrain_req_i": 1, "hot_reset_req_i": 1,
+    "disable_req_i": 1, "loopback_req_i": 1, "pm_state_req_i": 2,
+}
 
 COV_PKT = Covergroup("phy_e2e_packets")
 COV_PKT.coverpoint("dir", bins={"a_to_b": "a_to_b", "b_to_a": "b_to_a"})
@@ -179,12 +201,19 @@ class RtlPort:
     sampled at the falling edge of its clock, with the same protocol as
     ``ModelPort``. A beat offered at a falling edge is taken at the next
     rising edge when ``pkt_tx_ready_o`` read at that falling edge is 1
-    (the HAS makes ready a function of the MAC's state, not of valid)."""
+    (the HAS makes ready a function of the MAC's state, not of valid; it
+    holds from one rising edge to the next)."""
 
     kind = "rtl"
 
-    def __init__(self, dut, prefix: str, role: str) -> None:
+    def __init__(self, dut, prefix: str, role: str, rng: random.Random | None = None) -> None:
         self.role = role
+        self.name = prefix.rstrip("_")
+        self.rng = rng                     # set: random upper-layer inputs while in reset
+        self._rst_q = False                # rst_i was driven 1 at the last falling edge
+        self._take = False                 # the beat on offer is taken at the next rising edge
+        self.edges = 0
+        self.reset_checks = 0              # sampled edges checked against RESET_VALUES
         self.s = {n[len(prefix):]: getattr(dut, n) for n in dir(dut) if n.startswith(prefix)}
         self.rst = True
         self.tx: deque = deque()           # beats: (data16, sop, eop, dllp, nullify)
@@ -209,9 +238,19 @@ class RtlPort:
 
     def core_edge(self, rxdet: bool) -> tuple[int, bool]:
         s = self.s
-        # Sample (outputs registered at the last rising edge).
-        if self.offer is not None and int(s["pkt_tx_ready_o"].value):
+        self.edges += 1
+        # Sample (outputs registered at the last rising edge). After a rising
+        # edge with rst_i high, every output holds its reset value.
+        if self._rst_q:
+            for name, want in RESET_VALUES.items():
+                got = int(s[name].value)
+                assert got == want, (
+                    f"port {self.name} ({self.role}) in reset, edge {self.edges}: {name} "
+                    f"expected {want}, observed {got}")
+            self.reset_checks += 1
+        if self.offer is not None and self._take:
             self.offer = None              # taken at the rising edge just passed
+        ready = int(s["pkt_tx_ready_o"].value)   # holds through the next rising edge
         if int(s["pkt_rx_valid_o"].value):
             beat = int(s["pkt_rx_data_o"].value)
             if int(s["pkt_rx_sop_o"].value):
@@ -228,15 +267,33 @@ class RtlPort:
         word, ei = int(s["ser_tx_data_o"].value), bool(int(s["ser_tx_elec_idle_o"].value))
         # Drive.
         s["rst_i"].value = int(self.rst)
-        s["ser_tx_rxdet_i"].value = int(rxdet)
+        # In reset the lower inputs are random too: ser_tx_rxdet_i here, the
+        # receive lines in rx_edge (channel model; with CHAN_RTL the top
+        # drives them).
+        s["ser_tx_rxdet_i"].value = (self.rng.getrandbits(1) if self.rst and self.rng
+                                     else int(rxdet))
+        self._rst_q = self.rst
+        self._take = False
+        if self.rst:
+            # A reset drops the packet in progress (the data-link layer would
+            # replay it); whole queued packets stay queued.
+            self.offer = None
+            while self.tx and not self.tx[0][1]:
+                self.tx.popleft()
+            for name, width in RESET_NOISE.items():
+                s[name].value = self.rng.getrandbits(width) if self.rng else 0
+            return word, ei
+        for name in ("hot_reset_req_i", "disable_req_i", "loopback_req_i", "pm_state_req_i"):
+            s[name].value = 0
         s["retrain_req_i"].value = int(self._retrain)
         self._retrain = False
-        if self.offer is None and self.tx and not self.rst:
+        if self.offer is None and self.tx:
             self.offer = self.tx.popleft()
         if self.offer is None:
             s["pkt_tx_valid_i"].value = 0
         else:
             data, sop, eop, dllp, nullify = self.offer
+            self._take = bool(ready)
             s["pkt_tx_valid_i"].value = 1
             s["pkt_tx_data_i"].value = data
             s["pkt_tx_sop_i"].value = sop
@@ -246,6 +303,10 @@ class RtlPort:
         return word, ei
 
     def rx_edge(self, word: int, ei: bool) -> None:
+        """The far port's word through the channel model, on ser_rx_clk_i.
+        While this port is in reset, the receive lines are random instead."""
+        if self.rst and self.rng:
+            word, ei = self.rng.getrandbits(20), bool(self.rng.getrandbits(1))
         self.s["ser_rx_data_i"].value = word
         self.s["ser_rx_elec_idle_i"].value = int(ei)
 
@@ -324,7 +385,13 @@ class Env:
             raise ValueError(f"tx_scrambler: expected mac_model or block_model, got {tx_scrambler}")
         if tx_encoder not in ("pcs_model", "block_model"):
             raise ValueError(f"tx_encoder: expected pcs_model or block_model, got {tx_encoder}")
-        COV_LAYERS.sample(**self.layers, tx_scrambler=tx_scrambler, tx_encoder=tx_encoder)
+        # With a layer in RTL, its transmit scrambler or encoder is the RTL
+        # block inside it (the DV plan's step 0).
+        # Sampled once the pair has trained (train()), so a bin means the
+        # layer ran, not only that it was built.
+        self._cov_layers: dict | None = dict(self.layers,
+                                tx_scrambler="rtl" if self.layers["mac"] == "rtl" else tx_scrambler,
+                                tx_encoder="rtl" if self.layers["pcs"] == "rtl" else tx_encoder)
         COV_RUN.sample(a_role=a_role, ppm=ppm)
         roles = (a_role, stack.other(a_role))
         if self.layers["mac"] != self.layers["pcs"]:
@@ -343,7 +410,8 @@ class Env:
         else:
             if (tx_scrambler, tx_encoder) != ("mac_model", "pcs_model"):
                 raise ValueError("block swaps apply only inside the model layers")
-            ports = [RtlPort(dut, f"{p}_", r) for p, r in zip("ab", roles)]
+            ports = [RtlPort(dut, f"{p}_", r, random.Random(self.rng.getrandbits(32)))
+                     for p, r in zip("ab", roles)]
         skew = self.rng.randrange(skew_max + 1)
         self.bench = stack.Bench(ports, self.rng, delay_words,
                                  release=(stack.RESET_CYCLES, stack.RESET_CYCLES + skew))
@@ -391,6 +459,9 @@ class Env:
     async def train(self, limit_cycles: int = 40_000) -> int:
         """Both ports in L0 with link_up; returns a's cycles from start."""
         n = await self.until(self.bench.both_l0, limit_cycles, "training to L0")
+        if self._cov_layers is not None:
+            COV_LAYERS.sample(**self._cov_layers)
+            self._cov_layers = None
         self.log.info("both ports in L0 at a cycle %d", self.bench.cycles[0])
         for i, p in enumerate(self.ports):
             assert p.rcv_errors == 0, f"port {'ab'[i]}: {p.rcv_errors} receiver errors in training"
@@ -490,6 +561,43 @@ class Env:
         # stub does not replay, so the next lossless phase starts clean.
         for s in self.sb:
             s.next = len(s.sent)
+
+    async def reset_ports(self, cycles: int = 16, skew: int = 0, traffic: int = 12,
+                          limit_cycles: int = 40_000) -> int:
+        """Assert both RTL ports' rst_i while packets flow both ways, a's for
+        ``cycles`` of its edges and b's for ``cycles`` + ``skew`` of its own.
+        Every output holds its reset value from the first rising edge in
+        reset (RtlPort checks each sampled edge); both ports then train back
+        to L0. Packets cut by the reset are the data-link layer's to replay,
+        so the scoreboards skip what was in flight. Returns a's cycles from
+        the reset to both ports in L0.
+
+        One port reset alone leaves its partner in Recovery until the
+        error-path timeouts (24 ms at spec values), which the phy does not
+        divide; that case is not run here."""
+        assert all(isinstance(p, RtlPort) for p in self.ports), "reset_ports drives RTL ports"
+        self.send(0, traffic)
+        self.send(1, traffic)
+        await ClockCycles(self.dut.a_clk_i, 60, rising=False)   # inside the traffic
+        checks = [p.reset_checks for p in self.ports]
+        self.bench.reset(0, cycles)
+        self.bench.reset(1, cycles + skew)
+        n = await self.until(lambda: self.bench.cycles[1] > self.bench.release[1]
+                             and self.bench.both_l0(), limit_cycles,
+                             "reset mid-traffic: both ports back in L0")
+        for i, p in enumerate(self.ports):
+            want = cycles + (skew if i else 0) - 1
+            assert p.reset_checks - checks[i] >= want, (
+                f"port {'ab'[i]}: expected at least {want} edges checked in reset, "
+                f"observed {p.reset_checks - checks[i]}")
+            COV_EVENTS.sample(reset="ab"[i])
+        self.log.info("reset mid-traffic (%d cycles, skew %d): both in L0 again after %d cycles; "
+                      "scoreboards: %s", cycles, skew, n,
+                      [(s.name, s.delivered, s.lost, s.flagged, s.check_failed) for s in self.sb])
+        await self.settle()
+        for s in self.sb:
+            s.next = len(s.sent)
+        return n
 
     def final_checks(self) -> None:
         for i, p in enumerate(self.ports):
