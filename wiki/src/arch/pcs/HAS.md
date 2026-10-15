@@ -103,6 +103,30 @@ The lower ports are exactly the `phy` HAS's
 None. Depths, thresholds and timings are fixed by this page and its
 sub-pages.
 
+## Package
+
+`pcie_pcs_pkg` (`src/rtl/pcs/pcie_pcs_pkg.sv`, arriving with the first
+wave-2 RTL that needs it) owns every type and shared constant of the PCS
+and its sub-IPs. Code refers to them as `pcie_pcs_pkg::<name>` and never
+imports the package (decision Q22 in the
+[M1 epic](https://github.com/amichai-bd/pcie-factory/issues/65)). The ports
+above stay plain `logic` vectors.
+
+| Name | Kind | Holds |
+| --- | --- | --- |
+| `t_power_down` | enum, 2 bits | `P0`, `P0S`, `P1`, `P2` ([PowerDown](PIPE_CONTROL.md#powerdown)). |
+| `t_rx_status` | enum, 3 bits | The eight [RxStatus codes](RECEIVE.md#decode-and-rxstatus). |
+| `t_sym10` | 10-bit alias | One raw symbol, bit 0 first on the line. |
+| `t_eb_word` | struct, 24 bits | One elastic-buffer word: two raw symbols, the lock tag, two removed-SKP flags, the overflow flag. |
+| `K_COM`, `K_SKP`, `K_FTS`, `K_SDP`, `K_IDL`, `K_PAD`, `K_STP`, `K_END`, `K_EDB` | 8-bit constants | The [K symbols](8B10B.md#k-symbols) this design uses. |
+| `COMMA_MINUS`, `COMMA_PLUS` | 7-bit constants | The two [comma](8B10B.md#comma) forms. |
+| `EB_ADDR_W`, `EB_NOMINAL`, `EB_HIGH`, `EB_LOW`, `EB_HOLDOFF` | constants | 4, 8, 10, 6 and 8 ([elastic buffer](RECEIVE.md#elastic-buffer)). |
+| `ERR_LIMIT`, `ERR_DECAY_WORDS` | constants | 4 and 8 ([relock](RECEIVE.md#comma-alignment-and-symbol-lock)). |
+| `PHY_STATUS_RESET_CYCLES`, `RX_DETECT_CYCLES`, `POWER_ACK_CYCLES` | constants | 16, 64 and 4 ([PIPE control](PIPE_CONTROL.md)). |
+
+The RTL has no direct assertions, `$error` or `` `ifdef ``; checkers live
+in DV bind modules ([RTL BKM](../../../bkm/rtl.md#assertions)).
+
 ## Behavior
 
 ### Clocks and reset
