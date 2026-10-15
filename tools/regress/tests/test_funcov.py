@@ -45,6 +45,26 @@ def test_list_bins_are_named_after_values_and_unhashable_values_work():
     assert funcov.groups()["l"] == {"x": {"0": 0, "1": 0, "2": 2}, "w": {"empty": 1, "some": 1}}
 
 
+def test_tuple_bin_is_one_value_an_arc():
+    cg = Covergroup("arcs")
+    cg.coverpoint("arc", bins={"a__b": ("A", "B"), "b__a": ("B", "A"),
+                               "into_b": [("A", "B"), ("C", "B")]})  # a list stays a collection
+    cg.sample(arc="B")         # a bare state hits no arc
+    cg.sample(arc=("A", "B"))
+    cg.sample(arc=("A", "B"))  # memoized path
+    cg.sample(arc=("C", "B"))
+    assert funcov.groups()["arcs"]["arc"] == {"a__b": 2, "b__a": 0, "into_b": 3}
+
+
+def test_memo_tells_bool_int_and_float_apart():
+    cg = Covergroup("t")
+    cg.coverpoint("v", bins={"flag": lambda v: isinstance(v, bool), "int": lambda v: type(v) is int,
+                             "pair_flag": lambda v: isinstance(v, tuple) and isinstance(v[0], bool)})
+    for v in (True, 1, 1.0, (True, 0), (1, 0), True, 1):
+        cg.sample(v=v)
+    assert funcov.groups()["t"]["v"] == {"flag": 2, "int": 2, "pair_flag": 1}
+
+
 @pytest.mark.parametrize("build, message", [
     (lambda: Covergroup("bad name"), "covergroup name"),
     (lambda: (Covergroup("a"), Covergroup("a")), "already exists"),

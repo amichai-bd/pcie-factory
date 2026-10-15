@@ -14,10 +14,14 @@ per-run results of each IP. See wiki/tools/regress/SPEC.md#functional-coverage.
     cg.sample(valid=1, data=0x3C)
 
 Bins are a mapping from name to a value, a collection of values (``range``,
-``list``, ``set``, ...) or a predicate ``value -> bool``; a list of values
-names each bin after its value. A sampled value hits every bin it matches. A
-cross has one bin per combination of its coverpoints' bins and is hit when
-every one of its coverpoints is sampled in the same ``sample`` call.
+``list``, ``set``, ``frozenset``) or a predicate ``value -> bool``; a list of
+values names each bin after its value. A ``tuple`` is one value, not a
+collection, so ``{"a__b": ("A", "B")}`` is hit by the sampled arc
+``("A", "B")`` only. A sampled value hits every bin it matches. A cross has
+one bin per combination of its coverpoints' bins and is hit when every one of
+its coverpoints is sampled in the same ``sample`` call. Predicates must be
+pure functions of the value: ``sample`` reuses the bins computed for an equal
+value of the same type.
 
 Sampling always counts; the results are written only when the sim tool asks
 for coverage (``./build regress --coverage``), which sets ``FUNCOV_FILE`` to
@@ -53,13 +57,25 @@ def _check_name(kind: str, name) -> str:
     return name
 
 
+COLLECTIONS = (range, list, set, frozenset)  # a tuple is a single value (an arc)
+
+
 def _matcher(spec):
     if callable(spec):
         return spec
-    if isinstance(spec, (range, list, tuple, set, frozenset)):
+    if isinstance(spec, COLLECTIONS):
         values = spec
         return lambda v: v in values
     return lambda v: v == spec
+
+
+def _memo_key(value):
+    """A hashable key that tells ``True``, ``1`` and ``1.0`` apart, also
+    inside tuples; raises TypeError for an unhashable value."""
+    if isinstance(value, tuple):
+        return (tuple, tuple(_memo_key(v) for v in value))
+    hash(value)
+    return (type(value), value)
 
 
 class Covergroup:
@@ -113,7 +129,7 @@ class Covergroup:
         """Count every bin each named coverpoint's value hits, then the
         crosses whose coverpoints were all sampled."""
         try:
-            key = tuple(values.items())
+            key = tuple((k, _memo_key(v)) for k, v in values.items())
             plan = self._plans.get(key)
         except TypeError:  # an unhashable value: plan without the memo
             key, plan = None, None

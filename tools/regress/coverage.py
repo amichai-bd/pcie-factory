@@ -5,7 +5,9 @@ Each passing run of a coverage build leaves ``coverage.dat`` (Verilator line
 and toggle points) and, when its test samples a covergroup, ``funcov.json``
 (:mod:`regress.funcov`) in its test directory. Per IP, ``verilator_coverage``
 merges the ``.dat`` files and this module sums the functional bins, into
-``workdir/<ip>/coverage/``. See wiki/tools/regress/SPEC.md#coverage.
+``workdir/<ip>/coverage/``. Code points in DV-only sources (reached from
+``<ip>.sim.f`` but not ``<ip>.rtl.f``) are not counted. See
+wiki/tools/regress/SPEC.md#coverage.
 """
 
 from __future__ import annotations
@@ -47,20 +49,28 @@ def parse_dat(path: Path) -> dict[str, int]:
     return points
 
 
-def point_type(key: str) -> str | None:
-    """The ``t`` field of a point key (fields are \\x01name\\x02value)."""
+def point_field(key: str, field: str) -> str | None:
+    """One field of a point key (fields are \\x01name\\x02value)."""
     for item in key.split("\x01"):
         name, sep, value = item.partition("\x02")
-        if sep and name == "t":
+        if sep and name == field:
             return value
     return None
 
 
-def code_metrics(points: dict[str, int]) -> dict[str, dict]:
-    """Covered and total points per code metric."""
+def point_type(key: str) -> str | None:
+    """The ``t`` (point type) field of a point key."""
+    return point_field(key, "t")
+
+
+def code_metrics(points: dict[str, int], exclude: frozenset[Path] = frozenset()) -> dict[str, dict]:
+    """Covered and total points per code metric, leaving out points whose
+    source file (the ``f`` field, resolved) is in ``exclude``."""
     out = {m: {"covered": 0, "total": 0} for m in ("line", "toggle")}
     for key, count in points.items():
         metric = POINT_TYPES.get(point_type(key) or "")
+        if metric and exclude and Path(point_field(key, "f") or "").resolve() in exclude:
+            continue
         if metric:
             out[metric]["total"] += 1
             out[metric]["covered"] += count > 0
@@ -85,20 +95,26 @@ def merge_dat(tool: Path, inputs: list[Path], out: Path) -> None:
                             f"{(proc.stderr or proc.stdout).strip()[:500]}")
 
 
-def merge_ip(ip_dir: Path, test_dirs: list[Path], tool: Path | None) -> dict:
-    """Merge one IP's runs into ``ip_dir`` (replaced) and return its entry."""
+def merge_ip(ip_dir: Path, test_dirs: list[Path], tool: Path | None,
+             exclude: frozenset[Path] = frozenset()) -> dict:
+    """Merge one IP's passing runs into ``ip_dir`` (replaced) and return its
+    entry; code points in ``exclude`` (DV-only sources) are not counted."""
     shutil.rmtree(ip_dir, ignore_errors=True)
     ip_dir.mkdir(parents=True, exist_ok=True)
     dats = [d / sim.COVERAGE_DAT for d in test_dirs if (d / sim.COVERAGE_DAT).is_file()]
     fcov = [d / sim.FUNCOV_JSON for d in test_dirs if (d / sim.FUNCOV_JSON).is_file()]
     entry: dict = {"runs": len(test_dirs), "dat_files": len(dats), "funcov_files": len(fcov)}
+    no_dat = [d for d in test_dirs if not (d / sim.COVERAGE_DAT).is_file()]
+    entry["warnings"] = [f"{len(no_dat)} passing run(s) left no {sim.COVERAGE_DAT}: "
+                         + ", ".join(f"{d.parent.name}/{d.name}" for d in no_dat[:5])
+                         + (", ..." if len(no_dat) > 5 else "")] if no_dat else []
     code = {m: {"covered": 0, "total": 0} for m in ("line", "toggle")}
     if dats:
         if tool is None:
             raise CoverageError("verilator_coverage is needed to merge coverage.dat files")
         merged = ip_dir / "merged.dat"
         merge_dat(tool, dats, merged)
-        code = code_metrics(parse_dat(merged))
+        code = code_metrics(parse_dat(merged), exclude)
     for m in ("line", "toggle"):
         entry[m] = {**code[m], "pct": _round(pct(code[m]["covered"], code[m]["total"]))}
     merged_f = funcov.merge([funcov.load(p) for p in fcov])
@@ -108,7 +124,10 @@ def merge_ip(ip_dir: Path, test_dirs: list[Path], tool: Path | None) -> dict:
                    indent=1, sort_keys=True) + "\n")
     entry["functional"] = {"covered": fsum["covered"], "total": fsum["total"],
                            "pct": _round(pct(fsum["covered"], fsum["total"])),
-                           "uncovered": len(fsum["uncovered"])}
+                           "uncovered": len(fsum["uncovered"]),
+                           "groups": {g: {"covered": s["covered"], "total": s["total"],
+                                          "pct": _round(pct(s["covered"], s["total"]))}
+                                      for g, s in fsum["groups"].items()}}
     return entry
 
 
@@ -116,34 +135,62 @@ def _round(v: float | None) -> float | None:
     return None if v is None else round(v, 2)
 
 
-def check_floors(entry: dict, floors: dict[str, tuple[float, str]]) -> list[str]:
+def _floor_order(key) -> tuple:
+    """Metrics in METRICS order; per-covergroup floors after ``functional``."""
+    metric, group = (key, "") if isinstance(key, str) else key
+    return (METRICS.index(metric), group)
+
+
+def check_floors(entry: dict, floors: dict) -> list[str]:
     """Failure messages for every floor ``entry`` misses. ``floors`` maps a
-    metric to (percent, the level file that set it). A metric with no points
-    misses any floor."""
+    metric, or ("functional", covergroup), to (percent, the level file that
+    set it). A metric with no points, or a covergroup absent from the merged
+    results, misses any floor."""
     failures = []
-    for metric in METRICS:
-        if metric not in floors:
-            continue
-        floor, where = floors[metric]
-        m = entry[metric]
+    for key in sorted(floors, key=_floor_order):
+        floor, where = floors[key]
+        if isinstance(key, tuple):
+            group = key[1]
+            name = f"functional covergroup {group}"
+            m = entry["functional"].get("groups", {}).get(group)
+            if m is None:
+                failures.append(f"{name} is not in the merged results (no passing run declared it), "
+                                f"below its floor of {floor:g}% ({where})")
+                continue
+        else:
+            name, m = key, entry[key]
         value = pct(m["covered"], m["total"])
         if value is None:
-            failures.append(f"{metric} has no coverage points, below its floor of {floor:g}% ({where})")
+            failures.append(f"{name} has no coverage points, below its floor of {floor:g}% ({where})")
         elif value < floor:
-            failures.append(f"{metric} {value:.2f}% ({m['covered']}/{m['total']}) is below its floor "
+            failures.append(f"{name} {value:.2f}% ({m['covered']}/{m['total']}) is below its floor "
                             f"of {floor:g}% ({where})")
     return failures
 
 
-def effective_floors(level_floors: dict[int, dict[str, float]], levels: list[int],
-                     names: dict[int, str]) -> dict[str, tuple[float, str]]:
-    """The highest floor per metric over the selected levels."""
-    out: dict[str, tuple[float, str]] = {}
+def effective_floors(level_floors: dict[int, dict], levels: list[int], names: dict[int, str]) -> dict:
+    """The highest floor per metric, and per covergroup for a per-covergroup
+    ``functional`` floor, over the selected levels."""
+    out: dict = {}
     for level in sorted(levels):
         for metric, value in level_floors.get(level, {}).items():
-            if metric not in out or value > out[metric][0]:
-                out[metric] = (value, names[level])
+            items = ({(metric, g): v for g, v in value.items()} if isinstance(value, dict)
+                     else {metric: value})
+            for key, v in items.items():
+                if key not in out or v > out[key][0]:
+                    out[key] = (v, names[level])
     return out
+
+
+def floors_doc(floors: dict) -> dict:
+    """The summary's ``floors``: metric -> percent, and per-covergroup
+    functional floors under ``covergroups``."""
+    doc: dict = {k: v for k, (v, _) in sorted(floors.items(), key=lambda i: _floor_order(i[0]))
+                 if isinstance(k, str)}
+    groups = {k[1]: v for k, (v, _) in floors.items() if isinstance(k, tuple)}
+    if groups:
+        doc["covergroups"] = dict(sorted(groups.items()))
+    return doc
 
 
 def report_lines(cov: dict) -> list[str]:

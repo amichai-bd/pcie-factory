@@ -10,6 +10,7 @@ from pathlib import Path
 import yaml
 
 from build.ip import RESERVED_TEST_NAMES, Ip
+from regress.funcov import NAME_RE as COVERGROUP_RE
 
 LEVELS = (0, 1, 2)
 
@@ -139,9 +140,14 @@ def load_level(ip: Ip, level: int) -> list[TestEntry]:
     return [parse_entry(raw, ip.id, level, f"{path}: tests[{i}]") for i, raw in enumerate(data["tests"])]
 
 
-def load_floors(ip: Ip) -> dict[int, dict[str, float]]:
+def _percent(value) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and 0 <= value <= 100
+
+
+def load_floors(ip: Ip) -> dict[int, dict[str, float | dict[str, float]]]:
     """Coverage floors (percent) per level of one IP; levels without
-    ``coverage_floors`` are absent."""
+    ``coverage_floors`` are absent. ``functional`` is a percent over all
+    covergroups or a mapping of covergroup name to percent."""
     out = {}
     for level in LEVELS:
         data = _level_data(ip, level)
@@ -155,10 +161,25 @@ def load_floors(ip: Ip) -> dict[int, dict[str, float]]:
         if unknown:
             raise SchemaError(f"{where}: unknown metric(s): {', '.join(sorted(map(str, unknown)))} "
                               f"(known: {', '.join(FLOOR_METRICS)})")
+        floors: dict[str, float | dict[str, float]] = {}
         for metric, value in raw.items():
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 100:
-                raise SchemaError(f"{where}: {metric} must be a percentage in [0, 100]")
-        out[level] = {m: float(v) for m, v in raw.items()}
+            if metric == "functional" and isinstance(value, dict):
+                if not value:
+                    raise SchemaError(f"{where}: functional must be a percentage or a non-empty "
+                                      f"mapping of covergroup to percentage")
+                for group, pct in value.items():
+                    if not isinstance(group, str) or not COVERGROUP_RE.match(group):
+                        raise SchemaError(f"{where}: functional: covergroup name {group!r} must match "
+                                          f"{COVERGROUP_RE.pattern}")
+                    if not _percent(pct):
+                        raise SchemaError(f"{where}: functional: {group} must be a percentage in [0, 100]")
+                floors[metric] = {g: float(v) for g, v in value.items()}
+            elif _percent(value):
+                floors[metric] = float(value)
+            else:
+                raise SchemaError(f"{where}: {metric} must be a percentage in [0, 100]"
+                                  + (" or a mapping of covergroup to percentage" if metric == "functional" else ""))
+        out[level] = floors
     return out
 
 

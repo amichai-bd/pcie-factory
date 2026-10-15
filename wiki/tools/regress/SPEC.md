@@ -180,8 +180,10 @@ when it finishes, even if it selected no tests:
       "runs": 1, "dat_files": 1, "funcov_files": 1, "dir": "a/coverage",
       "line": {"covered": 15, "total": 15, "pct": 100.0},
       "toggle": {"covered": 218, "total": 228, "pct": 95.61},
-      "functional": {"covered": 14, "total": 19, "pct": 73.68, "uncovered": 5},
-      "floors": {"line": 90.0}, "failures": []}},
+      "functional": {"covered": 14, "total": 19, "pct": 73.68, "uncovered": 5,
+                     "groups": {"a_ctrl": {"covered": 14, "total": 19, "pct": 73.68}}},
+      "floors": {"line": 90.0, "covergroups": {"a_ctrl": 70.0}},
+      "failures": [], "warnings": []}},
     "passed": true},
   "passed": true
 }
@@ -198,10 +200,14 @@ The fields mean the following:
 - `coverage` is `null` without `--coverage`. Otherwise it holds, per
   selected IP, the passing runs merged (`runs`) and the files found, each
   metric's `covered`, `total` and `pct` (2 decimals; `null` with no
-  points), the floors that applied, and the floor failure messages;
-  `coverage.passed` is false when any IP missed a floor.
-- `passed` is true only when every build and every test passed, and no
-  coverage floor was missed.
+  points), the same per covergroup under `functional.groups`, the floors
+  that applied (per-covergroup functional floors under
+  `floors.covergroups`), the floor failure messages and the merge warnings;
+  `coverage.passed` is false when any IP missed a floor. When the coverage
+  could not be merged, `coverage` is `{"error": "<message>"}` instead and
+  the test results are still recorded.
+- `passed` is true only when every build and every test passed, and, with
+  `--coverage`, the coverage was merged and no floor was missed.
 
 ## Coverage
 
@@ -221,22 +227,35 @@ it), so coverage and plain builds never share one. Each test run writes
 `coverage.dat` (via `+verilator+coverage+file+`) and, when its test samples a
 covergroup, `funcov.json` into its test directory.
 
-**Merge.** Only runs that passed are merged. Per IP,
+**Merge.** Only runs that passed are merged: a failing run may have
+reached code or bins without its checks holding, so its coverage would
+credit behaviour that was not verified. A passing run that left no
+`coverage.dat` prints `warning: coverage: <ip>: <n> passing run(s) left no
+coverage.dat: <test>/<seed>, ...` to stderr and is listed in the IP's
+`warnings`; it doesn't change the exit code. Per IP,
 `verilator_coverage --write` (installed next to `verilator`) merges the
 `.dat` files, and the functional bins are summed over runs, the bin set
 being their union. A missing `verilator_coverage`, a failed merge or an
-unreadable `funcov.json` is an error (exit code 2). Output, replaced on
+unreadable `funcov.json` is an error: the tests still run, the summary
+records `coverage: {"error": ...}`, the run prints
+`error: coverage: <message>` and exits with code 2. Output, replaced on
 every coverage run of the IP:
 
 | Path | Content |
 | --- | --- |
 | `workdir/<ip>/coverage/merged.dat` | Merged Verilator coverage; `verilator_coverage --annotate <dir> merged.dat` shows it per source line. |
-| `workdir/<ip>/coverage/merged.info` | The same as an lcov `.info` file. |
+| `workdir/<ip>/coverage/merged.info` | `verilator_coverage --write-info` output for lcov tools. It encodes every point as lcov branch data (`BRF`/`BRH`, no `LF`/`LH`), so lcov's line percentages don't match the table. |
 | `workdir/<ip>/coverage/functional.json` | Merged bins per covergroup and item, and a summary with every uncovered bin as `group.item.bin`. |
 
-Coverage covers the IP's whole `sim.f`, so a parent IP's code coverage
-includes its sub-IPs' RTL as its tests exercise it. A metric with no points
-(for example, no test samples a covergroup) is reported `n/a`.
+Code coverage counts the RTL that `<ip>.rtl.f` reaches, so a parent IP's
+code coverage includes its sub-IPs' RTL as its tests exercise it. Points in
+DV-only sources (files `<ip>.sim.f` reaches through `<ip>.dv.f` but
+`<ip>.rtl.f` does not, such as testbench tops and bind checkers) are left out
+of the table and the floors; `merged.dat` and `merged.info` still hold
+them. A point is attributed to the file Verilator reports, so an
+`` `include``d file counts unless it is itself a DV-only source. A metric
+with no points (for example, no test samples a covergroup) is reported
+`n/a`.
 
 **Table.** After the level totals, the run prints one row per selected IP:
 
@@ -261,15 +280,33 @@ A level file may set floors, in percent, for any of the three metrics:
 coverage_floors: {line: 90, toggle: 70, functional: 100}
 ```
 
+`functional` is either one number or a mapping of covergroup name to
+percent:
+
+```yaml
+coverage_floors: {line: 90, functional: {a_arcs: 100, a_data: 80}}
+```
+
 - Each value is a number in `[0, 100]`; the mapping is non-empty and holds
-  only `line`, `toggle` and `functional`. Anything else is a validation
-  error (exit code 2), like a bad test entry.
+  only `line`, `toggle` and `functional`. A per-covergroup mapping is
+  non-empty and its names follow the covergroup name rule. Anything else is
+  a validation error (exit code 2), like a bad test entry.
+- **Aggregation.** Every bin counts once, coverpoint and cross bins alike,
+  whatever its hit count. A number for `functional` applies to all of the
+  IP's covergroups combined: covered bins of every covergroup over all
+  their bins. A per-covergroup floor applies to that covergroup's bins
+  alone; covergroups it doesn't name have no floor.
 - Floors are checked only with `--coverage`, and only the floors of
   selected levels apply. When several selected levels set a floor for the
-  same metric, the highest one applies.
+  same metric, or the same covergroup, the highest one applies. A combined
+  `functional` floor and per-covergroup floors from different levels both
+  apply.
 - The merged value must be at least the floor. A metric with no points
-  misses any floor. Each miss prints
+  misses any floor, and so does a named covergroup that is not in the
+  merged results (no passing run declared it, for example a misspelled
+  name). Each miss prints
   `error: coverage floor: <ip>: <metric> <value>% (<hit>/<total>) is below its floor of <floor>% (level<N>.yaml)`
+  (`<metric>` is `functional covergroup <name>` for a per-covergroup floor)
   to stderr and makes the run fail (exit code 1), even when every test
   passed.
 
@@ -292,10 +329,12 @@ COV.cross("valid_x_data", "valid", "data")     # one bin per combination
 COV.sample(valid=1, data=0x3C)                 # every matching bin counts
 ```
 
-- A bin is a value, a collection of values (`range`, list, set) or a
-  predicate. A sampled value hits every bin it matches. A cross bin is hit
-  when each of its coverpoints is sampled in the same `sample` call and hits
-  that bin.
+- A bin is a value, a collection of values (`range`, list, set,
+  frozenset) or a predicate. A tuple is one value, not a collection:
+  `("A", "B")` is hit by the sampled tuple `("A", "B")` only, never by a
+  bare `"A"` or `"B"`. A sampled value hits every bin it matches. A cross
+  bin is hit when each of its coverpoints is sampled in the same `sample`
+  call and hits that bin.
 - Group, coverpoint, cross and bin names match
   `[A-Za-z0-9_][A-Za-z0-9_.-]*`; a duplicate name, an empty bin set, a cross
   of fewer than two known coverpoints or an unknown coverpoint in `sample`
@@ -306,7 +345,45 @@ COV.sample(valid=1, data=0x3C)                 # every matching bin counts
   is `{"schema": 1, "groups": {group: {item: {bin: hits}}}}`, cross bins
   named `<bin>,<bin>`.
 - Repeated samples reuse the increments computed for the same values, so
-  sampling every cycle stays cheap (about 1 µs a sample).
+  sampling every cycle stays cheap (about 1 µs a sample). Values are the
+  same when they are equal and of the same type, also inside tuples, so
+  `True`, `1` and `1.0` are different values. A predicate is therefore
+  evaluated once per distinct value and must be a pure function of it: no
+  state, no time, no reads of the DUT.
+
+**Worked example: state-machine arcs.** To require every listed arc of a
+state machine at L2, declare one covergroup whose bins are the named arcs,
+each a `(from, to)` tuple, and sample it once per transition:
+
+```python
+from regress.funcov import Covergroup
+
+ARCS = Covergroup("a_fsm_arcs")
+ARCS.coverpoint("arc", bins={
+    "idle__busy": ("IDLE", "BUSY"),
+    "busy__done": ("BUSY", "DONE"),
+    "busy__idle": ("BUSY", "IDLE"),            # abort
+    "done__idle": ("DONE", "IDLE"),
+})
+
+prev = "IDLE"
+...                                            # on every observed state change:
+ARCS.sample(arc=(prev, state))
+prev = state
+```
+
+An arc that isn't listed, such as a self-loop, hits no bin, and a sampled
+bare state never does. A per-covergroup floor in the IP's `level2.yaml`
+then requires every listed arc, merged over all L2 runs and seeds, without
+holding the IP's other covergroups to 100%:
+
+```yaml
+coverage_floors: {functional: {a_fsm_arcs: 100}}
+```
+
+A missed arc fails the run with
+`error: coverage floor: a: functional covergroup a_fsm_arcs 75.00% (3/4) is below its floor of 100% (level2.yaml)`,
+and `functional.json` lists it as `a_fsm_arcs.arc.<arc>`.
 
 ## Budgets
 
@@ -322,4 +399,5 @@ When a level's total `runtime_s` exceeds its budget, the run prints
 
 - `0`: every selected test passed.
 - `1`: any build or test didn't pass, or a coverage floor was missed.
-- `2`: a usage or configuration error.
+- `2`: a usage or configuration error, or, with `--coverage`, coverage
+  that could not be merged (the summary is still written).
