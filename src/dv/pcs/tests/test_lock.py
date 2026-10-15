@@ -353,4 +353,3 @@ async def rx_align_long(dut):
     rx, runs = await run_link(dut, b, ppm, "align_long")
     dut._log.info("align_long: %d slips, %d flips, %d runs", len(b.line.slips),
                   len(b.line.flips), len(runs))
-
