@@ -67,6 +67,7 @@ EIDL = (1, 0x7C)    # K28.3, the IDL symbol of an EIOS
 TS1_ID, TS2_ID = 0x4A, 0x45         # D10.2, D5.2 [cite: PCIe Base Spec, rev 3.0, §4.2.4.1]
 RATE_GEN1 = 0x02                    # 2.5 GT/s supported
 CTL_HOT_RESET, CTL_DISABLE, CTL_LOOPBACK = 0x01, 0x02, 0x04
+CTL_NO_SCRAMBLE = 0x08              # Disable Scrambling (SYMBOLS.md, Scrambling)
 D21_5, D10_2 = 0xB5, 0x4A           # compliance pattern data symbols [cite: PCIe Base Spec, rev 3.0, §4.2.8]
 
 ROLES = ("downstream", "upstream")
@@ -389,6 +390,8 @@ class Mac:
         self.partner_n_fts = 255
         self.rx_link: int | None = None      # link number in use (upstream: learned)
         self.polarity = False
+        self.scr_off = False                 # scrambling disabled (SYMBOLS.md, Scrambling)
+        self.came_from = DQ
         # PIPE
         self.pd = P1
         self.pd_pending = False
@@ -427,6 +430,13 @@ class Mac:
         if old == L0:
             self._exit_l0()
         self._arc(old, new)
+        # Disable Scrambling takes effect on entry to Configuration.Idle and
+        # ends in Detect.Quiet (SYMBOLS.md, Scrambling).
+        if old == CC and new == CI and (self.dscr_rx or self.dscr_sent):
+            self.scr_off = True
+        if new == DQ:
+            self.scr_off = False
+        self.came_from = old
         self.state = new
         self._enter_state(new)
 
@@ -489,6 +499,9 @@ class Mac:
         self.sent_after_mism: int | None = None
         self.idle8 = False                     # 8 consecutive idle symbols seen (latched)
         self.eios_rx = False
+        self.ei_after_eios = False             # Disabled: electrical idle after an EIOS
+        self.dscr_rx = False                   # Configuration.Complete: 2 TS2 with Disable Scrambling
+        self.dscr_sent = False                 # ... or a TS2 sent with it (injection only)
         self.main_ei_seen = False
         self.main_ei_exit = False
         self.left_ei = False
@@ -549,7 +562,9 @@ class Mac:
                                 and t.lane is not None and t.lane != 0),)
         elif s == CC:
             self.deadline = self.now + self.err(T2MS)
-            self.preds = (("go", ts_(("TS2",), n, 0)),)
+            self.preds = (("go", ts_(("TS2",), n, 0)),
+                          ("dscr", lambda t: t.kind == "TS2" and t.link == n and t.lane == 0
+                           and bool(t.ctl & CTL_NO_SCRAMBLE)))
         elif s in (CI, RI):
             self.deadline = self.now + self.err(T2MS)
             if s == RI:
@@ -594,6 +609,13 @@ class Mac:
             self.send_eios = True
         if s == LBE:
             self.directed_lb = self.directed
+        if s in (DIS, LBE):
+            # TS link and lane as in the state the port came from: Linkwidth.Start's,
+            # else link N and lane 0 (LTSSM.md, What each state transmits).
+            if self.came_from == LWS:
+                self.ctl_fields = (self.link_number if self.dsp else None, None)
+            else:
+                self.ctl_fields = (n, 0)
         self.runs = {name: 0 for name, _ in self.preds}
 
     @property
@@ -634,6 +656,8 @@ class Mac:
     def _rx_word(self, rx: PipeRx) -> None:
         ei = rx.elec_idle
         self.rx_ei = ei
+        if ei and self.eios_rx:
+            self.ei_after_eios = True
         if ei:
             self.main_ei_seen = True
             self.sub_ei_seen = True
@@ -702,7 +726,7 @@ class Mac:
                 self.lb_errors += 1
             self._lb_expect = (b + 1) & 0xFF
             return
-        d = scr.feed(k, b, True)
+        d = scr.feed(k, b, not self.scr_off)
         in_l0 = self.state == L0 and self.rx_sub == RL0
         if k:
             self.idle_run = 0
@@ -793,6 +817,8 @@ class Mac:
             self.mism8 = True
         if runs.get("hr", 0) >= 2:
             self.hr_last = self.now
+        if runs.get("dscr", 0) >= 2:
+            self.dscr_rx = True
 
     def _on_skp(self) -> None:
         if self.state == L0 and self.rx_sub == RF and not self.inject.freeze:
@@ -903,7 +929,8 @@ class Mac:
                 if not self.disable_req and self.disable_ts_left == 0 and not self.txq \
                         and self.tx_ei:
                     self._go(DQ)
-            elif (self.eios_rx and self.main_ei_exit) or (timeout and not self.eios_rx):
+            elif (self.eios_rx and self.ei_after_eios and not self.rx_ei) or (
+                    timeout and not self.eios_rx):
                 self._go(DQ)
         elif s == HR:
             if self.directed:
@@ -1020,7 +1047,7 @@ class Mac:
             return "dis" if self.disable_ts_left else "ei"
         if s == L0:
             return "ei" if self.tx_sub in (TE, TI) or self.pm_wait else "l0"
-        if s == LBA and not self.lb_master:
+        if (s == LBA and not self.lb_master) or (s == LBE and not self.directed):
             return "loop"
         return "act"
 
@@ -1087,8 +1114,8 @@ class Mac:
                 self._refill(mode)
         a, b = self.txq.popleft(), self.txq.popleft()
         scr = self.tx_scr
-        s0 = (a[0], scr.feed(a[0], a[1], a[2]))
-        s1 = (b[0], scr.feed(b[0], b[1], b[2]))
+        s0 = (a[0], scr.feed(a[0], a[1], a[2] and not self.scr_off))
+        s1 = (b[0], scr.feed(b[0], b[1], b[2] and not self.scr_off))
         # TxCompliance on the first word of each pattern unit; pattern words
         # are not counted for the SKP schedule (SYMBOLS.md, SKP schedule).
         compliance = self.compl_words == 2
@@ -1110,6 +1137,8 @@ class Mac:
         n_fts = f.get("n_fts", self.n_fts)
         ctl = f.get("ctl", ctl)
         ident = TS1_ID if kind == "TS1" else TS2_ID
+        if self.state == CC and kind == "TS2" and ctl & CTL_NO_SCRAMBLE:
+            self.dscr_sent = True
         q = self.txq
         q.append((1, 0xBC, False, False))
         q.append((1, 0xF7, False, False) if link is None else (0, link, False, False))
@@ -1172,13 +1201,12 @@ class Mac:
         elif s == HR:
             self._queue_ts("TS1", n, 0, CTL_HOT_RESET)
         elif s == DIS:
-            self._queue_ts("TS1", n, 0 if n is not None else None, CTL_DISABLE)
+            self._queue_ts("TS1", *self.ctl_fields, CTL_DISABLE)
             self.disable_ts_left -= 1
             if self.disable_ts_left == 0:
                 self.send_eios = True
-        elif s == LBE:
-            lane = 0 if n is not None else None
-            self._queue_ts("TS1", n, lane, CTL_LOOPBACK if self.directed else 0)
+        elif s == LBE:                         # the master only; a slave loops
+            self._queue_ts("TS1", *self.ctl_fields, CTL_LOOPBACK)
         elif s == LBA:
             self.txq.extend(((0, self.lb_count, False, False),
                              (0, (self.lb_count + 1) & 0xFF, False, False)))
