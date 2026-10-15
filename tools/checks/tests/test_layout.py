@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from build import ip
 from build.ip import REPO_ROOT, discover
 from checks import layout
 from checks.common import CheckConfigError
@@ -115,8 +116,11 @@ GROUPS = {"cdc": ("common_cdc_*",), "ram": ("common_*_ram", "common_*_ram_*")}
 
 def test_shared_groups(good):
     write(good / "rtl/common/common_macros.rtl.f")   # matches no group: stays at the root
+    write(good / "rtl/common/common_pkg.sv")
     write(good / "rtl/common/cdc/common_cdc_a.rtl.f")
+    write(good / "rtl/common/cdc/common_cdc_a.sv")
     write(good / "rtl/common/ram/common_sp_ram.rtl.f")
+    write(good / "rtl/common/ram/common_sp_ram.sv")
     write(good / "rtl/common/ram/common_sp_ram_held.rtl.f")
     assert layout.run(good, discover(good), None, GROUPS).passed
     write(good / "rtl/common/common_cdc_b.rtl.f")     # a crossing cell outside cdc/
@@ -135,6 +139,66 @@ def test_shared_groups(good):
     ]
     # Without the group rules only the folder shape is checked.
     assert layout.run(good, discover(good), None).passed
+
+
+def test_shared_group_rules_apply_to_every_source(good):
+    # A cell's source is judged by its file stem, whatever filelist lists it:
+    # a crossing cell in ram/ or at the root fails, as does a RAM in cdc/.
+    write(good / "rtl/common/ram/common_sp_ram.rtl.f",
+          "common_sp_ram.sv\ncommon_cdc_x.sv\n")
+    write(good / "rtl/common/ram/common_sp_ram.sv")
+    write(good / "rtl/common/ram/common_cdc_x.sv")
+    write(good / "rtl/common/common_cdc_y.sv")
+    write(good / "rtl/common/cdc/common_sp_ram_wt.sv")
+    # Anything two folders down is out of place, a cell included.
+    write(good / "rtl/common/cdc/deep/common_cdc_z.sv")
+    write(good / "rtl/common/cdc/deep/notes.txt")
+    assert layout.run(good, discover(good), None, GROUPS).findings == [
+        "rtl/common/cdc/common_sp_ram_wt.sv: source common_sp_ram_wt belongs in "
+        "rtl/common/ram/ (it matches common_*_ram, common_*_ram_*)",
+        "rtl/common/cdc/deep/common_cdc_z.sv: rtl/common/ holds files only directly in it or "
+        "in a group folder <group>/",
+        "rtl/common/cdc/deep/notes.txt: rtl/common/ holds files only directly in it or in a "
+        "group folder <group>/",
+        "rtl/common/common_cdc_y.sv: source common_cdc_y belongs in rtl/common/cdc/ "
+        "(it matches common_cdc_*)",
+        "rtl/common/ram/common_cdc_x.sv: source common_cdc_x belongs in rtl/common/cdc/ "
+        "(it matches common_cdc_*)",
+    ]
+    # The depth rule holds without the group rules too.
+    assert run(good).findings == [
+        "rtl/common/cdc/deep/common_cdc_z.sv: rtl/common/ holds files only directly in it or "
+        "in a group folder <group>/",
+        "rtl/common/cdc/deep/notes.txt: rtl/common/ holds files only directly in it or in a "
+        "group folder <group>/",
+    ]
+
+
+def test_name_in_two_groups(good):
+    write(good / "rtl/common/cdc/common_cdc_ram.rtl.f")
+    write(good / "rtl/common/cdc/common_cdc_ram.sv")
+    assert layout.run(good, discover(good), None, GROUPS).findings == [
+        "rtl/common/cdc/common_cdc_ram.rtl.f: block common_cdc_ram matches more than one group "
+        "(cdc, ram); fix cfg/checks.yaml layout.shared_groups",
+        "rtl/common/cdc/common_cdc_ram.sv: source common_cdc_ram matches more than one group "
+        "(cdc, ram); fix cfg/checks.yaml layout.shared_groups",
+    ]
+
+
+def test_cli_reports_a_cell_outside_its_group(good, capsys):
+    write(good / "rtl/common/common_cdc_out.sv")
+    assert main(["check", "--src-root", str(good), "--only", "layout"]) == 1
+    out = capsys.readouterr().out
+    assert "rtl/common/common_cdc_out.sv: source common_cdc_out belongs in rtl/common/cdc/" in out
+
+
+def test_cli_bad_layout_config_exits_2(good, tmp_path, monkeypatch, capsys):
+    repo = tmp_path / "repo"
+    (repo / "cfg").mkdir(parents=True)
+    (repo / "cfg/checks.yaml").write_text("layout: {shared_groups: {cdc: []}}\n")
+    monkeypatch.setattr(ip, "REPO_ROOT", repo)
+    assert main(["check", "--src-root", str(good), "--only", "layout"]) == 2
+    assert "layout.shared_groups.cdc" in capsys.readouterr().err
 
 
 def test_repository_groups_load():

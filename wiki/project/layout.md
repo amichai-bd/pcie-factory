@@ -105,9 +105,10 @@ do not change with the folder:
 
 `layout.shared_groups` in [`cfg/checks.yaml`](../../cfg/checks.yaml) lists
 each group folder with the block-name patterns it holds; the `layout`
-check fails a block outside the folder its name matches, a block in a
-group folder its name does not match, an unlisted group folder, and any
-filelist deeper than one group folder. A new group is a reviewed change to
+check fails a block or a `.sv` source (by its file stem) outside the
+folder its name matches, one in a group folder its name does not match, a
+name that matches two groups, an unlisted group folder, and any file
+deeper than one group folder. A new group is a reviewed change to
 that list and to this table.
 
 The shared blocks are verified together as the **shared unit**, id

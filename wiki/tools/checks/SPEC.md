@@ -85,7 +85,9 @@ IPs, sub-IPs and top-level IPs are as the
   group folder `rtl/common/<group>/`, each a shared block named
   `common_<name>.rtl.f`, and `dv/common/` holds no filelist but
   `common.dv.f` and `common.sim.f` (the shared unit). Anything else is
-  `<path>: rtl/common/ holds no filelist but ...`.
+  `<path>: rtl/common/ holds no filelist but ...`. No other file sits
+  deeper than one group folder either (`<path>: rtl/common/ holds files
+  only directly in it or in a group folder <group>/`).
 - **Shared-block groups.** `layout.shared_groups` in `cfg/checks.yaml` maps
   each group folder name (lower case) to its block-name `fnmatch` patterns
   (each starting `common_`); a missing or malformed section is a
@@ -93,7 +95,11 @@ IPs, sub-IPs and top-level IPs are as the
   - a block whose name matches a group's pattern but that is not in that
     group's folder (`<path>: block <b> belongs in rtl/common/<group>/ ...`);
   - a block in a group folder that matches none of that group's patterns;
-  - a block that matches more than one group;
+  - a block that matches more than one group (`<path>: block <b> matches
+    more than one group (<g1>, <g2>); fix cfg/checks.yaml layout.shared_groups`);
+  - the same three rules for every `.sv` under `rtl/common/`, by its file
+    stem (`<path>: source <stem> belongs in ...`), so a cell's source cannot
+    sit apart from its group whatever filelist lists it;
   - a folder in `rtl/common/` that is not a listed group.
 
   Blocks that match no group stay directly in `rtl/common/`.
@@ -844,8 +850,9 @@ Fixtures live in `tools/checks/tests/fixtures/`:
 Tests also build variants in temporary directories: the superseded
 IP-first tree, a nested sub-IP, a sub-IP with `arch/`, `fpga/` or `asic/`, a
 folder that names no IP, misnamed or too deeply nested filelists in the shared folders, the
-shared-block group rules (a block outside its group, in the wrong group or in an unlisted folder)
-and their configuration, and a reached IP without its includer's prefix
+shared-block group rules (a block or a source outside its group, in the wrong group, in two
+groups, two folders down or in an unlisted folder), their configuration, and both through the
+command line (exit 1 on a finding, exit 2 on a bad `layout` section), and a reached IP without its includer's prefix
 staying top-level with `arch/`, `fpga/` and `asic/` while a prefixed one is a sub-IP, and
 an unconfirmed parent prefix (`test_layout.py`), one bad case per style
 rule (every design rule, include rule and `cdc-cell-macro` included),

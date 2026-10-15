@@ -1,4 +1,4 @@
-"""Parameter limits of the shared RAM family (wiki/src/dv/common/common_*ram*.md).
+"""Parameter limits of the shared RAM family (wiki/src/dv/common/ram/common_*ram*.md).
 
 A rejected parameter set cannot be simulated, so this test lints each RAM
 block with Verilator, as `./build check` lint does, from its own .rtl.f:
