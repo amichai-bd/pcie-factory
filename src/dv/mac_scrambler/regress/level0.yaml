@@ -1,0 +1,6 @@
+tests:
+  - name: known_answer
+    module: tests.test_mac_scrambler
+    testcase: known_answer
+    top: pcie_mac_scrambler
+    timeout_s: 60
