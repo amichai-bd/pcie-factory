@@ -184,7 +184,8 @@ Problems are reported as `WARN` or, with `--strict`, as `ERROR` and exit 1:
 The search box in the navbar loads `assets/search-index.json` on first focus.
 The index is a list of `{title, url, headings: [[text, anchor]], text}` in
 sidebar order (the wiki's sidebar, then the tracker's), where `headings` are H2 and H3 and `text` is the first 4000
-characters of the page's text. Every whitespace-separated word must match,
+characters of the page's text. A skill page's `text` starts with its
+`description`, since the quote is not Markdown text. Every whitespace-separated word must match,
 ignoring case. Title matches rank first, then heading matches, then text
 matches (shown with a snippet). Up to 20 hits are shown. `/` focuses the box,
 and arrows and Enter pick a hit. The index is fetched, so search works over

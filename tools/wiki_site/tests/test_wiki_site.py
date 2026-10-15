@@ -399,6 +399,17 @@ def test_skills_section_strips_frontmatter(tmp_path):
     assert {"skills/one.html", "skills/two.html"} <= {e["url"] for e in data}
 
 
+def test_skill_description_is_search_text(tmp_path):
+    files = dict(REPO_PAGES, **{".claude/skills/two/SKILL.md":
+                                "---\nname: two\ndescription: >\n  Zebra <b>quux</b>.\n---\n\n# Skill two\n\nBody.\n"})
+    _, _, out = run(tmp_path, files)
+    data = {e["url"]: e for e in json.loads((out / "assets" / "search-index.json").read_text())}
+    assert data["skills/two.html"]["text"] == "Zebra <b>quux</b>. Skill two Body."
+    assert data["skills/one.html"]["text"].startswith("Use when doing one thing. Skill one")
+    page = (out / "skills" / "two.html").read_text()
+    assert page.count("Zebra") == 1 and "<p>Zebra &lt;b&gt;quux&lt;/b&gt;.</p>" in page
+
+
 def test_skill_text_without_frontmatter_is_unchanged():
     assert wiki_site.skill_text("# T\n\nbody\n") == "# T\n\nbody\n"
 
