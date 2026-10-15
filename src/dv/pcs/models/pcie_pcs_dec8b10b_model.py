@@ -1,4 +1,4 @@
-"""Cycle model of pcie_pcs_dec8b10b (wiki/src/rtl/pcs_dec8b10b/MAS.md).
+"""Cycle model of pcie_pcs_dec8b10b (wiki/src/rtl/pcs/MAS.md, Decoder).
 
 The code itself (which byte a code is at which running disparity, the error
 classes and the RD after a code) is the pcs architecture model's

@@ -1,8 +1,0 @@
-coverage_floors: {line: 100, toggle: 100, functional: 100}
-tests:
-  - name: long_random
-    module: tests.test_pcs_dec8b10b
-    testcase: long_random
-    top: pcie_pcs_dec8b10b
-    seeds: 4
-    timeout_s: 1200

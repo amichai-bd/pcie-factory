@@ -1,7 +1,7 @@
 """Reference model of pcie_pcs_align, the comma aligner, and of the
 traffic and channel its tests need.
 
-Written from wiki/src/rtl/pcs_align/MAS.md and the pcs receive path
+Written from wiki/src/rtl/pcs/MAS.md (Aligner) and the pcs receive path
 (wiki/src/arch/pcs/RECEIVE.md#comma-alignment-and-symbol-lock), not from
 the RTL. The 8b/10b code, the training and packet traffic and the relock
 constants come from the pcs architecture model, imported (not copied) from

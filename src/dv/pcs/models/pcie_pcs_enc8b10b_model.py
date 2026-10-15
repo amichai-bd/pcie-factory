@@ -1,4 +1,4 @@
-"""Cycle model of pcie_pcs_enc8b10b (wiki/src/rtl/pcs_enc8b10b/MAS.md).
+"""Cycle model of pcie_pcs_enc8b10b (wiki/src/rtl/pcs/MAS.md, Encoder).
 
 The code itself is not re-implemented: each word is encoded by the pcs
 architecture model's ``tx_encode`` (src/arch/pcs/pcie_pcs_arch.py, built

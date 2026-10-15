@@ -1,6 +1,6 @@
 """Unit tests of the comma-aligner model; no simulator needed.
 
-Run: python3 -m pytest src/dv/pcs_align/models
+Run: python3 -m pytest src/dv/pcs/models
 """
 
 import random

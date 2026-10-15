@@ -1,6 +1,0 @@
-tests:
-  - name: smoke
-    module: tests.test_pcs_enc8b10b
-    testcase: smoke
-    top: pcie_pcs_enc8b10b
-    timeout_s: 60

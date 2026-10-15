@@ -1,6 +1,6 @@
 """Unit tests of the encoder cycle model; no simulator needed.
 
-Run: python3 -m pytest src/dv/pcs_enc8b10b/models
+Run: python3 -m pytest src/dv/pcs/models
 """
 
 import pcie_pcs_enc8b10b_model as m

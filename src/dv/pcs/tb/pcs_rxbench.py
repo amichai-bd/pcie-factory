@@ -1,0 +1,238 @@
+"""Receive-side bench of the pcs top (wiki/src/dv/pcs/DV_PLAN.md): the
+clocks, the line driver, the MAC in P0 and the PIPE receive monitor, with
+the receive checks every receive test shares (stream, SKP sets, RX
+latency, lock latency and lock start) and their functional coverage.
+
+A test builds a ``Link`` (the symbols a partner sent and the received
+line: tb.pcs_channel.build_link for the architecture model's channel, or
+``align_link`` for a line built bit by bit with models.pcie_pcs_align_model,
+whose every bit carries its transmitted index), drives it with
+``RxBench`` and checks the words seen on PIPE against the symbols sent
+(models.pcie_pcs_rx_check).
+"""
+
+from __future__ import annotations
+
+import random
+from collections import deque
+
+from models.pcie_pcs_model import P0
+from models.pcie_pcs_rx_check import K_COM, K_SKP, Stream, Word, check_runs, check_skp_status
+from regress.funcov import Covergroup
+from tb.pcs_bench import Bench, regress_seed
+from tb.pcs_channel import Link, RxChannel
+from tb.pcs_env import CLK_PS, now_ps, start_clocks
+
+CYCLE = CLK_PS
+# Words from the one that makes the relock request to RxValid low: crossing
+# 4 (two or three RX edges), the aligner, the elastic buffer at its highest
+# fill (12 symbols) and the PIPE register.
+RELOCK_DELAY = 20
+RX_LATENCY_MAX = 12.0             # HAS RX latency target, cycles
+LOCK_LATENCY_MAX = 10.0           # HAS lock target, cycles
+
+# Functional coverage of the receive path (DV plan, Strategy): every
+# RxStatus code a receive word carries (5 and 6 only outside the targets),
+# the clock offsets, the scenarios and the relock causes.
+COV_RX = Covergroup("pcs_rx")
+COV_RX.coverpoint("status", bins={"ok": 0, "skp_added": 1, "skp_removed": 2, "code_err": 4,
+                                  "overflow": 5, "underflow": 6, "disp_err": 7})
+COV_RX.coverpoint("ppm", bins={"slow": "slow", "zero": "zero", "fast": "fast"})
+COV_RX.coverpoint("scenario", bins=["clean", "max_tlp", "dllp", "random", "polarity",
+                                    "polarity_toggle", "errors", "close_errors", "slips",
+                                    "error_bursts", "elec_idle", "loopback", "round_trip",
+                                    "eb_stress"])
+COV_RX.coverpoint("relock", bins=["slip", "close_errors", "noise_lock"])
+
+# The RxStatus codes the receive path gives within the targets, with the
+# clock offset that produces them (required at L2: pcs_rx_status floor 100).
+# A slow RX clock drains the buffer, so SKP symbols are added; a fast one
+# fills it, so they are removed. Errors and plain data at either sign.
+COV_STATUS = Covergroup("pcs_rx_status")
+COV_STATUS.coverpoint("code_ppm", bins={
+    f"{name}__{sign}": (code, sign)
+    for name, code, signs in (("ok", 0, ("slow", "fast")), ("code_err", 4, ("slow", "fast")),
+                              ("disp_err", 7, ("slow", "fast")), ("skp_added", 1, ("slow",)),
+                              ("skp_removed", 2, ("fast",)))
+    for sign in signs})
+
+
+def ppm_bin(ppm: float) -> str:
+    return "zero" if ppm == 0 else ("fast" if ppm > 0 else "slow")
+
+
+def seeded_ppm(rng: random.Random, lo: float = 300, hi: float = 600) -> float:
+    """A clock offset of seeded magnitude; the seed's parity picks the sign."""
+    return (1 if regress_seed() % 2 else -1) * rng.uniform(lo, hi)
+
+
+def align_link(syms: list[tuple[int, int]], line) -> Link:
+    """A Link for a line built with models.pcie_pcs_align_model.Line (its
+    bits carry their transmitted bit index, so filler, slips and noise are
+    placed exactly); ``rx_bit`` maps a transmitted bit to the received one."""
+    line.pad()
+    link = Link(syms, line, [], 0)
+    link.rx_bit = {t: b for b, t in enumerate(line.txpos) if t >= 0}
+    if not hasattr(line, "errors"):
+        line.errors = list(line.flips)
+    return link
+
+
+class RxBench:
+    """Clocks, the channel, the MAC in P0 and the PIPE receive monitor."""
+
+    def __init__(self, dut, rng: random.Random, ppm: float) -> None:
+        self.dut = dut
+        self.rng = rng
+        self.ppm = ppm
+        self.words: list[Word] = []
+        self.b: Bench | None = None
+        self.chan: RxChannel | None = None
+        self.link: Link | None = None
+
+    async def start(self, link: Link | None = None, source: deque | None = None,
+                    polarity: int = 0, max_cycles: int = 200_000, phase_ps: int | None = None,
+                    lead: int = 96) -> None:
+        dut = self.dut
+        dut._log.info("RX clock %+.1f ppm", self.ppm)
+        start_clocks(dut, self.ppm, self.rng.randrange(CLK_PS) if phase_ps is None else phase_ps)
+        self.link = link
+        self.chan = RxChannel(dut, self.rng, link.line if link else None, lead=lead,
+                              source=source)
+        self.b = Bench(dut, max_cycles, receive=True)
+        self.b.tick = self._wrap(self.b.tick)
+        await self.b.reset("rst_i", 8)
+        self.b.mac.set(rx_polarity=polarity)
+        await self.b.power(P0)
+
+    def _wrap(self, tick):
+        async def inner():
+            out = await tick()
+            k, d = out["pipe_rx_datak_o"], out["pipe_rx_data_o"]
+            w = Word(now_ps() - CLK_PS // 2, out["pipe_rx_valid_o"],
+                     ((k & 1, d & 0xFF), ((k >> 1) & 1, d >> 8)), out["pipe_rx_status_o"])
+            self.words.append(w)
+            if w.status != 3 and (w.valid or w.status in (5, 6)):
+                COV_RX.sample(status=w.status, ppm=ppm_bin(self.ppm))
+                if self.ppm and w.status in (0, 1, 2, 4, 7):
+                    COV_STATUS.sample(code_ppm=(w.status, ppm_bin(self.ppm)))
+            return out
+        return inner
+
+    async def run_line(self, drain: int = 200) -> None:
+        """Idle in P0 (TxElecIdle 1) until the line has been sent, then
+        drain."""
+        self.b.mac.set(tx_elec_idle=1)
+        while not self.chan.done:
+            await self.b.tick()
+        await self.b.run(drain)
+
+    def rx_bit(self, tx_bit: int) -> int:
+        m = getattr(self.link, "rx_bit", None) if self.link else None
+        return m.get(tx_bit, tx_bit) if m is not None else tx_bit
+
+    def tx_time(self, tx_bit: int) -> float:
+        """When the word holding transmitted bit ``tx_bit`` was sampled
+        (for an arch-model line, a slip moves it by a bit)."""
+        b = self.rx_bit(tx_bit)
+        w = self.chan.lead + b // 20
+        return self.chan.times[w] if w < len(self.chan.times) else float("inf")
+
+    def arrival(self, s: int) -> float:
+        """When the last bit of sent symbol s was sampled."""
+        return self.tx_time(10 * s + 9)
+
+    def check(self, link, where: str, **kw):
+        """check_runs with this bench's arrival times."""
+        return check_runs(link.syms, self.words, where=where, arrival=self.arrival, **kw)
+
+    def at_end(self, i: int) -> bool:
+        """Word i is after the last word of the line reached PIPE."""
+        return self.words[i].t > self.chan.times[min(len(self.chan.times) - 1,
+                                                     self.chan.lead + len(self.chan.words))]
+
+    def statuses(self) -> dict[int, int]:
+        c: dict[int, int] = {}
+        for w in self.words:
+            c[w.status] = c.get(w.status, 0) + 1
+        return c
+
+
+def check_latency(rx: RxBench, runs, target: float = RX_LATENCY_MAX) -> tuple[float, float]:
+    """RX latency of every delivered symbol: from the RX edge that sampled
+    its last bit to the clk_i edge that put it on PIPE. Returns the lowest
+    and highest."""
+    best, worst = float("inf"), 0.0
+    for r in runs:
+        for t, s in r.placed:
+            lat = (t - rx.arrival(s)) / CYCLE
+            worst = max(worst, lat)
+            best = min(best, lat)
+    rx.dut._log.info("RX latency %.2f to %.2f cycles", best, worst)
+    assert worst <= target, f"RX latency {worst:.2f} cycles above the {target} target"
+    return best, worst
+
+
+def check_clean(rx: RxBench, link, where: str) -> list:
+    """One lock, everything delivered in order, no error or buffer status,
+    SKP changes on the COM's word, latency within target."""
+    runs = rx.check(link, where)
+    assert len(runs) == 1, f"{where}: {len(runs)} RxValid runs, expected one lock"
+    r = runs[0]
+    assert r.mismatches == 0, f"{where}: {r.mismatches} wrong symbols"
+    bad = {c: n for c, n in rx.statuses().items() if c in (4, 5, 6, 7)}
+    assert not bad, f"{where}: RxStatus counts {bad} on a clean line"
+    n_sets = check_skp_status(link.syms, runs, where)
+    sent_nonskp = sum(1 for s in link.syms if s != (1, K_SKP))
+    tail = len(Stream(link.syms).syms) - r.last
+    assert tail <= 2, f"{where}: {tail} symbols at the end never delivered (of {sent_nonskp})"
+    check_latency(rx, runs)
+    rx.dut._log.info("%s: %d symbols, %d SKP sets checked, statuses %s", where, sent_nonskp,
+                     n_sets, rx.statuses())
+    return runs
+
+
+def lock_com(syms, r) -> int:
+    """The sent COM that gave a run its lock: the first or second symbol of
+    the aligner's first locked word, so at most a word before the run's first
+    symbol once the elastic buffer has packed it (an unlocked symbol and a
+    locked one never share a PIPE word). ``r.first`` skips SKP symbols, so
+    a COM of a SKP ordered set may sit up to five symbols before it."""
+    for i in range(max(0, r.first - 6), r.first + 2):
+        if syms[i] == (1, K_COM):
+            return i
+    raise AssertionError(f"run at {r.words[0].t} ps does not start at a COM: "
+                         f"{syms[max(0, r.first - 6):r.first + 2]}")
+
+
+def check_lock_latency(rx: RxBench, link, runs, where: str,
+                       target: float = LOCK_LATENCY_MAX) -> float:
+    """HAS Lock target: the first word of each new lock on PIPE within
+    ``target`` cycles of the RX edge that sampled the last bit of the comma
+    that gave lock. Lock start: that first word holds the comma, or the
+    symbol before it and the comma (the aligner's first locked word, never
+    an unlocked symbol's partner), so the run starts at the comma or at the
+    symbol before it. A run locked on noise (a comma in the idle-exit
+    noise, model.pcie_pcs_rx_check) has no sent comma; it is counted, not
+    timed."""
+    worst, noise = 0.0, 0
+    for r in runs:
+        if r.noise_lock:
+            noise += 1
+            continue
+        com = lock_com(link.syms, r)
+        before = max([i for i in range(com) if link.syms[i] != (1, K_SKP)], default=com)
+        assert r.start in (com, before), (
+            f"{where}: run at {r.words[0].t} ps starts at sent symbol {r.start}, not at its "
+            f"lock comma {com} or the symbol {before} before it (lock start)")
+        lat = (r.words[0].t - rx.tx_time(10 * com + 6)) / CYCLE
+        worst = max(worst, lat)
+    rx.dut._log.info("%s: lock to RxValid max %.2f cycles over %d locks (%d on noise)",
+                     where, worst, len(runs) - noise, noise)
+    assert worst <= target, f"{where}: first locked word {worst:.2f} cycles after the comma"
+    return worst
+
+
+def flips(link) -> set[int]:
+    """Sent symbols with a flipped bit (slip-free lines)."""
+    return {b // 10 for b in link.line.errors}

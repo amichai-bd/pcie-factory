@@ -110,9 +110,9 @@ def _sibling(ip: str, module: str):
 
 
 def test_tx_encoder_block_swaps_in():
-    """Both ports' 8b/10b transmit by the pcs_enc8b10b sub-IP's cycle model:
+    """Both ports' 8b/10b transmit by the pcs encoder block's cycle model:
     training and traffic as with the built-in encoder, at +600 ppm."""
-    enc = _sibling("pcs_enc8b10b", "pcie_pcs_enc8b10b_model")
+    enc = _sibling("pcs", "pcie_pcs_enc8b10b_model")
     rng = random.Random(6)
     b = m.Bench([m.ModelPort("upstream", tx_encoder=enc.Encoder()),
                  m.ModelPort("downstream", tx_encoder=enc.Encoder())], rng)

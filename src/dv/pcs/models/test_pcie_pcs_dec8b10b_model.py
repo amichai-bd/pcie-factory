@@ -1,6 +1,6 @@
 """Unit tests of the decoder cycle model; no simulator needed.
 
-Run: python3 -m pytest src/dv/pcs_dec8b10b/models
+Run: python3 -m pytest src/dv/pcs/models
 """
 
 import pcie_pcs_dec8b10b_model as m

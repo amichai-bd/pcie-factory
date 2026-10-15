@@ -89,3 +89,38 @@ tests:
     top: pcie_pcs
     seeds: [1]
     timeout_s: 300
+  - name: tmp_tx_smoke
+    module: tests.test_tx
+    testcase: tx_smoke
+    top: pcie_pcs
+    timeout_s: 60
+  - name: tmp_tx_table
+    module: tests.test_tx
+    testcase: tx_table
+    top: pcie_pcs
+    timeout_s: 300
+  - name: tmp_tx_random
+    module: tests.test_tx
+    testcase: tx_random
+    top: pcie_pcs
+    timeout_s: 300
+  - name: tmp_table_round_trip
+    module: tests.test_tx
+    testcase: table_round_trip
+    top: pcie_pcs
+    timeout_s: 300
+  - name: tmp_rx_decode_smoke
+    module: tests.test_decode
+    testcase: rx_decode_smoke
+    top: pcie_pcs
+    timeout_s: 60
+  - name: tmp_rx_decode_table
+    module: tests.test_decode
+    testcase: rx_decode_table
+    top: pcie_pcs
+    timeout_s: 600
+  - name: tmp_rx_decode_random
+    module: tests.test_decode
+    testcase: rx_decode_random
+    top: pcie_pcs
+    timeout_s: 600
