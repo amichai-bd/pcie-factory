@@ -272,8 +272,8 @@ afterwards.
 
 | Block | Mutant | Entry, seed | Result |
 | --- | --- | --- | --- |
-| pcs loopback (the slave's echo path) | `enc_in` in loopback flips bit 0 of each echoed data byte of 80h or more: `sym0.data ^ {7'd0, !sym0.k && sym0.data[7]}`. The training sets' data bytes are all below 80h, so the master still reaches Loopback.Active | `e2e_loopback`, 74580909 | Fails on the echo scoreboard at port a's cycle 11392 (master a): echo symbol 182 of 3997, expected the sent data symbol 80h, observed 81h. Before #198 (no echo check), the same entry passes with this mutant. |
-| mac ordered sets (the master's pattern) | The pattern count never advances (`pat_d = pat_q`), so every pattern word is the same two bytes | `e2e_loopback`, 74580909 | Fails on the echo scoreboard: expected at least 3800 pattern symbols echoed, observed 1970 of 3997 received. The echo still matches what was sent; only the traffic check fails. |
+| pcs loopback (the slave's echo path) | `enc_in` in loopback flips bit 0 of each echoed data byte of 80h or more: `sym0.data ^ {7'd0, !sym0.k && sym0.data[7]}`. The training sets' data bytes are all below 80h, so the master still reaches Loopback.Active | `e2e_loopback`, 74580909 | Fails on the echo scoreboard at port a's cycle 11431 (master a): echo symbol 182 of 3999, expected the sent data symbol 792, 80h, observed 81h. Before #198 (no echo check), the same entry passes with this mutant. |
+| mac ordered sets (the master's pattern) | The pattern count never advances (`pat_d = pat_q`), so every pattern word is the same two bytes | `e2e_loopback`, 74580909 | Fails on the echo scoreboard: expected at least 3800 pattern symbols echoed, observed 1971 of 3999 received. The echo still matches what was sent; only the traffic check fails. |
 
 ## Coverage floors
 
