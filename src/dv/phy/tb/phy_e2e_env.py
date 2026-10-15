@@ -48,8 +48,8 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "models"))
 # The mac transmit scrambler's cycle model (src/dv/mac/models), a block.
 sys.path.append(str(Path(__file__).resolve().parents[2] / "mac" / "models"))
 import pcie_mac_scrambler_model  # noqa: E402
-# The pcs_enc8b10b sub-IP's cycle model, a transmit-encoder block.
-sys.path.append(str(Path(__file__).resolve().parents[2] / "pcs_enc8b10b" / "models"))
+# The pcs encoder block's cycle model (src/dv/pcs/models), a transmit-encoder block.
+sys.path.append(str(Path(__file__).resolve().parents[2] / "pcs" / "models"))
 import pcie_pcs_enc8b10b_model  # noqa: E402
 import pcie_phy_stack_model as stack  # noqa: E402
 from pcie_phy_stack_model import L0_CODE, RECOVERY_CODES, ModelPort  # noqa: E402

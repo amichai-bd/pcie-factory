@@ -10,7 +10,7 @@ integrates both. It is not a serializer, has no analog or CDR function, and
 does no scrambling, framing or ordered-set generation (the `mac` does).
 
 This page owns the PCS contract: interfaces, clocks and reset, the
-clock-domain crossings, the sub-IP split and the targets. Three sub-pages
+clock-domain crossings, the block split and the targets. Three sub-pages
 hold the normative rules: the [8b/10b code](8B10B.md), the
 [receive path](RECEIVE.md) (lock, elastic buffer, RxStatus) and
 [PIPE control](PIPE_CONTROL.md) (every handshake, transmit and loopback).
@@ -40,10 +40,10 @@ flowchart TB
   mac["pcie_mac"] <-- "PIPE 16-bit, clk_i" --> ctl
   subgraph pcs["pcie_pcs"]
     ctl["PIPE control, RxStatus,<br/>reset, error counter"]
-    enc["pcs_enc8b10b"]
-    dec["pcs_dec8b10b"]
-    eb["pcs_elastic<br/>(common_cdc_fifo)"]
-    al["pcs_align"]
+    enc["encoder"]
+    dec["decoder"]
+    eb["elastic buffer<br/>(common_cdc_fifo)"]
+    al["aligner"]
     ctl --> enc
     al --> eb --> dec --> ctl
   end
@@ -51,17 +51,21 @@ flowchart TB
   ser -- "ser_rx_*, ser_rx_clk_i" --> al
 ```
 
-Sub-IPs are flat siblings with prefixed ids
-([layout](../../../project/layout.md#ips-and-sub-ips)), each with its own MAS
-(scope, interfaces, behavior) and DV plan.
+`pcs` is one IP (decision Q24 in the
+[M1 epic](https://github.com/amichai-bd/pcie-factory/issues/65)): its
+blocks are module files of `src/rtl/pcs/` under one filelist, described by
+one [MAS](../../rtl/pcs/MAS.md) with a section per block and verified
+through the `pcie_pcs` ports by one [testbench](../../dv/pcs/DV_PLAN.md).
 
-| Sub-IP | Clock | Holds | Issue |
-| --- | --- | --- | --- |
-| `pcs_enc8b10b` | `clk_i` | Two symbols per cycle with the transmit RD, TxCompliance, unsupported K to EDB ([code](8B10B.md)). | [#81](https://github.com/amichai-bd/pcie-factory/issues/81) |
-| `pcs_dec8b10b` | `clk_i` | RxPolarity inversion, two-symbol decode with RD, code and disparity errors, EDB substitution ([decoder](8B10B.md#decoder-and-error-classes)). | [#82](https://github.com/amichai-bd/pcie-factory/issues/82) |
-| `pcs_align` | `ser_rx_clk_i` | Input register, comma search, symbol lock, relock input ([lock](RECEIVE.md#comma-alignment-and-symbol-lock)). | [#83](https://github.com/amichai-bd/pcie-factory/issues/83) |
-| `pcs_elastic` | both | SKP removal and packing (write side), the FIFO, SKP addition and start (read side), fill high ([elastic buffer](RECEIVE.md#elastic-buffer)). | [#84](https://github.com/amichai-bd/pcie-factory/issues/84) |
-| `pcie_pcs` top | both | PIPE control, RxStatus, the error counter, resets and the other crossings ([PIPE control](PIPE_CONTROL.md)). | [#85](https://github.com/amichai-bd/pcie-factory/issues/85) |
+| Block | Module | Clock | Holds | Issue |
+| --- | --- | --- | --- | --- |
+| Encoder | `pcie_pcs_enc8b10b` | `clk_i` | Two symbols per cycle with the transmit RD, TxCompliance, unsupported K to EDB ([code](8B10B.md)). | [#81](https://github.com/amichai-bd/pcie-factory/issues/81) |
+| Decoder | `pcie_pcs_dec8b10b` | `clk_i` | RxPolarity inversion, two-symbol decode with RD, code and disparity errors, EDB substitution ([decoder](8B10B.md#decoder-and-error-classes)). | [#82](https://github.com/amichai-bd/pcie-factory/issues/82) |
+| Aligner | `pcie_pcs_align` | `ser_rx_clk_i` | Input register, comma search, symbol lock, relock input ([lock](RECEIVE.md#comma-alignment-and-symbol-lock)). | [#83](https://github.com/amichai-bd/pcie-factory/issues/83) |
+| Elastic buffer | `pcie_pcs_elastic` | both | SKP removal and packing (write side), the FIFO, SKP addition and start (read side), fill high ([elastic buffer](RECEIVE.md#elastic-buffer)). | [#84](https://github.com/amichai-bd/pcie-factory/issues/84) |
+| Top | `pcie_pcs` | both | PIPE control, RxStatus, the error counter, resets and the other crossings ([PIPE control](PIPE_CONTROL.md)). | [#85](https://github.com/amichai-bd/pcie-factory/issues/85) |
+
+The restructure into one IP is [#145](https://github.com/amichai-bd/pcie-factory/issues/145).
 
 ## Interfaces
 
@@ -107,35 +111,32 @@ sub-pages.
 
 ## Package
 
-Each sub-IP owns its types and constants in its own package,
-`pcie_pcs_<sub>_pkg`, and never uses the parent's, so its filelist stands
-alone ([RTL BKM](../../../bkm/rtl.md#types-and-constants-live-in-packages)).
-The top's package `pcie_pcs_pkg` (`src/rtl/pcs/pcie_pcs_pkg.sv`) holds only
-the top's own types and constants: its PIPE encodings, the PIPE-control
-timing and the relock limits. The top names a sub-IP's items explicitly as
-`pcie_pcs_<sub>_pkg::<name>`, so dependencies point down the hierarchy.
-Code never imports a package (decision Q22 in the
-[M1 epic](https://github.com/amichai-bd/pcie-factory/issues/65)). The ports
-above, and every sub-IP's ports, stay plain `logic` vectors.
-
-A value two sibling sub-IPs need, such as `K_EDB` in the encoder and the
-decoder, is defined in each sub-IP's package from the same row of these
-pages; each MAS cites that row and each DV checks the value against the
-[architecture model](#architecture-model). A shared package-only block
-replaces the copies later
-([#133](https://github.com/amichai-bd/pcie-factory/issues/133)).
+The IP has one package, `pcie_pcs_pkg` (`src/rtl/pcs/pcie_pcs_pkg.sv`),
+for its private types and constants: the PIPE-control timing and relock
+limits, the symbol and word types, the structs its blocks exchange and
+their state (decision Q24). Codes it shares with the `mac` come from the
+shared package [`common_pkg`](../../rtl/common/common_pkg.md)
+(`src/rtl/common/common_pkg.sv`, the Q24 amendment on the epic): the
+PowerDown and RxStatus encodings and the K symbol bytes. Code names every
+item as `pkg::item` and never imports a package (decision Q22). Signals
+that belong together and cross from one block to another are packed
+structs of `pcie_pcs_pkg` (decision Q25); the `pcie_pcs` ports above stay
+plain `logic` vectors with the PIPE names of the
+[PIPE page](../phy/PIPE.md#signals). The [MAS](../../rtl/pcs/MAS.md#package)
+lists every item.
 
 | Name | Package | Holds |
 | --- | --- | --- |
-| `t_power_down` | `pcie_pcs_pkg` | enum, 2 bits: `P0`, `P0S`, `P1`, `P2` ([PowerDown](PIPE_CONTROL.md#powerdown)). |
-| `t_rx_status` | `pcie_pcs_pkg` | enum, 3 bits: the eight [RxStatus codes](RECEIVE.md#decode-and-rxstatus). |
+| `t_power_down` | `common_pkg` | enum, 2 bits: `PD_P0`, `PD_P0S`, `PD_P1`, `PD_P2` ([PowerDown](PIPE_CONTROL.md#powerdown)). |
+| `t_rx_status` | `common_pkg` | enum, 3 bits: the eight [RxStatus codes](RECEIVE.md#decode-and-rxstatus), `RX_OK` to `RX_DISP_ERR`. |
+| `SYM_EDB` and the other [K symbols](8B10B.md#k-symbols) | `common_pkg` | The K symbol bytes (`t_k_code`); EDB is `8'hFE`. |
 | `PHY_STATUS_RESET_CYCLES`, `RX_DETECT_CYCLES`, `POWER_ACK_CYCLES` | `pcie_pcs_pkg` | 16, 64 and 4 ([PIPE control](PIPE_CONTROL.md)). |
 | `ERR_LIMIT`, `ERR_DECAY_WORDS` | `pcie_pcs_pkg` | 3 and 8 ([relock](RECEIVE.md#comma-alignment-and-symbol-lock)); the error counter is the top's. |
-| `t_sym10`, `K_EDB` | each of `pcie_pcs_enc8b10b_pkg`, `pcie_pcs_dec8b10b_pkg` | One raw symbol, bit 0 first on the line; EDB, `8'hFE` ([K symbols](8B10B.md#k-symbols)). |
+| `t_sym10` | `pcie_pcs_pkg` | One raw symbol, bit 0 first on the line. |
+| `t_rx_pair`, `t_dec_pair`, `t_eb_status`, `t_tx_word`, `t_rx_word` | `pcie_pcs_pkg` | The block interfaces: two received symbols with per-symbol lock and generation (aligner, elastic buffer, decoder); two decoded symbols with their code and disparity errors (decoder to top); the elastic buffer's word status (SKP added and removed, overflow, underflow); the encoder's input word; the PIPE receive register with its RxStatus. |
 | `COMMA_MINUS`, `COMMA_PLUS` | `pcie_pcs_align` (module constants) | The two [comma](8B10B.md#comma) forms, matched only there. |
-| `t_eb_word`, `COM_RD_MINUS`, `COM_RD_PLUS`, `SKP_RD_MINUS`, `SKP_RD_PLUS` | `pcie_pcs_elastic_pkg` | One elastic-buffer word (two raw symbols, the lock tag, the lock-generation bit, two removed-SKP flags, the overflow flag; 25 bits); the raw COM and SKP codes it matches without decoding. |
-| `EB_ADDR_W`, `EB_NOMINAL`, `EB_HIGH`, `EB_LOW`, `EB_HOLDOFF` | `pcie_pcs_elastic` (module constants) | 4, 8, 9, 7 and 8 ([elastic buffer](RECEIVE.md#elastic-buffer)), used only there. |
-| `K_COM`, `K_SKP` and the other [K symbols](8B10B.md#k-symbols) | the package of each sub-IP that matches them | 8-bit constants, or their raw 10-bit forms where a sub-IP matches symbols without decoding. |
+| `t_eb_word`, `COM_RD_MINUS`, `COM_RD_PLUS`, `SKP_RD_MINUS`, `SKP_RD_PLUS` | `pcie_pcs_pkg` | One elastic-buffer word (two raw symbols, the lock tag, the lock-generation bit, two removed-SKP flags, the overflow flag; 25 bits); the raw COM and SKP codes it matches without decoding. |
+| `EB_ADDR_W`, `EB_NOMINAL`, `EB_HIGH`, `EB_LOW`, `EB_HOLDOFF` | `pcie_pcs_pkg` | 4, 8, 9, 7 and 8 ([elastic buffer](RECEIVE.md#elastic-buffer)). |
 
 The RTL has no `` `ifdef `` and writes no assertion directly: invariants
 are `COMMON_ASSERT*` macros in the module they belong to, and checkers that
@@ -147,7 +148,7 @@ need testbench state live in DV bind modules
 ### Clocks and reset
 
 - `clk_i` runs PIPE control, the transmit path, the read side of the
-  elastic buffer and the decoder. `ser_rx_clk_i` runs only `pcs_align` and
+  elastic buffer and the decoder. `ser_rx_clk_i` runs only the aligner and
   the write side of the elastic buffer.
 - The `phy` HAS fixes the [clock and reset contract](../phy/HAS.md#clocks-and-resets):
   `ser_rx_clk_i` toggles at all times and is within ±600 ppm of `clk_i`;
@@ -159,7 +160,7 @@ need testbench state live in DV bind modules
   with `ser_rx_clk_i` as its clock. Its output asserts with `rst_i`, with
   no clock edge, and releases on the second `ser_rx_clk_i` edge after
   `rst_i` falls, which meets the contract. There is one such
-  synchronizer, inside `pcs_elastic`, exported on its `ser_rx_rst_o`; the
+  synchronizer, inside the elastic buffer, exported on its `ser_rx_rst_o`; the
   whole `ser_rx_clk_i` domain (the aligner, the elastic buffer's write side
   and FIFO write side, the crossing cells' RX sides and the top's RX flop)
   resets on that output; the FIFO's read side resets on
@@ -195,9 +196,9 @@ cells; there are no others (Q17,
 
 | # | What crosses | From → to | Cell | Source-side reset | Destination-side reset | Owner |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Received words: two raw symbols, lock tag, lock generation, removed and overflow flags | `ser_rx_clk_i` → `clk_i` | [`common_cdc_fifo`](../../rtl/common/common_cdc_fifo.md), `WIDTH` 25, `ADDR_W` 4 (its pointers cross inside it through `common_cdc_sync2`) | RX reset (`src_rst_i`) | `rst_i` (`dst_rst_i`) | `pcs_elastic` |
-| 2 | RX-domain reset, from `rst_i` | `clk_i` → `ser_rx_clk_i` | `common_cdc_rst` ([#119](https://github.com/amichai-bd/pcie-factory/issues/119)) | none (`rst_i` is the input) | none (it makes the RX reset) | `pcs_elastic` (exported on `ser_rx_rst_o` for the rest of the RX domain) |
-| 3 | Fill high, a level from a `clk_i` flop | `clk_i` → `ser_rx_clk_i` | [`common_cdc_sync2`](../../rtl/common/common_cdc_sync2.md) | `rst_i` (the source flop) | RX reset (`dst_rst_i`) | `pcs_elastic` |
+| 1 | Received words: two raw symbols, lock tag, lock generation, removed and overflow flags | `ser_rx_clk_i` → `clk_i` | [`common_cdc_fifo`](../../rtl/common/common_cdc_fifo.md), `WIDTH` 25, `ADDR_W` 4 (its pointers cross inside it through `common_cdc_sync2`) | RX reset (`src_rst_i`) | `rst_i` (`dst_rst_i`) | elastic buffer |
+| 2 | RX-domain reset, from `rst_i` | `clk_i` → `ser_rx_clk_i` | `common_cdc_rst` ([#119](https://github.com/amichai-bd/pcie-factory/issues/119)) | none (`rst_i` is the input) | none (it makes the RX reset) | elastic buffer (exported on `ser_rx_rst_o` for the rest of the RX domain) |
+| 3 | Fill high, a level from a `clk_i` flop | `clk_i` → `ser_rx_clk_i` | [`common_cdc_sync2`](../../rtl/common/common_cdc_sync2.md) | `rst_i` (the source flop) | RX reset (`dst_rst_i`) | elastic buffer |
 | 4 | Relock request, one event per request | `clk_i` → `ser_rx_clk_i` | [`common_cdc_pulse`](../../rtl/common/common_cdc_pulse.md) | `rst_i` (`src_rst_i`; never `pipe_reset_ni`, so both sides reset together) | RX reset (`dst_rst_i`) | top |
 | 5 | Receiver active (not `ser_rx_elec_idle_i`), a level from a `ser_rx_clk_i` flop | `ser_rx_clk_i` → `clk_i` | [`common_cdc_sync2`](../../rtl/common/common_cdc_sync2.md) | RX reset (the source flop) | `rst_i` (`dst_rst_i`) | top |
 
@@ -270,7 +271,7 @@ addition, decode, error counter) and PIPE control
 
 | Item | Owner |
 | --- | --- |
-| Done in [#84](https://github.com/amichai-bd/pcie-factory/issues/84): `common_cdc_fifo` has a read-side fill output (`dst_fill_o`) and a look-ahead word (`dst_next_data_o`), used by `pcs_elastic` ([MAS](../../rtl/pcs_elastic/MAS.md#decisions)). | [#84](https://github.com/amichai-bd/pcie-factory/issues/84) |
+| Done in [#84](https://github.com/amichai-bd/pcie-factory/issues/84): `common_cdc_fifo` has a read-side fill output (`dst_fill_o`) and a look-ahead word (`dst_next_data_o`), used by the elastic buffer ([MAS](../../rtl/pcs/MAS.md#decisions)). | [#84](https://github.com/amichai-bd/pcie-factory/issues/84) |
 | `common_cdc_rst`: name, release-edge parameter (2 here) and directive. | [#119](https://github.com/amichai-bd/pcie-factory/issues/119) |
 | Electrical sections for receiver detection and the ±300 ppm reference tolerance; sub-section citations for the 8b/10b decode rules and for lane polarity inversion (cited here at the nearest confident section). The Base Spec is not available locally, so these wait for a copy ([#117](https://github.com/amichai-bd/pcie-factory/issues/117)). | [#85](https://github.com/amichai-bd/pcie-factory/issues/85) |
 | Whether the Base Spec asks more of symbol lock than the rules above (for example a minimum number of commas). | [#83](https://github.com/amichai-bd/pcie-factory/issues/83) |

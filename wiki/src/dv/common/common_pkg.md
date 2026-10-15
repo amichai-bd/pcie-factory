@@ -17,6 +17,12 @@ The package holds no logic; its values are checked where they are used:
   every PowerDown it drives, is compared on PIPE with the architecture model
   in the [mac DV plan](../mac/DV_PLAN.md); a wrong code fails every one of
   its tests.
+- **pcs codes:** `test_shared_codes_match_the_pcs_pages` in
+  [`test_pcie_pcs_traffic.py`](../../../../src/dv/pcs/models/test_pcie_pcs_traffic.py)
+  reads `SYM_EDB`, every `RX_*` RxStatus code and every `PD_*` PowerDown
+  code from `common_pkg.sv` and compares them with the architecture
+  model's EDB and the pcs pages; every RxStatus and PowerDown on PIPE is
+  checked in the [pcs DV plan](../pcs/DV_PLAN.md).
 - `common.sim.f` reaches the filelist, so the shared unit's build compiles it.
 
 ## Plan
@@ -26,3 +32,5 @@ The package holds no logic; its values are checked where they are used:
 | LTSSM codes equal the encoding table | (arch self-test) | - | `./build arch --ip mac` |
 | Symbol codes equal the model's | (arch self-test) | - | `./build arch --ip mac` |
 | Symbol and PowerDown codes on PIPE | the [mac](../mac/DV_PLAN.md#plan) entries | 0 to 2 | as listed there |
+| EDB, RxStatus and PowerDown codes equal the pcs pages | (model unit test) | - | `python3 -m pytest src/dv/pcs/models` |
+| RxStatus, EDB and PowerDown on PIPE | the [pcs](../pcs/DV_PLAN.md#plan) entries | 0 to 2 | as listed there |

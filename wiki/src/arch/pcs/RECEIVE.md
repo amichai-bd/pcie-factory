@@ -11,11 +11,11 @@ a two-clock simulation.
 
 ```mermaid
 flowchart LR
-  rx["ser_rx_data_i<br/>ser_rx_clk_i"] --> al["pcs_align<br/>comma search, lock"]
-  al --> wr["pcs_elastic write side<br/>SKP removal, packing"]
+  rx["ser_rx_data_i<br/>ser_rx_clk_i"] --> al["aligner<br/>comma search, lock"]
+  al --> wr["elastic buffer write side<br/>SKP removal, packing"]
   wr --> fifo["common_cdc_fifo<br/>16 x 2 symbols"]
-  fifo --> rd["pcs_elastic read side<br/>SKP addition (clk_i)"]
-  rd --> dec["pcs_dec8b10b<br/>polarity, decode"]
+  fifo --> rd["elastic buffer read side<br/>SKP addition (clk_i)"]
+  rd --> dec["decoder<br/>polarity, decode"]
   dec --> pipe["RxData, RxDataK,<br/>RxValid, RxStatus"]
   dec -. "errors: relock request<br/>common_cdc_pulse" .-> al
   rd -. "fill high<br/>common_cdc_sync2" .-> wr
@@ -115,6 +115,10 @@ decoder, and found without decoding.
   once per 8 cycles; while the head word is unlocked and the visible fill
   is 7 or less, the read side reads nothing for a cycle, at most once per
   8 cycles. The fill is therefore near 8 whenever lock returns.
+- **Lock start.** When lock starts, an unlocked symbol still held in the
+  write side's packing register or the read side's leftover register is
+  dropped, so the first locked symbols start a word of their own and are
+  never paired with an unlocked one (which would delay RxValid by a word).
 - **Overflow and underflow.** If the write side finds the FIFO full, the
   word is lost and the next word written carries the overflow flag
   (RxStatus 5): the word that takes the lost symbols' place in the

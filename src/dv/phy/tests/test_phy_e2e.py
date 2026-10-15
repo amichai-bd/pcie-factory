@@ -177,7 +177,7 @@ async def e2e_scrambler_block(dut):
 
 @cocotb.test()
 async def e2e_encoder_block(dut):
-    """L1: both ports' 8b/10b transmit done by the pcs_enc8b10b block (its
+    """L1: both ports' 8b/10b transmit done by the pcs encoder block (its
     cycle model, at its MAS interface, two cycles of latency) instead of the
     pcs stand-in's encoder: train, lossless, a bit slip each way (relock on
     the block's code stream), lossless again. The step to its RTL is in the
