@@ -20,6 +20,11 @@ needs_verilator = pytest.mark.skipif(sim.find_verilator() is None,
 CELLS = REPO_ROOT / "src/rtl/common"
 # Crossing cells in the copied tree, each a shared block the check analyzes.
 N_CELLS = len(list(CELLS.glob("common_cdc_*.rtl.f")))
+# Shared blocks the check analyzes: those whose filelist lists a module
+# source (not the include-only vocabulary block or a package-only block).
+N_BLOCKS = sum(1 for f in CELLS.glob("*.rtl.f")
+               if any(ln.strip().endswith(".sv") and not ln.strip().endswith("_pkg.sv")
+                      for ln in f.read_text().splitlines()))
 
 HEAD = """`default_nettype none
 module xy_blk (
@@ -81,7 +86,7 @@ def test_single_clock_passes(tmp_path):
 """
     r = run(tree(tmp_path, body))
     assert r.passed, r.findings
-    assert (f"1 top-level IP(s), {N_CELLS} shared block(s), {N_CELLS + 1} Verilator "
+    assert (f"1 top-level IP(s), {N_BLOCKS} shared block(s), {N_BLOCKS + 1} Verilator "
             "--json-only run(s)") in r.checked
     assert f"{N_CELLS} cdc-cell directive(s)" in r.checked
 
@@ -933,6 +938,6 @@ def test_integrated_top_level_ip_is_analyzed_alone_and_in_its_integrator(tmp_pat
     (src / "rtl/oth/oth.rtl.f").write_text("xy_oth.sv\n")
     rtl_f = src / "rtl/blk/blk.rtl.f"
     rtl_f.write_text("-F ../oth/oth.rtl.f\n" + rtl_f.read_text())
-    assert run(src).checked.startswith(f"2 top-level IP(s), {N_CELLS} shared block(s)")
+    assert run(src).checked.startswith(f"2 top-level IP(s), {N_BLOCKS} shared block(s)")
     assert run(src, {"oth"}).checked.startswith("2 top-level IP(s), 0 shared block(s)")
     assert run(src, {"blk"}).checked.startswith("1 top-level IP(s), 0 shared block(s)")
