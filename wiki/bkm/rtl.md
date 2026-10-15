@@ -130,12 +130,37 @@ crossing cells in `src/rtl/common/`; each MAS owns its cell's rules
   source domain). `dst` names its destination clock input. Port names give
   every other port's domain: `src_*` ports belong to the source domain and
   `dst_*` ports to the destination domain. Only `common_cdc_*` modules in
-  `src/rtl/common/` carry the directive.
+  `src/rtl/common/` carry the directive. A cell has no combinational path
+  from an input on one side to an output on the other.
+- **Port domains.** An input port declares the clock it is synchronous to
+  with a comment ending its declaration line, naming another input port of
+  the same module:
+
+  ```systemverilog
+  input  logic        clk_i,
+  input  logic        rst_i,        // cdc-domain: clk_i
+  input  logic        aux_clk_i,
+  input  logic [19:0] aux_data_i,   // cdc-domain: aux_clk_i
+  ```
+
+  An IP with more than one clock input annotates every input port that is
+  not a clock, as its HAS or MAS port table gives it (the `Clock` column),
+  so the check sees a port sampled in the wrong domain. Name a second
+  domain's ports with one prefix, its clock `<prefix>_clk_i` and the rest
+  `<prefix>_<name>_i`, so the grouping is visible without the comment; the
+  comment, not the name, is what the check reads. An integrator annotates
+  its own input ports: an annotation counts only where its module is the
+  analyzed top. A single-clock IP may leave its ports unannotated; a port
+  without an annotation has no domain.
 - **Check.** `./build check` runs the structural
   [CDC check](../tools/checks/SPEC.md#cdc-check): it enforces the directive,
-  the port prefixes, the cell-only crossing rule and the `src=async` rule.
-  It does no reconvergence, glitch or reset-crossing analysis, and it does
-  not see crossings at an IP's own input ports; review still owns those.
+  the port prefixes, pass-through-free cells, the cell-only crossing rule,
+  the `src=async` rule and the port-domain annotations. A reset is data to
+  it: a reset, synchronous or asynchronous, from another domain's flop or
+  from an input port annotated with another domain is reported as a
+  crossing. It does not check reconvergence, glitches, reset assertion
+  and release ordering, or anything sampled from an input port without an
+  annotation; review owns those.
 
 ## Assertions
 

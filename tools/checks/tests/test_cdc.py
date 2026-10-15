@@ -254,6 +254,181 @@ def test_generated_clock_is_its_own_domain(tmp_path):
     assert "flop g_q (clock div_q (generated)" in f and "(clock clk_a_i" in f
 
 
+@needs_verilator
+def test_clock_gate_is_a_derived_domain(tmp_path):
+    icg = """`default_nettype none
+module xy_blk_icg (
+  input  logic clk_i,
+  input  logic en_i,
+  output logic gclk_o
+);
+  logic en_l;
+  always_latch if (!clk_i) en_l = en_i;
+  assign gclk_o = clk_i & en_l;
+endmodule
+`default_nettype wire
+"""
+    body = A_FLOP + """
+  logic gclk;
+  logic g_q;
+  xy_blk_icg u_icg (.clk_i(clk_a_i), .en_i(a_q), .gclk_o(gclk));
+  always_ff @(posedge gclk) g_q <= a_q;
+  assign y_o = g_q;
+"""
+    [f] = blk(run(tree(tmp_path, body, {"xy_blk_icg.sv": icg})))
+    assert "flop g_q (clock u_icg.gclk_o (derived)" in f and "flop a_q (clock clk_a_i" in f
+
+
+@needs_verilator
+def test_generate_loop_findings_are_reported_once(tmp_path):
+    body = A_FLOP + """
+  logic [3:0] b_v;
+  for (genvar i = 0; i < 4; i++) begin : g
+    always_ff @(posedge clk_b_i) b_v[i] <= a_q;
+  end
+  assign y_o = ^b_v;
+"""
+    [f] = blk(run(tree(tmp_path, body)))
+    assert f.startswith("blk: flop b_v (clock clk_b_i") and "flop a_q (clock clk_a_i" in f
+
+
+@needs_verilator
+def test_one_finding_per_source_domain(tmp_path):
+    body = A_FLOP + """
+  logic a2_q;
+  logic b_q;
+  always_ff @(posedge clk_a_i) a2_q <= ~x_i;
+  always_ff @(posedge clk_b_i) b_q <= a_q ^ a2_q;
+  assign y_o = b_q;
+"""
+    [f] = blk(run(tree(tmp_path, body)))
+    assert "flop b_q (clock clk_b_i" in f and "(clock clk_a_i" in f
+
+
+# ---------------------------------------------------------------- port domains
+
+ANNOTATED = "  input  logic x_i,  // cdc-domain: clk_a_i\n"
+
+
+def annotated(tmp_path: Path, body: str, line: str = ANNOTATED) -> Path:
+    src = tree(tmp_path, body)
+    top = src / "rtl/blk/xy_blk.sv"
+    top.write_text(top.read_text().replace("  input  logic x_i,\n", line))
+    return src
+
+
+B_SAMPLES_X = """
+  logic b_q;
+  always_ff @(posedge clk_b_i) b_q <= x_i;
+  assign y_o = b_q;
+"""
+
+
+@needs_verilator
+def test_annotated_port_sampled_in_another_domain_fails(tmp_path):
+    r = run(annotated(tmp_path, B_SAMPLES_X))
+    [f] = blk(r)
+    assert f.startswith("blk: flop b_q (clock clk_b_i, rtl/blk/xy_blk.sv:")
+    assert "samples input port x_i (clock clk_a_i, rtl/blk/xy_blk.sv:7) directly" in f
+    assert "1 cdc-domain annotation(s)" in r.checked
+
+
+@needs_verilator
+def test_unannotated_port_has_no_domain(tmp_path):
+    assert run(tree(tmp_path, B_SAMPLES_X)).passed
+
+
+@needs_verilator
+@pytest.mark.parametrize("body", [
+    SYNC2,
+    SYNC2.replace(".src_data_i(a_q)", ".src_data_i(x_i)"),
+    PULSE,
+], ids=["own-domain-flop", "async-cell-input", "clocked-cell-input"])
+def test_annotated_port_through_a_cell_passes(tmp_path, body):
+    r = run(annotated(tmp_path, body))
+    assert r.passed, r.findings
+
+
+@needs_verilator
+def test_annotated_port_into_wrong_side_of_a_cell_fails(tmp_path):
+    [f] = blk(run(annotated(tmp_path, PULSE.replace("a_q & x_i", "a_q").replace(
+        ".dst_rst_i  (rst_b_i)", ".dst_rst_i  (rst_b_i | x_i)"))))
+    assert f.startswith("blk: cell input u_pulse.dst_rst_i (clock clk_b_i")
+    assert "input port x_i (clock clk_a_i" in f and "through combinational logic" in f
+
+
+def test_scan_port_domains(tmp_path):
+    src = tmp_path / "src"
+    (src / "rtl/blk").mkdir(parents=True)
+    f = src / "rtl/blk/xy_blk.sv"
+    f.write_text("module xy_blk (\n"
+                 "  input  logic clk_i,\n"
+                 "  input  logic [W/2-1:0] d_i,  // cdc-domain: clk_i\n"
+                 "  input  logic e_i,  // cdc-domain clk_i\n"
+                 "  output logic q_o   // cdc-domain: clk_i\n"
+                 ");\n"
+                 "  // A prose mention of a cdc-domain annotation is not one.\n"
+                 "endmodule\n")
+    found, findings = cdc.scan_port_domains([f], src)
+    assert list(found.values()) == [cdc.PortDomain("clk_i", f.resolve(), 3)]
+    assert findings == [
+        "rtl/blk/xy_blk.sv:4: malformed cdc-domain annotation (expected "
+        "'// cdc-domain: <clock input port>' ending the line)",
+        "rtl/blk/xy_blk.sv:5: cdc-domain annotation is not on an input port declaration line",
+    ]
+
+
+@needs_verilator
+@pytest.mark.parametrize("line, msg", [
+    ("  input  logic x_i,  // cdc-domain: y_o\n", "y_o is not an input port of xy_blk"),
+    ("  input  logic x_i,  // cdc-domain: clk_c_i\n", "clk_c_i is not an input port of xy_blk"),
+    ("  input  logic x_i,  // cdc-domain: x_i\n", "names the port itself"),
+], ids=["output", "missing", "itself"])
+def test_annotation_must_name_another_input(tmp_path, line, msg):
+    r = run(annotated(tmp_path, B_SAMPLES_X, line))
+    assert r.findings == [f"blk: rtl/blk/xy_blk.sv:7: cdc-domain annotation on xy_blk.x_i: {msg}"]
+
+
+@needs_verilator
+def test_annotation_on_a_submodule_port_is_checked_but_not_applied(tmp_path):
+    sub = """`default_nettype none
+module xy_blk_reg (
+  input  logic c_i,
+  input  logic d_i,  // cdc-domain: c_i
+  input  logic e_i,  // cdc-domain: f_i
+  output logic q_o
+);
+  always_ff @(posedge c_i) q_o <= d_i ^ e_i;
+endmodule
+`default_nettype wire
+"""
+    body = A_FLOP + """
+  logic m;
+  xy_blk_reg u_a (.c_i(clk_a_i), .d_i(x_i), .e_i(x_i), .q_o(m));
+  assign y_o = m;
+"""
+    r = run(tree(tmp_path, body, {"xy_blk_reg.sv": sub}))
+    assert r.findings == ["blk: rtl/blk/xy_blk_reg.sv:5: cdc-domain annotation on "
+                          "xy_blk_reg.e_i: f_i is not an input port of xy_blk_reg"]
+
+
+@needs_verilator
+def test_annotation_outside_an_analyzed_port_fails(tmp_path):
+    fn = """`default_nettype none
+module xy_blk_fn;
+  function automatic logic inv(
+    input logic v  // cdc-domain: clk_i
+  );
+    return ~v;
+  endfunction
+endmodule
+`default_nettype wire
+"""
+    r = run(tree(tmp_path, A_FLOP + "  assign y_o = a_q;\n", {"xy_blk_fn.sv": fn}))
+    assert r.findings == ["rtl/blk/xy_blk_fn.sv:4: cdc-domain annotation does not annotate "
+                          "an input port of an analyzed module"]
+
+
 # ---------------------------------------------------------------- src=async rule
 
 
@@ -371,6 +546,31 @@ def test_port_findings_async_output():
     assert cdc.port_findings(model, dv) == ["src=async cell has a source-side output src_ack_o"]
 
 
+@needs_verilator
+def test_pass_through_cell_fails(tmp_path):
+    src = tree(tmp_path, A_FLOP + "  assign y_o = a_q;\n")
+    common = src / "rtl/common"
+    (common / "common_cdc_wire.sv").write_text(
+        "`default_nettype none\n"
+        "// cdc-cell: src=async dst=dst_clk_i\n"
+        "module common_cdc_wire (\n"
+        "  input  logic dst_clk_i,\n"
+        "  input  logic src_d_i,\n"
+        "  input  logic dst_e_i,\n"
+        "  output logic dst_q_o\n"
+        ");\n"
+        "  logic t;\n"
+        "  assign t = src_d_i & dst_e_i;\n"
+        "  assign dst_q_o = t;\n"
+        "endmodule\n"
+        "`default_nettype wire\n")
+    (common / "common_cdc_wire.rtl.f").write_text("common_cdc_wire.sv\n")
+    r = run(src)
+    assert r.findings == ["common/common_cdc_wire: rtl/common/common_cdc_wire.sv:2: crossing "
+                          "cell common_cdc_wire: output dst_q_o has a combinational path from "
+                          "input src_d_i, so the cell would hide a crossing"]
+
+
 # ---------------------------------------------------------------- selection, tooling
 
 
@@ -406,6 +606,27 @@ def test_unpinned_verilator_version_fails(tmp_path, monkeypatch):
     r = run(tree(tmp_path, ""))
     assert r.findings == ["Verilator 0.000 found, but the JSON netlist reader is tied to the "
                           f"pinned version {cdc.pinned_version()} in cfg/host.yaml"]
+
+
+@pytest.mark.parametrize("text", [None, "verilator: {}\n", "verilator: [\n"],
+                         ids=["missing", "no-version", "malformed"])
+def test_missing_pin_is_none(tmp_path, monkeypatch, text):
+    if text is not None:
+        (tmp_path / "cfg").mkdir()
+        (tmp_path / "cfg/host.yaml").write_text(text)
+    monkeypatch.setattr(cdc, "REPO_ROOT", tmp_path)
+    assert cdc.pinned_version() is None
+
+
+@needs_verilator
+def test_missing_pin_fails_without_analysis(tmp_path, monkeypatch):
+    monkeypatch.setattr(cdc, "pinned_version", lambda: None)
+    r = run(tree(tmp_path, A_FLOP + "  logic b_q;\n  always_ff @(posedge clk_b_i) b_q <= a_q;\n"
+                 "  assign y_o = b_q;\n"))
+    assert r.findings == [f"Verilator {cdc.verilator_version(sim.find_verilator())} found, but "
+                          "the JSON netlist reader is tied to the pinned version (none) in "
+                          "cfg/host.yaml"]
+    assert ", 0 Verilator --json-only run(s), 0 flop(s)" in r.checked
 
 
 @needs_verilator

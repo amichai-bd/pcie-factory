@@ -43,7 +43,7 @@ check: 2 IP(s) under /abs/src
 [lint] PASS: 2 IP(s), 1 shared block(s), 4 Verilator run(s) with -E audit, 0 waiver(s), 0 warning(s) waived
 [cdc] blk: top=xy_blk
 [cdc] common/common_lib: top=common_lib
-[cdc] PASS: 1 top-level IP(s), 1 shared block(s), 2 Verilator --json-only run(s), 2 flop(s), 0 cdc-cell directive(s)
+[cdc] PASS: 1 top-level IP(s), 1 shared block(s), 2 Verilator --json-only run(s), 2 flop(s), 0 cdc-cell directive(s), 0 cdc-domain annotation(s)
 check: FAIL (style)
 ```
 
@@ -547,11 +547,35 @@ module name:
 - `dst` names a `dst_*` input port, and `src` a `src_*` input port or `async`;
 - a `src=async` cell has no `src_*` output;
 - when the cell is a target itself, each of its flops is clocked by a port
-  its directive names.
+  its directive names, and no output has a purely combinational path from
+  an input of the other side (a `dst_*` output from a `src_*` input, or the
+  reverse), so a cell that is only wires cannot hide a crossing.
 
 A cell that passes is **approved**. A `common_cdc_*` module that fails is
 analyzed like any other module, so its own synchronizer flops are then
 reported as raw crossings too.
+
+**Port domains.** An input port may declare its clock domain with a
+trailing comment on the line that declares it:
+
+```systemverilog
+input  logic       rx_clk_i,
+input  logic [9:0] rx_data_i,  // cdc-domain: rx_clk_i
+```
+
+A comment that starts with `cdc-domain` must match
+`// cdc-domain: <clock input port>` and end the line, and that line must
+start with `input`; each broken rule is a finding at its line. The
+annotation applies to every port the line declares. In the netlist, the
+named port must be another input port of the same module, or the
+annotation is a finding, reported once. An annotation that annotates no
+input port of any analyzed module (a function argument, a module no
+target elaborates) is a finding, except when a target failed to
+elaborate. An annotation takes effect only on the target's top: there
+the port is a source in the domain of the clock it names. On an instance
+below the top it is checked but not applied, because the drivers of that
+port are traced instead, so an integrator annotates its own input ports.
+A port without an annotation has no domain, as before.
 
 **Graph.** The netlist is flattened per instance into a variable-level
 graph. Edges are classed `alias` (one whole variable to another, as in a
@@ -588,16 +612,20 @@ derived clock is therefore a domain of its own, and a path between it and
 its source clock is reported. A `posedge` and a `negedge` flop on the same
 clock share a domain.
 
-**Rule.** Every flop and every cell output's set of reaching sources is
-propagated forward through combinational edges to a fixed point (loops
-terminate). For each flop and each clocked cell input:
+**Rule.** The sources are the flops, the approved-cell outputs and the
+annotated input ports of the top. The set of source domains reaching each
+node is propagated forward through combinational edges to a fixed point
+(loops terminate). Each label is keyed by domain and keeps the smallest
+edge kind on the way and one source with that kind, so propagation costs
+about O(edges x domains), not O(edges x flops). For each flop and each
+clocked cell input:
 
-- a source flop or approved-cell output in another domain is a finding
-  that names both, both clocks and both source lines, and says whether the
-  path is `directly` (alias or wire edges only) or `through combinational
-  logic`;
-- input ports of the top carry no domain, so a path from one is never a
-  finding.
+- each other domain among its sources is one finding that names the sink,
+  one source in that domain (a flop, a cell output or an input port), both
+  clocks and both source lines, and says whether the path is `directly`
+  (alias or wire edges only) or `through combinational logic`;
+- an input port of the top without an annotation carries no domain, so a
+  path from one is never a finding.
 
 For each `src=async` cell input, the inputs it reads are walked backward
 through alias and wire edges until a flop, a cell output or a top input; a
@@ -605,8 +633,10 @@ logic edge on the way, or logic in the connection expression itself, is a
 finding that names where the logic is.
 
 Findings are prefixed with the target's label (`<ip>` or `common/<block>`);
-directive findings are not. The summary counts targets, Verilator runs,
-flops in the analyzed netlists and valid directives.
+directive and annotation text findings are not. Identical findings, such
+as one per iteration of a generate loop, are reported once. The summary
+counts targets, Verilator runs, flops in the analyzed netlists, valid
+directives and well-formed annotations.
 
 ### Limits
 
@@ -615,22 +645,31 @@ Each is a known gap, not a promise; review and each cell's MAS cover them.
 - **No reconvergence, glitch or timing analysis.** Two synchronizers whose
   outputs recombine, a multi-bit value that changes more than one bit per
   update, pulse spacing and the FIFO's read-path timing are not checked.
-- **No reset-domain analysis.** A reset is read like any other data input,
-  so a reset from another clock is reported as a crossing, but reset
-  assertion and release ordering is not checked.
+- **Resets are data.** A reset, synchronous or asynchronous, is read like
+  any other data input: a reset from another domain's flop, or from an
+  input port annotated with another domain, is reported as a crossing.
+  Reset assertion and release ordering is not checked, and a reset from an
+  input port without an annotation is not checked at all.
 - **Variable granularity.** Dependencies are tracked per variable, not per
   bit or field: a vector or struct that mixes bits from two domains is one
   node, which can over-report. Arrays (memories) are one node, so a write
   in one domain and a combinational read in another is not a crossing
   until a flop samples it.
 - **Clocks are signals, not waveforms.** A clock mux or gate is its own
-  `(derived)` domain; a divided clock is its own `(generated)` domain.
+  `(derived)` domain; a divided clock is its own `(generated)` domain. A
+  clock-gating cell (ICG) therefore makes a `(derived)` domain, and a path
+  between it and its source clock is reported, although an ICG's output
+  is phase-aligned with its input. The RTL BKM forbids gated clocks in
+  fabric, so such a finding is real in this repository.
   Related clocks at the top (one source, two ports) are treated as
   unrelated. Clock expressions in a sensitivity list are a finding, not
   analyzed.
-- **IP boundary.** A top input port has no domain, so a crossing whose
-  launching flop is outside the analyzed top is not seen; it is seen at the
-  top-level IP that holds both flops.
+- **IP boundary.** A top input port has no domain unless it is
+  annotated, so a crossing whose launching flop is outside the analyzed
+  top is not seen at an unannotated port; it is seen at the top-level IP
+  that holds both flops. An annotation is trusted: nothing checks that the
+  integrator really drives the port from that domain, except the analysis
+  of the integrator itself.
 - **What Verilator keeps.** The JSON is Verilator's elaborated netlist
   before inlining: parameters are resolved, each parameterization is its
   own module, generate blocks are unrolled, and constant-only drivers may
@@ -639,9 +678,17 @@ Each is a known gap, not a promise; review and each cell's MAS cover them.
   are constants here and are not tracked.
 - **Unsupported constructs** that the check reports rather than guess:
   hierarchical references, interface instances, an instance of a module
-  Verilator did not elaborate. Task output arguments are not modeled, and
-  a variable assigned with a blocking assignment in a clocked block is
-  treated as combinational, even if it holds state across clock edges.
+  Verilator did not elaborate. Task output arguments are not modeled (the
+  style check rejects tasks).
+- **Blocking assignments in a clocked block.** A variable assigned with
+  a blocking assignment in a clocked block is treated as combinational,
+  even if it holds state across clock edges. Such a register can hide a
+  real crossing, both as the sampler (`h = a_q` on another clock is not
+  reported) and as a source (state it holds is not a source). Lint closes
+  the gap: `-Wall` raises `BLKSEQ` on every blocking assignment in a
+  clocked process, and lint warnings fail `./build check`. A `BLKSEQ`
+  waiver reopens the gap, so its `reason` must say why no crossing
+  hides behind it.
 
 ## Unit tests
 
@@ -700,11 +747,19 @@ beside a copy of the repository's crossing cells (`test_cdc.py`): a single
 clock, a legal crossing through each cell, an asynchronous reset, a raw
 crossing (both flops and clocks named), a crossing through combinational
 logic and through the hierarchy, a cell output used in the wrong domain, a
-clocked cell input fed from the wrong domain, a generated clock, logic in
+clocked cell input fed from the wrong domain, a generated clock, a
+clock-gating cell (a `(derived)` domain), one finding per source domain
+and once per generate loop, logic in
 front of a `src=async` input (in the connection, one and two assignments
 away) against plain wires, every directive finding, a missing and a
 malformed directive (the cell is then looked inside), port and clock
-mismatches, `--ip` selection (a sub-IP and an integrated top-level IP), the version pin, and the repository itself. Negative cases include a `.vlt`
+mismatches, a pass-through cell, port domains (an annotated port sampled
+in another domain, an unannotated one, legal crossings through each kind
+of cell input, a wrong cell side, every annotation finding, an
+annotation on a sub-module port checked but not applied, one on a
+function argument), `--ip` selection (a sub-IP and an integrated
+top-level IP), the version pin (mismatched, and missing, empty or
+malformed in `cfg/host.yaml`), and the repository itself. Negative cases include a `.vlt`
 and a `.v` file in an `rtl/` closure, a `w.txt` waiver reached by
 `` `include`` through an include directory under `rtl/` and through
 `+incdir+` of a `dv/` folder (both as a `` `verilator_config`` block and as a
