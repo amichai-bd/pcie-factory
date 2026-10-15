@@ -645,11 +645,16 @@ module name:
   own-side source depends, through combinational edges and the data
   inputs of own-side flops, on an output in its side's domain of an
   approved crossing cell instantiated inside this cell (a synchronized
-  pointer); and each such memory is read somewhere in the cell at an
-  index that depends on a synchronized pointer in the same way, so a
-  synchronized bit that only gates a read at a constant address does not
-  qualify. Which read reaches which output is not tracked: one read at a
-  synchronized pointer qualifies the memory. A read inside a function body
+  pointer); and each such memory has at least one read whose value reaches
+  the output, and every such read has an index that depends on a
+  synchronized pointer in the same way, so a synchronized bit that only
+  gates a read at a constant address does not qualify, nor does a read at
+  a constant address beside one at the pointer. A read reaches the output when what it is assigned to (a
+  variable, or an instance input) lies on a combinational path into the
+  output, without passing a flop; a read in a condition counts toward every
+  variable that the conditional statement writes. A read at a synchronized
+  pointer whose value is unused, or goes only to a flop, does not qualify
+  the memory for that output. A read inside a function body
   is recorded with no index variables (function locals are not module
   variables), so a cell that reads its memory only through a function
   fails this condition. A cell that synchronizes a
@@ -932,7 +937,9 @@ a constant or source-side address, memory reads without a synchronized
 pointer (a one-entry memory, a free-running address, a held select, a
 one-entry memory read with a synchronized pointer, a read at a constant
 address gated by a synchronized bit, and the same with a second read at a
-free-running address) and one at a synchronized pointer,
+free-running address, and the same with an unused read at the
+synchronized pointer, a read at a constant address beside one at the
+pointer) and one at a synchronized pointer,
 an inner synchronizer of a constant, of an empty or omitted pin, of a
 constant-assigned, `always_comb` constant or undriven net, of a flop that
 loads a constant or holds its value (a toggling one is live), the same

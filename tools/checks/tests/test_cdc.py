@@ -825,16 +825,29 @@ SYNCED = """  logic m [{depth}];
   always_ff @(posedge dst_clk_i) fr_q <= ~fr_q;
   always_ff @(posedge dst_clk_i) x_q <= m[fr_q];
 """,
+    # The same, plus a read at the synchronized pointer whose value goes
+    # nowhere near the output: only reads in the output's cone count.
+    SYNCED.format(depth=2, windex="src_a_q", read="m[0] & ra_q") + """  logic u;
+  assign u = m[ra_q];
+""",
+    # A read at the synchronized pointer and a read at a constant address
+    # both reach the output: every read in the output's cone must qualify.
+    SYNCED.format(depth=2, windex="src_a_q", read="m[ra_q] ^ m[0]"),
 ], ids=["one-entry-qualifier", "free-running-address", "hold-select", "one-entry-synced",
-        "constant-address-synced-gate", "free-running-second-read"])
+        "constant-address-synced-gate", "free-running-second-read", "unused-synced-read",
+        "constant-read-beside-synced-read"])
 def test_memory_read_without_a_synchronized_pointer_fails(tmp_path, body):
     r = run(cell_tree(tmp_path, MEM_CELL.format(body=body), "-F common_cdc_sync2.rtl.f\n"))
     assert any("output dst_q_o is driven by flop m (" in f for f in r.findings), r.findings
 
 
 @needs_verilator
-def test_memory_read_at_a_synchronized_pointer_passes(tmp_path):
-    body = SYNCED.format(depth=2, windex="src_a_q", read="m[ra_q]")
+@pytest.mark.parametrize("extra", ["", "  logic u;\n  assign u = m[0];\n"],
+                         ids=["one-read", "constant-read-off-the-output"])
+def test_memory_read_at_a_synchronized_pointer_passes(tmp_path, extra):
+    # A read at a constant address whose value does not reach the output is
+    # outside the output's cone, so it does not disqualify the memory.
+    body = SYNCED.format(depth=2, windex="src_a_q", read="m[ra_q]") + extra
     r = run(cell_tree(tmp_path, MEM_CELL.format(body=body), "-F common_cdc_sync2.rtl.f\n"))
     assert r.passed, r.findings
 
