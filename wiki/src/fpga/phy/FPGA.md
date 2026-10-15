@@ -48,7 +48,7 @@ system would:
 Reset is synchronous to `clk_i` and active high. It is the flop `rst_q`,
 with no logic between it and `rst_i`, because `rst_i` also drives the pcs RX
 reset synchronizer's asynchronous set and
-[`common_cdc_rst`](../../rtl/common/common_cdc_rst.md) takes that source
+[`common_cdc_rst`](../../rtl/common/cdc/common_cdc_rst.md) takes that source
 straight from a flop. Every register powers up at 0, because the board file
 disables power-up don't-care. So `rst_q` is low for the first `clk_i` cycle
 after configuration, while the stack's registers hold their power-up zeros,
@@ -71,7 +71,7 @@ the same `SYNCASYNCNET` lint waivers as the `phy` top
 | `clk_core`: 8 ns on `clk_125_i` | `clk_i` at 125 MHz. |
 | `clk_rx`: 8 ns on `rx_clk_i` | `ser_rx_clk_i` at 125 MHz nominal; another oscillator, within 600 ppm of `clk_i`, with no phase relationship. |
 | `derive_clock_uncertainty` | Quartus clock uncertainty for both clocks. |
-| `set_max_delay` 8 ns from `clk_core` to `clk_rx` and from `clk_rx` to `clk_core` | Every path between the domains is a crossing cell inside `pcie_pcs` ([`pcs` HAS crossings](../../arch/pcs/HAS.md#clock-domain-crossings); [`phy` MAS](../../rtl/phy/MAS.md#timing)): the [`common_cdc_fifo`](../../rtl/common/common_cdc_fifo.md#timing) Gray pointers and memory read, the [`common_cdc_rst`](../../rtl/common/common_cdc_rst.md#timing) asynchronous set from `rst_i`, and the [`common_cdc_sync2`](../../rtl/common/common_cdc_sync2.md#timing) inputs, alone or inside `common_cdc_pulse`. Their MAS pages ask for a max delay of at most one destination period. A false path or an asynchronous clock group is not used: either would let a Gray vector skew past one update. |
+| `set_max_delay` 8 ns from `clk_core` to `clk_rx` and from `clk_rx` to `clk_core` | Every path between the domains is a crossing cell inside `pcie_pcs` ([`pcs` HAS crossings](../../arch/pcs/HAS.md#clock-domain-crossings); [`phy` MAS](../../rtl/phy/MAS.md#timing)): the [`common_cdc_fifo`](../../rtl/common/cdc/common_cdc_fifo.md#timing) Gray pointers and memory read, the [`common_cdc_rst`](../../rtl/common/cdc/common_cdc_rst.md#timing) asynchronous set from `rst_i`, and the [`common_cdc_sync2`](../../rtl/common/cdc/common_cdc_sync2.md#timing) inputs, alone or inside `common_cdc_pulse`. Their MAS pages ask for a max delay of at most one destination period. A false path or an asynchronous clock group is not used: either would let a Gray vector skew past one update. |
 | `set_false_path -hold` both ways between `clk_core` and `clk_rx` | The clocks have no phase relationship, so a hold or removal check across them means nothing; each cell resolves metastability in its own flops. |
 | `set_false_path -from` `key0_ni`, `sw_i[*]` | Asynchronous board inputs, each through a two-flop synchronizer. |
 | `set_false_path -to` `ledr_o[*]`, `ledg_o[*]` | Static, human-visible outputs. |
