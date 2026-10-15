@@ -1,6 +1,11 @@
 tests:
-  - name: smoke
-    module: tests.test_pcs
-    testcase: smoke
+  - name: pipe_reset
+    module: tests.test_pipe_control
+    testcase: pipe_reset
+    top: pcie_pcs
+    timeout_s: 60
+  - name: pipe_detect
+    module: tests.test_pipe_control
+    testcase: pipe_detect
     top: pcie_pcs
     timeout_s: 60

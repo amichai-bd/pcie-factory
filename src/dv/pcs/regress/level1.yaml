@@ -1,1 +1,19 @@
-tests: []
+tests:
+  - name: pipe_power
+    module: tests.test_pipe_control
+    testcase: pipe_power
+    top: pcie_pcs
+    seeds: 2
+    timeout_s: 120
+  - name: pipe_random
+    module: tests.test_pipe_control
+    testcase: pipe_random
+    top: pcie_pcs
+    seeds: 3
+    timeout_s: 180
+  - name: rx_elec_idle
+    module: tests.test_pipe_control
+    testcase: rx_elec_idle
+    top: pcie_pcs
+    seeds: [1, 2]
+    timeout_s: 120

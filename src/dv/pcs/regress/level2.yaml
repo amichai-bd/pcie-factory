@@ -1,1 +1,7 @@
-tests: []
+tests:
+  - name: pipe_random_long
+    module: tests.test_pipe_control
+    testcase: pipe_random_long
+    top: pcie_pcs
+    seeds: 6
+    timeout_s: 900
