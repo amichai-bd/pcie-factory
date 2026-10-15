@@ -124,3 +124,33 @@ tests:
     testcase: rx_decode_random
     top: pcie_pcs
     timeout_s: 600
+  - name: tmp_rx_lock_offsets
+    module: tests.test_lock
+    testcase: rx_lock_offsets
+    top: pcie_pcs
+    timeout_s: 300
+  - name: tmp_rx_lock_controls
+    module: tests.test_lock
+    testcase: rx_lock_controls
+    top: pcie_pcs
+    timeout_s: 300
+  - name: tmp_rx_slips_training
+    module: tests.test_lock
+    testcase: rx_slips_training
+    top: pcie_pcs
+    timeout_s: 300
+  - name: tmp_rx_slips_packets
+    module: tests.test_lock
+    testcase: rx_slips_packets
+    top: pcie_pcs
+    timeout_s: 300
+  - name: tmp_rx_no_false_lock
+    module: tests.test_lock
+    testcase: rx_no_false_lock
+    top: pcie_pcs
+    timeout_s: 300
+  - name: tmp_rx_align_long
+    module: tests.test_lock
+    testcase: rx_align_long
+    top: pcie_pcs
+    timeout_s: 900

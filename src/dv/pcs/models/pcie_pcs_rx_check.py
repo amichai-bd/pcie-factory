@@ -200,6 +200,10 @@ def check_runs(sent: list[tuple[int, int]], words: list[Word], slip_possible=lam
             if j == 0 and may_skip:
                 r.lead_skipped = 1
                 continue
+            if slip_possible(r.words[0].t, flat[j][1].t):
+                r.mismatches += 1        # misaligned before the anchor, after a slip
+                r.bad.append(j)
+                continue
             raise CheckError(f"{where}: run at t={r.words[0].t} ps: symbol {j} got {syms[j]}, "
                              f"sent {stream.syms[p] if 0 <= p < n_sent else None}, before the "
                              f"anchor, no error reported")

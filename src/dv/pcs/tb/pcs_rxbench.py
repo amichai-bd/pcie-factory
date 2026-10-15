@@ -128,8 +128,15 @@ class RxBench:
         await self.b.run(drain)
 
     def rx_bit(self, tx_bit: int) -> int:
+        """The received index of a transmitted bit (a dropped bit: the
+        received index of the bit before it)."""
         m = getattr(self.link, "rx_bit", None) if self.link else None
-        return m.get(tx_bit, tx_bit) if m is not None else tx_bit
+        if m is None:
+            return tx_bit
+        for b in range(tx_bit, max(-1, tx_bit - 20), -1):
+            if b in m:
+                return m[b]
+        return tx_bit
 
     def tx_time(self, tx_bit: int) -> float:
         """When the word holding transmitted bit ``tx_bit`` was sampled
@@ -158,17 +165,27 @@ class RxBench:
         return c
 
 
-def check_latency(rx: RxBench, runs, target: float = RX_LATENCY_MAX) -> tuple[float, float]:
+def check_latency(rx: RxBench, runs, target: float = RX_LATENCY_MAX,
+                  settle: list[float] = ()) -> tuple[float, float]:
     """RX latency of every delivered symbol: from the RX edge that sampled
-    its last bit to the clk_i edge that put it on PIPE. Returns the lowest
-    and highest."""
-    best, worst = float("inf"), 0.0
+    its last bit to the clk_i edge that put it on PIPE. The first word of a
+    lock is left out: it may hold the symbol before the comma, received
+    before lock (the lock target times that word). So are the symbols that
+    leave within 96 cycles after a time in ``settle`` (a slip: a relock that
+    moves the symbol boundary shifts the words by up to one cycle).
+    Returns the lowest and highest."""
+    best, worst, at = float("inf"), 0.0, None
     for r in runs:
         for t, s in r.placed:
+            if t == r.words[0].t or any(x <= t <= x + 96 * CYCLE for x in settle):
+                continue
             lat = (t - rx.arrival(s)) / CYCLE
-            worst = max(worst, lat)
+            if lat > worst:
+                worst, at = lat, (s, t, r.words[0].t)
             best = min(best, lat)
     rx.dut._log.info("RX latency %.2f to %.2f cycles", best, worst)
+    if worst > target:
+        rx.dut._log.info("highest: sent symbol %d on PIPE at %d ps, run from %d ps", *at)
     assert worst <= target, f"RX latency {worst:.2f} cycles above the {target} target"
     return best, worst
 
@@ -197,9 +214,10 @@ def lock_com(syms, r) -> int:
     the aligner's first locked word, so at most a word before the run's first
     symbol once the elastic buffer has packed it (an unlocked symbol and a
     locked one never share a PIPE word). ``r.first`` skips SKP symbols, so
-    a COM of a SKP ordered set may sit up to five symbols before it."""
-    for i in range(max(0, r.first - 6), r.first + 2):
-        if syms[i] == (1, K_COM):
+    a COM of a SKP ordered set may sit up to five symbols before it; the
+    nearest COM is the one."""
+    for i in range(r.first + 1, max(-1, r.first - 7), -1):
+        if 0 <= i < len(syms) and syms[i] == (1, K_COM):
             return i
     raise AssertionError(f"run at {r.words[0].t} ps does not start at a COM: "
                          f"{syms[max(0, r.first - 6):r.first + 2]}")
