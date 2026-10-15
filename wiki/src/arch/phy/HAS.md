@@ -233,7 +233,7 @@ layer hands them down (sequence number, TLP, LCRC), not TLP payload.
 | Lossless | No packet lost or corrupted and no elastic-buffer overflow at ±600 ppm, any SKP interval in range, up to maximum-size TLPs. |
 | TX latency | At most 6 cycles from an accepted beat to its first symbol on `ser_tx_data_o`. |
 | RX latency | At most 16 cycles from a packet's first symbol on `ser_rx_data_i` (once aligned) to its `sop` beat, with the elastic buffer at 12 symbols or fewer. A packet of 2 bytes or fewer ended by EDB, never a well-formed TLP or DLLP, may take 1 more ([`mac` HAS, Targets](../mac/HAS.md#targets)). |
-| Clocks | `clk_i` and `ser_rx_clk_i` at 125 MHz on the FPGA and ASIC flows. |
+| Clocks | `clk_i` and `ser_rx_clk_i` at 125 MHz on the ASIC flow and 50 MHz on the FPGA (DE2-115) flow. The FPGA figure is a timing and resource target only, with no board bring-up at line rate; the design's rates, including PIPE at 125 MHz, are unchanged ([Q26](../../decisions/0002-m1-grill.md#decisions)). |
 
 The budgets the `mac` and `pcs` HAS pages must meet or rebalance: MAC
 transmit 3 and receive 3 cycles (+1 for a packet in the high byte), PCS
@@ -268,4 +268,3 @@ LTSSM. `./build arch --ip phy` writes `workdir/phy/arch/perf.json`.
 | Cite the electrical sub-block's exact sections for receiver detection and the ±300 ppm transmitter tolerance (the citations above use the nearest confident sections). | [#85](https://github.com/amichai-bd/pcie-factory/issues/85) |
 | Refine the PIPE citations on the [PIPE page](PIPE.md) from chapter to section level. The TxCompliance byte (`[7:0]`) and the P0s PhyStatus pulse were confirmed against PIPE rev 3.0, and the stack's differences from PIPE listed, in the [`pcs` PIPE control page](../pcs/PIPE_CONTROL.md#differences-from-pipe). | [#85](https://github.com/amichai-bd/pcie-factory/issues/85) |
 | LTSSM state codes; what `ltssm_state_o` shows when transmit and receive L0s differ (a code cannot show both; a status bit or a rule); the exact rules behind the model's reduced LTSSM. | [#72](https://github.com/amichai-bd/pcie-factory/issues/72) |
-| Traffic into the loopback entry, end to end (L0s, L1, L2 and Loopback run since [#182](https://github.com/amichai-bd/pcie-factory/issues/182)). | [#198](https://github.com/amichai-bd/pcie-factory/issues/198) |
