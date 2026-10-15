@@ -175,7 +175,9 @@ a COM in symbol 1 reseeds (`a_com_reseeds`), a word of two SKP holds
 (`a_skp_holds`), and per lane (`g_lane_check`, either symbol) a COM
 loads the seed (`a_com_reseeds_lane`), a SKP holds (`a_skp_holds_lane`)
 and any other symbol advances (`a_other_advances_lane`); only symbols with
-`scr_i` set change (`a_unscrambled_pass`).
+`scr_i` set change (`a_unscrambled_pass`). The per-lane assertions reuse
+the package's `lfsr_advance`, so a wrong `lfsr_advance` or `lfsr_key` is
+caught by the shadow model's symbol comparison, not by them.
 
 | Decision | Rationale | Rejected |
 | --- | --- | --- |

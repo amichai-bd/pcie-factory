@@ -157,7 +157,7 @@ listed entry; each fails, and the unmutated RTL passes. Each entry runs its firs
 
 | Block | Mutant | Entry | Result |
 | --- | --- | --- | --- |
-| Scrambler | K symbols XORed when `scr_i` is 1 | `smoke` | Fails at cycle 10274: STP sent as A3h, the shadow FBh. (SKP advancing the LFSR stops `smoke` on the RTL assertion `a_skp_holds`.) |
+| Scrambler | K symbols XORed when `scr_i` is 1 | `smoke` | Fails at cycle 10274: STP sent as A3h, the shadow FBh. |
 | Scrambler | SKP advances the LFSR | `smoke` | Stops on `a_skp_holds_lane` (lane 1) at the first SKP ordered set; before the per-lane assertions (#140), on `a_skp_holds`. |
 | Scrambler | No lane chaining: symbol 1 keyed with the LFSR before symbol 0 | `smoke` | Fails at cycle 10231 in Configuration.Idle: idle symbols sent as 8Dh, 8Dh, the shadow 8Dh, BEh. |
 | Scrambler | COM does not reset the LFSR | `smoke` | Stops on `a_com_reseeds_lane` (lane 0); without it, fails at cycle 10231: idle symbols 3Eh, 79h, the shadow 8Dh, BEh. |
