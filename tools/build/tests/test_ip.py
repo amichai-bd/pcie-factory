@@ -46,7 +46,8 @@ def test_top_level_versus_sub_ip(tmp_path):
 
 def test_integrated_ips_stay_top_level(tmp_path):
     # sys integrates a and b; a reaches its sub-IP a_x; a_y is reached only
-    # by sys, so its prefix alone does not make it a sub-IP of a.
+    # by sys, so its prefix alone does not make it a sub-IP of a (the layout
+    # check reports that unconfirmed prefix).
     make_ip(tmp_path, "a_x")
     make_ip(tmp_path, "a_y")
     make_ip(tmp_path, "a", ("a_x",))

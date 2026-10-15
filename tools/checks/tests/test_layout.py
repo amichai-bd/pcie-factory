@@ -118,6 +118,24 @@ def test_included_ip_without_parent_prefix_is_top_level(good):
         "(blk_sub_inc is a sub-IP of blk, blk_sub)" for kind in ("arch", "fpga", "asic")]
 
 
+def test_unconfirmed_parent_prefix_is_a_finding(good):
+    """An id <other>_<name> claims <other> as its parent; when that IP's
+    filelist does not reach it, the name and the filelists disagree."""
+    write(good / "rtl/blk_orphan/blk_orphan.rtl.f")
+    assert run(good).findings == [
+        "rtl/blk_orphan/: id names blk as its parent, but rtl/blk/blk.rtl.f does not "
+        "reach it; include it there with -F ../blk_orphan/blk_orphan.rtl.f, or rename it"]
+    assert run(good, {"blk"}).passed  # reported for the misnamed IP only
+    # Reached only through an integrating IP: still not confirmed by blk.
+    write(good / "rtl/sys/sys.rtl.f",
+          "-F ../blk/blk.rtl.f\n-F ../blk_orphan/blk_orphan.rtl.f\n")
+    assert len(run(good, {"blk_orphan"}).findings) == 1
+    # Including it from blk confirms the parent.
+    f = good / "rtl/blk/blk.rtl.f"
+    f.write_text("-F ../blk_orphan/blk_orphan.rtl.f\n" + f.read_text())
+    assert run(good).passed
+
+
 def test_integration_fixture_passes():
     """Top-level sys integrates top-level a and b, which keep arch/, fpga/
     and asic/; a_x is a sub-IP of a."""

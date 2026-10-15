@@ -45,7 +45,7 @@ M1 is done when all of the following hold on `main`:
 | Q16 | **One epic.** Wave 0 holds the factory work: the open M0 follow-ups, coverage, the CDC check and cells, the citation check, and the design-level record home. |
 | Q17 | **CDC:** crossings may only go through approved `common_` cells (2-flop sync, pulse sync, async FIFO). A design-neutral structural check over Verilator's netlist flags any other crossing. DV adds randomized clock ratios and ppm. |
 | Q18 | **Kind-first layout (captain decision, supersedes M0's IP-first layout):** sources live at `src/<kind>/<ip>/` with `<kind>` in `rtl`, `dv`, `arch`, `fpga`, `asic`. Sub-IPs are **flat siblings with prefixed names** (`src/rtl/mac_scrambler/`); parentage comes from filelist `-F`. `arch`, `fpga` and `asic` exist only for top-level IPs. `wiki/src/` mirrors the tree exactly (`wiki/src/rtl/<ip>/MAS.md`, `wiki/src/dv/<ip>/DV_PLAN.md`, `wiki/src/arch/<ip>/HAS.md`, `wiki/src/fpga/<ip>/FPGA.md`, `wiki/src/asic/<ip>/ASIC.md`). Migration is #92, which lands first. |
-| Q19 | **Integration IPs (captain decision):** an IP is a sub-IP only when its id is `<parent>_<name>` and that parent's filelist reaches it. A top-level IP (such as `phy`) may include other top-level IPs (`mac`, `pcs`) through its filelist; they keep their own HAS, arch, FPGA and ASIC, and `--affected` still selects the integrating IP. Implemented by #107. |
+| Q19 | **Integration IPs (captain decision):** an IP is a sub-IP only when its id is `<parent>_<name>` and that parent's filelist reaches it. A top-level IP (such as `phy`) may include other top-level IPs (`mac`, `pcs`) through its filelist; they keep their own HAS, arch, FPGA and ASIC, and `--affected` still selects the integrating IP. An IP whose id is `<other-ip>_<name>` but that `<other-ip>`'s filelist does not reach is a layout-check finding (include it with `-F`, or rename it). Implemented by #107. |
 | Q20 | **Physical FPGA access is separate (captain decision, 2026-10-15):** work that needs the real DE2-115 connected to the captain's computer (programming the board, on-board evidence) is tracked in its own issue (#89), outside M1. M1's FPGA evidence is nightly synthesis and timing only. |
 
 ## Updates
@@ -53,4 +53,6 @@ M1 is done when all of the following hold on `main`:
 - **2026-10-15:** Q19 (integration IPs) and Q20 (physical FPGA access is
   separate) added; done criterion 6 changed to match Q20, so the board demo
   ([#89](https://github.com/amichai-bd/pcie-factory/issues/89)) is outside
-  M1. Both are copied verbatim from the epic body above.
+  M1. Both are copied verbatim from the epic body above. Q19 then gained
+  its last clarification (a `<other-ip>_<name>` id must be reached by
+  `<other-ip>`'s filelist), mirrored in the epic.

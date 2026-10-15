@@ -76,8 +76,14 @@ IPs, sub-IPs and top-level IPs are as the
   reached by `P`'s filelist is a sub-IP only when its id is `P_<name>`.
   Any other reached IP is an integrated top-level IP, which keeps its own
   `arch/`, `fpga/` and `asic/` (the `integration/` fixture).
+- **Confirmed parent.** An id `P_<name>`, where `P` is another IP's id,
+  claims `P` as its parent, so `P`'s `.rtl.f` must reach it (directly or
+  through another IP); being reached only by an integrating IP is not
+  enough. Otherwise: `rtl/<id>/: id names P as its parent, but
+  rtl/P/P.rtl.f does not reach it; include it there with -F
+  ../<id>/<id>.rtl.f, or rename it`.
 
-With `--ip`, only the selected IPs' folders are checked; the
+With `--ip`, only the selected IPs' folders and parents are checked; the
 kind-folder rule runs only without `--ip`.
 
 ## Filelist check
@@ -485,7 +491,8 @@ Fixtures live in `tools/checks/tests/fixtures/`:
 Tests also build variants in temporary directories: the superseded
 IP-first tree, a nested sub-IP, a sub-IP with `arch/`, `fpga/` or `asic/`, a
 folder that names no IP, and a reached IP without its includer's prefix
-staying top-level with `arch/`, `fpga/` and `asic/` while a prefixed one is a sub-IP (`test_layout.py`), one bad case per style
+staying top-level with `arch/`, `fpga/` and `asic/` while a prefixed one is a sub-IP, and
+an unconfirmed parent prefix (`test_layout.py`), one bad case per style
 rule plus `external-ifdef` closure cases (a vendor and an undefined macro
 fail; include guards, `` `define``s in an include file, `+define+`, a parent
 closure and a board wrapper pass) (`test_style.py`), duplicate, diamond, orphan and regression cases

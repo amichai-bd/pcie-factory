@@ -53,7 +53,10 @@ folder under every kind. An IP is a **sub-IP** of a parent only when both
 hold: its id is `<parent>_<name>`, and the parent's `.rtl.f` reaches its
 `.rtl.f` through `-F` (directly or through another IP). Every other IP is
 **top-level**. Sub-IPs are flat siblings, never nested
-(`src/rtl/<ip>_<sub>/`). `common/` under `rtl/` and `dv/` holds shared blocks
+(`src/rtl/<ip>_<sub>/`). The name is a claim the filelists must confirm: an
+IP whose id is `<other>_<name>`, for another IP `<other>`, must be reached by
+`<other>`'s `.rtl.f`; otherwise the layout check fails until it is included
+with `-F` or renamed. `common/` under `rtl/` and `dv/` holds shared blocks
 and is never an IP.
 
 A top-level IP may **integrate** other top-level IPs through `-F`
