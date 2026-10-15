@@ -143,15 +143,21 @@ crossing cells in `src/rtl/common/`; each MAS owns its cell's rules
   input  logic [19:0] aux_data_i,   // cdc-domain: aux_clk_i
   ```
 
-  An IP with more than one clock input annotates every input port that is
-  not a clock, as its HAS or MAS port table gives it (the `Clock` column),
-  so the check sees a port sampled in the wrong domain. Name a second
+  An IP or shared block with more than one clock input annotates every
+  input port that is not a clock, as its HAS or MAS port table gives it
+  (the `Clock` column), so the check sees a port sampled in the wrong
+  domain; a missing annotation is a finding. `common_cdc_*` cells are
+  exempt: their `src_*`/`dst_*` prefixes and directive give the domains. Name a second
   domain's ports with one prefix, its clock `<prefix>_clk_i` and the rest
   `<prefix>_<name>_i`, so the grouping is visible without the comment; the
   comment, not the name, is what the check reads. An integrator annotates
   its own input ports: an annotation counts only where its module is the
   analyzed top. A single-clock IP may leave its ports unannotated; a port
-  without an annotation has no domain.
+  without an annotation has no domain. A reset entering another domain
+  goes through a crossing cell like any other signal; a reset
+  synchronizer (asynchronous assertion, synchronous release) is a
+  `src=async` cell whose `src_*` reset input drives the asynchronous
+  reset of its `dst_clk_i` flops.
 - **Check.** `./build check` runs the structural
   [CDC check](../tools/checks/SPEC.md#cdc-check): it enforces the directive,
   the port prefixes, pass-through-free cells, the cell-only crossing rule,

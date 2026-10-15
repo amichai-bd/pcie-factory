@@ -23,9 +23,9 @@ HEAD = """`default_nettype none
 module xy_blk (
   input  logic clk_a_i,
   input  logic clk_b_i,
-  input  logic rst_a_i,
-  input  logic rst_b_i,
-  input  logic x_i,
+  input  logic rst_a_i,  // cdc-domain: clk_a_i
+  input  logic rst_b_i,  // cdc-domain: clk_b_i
+  input  logic x_i,  // cdc-domain: clk_a_i
   output logic y_o
 );
 """
@@ -196,8 +196,8 @@ def test_crossing_through_logic_fails(tmp_path):
   end
   assign y_o = b_q;
 """
-    [f] = blk(run(tree(tmp_path, body)))
-    assert "flop b_q (clock clk_b_i" in f and "flop a_q (clock clk_a_i" in f
+    [f] = blk(run(tree(tmp_path, body)))  # a_q and x_i: one finding for clk_a_i
+    assert "flop b_q (clock clk_b_i" in f and "(clock clk_a_i" in f
     assert "through combinational logic" in f
 
 
@@ -308,12 +308,13 @@ def test_one_finding_per_source_domain(tmp_path):
 # ---------------------------------------------------------------- port domains
 
 ANNOTATED = "  input  logic x_i,  // cdc-domain: clk_a_i\n"
+BARE = "  input  logic x_i,\n"
 
 
 def annotated(tmp_path: Path, body: str, line: str = ANNOTATED) -> Path:
     src = tree(tmp_path, body)
     top = src / "rtl/blk/xy_blk.sv"
-    top.write_text(top.read_text().replace("  input  logic x_i,\n", line))
+    top.write_text(top.read_text().replace(ANNOTATED, line))
     return src
 
 
@@ -330,12 +331,71 @@ def test_annotated_port_sampled_in_another_domain_fails(tmp_path):
     [f] = blk(r)
     assert f.startswith("blk: flop b_q (clock clk_b_i, rtl/blk/xy_blk.sv:")
     assert "samples input port x_i (clock clk_a_i, rtl/blk/xy_blk.sv:7) directly" in f
-    assert "1 cdc-domain annotation(s)" in r.checked
+    assert "3 cdc-domain annotation(s)" in r.checked
 
 
 @needs_verilator
-def test_unannotated_port_has_no_domain(tmp_path):
-    assert run(tree(tmp_path, B_SAMPLES_X)).passed
+def test_unannotated_port_has_no_domain_with_one_clock(tmp_path):
+    assert run(annotated(tmp_path, B_SAMPLES_X, BARE)).passed
+
+
+@needs_verilator
+def test_unannotated_input_with_two_clocks_fails(tmp_path):
+    src = annotated(tmp_path, SYNC2, BARE)
+    top = src / "rtl/blk/xy_blk.sv"
+    top.write_text(top.read_text().replace("rst_b_i,  // cdc-domain: clk_b_i", "rst_b_i,"))
+    assert blk(run(src)) == [
+        f"blk: input port {p} (rtl/blk/xy_blk.sv:{n}) has no cdc-domain annotation, and the "
+        "top has 2 clock inputs (clk_a_i, clk_b_i)" for p, n in (("rst_b_i", 6), ("x_i", 7))]
+
+
+@needs_verilator
+def test_reset_synchronizer_cell_form_is_accepted(tmp_path):
+    src = tree(tmp_path, """
+  logic rst_b;
+  logic b_q;
+  common_cdc_rst u_rst (.dst_clk_i(clk_b_i), .src_rst_i(rst_a_i), .dst_rst_o(rst_b));
+  always_ff @(posedge clk_b_i or posedge rst_b) begin
+    if (rst_b) b_q <= 1'b0;
+    else       b_q <= ~b_q;
+  end
+  assign y_o = b_q;
+""")
+    common = src / "rtl/common"
+    (common / "common_cdc_rst.sv").write_text("""`default_nettype none
+// cdc-cell: src=async dst=dst_clk_i
+module common_cdc_rst (
+  input  logic dst_clk_i,
+  input  logic src_rst_i,
+  output logic dst_rst_o
+);
+  logic meta_q;
+  logic sync_q;
+  always_ff @(posedge dst_clk_i or posedge src_rst_i) begin
+    if (src_rst_i) begin
+      meta_q <= 1'b1;
+      sync_q <= 1'b1;
+    end else begin
+      meta_q <= 1'b0;
+      sync_q <= meta_q;
+    end
+  end
+  assign dst_rst_o = sync_q;
+endmodule
+`default_nettype wire
+""")
+    (common / "common_cdc_rst.rtl.f").write_text("common_cdc_rst.sv\n")
+    rtl_f = src / "rtl/blk/blk.rtl.f"
+    rtl_f.write_text("-F ../common/common_cdc_rst.rtl.f\n" + rtl_f.read_text())
+    r = run(src)
+    assert r.passed, r.findings
+    assert "4 cdc-cell directive(s)" in r.checked
+    # Without the cell, the same reset is a raw crossing.
+    top = src / "rtl/blk/xy_blk.sv"
+    top.write_text(top.read_text().replace("posedge rst_b)", "posedge rst_a_i)").replace(
+        "if (rst_b)", "if (rst_a_i)"))
+    [f] = blk(run(src))
+    assert "flop b_q (clock clk_b_i" in f and "input port rst_a_i (clock clk_a_i" in f
 
 
 @needs_verilator

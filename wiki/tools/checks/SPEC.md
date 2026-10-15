@@ -575,7 +575,15 @@ elaborate. An annotation takes effect only on the target's top: there
 the port is a source in the domain of the clock it names. On an instance
 below the top it is checked but not applied, because the drivers of that
 port are traced instead, so an integrator annotates its own input ports.
-A port without an annotation has no domain, as before.
+A port without an annotation has no domain.
+
+A **clock input** is an input port of the top in which the domain of a
+flop or of an approved cell's clock pin ends. When the top has two or more
+clock inputs, every other input port of the top without an annotation is
+a finding that names the port and the clock inputs. A target that is
+itself an approved crossing cell is exempt, because its `src_*` and
+`dst_*` prefixes and its directive already give every port's domain. A
+top with one clock input, or none, needs no annotation.
 
 **Graph.** The netlist is flattened per instance into a variable-level
 graph. Edges are classed `alias` (one whole variable to another, as in a
@@ -625,7 +633,8 @@ clocked cell input:
   clocks and both source lines, and says whether the path is `directly`
   (alias or wire edges only) or `through combinational logic`;
 - an input port of the top without an annotation carries no domain, so a
-  path from one is never a finding.
+  path from one is never a finding (with two or more clock inputs, the
+  missing annotation is itself a finding).
 
 For each `src=async` cell input, the inputs it reads are walked backward
 through alias and wire edges until a flop, a cell output or a top input; a
@@ -665,7 +674,7 @@ Each is a known gap, not a promise; review and each cell's MAS cover them.
   unrelated. Clock expressions in a sensitivity list are a finding, not
   analyzed.
 - **IP boundary.** A top input port has no domain unless it is
-  annotated, so a crossing whose launching flop is outside the analyzed
+  annotated, which only a top with two or more clock inputs must do, so a crossing whose launching flop is outside the analyzed
   top is not seen at an unannotated port; it is seen at the top-level IP
   that holds both flops. An annotation is trusted: nothing checks that the
   integrator really drives the port from that domain, except the analysis
@@ -755,7 +764,9 @@ away) against plain wires, every directive finding, a missing and a
 malformed directive (the cell is then looked inside), port and clock
 mismatches, a pass-through cell, port domains (an annotated port sampled
 in another domain, an unannotated one, legal crossings through each kind
-of cell input, a wrong cell side, every annotation finding, an
+of cell input, a wrong cell side, every annotation finding, a missing annotation with
+two clock inputs, a reset-synchronizer cell form (`src=async`, an
+asynchronous-reset flop pair) against the same reset used raw, an
 annotation on a sub-module port checked but not applied, one on a
 function argument), `--ip` selection (a sub-IP and an integrated
 top-level IP), the version pin (mismatched, and missing, empty or

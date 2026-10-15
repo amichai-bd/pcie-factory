@@ -653,6 +653,7 @@ class Analysis:
     def __init__(self, d: Design):
         self.d = d
         self._domains: dict[Node, str] = {}
+        self._roots: dict[Node, Node] = {}   # clock signal -> where its domain ends
         self.labels = self._propagate()
 
     def domain(self, clock: Node) -> str:
@@ -674,7 +675,31 @@ class Analysis:
         else:
             name = f"{d.name(n)} (derived)"
         self._domains[clock] = name
+        self._roots[clock] = n
         return name
+
+    def clock_inputs(self) -> list[Node]:
+        """Top input ports that clock a flop or an approved cell."""
+        d = self.d
+        roots = set()
+        for c in list(d.flop_clock.values()) + [s.clock for s in d.sinks]:
+            if c is not None:
+                self.domain(c)
+                roots.add(self._roots[c])
+        return sorted((n for n in roots if n in d.inputs), key=d.name)
+
+    def unannotated_inputs(self) -> list[str]:
+        """With more than one clock input, every other input port of the
+        top needs a cdc-domain annotation."""
+        d = self.d
+        clocks = self.clock_inputs()
+        if len(clocks) < 2:
+            return []
+        names = ", ".join(d.inputs[c] for c in clocks)
+        return [f"input port {d.inputs[n]} ({d.nl.where(d.locs.get(n, ''))}) has no "
+                f"cdc-domain annotation, and the top has {len(clocks)} clock inputs ({names})"
+                for n in sorted(d.inputs, key=d.name)
+                if n not in clocks and n not in d.port_clock]
 
     def is_source(self, n: Node) -> bool:
         d = self.d
@@ -943,6 +968,8 @@ def analyze(nl: Netlist, directives: dict[tuple[Path, str], Directive],
                                 f"{own.module}: flop {design.name(node)} runs on {dom}, "
                                 "not on a clock its cdc-cell directive names")
         findings += pass_through_findings(design, own)
+    else:  # a crossing cell's ports have their domains from src_*/dst_*
+        findings += analysis.unannotated_inputs()
     findings += analysis.crossings()
     return list(dict.fromkeys(findings)), len(design.flops)
 
