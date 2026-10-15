@@ -304,8 +304,8 @@ confirmed; each owner confirms or corrects the rule and the model together.
 
 | Item | Owner |
 | --- | --- |
-| Recovery.RcvrLock timeout target (Configuration when any TS was received, else Detect), Configuration.Lanenum.Accept's 2 ms timeout (taken from its neighbours), and the x1 reading of the Lanenum substates for the upstream role. | [#117](https://github.com/amichai-bd/pcie-factory/issues/117) |
-| Electrical-idle inference in L0 at 2.5 GT/s (here: `pipe_rx_elec_idle_i` without an EIOS goes to Recovery). | [#117](https://github.com/amichai-bd/pcie-factory/issues/117) |
+| Recovery.RcvrLock timeout target (Configuration when any TS was received, else Detect), Configuration.Lanenum.Accept's 2 ms timeout (taken from its neighbours), and the x1 reading of the Lanenum substates for the upstream role. | [#164](https://github.com/amichai-bd/pcie-factory/issues/164) |
+| Electrical-idle inference in L0 at 2.5 GT/s (here: `pipe_rx_elec_idle_i` without an EIOS goes to Recovery). | [#164](https://github.com/amichai-bd/pcie-factory/issues/164) |
 | The `Rx_L0s.FTS` timeout (the smaller of 2 x N_FTS + 32 and 4 x N_FTS + 12 cycles here, so it stays within twice the time of N_FTS + 3 FTS), its exit on the SKP ordered set, and the 7 µs bound on the L0s idle time (expected in the active-state power management rules, [cite: PCIe Base Spec, rev 3.0, §5.4.1.1.1]). Also the L1/L2 entry edge case: an EIOS received before the request counts (the receiver is in `Rx_L0s.Entry` or `Rx_L0s.Idle`), so a downstream port can enter L1 or L2 when its partner had only entered transmit L0s; the pair then recovers through Recovery. | [#79](https://github.com/amichai-bd/pcie-factory/issues/79) |
 | Disabled: the TS1 count (16 here) and the following port's exit; Hot Reset: the following port's timer restart; Loopback: the master's 2 ms entry timeout and the minimum electrical idle in Loopback.Exit. | [#80](https://github.com/amichai-bd/pcie-factory/issues/80) |
 | Compliance Receive, the modified compliance pattern and directed compliance entry, all left out here. | [#80](https://github.com/amichai-bd/pcie-factory/issues/80) |
