@@ -9,7 +9,8 @@
 `default_nettype none
 
 module pcie_phy #(
-  parameter int unsigned TIMEOUT_DIV = 1  // 1..1024: divides Detect.Quiet and Hot Reset waits; 1 for silicon
+  parameter int unsigned TIMEOUT_DIV     = 1,  // 1..1024: divides Detect.Quiet and Hot Reset waits; 1 for silicon
+  parameter int unsigned ERR_TIMEOUT_DIV = 1   // 1..1024: divides error-path timeouts (floored); 1 for silicon
 ) (
   // Clocks, reset and strap
   input  logic        clk_i,            // core clock and PCLK, 125 MHz
@@ -74,7 +75,8 @@ module pcie_phy #(
   logic [2:0]  pipe_rx_status;
 
   pcie_mac #(
-    .TIMEOUT_DIV (TIMEOUT_DIV)
+    .TIMEOUT_DIV     (TIMEOUT_DIV),
+    .ERR_TIMEOUT_DIV (ERR_TIMEOUT_DIV)
   ) u_mac (
     .clk_i                (clk_i),
     .rst_i                (rst_i),

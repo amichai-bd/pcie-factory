@@ -28,7 +28,11 @@ async def trained(dut, a_role: str, ppm: float, **kw) -> Env:
 
 
 async def ppm_run(dut, a_role: str, ppm: float) -> None:
-    env = await trained(dut, a_role, ppm)
+    """Link-up with up to 2000 cycles of reset skew, checked against the
+    HAS targets at TIMEOUT_DIV 1024, then random, large-TLP and DLLP
+    lossless phases."""
+    env = await trained(dut, a_role, ppm, skew_max=2000)
+    env.check_link_up(max_us=100.0)
     await env.lossless(40)
     await env.lossless(20, mix="tlp", max_dw=256)      # TLPs up to 1046 bytes
     await env.lossless(40, mix="dllp")

@@ -78,9 +78,9 @@ class ModelPort:
     kind = "model"
 
     def __init__(self, role: str, timeout_div: int = 1024, tx_scrambler=None,
-                 tx_encoder=None, **mac_kw) -> None:
+                 tx_encoder=None, err_timeout_div: int = 1, **mac_kw) -> None:
         self.role = role
-        self.mac = mac_arch.Mac(role, timeout_div, 1, **mac_kw)
+        self.mac = mac_arch.Mac(role, timeout_div, err_timeout_div, **mac_kw)
         self.pcs = PcsModel(tx_encoder=tx_encoder)
         self.tx_scrambler = tx_scrambler
         self._held = mac_arch.PipeTx(reset_n=False)
