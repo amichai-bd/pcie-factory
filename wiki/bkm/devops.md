@@ -101,8 +101,8 @@ rather than fails: CPU time still varies a little between hosts and
 Python versions, and a red gate on a timing number would block correct
 changes; the warning is in the job summary, and the fix is to move or
 speed up tests, never to raise the budget silently.
-Measured for #166 with all IPs: L1 @L1CPU@ s of CPU against 600 s
-(@L1COMMIT@); L0 41.8 s against 120 s.
+Measured for #166 with all IPs: L1 356.7 s of CPU against 600 s
+(134 tests at `32bb298`); L0 41.8 s against 120 s.
 
 ## Local evidence
 
