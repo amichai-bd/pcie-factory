@@ -212,6 +212,11 @@ Every check of the removed leaf testbenches, and where it is now.
 Each mutant was built in a scratch copy of `src/` (`./build sim
 --src-root <copy>`) and run against the listed entries at their first
 regression seed (or the seed named); the unmutated RTL passes all of them.
+The three mutants that survived the first IP-level pass (lock at the
+highest comma, the RD kept known after an unlocked word, RxValid from
+symbol 0's lock) and the two threshold mutants the leaf caught on `fill_o`
+are now caught: by RTL assertions, a directed two-comma window and the
+slow-clock seeds.
 
 | Block | Mutant | Caught by | Not caught by |
 | --- | --- | --- | --- |
@@ -219,38 +224,26 @@ regression seed (or the seed named); the unmutated RTL passes all of them.
 | Encoder | TxCompliance ignored | `tx_smoke`, `tx_table`, `tx_random`, `pipe_random` | - |
 | Decoder | Disparity errors not flagged | `rx_decode_smoke`, `rx_decode_table`, `rx_decode_random` | - |
 | Decoder | A polarity change keeps the RD known | `rx_decode_table`, `rx_decode_random`, `rx_polarity_toggle` | - |
+| Decoder | The RD stays known after an unlocked word | `rx_smoke`, `rx_decode_table`, `rx_elec_idle_gaps` (RTL assertion `a_rd_unknown_after_unlocked`) | - |
 | Decoder | Lane 1 starts from the stored RD, not lane 0's | `rx_decode_smoke`, `rx_decode_table`, `rx_decode_random` | - |
+| Aligner | Lock at the highest comma offset | `rx_no_false_lock` (the two-comma window; RTL assertion `a_lock_at_lowest_comma`) | `rx_slips_training`, `rx_slips_packets`, `rx_lock_offsets` (valid 8b/10b has one comma boundary per window) |
 | Aligner | Hunting with an idle word in the window | `rx_lock_controls`, `rx_lock_offsets` | - |
-| Aligner | `relock_i` ignored | `rx_slips_training`, `rx_slips` (and the RTL assertion `a_relock_drops_lock`) | `rx_errors` (no relock wanted) |
+| Aligner | `relock_i` ignored | `rx_slips_training`, `rx_slips` (and `a_relock_drops_lock`) | `rx_errors` (no relock wanted) |
 | Elastic buffer | No write-side lock-start drop (`w_flush` 0) | `eb_lock_start` seed 1 (fast RX clock) | `rx_elec_idle_gaps` seed 1 |
-| Elastic buffer | No read-side lock-start drop (`r_flush` 0) | `eb_lock_start` seeds 2 and 4, `rx_elec_idle_gaps` seeds 2 and 22 (slow RX clock) | `eb_lock_start` seed 1, `rx_elec_idle_gaps` seed 1 (fast) |
+| Elastic buffer | No read-side lock-start drop (`r_flush` 0) | `eb_lock_start` seeds 2 and 4, `rx_elec_idle_gaps` seeds 2 and 22 (slow RX clock) | - |
+| Elastic buffer | Generation not carried in the FIFO word | `rx_slips_training`, `rx_close_errors`, `rx_error_bursts` | `rx_elec_idle_gaps` seed 1 |
 | Elastic buffer | No addition after a COM in the first slot | `eb_tlp_m600` | `eb_dense` seed 1, `rx_ppm` seed 1 (fast RX clocks) |
 | Elastic buffer | Overflow flag never set | `eb_overflow`, `eb_stress` | - |
+| Elastic buffer | Addition threshold at 6 (`EB_LOW` 6) | `eb_tlp_m600`, `eb_short_burst`, `eb_dense` seed 2 (`a_add_when_due`) | - |
+| Elastic buffer | Fill high at 10 (`EB_HIGH` 10) | `eb_tlp_p600` (`a_fill_high_at_9`) | `eb_dense` seed 1, `rx_ppm` seed 1: on a fast clock with no addition the visible fill stays even and skips 9 |
+| Elastic buffer | Start at 10 (`EB_NOMINAL` 10) | `rx_smoke`, `eb_tlp_m600` (`a_start_at_8`) | - |
 | Elastic buffer | Removal of a second-slot COM's SKP not reported (`r_rem1` dropped) | `eb_tlp_p600`, `eb_dense` | `rx_ppm` seed 1 |
-| Elastic buffer | Generation not carried in the FIFO word | `rx_slips_training`, `rx_close_errors`, `rx_error_bursts` | `rx_elec_idle_gaps` seed 1 |
 | Top | Relock at 2 errored words | `rx_errors`, `rx_error_bursts`, `rx_decode_table` | - |
+| Top | RxValid from symbol 0's lock alone | `eb_idle_m600`, `eb_lock_start` seed 2, `rx_elec_idle_gaps` seed 2, `rx_close_errors` seed 2 (a locked-then-unlocked word at a lock end on a slow RX clock) | fast-clock seeds |
 | Top | Decoder reset by `rst_i` only (not `pipe_reset_ni`) | `rx_decode_smoke` | `rx_decode_random` seed 1, `rx_reset_traffic` seed 1 |
 
-Survivors, each equivalent at the ports or a [gap](#gaps):
-
-- **Addition threshold at 6** (`EB_LOW` 6): survives `eb_tlp_m600`,
-  `eb_short_burst` and `eb_dense`; the fill stays within the latency bound
-  and nothing underflows. The leaf caught it on `fill_o`: the threshold
-  gap below.
-- **RxValid from symbol 0's lock alone:** equivalent. Since the lock-start
-  drop a word is never locked in its first symbol and not its second; the
-  remaining mixed word, at a lock end, has its second symbol unlocked
-  (`rx_elec_idle_gaps`, `eb_lock_start`, `rx_decode_table` pass).
-- **Decoder keeps the RD known after an unlocked word:** equivalent. Every
-  lock after unlocked words has a new generation, which makes the RD
-  unknown on its own (`rx_decode_table`'s check on the first locked word
-  passes).
-- **Aligner takes the highest comma offset:** equivalent on valid 8b/10b,
-  which never has commas at two boundaries in one window
-  (`rx_lock_offsets`, `rx_no_false_lock`, `rx_slips_training` pass). The
-  leaf caught it on unflagged noise, where the aligner model and RTL
-  disagree on which false lock comes first; through the ports a false lock
-  on noise is answered by the relock rule either way.
+Every mutant is caught; none survives the L1 list. Each entry named runs
+in L0 or L1 at the seed shown (the first regression seed otherwise).
 
 The #162 re-review corrected the old top's row for the lock-start drop:
 each single-side mutant was caught only by its own leaf `lock_start_*`
