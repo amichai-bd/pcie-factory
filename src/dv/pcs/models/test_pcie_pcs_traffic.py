@@ -13,6 +13,7 @@ import pytest
 import pcie_pcs_traffic as m
 
 PKG = Path(__file__).resolve().parents[3] / "rtl" / "pcs" / "pcie_pcs_pkg.sv"
+COMMON = Path(__file__).resolve().parents[3] / "rtl" / "common" / "common_pkg.sv"
 K_COM, K_SKP = m.code8b10b.K_COM, m.code8b10b.K_SKP
 
 
@@ -44,9 +45,22 @@ def test_rtl_levels_match_arch():
         (m.EB_NOMINAL, m.EB_HIGH, m.EB_LOW, m.EB_HOLDOFF)
 
 
-def test_rtl_edb_matches_arch_code():
-    edb = re.search(r"K_EDB\s*=\s*8'h([0-9A-Fa-f]+)", PKG.read_text())
-    assert int(edb.group(1), 16) == m.code8b10b.K_EDB == 0xFE
+def _enum(name: str) -> int:
+    v = re.search(rf"\b{name}\s*=\s*\d+'[hd]([0-9A-Fa-f]+)", COMMON.read_text())
+    assert v, name
+    base = 16 if "'h" in v.group(0) else 10
+    return int(v.group(1), base)
+
+
+def test_shared_codes_match_the_pcs_pages():
+    """The codes pcs takes from common_pkg: EDB (the arch model's), the
+    RxStatus codes (RECEIVE.md, Decode and RxStatus) and PowerDown
+    (PIPE_CONTROL.md, PowerDown)."""
+    assert _enum("SYM_EDB") == m.code8b10b.K_EDB == 0xFE
+    status = {"RX_OK": 0, "RX_SKP_ADDED": 1, "RX_SKP_REMOVED": 2, "RX_DETECTED": 3,
+              "RX_CODE_ERR": 4, "RX_EB_OVERFLOW": 5, "RX_EB_UNDERFLOW": 6, "RX_DISP_ERR": 7}
+    assert {k: _enum(k) for k in status} == status
+    assert [_enum(k) for k in ("PD_P0", "PD_P0S", "PD_P1", "PD_P2")] == [0, 1, 2, 3]
 
 
 def _sets(syms):

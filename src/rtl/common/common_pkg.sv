@@ -83,6 +83,19 @@ package common_pkg;
     PD_P2  = 2'd3
   } t_power_down;
 
+  // PIPE RxStatus codes, PCS to MAC (wiki/src/arch/pcs/RECEIVE.md#decode-and-rxstatus);
+  // 4 to 7 are errors.
+  typedef enum logic [2:0] {
+    RX_OK           = 3'd0,
+    RX_SKP_ADDED    = 3'd1,
+    RX_SKP_REMOVED  = 3'd2,
+    RX_DETECTED     = 3'd3,
+    RX_CODE_ERR     = 3'd4,
+    RX_EB_OVERFLOW  = 3'd5,
+    RX_EB_UNDERFLOW = 3'd6,
+    RX_DISP_ERR     = 3'd7
+  } t_rx_status;
+
   // A PIPE data word: two symbols, [7:0] first on the line; bit i of datak
   // marks byte i as a K symbol (wiki/src/arch/phy/PIPE.md#signals).
   typedef struct packed {

@@ -1,7 +1,8 @@
 `default_nettype none
 
 // The one package of the pcs IP (Q24): the types and constants its blocks
-// share and exchange (wiki/src/rtl/pcs/MAS.md#package). The PIPE encodings,
+// share and exchange (wiki/src/rtl/pcs/MAS.md#package); the codes it shares
+// with the mac (PowerDown, RxStatus, the K symbols) are in common_pkg. The
 // PIPE-control timing and relock limits of the top
 // (wiki/src/arch/pcs/HAS.md#package), the symbol and word types of the
 // receive path, the elastic buffer's word, and the pure 8b/10b decode
@@ -10,26 +11,6 @@
 package pcie_pcs_pkg;
 
   // ---------------------------------------------------------------- top
-
-  // PowerDown (wiki/src/arch/pcs/PIPE_CONTROL.md#powerdown).
-  typedef enum logic [1:0] {
-    P0  = 2'd0,
-    P0S = 2'd1,
-    P1  = 2'd2,
-    P2  = 2'd3
-  } t_power_down;
-
-  // RxStatus codes (wiki/src/arch/pcs/RECEIVE.md#decode-and-rxstatus).
-  typedef enum logic [2:0] {
-    RX_OK           = 3'd0,
-    RX_SKP_ADDED    = 3'd1,
-    RX_SKP_REMOVED  = 3'd2,
-    RX_DETECTED     = 3'd3,
-    RX_CODE_ERR     = 3'd4,
-    RX_EB_OVERFLOW  = 3'd5,
-    RX_EB_UNDERFLOW = 3'd6,
-    RX_DISP_ERR     = 3'd7
-  } t_rx_status;
 
   // PIPE-control timing, clk_i cycles (wiki/src/arch/pcs/PIPE_CONTROL.md).
   localparam int unsigned PHY_STATUS_RESET_CYCLES = 16;
@@ -81,10 +62,6 @@ package pcie_pcs_pkg;
   typedef logic [COMMA_W-1:0]  t_comma;
   typedef logic [OFFSET_W-1:0] t_offset;
 
-  // EDB (K30.7): sent for a K flag on no valid K code and substituted for a
-  // received code error (wiki/src/arch/pcs/8B10B.md#k-symbols).
-  localparam logic [BYTE_W-1:0] K_EDB = 8'hFE;
-
   // A byte with its K flag: one symbol before encoding or after decoding.
   typedef struct packed {
     logic  k;
@@ -131,7 +108,7 @@ package pcie_pcs_pkg;
   // error-counter inputs (RECEIVE.md, Decode and RxStatus).
   typedef struct packed {
     logic       valid;    // RxValid: both symbols locked
-    t_rx_status status;   // RxStatus
+    common_pkg::t_rx_status status;   // RxStatus
     logic       errored;  // a code or disparity error under RxValid
     logic       gen;      // lock generation of the last RxValid word
     t_k_byte    sym1;
@@ -457,7 +434,7 @@ package pcie_pcs_pkg;
       d.sym.sym.data = m_neg.valid ? m_neg.data : m_pos.data;
       d.sym.sym.k    = m_neg.valid ? m_neg.k : m_pos.k;
     end else begin
-      d.sym.sym.data = K_EDB;
+      d.sym.sym.data = common_pkg::SYM_EDB;
       d.sym.sym.k    = 1'b1;
       d.sym.code_err = 1'b1;
     end

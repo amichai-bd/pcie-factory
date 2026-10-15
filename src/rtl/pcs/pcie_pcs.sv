@@ -81,14 +81,14 @@ module pcie_pcs (
   // gives one PhyStatus pulse POWER_ACK_CYCLES cycles later.
   // ------------------------------------------------------------------
 
-  pcie_pcs_pkg::t_power_down power;
-  pcie_pcs_pkg::t_power_down power_q;
+  common_pkg::t_power_down power;
+  common_pkg::t_power_down power_q;
   logic                      power_change;
 
-  assign power        = pcie_pcs_pkg::t_power_down'(pipe_power_down_i);
+  assign power        = common_pkg::t_power_down'(pipe_power_down_i);
   assign power_change = ready && (power != power_q);
 
-  `COMMON_DFF_RST_VAL(power_q, power, clk_i, pcs_rst, pcie_pcs_pkg::P1)
+  `COMMON_DFF_RST_VAL(power_q, power, clk_i, pcs_rst, common_pkg::PD_P1)
 
   // ack_cnt_q counts down from POWER_ACK_CYCLES; the pulse is the cycle it
   // holds 1, the fourth after the cycle the change was seen.
@@ -127,7 +127,7 @@ module pcie_pcs (
   logic                  det_sample_en;
   logic                  rxdet_q;
 
-  assign det_counting = ready && (power == pcie_pcs_pkg::P1) && pipe_tx_elec_idle_i
+  assign det_counting = ready && (power == common_pkg::PD_P1) && pipe_tx_elec_idle_i
                         && pipe_tx_detect_rx_i && !det_q.done;
   assign det_pulse    = (det_q.cnt == DET_LAST) && !det_q.done;
 
@@ -213,28 +213,28 @@ module pcie_pcs (
   logic                     word_lock;
   logic                     word_code_err;
   logic                     word_disp_err;
-  pcie_pcs_pkg::t_rx_status word_status;
+  common_pkg::t_rx_status word_status;
 
   assign word_lock     = dec_valid && eb_rx.sym0.lock && eb_rx.sym1.lock;
   assign word_code_err = word_lock && (dec.sym0.code_err || dec.sym1.code_err);
   assign word_disp_err = word_lock && (dec.sym0.disp_err || dec.sym1.disp_err);
 
   always_comb begin
-    word_status = pcie_pcs_pkg::RX_OK;
+    word_status = common_pkg::RX_OK;
     if (!eb_valid) begin
-      word_status = pcie_pcs_pkg::RX_OK;
+      word_status = common_pkg::RX_OK;
     end else if (word_code_err) begin
-      word_status = pcie_pcs_pkg::RX_CODE_ERR;
+      word_status = common_pkg::RX_CODE_ERR;
     end else if (eb_status.ovf) begin
-      word_status = pcie_pcs_pkg::RX_EB_OVERFLOW;
+      word_status = common_pkg::RX_EB_OVERFLOW;
     end else if (eb_status.udf) begin
-      word_status = pcie_pcs_pkg::RX_EB_UNDERFLOW;
+      word_status = common_pkg::RX_EB_UNDERFLOW;
     end else if (word_disp_err) begin
-      word_status = pcie_pcs_pkg::RX_DISP_ERR;
+      word_status = common_pkg::RX_DISP_ERR;
     end else if (eb_status.skp_add) begin
-      word_status = pcie_pcs_pkg::RX_SKP_ADDED;
+      word_status = common_pkg::RX_SKP_ADDED;
     end else if (eb_status.skp_rem) begin
-      word_status = pcie_pcs_pkg::RX_SKP_REMOVED;
+      word_status = common_pkg::RX_SKP_REMOVED;
     end
   end
 
@@ -333,7 +333,7 @@ module pcie_pcs (
   logic                   enc_valid;
   pcie_pcs_pkg::t_word    enc_data;
 
-  assign tx_word  = (power == pcie_pcs_pkg::P0) && !pipe_tx_elec_idle_i;
+  assign tx_word  = (power == common_pkg::PD_P0) && !pipe_tx_elec_idle_i;
   // Loopback (P0, TxElecIdle 0, TxDetectRx 1): re-encode the received
   // words as they leave on PIPE; a code error is already EDB as a K symbol.
   assign loopback = tx_word && pipe_tx_detect_rx_i;
@@ -370,9 +370,9 @@ module pcie_pcs (
   // Outputs; reset values from the HAS are forced while pcs_rst is 1.
   // ------------------------------------------------------------------
 
-  pcie_pcs_pkg::t_rx_status rx_status;
+  common_pkg::t_rx_status rx_status;
 
-  assign rx_status = det_pulse ? (rxdet_q ? pcie_pcs_pkg::RX_DETECTED : pcie_pcs_pkg::RX_OK)
+  assign rx_status = det_pulse ? (rxdet_q ? common_pkg::RX_DETECTED : common_pkg::RX_OK)
                                : rx_q.status;
 
   assign pipe_phy_status_o   = pcs_rst || !ready || ack_pulse || det_pulse;
@@ -399,8 +399,8 @@ module pcie_pcs (
                        rl_q.err_cnt > pcie_pcs_pkg::ERR_CNT_W'(pcie_pcs_pkg::ERR_LIMIT - 1))
   // An underflow word is EDB, EDB as K symbols.
   `COMMON_ASSERT_NEVER(a_udf_edb, clk_i, pcs_rst, eb_valid && eb_status.udf
-                       && (dec.sym0.sym != '{k: 1'b1, data: pcie_pcs_pkg::K_EDB}
-                           || dec.sym1.sym != '{k: 1'b1, data: pcie_pcs_pkg::K_EDB}))
+                       && (dec.sym0.sym != '{k: 1'b1, data: common_pkg::SYM_EDB}
+                           || dec.sym1.sym != '{k: 1'b1, data: common_pkg::SYM_EDB}))
   // An underflow word never carries RxValid.
   `COMMON_ASSERT_NEVER(a_udf_not_valid, clk_i, pcs_rst, eb_valid && eb_status.udf && word_lock)
   // The power-acknowledge countdown never exceeds its start value.

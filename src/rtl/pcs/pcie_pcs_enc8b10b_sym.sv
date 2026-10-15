@@ -19,6 +19,7 @@ module pcie_pcs_enc8b10b_sym (
   logic [4:0] x_in;
   logic [2:0] y_in;
   logic       k_valid;     // K28.0-7, K23.7, K27.7, K29.7, K30.7
+  logic [7:0] edb;         // EDB (K30.7), sent for an unsupported K
   logic [4:0] x;           // after unsupported K -> EDB (K30.7)
   logic [2:0] y;
   logic       k28;
@@ -39,8 +40,9 @@ module pcie_pcs_enc8b10b_sym (
   assign k_valid = (x_in == 5'd28)
                 || ((y_in == 3'd7) && ((x_in == 5'd23) || (x_in == 5'd27)
                                     || (x_in == 5'd29) || (x_in == 5'd30)));
-  assign x       = (sym_i.k && !k_valid) ? pcie_pcs_pkg::K_EDB[4:0] : x_in;
-  assign y       = (sym_i.k && !k_valid) ? pcie_pcs_pkg::K_EDB[7:5] : y_in;
+  assign edb     = common_pkg::SYM_EDB;
+  assign x       = (sym_i.k && !k_valid) ? edb[4:0] : x_in;
+  assign y       = (sym_i.k && !k_valid) ? edb[7:5] : y_in;
   assign k28     = sym_i.k && (x == 5'd28);
 
   // 6b sub-block, RD- form. Two or three ones in EDCBA: sent as is, with i

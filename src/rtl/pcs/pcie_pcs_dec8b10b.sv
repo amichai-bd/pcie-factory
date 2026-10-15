@@ -63,8 +63,8 @@ module pcie_pcs_dec8b10b (
                        (dec0.sym.code_err && dec0.sym.disp_err) ||
                        (dec1.sym.code_err && dec1.sym.disp_err))
   `COMMON_ASSERT_NEVER(a_code_err_edb, clk_i, rst_i,
-                       (dec0.sym.code_err && (dec0.sym.sym.data != pcie_pcs_pkg::K_EDB || !dec0.sym.sym.k)) ||
-                       (dec1.sym.code_err && (dec1.sym.sym.data != pcie_pcs_pkg::K_EDB || !dec1.sym.sym.k)))
+                       (dec0.sym.code_err && (dec0.sym.sym.data != common_pkg::SYM_EDB || !dec0.sym.sym.k)) ||
+                       (dec1.sym.code_err && (dec1.sym.sym.data != common_pkg::SYM_EDB || !dec1.sym.sym.k)))
   `COMMON_ASSERT_NEVER(a_disp_err_known_rd, clk_i, rst_i,
                        (dec0.sym.disp_err && !known0) || (dec1.sym.disp_err && !known1))
 
