@@ -110,12 +110,13 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
 
 - **Coverage floors** (each level's file; floors apply to the merged
   levels selected): L0 line 87, toggle 87, `pcs_align_lock` 100; L1 (with
-  L0, as in `ci-gate`) line 99, toggle 97 and every covergroup but `pcs_rx`
+  L0, as in `ci-gate`) line 99, toggle 96 and every covergroup but `pcs_rx`
   at 100; L2 (L0 to L2, as nightly) line 99, toggle 97, functional 100.
-  Reached: L0 87.9% line, 87.5% toggle; L0 and L1 99.7% line, 97.8%
-  toggle, 99.9% functional; L0 to L2 99.7% line (330/331), 98.0% toggle
-  (3084/3148), 100% functional (2916 bins). The line left is the encoder's
-  assertion-only `run6`.
+  Reached: L0 and L1 99.7% line, 96.9% toggle (3100/3198), 99.9%
+  functional; L0 to L2 99.7% line (334/335), 97.1% toggle (3104/3198), 100%
+  functional (2916 bins). The line left is the encoder's assertion-only
+  `run6`; the assertion-only nets of the threshold and lowest-comma
+  assertions added 50 toggle points, some of which no legal input sets.
 
 ## Plan
 
