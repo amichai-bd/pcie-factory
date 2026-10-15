@@ -107,27 +107,39 @@ sub-pages.
 
 ## Package
 
-`pcie_pcs_pkg` (`src/rtl/pcs/pcie_pcs_pkg.sv`, arriving with the first
-wave-2 RTL that needs it) owns every type and shared constant of the PCS
-and its sub-IPs. Code refers to them as `pcie_pcs_pkg::<name>` and never
-imports the package (decision Q22 in the
+Each sub-IP owns its types and constants in its own package,
+`pcie_pcs_<sub>_pkg`, and never uses the parent's, so its filelist stands
+alone ([RTL BKM](../../../bkm/rtl.md#types-and-constants-live-in-packages)).
+The top's package `pcie_pcs_pkg` (`src/rtl/pcs/pcie_pcs_pkg.sv`) holds only
+the top's own types and constants: its PIPE encodings and the PIPE-control
+timing. The top names a sub-IP's items explicitly as
+`pcie_pcs_<sub>_pkg::<name>`, so dependencies point down the hierarchy.
+Code never imports a package (decision Q22 in the
 [M1 epic](https://github.com/amichai-bd/pcie-factory/issues/65)). The ports
-above stay plain `logic` vectors.
+above, and every sub-IP's ports, stay plain `logic` vectors.
 
-| Name | Kind | Holds |
+A value two sibling sub-IPs need, such as `K_EDB` in the encoder and the
+decoder, is defined in each sub-IP's package from the same row of these
+pages; each MAS cites that row and each DV checks the value against the
+[architecture model](#architecture-model). A shared package-only block
+replaces the copies later
+([#133](https://github.com/amichai-bd/pcie-factory/issues/133)).
+
+| Name | Package | Holds |
 | --- | --- | --- |
-| `t_power_down` | enum, 2 bits | `P0`, `P0S`, `P1`, `P2` ([PowerDown](PIPE_CONTROL.md#powerdown)). |
-| `t_rx_status` | enum, 3 bits | The eight [RxStatus codes](RECEIVE.md#decode-and-rxstatus). |
-| `t_sym10` | 10-bit alias | One raw symbol, bit 0 first on the line. |
-| `t_eb_word` | struct, 25 bits | One elastic-buffer word: two raw symbols, the lock tag, the lock-generation bit, two removed-SKP flags, the overflow flag. |
-| `K_COM`, `K_SKP`, `K_FTS`, `K_SDP`, `K_IDL`, `K_PAD`, `K_STP`, `K_END`, `K_EDB` | 8-bit constants | The [K symbols](8B10B.md#k-symbols) this design uses. |
-| `COMMA_MINUS`, `COMMA_PLUS` | 7-bit constants | The two [comma](8B10B.md#comma) forms. |
-| `EB_ADDR_W`, `EB_NOMINAL`, `EB_HIGH`, `EB_LOW`, `EB_HOLDOFF` | constants | 4, 8, 9, 7 and 8 ([elastic buffer](RECEIVE.md#elastic-buffer)). |
-| `ERR_LIMIT`, `ERR_DECAY_WORDS` | constants | 3 and 8 ([relock](RECEIVE.md#comma-alignment-and-symbol-lock)). |
-| `PHY_STATUS_RESET_CYCLES`, `RX_DETECT_CYCLES`, `POWER_ACK_CYCLES` | constants | 16, 64 and 4 ([PIPE control](PIPE_CONTROL.md)). |
+| `t_power_down` | `pcie_pcs_pkg` | enum, 2 bits: `P0`, `P0S`, `P1`, `P2` ([PowerDown](PIPE_CONTROL.md#powerdown)). |
+| `t_rx_status` | `pcie_pcs_pkg` | enum, 3 bits: the eight [RxStatus codes](RECEIVE.md#decode-and-rxstatus). |
+| `PHY_STATUS_RESET_CYCLES`, `RX_DETECT_CYCLES`, `POWER_ACK_CYCLES` | `pcie_pcs_pkg` | 16, 64 and 4 ([PIPE control](PIPE_CONTROL.md)). |
+| `ERR_LIMIT`, `ERR_DECAY_WORDS` | `pcie_pcs_pkg` | 3 and 8 ([relock](RECEIVE.md#comma-alignment-and-symbol-lock)); the error counter is the top's. |
+| `t_sym10`, `K_EDB` | each of `pcie_pcs_enc8b10b_pkg`, `pcie_pcs_dec8b10b_pkg` | One raw symbol, bit 0 first on the line; EDB, `8'hFE` ([K symbols](8B10B.md#k-symbols)). |
+| `COMMA_MINUS`, `COMMA_PLUS` | `pcie_pcs_align` (module constants) | The two [comma](8B10B.md#comma) forms, matched only there. |
+| `t_eb_word`, `EB_ADDR_W`, `EB_NOMINAL`, `EB_HIGH`, `EB_LOW`, `EB_HOLDOFF` | `pcs_elastic`'s own package ([#84](https://github.com/amichai-bd/pcie-factory/issues/84)) | One elastic-buffer word (two raw symbols, the lock tag, the lock-generation bit, two removed-SKP flags, the overflow flag; 25 bits); 4, 8, 9, 7 and 8 ([elastic buffer](RECEIVE.md#elastic-buffer)). |
+| `K_COM`, `K_SKP` and the other [K symbols](8B10B.md#k-symbols) | the package of each sub-IP that matches them | 8-bit constants, or their raw 10-bit forms where a sub-IP matches symbols without decoding. |
 
-The RTL has no direct assertions, `$error` or `` `ifdef ``; checkers live
-in DV bind modules ([RTL BKM](../../../bkm/rtl.md#assertions)).
+The RTL has no `` `ifdef `` and writes no assertion directly: invariants
+are `COMMON_ASSERT*` macros in the module they belong to, and checkers that
+need testbench state live in DV bind modules
+([RTL BKM](../../../bkm/rtl.md#assertions)).
 
 ## Behavior
 
