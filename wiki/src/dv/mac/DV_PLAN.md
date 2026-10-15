@@ -53,12 +53,13 @@ shows where each of their checks went.
   1024, except `dividers` (256, 128) and `train_spec` (1, 1); `N_FTS` 32
   except the `smoke_n_fts_*` entries.
 - **Functional coverage.**
-  - `mac_ltssm_arcs`: the 38 arcs among the core states (34 main, 4
-    sub-machine Off/L0) crossed with `port_role`, sampled on each observed
-    state change; 100% floor at level 2.
-  - `mac_os_tx`: the sets the DUT sends (TS1, TS2, SKP, compliance), the
-    link (PAD, 0, 1 to 254, 255) and lane (PAD, 0) fields it sends, SKP
-    single or back to back.
+  - `mac_ltssm_arcs`: the 53 arcs among the core and power states (39
+    main, 14 sub-machine) crossed with `port_role`, sampled on each
+    observed state change; 100% floor at level 2.
+  - `mac_os_tx`: the sets the DUT sends (TS1, TS2, SKP, compliance, EIOS,
+    FTS), the link (PAD, 0, 1 to 254, 255) and lane (PAD, 0) fields it
+    sends, SKP single, back to back or after FTS (the requested SKP that
+    ends an L0s exit).
   - `mac_os_rx`: each received event (TS1, TS2, each inverted, SKP, EIOS,
     FTS) crossed with the COM lane, the reason a TS failed (cut, mismatch,
     K identifier, unknown), link and lane kind, link and N_FTS values (0,
@@ -89,7 +90,7 @@ shows where each of their checks went.
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Reset values](../../arch/mac/HAS.md#reset-values) with every input toggling; training to L0; the scrambler's [known answer](../../arch/mac/SYMBOLS.md#scrambling) on the line after a SKP; a TLP, a DLLP and a nullified TLP each way; a retrain each way; reset with a packet half accepted (`pkt_tx_ready_o` falls at once), then a clean packet; both roles | `smoke` | 0 | 1 |
-| [Core arcs without an error-path timeout](../../arch/mac/ARCS.md), both roles: retrain by request, received TS and electrical idle; no receiver; Configuration walks to the PAD and renumbering exits; RcvrCfg's mismatching TS1; Recovery.Idle's lane PAD; Polling.Compliance in and out; an upstream port learning link 255 | `arcs_quick` | 1 | 1; 28 of 38 arcs per role |
+| [Core arcs without an error-path timeout](../../arch/mac/ARCS.md), both roles: retrain by request, received TS and electrical idle; no receiver; Configuration walks to the PAD and renumbering exits; RcvrCfg's mismatching TS1; Recovery.Idle's lane PAD; Polling.Compliance in and out; an upstream port learning link 255. [Power states](../../arch/mac/ARCS.md#l0s-sub-machines) (`ep_power`): transmit and receive L0s left by a packet each way (EIOS, P0s, FTS, the closing SKP), a retrain in `Rx_L0s.Idle`, the `Rx_L0s.FTS` timeout (partner `fts_extra` 200), L1 and L2 entered by both requests and left by request 0, the upstream wait for L1 withdrawn | `arcs_quick` | 1 | 1; 43 of 53 arcs per role, every power arc |
 | [Polarity](../../arch/mac/ARCS.md#detect-and-polling): set once in Polling, cleared in Detect.Quiet, packets on an inverted wire | `polarity` | 1 | 1 |
 | [Transmit and receive streams](../../arch/mac/HAS.md#transmit): random TLPs (to 512 bytes, some past the SKP interval) and DLLPs both ways, nullified ones, gaps, lane shifts, DUT retrains inside packets (aborts); SKP deferral and back-to-back SKP | `traffic` | 1 | 3 |
 | The same, longer | `traffic_long` | 2 | 4 |
@@ -97,8 +98,8 @@ shows where each of their checks went.
 | [Receive rules](../../arch/mac/SYMBOLS.md#receive): crafted streams in L0 with every malformed case, empty packets, RxValid drops, RxStatus errors, either lane; electrical idle, a retrain inside a packet and during a resync | `rx_errors` | 1 | 2 |
 | The same, more seeds | `rx_errors_long` | 2 | 6 |
 | [Received TS fields and events](../../arch/mac/SYMBOLS.md#ts1-and-ts2): every link, lane and N_FTS byte, PAD, each control bit, TS2, both lanes; EIOS and FTS at both lanes; K link and lane fields, K, unknown and mismatched identifiers, a TS cut by COM; inverted TS1 and TS2 at both lanes | `ts_fields` | 1 | 2 |
-| Random partner resets, mutes, freezes, retrains, wrong TS fields and N_FTS, inverted wire, symbol errors and traffic, both roles | `random_soak` | 1 | 2 |
-| [Every core arc, timeouts included](../../arch/mac/ARCS.md), downstream; the 256-timeout `idle_to_rlock` loop | `arcs_full_downstream` | 2 | 1 |
+| Random partner resets, mutes, freezes, retrains, wrong TS fields and N_FTS, inverted wire, symbol errors, power requests on either side (L0s, L1, L2, mixed) with traffic, both roles | `random_soak` | 1 | 2 |
+| [Every core and power arc, timeouts included](../../arch/mac/ARCS.md), downstream; the 256-timeout `idle_to_rlock` loop | `arcs_full_downstream` | 2 | 1 |
 | The same, upstream | `arcs_full_upstream` | 2 | 1 |
 | [Timeout dividers](../../arch/mac/HAS.md#parameters) and the error-timeout floor | `dividers` | 2 | 1; Polling.Active 23437 cycles |
 | [Training targets](../../arch/mac/HAS.md#targets) at dividers 1: link-up 12.0 to 12.2 ms, training 65.536 to 80 µs, both roles | `train_spec` | 2 | 1 |
@@ -115,7 +116,7 @@ is the every-cycle comparison above; "decoder" the receive decoder.
 | `known_answer` (scrambler) | Known answer; COM in either lane, SKP hold, other K, disable, data bytes equal to COM or SKP, `valid_i` hold, reset | `smoke` (known answer from the HAS bytes); every rule through the shadow on both directions: TX in every entry, RX COM in `[15:8]` in `ts_fields` and `traffic` (lane shifts), BCh/1Ch data in `traffic` payloads, `valid_i` hold in `rx_errors` (RxValid drops) and electrical idle everywhere, reset in every `fresh` |
 | `random_vs_model`, `round_trip`, `disable` (scrambler) | Random words vs the model; descramble returns the stream; `scr_i` 0 passes but advances | `traffic`, `random_soak` (both directions against the shadow and the partner); TS symbols unscrambled but advancing in every training |
 | `long_random` (scrambler) | The full LFSR period, 100000 random cycles | Period: the word model's unit test. Through the ports, the transmit LFSR never runs a full period (the mac sends a COM at least every SKP interval); the receive LFSR could, with a partner stretching its SKP interval, but the per-symbol shadow checks on every reachable state plus the model's period test suffice, since the LFSR is linear. Long runs: `traffic_long` |
-| `smoke` (ordered sets) | Every set sent and recognised, both phases; back-to-back TS | Sent: TS1, TS2, SKP, compliance by the shadow in every entry (EIOS, FTS and requested SKP are [gaps](#gaps)); recognised: `ts_fields` (decoder, `mac_os_rx` event x lane) |
+| `smoke` (ordered sets) | Every set sent and recognised, both phases; back-to-back TS | Sent: TS1, TS2, SKP, compliance by the shadow in every entry, EIOS, FTS and the requested SKP in `arcs_quick` and `random_soak` (`mac_os_tx`); recognised: `ts_fields` (decoder, `mac_os_rx` event x lane) |
 | `ts_fields` (ordered sets) | Link and lane 0 to 255 and PAD, control bits, N_FTS, K fields | Receive: `ts_fields` (every byte); transmit: link 0, 255 and learned values (`arcs_quick`, `traffic`, `random_soak`), N_FTS 1, 32, 255 (`smoke_n_fts_*`); control bits sent are a [gap](#gaps) |
 | `malformed` (ordered sets) | Identifier positions, K and unknown identifiers, cut TS, both phases | `ts_fields` (mangled sets), `random_soak` (`corrupt`) |
 | `random_vs_model`, `long_random*` (ordered sets) | Requests, SKP schedule and an impaired line vs the model | The shadow in every entry (SKP placement exact), `random_soak`, `traffic_long` |
@@ -147,6 +148,4 @@ listed entry; each fails, and the unmutated RTL passes.
 
 | Feature | Owning issue |
 | --- | --- |
-| L0s sub-machines, L1, L2, the arcs into them; EIOS, FTS and requested-SKP transmit (the LTSSM never requests them yet) | [#79](https://github.com/amichai-bd/pcie-factory/issues/79) |
-| The partner model's `skp_adjust` hook leaves its transmit queue odd, so after it the partner sends no further SKP ordered set in L0; tests use it only where that does not matter (`traffic`, `ts_fields`) | [#79](https://github.com/amichai-bd/pcie-factory/issues/79) (the transmit SKP paths) |
 | Disabled, Hot Reset, Loopback, the arcs into them; training control bits sent; L0 to Recovery on `hot_reset_req_i`, `disable_req_i` and `loopback_req_i` | [#80](https://github.com/amichai-bd/pcie-factory/issues/80) |

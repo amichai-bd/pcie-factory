@@ -35,7 +35,7 @@ they and the model differ, the pages win and the model is fixed.
 | `ts` | `Mac.inject` | Fields forced into every TS sent: kind, link, lane, N_FTS, control bits. |
 | `ts_script` | `Mac.inject` | A sequence of such field sets, one per TS sent, before `ts` applies again; with `freeze`, an exact TS sequence. |
 | `fts_extra` | `Mac.inject` | FTS sent beyond the partner's N_FTS on an L0s exit. |
-| `skp_adjust` | `Mac.inject` | One SKP more or less in the next SKP ordered set: later packets start in `[15:8]`. |
+| `skp_adjust` | `Mac.inject` | One SKP more or less in the next SKP ordered set: later symbols move by one byte lane. The SKP schedule continues (a refill is a set boundary even with one symbol left), the last word before electrical idle is padded with an idle data symbol, and electrical idle realigns the queue. |
 | `no_eios` | `Mac.inject` | Enter electrical idle without an EIOS. |
 | `idle_to_rlock` | `Mac.inject` | Preset the counter (device side; see [below](#partner-only-recipes)). |
 | `present`, `invert`, `corrupt`, `status` | `Pcs` | Receiver termination, inverted wire, symbol errors, RxStatus codes. |
@@ -54,6 +54,11 @@ receive and transmit stages ([MAS](../../rtl/mac/MAS.md#pipeline-and-the-model))
 and the tests compare the two every cycle. The sweep module needs the model bound with
 `pcie_mac_sweep.use(pcie_mac_arch)`, because the model imports the sweep
 (`./build arch` restores `sys.path` after loading the model).
+
+Inputs are taken as the RTL samples them: requests are set before the step
+whose edge samples them, and a packet given to the model for a step's word
+is `pkt_tx_valid_i` at the next edge, so it starts the `Tx_L0s.Idle` exit
+one step later (the `tx_waiting` flag, [#79](https://github.com/amichai-bd/pcie-factory/issues/79)).
 
 ## Arc sweep
 

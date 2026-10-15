@@ -52,7 +52,7 @@ one testbench ([DV plan](../../dv/mac/DV_PLAN.md)). There are no sub-IPs.
 | [Scrambler](../../rtl/mac/MAS.md#scrambler) | The [scrambler](SYMBOLS.md#scrambling): LFSR, reset on COM, hold on SKP, a key per symbol; instanced once per direction. A word that is not sent or not received (RxValid 0 or electrical idle) holds the LFSR. | Shared by both directions; reuses the retired `top_lfsr` (Q2). |
 | [Ordered sets](../../rtl/mac/MAS.md#ordered-sets) | Ordered-set transmit (TS1/TS2 with given fields, SKP schedule, EIOS, FTS, compliance pattern) and receive (decode TS fields, flag SKP, EIOS, FTS). | One block per symbol format; the LTSSM only sees fields and events. |
 | [Frame](../../rtl/mac/MAS.md#frame) | The upper stream: framing, idle, `pkt_tx_ready_o`, abort with EDB; deframing, realignment, `err` and `nullify`, framing errors. | The packet datapath, independent of training. |
-| [LTSSM](../../rtl/mac/MAS.md#ltssm) | The [LTSSM](LTSSM.md): main machine, L0s sub-machines, timers, directed requests, PIPE power, detection and loopback control, `link_up_o`, `ltssm_state_o`. The power states are [#79](https://github.com/amichai-bd/pcie-factory/issues/79), the control states [#80](https://github.com/amichai-bd/pcie-factory/issues/80). | The control path; the largest block. |
+| [LTSSM](../../rtl/mac/MAS.md#ltssm) | The [LTSSM](LTSSM.md): main machine, L0s sub-machines, timers, directed requests, PIPE power, detection and loopback control, `link_up_o`, `ltssm_state_o`. The control states are [#80](https://github.com/amichai-bd/pcie-factory/issues/80). | The control path; the largest block. |
 
 The top instances and connects them: a line mux, and one register stage on
 each side of PIPE ([MAS, Top](../../rtl/mac/MAS.md#top)).

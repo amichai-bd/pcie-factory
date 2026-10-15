@@ -403,6 +403,10 @@ async def smoke(dut):
     """L0, both roles: HAS reset values; training to L0; the scrambler's
     known answer on the line; a TLP, a DLLP and a nullified TLP each way;
     a retrain each way; reset inside a packet, then a clean packet."""
+    await _smoke(dut)
+
+
+async def _smoke(dut):
     rng = rng_for(dut)
     h = Harness(dut)
     await h.start()
@@ -429,6 +433,20 @@ async def smoke(dut):
         await h.run_until(h.both_l0, LIMIT)
         await reset_in_packet(h, role)
         dut._log.info("%s: %d cycles checked", role, h.checks)
+    return h
+
+
+@cocotb.test()
+async def smoke_power(dut):
+    """L2, for the N_FTS variants: smoke, then the power-state episode in
+    both roles, so N_FTS sets both the FTS the partner sends on its L0s exit
+    and this receiver's Rx_L0s.FTS timeout (the smaller of 2 x N_FTS + 32
+    and 4 x N_FTS + 12 cycles) at its extremes."""
+    h = await _smoke(dut)
+    for role in arch.ROLES:
+        await train(h, role)
+        await ep_power(h, role)
+        dut._log.info("%s: power episode done, %d cycles checked", role, h.checks)
 
 
 @cocotb.test()

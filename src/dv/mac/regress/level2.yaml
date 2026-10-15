@@ -39,13 +39,13 @@ tests:
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
   - name: smoke_n_fts_1
     module: tests.test_mac
-    testcase: smoke
+    testcase: smoke_power
     top: pcie_mac_tb
     timeout_s: 300
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024, N_FTS: 1}
   - name: smoke_n_fts_255
     module: tests.test_mac
-    testcase: smoke
+    testcase: smoke_power
     top: pcie_mac_tb
     timeout_s: 300
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024, N_FTS: 255}
