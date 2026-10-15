@@ -11,7 +11,8 @@
 // a layer is RTL. The layer switches are parameters, set per regression
 // entry with params, and are echoed on cfg_*_o for the environment:
 //
-//   MAC_RTL, PCS_RTL  0: the layer is a Python model and the instance idles;
+//   MAC_RTL, PCS_RTL  0: the layer is a Python model and the instance idles
+//                     in reset;
 //                     1: the layer is the RTL in the instance. Today only
 //                     both-or-neither is wired: the instance is the whole
 //                     stack (the DV plan has the per-layer recipe).
@@ -114,9 +115,14 @@ module pcie_phy_e2e_tb #(
   assign a_rxdet   = (CHAN_RTL != 0) ? !b_rst_i  : a_ser_tx_rxdet_i;
   assign b_rxdet   = (CHAN_RTL != 0) ? !a_rst_i  : b_ser_tx_rxdet_i;
 
+  // With the layers as models the instances idle, held in reset.
+  logic a_rst, b_rst;
+  assign a_rst = (MAC_RTL != 0) ? a_rst_i : 1'b1;
+  assign b_rst = (MAC_RTL != 0) ? b_rst_i : 1'b1;
+
   pcie_phy #(.TIMEOUT_DIV(TIMEOUT_DIV)) u_a (
     .clk_i              (a_clk_i),
-    .rst_i              (a_rst_i),
+    .rst_i              (a_rst),
     .port_role_i        (a_port_role_i),
     .pkt_tx_valid_i     (a_pkt_tx_valid_i),
     .pkt_tx_data_i      (a_pkt_tx_data_i),
@@ -150,7 +156,7 @@ module pcie_phy_e2e_tb #(
 
   pcie_phy #(.TIMEOUT_DIV(TIMEOUT_DIV)) u_b (
     .clk_i              (b_clk_i),
-    .rst_i              (b_rst_i),
+    .rst_i              (b_rst),
     .port_role_i        (b_port_role_i),
     .pkt_tx_valid_i     (b_pkt_tx_valid_i),
     .pkt_tx_data_i      (b_pkt_tx_data_i),
