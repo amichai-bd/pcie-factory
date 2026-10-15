@@ -10,7 +10,8 @@ Skills section.
 Links are rewritten: `.md` -> `.html`, folders -> their landing page, and
 repository paths outside `wiki/` -> GitHub blob/tree URLs at the built commit.
 `wiki/tracker/index.md` gains the metrics tracker rendered from
-`wiki/tracker/data/` (tracker.py), plus generated per-IP pages.
+`wiki/tracker/data/` (tracker.py), plus generated per-IP pages; the tracker is
+its own navbar tab with its own sidebar, outside the wiki tree.
 `--strict` turns every broken link or anchor into a failure. The same tree and
 SHA always build the same bytes. See wiki/tools/wiki_site/SPEC.md.
 """
@@ -54,6 +55,7 @@ PLAIN = {"", "text", "txt", "plain"}
 THEME = ("wiki.css", "wiki.js", "tracker.js", "vendor/mermaid.min.js", "vendor/mermaid-LICENSE.txt",
          "vendor/chart.umd.js", "vendor/chart-LICENSE.md")
 TRACKER = "wiki/tracker"  # landing page gets the rendered tracker; data/ holds the records
+TABS = ("Wiki", "Tracker")  # navbar tabs when the tracker exists: everything else, the tracker
 # `(?<![\w-])`, not `\b`: `-` is a word boundary, so `\b` would also match the
 # tail of `data-src=` or `data-id=`.
 ATTR = re.compile(r"""((?<![\w-])(?:href|src)\s*=\s*)(["'])(.*?)\2""", re.I | re.S)
@@ -204,6 +206,7 @@ class Site:
         self.links = 0
         self._foreign: dict[str, set[str] | None] = {}
         self.tree = self._scan(root / WIKI)
+        self.tracker: Folder | None = None  # the tracker tab's nav, outside the wiki tree
         self._add_tracker()
         for rel in list(self.pages) + self.assets:
             self.out[rel] = out_path(rel[len(WIKI) + 1:])
@@ -223,6 +226,7 @@ class Site:
             self.problems.append(f"{WIKI}/: no index.md or README.md for the site home page")
         if self.unreadable:
             raise SourceError(self.unreadable)
+        self.tracker_out = {self.site_path(p) for p in self.nav_pages(self.tracker)} if self.tracker else set()
 
     def read(self, rel: str) -> str:
         """A source's text; an unreadable source is recorded and reads as ""
@@ -234,8 +238,9 @@ class Site:
             return ""
 
     def _add_tracker(self) -> None:
-        """Append the rendered tracker to wiki/tracker's landing page and add
-        the generated per-IP pages (virtual sources under wiki/tracker/ip/)."""
+        """Append the rendered tracker to wiki/tracker's landing page, add
+        the generated per-IP pages (virtual sources under wiki/tracker/ip/),
+        and move the tracker folder out of the wiki tree into its own tab."""
         landing = self.landing_of(TRACKER)
         folder = next((f for f in self.tree.folders if f.rel == "tracker"), None)
         if landing is None or folder is None:
@@ -256,6 +261,8 @@ class Site:
             else:
                 ips.pages.append(src)
         folder.folders.insert(0, ips)
+        self.tree.folders = [f for f in self.tree.folders if f is not folder]
+        self.tracker = folder
 
     def _add(self, src: str, out: str, text: str) -> None:
         self.pages[src] = Page(self.md, src, text)
@@ -401,9 +408,29 @@ class Site:
                     child.content = self._rewrite_html(page.rel, child.content)
 
     # ------------------------------------------------------------- sidebar
+    def tabs(self, active: str, root: str) -> str:
+        """Navbar tabs: the wiki (home) and the tracker; empty without a tracker."""
+        if not self.tracker:
+            return ""
+        links = []
+        for label, out in zip(TABS, ("index.html", self.site_path(self.tracker.landing))):
+            on = (active in self.tracker_out) == (label == TABS[1])
+            cls = ' class="active" aria-current="page"' if on else ""
+            links.append(f'<a{cls} href="{root}{quote(out, safe="/-._~")}">{label}</a>')
+        return "".join(links)
+
+    def nav(self, active: str) -> tuple[list[str], list[Folder]]:
+        """(top pages, sections) of the sidebar for site path `active`: the
+        tracker's own nav on tracker pages, else the wiki's."""
+        if active in self.tracker_out:
+            return [self.tracker.landing] + self.tracker.pages, self.tracker.folders
+        return self.top, self.sections
+
     def sidebar(self, active: str, root: str) -> str:
-        pages = "".join(self._link(p, active, root) for p in self.top)
-        items = "".join(self._folder(f, active, root) for f in self.sections)
+        top, sections = self.nav(active)
+        expand = active in self.tracker_out  # the tracker nav is short: show it all
+        pages = "".join(self._link(p, active, root) for p in top)
+        items = "".join(self._folder(f, active, root, expand) for f in sections)
         return f'<ul class="menu">{pages}{items}</ul>'
 
     def _link(self, src: str, active: str, root: str) -> str:
@@ -411,7 +438,7 @@ class Site:
         cls = ' class="active"' if out == active else ""
         return f'<li><a{cls} href="{root}{quote(out, safe="/-._~")}">{escape(self.pages[src].title)}</a></li>'
 
-    def _folder(self, folder: Folder, active: str, root: str) -> str:
+    def _folder(self, folder: Folder, active: str, root: str, expand: bool = False) -> str:
         name = PurePosixPath(folder.rel).name
         if folder.landing:
             out = self.site_path(folder.landing)
@@ -420,14 +447,16 @@ class Site:
         else:
             head = f"<span>{escape(name)}</span>"
         kids = "".join(self._link(p, active, root) for p in folder.pages)
-        kids += "".join(self._folder(f, active, root) for f in folder.folders)
-        is_open = " open" if active in {self.site_path(p) for p in self.nav_pages(folder)} else ""
+        kids += "".join(self._folder(f, active, root, expand) for f in folder.folders)
+        is_open = " open" if expand or active in {self.site_path(p) for p in self.nav_pages(folder)} else ""
         return f"<li><details{is_open}><summary>{head}</summary><ul>{kids}</ul></details></li>"
 
     def nav_pages(self, folder: Folder | None = None) -> list[str]:
-        """Every page the sidebar links to (in `folder`), in sidebar order."""
+        """Every page a sidebar links to (in `folder`), in sidebar order: the
+        wiki's sidebar, then the tracker's."""
         if folder is None:
-            return self.top + [p for f in self.sections for p in self.nav_pages(f)]
+            tracker = self.nav_pages(self.tracker) if self.tracker else []
+            return self.top + [p for f in self.sections for p in self.nav_pages(f)] + tracker
         out = ([folder.landing] if folder.landing else []) + folder.pages
         for sub in folder.folders:
             out += self.nav_pages(sub)
@@ -464,6 +493,7 @@ def theme_css() -> str:
 
 def layout(site: Site, out: str, page: Page, body: str, brand: str) -> str:
     root = "../" * out.count("/")
+    site_tabs = site.tabs(out, root)
     toc = [(lvl, t, a) for lvl, t, a in page.headings if lvl in (2, 3)]
     toc_html = ""
     if toc:
@@ -490,6 +520,7 @@ def layout(site: Site, out: str, page: Page, body: str, brand: str) -> str:
 <nav class="navbar">
 <button class="navbar-toggle" type="button" aria-label="Toggle navigation">&#9776;</button>
 <a class="navbar-brand" href="{root}index.html">{escape(brand)}</a>
+{site_tabs and f'<div class="navbar-tabs">{site_tabs}</div>'}
 <div class="navbar-right">
 <a class="navbar-repo" href="{escape(site.repo_url)}" title="Source on GitHub">GitHub</a>
 <div class="search"><input type="search" placeholder="Search" aria-label="Search the wiki" autocomplete="off"><ul class="search-results" hidden></ul></div>
@@ -497,7 +528,7 @@ def layout(site: Site, out: str, page: Page, body: str, brand: str) -> str:
 </div>
 </nav>
 <div class="layout">
-<aside class="sidebar">{site.sidebar(out, root)}</aside>
+<aside class="sidebar">{site_tabs and f'<nav class="sidebar-tabs" aria-label="Site sections">{site_tabs}</nav>'}{site.sidebar(out, root)}</aside>
 <main class="doc"><article class="markdown">
 {body}</article></main>
 {toc_html}

@@ -127,7 +127,20 @@ collapsible entry:
   **Skills** section with one entry per skill, sorted by name.
 - The current page is highlighted, and its ancestor folders start open.
 
-Every page is in the sidebar. Number file names (`0001-…`) to set an order.
+**Tabs.** When the [tracker](#tracker) exists, `wiki/tracker/` leaves the
+wiki tree and becomes its own tab. The navbar shows two tabs on every page:
+**Wiki**, linking to the home page, and **Tracker**, linking to
+`tracker/index.html`. The tab of the current page is highlighted (`active`,
+`aria-current="page"`): **Tracker** on the tracker landing page and every
+page under it, **Wiki** everywhere else. Tracker pages get the tracker's own
+sidebar instead of the wiki tree: the tracker landing page, its other
+pages, then the per-IP section (`tracker/ip/index.html` as its heading, one
+entry per IP), always open. The wiki sidebar does not list the tracker, and
+the wiki landing page links to it. Below 640 px the navbar
+tabs move to the top of the sidebar drawer that the navbar toggle opens.
+Without a tracker there are no tabs. URLs do not change.
+
+Every page is in a sidebar. Number file names (`0001-…`) to set an order.
 Each page also gets an "On this page" table of contents built from its H2 and
 H3 headings.
 
@@ -170,7 +183,7 @@ Problems are reported as `WARN` or, with `--strict`, as `ERROR` and exit 1:
 
 The search box in the navbar loads `assets/search-index.json` on first focus.
 The index is a list of `{title, url, headings: [[text, anchor]], text}` in
-sidebar order, where `headings` are H2 and H3 and `text` is the first 4000
+sidebar order (the wiki's sidebar, then the tracker's), where `headings` are H2 and H3 and `text` is the first 4000
 characters of the page's text. Every whitespace-separated word must match,
 ignoring case. Title matches rank first, then heading matches, then text
 matches (shown with a snippet). Up to 20 hits are shown. `/` focuses the box,
@@ -241,7 +254,8 @@ IP's comparison table (with each scenario's target metrics), LOC by kind,
 tests per level, its FPGA and ASIC charts, one coverage chart with a series
 per metric, and its architecture model: the scenario status table and one
 chart per target metric with a series per scenario. `/tracker/ip/` lists the
-IPs, with their latest arch status; the sidebar lists them under it.
+IPs, with their latest arch status; the tracker sidebar lists them under it
+([Tabs](#navigation)).
 
 **Charts.** Each chart is a `<canvas>` with a caption naming the quantity and
 unit, an axis title on both axes, and a data table (the latest 30 points, or
