@@ -32,8 +32,10 @@
   update, bins the clock ratio (`dst` period / `src` period: source 4x or
   more faster, faster, near 1:1 within 1.25, destination faster, 4x or more
   faster) and the hold (under three or at least three `dst_clk_i` periods),
-  crossed. The pulse and FIFO plans reuse the same ratio bins
-  (`CLOCK_BINS` in `tb/cdc_env.py`). No coverage floor is set yet
+  crossed. `dst_fast_4x,min` is unreachable: a source period of four or
+  more destination periods holds every update at least four of them. The
+  pulse and FIFO plans reuse the same ratio bins (`CLOCK_BINS` in
+  `tb/cdc_env.py`). No coverage floor is set yet
   ([DV BKM](../../../bkm/dv.md#coverage)).
 - **Out of scope:** metastability itself. Verilator is two-state and
   zero-delay, so a late resolution never happens in simulation. Whether crossings use the cells at all is

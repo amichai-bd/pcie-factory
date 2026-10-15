@@ -21,7 +21,11 @@
 - **Functional coverage:** the `common_cdc_pulse` covergroup, sampled per
   pulse, bins the clock ratio as in the [sync2 plan](common_cdc_sync2.md#strategy)
   and the spacing to the next pulse (back to back, the minimum, wider),
-  crossed. No coverage floor is set yet
+  crossed. Four cross bins are unreachable: back to back needs a source
+  period of at least two destination periods, so not with `src_fast_4x`,
+  `src_fast` or `near_1to1`; and with `dst_fast_4x` the minimum spacing is
+  one source cycle, which counts as back to back. No coverage floor is set
+  yet
   ([DV BKM](../../../bkm/dv.md#coverage)).
 - **Out of scope:** pulses that break the spacing rule (undefined by the
   MAS); metastability, as in the sync2 plan.
