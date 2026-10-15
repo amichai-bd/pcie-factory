@@ -617,13 +617,13 @@ async def _smoke(dut):
 @cocotb.test()
 async def smoke_arcs(dut):
     """L2, for the N_FTS variants: smoke, then the level-1 arc recipes in
-    both roles (QUICK, the power episode included), so N_FTS sets the FTS
-    the partner sends on its L0s exit and this receiver's Rx_L0s.FTS
-    timeout (the smaller of 2 x N_FTS + 32 and 4 x N_FTS + 12 cycles) at
-    its extremes."""
+    both roles (QUICK with the power episode, and CONTROL_QUICK), so N_FTS
+    sets the FTS the partner sends on its L0s exit and this receiver's
+    Rx_L0s.FTS timeout (the smaller of 2 x N_FTS + 32 and 4 x N_FTS + 12
+    cycles) at its extremes, and every state runs in these builds."""
     h = await _smoke(dut)
     for role in arch.ROLES:
-        for ep in QUICK:
+        for ep in QUICK + CONTROL_QUICK:
             await ep(h, role)
         dut._log.info("%s: arc recipes done, %d cycles checked", role, h.checks)
 
