@@ -36,7 +36,7 @@ vocabulary_tests:            # marked tools tests a source change selects
 | `shared_dv` | Shared DV Python that no filelist reaches; a change under one selects every IP. |
 | `models` | An IP's reference models and their unit tests. A change under a sub-IP's (or an integrated IP's) models directory also selects every ancestor IP, because parent models import sub-IP models ([DV BKM](../../bkm/dv.md#reusing-a-sub-ip-model)). `./build ci unit` runs the model tests of each selected IP. |
 | `tools_tests` | The pytest paths of the tools unit tests. |
-| `vocabulary_tests` | `marker`: a pytest marker on tools tests that build source files (the RTL vocabulary headers, with Verilator); `paths`: repo-relative files (a trailing `/` makes a prefix) whose change runs those tests. |
+| `vocabulary_tests` | `marker`: a pytest marker on tools tests that build source files (the RTL vocabulary headers, with Verilator); `paths`: repo-relative files (a trailing `/` makes a prefix) whose change runs those tests; a checks unit test keeps them equal to the style check's vocabulary header list ([checks SPEC](../checks/SPEC.md#style-check)). |
 
 A top-level IP's architecture models, self-tests and `perf/` scenarios
 live in `src/arch/<ip>/`, fixed by the [layout](../../project/layout.md), so
