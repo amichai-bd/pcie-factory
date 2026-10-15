@@ -115,6 +115,22 @@ least:
 Nightly collects these per IP into the tracker
 ([DevOps BKM](devops.md#metrics)).
 
+## Known Quartus limits
+
+Quartus Prime Lite reads the RTL as SystemVerilog-2005
+(`VERILOG_INPUT_VERSION SYSTEMVERILOG_2005`) and rejects some constructs
+that Verilator accepts. Each one found is a [style-check](../tools/checks/SPEC.md#style-check)
+rule, so `./build check` rejects it before Quartus runs; the
+[RTL BKM](rtl.md#systemverilog-rules) gives the portable form.
+
+| Construct | Quartus error | Portable form | Style rule |
+| --- | --- | --- | --- |
+| Module-level `for`, `if` or `case` without `generate ... endgenerate` | 10170 syntax error, expecting `endmodule` | Wrap it in `generate ... endgenerate` (labels and hierarchy unchanged) | `bare-generate` |
+| `for (genvar i = 0; ...)` | 10170, "genvar" is a reserved keyword | `genvar i;` at module level, then `for (i = 0; ...)` | `inline-genvar` |
+| Pattern key that is also a name in scope (`'{sym0: ...}` beside a net `sym0`) | 10734, "is not a constant" | Rename the local | `pattern-key-name` |
+| Assignment pattern as a `?:` or comparison operand | 10207 "can't resolve reference to object", 10901 | A package constant or a named signal | `pattern-context` |
+| `$countones` (and the other bit-vector functions) in logic | 10174, not supported for synthesis | A package function; the system functions stay in assertion arguments | `system-task` |
+
 ## Known Quartus warnings
 
 Warnings are reviewed, not ignored. These are expected with Quartus Lite on
@@ -124,6 +140,7 @@ this board and need no action; any other warning is a finding:
 | --- | --- | --- |
 | 292013 | LogicLock is only available with a subscription license | Lite edition; the flow uses no LogicLock regions. |
 | 169177 | Pins must meet requirements for 3.3, 3.0 and 2.5 V interfaces | Reported for 3.3-V LVTTL clock inputs that the board wires that way (`CLOCK_50`, `SMA_CLKIN`, `HSMC_CLKIN0` with JP6 at its default) (AN 447). |
+| 10036 | Object assigned a value but never read | A signal read only inside `COMMON_ASSERT*` arguments, which `SYNTHESIS` compiles out ([assertions](rtl.md#assertions)); Verilator lint, which sees the assertions, still reports a signal that nothing reads. |
 
 ## Review checklist
 
