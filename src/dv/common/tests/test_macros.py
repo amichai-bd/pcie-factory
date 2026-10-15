@@ -48,7 +48,7 @@ def drive(dut, i: Inputs) -> None:
 def observed(dut) -> dict[str, int]:
     out = {name: int(getattr(dut, f"{name}_o").value)
            for name in ("dff", "dff_en", "rst", "rst_val", "rst_en", "arst_val", "arst_en",
-                        "rd", "rd_en", "wrd", "meta", "meta_val")}
+                        "rd", "rd_en", "wrd", "meta", "meta_val", "rst_sync")}
     arr, arr_rst = int(dut.arr_en_o.value), int(dut.arr_rst_en_o.value)
     for k in range(ARRAY):
         out[f"arr_en_{k}"] = (arr >> (8 * k)) & 0xFF
@@ -87,12 +87,13 @@ async def step(dut, model: MacroModel, i: Inputs, cycle: int) -> dict[str, int]:
 async def contract(dut):
     """Directed: reset values, capture, enable hold, asynchronous reset,
     arrays, read-during-write, lane enables, synchronizer latency and reset
-    value, pulse crossing."""
+    value, reset synchronizer, pulse crossing."""
     await start(dut)
     model = MacroModel()
     await Timer(1, "ns")  # asynchronous assertion, before any clock edge
     got = (int(dut.arst_val_o.value), int(dut.arst_en_o.value))
     assert got == (ARST_VAL, ARST_EN_VAL), f"async reset: expected 0x5a/0xc3 got {got}"
+    assert int(dut.rst_sync_o.value) == 1, "COMMON_RESET_SYNC: not asserted before any edge"
     n = 0
     await step(dut, model, Inputs(rst=1, arst=1, en=1, data=0x11), n)
     n += 1
@@ -105,9 +106,14 @@ async def contract(dut):
     dut.arst_i.value = 1
     await Timer(1, "ns")
     assert int(dut.arst_val_o.value) == ARST_VAL and int(dut.arst_en_o.value) == ARST_EN_VAL
+    assert int(dut.rst_sync_o.value) == 1, "COMMON_RESET_SYNC: not asserted between edges"
     model.async_reset()
     n += 1
-    await step(dut, model, Inputs(arst=0, data=0x35), n)
+    got = await step(dut, model, Inputs(arst=0, data=0x35), n)
+    assert got["rst_sync"] == 1, "COMMON_RESET_SYNC released one edge after the fall"
+    n += 1
+    got = await step(dut, model, Inputs(data=0x36), n)
+    assert got["rst_sync"] == 0, "COMMON_RESET_SYNC not released two edges after the fall"
     # Memory: write, then read the same address while writing new data.
     for k, data in enumerate((0x40, 0x41)):
         n += 1

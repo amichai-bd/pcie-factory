@@ -193,6 +193,17 @@
     .dst_pulse_o(Q) \
   );
 
+// Reset synchronizer: Q, the DST_CLK domain's active-high reset, rises as
+// soon as D rises (no clock edge) and falls two DST_CLK edges after D
+// falls. D comes straight from a flop or a reset input pin. Flops that take
+// Q are COMMON_DFF_ARST_* registers.
+`define COMMON_RESET_SYNC(INST, Q, D, DST_CLK) \
+  common_cdc_rst INST ( \
+    .dst_clk_i(DST_CLK), \
+    .src_rst_i(D), \
+    .dst_rst_o(Q) \
+  );
+
 `include "common_assertions.svh"
 
 `endif

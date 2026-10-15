@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from build.ip import discover
+from build.ip import REPO_ROOT, discover
 from checks import style
 from checks.style import RULES, check_text, module_ports
 
@@ -246,6 +246,12 @@ def test_vocabulary_from_tree(tmp_path):
     (d / "common_macros.svh").write_text("`define COMMON_S(I) common_cell I (); // common_none\n")
     assert style.vocabulary(tmp_path).cells == {"common_cell"}
     assert style.vocabulary(tmp_path / "none") == style.Vocabulary()
+
+
+def test_repository_vocabulary_covers_the_wrapped_cells():
+    # Each crossing cell a vocabulary macro wraps falls under cdc-cell-macro.
+    cells = style.vocabulary(REPO_ROOT / "src").cells
+    assert {"common_cdc_sync2", "common_cdc_pulse", "common_cdc_rst"} <= cells
 
 
 @pytest.mark.parametrize("name, prefix, body, detail", [
