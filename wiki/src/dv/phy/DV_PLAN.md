@@ -24,8 +24,9 @@
   holds two `pcie_phy` instances, each on its own clock, with each one's
   `ser_rx_clk_i` the far port's clock (the recovered clock follows the far
   transmitter). Every other `pcie_phy` port is a top port prefixed `a_` or
-  `b_`. `a_clk_i` runs at 125 MHz and `b_clk_i` `ppm` off it, dithered to
-  the picosecond so the average offset is exact.
+  `b_`. `a_clk_i` runs at 125 MHz and `b_clk_i` `ppm` off it, with period
+  8 ns × (1 + ppm × 10⁻⁶): **a positive ppm makes b the slower clock**. The
+  edges are dithered to the picosecond so the average offset is exact.
 - **Environment:**
   [`tb/phy_e2e_env.py`](../../../../src/dv/phy/tb/phy_e2e_env.py) runs one
   coroutine per clock. At each falling edge the port of that clock steps
@@ -37,6 +38,9 @@
   `pkt_rx_err_o` and with a good check code must be the next one sent or a
   later one (a gap is a loss), byte for byte, with its tag and nullify
   flag; anything else fails at once with the expected and observed bytes.
+  A TLP/DLLP tag swapped on the way fails the check code instead (CRC-16
+  versus CRC-32): it is counted, not asserted, and so fails a lossless
+  phase.
   A **lossless phase** also requires no loss, no flagged or failed packet
   and no `rcv_err_o`, with both ports in L0 at the end. Loss and flagged
   packets are allowed only while an impairment is in flight; an undetected
@@ -63,7 +67,9 @@
   then raises `retrain_req_i`, as the data-link layer's replay timeout
   would, and both ports must pass through Recovery back to L0. An idle
   line takes the receiver to Recovery on its own. A lossless phase follows
-  every recovery. The stub does not replay lost packets.
+  every recovery. The stub does not replay lost packets: packets still in
+  flight after the recovery are skipped, and one delivered late fails as
+  out of order.
 - **Functional coverage:** `phy_e2e_layers` (mac, pcs and channel, each
   `model` or `rtl`, mac crossed with pcs, `tx_scrambler`: the mac
   model's own or the block, and `tx_encoder`: the pcs stand-in's own or
@@ -128,7 +134,10 @@ the block's latency is the transmit latency. `e2e_encoder_block` runs it on
 both ports with `Encoder`, the sub-IP's own cycle model
 ([`src/dv/pcs_enc8b10b/models/`](../../../../src/dv/pcs_enc8b10b/models/pcie_pcs_enc8b10b_model.py)).
 
-The steps:
+The steps, all owned by
+[#86](https://github.com/amichai-bd/pcie-factory/issues/86) (the
+amended acceptance of [#131](https://github.com/amichai-bd/pcie-factory/issues/131)
+delivers the hooks, the cycle-model runs and this recipe):
 
 0. **Scrambler and encoder RTL, transmit** (once a block is in the `phy`
    build: it is reached through `mac.rtl.f` or `pcs.rtl.f`, which `phy.rtl.f` includes only with
@@ -147,12 +156,13 @@ The steps:
    after its inputs, the RTL adds a cycle of latency over the model, which
    the hook absorbs because it takes electrical idle from `valid_o`.
 
-In [#86](https://github.com/amichai-bd/pcie-factory/issues/86):
-
 1. **Whole stack.** When `pcie_phy` integrates `pcie_mac` and `pcie_pcs`,
    add `params: {MAC_RTL: 1, PCS_RTL: 1}` to copies of the e2e entries (or
-   flip existing ones); `e2e_rtl_shell` then fails by design and is
-   replaced. `CHAN_RTL: 1` gives a fast ideal-channel run of the same tests
+   flip existing ones). The shell-contract part of `e2e_rtl_shell` and
+   `e2e_rtl_shell_chan` (`shell_contract` in the test module) then fails by
+   design and is removed; their RTL-plumbing part (`rtl_plumbing`: the
+   `cfg_*_o` echo, `RtlPort` for both ports, `rst_i` and `port_role_i`
+   driven through reset per role) stays. `CHAN_RTL: 1` gives a fast ideal-channel run of the same tests
    minus the impairments.
 2. **One layer RTL, the other a model.** With `mac.rtl.f` and `pcs.rtl.f`
    reached from `phy.rtl.f`, add per-port `pcie_mac` and `pcie_pcs`
@@ -167,7 +177,8 @@ In [#86](https://github.com/amichai-bd/pcie-factory/issues/86):
 | --- | --- | --- | --- |
 | [Reset values of the shell, both roles](../../arch/phy/HAS.md#clocks-and-resets) | `smoke` | 0 | 1; 128 cycles with random inputs |
 | [Link-up](../../arch/phy/HAS.md#link-up-and-requests), [packet stream](../../arch/phy/HAS.md#packet-stream) both ways, a symbol-error burst and a directed retrain, all models | `e2e_smoke` | 0 | 1; dsp first, b +300 ppm |
-| RTL path of the switch: both `pcie_phy` instances driven through reset, shell reset contract held | `e2e_rtl_shell` | 0 | 1; `MAC_RTL` 1, `PCS_RTL` 1; usp first, -300 ppm |
+| RTL path of the switch, channel model: `cfg_*_o` echo, `RtlPort` for both instances, `rst_i` and `port_role_i` through reset per role; then the shell reset contract with traffic queued | `e2e_rtl_shell` | 0 | 1; `MAC_RTL` 1, `PCS_RTL` 1; usp first, -300 ppm |
+| The same with the RTL channel (the top joins the lines; the environment steps only the ports) | `e2e_rtl_shell_chan` | 0 | 1; `MAC_RTL` 1, `PCS_RTL` 1, `CHAN_RTL` 1 |
 | [Lossless](../../arch/phy/HAS.md#targets) at ±600 ppm and ±300 ppm, each port-role order: random mix, TLPs up to 1046 bytes, DLLPs | `e2e_dsp_first_pos600`, `e2e_dsp_first_neg300`, `e2e_usp_first_neg600`, `e2e_usp_first_pos300` | 1 | 1 each |
 | Symbol errors each way: flagged or lost packets only, directed Recovery, lossless after | `e2e_symbol_errors` | 1 | 2; usp first, +600 ppm |
 | Bit slips each way: relock, directed Recovery, lossless after | `e2e_bit_slips` | 1 | 2; dsp first, -600 ppm |
@@ -180,6 +191,6 @@ In [#86](https://github.com/amichai-bd/pcie-factory/issues/86):
 
 | Feature | Owning issue |
 | --- | --- |
-| Any layer as RTL with traffic (`phy_e2e_layers` `rtl` bins are hit only by `e2e_rtl_shell`, and `channel` `rtl` by none), the per-layer instances, the HAS [targets](../../arch/phy/HAS.md#targets) on the RTL | [#86](https://github.com/amichai-bd/pcie-factory/issues/86) |
-| The `pcie_mac_scrambler` and `pcie_pcs_enc8b10b` RTL in the e2e (step 0 above) | [#86](https://github.com/amichai-bd/pcie-factory/issues/86) |
+| Any layer as RTL with traffic (`phy_e2e_layers` `rtl` bins are hit only by `e2e_rtl_shell` and `e2e_rtl_shell_chan`), the per-layer instances, the HAS [targets](../../arch/phy/HAS.md#targets) on the RTL | [#86](https://github.com/amichai-bd/pcie-factory/issues/86) |
+| The `pcie_mac_scrambler` and `pcie_pcs_enc8b10b` RTL in the e2e (step 0 above), and replacing the shell-contract part of `e2e_rtl_shell` (step 1) | [#86](https://github.com/amichai-bd/pcie-factory/issues/86) |
 | L0s, L1, L2, Hot Reset, Disabled, Loopback and polarity inversion end to end | [#86](https://github.com/amichai-bd/pcie-factory/issues/86) |

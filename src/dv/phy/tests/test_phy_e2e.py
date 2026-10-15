@@ -57,17 +57,35 @@ async def e2e_smoke(dut):
     env.final_checks()
 
 
-@cocotb.test()
-async def e2e_rtl_shell(dut):
-    """L0, mac and pcs as RTL (the pcie_phy shell): the environment drives
-    both instances through reset in both roles and the channel model, and
-    the shell keeps its reset contract: Detect.Quiet, link down, transmitter
-    in electrical idle, no packet accepted or delivered. The stack RTL
-    (#86) replaces this test with the e2e tests in RTL mode."""
+async def rtl_plumbing(dut, chan_rtl: int) -> Env:
+    """Durable checks of the RTL path, kept when the stack trains: the
+    parameters reach ``cfg_*_o``, the environment builds ``RtlPort``s and
+    drives each instance's ``port_role_i`` and ``rst_i`` through reset, and
+    the clocks and channel coroutines run without error."""
     env = Env(dut, a_role="upstream", ppm=-300, seed=seed())
-    assert all(p.kind == "rtl" for p in env.ports), "expected MAC_RTL=1 PCS_RTL=1"
+    want = {"mac": "rtl", "pcs": "rtl", "channel": "rtl" if chan_rtl else "model"}
+    assert env.layers == want, f"cfg_*_o: expected {want}, observed {env.layers}"
+    assert all(p.kind == "rtl" for p in env.ports), "expected RtlPort for both ports"
+    assert (env.bench.channels is None) == bool(chan_rtl)
     env.start()
+    await ClockCycles(dut.a_clk_i, 4, rising=False)
+    for p in env.ports:
+        assert int(p.s["rst_i"].value) == 1, f"{p.role}: rst_i not driven high in reset"
+    await ClockCycles(dut.a_clk_i, 400, rising=False)
+    for i, p in enumerate(env.ports):
+        assert env.bench.cycles[i] > 300, f"port {'ab'[i]}: clock coroutine not running"
+        assert int(p.s["rst_i"].value) == 0, f"port {'ab'[i]}: rst_i not released"
+        assert int(p.s["port_role_i"].value) == ("downstream", "upstream").index(p.role), \
+            f"port {'ab'[i]}: port_role_i does not match role {p.role}"
+    return env
+
+
+async def shell_contract(dut, env: Env) -> None:
+    """Shell-only: with traffic queued, the shell holds its reset contract
+    (Detect.Quiet, link down, electrical idle, no beat taken or delivered).
+    The stack RTL (#86) removes this part when the stack trains."""
     idle_words = [0, 0]
+    start = list(env.bench.cycles)
 
     def watch(bench, i):
         idle_words[i] += int(bench.ports[i].s["ser_tx_elec_idle_o"].value)
@@ -75,15 +93,31 @@ async def e2e_rtl_shell(dut):
     env.bench.hooks.append(watch)
     env.send(0, 4)
     env.send(1, 4)
-    await ClockCycles(dut.a_clk_i, 3000, rising=False)
+    await ClockCycles(dut.a_clk_i, 2000, rising=False)
     for i, p in enumerate(env.ports):
         name = "ab"[i]
         assert p.code == 0 and not p.link_up, f"port {name}: expected Detect.Quiet, link down"
-        assert idle_words[i] == env.bench.cycles[i], f"port {name}: transmitter left electrical idle"
+        assert idle_words[i] == env.bench.cycles[i] - start[i], \
+            f"port {name}: transmitter left electrical idle"
         assert not p.tx_idle(), f"port {name}: a beat was accepted by the shell"
         assert env.sb[1 - i].delivered == 0 and env.sb[1 - i].flagged == 0, \
             f"port {name}: the shell delivered a packet"
-        assert int(p.s["port_role_i"].value) == ("downstream", "upstream").index(p.role)
+
+
+@cocotb.test()
+async def e2e_rtl_shell(dut):
+    """L0, mac and pcs as RTL (the pcie_phy shell), channel model: the RTL
+    path's plumbing, then the shell's reset contract with traffic queued."""
+    env = await rtl_plumbing(dut, 0)
+    await shell_contract(dut, env)
+
+
+@cocotb.test()
+async def e2e_rtl_shell_chan(dut):
+    """L0, the same with the RTL channel (CHAN_RTL 1): the top joins the
+    lines and the environment only steps the ports."""
+    env = await rtl_plumbing(dut, 1)
+    await shell_contract(dut, env)
 
 
 # ---------------------------------------------------------------- level 1

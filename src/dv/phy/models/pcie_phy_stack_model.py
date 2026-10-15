@@ -8,7 +8,10 @@
   ser_rx_clk_i: port i steps, its word crosses the channel, and the far
   port's receive front end takes it. The cocotb testbench calls ``edge``
   from each clock's coroutine; ``run`` here schedules the two edges in
-  time order for the pure-Python tests (``ppm`` sets b's clock offset).
+  time order for the pure-Python tests (``ppm`` sets b's clock offset:
+  b's period is ``1 + ppm * 1e-6`` times a's, so positive ppm makes b the
+  slower clock). With ``channels`` set to None (an RTL channel in the
+  testbench top), ``edge`` steps the port only.
 
 Block hook, transmit scrambler: ``ModelPort(tx_scrambler=block)`` takes
 the scrambling out of the mac model and puts ``block`` between the mac and
@@ -160,7 +163,8 @@ class Bench:
         p, q = self.ports[i], self.ports[1 - i]
         p.rst = self.cycles[i] < self.release[i]
         word, ei = p.core_edge(q.present())
-        q.rx_edge(*self.channels[i].step(word, ei))
+        if self.channels is not None:      # None: the testbench top joins the lines
+            q.rx_edge(*self.channels[i].step(word, ei))
         self.cycles[i] += 1
         for h in self.hooks:
             h(self, i)

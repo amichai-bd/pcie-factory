@@ -15,3 +15,9 @@ tests:
     top: pcie_phy_e2e_tb
     params: {MAC_RTL: 1, PCS_RTL: 1}
     timeout_s: 60
+  - name: e2e_rtl_shell_chan
+    module: tests.test_phy_e2e
+    testcase: e2e_rtl_shell_chan
+    top: pcie_phy_e2e_tb
+    params: {MAC_RTL: 1, PCS_RTL: 1, CHAN_RTL: 1}
+    timeout_s: 60

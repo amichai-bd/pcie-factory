@@ -15,11 +15,13 @@ channel    ``Channel`` (models/): ppm through   one register per direction in
 
 mac and pcs switch together until the stack RTL exposes PIPE (the DV plan
 has the per-layer recipe). The clocks: ``a_clk_i`` runs at 125 MHz,
-``b_clk_i`` ``ppm`` off it (dithered to the picosecond, so the average
-offset is exact), and each port's ``ser_rx_clk_i`` is the far clock. One
-coroutine per clock calls ``Bench.edge`` at every falling edge: that port
-drives and samples its pins (RTL) or steps its models, and its transmit
-word crosses the channel to the far port's receive front end.
+``b_clk_i`` ``ppm`` off it with period 8 ns x (1 + ppm 1e-6), so a
+positive ppm makes b the slower clock (dithered to the picosecond, so the
+average offset is exact), and each port's ``ser_rx_clk_i`` is the far
+clock. One coroutine per clock calls ``Bench.edge`` at every falling edge:
+that port drives and samples its pins (RTL) or steps its models, and its
+transmit word crosses the channel to the far port's receive front end
+(with ``CHAN_RTL`` 1 the top joins the lines and Python only steps ports).
 
 The upper layer is a data-link stub: packets carry a 16-bit sequence
 number first and a check code last (CRC-32 on a TLP, CRC-16 on a DLLP),
@@ -107,7 +109,10 @@ def make_packet(rng: random.Random, seq: int, kind: str, max_dw: int = 64) -> tu
 class Scoreboard:
     """One direction. Every packet delivered without ``err`` and with a good
     check code must be the next sent one or a later one (a gap is a lost
-    packet), byte for byte with the same tag and nullify flag. ``mark``
+    packet), byte for byte with the same tag and nullify flag; a mismatch
+    asserts at once. A packet whose TLP/DLLP tag was swapped on the way
+    fails the check code (CRC-16 versus CRC-32) instead: it is counted, not
+    asserted, and fails ``check_lossless`` in a lossless phase. ``mark``
     opens a lossless phase: from then on nothing may be lost or flagged."""
 
     def __init__(self, name: str) -> None:
@@ -295,7 +300,8 @@ async def ppm_clock(sig, ppm: float, phase_ps: int) -> None:
 
 class Env:
     """One back-to-back run. ``a_role`` is port a's role; ``ppm`` is b's
-    clock offset from a's; ``seed`` draws everything random."""
+    clock offset from a's (positive: b's period is longer, b is slower);
+    ``seed`` draws everything random."""
 
     def __init__(self, dut, a_role: str = "downstream", ppm: float = 0, seed: int = 0,
                  skew_max: int = 64, delay_words: int = 4,
@@ -441,7 +447,10 @@ class Env:
         (0 a to b, 1 b to a) while packets flow, then recover through
         Recovery: on its own after an idle line, else by a retrain request
         from the receiving port (the data-link layer's replay timeout).
-        Every packet delivered meanwhile must still be exact."""
+        Every packet delivered meanwhile must still be exact. Packets still
+        in flight when it returns are skipped: the scoreboards expect only
+        packets sent afterwards, and one delivered late would fail as out
+        of order (``settle`` makes that unlikely)."""
         assert self.bench.channels is not None, "impairments need the channel model"
         ch = self.bench.channels[direction]
         rx = self.ports[1 - direction]
