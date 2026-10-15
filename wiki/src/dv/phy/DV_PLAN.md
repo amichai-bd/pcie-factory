@@ -99,15 +99,14 @@ echoes them on `cfg_*_o` and the environment builds the ports from them.
 Today the RTL side of mac and pcs is the whole `pcie_phy` instance, so the
 two switch together (the environment rejects a mixed choice); with both at
 1 the environment drives the instance pins through `RtlPort`, which has the
-same interface as the model port. The sub-IPs enter the e2e through their
+same interface as the model port. The blocks enter the e2e through their
 layer: once `pcie_mac` or `pcie_pcs` instantiates a block, the layer's RTL
 runs it.
 
 | Block | Issue | Stand-in today | Runs in the e2e when |
 | --- | --- | --- | --- |
-| `pcs_enc8b10b` (on main) | [#81](https://github.com/amichai-bd/pcie-factory/issues/81) | The transmit-encoder block hook below, today with the sub-IP's cycle model | The hook with an RTL adapter (step 0); `pcie_pcs` instantiates it and an entry sets `PCS_RTL: 1` |
-| `pcs_dec8b10b` | [#82](https://github.com/amichai-bd/pcie-factory/issues/82) | `PcsModel`'s `decode` function (the `pcs` model's 8b/10b) | `pcie_pcs` instantiates it and an entry sets `PCS_RTL: 1` |
-| `pcs_align` | [#83](https://github.com/amichai-bd/pcie-factory/issues/83) | `PcsModel.rx_edge` (comma hunt, lock) | as above |
+| `pcs` encoder block | [#145](https://github.com/amichai-bd/pcie-factory/issues/145) (in `pcs`) | The transmit-encoder block hook below, today with the block's cycle model | The hook with an RTL adapter (step 0); the `pcs` RTL, an entry with `PCS_RTL: 1` ([#86](https://github.com/amichai-bd/pcie-factory/issues/86)) |
+| `pcs` decoder, aligner, elastic buffer, PIPE control | [#145](https://github.com/amichai-bd/pcie-factory/issues/145) (in `pcs`) | `PcsModel` (its `decode`, `rx_edge` comma hunt and lock, buffer and PIPE control) | the `pcs` RTL, an entry with `PCS_RTL: 1` ([#86](https://github.com/amichai-bd/pcie-factory/issues/86)) |
 | `mac` scrambler block | [#146](https://github.com/amichai-bd/pcie-factory/issues/146) (in `mac`) | Transmit: the block hook below, today with the block's cycle model. Receive: `pcie_mac_arch.Scrambler` | Transmit: the block hook with an RTL adapter (step 0). Both: the `mac` RTL, an entry with `MAC_RTL: 1` ([#86](https://github.com/amichai-bd/pcie-factory/issues/86)) |
 | `mac` ordered sets, frame, LTSSM | [#146](https://github.com/amichai-bd/pcie-factory/issues/146) (in `mac`) | `pcie_mac_arch.Mac` | as above |
 
@@ -126,13 +125,13 @@ depends on the mac's parsing, so it switches with the mac layer.
 
 **Block hook, transmit encoder.** `ModelPort(tx_encoder=block)` replaces
 `PcsModel`'s encoder and transmit pipeline with `block` at the
-[`pcie_pcs_enc8b10b` interface](../../rtl/pcs_enc8b10b/MAS.md#interfaces):
+[`pcie_pcs_enc8b10b` interface](../../rtl/pcs/MAS.md#encoder):
 each cycle the stand-in clocks it with `rst` (PIPE reset), `valid` (the
 transmitter is not in electrical idle), the PIPE word, `datak` and
 `compliance`, then sends `data_o`, in electrical idle while `valid_o` is 0;
 the block's latency is the transmit latency. `e2e_encoder_block` runs it on
-both ports with `Encoder`, the sub-IP's own cycle model
-([`src/dv/pcs_enc8b10b/models/`](../../../../src/dv/pcs_enc8b10b/models/pcie_pcs_enc8b10b_model.py)).
+both ports with `Encoder`, the encoder block's cycle model in the `pcs` DV
+([`src/dv/pcs/models/`](../../../../src/dv/pcs/models/pcie_pcs_enc8b10b_model.py)).
 
 The steps, all owned by
 [#86](https://github.com/amichai-bd/pcie-factory/issues/86) (the
@@ -184,7 +183,7 @@ delivers the hooks, the cycle-model runs and this recipe):
 | Bit slips each way: relock, directed Recovery, lossless after | `e2e_bit_slips` | 1 | 2; dsp first, -600 ppm |
 | Electrical-idle dropout each way: Recovery on its own, lossless after | `e2e_elec_idle` | 1 | 2; usp first, +300 ppm |
 | Transmit scrambling by the `pcie_mac_scrambler` block (its cycle model) on both ports: train, lossless, an idle dropout, lossless | `e2e_scrambler_block` | 1 | 1; dsp first, -300 ppm |
-| 8b/10b transmit by the `pcs_enc8b10b` block (its cycle model) on both ports: train, lossless, a bit slip each way, lossless | `e2e_encoder_block` | 1 | 1; usp first, +600 ppm |
+| 8b/10b transmit by the `pcs` encoder block (its cycle model) on both ports: train, lossless, a bit slip each way, lossless | `e2e_encoder_block` | 1 | 1; usp first, +600 ppm |
 | Soak: offset from the seed in ±600 ppm, reset skew up to 2000 cycles, six random impairments between lossless phases, TLPs up to 4118 bytes (a 4096-byte payload) | `e2e_soak_dsp_first`, `e2e_soak_usp_first` | 2 | 4 each |
 
 ## Gaps

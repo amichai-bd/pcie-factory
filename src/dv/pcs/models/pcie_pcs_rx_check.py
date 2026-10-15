@@ -11,7 +11,9 @@ the sent ones (a flipped bit can decode to another valid byte and only show
 as an error at a later symbol, 8B10B.md), and the run re-synchronizes on the
 next clean stretch at the same place in the stream, since a bit error
 neither adds nor drops a symbol. A run that loses the stream after an error
-is accepted only when a bit slip may explain it.
+is accepted only when a bit slip may explain it; with ``resync`` it is
+then re-anchored further on and checked again from there (a relock that
+retakes lock in the same cycle keeps RxValid high across the slip).
 """
 
 from __future__ import annotations
@@ -19,7 +21,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 K_COM, K_SKP = 0xBC, 0x1C
-STATUS_SKP = {4: 1, 3: 0, 2: 2}   # SKPs left in a 3-SKP set -> RxStatus on its COM
 ERROR_CODES = (4, 7)
 TRIM_MAX = 16                     # symbols before a reported error that may differ
 RESYNC_SLACK = 8                  # symbols the stream may be off after an error
@@ -41,9 +42,13 @@ class Run:
     last: int = -1                # sent index after its last matched symbol
     lost: bool = False            # stopped checking after an error (slip)
     lead_skipped: int = 0         # a pre-comma symbol at the start of the lock
-    noise_lock: bool = False      # the run starts with an error word (a lock on noise)
+    noise_lock: bool = False      # a lock on noise: wrong symbols after its first one
     mismatches: int = 0
+    start: int = -1               # sent index the anchor puts at the run's symbol 0
     placed: list[tuple[int, int]] = field(default_factory=list)  # (word time, sent index)
+    sent_of: dict[int, int] = field(default_factory=dict)  # non-SKP symbol -> sent index
+    bad: list[int] = field(default_factory=list)            # non-SKP symbols that differ
+    resyncs: list[tuple[int, int]] = field(default_factory=list)  # (lost at, found at), ps
 
 
 class CheckError(AssertionError):
@@ -93,7 +98,8 @@ class Stream:
 
 def check_runs(sent: list[tuple[int, int]], words: list[Word], slip_possible=lambda t0, t: False,
                where: str = "", flipped=frozenset(), arrival=None,
-               lead_skip=lambda t: False, latency_max: int = LATENCY_MAX_PS) -> list[Run]:
+               lead_skip=lambda t: False, latency_max: int = LATENCY_MAX_PS,
+               resync: bool = False) -> list[Run]:
     """Align every run with the sent stream; raise CheckError on loss,
     duplication, reordering or an unexplained wrong symbol.
 
@@ -116,7 +122,12 @@ def check_runs(sent: list[tuple[int, int]], words: list[Word], slip_possible=lam
     checked backwards from there. Symbol 0 of a run may be the symbol
     before the lock's comma, unchecked, only for the first run (after the
     initial electrical idle) or when ``lead_skip`` (the run's start time)
-    says the run starts after electrical idle."""
+    says the run starts after electrical idle.
+
+    A run is a lock on noise when its first word reports an error and a
+    symbol other than its first one differs from the stream within its
+    first 24 symbols: a lock on a sent comma can only have its lead symbol,
+    received across the end of electrical idle, wrong."""
     stream = Stream(sent)
     n_sent = len(stream.syms)
     runs = runs_of(words)
@@ -141,26 +152,31 @@ def check_runs(sent: list[tuple[int, int]], words: list[Word], slip_possible=lam
             lat = flat[k0][1].t - arrival(stream.index[at])
             return 0 <= lat <= latency_max
 
-        anchor = None
-        windows = list(range(0, min(32, len(syms)))) + list(range(32, max(32, len(syms) - 24), 4))
-        for k0 in windows:
-            needle = syms[k0:k0 + 24]
-            if len(needle) < min(24, len(syms)) or any(flag_after[k0:k0 + 24]):
-                continue
-            # Every match the window's time allows; the anchor must be the
-            # only one, so a window inside periodic traffic never anchors.
-            found, at = [], stream.find(needle, pos)
-            while at >= 0 and len(found) < 2:
-                if arrival is not None and flat[k0][1].t < arrival(stream.index[at]):
-                    break
-                if plausible(k0, at):
-                    found.append(at)
-                at = stream.find(needle, at + 1)
-                if arrival is None and found:
-                    break
-            if len(found) == 1:
-                anchor = (k0, found[0] - k0)
-                break
+        def find_anchor(lo_k: int, lo_pos: int):
+            """The first window from symbol lo_k with exactly one plausible
+            match in the stream at or after lo_pos: (k0, base) or None."""
+            ks = list(range(lo_k, min(lo_k + 32, len(syms)))) + \
+                list(range(lo_k + 32, max(lo_k + 32, len(syms) - 24), 4))
+            for k0 in ks:
+                needle = syms[k0:k0 + 24]
+                if len(needle) < min(24, len(syms) - lo_k) or any(flag_after[k0:k0 + 24]):
+                    continue
+                # Every match the window's time allows; the anchor must be the
+                # only one, so a window inside periodic traffic never anchors.
+                found, at = [], stream.find(needle, lo_pos)
+                while at >= 0 and len(found) < 2:
+                    if arrival is not None and flat[k0][1].t < arrival(stream.index[at]):
+                        break
+                    if plausible(k0, at):
+                        found.append(at)
+                    at = stream.find(needle, at + 1)
+                    if arrival is None and found:
+                        break
+                if len(found) == 1:
+                    return (k0, found[0] - k0)
+            return None
+
+        anchor = find_anchor(0, pos)
         if anchor is None:
             if len(syms) < 24 and all(flag_after) or slip_possible(r.words[0].t, r.words[-1].t):
                 r.lost = True
@@ -168,28 +184,36 @@ def check_runs(sent: list[tuple[int, int]], words: list[Word], slip_possible=lam
             raise CheckError(f"{where}: run at t={r.words[0].t} ps ({len(syms)} symbols) "
                              f"not found in the sent stream after {pos}: {syms[:8]}")
         k0, base = anchor
+        if 0 <= base < n_sent:
+            r.start = stream.index[base]
         # The symbols before the anchor, checked like the rest.
         may_skip = n_run == 0 or lead_skip(r.words[0].t)
         for j in range(k0):
             p = base + j
             if 0 <= p < n_sent and syms[j] == stream.syms[p]:
+                r.sent_of[j] = stream.index[p]
                 continue
             if explained(j, p):
                 r.mismatches += 1
+                r.bad.append(j)
                 continue
             if j == 0 and may_skip:
                 r.lead_skipped = 1
+                continue
+            if slip_possible(r.words[0].t, flat[j][1].t):
+                r.mismatches += 1        # misaligned before the anchor, after a slip
+                r.bad.append(j)
                 continue
             raise CheckError(f"{where}: run at t={r.words[0].t} ps: symbol {j} got {syms[j]}, "
                              f"sent {stream.syms[p] if 0 <= p < n_sent else None}, before the "
                              f"anchor, no error reported")
         r.first = stream.index[min(n_sent - 1, max(0, base + r.lead_skipped))]
-        r.noise_lock = any(w.status in ERROR_CODES for w in r.words[:1])
         j = k0
         while j < len(syms):
             p = base + j
             if p < n_sent and syms[j] == stream.syms[p]:
                 r.placed.append((flat[j][1].t, stream.index[p]))
+                r.sent_of[j] = stream.index[p]
                 j += 1
                 continue
             if explained(j, p):
@@ -201,44 +225,96 @@ def check_runs(sent: list[tuple[int, int]], words: list[Word], slip_possible=lam
                         base += shift
                         break
                 r.mismatches += 1
+                r.bad.append(j)
                 j += 1
                 continue
             if slip_possible(r.words[0].t, flat[j][1].t):
-                r.lost = True
-                break
+                again = find_anchor(j + 1, max(pos, base + j - RESYNC_SLACK)) if resync else None
+                if again is None:
+                    r.lost = True
+                    break
+                r.resyncs.append((flat[j][1].t, flat[again[0]][1].t))
+                j, base = again
+                continue
             ref = stream.syms[p:p + 4]
             raise CheckError(f"{where}: run at t={r.words[0].t} ps: symbol {j} (t={flat[j][1].t} "
                              f"ps) got {syms[j:j + 4]}, sent {ref} at {p}, no error reported")
         r.last = base + j
         if r.last > pos:
             pos = r.last
+        r.noise_lock = (r.words[0].status in ERROR_CODES
+                        and any(1 <= j < 24 for j in r.bad))
     return runs
 
 
-def check_skp_status(runs: list[Run], where: str = "") -> int:
-    """In a clean run, every SKP ordered set (COM and three SKP as sent)
-    leaves with 2, 3 or 4 SKP, and its COM's word carries RxStatus 2, 0 or 1
-    accordingly. Returns the number of sets checked."""
+def check_skp_status(sent: list[tuple[int, int]], runs: list[Run], where: str = "",
+                     stats: dict[str, int] | None = None) -> int:
+    """In a clean run, every SKP ordered set leaves with one SKP fewer, the
+    same number or one more than it was sent with (none for a COM sent with
+    no SKP after it), and each word holding a COM carries the matching
+    RxStatus: 1 when a SKP was added after one of its COMs, else 2 when one
+    was removed, else 0 (RECEIVE.md, Elastic buffer). A word that holds no
+    such change carries no SKP status either. Words that report an error or
+    a buffer status (4 to 7) are left out. Returns the number of sets
+    checked; ``stats`` counts additions by the COM's slot in its word
+    (``add_slot0``, ``add_slot1``), removals, bare COMs left by a removal
+    and sets sent back to back."""
+    stats = {} if stats is None else stats
     checked = 0
     for r in runs:
         flat = [(s, w) for w in r.words for s in w.syms]
+        change: dict[int, int] = {}       # id(word) -> 1 added, 2 removed
+        seen: set[int] = set()
+        skip: set[int] = set()            # words with a COM not checked
+        j = -1                            # non-SKP index of flat[i]
         i = 0
         while i < len(flat):
             s, w = flat[i]
-            if s == (1, K_COM):
+            if s == (1, K_SKP):
+                i += 1
+                continue
+            j += 1
+            if s == (1, K_COM) and j not in r.sent_of:
+                skip.add(id(w))
+            elif s == (1, K_COM):
                 n = 0
                 while i + 1 + n < len(flat) and flat[i + 1 + n][0] == (1, K_SKP):
                     n += 1
-                if n and i + 1 + n < len(flat):
-                    if n not in STATUS_SKP:
-                        raise CheckError(f"{where}SKP set at t={w.t} ps left with {n} SKP")
-                    if w.status != STATUS_SKP[n]:
-                        raise CheckError(f"{where}SKP set at t={w.t} ps with {n} SKP: "
-                                         f"RxStatus {w.status}, expected {STATUS_SKP[n]}")
+                p = r.sent_of[j]
+                m = 0
+                while p + 1 + m < len(sent) and sent[p + 1 + m] == (1, K_SKP):
+                    m += 1
+                if i + 1 + n < len(flat):     # the set ended inside the run
+                    if n not in (m - 1, m, m + 1) or n < 0 or (m == 0 and n):
+                        raise CheckError(f"{where}SKP set at t={w.t} ps sent with {m} SKP "
+                                         f"left with {n}")
+                    seen.add(id(w))
+                    slot = 0 if i == 0 or flat[i - 1][1] is not w else 1
+                    key = None
+                    if n == m + 1:
+                        key = f"add_slot{slot}"
+                    elif n == m - 1:
+                        key = "bare_com" if n == 0 else "removed"
+                    if m and p + 1 + m < len(sent) and sent[p + 1 + m] == (1, K_COM):
+                        stats["back_to_back"] = stats.get("back_to_back", 0) + 1
+                    if key:
+                        stats[key] = stats.get(key, 0) + 1
+                    if n == m + 1:
+                        change[id(w)] = 1
+                    elif n == m - 1 and change.get(id(w)) != 1:
+                        change[id(w)] = 2
                     checked += 1
-                i += 1 + n
-            else:
-                i += 1
+                    i += 1 + n
+                    continue
+                skip.add(id(w))
+            i += 1
+        for w in r.words:
+            if w.status not in (0, 1, 2) or id(w) in skip:
+                continue
+            want = change.get(id(w), 0)
+            if w.status != want and (id(w) in seen or w.status):
+                raise CheckError(f"{where}word at t={w.t} ps: RxStatus {w.status}, expected "
+                                 f"{want} for its SKP sets")
     return checked
 
 

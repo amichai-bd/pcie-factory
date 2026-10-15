@@ -1,2 +1,0 @@
--F ../../rtl/pcs_dec8b10b/pcs_dec8b10b.rtl.f
--F pcs_dec8b10b.dv.f

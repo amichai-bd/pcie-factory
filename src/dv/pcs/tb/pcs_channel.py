@@ -34,6 +34,7 @@ class Link:
     idles: list[tuple[int, int]]
     training: int
     close_errors: list[int] = field(default_factory=list)
+    rx_bit: dict[int, int] | None = None   # transmitted bit -> received bit (align lines)
 
 
 def build_link(rng: random.Random, packets: int, mix: str = "tlp", tlp_bytes: int = 274,
