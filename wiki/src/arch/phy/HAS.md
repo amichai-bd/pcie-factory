@@ -181,9 +181,10 @@ Two 10-bit symbols per `clk_i` cycle (2.5 GT/s = 250 Msymbol/s = 2 x
   [cite: PCIe Base Spec, rev 3.0, §4.2.6.9]
   [cite: PCIe Base Spec, rev 3.0, §4.2.6.11]. In the upstream role,
   `hot_reset_req_i` and `disable_req_i` are ignored.
-- `retrain_req_i` serves both the data-link layer's replay-timeout retrain
-  and a downstream port's Retrain Link request
-  [cite: PCIe Base Spec, rev 3.0, §4.2.6.5].
+- `retrain_req_i` serves two requests. The first is the data-link layer's
+  retrain, which it requests when its REPLAY_NUM counter rolls over
+  [cite: PCIe Base Spec, rev 3.0, §3.5.2.1]. The second is a downstream
+  port's Retrain Link request [cite: PCIe Base Spec, rev 3.0, §4.2.6.5].
 - **Power states.** The upper layer owns any handshake before a request
   (the data-link layer's DLLP exchange); the MAC acts on the directed state.
   - L0s (`pm_state_req_i` 1): the transmitter enters L0s when idle (the

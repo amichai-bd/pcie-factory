@@ -60,6 +60,10 @@ from pcie_phy_stack_model import L0_CODE, RECOVERY_CODES, ModelPort  # noqa: E40
 # first symbol on the line (always in [9:0] of a word, HAS Packet stream).
 FRAME_START_CODES = frozenset(code8b10b.encode(k, True, rd)[0]
                               for k in (code8b10b.K_STP, code8b10b.K_SDP) for rd in (-1, 1))
+# COM then SKP in one word: the first word of a SKP ordered set (a SKP
+# ordered set starts in [9:0], HAS Packet stream).
+COM_CODES = frozenset(code8b10b.encode(code8b10b.K_COM, True, rd)[0] for rd in (-1, 1))
+SKP_CODES = frozenset(code8b10b.encode(code8b10b.K_SKP, True, rd)[0] for rd in (-1, 1))
 POLLING_ACTIVE_CODE = stack.mac_arch.CODES[stack.mac_arch.PA]
 REQUESTS = ("hot_reset_req_i", "disable_req_i", "loopback_req_i", "pm_state_req_i")
 
@@ -72,7 +76,10 @@ LAYERS = ("mac", "pcs", "channel")
 COV_LAYERS = Covergroup("phy_e2e_layers")
 for _layer in LAYERS:
     COV_LAYERS.coverpoint(_layer, bins={"model": "model", "rtl": "rtl"})
-COV_LAYERS.cross("mac_x_pcs", "mac", "pcs")
+# mac and pcs as one choice: both models or both RTL. The mixed choices
+# (DV plan step 2) are not planned in M1 (firstmate ruling on #86;
+# post-M1 #194), so this coverpoint replaces the mac x pcs cross.
+COV_LAYERS.coverpoint("stack", bins={"all_model": "model", "all_rtl": "rtl"})
 # Block-level swaps inside a model layer (the DV plan's switch table).
 COV_LAYERS.coverpoint("tx_scrambler", bins={"mac_model": "mac_model", "block_model": "block_model",
                                              "rtl": "rtl"})
@@ -244,6 +251,7 @@ class RtlPort:
         self.trace = False                 # log beats and frame starts with times
         self.tx_log: list = []             # (edge, sop, eop, rising-edge time ps) per beat taken
         self.tx_starts: list = []          # (edge, time ps) per STP/SDP sent in [9:0]
+        self.tx_skps: list = []            # edge per SKP ordered set sent
         self.rx_sops: list = []            # (edge, time ps) per sop beat delivered
         for name in ("pkt_tx_valid_i", "pkt_tx_data_i", "pkt_tx_sop_i", "pkt_tx_eop_i",
                      "pkt_tx_dllp_i", "pkt_tx_nullify_i", "retrain_req_i", "hot_reset_req_i",
@@ -294,6 +302,8 @@ class RtlPort:
         word, ei = int(s["ser_tx_data_o"].value), bool(int(s["ser_tx_elec_idle_o"].value))
         if self.trace and not ei and (word & 0x3FF) in FRAME_START_CODES:
             self.tx_starts.append((self.edges, t_rise))
+        if self.trace and not ei and (word & 0x3FF) in COM_CODES and (word >> 10) in SKP_CODES:
+            self.tx_skps.append(self.edges)
         # Drive.
         s["rst_i"].value = int(self.rst)
         # In reset the lower inputs are random too: ser_tx_rxdet_i here, the
@@ -429,7 +439,7 @@ class Env:
         # block inside it (the DV plan's step 0).
         # Sampled once the pair has trained (train()), so a bin means the
         # layer ran, not only that it was built.
-        self._cov_layers: dict | None = dict(self.layers,
+        self._cov_layers: dict | None = dict(self.layers, stack=self.layers["mac"],
                                 tx_scrambler="rtl" if self.layers["mac"] == "rtl" else tx_scrambler,
                                 tx_encoder="rtl" if self.layers["pcs"] == "rtl" else tx_encoder)
         COV_RUN.sample(a_role=a_role, ppm=ppm)

@@ -416,11 +416,19 @@ async def e2e_control(dut):
     await env.lossless(8)
     for i in (0, 1):
         mark = [len(c) for c in env.codes]
+        downs = [0, 0]
+
+        def watch(bench, j):
+            downs[j] += not bench.ports[j].link_up
+
+        env.bench.hooks.append(watch)
         env.ports[i].retrain()
         n = await poll_until(env, lambda: all(any(c in RECOVERY_CODES for c in env.codes[j][mark[j]:])
                                               for j in (0, 1)) and env.bench.both_l0(), 500,
                              f"retrain on {'ab'[i]}: both through Recovery to L0")
-        assert all(p.link_up for p in env.ports), "retrain: link_up_o fell"
+        env.bench.hooks.remove(watch)
+        assert downs == [0, 0], (
+            f"retrain on {'ab'[i]}: link_up_o fell in Recovery ({downs} cycles low on a, b)")
         env.log.info("retrain on %s: both back in L0 after %d cycles", "ab"[i], n)
         COV_CONTROL.sample(event="retrain")
         await env.lossless(8)
@@ -471,11 +479,6 @@ def throughput_floor(n: int) -> float:
     return 2 * n / (n + 2) * 1176 / 1180
 
 
-def meets_floor(nbytes_moved: int, cycles: int, n: int) -> bool:
-    """bytes/cycle >= throughput_floor(n), in integers (no rounding)."""
-    return nbytes_moved * (n + 2) * 1180 >= 2 * n * 1176 * cycles
-
-
 def sized_packet(seq: int, nbytes: int, rng: random.Random) -> tuple:
     """(dllp, data, nullify): a 6-byte DLLP or a TLP of ``nbytes`` (2 +
     header + data + 4), with the stub's sequence number and check code."""
@@ -489,17 +492,19 @@ def sized_packet(seq: int, nbytes: int, rng: random.Random) -> tuple:
 
 
 async def burst(env: Env, nbytes: int, count: int) -> list:
-    """``count`` back-to-back packets of ``nbytes`` each way, traced;
-    lossless. Returns per port (a, b): (bytes per cycle, TX latencies,
-    and for the far port's RX the frame-start-to-sop times in ps)."""
+    """``count`` back-to-back packets of ``nbytes`` each way, traced and
+    lossless. Per port (a, b) returns a dict: ``beats`` accepted and
+    ``cycles`` from the first sop to the last eop taken; ``skps``, the SKP
+    ordered sets sent in that window (shifted by the TX latency);
+    ``tx_lat``, each packet's TX latency; ``rx_ps``, each frame start to
+    the far port's sop, in ps."""
     await env.settle(200)
     for s in env.sb:
         s.mark()
     for p in env.ports:
         p.trace = True
-        p.tx_log.clear()
-        p.tx_starts.clear()
-        p.rx_sops.clear()
+        for log in (p.tx_log, p.tx_starts, p.tx_skps, p.rx_sops):
+            log.clear()
     for i, p in enumerate(env.ports):
         for _ in range(count):
             pkt = sized_packet(env.seq[i], nbytes, env.rng)
@@ -517,14 +522,14 @@ async def burst(env: Env, nbytes: int, count: int) -> list:
         eops = [b for b in beats if b[2]]
         assert len(sops) == count and len(eops) == count, (
             f"port {'ab'[i]}: expected {count} packets taken, observed {len(sops)} sop {len(eops)} eop")
-        cycles = eops[-1][0] - sops[0][0] + 1
-        bpc = (2 * len(beats), cycles)
+        first, last = sops[0][0], eops[-1][0]
         starts = p.tx_starts[:count]
         assert len(starts) == count, f"port {'ab'[i]}: {len(p.tx_starts)} frame starts on the line"
-        tx_lat = [st[0] - sp[0] for sp, st in zip(sops, starts)]
+        skps = [e for e in p.tx_skps if first + TX_LATENCY_STACK < e <= last + TX_LATENCY_STACK]
         far = env.ports[1 - i]
-        rx_ps = [rs[1] - st[1] for st, rs in zip(starts, far.rx_sops[:count])]
-        out.append((bpc, tx_lat, rx_ps))
+        out.append({"beats": len(beats), "cycles": last - first + 1, "skps": len(skps),
+                    "tx_lat": [st[0] - sp[0] for sp, st in zip(sops, starts)],
+                    "rx_ps": [rs[1] - st[1] for st, rs in zip(starts, far.rx_sops[:count])]})
     return out
 
 
@@ -532,10 +537,13 @@ async def burst(env: Env, nbytes: int, count: int) -> list:
 async def e2e_targets(dut):
     """L1, RTL over the RTL channel, b +600 ppm: the HAS targets on the
     RTL stack.
-    - Throughput, each way: 160 back-to-back 274-byte TLPs at least
-      2 n/(n+2) 1176/1180 = 1.979 bytes per cycle (>= 1.97), and 600 DLLPs
-      at least 1.495 (>= 1.49); bytes counted as accepted beats, from the
-      first sop to the last eop.
+    - Throughput, each way, 160 back-to-back 274-byte TLPs and 600 DLLPs:
+      the HAS floor 2 n/(n+2) 1176/1180 (1.979 and 1.495, >= 1.97 and
+      1.49) checked free of the window's SKP phase. From the first sop to
+      the last eop accepted, the cycles without a beat are exactly one
+      framing cycle per packet boundary plus two per SKP ordered set sent,
+      and the SKP ordered sets are no more than the 1180-symbol schedule
+      allows in that window.
     - TX latency: every packet's STP or SDP on ser_tx_data_o (with its
       first byte in [19:10]) exactly TX_LATENCY_STACK cycles after its sop
       beat is accepted, and at most 6 (HAS).
@@ -549,21 +557,35 @@ async def e2e_targets(dut):
     await env.lossless(8)
     for nbytes, count, target in ((274, 160, 1.97), (6, 600, 1.49)):
         floor = throughput_floor(nbytes)
-        for i, (bpc, tx_lat, rx_ps) in enumerate(await burst(env, nbytes, count)):
+        for i, r in enumerate(await burst(env, nbytes, count)):
             # The far clock's period: b is 600 ppm slower.
             far_ps = 8000 * (1 + 600e-6) if i == 0 else 8000
-            rx_cyc = [(t - 8000) / far_ps for t in rx_ps]
-            moved, cycles = bpc
-            env.log.info("%d-byte packets from %s: %d bytes in %d cycles, %.4f bytes/cycle (floor %.4f); "
-                         "TX latency %s; RX latency at %s %.2f to %.2f cycles", nbytes, "ab"[i], moved,
-                         cycles, moved / cycles, floor,
-                         sorted(set(tx_lat)), "ba"[i], min(rx_cyc), max(rx_cyc))
-            assert meets_floor(moved, cycles, nbytes) and moved / cycles >= target, (
-                f"{nbytes}-byte packets from {'ab'[i]}: {moved / cycles:.4f} bytes/cycle, expected at least "
-                f"{floor:.4f} (HAS {target})")
-            assert set(tx_lat) == {TX_LATENCY_STACK} and TX_LATENCY_STACK <= TX_LATENCY_MAX, (
+            rx_cyc = [(t - 8000) / far_ps for t in r["rx_ps"]]
+            moved, cycles, k = 2 * r["beats"], r["cycles"], r["skps"]
+            gaps = cycles - r["beats"]
+            env.log.info("%d-byte packets from %s: %d bytes in %d cycles (%.4f bytes/cycle, HAS floor "
+                         "%.4f), %d SKP ordered sets, %d cycles without a beat; TX latency %s; RX "
+                         "latency at %s %.2f to %.2f cycles", nbytes, "ab"[i], moved, cycles,
+                         moved / cycles, floor, k, gaps, sorted(set(r["tx_lat"])), "ba"[i],
+                         min(rx_cyc), max(rx_cyc))
+            where = f"{nbytes}-byte packets from {'ab'[i]}"
+            # The HAS throughput, phase-free: (1) back to back, the only
+            # cycles without a beat are one framing cycle between packets
+            # and two per SKP ordered set; (2) SKP ordered sets fall due
+            # every 1180 symbols (590 cycles) and one due inside a packet
+            # goes out after it, so the window holds at most the due times
+            # in it, widened by one packet. Together they give at least the
+            # HAS floor over whole SKP intervals, whatever the window's
+            # phase, with no tolerance on either.
+            assert gaps == (count - 1) + 2 * k, (
+                f"{where}: expected {count - 1} framing cycles + 2 x {k} SKP cycles without a beat, "
+                f"observed {gaps}")
+            skp_max = (cycles + nbytes // 2 + 1) // 590 + 1
+            assert k <= skp_max, f"{where}: {k} SKP ordered sets in {cycles} cycles, expected at most {skp_max}"
+            assert floor >= target, f"{where}: HAS floor {floor:.4f} below {target}"
+            assert set(r["tx_lat"]) == {TX_LATENCY_STACK} and TX_LATENCY_STACK <= TX_LATENCY_MAX, (
                 f"TX latency from {'ab'[i]}: expected {TX_LATENCY_STACK} cycles for every packet, "
-                f"observed {sorted(set(tx_lat))}")
+                f"observed {sorted(set(r['tx_lat']))}")
             assert len(rx_cyc) == count and max(rx_cyc) <= RX_LATENCY_MAX, (
                 f"RX latency at {'ba'[i]}: expected at most {RX_LATENCY_MAX} cycles, observed "
                 f"up to {max(rx_cyc):.2f}")
@@ -602,8 +624,11 @@ async def e2e_link_up_spec(dut):
     t0 = get_sim_time("ps")
     poll = {}
     up = {}
-    deadline = Timer(12_400_000_000, "ps")
+    end = t0 + 12_400_000_000
     while len(up) < 2:
+        left = end - get_sim_time("ps")
+        assert left > 0, f"link-up: not both up by 12.4 ms (up {sorted(up)})"
+        deadline = Timer(left, "ps")
         ev = await First(Edge(dut.a_ltssm_state_o), Edge(dut.b_ltssm_state_o),
                          Edge(dut.a_link_up_o), Edge(dut.b_link_up_o), deadline)
         assert ev is not deadline, f"link-up: not both up by 12.4 ms (up {sorted(up)})"
