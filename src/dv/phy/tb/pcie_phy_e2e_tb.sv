@@ -24,7 +24,8 @@ module pcie_phy_e2e_tb #(
   parameter int unsigned MAC_RTL     = 0,
   parameter int unsigned PCS_RTL     = 0,
   parameter int unsigned CHAN_RTL    = 0,
-  parameter int unsigned TIMEOUT_DIV = 1024
+  parameter int unsigned TIMEOUT_DIV = 1024,
+  parameter int unsigned ERR_TIMEOUT_DIV = 1
 ) (
   input  logic        a_clk_i,
   input  logic        b_clk_i,
@@ -89,13 +90,15 @@ module pcie_phy_e2e_tb #(
   output logic        cfg_mac_rtl_o,
   output logic        cfg_pcs_rtl_o,
   output logic        cfg_chan_rtl_o,
-  output logic [10:0] cfg_timeout_div_o
+  output logic [10:0] cfg_timeout_div_o,
+  output logic [10:0] cfg_err_timeout_div_o
 );
 
   assign cfg_mac_rtl_o     = (MAC_RTL != 0);
   assign cfg_pcs_rtl_o     = (PCS_RTL != 0);
   assign cfg_chan_rtl_o    = (CHAN_RTL != 0);
   assign cfg_timeout_div_o = 11'(TIMEOUT_DIV);
+  assign cfg_err_timeout_div_o = 11'(ERR_TIMEOUT_DIV);
 
   // Ideal channel (CHAN_RTL 1): one register in the transmitter's clock,
   // which is the receiver's ser_rx_clk_i.
@@ -120,7 +123,7 @@ module pcie_phy_e2e_tb #(
   assign a_rst = (MAC_RTL != 0) ? a_rst_i : 1'b1;
   assign b_rst = (MAC_RTL != 0) ? b_rst_i : 1'b1;
 
-  pcie_phy #(.TIMEOUT_DIV(TIMEOUT_DIV)) u_a (
+  pcie_phy #(.TIMEOUT_DIV(TIMEOUT_DIV), .ERR_TIMEOUT_DIV(ERR_TIMEOUT_DIV)) u_a (
     .clk_i              (a_clk_i),
     .rst_i              (a_rst),
     .port_role_i        (a_port_role_i),
@@ -154,7 +157,7 @@ module pcie_phy_e2e_tb #(
     .ser_tx_elec_idle_o (a_ser_tx_elec_idle_o)
   );
 
-  pcie_phy #(.TIMEOUT_DIV(TIMEOUT_DIV)) u_b (
+  pcie_phy #(.TIMEOUT_DIV(TIMEOUT_DIV), .ERR_TIMEOUT_DIV(ERR_TIMEOUT_DIV)) u_b (
     .clk_i              (b_clk_i),
     .rst_i              (b_rst),
     .port_role_i        (b_port_role_i),
