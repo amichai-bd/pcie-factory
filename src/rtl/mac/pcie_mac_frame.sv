@@ -185,6 +185,9 @@ module pcie_mac_frame (
     rxc_d.pend_v    = rxc_q.pend_v;
     rxd_d.pend      = rxd_q.pend;
     rxd_d.pend_sop  = rxd_q.pend_sop;
+    rxc_d.tail_v    = 1'b0;
+    rxc_d.tail_ferr = 1'b0;
+    rxd_d.tail      = rxd_q.tail;
     push_a      = '0;
     push_b      = '0;
     npush       = 2'd0;
@@ -221,9 +224,32 @@ module pcie_mac_frame (
       sym_k    = 1'b0;
       sym_b    = '0;
       if (s == 0) begin
+        // The previous word's EDB in [15:8] counts only if this word is
+        // received; before RxValid 0 or electrical idle it is the PCS's
+        // idle tail and the stream was cut after [7:0] (HAS, Receive).
+        // The packet it ended goes out now, the cycle's first push.
+        if (rxc_q.tail_v) begin
+          beat = rxd_q.tail;
+          if (!sym_ok) begin
+            beat.err     = 1'b1;
+            beat.nullify = 1'b0;
+            ferr         = ferr || ctl_i.rx_l0;
+          end
+          push_a = beat;
+          npush  = 2'd1;
+        end
+        if (rxc_q.tail_ferr && sym_ok) begin
+          ferr = 1'b1;
+          if (ctl_i.rx_l0) begin
+            rxc_d.resync = 1'b1;
+          end
+        end
+        // A cut: in Rx_L0 a packet cut by RxValid 0 or electrical idle did
+        // not end with END or EDB, a framing error (without resync).
         if (rxc_d.in_pkt && (!ctl_i.rx_l0 || !sym_ok)) begin
           do_end  = 1'b1;
           end_err = 1'b1;
+          ferr    = ferr || (ctl_i.rx_l0 && !sym_ok);
         end
       end else if (sym_ok) begin
         sym_k = rx_word_i.datak[s-1];
@@ -299,6 +325,9 @@ module pcie_mac_frame (
               ferr     = 1'b1;
               rxc_d.resync = 1'b1;
             end
+          end else if (s == 2 && sym_b == common_pkg::SYM_EDB && !rxc_d.resync
+                       && ctl_i.rx_l0) begin
+            rxc_d.tail_ferr = 1'b1;  // decided by the next word
           end else if (!rxc_d.resync && ctl_i.rx_l0) begin
             ferr     = 1'b1;
             rxc_d.resync = 1'b1;
@@ -333,7 +362,11 @@ module pcie_mac_frame (
           beat.data = {common_pkg::IDLE_DATA, rxd_d.hold};
           beat.sop  = rxd_d.pkt_first;
         end
-        if (rxc_d.pend_v || rxc_d.hold_v) begin
+        if ((rxc_d.pend_v || rxc_d.hold_v) && end_edb && s == 2) begin
+          // EDB in [15:8]: the beat waits for the next word (step 0).
+          rxd_d.tail   = beat;
+          rxc_d.tail_v = 1'b1;
+        end else if (rxc_d.pend_v || rxc_d.hold_v) begin
           if (npush == 2'd0) begin
             push_a = beat;
           end else begin
@@ -436,6 +469,8 @@ module pcie_mac_frame (
   // without a push forms).
   `COMMON_ASSERT_NEVER(a_rx_queue_overflow, clk_i, rst_i, cnt_sum > 3'd2)
   `COMMON_ASSERT_NEVER(a_rx_pend_push_first, clk_i, rst_i, push_late)
+  // A packet ended by EDB in [15:8] is closed while its beat waits a word.
+  `COMMON_ASSERT_NEVER(a_rx_tail_closed, clk_i, rst_i, rxc_q.tail_v && rxc_q.in_pkt)
   `COMMON_ASSERT_NEVER(a_rx_err_and_nullify, clk_i, rst_i, pkt_rx_o.err && pkt_rx_o.nullify)
   `COMMON_ASSERT_NEVER(a_rx_flags_without_eop, clk_i, rst_i,
                        rx_out_valid && !rxq_q.q0.eop && (rxq_q.q0.err || rxq_q.q0.nullify))

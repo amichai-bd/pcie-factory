@@ -110,7 +110,7 @@ the model's step returns. The DV compares with these offsets every cycle
 | Path | Cycles |
 | --- | --- |
 | Accepted transmit beat to its first symbol on `pipe_tx_data_o` | 1 (the scrambler register; HAS budget 3) |
-| Received STP or SDP to the `sop` beat | 3, plus 1 when it is in `[15:8]` (descrambler 1, frame 2; HAS budget 3 + 1) |
+| Received STP or SDP to the `sop` beat | 3, plus 1 when it is in `[15:8]` (descrambler 1, frame 2; HAS budget 3 + 1); 1 more for a packet whose only beat ends with EDB in `[15:8]` (idle tail) |
 | A received word to the LTSSM step that takes it | 1 edge after the word is sampled (the receive stage) |
 
 ## Package
@@ -137,7 +137,7 @@ are in [`common_pkg`](../common/common_pkg.md). Everything is named
 
 Internal state structs: `t_rx_state` (the ordered-set parser); the
 frame's `t_fr_tx_ctl` and `t_fr_tx_data` (transmit), `t_fr_rx_ctl` and
-`t_fr_rx_data` (parser) and `t_fr_rxq` (the receive queue of `t_rx_beat`),
+`t_fr_rx_data` (parser, with the idle tail's waiting beat) and `t_fr_rxq` (the receive queue of `t_rx_beat`),
 split into reset and unreset registers; `t_regs` (every LTSSM register),
 with the power states' registers in its `t_pm_regs` field `pm`.
 
@@ -282,8 +282,10 @@ A packet of *n* bytes takes *n*/2 + 1 words and ready is 0 for one cycle
 after each `eop`. `pkt_tx_nullify_i` is ignored for a DLLP. The upper
 layer's sop rules are asserted.
 
-**Receive.** Per word: an open packet ends bad when `rx_l0` is 0, RxValid
-is 0 or RxElecIdle is 1 (a cut), and an RxStatus error marks it bad; then
+**Receive.** Per word: the previous word's EDB in `[15:8]` is decided
+(idle tail, below); an open packet ends bad when `rx_l0` is 0, RxValid
+is 0 or RxElecIdle is 1 (a cut; the last two with `rx_l0` 1 are a framing
+error without resync), and an RxStatus error marks it bad; then
 symbols are parsed, `[7:0]` first. Ordered sets are skipped in every state
 (COM and 15 TS symbols, or a run of SKP, IDL or FTS); a COM inside a
 packet ends it bad. Packets start only while `rx_l0` is 1, and framing
@@ -300,6 +302,18 @@ ended by EDB; else a TLP ended by EDB is nullified.
   resync; cut by leaving `Rx_L0` it is dropped silently
   ([#153](https://github.com/amichai-bd/pcie-factory/issues/153);
   [HAS](../../arch/mac/HAS.md#receive)).
+- **Idle tail** ([HAS](../../arch/mac/HAS.md#receive)). A packet ended by
+  EDB in `[15:8]` closes, but its `eop` beat waits in `rxd.tail`
+  (`tail_v`); an EDB in `[15:8]` outside a packet that would be a framing
+  error sets `tail_ferr` instead. Step 0 of the next word decides. If that
+  word is received (RxValid 1, RxElecIdle 0), the beat goes out as formed,
+  and `tail_ferr` raises the framing error, with resync while `rx_l0`.
+  If not, the beat goes out with `err` and without `nullify`, a framing
+  error while `rx_l0`, and `tail_ferr` is dropped. The waiting beat is the
+  cycle's first push: the next word holds at most an STP and one byte of a
+  new packet, so it pushes nothing else (`a_rx_tail_closed`,
+  `a_rx_pend_push_first`). An empty packet ended so has no beat and is a
+  framing error either way, raised at once.
 - **Realignment.** Bytes pair into beats with the first byte in `[7:0]` of
   `sop`; a complete beat waits (pending) until the next symbol shows
   whether it is the last; an odd packet ends with 00h in `[15:8]`.
@@ -313,6 +327,7 @@ ended by EDB; else a TLP ended by EDB is nullified.
 | Combinational transmit word | Zero latency inside the TX budget. | A registered word. |
 | The frame parses ordered-set lengths itself | It needs packet and idle positions independently of `u_os`'s fields. | A per-symbol input from `u_os`. |
 | Hold the last complete beat for the next symbol | eop and flags ride on the last beat. | An empty eop beat. |
+| An EDB in `[15:8]` decided by the next word through a registered beat (`tail`) | Only the next word tells the PCS's idle tail from a received EDB; the register keeps the PIPE inputs registered and the model step for step. | Reading `pipe_rx_*` before the receive stage (an unregistered input path into the frame). |
 | Combinational `rx_idle_o`, registered `rx_frame_err_o` | The LTSSM counts idle symbols of the word whose ordered-set events it sees in the same cycle (model alignment); `rcv_err_o` is a registered output anyway. | A registered idle mark (one cycle behind the events). |
 
 ## LTSSM
