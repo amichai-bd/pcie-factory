@@ -146,6 +146,23 @@ async def e2e_scrambler_block(dut):
     env.final_checks()
 
 
+@cocotb.test()
+async def e2e_encoder_block(dut):
+    """L1: both ports' 8b/10b transmit done by the pcs_enc8b10b block (its
+    cycle model, at its MAS interface, two cycles of latency) instead of the
+    pcs stand-in's encoder: train, lossless, a bit slip each way (relock on
+    the block's code stream), lossless again. The step to its RTL is in the
+    DV plan."""
+    env = Env(dut, a_role="upstream", ppm=600, seed=seed(), tx_encoder="block_model")
+    env.start()
+    await env.train()
+    await env.lossless(30)
+    for direction in (0, 1):
+        await env.impair("slip", direction)
+        await env.lossless(12)
+    env.final_checks()
+
+
 # ---------------------------------------------------------------- level 2
 
 async def soak(dut, a_role: str) -> None:

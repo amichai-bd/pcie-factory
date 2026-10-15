@@ -22,9 +22,19 @@ model's 8b/10b code and PIPE control; it is not cycle-exact to the RTL:
 
 Loopback (TxDetectRx in P0) is not modelled.
 
-Block hooks: ``encode`` and ``decode`` are the 8b/10b functions the stand-in
-calls; a test may pass others (for example an adapter that drives an RTL
-encoder) to ``PcsModel``.
+Block hooks:
+
+- ``tx_encoder``: a block at the ``pcie_pcs_enc8b10b`` interface
+  (wiki/src/rtl/pcs_enc8b10b/MAS.md) replaces the transmit encoder and its
+  pipeline. Each cycle the stand-in calls ``block.clock(rst, valid, data,
+  datak, compliance)`` with the PIPE transmit word (``valid`` is 0 in
+  electrical idle), then sends ``block.data_o`` with electrical idle
+  ``not block.valid_o``; the block's own latency is the transmit latency.
+  ``Encoder``, the sub-IP's cycle model, is such a block; an adapter that
+  drives a ``pcie_pcs_enc8b10b`` instance's pins at the falling edge is
+  another (wiki/src/dv/phy/DV_PLAN.md, Model-to-RTL switch).
+- ``encode`` and ``decode``: the symbol-level 8b/10b functions of the
+  built-in transmit path and of the receive path.
 """
 
 from __future__ import annotations
@@ -57,8 +67,10 @@ class PcsModel:
     """One pcs. ``core_edge`` runs at each clk_i rising edge; ``rx_edge`` at
     each ser_rx_clk_i rising edge (the far transmitter's clock)."""
 
-    def __init__(self, encode=code8b10b.encode, decode=code8b10b.decode) -> None:
+    def __init__(self, encode=code8b10b.encode, decode=code8b10b.decode,
+                 tx_encoder=None) -> None:
         self.encode, self.decode = encode, decode
+        self.tx_encoder = tx_encoder
         self.stats = {"skp_added": 0, "skp_removed": 0, "overflow": 0, "underflow": 0,
                       "code_errors": 0, "disp_errors": 0, "relocks": 0, "locks": 0}
         self.reset()
@@ -91,10 +103,14 @@ class PcsModel:
         (ser_tx_data_o, ser_tx_elec_idle_o)."""
         if rst:
             self.reset()
+            if self.tx_encoder is not None:
+                self.tx_encoder.clock(1, 0, 0, 0, 0)
             return 0, True
         ctl = self.ctl.step(0, int(tx.reset_n), tx.power_down, int(tx.detect_rx),
                             int(tx.elec_idle), int(rxdet))
-        if ctl["tx_elec_idle"] or not tx.reset_n:
+        if self.tx_encoder is not None:
+            out = self._encode_block(tx, ctl)
+        elif ctl["tx_elec_idle"] or not tx.reset_n:
             word, ei = 0, True
         else:
             if tx.compliance:
@@ -106,8 +122,9 @@ class PcsModel:
                 c, self.tx_rd = self.encode(b, bool(k), self.tx_rd)
                 word |= c << (10 * i)
             ei = False
-        self.tx_pipe.append((word, ei))
-        out = self.tx_pipe.popleft()
+        if self.tx_encoder is None:
+            self.tx_pipe.append((word, ei))
+            out = self.tx_pipe.popleft()
         if not tx.reset_n or self.ctl.ready_count:
             self.out = mac_arch.PipeRx(phy_status=bool(ctl["phy_status"]))
             return out
@@ -116,6 +133,14 @@ class PcsModel:
             rx.phy_status, rx.status = True, ctl["rx_status"]
         self.out = rx
         return out
+
+    def _encode_block(self, tx: mac_arch.PipeTx, ctl: dict) -> tuple[int, bool]:
+        blk = self.tx_encoder
+        valid = int(not ctl["tx_elec_idle"] and tx.reset_n)
+        data = tx.syms[0][1] | tx.syms[1][1] << 8
+        datak = tx.syms[0][0] | tx.syms[1][0] << 1
+        blk.clock(int(not tx.reset_n), valid, data, datak, int(bool(tx.compliance)))
+        return (blk.data_o, False) if blk.valid_o else (0, True)
 
     def _read(self, polarity: bool) -> mac_arch.PipeRx:
         self.ei_sync = [self.cur_ei, self.ei_sync[0]]

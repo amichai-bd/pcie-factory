@@ -46,6 +46,9 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / "models"))
 # The pcie_mac_scrambler sub-IP's cycle model, a transmit-scrambler block.
 sys.path.append(str(Path(__file__).resolve().parents[2] / "mac_scrambler" / "models"))
 import pcie_mac_scrambler_model  # noqa: E402
+# The pcs_enc8b10b sub-IP's cycle model, a transmit-encoder block.
+sys.path.append(str(Path(__file__).resolve().parents[2] / "pcs_enc8b10b" / "models"))
+import pcie_pcs_enc8b10b_model  # noqa: E402
 import pcie_phy_stack_model as stack  # noqa: E402
 from pcie_phy_stack_model import L0_CODE, RECOVERY_CODES, ModelPort  # noqa: E402
 
@@ -61,6 +64,7 @@ for _layer in LAYERS:
 COV_LAYERS.cross("mac_x_pcs", "mac", "pcs")
 # Block-level swaps inside a model layer (the DV plan's switch table).
 COV_LAYERS.coverpoint("tx_scrambler", bins={"mac_model": "mac_model", "block_model": "block_model"})
+COV_LAYERS.coverpoint("tx_encoder", bins={"pcs_model": "pcs_model", "block_model": "block_model"})
 
 COV_RUN = Covergroup("phy_e2e_run")
 COV_RUN.coverpoint("a_role", bins={"downstream": "downstream", "upstream": "upstream"})
@@ -295,7 +299,7 @@ class Env:
 
     def __init__(self, dut, a_role: str = "downstream", ppm: float = 0, seed: int = 0,
                  skew_max: int = 64, delay_words: int = 4,
-                 tx_scrambler: str = "mac_model") -> None:
+                 tx_scrambler: str = "mac_model", tx_encoder: str = "pcs_model") -> None:
         self.dut = dut
         self.log = dut._log
         self.rng = random.Random(seed)
@@ -307,12 +311,14 @@ class Env:
         self.timeout_div = int(dut.cfg_timeout_div_o.value)
         self.a_role, self.ppm = a_role, ppm
         self.log.info("phy e2e: COCOTB_RANDOM_SEED %s, test seed %d, layers %s, a %s, b %s, b clock %+g ppm, "
-                      "TIMEOUT_DIV %d, tx scrambler %s", os.environ.get("COCOTB_RANDOM_SEED", "-"), seed,
+                      "TIMEOUT_DIV %d, tx scrambler %s, tx encoder %s", os.environ.get("COCOTB_RANDOM_SEED", "-"), seed,
                       " ".join(f"{k}={v}" for k, v in self.layers.items()),
-                      a_role, stack.other(a_role), ppm, self.timeout_div, tx_scrambler)
+                      a_role, stack.other(a_role), ppm, self.timeout_div, tx_scrambler, tx_encoder)
         if tx_scrambler not in ("mac_model", "block_model"):
             raise ValueError(f"tx_scrambler: expected mac_model or block_model, got {tx_scrambler}")
-        COV_LAYERS.sample(**self.layers, tx_scrambler=tx_scrambler)
+        if tx_encoder not in ("pcs_model", "block_model"):
+            raise ValueError(f"tx_encoder: expected pcs_model or block_model, got {tx_encoder}")
+        COV_LAYERS.sample(**self.layers, tx_scrambler=tx_scrambler, tx_encoder=tx_encoder)
         COV_RUN.sample(a_role=a_role, ppm=ppm)
         roles = (a_role, stack.other(a_role))
         if self.layers["mac"] != self.layers["pcs"]:
@@ -324,11 +330,13 @@ class Env:
         if self.layers["mac"] == "model":
             ports = [ModelPort(r, self.timeout_div,
                                tx_scrambler=(pcie_mac_scrambler_model.WordScrambler()
-                                             if tx_scrambler == "block_model" else None))
+                                             if tx_scrambler == "block_model" else None),
+                               tx_encoder=(pcie_pcs_enc8b10b_model.Encoder()
+                                           if tx_encoder == "block_model" else None))
                      for r in roles]
         else:
-            if tx_scrambler != "mac_model":
-                raise ValueError("a scrambler block swaps in only inside the mac model")
+            if (tx_scrambler, tx_encoder) != ("mac_model", "pcs_model"):
+                raise ValueError("block swaps apply only inside the model layers")
             ports = [RtlPort(dut, f"{p}_", r) for p, r in zip("ab", roles)]
         skew = self.rng.randrange(skew_max + 1)
         self.bench = stack.Bench(ports, self.rng, delay_words,

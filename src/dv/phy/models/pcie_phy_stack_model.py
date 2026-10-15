@@ -22,6 +22,9 @@ sub-IP's cycle model, is such a block; an adapter that drives a
 ``pcie_mac_scrambler`` instance's pins at the falling edge is another
 (wiki/src/dv/phy/DV_PLAN.md, Model-to-RTL switch).
 
+Block hook, transmit encoder: ``ModelPort(tx_encoder=block)`` passes a
+block at the ``pcie_pcs_enc8b10b`` interface to ``PcsModel`` (see there).
+
 A port is any object with ``rst``, ``core_edge(rxdet) -> (word, ei)``,
 ``rx_edge(word, ei)`` and ``present()``, plus the upper-layer view
 (``send``, ``received``, ``code``, ``link_up``, ``rcv_errors``,
@@ -72,10 +75,10 @@ class ModelPort:
     kind = "model"
 
     def __init__(self, role: str, timeout_div: int = 1024, tx_scrambler=None,
-                 **mac_kw) -> None:
+                 tx_encoder=None, **mac_kw) -> None:
         self.role = role
         self.mac = mac_arch.Mac(role, timeout_div, 1, **mac_kw)
-        self.pcs = PcsModel()
+        self.pcs = PcsModel(tx_encoder=tx_encoder)
         self.tx_scrambler = tx_scrambler
         self._held = mac_arch.PipeTx(reset_n=False)
         self.rst = True

@@ -102,6 +102,30 @@ def test_line_dropout_takes_the_receiver_to_recovery():
     b.run(lambda x: x.both_l0(), 20_000, 300)
 
 
+def _sibling(ip: str, module: str):
+    d = Path(__file__).resolve().parents[2] / ip / "models"
+    if str(d) not in sys.path:
+        sys.path.append(str(d))
+    return __import__(module)
+
+
+def test_tx_encoder_block_swaps_in():
+    """Both ports' 8b/10b transmit by the pcs_enc8b10b sub-IP's cycle model:
+    training and traffic as with the built-in encoder, at +600 ppm."""
+    enc = _sibling("pcs_enc8b10b", "pcie_pcs_enc8b10b_model")
+    rng = random.Random(6)
+    b = m.Bench([m.ModelPort("upstream", tx_encoder=enc.Encoder()),
+                 m.ModelPort("downstream", tx_encoder=enc.Encoder())], rng)
+    b.run(lambda x: x.both_l0(), 40_000, 600)
+    pkts = mac_arch.make_packets(rng, 10, "random", 0, 0.2)
+    for p in pkts:
+        b.ports[0].send(p.dllp, p.data, p.nullify)
+    got = []
+    b.run(lambda x: (got.extend(x.ports[1].received()) or len(got) >= len(pkts)), 40_000, 600)
+    assert got == [(p.dllp, p.data, p.nullify, False) for p in pkts]
+    assert all(p.rcv_errors == 0 for p in b.ports)
+
+
 def _word_scrambler():
     """The pcie_mac_scrambler sub-IP's cycle model (its own DV model)."""
     d = Path(__file__).resolve().parents[2] / "mac_scrambler" / "models"
