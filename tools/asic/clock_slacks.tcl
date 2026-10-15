@@ -1,14 +1,13 @@
 # Setup slack per clock, which ORFS does not report (it gives only the
 # totals over all clocks). Run by ./build asic as its own `clocks` step,
 # through the ORFS `run` target, after the `extra` step, so a crash, OOM or
-# timeout here never costs the other metrics: the tool turns this step's
-# failure into a warning, never a status. Writes $REPORTS_DIR/asic_clocks.json.
+# timeout here never costs the other metrics, which metrics.json still
+# records; the step's failure fails the run. Writes $REPORTS_DIR/asic_clocks.json.
 # Spec: wiki/tools/asic/SPEC.md.
 #
 # For each SDC clock: the worst slack and the total negative slack over the
 # constrained setup endpoints it captures (one worst path per endpoint).
-# The result is optional: missing or empty, the run only warns, until a
-# nightly shows it populated (issue #200 then makes it required).
+# The result is required: missing or empty, the run is incomplete.
 
 source $::env(SCRIPTS_DIR)/load.tcl
 load_design 6_final.odb 6_final.sdc
@@ -60,8 +59,8 @@ proc asic_clock_slacks {} {
   return $result
 }
 
-# A Tcl error writes an empty clock list; the tool then warns (optional
-# metric, #200) and the run keeps its status.
+# A Tcl error writes an empty clock list; the tool then marks the run
+# incomplete (required metric) and warns with the cause.
 set clock_slacks {}
 if { [catch { set clock_slacks [asic_clock_slacks] } err] } {
   asic_mark "clock slacks failed: $err"

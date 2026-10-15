@@ -30,5 +30,5 @@ SKY130 PDK.
 `fake_orfs/` is a fake native ORFS root: `env.sh` puts `bin/` first on
 `PATH`, where `make` copies `orfs/` into `WORK_HOME` for the `finish` and
 `run` targets (`FAKE_MAKE=fail|sleep|noextra` simulate a failing, hanging or
-incomplete flow; `noclocks|clocksfail|clockssleep` an optional `clocks`
+incomplete flow; `noclocks|clocksfail|clockssleep` a `clocks`
 step that writes no clock, fails or hangs) and `openroad`/`yosys` print versions.
