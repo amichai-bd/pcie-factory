@@ -132,12 +132,14 @@ are in [`common_pkg`](../common/common_pkg.md). Everything is named
 | `t_ts_rx` | os, top, LTSSM | Received TS fields: ts2, ts_inv, link and lane (byte, PAD, number), N_FTS, control bits 4:0. |
 | `t_fr_ctl` | LTSSM, frame | tx_l0, tx_stop, rx_l0. |
 | `t_line_ctl` | LTSSM, top, os | skp_hold (loopback slave), tx_scr_off (Disable Scrambling, transmit). |
+| `t_fr_tx_stat` | frame and port, LTSSM | The line word carries a packet symbol (pkt), packet symbols remain after it (open), the upper layer offers a beat (offer, `pkt_tx_valid_i`). |
 | `t_link_req` | ports, LTSSM | retrain, hot_reset, disable_link, loopback, pm_state. |
 
 Internal state structs: `t_rx_state` (the ordered-set parser); the
 frame's `t_fr_tx_ctl` and `t_fr_tx_data` (transmit), `t_fr_rx_ctl` and
 `t_fr_rx_data` (parser) and `t_fr_rxq` (the receive queue of `t_rx_beat`),
-split into reset and unreset registers; `t_regs` (every LTSSM register).
+split into reset and unreset registers; `t_regs` (every LTSSM register),
+with the power states' registers in its `t_pm_regs` field `pm`.
 
 ## Scrambler
 
@@ -250,6 +252,7 @@ counts the SKP interval.
 | `ctl_i` | in | `t_fr_ctl` | From the LTSSM. `tx_l0`: the line is the frame's; 1 in L0 and also in Configuration.Idle and Recovery.Idle, where the frame is the only source of idle symbols, and as a loopback slave, with `tx_stop` 1 so no packet starts. `tx_stop`: start no packet. `rx_l0`: main state L0 with `Rx_L0`. |
 | `skp_req_i`, `skp_gnt_o` | in, out | 1, 1 | SKP due or a set in progress; the line is the ordered-set block's this cycle. |
 | `tx_act_o`, `tx_word_o`, `tx_pkt_o` | out | 1, `t_word`, 1 | The frame drives the line with this unscrambled word; it carries a packet symbol. |
+| `tx_open_o` | out | 1 | Packet symbols remain after this word (line-open after it); the LTSSM's L1 and L2 entry wait. |
 | `rx_word_i`, `rx_i` | in | `t_word`, `t_pipe_rx` | The descrambled word and its PIPE status. |
 | `rx_frame_err_o` | out | 1 | One cycle after a word with a framing error. |
 | `rx_idle_o` | out | 2 | Same cycle: bit *i*, symbol *i* is idle data (00h after descrambling, outside a packet, an ordered set and a resync). |
@@ -312,25 +315,24 @@ ended by EDB; else a TLP ended by EDB is nullified.
 detection, polarity, loopback and scrambling control, and the transmit
 control of `u_os` and `u_frame`: the [LTSSM page](../../arch/mac/LTSSM.md)
 and the [arcs page](../../arch/mac/ARCS.md) for the **core states**
-(Detect, Polling, Configuration x1 in both roles, L0, Recovery) and the
-[control states](#control-states) (Disabled, Hot Reset, Loopback master
-and slave). The power states
-([#79](https://github.com/amichai-bd/pcie-factory/issues/79)) have an
-empty block, and the arcs into them are [stubbed](#stubbed-arcs).
-Parameters `TIMEOUT_DIV` and `ERR_TIMEOUT_DIV` as in the HAS.
+(Detect, Polling, Configuration x1 in both roles, L0, Recovery), the
+[power states](#power-states) (the L0s sub-machines with the FTS exit, L1,
+L2) and the [control states](#control-states) (Disabled, Hot Reset,
+Loopback master and slave). Parameters `TIMEOUT_DIV`, `ERR_TIMEOUT_DIV`,
+`N_FTS` (the `Rx_L0s.FTS` timeout) and `L0S_IDLE_CYCLES` as in the HAS.
 
 | Port | Dir | Type | Description |
 | --- | --- | --- | --- |
 | `port_role_i`, `link_up_o`, `ltssm_state_o` | in, out, out | 1, 1, 6 | As the HAS ports. |
-| `req_i` | in | `t_link_req` | Link control; `pm_state` is unused until the power states (#79). |
+| `req_i` | in | `t_link_req` | Link control: retrain, the downstream Hot Reset and Disabled requests, loopback, and `pm_state`, the power request (L0s allowed, L1, L2). |
 | `pipe_o`, `pipe_rx_i` | out, in | `t_pipe_ctl`, `t_pipe_rx` | PIPE control and status. |
-| `os_req_o`, `ts_o`, `os_tx_i` | out, out, in | `t_os_req`, `t_ts_tx`, `t_os_tx` | Requests (TS, compliance, EIOS, loopback pattern), TS fields with the control bits, the line word's events. |
+| `os_req_o`, `ts_o`, `os_tx_i` | out, out, in | `t_os_req`, `t_ts_tx`, `t_os_tx` | Requests (TS, compliance, EIOS, loopback pattern, FTS, the SKP that ends an FTS sequence), TS fields with the control bits, the line word's events. |
 | `os_rx_i`, `os_ts_i` | in | `t_os_rx`, `t_ts_rx` | Receive events and fields of the word. |
 | `fr_o` | out | `t_fr_ctl` | The frame's controls. |
 | `line_o` | out | `t_line_ctl` | SKP hold (loopback slave) and transmit scrambling off. |
 | `rx_scr_off_o` | out | 1 | Receive scrambling off, for the word the next step takes: the next value of the flag, the one output that is not a register ([Top](#top)). |
-| `partner_n_fts_o` | out | 8 | The partner's N_FTS from the TS2 that advance Configuration.Complete or Recovery.RcvrCfg; 255 until learned (for `Tx_L0s.FTS`, #79). |
-| `fr_tx_idle_i`, `fr_rx_idle_i` | in | 1, 2 | The line word is the frame's two idle symbols; the received word's idle marks. |
+| `partner_n_fts_o` | out | 8 | The partner's N_FTS from the TS2 that advance Configuration.Complete or Recovery.RcvrCfg; 255 until learned. `Tx_L0s.FTS` sends that many FTS. |
+| `fr_tx_idle_i`, `fr_tx_i`, `fr_rx_idle_i` | in | 1, `t_fr_tx_stat`, 2 | The line word is the frame's two idle symbols; the line word's packet status and the upper offer; the received word's idle marks. |
 
 Every output but `rx_scr_off_o` is a register. One step per cycle, in the model's order:
 
@@ -347,32 +349,79 @@ Every output but `rx_scr_off_o` is a register. One step per cycle, in the model'
    whose link field is a data symbol in Configuration.Linkwidth.Start. The
    control runs (`run_hr`, `run_dis`, `run_lb`: TS1 with the bit;
    `run_dscr`: Configuration.Complete's go TS2 with Disable Scrambling)
-   count in the states whose arcs read them.
+   count in the states whose arcs read them. In L0, an EIOS in `Rx_L0`
+   moves the receive sub-machine to `Rx_L0s.Entry` (or, with L1 or L2
+   requested, is noted for their entry) and a SKP in `Rx_L0s.FTS` returns
+   it to `Rx_L0`.
 3. **The arc**, in the arcs page's row order; on entry the timer and every
-   per-state count restart.
+   per-state count restart. In L0 (below) the sub-machines step first.
 4. **PIPE control and transmit mode** of the state the step ends in: the
-   transmitter is active when the state sends something or a set is
-   unfinished (`os_tx_i.valid` and not `last`), in P0 with no change
-   pending; otherwise it is in electrical idle and only then may PowerDown
-   move, one change at a time. Detect.Active raises TxDetectRx in P1.
+   transmitter is active when the state sends something, a set is
+   unfinished (`os_tx_i.valid` and not `last`) or an EIOS is queued, in P0
+   with no change pending; otherwise it is in electrical idle and only then
+   may PowerDown move, one change at a time, and between two low-power
+   states through P0 (P2 to P1). Detect.Active raises TxDetectRx in P1.
    `fr_o.tx_l0` is 1 in Configuration.Idle, Recovery.Idle, L0 and as a
-   loopback slave while active, with `tx_stop` 1 outside L0.
+   loopback slave while active, with `tx_stop` 1 outside L0 and while a
+   Recovery exit waits in L0.
 
 | Transmit mode (`t_tx_mode`) | States | Line |
 | --- | --- | --- |
-| `TX_NONE` | Detect; after an EIOS | Electrical idle. |
+| `TX_NONE` | Detect; after an EIOS; `Tx_L0s.Entry`, `.Idle`, the upstream wait, L1, L2 | Electrical idle. |
 | `TX_TS` | Polling, Configuration, RcvrLock, RcvrCfg; Disabled (16 TS1), Hot Reset, Loopback.Entry master | `u_os` TS with `ts_o`; the control bits follow the state. |
-| `TX_IDLE`, `TX_L0` | Configuration.Idle, Recovery.Idle; L0 | The frame. |
+| `TX_IDLE`, `TX_L0` | Configuration.Idle, Recovery.Idle, L0 with a Recovery exit waiting; L0 | The frame. |
 | `TX_COMPLIANCE` | Polling.Compliance | `u_os` compliance pattern. |
-| `TX_EIOS` | Disabled after its 16 TS1, Loopback.Exit | One `u_os` EIOS (`eios_done` once taken), only from a transmitter that is sending. |
+| `TX_EIOS` | Disabled after its 16 TS1, Loopback.Exit; the queued EIOS of transmit L0s, L1, L2 and the upstream wait | One `u_os` EIOS (`eios_done` once taken; `eios_q` while queued), only from a transmitter that is sending. |
 | `TX_PATTERN` | Loopback.Active master | `u_os` pattern words. |
 | `TX_LOOP` | Loopback.Entry and .Active slave | The frame's idle, TxDetectRx high, `line_o.skp_hold`. |
+| `TX_FTS` | `Tx_L0s.FTS` | `u_os` FTS, the partner's N_FTS of them, then the SKP. |
 
 `link_up_o` is set on every entry to L0 and cleared on entry to
 Detect.Quiet, Polling.Active, Disabled, Hot Reset and Loopback.Entry. Polling.Active advances on the live run of
 8 matching TS together with 1024 TS1 sent, as the model does (the
 [LTSSM page](../../arch/mac/LTSSM.md#common-rules) states this exception to
 the latched runs).
+
+### Power states
+
+The L0 step, in the model's order:
+
+- **Receive sub-machine, timed arcs.** `Rx_L0s.Entry` to `.Idle` 3 cycles
+  after entry; `.Idle` to `.FTS` on EI exit (electrical idle since
+  `.Entry`, then not); in `.FTS` the timeout, the smaller of 2 x `N_FTS` +
+  32 and 4 x `N_FTS` + 12 cycles, is latched (`rx_cnt`, `rx_fts_to`).
+- **Main exit conditions.** Recovery: the FTS timeout, a TS or electrical
+  idle without an EIOS in `Rx_L0`, the directed requests, a retrain, or the
+  upstream wait withdrawn with the transmitter idle 3 cycles. L1 or L2:
+  `pm_state_req_i` 2 or 3 and an EIOS received (`ev_eios_pm`, or the
+  receiver in `.Entry` or `.Idle`), downstream or after the upstream wait.
+  Otherwise an upstream port asked for L1 or L2, in `Tx_L0` with no
+  packet on the line (`fr_tx_i.open` 0), starts its wait: one EIOS, then
+  electrical idle in P0 (`pm_wait`). A Recovery exit is latched
+  (`l0_exit`).
+- **Transmit sub-machine.** `Tx_L0` to `.Entry` with no exit pending,
+  `pm_state_req_i` 1 and `L0S_IDLE_CYCLES` words without traffic
+  (`idle_cnt`: a word sent in `Tx_L0` with no packet symbol and no beat
+  offered); `.Entry` to `.Idle` after the EIOS, 3 cycles of electrical idle
+  (the shared `ei_cycles`) and the P0s acknowledge; `.Idle` to `.FTS` on a pending exit,
+  a beat offered (`fr_tx_i.offer`, `pkt_tx_valid_i` as sampled) or a
+  request other than 1; `.FTS` to `Tx_L0` once P0 is acknowledged and the
+  partner's N_FTS FTS (`fts_sent`) and the closing SKP (`fts_skp`) are
+  sent.
+- **Main exit**, only with the transmitter in `Tx_L0`, the receiver not in
+  `.Entry` nor in `.FTS` before its timeout, and for L1 or L2 no packet on
+  the line. While a Recovery exit waits the frame sends idle (`TX_IDLE`).
+
+Transmit modes: `TX_EIOS` requests one EIOS, queued (`eios_q`) on entry
+to `Tx_L0s.Entry`, L1.Entry and L2.Idle and at the start of the upstream
+wait, when the transmitter is not already idle, and held until `u_os`
+takes it; `TX_FTS` requests FTS while fewer than the partner's N_FTS have
+started, then the SKP (`u_os` restarts its SKP count). L1.Entry goes to
+L1.Idle after the EIOS, 3 cycles of idle and the P1 acknowledge; L1.Idle
+to Recovery.RcvrLock on a request of 0 or 1 or EI exit; L2.Idle to
+Detect.Quiet once P2 is acknowledged and the request is not 3 or EI exit.
+PowerDown: P0s in `.Entry` and `.Idle`, P1 in L1, P2 in L2.Idle, each
+entered from P0 after the transmitter is idle.
 
 ### Control states
 
@@ -408,29 +457,30 @@ sit first in Configuration.Linkwidth.Start's and Recovery.Idle's blocks.
   the bit in Configuration.Complete; the arc to Configuration.Idle then
   sets `scr_off`, and entry to Detect.Quiet clears it.
 
-### Stubbed arcs
+### Structure
 
-Each sits in its state's priority order with a constant-0 condition:
-`l0__l1_entry`, `l0__l2_idle` (#79). The sub-machines stay in `Tx_L0` and
-`Rx_L0` in L0, and an EIOS received in L0 is only noted
-(`a_l0s_core_only`, `a_no_stub_state`).
-
-Structure: every register is a field of `t_regs`, one
-`COMMON_DFF_RST_VAL` with `REGS_RESET`; one match decode of the received
-fields; one `always_comb` per state group proposes the arc; one builds the
-next registers. Assertions cover the legal state, one group, nothing sent
-in Detect, the transmitter only in P0, one PowerDown change at a time in
-electrical idle, detection only in Detect.Active, polarity only in
-Polling, the link down in Detect, Polling and the control states, the
-loopback modes only in Loopback and the pattern only from the master,
-one EIOS per state, scrambling on in Detect and Polling, counters in
-range and timeouts always taken.
+Every arc of the [arcs page](../../arch/mac/ARCS.md) is implemented; none
+is stubbed. Structure: every register is a field of `t_regs`, one
+`COMMON_DFF_RST_VAL` with `REGS_RESET`; the power states' registers are
+its `t_pm_regs` field. One match decode of the received fields; one
+`always_comb` per state group proposes the arc (L0 with its
+sub-machines); one builds the next registers. Assertions cover the legal
+state, one group, nothing sent in Detect, the transmitter only in P0, one
+PowerDown change at a time in electrical idle and only to or from P0,
+detection only in Detect.Active, polarity only in Polling, the link down in
+Detect, Polling and the control states, the loopback modes only in
+Loopback and the pattern only from the master, one EIOS per state outside
+L0, scrambling on in Detect and Polling, counters in range, timeouts
+always taken, P0s only in transmit L0s, L1.Idle in P1 and electrical idle,
+`Tx_L0s.Idle` in electrical idle, an EIOS only while sending, and the L0
+exit only from `Tx_L0`.
 
 | Decision | Rationale | Rejected |
 | --- | --- | --- |
 | Step for step the model's `Mac` | The DV compares every cycle (Q4). | A looser arc-sequence comparison. |
 | A started set keeps the transmitter active | The model finishes an ordered set before electrical idle. | Cutting a TS at a state change. |
-| Stubs as constant-0 conditions in place | #79 and #80 add states without moving arcs. | Leaving the arcs out. |
+| The frame reports the line word (`t_fr_tx_stat`) | The L0s idle count and the L1/L2 wait need the word just built, as the model's queue. | Rebuilding packet boundaries in the LTSSM. |
+| `TX_FTS` covers the FTS and the closing SKP | One mode, decoded with the FTS count. | A separate SKP mode. |
 | The loopback pattern and the EIOS from `u_os`, the slave's idle from the frame | One source per symbol kind; the line mux and the SKP schedule stay as they are. | A pattern generator in the LTSSM; a third line source. |
 | Receive scrambling off from the next-state flag | The model descrambles a word with the flag of the step before the one that takes it; the receive stage puts the descrambler one cycle earlier. | The registered flag (one word late: the first idle word in Configuration.Idle would be descrambled). |
 
