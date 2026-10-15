@@ -39,3 +39,73 @@ tests:
     params: {STAGES: 4}
     seeds: 4
     timeout_s: 600
+  - name: sync_ram_long_min
+    module: tests.test_ram
+    testcase: long_ops
+    top: common_sync_ram
+    params: {WIDTH: 1, ADDR_W: 1, LANES: 1}
+    seeds: 2
+    timeout_s: 600
+  - name: sync_ram_long_wide
+    module: tests.test_ram
+    testcase: long_ops
+    top: common_sync_ram
+    params: {WIDTH: 64, ADDR_W: 6, LANES: 8}
+    seeds: 2
+    timeout_s: 600
+  - name: sync_ram_held_long_min
+    module: tests.test_ram
+    testcase: long_ops
+    top: common_sync_ram_held
+    params: {WIDTH: 1, ADDR_W: 1, LANES: 1}
+    seeds: 2
+    timeout_s: 600
+  - name: sync_ram_held_long_wide
+    module: tests.test_ram
+    testcase: long_ops
+    top: common_sync_ram_held
+    params: {WIDTH: 64, ADDR_W: 6, LANES: 8}
+    seeds: 2
+    timeout_s: 600
+  - name: sync_ram_wt_long_min
+    module: tests.test_ram
+    testcase: long_ops
+    top: common_sync_ram_wt
+    params: {WIDTH: 1, ADDR_W: 1, LANES: 1}
+    seeds: 2
+    timeout_s: 600
+  - name: sync_ram_wt_long_wide
+    module: tests.test_ram
+    testcase: long_ops
+    top: common_sync_ram_wt
+    params: {WIDTH: 64, ADDR_W: 6, LANES: 8}
+    seeds: 2
+    timeout_s: 600
+  - name: sdp_ram_long_min
+    module: tests.test_ram
+    testcase: long_ops
+    top: common_sdp_ram
+    params: {WIDTH: 1, ADDR_W: 1, LANES: 1}
+    seeds: 2
+    timeout_s: 600
+  - name: sdp_ram_long_wide
+    module: tests.test_ram
+    testcase: long_ops
+    top: common_sdp_ram
+    params: {WIDTH: 64, ADDR_W: 6, LANES: 8}
+    seeds: 2
+    timeout_s: 600
+  - name: tdp_ram_long_min
+    module: tests.test_ram
+    testcase: long_ops
+    top: common_tdp_ram
+    params: {WIDTH: 1, ADDR_W: 1, LANES: 1}
+    seeds: 2
+    timeout_s: 600
+  - name: tdp_ram_long_wide
+    module: tests.test_ram
+    testcase: long_ops
+    top: common_tdp_ram
+    params: {WIDTH: 64, ADDR_W: 6, LANES: 8}
+    seeds: 2
+    timeout_s: 600
