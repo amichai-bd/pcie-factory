@@ -45,8 +45,10 @@ two vocabulary headers, `src/rtl/common/common_macros.svh` and
    `$isunknown`); the sampled-value functions (`$past`, `$stable`, `$rose`,
    `$fell`, `$changed`, `$sampled`) are allowed only inside the arguments
    of a `COMMON_ASSERT*` macro. Use the `COMMON_ASSERT*` macros, including
-   `COMMON_ASSERT_PARAM` for parameter checks ([assertions](#assertions)).
-   Rules `raw-assertion`, `raw-initial`, `system-task`, `sampled-value`.
+   `COMMON_ASSERT_PARAM` for parameter checks ([assertions](#assertions)),
+   and give each a plain identifier as its name or label: the macro pastes
+   it as a bare token. Rules `raw-assertion`, `raw-initial`, `system-task`,
+   `sampled-value`, `assert-label`.
 3. **No conditional compilation in a design file.** No `` `ifdef``,
    `` `ifndef``, `` `elsif`` or `` `else`` in a `.sv`, not even an include
    guard. Flow selection (synthesis guards, Verilator lint sinks, assertion
