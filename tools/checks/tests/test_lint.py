@@ -67,8 +67,9 @@ def test_targets_and_command(tmp_path):
     assert [(t.label, t.top) for t in sub] == [("blk_sub", "xy_blk_sub")]
     cmd = lint.command(Path("/v"), flat, list(ts[1].extra), ts[1].top)
     assert cmd[:6] == ["/v", "--lint-only", "-Wall", "-Wno-fatal", "--top-module", "xy_blk_board"]
-    assert cmd[6].startswith("+incdir+") and cmd[-1].endswith("fpga/blk/xy_blk_board.sv")
-    assert [Path(c).name for c in cmd[7:-1]] == [
+    assert cmd[6].startswith("+incdir+") and cmd[7].startswith("+incdir+")
+    assert cmd[-1].endswith("fpga/blk/xy_blk_board.sv")
+    assert [Path(c).name for c in cmd[8:-1]] == [
         "xy_blk_pkg.sv", "common_flop.sv", "xy_blk_sub.sv", "xy_blk.sv"]
 
 

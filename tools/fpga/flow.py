@@ -31,7 +31,7 @@ from pathlib import Path
 
 import yaml
 
-from build.filelist import resolve
+from build.filelist import SYNTHESIS_DEFINE, resolve, synthesis_defines
 from build.ip import REPO_ROOT, Ip
 from fpga import reports
 
@@ -170,7 +170,7 @@ def plan(ip: Ip, workdir: Path, board: str, part: str | None = None,
                             f"(expected {', '.join(sorted(SOURCE_TYPES))})")
     out_dir = ip.work_dir(workdir) / "fpga"
     p = Plan(ip, top, board, part, processors, sources, list(resolved.incdirs),
-             dict(resolved.defines), sdc.resolve(), qsf_tcl.resolve(),
+             synthesis_defines(resolved, ip.rtl_f), sdc.resolve(), qsf_tcl.resolve(),
              wrapper.resolve(), out_dir)
     p.steps = [
         ("project", [QUARTUS_SH, "-t", "project.tcl"]),
@@ -183,10 +183,13 @@ def plan(ip: Ip, workdir: Path, board: str, part: str | None = None,
 
 
 def lint_command(p: Plan, verilator: Path | str) -> list[str]:
-    """Verilator lint of the flattened sources plus the wrapper as top."""
+    """Verilator lint of the flattened sources plus the wrapper as top, in
+    the simulation view like ``./build check`` (without ``SYNTHESIS``, so
+    assertion-only signals have their reader)."""
     cmd = [str(verilator), "--lint-only", "-Wall", "--top-module", p.top]
     cmd += [f"+incdir+{d}" for d in p.incdirs]
-    cmd += [f"+define+{n}" if v is None else f"+define+{n}={v}" for n, v in p.defines.items()]
+    cmd += [f"+define+{n}" if v is None else f"+define+{n}={v}" for n, v in p.defines.items()
+            if n != SYNTHESIS_DEFINE]
     cmd += [str(s) for s in p.sources]
     return cmd
 

@@ -6,7 +6,8 @@ otherwise Verilator picks it (several candidates raise MULTITOP). Each
 ``fpga/<id>/*.sv`` board wrapper is linted again with the IP's sources plus the
 wrapper, with the wrapper (named after its file) as top. Without ``--ip``,
 each shared block's ``rtl/common/<block>.rtl.f`` is linted the same way, with
-top ``<block>``.
+top ``<block>``; a block with no sources (include directories only) is not
+linted on its own, since every closure that includes its headers lints them.
 
 Before each lint run, ``verilator -E`` with the same arguments shows what
 Verilator actually reads; that output is audited (``audit_preprocessed``)
@@ -218,6 +219,7 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
     chosen = [ip for ip in ips if ip_ids is None or ip.id in ip_ids]
     result = CheckResult("lint")
     plan: list[Target] = []
+    headers_only = 0
     lists: list[tuple[str, Path, Ip | None]] = [(ip.id, ip.rtl_f, ip) for ip in chosen]
     if ip_ids is None:
         lists += [(f"common/{block_name(f)}", f, None) for f in shared_blocks(src_root)]
@@ -241,6 +243,8 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
             continue
         if ip is not None:
             plan += targets(ip, flat, prefix)
+        elif not flat.sources:  # include-only block: linted in every closure that uses it
+            headers_only += 1
         else:  # a shared block: its top is the module named after its filelist
             top = block_name(rtl_f)
             plan.append(Target(label, flat, (), top if top in declared_modules(flat.sources)
@@ -287,7 +291,9 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                     f"{WAIVER_FILE}: stale waiver {w.file} {w.rule}"
                     f"{f' line {w.line}' if w.line else ''}{f' {w.match!r}' if w.match else ''}"
                     ": matches no warning")
-    result.checked = (f"{len(chosen)} IP(s), {len(lists) - len(chosen)} shared block(s), "
+    result.checked = (f"{len(chosen)} IP(s), {len(lists) - len(chosen) - headers_only} shared block(s), "
                       f"{len(plan)} Verilator run(s) with -E audit, "
-                      f"{len(waivers)} waiver(s), {waived} warning(s) waived")
+                      f"{len(waivers)} waiver(s), {waived} warning(s) waived"
+                      + (f", {headers_only} include-only block(s) linted through their users"
+                         if headers_only else ""))
     return result

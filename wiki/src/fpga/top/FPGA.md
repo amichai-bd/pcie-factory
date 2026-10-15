@@ -22,7 +22,10 @@ after configuration by a 4-bit power-on counter (`por_cnt_q`, which starts
 at 0 because the board file disables power-up don't-care), and while
 `KEY[0]` is held. Reset clears both LED outputs.
 
-Keys and switches pass through two-flop synchronizers to `clk_50_i`. A
+Keys and switches pass through two-flop synchronizers to `clk_50_i`
+(`COMMON_METAFLOP` instances of `common_cdc_sync2` with the reset tied low,
+since the reset itself comes from `KEY[0]`; `top.rtl.f` includes the cell's
+filelist for this wrapper). A
 press is a high-to-low step of a synchronized key, so each press gives one
 pulse (the board debounces the keys).
 

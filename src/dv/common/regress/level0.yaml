@@ -19,3 +19,8 @@ tests:
     testcase: smoke
     top: common_cdc_fifo
     timeout_s: 60
+  - name: macros_contract
+    module: tests.test_macros
+    testcase: contract
+    top: common_macros_fixture
+    timeout_s: 60

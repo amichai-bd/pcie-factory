@@ -36,7 +36,7 @@ For IP `<ip>` (its id), and `<board>` from
 
 | Input | Rule |
 | --- | --- |
-| `src/rtl/<ip>/<ip>.rtl.f` | Flattened by the [filelist resolver](../build/SPEC.md#filelists): sources, include directories, defines. |
+| `src/rtl/<ip>/<ip>.rtl.f` | Flattened by the [filelist resolver](../build/SPEC.md#filelists): sources, include directories, defines. The flow adds `SYNTHESIS`, so the [assertion macros](../../bkm/rtl.md#assertions) compile out; a filelist that defines `SYNTHESIS` itself is an input error. |
 | `src/fpga/<ip>/<board>.qsf.tcl` | Required. Quartus Tcl run inside the open project: device, pins, I/O standards. |
 | `src/fpga/<ip>/*.sdc` | Exactly one. Added as the project's `SDC_FILE`. |
 | `src/fpga/<ip>/*.sv` | Exactly one: the board wrapper. Its file stem is the top-level module, and it must declare `module <stem>`. It must not also be in `<ip>.rtl.f`. |
@@ -55,7 +55,7 @@ fails or times out stops the flow and prints the last 30 lines of its log.
 
 | Step | Command | Does |
 | --- | --- | --- |
-| `lint` | `verilator --lint-only -Wall --top-module <top> ...` | Lints the flattened sources plus the wrapper (BKM acceptance stage 2). Skipped, and recorded as `skipped`, when Verilator is not found ([build spec](../build/SPEC.md#simulation-build-sim) search order). |
+| `lint` | `verilator --lint-only -Wall --top-module <top> ...` | Lints the flattened sources plus the wrapper (BKM acceptance stage 2), in the simulation view: without `SYNTHESIS`, like `./build check`. Skipped, and recorded as `skipped`, when Verilator is not found ([build spec](../build/SPEC.md#simulation-build-sim) search order). |
 | `project` | `quartus_sh -t project.tcl` | Creates `<top>.qpf` and `<top>.qsf` (revision = top). |
 | `map` | `quartus_map <top> -c <top>` | Analysis and synthesis. |
 | `fit` | `quartus_fit <top> -c <top>` | Place and route. |
@@ -174,7 +174,8 @@ committed.
   the worst path, failed fitter status, malformed values, missing panels,
   no clocks, negative slack.
 - `test_fpga_flow.py` builds a synthetic IP tree and checks planning and
-  input errors, the generated Tcl (order, defines, include paths, `--part`),
+  input errors (a filelist defining `SYNTHESIS`), the generated Tcl (order,
+  defines with `SYNTHESIS`, include paths, `--part`),
   deterministic generation, the lint command, Quartus discovery order,
   `cfg/fpga.yaml` validation, and the run loop with fake `quartus_*` scripts
   that replay the fixtures: metrics written, a failing step stops the flow,

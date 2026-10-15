@@ -23,7 +23,7 @@ from pathlib import Path
 
 import yaml
 
-from build.filelist import resolve
+from build.filelist import resolve, synthesis_defines
 from build.ip import Context, Ip
 
 from . import metrics as asic_metrics
@@ -240,7 +240,8 @@ def make_plan(ctx: Context, ip: Ip, platform: str) -> Plan:
     return Plan(
         ip=ip, platform=platform, design=design, nick=ip.id,
         out=ip.work_dir(ctx.workdir) / "asic", design_mk=mk, sdc=sdc,
-        sources=resolved.sources, incdirs=resolved.incdirs, defines=resolved.defines,
+        sources=resolved.sources, incdirs=resolved.incdirs,
+        defines=synthesis_defines(resolved, ip.rtl_f),
         clock_period_ns=parse_clock_period(sdc.read_text()),
     )
 

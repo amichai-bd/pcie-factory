@@ -812,11 +812,15 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
     if ip_ids is None:
         lists += [(f"common/{block_name(f)}", f, block_name(f)) for f in shared_blocks(src_root)]
     plan: list[Target] = []
+    headers_only = 0
     for label, rtl_f, top in lists:
         try:
             flat = resolve(rtl_f)
         except FilelistError as exc:
             result.findings.append(f"{label}: rtl filelist does not resolve: {exc}")
+            continue
+        if not flat.sources:  # an include-only shared block holds no flops
+            headers_only += 1
             continue
         plan.append(Target(label, flat, top if top in declared_modules(flat.sources) else None))
     files = list(dict.fromkeys(s.resolve() for t in plan for s in t.flat.sources))
@@ -860,7 +864,9 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
             found, n = analyze(Netlist(tree, meta, src_root), directives, checked_cells)
             flops += n
             result.findings += [f"{t.label}: {x}" for x in found]
-    result.checked = (f"{len(tops)} top-level IP(s), {len(lists) - len(tops)} shared block(s), "
+    result.checked = (f"{len(tops)} top-level IP(s), "
+                      f"{len(lists) - len(tops) - headers_only} shared block(s), "
                       f"{len(plan)} Verilator --json-only run(s), {flops} flop(s), "
-                      f"{len(directives)} cdc-cell directive(s)")
+                      f"{len(directives)} cdc-cell directive(s)"
+                      + (f", {headers_only} include-only block(s) skipped" if headers_only else ""))
     return result

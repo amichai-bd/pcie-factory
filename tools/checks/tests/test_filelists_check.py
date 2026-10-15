@@ -24,7 +24,7 @@ def test_good_fixture_passes(good):
     r = run(good)
     assert r.passed, r.findings
     assert r.checked == ("9 filelist(s), 2 IP(s) and the shared unit with regression lists, "
-                         "5 RTL file(s) for orphans")
+                         "6 RTL file(s) for orphans")
 
 
 def test_shared_unit_files_and_block_coverage(good):

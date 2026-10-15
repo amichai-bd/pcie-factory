@@ -144,6 +144,13 @@ cycle and is flattened once.
 file anywhere below one of the include directories. Subdirectories count
 (``include "sub/x.svh"``), and so do new files.
 
+`synthesis_defines(resolved, filelist)` returns the defines a synthesis
+flow (FPGA, ASIC) passes: the filelist's plus `SYNTHESIS`
+(`SYNTHESIS_DEFINE`), which compiles out the
+[assertion macros](../../bkm/rtl.md#assertions). A filelist that defines
+`SYNTHESIS` itself is an error, since simulation would then compile the
+synthesis view.
+
 ## Simulation: `./build sim`
 
 ```
@@ -175,7 +182,9 @@ If none of these has it, the command fails with exit code 2.
 Sources, include directories and defines come from the resolved
 `dv/<id>/<id>.sim.f`. A bare define is passed as `-DNAME=`. The test entry's
 `top` is the HDL toplevel, and its `params` become top-level parameter
-overrides (`-G`).
+overrides (`-G`). Every build passes `--assert` (`BUILD_ARGS` in `sim.py`),
+so the [assertion macros](../../bkm/rtl.md#assertions) are live in every
+simulation; `SYNTHESIS` is never defined.
 
 Each build and each test runs in a child process
 (`python3 -B tools/build/sim.py build|test <job.json>`). The parent never

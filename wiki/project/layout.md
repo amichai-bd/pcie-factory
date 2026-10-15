@@ -17,7 +17,8 @@
 │   ├── README.md                # declares the design target and prefix
 │   ├── lint_waivers.yaml        # reviewed Verilator waivers (optional; checks SPEC)
 │   ├── rtl/
-│   │   ├── common/              # shared blocks: common_<name>.sv, <block>.rtl.f (never an IP)
+│   │   ├── common/              # shared blocks: common_<name>.sv, <block>.rtl.f, the
+│   │   │                        #   vocabulary headers common_*.svh (never an IP)
 │   │   ├── <ip>/                # <ip>.rtl.f + synthesizable sources
 │   │   └── <ip>_<sub>/          # a sub-IP: a flat sibling with a prefixed id
 │   ├── dv/
@@ -75,7 +76,10 @@ folder, and no IP reaches it as a sub-IP. A **shared block** is one
 filelist `rtl/common/<block>.rtl.f`, directly in the folder and named after
 the block's top module; it lists the block's sources and includes the
 blocks it uses with `-F`. An IP includes a block the same way, from its own
-`.rtl.f`.
+`.rtl.f`. The `.svh` files directly in `rtl/common/` are the shared RTL
+vocabulary headers ([RTL BKM](../bkm/rtl.md#the-rtl-vocabulary)); their
+block `common_macros.rtl.f` is **include-only** (`+incdir+.`, no sources)
+and every filelist whose sources use the vocabulary includes it with `-F`.
 
 The shared blocks are verified together as the **shared unit**, id
 `common`, laid out like an IP's DV folder:
@@ -83,7 +87,7 @@ The shared blocks are verified together as the **shared unit**, id
 | File | Rule |
 | --- | --- |
 | `dv/common/common.dv.f` | Simulation-only SystemVerilog for the blocks' tests. |
-| `dv/common/common.sim.f` | `-F ../../rtl/common/<block>.rtl.f` for every block (so every block is tested), then `-F common.dv.f`. |
+| `dv/common/common.sim.f` | `-F ../../rtl/common/<block>.rtl.f` for every block, include-only ones too (so every block is tested), then `-F common.dv.f`. |
 | `dv/common/tb/`, `tests/`, `models/`, `regress/level{0,1,2}.yaml` | As for an IP; tests name the block as `top`, and `./build ci unit` runs the `models/` tests. |
 
 `./build sim`, `regress` and `clean` take `--ip common`; output goes to

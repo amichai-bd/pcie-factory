@@ -33,26 +33,51 @@ redefines those rules. Work inside an issue worktree per
    tests named in the DV plan.
 5. Check `src/rtl/common/` before writing a generic block; add a `common_`
    block only when a second consumer exists. A clock-domain crossing uses a
-   crossing cell there ([crossings](../../../wiki/bkm/rtl.md#clock-domain-crossings)).
+   crossing macro (`COMMON_METAFLOP`, `COMMON_METAFLOP_VAL`,
+   `COMMON_PULSE_SYNC`), which instantiates the crossing cell; outside
+   `src/rtl/common/` never instantiate a wrapped cell directly
+   ([crossings](../../../wiki/bkm/rtl.md#clock-domain-crossings)).
 
 ## 2. While editing
 
-- One module per file, named after the module; types and shared constants in
-  the package ([packages](../../../wiki/bkm/rtl.md#types-and-constants-live-in-packages)).
+Write to the four [design rules](../../../wiki/bkm/rtl.md#design-rules)
+from the first line; `./build check` fails on each:
+
+- [ ] Every register, array and memory port is a `COMMON_DFF*` /
+      `COMMON_MEM*` macro with named operands; no `always_ff`, no `<=`
+      ([registers and memories](../../../wiki/bkm/rtl.md#registers-and-memories)).
+- [ ] Every assertion and parameter check is a `COMMON_ASSERT*` macro; no
+      `assert`, `$error`, `$fatal` or `initial`
+      ([assertions](../../../wiki/bkm/rtl.md#assertions)).
+- [ ] No `` `ifdef``/`` `ifndef``/`` `elsif``/`` `else`` in a `.sv`
+      ([no conditional compilation](../../../wiki/bkm/rtl.md#no-conditional-compilation)).
+- [ ] Types and shared constants in the package, named
+      `<pkg>::<item>`; no `import`
+      ([packages](../../../wiki/bkm/rtl.md#types-and-constants-live-in-packages)).
+
+Then:
+
+- `` `include "common_macros.svh"`` after `` `default_nettype none`` in every
+  file that calls a macro, and `-F ../common/common_macros.rtl.f` in its
+  filelist ([includes](../../../wiki/bkm/rtl.md#includes)).
+- One module per file, named after the module.
 - Apply the [SystemVerilog rules](../../../wiki/bkm/rtl.md#systemverilog-rules)
   and [reset and clocks](../../../wiki/bkm/rtl.md#reset-and-clocks) as you
   write; do not leave them for the checker.
-- Simulation-only checkers go in bind modules listed in `dv/<ip>/<ip>.dv.f`
+- Invariants of the module go in it as `COMMON_ASSERT*` macros; checkers that
+  need testbench state go in bind modules listed in `dv/<ip>/<ip>.dv.f`
   ([assertions](../../../wiki/bkm/rtl.md#assertions)); hand those to
   [dv-coder](../dv-coder/SKILL.md) if they need test changes.
-- No `ifdef` for behavior, no lint pragmas in RTL, no flow-specific copies
-  of a source list.
+- Deliberately unused bits go through `COMMON_UNUSED_BITS`; no lint
+  pragmas in RTL, no flow-specific copies of a source list.
 
 ## 3. Filelists
 
 Update `src/rtl/<ip>/<ip>.rtl.f` in the same edit as the source:
 
-- [ ] New file listed once, in order: packages, leaves, then the IP top.
+- [ ] New file listed once, in order: the vocabulary block
+      (`-F ../common/common_macros.rtl.f`) and any crossing cell's filelist,
+      packages, leaves, then the IP top.
 - [ ] Sub-IP and `common_` blocks included with `-F <their>.rtl.f`, never by
       listing their files.
 - [ ] Removed or renamed file removed from the list; no orphan `.sv` left in

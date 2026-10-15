@@ -36,6 +36,9 @@ from build.filelist import FilelistError, resolve  # noqa: E402
 from build.ip import REPO_ROOT, Ip  # noqa: E402
 
 BUILD_TIMEOUT_S = 1800.0  # wall-clock bound on one Verilator build
+# Verilator options of every simulation build: assertions are enabled (the
+# RTL BKM's assertion macros, immediate and concurrent).
+BUILD_ARGS = ["--assert"]
 # Verilator options of a coverage build; the regress SPEC owns the choice.
 COVERAGE_ARGS = ["--coverage-line", "--coverage-toggle"]
 COVERAGE_DAT = "coverage.dat"  # code coverage of one run, in its test directory
@@ -295,7 +298,7 @@ def _child(phase: str, job_file: str) -> int:
             hdl_toplevel=job["top"],
             build_dir=job["build_dir"],
             waves=job["waves"],
-            build_args=COVERAGE_ARGS if job["coverage"] else [],
+            build_args=BUILD_ARGS + (COVERAGE_ARGS if job["coverage"] else []),
             always=True,
         )
         return 0
