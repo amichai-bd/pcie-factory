@@ -28,7 +28,7 @@ def run_checks(ctx: Context, ip_ids: list[str] | None, only: list[str] | None,
     results: list[CheckResult] = []
     for name in names:
         if name == "layout":
-            r = layout.run(ctx.src_root, ips, ids)
+            r = layout.run(ctx.src_root, ips, ids, layout.load_groups(ctx.repo_root))
         elif name == "filelist":
             r = filelists.run(ctx.src_root, ips, ids)
         elif name == "style":

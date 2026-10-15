@@ -1,4 +1,4 @@
-"""common_cdc_sync2 tests (wiki/src/dv/common/common_cdc_sync2.md).
+"""common_cdc_sync2 tests (wiki/src/dv/common/cdc/common_cdc_sync2.md).
 
 The cell has no source clock, so the test models the source flop: it
 changes src_data_i on a source clock grid, one bit per update (a Gray

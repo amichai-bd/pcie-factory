@@ -7,7 +7,8 @@ assignments. A flop's domain is its clock, followed through plain wires and
 ports up to a clock input of the analyzed top. A flop whose data input
 depends, directly or through combinational logic, on a flop of another
 domain is a finding, unless the path crosses an approved crossing cell: a
-``common_cdc_*`` module in ``rtl/common/`` with a valid ``cdc-cell``
+``common_cdc_*`` module in ``rtl/common/`` (or one of its group folders;
+the layout check keeps crossing cells in theirs) with a valid ``cdc-cell``
 directive, which the check treats as a black box whose ``src_*`` ports
 belong to its source clock and ``dst_*`` ports to its destination clock.
 An input port of the analyzed top that carries a ``cdc-domain`` annotation
@@ -92,7 +93,8 @@ def scan_directives(files: list[Path], src_root: Path
         except OSError:
             continue
         where = rel(path, src_root)
-        in_common = path.parent == common
+        # Directly in rtl/common/ or one group folder down.
+        in_common = common in (path.parent, path.parent.parent)
         directive_lines: set[int] = set()
         for i, line in enumerate(lines):
             if not _DIRECTIVE_LINE_RE.match(line):
@@ -111,7 +113,7 @@ def scan_directives(files: list[Path], src_root: Path
             name = mod.group("name")
             if not (in_common and name.startswith(CELL_PREFIX)):
                 findings.append(f"{where}:{n}: cdc-cell directive on {name}: only "
-                                f"{CELL_PREFIX}* modules in rtl/{SHARED_DIR}/ carry one")
+                                f"{CELL_PREFIX}* modules under rtl/{SHARED_DIR}/ carry one")
                 continue
             if m.group("src") == m.group("dst"):
                 findings.append(f"{where}:{n}: malformed cdc-cell directive on {name}: "

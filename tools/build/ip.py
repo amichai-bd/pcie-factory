@@ -8,7 +8,8 @@ ancestor (it integrates it). Sub-IPs are flat siblings: an IP is a sub-IP
 of each ancestor ``<parent>`` when its id is ``<parent>_<name>``, and
 top-level when it has no such parent, even when another top-level IP
 integrates it.
-``<kind>/common/`` holds shared blocks and is never an IP; with its tests in
+``<kind>/common/`` holds shared blocks, directly or one folder down in a
+group folder (``rtl/common/<group>/``), and is never an IP; with its tests in
 ``dv/common/`` it is the **shared unit**, which ``sim``, ``regress`` and
 ``clean`` accept like an IP (:func:`units`). IP names are never hard-coded.
 """
@@ -167,15 +168,36 @@ def discover(src_root: Path) -> list[Ip]:
 
 
 def shared_blocks(src_root: Path) -> list[Path]:
-    """The shared blocks: every filelist directly in ``rtl/common/``, one per
-    block, named after the block's top module (``<block>.rtl.f``), sorted."""
+    """The shared blocks: every filelist directly in ``rtl/common/`` or in
+    one of its group folders ``rtl/common/<group>/``, one per block, named
+    after the block's top module (``<block>.rtl.f``), sorted by block name.
+    Deeper filelists are not blocks (the layout check reports them)."""
     d = Path(src_root).resolve() / "rtl" / SHARED_DIR
-    return sorted(p for p in d.glob("*.rtl.f") if p.is_file()) if d.is_dir() else []
+    if not d.is_dir():
+        return []
+    found = [p for p in d.glob("*.rtl.f") if p.is_file()]
+    found += [p for p in d.glob("*/*.rtl.f")
+              if p.is_file() and not p.parent.name.startswith(".")]
+    return sorted(found, key=lambda p: (block_name(p), p))
 
 
 def block_name(filelist: Path) -> str:
-    """``common_x`` for ``rtl/common/common_x.rtl.f``."""
+    """``common_x`` for ``rtl/common/[<group>/]common_x.rtl.f``."""
     return Path(filelist).name[: -len(".rtl.f")]
+
+
+def block_group(filelist: Path) -> str | None:
+    """``<group>`` for ``rtl/common/<group>/<block>.rtl.f``, None for a block
+    directly in ``rtl/common/``."""
+    parent = Path(filelist).resolve().parent
+    return None if parent.name == SHARED_DIR and parent.parent.name == "rtl" else parent.name
+
+
+def block_dir(filelist: Path) -> str:
+    """The block's folder below ``<kind>/common/``: ``<group>/`` or empty; the
+    wiki places its pages at ``<kind>/common/<block_dir><block>.md``."""
+    g = block_group(filelist)
+    return f"{g}/" if g else ""
 
 
 def shared_unit(src_root: Path) -> Ip | None:

@@ -1,13 +1,13 @@
 // Shared blocks: every block's filelist, then the simulation-only list.
 -F ../../rtl/common/common_macros.rtl.f
 -F ../../rtl/common/common_pkg.rtl.f
--F ../../rtl/common/common_cdc_sync2.rtl.f
--F ../../rtl/common/common_cdc_pulse.rtl.f
--F ../../rtl/common/common_cdc_fifo.rtl.f
--F ../../rtl/common/common_cdc_rst.rtl.f
--F ../../rtl/common/common_sync_ram.rtl.f
--F ../../rtl/common/common_sync_ram_held.rtl.f
--F ../../rtl/common/common_sync_ram_wt.rtl.f
--F ../../rtl/common/common_sdp_ram.rtl.f
--F ../../rtl/common/common_tdp_ram.rtl.f
+-F ../../rtl/common/cdc/common_cdc_sync2.rtl.f
+-F ../../rtl/common/cdc/common_cdc_pulse.rtl.f
+-F ../../rtl/common/cdc/common_cdc_fifo.rtl.f
+-F ../../rtl/common/cdc/common_cdc_rst.rtl.f
+-F ../../rtl/common/ram/common_sync_ram.rtl.f
+-F ../../rtl/common/ram/common_sync_ram_held.rtl.f
+-F ../../rtl/common/ram/common_sync_ram_wt.rtl.f
+-F ../../rtl/common/ram/common_sdp_ram.rtl.f
+-F ../../rtl/common/ram/common_tdp_ram.rtl.f
 -F common.dv.f

@@ -151,7 +151,7 @@
   end
 
 // Clock-domain crossings: each form instantiates an approved crossing cell
-// (rtl/common/common_cdc_*), so the crossing stays a cell instance the CDC
+// (rtl/common/cdc/common_cdc_*), so the crossing stays a cell instance the CDC
 // check recognizes. INST names the instance. The caller's filelist includes
 // the cell's filelist with -F. Outside rtl/common/ the cells are
 // instantiated only through these forms.

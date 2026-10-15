@@ -31,10 +31,10 @@ owner's permission.
   `$low(MEM)` to `$high(MEM)` with a macro-owned `int common_i`; the lane
   form loops over `$bits(LANE_ENABLE)` with `common_l`.
 - **Crossings:** `COMMON_METAFLOP` and `COMMON_METAFLOP_VAL` instantiate
-  [`common_cdc_sync2`](common_cdc_sync2.md) with `WIDTH` `$bits(Q)` (and
+  [`common_cdc_sync2`](cdc/common_cdc_sync2.md) with `WIDTH` `$bits(Q)` (and
   `RESET_VALUE`); `COMMON_PULSE_SYNC` instantiates
-  [`common_cdc_pulse`](common_cdc_pulse.md); `COMMON_RESET_SYNC`
-  instantiates [`common_cdc_rst`](common_cdc_rst.md) with its default two
+  [`common_cdc_pulse`](cdc/common_cdc_pulse.md); `COMMON_RESET_SYNC`
+  instantiates [`common_cdc_rst`](cdc/common_cdc_rst.md) with its default two
   stages. The instance is named by `INST`, so the CDC check, waves and
   constraints see an ordinary cell instance.
 - **Assertions:** concurrent forms use `assert property` with

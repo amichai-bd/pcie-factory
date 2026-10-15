@@ -186,7 +186,7 @@ VOCABULARY_HEADERS = ("common_macros.svh", "common_assertions.svh")
 class Vocabulary:
     """The shared vocabulary headers: ``VOCABULARY_HEADERS`` found in
     ``rtl/common/`` (paths relative to the source root), their file names, the macros they define, the
-    shared cells (``rtl/common/<cell>.sv``) their macros instantiate, and
+    shared cells (``rtl/common/[<group>/]<cell>.sv``) their macros instantiate, and
     the function-like macros among ``macros`` (defined with a parameter
     list; the rest are object-like, such as the include guards)."""
 
@@ -204,11 +204,13 @@ def vocabulary(src_root: Path) -> Vocabulary:
     macros: set[str] = set()
     functions: set[str] = set()
     cells: set[str] = set()
+    # Shared cell sources, directly in rtl/common/ or in a group folder.
+    shared_sv = {p.stem for p in (*d.glob("*.sv"), *d.glob("*/*.sv")) if p.is_file()}
     for f in files:
         text = strip_comments_and_strings(f.read_text(errors="replace"))
         macros |= defined_macros(text)
         functions |= set(_FUNCTION_DEFINE_RE.findall(text))
-        cells |= {name for name in _IDENT.findall(text) if (d / f"{name}.sv").is_file()}
+        cells |= {name for name in _IDENT.findall(text) if name in shared_sv}
     return Vocabulary(frozenset(f"rtl/{SHARED_DIR}/{f.name}" for f in files),
                       frozenset(f.name for f in files), frozenset(macros), frozenset(cells),
                       frozenset(functions))

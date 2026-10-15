@@ -128,6 +128,20 @@ def test_good_fixture_lints_clean(good):
 
 
 @needs_verilator
+def test_group_folder_block_is_linted(good):
+    grp = good / "rtl/common/grp"
+    grp.mkdir()
+    (grp / "common_grouped.sv").write_text(
+        "`default_nettype none\nmodule common_grouped (\n  input logic a_i,\n"
+        "  output logic b_o\n);\n  assign b_o = 1'b0;\nendmodule\n`default_nettype wire\n")
+    (grp / "common_grouped.rtl.f").write_text("common_grouped.sv\n")
+    r = run(good)
+    assert r.checked.startswith("2 IP(s), 2 shared block(s)")
+    assert any(f.startswith("common/common_grouped: rtl/common/grp/common_grouped.sv:")
+               and "UNUSEDSIGNAL" in f for f in r.findings), r.findings
+
+
+@needs_verilator
 def test_bad_fixture_fails():
     r = run(FIXTURES / "bad/src")
     assert r.findings[0].startswith("broken: rtl filelist does not resolve")

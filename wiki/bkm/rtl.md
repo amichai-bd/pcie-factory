@@ -127,7 +127,9 @@ then reset, then reset value. `RESET` is active high and wins over
   combinational index) per port. Reads and writes live in separate
   processes, so a same-edge same-address read returns the old data. Never
   build a memory from the register-array forms or a whole-array next state:
-  that defeats RAM inference.
+  that defeats RAM inference. A standard RAM shape uses the shared RAM
+  family in `src/rtl/common/ram/` (its
+  [MAS](../src/rtl/common/ram/common_sync_ram.md)) instead of a new array.
 - **Named macro operands.** Pass signal names, typed constants or literals
   to the non-assertion macros, never expressions: declare the term with its
   own `assign` first (`assign waddr = wbin_q[ADDR_W-1:0];`). Names state
@@ -327,7 +329,7 @@ page refers to it as `<prefix>`.
 
 A crossing is any path from a flop on one clock to a flop on another clock
 that is asynchronous or unrelated to it. Crossings may only use the shared
-crossing cells in `src/rtl/common/`; each MAS owns its cell's rules
+crossing cells in `src/rtl/common/cdc/`; each MAS owns its cell's rules
 (spacing, Gray coding, reset). Outside `src/rtl/common/` a cell that a
 vocabulary macro wraps is instantiated only through that macro (rule
 `cdc-cell-macro`), so RTL uses one vocabulary while every crossing stays a
@@ -335,11 +337,11 @@ cell instance the CDC check recognizes:
 
 | Crossing | Macro | Cell |
 | --- | --- | --- |
-| A level, or a Gray-coded vector, from a source flop; reset to `'0` | `` `COMMON_METAFLOP(INST, Q, D, DST_CLK, DST_RST)`` | [`common_cdc_sync2`](../src/rtl/common/common_cdc_sync2.md) |
+| A level, or a Gray-coded vector, from a source flop; reset to `'0` | `` `COMMON_METAFLOP(INST, Q, D, DST_CLK, DST_RST)`` | [`common_cdc_sync2`](../src/rtl/common/cdc/common_cdc_sync2.md) |
 | The same, reset to `VALUE` | `` `COMMON_METAFLOP_VAL(INST, Q, D, DST_CLK, DST_RST, VALUE)`` | `common_cdc_sync2` (`RESET_VALUE`) |
-| An event: one source cycle becomes one destination cycle | `` `COMMON_PULSE_SYNC(INST, Q, D, SRC_CLK, SRC_RST, DST_CLK, DST_RST)`` | [`common_cdc_pulse`](../src/rtl/common/common_cdc_pulse.md) |
-| A reset: asynchronous assertion, synchronous release after two `DST_CLK` edges | `` `COMMON_RESET_SYNC(INST, Q, D, DST_CLK)`` | [`common_cdc_rst`](../src/rtl/common/common_cdc_rst.md) |
-| Data, or a burst of events, with flow control | none yet: instantiate inside `src/rtl/common/` only | [`common_cdc_fifo`](../src/rtl/common/common_cdc_fifo.md) |
+| An event: one source cycle becomes one destination cycle | `` `COMMON_PULSE_SYNC(INST, Q, D, SRC_CLK, SRC_RST, DST_CLK, DST_RST)`` | [`common_cdc_pulse`](../src/rtl/common/cdc/common_cdc_pulse.md) |
+| A reset: asynchronous assertion, synchronous release after two `DST_CLK` edges | `` `COMMON_RESET_SYNC(INST, Q, D, DST_CLK)`` | [`common_cdc_rst`](../src/rtl/common/cdc/common_cdc_rst.md) |
+| Data, or a burst of events, with flow control | none yet: instantiate inside `src/rtl/common/` only | [`common_cdc_fifo`](../src/rtl/common/cdc/common_cdc_fifo.md) |
 
 `INST` names the instance, the width follows `Q`, and the caller's filelist
 includes the cell's filelist with `-F`.
@@ -366,8 +368,10 @@ includes the cell's filelist with `-F`.
   no source clock (its source inputs must come straight from a flop in the
   source domain). `dst` names its destination clock input. Port names give
   every other port's domain: `src_*` ports belong to the source domain and
-  `dst_*` ports to the destination domain. Only `common_cdc_*` modules in
-  `src/rtl/common/` carry the directive. A cell has no combinational path
+  `dst_*` ports to the destination domain. Only `common_cdc_*` modules
+  under `src/rtl/common/` carry the directive, and the `layout` check keeps
+  every `common_cdc_*` block in `src/rtl/common/cdc/`
+  ([layout](../project/layout.md#shared-blocks)). A cell has no combinational path
   from an input on one side to an output on the other, and each output is
   driven only from its own side's domain. The one exception is a
   dual-clock memory read: the other-domain sources are memories of two or

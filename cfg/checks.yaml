@@ -13,6 +13,16 @@ neutrality:
   # owner/repo exempt inside GitHub URLs; unset means "from the origin remote".
   # repo_slug: owner/repo
 
+layout:
+  # Shared-block group folders: rtl/common/<group>/ holds exactly the shared
+  # blocks whose name matches one of its fnmatch patterns, and a block that
+  # matches a group's pattern must live in that group's folder. Blocks that
+  # match no group stay directly in rtl/common/ (the vocabulary, the shared
+  # package). Owning page: wiki/project/layout.md#shared-blocks.
+  shared_groups:
+    cdc: [common_cdc_*]
+    ram: [common_*_ram, common_*_ram_*]
+
 citation:
   # A Markdown block quote or a quoted run with more words than this is a
   # finding; the citation form is fixed by the wiki BKM.

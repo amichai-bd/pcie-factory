@@ -1,4 +1,4 @@
-"""Shared RAM family tests (wiki/src/dv/common/common_*ram*.md).
+"""Shared RAM family tests (wiki/src/dv/common/ram/common_*ram*.md).
 
 One module serves every RAM top: the toplevel name selects the kind and
 its ports, and WIDTH, ADDR_W and LANES come from the parameters. Inputs

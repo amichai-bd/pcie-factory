@@ -35,6 +35,12 @@ issue worktree per [agent-flow](../agent-flow/SKILL.md).
   module prefix or the design target in `tools/`, `cfg/` or `.github/`
   ([design neutrality](../../../CLAUDE.md#design-neutrality)). Read the prefix
   from [`src/README.md`](../../../src/README.md) when a tool needs it.
+- Discover shared blocks with `build.ip.shared_blocks` (filelists directly
+  in `src/rtl/common/` or one group folder down, `rtl/common/<group>/`) and
+  place their pages with `build.ip.block_dir`; never glob `rtl/common/`
+  directly. Which blocks belong in which group folder is configuration
+  (`layout.shared_groups` in `cfg/checks.yaml`), not code
+  ([layout](../../../wiki/project/layout.md#shared-blocks)).
 - Python standard library, PyYAML and pytest only, unless the issue approves
   more. Python dependencies are pinned in `tools/requirements.txt` (from
   #9); a new one needs issue approval and a pin there.
