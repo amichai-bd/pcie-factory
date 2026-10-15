@@ -38,13 +38,15 @@ sys.path.append(str(Path(__file__).resolve().parents[3] / "arch" / "mac"))
 import pcie_mac_arch as arch  # noqa: E402
 
 # The states the mac implements today (Detect, Polling, Configuration, L0,
-# Recovery, and the Off/L0 states of the sub-machines) and the arcs of the
-# HAS arc list among them.
+# Recovery, and the Off/L0 states of the sub-machines; the power states, L0s
+# sub-states, L1 and L2) and the arcs of the HAS arc list among them.
 CORE_STATES = {arch.DQ, arch.DA, arch.PA, arch.PC, arch.PCFG, arch.LWS, arch.LWA,
                arch.LNW, arch.LNA, arch.CC, arch.CI, arch.L0, arch.RL, arch.RC,
                arch.RI, arch.TOFF, arch.TL0, arch.ROFF, arch.RL0}
+POWER_STATES = {arch.L1E, arch.L1I, arch.L2I, arch.TE, arch.TI, arch.TF,
+                arch.RE, arch.RXI, arch.RF}
 CORE_ARCS = {name: arc for name, arc in arch.ARCS.items()
-             if arc[0] in CORE_STATES and arc[1] in CORE_STATES}
+             if arc[0] in CORE_STATES | POWER_STATES and arc[1] in CORE_STATES | POWER_STATES}
 
 COV_ARCS = Covergroup("mac_ltssm_arcs")
 COV_ARCS.coverpoint("arc", bins=dict(CORE_ARCS))
@@ -52,10 +54,10 @@ COV_ARCS.coverpoint("port_role", bins={r: r for r in arch.ROLES})
 COV_ARCS.cross("arc_x_port_role", "arc", "port_role")
 
 COV_OS_TX = Covergroup("mac_os_tx")
-COV_OS_TX.coverpoint("kind", bins=["TS1", "TS2", "SKP", "compliance"])
+COV_OS_TX.coverpoint("kind", bins=["TS1", "TS2", "SKP", "compliance", "EIOS", "FTS"])
 COV_OS_TX.coverpoint("link", bins={"pad": "pad", "zero": 0, "mid": range(1, 255), "max": 255})
 COV_OS_TX.coverpoint("lane", bins={"pad": "pad", "zero": 0})
-COV_OS_TX.coverpoint("skp_burst", bins=["single", "back_to_back"])
+COV_OS_TX.coverpoint("skp_burst", bins=["single", "back_to_back", "after_fts"])
 
 COV_OS_RX = Covergroup("mac_os_rx")
 COV_OS_RX.coverpoint("event", bins=["TS1", "TS2", "TS1_inv", "TS2_inv", "SKP", "EIOS", "FTS"])
@@ -238,6 +240,7 @@ class TxMonitor:
         self._p = 0
         self._ts: list = []
         self._last_skp_end = None
+        self._last_kind = None
         self.n = 0
         self.syms: deque = deque(maxlen=4096)
 
@@ -258,12 +261,17 @@ class TxMonitor:
                 self._p = 0
                 if k and b == 0x1C:
                     burst = "back_to_back" if self._last_skp_end == self.n - 2 else "single"
+                    if self._last_kind == "FTS":
+                        burst = "after_fts"
                     COV_OS_TX.sample(kind="SKP", skp_burst=burst)
-                    self._p = 3
+                    self._p, self._last_kind = 3, "SKP"
+                elif k and b in (0x7C, 0x3C):
+                    self._last_kind = "EIOS" if b == 0x7C else "FTS"
+                    COV_OS_TX.sample(kind=self._last_kind)
                 elif not k and b == arch.D21_5:
                     COV_OS_TX.sample(kind="compliance")
                 elif not k or b == PAD:
-                    self._p, self._ts = 2, [(k, b)]
+                    self._p, self._ts, self._last_kind = 2, [(k, b)], "TS"
                 continue
             if self._p == 3:
                 if k and b == 0x1C:

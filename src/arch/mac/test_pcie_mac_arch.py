@@ -241,6 +241,53 @@ def test_l0s_both_directions_and_codes():
     assert a.code == 0x20 | 2 << 2
 
 
+def test_l0s_exit_sees_a_packet_at_the_next_step():
+    # Model fix (#79): pkt_tx_valid_i is sampled at the edge of the step that
+    # reacts to it, so a packet offered for one step's word starts the L0s
+    # exit at the next step, as the RTL does.
+    p = trained()
+    a, b = p.macs
+    a.pm_state_req = b.pm_state_req = 1
+    p.run_until(lambda q: a.tx_sub == m.TI, 5000)
+    p.run(10)
+    a.tx_packets.append(m.Packet(False, bytes(8)))
+    p.step()
+    assert a.tx_sub == m.TI and a.tx_waiting
+    p.step()
+    assert a.tx_sub == m.TF and a.arcs[-1][1:] == (m.TI, m.TF)
+
+
+@pytest.mark.parametrize("adjust", (1, -1))
+def test_skp_adjust_keeps_the_skp_schedule_and_power_entry(adjust):
+    # Model fix (#79): after a skp_adjust leaves one symbol in the transmit
+    # queue, SKP ordered sets keep their schedule, and the transmitter still
+    # enters and leaves L0s and electrical idle cleanly.
+    p = trained()
+    a, b = p.macs
+    a.inject.skp_adjust = adjust
+    a.skp_credit = a.skp_interval
+    p.run(40)
+    assert len(a.txq) % 2 == 1
+    skp = []
+    orig = b._on_skp
+    b._on_skp = lambda: (skp.append(p.now), orig())[1]
+    p.run(3 * a.skp_interval // 2)
+    assert len(skp) >= 2 and skp[-1] - skp[-2] <= a.skp_interval // 2 + 8
+    a.tx_packets.append(m.Packet(False, bytes(range(20))))
+    p.run(100)
+    assert b.rx_packets[-1] == m.Packet(False, bytes(range(20))) and b.framing_errors == 0
+    a.pm_state_req = b.pm_state_req = 1
+    p.run_until(lambda q: a.tx_sub == m.TI and b.rx_sub == m.RXI, 5000)
+    a.tx_packets.append(m.Packet(False, bytes(range(12))))
+    p.run_until(lambda q: a.tx_sub == m.TL0 and b.rx_sub == m.RL0, 5000)
+    p.run(40)
+    assert b.rx_packets[-1] == m.Packet(False, bytes(range(12)))
+    a.pm_state_req = b.pm_state_req = 2
+    p.run_until(lambda q: a.state == m.L1I and b.state == m.L1I, 5000)
+    a.pm_state_req = b.pm_state_req = 0
+    p.run_until(m.both_l0, 20_000)
+
+
 def test_l1_needs_the_request_and_a_received_eios_in_both_roles():
     p = trained()
     a, b = p.macs                            # a downstream, b upstream

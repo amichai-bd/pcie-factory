@@ -91,6 +91,15 @@ package pcie_mac_pkg;
     logic rx_l0;    // main state L0 and Rx_L0: receive packets
   } t_fr_ctl;
 
+  // Transmit status for the LTSSM's power states: the line word of this
+  // cycle and the upper layer's offer (the L0s idle count, the L1 and L2
+  // entry wait, the L0s exit).
+  typedef struct packed {
+    logic pkt;    // the line word carries a packet symbol
+    logic open;   // packet symbols remain after this word
+    logic offer;  // pkt_tx_valid_i: the upper layer offers a beat
+  } t_fr_tx_stat;
+
   // Link-control requests of the upper layer.
   typedef struct packed {
     logic       retrain;    // pulse: L0 to Recovery
@@ -358,14 +367,15 @@ package pcie_mac_pkg;
   // -------------------------------------------------------------- LTSSM
 
   // What the transmit datapath sends while pipe_tx_elec_idle_o is 0
-  // (MAS, LTSSM). Codes 5 to 7 are reserved for the power and control
-  // states.
+  // (MAS, LTSSM). Code 7 is reserved for the control states.
   typedef enum logic [2:0] {
     TX_NONE       = 3'd0,  // electrical idle: nothing is sent
     TX_TS         = 3'd1,  // TS1 or TS2 with the tx_ts_* fields
     TX_IDLE       = 3'd2,  // idle data symbols
     TX_COMPLIANCE = 3'd3,  // the compliance pattern
-    TX_L0         = 3'd4   // L0: packets, idle between them
+    TX_L0         = 3'd4,  // L0: packets, idle between them
+    TX_EIOS       = 3'd5,  // one EIOS, before electrical idle
+    TX_FTS        = 3'd6   // Tx_L0s.FTS: the partner's N_FTS FTS, then one SKP
   } t_tx_mode;
 
   // Timeouts in clk_i cycles (8 ns), wiki/src/arch/mac/ARCS.md.
@@ -386,6 +396,11 @@ package pcie_mac_pkg;
   localparam int unsigned AFTER_W           = 5;     // saturates at 16
   localparam int unsigned AFTER_COUNT       = 16;    // "16 sent after receiving one"
   localparam int unsigned IDLE_TO_RLOCK_MAX = 255;
+
+  // Power states (wiki/src/arch/mac/ARCS.md#l0s-sub-machines).
+  localparam int unsigned TX_IDLE_MIN = 3;    // cycles of electrical idle (20 ns)
+  localparam int unsigned L0S_CNT_W   = 10;   // L0S_IDLE_CYCLES up to 875
+  localparam int unsigned RX_CNT_W    = 10;   // Rx_L0s.FTS timeout up to 542
 
   typedef logic [TIMER_W-1:0]   t_timer;
   typedef logic [TS_SENT_W-1:0] t_ts_sent;
@@ -421,6 +436,26 @@ package pcie_mac_pkg;
     s = {1'b0, a} + {{(AFTER_W-1){1'b0}}, add};
     return (s > (AFTER_W+1)'(AFTER_COUNT)) ? t_after'(AFTER_COUNT) : s[AFTER_W-1:0];
   endfunction
+
+  // Power-state registers of the LTSSM (Q25): the L0 exit and L1/L2 entry
+  // handshake, the transmitter's EIOS and FTS sequence, and the L0s
+  // sub-machines' counts and receive flags. All restart on a state entry.
+  typedef struct packed {
+    logic                 l0_exit;       // a Recovery exit from L0 waits for the sub-machines
+    logic                 pm_wait;       // upstream: EIOS sent in L0, waiting for the partner's
+    logic                 ev_eios_pm;    // an EIOS received in Rx_L0 while L1 or L2 is requested
+    logic                 eios_q;        // an EIOS is queued, not yet started
+    logic [7:0]           fts_sent;      // Tx_L0s.FTS: FTS started
+    logic                 fts_skp;       // Tx_L0s.FTS: the closing SKP started
+    logic [1:0]           ei_cnt;        // cycles in electrical idle, saturating at 3
+    logic [L0S_CNT_W-1:0] idle_cnt;      // Tx_L0: cycles without traffic, saturating
+    logic [RX_CNT_W-1:0]  rx_cnt;        // cycles since the receive sub-machine moved
+    logic                 rx_fts_to;     // the Rx_L0s.FTS timeout expired
+    logic                 sub_ei_seen;   // electrical idle since Rx_L0s.Entry
+    logic                 sub_ei_exit;   // ... and left since (EI exit)
+    logic                 main_ei_seen;  // electrical idle since state entry
+    logic                 main_ei_exit;  // ... and left since (EI exit)
+  } t_pm_regs;
 
   // ----------------------------------------------------------------------
   // Every register of the LTSSM, reset together (MAS, Microarchitecture).
@@ -472,6 +507,7 @@ package pcie_mac_pkg;
     logic         left_ei;         // pipe_rx_elec_idle_i was 0 since entry
     logic         eios_rx;         // EIOS received (since entry or Rx_L0 entry)
     logic         retrain;         // retrain_req_i latched in L0
+    t_pm_regs     pm;              // power states
   } t_regs;
 
   localparam t_regs REGS_RESET = '{

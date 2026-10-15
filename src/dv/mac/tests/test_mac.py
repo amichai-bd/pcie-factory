@@ -305,10 +305,77 @@ async def ep_idle_to_rlock(h, role):
     await settle(h)
 
 
+async def ep_power(h, role):
+    """The power states against the partner (wiki/src/arch/mac/ARCS.md#l0,
+    #l0s-sub-machines, #l1-and-l2): transmit and receive L0s, left by a
+    packet each way; a retrain while the receiver is in Rx_L0s.Idle; the
+    Rx_L0s.FTS timeout (the partner sends 200 FTS too many); L1 and L2,
+    entered by both requests and left by request 0; and the upstream wait
+    for L1 withdrawn (back through Recovery)."""
+    if not h.both_l0():
+        await train(h, role)
+    p = h.partner
+    t = h.now
+    h.request(pm_state=1)
+    p.pm_state_req = 1
+    await h.run_until(lambda q: q.a.tx_sub == arch.TI and q.a.rx_sub == arch.RXI, LIMIT,
+                      "transmit and receive L0s")
+    p.tx_packets.append(arch.Packet(False, bytes(range(20))))
+    await h.run_until(took(h, arch.RF, arch.RL0, t), LIMIT, "receive L0s left by FTS")
+    h.send(arch.Packet(False, bytes(range(30, 54))))
+    await h.run_until(took(h, arch.TF, arch.TL0, t), LIMIT, "transmit L0s left by FTS")
+    await h.drain()
+    h.check_partner()
+    await settle(h)
+    # A directed exit while the receiver is in L0s.
+    t = h.now
+    p.pm_state_req = 1
+    await h.run_until(lambda q: q.a.rx_sub == arch.RXI, LIMIT, "receive L0s")
+    h.request(retrain=1)
+    await h.run_until(took(h, arch.RXI, arch.ROFF, t), LIMIT, "Rx_L0s.Idle to Rx_Off")
+    await settle(h)
+    # The Rx_L0s.FTS timeout.
+    t = h.now
+    p.pm_state_req = 1
+    p.inject.fts_extra = 200
+    await h.run_until(lambda q: q.a.rx_sub == arch.RXI, LIMIT, "receive L0s")
+    p.tx_packets.append(arch.Packet(False, bytes(8)))
+    await h.run_until(took(h, arch.RF, arch.ROFF, t), LIMIT, "Rx_L0s.FTS timeout")
+    await settle(h)
+    # L1 and L2, entered and left by both ports' requests.
+    for req, idle, out in ((2, arch.L1I, arch.RL), (3, arch.L2I, arch.DQ)):
+        t = h.now
+        h.request(pm_state=req)
+        p.pm_state_req = req
+        await h.run_until(lambda q: q.a.state == idle and q.partner.state == idle, LIMIT,
+                          f"both in {idle}")
+        await h.run(100)
+        h.request(pm_state=0)
+        p.pm_state_req = 0
+        await h.run_until(took(h, idle, out, t), LIMIT, f"{idle} to {out}")
+        await h.run_until(h.both_l0, LIMIT)
+    # The upstream port's wait for L1, withdrawn.
+    t = h.now
+    if role == "upstream":
+        h.request(pm_state=2)
+        await h.run(64)
+        o = h._read()
+        assert o["pipe_tx_elec_idle_o"] == 1 and o["ltssm_state_o"] == 0x20, (
+            f"{role}: the upstream wait for L1 expected L0 in electrical idle")
+        h.request(pm_state=0)
+    else:
+        p.pm_state_req = 2
+        await h.run_until(lambda q: q.partner.pm_wait, LIMIT, "the partner's upstream wait")
+        await h.run(8)
+        p.pm_state_req = 0
+    await h.run_until(took(h, arch.L0, arch.RL, t), LIMIT, "Recovery after the wait")
+    await settle(h)
+
+
 # Level 1 (the compliance recipe's one timeout is at its floor), then the
 # error-path timeouts.
 QUICK = (ep_normal, ep_upstream_link, ep_no_receiver, ep_cfg_walks, ep_rcvrcfg_mism,
-         ep_ridle_lanepad, ep_compliance)
+         ep_ridle_lanepad, ep_compliance, ep_power)
 TIMEOUTS = (ep_polling_timeouts, ep_cfg_timeouts, ep_rcvrlock_timeouts,
             ep_rcvrcfg_timeout, ep_ridle_timeout)
 
@@ -760,14 +827,14 @@ async def ts_fields(dut):
 @cocotb.test()
 async def random_soak(dut):
     """L1, seeded: random partner resets, mutes, freezes, retrains, wrong TS
-    fields, inverted wires and symbol errors, with packets both ways, in both
-    roles, every cycle checked against the shadow; the link must recover to
-    L0 at the end."""
+    fields, inverted wires, symbol errors and power-state requests on either
+    side, with packets both ways, in both roles, every cycle checked against
+    the shadow; the link must recover to L0 at the end."""
     rng = rng_for(dut)
     h = Harness(dut)
     await h.start()
     actions = ("retrain_dut", "retrain_partner", "mute", "freeze", "ts_fields",
-               "partner_reset", "corrupt", "traffic", "wait")
+               "partner_reset", "corrupt", "traffic", "power", "wait")
     for role in arch.ROLES:
         await h.fresh(role, skew=rng.randrange(0, 2000), delay=rng.randrange(1, 40),
                       partner_link=0 if role == "downstream" else rng.randrange(256))
@@ -800,6 +867,17 @@ async def random_soak(dut):
             elif act == "corrupt":
                 h.link.pcs[0].corrupt = rng.randrange(1, 40)
                 h.request(retrain=int(rng.random() < 0.5))
+            elif act == "power":
+                # Random power requests on either side (L0s, L1, L2), held for
+                # a while with traffic, then withdrawn.
+                h.request(pm_state=rng.randrange(4))
+                p.pm_state_req = rng.randrange(4)
+                for _ in range(rng.randrange(0, 4)):
+                    h.send(rand_packet(rng, 64), gap=rng.randrange(0, 600))
+                    p.tx_packets.append(rand_packet(rng, 64))
+                await h.run(rng.randrange(1, 6000))
+                h.request(pm_state=0)
+                p.pm_state_req = 0
             elif act == "traffic":
                 for _ in range(rng.randrange(1, 12)):
                     h.send(rand_packet(rng, 128), gap=rng.randrange(0, 4))

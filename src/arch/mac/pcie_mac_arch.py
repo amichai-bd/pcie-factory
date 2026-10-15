@@ -404,6 +404,7 @@ class Mac:
         self.skp_credit = 0
         self.compl_words = 0                 # compliance-pattern words still queued
         self.tx_idle_cycles = 0
+        self.tx_waiting = False              # a packet was offered and not taken last step
         self.lb_count = 0
         # receive
         self.rx_scr = Scrambler()
@@ -988,10 +989,14 @@ class Mac:
                     and self.pd == P0S and not self.pd_pending):
                 self._set_tx(TI)
         elif tx == TI:
-            if pending or self.tx_packets or self.pm_state_req != 1:
+            # pkt_tx_valid_i as sampled at this step's edge: a packet offered
+            # for the previous step's word (HAS, Interfaces: ports are
+            # synchronous to clk_i).
+            if pending or self.tx_waiting or self.pm_state_req != 1:
                 self._set_tx(TF)
         elif tx == TF:
-            if self.fts_left == 0 and self.fts_skp_done and not self.txq:
+            # No full word left (one symbol may remain after a skp_adjust).
+            if self.fts_left == 0 and self.fts_skp_done and len(self.txq) < 2:
                 self._set_tx(TL0)
         if target is None or self.tx_sub != TL0:
             return
@@ -1030,6 +1035,11 @@ class Mac:
         return P0
 
     def _tx_word(self) -> PipeTx:
+        tx = self._tx_word_inner()
+        self.tx_waiting = bool(self.tx_packets)
+        return tx
+
+    def _tx_word_inner(self) -> PipeTx:
         mode = self._tx_mode()
         want = self._want_pd(mode)
         detect = False
@@ -1066,7 +1076,12 @@ class Mac:
         self.ei_cycles = 0
         detect = mode == "loop"
         while len(self.txq) < 2:
-            self._refill(mode)
+            if mode == "ei":
+                # One symbol left after a skp_adjust: pad the last word before
+                # electrical idle with an idle data symbol.
+                self.txq.append((0, 0, True, False))
+            else:
+                self._refill(mode)
         a, b = self.txq.popleft(), self.txq.popleft()
         scr = self.tx_scr
         s0 = (a[0], scr.feed(a[0], a[1], a[2]))
@@ -1130,7 +1145,9 @@ class Mac:
             self.txq.extend(((1, 0xBC, False, False), (0, D21_5, False, False)))
             self.txq.extend(((1, 0xBC, False, False), (0, D10_2, False, False)))
             return
-        if len(self.txq) == 0 and self.skp_credit >= self.skp_interval:
+        # Refilled at a unit boundary: the queue is empty, or holds one symbol
+        # after a skp_adjust moved later symbols by one byte lane.
+        if self.skp_credit >= self.skp_interval:
             if s != L0 or self.tx_sub == TL0:
                 self._queue_skp()
                 return
