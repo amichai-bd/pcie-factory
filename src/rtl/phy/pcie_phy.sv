@@ -7,7 +7,7 @@
 `default_nettype none
 
 module pcie_phy #(
-  parameter int unsigned TIMEOUT_DIV = 1  // divides every LTSSM timeout; 1 for silicon
+  parameter int unsigned TIMEOUT_DIV = 1  // 1..1024: divides Detect.Quiet and Hot Reset waits; 1 for silicon
 ) (
   // Clocks, reset and strap
   input  logic        clk_i,             // core clock and PCLK, 125 MHz
@@ -29,12 +29,14 @@ module pcie_phy #(
   output logic        pkt_rx_sop_o,
   output logic        pkt_rx_eop_o,
   output logic        pkt_rx_dllp_o,
-  output logic        pkt_rx_err_o,      // on the eop beat: discard the packet
+  output logic        pkt_rx_err_o,      // on the eop beat: bad or cut-short packet
+  output logic        pkt_rx_nullify_o,  // on the eop beat: ended by EDB, no error
 
   // Link control and status
   output logic        link_up_o,
   output logic [5:0]  ltssm_state_o,
   output logic        rcv_err_o,         // one-cycle pulse per receiver error
+  input  logic        retrain_req_i,     // pulse: L0 to Recovery
   input  logic        hot_reset_req_i,
   input  logic        disable_req_i,
   input  logic        loopback_req_i,
@@ -55,7 +57,7 @@ module pcie_phy #(
   logic unused_inputs;
   assign unused_inputs = ^{rst_i, port_role_i, pkt_tx_valid_i, pkt_tx_data_i,
                            pkt_tx_sop_i, pkt_tx_eop_i, pkt_tx_dllp_i,
-                           pkt_tx_nullify_i, hot_reset_req_i, disable_req_i,
+                           pkt_tx_nullify_i, retrain_req_i, hot_reset_req_i, disable_req_i,
                            loopback_req_i, pm_state_req_i, ser_tx_rxdet_i,
                            ser_rx_clk_i, ser_rx_data_i, ser_rx_elec_idle_i,
                            clk_i, TIMEOUT_DIV[0]};
@@ -69,6 +71,7 @@ module pcie_phy #(
   assign pkt_rx_eop_o       = 1'b0;
   assign pkt_rx_dllp_o      = 1'b0;
   assign pkt_rx_err_o       = 1'b0;
+  assign pkt_rx_nullify_o   = 1'b0;
   assign link_up_o          = 1'b0;
   assign ltssm_state_o      = 6'd0;
   assign rcv_err_o          = 1'b0;

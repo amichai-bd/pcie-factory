@@ -56,3 +56,13 @@ M1 is done when all of the following hold on `main`:
   M1. Both are copied verbatim from the epic body above. Q19 then gained
   its last clarification (a `<other-ip>_<name>` id must be reached by
   `<other-ip>`'s filelist), mirrored in the epic.
+- **2026-10-15:** Two readings confirmed by the firstmate, the captain's
+  delegate for HAS sign-off, on the `phy` HAS
+  ([#71](https://github.com/amichai-bd/pcie-factory/issues/71),
+  [PR #114](https://github.com/amichai-bd/pcie-factory/pull/114)).
+  **Q11:** the valid/ready of the upper stream applies to transmit; receive
+  is valid-only, because the physical layer cannot stall the link partner
+  and flow control lives in the data-link layer. **Q12:** the separate TX
+  clock is the core clock `clk_i`, which is also PIPE PCLK; only the RX
+  recovered clock is a separate clock
+  ([`phy` HAS, Decisions](../arch/phy/HAS.md#decisions)).

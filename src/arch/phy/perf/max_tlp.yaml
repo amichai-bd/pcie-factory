@@ -13,6 +13,6 @@ workload:
 targets:
   throughput_bytes_per_cycle: {min: 1.97}
   rx_latency_cycles_max: {max: 16}
-  eb_fill_symbols_max: {max: 16}
+  eb_fill_symbols_max: {max: 12}
   eb_overflows: {max: 0}
   packets_lost: {max: 0}

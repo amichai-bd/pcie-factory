@@ -21,6 +21,7 @@ RESET_VALUES = {
     "pkt_rx_sop_o": 0,
     "pkt_rx_eop_o": 0,
     "pkt_rx_err_o": 0,
+    "pkt_rx_nullify_o": 0,
     "link_up_o": 0,
     "ltssm_state_o": 0,   # Detect.Quiet
     "rcv_err_o": 0,
@@ -31,7 +32,7 @@ RESET_VALUES = {
 INPUTS = {
     "pkt_tx_valid_i": 1, "pkt_tx_data_i": 16, "pkt_tx_sop_i": 1,
     "pkt_tx_eop_i": 1, "pkt_tx_dllp_i": 1, "pkt_tx_nullify_i": 1,
-    "hot_reset_req_i": 1, "disable_req_i": 1, "loopback_req_i": 1,
+    "retrain_req_i": 1, "hot_reset_req_i": 1, "disable_req_i": 1, "loopback_req_i": 1,
     "pm_state_req_i": 2, "ser_tx_rxdet_i": 1, "ser_rx_data_i": 20,
     "ser_rx_elec_idle_i": 1,
 }

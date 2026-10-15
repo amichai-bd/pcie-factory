@@ -26,27 +26,30 @@ import random
 
 # ---------------------------------------------------------------- constants
 
+# Spec facts are cited where they are stated; the rest are this design's
+# choices from the HAS.
 CORE_MHZ = 125.0            # clk_i and PCLK (HAS, Clocks and resets)
 SYMBOLS_PER_CYCLE = 2       # 16-bit PIPE word, 2x10-bit lower interface
-SYMBOL_NS = 4.0             # 2.5 GT/s, 10 bits per symbol
+SYMBOL_NS = 4.0             # 2.5 GT/s, 10 bits per symbol [cite: PCIe Base Spec, rev 3.0, §4.2.1.1]
 BYTES_PER_CYCLE_MAX = 2.0   # one 16-bit beat per clk_i cycle
-TS_SYMBOLS = 16             # TS1 and TS2 ordered-set length
-SKP_OS_SYMBOLS = 4          # COM plus three SKP
-SKP_INTERVAL_MIN = 1180     # symbol times between scheduled SKP ordered sets
+TS_SYMBOLS = 16             # TS1 and TS2 length [cite: PCIe Base Spec, rev 3.0, §4.2.4.1]
+SKP_OS_SYMBOLS = 4          # COM plus three SKP [cite: PCIe Base Spec, rev 3.0, §4.2.7]
+SKP_INTERVAL_MIN = 1180     # symbol times between SKP ordered sets [cite: PCIe Base Spec, rev 3.0, §4.2.7]
 SKP_INTERVAL_MAX = 1538
-PPM_MAX = 600               # two ends at +-300 ppm each
-DETECT_QUIET_CYCLES = 1_500_000   # 12 ms at 125 MHz
-POLLING_ACTIVE_MIN_TS1 = 1024
-DLLP_BYTES = 6
+PPM_MAX = 600               # two ends at +-300 ppm each [cite: PCIe Base Spec, rev 3.0, §4.2.7]
+DETECT_QUIET_CYCLES = 1_500_000   # 12 ms at 125 MHz [cite: PCIe Base Spec, rev 3.0, §4.2.6.1]
+POLLING_ACTIVE_MIN_TS1 = 1024     # [cite: PCIe Base Spec, rev 3.0, §4.2.6.2]
+DLLP_BYTES = 6              # [cite: PCIe Base Spec, rev 3.0, §4.2.1.2]
+TIMEOUT_DIV_MAX = 1024      # HAS Parameters: divides Detect.Quiet (and Hot Reset, not modelled)
 
-# Special symbols as (is_k, byte). Names are the HAS names.
+# Special symbols as (is_k, byte) [cite: PCIe Base Spec, rev 3.0, §4.2.1.1].
 COM = (1, 0xBC)
 STP = (1, 0xFB)
 SDP = (1, 0x5C)
 END = (1, 0xFD)
 EDB = (1, 0xFE)
 SKP = (1, 0x1C)
-IDLE = (0, 0x00)            # logical idle: data 00h, scrambled on the line
+IDLE = (0, 0x00)            # logical idle, scrambled on the line [cite: PCIe Base Spec, rev 3.0, §4.2.1.2]
 
 
 def cycles_to_us(cycles: float) -> float:
@@ -90,6 +93,8 @@ class Stack:
                  timeout_div: int = 1) -> None:
         self.mac = mac if mac is not None else MacBudget()
         self.pcs = pcs if pcs is not None else PcsBudget()
+        if not 1 <= timeout_div <= TIMEOUT_DIV_MAX:
+            raise ValueError(f"timeout_div: expected 1 to {TIMEOUT_DIV_MAX}")
         self.timeout_div = timeout_div
 
     def tx_latency_cycles(self) -> int:
@@ -318,7 +323,10 @@ def traffic(stack: Stack, packets: list[Packet], ppm: float) -> dict[str, float]
 # and has sent tx_after_first_rx slots since the first match. A slot is one
 # ordered set (16 symbols); in Configuration.Idle it is 16 idle symbols.
 # From Configuration on, a match also needs the partner in the same state
-# or a later one. The mac HAS owns the full state set and arcs.
+# or a later one. Polling counts follow
+# [cite: PCIe Base Spec, rev 3.0, §4.2.6.2] and Configuration counts
+# [cite: PCIe Base Spec, rev 3.0, §4.2.6.3]; TIMEOUT_DIV never scales them.
+# The mac HAS owns the full state set and arcs.
 TRAINING = (
     ("Polling.Active", "TS1", ("TS1", "TS2"), 8, 0, POLLING_ACTIVE_MIN_TS1),
     ("Polling.Configuration", "TS2", ("TS2",), 8, 16, 0),
@@ -393,7 +401,8 @@ def link_up(a: Stack, b: Stack, skew_cycles: int = 0,
         return (src.stack.tx_latency_cycles() + channel_cycles
                 + dst.stack.rx_latency_cycles(2 * fill, False))
 
-    # Detect.Quiet ends on its timeout, or when the partner's first TS1
+    # Detect.Quiet (the only modelled wait that TIMEOUT_DIV scales) ends on
+    # its timeout, or when the partner's first TS1
     # breaks electrical idle; then Detect.Active runs receiver detection.
     # A partner's termination is present once its pcs is out of reset; a
     # detection before that finds no receiver and returns to Detect.Quiet.
@@ -498,7 +507,7 @@ def perf(workload: dict, seed: int) -> dict[str, float]:
                         SKP_INTERVAL_MIN, SKP_INTERVAL_MAX)
         stack = Stack(mac=MacBudget(skp_interval_symbols=interval))
         return traffic(stack, make_packets(rng, count, mix, tlp_bytes, nullify), ppm)
-    div = _int(workload, "timeout_div", 1, 1, 1 << 16)
+    div = _int(workload, "timeout_div", 1, 1, TIMEOUT_DIV_MAX)
     skew = rng.randint(0, _int(workload, "skew_cycles", 0, 0, 10_000_000))
     channel = _int(workload, "channel_cycles", 0, 0, 1000)
     return link_up(Stack(timeout_div=div), Stack(timeout_div=div), skew, channel)

@@ -69,10 +69,10 @@ def test_elastic_buffer_tracks_ppm_without_loss(ppm):
 
 def test_throughput_is_the_framing_and_skp_limit():
     r = m.perf({"kind": "traffic", "packets": 2000, "tlp_bytes": 274}, 1)
-    limit = 2.0 * 274 / 276 * 1180 / 1184
+    limit = 2.0 * 274 / 276 * 1176 / 1180   # HAS Targets, Throughput
     assert abs(r["throughput_bytes_per_cycle"] - limit) < 0.002
     d = m.perf({"kind": "traffic", "packets": 4000, "mix": "dllp"}, 1)
-    assert abs(d["throughput_bytes_per_cycle"] - 2.0 * 6 / 8 * 1180 / 1184) < 0.002
+    assert abs(d["throughput_bytes_per_cycle"] - 2.0 * 6 / 8 * 1176 / 1180) < 0.002
 
 
 def test_latency_is_the_sum_of_the_budgets():
@@ -124,6 +124,7 @@ def test_perf_is_deterministic_per_seed():
     ({"kind": "traffic", "packets": 4, "ppm": 700}, "ppm"),
     ({"kind": "traffic", "packets": 4, "skp_interval": 100}, "skp_interval"),
     ({"kind": "link_up", "timeout_div": 0}, "timeout_div"),
+    ({"kind": "link_up", "timeout_div": 2048}, "timeout_div"),
     ({"kind": "link_up", "packets": 4}, "unknown workload"),
 ])
 def test_bad_workload_is_rejected(workload, msg):
