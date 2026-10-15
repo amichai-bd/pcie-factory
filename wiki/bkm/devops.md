@@ -100,7 +100,8 @@ warns, naming the CPU number, when a level exceeds its budget. It warns
 rather than fails: CPU time still varies a little between hosts and
 Python versions, and a red gate on a timing number would block correct
 changes; the warning is in the job summary, and the fix is to move or
-speed up tests, never to raise the budget silently.
+speed up tests, never to raise the budget silently. Measured for #166 with all IPs: L0
+25.0 s and L1 381.6 s of CPU, against 120 s and 600 s.
 
 ## Local evidence
 
