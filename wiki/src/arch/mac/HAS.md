@@ -205,8 +205,13 @@ Framing, idle, SKP and scrambling are on the
 
 ### Receive
 
-Deframing rules are on the [symbols page](SYMBOLS.md#receive). Each packet
-reaches the upper stream as beats:
+Deframing rules are on the [symbols page](SYMBOLS.md#receive).
+
+**When packets are received.** Packets are received only in L0 with the receive sub-machine in `Rx_L0`. In every other state nothing new is delivered: no `sop` is given while not in L0 or `Rx_L0`. A packet still open when the LTSSM leaves ends at once with `err` (below). The states this covers:
+- Loopback, as master or slave, which matters most for the master, whose partner echoes its own symbols back to it;
+- Recovery, Hot Reset, Disabled and the power states.
+
+Each packet reaches the upper stream as beats:
 
 - The first data byte is in `[7:0]` of the `sop` beat, even when the packet
   started in `[15:8]` of a PIPE word (the PCS may add or remove one SKP

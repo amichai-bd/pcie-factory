@@ -4,9 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from build.ip import REPO_ROOT, discover, units
+import regress.run as regress
+from build.ip import REPO_ROOT, Context, discover, units
 from ci.config import load_rules
-from regress.affected import GitError, changed_files, select_affected
+from regress.affected import GitError, changed_files, select_affected, select_affected_levels
 
 # The real rules, so these tests pin the behavior cfg/ci.yaml configures.
 RULES = load_rules(REPO_ROOT / "cfg")
@@ -87,6 +88,46 @@ def test_global_change_selects_all(repo, path):
     got = affected(repo)
     assert set(got) == {"counter", "counter_inc"}
     assert all(v == f"global change: {path}" for v in got.values())
+
+
+def affected_levels(repo: Path) -> dict:
+    root, changed = changed_files("main", repo / "src")
+    return select_affected_levels(discover(repo / "src"), root, changed, repo / "src", RULES)
+
+
+def test_global_change_alone_caps_every_ip_at_the_global_levels(repo):
+    # A tools-only change: every IP, but only the smoke level (cfg/ci.yaml).
+    (repo / "tools/x.py").write_text("changed")
+    got = affected_levels(repo)
+    assert got == {ip: ("global change: tools/x.py", (0,))
+                   for ip in ("counter", "counter_inc")}
+
+
+def test_design_change_keeps_every_level_beside_a_global_change(repo):
+    # The IP a design change selects (and every IP that reaches it) runs
+    # every requested level; the rest get the global smoke only.
+    (repo / "tools/x.py").write_text("changed")
+    (repo / "src/dv/counter/tests/test_counter.py").write_text("# x\n")
+    got = affected_levels(repo)
+    assert got["counter"] == ("changed: src/dv/counter/tests/test_counter.py", None)
+    assert got["counter_inc"] == ("global change: tools/x.py", (0,))
+    (repo / "src/rtl/counter_inc/inc.sv").write_text("// x\n")
+    got = affected_levels(repo)
+    assert got["counter_inc"] == ("changed: src/rtl/counter_inc/inc.sv", None)
+    assert got["counter"][1] is None
+
+
+def test_shared_dv_change_runs_every_level(repo):
+    d = repo / "src/dv/common"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "helper.py").write_text("")
+    got = affected_levels(repo)
+    assert got and all(levels is None for _, levels in got.values())
+
+
+def test_docs_only_selects_nothing(repo):
+    (repo / "README.md").write_text("x")
+    assert affected_levels(repo) == {}
 
 
 def test_broken_filelist_selects_ip(repo):
@@ -250,3 +291,72 @@ def test_integrated_ip_model_change_selects_integrator(integration):
     (integration / rel).write_text("")
     assert affected(integration) == {
         "b": f"changed: {rel}", "sys": f"integrated IP model: {rel}"}
+
+
+def test_regress_select_runs_only_the_global_levels_for_a_tools_change(repo, tmp_path):
+    # The end-to-end selection CI uses: L0+L1 requested, a tools-only change
+    # runs L0 of every IP and nothing of L1; a design change adds that IP's L1.
+    ctx = Context(REPO_ROOT, repo / "src", tmp_path / "work")
+    full = {(e.level, e.ip) for e, _ in regress.select(ctx, [0, 1, 2]).runs}
+    assert any(lv > 0 for lv, _ in full)  # the fixture has tests beyond level 0
+    (repo / "tools/x.py").write_text("changed")
+    sel = regress.select(ctx, [0, 1, 2], affected_base="main")
+    assert sel.runs and {e.level for e, _ in sel.runs} == {0}
+    assert {ip.id for ip in sel.ips} == {ip.id for ip in units(repo / "src")}
+    (repo / "src/dv/counter/tests/test_counter.py").write_text("# x\n")
+    sel = regress.select(ctx, [0, 1, 2], affected_base="main")
+    got = {(e.level, e.ip) for e, _ in sel.runs}
+    assert {k for k in full if k[1] == "counter"} <= got
+    assert all(lv == 0 for lv, ip in got if ip != "counter")
+
+
+def test_tools_module_dv_imports_runs_every_level_for_its_importers(repo):
+    # A DV test imports an import-root helper (as cocotb tests import the
+    # functional-coverage helper): a change to it is global, but the IP that
+    # imports it runs every level; the old selection capped it at level 0.
+    (repo / "tools/pkg").mkdir()
+    (repo / "tools/pkg/__init__.py").write_text("")
+    (repo / "tools/pkg/helper.py").write_text("from pkg import inner\n")
+    (repo / "tools/pkg/inner.py").write_text("X = 1\n")
+    (repo / "tools/pkg/tests").mkdir()
+    (repo / "tools/pkg/tests/test_inner.py").write_text("from pkg import inner\n")
+    (repo / "src/dv/counter/tests/test_counter.py").write_text("from pkg import helper\n")
+    commit_all(repo)
+    (repo / "tools/pkg/inner.py").write_text("X = 2\n")  # reached through helper
+    got = affected_levels(repo)
+    assert got["counter"] == ("imports: tools/pkg/inner.py", None)
+    assert got["counter_inc"] == ("global change: tools/pkg/inner.py", (0,))
+    git(repo, "checkout", "-q", "--", ".")
+    (repo / "tools/pkg/tests/test_inner.py").write_text("# x\n")  # tools tests: no importer
+    assert all(lv == (0,) for _, lv in affected_levels(repo).values())
+
+
+def test_deleted_tools_module_still_selects_its_importer(repo):
+    (repo / "tools/pkg").mkdir()
+    (repo / "tools/pkg/__init__.py").write_text("")
+    (repo / "tools/pkg/helper.py").write_text("")
+    (repo / "src/dv/counter/tests/test_counter.py").write_text("import pkg.helper\n")
+    commit_all(repo)
+    (repo / "tools/pkg/helper.py").unlink()
+    assert affected_levels(repo)["counter"] == ("imports: tools/pkg/helper.py", None)
+
+
+def test_other_ips_arch_model_import_selects_the_importer(repo):
+    # One IP's DV imports another IP's architecture model by module name (on
+    # sys.path by path): no filelist shows it, so the old selection picked
+    # only the model's owner.
+    (repo / "src/arch/counter").mkdir(parents=True)
+    (repo / "src/arch/counter/counter_arch.py").write_text("import counter_util\n")
+    (repo / "src/arch/counter/counter_util.py").write_text("Y = 1\n")
+    (repo / "src/dv/counter_inc/tests/test_inc.py").write_text("import counter_arch\n")
+    commit_all(repo)
+    (repo / "src/arch/counter/counter_util.py").write_text("Y = 2\n")
+    got = affected(repo)
+    assert got["counter"] == "changed: src/arch/counter/counter_util.py"
+    assert got["counter_inc"] == "imports: src/arch/counter/counter_util.py"
+
+
+def test_ci_unit_reasons_never_name_levels(repo):
+    (repo / "tools/x.py").write_text("changed")
+    assert set(affected(repo).values()) == {"global change: tools/x.py"}
+

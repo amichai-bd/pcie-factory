@@ -237,7 +237,7 @@ def fake_run(fixture_src, tmp_path, monkeypatch, fake_tool, levels, floors_text=
     if floors_text:
         set_floors(fixture_src, levels[-1], floors_text)
     monkeypatch.setattr(sim, "find_verilator", lambda: (tool_dir or fake_tool.parent) / "verilator")
-    monkeypatch.setattr(sim, "_run_child", lambda phase, job, log, timeout_s: (0, 0.1))
+    monkeypatch.setattr(sim, "_run_child", lambda phase, job, log, timeout_s: (0, 0.1, 0.05))
     specs = []
 
     def run_test(spec, workdir, verilator, test, module, testcase, seed, timeout_s):
@@ -331,7 +331,7 @@ def test_shared_unit_gets_coverage_like_an_ip(fixture_src, tmp_path, monkeypatch
 
 def test_coverage_off_leaves_summary_unchanged(fixture_src, tmp_path, monkeypatch):
     monkeypatch.setattr(sim, "find_verilator", lambda: Path("/fake/verilator"))
-    monkeypatch.setattr(sim, "_run_child", lambda phase, job, log, timeout_s: (0, 0.1))
+    monkeypatch.setattr(sim, "_run_child", lambda phase, job, log, timeout_s: (0, 0.1, 0.05))
     monkeypatch.setattr(sim, "run_test", lambda spec, *a: sim.Result("pass", 0.2, Path("x.log")))
     set_floors(fixture_src, 0, "coverage_floors: {line: 100}\n")  # not checked without --coverage
     ctx = Context(REPO_ROOT, fixture_src, tmp_path / "work")

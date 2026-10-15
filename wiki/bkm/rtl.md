@@ -371,11 +371,13 @@ includes the cell's filelist with `-F`.
   from an input on one side to an output on the other, and each output is
   driven only from its own side's domain. The one exception is a
   dual-clock memory read: the other-domain sources are memories of two or
-  more entries, and every own-side source reaching the output depends,
+  more entries, every own-side source reaching the output depends,
   through own-side flops, on a crossing cell inside the cell (a
-  synchronized pointer); a crossing cell inside a cell never has a
-  constant source-side input. A pointer that is synchronized but does not
-  really guard the read is left to the cell's MAS and review.
+  synchronized pointer), and each such memory is read at an index that
+  depends on a synchronized pointer; a crossing cell nested inside a cell
+  never has a source-side input that is constant, unconnected or driven
+  only by constants. A pointer that is synchronized but does not really
+  guard the read is left to the cell's MAS and review.
 - **Port domains.** An input port declares the clock it is synchronous to
   with a comment ending its declaration line, naming another input port of
   the same module:

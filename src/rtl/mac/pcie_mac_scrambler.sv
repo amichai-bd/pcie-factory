@@ -84,6 +84,17 @@ module pcie_mac_scrambler (
                  valid_i && sym_com[SYMS-1] |=> state_q == LFSR_SEED)
   // A word of SKP symbols only leaves the LFSR unchanged.
   `COMMON_ASSERT(a_skp_holds, clk_i, rst_i, valid_i && (&sym_skp) |=> $stable(state_q))
+  // Per symbol, in either lane: a COM loads the seed, a SKP holds, any
+  // other symbol advances by eight shifts (the lane chain).
+  for (genvar i = 0; i < SYMS; i++) begin : g_lane_check
+    `COMMON_ASSERT_NEVER(a_com_reseeds_lane, clk_i, rst_i,
+                         valid_i && sym_com[i] && lane_state[i+1] != LFSR_SEED)
+    `COMMON_ASSERT_NEVER(a_skp_holds_lane, clk_i, rst_i,
+                         valid_i && sym_skp[i] && lane_state[i+1] != lane_state[i])
+    `COMMON_ASSERT_NEVER(a_other_advances_lane, clk_i, rst_i,
+                         valid_i && !sym_com[i] && !sym_skp[i]
+                         && lane_state[i+1] != pcie_mac_pkg::lfsr_advance(lane_state[i]))
+  end
   // Only data symbols with scr_i set may change.
   `COMMON_ASSERT_NEVER(a_unscrambled_pass, clk_i, rst_i,
                        (sym_scr[0] == 1'b0 && data_d[7:0] != in_data[7:0])

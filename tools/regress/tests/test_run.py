@@ -99,8 +99,8 @@ def test_summary_and_budget_warning(fixture_src, tmp_path):
     sel = regress.select(ctx, [0, 2])
     work = ctx.workdir
     results = [
-        sim.Result("pass", 1.5, work / "counter/counts/1/sim.log"),
-        sim.Result("pass", 0.5, work / "counter_inc/exhaustive/1/sim.log"),
+        sim.Result("pass", 1.5, work / "counter/counts/1/sim.log", cpu_s=1.25),
+        sim.Result("pass", 0.5, work / "counter_inc/exhaustive/1/sim.log", cpu_s=0.25),
         sim.Result("fail", 2.0, work / "x.log", "failed: random_enable"),
         sim.Result("timeout", 9.0, work / "y.log", "timed out"),
     ]
@@ -110,21 +110,38 @@ def test_summary_and_budget_warning(fixture_src, tmp_path):
     assert summary["passed"] is False
     assert summary["tests"][0] == {
         "ip": "counter", "level": 0, "name": "counts", "seed": sel.runs[0][1],
-        "status": "pass", "runtime_s": 1.5, "log": "counter/counts/1/sim.log",
+        "status": "pass", "runtime_s": 1.5, "cpu_s": 1.25, "log": "counter/counts/1/sim.log",
         "detail": "",
     }
     assert summary["totals"]["level0"] == {
-        "tests": 2, "passed": 2, "failed": 0, "runtime_s": 2.0,
+        "tests": 2, "passed": 2, "failed": 0, "runtime_s": 2.0, "cpu_s": 1.5,
         "budget_s": 1.0, "over_budget": True}
     assert summary["totals"]["level2"]["failed"] == 2
     assert "level1" not in summary["totals"]
     out, err = io.StringIO(), io.StringIO()
     assert regress.report(summary, out, err) == 1
-    assert "warning: level0 runtime 2.0s exceeds its budget of 1s" in err.getvalue()
+    assert ("warning: level0 CPU time 1.5s (the sum of its tests' CPU time) "
+            "exceeds its budget of 1s") in err.getvalue()
+    assert "level0: 2/2 passed, CPU 1.5s (budget 1s), test wall time 2.0s" in out.getvalue()
     assert "FAILED" in out.getvalue()
     path = regress.write_summary(work, summary)
     assert path == work / "regress/summary.json"
     assert json.loads(path.read_text())["tests"][2]["status"] == "fail"
+
+
+def test_budget_compares_cpu_time_not_wall_time(fixture_src, tmp_path):
+    # A loaded host stretches wall time; the budget is CPU time (DevOps BKM).
+    ctx = ctx_for(fixture_src, tmp_path)
+    sel = regress.select(ctx, [0])
+    work = ctx.workdir
+    results = [sim.Result("pass", 50.0, work / f"{i}.log", cpu_s=0.4) for i in range(len(sel.runs))]
+    budgets = {0: LevelBudget(0, "d", 1.0)}
+    summary = regress.make_summary(ctx, sel, [0], budgets, [], results, 60.0)
+    t = summary["totals"]["level0"]
+    assert t["runtime_s"] > t["budget_s"] >= t["cpu_s"] and t["over_budget"] is False
+    err = io.StringIO()
+    regress.report(summary, io.StringIO(), err)
+    assert "warning" not in err.getvalue()
 
 
 def test_explicit_seed_list(fixture_src, tmp_path):
@@ -141,7 +158,7 @@ def test_filelist_error_is_a_per_ip_build_error(fixture_src, tmp_path, monkeypat
     run and the summary is written with exit code 1."""
     (fixture_src / "dv/counter/counter.dv.f").write_text("missing_tb.sv\n")
     monkeypatch.setattr(sim, "find_verilator", lambda: Path("/fake/verilator"))
-    monkeypatch.setattr(sim, "_run_child", lambda phase, job, log, timeout_s: (0, 0.1))
+    monkeypatch.setattr(sim, "_run_child", lambda phase, job, log, timeout_s: (0, 0.1, 0.05))
     monkeypatch.setattr(sim, "run_test", lambda spec, *a: sim.Result("pass", 0.2, Path("x.log")))
     ctx = ctx_for(fixture_src, tmp_path)
     out = io.StringIO()
