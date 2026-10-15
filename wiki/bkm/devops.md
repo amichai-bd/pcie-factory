@@ -214,12 +214,13 @@ The nightly workflow runs daily on the same runners (the
 permissions and data PR mechanics):
 
 1. `./build check`, `./build ci unit` (every unit suite, including the
-   Verilator-built vocabulary header tests), then `./build regress --level 0
+   Verilator-built vocabulary header tests and the `perf:<ip>` suites, which
+   run `./build arch` for every IP with `src/arch/<ip>/perf/`; the nightly
+   runs the perf scenarios only there), then `./build regress --level 0
    --level 1 --level 2 --coverage` across all IPs (merged line, toggle and functional coverage
    per IP, with any floors checked; [regress SPEC](../tools/regress/SPEC.md#coverage)).
-2. `./build arch` for every IP with `src/arch/<ip>/`, and `./build fpga` and
-   `./build asic` for every IP with `src/fpga/<ip>/` or `src/asic/<ip>/`
-   inputs.
+2. `./build fpga` and `./build asic` for every IP with `src/fpga/<ip>/` or
+   `src/asic/<ip>/` inputs.
 3. Metrics: the per-commit series `wiki/tracker/data/commits.jsonl` and the
    nightly record `wiki/tracker/data/<date>.json` (versioned schemas).
 4. A data PR from branch `nightly/<date>`, labelled `type:data`, under the
