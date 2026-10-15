@@ -51,8 +51,9 @@ head, which branch protection requires on `main` (admins included).
 
 **Reviewers only review.** A reviewer reads the change, the specs, the
 author's recorded evidence and the CI result. It never builds, simulates or
-runs checks, regressions or mutants. Missing proof is a finding for the
-author to run and record ([pr-reviewer](.claude/skills/pr-reviewer/SKILL.md)).
+runs checks, regressions or mutants, and never writes to GitHub: it returns
+its verdict and the firstmate posts it verbatim. Missing proof is a finding
+for the author to run and record ([pr-reviewer](.claude/skills/pr-reviewer/SKILL.md)).
 
 **Exception:** the nightly data PR may touch only `wiki/tracker/data/**`; a
 guard enforces it and it auto-merges after `ci-gate`, with no issue or
@@ -75,7 +76,7 @@ Read the matching `.claude/skills/<name>/SKILL.md` before working in its area.
 | `agent-flow` | Issues, claims, worktrees, PRs, review, merge, cleanup. |
 | `issue-creation` | Drafting, labeling and creating issues and sub-issues. |
 | `pr-creation` | Opening a draft PR with validation evidence. |
-| `pr-reviewer` | Independent read-only review and the verdict comment. |
+| `pr-reviewer` | Independent read-only review; the verdict that the firstmate posts. |
 | `pr-babysit` | Driving a PR to green: CI, findings, conflicts. |
 | `rtl-coder` | RTL and `.rtl.f` filelists. |
 | `dv-coder` | cocotb tests, models, DV filelists, regression lists, DV plans. |

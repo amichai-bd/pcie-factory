@@ -76,8 +76,8 @@ findings, conflicts) is work.
 
 Every handoff names the expected final report. An implementer reports the PR
 URL, head SHA, what was delivered, validation commands and results, and any
-deviations or open questions. A reviewer reports the verdict comment URL and
-the reviewed SHA. Questions for the captain go through the firstmate, which
+deviations or open questions. A reviewer reports the full verdict text and the
+reviewed SHA, and the firstmate posts the verdict verbatim on the PR. Questions for the captain go through the firstmate, which
 decides whether to ask.
 
 ## Shared briefs
