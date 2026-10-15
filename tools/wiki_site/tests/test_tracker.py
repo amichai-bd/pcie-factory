@@ -142,6 +142,23 @@ def test_per_ip_pages_and_sidebar(tmp_path):
     assert {"wiki/tracker/ip/alpha/index.md", "wiki/tracker/ip/beta/core/index.md"} <= set(nav)
 
 
+def test_ip_page_asic_per_clock_trends(tmp_path):
+    rec = json.loads((FIXTURES / "2026-10-06.json").read_text())
+    rec["meta"]["date"] = "2026-10-09"
+    rec["asic"]["ips"]["beta"]["timing"]["clocks"] = {
+        "rx_side": {"setup_ws_ns": 1.5, "wns_ns": 0.0, "tns_ns": 0.0},
+        "core": {"setup_ws_ns": -0.25, "wns_ns": -0.25, "tns_ns": -3.0}}
+    problems, out = build(tree(tmp_path, {"2026-10-09.json": json.dumps(rec)}, fixtures=True))
+    assert problems == []
+    charts = chart_data((out / "tracker/ip/beta/index.html").read_text())["charts"]
+    wns, tns = charts["ip-asic-clock-wns"]["series"], charts["ip-asic-clock-tns"]["series"]
+    assert [s["label"] for s in wns] == ["core", "rx_side"]
+    assert wns[0]["points"][-1][1] == -0.25 and wns[1]["points"][-1][1] == 0.0
+    assert tns[0]["points"][-1][1] == -3.0 and len(wns[0]["points"]) == 1
+    alpha = chart_data((out / "tracker/ip/alpha/index.html").read_text())["charts"]
+    assert "ip-asic-wns" in alpha and "ip-asic-clock-wns" not in alpha
+
+
 def menu(html: str) -> str:
     return html.split('<ul class="menu">')[1].split("</aside>")[0]
 

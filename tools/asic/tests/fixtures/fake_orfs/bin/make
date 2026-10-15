@@ -2,7 +2,9 @@
 # Fake ORFS make for tools/asic unit tests. Understands the arguments
 # ./build asic passes (-C DIR, NAME=VALUE, one target) and copies the fixture
 # reports under tests/fixtures/orfs/ into WORK_HOME like the real flow.
-# FAKE_MAKE: ok (default) | fail (exit 3) | sleep (hang) | noextra (no asic_extra.json).
+# FAKE_MAKE: ok (default) | fail (exit 3) | sleep (hang) | noextra (no asic_extra.json)
+# | noclocks (asic_clocks.json with an empty clocks entry) | clocksfail (the clocks
+# step exits 3, no asic_clocks.json) | clockssleep (the clocks step hangs).
 set -euo pipefail
 echo "fake make $*"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/orfs"
@@ -11,6 +13,7 @@ for arg in "$@"; do
   case "$arg" in
     DESIGN_CONFIG=*) cfg="${arg#*=}" ;;
     WORK_HOME=*) work="${arg#*=}" ;;
+    RUN_SCRIPT=*) script="${arg#*=}" ;;
     FLOW_VARIANT=*) variant="${arg#*=}" ;;
     *=*|-C) ;;
     /*) ;;
@@ -31,8 +34,21 @@ case "$target" in
     cp "$here"/reports/6_finish.rpt "$here"/reports/synth_stat.txt "$reports/"
     ;;
   run)
-    [ "$mode" = noextra ] && exit 0
-    cp "$here"/reports/asic_extra.json "$reports/"
+    case "${script:-}" in
+      */clock_slacks.tcl)
+        [ "$mode" = clocksfail ] && exit 3
+        [ "$mode" = clockssleep ] && exec sleep 600
+        if [ "$mode" = noclocks ]; then
+          printf '{"clocks": {}}\n' > "$reports/asic_clocks.json"
+        else
+          cp "$here"/reports/asic_clocks.json "$reports/"
+        fi
+        ;;
+      *)
+        [ "$mode" = noextra ] && exit 0
+        cp "$here"/reports/asic_extra.json "$reports/"
+        ;;
+    esac
     ;;
   *) echo "fake make: unknown target $target" >&2; exit 2 ;;
 esac

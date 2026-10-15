@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import time
 from pathlib import Path
 
 import pytest
@@ -215,16 +216,19 @@ def test_docker_wrap_mounts_and_image(ctx, tmp_path):
     assert argv[-3:-1] == ["bash", "-c"]
 
 
-def test_steps_run_finish_then_extra(ctx, tmp_path):
+def test_steps_run_finish_then_extra_then_clocks(ctx, tmp_path):
     plan = plan_for(ctx)
     orfs = flow.load_orfs(write_cfg(tmp_path, DOCKER_CFG), {})
     steps = dict(flow.step_scripts(orfs, plan))
-    assert list(steps) == ["versions", "flow", "extra"]
+    assert list(steps) == ["versions", "flow", "extra", "clocks"]
     assert f"make -C {flow.IMAGE_ROOT}/flow" in steps["flow"] and steps["flow"].endswith(" finish")
     assert f"DESIGN_CONFIG={plan.config_mk}" in steps["flow"]
     assert f"NUM_CORES={flow.DEFAULT_CORES}" in steps["flow"]
     assert f"RUN_SCRIPT={flow.EXTRA_TCL}" in steps["extra"]
     assert steps["extra"].endswith(" run")
+    assert f"RUN_SCRIPT={flow.CLOCKS_TCL}" in steps["clocks"] and steps["clocks"].endswith(" run")
+    assert "RUN_LOG_NAME_STEM=asic_clocks" in steps["clocks"]
+    assert set(flow.OPTIONAL_STEPS) == {"clocks"} and 0 < flow.OPTIONAL_STEPS["clocks"] <= 900
 
 
 def test_dry_run_writes_config_only(asic_src, tmp_path, capsys, monkeypatch):
@@ -305,6 +309,46 @@ def test_run_missing_metric_is_exit_1(ctx, monkeypatch):
     code, doc = flow.run(ctx, plan, orfs, timeout_s=60)
     assert code == 1
     assert doc["status"] == "incomplete: missing max_fanout.value, logic_depth.value"
+
+
+def test_run_empty_clocks_warns_not_fails(ctx, monkeypatch, capsys):
+    native_env(monkeypatch, "noclocks")
+    plan = plan_for(ctx)
+    orfs = flow.load_orfs(ctx.cfg_dir, dict(__import__("os").environ))
+    code, doc = flow.run(ctx, plan, orfs, timeout_s=60)
+    assert code == 0 and doc["status"] == "pass"
+    assert doc["timing"]["clocks"] is None and doc["max_fanout"]["value"] == 25
+    assert doc["logic_depth"]["value"] == 4
+    assert doc["warnings"] == [flow.asic_metrics.clock_warning({"clocks": {}})]
+    assert "[asic] warning: timing.clocks missing (optional, run not failed): clock_slacks.tcl " \
+        "wrote no clock" in capsys.readouterr().out
+
+
+def test_run_clocks_step_failure_warns_not_fails(ctx, monkeypatch, capsys):
+    native_env(monkeypatch, "clocksfail")
+    plan = plan_for(ctx)
+    orfs = flow.load_orfs(ctx.cfg_dir, dict(__import__("os").environ))
+    code, doc = flow.run(ctx, plan, orfs, timeout_s=60)
+    assert code == 0 and doc["status"] == "pass"
+    assert doc["max_fanout"]["value"] == 25 and doc["logic_depth"]["value"] == 4
+    assert doc["timing"]["clocks"] is None and doc["timing"]["setup_ws_ns"] is not None
+    assert doc["warnings"][0] == "clocks step (optional): fail (exit 3); run not failed"
+    assert "asic_clocks.json is missing" in doc["warnings"][1]
+    assert json.loads(plan.metrics_json.read_text())["status"] == "pass"
+    assert "[asic] warning: clocks step (optional): fail (exit 3)" in capsys.readouterr().out
+
+
+def test_run_clocks_step_timeout_is_capped_and_warns(ctx, monkeypatch):
+    native_env(monkeypatch, "clockssleep")
+    monkeypatch.setitem(flow.OPTIONAL_STEPS, "clocks", 2)
+    plan = plan_for(ctx)
+    orfs = flow.load_orfs(ctx.cfg_dir, dict(__import__("os").environ))
+    t0 = time.monotonic()
+    code, doc = flow.run(ctx, plan, orfs, timeout_s=120)
+    assert time.monotonic() - t0 < 60
+    assert code == 0 and doc["status"] == "pass"
+    assert doc["warnings"][0] == "clocks step (optional): timeout after 2s; run not failed"
+    assert doc["max_fanout"]["value"] == 25
 
 
 def test_fake_orfs_is_executable():

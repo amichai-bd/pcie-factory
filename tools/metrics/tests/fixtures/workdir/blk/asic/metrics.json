@@ -1,7 +1,9 @@
 {
   "ip": "blk", "schema": 1, "design": "xy_blk", "platform": "plat130", "clock_period_ns": 10.0,
   "status": "pass",
-  "timing": {"setup_ws_ns": 1.25, "tns_ns": 0.0, "hold_ws_ns": 0.1, "wns_ns": 0.0},
+  "timing": {"setup_ws_ns": 1.25, "tns_ns": 0.0, "hold_ws_ns": 0.1, "wns_ns": 0.0,
+             "clocks": {"core_clock": {"setup_ws_ns": 1.25, "wns_ns": 0.0, "tns_ns": 0.0, "note": "x"},
+                        "aux_clock": {"setup_ws_ns": -0.5, "wns_ns": -0.5, "tns_ns": -2.0}}},
   "area": {"stdcell_um2": 1234.5, "core_um2": 5000.0, "die_um2": 8000.0},
   "cells": 321, "synth_cells": 300, "utilization": 0.25,
   "max_fanout": {"value": 12, "net": "u_core/n_42"},

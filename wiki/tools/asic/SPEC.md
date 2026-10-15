@@ -3,7 +3,7 @@
 `./build asic` runs OpenROAD-flow-scripts (ORFS) from RTL to a routed design
 for one IP and writes `metrics.json`. The [PD BKM](../../bkm/pd.md) owns the
 method (inputs, acceptance ladder, review). Code: `tools/asic/` (`cli.py`,
-`flow.py`, `metrics.py`, `extra_metrics.tcl`); workflow:
+`flow.py`, `metrics.py`, `extra_metrics.tcl`, `clock_slacks.tcl`); workflow:
 [`.github/workflows/asic.yml`](../../../.github/workflows/asic.yml).
 
 ```
@@ -75,14 +75,23 @@ the unit tests drive with a fake ORFS.
    ORFS settings; any failure exits 2 before anything runs.
 2. Delete `workdir/<ip>/asic/` (not on `--dry-run`) and write
    `config.mk` there.
-3. Run three steps in order, each a separate runner invocation, appending to
-   `flow.log`; the first failure stops the run:
+3. Run four steps in order, each a separate runner invocation, appending to
+   `flow.log`; the first failure of a required step stops the run:
 
    | Step | Command | Purpose |
    | --- | --- | --- |
    | `versions` | `openroad -version`, `yosys -V`, `git describe` of the ORFS root | Toolchain record |
    | `flow` | `make -C <root>/flow DESIGN_CONFIG=… WORK_HOME=… FLOW_VARIANT=base NUM_CORES=<cores> finish` | Synthesis to final report |
    | `extra` | the same `make … RUN_SCRIPT=tools/asic/extra_metrics.tcl run` | Max fanout and logic depth on `6_final.odb` |
+   | `clocks` (optional) | the same `make … RUN_SCRIPT=tools/asic/clock_slacks.tcl RUN_LOG_NAME_STEM=asic_clocks run` | Setup slack per clock on `6_final.odb`, into `asic_clocks.json` |
+
+   The optional `clocks` step runs last, under the smaller of a 600 s cap
+   and what is left of the shared budget, in its own OpenROAD process, so a
+   crash, OOM kill or timeout there never costs the other metrics. Its
+   failure or timeout adds `clocks step (optional): fail (exit N)` or
+   `… timeout after <S>s`, then `; run not failed`, to `warnings` and
+   never sets the status. It stays optional until a nightly shows it
+   working ([#200](https://github.com/amichai-bd/pcie-factory/issues/200)).
 
 4. Each step runs in its own process group. Docker containers are named
    `asic-<nick>-<12 random hex>-<step>`, unique per run because several
@@ -118,12 +127,14 @@ others as `<workdir>` and `<src>`. The commands that run, `config.mk` and
 | `status` | `pass`, `<step>: fail (exit N)`, `<step>: timeout after S s` or `incomplete: missing <keys>`. |
 | `timing.setup_ws_ns`, `timing.tns_ns`, `timing.hold_ws_ns` | ORFS `*__timing__setup__ws`, `*__timing__setup__tns`, `*__timing__hold__ws`, latest stage. |
 | `timing.wns_ns` | `min(setup_ws_ns, 0)`. |
+| `timing.clocks.<clock>.setup_ws_ns`, `.tns_ns`, `.wns_ns` | `clock_slacks.tcl` (the `clocks` step) on `6_final.odb` with the final report's parasitics (`6_final.spef` when ORFS extracted it, else global-route estimates): one worst setup path per constrained endpoint (`find_timing_paths -path_delay max -endpoint_path_count 1`), grouped by the clock that captures it; the worst slack and the sum of the negative slacks of each SDC clock (`null` worst slack for a clock with no endpoint); `wns_ns` is `min(setup_ws_ns, 0)`. ORFS reports only the totals over all clocks. A Tcl error writes an empty `clocks`. Optional (below). |
 | `area.stdcell_um2`, `area.core_um2`, `area.die_um2` | `*__design__instance__area__stdcell`, `*__design__core__area`, `*__design__die__area`; Yosys `synth_stat.txt` area as fallback. |
 | `cells`, `synth_cells` | `*__design__instance__count__stdcell` after route (tap cells, clock and timing-repair buffers included, fill cells excluded); Yosys count after synthesis (`synth__…` JSON, else `synth_stat.txt`). |
 | `utilization` | `*__design__instance__utilization`, a fraction of the core area. |
 | `max_fanout.value`, `.net` | `extra_metrics.tcl` on `6_final.odb`: largest count of input pins plus output ports on one signal net; power, ground and clock nets (odb `CLOCK` type or reaching a register clock pin) excluded. |
 | `logic_depth.value`, `.endpoint` | `extra_metrics.tcl`: most cells on any path from a register or input port to a register input pin other than its clock (data, enable, set or reset) or an output port (endpoints excluded; buffers and inverters count), walked backwards over the odb netlist with memoization; a combinational loop is cut. Registers come from OpenSTA `all_registers`. Names are reported with odb's `\[ \]` escapes removed. |
 | `worst_path.from`, `.to`, `.group`, `.slack_ns`, `.cells` | First `report_checks -path_delay max` section of `6_finish.rpt`; `cells` counts instances strictly between start and end point on the data path. |
+| `warnings` | One line per failed optional step, then one per missing optional metric, with its cause (absent `asic_clocks.json`, no `clocks` entry, no clock written, malformed); `[]` when none. |
 | `power_w`, `route_drc_errors` | `*__power__total`, `detailedroute__route__drc_errors`. |
 | `toolchain` | Runner, image, root, `orfs_pin` (the host's `orfs_commit`, see above) and the `versions` step output (`openroad`, `yosys`, `orfs`; the pinned image's OpenROAD and ORFS report `unknown`, so the image digest and `orfs_pin` identify them). |
 | `source`, `elapsed_s`, `work_home` | Repository `HEAD`, run time, ORFS work home relative to the workdir (`<ip>/asic/run`; no host paths, since the file is published). |
@@ -133,7 +144,11 @@ others as `<workdir>` and `<src>`. The commands that run, `config.mk` and
 `floorplan`, `synth`, over the merged `logs/…/*.json` files. Required (else
 `incomplete`): `timing.setup_ws_ns`, `timing.tns_ns`, `area.stdcell_um2`,
 `cells`, `utilization`, `max_fanout.value`, `logic_depth.value`,
-`worst_path.from`, `worst_path.to`. Units follow the platform: sky130hd
+`worst_path.from`, `worst_path.to`. Optional: `timing.clocks`, until a
+nightly shows it populated on real OpenSTA ([#200](https://github.com/amichai-bd/pcie-factory/issues/200) makes it required once
+nightly shows it for every ASIC IP). Missing, empty or malformed, it is
+`null`, the run keeps its status and exit code, and `warnings` names the
+cause, also printed as `[asic] warning: ...`. Units follow the platform: sky130hd
 liberty time is ns, area µm².
 
 ## Workflow
@@ -156,8 +171,8 @@ code never runs on the self-hosted host if a trigger is added later.
 
 | Test file | Proves |
 | --- | --- |
-| `test_asic_flow.py` | `config.mk` generation (filelist order, include dirs, defines with `SYNTHESIS`, nickname and output path from the IP id, determinism); `.mk` validation (including `override`, `define` and the ORFS directory variables); SDC count; ORFS settings (digest required, `ORFS_IMAGE` ignored, cores, overrides); docker hardening flags and mounts; unique container names; step commands; `--dry-run`; and a full run against `fixtures/fake_orfs` (a fake `env.sh`, `make`, `openroad`, `yosys`): pass, step failure, timeout, SIGTERM and missing metrics, each with the expected exit code and `status`. |
-| `test_asic_metrics.py` | Each parser and the worst-path summary on the fixture reports in `fixtures/orfs/` and on malformed or empty input. |
+| `test_asic_flow.py` | `config.mk` generation (filelist order, include dirs, defines with `SYNTHESIS`, nickname and output path from the IP id, determinism); `.mk` validation (including `override`, `define` and the ORFS directory variables); SDC count; ORFS settings (digest required, `ORFS_IMAGE` ignored, cores, overrides); docker hardening flags and mounts; unique container names; step commands; `--dry-run`; and a full run against `fixtures/fake_orfs` (a fake `env.sh`, `make`, `openroad`, `yosys`): pass, step failure, timeout, SIGTERM, missing metrics; and, for the optional `clocks` step, an empty `clocks`, a failing step and a hanging one cut at its cap (each exit 0, `pass`, fanout and depth kept, a warning), each with the expected exit code and `status`. |
+| `test_asic_metrics.py` | Each parser, the per-clock slacks (sorted, `wns_ns`, non-numbers dropped; missing, empty or malformed `clocks` gives a warning naming the cause, never `incomplete`) and the worst-path summary on the fixture reports in `fixtures/orfs/` and on malformed or empty input. |
 
 `fixtures/orfs/` holds report files cut from a real run of the pinned image
 on the first synthesis target (see its `README.md`); the fake `make` copies

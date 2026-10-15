@@ -994,11 +994,32 @@ def ip_page(ip: str, d: Data) -> Page:
             drew |= p.trend(f"ip-{m.key}", m.label, m.unit, [
                 {"label": ip, "color": 1, "points": n,
                  "get": lambda r, m=m, g=getter: m.get(g(r, ip)) if isinstance(g(r, ip), dict) else None}])
+        if name == "ASIC":
+            drew |= asic_clock_trends(p, n, ip)
         if not drew:
             p.html(empty(f"No {name} metrics yet for this IP."))
     ip_coverage(p, n, ip)
     ip_arch(p, n, ip)
     return p
+
+
+def asic_clocks(r, ip) -> dict:
+    """`{clock: {setup_ws_ns, wns_ns, tns_ns}}` of the IP's ASIC record."""
+    return mapping(asic_ip(r, ip), "timing.clocks")
+
+
+def asic_clock_trends(p: Page, n: list[Point], ip: str) -> bool:
+    """WNS and TNS charts with a series per clock (sorted), when the records
+    carry per-clock slacks."""
+    clocks = sorted({c for x in n for c in asic_clocks(x.data, ip)})
+    drew = False
+    for key, label, field in (("asic-clock-wns", "WNS by clock", "wns_ns"),
+                              ("asic-clock-tns", "TNS by clock", "tns_ns")):
+        drew |= p.trend(f"ip-{key}", label, "ns", [
+            {"label": c, "color": i + 1, "points": n,
+             "get": lambda r, c=c, f=field: num(dig(asic_clocks(r, ip).get(c), f))}
+            for i, c in enumerate(clocks)])
+    return drew
 
 
 def ip_arch(p: Page, n: list[Point], ip: str) -> None:
