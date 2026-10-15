@@ -1,0 +1,6 @@
+tests:
+  - name: partner_arc_sweep
+    module: tests.test_partner
+    testcase: partner_arc_sweep
+    top: pcie_mac
+    timeout_s: 900

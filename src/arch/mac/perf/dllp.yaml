@@ -1,0 +1,11 @@
+# Back-to-back DLLPs (wiki/src/arch/mac/HAS.md#targets).
+description: Back-to-back DLLPs downstream to upstream in L0.
+seed: 9
+workload:
+  kind: traffic
+  packets: 2000
+  mix: dllp
+targets:
+  throughput_bytes_per_cycle: {min: 1.49}
+  packets_lost: {max: 0}
+  framing_errors: {max: 0}

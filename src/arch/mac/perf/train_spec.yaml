@@ -1,0 +1,12 @@
+# Downstream and upstream models from a simultaneous reset to L0 at spec
+# timeouts: Detect.Quiet's 12 ms plus training (wiki/src/arch/mac/HAS.md#targets).
+description: Training to L0 back to back, TIMEOUT_DIV 1, simultaneous reset.
+seed: 1
+workload:
+  kind: train
+  timeout_div: 1
+  err_timeout_div: 1
+targets:
+  link_up_us_max: {min: 12000, max: 12200}
+  training_us_min: {min: 65.536}
+  training_us_max: {max: 80}
