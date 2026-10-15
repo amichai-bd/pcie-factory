@@ -1,0 +1,9 @@
+# Reviewed Verilator lint waivers (wiki/tools/checks/SPEC.md#waivers).
+waivers:
+  - file: rtl/pcs/pcie_pcs.sv
+    rule: SYNCASYNCNET
+    match: "'rst_i'"
+    reason: >-
+      rst_i is the synchronous reset of the clk_i side and also, by HAS
+      crossing 2, the input of the COMMON_RESET_SYNC that asserts the RX-domain
+      reset asynchronously; both uses are what the pcs HAS requires.

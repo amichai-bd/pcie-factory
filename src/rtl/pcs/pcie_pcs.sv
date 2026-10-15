@@ -2,9 +2,13 @@
 // 2x10-bit symbol interface below. Interfaces and behavior:
 // wiki/src/arch/pcs/HAS.md; structure: wiki/src/rtl/pcs/MAS.md.
 //
-// Wave-1 shell: the ports of the HAS with every output tied to its reset
-// value. The sub-IPs and crossing cells arrive in wave 2.
+// This revision holds PIPE control (reset and PhyStatus, PowerDown
+// acknowledge, receiver detection, transmit electrical idle, RxElecIdle)
+// and the RX-domain reset. The sub-IPs (encoder, decoder, aligner, elastic
+// buffer) join as they reach main; until then the data outputs are tied.
 `default_nettype none
+
+`include "common_macros.svh"
 
 module pcie_pcs (
   // Clock and reset
@@ -40,25 +44,178 @@ module pcie_pcs (
   input  logic        ser_rx_elec_idle_i    // cdc-domain: ser_rx_clk_i
 );
 
-  // Inputs the shell does not use yet; the wave-2 RTL consumes them.
-  logic unused_inputs;
-  assign unused_inputs = ^{clk_i, rst_i, pipe_reset_ni, pipe_tx_data_i,
-                           pipe_tx_datak_i, pipe_tx_detect_rx_i,
-                           pipe_tx_elec_idle_i, pipe_tx_compliance_i,
-                           pipe_rx_polarity_i, pipe_power_down_i,
-                           ser_tx_rxdet_i, ser_rx_clk_i, ser_rx_data_i,
-                           ser_rx_elec_idle_i};
+  // ------------------------------------------------------------------
+  // Resets
+  // ------------------------------------------------------------------
 
-  // Reset values from the HAS: PhyStatus high, no received data, receiver
-  // and transmitter in electrical idle.
+  // The clk_i side of the PCS is in reset in every cycle rst_i is 1 or
+  // pipe_reset_ni is 0 (PIPE_CONTROL.md, Reset and PhyStatus).
+  logic pcs_rst;
+  assign pcs_rst = rst_i || !pipe_reset_ni;
+
+  // Crossing 2: the RX-domain reset, asserted with rst_i (no clock edge),
+  // released on the second ser_rx_clk_i edge after it falls.
+  logic rx_rst;
+  `COMMON_RESET_SYNC(u_rx_rst, rx_rst, rst_i, ser_rx_clk_i)
+
+  // ------------------------------------------------------------------
+  // PhyStatus after reset: high in reset and the 16 cycles after it
+  // ------------------------------------------------------------------
+
+  logic [pcie_pcs_pkg::READY_CNT_W-1:0] ready_cnt_q;
+  logic [pcie_pcs_pkg::READY_CNT_W-1:0] ready_cnt_d;
+  logic                                 ready;
+
+  assign ready       = (ready_cnt_q == '0);
+  assign ready_cnt_d = ready ? ready_cnt_q : ready_cnt_q - 1'b1;
+
+  `COMMON_DFF_RST_VAL(ready_cnt_q, ready_cnt_d, clk_i, pcs_rst,
+                      pcie_pcs_pkg::READY_CNT_W'(pcie_pcs_pkg::PHY_STATUS_RESET_CYCLES))
+
+  // ------------------------------------------------------------------
+  // PowerDown: the state is the value seen; every change seen once ready
+  // gives one PhyStatus pulse POWER_ACK_CYCLES cycles later.
+  // ------------------------------------------------------------------
+
+  pcie_pcs_pkg::t_power_down power;
+  pcie_pcs_pkg::t_power_down power_q;
+  logic                      power_change;
+
+  assign power        = pcie_pcs_pkg::t_power_down'(pipe_power_down_i);
+  assign power_change = ready && (power != power_q);
+
+  `COMMON_DFF_RST_VAL(power_q, power, clk_i, pcs_rst, pcie_pcs_pkg::P1)
+
+  // ack_cnt_q counts down from POWER_ACK_CYCLES; the pulse is the cycle it
+  // holds 1, the fourth after the cycle the change was seen.
+  logic [pcie_pcs_pkg::ACK_CNT_W-1:0] ack_cnt_q;
+  logic [pcie_pcs_pkg::ACK_CNT_W-1:0] ack_cnt_d;
+  logic                               ack_pulse;
+
+  always_comb begin
+    ack_cnt_d = ack_cnt_q;
+    if (power_change) begin
+      ack_cnt_d = pcie_pcs_pkg::ACK_CNT_W'(pcie_pcs_pkg::POWER_ACK_CYCLES);
+    end else if (ack_cnt_q != '0) begin
+      ack_cnt_d = ack_cnt_q - 1'b1;
+    end
+  end
+
+  `COMMON_DFF_RST(ack_cnt_q, ack_cnt_d, clk_i, pcs_rst)
+
+  assign ack_pulse = (ack_cnt_q == pcie_pcs_pkg::ACK_CNT_W'(1));
+
+  // ------------------------------------------------------------------
+  // Receiver detection (P1, TxElecIdle 1, TxDetectRx 1)
+  // ------------------------------------------------------------------
+
+  // det_cnt_q holds the detection cycles seen so far; in detection cycle
+  // RX_DETECT_CYCLES it holds RX_DETECT_CYCLES - 1, which is the pulse.
+  localparam logic [pcie_pcs_pkg::DETECT_CNT_W-1:0] DET_SAMPLE =
+      pcie_pcs_pkg::DETECT_CNT_W'(pcie_pcs_pkg::RX_DETECT_CYCLES - 2);
+  localparam logic [pcie_pcs_pkg::DETECT_CNT_W-1:0] DET_LAST =
+      pcie_pcs_pkg::DETECT_CNT_W'(pcie_pcs_pkg::RX_DETECT_CYCLES - 1);
+
+  logic [pcie_pcs_pkg::DETECT_CNT_W-1:0] det_cnt_q;
+  logic [pcie_pcs_pkg::DETECT_CNT_W-1:0] det_cnt_d;
+  logic                                  det_done_q;
+  logic                                  det_done_d;
+  logic                                  det_counting;
+  logic                                  det_pulse;
+  logic                                  det_sample_en;
+  logic                                  rxdet_q;
+
+  assign det_counting = ready && (power == pcie_pcs_pkg::P1) && pipe_tx_elec_idle_i
+                        && pipe_tx_detect_rx_i && !det_done_q;
+  assign det_pulse    = (det_cnt_q == DET_LAST) && !det_done_q;
+
+  always_comb begin
+    det_cnt_d  = det_cnt_q;
+    det_done_d = det_done_q;
+    if (!pipe_tx_detect_rx_i) begin
+      // A new detection starts only after TxDetectRx was seen 0.
+      det_cnt_d  = '0;
+      det_done_d = 1'b0;
+    end else if (det_pulse) begin
+      det_cnt_d  = '0;
+      det_done_d = 1'b1;
+    end else if (det_counting) begin
+      det_cnt_d = det_cnt_q + 1'b1;
+    end
+  end
+
+  `COMMON_DFF_RST(det_cnt_q, det_cnt_d, clk_i, pcs_rst)
+  `COMMON_DFF_RST(det_done_q, det_done_d, clk_i, pcs_rst)
+
+  // ser_tx_rxdet_i is sampled in detection cycle RX_DETECT_CYCLES - 1.
+  assign det_sample_en = det_counting && (det_cnt_q == DET_SAMPLE);
+
+  `COMMON_DFF_EN(rxdet_q, ser_tx_rxdet_i, clk_i, det_sample_en)
+
+  // ------------------------------------------------------------------
+  // Transmit electrical idle: P0 and not TxElecIdle sends a word; the line
+  // follows two cycles later, the encoder's latency.
+  // ------------------------------------------------------------------
+
+  logic tx_word;
+  logic tx_word_q1;
+  logic tx_word_q2;
+
+  assign tx_word = (power == pcie_pcs_pkg::P0) && !pipe_tx_elec_idle_i;
+
+  `COMMON_DFF_RST(tx_word_q1, tx_word, clk_i, pcs_rst)
+  `COMMON_DFF_RST(tx_word_q2, tx_word_q1, clk_i, pcs_rst)
+
+  // ------------------------------------------------------------------
+  // Crossing 5: receiver active (not electrical idle), registered in the
+  // RX domain and synchronized into clk_i. Reset value 0 is "idle".
+  // ------------------------------------------------------------------
+
+  logic rx_active;
+  logic rx_active_q;
+  logic rx_active_sync;
+
+  assign rx_active = !ser_rx_elec_idle_i;
+
+  `COMMON_DFF_RST(rx_active_q, rx_active, ser_rx_clk_i, rx_rst)
+  `COMMON_METAFLOP(u_rx_active_sync, rx_active_sync, rx_active_q, clk_i, rst_i)
+
+  // ------------------------------------------------------------------
+  // Outputs; reset values from the HAS are forced while pcs_rst is 1.
+  // ------------------------------------------------------------------
+
+  pcie_pcs_pkg::t_rx_status rx_status;
+
+  assign rx_status = det_pulse ? (rxdet_q ? pcie_pcs_pkg::RX_DETECTED : pcie_pcs_pkg::RX_OK)
+                               : pcie_pcs_pkg::RX_OK;
+
+  assign pipe_phy_status_o   = pcs_rst || !ready || ack_pulse || det_pulse;
+  assign pipe_rx_status_o    = pcs_rst ? 3'd0 : rx_status;
+  assign pipe_rx_valid_o     = 1'b0;
   assign pipe_rx_data_o      = 16'd0;
   assign pipe_rx_datak_o     = 2'd0;
-  assign pipe_rx_valid_o     = 1'b0;
-  assign pipe_phy_status_o   = 1'b1;
-  assign pipe_rx_elec_idle_o = 1'b1;
-  assign pipe_rx_status_o    = 3'd0;
+  assign pipe_rx_elec_idle_o = pcs_rst || !rx_active_sync;
+  assign ser_tx_elec_idle_o  = pcs_rst || !tx_word_q2;
   assign ser_tx_data_o       = 20'd0;
-  assign ser_tx_elec_idle_o  = 1'b1;
+
+  // Inputs the data path consumes once its sub-IPs are integrated.
+  `COMMON_UNUSED_BITS(unused_data_inputs, {pipe_tx_data_i, pipe_tx_datak_i,
+                                           pipe_tx_compliance_i, pipe_rx_polarity_i,
+                                           ser_rx_data_i})
+
+  // ------------------------------------------------------------------
+  // Assertions
+  // ------------------------------------------------------------------
+
+  // RxStatus 3 only with the receiver-detection PhyStatus pulse.
+  `COMMON_ASSERT_NEVER(a_detected_only_with_pulse, clk_i, pcs_rst,
+                       pipe_rx_status_o == 3'd3 && !(det_pulse && pipe_phy_status_o))
+  // Once ready, every PhyStatus pulse lasts one cycle.
+  `COMMON_ASSERT(a_phy_status_one_cycle, clk_i, pcs_rst,
+                 (ready && pipe_phy_status_o) |=> !pipe_phy_status_o)
+  // The power-acknowledge countdown never exceeds its start value.
+  `COMMON_ASSERT_NEVER(a_ack_cnt_range, clk_i, pcs_rst,
+                       ack_cnt_q > pcie_pcs_pkg::ACK_CNT_W'(pcie_pcs_pkg::POWER_ACK_CYCLES))
 
 endmodule
 
