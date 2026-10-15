@@ -1,11 +1,14 @@
 """The functional-coverage helper: bins, crosses, sampling, files, merge."""
 
+import collections
+import enum
 import json
+import warnings
 
 import pytest
 
 from regress import funcov
-from regress.funcov import CoverageError, Covergroup
+from regress.funcov import CoverageError, CoverageWarning, Covergroup
 
 
 @pytest.fixture(autouse=True)
@@ -49,7 +52,8 @@ def test_tuple_bin_is_one_value_an_arc():
     cg = Covergroup("arcs")
     cg.coverpoint("arc", bins={"a__b": ("A", "B"), "b__a": ("B", "A"),
                                "into_b": [("A", "B"), ("C", "B")]})  # a list stays a collection
-    cg.sample(arc="B")         # a bare state hits no arc
+    with pytest.warns(CoverageWarning, match=r"arcs\.arc: sampled str 'B' .*\(tuple\)"):
+        cg.sample(arc="B")     # a bare state hits no arc
     cg.sample(arc=("A", "B"))
     cg.sample(arc=("A", "B"))  # memoized path
     cg.sample(arc=("C", "B"))
@@ -91,17 +95,47 @@ def test_frozenset_memo_keeps_item_types():
 @pytest.mark.parametrize("spec, message", [
     (str, "bin spec str is a class"),
     (int, "bin spec int is a class"),
-    (__import__("enum").Enum("Colour", "RED BLUE"), "bin spec Colour is a class"),
+    (enum.Enum("Colour", "RED BLUE"), "bin spec Colour is a class"),
     ((x for x in (1, 2)), "bin spec of type generator "),
     (iter([1, 2]), "bin spec of type list_iterator "),
     ({1: 2}.keys(), "bin spec of type dict_keys "),
     ({1: 2}.values(), "bin spec of type dict_values "),
     ({1: 2}.items(), "bin spec of type dict_items "),
     ({1: 2}, "bin spec of type dict "),
+    (collections.deque([1, 2]), "bin spec of type deque "),
+    (bytearray(b"ab"), "bin spec of type bytearray "),
+    ([str, int], "collection item str is a class"),
+    ({1, int}, "collection item int is a class"),
 ])
 def test_bin_specs_that_could_never_mean_a_value_are_rejected(spec, message):
     with pytest.raises(CoverageError, match=r"^c\.p\.b: " + message):
         Covergroup("c").coverpoint("p", bins={"b": spec})
+
+
+def test_type_mismatch_warns_once_per_coverpoint_and_type():
+    State = enum.IntEnum("State", "IDLE BUSY")
+    Arc = collections.namedtuple("Arc", "src dst")
+    cg = Covergroup("w")
+    cg.coverpoint("v", bins={"zero": 0, "low": range(1, 4), "pair": [0, 1]})
+    cg.coverpoint("arc", bins={"a__b": ("A", "B")})
+    cg.coverpoint("p", bins={"any": lambda v: False})  # predicates only: no value types
+    with pytest.warns(CoverageWarning) as got:
+        cg.sample(v=State.IDLE, arc=Arc("A", "B"), p=1)
+        cg.sample(v=State.BUSY)   # same coverpoint and type: no second warning
+        cg.sample(v=False)
+    assert [str(w.message).split(":")[0] for w in got] == ["w.v", "w.arc", "w.v"]
+    assert "sampled bool False" in str(got[2].message)
+    assert funcov.groups()["w"]["v"] == {"zero": 0, "low": 0, "pair": 0}
+
+
+def test_no_warning_for_a_hit_or_a_matching_type():
+    cg = Covergroup("n")
+    cg.coverpoint("v", bins={"zero": 0, "odd": lambda v: v % 2 == 1})
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        cg.sample(v=2)                 # a hole, but int is a value bin's type
+        cg.sample(v=True)              # bool hits the predicate
+    assert funcov.groups()["n"]["v"] == {"zero": 0, "odd": 1}
 
 
 @pytest.mark.parametrize("build, message", [

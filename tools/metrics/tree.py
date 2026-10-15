@@ -12,11 +12,10 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from build.ip import KINDS, SHARED_DIR
+
 from .config import Config, MetricsError, match
 
-# Kind folders under the source root (build.ip.KINDS) and the shared folder.
-KINDS = ("rtl", "dv", "arch", "fpga", "asic")
-SHARED_DIR = "common"
 NO_EXT = "(none)"
 ROOT_DIR = "."
 
