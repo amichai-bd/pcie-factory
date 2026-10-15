@@ -40,12 +40,13 @@ src/                                wiki/src/
 ```
 
 A sub-IP `<ip>_<sub>` is a flat sibling under each kind; which IPs are
-top-level follows from filelist `-F` reachability
+top-level follows from filelist `-F` reachability and the `<parent>_` id
+prefix, so an integrated top-level IP keeps its own HAS
 ([layout](../project/layout.md#ips-and-sub-ips)).
 
 | Folder | Pages | Required for |
 | --- | --- | --- |
-| `wiki/src/arch/<ip>/` | `HAS.md` | Every top-level IP (one no other IP's `.rtl.f` reaches); sub-IPs have none |
+| `wiki/src/arch/<ip>/` | `HAS.md` | Every top-level IP (no IP `P` with id prefix `P_` reaches it); sub-IPs have none |
 | `wiki/src/rtl/<ip>/` | `MAS.md` | Every IP and sub-IP |
 | `wiki/src/dv/<ip>/` | `DV_PLAN.md` | Every IP and sub-IP |
 | `wiki/src/rtl/common/`, `wiki/src/dv/common/` | `<block>.md`: the block's MAS, and its DV plan | Every shared block `src/rtl/common/<block>.rtl.f` ([layout](../project/layout.md#shared-blocks)); nothing else |

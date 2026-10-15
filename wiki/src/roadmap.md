@@ -19,9 +19,11 @@ done criteria and the decisions are in
 | 1, HAS | `phy` HAS and PIPE (after #66 and #67), then the `mac` and `pcs` HAS; each signed off by the captain | #71, then #72, #73 |
 | 2, `mac` | Scrambler and ordered sets, then framing and the LTSSM core, then the `mac` top with the link partner, then power and control states | #74, #75 → #76, #77 → #78 → #79, #80 |
 | 2, `pcs` | 8b/10b encode and decode, then alignment; elastic buffer; then the `pcs` top with PIPE control and the channel model | #81, #82 → #83; #84 → #85 |
-| 3 | `phy` e2e, then FPGA and ASIC, then the board demo (programmed by the captain), coverage floors and retiring the seed `top` IP | #86 → #87, #88 → #89, #90, #91 |
+| 3 | `phy` e2e, then FPGA and ASIC, coverage floors and retiring the seed `top` IP | #86 → #87, #88; #90, #91 |
 
 M1 is done when the goal checklist in the decision record holds on `main`.
+The board loopback demo on physical hardware (#89) needs the captain's
+board and is tracked outside M1 ([0002](decisions/0002-m1-grill.md) Q20).
 
 ## Later
 

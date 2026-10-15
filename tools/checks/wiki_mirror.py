@@ -201,7 +201,7 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
             if parts[0] == ARCH_DIR:
                 if not ip.top_level:
                     add(f"{label(here)}/: arch/ is for top-level IPs only "
-                        f"({ip.id} is a sub-IP of {', '.join(ip.ancestors)})")
+                        f"({ip.id} is a sub-IP of {', '.join(ip.parents)})")
                     dirs[:] = []
                 # A top-level IP's HAS may precede its arch model; the HAS
                 # targets rule above requires the source once targets exist.
