@@ -33,24 +33,30 @@ CYCLE = CLK_PS
 # fill (12 symbols) and the PIPE register.
 RELOCK_DELAY = 20
 
-# Functional coverage of the receive path (DV plan, Strategy).
+# Functional coverage of the receive path (DV plan, Strategy): every
+# RxStatus code a receive word carries (5 and 6 only from eb_stress, outside
+# the targets), the clock offsets, the scenarios and the relock causes.
 COV_RX = Covergroup("pcs_rx")
 COV_RX.coverpoint("status", bins={"ok": 0, "skp_added": 1, "skp_removed": 2, "code_err": 4,
                                   "overflow": 5, "underflow": 6, "disp_err": 7})
 COV_RX.coverpoint("ppm", bins={"slow": "slow", "zero": "zero", "fast": "fast"})
-COV_RX.cross("status_x_ppm", "status", "ppm")
 COV_RX.coverpoint("scenario", bins=["clean", "max_tlp", "dllp", "random", "polarity",
                                     "polarity_toggle", "errors", "close_errors", "slips",
-                                    "error_bursts", "elec_idle", "loopback", "round_trip", "eb_stress"])
+                                    "error_bursts", "elec_idle", "loopback", "round_trip",
+                                    "eb_stress"])
 COV_RX.coverpoint("relock", bins=["slip", "close_errors"])
 
-# Every RxStatus code the receive path produces within the targets, at both
-# clock offset signs, is required at L2 (pcs_rx_status floor 100).
+# The RxStatus codes the receive path gives within the targets, with the
+# clock offset that produces them (required at L2: pcs_rx_status floor 100).
+# A slow RX clock drains the buffer, so SKP symbols are added; a fast one
+# fills it, so they are removed. Errors and plain data at either sign.
 COV_STATUS = Covergroup("pcs_rx_status")
-COV_STATUS.coverpoint("code", bins={"ok": 0, "skp_added": 1, "skp_removed": 2,
-                                    "code_err": 4, "disp_err": 7})
-COV_STATUS.coverpoint("ppm", bins={"slow": "slow", "fast": "fast"})
-COV_STATUS.cross("code_x_ppm", "code", "ppm")
+COV_STATUS.coverpoint("code_ppm", bins={
+    f"{name}__{sign}": (code, sign)
+    for name, code, signs in (("ok", 0, ("slow", "fast")), ("code_err", 4, ("slow", "fast")),
+                              ("disp_err", 7, ("slow", "fast")), ("skp_added", 1, ("slow",)),
+                              ("skp_removed", 2, ("fast",)))
+    for sign in signs})
 
 
 def ppm_bin(ppm: float) -> str:
@@ -91,7 +97,7 @@ class RxBench:
             if w.status != 3 and (w.valid or w.status in (5, 6)):
                 COV_RX.sample(status=w.status, ppm=ppm_bin(self.ppm))
                 if self.ppm and w.status in (0, 1, 2, 4, 7):
-                    COV_STATUS.sample(code=w.status, ppm=ppm_bin(self.ppm))
+                    COV_STATUS.sample(code_ppm=(w.status, ppm_bin(self.ppm)))
             return out
         return inner
 
@@ -343,7 +349,7 @@ async def rx_slips(dut):
         return any(s <= t for s in slip_t)
 
     runs = check_runs(link.syms, rx.words, slip_possible, where="slips")
-    falls = [r.words[-1].t for r in runs[:-1]]
+    falls = [r.words[-1].t for r in runs if not rx.at_end(rx.words.index(r.words[-1]) + 1)]
     # A slip that arrives while the aligner already hunts (lock dropped by
     # an earlier slip, not yet retaken) needs no detection, as in the arch
     # model; a slip is in lock when PIPE is valid as its bits arrive there.
@@ -357,7 +363,13 @@ async def rx_slips(dut):
         COV_RX.sample(relock="slip")
     dut._log.info("slips: %d injected, %d in lock, %d runs", len(slip_t), len(in_lock), len(runs))
     assert in_lock, "no slip arrived in lock"
-    assert len(runs) == len(in_lock) + 1, f"{len(runs)} runs for {len(in_lock)} slips in lock"
+    # Lock returns after the last slip only if a COM follows it well after
+    # the relock (64 symbols) and before the line ends: a comma needs a
+    # window of two words received out of electrical idle.
+    last = link.line.slips[-1] // 10
+    regained = any(s == (1, K_COM) for s in link.syms[last + 64:len(link.syms) - 8])
+    want = len(in_lock) + (1 if regained else 0)
+    assert len(runs) == want, f"{len(runs)} runs for {len(in_lock)} slips in lock"
     for r in runs[1:]:
         lock_com(link.syms, r)
     COV_RX.sample(scenario="slips")
@@ -376,7 +388,12 @@ async def rx_elec_idle_gaps(dut):
     await rx.run_line()
     runs = check_runs(link.syms, rx.words, where="elec_idle")
     assert len(runs) == len(link.idles) + 1, f"{len(runs)} runs for {len(link.idles)} gaps"
-    assert not any(w.status in (4, 5, 6, 7) for w in rx.words if w.valid or w.status in (5, 6))
+    # The first word of a lock may hold the symbol before the comma, which
+    # after electrical idle is noise: an error there is expected.
+    starts = {r.words[0].t for r in runs}
+    bad = [(w.t, w.status) for w in rx.words if w.status in (5, 6)
+           or w.valid and w.status in (4, 7) and w.t not in starts]
+    assert not bad, f"error or buffer status after idle: {bad[:6]}, run starts {sorted(starts)}"
     worst = 0.0
     for r in runs[1:]:
         com = lock_com(link.syms, r)
