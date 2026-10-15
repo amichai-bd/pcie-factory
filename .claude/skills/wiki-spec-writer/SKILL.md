@@ -54,6 +54,10 @@ owner and replace the copy with a link.
   words; a citation is for cross-checking and never replaces the rule (no
   "behaves per §x"). Unsure points go in the Open items table with their
   issue, never as guesses ([citations](../../../wiki/bkm/wiki.md#citations)).
+- Field layouts from a standard: give this design's use of each field
+  (position, name, what is sent, how it is read on receive); positions and
+  code values may be stated, the standard's table layout, prose and figures
+  never ([citations](../../../wiki/bkm/wiki.md#citations)).
 - Standards: when `./build specs list` shows the cited document present,
   check every citation and claim against `./build specs path --absolute <id>` and
   make the page agree with it. Paraphrase only; never paste its text into
