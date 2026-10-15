@@ -88,14 +88,14 @@ shows where each of their checks went.
     from `[7:0]`, 4 from `[15:8]`).
   - Floors: level 1 holds `mac_os_tx`, `mac_os_rx` and `mac_frame` at
     100% (reached by levels 0 and 1); level 2 holds functional coverage at
-    100% (all five covergroups, so every core and control arc in each
-    role), line at 85% and toggle at 73%, just below the merged level 0 to 2 values
-    (85.4%, 73.1%; the parameter variants of `dividers`, `train_spec` and
-    `smoke_n_fts_*` add their own points, so `dividers` also runs the control
-    recipes). The line holes
-    are the [gaps](#gaps): the stubbed arcs and the power states, FTS and
-    requested-SKP transmit, the SKP-count saturation and the unreachable
-    `default` arms.
+    100% (all five covergroups, so all 64 arcs of the HAS list in each
+    role), line at 86% and toggle at 78%, just below the merged level 0 to
+    2 values (86.3%, 78.1%). The parameter variants of `dividers`,
+    `train_spec` and `smoke_n_fts_*` add their own points, so `dividers`
+    also runs the control recipes and `smoke_n_fts_*` run the level-1 arc
+    and control recipes. The line holes left are the SKP-count saturation,
+    the unreachable `default` arms and the error-path timeouts in the
+    parameter variants.
 - **Model unit tests** without a simulator: the architecture model's
   self-tests (`./build arch --ip mac`) and the scrambler's word model
   ([`models/`](../../../../src/dv/mac/models/), also the `phy` e2e's
@@ -170,7 +170,7 @@ listed entry; each fails, and the unmutated RTL passes.
 | LTSSM | Recovery.Idle: Disabled requested wins over Hot Reset requested | `control_quick` | Fails at cycle 34377: `ltssm_state_o` 0x18 (Disabled), the shadow in Hot Reset (0x19). |
 | LTSSM | Recovery.Idle takes `hot_reset_req_i` in the upstream role | `control_quick` | Fails at cycle 37435: `ltssm_state_o` 0x19, the shadow in Recovery.Idle (0x12) (`ep_upstream_ignores`). |
 | Ordered sets | The loopback pattern counts by 1 per word, not 2 | `control_quick` | Fails at cycle 19168: pattern (01h, 02h) sent, the shadow (02h, 03h). |
-| LTSSM | L1.Entry to L1.Idle without waiting for the P1 acknowledge | `arcs_quick` | Fails at cycle 28660: `ltssm_state_o` 0x31, the shadow still in L1.Entry (0x30). |
+| LTSSM | L1.Entry to L1.Idle without waiting for the P1 acknowledge | `arcs_quick` | Fails at cycle 29245: `ltssm_state_o` 0x31, the shadow still in L1.Entry (0x30). |
 | LTSSM | `Rx_L0s.Entry` left after 2 cycles, not 3 | `arcs_quick` | Fails at cycle 26961: `ltssm_state_o` 0x26 (`Rx_L0s.Idle`), the shadow 0x25. |
 | LTSSM | `Tx_L0s.FTS` sends one FTS fewer than the partner's N_FTS | `arcs_quick` | Fails at cycle 27126: transmitted COM, SKP; the shadow COM, FTS. |
 | LTSSM | L2.Idle's P2 straight to Detect's P1 (not through P0) | `arcs_quick` | Stops on the RTL assertion `a_pd_via_p0`. |
