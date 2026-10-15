@@ -25,11 +25,13 @@ def render(path: Path) -> str:
         lines.append("No IPs selected.")
     totals = s.get("totals", {})
     if totals:
-        lines += ["", "| Level | Passed | Runtime (s) | Budget (s) |", "| --- | --- | --- | --- |"]
+        lines += ["", "| Level | Passed | CPU (s) | Budget, CPU (s) | Test wall time (s) |",
+                  "| --- | --- | --- | --- | --- |"]
         for key, t in totals.items():
             over = " (over budget)" if t.get("over_budget") else ""
-            lines.append(f"| {key} | {t['passed']}/{t['tests']} | "
-                         f"{t['runtime_s']:.1f}{over} | {t['budget_s']:.0f} |")
+            cpu = f"{t['cpu_s']:.1f}" if "cpu_s" in t else "n/a"
+            lines.append(f"| {key} | {t['passed']}/{t['tests']} | {cpu}{over} | "
+                         f"{t['budget_s']:.0f} | {t['runtime_s']:.1f} |")
     bad = [b for b in s.get("builds", []) if b.get("status") != "pass"]
     bad += [t for t in s.get("tests", []) if t.get("status") != "pass"]
     if bad:

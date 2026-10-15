@@ -1,6 +1,8 @@
 import importlib.util
 import json
 import os
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -264,3 +266,25 @@ def test_e2e_sim_cli_waves(fixture_src, tmp_path):
     tdir = work / "counter_inc/exhaustive/3"
     assert (tdir / "results.xml").is_file()
     assert any(p.suffix in (".vcd", ".fst") for p in tdir.iterdir()), os.listdir(tdir)
+
+
+def test_wait_rusage_counts_the_grandchild_cpu_time():
+    # The simulator runs under the cocotb runner, a grandchild of regress:
+    # its CPU time must be in the figure the level budgets compare.
+    burn = ("import time\nend = time.process_time() + 1.0\n"
+            "while time.process_time() < end:\n    pass\n")  # about 1 s of CPU
+    parent = f"import subprocess, sys\nsubprocess.run([sys.executable, '-c', {burn!r}])\nsys.exit(3)\n"
+    proc = subprocess.Popen([sys.executable, "-c", parent])
+    code, cpu = sim._wait_rusage(proc, timeout_s=60)
+    assert code == 3 and proc.returncode == 3
+    assert cpu > 0.5  # the grandchild's second, not just the parent's start-up
+
+
+def test_wait_rusage_times_out():
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        with pytest.raises(subprocess.TimeoutExpired):
+            sim._wait_rusage(proc, timeout_s=0.2)
+    finally:
+        proc.kill()
+        proc.wait()

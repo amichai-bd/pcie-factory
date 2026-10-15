@@ -12,7 +12,8 @@ SUMMARY = {
     ],
     "totals": {
         "level0": {"tests": 1, "passed": 1, "failed": 0, "runtime_s": 0.9, "budget_s": 120, "over_budget": False},
-        "level1": {"tests": 1, "passed": 0, "failed": 1, "runtime_s": 700.0, "budget_s": 600, "over_budget": True},
+        "level1": {"tests": 1, "passed": 0, "failed": 1, "runtime_s": 900.0,
+                   "cpu_s": 700.0, "budget_s": 600, "over_budget": True},
     },
     "wall_s": 3.4,
     "passed": False,
@@ -25,7 +26,8 @@ def test_render_failures_and_budget(tmp_path):
     md = render(p)
     assert md.startswith("### Regression L0, L1: FAIL\n")
     assert "| `a` | changed: src/rtl/a/a.sv |" in md
-    assert "| level1 | 0/1 | 700.0 (over budget) | 600 |" in md
+    assert "| level1 | 0/1 | 700.0 (over budget) | 600 | 900.0 |" in md
+    assert "| level0 | 1/1 | n/a | 120 | 0.9 |" in md   # a summary from before cpu_s
     assert "- `a:full` seed=7: fail (`a/full/7/sim.log`)" in md
     assert "smoke" not in md
     assert render(p) == md  # deterministic
