@@ -679,7 +679,7 @@ def test_scan_directives(tmp_path):
         cdc.Directive("common_cdc_grouped", "async", "dst_clk_i", grouped.resolve(), 1)]
     assert findings == [
         "rtl/common/common_cdc_bad.sv:1: malformed cdc-cell directive (expected "
-        "'// cdc-cell: src=<clock port|async> dst=<clock port>')",
+        "'// cdc-cell: src=<clock port|async> dst=<clock port> [reset=<dst_* output port>]')",
         "rtl/common/common_cdc_bad.sv:4: cdc-cell directive is not on the line directly "
         "above a module line",
         "rtl/common/common_cdc_bad.sv:8: malformed cdc-cell directive on common_cdc_same: "
