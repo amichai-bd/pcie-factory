@@ -12,9 +12,9 @@ against the architecture model's link partner
   testbench touches two handles a cycle;
   [`tb/harness.py`](../../../../src/dv/mac_ltssm/tb/harness.py) runs one
   cycle per falling edge of `clk_i`.
-- **Sibling layer.** `mac_os` and `mac_frame` are built in parallel
-  ([#75](https://github.com/amichai-bd/pcie-factory/issues/75),
-  [#76](https://github.com/amichai-bd/pcie-factory/issues/76)), so
+- **Sibling layer.** The sub-IP is tested alone: `mac_os` and `mac_frame`
+  join it in the `mac` top
+  ([#78](https://github.com/amichai-bd/pcie-factory/issues/78)), so
   [`tb/os_bfm.py`](../../../../src/dv/mac_ltssm/tb/os_bfm.py) plays both
   at the [sibling interfaces](../../rtl/mac_ltssm/MAS.md#sibling-interfaces):
   it builds the DUT's PIPE words from the requests and TS fields, with the

@@ -45,12 +45,15 @@
 
 Level 1 has no entries yet (`tests: []`).
 
+The ordered sets and TS fields are verified in the `mac_os` sub-IP
+([DV plan](../mac_os/DV_PLAN.md)); the top tests reach them through the
+link partner.
+
 ## Gaps
 
 | Feature | Owning issue |
 | --- | --- |
 | [Scrambling](../../arch/mac/SYMBOLS.md#scrambling) | [#74](https://github.com/amichai-bd/pcie-factory/issues/74) |
-| [Ordered sets and TS fields](../../arch/mac/SYMBOLS.md#ordered-sets) | [#75](https://github.com/amichai-bd/pcie-factory/issues/75) |
 | [Framing](../../arch/mac/SYMBOLS.md#framing), [transmit](../../arch/mac/HAS.md#transmit) and [receive](../../arch/mac/HAS.md#receive) streams | [#76](https://github.com/amichai-bd/pcie-factory/issues/76) |
 | LTSSM arcs: Detect, Polling, Configuration, L0, Recovery, on the `mac` top (the sub-IP alone: [`mac_ltssm` DV plan](../mac_ltssm/DV_PLAN.md)) | [#78](https://github.com/amichai-bd/pcie-factory/issues/78) |
 | The `mac` top against the link partner, [targets](../../arch/mac/HAS.md#targets) | [#78](https://github.com/amichai-bd/pcie-factory/issues/78) |

@@ -75,13 +75,15 @@ names; `pcie_mac` connects them one to one.
 ### Sibling interfaces
 
 Plain `logic` ports, matched one to one with the
-[`mac_os` MAS](https://github.com/amichai-bd/pcie-factory/issues/75)
+[`mac_os` MAS](../mac_os/MAS.md)
 (its `tx_*_req_i`, `tx_ack_o`, `tx_valid_o`, `tx_last_o`, `rx_*_o`) and
 the [`mac_frame` MAS](https://github.com/amichai-bd/pcie-factory/issues/76)
 (`tx_l0_i`, `tx_stop_i`, `rx_l0_i`, `rx_idle_o`); inputs from them carry
 the prefix `os_` or `fr_`. Each event describes the word sent or received
 in the cycle it is high; the siblings' outputs are combinational from the
-LTSSM's registered outputs and their own state, so there is no loop.
+LTSSM's registered outputs and their own state, so there is no loop. The
+`pcie_mac` shell already joins `u_ltssm` and `u_os` port to port (inert
+until #78), so lint checks the match.
 
 | Port | Dir | Width | Description |
 | --- | --- | --- | --- |

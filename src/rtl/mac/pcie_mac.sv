@@ -4,9 +4,11 @@
 // wiki/src/rtl/mac/MAS.md.
 //
 // Wave-1 shell: the ports of the HAS with every output tied to its reset
-// value. The wave-2 sub-IPs are instanced as they land, inert and
-// unconnected until the integration (#78).
+// value. The wave-2 sub-IPs are instanced as they land, inert and not yet
+// driving the outputs, until the integration (#78).
 `default_nettype none
+
+`include "common_macros.svh"
 
 module pcie_mac #(
   parameter int unsigned TIMEOUT_DIV     = 1,    // 1..1024: divides Detect.Quiet and the Hot Reset dwell
@@ -77,9 +79,22 @@ module pcie_mac #(
                            TIMEOUT_DIV[0], ERR_TIMEOUT_DIV[0], N_FTS[0],
                            L0S_IDLE_CYCLES[0]};
 
-  // Wave-2 sub-IP, elaborated but inert until the integration (#78): the
-  // PCS status is tied to "not ready", so the LTSSM stays in Detect.Quiet,
-  // and its outputs are not connected yet.
+  // Ordered sets (wiki/src/rtl/mac_os/MAS.md) and the LTSSM
+  // (wiki/src/rtl/mac_ltssm/MAS.md), joined port to port; the frame
+  // connections, the transmit word and the outputs arrive with #78. Until
+  // then the LTSSM's PCS status is tied to "not ready", so it stays in
+  // Detect.Quiet and requests no ordered set, and the receive side only
+  // parses.
+  logic        os_tx_ack, os_tx_last, os_tx_skp_due, os_tx_valid, os_tx_compliance;
+  logic [15:0] os_tx_data;
+  logic [1:0]  os_tx_datak, os_rx_os_sym;
+  logic        os_rx_ts, os_rx_ts2, os_rx_ts_inv, os_rx_link_pad, os_rx_link_num;
+  logic        os_rx_lane_pad, os_rx_lane_num, os_rx_ts_bad, os_rx_skp, os_rx_eios;
+  logic        os_rx_fts;
+  logic [7:0]  os_rx_link, os_rx_lane, os_rx_n_fts;
+  logic [4:0]  os_rx_ctl;
+
+  // LTSSM signals (wiki/src/rtl/mac_ltssm/MAS.md).
   logic        ltssm_link_up, ltssm_reset_n, ltssm_tx_elec_idle, ltssm_tx_detect_rx;
   logic        ltssm_rx_polarity, ltssm_tx_ts_req, ltssm_tx_compliance_req, ltssm_tx_ts2;
   logic        ltssm_tx_link_pad, ltssm_tx_lane_pad, ltssm_tx_l0, ltssm_tx_stop, ltssm_rx_l0;
@@ -87,6 +102,53 @@ module pcie_mac #(
   logic [1:0]  ltssm_power_down;
   logic [7:0]  ltssm_tx_link, ltssm_tx_lane, ltssm_partner_n_fts;
   logic [2:0]  ltssm_tx_ctl;
+
+  pcie_mac_os #(
+    .N_FTS(N_FTS)
+  ) u_os (
+    .clk_i               (clk_i),
+    .rst_i               (rst_i),
+    .tx_ts_req_i         (ltssm_tx_ts_req),
+    .tx_skp_req_i        (1'b0),
+    .tx_eios_req_i       (1'b0),
+    .tx_fts_req_i        (1'b0),
+    .tx_compliance_req_i (ltssm_tx_compliance_req),
+    .tx_ts2_i            (ltssm_tx_ts2),
+    .tx_link_pad_i       (ltssm_tx_link_pad),
+    .tx_link_i           (ltssm_tx_link),
+    .tx_lane_pad_i       (ltssm_tx_lane_pad),
+    .tx_lane_i           (ltssm_tx_lane),
+    .tx_ctl_i            (ltssm_tx_ctl),
+    .tx_ack_o            (os_tx_ack),
+    .tx_last_o           (os_tx_last),
+    .tx_skp_due_o        (os_tx_skp_due),
+    .tx_skp_ok_i         (1'b0),
+    .tx_count_i          (1'b0),
+    .tx_valid_o          (os_tx_valid),
+    .tx_data_o           (os_tx_data),
+    .tx_datak_o          (os_tx_datak),
+    .tx_compliance_o     (os_tx_compliance),
+    .rx_data_i           (pipe_rx_data_i),
+    .rx_datak_i          (pipe_rx_datak_i),
+    .rx_valid_i          (pipe_rx_valid_i),
+    .rx_elec_idle_i      (pipe_rx_elec_idle_i),
+    .rx_os_sym_o         (os_rx_os_sym),
+    .rx_ts_o             (os_rx_ts),
+    .rx_ts2_o            (os_rx_ts2),
+    .rx_ts_inv_o         (os_rx_ts_inv),
+    .rx_link_o           (os_rx_link),
+    .rx_link_pad_o       (os_rx_link_pad),
+    .rx_link_num_o       (os_rx_link_num),
+    .rx_lane_o           (os_rx_lane),
+    .rx_lane_pad_o       (os_rx_lane_pad),
+    .rx_lane_num_o       (os_rx_lane_num),
+    .rx_n_fts_o          (os_rx_n_fts),
+    .rx_ctl_o            (os_rx_ctl),
+    .rx_ts_bad_o         (os_rx_ts_bad),
+    .rx_skp_o            (os_rx_skp),
+    .rx_eios_o           (os_rx_eios),
+    .rx_fts_o            (os_rx_fts)
+  );
 
   pcie_mac_ltssm #(
     .TIMEOUT_DIV     (TIMEOUT_DIV),
@@ -119,25 +181,25 @@ module pcie_mac #(
     .tx_lane_pad_o       (ltssm_tx_lane_pad),
     .tx_lane_o           (ltssm_tx_lane),
     .tx_ctl_o            (ltssm_tx_ctl),
-    .os_tx_ack_i         (1'b0),
-    .os_tx_valid_i       (1'b0),
-    .os_tx_last_i        (1'b0),
-    .os_rx_ts_i          (1'b0),
-    .os_rx_ts_bad_i      (1'b0),
-    .os_rx_ts2_i         (1'b0),
-    .os_rx_ts_inv_i      (1'b0),
-    .os_rx_link_i        (8'd0),
-    .os_rx_link_pad_i    (1'b0),
-    .os_rx_link_num_i    (1'b0),
-    .os_rx_lane_i        (8'd0),
-    .os_rx_lane_pad_i    (1'b0),
-    .os_rx_lane_num_i    (1'b0),
-    .os_rx_n_fts_i       (8'd0),
-    .os_rx_ctl_i         (5'd0),
-    .os_rx_skp_i         (1'b0),
-    .os_rx_eios_i        (1'b0),
-    .os_rx_fts_i         (1'b0),
-    .os_rx_os_sym_i      (2'd0),
+    .os_tx_ack_i         (os_tx_ack),
+    .os_tx_valid_i       (os_tx_valid),
+    .os_tx_last_i        (os_tx_last),
+    .os_rx_ts_i          (os_rx_ts),
+    .os_rx_ts_bad_i      (os_rx_ts_bad),
+    .os_rx_ts2_i         (os_rx_ts2),
+    .os_rx_ts_inv_i      (os_rx_ts_inv),
+    .os_rx_link_i        (os_rx_link),
+    .os_rx_link_pad_i    (os_rx_link_pad),
+    .os_rx_link_num_i    (os_rx_link_num),
+    .os_rx_lane_i        (os_rx_lane),
+    .os_rx_lane_pad_i    (os_rx_lane_pad),
+    .os_rx_lane_num_i    (os_rx_lane_num),
+    .os_rx_n_fts_i       (os_rx_n_fts),
+    .os_rx_ctl_i         (os_rx_ctl),
+    .os_rx_skp_i         (os_rx_skp),
+    .os_rx_eios_i        (os_rx_eios),
+    .os_rx_fts_i         (os_rx_fts),
+    .os_rx_os_sym_i      (os_rx_os_sym),
     .tx_l0_o             (ltssm_tx_l0),
     .tx_stop_o           (ltssm_tx_stop),
     .rx_l0_o             (ltssm_rx_l0),
@@ -146,13 +208,11 @@ module pcie_mac #(
     .fr_rx_idle_i        (2'd0)
   );
 
-  logic unused_ltssm;
-  assign unused_ltssm = ^{ltssm_link_up, ltssm_reset_n, ltssm_tx_elec_idle,
-                          ltssm_tx_detect_rx, ltssm_rx_polarity, ltssm_tx_ts_req,
-                          ltssm_tx_compliance_req, ltssm_tx_ts2, ltssm_tx_link_pad,
-                          ltssm_tx_lane_pad, ltssm_tx_l0, ltssm_tx_stop, ltssm_rx_l0,
-                          ltssm_state, ltssm_power_down, ltssm_tx_link, ltssm_tx_lane,
-                          ltssm_partner_n_fts, ltssm_tx_ctl};
+  `COMMON_UNUSED_BITS(unused_os, {os_tx_skp_due, os_tx_compliance, os_tx_data, os_tx_datak})
+  `COMMON_UNUSED_BITS(unused_ltssm, {ltssm_link_up, ltssm_reset_n, ltssm_tx_elec_idle,
+                                     ltssm_tx_detect_rx, ltssm_rx_polarity, ltssm_tx_l0,
+                                     ltssm_tx_stop, ltssm_rx_l0, ltssm_state,
+                                     ltssm_power_down, ltssm_partner_n_fts})
 
   // Reset values from the HAS: no packet traffic, link down in Detect.Quiet
   // (code 0), PCS held in reset, transmitter in electrical idle, P1.
