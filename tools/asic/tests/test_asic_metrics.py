@@ -172,12 +172,15 @@ def test_clock_slacks_per_clock():
     ({"other": 3}, "asic_clocks.json has no clocks entry"),
     ({"clocks": {}}, "clock_slacks.tcl wrote no clock"),
     ({"clocks": [1]}, "malformed"), ({"clocks": {"c": 3}}, "malformed")])
-def test_clock_slacks_missing_warns_not_fails(extra, cause):
-    summary = metrics.summarize({}, {}, None, {}, extra)
+def test_clock_slacks_missing_is_required(extra, cause):
+    # Every other metric present: the clocks alone make the run incomplete.
+    summary = metrics.summarize(step_metrics(), {},
+                                metrics.parse_worst_path(text("reports/6_finish.rpt")),
+                                metrics.parse_extra(text("reports/asic_extra.json")), extra)
     assert summary["timing"]["clocks"] is None
-    assert "timing.clocks" not in metrics.missing(summary)
+    assert metrics.missing(summary) == ["timing.clocks"]
     assert len(summary["warnings"]) == 1 and cause in summary["warnings"][0]
-    assert summary["warnings"][0].startswith("timing.clocks missing (optional, run not failed): ")
+    assert summary["warnings"][0].startswith("timing.clocks missing (required, run incomplete): ")
 
 
 def test_full_clocks_file_has_no_warning():

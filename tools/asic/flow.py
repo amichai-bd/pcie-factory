@@ -33,9 +33,6 @@ VARIANT = "base"
 DEFAULT_TIMEOUT_S = 3600
 EXTRA_TCL = Path(__file__).resolve().parent / "extra_metrics.tcl"
 CLOCKS_TCL = Path(__file__).resolve().parent / "clock_slacks.tcl"
-# Optional steps: {name: wall-clock cap in s}, taken from the shared budget.
-# Their failure or timeout is a warning, never the run's status.
-OPTIONAL_STEPS = {"clocks": 600}
 
 # Variables the tool generates; an IP's <platform>.mk must not set them.
 TOOL_OWNED = ("VERILOG_FILES", "VERILOG_INCLUDE_DIRS", "VERILOG_DEFINES",
@@ -430,7 +427,6 @@ def _run(ctx: Context, plan: Plan, orfs: Orfs, timeout_s: float, name: str) -> t
     started = time.monotonic()
     status = "pass"
     versions: dict = {}
-    step_warnings: list[str] = []
     with plan.flow_log.open("w") as log:
         for step, script in step_scripts(orfs, plan):
             argv = wrap(orfs, plan, ctx, script, f"{name}-{step}")
@@ -439,19 +435,12 @@ def _run(ctx: Context, plan: Plan, orfs: Orfs, timeout_s: float, name: str) -> t
             log.flush()
             mark = plan.flow_log.stat().st_size
             budget = deadline - time.monotonic()
-            cap = OPTIONAL_STEPS.get(step)
-            if cap is not None:
-                budget = min(budget, cap)
             result = run_step(argv, log, budget, orfs, f"{name}-{step}")
             log.flush()
             if step == "versions":
                 with plan.flow_log.open() as fh:
                     fh.seek(mark)
                     versions = parse_versions(fh.read())
-            if result != "pass" and cap is not None:
-                limit = f"timeout after {max(budget, 1):.0f}s" if result == "timeout" else result
-                step_warnings.append(f"{step} step (optional): {limit}; run not failed")
-                continue
             if result != "pass":
                 status = f"{step}: {result if result != 'timeout' else f'timeout after {timeout_s:g}s'}"
                 break
@@ -459,7 +448,6 @@ def _run(ctx: Context, plan: Plan, orfs: Orfs, timeout_s: float, name: str) -> t
                                                VARIANT)
     plan.worst_path_txt.write_text(worst_text)
     absent = asic_metrics.missing(summary)
-    summary["warnings"] = step_warnings + summary["warnings"]
     for warning in summary["warnings"]:
         print(f"[asic] warning: {warning}", flush=True)
     if status == "pass" and absent:
