@@ -150,7 +150,7 @@ pushes to `main` and manual dispatch:
 1. The data guard: a `nightly/` branch may change only
    `wiki/tracker/data/**` ([metrics spec](../tools/metrics/SPEC.md#guard)).
    Other branches pass at once.
-2. `./build specs fetch`, best effort (`continue-on-error`), so the
+2. `./build specs fetch`, best effort (`continue-on-error`, 3 minutes), so the
    spec-cache check sees the reference documents; then `./build check`.
 3. `tools/` unit tests, when `tools/`, `cfg/` or `build` changed, and the
    model unit tests of the affected IPs (`./build ci unit`).

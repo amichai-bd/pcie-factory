@@ -182,16 +182,20 @@ fi
 
 # Reference documents (wiki/tools/specs/SPEC.md): best effort, so a blocked
 # network, a sha256 mismatch or a missing text extractor is reported and
-# never fails the session start. The cache lives outside the repository.
+# never fails the session start. One 300 s budget covers the whole step
+# (package install and fetch). The cache lives outside the repository.
 if [ "$SPECS_FETCH" = true ]; then
-  if ! command -v pdftotext >/dev/null 2>&1; then
-    echo "session-start: installing $SPECS_TEXT_PACKAGE (best effort)"
-    export DEBIAN_FRONTEND=noninteractive
-    { timeout 300 apt-get install -y -q "$SPECS_TEXT_PACKAGE" \
-      || { timeout 300 apt-get update -q && timeout 300 apt-get install -y -q "$SPECS_TEXT_PACKAGE"; }; } \
-      >/dev/null 2>&1 || echo "session-start: $SPECS_TEXT_PACKAGE not installed; text will not be extracted"
-  fi
-  timeout 300 "$ROOT/build" specs fetch || echo "session-start: specs fetch incomplete (see above); continuing"
+  timeout 300 bash -c '
+    root=$1 pkg=$2
+    if ! command -v pdftotext >/dev/null 2>&1; then
+      echo "session-start: installing $pkg (best effort)"
+      export DEBIAN_FRONTEND=noninteractive
+      { apt-get install -y -q "$pkg" || { apt-get update -q && apt-get install -y -q "$pkg"; }; } \
+        >/dev/null 2>&1 || echo "session-start: $pkg not installed; text will not be extracted"
+    fi
+    "$root/build" specs fetch
+  ' specs "$ROOT" "$SPECS_TEXT_PACKAGE" \
+    || echo "session-start: specs step incomplete or over its 300 s budget (see above); continuing"
 fi
 
 "$VERILATOR" --version

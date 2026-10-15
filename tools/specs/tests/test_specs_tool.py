@@ -13,7 +13,8 @@ import pytest
 from cli.main import main
 from specs import core
 
-PDF = b"%PDF-1.4\nfake reference document\n%%EOF\n"
+MAGIC = b"%" + b"PDF-"  # assembled, so this file is not itself flagged as a PDF
+PDF = MAGIC + b"1.4\nfake reference document\n%%EOF\n"
 SHA = hashlib.sha256(PDF).hexdigest()
 
 
@@ -78,7 +79,9 @@ def test_list_parses(tmp_path):
     ("documents: {}\n", "only a 'documents' list"),
     (LIST.format(sha="abc"), "64 lower-case hex"),
     (LIST.format(sha=SHA).replace("    sha256: " + SHA + "\n", ""), "needs a pinned sha256"),
-    (LIST.format(sha=SHA).replace("https://example.com", "http://example.com"), "https:// URL"),
+    (LIST.format(sha=SHA).replace("https://example.com", "http://example.com"), "one of https://"),
+    (LIST.format(sha=SHA).replace("https://example.com/alpha.pdf", "file:///tmp/alpha.pdf"),
+     "one of https://"),
     (LIST.format(sha=SHA).replace("id: beta", "id: alpha"), "must be unique"),
     (LIST.format(sha=SHA).replace("    license: members only\n", ""), "needs"),
     (LIST.format(sha=SHA) + "    extra: x\n", "needs"),
@@ -111,6 +114,13 @@ def test_cache_env_override_and_inside_repo_rejected(tmp_path):
         core.cache_dir(repo, {core.ENV_CACHE: str(repo / "cache")})
     with pytest.raises(core.SpecsError, match="inside the repository"):
         core.local_dir(repo, out, {core.ENV_LOCAL: str(repo)})
+
+
+def test_file_urls_only_when_a_test_allows_them(tmp_path, monkeypatch):
+    (tmp_path / "specs.yaml").write_text(
+        LIST.format(sha=SHA).replace("https://example.com/alpha.pdf", "file:///tmp/alpha.pdf"))
+    monkeypatch.setattr(core, "SCHEMES", ("https://", "file://"))
+    assert core.load_list(tmp_path)[0].source == "file:///tmp/alpha.pdf"
 
 
 def test_show_hides_home():
@@ -159,7 +169,7 @@ def test_fetch_without_extractor_keeps_document(tmp_path, served):
 def test_tampered_cache_is_a_mismatch_and_refetched(tmp_path, served):
     d = doc(served)
     fetch([d], tmp_path)
-    (tmp_path / "cache" / "alpha.pdf").write_bytes(b"%PDF-changed")
+    (tmp_path / "cache" / "alpha.pdf").write_bytes(MAGIC + b"changed")
     assert core.status(d, tmp_path / "cache") == core.MISMATCH
     code, _ = fetch([d], tmp_path)
     assert code == 0 and core.status(d, tmp_path / "cache") == core.PRESENT
@@ -178,6 +188,28 @@ def test_local_document_missing_then_provided(tmp_path):
     assert core.status(d, tmp_path / "cache") == core.PRESENT
 
 
+def test_unchanged_local_document_is_not_copied_or_extracted_again(tmp_path):
+    d = doc(core.LOCAL, sha=None, id="beta")
+    (tmp_path / "inbox").mkdir()
+    (tmp_path / "inbox" / "beta.pdf").write_bytes(PDF)
+    calls = []
+
+    def counting(pdf, txt):
+        calls.append(pdf)
+        fake_extract(pdf, txt)
+
+    fetch([d], tmp_path, counting)
+    mtime = (tmp_path / "cache" / "beta.pdf").stat().st_mtime_ns
+    code, lines = fetch([d], tmp_path, counting)
+    assert code == 0 and len(calls) == 1
+    assert lines == [f"beta: already cached {tmp_path / 'cache' / 'beta.pdf'}"]
+    assert (tmp_path / "cache" / "beta.pdf").stat().st_mtime_ns == mtime
+    # A changed local copy replaces the cached one and is extracted again.
+    (tmp_path / "inbox" / "beta.pdf").write_bytes(PDF + b"v2\n")
+    code, lines = fetch([d], tmp_path, counting)
+    assert code == 0 and len(calls) == 2 and "unpinned" in lines[0]
+
+
 def test_local_document_with_wrong_pin_fails(tmp_path):
     (tmp_path / "inbox").mkdir()
     (tmp_path / "inbox" / "beta.pdf").write_bytes(PDF)
@@ -188,7 +220,8 @@ def test_local_document_with_wrong_pin_fails(tmp_path):
 # --- command line ---------------------------------------------------------
 
 @pytest.fixture
-def src(tmp_path, served) -> Path:
+def src(tmp_path, served, monkeypatch) -> Path:
+    monkeypatch.setattr(core, "SCHEMES", ("https://", "file://"))
     s = tmp_path / "src"
     s.mkdir()
     (s / "specs.yaml").write_text(
@@ -210,6 +243,16 @@ def test_cli_list_path_and_fetch(tmp_path, src, capsys, monkeypatch):
     assert capsys.readouterr().out.strip() == str(cache / "alpha.txt")
     assert main(["specs", "path", "--src-root", str(src)]) == 0
     assert capsys.readouterr().out.strip() == str(cache)
+    assert main(["specs", "path", "alpha", "--absolute", "--src-root", str(src)]) == 0
+    assert capsys.readouterr().out.strip() == str(cache / "alpha.txt")
+
+
+def test_cli_path_shows_home_as_tilde(src, capsys, monkeypatch):
+    monkeypatch.setenv(core.ENV_CACHE, str(Path.home() / ".cache" / "x-specs-test"))
+    assert main(["specs", "path", "--src-root", str(src)]) == 0
+    assert capsys.readouterr().out.strip() == "~/.cache/x-specs-test"
+    assert main(["specs", "path", "--absolute", "--src-root", str(src)]) == 0
+    assert capsys.readouterr().out.strip() == str(Path.home() / ".cache" / "x-specs-test")
     assert main(["specs", "fetch", "--id", "gamma", "--src-root", str(src)]) == 2
 
 

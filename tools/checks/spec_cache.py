@@ -4,30 +4,81 @@ Owning spec: wiki/tools/checks/SPEC.md, "Spec-cache check". Scans every
 file git lists (tracked, plus untracked files that are not ignored), like
 the publishability check, and flags:
 
-- ``pdf``: a PDF (a ``.pdf`` name, or content starting ``%PDF-``);
+- ``pdf``: a PDF (a ``.pdf`` name, or the PDF signature in its first 1 KiB);
+- ``archive``: a ``.zip``, ``.gz``, ``.tgz``, ``.7z`` or ``.tar*`` file, or
+  one with a zip, gzip or 7z signature, unless ``spec_cache.allow`` in
+  ``cfg/checks.yaml`` exempts its path with a reason (an archive can hide a
+  document from every other rule);
 - ``cached-file``: a file byte-identical to a cached document or its text;
 - ``cached-text``: a text file sharing a run of more than
-  ``citation.max_quote_words`` consecutive words with a cached text.
+  ``citation.max_quote_words`` consecutive words with a cached text. UTF-8
+  files are read as such; a file with a UTF-16 byte-order mark, or one with
+  NUL bytes that decodes cleanly as UTF-16, is decoded first.
 
 It also requires every id in the reference list (``<src_root>/specs.yaml``)
 to be an entry heading on ``wiki/src/references.md``. Without a cache, only
-the PDF and reference-list rules apply.
+the PDF, archive and reference-list rules apply.
 """
 
 from __future__ import annotations
 
+import codecs
 import hashlib
 import re
 import subprocess
+from dataclasses import dataclass
+from fnmatch import fnmatchcase
 from pathlib import Path
+
+import yaml
 
 from checks import citation
 from checks.common import CheckConfigError, CheckResult, rel
 from specs import core
 
+CONFIG = "cfg/checks.yaml"
 PAGE = "references.md"
+PDF_WINDOW = 1024
+# The PDF signature, assembled so that this file does not carry it.
+PDF_MAGIC = b"%" + b"PDF-"
+# .zip, .gz, .tgz, .7z, and .tar alone or with a compression suffix.
+_ARCHIVE_NAME = re.compile(r"\.(?:zip|gz|tgz|7z|tar(?:\.[a-z0-9]+)?)$")
+ARCHIVE_MAGIC = (b"PK\x03\x04", b"PK\x05\x06", b"\x1f\x8b", b"7z\xbc\xaf\x27\x1c")
 _WORD = re.compile(r"[a-z0-9]+")
 _HEADING = re.compile(r"^#{2,6}[ \t]+`?([a-z0-9][a-z0-9-]*)`?[ \t]*$", re.MULTILINE)
+
+
+@dataclass(frozen=True)
+class Allow:
+    path: str
+    reason: str
+
+
+def load_config(repo_root: Path, path: str = CONFIG) -> tuple[Allow, ...]:
+    """The ``spec_cache.allow`` entries; no section means none."""
+    p = Path(repo_root) / path
+    try:
+        data = yaml.safe_load(p.read_text())
+    except OSError as exc:
+        raise CheckConfigError(f"{p}: {exc.strerror}") from None
+    except yaml.YAMLError as exc:
+        raise CheckConfigError(f"{p}: invalid YAML: {exc}") from None
+    sec = data.get("spec_cache") if isinstance(data, dict) else None
+    if sec is None:
+        return ()
+    if not isinstance(sec, dict) or set(sec) != {"allow"}:
+        raise CheckConfigError(f"{p}: 'spec_cache' must be a mapping with only 'allow'")
+    entries = [] if sec["allow"] is None else sec["allow"]
+    if not isinstance(entries, list):
+        raise CheckConfigError(f"{p}: spec_cache.allow must be a list")
+    out = []
+    for i, e in enumerate(entries):
+        if not isinstance(e, dict) or set(e) != {"path", "reason"} or not all(
+                isinstance(e[k], str) and e[k].strip() for k in ("path", "reason")):
+            raise CheckConfigError(f"{p}: spec_cache.allow[{i}]: needs a non-empty "
+                                   "'path' glob and 'reason', only")
+        out.append(Allow(e["path"], e["reason"].strip()))
+    return tuple(out)
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -35,6 +86,35 @@ def _git(repo: Path, *args: str) -> str:
     if proc.returncode != 0:
         raise CheckConfigError(f"git {' '.join(args)}: {proc.stderr.strip()}")
     return proc.stdout
+
+
+def is_pdf(path: str, data: bytes) -> bool:
+    return path.lower().endswith(".pdf") or PDF_MAGIC in data[:PDF_WINDOW]
+
+
+def is_archive(path: str, data: bytes) -> bool:
+    name = path.lower().rsplit("/", 1)[-1]
+    return bool(_ARCHIVE_NAME.search(name)) or data.startswith(ARCHIVE_MAGIC)
+
+
+def texts(data: bytes) -> list[str]:
+    """The readings of ``data`` to scan for words: UTF-8 (or UTF-8 with a
+    BOM); UTF-16 with a BOM; or, for data with NUL bytes, each UTF-16 byte
+    order that decodes cleanly. Empty for other binary data."""
+    if data.startswith(codecs.BOM_UTF8):
+        return [data[3:].decode("utf-8", errors="replace")]
+    if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        return [data.decode("utf-16", errors="replace")]
+    if b"\0" not in data:
+        return [data.decode("utf-8", errors="replace")]
+    out = []
+    if len(data) % 2 == 0:
+        for enc in ("utf-16-le", "utf-16-be"):
+            try:
+                out.append(data.decode(enc))
+            except UnicodeDecodeError:
+                pass
+    return out
 
 
 def words(text: str) -> list[str]:
@@ -69,10 +149,12 @@ def page_ids(page: Path) -> set[str]:
         return set()
 
 
-def run(repo_root: Path, src_root: Path, cache: Path | None = None) -> CheckResult:
+def run(repo_root: Path, src_root: Path, cache: Path | None = None,
+        config_path: str = CONFIG) -> CheckResult:
     result = CheckResult("spec-cache")
     add = result.findings.append
-    n = citation.load_config(repo_root) + 1
+    n = citation.load_config(repo_root, config_path) + 1
+    allow = load_config(repo_root, config_path)
     try:
         docs = core.load_list(src_root)
         cache = core.cache_dir(repo_root) if cache is None else cache
@@ -95,30 +177,42 @@ def run(repo_root: Path, src_root: Path, cache: Path | None = None) -> CheckResu
 
     files = sorted({f for f in _git(repo_root, "ls-files", "-z", "--cached", "--others",
                                     "--exclude-standard").split("\0") if f})
+    used: set[int] = set()
     for f in files:
         p = Path(repo_root) / f
         if p.is_symlink() or not p.is_file():
             continue
         data = p.read_bytes()
-        if f.lower().endswith(".pdf") or data.startswith(b"%PDF-"):
+        if is_pdf(f, data):
             add(f"{f}: pdf: a PDF document; reference documents are never committed")
             continue
+        if is_archive(f, data):
+            hit = [i for i, e in enumerate(allow) if fnmatchcase(f, e.path)]
+            used.update(hit)
+            if not hit:
+                add(f"{f}: archive: an archive can hide a reference document; "
+                    f"exempt it in {config_path} spec_cache.allow with a reason")
+                continue
         digest = hashlib.sha256(data).hexdigest()
         if digest in hashes:
             add(f"{f}: cached-file: identical to the cached {hashes[digest]}")
             continue
-        if not index or b"\0" in data:
+        if not index:
             continue
-        text = data.decode("utf-8", errors="replace")
-        ws = words(text)
-        for name, idx in index.items():
-            i = first_shared_run(ws, idx, n)
-            if i is not None:
-                add(f"{f}:{_line_of(text, i)}: cached-text: {n} or more consecutive words "
-                    f"match the cached {name}; paraphrase and cite instead")
+        for text in texts(data):
+            ws = words(text)
+            found = next(((name, i) for name, idx in index.items()
+                          if (i := first_shared_run(ws, idx, n)) is not None), None)
+            if found:
+                add(f"{f}:{_line_of(text, found[1])}: cached-text: {n} or more consecutive "
+                    f"words match the cached {found[0]}; paraphrase and cite instead")
                 break
+    for i, e in enumerate(allow):
+        if i not in used:
+            add(f"{config_path}: spec_cache.allow[{i}] ({e.path}): stale, matches no archive")
     result.checked = (f"{len(files)} file(s) (tracked and untracked, not ignored); "
-                      f"{len(docs)} listed document(s); {len(cached)} cached file(s) in "
-                      f"{core.show(cache) if cached else 'no cache (PDF and list rules only)'}; "
+                      f"{len(docs)} listed document(s); {len(allow)} archive allow entry(ies); "
+                      f"{len(cached)} cached file(s) in "
+                      f"{core.show(cache) if cached else 'no cache (PDF, archive and list rules only)'}; "
                       f"runs of {n} words")
     return result

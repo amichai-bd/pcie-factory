@@ -14,9 +14,14 @@ reviewers can check citations against the text
 ([specs tool](../tools/specs/SPEC.md)). Nothing from that cache is ever
 committed.
 
-**Last verified: 2026-10-15.** Each link was opened from a cloud session
-on that date; the **Verified** line of each entry says how. External links
-are not fetched in CI.
+**Last verified: 2026-10-15,** from a cloud session. Opened and read on that
+date: [`pipe`](#pipe) (the document itself), [`8b10b`](#8b10b) (the DOI and
+its registry record), [`sky130`](#sky130) and [`orfs`](#orfs). Not read:
+[`pcie-base`](#pcie-base) and [`de2-115`](#de2-115) point to the
+publishers' own domains, but those sites could not be read from the
+sandbox (a bot challenge and an unreachable host), so each still needs a
+human to open it and confirm it. The **Verified** line of each entry says
+how. External links are not fetched in CI.
 
 ## pcie-base
 

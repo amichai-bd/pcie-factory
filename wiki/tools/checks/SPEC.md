@@ -38,7 +38,7 @@ check: 2 IP(s) under /abs/src
 [neutrality] PASS: 135 file(s) (tracked and untracked, not ignored) outside src/, ...
 [citation] PASS: 40 text file(s) under src/, wiki/src/; quotes up to 25 words; ...
 [publishability] PASS: 180 file(s) (tracked and untracked, not ignored); 7 rule(s); 5 allow entry(ies)
-[spec-cache] PASS: 180 file(s) (tracked and untracked, not ignored); 2 listed document(s); 2 cached file(s) in ~/.cache/<repo>/specs; runs of 26 words
+[spec-cache] PASS: 180 file(s) (tracked and untracked, not ignored); 2 listed document(s); 0 archive allow entry(ies); 2 cached file(s) in ~/.cache/<repo>/specs; runs of 26 words
 [lint] blk: top=xy_blk
 [lint] common/common_lib: top=common_lib
 [lint] PASS: 2 IP(s), 1 shared block(s), 4 Verilator run(s) with -E audit, 0 waiver(s), 0 warning(s) waived
@@ -320,10 +320,12 @@ citation:                        # see the citation check
   max_quote_words: 25
 publishability:                  # see the publishability check
   allow: [...]
+spec_cache:                      # optional; see the spec-cache check
+  allow: [...]
 ```
 
-The top level holds `neutrality`, `citation` and `publishability` and
-nothing else. All three are required: the neutrality check rejects a
+The top level holds `neutrality`, `citation`, `publishability` and the
+optional `spec_cache`, and nothing else. The first three are required: the neutrality check rejects a
 missing `neutrality` and any unknown top-level key, the citation check
 rejects a missing `citation`, and the
 [publishability check](#publishability-check) a missing `publishability`.
@@ -443,15 +445,29 @@ followed) and fails on:
 
 | Rule | Finding |
 | --- | --- |
-| `pdf` | `<path>: pdf: ...` for any file named `*.pdf` (any case) or starting with `%PDF-`. No allow list: reference documents, datasheets and manuals are never committed, so a PDF has no place in the repository. |
+| `pdf` | `<path>: pdf: ...` for any file named `*.pdf` (any case) or with the PDF signature `%PDF-` anywhere in its first 1 KiB. No allow list: reference documents, datasheets and manuals are never committed, so a PDF has no place in the repository. |
+| `archive` | `<path>: archive: ...` for a `.zip`, `.gz`, `.tgz`, `.7z`, `.tar` or `.tar.<x>` file, or one starting with a zip, gzip or 7z signature, because an archive hides its content from every other rule. A reviewed `spec_cache.allow` entry exempts it (below). |
 | `cached-file` | `<path>: cached-file: identical to the cached <name>`: the file's sha256 equals a cached document's or extracted text's. |
-| `cached-text` | `<path>:<line>: cached-text: <n> or more consecutive words match the cached <name>; ...`: a text file shares a run of `n` = `citation.max_quote_words` + 1 words with an extracted text. Words are lower-case runs of letters and digits, so layout, case and punctuation do not hide a copy; `<line>` is where the first such run starts. |
+| `cached-text` | `<path>:<line>: cached-text: <n> or more consecutive words match the cached <name>; ...`: a text file shares a run of `n` = `citation.max_quote_words` + 1 words with an extracted text. Words are lower-case runs of letters and digits, so layout, case and punctuation do not hide a copy; `<line>` is where the first such run starts. A file is read as UTF-8 (a UTF-8 byte-order mark is dropped); one with a UTF-16 byte-order mark is decoded as UTF-16; one with NUL bytes is scanned in each UTF-16 byte order that decodes cleanly, and skipped as binary when neither does. |
 | list | `src/specs.yaml: document '<id>' has no entry heading on wiki/src/references.md`: every listed id is a level-2 to level-6 heading of exactly that id on the public references page. |
+
+```yaml
+spec_cache:                     # optional section; no section means no entries
+  allow:                        # required in the section; may be empty
+    - path: tools/x/tests/*.zip # required; fnmatch glob ('*' crosses '/')
+      reason: a fixture bundle of our own files   # required
+```
+
+An entry exempts only the `archive` rule, for archives whose path matches;
+an entry that matches no archive is **stale** and is a finding,
+`cfg/checks.yaml: spec_cache.allow[<i>] (<path>): stale, matches no archive`.
+A missing or extra key, an empty string or a wrong type is a configuration
+error (exit 2). PDFs and cached content are never exempt.
 
 The cache is found as `./build specs` finds it. Without one (a host that
 never fetched, or a blocked network), `cached-file` and `cached-text` have
-nothing to compare and only `pdf` and the list rule apply; the summary
-says so. `cached-text` is a heuristic like the citation check: it cannot
+nothing to compare and only `pdf`, `archive` and the list rule apply; the
+summary says so. `cached-text` is a heuristic like the citation check: it cannot
 find a reworded copy, so review stays the main control.
 
 ## Lint check
@@ -718,11 +734,16 @@ config, a path-less entry named only in the config being stale), linear
 scan time on 40k-character adversarial lines, and every config error
 (`test_publishability.py`),
 a temporary git repository with a fake cache: a PDF by name and by
-content (with and without a cache), a copy of a cached text, a run one word
+content (with and without a cache, the signature inside versus beyond the
+first 1 KiB), a copy of a cached text, a run one word
 longer than the quote limit across a line break with other case and
-punctuation versus a run at the limit, ignored files, a listed id with no
-page heading, an invalid list and a cache inside the repository
-(`test_spec_cache.py`); no fixture PDF or document text is stored,
+punctuation versus a run at the limit, UTF-16 text with either
+byte-order mark and without one and UTF-8 with a mark, binary data, every
+archive name and signature with and without an allow entry, archive
+look-alike names, a stale entry and each allow config error, ignored
+files, a listed id with no page heading, an invalid list and a cache
+inside the repository (`test_spec_cache.py`); no fixture PDF or document
+text is stored, and the PDF signature is assembled at run time,
 waivers (used, stale, invalid), output parsing and the command line
 (`test_lint.py`, `test_check_run.py`), and the CDC check on a small IP
 beside a copy of the repository's crossing cells (`test_cdc.py`): a single

@@ -200,10 +200,12 @@ or vendor manual, or a datasheet. "Standard" below means any of them.
   `./build specs fetch` caches the document and its text outside the
   repository ([specs tool](../tools/specs/SPEC.md)). When
   `./build specs list` shows it present, the author checks every citation
-  and every claim drawn from it against `./build specs path <id>`, and the
+  and every claim drawn from it against `./build specs path --absolute <id>`, and the
   page must agree with it; the reviewer spot-checks against it. Still
   paraphrase only. A standard's document, its text or excerpts of it are
-  never committed: not in specs, code, tests, fixtures or PR text.
+  never committed: not in specs, code, tests, fixtures or archives. They
+  never appear in commit messages, issues, pull request descriptions or
+  review comments either, which are just as public.
 
 `./build check` flags long block quotes and quoted runs, and citation-form
 errors, in `src/` and `wiki/src/`

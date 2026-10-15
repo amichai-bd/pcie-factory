@@ -84,9 +84,10 @@ is ready.
 7. **Reference documents,** when `specs.fetch` is `"true"`: installs
    `specs.text_package` with apt when `pdftotext` is missing (running
    `apt-get update` only if the first install fails), then runs
-   `./build specs fetch` ([specs spec](../specs/SPEC.md)). Each step has a
-   300 s timeout, and any failure (a blocked network, a sha256 mismatch,
-   no package) prints a line and continues: this step never fails the hook.
+   `./build specs fetch` ([specs spec](../specs/SPEC.md)). One 300 s
+   timeout bounds the whole step, and any failure (a blocked network, a
+   sha256 mismatch, no package, the timeout) prints a line and continues:
+   this step never fails the hook.
 8. Prints `verilator --version` and the versions of Python, cocotb, pytest,
    PyYAML, markdown-it-py and Pygments. The imports double as a self-check.
 

@@ -26,6 +26,9 @@ ENV_LOCAL = "BUILD_SPECS_LOCAL"
 LOCAL = "local"
 TEXT_TOOL = "pdftotext"
 MAX_BYTES = 256 * 1024 * 1024
+# URL schemes a listed source may use. Only the publisher's https:// URL is
+# allowed; tests add "file://" here to serve documents without a network.
+SCHEMES = ("https://",)
 _KEYS = {"id", "title", "revision", "publisher", "source", "sha256", "license"}
 _ID = re.compile(r"\A[a-z0-9][a-z0-9-]*\Z")
 _SHA = re.compile(r"\A[0-9a-f]{64}\Z")
@@ -82,8 +85,9 @@ def load_list(src_root: Path) -> list[Doc]:
                              "letters, digits and '-'")
         seen.add(e["id"])
         src, sha = e["source"].strip(), e.get("sha256")
-        if src != LOCAL and not src.startswith(("https://", "file://")):
-            raise SpecsError(f"{where}: source must be an https:// URL or 'local'")
+        if src != LOCAL and not src.startswith(SCHEMES):
+            raise SpecsError(f"{where}: source must be one of {', '.join(SCHEMES)} "
+                             "(a URL) or 'local'")
         if sha is not None and not _SHA.match(sha):
             raise SpecsError(f"{where}: sha256 must be 64 lower-case hex digits")
         if src != LOCAL and sha is None:
@@ -187,6 +191,21 @@ def pdftotext(pdf: Path, txt: Path) -> None:
         raise RuntimeError(f"{TEXT_TOOL} exit {proc.returncode}: {proc.stderr.strip()[:200]}")
 
 
+def extractor_version() -> str:
+    """``pdftotext <version>``, or a note that it is missing (for the log)."""
+    tool = shutil.which(TEXT_TOOL)
+    if tool is None:
+        return f"{TEXT_TOOL} not found"
+    try:
+        proc = subprocess.run([tool, "-v"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"{TEXT_TOOL} ({exc})"
+    for line in (proc.stderr + proc.stdout).splitlines():
+        if "version" in line:
+            return f"{TEXT_TOOL} {line.split('version', 1)[1].strip()}"
+    return f"{TEXT_TOOL} (version unknown)"
+
+
 def _download(url: str, dest: Path, timeout: float) -> None:
     req = urllib.request.Request(url, headers={"User-Agent": "build-specs-fetch"})
     with urllib.request.urlopen(req, timeout=timeout) as r, open(dest, "wb") as f:
@@ -231,11 +250,12 @@ def fetch(docs: list[Doc], cache: Path, local: Path, extractor: Extractor | None
         part = cache / f".{doc.id}.pdf.part"
         if doc.local:
             given = local / f"{doc.id}.pdf"
-            if given.is_file():
+            if given.is_file() and not (pdf.is_file()
+                                        and sha256_file(given) == sha256_file(pdf)):
                 shutil.copyfile(given, part)
                 origin = show(given)
             elif pdf.is_file():
-                origin = None
+                origin = None  # unchanged: neither copied nor extracted again
             else:
                 out(f"{doc.id}: {NOT_PROVIDED}: place your copy at {show(given)}")
                 continue

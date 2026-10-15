@@ -114,6 +114,7 @@ jobs:
         # a sha256 mismatch is reported in the log and never fails the job.
         if: ${{ !cancelled() }}
         continue-on-error: true
+        timeout-minutes: 3
         run: ./build specs fetch
 
       - name: Static checks

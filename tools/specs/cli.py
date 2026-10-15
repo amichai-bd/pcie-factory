@@ -24,6 +24,8 @@ def add_args(p: argparse.ArgumentParser) -> None:
     kind.add_argument("--pdf", action="store_true", help="the cached document, not its text")
     kind.add_argument("--local", action="store_true",
                       help="where a captain-supplied copy of a local document goes")
+    pa.add_argument("--absolute", action="store_true",
+                    help="print the absolute path (for scripts) instead of the ~/ form")
 
 
 def _select(docs: list[core.Doc], ids: list[str] | None) -> list[core.Doc]:
@@ -50,7 +52,8 @@ def run(ctx: Context, args) -> int:
     local = core.local_dir(ctx.repo_root, cache)
     if args.action == "fetch":
         docs = _select(docs, args.id)
-        print(f"specs: {len(docs)} document(s) from {_rel(ctx, ctx.src_root / core.LIST_FILE)}; cache {core.show(cache)}")
+        print(f"specs: {len(docs)} document(s) from {_rel(ctx, ctx.src_root / core.LIST_FILE)}; "
+              f"cache {core.show(cache)}; text extractor {core.extractor_version()}")
         return core.fetch(docs, cache, local, timeout=args.timeout,
                           out=lambda s: print(s, flush=True))
     if args.action == "list":
@@ -61,14 +64,15 @@ def run(ctx: Context, args) -> int:
             where = d.source if not d.local else f"local ({core.show(local / (d.id + '.pdf'))})"
             print(f"{d.id:<{width}}  {st:<18}  rev {d.revision}  {d.title} ({d.publisher}); {where}")
         return 0
+    shown = (lambda q: str(q)) if args.absolute else core.show
     if args.id is None:
-        print(cache)
+        print(shown(cache))
         return 0
     doc = _select(docs, [args.id])[0]
     path = (local / f"{doc.id}.pdf" if args.local else
             core.pdf_path(cache, doc) if args.pdf else core.text_path(cache, doc))
-    print(path)
+    print(shown(path))
     if not args.local and not path.is_file():
-        print(f"specs: {path} does not exist (run ./build specs fetch)", file=sys.stderr)
+        print(f"specs: {shown(path)} does not exist (run ./build specs fetch)", file=sys.stderr)
         return 1
     return 0

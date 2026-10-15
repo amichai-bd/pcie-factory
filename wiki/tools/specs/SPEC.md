@@ -13,14 +13,14 @@ code lives in `tools/specs/` (`core.py`, `cli.py`).
 ```
 ./build specs fetch [--id ID]... [--timeout S]
 ./build specs list
-./build specs path [ID] [--pdf | --local]
+./build specs path [ID] [--pdf | --local] [--absolute]
 ```
 
 | Action | Does | Exit |
 | --- | --- | --- |
 | `fetch` | Brings each listed document (or each `--id`) into the cache, verifies its sha256, and extracts its text next to it. | 0, even when a download is unreachable or a local document is not provided; 1 when a document fails its sha256 pin; 2 on an invalid list or cache location. |
 | `list` | One line per document: id, status, revision, title, publisher, and its URL or local path. | 0; 2 on an invalid list or cache location. |
-| `path` | Without `ID`, the cache directory. With `ID`, the extracted text `<cache>/<id>.txt`; `--pdf` the cached document; `--local` where a captain-supplied copy goes. | 0; 1 when the printed text or document does not exist yet; 2 for an unknown id. |
+| `path` | Without `ID`, the cache directory. With `ID`, the extracted text `<cache>/<id>.txt`; `--pdf` the cached document; `--local` where a captain-supplied copy goes. A path under the home directory prints as `~/...`; `--absolute` prints it in full, for scripts and file-reading tools. | 0; 1 when the printed text or document does not exist yet; 2 for an unknown id. |
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -50,8 +50,10 @@ documents:
 ```
 
 A `source` is an `https://` URL on the publisher's own site (never a
-mirror), `local` for a document only the captain can supply, or a
-`file://` URL (tests). A missing or extra key, an empty value, a bad id,
+mirror) or `local` for a document only the captain can supply; anything
+else is refused with `source must be one of https:// (a URL) or 'local'`.
+The accepted schemes are `core.SCHEMES`; only the unit tests add
+`file://` to it, to serve documents without a network. A missing or extra key, an empty value, a bad id,
 a duplicate id, a URL without a pin or a malformed hash is an error (exit 2).
 
 **Cache:** `$BUILD_SPECS_CACHE`, else
@@ -65,10 +67,13 @@ when complete.
 **Local documents:** a `local` document is read from
 `<local>/<id>.pdf`, where `<local>` is `$BUILD_SPECS_LOCAL`, else
 `<cache>/local`. The captain copies a document they hold under their own
-license there; the factory works without it.
+license there; the factory works without it. A local copy whose sha256
+equals the cached one is neither copied nor extracted again.
 
 Printed paths under the home directory are shown as `~/...`, because CI
-logs are public.
+logs are public. `fetch` starts with one line naming the list, the cache
+and the text extractor's version (`pdftotext <version>`, or
+`pdftotext not found`), so every host's log records it.
 
 ## Behavior
 
@@ -89,11 +94,12 @@ logs are public.
 
 **Where it runs.** The cloud session-start hook runs `fetch` after the
 toolchain, best effort ([host spec](../host/SPEC.md#cloud-session-start-hook)),
-and `ci-gate` runs it before `./build check` with `continue-on-error`,
+and `ci-gate` runs it before `./build check` with `continue-on-error`
+and a 3-minute timeout,
 so the spec-cache check compares against the documents on the CI host
 ([CI](../../bkm/devops.md#continuous-integration)). Neither ever fails on it.
 
-**How agents use the cache:** read `$(./build specs path <id>)` to check a
+**How agents use the cache:** read `./build specs path --absolute <id>` to check a
 citation or a claim, and never copy its text into the repository
 ([wiki BKM, citations](../../bkm/wiki.md#citations)).
 
@@ -120,4 +126,6 @@ No test uses the network or needs `pdftotext`: documents are served from
 | No extractor: document kept, `present-no-text` | `test_fetch_without_extractor_keeps_document` |
 | Tampered cache: `mismatch`, then replaced | `test_tampered_cache_is_a_mismatch_and_refetched` |
 | Local document: not provided, provided, wrong pin | `test_local_document_missing_then_provided`, `test_local_document_with_wrong_pin_fails` |
-| Command line: `list`, `path`, `fetch --id`, unknown id, cache in the repository | `test_cli_list_path_and_fetch`, `test_cli_rejects_cache_inside_repo` |
+| `file://` refused unless a test allows it | `test_list_rejects_malformed`, `test_file_urls_only_when_a_test_allows_them` |
+| Unchanged local copy: not copied or extracted again; a changed one is | `test_unchanged_local_document_is_not_copied_or_extracted_again` |
+| Command line: `list`, `path` (`~/` form and `--absolute`), `fetch --id`, unknown id, cache in the repository | `test_cli_list_path_and_fetch`, `test_cli_path_shows_home_as_tilde`, `test_cli_rejects_cache_inside_repo` |
