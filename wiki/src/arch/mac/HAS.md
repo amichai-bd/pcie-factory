@@ -10,10 +10,12 @@ control or DLLP content), does no 8b/10b coding, and supports one lane at
 2.5 GT/s only.
 
 The HAS is the normative protocol spec for this design (Q21): every rule
-the design implements is written out here and on two sub-pages, the
-[LTSSM page](LTSSM.md) (states, encoding, every arc) and the
+the design implements is written out here and on its sub-pages: the
+[LTSSM page](LTSSM.md) (states, encoding, common rules, what each state
+sends), the [arcs page](ARCS.md) (every arc), the
 [symbols page](SYMBOLS.md) (ordered sets, TS1/TS2 fields, scrambling,
-framing). Citations point to the PCIe Base Spec rev 3.0, Gen1 rules only
+framing) and the [model page](MODEL.md) (architecture model and link
+partner). Citations point to the PCIe Base Spec rev 3.0, Gen1 rules only
 (Q9), and to PIPE rev 3.0 (`PIPE Spec`), for cross-checking only; they are
 paraphrased, never copied ([wiki BKM](../../../bkm/wiki.md#citations)).
 How it is built is in the [MAS](../../rtl/mac/MAS.md); how it is verified,
@@ -167,7 +169,7 @@ input until `pipe_phy_status_i` is low ([PIPE page](../phy/PIPE.md#handshakes)).
 - **Loopback slave**: `pipe_tx_detect_rx_o` high in P0 with electrical
   idle low; the PCS retransmits the received symbols.
 - **Polarity**: `pipe_rx_polarity_o` changes only in Polling
-  ([LTSSM](LTSSM.md#detect-and-polling)).
+  ([arcs](ARCS.md#detect-and-polling)).
 - `pipe_tx_compliance_o` is 1 only in Polling.Compliance
   ([symbols page](SYMBOLS.md#ordered-sets)).
 
@@ -179,7 +181,7 @@ Framing, idle, SKP and scrambling are on the
 - Between packets `pkt_tx_ready_o` is 1 only in L0 with the transmit
   sub-machine in `Tx_L0`, no SKP ordered set due, and no exit from L0
   pending. A beat offered in `Tx_L0s.Idle` starts the L0s exit
-  ([LTSSM](LTSSM.md#l0s-sub-machines)).
+  ([arcs](ARCS.md#l0s-sub-machines)).
 - From an accepted `sop` to its `eop`, `pkt_tx_ready_o` is 1 every cycle,
   whatever the LTSSM does, except during reset (above). If the LTSSM
   leaves L0 inside a packet, the MAC ends it on the line with EDB and takes
@@ -222,12 +224,12 @@ reaches the upper stream as beats:
   through Recovery or from Configuration.Linkwidth.Start; released, the
   master leaves through Loopback.Exit to Detect.
 - `pm_state_req_i`: 1 allows transmit L0s after `L0S_IDLE_CYCLES` of no
-  traffic; 2 and 3 enter L1 and L2 when no packet is being sent, the
-  upstream port at once and the downstream port on the partner's EIOS; a
-  request of 0 or 1 leaves L1 through Recovery, and a request other than 3
-  leaves L2 to Detect. The upper layer owns the data-link handshake that
+  traffic; 2 and 3 enter L1 and L2 when, in either role, the request is
+  held and the partner's EIOS is received; the upstream port sends its EIOS
+  first ([arcs, L0](ARCS.md#l0)). A request of 0 or 1 leaves L1 through
+  Recovery, and a request other than 3 leaves L2 to Detect. The upper layer owns the data-link handshake that
   precedes a request [cite: PCIe Base Spec, rev 3.0, §4.2.6.7].
-- The [LTSSM page](LTSSM.md) gives every arc these inputs take.
+- The [arcs page](ARCS.md) gives every arc these inputs take.
 
 ### Receiver errors
 
@@ -244,7 +246,7 @@ pulse.
 | `ERR_TIMEOUT_DIV`, floored at 16384 cycles | Error-path timeouts (24 and 48 ms) make 100% arc coverage slow; the floor keeps training intact. `pcie_phy` keeps it at 1, so its HAS is unchanged. | Folding them into `TIMEOUT_DIV` (breaks training, changes the `phy` contract). |
 | Receive conditions latch | The partner switches ordered sets as soon as its own counts are met; an unlatched run could be reset by that switch and stall training. | Requiring the run to hold until the send count is met. |
 | x1-only Configuration with link 0 and lane 0 | One lane: no width or lane negotiation to make; each substate still checks the echoed numbers, so every arc remains. | Full multi-lane rules. |
-| Downstream port waits for the partner's EIOS before L1 and L2 | The upstream port initiates the power handshake; the downstream port acts on its EIOS. | Both ports enter on the request alone. |
+| L1 and L2 need the request and a received EIOS in both roles; the upstream port sends its EIOS first and waits in L0 | The standard's L0 rule; a port never sits in L1 while its partner still sends, and a partner that retrains instead takes it to Recovery. | The upstream port entering on the request alone (stuck in L1.Idle if the partner never sends EIOS). |
 | Disable Scrambling and Compliance Receive never sent, ignored on receive; no modified compliance pattern | No configuration space in M1 to request them; Polling.Compliance is reached by the electrical-idle path. | Supporting them now (open items). |
 | A DLLP ended by EDB is an error, not a nullify | DLLPs cannot be nullified. | Reporting it as nullified. |
 | Reset wins over ready from `sop` to `eop` | Reset must be immediate; the upper layer is reset with the MAC. | Finishing the packet in reset. |
@@ -272,60 +274,16 @@ the MAC.
 | Lossless | Random TLPs and DLLPs, nullified TLPs, any SKP interval: every packet delivered with its flags, no framing error. | `mixed` |
 | TX latency | At most 3 cycles from an accepted beat to its first symbol on `pipe_tx_data_o`. | budget, `MacBudget` |
 | RX latency | At most 3 cycles from a packet's first symbol on `pipe_rx_data_i` to its `sop` beat, plus 1 when it starts in `[15:8]`. | budget, `MacBudget` |
-| Arc coverage | The link-partner model drives every arc of the [LTSSM list](LTSSM.md#arcs) (64) on the other model. | `arc_sweep` |
+| Arc coverage | The link-partner model drives every arc of the [arc list](ARCS.md) (64) on the other model, in each port role. | `arc_smoke` (ci-gate), `partner_arc_sweep` (level 2) |
 | Clock | 125 MHz on the `phy` FPGA and ASIC flows. | `phy` flows |
 
 ## Architecture model
 
 [`pcie_mac_arch.py`](../../../../src/arch/mac/pcie_mac_arch.py) states this
-HAS as a cycle model at the PIPE MAC side ([arch BKM](../../../bkm/arch.md)):
-
-- `Mac`: one MAC, stepped once per `clk_i` cycle (`step(PipeRx) -> PipeTx`),
-  with `port_role`, the four parameters, the upper-layer requests as
-  attributes, a packet queue each way and a log of every arc taken.
-- `Link`: two ideal PCS and a channel between two PIPE MAC sides
-  (receiver detection, PowerDown acknowledgement, loopback, polarity,
-  symbol errors). `Pair` runs two `Mac` back to back.
-- `MacBudget`: the latencies and SKP interval the `phy` model's `Stack`
-  takes; the self-test plugs it into
-  [`pcie_phy_arch.py`](../../../../src/arch/phy/pcie_phy_arch.py) and checks
-  the stack targets. The `phy` model's reduced LTSSM is replaced by `Mac`
-  with the stack integration ([#86](https://github.com/amichai-bd/pcie-factory/issues/86)).
-- `ARCS`: the arc list of the [LTSSM page](LTSSM.md#arcs); the self-test
-  fails if the page and the model differ, and another checks the package's
-  codes.
-
-**Injection hooks** (`Mac.inject`, `Pcs`): `mute` (transmitter held in
-electrical idle), `freeze` (no arc taken; counters still run), `ts`
-(fields forced into every TS: kind, link, lane, N_FTS, control bits),
-`fts_extra`, `skp_adjust` (one SKP more or less: later packets start in
-`[15:8]`), `no_eios`, `idle_to_rlock` (preset the counter), and on the PCS
-`present`, `invert`, `corrupt` and `status`.
-[`pcie_mac_sweep.py`](../../../../src/arch/mac/pcie_mac_sweep.py) uses
-them to drive every arc of one model from the other; each episode is a
-recipe for the RTL tests.
-
-**DV use.** The RTL tests import the model as the link partner, as the
-arch BKM allows ([DV and arch](../../../bkm/arch.md#dv-and-arch)): a test
-appends `src/arch/mac` (found from its own path) to `sys.path` and imports
-`pcie_mac_arch`, as the [smoke test](../../../../src/dv/mac/tests/test_mac.py)
-already does. Each cycle it samples the RTL's PIPE outputs into a
-`PipeTx`, steps `Link` with the partner's `PipeTx`, and drives the RTL's
-PIPE inputs from the returned `PipeRx`. The sweep module needs the model
-bound with `pcie_mac_sweep.use(pcie_mac_arch)`. `./build arch --ip mac`
-writes `workdir/mac/arch/perf.json`:
-
-| Scenario | Workload | Targets checked |
-| --- | --- | --- |
-| [`train_spec`](../../../../src/arch/mac/perf/train_spec.yaml) | Dividers 1, no skew | link-up 12.0 to 12.2 ms, training 65.536 to 80 µs |
-| [`train_fast`](../../../../src/arch/mac/perf/train_fast.yaml) | Dividers 1024, skew up to 2000 cycles | link-up <= 100 µs, training 65.536 to 80 µs |
-| [`retrain`](../../../../src/arch/mac/perf/retrain.yaml) | Retrain in L0 | recovery <= 4 µs |
-| [`l0s`](../../../../src/arch/mac/perf/l0s.yaml) | L0s entry and exit, N_FTS 32 | entry <= 272, exit <= 80 cycles, lossless |
-| [`l0s_max_fts`](../../../../src/arch/mac/perf/l0s_max_fts.yaml) | L0s exit, N_FTS 255 | exit <= 526 cycles, lossless |
-| [`l1`](../../../../src/arch/mac/perf/l1.yaml), [`l2`](../../../../src/arch/mac/perf/l2.yaml) | L1 or L2 entry and exit | entry <= 64 cycles, exit <= 4 µs (L1), <= 100 µs (L2) |
-| [`tlp_274`](../../../../src/arch/mac/perf/tlp_274.yaml), [`dllp`](../../../../src/arch/mac/perf/dllp.yaml) | Back-to-back TLPs or DLLPs | throughput >= 1.97, >= 1.49; lossless |
-| [`mixed`](../../../../src/arch/mac/perf/mixed.yaml) | Random mix, 10% nullified, SKP every 1538 | lossless, no errors |
-| [`arc_sweep`](../../../../src/arch/mac/perf/arc_sweep.yaml) | Every episode of the sweep | 100% of 64 arcs |
+HAS as a cycle model at the PIPE MAC side and is also the DV link partner
+(Q4); `./build arch --ip mac` checks the [targets](#targets). The
+[model page](MODEL.md) owns its structure, injection hooks, DV use, perf
+scenarios and the arc sweep.
 
 ## Open items
 
@@ -336,7 +294,7 @@ confirmed; each owner confirms or corrects the rule and the model together.
 | --- | --- |
 | Recovery.RcvrLock timeout target (Configuration when any TS was received, else Detect), Configuration.Lanenum.Accept's 2 ms timeout (taken from its neighbours), and the x1 reading of the Lanenum substates for the upstream role. | [#77](https://github.com/amichai-bd/pcie-factory/issues/77) |
 | Electrical-idle inference in L0 at 2.5 GT/s (here: `pipe_rx_elec_idle_i` without an EIOS goes to Recovery). | [#77](https://github.com/amichai-bd/pcie-factory/issues/77) |
-| The `Rx_L0s.FTS` timeout (2 x N_FTS + 32 cycles here), its exit on the SKP ordered set, and the 7 µs bound on the L0s idle time (expected in the active-state power management rules, [cite: PCIe Base Spec, rev 3.0, §5.4.1.1.1]). | [#79](https://github.com/amichai-bd/pcie-factory/issues/79) |
+| The `Rx_L0s.FTS` timeout (the smaller of 2 x N_FTS + 32 and 4 x N_FTS + 12 cycles here, so it stays within twice the time of N_FTS + 3 FTS), its exit on the SKP ordered set, and the 7 µs bound on the L0s idle time (expected in the active-state power management rules, [cite: PCIe Base Spec, rev 3.0, §5.4.1.1.1]). | [#79](https://github.com/amichai-bd/pcie-factory/issues/79) |
 | Disabled: the TS1 count (16 here) and the following port's exit; Hot Reset: the following port's timer restart; Loopback: the master's 2 ms entry timeout and the minimum electrical idle in Loopback.Exit. | [#80](https://github.com/amichai-bd/pcie-factory/issues/80) |
 | Compliance Receive, the modified compliance pattern and directed compliance entry, all left out here. | [#80](https://github.com/amichai-bd/pcie-factory/issues/80) |
 | Whether a received Disable Scrambling bit must be honoured at 2.5 GT/s (ignored here). | [#75](https://github.com/amichai-bd/pcie-factory/issues/75) |

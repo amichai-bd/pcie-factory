@@ -1,5 +1,5 @@
 """Architecture model of pcie_mac: the Gen1 LTSSM, ordered sets, scrambling
-and framing at the PIPE MAC side (wiki/src/arch/mac/HAS.md, LTSSM.md).
+and framing at the PIPE MAC side (wiki/src/arch/mac/HAS.md and its sub-pages).
 
 For definition and performance analysis (wiki/bkm/arch.md), and the DV link
 partner (decision record 0002, Q4):
@@ -182,7 +182,7 @@ L0, L1E, L1I, L2I = "L0", "L1.Entry", "L1.Idle", "L2.Idle"
 TOFF, TL0, TE, TI, TF = "Tx_Off", "Tx_L0", "Tx_L0s.Entry", "Tx_L0s.Idle", "Tx_L0s.FTS"
 ROFF, RL0, RE, RXI, RF = "Rx_Off", "Rx_L0", "Rx_L0s.Entry", "Rx_L0s.Idle", "Rx_L0s.FTS"
 
-# Every arc of the HAS arc list (wiki/src/arch/mac/LTSSM.md): the 100%
+# Every arc of the HAS arc list (wiki/src/arch/mac/ARCS.md): the 100%
 # arc-coverage target. Bin name -> (from, to).
 _ARC_LIST = (
     (DQ, DA), (DA, PA), (DA, DQ),
@@ -282,6 +282,9 @@ class Inject:
       state transmits, and its counters keep counting.
     - ``ts``: fields forced into every TS sent: ``kind`` ("TS1"/"TS2"),
       ``link``, ``lane`` (None is PAD), ``n_fts``, ``ctl``.
+    - ``ts_script``: a deque of such field dicts, one used per TS sent
+      before ``ts`` applies again; with ``freeze`` it plays an exact TS
+      sequence to the partner.
     - ``fts_extra``: FTS ordered sets sent beyond the partner's N_FTS on an
       L0s exit (negative: fewer).
     - ``skp_adjust``: +1 or -1 SKP symbol in the next SKP ordered set, so
@@ -295,6 +298,7 @@ class Inject:
         self.mute = False
         self.freeze = False
         self.ts: dict = {}
+        self.ts_script: deque = deque()
         self.fts_extra = 0
         self.skp_adjust = 0
         self.no_eios = False
@@ -441,10 +445,11 @@ class Mac:
         self._arc(self.rx_sub, new)
         self.rx_sub = new
         self.rx_entered = self.now
-        self.sub_ei_seen = False
-        self.sub_ei_exit = False
+        if new != RXI:                         # electrical idle seen in Rx_L0s.Entry counts
+            self.sub_ei_seen = False
+            self.sub_ei_exit = False
         if new == RF:
-            self.rx_fts_deadline = self.now + 2 * self.n_fts + 32
+            self.rx_fts_deadline = self.now + min(2 * self.n_fts + 32, 4 * self.n_fts + 12)
         elif new == RL0:
             self.eios_rx = False
         self.rx_fts_timeout = False
@@ -476,6 +481,8 @@ class Mac:
         self.idle_run = 0
         self.idle_sent_after: int | None = None
         self.got8 = False                      # 8 consecutive matching TS seen (latched)
+        self.mism8 = False                     # Recovery.RcvrCfg: 8 mismatching TS1 (latched)
+        self.sent_after_mism: int | None = None
         self.idle8 = False                     # 8 consecutive idle symbols seen (latched)
         self.eios_rx = False
         self.main_ei_seen = False
@@ -487,6 +494,7 @@ class Mac:
         self.hr_last = self.now
         self.ev_ts = False
         self.ev_eios_pm = False
+        self.pm_wait = False                   # upstream: EIOS sent in L0, waiting for the partner's
         self.retrain = False
         self.l0_exit = False
         n = self.link_number if self.dsp else self.rx_link
@@ -741,7 +749,7 @@ class Mac:
         self.ev_ts = True
         if ts is None or ts.kind.endswith("~"):
             if ts is not None and self.state in (PA, PCFG):
-                self.polarity = not self.polarity
+                self.polarity = True           # set once; cleared in Detect.Quiet
             for k in self.runs:
                 self.runs[k] = 0
             return
@@ -758,6 +766,10 @@ class Mac:
             self.sent_after = 0
         if runs.get("go", 0) >= 8:
             self.got8 = True
+        if runs.get("mism") and self.sent_after_mism is None:
+            self.sent_after_mism = 0
+        if runs.get("mism", 0) >= 8:
+            self.mism8 = True
         if runs.get("hr", 0) >= 2:
             self.hr_last = self.now
 
@@ -768,7 +780,7 @@ class Mac:
     def _on_eios(self) -> None:
         self.eios_rx = True
         if self.state == L0 and self.rx_sub == RL0 and not self.inject.freeze:
-            if self.dsp and self.pm_state_req in (2, 3):
+            if self.pm_state_req in (2, 3):
                 self.ev_eios_pm = True
             else:
                 self._set_rx(RE)
@@ -850,7 +862,7 @@ class Mac:
         elif s == RC:
             if self.got8 and (self.sent_after or 0) >= 16:
                 self._go(RI)
-            elif runs["mism"] >= 8:
+            elif self.mism8 and (self.sent_after_mism or 0) >= 16:
                 self._go(LWS)
             elif timeout:
                 self._go(DQ)
@@ -920,6 +932,10 @@ class Mac:
         elif self.rx_sub == RF and now >= self.rx_fts_deadline:
             self.rx_fts_timeout = True
         # Main exits.
+        pm = self.pm_state_req in (2, 3)
+        if not pm:
+            self.ev_eios_pm = False
+        eios_pm = pm and (self.ev_eios_pm or self.rx_sub in (RE, RXI))
         target = None
         if self.rx_fts_timeout:
             target = RL
@@ -927,10 +943,15 @@ class Mac:
             target = RL
         elif self.dsp and (self.hot_reset_req or self.disable_req):
             target = RL
-        elif self.loopback_req or self.retrain:
+        elif self.loopback_req or self.retrain or (
+                self.pm_wait and not pm and self.tx_ei and self.ei_cycles >= TX_IDLE_MIN_CYCLES):
             target = RL
-        elif self.pm_state_req in (2, 3) and (not self.dsp or self.ev_eios_pm):
+        elif eios_pm and (self.dsp or self.pm_wait):
             target = L1E if self.pm_state_req == 2 else L2I
+        elif (pm and not self.dsp and not self.pm_wait and self.tx_sub == TL0
+              and not self.l0_exit and not any(it[3] for it in self.txq)):
+            self.pm_wait = True                # send one EIOS, then hold electrical idle
+            self.send_eios = True
         if target is not None and target == RL:
             self.l0_exit = True
         pending = target is not None or self.l0_exit
@@ -973,7 +994,7 @@ class Mac:
         if s == DIS:
             return "dis" if self.disable_ts_left else "ei"
         if s == L0:
-            return "ei" if self.tx_sub in (TE, TI) else "l0"
+            return "ei" if self.tx_sub in (TE, TI) or self.pm_wait else "l0"
         if s == LBA and not self.lb_master:
             return "loop"
         return "act"
@@ -1040,7 +1061,7 @@ class Mac:
                       compliance=compliance, polarity=self.polarity, power_down=self.pd)
 
     def _queue_ts(self, kind: str, link, lane, ctl: int = 0) -> None:
-        f = self.inject.ts
+        f = self.inject.ts_script.popleft() if self.inject.ts_script else self.inject.ts
         kind = f.get("kind", kind)
         link = f.get("link", link)
         lane = f.get("lane", lane)
@@ -1058,6 +1079,8 @@ class Mac:
         self.ts_sent += 1
         if self.sent_after is not None:
             self.sent_after += 1
+        if self.sent_after_mism is not None:
+            self.sent_after_mism += 1
 
     def _queue_skp(self) -> None:
         n = 3 + self.inject.skp_adjust
@@ -1480,7 +1503,7 @@ _KINDS = {
     "l0s": {"kind", "n_fts"},
     "l1": {"kind", "state"},
     "traffic": {"kind", "packets", "mix", "tlp_bytes", "nullify_ratio", "skp_interval"},
-    "arc_sweep": {"kind"},
+    "arc_sweep": {"kind", "roles", "full"},
 }
 
 
@@ -1506,7 +1529,8 @@ def perf(workload: dict, seed: int) -> dict[str, float]:
     entry into and exit from L1 (``state`` 2) or L2 (3). ``traffic``:
     ``packets`` packets (``mix`` tlp, dllp or random) downstream to
     upstream in L0. ``arc_sweep``: every arc of the HAS arc list, driven on
-    one model by the other through the injection hooks.
+    one model by the other through the partner's hooks, for each of ``roles``
+(default both); ``full`` false runs only the smoke episode.
     """
     kind = workload.get("kind")
     if kind not in _KINDS:
@@ -1540,5 +1564,11 @@ def perf(workload: dict, seed: int) -> dict[str, float]:
         interval = _int(workload, "skp_interval", SKP_INTERVAL_MIN,
                         SKP_INTERVAL_MIN, SKP_INTERVAL_MAX)
         return traffic(rng, count, mix, tlp_bytes, nullify, interval)
+    roles = workload.get("roles", list(ROLES))
+    if not isinstance(roles, list) or not roles or any(r not in ROLES for r in roles):
+        raise ValueError(f"workload.roles: expected a non-empty list of {ROLES}")
+    full = workload.get("full", True)
+    if not isinstance(full, bool):
+        raise ValueError("workload.full: expected true or false")
     pcie_mac_sweep.use(SimpleNamespace(**globals()))
-    return pcie_mac_sweep.arc_sweep(seed)
+    return pcie_mac_sweep.arc_sweep(roles, full)

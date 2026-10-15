@@ -1,0 +1,13 @@
+# The smoke episode of the arc sweep (training, traffic, L0s, retrain, L1,
+# L2, Hot Reset, Disabled, Loopback) with the device in each role: the
+# ci-gate share of the sweep. The full sweep, 64 of 64 arcs in each role,
+# is the level-2 test partner_arc_sweep (wiki/src/arch/mac/MODEL.md#arc-sweep).
+description: Smoke episode of the arc sweep, device downstream and upstream.
+seed: 11
+workload:
+  kind: arc_sweep
+  roles: [downstream, upstream]
+  full: false
+targets:
+  arcs_hit_downstream: {min: 41}
+  arcs_hit_upstream: {min: 41}

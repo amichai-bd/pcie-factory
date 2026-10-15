@@ -27,9 +27,9 @@ def trained(role="downstream", **kw):
 
 def test_arc_list_matches_the_has_tables():
     rows = re.findall(r"^\| `([a-z0-9_]+__[a-z0-9_]+)` \| ([^|]+?) \| ([^|]+?) \|",
-                      (WIKI / "LTSSM.md").read_text(), re.M)
+                      (WIKI / "ARCS.md").read_text(), re.M)
     table = {name: (a, b) for name, a, b in rows}
-    assert len(rows) == len(table), "duplicate arc names in LTSSM.md"
+    assert len(rows) == len(table), "duplicate arc names in ARCS.md"
     assert table == m.ARCS
 
 
@@ -73,6 +73,14 @@ def test_scrambler_rules():
     s2.feed(1, 0xBC, False)
     assert s2.feed(0, 0x00, True) == 0xFF                        # first key byte
     assert s2.feed(1, 0xFB, True) == 0xFB                        # K not scrambled
+
+
+def test_rx_l0s_fts_timeout_is_clamped_for_small_n_fts():
+    for n, want in ((1, 16), (9, 48), (10, 52), (32, 96)):
+        mac = m.Mac(n_fts=n)
+        mac.now = 0
+        mac._set_rx(m.RF)
+        assert mac.rx_fts_deadline == want
 
 
 def test_timeouts_and_their_divisors():
@@ -131,6 +139,7 @@ def test_inverted_lane_is_corrected_in_polling():
     p.link.pcs[0].invert = True              # the wire into a is inverted
     p.run_until(m.both_l0, 100_000)
     assert p.macs[0].polarity and not p.macs[1].polarity
+    assert sum(1 for t, *_ in p.macs[0].arcs) == sum(1 for t, *_ in p.macs[1].arcs)
 
 
 def test_loopback_master_sees_its_pattern_returned():
@@ -227,15 +236,40 @@ def test_l0s_both_directions_and_codes():
     assert a.code == 0x20 | 2 << 2
 
 
-def test_l1_waits_for_the_upstream_eios_in_the_downstream_role():
+def test_l1_needs_the_request_and_a_received_eios_in_both_roles():
     p = trained()
-    a, b = p.macs                            # a downstream
+    a, b = p.macs                            # a downstream, b upstream
     a.pm_state_req = 2
     p.run(200)
-    assert a.state == m.L0                   # directed, but no EIOS yet
+    assert a.state == m.L0                   # directed, but no EIOS received
     b.pm_state_req = 2
+    p.run_until(lambda q: b.pm_wait, 100)    # upstream sends its EIOS in L0
+    assert b.state == m.L0 and b.code == 0x20
     p.run_until(lambda q: a.state == m.L1I and b.state == m.L1I, 1000)
-    assert m.first_arc(b, m.L1E) < m.first_arc(a, m.L1E)
+    assert m.first_arc(a, m.L1E) < m.first_arc(b, m.L1E)
+
+
+def test_upstream_does_not_enter_l1_when_the_downstream_retrains_instead():
+    p = trained()
+    a, b = p.macs                            # a downstream, b upstream
+    b.pm_state_req = 2
+    p.run_until(lambda q: b.pm_wait, 100)
+    a.retrain_req = True                     # downstream answers with TS1, no EIOS
+    p.step()
+    p.run_until(lambda q: b.state == m.RL, 1000)
+    b.pm_state_req = 0
+    p.run_until(m.both_l0, 10_000)
+    assert all(t not in (m.L1E, m.L1I) for _, _, t in b.arcs)
+
+
+def test_withdrawn_l1_request_returns_through_recovery():
+    p = trained()
+    a, b = p.macs
+    b.pm_state_req = 2
+    p.run_until(lambda q: b.pm_wait, 100)
+    b.pm_state_req = 0
+    p.run_until(lambda q: b.state == m.RL, 100)
+    p.run_until(m.both_l0, 10_000)
 
 
 def test_hot_reset_follower_leaves_after_the_dwell():

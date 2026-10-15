@@ -90,7 +90,7 @@ module pcie_mac #(
   assign link_up_o            = 1'b0;
   assign ltssm_state_o        = pcie_mac_pkg::LTSSM_DETECT_QUIET;
   assign rcv_err_o            = 1'b0;
-  assign pipe_reset_no       = 1'b0;
+  assign pipe_reset_no        = 1'b0;
   assign pipe_tx_data_o       = 16'd0;
   assign pipe_tx_datak_o      = 2'd0;
   assign pipe_tx_detect_rx_o  = 1'b0;

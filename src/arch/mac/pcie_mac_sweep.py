@@ -1,17 +1,23 @@
-"""Arc sweep of the pcie_mac architecture model (wiki/src/arch/mac/LTSSM.md).
+"""Arc sweep of the pcie_mac architecture model (wiki/src/arch/mac/MODEL.md).
 
-Each episode runs two ``Mac`` models of the bound model back to back: ``a`` stands
-for the device under test, ``b`` is the link partner, and the episode steers
-``a`` across arcs with ``b``'s upper-layer requests and the injection hooks
-of both. The union of ``a``'s arcs over all episodes is the sweep's
-coverage of the HAS arc list. Each episode is also a recipe for the RTL
-tests that must reach the same arc against the partner.
+Each episode runs two ``Mac`` models of the bound model back to back: ``a``
+stands for the device under test, in the role the episode is given, and
+``b`` is the link partner. The episode steers ``a`` across arcs only by
+``b``'s upper-layer requests, ``b``'s injection hooks and the ``Link``
+hooks (``a``'s own requests count too: they are DUT inputs), reacting to
+``a``'s state as a DV test reads ``ltssm_state_o``. So each episode is a
+recipe the RTL tests can replay against the partner. The one exception is
+``a.inject.idle_to_rlock``, which presets the counter instead of looping
+255 timeouts; the partner-only recipe is in MODEL.md.
 
-Timeouts run with TIMEOUT_DIV and ERR_TIMEOUT_DIV at 1024.
+The union of ``a``'s arcs over all episodes of a role is the sweep's
+coverage of the HAS arc list for that role. Timeouts run with
+TIMEOUT_DIV and ERR_TIMEOUT_DIV at 1024.
 """
 
 from __future__ import annotations
 
+from collections import deque
 from types import SimpleNamespace
 
 LIMIT = 400_000
@@ -27,29 +33,29 @@ def use(model) -> None:
     m = model
 
 
-def _took(mac: m.Mac, a: str, b: str, after: int = 0):
+def _took(mac, a: str, b: str, after: int = 0):
     return lambda p: any(f == a and t == b and c >= after for c, f, t in mac.arcs)
 
 
-def _state(mac: m.Mac, s: str):
+def _state(mac, s: str):
     return lambda p: mac.state == s
 
 
-def _l0(p: m.Pair) -> bool:
+def _l0(p) -> bool:
     return m.both_l0(p)
 
 
-def _fresh(role: str = "downstream", **kw) -> m.Pair:
+def _fresh(role: str, **kw):
     return m.make_pair(role, 1024, 1024, **kw)
 
 
-def _trained(role: str = "downstream", **kw) -> m.Pair:
+def _trained(role: str, **kw):
     p = _fresh(role, **kw)
     p.run_until(_l0, LIMIT)
     return p
 
 
-def _settle(p: m.Pair) -> None:
+def _settle(p) -> None:
     for mac in p.macs:
         mac.inject.__init__()
         mac.retrain_req = mac.hot_reset_req = mac.disable_req = mac.loopback_req = False
@@ -57,11 +63,18 @@ def _settle(p: m.Pair) -> None:
     p.run_until(_l0, LIMIT)
 
 
+def _script(b, ts: list[dict], then: dict) -> None:
+    """Freeze the partner and play an exact TS sequence, then ``then``."""
+    b.inject.freeze = True
+    b.inject.ts_script = deque(ts)
+    b.inject.ts = then
+
+
 # ------------------------------------------------------------------ episodes
 
-def ep_normal(role: str) -> m.Pair:
-    """Training, traffic, L0s, retrain, L1, L2, and the partner-initiated
-    control states with ``b`` directing (``a`` follows)."""
+def ep_normal(role: str) -> list:
+    """Training, traffic, L0s, retrain, L1, L2 and the control states, with
+    the device directing and following."""
     p = _trained(role)
     a, b = p.macs
     a.tx_packets.append(m.Packet(False, bytes(range(40))))
@@ -75,11 +88,10 @@ def ep_normal(role: str) -> m.Pair:
     a.tx_packets.append(m.Packet(False, bytes(20)))
     p.run_until(_took(a, m.TF, m.TL0), LIMIT)
     _settle(p)
-    # Retrain.
+    # Retrain, then a directed exit while the receiver is in L0s.
     a.retrain_req = True
     p.run_until(lambda q: a.state == m.RL, LIMIT)
     p.run_until(_l0, LIMIT)
-    # Directed exit while the receiver is in L0s.
     b.pm_state_req = 1
     p.run_until(lambda q: a.rx_sub == m.RXI, LIMIT)
     a.retrain_req = True
@@ -92,16 +104,16 @@ def ep_normal(role: str) -> m.Pair:
     b.tx_packets.append(m.Packet(False, bytes(20)))
     p.run_until(_took(a, m.RF, m.ROFF), LIMIT)
     _settle(p)
-    # L1 and L2: the downstream port is directed first.
-    dsp, usp = (a, b) if a.dsp else (b, a)
+    # L1 and L2.
     for req, idle in ((2, m.L1I), (3, m.L2I)):
-        dsp.pm_state_req = req
-        usp.pm_state_req = req
+        a.pm_state_req = b.pm_state_req = req
         p.run_until(lambda q: a.state == idle and b.state == idle, LIMIT)
         p.run(100)
         a.pm_state_req = b.pm_state_req = 0
         p.run_until(_l0, LIMIT)
-    # Control states directed by the downstream port; loopback by a.
+    # Hot Reset and Disabled directed by the downstream port; Loopback
+    # mastered by each side.
+    dsp = a if a.dsp else b
     for attr, st in (("hot_reset_req", m.HR), ("disable_req", m.DIS)):
         setattr(dsp, attr, True)
         p.run_until(_state(a, st), LIMIT)
@@ -114,39 +126,45 @@ def ep_normal(role: str) -> m.Pair:
         p.run(500)
         master.loopback_req = False
         p.run_until(_l0, LIMIT)
-    return p
+    return [p]
 
 
-def ep_training_requests(role: str) -> list[m.Pair]:
+def ep_training_requests(role: str) -> list:
     """Loopback and Disabled requested before the link is up: both leave
-    Configuration.Linkwidth.Start."""
+    Configuration.Linkwidth.Start, with the device as master or slave and
+    directing or following."""
+    out = []
+    for lb in ("a", "b"):
+        p = _fresh(role)
+        a, b = p.macs
+        master = a if lb == "a" else b
+        master.loopback_req = True
+        p.run_until(_took(a, m.LWS, m.LBE), LIMIT)
+        p.run_until(_state(a, m.LBA), LIMIT)
+        master.loopback_req = False
+        p.run_until(_l0, LIMIT)
+        out.append(p)
     p = _fresh(role)
     a, b = p.macs
-    a.loopback_req = True
-    p.run_until(_took(a, m.LWS, m.LBE), LIMIT)
-    p.run_until(_state(a, m.LBA), LIMIT)
-    a.loopback_req = False
-    p.run_until(_l0, LIMIT)
-    p2 = _fresh(role)
-    a, b = p2.macs
     dsp = a if a.dsp else b
     dsp.disable_req = True
-    p2.run_until(_took(a, m.LWS, m.DIS), LIMIT)
-    p2.run(500)
+    p.run_until(_took(a, m.LWS, m.DIS), LIMIT)
+    p.run(500)
     dsp.disable_req = False
-    p2.run_until(_l0, LIMIT)
-    return [p, p2]
+    p.run_until(_l0, LIMIT)
+    out.append(p)
+    return out
 
 
-def ep_detect_and_polling() -> list[m.Pair]:
+def ep_detect_and_polling(role: str) -> list:
     out = []
     # No receiver: the partner leaves reset late.
-    p = _fresh(skew_cycles=4000)
+    p = _fresh(role, skew_cycles=4000)
     p.run_until(_took(p.macs[0], m.DA, m.DQ), LIMIT)
     p.run_until(_l0, LIMIT)
     out.append(p)
     # Partner silent: Polling.Compliance, left when it speaks.
-    p = _fresh()
+    p = _fresh(role)
     a, b = p.macs
     b.inject.mute = True
     p.run_until(_state(a, m.PC), LIMIT)
@@ -155,7 +173,7 @@ def ep_detect_and_polling() -> list[m.Pair]:
     _settle(p)
     out.append(p)
     # Partner TS with a link number in Polling: Polling.Active times out.
-    p = _fresh()
+    p = _fresh(role)
     a, b = p.macs
     b.inject.ts = {"link": 7}
     p.run_until(_took(a, m.PA, m.DQ), LIMIT)
@@ -164,7 +182,7 @@ def ep_detect_and_polling() -> list[m.Pair]:
     # Partner stuck sending TS1, then TS2: Polling.Configuration and
     # Configuration.Linkwidth.Start time out.
     for stuck, arc in ((m.PA, (m.PCFG, m.DQ)), (m.PCFG, (m.LWS, m.DQ))):
-        p = _fresh()
+        p = _fresh(role)
         a, b = p.macs
         p.run_until(_state(b, stuck), LIMIT)
         b.inject.freeze = True
@@ -174,28 +192,37 @@ def ep_detect_and_polling() -> list[m.Pair]:
     return out
 
 
-def ep_configuration() -> list[m.Pair]:
+# TS1 field sets the partner plays to walk the device through Configuration.
+_LINK_PAD = {"kind": "TS1", "link": 0, "lane": None}
+_LINK_LANE = {"kind": "TS1", "link": 0, "lane": 0}
+
+
+def _walk(role: str, to: str) -> list[dict]:
+    """The TS1 the partner sends, two per arc, to take a device in ``role``
+    from Configuration.Linkwidth.Start to ``to``."""
+    steps = [_LINK_PAD, _LINK_PAD if role == "downstream" else _LINK_LANE, _LINK_LANE]
+    n = {m.LWA: 1, m.LNW: 2, m.LNA: 3}[to]
+    return [f for f in steps[:n] for _ in range(2)]
+
+
+def ep_configuration(role: str) -> list:
     out = []
-    # Partner TS fields changed while a is held in a Configuration state.
-    cases = ((m.LWA, {"kind": "TS1", "link": None, "lane": None}, "pad", m.DQ),
-             (m.LNW, {"kind": "TS1", "link": None}, "pad", m.DQ),
-             (m.LNA, {"kind": "TS1", "lane": 1}, "renum", m.LNW),
-             (m.LNA, {"kind": "TS1", "link": None}, "pad", m.DQ))
-    for st, ts, run, to in cases:
-        p = _fresh()
+    cases = ((m.LWA, {"kind": "TS1", "link": None, "lane": None}, m.DQ),
+             (m.LNW, {"kind": "TS1", "link": None, "lane": None}, m.DQ),
+             (m.LNA, {"kind": "TS1", "link": 0, "lane": 1}, m.LNW),
+             (m.LNA, {"kind": "TS1", "link": None, "lane": None}, m.DQ))
+    for st, then, to in cases:
+        p = _fresh(role)
         a, b = p.macs
-        p.run_until(_state(a, st), LIMIT)
-        a.inject.freeze = b.inject.freeze = True
-        b.inject.ts = ts
-        p.run_until(lambda q: a.runs[run] >= 2, LIMIT)
-        a.inject.freeze = b.inject.freeze = False
+        p.run_until(_state(a, m.LWS), LIMIT)
+        _script(b, _walk(role, st), then)
         p.run_until(_took(a, st, to), LIMIT)
         _settle(p)
         out.append(p)
     # Partner stuck in Lanenum.Accept (TS1) or Complete (TS2).
     for stuck, arc, preset in ((m.LNA, (m.CC, m.DQ), None), (m.CC, (m.CI, m.RL), None),
                                (m.CC, (m.CI, m.DQ), 255)):
-        p = _fresh()
+        p = _fresh(role)
         a, b = p.macs
         a.inject.idle_to_rlock = preset
         p.run_until(_state(b, stuck), LIMIT)
@@ -206,10 +233,10 @@ def ep_configuration() -> list[m.Pair]:
     return out
 
 
-def ep_recovery() -> list[m.Pair]:
+def ep_recovery(role: str) -> list:
     out = []
     # RcvrLock times out: TS with the wrong link number, or none at all.
-    p = _trained()
+    p = _trained(role)
     a, b = p.macs
     b.inject.ts = {"link": 3}
     a.retrain_req = True
@@ -221,14 +248,13 @@ def ep_recovery() -> list[m.Pair]:
     _settle(p)
     out.append(p)
     # RcvrCfg: TS1 with other numbers, or TS1 that never turn into TS2.
-    p = _trained()
+    p = _trained(role)
     a, b = p.macs
     a.retrain_req = True
+    p.run_until(_state(b, m.RL), LIMIT)
+    b.inject.freeze = True                       # TS1 with the right numbers
     p.run_until(_state(a, m.RC), LIMIT)
-    a.inject.freeze = b.inject.freeze = True
     b.inject.ts = {"kind": "TS1", "link": 3}
-    p.run_until(lambda q: a.runs["mism"] >= 8, LIMIT)
-    a.inject.freeze = b.inject.freeze = False
     p.run_until(_took(a, m.RC, m.LWS), LIMIT)
     _settle(p)
     a.retrain_req = True
@@ -238,16 +264,13 @@ def ep_recovery() -> list[m.Pair]:
     _settle(p)
     out.append(p)
     # Recovery.Idle: lane PAD, and the idle timeout both ways.
-    p = _trained()
+    p = _trained(role)
     a, b = p.macs
     a.retrain_req = True
     p.run_until(_state(b, m.RC), LIMIT)
-    b.inject.freeze = True
+    b.inject.freeze = True                       # TS2 forever
     p.run_until(_state(a, m.RI), LIMIT)
-    a.inject.freeze = True
     b.inject.ts = {"kind": "TS1", "lane": None}
-    p.run_until(lambda q: a.runs["lanepad"] >= 2, LIMIT)
-    a.inject.freeze = b.inject.freeze = False
     p.run_until(_took(a, m.RI, m.LWS), LIMIT)
     _settle(p)
     for preset, to in ((None, m.RL), (255, m.DQ)):
@@ -261,7 +284,7 @@ def ep_recovery() -> list[m.Pair]:
         _settle(p)
     out.append(p)
     # Loopback master gets no echo: Loopback.Entry times out.
-    p = _trained()
+    p = _trained(role)
     a, b = p.macs
     a.retrain_req = True
     p.run_until(_state(b, m.RI), LIMIT)
@@ -274,39 +297,40 @@ def ep_recovery() -> list[m.Pair]:
     return out
 
 
-EPISODES = (
-    lambda: [ep_normal("downstream")],
-    lambda: [ep_normal("upstream")],
-    lambda: ep_training_requests("downstream"),
-    lambda: ep_training_requests("upstream"),
-    ep_detect_and_polling,
-    ep_configuration,
-    ep_recovery,
-)
+EPISODES = (ep_normal, ep_training_requests, ep_detect_and_polling,
+            ep_configuration, ep_recovery)
+SMOKE = (ep_normal,)
 
 
-def arcs_hit(pairs: list[m.Pair]) -> set[tuple[str, str]]:
+def arcs_hit(pairs: list) -> set[tuple[str, str]]:
     hit: set[tuple[str, str]] = set()
     for p in pairs:
         hit |= {(f, t) for _, f, t in p.macs[0].arcs}
     return hit & m.ARC_SET
 
 
-def arc_sweep(seed: int) -> dict[str, float]:
-    """Run every episode; report the arc coverage of the device side.
-    ``seed`` is unused: the episodes are directed."""
-    del seed
-    pairs: list[m.Pair] = []
-    for ep in EPISODES:
-        pairs.extend(ep())
-    hit = arcs_hit(pairs)
-    total = len(m.ARC_SET)
-    return {"arcs_total": total, "arcs_hit": len(hit),
-            "arcs_missed": total - len(hit),
-            "arcs_hit_percent": round(100.0 * len(hit) / total, 3),
-            "cycles": sum(p.now for p in pairs)}
+def run(role: str, episodes=EPISODES) -> list:
+    pairs: list = []
+    for ep in episodes:
+        pairs.extend(ep(role))
+    return pairs
 
 
-def missed(pairs: list[m.Pair]) -> list[str]:
+def missed(pairs: list) -> list[str]:
     hit = arcs_hit(pairs)
     return sorted(name for name, arc in m.ARCS.items() if arc not in hit)
+
+
+def arc_sweep(roles: list[str], full: bool) -> dict[str, float]:
+    """Run the episodes (all, or the ``SMOKE`` set) for each role; report
+    the arc coverage of the device side per role."""
+    out: dict[str, float] = {"arcs_total": len(m.ARC_SET)}
+    cycles = 0
+    for role in roles:
+        pairs = run(role, EPISODES if full else SMOKE)
+        hit = arcs_hit(pairs)
+        out[f"arcs_hit_{role}"] = len(hit)
+        out[f"arcs_hit_percent_{role}"] = round(100.0 * len(hit) / len(m.ARC_SET), 3)
+        cycles += sum(p.now for p in pairs)
+    out["cycles"] = cycles
+    return out
