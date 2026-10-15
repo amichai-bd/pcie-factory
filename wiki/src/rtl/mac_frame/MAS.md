@@ -143,7 +143,10 @@ these readings:
   `nullify`.
 - **A packet with no data byte** (STP or SDP followed at once by its end)
   has no beat to carry it: it is not delivered, and it counts as a framing
-  error ([open items](#open-items)).
+  error. No TLP or DLLP is empty, so this is malformed framing (firstmate
+  ruling on [#76](https://github.com/amichai-bd/pcie-factory/issues/76); the
+  mac HAS gains the rule with
+  [#146](https://github.com/amichai-bd/pcie-factory/issues/146)).
 
 Realignment: data bytes pair into beats with the first byte of the packet
 in `[7:0]` of the `sop` beat, whichever lane the STP was in. A complete
@@ -213,7 +216,6 @@ still marks them, for the Configuration.Idle and Recovery.Idle counts.
 
 | Item | Owner |
 | --- | --- |
-| A packet with no data byte (STP or SDP at once followed by END, EDB or a cut) is dropped and counted as a framing error; the [HAS](../../arch/mac/HAS.md#receive) does not say how it reaches the upper stream. Confirm, or state it in the HAS. | [#76](https://github.com/amichai-bd/pcie-factory/issues/76) |
 | The architecture model was aligned with the [symbols page](../../arch/mac/SYMBOLS.md#receive) in this change: a COM inside a packet is a framing error, and symbols discarded during a resync raise no further error. Leaving `Rx_L0` with a packet open is still cut only by the DV adapter, not by the model. | [#78](https://github.com/amichai-bd/pcie-factory/issues/78) |
 
 ## Files
