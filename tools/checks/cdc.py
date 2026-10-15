@@ -1148,29 +1148,43 @@ def reset_use_findings(design: Design) -> list[str]:
     asserts asynchronously, so a flop that takes it must be asynchronously
     reset by it: a flop whose data input, enclosing conditions such as a
     synchronous reset included, reaches it through combinational edges is a
-    finding unless one of the flop's asynchronous reset signals reaches it
-    too (then the flop is in reset whenever the reset is high, and reading
-    it as data as well changes nothing)."""
+    finding unless one of the flop's asynchronous reset signals is the reset
+    itself, through alias and wire edges only (then the flop is in reset
+    whenever the reset is high, and reading it as data as well changes
+    nothing). An asynchronous reset that is logic of it (``~r``, ``r & e``)
+    does not hold the flop in reset whenever it is high, so it exempts
+    nothing."""
     d = design
-    out: dict[Node, list[Node]] = {}
+    out: dict[Node, list[tuple[Node, int]]] = {}
     for dst, ins in d.comb_in.items():
-        for src, _ in ins:
-            out.setdefault(src, []).append(dst)
-    taint: dict[Node, set[Node]] = {}   # node -> the reset outputs reaching it
-    for r in d.resets:
+        for src, k in ins:
+            out.setdefault(src, []).append((dst, k))
+
+    def walk(r: Node, plain: bool) -> set[Node]:
+        """The nodes ``r`` reaches through combinational edges (alias and
+        wire edges only when ``plain``), stopping at flops and cell outputs."""
         stack, seen = [r], set()
         while stack:
             n = stack.pop()
             if n in seen:
                 continue
             seen.add(n)
-            taint.setdefault(n, set()).add(r)
-            stack.extend(w for w in out.get(n, ()) if w not in d.flops and w not in d.pseudo)
+            stack.extend(w for w, k in out.get(n, ()) if (k != LOGIC or not plain)
+                         and w not in d.flops and w not in d.pseudo)
+        return seen
+
+    reach: dict[Node, set[Node]] = {}   # node -> the reset outputs reaching it
+    same: dict[Node, set[Node]] = {}    # node -> the reset outputs it carries as is
+    for r in d.resets:
+        for n in walk(r, False):
+            reach.setdefault(n, set()).add(r)
+        for n in walk(r, True):
+            same.setdefault(n, set()).add(r)
     found = []
     for node, f in sorted(d.flops.items(), key=lambda x: d.name(x[0])):
         path = node[0]
-        reached = set().union(*(taint.get((path, x), set()) for x in f.deps))
-        own = set().union(*(taint.get((path, x), set()) for x in f.resets))
+        reached = set().union(*(reach.get((path, x), set()) for x in f.deps))
+        own = set().union(*(same.get((path, x), set()) for x in f.resets))
         found += [f"flop {d.name(node)} ({d.nl.where(d.locs.get(node, ''))}) takes the "
                   f"synchronized reset {d.name(r)} ({d.nl.where(d.locs.get(r, ''))}) as data "
                   "or as a synchronous reset and is not asynchronously reset by it; a flop "

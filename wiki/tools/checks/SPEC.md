@@ -809,9 +809,12 @@ edges of any kind, stopping at flops and cell outputs. A flop whose data
 input (its assignments' reads and enclosing conditions, a synchronous
 reset included) reaches one is a finding that names the flop and the
 output, unless one of the flop's asynchronous reset signals (the other
-edges of its sensitivity list) reaches the same output: such a flop is in
-reset whenever the reset is high, so reading the reset as data as well,
-for example to gate a write during reset, changes nothing. Lint's
+edges of its sensitivity list) is that output itself, reached through
+`alias` and `wire` edges only: such a flop is in reset whenever the reset
+is high, so reading the reset as data as well, for example to gate a write
+during reset, changes nothing. An asynchronous reset that is logic of the
+output (`~r`, `r & e`) is not high whenever the output is, so it exempts
+nothing, and that flop's read is a finding. Lint's
 `SYNCASYNCNET` sees only a net read both in an edge process sensitive to
 it and in one that is not; this rule also covers a domain whose flops all
 take the reset synchronously, and a read through combinational logic.
@@ -983,8 +986,10 @@ clock-gating cell (a `(derived)` domain), one finding per source domain
 and once per generate loop, logic in
 front of a `src=async` input (in the connection, one and two assignments
 away) against plain wires, a synchronized reset taken as a synchronous
-reset, as data, through logic or by a flop reset asynchronously by another
-reset against one reset by it (alone and also reading it as data), a cell
+reset, as data, through logic, by a flop reset asynchronously by another
+reset and by one reset asynchronously by logic of it (gated, inverted)
+against one reset by it (alone, also reading it as data, and through a
+plain wire), a cell
 without the `reset=` token, the token's port rule and grammar, every directive finding (a cell one group folder
 down accepted, deeper refused), a missing and a
 malformed directive (the cell is then looked inside), port and clock

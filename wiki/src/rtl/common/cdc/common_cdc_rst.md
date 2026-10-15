@@ -79,7 +79,9 @@ domain enters reset with no clock edge. A flop that samples `dst_rst_o` as
 a synchronous reset only enters reset at its next edge, and then the
 domain's reset is no longer asynchronous. The CDC check reports any flop
 whose data input, a synchronous reset included, reaches `dst_rst_o`
-unless that flop is asynchronously reset by it
+unless that flop's asynchronous reset is `dst_rst_o` itself, through plain
+wires only (a reset that is logic of it, such as `~dst_rst_o` or
+`dst_rst_o & en`, does not count)
 ([synchronized resets](../../../../tools/checks/SPEC.md#cdc-check)), and
 Verilator lint reports a mix of both styles as `SYNCASYNCNET` on `out_q`.
 

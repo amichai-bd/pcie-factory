@@ -486,7 +486,13 @@ RST_USE = """
     "logic r;\n  assign r = rst_b | x_q;\n  `COMMON_DFF_RST(b_q, ~b_q, clk_b_i, r)\n"
     "  logic x_q;\n  `COMMON_DFF(x_q, rst_b_i, clk_b_i)",
     "`COMMON_DFF_ARST_VAL(b_q, rst_b, clk_b_i, rst_b_i, 1'b0)",
-], ids=["sync-reset", "sync-reset-macro", "data", "through-logic", "async-on-another-reset"])
+    "logic g, e_q;\n  assign g = rst_b & e_q;\n"
+    "  `COMMON_DFF_ARST_VAL(b_q, rst_b ? 1'b0 : ~b_q, clk_b_i, g, 1'b0)\n"
+    "  `COMMON_DFF(e_q, rst_b_i, clk_b_i)",
+    "logic g;\n  assign g = ~rst_b;\n"
+    "  `COMMON_DFF_ARST_VAL(b_q, rst_b ? 1'b0 : ~b_q, clk_b_i, g, 1'b0)",
+], ids=["sync-reset", "sync-reset-macro", "data", "through-logic", "async-on-another-reset",
+        "async-on-gated-reset", "async-on-inverted-reset"])
 def test_synchronized_reset_taken_synchronously_fails(tmp_path, use):
     src = rst_port(tmp_path, "", "rst_b")
     top = src / "rtl/blk/xy_blk.sv"
@@ -504,7 +510,8 @@ def test_synchronized_reset_taken_synchronously_fails(tmp_path, use):
 @pytest.mark.parametrize("use", [
     "`COMMON_DFF_ARST_VAL(b_q, ~b_q, clk_b_i, rst_b, 1'b1)",
     "logic b_d;\n  assign b_d = ~b_q & ~rst_b;\n  `COMMON_DFF_ARST_VAL(b_q, b_d, clk_b_i, rst_b, 1'b1)",
-], ids=["async-reset", "async-reset-and-data"])
+    "logic r;\n  assign r = rst_b;\n  `COMMON_DFF_ARST_VAL(b_q, ~b_q & ~rst_b, clk_b_i, r, 1'b1)",
+], ids=["async-reset", "async-reset-and-data", "async-reset-through-a-wire-and-data"])
 def test_synchronized_reset_taken_asynchronously_passes(tmp_path, use):
     """A flop reset asynchronously by the reset may also read it as data:
     it is in reset whenever the reset is high."""

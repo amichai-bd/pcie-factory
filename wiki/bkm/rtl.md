@@ -334,8 +334,9 @@ page refers to it as `<prefix>`.
   A synchronous reset net has only synchronous consumers. Lint enforces
   the rule: a net used both ways is Verilator `SYNCASYNCNET`
   ([lint](#lint-and-style-checks)). The CDC check also finds a flop that
-  takes a `COMMON_RESET_SYNC` output, as a synchronous reset or as data,
-  without being asynchronously reset by it, even when no flop takes it
+  takes a `COMMON_RESET_SYNC*` output (the cell's `reset=` output), as a
+  synchronous reset or as data, without being asynchronously reset by
+  that net itself, even when no flop takes it
   asynchronously ([CDC check](../tools/checks/SPEC.md#cdc-check)). The input of a `COMMON_RESET_SYNC` is
   the one exception, since the cell takes it asynchronously by design: when
   that input is also a synchronous reset of its own domain, the reviewed
