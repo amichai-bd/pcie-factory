@@ -464,6 +464,8 @@ async def lock_start(dut, ppm):
     late = [w for w in env.words if not w.udf and w.lock == (0, 1)]
     assert not late, (f"{len(late)} word(s) with an unlocked symbol before a locked one, "
                       f"first at cycle {late[0].cycle}")
+    assert r.late_lock_start == 0, (
+        f"{r.late_lock_start} locked symbol(s) left unlocked at a lock start")
     assert r.flushed, "vacuous run: no lock started behind a held unlocked symbol"
 
 
