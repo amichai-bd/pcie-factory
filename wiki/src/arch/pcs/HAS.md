@@ -163,7 +163,7 @@ need testbench state live in DV bind modules
   synchronizer, inside the elastic buffer, exported on its `ser_rx_rst_o`; the
   whole `ser_rx_clk_i` domain (the aligner, the elastic buffer's write side
   and FIFO write side and the crossing cells' RX sides)
-  resets on that output, and every one of those flops takes it
+  resets on that output, and every reset flop there takes it
   asynchronously, so the domain enters reset with no `ser_rx_clk_i` edge
   (one reset style per net,
   [RTL BKM](../../../bkm/rtl.md#reset-and-clocks)); the FIFO's read side resets on

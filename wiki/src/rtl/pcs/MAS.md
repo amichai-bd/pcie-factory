@@ -546,9 +546,9 @@ by `rst_i`), each cycle:
   separate crossing, which overtook the words; #182).
 - PhyStatus: 16 cycles after reset, receiver detection in 64, PowerDown
   acknowledged after 4.
-- RX reset: every RX-domain flop enters reset in the time step `rst_i`
-  rises, with no `ser_rx_clk_i` edge (all of them take `rx_rst`
-  asynchronously), and leaves it at the second `ser_rx_clk_i` edge after
+- RX reset: every reset RX-domain flop enters reset in the time step
+  `rst_i` rises, with no `ser_rx_clk_i` edge (all of them take `rx_rst`
+  asynchronously; the data registers are not reset), and leaves it at the second `ser_rx_clk_i` edge after
   `rst_i` falls (crossing 2).
 - Critical path (`clk_i`): the FIFO head through the elastic buffer's
   read-side selection, the two chained decode lanes and the RxStatus

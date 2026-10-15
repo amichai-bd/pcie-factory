@@ -27,7 +27,11 @@
   [`tools/checks/tests/test_vocabulary_headers.py`](../../../../tools/checks/tests/test_vocabulary_headers.py)
   builds the real headers with Verilator `--assert`: each of
   `COMMON_ASSERT`, `_NO_RESET`, `_NEVER`, `_STABLE_WHEN`, `_CLOCKED`,
-  `_CLOCKED_WHEN`, `_CLOCKED_ARST` and `_NEVER_ARST` stops its run when tripped, none is present with
+  `_CLOCKED_WHEN`, `_CLOCKED_ARST` and `_NEVER_ARST` stops its run when tripped;
+  the two `_ARST` forms stay quiet when their trigger bits are high only
+  while their reset is (it rises between edges just after the bits, is
+  held over two clock edges, and falls after they clear; the release edge
+  itself is not exercised); none is present with
   `SYNTHESIS` defined (two builds), a false `COMMON_ASSERT_PARAM` fails
   Verilator lint at elaboration, and only its `initial $fatal` form is left
   under `SYNTHESIS`. The tests carry the `vocabulary` marker, so

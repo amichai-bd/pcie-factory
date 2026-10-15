@@ -58,6 +58,14 @@ CDC declaration ([convention](../../../../bkm/rtl.md#clock-domain-crossings)):
   asynchronous reset must fall synchronously to its clock (a
   `COMMON_RESET_SYNC` output does); a pulse with no edge of that clock
   between its rise and fall also resets the side.
+- **Mixed reset styles:** with one side asynchronous and the other
+  synchronous, the synchronous side's reset must already be high when the
+  asynchronous side's reset rises, and stay high over at least one edge
+  of its clock; otherwise the synchronous side can see the other side's
+  pointer drop to zero while it still runs and read or write past it. A
+  user meets this by deriving the asynchronous reset from the synchronous
+  one through a `COMMON_RESET_SYNC` (the pcs does: its RX reset comes from
+  `rst_i`, which also resets the read side).
 - **Offers during reset are dropped:** `src_ready_o` is high while
   `src_rst_i` is asserted (both pointers are zero), so a word offered then
   completes a handshake and is lost. Hold `src_valid_i` low in reset, or
