@@ -1,0 +1,6 @@
+tests:
+  - name: smoke
+    module: tests.test_pcs_elastic
+    testcase: smoke
+    top: pcie_pcs_elastic
+    timeout_s: 120

@@ -84,8 +84,8 @@ decoder, and found without decoding.
 - **Visible fill.** The read side's fill is twice the words it can see
   (the FIFO's read-side occupancy: written words whose pointer has
   crossed) plus the symbols held in its one-symbol leftover register. The
-  FIFO does not output this today; it gains a read-side fill output in
-  [#84](https://github.com/amichai-bd/pcie-factory/issues/84). Nominal fill
+  FIFO outputs that occupancy (`dst_fill_o`, added in
+  [#84](https://github.com/amichai-bd/pcie-factory/issues/84)). Nominal fill
   is 8 symbols.
 - **Fill high.** A `clk_i` flop is 1 while the visible fill is 9 or more;
   a [`common_cdc_sync2`](../../rtl/common/common_cdc_sync2.md) brings it to
@@ -164,7 +164,7 @@ carries one `pipe_rx_status_o` code:
 | --- | --- | --- |
 | 0 | Data OK | Any other word. |
 | 1 | One SKP added | The word holding the COM of that SKP ordered set. |
-| 2 | One SKP removed | The word holding the COM of that SKP ordered set (the read side sees the removed flag on the symbol after the COM). |
+| 2 | One SKP removed | The word holding the COM of that SKP ordered set (the read side sees the removed flag on the symbol after the COM). Exception: if that symbol is not yet visible when the COM leaves (only at a visible fill below 4, outside the targets), the word holding that symbol. |
 | 3 | Receiver detected | Only with the receiver-detection PhyStatus pulse ([PIPE control](PIPE_CONTROL.md#receiver-detection)). |
 | 4 | 8b/10b code error | The word holding the symbol; that byte is EDB with its K bit set. |
 | 5 | Elastic-buffer overflow | The first word written after the lost one. |

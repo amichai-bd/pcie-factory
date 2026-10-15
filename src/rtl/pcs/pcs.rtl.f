@@ -3,4 +3,5 @@
 -F ../pcs_enc8b10b/pcs_enc8b10b.rtl.f
 -F ../pcs_dec8b10b/pcs_dec8b10b.rtl.f
 -F ../pcs_align/pcs_align.rtl.f
+-F ../pcs_elastic/pcs_elastic.rtl.f
 pcie_pcs.sv

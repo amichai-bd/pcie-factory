@@ -4,7 +4,8 @@
 //
 // Wave-1 shell: the ports of the HAS with every output tied to its reset
 // value. Wave-2 sub-IPs are instantiated as they arrive, their outputs held
-// unused until the top (#85) connects them; the crossing cells come with it.
+// unused until the top (#85) connects them. The elastic buffer brings its
+// own crossing cells.
 `default_nettype none
 
 module pcie_pcs (
@@ -62,13 +63,47 @@ module pcie_pcs (
     .data_o       (enc_data)
   );
 
+  // Elastic buffer, its write side idle until the aligner (#83) and the
+  // top (#85) arrive; its outputs are unused.
+  logic        eb_valid;
+  logic [19:0] eb_sym;
+  logic [1:0]  eb_lock;
+  logic [1:0]  eb_gen;
+  logic        eb_skp_add;
+  logic        eb_skp_rem;
+  logic        eb_ovf;
+  logic        eb_udf;
+  logic [5:0]  eb_fill;
+  logic        ser_rx_rst;
+
+  pcie_pcs_elastic u_elastic (
+    .clk_i         (clk_i),
+    .rst_i         (rst_i),
+    .ser_rx_clk_i  (ser_rx_clk_i),
+    .ser_rx_valid_i(1'b0),
+    .ser_rx_sym_i  (ser_rx_data_i),
+    .ser_rx_lock_i (1'b0),
+    .ser_rx_gen_i  (1'b0),
+    .rx_valid_o    (eb_valid),
+    .rx_sym_o      (eb_sym),
+    .rx_lock_o     (eb_lock),
+    .rx_gen_o      (eb_gen),
+    .rx_skp_add_o  (eb_skp_add),
+    .rx_skp_rem_o  (eb_skp_rem),
+    .rx_ovf_o      (eb_ovf),
+    .rx_udf_o      (eb_udf),
+    .fill_o        (eb_fill),
+    .ser_rx_rst_o  (ser_rx_rst)
+  );
+
   // Inputs and sub-IP outputs the shell does not use yet; the wave-2 RTL
   // consumes them.
   logic unused_inputs;
   assign unused_inputs = ^{pipe_tx_detect_rx_i, pipe_rx_polarity_i,
-                           ser_tx_rxdet_i, ser_rx_clk_i,
-                           ser_rx_data_i, ser_rx_elec_idle_i, enc_valid,
-                           enc_data};
+                           ser_tx_rxdet_i, ser_rx_elec_idle_i, enc_valid,
+                           enc_data, eb_valid, eb_sym, eb_lock, eb_gen,
+                           eb_skp_add, eb_skp_rem, eb_ovf, eb_udf, eb_fill,
+                           ser_rx_rst};
 
   // Reset values from the HAS: PhyStatus high, no received data, receiver
   // and transmitter in electrical idle.

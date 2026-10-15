@@ -180,7 +180,7 @@ cells; there are no others (Q17,
 | # | What crosses | From → to | Cell | Source-side reset | Destination-side reset | Owner |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Received words: two raw symbols, lock tag, lock generation, removed and overflow flags | `ser_rx_clk_i` → `clk_i` | [`common_cdc_fifo`](../../rtl/common/common_cdc_fifo.md), `WIDTH` 25, `ADDR_W` 4 (its pointers cross inside it through `common_cdc_sync2`) | RX reset (`src_rst_i`) | `rst_i` (`dst_rst_i`) | `pcs_elastic` |
-| 2 | RX-domain reset, from `rst_i` | `clk_i` → `ser_rx_clk_i` | `common_cdc_rst` ([#119](https://github.com/amichai-bd/pcie-factory/issues/119)) | none (`rst_i` is the input) | none (it makes the RX reset) | top |
+| 2 | RX-domain reset, from `rst_i` | `clk_i` → `ser_rx_clk_i` | `common_cdc_rst` ([#119](https://github.com/amichai-bd/pcie-factory/issues/119)) | none (`rst_i` is the input) | none (it makes the RX reset) | `pcs_elastic` (exported on `ser_rx_rst_o` for the rest of the RX domain) |
 | 3 | Fill high, a level from a `clk_i` flop | `clk_i` → `ser_rx_clk_i` | [`common_cdc_sync2`](../../rtl/common/common_cdc_sync2.md) | `rst_i` (the source flop) | RX reset (`dst_rst_i`) | `pcs_elastic` |
 | 4 | Relock request, one event per request | `clk_i` → `ser_rx_clk_i` | [`common_cdc_pulse`](../../rtl/common/common_cdc_pulse.md) | `rst_i` (`src_rst_i`; never `pipe_reset_ni`, so both sides reset together) | RX reset (`dst_rst_i`) | top |
 | 5 | Receiver active (not `ser_rx_elec_idle_i`), a level from a `ser_rx_clk_i` flop | `ser_rx_clk_i` → `clk_i` | [`common_cdc_sync2`](../../rtl/common/common_cdc_sync2.md) | RX reset (the source flop) | `rst_i` (`dst_rst_i`) | top |
@@ -254,7 +254,7 @@ addition, decode, error counter) and PIPE control
 
 | Item | Owner |
 | --- | --- |
-| Add a read-side fill output to `common_cdc_fifo` (with its MAS and DV plan), used by `pcs_elastic`. | [#84](https://github.com/amichai-bd/pcie-factory/issues/84) |
+| Done in [#84](https://github.com/amichai-bd/pcie-factory/issues/84): `common_cdc_fifo` has a read-side fill output (`dst_fill_o`) and a look-ahead word (`dst_next_data_o`), used by `pcs_elastic` ([MAS](../../rtl/pcs_elastic/MAS.md#decisions)). | [#84](https://github.com/amichai-bd/pcie-factory/issues/84) |
 | `common_cdc_rst`: name, release-edge parameter (2 here) and directive. | [#119](https://github.com/amichai-bd/pcie-factory/issues/119) |
 | Electrical sections for receiver detection and the ±300 ppm reference tolerance; sub-section citations for the 8b/10b decode rules and for lane polarity inversion (cited here at the nearest confident section). The Base Spec is not available locally, so these wait for a copy ([#117](https://github.com/amichai-bd/pcie-factory/issues/117)). | [#85](https://github.com/amichai-bd/pcie-factory/issues/85) |
 | Whether the Base Spec asks more of symbol lock than the rules above (for example a minimum number of commas). | [#83](https://github.com/amichai-bd/pcie-factory/issues/83) |

@@ -1,0 +1,89 @@
+tests:
+  - name: ppm_m600
+    module: tests.test_pcs_elastic
+    testcase: ppm_m600
+    top: pcie_pcs_elastic
+    timeout_s: 300
+  - name: ppm_m300
+    module: tests.test_pcs_elastic
+    testcase: ppm_m300
+    top: pcie_pcs_elastic
+    timeout_s: 300
+  - name: ppm_p300
+    module: tests.test_pcs_elastic
+    testcase: ppm_p300
+    top: pcie_pcs_elastic
+    timeout_s: 300
+  - name: ppm_p600
+    module: tests.test_pcs_elastic
+    testcase: ppm_p600
+    top: pcie_pcs_elastic
+    timeout_s: 300
+  - name: random_offset
+    module: tests.test_pcs_elastic
+    testcase: random_offset
+    top: pcie_pcs_elastic
+    seeds: 3
+    timeout_s: 300
+  - name: short_burst_m600
+    module: tests.test_pcs_elastic
+    testcase: short_burst_m600
+    top: pcie_pcs_elastic
+    seeds: 2
+    timeout_s: 300
+  - name: stress_sizes
+    module: tests.test_pcs_elastic
+    testcase: stress_sizes
+    top: pcie_pcs_elastic
+    seeds: 2
+    timeout_s: 300
+  - name: idle_m600
+    module: tests.test_pcs_elastic
+    testcase: idle_m600
+    top: pcie_pcs_elastic
+    timeout_s: 300
+  - name: idle_p600
+    module: tests.test_pcs_elastic
+    testcase: idle_p600
+    top: pcie_pcs_elastic
+    timeout_s: 300
+  - name: pause_corners
+    module: tests.test_pcs_elastic
+    testcase: pause_corners
+    top: pcie_pcs_elastic
+    seeds: 3
+    timeout_s: 300
+  - name: relock_generation
+    module: tests.test_pcs_elastic
+    testcase: relock_generation
+    top: pcie_pcs_elastic
+    seeds: 2
+    timeout_s: 300
+  - name: overflow
+    module: tests.test_pcs_elastic
+    testcase: overflow
+    top: pcie_pcs_elastic
+    timeout_s: 300
+  - name: underflow
+    module: tests.test_pcs_elastic
+    testcase: underflow
+    top: pcie_pcs_elastic
+    timeout_s: 300
+  - name: reset_restart
+    module: tests.test_pcs_elastic
+    testcase: reset_restart
+    top: pcie_pcs_elastic
+    seeds: 2
+    timeout_s: 300
+  - name: thresholds_swing
+    module: tests.test_pcs_elastic
+    testcase: thresholds_swing
+    top: pcie_pcs_elastic
+    seeds: 2
+    timeout_s: 300
+  - name: thresholds_m600
+    module: tests.test_pcs_elastic
+    testcase: thresholds_m600
+    top: pcie_pcs_elastic
+    seeds: 2
+    timeout_s: 300

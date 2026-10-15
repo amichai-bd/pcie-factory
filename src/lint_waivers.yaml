@@ -1,0 +1,23 @@
+waivers:
+  # The pcs HAS (Clocks and reset) feeds rst_i straight into the RX-domain
+  # reset synchronizer and also resets the clk_i side with it synchronously;
+  # the RTL BKM (Reset and clocks) makes every elastic-buffer flop on the RX
+  # reset asynchronous, while common_cdc_fifo and common_cdc_sync2 take it
+  # synchronously, as their MAS pages state. Both uses of each net are safe:
+  # the RX reset releases synchronously to ser_rx_clk_i.
+  - file: rtl/pcs_elastic/pcie_pcs_elastic.sv
+    rule: SYNCASYNCNET
+    match: "'rst_i'"
+    reason: rst_i drives the RX reset synchronizer and the synchronous clk_i-side reset, as the pcs HAS requires.
+  - file: rtl/pcs_elastic/pcie_pcs_elastic.sv
+    rule: SYNCASYNCNET
+    match: "'ser_rx_rst_o'"
+    reason: The RX reset is asynchronous on the write-side flops (RTL BKM) and synchronous in common_cdc_fifo and common_cdc_sync2 (their MAS); it releases synchronously.
+  - file: rtl/pcs/pcie_pcs.sv
+    rule: SYNCASYNCNET
+    match: "'rst_i'"
+    reason: rst_i drives the RX reset synchronizer and the synchronous clk_i-side reset, as the pcs HAS requires.
+  - file: rtl/common/common_cdc_rst.sv
+    rule: SYNCASYNCNET
+    match: "'pcie_pcs.u_elastic.u_rx_rst.sync_q'"
+    reason: The pcs RX reset is asynchronous on the elastic buffer's write-side flops (RTL BKM) and synchronous in common_cdc_fifo and common_cdc_sync2 (their MAS); it releases synchronously.
