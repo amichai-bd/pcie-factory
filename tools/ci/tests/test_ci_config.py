@@ -7,6 +7,7 @@ GOOD = """\
 global:
   prefixes: [tools/, cfg/]
   files: [build]
+  levels: [0]
 shared_dv: [dv/common]
 models: models
 tools_tests: [tools]
@@ -24,6 +25,7 @@ def write(tmp_path, text):
 def test_real_config_loads():
     r = load_rules(REPO_ROOT / "cfg")
     assert r.global_prefixes == ("tools/", "cfg/") and r.global_files == ("build",)
+    assert r.global_levels == (0,)
     assert r.shared_dv == ("dv/common",) and r.models == "models"
     assert r.tools_tests == ("tools",)
     assert r.vocabulary_marker == "vocabulary"
@@ -49,6 +51,11 @@ def test_is_global(tmp_path):
     (GOOD.replace("models: models\n", ""), "missing \\['models'\\]"),
     (GOOD + "extra: 1\n", "unknown \\['extra'\\]"),
     (GOOD.replace("files: [build]", "file: [build]"), "global: must be a mapping"),
+    (GOOD.replace("  levels: [0]\n", ""), "global: must be a mapping"),
+    (GOOD.replace("levels: [0]", "levels: []"), "global.levels: expected a non-empty list"),
+    (GOOD.replace("levels: [0]", "levels: [-1]"), "global.levels"),
+    (GOOD.replace("levels: [0]", "levels: [true]"), "global.levels"),
+    (GOOD.replace("levels: [0]", "levels: 0"), "global.levels"),
     (GOOD.replace("[tools/, cfg/]", "[tools, cfg/]"), "must end with '/'"),
     (GOOD.replace("[dv/common]", "[../x]"), "relative path inside the tree"),
     (GOOD.replace("[dv/common]", "dv/common"), "expected a list"),

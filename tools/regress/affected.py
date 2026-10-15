@@ -40,15 +40,41 @@ def changed_files(base: str, start: Path) -> tuple[Path, list[str]]:
 def select_affected(
     ips: list[Ip], repo: Path, changed: list[str], src_root: Path, rules: CiRules
 ) -> dict[str, str]:
-    """Map affected IP id -> reason. Every IP is affected when a global path
-    changed, or a file under a shared DV directory (Python no filelist
+    """Map affected IP id -> reason (see ``select_affected_levels``)."""
+    return {k: reason for k, (reason, _) in
+            select_affected_levels(ips, repo, changed, src_root, rules).items()}
+
+
+def select_affected_levels(
+    ips: list[Ip], repo: Path, changed: list[str], src_root: Path, rules: CiRules
+) -> dict[str, tuple[str, tuple[int, ...] | None]]:
+    """Map affected IP id -> (reason, levels). ``levels`` is None (every
+    requested level) for an IP that a design or DV change selects, and
+    ``rules.global_levels`` for an IP selected only because a global path
+    (tools, configuration, the launcher) changed: such a change is proved by
+    the tools' unit tests and a smoke level of every IP, not by every IP's
+    full set."""
+    globals_ = [rel for rel in changed if rules.is_global(rel)]
+    hit = _select_design(ips, repo, [rel for rel in changed if not rules.is_global(rel)],
+                         src_root, rules)
+    out: dict[str, tuple[str, tuple[int, ...] | None]] = {k: (v, None) for k, v in hit.items()}
+    if globals_:
+        only = ", ".join(str(lv) for lv in rules.global_levels)
+        for ip in ips:
+            out.setdefault(ip.id, (f"global change: {globals_[0]} (level {only} only)",
+                                   rules.global_levels))
+    return dict(sorted(out.items()))
+
+
+def _select_design(
+    ips: list[Ip], repo: Path, changed: list[str], src_root: Path, rules: CiRules
+) -> dict[str, str]:
+    """Map affected IP id -> reason for non-global changes. Every IP is
+    affected by a change under a shared DV directory (Python no filelist
     reaches). Otherwise an IP is affected when a changed file lies in one of
     its own kind folders, lies in the models directory of an IP its rtl
     filelist reaches (a sub-IP, or a top-level IP it integrates), or is
     reached by its ``<name>.sim.f``."""
-    for rel in changed:
-        if rules.is_global(rel):
-            return {ip.id: f"global change: {rel}" for ip in ips}
     paths = [(repo / rel).resolve() for rel in changed]
     shared = [(Path(src_root) / d).resolve() for d in rules.shared_dv]
     for rel, path in zip(changed, paths):

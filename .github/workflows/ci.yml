@@ -122,6 +122,13 @@ jobs:
         if: ${{ !cancelled() }}
         run: ./build check
 
+      - name: Wiki build
+        id: wiki
+        if: ${{ !cancelled() }}
+        # A few seconds; the strict build fails on a broken link or page, so
+        # a docs-only change is gated by checks plus this build.
+        run: ./build wiki build --strict
+
       - name: Unit tests (tools, models)
         id: unit
         if: ${{ !cancelled() }}
@@ -137,6 +144,7 @@ jobs:
         env:
           GUARD: ${{ steps.guard.outcome }}
           CHECK: ${{ steps.check.outcome }}
+          WIKI: ${{ steps.wiki.outcome }}
           UNIT: ${{ steps.unit.outcome }}
           REGRESS: ${{ steps.regress.outcome }}
         run: |
@@ -147,6 +155,7 @@ jobs:
             echo "| --- | --- |"
             echo "| \`./build metrics guard\` | $GUARD |"
             echo "| \`./build check\` | $CHECK |"
+            echo "| \`./build wiki build --strict\` | $WIKI |"
             echo "| \`./build ci unit\` | $UNIT |"
             echo "| \`./build regress\` | $REGRESS |"
             echo
