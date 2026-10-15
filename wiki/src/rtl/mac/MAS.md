@@ -324,7 +324,7 @@ Loopback master and slave). Parameters `TIMEOUT_DIV`, `ERR_TIMEOUT_DIV`,
 | Port | Dir | Type | Description |
 | --- | --- | --- | --- |
 | `port_role_i`, `link_up_o`, `ltssm_state_o` | in, out, out | 1, 1, 6 | As the HAS ports. |
-| `req_i` | in | `t_link_req` | Link control; `pm_state` is unused until the power states (#79). |
+| `req_i` | in | `t_link_req` | Link control: retrain, the downstream Hot Reset and Disabled requests, loopback, and `pm_state`, the power request (L0s allowed, L1, L2). |
 | `pipe_o`, `pipe_rx_i` | out, in | `t_pipe_ctl`, `t_pipe_rx` | PIPE control and status. |
 | `os_req_o`, `ts_o`, `os_tx_i` | out, out, in | `t_os_req`, `t_ts_tx`, `t_os_tx` | Requests (TS, compliance, EIOS, loopback pattern, FTS, the SKP that ends an FTS sequence), TS fields with the control bits, the line word's events. |
 | `os_rx_i`, `os_ts_i` | in | `t_os_rx`, `t_ts_rx` | Receive events and fields of the word. |
@@ -403,7 +403,7 @@ The L0 step, in the model's order:
   `pm_state_req_i` 1 and `L0S_IDLE_CYCLES` words without traffic
   (`idle_cnt`: a word sent in `Tx_L0` with no packet symbol and no beat
   offered); `.Entry` to `.Idle` after the EIOS, 3 cycles of electrical idle
-  (`ei_cnt`) and the P0s acknowledge; `.Idle` to `.FTS` on a pending exit,
+  (the shared `ei_cycles`) and the P0s acknowledge; `.Idle` to `.FTS` on a pending exit,
   a beat offered (`fr_tx_i.offer`, `pkt_tx_valid_i` as sampled) or a
   request other than 1; `.FTS` to `Tx_L0` once P0 is acknowledged and the
   partner's N_FTS FTS (`fts_sent`) and the closing SKP (`fts_skp`) are

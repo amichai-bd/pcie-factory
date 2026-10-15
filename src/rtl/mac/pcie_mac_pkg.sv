@@ -467,7 +467,6 @@ package pcie_mac_pkg;
     logic                 eios_q;        // an EIOS is queued, not yet started
     logic [7:0]           fts_sent;      // Tx_L0s.FTS: FTS started
     logic                 fts_skp;       // Tx_L0s.FTS: the closing SKP started
-    logic [1:0]           ei_cnt;        // cycles in electrical idle, saturating at 3
     logic [L0S_CNT_W-1:0] idle_cnt;      // Tx_L0: cycles without traffic, saturating
     logic [RX_CNT_W-1:0]  rx_cnt;        // cycles since the receive sub-machine moved
     logic                 rx_fts_to;     // the Rx_L0s.FTS timeout expired
