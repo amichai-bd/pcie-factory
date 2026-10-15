@@ -45,8 +45,8 @@ from cocotb.triggers import ClockCycles, FallingEdge, Timer
 from regress.funcov import Covergroup
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "models"))
-# The pcie_mac_scrambler sub-IP's cycle model, a transmit-scrambler block.
-sys.path.append(str(Path(__file__).resolve().parents[2] / "mac_scrambler" / "models"))
+# The mac transmit scrambler's cycle model (src/dv/mac/models), a block.
+sys.path.append(str(Path(__file__).resolve().parents[2] / "mac" / "models"))
 import pcie_mac_scrambler_model  # noqa: E402
 # The pcs_enc8b10b sub-IP's cycle model, a transmit-encoder block.
 sys.path.append(str(Path(__file__).resolve().parents[2] / "pcs_enc8b10b" / "models"))

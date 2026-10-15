@@ -402,7 +402,7 @@ class Mac:
         self.txq: deque = deque()
         self.tx_scr = Scrambler()
         self.skp_credit = 0
-        self.compliance_phase = 0
+        self.compl_words = 0                 # compliance-pattern words still queued
         self.tx_idle_cycles = 0
         self.lb_count = 0
         # receive
@@ -442,6 +442,12 @@ class Mac:
             self.tx_idle_cycles = 0
 
     def _set_rx(self, new: str) -> None:
+        if self.rx_sub == RL0 and new != RL0:
+            # Leaving Rx_L0 (receive L0s or an L0 exit) cuts an open packet
+            # and ends a resync (SYMBOLS.md, Receive).
+            if self._pkt is not None:
+                self._pkt_end(err=True, silent=True)
+            self._resync = False
         self._arc(self.rx_sub, new)
         self.rx_sub = new
         self.rx_entered = self.now
@@ -464,9 +470,6 @@ class Mac:
                 kept.insert(first + 1, (0, 0, True, False))
             self.txq = deque(kept)
             self.tx_aborted += 1
-        if self._pkt is not None:
-            self._pkt_end(err=True)
-        self._resync = False
         self._set_tx(TOFF)
         self._set_rx(ROFF)
 
@@ -527,7 +530,8 @@ class Mac:
             if self.dsp:
                 go = ts_(("TS1",), self.link_number, None)
             else:
-                go = lambda t: t.kind == "TS1" and t.link is not None and t.lane is None  # noqa: E731
+                go = lambda t: (t.kind == "TS1" and t.link is not None  # noqa: E731
+                                and t.link >= 0 and t.lane is None)
             self.preds = (("go", go),
                           ("lb", lambda t: t.kind == "TS1" and bool(t.ctl & CTL_LOOPBACK)),
                           ("dis", lambda t: t.kind == "TS1" and bool(t.ctl & CTL_DISABLE)))
@@ -736,8 +740,18 @@ class Mac:
             self.rcv_errors += 1
             self._resync = True
 
-    def _pkt_end(self, err: bool, edb: bool = False) -> None:
+    def _pkt_end(self, err: bool, edb: bool = False, silent: bool = False) -> None:
         n = len(self._pkt)
+        if n == 0:
+            # A packet with no data byte is dropped; in L0 it is a framing
+            # error that sets no resync, unless leaving Rx_L0 cut it
+            # (HAS, Receive).
+            self._pkt = None
+            self._pkt_bad = False
+            if not silent and self.state == L0 and self.rx_sub == RL0:
+                self.framing_errors += 1
+                self.rcv_errors += 1
+            return
         bad = (err or self._pkt_bad or (edb and self._pkt_dllp) or n % 2 == 1 or n == 0
                or (self._pkt_dllp and n != 6))
         p = Packet(self._pkt_dllp, bytes(self._pkt), nullify=edb and not bad, err=bad)
@@ -756,15 +770,18 @@ class Mac:
             for k in self.runs:
                 self.runs[k] = 0
             return
-        if self.state == CC and ts.kind == "TS2":
-            self.partner_n_fts = ts.n_fts
-        if self.state == RC and ts.kind == "TS2":
-            self.partner_n_fts = ts.n_fts
-        if self.state == LWS and not self.dsp and ts.link is not None:
+        # Upstream: N is the link number of a TS1 that carries one (a data
+        # symbol) in Configuration.Linkwidth.Start (ARCS.md).
+        if (self.state == LWS and not self.dsp and ts.kind == "TS1"
+                and ts.link is not None and ts.link >= 0):
             self.rx_link = ts.link
         runs = self.runs
         for name, pred in self.preds:
             runs[name] = runs[name] + 1 if pred(ts) else 0
+        # The partner's N_FTS from the TS2 that advance Configuration.Complete
+        # and Recovery.RcvrCfg (ARCS.md, "from these TS2").
+        if self.state in (CC, RC) and ts.kind == "TS2" and runs["go"]:
+            self.partner_n_fts = ts.n_fts
         if runs.get("go") and self.sent_after is None:
             self.sent_after = 0
         if runs.get("go", 0) >= 8:
@@ -1028,6 +1045,7 @@ class Mac:
             active = False
         if not active:
             self.txq.clear()
+            self.compl_words = 0
             if self.pd != want and not self.pd_pending and self.tx_ei:
                 self.pd = want
                 self.pd_pending = True
@@ -1053,9 +1071,12 @@ class Mac:
         scr = self.tx_scr
         s0 = (a[0], scr.feed(a[0], a[1], a[2]))
         s1 = (b[0], scr.feed(b[0], b[1], b[2]))
-        compliance = mode == "act" and self.state == PC and a == (1, 0xBC, False, False) \
-            and self.compliance_phase == 1
-        if mode not in ("loop",) and self.state != PC:
+        # TxCompliance on the first word of each pattern unit; pattern words
+        # are not counted for the SKP schedule (SYMBOLS.md, SKP schedule).
+        compliance = self.compl_words == 2
+        if self.compl_words:
+            self.compl_words -= 1
+        elif mode != "loop":
             self.skp_credit += 2
         if self.state == L0 and self.tx_sub == TL0:
             idle = not a[3] and not b[3]       # no TLP or DLLP symbol; SKP is idle
@@ -1105,7 +1126,7 @@ class Mac:
         if s == PC:
             # Compliance pattern: K28.5 D21.5 K28.5 D10.2; TxCompliance on the
             # first K28.5 forces its negative disparity.
-            self.compliance_phase = 1
+            self.compl_words = 2
             self.txq.extend(((1, 0xBC, False, False), (0, D21_5, False, False)))
             self.txq.extend(((1, 0xBC, False, False), (0, D10_2, False, False)))
             return
@@ -1165,7 +1186,7 @@ class Mac:
             q = self.txq
             q.append((1, 0x5C if p.dllp else 0xFB, False, True))
             q.extend((0, x, True, True) for x in p.data)
-            q.append((1, 0xFE if p.nullify else 0xFD, False, True))
+            q.append((1, 0xFE if p.nullify and not p.dllp else 0xFD, False, True))  # DLLP: ignored
             p.t = self.now
             return
         self._queue_idle()

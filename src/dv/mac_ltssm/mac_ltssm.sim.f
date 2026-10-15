@@ -1,2 +1,0 @@
--F ../../rtl/mac_ltssm/mac_ltssm.rtl.f
--F mac_ltssm.dv.f

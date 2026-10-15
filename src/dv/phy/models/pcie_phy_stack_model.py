@@ -16,12 +16,12 @@
 Block hook, transmit scrambler: ``ModelPort(tx_scrambler=block)`` takes
 the scrambling out of the mac model and puts ``block`` between the mac and
 the pcs, at the ``pcie_mac_scrambler`` interface
-(wiki/src/rtl/mac_scrambler/MAS.md): each cycle the port reads the block's
+(wiki/src/rtl/mac/MAS.md#scrambler): each cycle the port reads the block's
 registered outputs (``valid``, ``data``, ``datak``), then calls
 ``block.clock(rst, valid, data, datak, scr)`` with the mac's unscrambled
 word and its per-symbol ``scr`` bits. The block's one-cycle latency
 delays the whole PIPE transmit word by one cycle. ``WordScrambler``, the
-sub-IP's cycle model, is such a block; an adapter that drives a
+mac scrambler block's cycle model, is such a block; an adapter that drives a
 ``pcie_mac_scrambler`` instance's pins at the falling edge is another
 (wiki/src/dv/phy/DV_PLAN.md, Model-to-RTL switch).
 

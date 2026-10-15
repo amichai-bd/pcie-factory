@@ -839,6 +839,19 @@ def test_ip_selects_top_level_ancestors_and_skips_shared_blocks(tmp_path):
     assert r.checked.startswith("1 top-level IP(s), 0 shared block(s), 1 Verilator")
 
 
+@needs_verilator
+def test_package_only_shared_block_is_skipped(tmp_path):
+    src = tree(tmp_path, A_FLOP + "  assign y_o = a_q;\n")
+    (src / "rtl/common/common_x_pkg.sv").write_text(
+        "`default_nettype none\npackage common_x_pkg;\n"
+        "  typedef enum logic [1:0] {A = 2'd0} t_a;\nendpackage\n`default_nettype wire\n")
+    (src / "rtl/common/common_x_pkg.rtl.f").write_text("common_x_pkg.sv\n")
+    r = run(src)
+    assert r.passed, r.findings
+    n_pkgs = 1 + sum(1 for f in CELLS.glob("*_pkg.rtl.f"))
+    assert r.checked.endswith(f"{n_pkgs} package-only block(s) skipped"), r.checked
+
+
 def test_verilator_missing_is_an_error(tmp_path, monkeypatch):
     monkeypatch.setattr(sim, "find_verilator", lambda: None)
     with pytest.raises(sim.SimError, match="verilator not found"):

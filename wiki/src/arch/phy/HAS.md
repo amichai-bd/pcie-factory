@@ -172,9 +172,9 @@ Two 10-bit symbols per `clk_i` cycle (2.5 GT/s = 250 Msymbol/s = 2 x
   [cite: PCIe Base Spec, rev 3.0, §4.2.5]; the `mac` HAS lists the states
   and arcs. Training uses TS1 and TS2 ordered sets
   [cite: PCIe Base Spec, rev 3.0, §4.2.4.1].
-- `link_up_o` rises when the LTSSM first enters L0 from Configuration. It
-  stays high through Recovery, L0s, L1, L2, and a Recovery-to-Configuration
-  pass back to L0. It falls when the LTSSM enters Detect, Polling,
+- `link_up_o` rises on every entry of the LTSSM to L0 (from
+  Configuration.Idle or Recovery.Idle). It stays high through Recovery,
+  L0s, L1, L2, and a Recovery-to-Configuration pass back to L0. It falls when the LTSSM enters Detect, Polling,
   Disabled, Hot Reset or Loopback, and on reset.
 - `port_role_i` selects the downstream behavior (proposes link and lane
   numbers in Configuration, may direct Hot Reset and Disabled) or the

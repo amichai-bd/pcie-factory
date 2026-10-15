@@ -36,7 +36,7 @@ the MAC starts every ordered set and packet it sends in `[7:0]`.
 
 | Ordered set | Symbols sent | Received as |
 | --- | --- | --- |
-| TS1, TS2 | 16: COM and 15 field symbols ([below](#ts1-and-ts2)). | COM followed by a data symbol or PAD; the next 14 symbols complete it. |
+| TS1, TS2 | 16: COM and 15 field symbols ([below](#ts1-and-ts2)). | COM followed by any symbol but SKP, IDL or FTS (a data symbol, PAD or another K symbol); the next 14 symbols complete it. |
 | SKP | COM and three SKP. | COM followed by one or more SKP (the PCS may have added or removed one, so 1 to 5). |
 | EIOS | COM and three IDL. | COM followed by IDL. |
 | FTS | COM and three FTS. | COM followed by FTS. |
@@ -128,8 +128,13 @@ in `Rx_L0`. In that state:
 | COM | An ordered set (above). | Framing error: the packet ends bad, then the ordered set is parsed. |
 | Any other K symbol | Framing error. | Framing error: the packet ends bad. |
 
-- After a framing error outside a packet, symbols up to the next STP, SDP,
-  END or EDB are discarded without further errors.
+- After a framing error, symbols up to the next STP, SDP, END or EDB are
+  discarded without further errors; leaving `Rx_L0` also ends this.
+- **Empty packet.** STP or SDP followed at once by END, EDB or a cut
+  carries no byte and is dropped, never delivered. Ended by END or EDB, or
+  cut by `pipe_rx_valid_i` or electrical idle, it is a framing error (with
+  no discarding after it); cut by leaving L0 or `Rx_L0` it is dropped
+  silently ([#153](https://github.com/amichai-bd/pcie-factory/issues/153)).
 - A packet is also cut short, and ends bad, when `pipe_rx_valid_i` falls,
   `pipe_rx_elec_idle_i` rises, or the LTSSM leaves L0 or `Rx_L0`.
 - A packet ends bad when any word inside it had `pipe_rx_status_i` 4 to 7

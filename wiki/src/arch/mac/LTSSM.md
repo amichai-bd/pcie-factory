@@ -70,6 +70,10 @@ Recovery.Equalization, 0x35 for L2.TransmitWake.
 - **Latched receive conditions.** "8 consecutive ... received" holds from
   the TS that completes the run until the state is left, even when the
   partner then moves on. Likewise "8 consecutive idle symbols received".
+  One exception: Polling.Active's exit needs the run of 8 matching TS
+  *and* 1024 TS1 sent in the same step, so a run broken before the 1024th
+  TS1 starts again (this design's reading, model and RTL alike,
+  [#158](https://github.com/amichai-bd/pcie-factory/issues/158)).
 - **Sent after one received.** "16 TS2 sent after receiving one" counts
   the TS2 this port queues from the first matching TS received in the
   state; "16 idle symbols sent after receiving one" counts idle symbols
@@ -110,7 +114,7 @@ Recovery.Equalization, 0x35 for L2.TransmitWake.
 ## What each state transmits
 
 `link_up_o` follows the [`phy` HAS](../phy/HAS.md#link-up-and-requests):
-set on entry to L0 from Configuration.Idle, cleared on entry to
+set on every entry to L0 (from Configuration.Idle or Recovery.Idle), cleared on entry to
 Detect.Quiet, Polling.Active, Disabled, Hot Reset and Loopback.Entry, held
 otherwise. SKP ordered sets are inserted in every state that sends TS,
 idle or packets ([symbols page](SYMBOLS.md#skp-schedule)).
