@@ -290,7 +290,7 @@ async def stays_up(env: Env, cycles: int, what: str) -> None:
 
 @cocotb.test()
 async def e2e_power(dut):
-    """L1 once #182 lands (no regression entry until then), RTL, ERR_TIMEOUT_DIV 1024, end to end through pm_state_req_i
+    """L1, RTL, ERR_TIMEOUT_DIV 1024, end to end through pm_state_req_i
     (HAS Power states; mac HAS targets):
     - L0s (request 1 on both): with no traffic, both transmitters reach
       Tx_L0s.Idle within L0S_IDLE_CYCLES + 16 cycles and the receivers
@@ -448,9 +448,8 @@ async def e2e_control(dut):
 
 @cocotb.test()
 async def e2e_loopback(dut):
-    """L1 once #182 lands (no regression entry until then), RTL,
-    ERR_TIMEOUT_DIV 1024: loopback_req_i on port a (the master), then on
-    port b: both reach Loopback.Active with link_up_o low and stay while it
+    """L1, RTL, ERR_TIMEOUT_DIV 1024: loopback_req_i on port a (the
+    master), then on port b: both reach Loopback.Active with link_up_o low and stay while it
     is held; when it drops the master leaves through Loopback.Exit, the
     slave follows on its EIOS, and both pass through Detect back to L0;
     lossless after each."""
@@ -459,7 +458,7 @@ async def e2e_loopback(dut):
     await env.lossless(8)
     for i in (0, 1):
         # No traffic into the entry: a loopback slave echoes the master's
-        # own packets, which the stub's scoreboard cannot tell apart.
+        # own packets, which the stub's scoreboard cannot tell apart (#198).
         await directed_round(env, i, "loopback", LOOPBACK_ACTIVE, traffic=False)
     env.final_checks()
 

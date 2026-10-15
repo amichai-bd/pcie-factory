@@ -102,7 +102,7 @@ Two 10-bit symbols per `clk_i` cycle (2.5 GT/s = 250 Msymbol/s = 2 x
 | `ser_tx_rxdet_i` | in | 1 | `clk_i` | A receiver termination is present at the far end, as a receiver-detect circuit would sense it; sampled during receiver detection. |
 | `ser_rx_clk_i` | in | 1 | - | Recovered RX clock, 125 MHz nominal (see [Clocks and resets](#clocks-and-resets)). |
 | `ser_rx_data_i` | in | 20 | `ser_rx_clk_i` | Twenty received bits, bit 0 earliest. No symbol alignment is guaranteed. |
-| `ser_rx_elec_idle_i` | in | 1 | `ser_rx_clk_i` | The line is in electrical idle; data is don't care. |
+| `ser_rx_elec_idle_i` | in | 1 | `ser_rx_clk_i` | The line is in electrical idle: 1 for any word that holds an idle bit. The bits of that word before the idle starts are line data (the end of the stream, such as an EIOS's last IDL); the bits after it are don't care. The same contract as the [`pcs` HAS](../pcs/HAS.md) and its [loss of lock](../pcs/RECEIVE.md#comma-alignment-and-symbol-lock). |
 
 ## Parameters
 
@@ -268,4 +268,4 @@ LTSSM. `./build arch --ip phy` writes `workdir/phy/arch/perf.json`.
 | Cite the electrical sub-block's exact sections for receiver detection and the ±300 ppm transmitter tolerance (the citations above use the nearest confident sections). | [#85](https://github.com/amichai-bd/pcie-factory/issues/85) |
 | Refine the PIPE citations on the [PIPE page](PIPE.md) from chapter to section level. The TxCompliance byte (`[7:0]`) and the P0s PhyStatus pulse were confirmed against PIPE rev 3.0, and the stack's differences from PIPE listed, in the [`pcs` PIPE control page](../pcs/PIPE_CONTROL.md#differences-from-pipe). | [#85](https://github.com/amichai-bd/pcie-factory/issues/85) |
 | LTSSM state codes; what `ltssm_state_o` shows when transmit and receive L0s differ (a code cannot show both; a status bit or a rule); the exact rules behind the model's reduced LTSSM. | [#72](https://github.com/amichai-bd/pcie-factory/issues/72) |
-| L0s, L1, L2 and Loopback end to end: the pcs must report electrical idle only after the words received before it, so the EIOS reaches the MAC first and whole. | [#182](https://github.com/amichai-bd/pcie-factory/issues/182) |
+| Traffic into the loopback entry, end to end (L0s, L1, L2 and Loopback run since [#182](https://github.com/amichai-bd/pcie-factory/issues/182)). | [#198](https://github.com/amichai-bd/pcie-factory/issues/198) |

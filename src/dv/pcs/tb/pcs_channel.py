@@ -41,9 +41,9 @@ def build_link(rng: random.Random, packets: int, mix: str = "tlp", tlp_bytes: in
                skp_interval: int = arch.SKP_INTERVAL_MIN, slips: int = 0, errors: int = 0,
                idle_gaps: int = 0, idle_symbols: int = 0, polarity: bool = False,
                training: int = 32, close_pairs: int = 0, pair_gap: int = 4,
-               bursts: int = 0) -> Link:
+               bursts: int = 0, eios: bool = False) -> Link:
     syms, idles = arch.make_stream(rng, packets, mix, tlp_bytes, skp_interval, idle_gaps,
-                                   idle_symbols, lead_ts=training)
+                                   idle_symbols, lead_ts=training, eios=eios)
     codes, _ = arch.tx_encode(syms)
     line = arch.channel(rng, codes, idles, slips, errors, polarity)
     link = Link(syms, line, idles, 16 * training)
@@ -110,7 +110,10 @@ def _errored(codes: list[int], rd: int, s: int, gap: int, bits: tuple[int, int])
 
 
 class RxChannel:
-    """Drives ser_rx_data_i and ser_rx_elec_idle_i, one word per RX cycle:
+    """Drives ser_rx_data_i and ser_rx_elec_idle_i, one word per RX cycle
+    (the flag of a word is that of its last bit, so it is 1 for any word
+    that holds an idle bit, as the HAS contract says, and the bits before
+    the idle are line data):
     ``lead`` words of idle noise, then the link's line (or, with
     ``source``, words taken from a queue), then idle noise. ``times[w]`` is
     the rising edge that sampled word w."""
