@@ -279,14 +279,57 @@ the table with its cell.
   source domain). `dst` names its destination clock input. Port names give
   every other port's domain: `src_*` ports belong to the source domain and
   `dst_*` ports to the destination domain. Only `common_cdc_*` modules in
-  `src/rtl/common/` carry the directive.
+  `src/rtl/common/` carry the directive. A cell has no combinational path
+  from an input on one side to an output on the other, and each output is
+  driven only from its own side's domain. The one exception is a
+  dual-clock memory read: the other-domain sources are memories of two or
+  more entries, and every own-side source reaching the output depends,
+  through own-side flops, on a crossing cell inside the cell (a
+  synchronized pointer). A pointer that is synchronized but does not
+  really guard the read is left to the cell's MAS and review.
+- **Port domains.** An input port declares the clock it is synchronous to
+  with a comment ending its declaration line, naming another input port of
+  the same module:
+
+  ```systemverilog
+  input  logic        clk_i,
+  input  logic        rst_i,        // cdc-domain: clk_i
+  input  logic        aux_clk_i,
+  input  logic [19:0] aux_data_i,   // cdc-domain: aux_clk_i
+  ```
+
+  An IP or shared block with more than one clock input annotates every
+  input port that is not a clock, as its HAS or MAS port table gives it
+  (the `Clock` column), so the check sees a port sampled in the wrong
+  domain. The check enforces this on each analyzed top (a top-level IP or
+  a shared block) with two or more
+  [clock inputs](../tools/checks/SPEC.md#cdc-check), counted as the
+  check defines them: a clock that reaches flops only through a gate or
+  an ICG is not counted, and a sub-IP is checked only through its top, so
+  review owns those cases. `inout` ports are exempt, and so are
+  `common_cdc_*` cells, whose `src_*`/`dst_*` prefixes and directive give
+  the domains. A reset that only feeds synchronizers is annotated with
+  the domain that also uses it directly, else the core clock. Name a second
+  domain's ports with one prefix, its clock `<prefix>_clk_i` and the rest
+  `<prefix>_<name>_i`, so the grouping is visible without the comment; the
+  comment, not the name, is what the check reads. An integrator annotates
+  its own input ports: an annotation counts only where its module is the
+  analyzed top. A single-clock IP may leave its ports unannotated; a port
+  without an annotation has no domain. A reset entering another domain
+  goes through a crossing cell like any other signal; a reset
+  synchronizer (asynchronous assertion, synchronous release) is a
+  `src=async` cell whose `src_*` reset input drives the asynchronous
+  reset of its `dst_clk_i` flops.
 - **Check.** `./build check` runs the structural
   [CDC check](../tools/checks/SPEC.md#cdc-check): it enforces the directive,
-  the port prefixes, the cell-only crossing rule and the `src=async` rule.
-  It reads the elaborated netlist, so a cell behind a macro is the same
-  cell instance. It does no reconvergence, glitch or reset-crossing
-  analysis, and it does not see crossings at an IP's own input ports;
-  review still owns those.
+  the port prefixes, pass-through-free cells, the cell-only crossing rule,
+  the `src=async` rule and the port-domain annotations. It reads the
+  elaborated netlist, so a cell behind a macro is the same cell instance.
+  A reset is data to it: a reset, synchronous or asynchronous, from
+  another domain's flop or from an input port annotated with another
+  domain is reported as a crossing. It does not check reconvergence,
+  glitches, reset assertion and release ordering, or anything sampled from
+  an input port without an annotation; review owns those.
 
 ## Filelists
 

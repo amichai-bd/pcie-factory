@@ -16,6 +16,7 @@
 ├── src/                         # kind-first: src/<kind>/<ip>/
 │   ├── README.md                # declares the design target and prefix
 │   ├── lint_waivers.yaml        # reviewed Verilator waivers (optional; checks SPEC)
+│   ├── specs.yaml               # reference documents cached outside the repo (specs SPEC)
 │   ├── rtl/
 │   │   ├── common/              # shared blocks: common_<name>.sv, <block>.rtl.f, the
 │   │   │                        #   vocabulary headers common_*.svh (never an IP)
@@ -35,7 +36,8 @@
 │   ├── src/                     # mirrors src/: rtl/<ip>/MAS.md, dv/<ip>/DV_PLAN.md,
 │   │                            #   arch/<ip>/HAS.md, fpga/<ip>/FPGA.md, asic/<ip>/ASIC.md,
 │   │                            #   {rtl,dv}/common/<block>.md;
-│   │                            #   plus README.md, roadmap.md, decisions/NNNN-<slug>.md
+│   │                            #   plus README.md, roadmap.md, references.md,
+│   │                            #   decisions/NNNN-<slug>.md
 │   └── tracker/                 # index.md, data/
 ├── worktrees/                   # issue worktrees (ignored except README)
 └── workdir/                     # generated output (ignored)

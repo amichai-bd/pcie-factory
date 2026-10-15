@@ -10,6 +10,8 @@ domain is a finding, unless the path crosses an approved crossing cell: a
 ``common_cdc_*`` module in ``rtl/common/`` with a valid ``cdc-cell``
 directive, which the check treats as a black box whose ``src_*`` ports
 belong to its source clock and ``dst_*`` ports to its destination clock.
+An input port of the analyzed top that carries a ``cdc-domain`` annotation
+is a source in the domain of the clock input it names.
 The SPEC (wiki/tools/checks/SPEC.md, "CDC check") owns the rule, its
 assumptions and its limits.
 """
@@ -32,6 +34,7 @@ from checks.common import COMMON_PREFIX, CheckResult, read_prefix, rel
 from checks.lint import declared_modules
 
 CDC_TIMEOUT_S = 600.0
+CO_SOURCES = 4   # other sources of the same domain listed in one finding
 CELL_PREFIX = COMMON_PREFIX + "cdc_"
 ASYNC = "async"
 SIDES = ("src", "dst")
@@ -42,6 +45,10 @@ _DIRECTIVE_LINE_RE = re.compile(r"^\s*//\s*cdc-cell\b")
 _DIRECTIVE_RE = re.compile(r"^\s*//\s*cdc-cell:\s*src=(?P<src>[A-Za-z_]\w*)"
                            r"\s+dst=(?P<dst>[A-Za-z_]\w*)\s*$")
 _MODULE_LINE_RE = re.compile(r"^\s*module\s+(?:(?:automatic|static)\s+)?(?P<name>\w+)")
+# A port-domain annotation: the trailing comment of an input port declaration.
+_DOMAIN_LINE_RE = re.compile(r"//\s*cdc-domain\b")
+_DOMAIN_RE = re.compile(r"^//\s*cdc-domain:\s*(?P<clock>[A-Za-z_]\w*)\s*$")
+_INPUT_LINE_RE = re.compile(r"^\s*input\b")
 
 # Edge kinds, ordered: a path's kind is the largest kind on it.
 ALIAS, WIRE, LOGIC = 0, 1, 2
@@ -124,6 +131,44 @@ def scan_directives(files: list[Path], src_root: Path
     return found, findings
 
 
+@dataclass(frozen=True)
+class PortDomain:
+    clock: str   # a clock input port of the same module
+    file: Path   # resolved
+    line: int
+
+
+def scan_port_domains(files: list[Path], src_root: Path
+                      ) -> tuple[dict[tuple[Path, int], PortDomain], list[str]]:
+    """Read every ``cdc-domain`` annotation in ``files``. Returns the
+    well-formed ones keyed by (resolved file, line) and the findings for
+    malformed or misplaced ones."""
+    found: dict[tuple[Path, int], PortDomain] = {}
+    findings: list[str] = []
+    for path in files:
+        path = Path(path).resolve()
+        try:
+            lines = path.read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        where = rel(path, src_root)
+        for i, line in enumerate(lines):
+            hit = _DOMAIN_LINE_RE.search(line)
+            if hit is None:
+                continue
+            n = i + 1
+            m = _DOMAIN_RE.match(line[hit.start():])
+            if m is None:
+                findings.append(f"{where}:{n}: malformed cdc-domain annotation (expected "
+                                "'// cdc-domain: <clock input port>' ending the line)")
+            elif not _INPUT_LINE_RE.match(line):
+                findings.append(f"{where}:{n}: cdc-domain annotation is not on an input port "
+                                "declaration line")
+            else:
+                found[(path, n)] = PortDomain(m.group("clock"), path, n)
+    return found, findings
+
+
 # --------------------------------------------------------------------------
 # Netlist model (one module)
 
@@ -180,6 +225,7 @@ class VarInfo:
     name: str          # scoped within the module (generate blocks)
     loc: str
     direction: str | None  # INPUT/OUTPUT/INOUT for ports, else None
+    depth: int = 0         # entries of an unpacked array, else 0
 
 
 @dataclass
@@ -234,6 +280,8 @@ class Netlist:
                 if m["type"] == "MODULE" and m.get("level") == 1]
         self.top = tops[0] if tops else None
         self._models: dict[str, Module] = {}
+        self.unpacked = {n["addr"]: _depth(n.get("declRange", "")) for n in _walk(tree)
+                         if n["type"] == "UNPACKARRAYDTYPE"}
 
     def file_of(self, loc: str) -> Path | None:
         f = self.files.get(loc.split(",", 1)[0]) if loc else None
@@ -242,16 +290,25 @@ class Netlist:
     def where(self, loc: str) -> str:
         """``file:line`` relative to the source root, from a node's loc."""
         path = self.file_of(loc)
-        try:
-            line = int(loc.split(",")[1].split(":")[0])
-        except (IndexError, ValueError):
-            line = 0
-        return f"{rel(path, self.src_root)}:{line}" if path else "?"
+        return f"{rel(path, self.src_root)}:{_line(loc)}" if path else "?"
 
     def model(self, addr: str) -> Module:
         if addr not in self._models:
             self._models[addr] = _build_model(self, self.modules[addr])
         return self._models[addr]
+
+
+def _depth(decl_range: str) -> int:
+    """Entries of an unpacked dimension such as ``[0:3]``; 1 when unknown."""
+    m = re.fullmatch(r"\[\s*(-?\d+)\s*:\s*(-?\d+)\s*\]", decl_range.strip())
+    return abs(int(m.group(1)) - int(m.group(2))) + 1 if m else 1
+
+
+def _line(loc: str) -> int:
+    try:
+        return int(loc.split(",")[1].split(":")[0])
+    except (IndexError, ValueError):
+        return 0
 
 
 def _build_model(nl: Netlist, mod: dict) -> Module:
@@ -266,7 +323,8 @@ def _build_model(nl: Netlist, mod: dict) -> Module:
                     continue
                 d = n.get("direction")
                 m.vars[n["addr"]] = VarInfo(scope + n["name"], n.get("loc", ""),
-                                            d if d in ("INPUT", "OUTPUT", "INOUT") else None)
+                                            d if d in ("INPUT", "OUTPUT", "INOUT") else None,
+                                            nl.unpacked.get(n.get("dtypep"), 0))
             elif t in ("FUNC", "TASK"):
                 continue  # locals of a function are not module state
             elif t == "CELL":
@@ -493,8 +551,11 @@ class Design:
     flops: dict[Node, Flop] = field(default_factory=dict)
     flop_clock: dict[Node, Node | None] = field(default_factory=dict)
     pseudo: dict[Node, Node | None] = field(default_factory=dict)  # cell output -> clock
+    port_clock: dict[Node, Node] = field(default_factory=dict)  # annotated top input -> clock
     sinks: list[Sink] = field(default_factory=list)
     inputs: dict[Node, str] = field(default_factory=dict)
+    inouts: set[Node] = field(default_factory=set)
+    memories: dict[Node, int] = field(default_factory=dict)   # unpacked array -> depth
     findings: list[str] = field(default_factory=list)
 
     def name(self, n: Node) -> str:
@@ -505,7 +566,11 @@ class Design:
             self.comb_in.setdefault(dst, []).append((src, kind))
 
 
-def flatten(nl: Netlist, cells: dict[str, Directive]) -> Design:
+def flatten(nl: Netlist, cells: dict[str, Directive],
+            port_clocks: dict[str, str] | None = None) -> Design:
+    """The instance-flattened graph. ``port_clocks`` maps an annotated input
+    port of the top (var addr) to its clock input port (var addr)."""
+    port_clocks = port_clocks or {}
     d = Design(nl, cells)
     top = nl.top
     if top is None:
@@ -519,8 +584,14 @@ def flatten(nl: Netlist, cells: dict[str, Directive]) -> Design:
         for a, v in m.vars.items():
             d.names[(path, a)] = prefix + v.name
             d.locs[(path, a)] = v.loc
+            if v.depth:
+                d.memories[(path, a)] = v.depth
+            if not path and v.direction == "INOUT":
+                d.inouts.add((path, a))
             if not path and v.direction in ("INPUT", "INOUT"):
                 d.inputs[(path, a)] = v.name
+                if a in port_clocks:
+                    d.port_clock[(path, a)] = (path, port_clocks[a])
         d.findings += m.unsupported
         for tg, dep, k in m.comb:
             d.edge((path, tg), (path, dep), k)
@@ -599,6 +670,7 @@ class Analysis:
     def __init__(self, d: Design):
         self.d = d
         self._domains: dict[Node, str] = {}
+        self._roots: dict[Node, Node] = {}   # clock signal -> where its domain ends
         self.labels = self._propagate()
 
     def domain(self, clock: Node) -> str:
@@ -620,67 +692,146 @@ class Analysis:
         else:
             name = f"{d.name(n)} (derived)"
         self._domains[clock] = name
+        self._roots[clock] = n
         return name
+
+    def clock_inputs(self) -> list[Node]:
+        """Top input ports that clock a flop or an approved cell."""
+        d = self.d
+        roots = set()
+        for c in list(d.flop_clock.values()) + [s.clock for s in d.sinks]:
+            if c is not None:
+                self.domain(c)
+                roots.add(self._roots[c])
+        return sorted((n for n in roots if n in d.inputs), key=d.name)
+
+    def unannotated_inputs(self) -> list[str]:
+        """With more than one clock input, every other input port of the
+        top (not an inout) needs a cdc-domain annotation."""
+        d = self.d
+        clocks = self.clock_inputs()
+        if len(clocks) < 2:
+            return []
+        names = ", ".join(d.inputs[c] for c in clocks)
+        return [f"input port {d.inputs[n]} ({d.nl.where(d.locs.get(n, ''))}) has no "
+                f"cdc-domain annotation, and the top has {len(clocks)} clock inputs ({names})"
+                for n in sorted(d.inputs, key=d.name)
+                if n not in clocks and n not in d.port_clock and n not in d.inouts]
+
+    def is_source(self, n: Node) -> bool:
+        d = self.d
+        return n in d.flops or n in d.pseudo or n in d.port_clock
 
     def source_domain(self, n: Node) -> str | None:
         d = self.d
-        clock = d.flop_clock.get(n) if n in d.flops else d.pseudo.get(n)
+        if n in d.flops:
+            clock = d.flop_clock.get(n)
+        elif n in d.pseudo:
+            clock = d.pseudo[n]
+        else:
+            clock = d.port_clock.get(n)
         return self.domain(clock) if clock is not None else None
 
-    def _propagate(self) -> dict[Node, dict[Node, int]]:
-        """Every flop and cell output reaching each node through
-        combinational logic, with the smallest edge kind on the way."""
+    def source_kind(self, n: Node) -> str:
+        d = self.d
+        return "flop" if n in d.flops else "cell output" if n in d.pseudo else "input port"
+
+    def _propagate(self) -> dict[Node, dict[str, tuple[int, Node]]]:
+        """The source domains reaching each node through combinational
+        logic: per domain, the smallest edge kind on the way and one source
+        (the first to reach the node with that kind) to name in a finding.
+        A label only ever lowers its kind, so each node is revisited at most
+        three times per domain: about O(edges x domains)."""
         d = self.d
         out: dict[Node, list[tuple[Node, int]]] = {}
         for dst, ins in d.comb_in.items():
             for src, k in ins:
                 out.setdefault(src, []).append((dst, k))
-        labels: dict[Node, dict[Node, int]] = {}
-        work = [s for s in list(d.flops) + list(d.pseudo)]
-        for s in work:
-            labels.setdefault(s, {})[s] = ALIAS
+        labels: dict[Node, dict[str, tuple[int, Node]]] = {}
+        work = []
+        for s in list(d.flops) + list(d.pseudo) + list(d.port_clock):
+            dom = self.source_domain(s)
+            if dom is not None:
+                labels[s] = {dom: (ALIAS, s)}
+                work.append(s)
         while work:
             u = work.pop()
             lu = labels[u]
             for w, k in out.get(u, ()):
-                if w in d.flops or w in d.pseudo:
+                if self.is_source(w):
                     continue
                 lw = labels.setdefault(w, {})
                 changed = False
-                for s, ks in lu.items():
+                for dom, (ks, rep) in lu.items():
                     nk = max(k, ks)
-                    if nk < lw.get(s, LOGIC + 1):
-                        lw[s] = nk
+                    if nk < lw.get(dom, (LOGIC + 1,))[0]:
+                        lw[dom] = (nk, rep)
                         changed = True
                 if changed:
                     work.append(w)
         return labels
 
-    def sources(self, deps: dict[Node, int]) -> dict[Node, int]:
-        acc: dict[Node, int] = {}
+    def sources(self, deps: dict[Node, int]) -> dict[str, tuple[int, Node]]:
+        """Source domains reaching a sink's data input, as in ``labels``.
+        Among equal kinds the source with the smallest name is kept, so the
+        named source does not depend on the order of ``deps``."""
+        acc: dict[str, tuple[int, Node]] = {}
+        d = self.d
         for n, k in deps.items():
-            for s, ks in self.labels.get(n, {}).items():
-                nk = max(k, ks)
-                if nk < acc.get(s, LOGIC + 1):
-                    acc[s] = nk
+            for dom, (ks, rep) in self.labels.get(n, {}).items():
+                cand = (max(k, ks), rep)
+                cur = acc.get(dom)
+                if cur is None or (cand[0], d.name(cand[1])) < (cur[0], d.name(cur[1])):
+                    acc[dom] = cand
         return acc
 
+    def all_sources(self, deps, dom: str | None = None, cap: int = 0) -> list[Node]:
+        """The sources reaching ``deps`` through combinational edges, found
+        by a backward walk (only run for findings): all of them, or those
+        in ``dom``; at most ``cap`` when it is set."""
+        d, found, seen = self.d, [], set()
+        stack = list(deps)
+        while stack and not (cap and len(found) >= cap):
+            n = stack.pop()
+            if n in seen:
+                continue
+            seen.add(n)
+            if self.is_source(n):
+                if dom is None or self.source_domain(n) == dom:
+                    found.append(n)
+                continue
+            stack.extend(u for u, _ in d.comb_in.get(n, ()))
+        return sorted(found, key=d.name)
+
+    def describe(self, n: Node) -> str:
+        d = self.d
+        return f"{self.source_kind(n)} {d.name(n)} ({d.nl.where(d.locs.get(n, ''))})"
+
     def crossings(self) -> list[str]:
+        """One finding per sink and foreign source domain; it names one
+        source and lists the other sources of that domain (up to
+        ``CO_SOURCES``)."""
         d, out = self.d, []
         for s in d.sinks:
             if s.clock is None:
                 out += self._async_input(s)
                 continue
             dom = self.domain(s.clock)
-            for src, k in sorted(self.sources(s.deps).items(), key=lambda x: d.name(x[0])):
-                sdom = self.source_domain(src)
-                if sdom is None or sdom == dom:
+            for sdom, (k, src) in sorted(self.sources(s.deps).items()):
+                if sdom == dom:
                     continue
                 how = "through combinational logic" if k == LOGIC else "directly"
+                others = [n for n in self.all_sources(s.deps, sdom, CO_SOURCES + 2)
+                          if n != src][:CO_SOURCES + 1]
+                also = ""
+                if others:
+                    more = ", and more" if len(others) > CO_SOURCES else ""
+                    also = (f"; also from {sdom}: "
+                            + ", ".join(self.describe(n) for n in others[:CO_SOURCES]) + more)
                 out.append(f"{s.desc} (clock {dom}, {s.where}) samples "
-                           f"{'flop' if src in d.flops else 'cell output'} {d.name(src)} "
+                           f"{self.source_kind(src)} {d.name(src)} "
                            f"(clock {sdom}, {d.nl.where(d.locs.get(src, ''))}) {how}, "
-                           "with no crossing cell between them")
+                           f"with no crossing cell between them{also}")
         return out
 
     def _async_input(self, s: Sink) -> list[str]:
@@ -767,10 +918,124 @@ def select(ips: list[Ip], ip_ids: set[str] | None) -> list[Ip]:
     return [ip for ip in ips if ip.id in wanted and ip.top_level]
 
 
+def port_domain_findings(nl: Netlist, domains: dict[tuple[Path, int], PortDomain],
+                         used: set[tuple[Path, int]]) -> tuple[list[str], dict[str, str]]:
+    """Check each annotated input port of every module in ``nl`` (its clock
+    must be another input port of the same module) and record the
+    annotations seen in ``used``; a broken annotation is reported the first
+    time it is seen. Returns the findings and, for the top, the
+    annotated input ports mapped to their clock ports (var addrs)."""
+    findings: list[str] = []
+    top: dict[str, str] = {}
+    for addr, mod in nl.modules.items():
+        if mod["type"] != "MODULE":
+            continue
+        model = nl.model(addr)
+        ports = {v.name: a for a, v in model.vars.items() if v.direction}
+        for a, v in model.vars.items():
+            f = nl.file_of(v.loc) if v.direction == "INPUT" else None
+            pd = domains.get((f, _line(v.loc))) if f else None
+            if pd is None:
+                continue
+            first = (pd.file, pd.line) not in used
+            used.add((pd.file, pd.line))
+            name = mod.get("origName", mod["name"])
+            ca = ports.get(pd.clock)
+            bad = ("names the port itself" if pd.clock == v.name else
+                   f"{pd.clock} is not an input port of {name}"
+                   if ca is None or model.vars[ca].direction != "INPUT" else "")
+            if bad and first:
+                findings.append(f"{rel(pd.file, nl.src_root)}:{pd.line}: cdc-domain annotation "
+                                f"on {name}.{v.name}: {bad}")
+            elif not bad and nl.top is not None and addr == nl.top["addr"]:
+                top[a] = ca
+    return findings, top
+
+
+def pass_through_findings(design: Design, own: Directive) -> list[str]:
+    """A crossing cell analyzed on its own: no output may have a purely
+    combinational path from an input of the other side, or a cell that is
+    only wires would hide the crossing it claims to make."""
+    d, out = design, []
+    head = f"{rel(own.file, d.nl.src_root)}:{own.line}: crossing cell {own.module}"
+    top = d.nl.model(d.nl.top["addr"])
+    outputs = sorted((v.name, ((), a)) for a, v in top.vars.items() if v.direction == "OUTPUT")
+    for name, o in outputs:
+        side = name.split("_", 1)[0]
+        stack, seen, hits = [o], set(), set()
+        while stack:
+            n = stack.pop()
+            if n in seen or n in d.flops or n in d.pseudo:
+                continue
+            seen.add(n)
+            for u, _ in d.comb_in.get(n, ()):
+                if u in d.inputs and d.inputs[u].split("_", 1)[0] != side:
+                    hits.add(d.inputs[u])
+                stack.append(u)
+        out += [f"{head}: output {name} has a combinational path from input {i}, so the "
+                "cell would hide a crossing" for i in sorted(hits)]
+    return out
+
+
+def _synchronized(analysis: Analysis, start: Node, want: str) -> bool:
+    """True when ``start`` (a source in domain ``want``) depends, through
+    combinational edges and the data inputs of flops in ``want``, on the
+    output of an approved crossing cell in ``want``."""
+    d, seen, stack = analysis.d, set(), [start]
+    while stack:
+        n = stack.pop()
+        if n in seen:
+            continue
+        seen.add(n)
+        if n in d.pseudo:
+            if analysis.source_domain(n) == want:
+                return True
+            continue
+        if n in d.flops:
+            if analysis.source_domain(n) != want:
+                continue
+            stack.extend((n[0], x) for x in d.flops[n].deps)
+        stack.extend(u for u, _ in d.comb_in.get(n, ()))
+    return False
+
+
+def output_domain_findings(analysis: Analysis, own: Directive) -> list[str]:
+    """A crossing cell analyzed on its own: every source reaching a side's
+    output is in that side's clock domain. One exception, a dual-clock
+    memory read: the other-domain sources are all memories of two or more
+    entries, there is at least one own-side source, and every own-side
+    source depends, through own-side flops, on an approved crossing cell
+    inside this cell (a synchronized pointer)."""
+    d, out = analysis.d, []
+    head = f"{rel(own.file, d.nl.src_root)}:{own.line}: crossing cell {own.module}"
+    top = d.nl.model(d.nl.top["addr"])
+    clocks = {v.name: ((), a) for a, v in top.vars.items() if v.direction == "INPUT"}
+    for a, v in sorted(top.vars.items(), key=lambda x: x[1].name):
+        side = v.name.split("_", 1)[0]
+        port = own.src if side == "src" else own.dst if side == "dst" else ASYNC
+        if v.direction != "OUTPUT" or port == ASYNC or port not in clocks:
+            continue
+        want = analysis.domain(clocks[port])
+        srcs = analysis.all_sources([((), a)])
+        doms = {n: analysis.source_domain(n) for n in srcs}
+        foreign = [n for n in srcs if doms[n] != want]
+        own_side = [n for n in srcs if doms[n] == want]
+        if (foreign and own_side and all(d.memories.get(n, 0) >= 2 for n in foreign)
+                and all(_synchronized(analysis, n, want) for n in own_side)):
+            continue
+        out += [f"{head}: output {v.name} is driven by {analysis.describe(n)} on clock "
+                f"{doms[n]}, not by its own side's clock {want}" for n in foreign]
+    return out
+
+
 def analyze(nl: Netlist, directives: dict[tuple[Path, str], Directive],
-            checked_cells: dict[str, list[str]]) -> tuple[list[str], int]:
-    """Findings for one netlist and its count of flops. ``checked_cells``
-    caches each cell module's port findings by name."""
+            checked_cells: dict[str, list[str]],
+            domains: dict[tuple[Path, int], PortDomain] | None = None,
+            used: set[tuple[Path, int]] | None = None) -> tuple[list[str], int]:
+    """Findings for one netlist, each once, and its count of flops.
+    ``checked_cells`` caches each cell module's port findings by name;
+    ``domains`` are the port-domain annotations, and ``used`` collects those
+    that annotate an elaborated input port."""
     approved: dict[str, Directive] = {}
     findings: list[str] = []
     for addr, mod in nl.modules.items():
@@ -787,8 +1052,11 @@ def analyze(nl: Netlist, directives: dict[tuple[Path, str], Directive],
             findings += checked_cells[name]
         if not checked_cells[name]:
             approved[addr] = dv
+    found, port_clocks = port_domain_findings(nl, domains or {},
+                                              used if used is not None else set())
+    findings += found
     own = approved.pop(nl.top["addr"], None) if nl.top is not None else None
-    design = flatten(nl, approved)  # a cell analyzed on its own is looked inside
+    design = flatten(nl, approved, port_clocks)  # a cell analyzed on its own is looked inside
     analysis = Analysis(design)
     findings += design.findings
     if own is not None:  # its flops run on the clocks its directive names
@@ -798,8 +1066,12 @@ def analyze(nl: Netlist, directives: dict[tuple[Path, str], Directive],
                 findings.append(f"{rel(own.file, nl.src_root)}:{own.line}: crossing cell "
                                 f"{own.module}: flop {design.name(node)} runs on {dom}, "
                                 "not on a clock its cdc-cell directive names")
+        findings += pass_through_findings(design, own)
+        findings += output_domain_findings(analysis, own)
+    else:  # a crossing cell's ports have their domains from src_*/dst_*
+        findings += analysis.unannotated_inputs()
     findings += analysis.crossings()
-    return findings, len(design.flops)
+    return list(dict.fromkeys(findings)), len(design.flops)
 
 
 def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
@@ -826,6 +1098,10 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
     files = list(dict.fromkeys(s.resolve() for t in plan for s in t.flat.sources))
     directives, found = scan_directives(files, src_root)
     result.findings += found
+    domains, found = scan_port_domains(files, src_root)
+    result.findings += found
+    used: set[tuple[Path, int]] = set()
+    complete = True
     flops = 0
     if plan:
         verilator = sim.find_verilator()
@@ -837,6 +1113,7 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                 f"Verilator {have or '(unknown version)'} found, but the JSON netlist reader "
                 f"is tied to the pinned version {pinned or '(none)'} in cfg/host.yaml")
             plan = []
+            complete = False
         checked_cells: dict[str, list[str]] = {}
         for t in plan:
             print(f"[cdc] {t.label}: top={t.top or '(verilator picks)'}", flush=True)
@@ -848,25 +1125,35 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                 except subprocess.TimeoutExpired:
                     result.findings.append(f"{t.label}: verilator --json-only timed out after "
                                            f"{CDC_TIMEOUT_S:.0f}s")
+                    complete = False
                     continue
                 if proc.returncode != 0:
                     err = [ln for ln in (proc.stdout + proc.stderr).splitlines()
                            if ln.startswith("%Error")]
                     result.findings.append(f"{t.label}: verilator --json-only exited "
                                            f"{proc.returncode}: {(err or [''])[0]}")
+                    complete = False
                     continue
                 try:
                     tree = json.loads((out / "tree.json").read_text())
                     meta = json.loads((out / "meta.json").read_text())
                 except (OSError, ValueError) as exc:
                     result.findings.append(f"{t.label}: unreadable JSON netlist: {exc}")
+                    complete = False
                     continue
-            found, n = analyze(Netlist(tree, meta, src_root), directives, checked_cells)
+            found, n = analyze(Netlist(tree, meta, src_root), directives, checked_cells,
+                               domains, used)
             flops += n
             result.findings += [f"{t.label}: {x}" for x in found]
+    if complete:  # an annotation no analyzed module declares as an input port
+        result.findings += [f"{rel(f, src_root)}:{n}: cdc-domain annotation does not annotate "
+                            "an input port of an analyzed module"
+                            for f, n in sorted(set(domains) - used)]
+    result.findings = list(dict.fromkeys(result.findings))
     result.checked = (f"{len(tops)} top-level IP(s), "
                       f"{len(lists) - len(tops) - headers_only} shared block(s), "
                       f"{len(plan)} Verilator --json-only run(s), {flops} flop(s), "
-                      f"{len(directives)} cdc-cell directive(s)"
+                      f"{len(directives)} cdc-cell directive(s), "
+                      f"{len(domains)} cdc-domain annotation(s)"
                       + (f", {headers_only} include-only block(s) skipped" if headers_only else ""))
     return result

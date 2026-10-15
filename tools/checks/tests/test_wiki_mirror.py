@@ -206,6 +206,7 @@ def test_ip_first_layout_is_rejected(good):
 def test_design_level_pages_are_allowed(good):
     write(good / "wiki/src/README.md")
     write(good / "wiki/src/roadmap.md")
+    write(good / "wiki/src/references.md")
     write(good / "wiki/src/decisions/0002-m1-grill.md")
     write(good / "wiki/src/decisions/0010-a-b-2.md")
     r = run(good)

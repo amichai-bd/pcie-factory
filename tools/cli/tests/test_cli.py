@@ -10,7 +10,7 @@ from cli.main import COMMANDS, main, make_parser
 
 def test_dispatch_table():
     assert set(COMMANDS) == {"sim", "regress", "clean", "labels", "wiki", "check", "fpga", "asic",
-                             "ci", "metrics", "arch"}
+                             "ci", "metrics", "arch", "specs"}
 
 
 def test_launcher_runs():

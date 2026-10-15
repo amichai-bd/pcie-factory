@@ -7,6 +7,7 @@ roadmap and decision records. Everything else in the wiki is design-neutral.
 | Page | Holds |
 | --- | --- |
 | [Roadmap](roadmap.md) | Product milestones, their waves and issues. |
+| [References](references.md) | The official specifications and sources of truth the design follows: links, revisions and access terms only. |
 | `decisions/NNNN-<slug>.md` | Design decision records (index below). |
 | `arch/<ip>/HAS.md`, `rtl/<ip>/MAS.md`, `dv/<ip>/DV_PLAN.md`, `fpga/<ip>/FPGA.md`, `asic/<ip>/ASIC.md` | Per-IP specs mirroring the kind-first `src/` ([page set](../bkm/wiki.md#page-set)). |
 
