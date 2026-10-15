@@ -1,0 +1,39 @@
+# Floors at the merged L0 to L2 values (nightly runs the three levels together).
+coverage_floors: {line: 100, toggle: 97, functional: 100}
+tests:
+  - name: long_m600
+    module: tests.test_pcs_elastic
+    testcase: long_m600
+    top: pcie_pcs_elastic
+    seeds: 3
+    timeout_s: 1800
+  - name: long_p600
+    module: tests.test_pcs_elastic
+    testcase: long_p600
+    top: pcie_pcs_elastic
+    seeds: 3
+    timeout_s: 1800
+  - name: long_random
+    module: tests.test_pcs_elastic
+    testcase: long_random
+    top: pcie_pcs_elastic
+    seeds: 6
+    timeout_s: 1800
+  - name: long_stress
+    module: tests.test_pcs_elastic
+    testcase: long_stress
+    top: pcie_pcs_elastic
+    seeds: 6
+    timeout_s: 1800
+  - name: long_idle
+    module: tests.test_pcs_elastic
+    testcase: long_idle
+    top: pcie_pcs_elastic
+    seeds: 4
+    timeout_s: 1800
+  - name: pause_corners_sweep
+    module: tests.test_pcs_elastic
+    testcase: pause_corners
+    top: pcie_pcs_elastic
+    seeds: 10
+    timeout_s: 600

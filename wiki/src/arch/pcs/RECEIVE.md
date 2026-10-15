@@ -84,8 +84,8 @@ decoder, and found without decoding.
 - **Visible fill.** The read side's fill is twice the words it can see
   (the FIFO's read-side occupancy: written words whose pointer has
   crossed) plus the symbols held in its one-symbol leftover register. The
-  FIFO does not output this today; it gains a read-side fill output in
-  [#84](https://github.com/amichai-bd/pcie-factory/issues/84). Nominal fill
+  FIFO outputs that occupancy (`dst_fill_o`, added in
+  [#84](https://github.com/amichai-bd/pcie-factory/issues/84)). Nominal fill
   is 8 symbols.
 - **Fill high.** A `clk_i` flop is 1 while the visible fill is 9 or more;
   a [`common_cdc_sync2`](../../rtl/common/common_cdc_sync2.md) brings it to

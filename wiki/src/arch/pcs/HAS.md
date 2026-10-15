@@ -254,7 +254,7 @@ addition, decode, error counter) and PIPE control
 
 | Item | Owner |
 | --- | --- |
-| Add a read-side fill output to `common_cdc_fifo` (with its MAS and DV plan), used by `pcs_elastic`. | [#84](https://github.com/amichai-bd/pcie-factory/issues/84) |
+| Done in [#84](https://github.com/amichai-bd/pcie-factory/issues/84): `common_cdc_fifo` has a read-side fill output (`dst_fill_o`) and a look-ahead word (`dst_next_data_o`), used by `pcs_elastic` ([MAS](../../rtl/pcs_elastic/MAS.md#decisions)). | [#84](https://github.com/amichai-bd/pcie-factory/issues/84) |
 | `common_cdc_rst`: name, release-edge parameter (2 here) and directive. | [#119](https://github.com/amichai-bd/pcie-factory/issues/119) |
 | Electrical sections for receiver detection and the ±300 ppm reference tolerance; sub-section citations for the 8b/10b decode rules and for lane polarity inversion (cited here at the nearest confident section). The Base Spec is not available locally, so these wait for a copy ([#117](https://github.com/amichai-bd/pcie-factory/issues/117)). | [#85](https://github.com/amichai-bd/pcie-factory/issues/85) |
 | Whether the Base Spec asks more of symbol lock than the rules above (for example a minimum number of commas). | [#83](https://github.com/amichai-bd/pcie-factory/issues/83) |

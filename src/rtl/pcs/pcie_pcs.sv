@@ -3,8 +3,12 @@
 // wiki/src/arch/pcs/HAS.md; structure: wiki/src/rtl/pcs/MAS.md.
 //
 // Wave-1 shell: the ports of the HAS with every output tied to its reset
-// value. The sub-IPs and crossing cells arrive in wave 2.
+// value. The sub-IPs and crossing cells arrive in wave 2; until the top
+// integrates it (#85), the elastic buffer is instantiated with its write
+// side idle, so lint and the CDC check see its crossings.
 `default_nettype none
+
+`include "common_macros.svh"
 
 module pcie_pcs (
   // Clock and reset
@@ -40,14 +44,47 @@ module pcie_pcs (
   input  logic        ser_rx_elec_idle_i    // cdc-domain: ser_rx_clk_i
 );
 
-  // Inputs the shell does not use yet; the wave-2 RTL consumes them.
-  logic unused_inputs;
-  assign unused_inputs = ^{clk_i, rst_i, pipe_reset_ni, pipe_tx_data_i,
-                           pipe_tx_datak_i, pipe_tx_detect_rx_i,
-                           pipe_tx_elec_idle_i, pipe_tx_compliance_i,
-                           pipe_rx_polarity_i, pipe_power_down_i,
-                           ser_tx_rxdet_i, ser_rx_clk_i, ser_rx_data_i,
-                           ser_rx_elec_idle_i};
+  // Elastic buffer placeholder: no word is written (the aligner arrives
+  // with #83 and the integration with #85); its outputs are unused.
+  logic        eb_valid;
+  logic [19:0] eb_sym;
+  logic [1:0]  eb_lock;
+  logic [1:0]  eb_gen;
+  logic        eb_skp_add;
+  logic        eb_skp_rem;
+  logic        eb_ovf;
+  logic        eb_udf;
+  logic [5:0]  eb_fill;
+  logic        ser_rx_rst;
+
+  pcie_pcs_elastic u_elastic (
+    .clk_i         (clk_i),
+    .rst_i         (rst_i),
+    .ser_rx_clk_i  (ser_rx_clk_i),
+    .ser_rx_valid_i(1'b0),
+    .ser_rx_sym_i  (ser_rx_data_i),
+    .ser_rx_lock_i (1'b0),
+    .ser_rx_gen_i  (1'b0),
+    .rx_valid_o    (eb_valid),
+    .rx_sym_o      (eb_sym),
+    .rx_lock_o     (eb_lock),
+    .rx_gen_o      (eb_gen),
+    .rx_skp_add_o  (eb_skp_add),
+    .rx_skp_rem_o  (eb_skp_rem),
+    .rx_ovf_o      (eb_ovf),
+    .rx_udf_o      (eb_udf),
+    .fill_o        (eb_fill),
+    .ser_rx_rst_o  (ser_rx_rst)
+  );
+
+  // Inputs and outputs the shell does not use yet; the wave-2 RTL consumes
+  // them.
+  `COMMON_UNUSED_BITS(unused_bits, {pipe_reset_ni, pipe_tx_data_i, pipe_tx_datak_i,
+                                    pipe_tx_detect_rx_i, pipe_tx_elec_idle_i,
+                                    pipe_tx_compliance_i, pipe_rx_polarity_i,
+                                    pipe_power_down_i, ser_tx_rxdet_i, ser_rx_elec_idle_i,
+                                    eb_valid, eb_sym, eb_lock, eb_gen, eb_skp_add,
+                                    eb_skp_rem, eb_ovf, eb_udf, eb_fill, ser_rx_rst})
 
   // Reset values from the HAS: PhyStatus high, no received data, receiver
   // and transmitter in electrical idle.
