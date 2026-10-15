@@ -1,0 +1,12 @@
+# Transmit L0s entry after the idle time and exit with N_FTS 32 FTS
+# (wiki/src/arch/mac/HAS.md#targets: entry <= L0S_IDLE_CYCLES + 16,
+# exit <= 2 x N_FTS + 16 cycles).
+description: Transmit L0s entry after 256 idle cycles and exit on a packet, N_FTS 32.
+seed: 4
+workload:
+  kind: l0s
+  n_fts: 32
+targets:
+  l0s_entry_cycles: {max: 272}
+  l0s_exit_cycles: {max: 80}
+  packets_lost: {max: 0}

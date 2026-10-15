@@ -1,0 +1,10 @@
+# L2 entry, then exit to Detect and training back to L0 with the timeout
+# divisors at 1024 (wiki/src/arch/mac/HAS.md#targets).
+description: L2 entry, exit to Detect and training back to L0.
+seed: 7
+workload:
+  kind: l1
+  state: 3
+targets:
+  entry_cycles: {max: 64}
+  exit_us: {max: 100}

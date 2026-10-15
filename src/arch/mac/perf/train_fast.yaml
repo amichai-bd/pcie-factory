@@ -1,0 +1,15 @@
+# Training with both timeout divisors at 1024 and up to 2000 cycles of reset
+# skew: the DV link-up budget; training itself is unchanged
+# (wiki/src/arch/mac/HAS.md#targets).
+description: Training to L0 back to back, TIMEOUT_DIV and ERR_TIMEOUT_DIV 1024, reset skew up to 2000 cycles.
+seed: 2
+workload:
+  kind: train
+  timeout_div: 1024
+  err_timeout_div: 1024
+  skew_cycles: 2000
+  channel_cycles: 2
+targets:
+  link_up_us_max: {max: 100}
+  training_us_min: {min: 65.536}
+  training_us_max: {max: 80}

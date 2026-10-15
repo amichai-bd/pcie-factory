@@ -1,0 +1,10 @@
+# Transmit L0s exit with the largest N_FTS, 255
+# (wiki/src/arch/mac/HAS.md#targets: exit <= 2 x N_FTS + 16 cycles).
+description: Transmit L0s exit on a packet, N_FTS 255.
+seed: 5
+workload:
+  kind: l0s
+  n_fts: 255
+targets:
+  l0s_exit_cycles: {max: 526}
+  packets_lost: {max: 0}

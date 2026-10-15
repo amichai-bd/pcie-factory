@@ -1,0 +1,10 @@
+# Every arc of the HAS arc list driven on one model by the other through the
+# injection hooks: the link partner can reach 100% arc coverage
+# (wiki/src/arch/mac/LTSSM.md#arcs).
+description: Directed episodes covering every LTSSM and L0s arc of the HAS list.
+seed: 11
+workload:
+  kind: arc_sweep
+targets:
+  arcs_hit_percent: {min: 100}
+  arcs_total: {min: 64, max: 64}

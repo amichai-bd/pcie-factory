@@ -1,0 +1,13 @@
+# Back-to-back 274-byte TLPs, SKP every 1180 symbols: framing and SKP are
+# the only overhead (wiki/src/arch/mac/HAS.md#targets).
+description: Back-to-back 274-byte TLPs downstream to upstream in L0.
+seed: 8
+workload:
+  kind: traffic
+  packets: 1000
+  mix: tlp
+  tlp_bytes: 274
+targets:
+  throughput_bytes_per_cycle: {min: 1.97}
+  packets_lost: {max: 0}
+  framing_errors: {max: 0}

@@ -1,0 +1,14 @@
+# Random TLP sizes and DLLPs, 10% nullified, longest SKP interval: every
+# packet arrives with its tag and flags (wiki/src/arch/mac/HAS.md#targets).
+description: Random TLPs and DLLPs, 10% nullified, SKP every 1538 symbols.
+seed: 10
+workload:
+  kind: traffic
+  packets: 1000
+  mix: random
+  nullify_ratio: 0.1
+  skp_interval: 1538
+targets:
+  packets_lost: {max: 0}
+  framing_errors: {max: 0}
+  rcv_errors: {max: 0}
