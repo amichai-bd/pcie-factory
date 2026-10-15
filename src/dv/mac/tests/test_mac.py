@@ -16,8 +16,8 @@ from collections import deque
 import cocotb
 from cocotb.triggers import FallingEdge, Timer
 
-from tb.harness import (COV_ARCS, COV_OS_RX, COV_PKT, CORE_ARCS, FIELDS_IN,  # noqa: F401
-                        Harness, arch)
+from tb.harness import (CONTROL_ARCS, COV_ARCS, COV_CTL, COV_OS_RX, COV_PKT,  # noqa: F401
+                        CORE_ARCS, FIELDS_IN, Harness, arch)
 
 LIMIT = 400_000          # cycles any one wait may take at dividers 1024
 WALK_PAD = {"kind": "TS1", "link": 0, "lane": None}
@@ -242,7 +242,7 @@ async def ep_rcvrlock_timeouts(h, role):
 
 
 async def _partner_frozen_in(h, role, state):
-    if not h.both_l0():
+    if getattr(h, "partner", None) is None or h.role != role or not h.both_l0():
         await train(h, role)
     h.request(retrain=1)
     await h.run_until(lambda q: q.partner.state == state, LIMIT)
@@ -313,7 +313,8 @@ TIMEOUTS = (ep_polling_timeouts, ep_cfg_timeouts, ep_rcvrlock_timeouts,
             ep_rcvrcfg_timeout, ep_ridle_timeout)
 
 
-async def run_arcs(dut, roles, episodes, require_all):
+async def run_arcs(dut, roles, episodes, require_all, arcs=None):
+    arcs = CORE_ARCS if arcs is None else arcs
     h = Harness(dut)
     await h.start()
     for role in roles:
@@ -322,11 +323,179 @@ async def run_arcs(dut, roles, episodes, require_all):
             await ep(h, role)
             dut._log.info("%s: %s done at cycle %d", role, ep.__name__, h.now)
         hit = {(a, b) for _, a, b in h.a.arcs[first:]}
-        left = sorted(n for n, arc in CORE_ARCS.items() if arc not in hit)
-        dut._log.info("%s: %d/%d core arcs, %d cycles checked; missed: %s", role,
-                      len(CORE_ARCS) - len(left), len(CORE_ARCS), h.checks, left)
+        left = sorted(n for n, arc in arcs.items() if arc not in hit)
+        dut._log.info("%s: %d/%d arcs, %d cycles checked; missed: %s", role,
+                      len(arcs) - len(left), len(arcs), h.checks, left)
         if require_all:
-            assert not left, f"{role}: core arcs not reached: {left}"
+            assert not left, f"{role}: arcs not reached: {left}"
+
+
+# ------------------------------------------------------- control states
+
+async def ensure_l0(h, role):
+    """Train when the pair is not both in L0 (or not made yet, or in the
+    other role)."""
+    if getattr(h, "partner", None) is None or h.role != role or not h.both_l0():
+        await train(h, role)
+
+
+def downstream_of(h):
+    """Set a Hot Reset or Disable request on the downstream port of the
+    pair, DUT or partner: ``set(attr, value)``."""
+    def set_(attr, v):
+        if h.a.dsp:
+            h.request(**{attr: v})
+        else:
+            setattr(h.partner, {"hot_reset": "hot_reset_req",
+                                "disable": "disable_req"}[attr], bool(v))
+    return set_
+
+
+async def ep_directed(h, role):
+    """Hot Reset and Disabled from L0, directed by the downstream port (the
+    DUT downstream, the partner upstream: the DUT follows), held, then
+    released; the pair trains again. The partner's Disabled ends in an EIOS,
+    so an upstream DUT leaves on its EIOS and EI exit."""
+    await ensure_l0(h, role)
+    dsp = downstream_of(h)
+    for attr, st in (("hot_reset", arch.HR), ("disable", arch.DIS)):
+        t = h.now
+        dsp(attr, 1)
+        await h.run_until(took(h, arch.RI, st, t), LIMIT, f"Recovery.Idle to {st}")
+        await h.run(2000)
+        assert not h.a.link_up, f"{role}: link_up_o high in {st}"
+        dsp(attr, 0)
+        await h.run_until(took(h, st, arch.DQ, t), LIMIT, f"{st} to Detect.Quiet")
+        await settle(h)
+
+
+async def ep_upstream_ignores(h, role):
+    """An upstream port ignores hot_reset_req_i and disable_req_i: it stays
+    in L0 with both held high, and a retrain with them held goes through
+    Recovery.Idle back to L0."""
+    if role != "upstream":
+        return
+    await ensure_l0(h, role)
+    t = h.now
+    h.request(hot_reset=1, disable=1)
+    await h.run(3000)
+    assert not any(c >= t for c, *_ in h.a.arcs), f"{role}: left L0 on a downstream request"
+    h.request(retrain=1)
+    await h.run_until(took(h, arch.RI, arch.L0, t), LIMIT, "Recovery.Idle to L0")
+    h.request(hot_reset=0, disable=0)
+
+
+async def ep_request_priority(h, role):
+    """Several requests at once take the first row of the arcs page:
+    Recovery.Idle gives Hot Reset over Disabled over Loopback (downstream;
+    upstream, Loopback over the ignored two), Linkwidth.Start gives
+    Loopback over Disabled."""
+    sets = ((dict(hot_reset=1, disable=1, loopback=1), arch.HR),
+            (dict(disable=1, loopback=1), arch.DIS)) if role == "downstream" else (
+            (dict(hot_reset=1, disable=1, loopback=1), arch.LBE),)
+    for req, st in sets:
+        await ensure_l0(h, role)
+        t = h.now
+        h.request(**req)
+        await h.run_until(lambda q: any(c >= t and f == arch.RI for c, f, _ in q.a.arcs),
+                          LIMIT, "leaving Recovery.Idle")
+        got = next(to for c, f, to in h.a.arcs if c >= t and f == arch.RI)
+        assert got == st, f"{role}: {req} took Recovery.Idle to {got}, expected {st}"
+        await settle(h)
+    await h.fresh(role)
+    t = h.now
+    h.request(**({"disable": 1, "loopback": 1}))
+    await h.run_until(lambda q: any(c >= t and f == arch.LWS for c, f, _ in q.a.arcs), LIMIT)
+    got = next(to for c, f, to in h.a.arcs if c >= t and f == arch.LWS)
+    assert got == arch.LBE, f"{role}: Linkwidth.Start took {got} with both requests"
+    await settle(h)
+
+
+async def loopback_round(h, role, master):
+    """Loopback with the DUT (``master`` 'dut') or the partner as master,
+    until both are in Loopback.Active, a while of pattern, then released."""
+    t = h.now
+    if master == "dut":
+        h.request(loopback=1)
+    else:
+        h.partner.loopback_req = True
+    await h.run_until(lambda q: q.a.state == arch.LBA and q.partner.state == arch.LBA, LIMIT,
+                      "both in Loopback.Active")
+    errs = h.shadow.lb_errors
+    await h.run(1500)                      # past a SKP interval of the pattern
+    assert h.shadow.lb_errors == errs == 0, (
+        f"{role}: {h.shadow.lb_errors} loopback pattern errors")
+    if master == "dut":
+        h.request(loopback=0)
+    else:
+        h.partner.loopback_req = False
+    await h.run_until(took(h, arch.LBX, arch.DQ, t), LIMIT, "Loopback.Exit to Detect.Quiet")
+    await settle(h)
+
+
+async def ep_loopback(h, role):
+    """Loopback from L0 through Recovery.Idle, the DUT master then slave."""
+    await ensure_l0(h, role)
+    for master in ("dut", "partner"):
+        await loopback_round(h, role, master)
+
+
+async def ep_training_requests(h, role):
+    """Loopback (DUT master, then slave) and Disabled requested before the
+    link is up: Configuration.Linkwidth.Start leaves for them."""
+    for master in ("dut", "partner"):
+        await h.fresh(role)
+        t = h.now
+        if master == "dut":
+            h.request(loopback=1)
+        else:
+            h.partner.loopback_req = True
+        await h.run_until(took(h, arch.LWS, arch.LBE, t), LIMIT, "Linkwidth.Start to Loopback")
+        await h.run_until(h.in_state(arch.LBA), LIMIT)
+        await h.run(300)
+        await settle(h)
+    await h.fresh(role)
+    t = h.now
+    downstream_of(h)("disable", 1)
+    await h.run_until(took(h, arch.LWS, arch.DIS, t), LIMIT, "Linkwidth.Start to Disabled")
+    await h.run(500)
+    await settle(h)
+
+
+async def ep_following(h, role):
+    """The partner's TS1 carry Hot Reset, then Disable Link, while the DUT
+    is in Recovery.Idle (the partner frozen in RcvrCfg, then TS1 with the
+    bit): the DUT follows in either role. Hot Reset restarts its dwell on
+    each such TS1 and leaves once they stop; the partner never sends the
+    EIOS, so Disabled leaves on its timeout."""
+    for bit, st in ((arch.CTL_HOT_RESET, arch.HR), (arch.CTL_DISABLE, arch.DIS)):
+        t = h.now
+        await _partner_frozen_in(h, role, arch.RC)
+        await h.run_until(h.in_state(arch.RI), LIMIT)
+        h.partner.inject.ts = {"kind": "TS1", "ctl": bit}
+        await h.run_until(took(h, arch.RI, st, t), LIMIT, f"Recovery.Idle to {st}, following")
+        await h.run(3 * h.shadow.dwell_cycles)
+        if st == arch.HR:
+            assert h.a.state == arch.HR, f"{role}: Hot Reset left while its TS1 still arrive"
+            h.partner.inject.ts = {"kind": "TS1"}
+        await h.run_until(took(h, st, arch.DQ, t), LIMIT, f"{st} to Detect.Quiet, following")
+        await settle(h)
+
+
+async def ep_loopback_no_echo(h, role):
+    """The DUT as Loopback master with the partner frozen in Recovery.Idle
+    (idle symbols, no echo): Loopback.Entry times out to Loopback.Exit."""
+    t = h.now
+    await _partner_frozen_in(h, role, arch.RI)
+    h.request(loopback=1)
+    await h.run_until(took(h, arch.LBE, arch.LBX, t), LIMIT, "Loopback.Entry timeout")
+    h.request(loopback=0)
+    await settle(h)
+
+
+CONTROL_QUICK = (ep_directed, ep_upstream_ignores, ep_request_priority, ep_loopback,
+                 ep_training_requests)
+CONTROL_FULL = CONTROL_QUICK + (ep_following, ep_loopback_no_echo)
 
 
 # -------------------------------------------------------------------- tests
@@ -409,10 +578,16 @@ async def polarity(dut):
 async def dividers(dut):
     """L2: TIMEOUT_DIV 256 and ERR_TIMEOUT_DIV 128 (the entry's params):
     Polling.Active times out after 23437 cycles, every other timeout
-    checked exactly by the shadow."""
+    checked exactly by the shadow; the control states' recipes run too, so
+    the Hot Reset dwell (976 cycles) and the 2 ms control timeouts (at
+    their floor) are checked at these dividers."""
     h = Harness(dut, timeout_div=256, err_timeout_div=128)
     await h.start()
     for role in arch.ROLES:
+        for ep in CONTROL_FULL:
+            await ep(h, role)
+        hr = [c for c, a, b in h.a.arcs if b == arch.HR or a == arch.HR]
+        assert h.shadow.dwell_cycles == 976 and hr, f"{role}: no Hot Reset at these dividers"
         await h.fresh(role)
         h.partner.inject.mute = True
         await h.run_until(h.in_state(arch.PC), LIMIT)
@@ -808,3 +983,110 @@ async def random_soak(dut):
         await settle(h)
         await h.drain(LIMIT)
         dut._log.info("%s: %d arcs, %d cycles checked", role, len(h.a.arcs), h.checks)
+
+
+@cocotb.test()
+async def control_quick(dut):
+    """L1: Hot Reset and Disabled directed by the downstream port, Loopback
+    with the DUT master and slave, from L0 and from
+    Configuration.Linkwidth.Start, both roles; upstream ignores the
+    downstream-only requests."""
+    await run_arcs(dut, arch.ROLES, CONTROL_QUICK, False, CONTROL_ARCS)
+
+
+@cocotb.test()
+async def control_full_downstream(dut):
+    """L2: every control-state arc, downstream role, partner-initiated
+    entries and the timeouts included."""
+    await run_arcs(dut, ("downstream",), CONTROL_FULL, True, CONTROL_ARCS)
+
+
+@cocotb.test()
+async def control_full_upstream(dut):
+    """L2: every control-state arc, upstream role."""
+    await run_arcs(dut, ("upstream",), CONTROL_FULL, True, CONTROL_ARCS)
+
+
+class RawLine:
+    """A line hook that replaces every received word: queued symbols (an
+    even count, sent as they are), then idle data 00h, unscrambled."""
+
+    def __init__(self, syms) -> None:
+        self.words = deque((syms[i], syms[i + 1]) for i in range(0, len(syms), 2))
+
+    def __call__(self, h, rx):
+        s0, s1 = self.words.popleft() if self.words else (IDLE, IDLE)
+        return arch.PipeRx(syms=(s0, s1), valid=True, elec_idle=False,
+                           phy_status=rx.phy_status)
+
+
+async def scr_off_first_word(h, role):
+    """Disable Scrambling applies on receive from the first word the step
+    after Configuration.Idle entry takes. A crafted line, the partner
+    frozen: from Lanenum.Accept, TS1 to Complete, one TS2 with the bit
+    (the 16 TS2 sent start counting), TS1 that break the run, ``o`` idle
+    words, then 8 TS2 with the bit and unscrambled idle. Over the eight
+    offsets, one lines the DUT's last TS2 up with the run's end, so its
+    first word in Configuration.Idle is an idle symbol it counts at once
+    (the shadow shows it). Only the DUT has scrambling off, so each offset
+    ends in a fresh reset."""
+    hit = False
+    nts = lambda ident, ctl=0: ts_syms(link=0, lane=0, ctl=ctl, ident=ident)  # noqa: E731
+    for o in range(8):
+        await h.fresh(role)
+        await h.run_until(h.in_state(arch.LNA), LIMIT)
+        h.partner.inject.freeze = True
+        syms = (nts(arch.TS1_ID) * 2 + nts(arch.TS2_ID, arch.CTL_NO_SCRAMBLE)
+                + nts(arch.TS1_ID) * 20 + [IDLE] * (2 * o)
+                + nts(arch.TS2_ID, arch.CTL_NO_SCRAMBLE) * 8)
+        h.line_hook = RawLine(syms)
+        while h.a.state != arch.L0:
+            if h.now - h.t0 > LIMIT:
+                raise AssertionError(f"{role}: no L0 on the crafted line, offset {o}")
+            await h.step()
+            sh = h.shadow
+            if sh.state == arch.CI and sh.now == sh.entered + 1 and sh.idle_sent_after == 2:
+                hit = True
+        assert h.shadow.scr_off, f"{role}: scrambling on after the crafted TS2"
+        h.line_hook = None
+    await train(h, role)
+    assert hit, f"{role}: no offset counted an idle symbol in the first Configuration.Idle step"
+
+
+@cocotb.test()
+async def no_scramble(dut):
+    """L1: the partner sends Disable Scrambling in its TS2 in
+    Configuration.Complete: from Configuration.Idle both ports send idle
+    and packets unscrambled (the shadow checks every symbol), through a
+    retrain; Detect.Quiet enables scrambling again. Both roles, each with
+    a 12-cycle and a 1-cycle line: on the short line the upstream port's
+    first word in Configuration.Idle is already the partner's unscrambled
+    idle, which the step entering it must not descramble."""
+    h = Harness(dut)
+    await h.start()
+    for role, delay in ((r, d) for r in arch.ROLES for d in (12, 1)):
+        await h.fresh(role, delay=delay)
+        h.partner.inject.ts = {"ctl": arch.CTL_NO_SCRAMBLE}
+        await h.run_until(h.both_l0, LIMIT, "training with Disable Scrambling")
+        assert h.shadow.scr_off and h.partner.scr_off, f"{role}: scrambling still on"
+        COV_CTL.sample(scrambling_off=role)
+        n = h.txmon.n
+        await h.run(200)
+        assert list(h.txmon.syms)[-(h.txmon.n - n):].count((0, 0)) > 100, (
+            f"{role}: idle symbols not sent as 00h")
+        h.send(arch.Packet(False, bytes(range(1, 61))))
+        h.partner.tx_packets.append(arch.Packet(True, bytes(range(1, 7))))
+        await h.drain()
+        h.check_partner()
+        h.request(retrain=1)
+        await h.run_until(h.in_state(arch.RL), LIMIT)
+        await h.run_until(h.both_l0, LIMIT)
+        assert h.shadow.scr_off, f"{role}: Recovery enabled scrambling"
+        h.partner.inject.__init__()
+        h.release = (h.release[0], h.now - h.t0 + 64)   # partner reset: Detect.Quiet
+        await h.run_until(h.in_state(arch.DQ), LIMIT)
+        assert not h.shadow.scr_off, f"{role}: Detect.Quiet kept scrambling off"
+        await h.run_until(h.both_l0, LIMIT)
+        assert not h.shadow.scr_off
+    for role in arch.ROLES:
+        await scr_off_first_word(h, role)

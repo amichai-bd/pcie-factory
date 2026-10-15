@@ -1,5 +1,6 @@
 // Ordered sets of pcie_mac: TS1/TS2, SKP (with the SKP schedule), EIOS,
-// FTS and the compliance pattern, sent and recognised two symbols per
+// FTS, the compliance pattern and the loopback master's data pattern sent,
+// and ordered sets recognised two symbols per
 // clock, with the received TS fields decoded for the LTSSM.
 // Interface, behavior and structure: wiki/src/rtl/mac/MAS.md; rules:
 // wiki/src/arch/mac/SYMBOLS.md.
@@ -21,6 +22,7 @@ module pcie_mac_os #(
   // Transmit schedule (data source)
   input  logic                   tx_skp_ok_i,   // a scheduled SKP may start this cycle
   input  logic                   tx_count_i,    // the data source sent a counted word
+  input  logic                   tx_skp_hold_i, // loopback slave: count nothing, schedule no SKP
 
   // Transmit word and its events
   output pcie_mac_pkg::t_os_tx   tx_o,
@@ -44,6 +46,8 @@ module pcie_mac_os #(
   pcie_mac_pkg::t_tx_kind                  tx_kind_q, tx_kind_d, kind;
   logic [pcie_mac_pkg::TX_IDX_W-1:0]       tx_idx_q, tx_idx_d, idx;
   logic [pcie_mac_pkg::SKP_CREDIT_W-1:0]   skp_credit_q, skp_credit_d;
+  logic [7:0]                              pat_q, pat_d;   // next loopback pattern byte
+  logic [7:0]                              pat_hi;
 
   // TS fields taken at tx_o.ack.
   logic       f_ts2_q, f_lane_pad_q;
@@ -61,9 +65,9 @@ module pcie_mac_os #(
   logic       link_k, lane_k;
 
   assign req_any = tx_req_i.ts | tx_req_i.skp | tx_req_i.eios | tx_req_i.fts
-                 | tx_req_i.compliance;
+                 | tx_req_i.compliance | tx_req_i.pattern;
   assign tx_skp_due_o = (skp_credit_q >= pcie_mac_pkg::SKP_CREDIT_W'(pcie_mac_pkg::SKP_INTERVAL));
-  assign start_sched  = !tx_busy_q && tx_skp_due_o && tx_skp_ok_i;
+  assign start_sched  = !tx_busy_q && tx_skp_due_o && tx_skp_ok_i && !tx_skp_hold_i;
   assign start_req    = !tx_busy_q && !start_sched && req_any;
   assign start        = start_sched | start_req;
 
@@ -81,6 +85,8 @@ module pcie_mac_os #(
         kind = pcie_mac_pkg::KIND_FTS;
       end else if (tx_req_i.compliance) begin
         kind = pcie_mac_pkg::KIND_COMPL;
+      end else if (tx_req_i.pattern) begin
+        kind = pcie_mac_pkg::KIND_PAT;
       end else begin
         kind = pcie_mac_pkg::KIND_TS;
       end
@@ -89,7 +95,8 @@ module pcie_mac_os #(
 
   assign last = (kind == pcie_mac_pkg::KIND_TS)
               ? (idx == pcie_mac_pkg::TX_IDX_W'(pcie_mac_pkg::TS_WORDS - 1))
-              : (idx == pcie_mac_pkg::TX_IDX_W'(pcie_mac_pkg::OS_WORDS - 1));
+              : (kind == pcie_mac_pkg::KIND_PAT)
+              || (idx == pcie_mac_pkg::TX_IDX_W'(pcie_mac_pkg::OS_WORDS - 1));
 
   assign tx_valid = tx_busy_q | start;
   assign tx_o.valid      = tx_valid;
@@ -152,6 +159,7 @@ module pcie_mac_os #(
                         common_pkg::SYM_COM};
           tx_datak = 2'b01;
         end
+        pcie_mac_pkg::KIND_PAT: tx_data = {pat_hi, pat_q};  // two data bytes, a count
         default: ;
       endcase
     end
@@ -167,9 +175,16 @@ module pcie_mac_os #(
     end
   end
 
+  // The loopback pattern: a byte count, mod 256, from reset (SYMBOLS.md,
+  // Scrambling: sent as it is).
+  assign pat_hi = pat_q + 8'd1;
+  assign pat_d  = (tx_valid && (kind == pcie_mac_pkg::KIND_PAT)) ? pat_q + 8'd2 : pat_q;
+
   // SKP count: +2 per counted word; a scheduled SKP takes 1180, a requested
-  // one restarts it. Saturates (an assertion fails first).
-  assign counted = (tx_valid && (kind != pcie_mac_pkg::KIND_COMPL)) || tx_count_i;
+  // one restarts it. Saturates (an assertion fails first). A loopback slave
+  // counts nothing.
+  assign counted = !tx_skp_hold_i
+                && ((tx_valid && (kind != pcie_mac_pkg::KIND_COMPL)) || tx_count_i);
 
   logic [pcie_mac_pkg::SKP_CREDIT_W:0] sum;
 
@@ -194,6 +209,7 @@ module pcie_mac_os #(
   `COMMON_DFF_RST_VAL(tx_kind_q, tx_kind_d, clk_i, rst_i, pcie_mac_pkg::KIND_TS)
   `COMMON_DFF_RST(tx_idx_q, tx_idx_d, clk_i, rst_i)
   `COMMON_DFF_RST(skp_credit_q, skp_credit_d, clk_i, rst_i)
+  `COMMON_DFF_RST(pat_q, pat_d, clk_i, rst_i)
   `COMMON_DFF_EN(f_ts2_q, tx_ts_i.ts2, clk_i, start)
   `COMMON_DFF_EN(f_lane_pad_q, tx_ts_i.lane_pad, clk_i, start)
   `COMMON_DFF_EN(f_lane_q, tx_ts_i.lane, clk_i, start)
@@ -201,7 +217,7 @@ module pcie_mac_os #(
 
   `COMMON_ASSERT(a_one_request, clk_i, rst_i,
                  $onehot0({tx_req_i.ts, tx_req_i.skp, tx_req_i.eios, tx_req_i.fts,
-                           tx_req_i.compliance}))
+                           tx_req_i.compliance, tx_req_i.pattern}))
   `COMMON_ASSERT_NEVER(a_count_while_valid, clk_i, rst_i, tx_count_i && tx_valid)
   `COMMON_ASSERT_NEVER(a_skp_credit_saturates, clk_i, rst_i,
                        skp_credit_q == pcie_mac_pkg::SKP_CREDIT_MAX)

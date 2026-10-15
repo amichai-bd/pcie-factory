@@ -45,4 +45,16 @@ tests:
     seeds: 2
     timeout_s: 1200
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
+  - name: control_quick
+    module: tests.test_mac
+    testcase: control_quick
+    top: pcie_mac_tb
+    timeout_s: 900
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
+  - name: no_scramble
+    module: tests.test_mac
+    testcase: no_scramble
+    top: pcie_mac_tb
+    timeout_s: 600
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
 coverage_floors: {functional: {mac_os_tx: 100, mac_os_rx: 100, mac_frame: 100}}

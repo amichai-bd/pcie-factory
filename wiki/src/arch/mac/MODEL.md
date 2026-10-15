@@ -91,6 +91,8 @@ for the upstream device's second arc).
 | `recovery_idle__cfg_linkwidth_start`, `recovery_idle__recovery_rcvrlock` | Partner frozen in Recovery.RcvrCfg (TS2); then TS1 with lane PAD once the device is in Recovery.Idle, or nothing more. |
 | `cfg_idle__detect_quiet`, `recovery_idle__detect_quiet` | The model sweep presets `idle_to_rlock` to 255. Partner-only: repeat the `..._recovery_rcvrlock` recipe 255 times without reaching L0 (Recovery.Idle times out, RcvrLock and RcvrCfg pass on the frozen partner's TS2), about 4.2 million cycles with both dividers at 1024: a level-2 test. |
 | `loopback_entry__loopback_exit` | Partner frozen in Recovery.Idle while the device is the Loopback master. |
+| `recovery_idle__hot_reset`, `recovery_idle__disabled` with a downstream device following | Partner frozen in Recovery.RcvrCfg (TS2); once the device is in Recovery.Idle, TS1 with Hot Reset or Disable Link set (`ts` with `ctl`). Ending the Hot Reset TS1 lets the device's dwell run out; the frozen partner never sends the EIOS, so Disabled leaves on its timeout. |
+| Disable Scrambling (no arc) | Partner `ts` with `ctl` 08h: its TS2 in Configuration.Complete carry the bit, and both ports disable scrambling. |
 | `rx_l0s_fts__rx_off`, `rx_l0s_idle__rx_off` | Partner `fts_extra` 200; or a device retrain while the partner's transmitter is in L0s. |
 
 ## Perf scenarios

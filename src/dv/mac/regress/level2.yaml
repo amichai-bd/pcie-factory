@@ -11,6 +11,18 @@ tests:
     top: pcie_mac_tb
     timeout_s: 3600
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
+  - name: control_full_downstream
+    module: tests.test_mac
+    testcase: control_full_downstream
+    top: pcie_mac_tb
+    timeout_s: 3600
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
+  - name: control_full_upstream
+    module: tests.test_mac
+    testcase: control_full_upstream
+    top: pcie_mac_tb
+    timeout_s: 3600
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
   - name: dividers
     module: tests.test_mac
     testcase: dividers
@@ -54,4 +66,4 @@ tests:
     testcase: partner_arc_sweep
     top: pcie_mac_tb
     timeout_s: 900
-coverage_floors: {line: 84, toggle: 73, functional: 100}
+coverage_floors: {line: 85, toggle: 73, functional: 100}
