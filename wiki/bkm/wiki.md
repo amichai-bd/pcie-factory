@@ -97,6 +97,9 @@ Top-level IPs only; a sub-IP's role is described in its parent's HAS.
 
 - How the RTL meets the HAS: datapath, pipeline, state machines, storage,
   and the RTL structure (modules, instances, packages).
+- One MAS per IP, with **one section per internal block** (its interface to
+  the other blocks, how it applies the HAS rules, its structure and
+  decisions), plus one for the top that joins them.
 - Implementation choices with their rationale and rejected alternatives.
 - **Timing:** latency and throughput per operation, clocks and resets, any
   crossing, the critical path.

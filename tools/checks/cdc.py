@@ -1155,7 +1155,7 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                             for f, n in sorted(set(domains) - used)]
     result.findings = list(dict.fromkeys(result.findings))
     result.checked = (f"{len(tops)} top-level IP(s), "
-                      f"{len(lists) - len(tops) - headers_only} shared block(s), "
+                      f"{len(lists) - len(tops) - headers_only - packages_only} shared block(s), "
                       f"{len(plan)} Verilator --json-only run(s), {flops} flop(s), "
                       f"{len(directives)} cdc-cell directive(s), "
                       f"{len(domains)} cdc-domain annotation(s)"

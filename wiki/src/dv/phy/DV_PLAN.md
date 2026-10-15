@@ -108,19 +108,19 @@ runs it.
 | `pcs_enc8b10b` (on main) | [#81](https://github.com/amichai-bd/pcie-factory/issues/81) | The transmit-encoder block hook below, today with the sub-IP's cycle model | The hook with an RTL adapter (step 0); `pcie_pcs` instantiates it and an entry sets `PCS_RTL: 1` |
 | `pcs_dec8b10b` | [#82](https://github.com/amichai-bd/pcie-factory/issues/82) | `PcsModel`'s `decode` function (the `pcs` model's 8b/10b) | `pcie_pcs` instantiates it and an entry sets `PCS_RTL: 1` |
 | `pcs_align` | [#83](https://github.com/amichai-bd/pcie-factory/issues/83) | `PcsModel.rx_edge` (comma hunt, lock) | as above |
-| `mac_scrambler` (on main) | [#74](https://github.com/amichai-bd/pcie-factory/issues/74) | Transmit: the block hook below, today with the sub-IP's cycle model. Receive: `pcie_mac_arch.Scrambler` | Transmit: the block hook with an RTL adapter (step 0). Both: `pcie_mac` instantiates it and an entry sets `MAC_RTL: 1` |
-| `mac_os`, `mac_frame`, `mac_ltssm` | [#75](https://github.com/amichai-bd/pcie-factory/issues/75), [#76](https://github.com/amichai-bd/pcie-factory/issues/76), [#77](https://github.com/amichai-bd/pcie-factory/issues/77) | `pcie_mac_arch.Mac` | as above |
+| `mac` scrambler block | [#146](https://github.com/amichai-bd/pcie-factory/issues/146) (in `mac`) | Transmit: the block hook below, today with the block's cycle model. Receive: `pcie_mac_arch.Scrambler` | Transmit: the block hook with an RTL adapter (step 0). Both: the `mac` RTL, an entry with `MAC_RTL: 1` ([#86](https://github.com/amichai-bd/pcie-factory/issues/86)) |
+| `mac` ordered sets, frame, LTSSM | [#146](https://github.com/amichai-bd/pcie-factory/issues/146) (in `mac`) | `pcie_mac_arch.Mac` | as above |
 
 **Block hook, transmit scrambler.** `ModelPort(tx_scrambler=block)`
 takes scrambling out of the mac model and puts `block` between the mac and
-the pcs at the [`pcie_mac_scrambler` interface](../../rtl/mac_scrambler/MAS.md#interfaces):
+the pcs at the [`pcie_mac_scrambler` interface](../../rtl/mac/MAS.md#scrambler):
 each cycle the port reads the block's registered `valid`, `data` and
 `datak`, then clocks it with the mac's unscrambled word, `valid` (the
 word is sent), `datak` and the per-symbol `scr` bits the mac model would
 have scrambled with. The block's one cycle of latency delays the whole
 PIPE transmit word. `e2e_scrambler_block` runs it on both ports with
-`WordScrambler`, the sub-IP's own cycle model
-([`src/dv/mac_scrambler/models/`](../../../../src/dv/mac_scrambler/models/pcie_mac_scrambler_model.py)).
+`WordScrambler`, the block's cycle model in the `mac` DV
+([`src/dv/mac/models/`](../../../../src/dv/mac/models/pcie_mac_scrambler_model.py)).
 The receive side has no hook: which received symbols are descrambled
 depends on the mac's parsing, so it switches with the mac layer.
 
