@@ -25,7 +25,7 @@ issue -> claim -> branch + worktree -> code + wiki -> validate -> draft PR
 | 4 | Code and its owning wiki pages together, inside issue scope | implementer | [4](#4-implement-and-validate-implementer) |
 | 5 | Focused checks, then the required levels once on the review commit | implementer | [4](#4-implement-and-validate-implementer) |
 | 6 | Push and open a draft PR that closes the issue | implementer | [5](#5-commit-push-draft-pr-implementer) |
-| 7 | Independent reviewer posts one `REVIEW-VERDICT` for the exact head | reviewer | [6](#6-review-loop) |
+| 7 | Independent reviewer writes one `REVIEW-VERDICT` for the exact head; the firstmate posts it verbatim | reviewer, firstmate | [6](#6-review-loop) |
 | 8 | Fix every accepted finding, re-review the new head; repeat | implementer | [6](#6-review-loop) |
 | 9 | Merge gate, ready, squash merge | firstmate | [7](#7-merge-firstmate) |
 | 10 | Verify on `main`, close the issue, clean up, report | firstmate | [8](#8-verify-and-clean-up-firstmate) |
@@ -118,9 +118,10 @@ do not review or merge your own PR.
 
 The firstmate spawns a **fresh** reviewer crewmate that did not author the
 change, as the `pr-reviewer` agent type, and hands it the PR number, head SHA, issue and the
-[pr-reviewer](../pr-reviewer/SKILL.md) skill. The reviewer posts exactly one
-`REVIEW-VERDICT: APPROVE|REQUEST-CHANGES @<sha>` comment, never edits and
-never runs anything: the implementer owns all evidence and CI is the
+[pr-reviewer](../pr-reviewer/SKILL.md) skill. The reviewer writes exactly one
+`REVIEW-VERDICT: APPROVE|REQUEST-CHANGES @<sha>` and returns it, and the
+firstmate posts it verbatim as a PR comment. The reviewer never edits, never
+writes to GitHub and never runs anything: the implementer owns all evidence and CI is the
 independent execution check.
 
 On REQUEST-CHANGES the implementer follows [pr-babysit](../pr-babysit/SKILL.md):
