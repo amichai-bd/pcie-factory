@@ -201,7 +201,54 @@ Every check of the removed leaf testbenches, and where it is now.
 
 ## Mutation evidence
 
-MUTATION_TABLE
+Each mutant was built in a scratch copy of `src/` (`./build sim
+--src-root <copy>`) and run against the listed entries at their first
+regression seed (or the seed named); the unmutated RTL passes all of them.
+
+| Block | Mutant | Caught by | Not caught by |
+| --- | --- | --- | --- |
+| Encoder | A7 rule dropped at RD+ | `tx_table`, `tx_random`, `table_round_trip` | - |
+| Encoder | TxCompliance ignored | `tx_smoke`, `tx_table`, `tx_random`, `pipe_random` | - |
+| Decoder | Disparity errors not flagged | `rx_decode_smoke`, `rx_decode_table`, `rx_decode_random` | - |
+| Decoder | A polarity change keeps the RD known | `rx_decode_table`, `rx_decode_random`, `rx_polarity_toggle` | - |
+| Decoder | Lane 1 starts from the stored RD, not lane 0's | `rx_decode_smoke`, `rx_decode_table`, `rx_decode_random` | - |
+| Aligner | Hunting with an idle word in the window | `rx_lock_controls`, `rx_lock_offsets` | - |
+| Aligner | `relock_i` ignored | `rx_slips_training`, `rx_slips` (and the RTL assertion `a_relock_drops_lock`) | `rx_errors` (no relock wanted) |
+| Elastic buffer | No write-side lock-start drop (`w_flush` 0) | `eb_lock_start` seed 1 (fast RX clock) | `rx_elec_idle_gaps` seed 1 |
+| Elastic buffer | No read-side lock-start drop (`r_flush` 0) | `eb_lock_start` seeds 2 and 4, `rx_elec_idle_gaps` seeds 2 and 22 (slow RX clock) | `eb_lock_start` seed 1, `rx_elec_idle_gaps` seed 1 (fast) |
+| Elastic buffer | No addition after a COM in the first slot | `eb_tlp_m600` | `eb_dense` seed 1, `rx_ppm` seed 1 (fast RX clocks) |
+| Elastic buffer | Overflow flag never set | `eb_overflow`, `eb_stress` | - |
+| Elastic buffer | Removal of a second-slot COM's SKP not reported (`r_rem1` dropped) | `eb_tlp_p600`, `eb_dense` | `rx_ppm` seed 1 |
+| Elastic buffer | Generation not carried in the FIFO word | `rx_slips_training`, `rx_close_errors`, `rx_error_bursts` | `rx_elec_idle_gaps` seed 1 |
+| Top | Relock at 2 errored words | `rx_errors`, `rx_error_bursts`, `rx_decode_table` | - |
+| Top | Decoder reset by `rst_i` only (not `pipe_reset_ni`) | `rx_decode_smoke` | `rx_decode_random` seed 1, `rx_reset_traffic` seed 1 |
+
+Survivors, each equivalent at the ports or a [gap](#gaps):
+
+- **Addition threshold at 6** (`EB_LOW` 6): survives `eb_tlp_m600`,
+  `eb_short_burst` and `eb_dense`; the fill stays within the latency bound
+  and nothing underflows. The leaf caught it on `fill_o`: the threshold
+  gap below.
+- **RxValid from symbol 0's lock alone:** equivalent. Since the lock-start
+  drop a word is never locked in its first symbol and not its second; the
+  remaining mixed word, at a lock end, has its second symbol unlocked
+  (`rx_elec_idle_gaps`, `eb_lock_start`, `rx_decode_table` pass).
+- **Decoder keeps the RD known after an unlocked word:** equivalent. Every
+  lock after unlocked words has a new generation, which makes the RD
+  unknown on its own (`rx_decode_table`'s check on the first locked word
+  passes).
+- **Aligner takes the highest comma offset:** equivalent on valid 8b/10b,
+  which never has commas at two boundaries in one window
+  (`rx_lock_offsets`, `rx_no_false_lock`, `rx_slips_training` pass). The
+  leaf caught it on unflagged noise, where the aligner model and RTL
+  disagree on which false lock comes first; through the ports a false lock
+  on noise is answered by the relock rule either way.
+
+The #162 re-review corrected the old top's row for the lock-start drop:
+each single-side mutant was caught only by its own leaf `lock_start_*`
+test, not by `rx_elec_idle_gaps` seeds 22 and 30. Through the ports the
+lock-start check (every run starts at its comma or the symbol before it)
+now catches each side, as the table shows.
 
 ## Gaps
 

@@ -452,7 +452,7 @@ by `rst_i`), each cycle:
 | PowerDown state is the value seen, `power_q` only detects changes | The arch model's `PipeControl` does the same, and the transmitter then follows PowerDown with the same two-cycle latency as TxElecIdle. | A registered state. |
 | Both TX latency cycles in the encoder, `ser_tx_*` straight from it | The RD chain of two symbols sits between two registers; the top needs no line register. | One stage in the encoder and one in the top. |
 | Encoder code computed from the rules in a per-symbol leaf | The rules on the [code page](../../arch/pcs/8B10B.md) map line by line onto the RTL; one leaf serves both lanes. | A 512-entry code table. |
-| Decoder combinational, one PIPE receive register after it | The elastic buffer and the decoder add no cycle, and the PIPE outputs, the status and the counter's inputs are registered together. Measured RX latency is at most 10.9 cycles, within 12. | A register inside the decoder (the sideband flags would need matching delays). |
+| Decoder combinational, one PIPE receive register after it | The elastic buffer and the decoder add no cycle, and the PIPE outputs, the status and the counter's inputs are registered together. Measured RX latency is at most 11.5 cycles, within 12. | A register inside the decoder (the sideband flags would need matching delays). |
 | Per-symbol lock and generation from the elastic buffer to the decoder | After SKP addition a word's two symbols can come from different FIFO words; a same-cycle relock shows only as a generation change. | One lock bit per word. |
 | Unknown-RD start at RD- unless the code is valid only at RD+ | The architecture model's behavior; a defined RD after every symbol. | Keeping the RD unknown after a balanced first symbol. |
 | Lock on the lowest comma offset of a 40-bit window | Valid 8b/10b never has commas at two boundaries in one window; the rule is simple and deterministic. | Several commas before lock (slow). |
@@ -467,10 +467,10 @@ by `rst_i`), each cycle:
 - TX: two cycles, both in the encoder.
 - RX: aligner (two RX edges), FIFO write and pointer crossing (two or
   three `clk_i` edges), the visible fill, then the combinational read side
-  and decoder into the PIPE register. Measured: at most 10.9 cycles from a
-  symbol's last bit on `ser_rx_data_i` to `pipe_rx_data_o` (target 12),
-  and at most 9.6 cycles from the comma that gives lock to the first RxValid
-  word (target 10).
+  and decoder into the PIPE register. Measured over the L0 to L2
+  regression: at most 11.5 cycles from a symbol's last bit on
+  `ser_rx_data_i` to `pipe_rx_data_o` (target 12), and at most 9.9 cycles
+  from the comma that gives lock to the first RxValid word (target 10).
 - At exactly 0 ppm the line-to-PIPE delay is constant (the decode tests
   measure 9 cycles at their clock phase).
 - Relock: from the word that makes the request to RxValid low, at most
