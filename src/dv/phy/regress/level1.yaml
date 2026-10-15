@@ -1,1 +1,39 @@
-tests: []
+tests:
+  - name: e2e_dsp_first_pos600
+    module: tests.test_phy_e2e
+    testcase: e2e_dsp_first_pos600
+    top: pcie_phy_e2e_tb
+    timeout_s: 180
+  - name: e2e_dsp_first_neg300
+    module: tests.test_phy_e2e
+    testcase: e2e_dsp_first_neg300
+    top: pcie_phy_e2e_tb
+    timeout_s: 180
+  - name: e2e_usp_first_neg600
+    module: tests.test_phy_e2e
+    testcase: e2e_usp_first_neg600
+    top: pcie_phy_e2e_tb
+    timeout_s: 180
+  - name: e2e_usp_first_pos300
+    module: tests.test_phy_e2e
+    testcase: e2e_usp_first_pos300
+    top: pcie_phy_e2e_tb
+    timeout_s: 180
+  - name: e2e_symbol_errors
+    module: tests.test_phy_e2e
+    testcase: e2e_symbol_errors
+    top: pcie_phy_e2e_tb
+    seeds: 2
+    timeout_s: 180
+  - name: e2e_bit_slips
+    module: tests.test_phy_e2e
+    testcase: e2e_bit_slips
+    top: pcie_phy_e2e_tb
+    seeds: 2
+    timeout_s: 180
+  - name: e2e_elec_idle
+    module: tests.test_phy_e2e
+    testcase: e2e_elec_idle
+    top: pcie_phy_e2e_tb
+    seeds: 2
+    timeout_s: 180

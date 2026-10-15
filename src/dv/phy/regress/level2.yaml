@@ -1,1 +1,13 @@
-tests: []
+tests:
+  - name: e2e_soak_dsp_first
+    module: tests.test_phy_e2e
+    testcase: e2e_soak_dsp_first
+    top: pcie_phy_e2e_tb
+    seeds: 4
+    timeout_s: 900
+  - name: e2e_soak_usp_first
+    module: tests.test_phy_e2e
+    testcase: e2e_soak_usp_first
+    top: pcie_phy_e2e_tb
+    seeds: 4
+    timeout_s: 900
