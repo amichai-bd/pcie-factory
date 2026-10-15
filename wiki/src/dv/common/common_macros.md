@@ -39,8 +39,8 @@
   (write, read-enable, same-address read-during-write, idle) and the lane
   enables of each write. No coverage floor yet.
 - **Out of scope:** the cells behind the crossing macros (their own plans:
-  [sync2](common_cdc_sync2.md), [pulse](common_cdc_pulse.md),
-  [rst](common_cdc_rst.md)); here only the wiring, width, latency and reset
+  [sync2](cdc/common_cdc_sync2.md), [pulse](cdc/common_cdc_pulse.md),
+  [rst](cdc/common_cdc_rst.md)); here only the wiring, width, latency and reset
   value.
 
 ## Plan

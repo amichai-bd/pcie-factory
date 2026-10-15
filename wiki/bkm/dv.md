@@ -37,10 +37,10 @@ Per IP and sub-IP, under `src/dv/<ip>/` (paths from the
 Shared DV helpers live in `src/dv/common/` once a second IP needs them
 (today `sim` puts only the tested unit's own DV folder on the Python path,
 so sharing them needs that changed first). The same folder is the shared unit's DV folder: the tests, `tb/` and
-regression lists of the shared blocks in `src/rtl/common/`, laid out as
-above with `common.dv.f` and `common.sim.f`
-([layout](../project/layout.md#shared-blocks)); each block has its own DV
-plan, `wiki/src/dv/common/<block>.md`.
+regression lists of the shared blocks in `src/rtl/common/` and its group
+folders, laid out as above with `common.dv.f` and `common.sim.f` (one
+testbench for every group; [layout](../project/layout.md#shared-blocks));
+each block has its own DV plan, `wiki/src/dv/common/[<group>/]<block>.md`.
 Python imports use paths relative to the IP's `src/dv/<ip>/` folder; the sim tool
 SPEC owns how `PYTHONPATH` is set.
 

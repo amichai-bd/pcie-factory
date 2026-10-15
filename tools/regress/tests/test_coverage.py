@@ -124,13 +124,16 @@ def test_dv_only_sources_of_the_shared_unit(fixture_src):
     rtl, dv = fixture_src / "rtl/common", fixture_src / "dv/common"
     rtl.mkdir()
     dv.mkdir()
-    for b in ("common_a", "common_b"):
-        (rtl / f"{b}.sv").write_text(f"module {b}; endmodule\n")
-        (rtl / f"{b}.rtl.f").write_text(f"{b}.sv\n")
+    # common_b sits in a group folder: its RTL is still RTL, not DV.
+    for b, d in (("common_a", rtl), ("common_b", rtl / "grp")):
+        d.mkdir(exist_ok=True)
+        (d / f"{b}.sv").write_text(f"module {b}; endmodule\n")
+        (d / f"{b}.rtl.f").write_text(f"{b}.sv\n")
     (dv / "common_tb.sv").write_text("module common_tb; endmodule\n")
     (dv / "common.dv.f").write_text("common_tb.sv\n")
     (dv / "common.sim.f").write_text(
-        "-F ../../rtl/common/common_a.rtl.f\n-F ../../rtl/common/common_b.rtl.f\n-F common.dv.f\n")
+        "-F ../../rtl/common/common_a.rtl.f\n-F ../../rtl/common/grp/common_b.rtl.f\n"
+        "-F common.dv.f\n")
     unit = shared_unit(fixture_src)
     assert regress.dv_only_sources(unit) == frozenset({(dv / "common_tb.sv").resolve()})
 

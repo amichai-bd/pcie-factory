@@ -377,6 +377,12 @@ def test_vocabulary_from_tree(tmp_path):
     assert v.macros == {"COMMON_A"} and v.cells == set()
     (d / "common_macros.svh").write_text("`define COMMON_S(I) common_cell I (); // common_none\n")
     assert style.vocabulary(tmp_path).cells == {"common_cell"}
+    # A cell in a group folder one level down is wrapped too.
+    (d / "grp").mkdir()
+    (d / "grp" / "common_grouped.sv").write_text("")
+    (d / "common_macros.svh").write_text("`define COMMON_S(I) common_cell I ();\n"
+                                         "`define COMMON_G(I) common_grouped I ();\n")
+    assert style.vocabulary(tmp_path).cells == {"common_cell", "common_grouped"}
     assert style.vocabulary(tmp_path / "none") == style.Vocabulary()
 
 

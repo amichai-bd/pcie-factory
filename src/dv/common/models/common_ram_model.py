@@ -1,4 +1,4 @@
-"""Cycle model of the shared RAM family (wiki/src/rtl/common/common_*ram*.md).
+"""Cycle model of the shared RAM family (wiki/src/rtl/common/ram/common_*ram*.md).
 
 The oracle is each block's MAS contract, not its RTL: on each rising clock
 edge every read port captures the word stored before that edge (read-first),

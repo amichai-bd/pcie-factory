@@ -459,7 +459,7 @@ asynchronously by the RX reset), each cycle with a word:
 - **Overflow.** A word offered while the FIFO is full is lost; the next
   word written carries the overflow flag.
 
-**FIFO.** `u_fifo`, [`common_cdc_fifo`](../common/common_cdc_fifo.md),
+**FIFO.** `u_fifo`, [`common_cdc_fifo`](../common/cdc/common_cdc_fifo.md),
 `WIDTH` 28, `ADDR_W` 4: head word, the word after it and the occupancy.
 
 **Read side** (`clk_i`, state `r_q`, `t_eb_rd`, and `fill_high_q`, reset

@@ -1,4 +1,4 @@
-"""common_cdc_fifo tests (wiki/src/dv/common/common_cdc_fifo.md).
+"""common_cdc_fifo tests (wiki/src/dv/common/cdc/common_cdc_fifo.md).
 
 Each side is driven and sampled at the falling edge of its own clock: the
 writer sets src_valid_i/src_data_i and, when src_ready_o is high, records

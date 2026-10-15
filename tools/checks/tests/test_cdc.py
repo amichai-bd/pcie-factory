@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from build import sim
-from build.ip import REPO_ROOT, discover
+from build.ip import REPO_ROOT, discover, shared_blocks
 from checks import cdc
 
 needs_verilator = pytest.mark.skipif(sim.find_verilator() is None,
@@ -19,10 +19,10 @@ needs_verilator = pytest.mark.skipif(sim.find_verilator() is None,
 
 CELLS = REPO_ROOT / "src/rtl/common"
 # Crossing cells in the copied tree, each a shared block the check analyzes.
-N_CELLS = len(list(CELLS.glob("common_cdc_*.rtl.f")))
+N_CELLS = len([f for f in shared_blocks(REPO_ROOT / "src") if f.name.startswith("common_cdc_")])
 # Shared blocks the check analyzes: those whose filelist lists a module
 # source (not the include-only vocabulary block or a package-only block).
-N_BLOCKS = sum(1 for f in CELLS.glob("*.rtl.f")
+N_BLOCKS = sum(1 for f in shared_blocks(REPO_ROOT / "src")
                if any(ln.strip().endswith(".sv") and not ln.strip().endswith("_pkg.sv")
                       for ln in f.read_text().splitlines()))
 
@@ -54,8 +54,8 @@ def tree(tmp_path: Path, body: str, extra: dict[str, str] | None = None) -> Path
     shutil.copytree(CELLS, src / "rtl/common",
                     ignore=shutil.ignore_patterns("*.md"))
     (src / "rtl/blk/xy_blk.sv").write_text(HEAD + body + TAIL)
-    lines = ["-F ../common/common_cdc_sync2.rtl.f", "-F ../common/common_cdc_pulse.rtl.f",
-             "-F ../common/common_cdc_fifo.rtl.f", "-F ../common/common_cdc_rst.rtl.f"]
+    lines = ["-F ../common/cdc/common_cdc_sync2.rtl.f", "-F ../common/cdc/common_cdc_pulse.rtl.f",
+             "-F ../common/cdc/common_cdc_fifo.rtl.f", "-F ../common/cdc/common_cdc_rst.rtl.f"]
     for name, text in (extra or {}).items():
         (src / "rtl/blk" / name).write_text(text)
         lines.append(name)
@@ -600,9 +600,17 @@ def test_scan_directives(tmp_path):
                    "// cdc-cell: src=async dst=dst_clk_i\nmodule common_other;\nendmodule\n")
     ip = src / "rtl/blk/xy_blk.sv"
     ip.write_text("// cdc-cell: src=async dst=dst_clk_i\nmodule common_cdc_mine;\nendmodule\n")
-    found, findings = cdc.scan_directives([good, bad, ip], src)
-    assert list(found.values()) == [cdc.Directive("common_cdc_ok", "src_clk_i", "dst_clk_i",
-                                                  good.resolve(), 1)]
+    # A group folder one level down holds cells too; a deeper folder does not.
+    (common / "grp/deep").mkdir(parents=True)
+    grouped = common / "grp/common_cdc_grouped.sv"
+    grouped.write_text("// cdc-cell: src=async dst=dst_clk_i\nmodule common_cdc_grouped;\n"
+                       "endmodule\n")
+    deep = common / "grp/deep/common_cdc_deep.sv"
+    deep.write_text("// cdc-cell: src=async dst=dst_clk_i\nmodule common_cdc_deep;\nendmodule\n")
+    found, findings = cdc.scan_directives([good, bad, ip, grouped, deep], src)
+    assert list(found.values()) == [
+        cdc.Directive("common_cdc_ok", "src_clk_i", "dst_clk_i", good.resolve(), 1),
+        cdc.Directive("common_cdc_grouped", "async", "dst_clk_i", grouped.resolve(), 1)]
     assert findings == [
         "rtl/common/common_cdc_bad.sv:1: malformed cdc-cell directive (expected "
         "'// cdc-cell: src=<clock port|async> dst=<clock port>')",
@@ -611,20 +619,22 @@ def test_scan_directives(tmp_path):
         "rtl/common/common_cdc_bad.sv:8: malformed cdc-cell directive on common_cdc_same: "
         "src and dst name the same port",
         "rtl/common/common_cdc_bad.sv:14: cdc-cell directive on common_other: only "
-        "common_cdc_* modules in rtl/common/ carry one",
+        "common_cdc_* modules under rtl/common/ carry one",
         "rtl/common/common_cdc_bad.sv:6: crossing cell common_cdc_gap has no cdc-cell "
         "directive on the line above its module line",
         "rtl/common/common_cdc_bad.sv:11: crossing cell common_cdc_none has no cdc-cell "
         "directive on the line above its module line",
         "rtl/blk/xy_blk.sv:1: cdc-cell directive on common_cdc_mine: only common_cdc_* "
-        "modules in rtl/common/ carry one",
+        "modules under rtl/common/ carry one",
+        "rtl/common/grp/deep/common_cdc_deep.sv:1: cdc-cell directive on common_cdc_deep: "
+        "only common_cdc_* modules under rtl/common/ carry one",
     ]
 
 
 @needs_verilator
 def test_missing_directive_fails_and_the_cell_is_not_approved(tmp_path):
     src = tree(tmp_path, SYNC2)
-    cell = src / "rtl/common/common_cdc_sync2.sv"
+    cell = src / "rtl/common/cdc/common_cdc_sync2.sv"
     cell.write_text(cell.read_text().replace("// cdc-cell: src=async dst=dst_clk_i\n", ""))
     r = run(src)
     assert any("crossing cell common_cdc_sync2 has no cdc-cell directive" in f
@@ -637,7 +647,7 @@ def test_missing_directive_fails_and_the_cell_is_not_approved(tmp_path):
 @needs_verilator
 def test_malformed_directive_fails(tmp_path):
     src = tree(tmp_path, SYNC2)
-    cell = src / "rtl/common/common_cdc_sync2.sv"
+    cell = src / "rtl/common/cdc/common_cdc_sync2.sv"
     cell.write_text(cell.read_text().replace("src=async dst=dst_clk_i", "src=async"))
     r = run(src)
     assert any("malformed cdc-cell directive" in f for f in r.findings)
@@ -654,7 +664,7 @@ def test_malformed_directive_fails(tmp_path):
 ], ids=["dst-not-a-clock", "src-missing", "src-wrong-side"])
 def test_directive_must_match_ports(tmp_path, old, new, msg):
     src = tree(tmp_path, SYNC2)
-    cell = src / "rtl/common/common_cdc_sync2.sv"
+    cell = src / "rtl/common/cdc/common_cdc_sync2.sv"
     cell.write_text(cell.read_text().replace(old, new))
     r = run(src)
     assert any(f"crossing cell common_cdc_sync2: {msg}" in f for f in r.findings), r.findings
@@ -663,7 +673,7 @@ def test_directive_must_match_ports(tmp_path, old, new, msg):
 @needs_verilator
 def test_port_prefix_rule(tmp_path):
     src = tree(tmp_path, SYNC2)
-    cell = src / "rtl/common/common_cdc_sync2.sv"
+    cell = src / "rtl/common/cdc/common_cdc_sync2.sv"
     cell.write_text(cell.read_text().replace("dst_rst_i", "rst_i"))
     body = SYNC2.replace(".dst_rst_i (rst_b_i)", ".rst_i (rst_b_i)")
     (src / "rtl/blk/xy_blk.sv").write_text(HEAD + body + TAIL)
@@ -841,7 +851,7 @@ SYNCED = """  logic m [{depth}];
         "constant-address-synced-gate", "free-running-second-read", "unused-synced-read",
         "constant-read-beside-synced-read", "constant-read-in-condition"])
 def test_memory_read_without_a_synchronized_pointer_fails(tmp_path, body):
-    r = run(cell_tree(tmp_path, MEM_CELL.format(body=body), "-F common_cdc_sync2.rtl.f\n"))
+    r = run(cell_tree(tmp_path, MEM_CELL.format(body=body), "-F cdc/common_cdc_sync2.rtl.f\n"))
     assert any("output dst_q_o is driven by flop m (" in f for f in r.findings), r.findings
 
 
@@ -882,7 +892,7 @@ def synced_via_c(tail: str) -> str:
         "read-into-instance-pin"])
 def test_memory_read_at_a_synchronized_pointer_passes(tmp_path, body, extra):
     r = run(cell_tree(tmp_path, MEM_CELL.format(body=body) + extra,
-                      "-F common_cdc_sync2.rtl.f\n"))
+                      "-F cdc/common_cdc_sync2.rtl.f\n"))
     assert r.passed, r.findings
 
 
@@ -936,7 +946,7 @@ def test_crossing_cell_with_a_constant_source_input_inside_a_cell_fails(tmp_path
   assign dst_q_o = m[ra_q];
 """
     line = 17 + decl.count("\n")
-    r = run(cell_tree(tmp_path, MEM_CELL.format(body=body), "-F common_cdc_sync2.rtl.f\n"))
+    r = run(cell_tree(tmp_path, MEM_CELL.format(body=body), "-F cdc/common_cdc_sync2.rtl.f\n"))
     assert r.findings == ["common/common_cdc_bad: rtl/common/common_cdc_bad.sv:2: crossing "
                           "cell common_cdc_bad: source-side input of cell u_s.src_data_i "
                           f"(rtl/common/common_cdc_bad.sv:{line}) {how}, so that cell "

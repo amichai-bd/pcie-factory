@@ -71,7 +71,7 @@ Place files under `src/dv/<ip>/` per the [directory structure](../../../wiki/bkm
       ([granularity](../../../wiki/bkm/rtl.md#granularity)).
 - [ ] A new shared block is added to `dv/common/common.sim.f` and tested in
       the shared unit (`--ip common`), with its own DV plan
-      `wiki/src/dv/common/<block>.md`
+      `wiki/src/dv/common/[<group>/]<block>.md` (the block's group folder)
       ([layout](../../../wiki/project/layout.md#shared-blocks)).
 
 ## 4. Regression lists
