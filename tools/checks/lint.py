@@ -4,7 +4,9 @@ For each IP the sources, include directories and defines come from the
 resolved ``rtl/<id>/<id>.rtl.f``. The top is ``<prefix><id>`` when a module of that name is declared in those sources;
 otherwise Verilator picks it (several candidates raise MULTITOP). Each
 ``fpga/<id>/*.sv`` board wrapper is linted again with the IP's sources plus the
-wrapper, with the wrapper (named after its file) as top.
+wrapper, with the wrapper (named after its file) as top. Without ``--ip``,
+each shared block's ``rtl/common/<block>.rtl.f`` is linted the same way, with
+top ``<block>``.
 
 Before each lint run, ``verilator -E`` with the same arguments shows what
 Verilator actually reads; that output is audited (``audit_preprocessed``)
@@ -25,7 +27,7 @@ import yaml
 
 from build import sim
 from build.filelist import FilelistError, Resolved, resolve
-from build.ip import Ip
+from build.ip import Ip, block_name, shared_blocks
 from checks.common import SV_SUFFIXES, CheckConfigError, CheckResult, in_kind, read_prefix, rel
 
 WAIVER_FILE = "lint_waivers.yaml"
@@ -216,25 +218,33 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
     chosen = [ip for ip in ips if ip_ids is None or ip.id in ip_ids]
     result = CheckResult("lint")
     plan: list[Target] = []
-    for ip in chosen:
+    lists: list[tuple[str, Path, Ip | None]] = [(ip.id, ip.rtl_f, ip) for ip in chosen]
+    if ip_ids is None:
+        lists += [(f"common/{block_name(f)}", f, None) for f in shared_blocks(src_root)]
+    for label, rtl_f, ip in lists:
         try:
-            flat = resolve(ip.rtl_f)
+            flat = resolve(rtl_f)
         except FilelistError as exc:
-            result.findings.append(f"{ip.id}: rtl filelist does not resolve: {exc}")
+            result.findings.append(f"{label}: rtl filelist does not resolve: {exc}")
             continue
         foreign = [s for s in flat.sources if not s.name.endswith(SV_SUFFIXES)]
         if foreign:  # e.g. a .vlt control file would waive outside the waiver file
             result.findings.append(
-                f"{ip.id}: not linted: rtl filelist lists non-.sv/.svh source(s): "
+                f"{label}: not linted: rtl filelist lists non-.sv/.svh source(s): "
                 + ", ".join(rel(s, src_root) for s in foreign))
             continue
         outside = [d for d in flat.incdirs if not in_kind(d, src_root, ("rtl",))]
         if outside:  # files included from there escape the rtl/ allowlist
             result.findings.append(
-                f"{ip.id}: not linted: rtl filelist includes from outside rtl/: "
+                f"{label}: not linted: rtl filelist includes from outside rtl/: "
                 + ", ".join(rel(d, src_root) for d in outside))
             continue
-        plan += targets(ip, flat, prefix)
+        if ip is not None:
+            plan += targets(ip, flat, prefix)
+        else:  # a shared block: its top is the module named after its filelist
+            top = block_name(rtl_f)
+            plan.append(Target(label, flat, (), top if top in declared_modules(flat.sources)
+                               else None))
     verilator = None
     if plan:
         verilator = sim.find_verilator()
@@ -277,6 +287,7 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                     f"{WAIVER_FILE}: stale waiver {w.file} {w.rule}"
                     f"{f' line {w.line}' if w.line else ''}{f' {w.match!r}' if w.match else ''}"
                     ": matches no warning")
-    result.checked = (f"{len(chosen)} IP(s), {len(plan)} Verilator run(s) with -E audit, "
+    result.checked = (f"{len(chosen)} IP(s), {len(lists) - len(chosen)} shared block(s), "
+                      f"{len(plan)} Verilator run(s) with -E audit, "
                       f"{len(waivers)} waiver(s), {waived} warning(s) waived")
     return result

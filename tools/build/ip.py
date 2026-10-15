@@ -5,8 +5,9 @@ one of :data:`KINDS`. An IP is a directory ``<src_root>/rtl/<id>/`` that
 holds ``<id>.rtl.f``; its id is the directory name. Sub-IPs are flat
 siblings: an IP is a sub-IP of every IP whose ``.rtl.f`` reaches its
 ``.rtl.f`` through ``-F``, and a top-level IP is one no other IP reaches.
-``<kind>/common/`` holds shared blocks and is never an IP. IP names are never
-hard-coded.
+``<kind>/common/`` holds shared blocks and is never an IP; with its tests in
+``dv/common/`` it is the **shared unit**, which ``sim``, ``regress`` and
+``clean`` accept like an IP (:func:`units`). IP names are never hard-coded.
 """
 
 from __future__ import annotations
@@ -64,10 +65,12 @@ class Ip:
     src_root: Path
     # IPs whose rtl filelist reaches this one's through -F, sorted.
     ancestors: tuple[str, ...] = ()
+    # The shared unit (id ``common``): not an IP, never top-level.
+    shared: bool = False
 
     @property
     def top_level(self) -> bool:
-        return not self.ancestors
+        return not self.ancestors and not self.shared
 
     def dir(self, kind: str) -> Path:
         """``<src_root>/<kind>/<id>``, whether or not it exists."""
@@ -151,6 +154,33 @@ def discover(src_root: Path) -> list[Ip]:
         own = (rtl / j / f"{j}.rtl.f").resolve()
         ips.append(Ip(j, src_root, tuple(i for i in ids if i != j and own in reach[i])))
     return ips
+
+
+def shared_blocks(src_root: Path) -> list[Path]:
+    """The shared blocks: every filelist directly in ``rtl/common/``, one per
+    block, named after the block's top module (``<block>.rtl.f``), sorted."""
+    d = Path(src_root).resolve() / "rtl" / SHARED_DIR
+    return sorted(p for p in d.glob("*.rtl.f") if p.is_file()) if d.is_dir() else []
+
+
+def block_name(filelist: Path) -> str:
+    """``common_x`` for ``rtl/common/common_x.rtl.f``."""
+    return Path(filelist).name[: -len(".rtl.f")]
+
+
+def shared_unit(src_root: Path) -> Ip | None:
+    """The shared unit, id ``common``, when ``dv/common/common.sim.f``
+    exists: its tests and regression lists live in ``dv/common/`` like an
+    IP's, and ``workdir/common/`` holds its output. It is not an IP."""
+    unit = Ip(SHARED_DIR, Path(src_root).resolve(), shared=True)
+    return unit if unit.sim_f.is_file() else None
+
+
+def units(src_root: Path) -> list[Ip]:
+    """Every IP plus the shared unit when it exists, sorted by id: what
+    ``sim``, ``regress`` and ``clean`` select from."""
+    shared = shared_unit(src_root)
+    return sorted(discover(src_root) + ([shared] if shared else []), key=lambda ip: ip.id)
 
 
 def find_ip(ips: list[Ip], ip_id: str) -> Ip:

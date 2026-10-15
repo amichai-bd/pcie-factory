@@ -109,7 +109,7 @@ def test_waiver_covers():
 def test_no_ips_needs_no_verilator(tmp_path, monkeypatch):
     monkeypatch.setattr(sim, "find_verilator", lambda: None)
     r = run(tmp_path)
-    assert r.passed and r.checked.startswith("0 IP(s), 0 Verilator run(s)")
+    assert r.passed and r.checked.startswith("0 IP(s), 0 shared block(s), 0 Verilator run(s)")
 
 
 def test_missing_verilator_is_an_error(good, monkeypatch):
@@ -122,7 +122,8 @@ def test_missing_verilator_is_an_error(good, monkeypatch):
 def test_good_fixture_lints_clean(good):
     r = run(good)
     assert r.passed, r.findings
-    assert r.checked == "2 IP(s), 3 Verilator run(s) with -E audit, 0 waiver(s), 0 warning(s) waived"
+    assert r.checked == ("2 IP(s), 1 shared block(s), 4 Verilator run(s) with -E audit, "
+                         "0 waiver(s), 0 warning(s) waived")
 
 
 @needs_verilator

@@ -9,7 +9,7 @@ import pytest
 from build import sim
 from build.ip import Context, REPO_ROOT, DiscoveryError
 from regress import run as regress
-from regress.schema import LevelBudget
+from regress.schema import LevelBudget, SchemaError
 
 
 def ctx_for(src: Path, tmp_path: Path) -> Context:
@@ -39,6 +39,28 @@ def test_ip_filter_is_flat(fixture_src, tmp_path):
     assert names(sel) == [(0, "counter_inc", "exhaustive")]
     with pytest.raises(DiscoveryError, match="unknown IP"):
         regress.select(ctx, [0], ["nope"])
+
+
+def shared_unit(src: Path, level0: str) -> None:
+    d = src / "dv/common"
+    (d / "regress").mkdir(parents=True)
+    (d / "common.sim.f").write_text("")
+    (d / "regress/level0.yaml").write_text(level0)
+
+
+def test_shared_unit_is_selected_like_an_ip(fixture_src, tmp_path):
+    shared_unit(fixture_src, "tests: [{name: cell, module: tests.t, top: common_c, timeout_s: 9}]\n")
+    ctx = ctx_for(fixture_src, tmp_path)
+    assert names(regress.select(ctx, [0])) == [
+        (0, "common", "cell"), (0, "counter", "counts"), (0, "counter_inc", "exhaustive")]
+    sel = regress.select(ctx, [0], ["common"])
+    assert names(sel) == [(0, "common", "cell")] and sel.reasons == {"common": "--ip"}
+
+
+def test_shared_unit_lists_are_validated(fixture_src, tmp_path):
+    shared_unit(fixture_src, "tests: 3\n")
+    with pytest.raises(SchemaError, match="dv/common/regress/level0.yaml"):
+        regress.select(ctx_for(fixture_src, tmp_path), [0], ["counter"])
 
 
 def test_seeds(fixture_src, tmp_path):
