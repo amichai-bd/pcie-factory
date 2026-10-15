@@ -368,12 +368,20 @@ def check(traffic: Traffic, words: list[Word], loss: bool = False,
                             "skp": skps[0].code if n else None}
                 i += 1
                 continue
-            # Lock start: the unlocked symbol right before the first symbol
-            # of a lock may be dropped, so the lock starts a word of its own.
-            if p + 1 < len(inp) and inp[p + 1].lock and not exp.lock:
-                r.flushed += 1
-                p += 1
-                continue
+            # Lock start: the unlocked symbol before the first symbol of a
+            # lock may be dropped, so the lock starts a word of its own. On
+            # the read side it is the leftover symbol, which whole unlocked
+            # words dropped by recentring may separate from the lock.
+            if not exp.lock:
+                q = p + 1
+                while q + 1 < len(inp) and q % 2 == 0 and not inp[q].lock \
+                        and not inp[q + 1].lock and inp[q].code != code:
+                    q += 2
+                if q < len(inp) and inp[q].lock and inp[q].code == code:
+                    r.flushed += 1
+                    r.dropped_words += (q - p - 1) // 2
+                    p = q
+                    continue
             if exp.lock == 0 and p % 2 == 0 and p + 1 < len(inp) and inp[p + 1].lock == 0:
                 r.dropped_words += 1
                 p += 2
