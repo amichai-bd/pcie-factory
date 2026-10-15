@@ -15,8 +15,11 @@ one GitHub identity and cannot approve their own PRs).
 
 ## Part 1: firstmate spawns the reviewer
 
-- Use a **fresh** crewmate (Claude Code subagent or session) that did not
-  author the change. The firstmate does not review; a crewmate does.
+- Use a **fresh** crewmate that did not author the change. As a Claude Code
+  subagent, spawn the `pr-reviewer` agent type
+  ([`.claude/agents/pr-reviewer.md`](../../agents/pr-reviewer.md)). It loads
+  this skill and has only read and GitHub tools, with no shell, so it cannot
+  run anything. The firstmate does not review; a crewmate does.
 - Read the PR head SHA (`pull_request_read` method `get`). Do not create a
   worktree for the reviewer: it reads with `git show`/`git diff` on the
   fetched head or through the GitHub API, and runs nothing.
@@ -32,8 +35,10 @@ Rules: **read-only, and review only.** Never edit, commit, push, label,
 approve natively, mark ready or merge. **Never build or run anything:** no
 `./build check`, `regress`, `sim`, `arch` or flows, no `pytest`, no
 mutants, no worktree to run in. Allowed commands are read-only: `git show`,
-`git diff`, `git log`, `grep`, reading files, the GitHub API, and the
-`./build specs list` / `./build specs path` lookups for citation checks. Write scratch
+`git diff`, `git log`, `grep`, reading files and the GitHub API. The
+`pr-reviewer` agent type has no shell at all. For a citation spot-check the
+firstmate passes the cached document's path in the hand-off, from
+`./build specs path --absolute <id>`, and the reviewer reads it. Write scratch
 notes only in the session scratchpad. Report every blocking finding in one
 round.
 
@@ -60,7 +65,7 @@ Read: the issue (acceptance, scope, comments), `CLAUDE.md`, the diff
 | Tests | DV_PLAN items lack tests in `src/dv/<ip>/regress/level{0,1,2}.yaml`, tests sit at the wrong level, or tools lack unit tests. Important negative and boundary cases missing. |
 | Evidence | See below. |
 | Publishability | The change adds content that may not be public ([wiki BKM](../../../wiki/bkm/wiki.md#publishability)); the repository and site are public. A workflow lets a fork PR run on the self-hosted runners. |
-| Citations | The PR touches material that relies on an external document such as a standard, manual or datasheet (a `[cite: ...]`, or text derived from one) and does not paraphrase it: copied sentences, tables or figures; or a citation outside the [citation form](../../../wiki/bkm/wiki.md#citations). A "behaves per §x" pointer that stands in for a rule the page should state (specs are self-contained; unsure points belong in Open items). A field layout that reproduces the standard's table, its column structure or its prose instead of stating this design's use of each field (positions and code values are fine). A cited standard missing from `wiki/src/references.md`. Confirm paraphrase-only in the verdict by reading the cited passages: when `./build specs list` shows the document present, spot-check citations and claims against the cached text at `./build specs path --absolute <id>` (these two lookups only print a list or a path, and are the one allowed `./build` use), and never paste its text into a comment, verdict or PR description. CI's `./build check` only flags long quotes, form errors and cached-text copies. |
+| Citations | The PR touches material that relies on an external document such as a standard, manual or datasheet (a `[cite: ...]`, or text derived from one) and does not paraphrase it: copied sentences, tables or figures; or a citation outside the [citation form](../../../wiki/bkm/wiki.md#citations). A "behaves per §x" pointer that stands in for a rule the page should state (specs are self-contained; unsure points belong in Open items). A field layout that reproduces the standard's table, its column structure or its prose instead of stating this design's use of each field (positions and code values are fine). A cited standard missing from `wiki/src/references.md`. Confirm paraphrase-only in the verdict by reading the cited passages: when the firstmate's hand-off gives a cached document's path, spot-check citations and claims against that text, and never paste its text into a comment, verdict or PR description. CI's `./build check` only flags long quotes, form errors and cached-text copies. |
 | Neutrality | Outside `src/` and `wiki/src/`, any design-target, protocol or IP name (repo slug in URLs exempt). Check with `grep -rniI` on the changed paths. |
 | Hygiene | Generated output, logs or credentials committed; provenance note missing on adapted content; unexplained warnings or waivers. |
 

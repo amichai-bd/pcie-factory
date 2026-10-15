@@ -117,7 +117,7 @@ do not review or merge your own PR.
 ## 6. Review loop
 
 The firstmate spawns a **fresh** reviewer crewmate that did not author the
-change and hands it the PR number, head SHA, issue and the
+change, as the `pr-reviewer` agent type, and hands it the PR number, head SHA, issue and the
 [pr-reviewer](../pr-reviewer/SKILL.md) skill. The reviewer posts exactly one
 `REVIEW-VERDICT: APPROVE|REQUEST-CHANGES @<sha>` comment, never edits and
 never runs anything: the implementer owns all evidence and CI is the
