@@ -35,6 +35,28 @@ COV_CTRL.coverpoint("change_before_ready", bins={"no_pulse": 1})
 
 VALID_K = sorted(arch.code8b10b.VALID_K)
 
+# The encoder through PIPE TX (the encoder block's checks): every valid
+# symbol at each RD in each lane (268 x 2 x 2 crosses), unsupported K bytes
+# sent as EDB in each lane, TxCompliance at each RD held before the word,
+# the RD carried between lanes, and the RD held across TxElecIdle. Sampled
+# for every word checked on ser_tx_data_o whose RD the reference knows.
+SYMBOLS = {f"D{b & 31}.{b >> 5}": (0, b) for b in range(256)}
+SYMBOLS.update({f"K{b & 31}.{b >> 5}": (1, b) for b in VALID_K})
+COV_TX_CODES = Covergroup("pcs_tx_codes")
+COV_TX_CODES.coverpoint("symbol", bins=SYMBOLS)
+COV_TX_CODES.coverpoint("rd", bins={"neg": -1, "pos": 1})
+COV_TX_CODES.coverpoint("lane", bins={"lane0": 0, "lane1": 1})
+COV_TX_CODES.cross("symbol_x_rd_x_lane", "symbol", "rd", "lane")
+COV_TX_CTRL = Covergroup("pcs_tx_controls")
+COV_TX_CTRL.coverpoint("compliance", bins={"off": 0, "on": 1})
+COV_TX_CTRL.coverpoint("rd_word", bins={"neg": -1, "pos": 1})      # RD held before the word
+COV_TX_CTRL.coverpoint("rd_mid", bins={"neg": -1, "pos": 1})       # RD between the lanes
+COV_TX_CTRL.coverpoint("edb_lane", bins={"lane0": 0, "lane1": 1})  # unsupported K sent as EDB
+COV_TX_CTRL.coverpoint("rd_held", bins={"neg": -1, "pos": 1})      # RD kept across TxElecIdle
+COV_TX_CTRL.coverpoint("reset", bins={"in_flight": 1})            # a reset drops a word in flight
+COV_TX_CTRL.cross("compliance_x_rd_word", "compliance", "rd_word")
+COV_TX_CTRL.cross("rd_word_x_rd_mid", "rd_word", "rd_mid")
+
 
 def regress_seed() -> int:
     """The seed the regression entry passed (COCOTB_RANDOM_SEED). cocotb
@@ -66,6 +88,7 @@ class Bench:
         # Transmit reference: words seen per cycle, running disparity.
         self.tx_words: list[tuple | None] = [None, None]
         self.tx_rd = {-1}          # possible running disparities
+        self.tx_after_idle = False           # idle cycles in P0 since the last word
         self.checked_words = 0
 
     async def tick(self) -> dict[str, int]:
@@ -103,8 +126,13 @@ class Bench:
         accepted at either RD until one fixes it."""
         word = None
         if in_rst:
+            if any(w not in (None, "idle") for w in self.tx_words):
+                COV_TX_CTRL.sample(reset=1)
             self.tx_rd = {-1}
             self.tx_words = [None, None]
+            self.tx_after_idle = False
+        elif ins["power_down"] == P0 and ins["tx_elec_idle"]:
+            word = "idle"                  # no word: the RD holds across it
         elif ins["power_down"] == P0 and not ins["tx_elec_idle"]:
             m = self.mac.ins
             if m["pipe_tx_detect_rx_i"]:
@@ -117,24 +145,46 @@ class Bench:
         self.tx_words.append(word)
         if sent is None:
             return
+        if sent == "idle":
+            self.tx_after_idle = True
+            return
         assert not out["ser_tx_elec_idle_o"], f"cycle {cyc}: word sent but line idle"
         if sent == "loopback":
             self.tx_rd = {-1, 1}
+            self.tx_after_idle = False
             return
         syms, comp = sent
         got = out["ser_tx_data_o"]
-        tries, after = [], set()
+        tries, after, hits = [], set(), []
         for rd in sorted(self.tx_rd):
             codes, rd_after = arch.tx_encode(syms, comp, rd)
             want = codes[0] | (codes[1] << 10)
             tries.append(want)
             if want == got:
                 after.add(rd_after)
+                hits.append(rd)
         assert after, (f"cycle {cyc}: ser_tx_data_o for {syms} (compliance {bool(comp)}) "
                        f"expected {' or '.join(f'{w:05x}' for w in tries)} got {got:05x}")
+        if len(self.tx_rd) == 1:
+            self._sample_tx(syms, bool(comp), hits[0])
         # A word of balanced codes matches at both RDs and keeps both open.
         self.tx_rd = after
         self.checked_words += 1
+
+    def _sample_tx(self, syms, comp: bool, rd_word: int) -> None:
+        """Coverage of a word encoded from the one RD the reference knows."""
+        if self.tx_after_idle:
+            COV_TX_CTRL.sample(rd_held=rd_word)   # the RD the idle cycles held
+            self.tx_after_idle = False
+        rd0 = -1 if comp else rd_word
+        _, rd_mid = arch.tx_encode(syms[:1], None, rd0)
+        COV_TX_CTRL.sample(compliance=int(comp), rd_word=rd_word, rd_mid=rd_mid)
+        for lane, rd in ((0, rd0), (1, rd_mid)):
+            k, b = syms[lane]
+            if k and b not in arch.code8b10b.VALID_K:
+                COV_TX_CTRL.sample(edb_lane=lane)
+            else:
+                COV_TX_CODES.sample(symbol=(k, b), rd=rd, lane=lane)
 
     # ---------------------------------------------------------- MAC steps
 

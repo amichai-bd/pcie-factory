@@ -164,7 +164,7 @@ module pcie_mac_ltssm #(
   assign pcs_ready_c    = r_q.pcs_ready || !pipe_rx_i.phy_status;
   assign pd_pending_c   = r_q.pd_pending && !(phy_pulse && !r_q.detect_rx);
   assign detect_done_c  = r_q.detect_done || (phy_pulse && r_q.detect_rx);
-  assign detect_found_c = (phy_pulse && r_q.detect_rx) ? (pipe_rx_i.status == 3'd3)
+  assign detect_found_c = (phy_pulse && r_q.detect_rx) ? (pipe_rx_i.status == common_pkg::RX_DETECTED)
                                                        : r_q.detect_found;
 
   // ----------------------------------------------------- 2. receive events

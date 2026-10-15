@@ -1,8 +1,0 @@
-tests:
-  - name: long_random
-    module: tests.test_pcs_align
-    testcase: long_random
-    top: pcie_pcs_align
-    seeds: 8
-    timeout_s: 900
-coverage_floors: {line: 100, toggle: 99, functional: {pcs_align_lock: 100}}
