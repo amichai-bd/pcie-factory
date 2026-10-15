@@ -231,7 +231,7 @@ slow-clock seeds.
 | --- | --- | --- | --- |
 | Encoder | A7 rule dropped at RD+ | `tx_table`, `tx_random`, `table_round_trip` | - |
 | Encoder | TxCompliance ignored | `tx_smoke`, `tx_table`, `tx_random`, `pipe_random` | - |
-| Encoder | Lane 1 encoded at lane 0's RD, not the RD between the symbols (`u_sym1.rd_i` from `rd_lane0`) | `tx_smoke`, `tx_table`, `tx_random`, `table_round_trip`, `pipe_random`, `round_trip` (RTL assertion `a_lane1_disparity`, at 256 to 416 ns) | - |
+| Encoder | Lane 1 encoded at lane 0's RD, not the RD between the symbols (`u_sym1.rd_i` from `rd_lane0`) | `tx_smoke`, `tx_table`, `tx_random`, `table_round_trip`, `pipe_random`, `round_trip` (RTL assertion `a_lane1_disparity`; seeds 2061514873, 767703684, 1667229892, 1, 98053844, 1 fail at 272, 288, 288, 256, 416 and 256 ns) | - |
 | Decoder | Disparity errors not flagged | `rx_decode_smoke`, `rx_decode_table`, `rx_decode_random` | - |
 | Decoder | A polarity change keeps the RD known | `rx_decode_table`, `rx_decode_random`, `rx_polarity_toggle` | - |
 | Decoder | The RD stays known after an unlocked word | `rx_smoke`, `rx_decode_table`, `rx_elec_idle_gaps` (RTL assertion `a_rd_unknown_after_unlocked`) | - |

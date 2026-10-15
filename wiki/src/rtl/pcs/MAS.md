@@ -314,8 +314,8 @@ loses locked words only on overflow, outside the targets (RxStatus 5). Were it
 to happen, the run's first word, which holds its comma or the symbol before
 it, would be decoded at a stale RD: data and K are the same at either RD,
 and the comma's unbalanced 6b block sets the RD, so the cost is at most
-one false disparity error (RxStatus 7), one errored word, below
-`ERR_LIMIT`.
+one false disparity error (RxStatus 7): one errored word, which counts
+toward `ERR_LIMIT`.
 
 **Structure.** Two lanes, each a call of the package's pure `decode()`;
 `sym1` starts at `sym0`'s RD out, so the RD carries across the lanes
