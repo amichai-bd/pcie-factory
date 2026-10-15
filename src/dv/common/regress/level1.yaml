@@ -42,3 +42,16 @@ tests:
     top: common_cdc_fifo
     seeds: 3
     timeout_s: 120
+  - name: rst_random
+    module: tests.test_cdc_rst
+    testcase: random_ratio
+    top: common_cdc_rst
+    seeds: 3
+    timeout_s: 120
+  - name: rst_random_stages3
+    module: tests.test_cdc_rst
+    testcase: random_ratio
+    top: common_cdc_rst
+    params: {STAGES: 3}
+    seeds: 2
+    timeout_s: 120

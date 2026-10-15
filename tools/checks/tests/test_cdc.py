@@ -18,6 +18,8 @@ needs_verilator = pytest.mark.skipif(sim.find_verilator() is None,
                                      reason="verilator not available")
 
 CELLS = REPO_ROOT / "src/rtl/common"
+# Shared blocks in the copied tree: one per filelist, each a crossing cell.
+N_CELLS = len(list(CELLS.glob("*.rtl.f")))
 
 HEAD = """`default_nettype none
 module xy_blk (
@@ -48,7 +50,7 @@ def tree(tmp_path: Path, body: str, extra: dict[str, str] | None = None) -> Path
                     ignore=shutil.ignore_patterns("*.md"))
     (src / "rtl/blk/xy_blk.sv").write_text(HEAD + body + TAIL)
     lines = ["-F ../common/common_cdc_sync2.rtl.f", "-F ../common/common_cdc_pulse.rtl.f",
-             "-F ../common/common_cdc_fifo.rtl.f"]
+             "-F ../common/common_cdc_fifo.rtl.f", "-F ../common/common_cdc_rst.rtl.f"]
     for name, text in (extra or {}).items():
         (src / "rtl/blk" / name).write_text(text)
         lines.append(name)
@@ -79,8 +81,9 @@ def test_single_clock_passes(tmp_path):
 """
     r = run(tree(tmp_path, body))
     assert r.passed, r.findings
-    assert "1 top-level IP(s), 3 shared block(s), 4 Verilator --json-only run(s)" in r.checked
-    assert "3 cdc-cell directive(s)" in r.checked
+    assert (f"1 top-level IP(s), {N_CELLS} shared block(s), {N_CELLS + 1} Verilator "
+            "--json-only run(s)") in r.checked
+    assert f"{N_CELLS} cdc-cell directive(s)" in r.checked
 
 
 SYNC2 = A_FLOP + """
@@ -161,6 +164,49 @@ def test_async_reset_flop_clock_is_found(tmp_path):
   assign y_o = a_q;
 """
     assert run(tree(tmp_path, body)).passed
+
+
+# A reset launched by a clk_a_i flop, and a clk_b_i flop with an
+# asynchronous reset: through the reset synchronizer it passes, taken
+# directly it is a crossing.
+RST_SYNC = """
+  logic rst_a_q;
+  logic rst_b;
+  logic b_q;
+  always_ff @(posedge clk_a_i) rst_a_q <= rst_a_i;
+  common_cdc_rst u_rst (
+    .dst_clk_i(clk_b_i),
+    .src_rst_i(rst_a_q),
+    .dst_rst_o(rst_b)
+  );
+  always_ff @(posedge clk_b_i or posedge rst_b) begin
+    if (rst_b) b_q <= 1'b0;
+    else       b_q <= x_i;
+  end
+  assign y_o = b_q;
+"""
+
+
+@needs_verilator
+def test_reset_through_the_reset_synchronizer_passes(tmp_path):
+    r = run(tree(tmp_path, RST_SYNC))
+    assert r.passed, r.findings
+
+
+@needs_verilator
+def test_reset_taken_directly_from_another_domain_fails(tmp_path):
+    body = RST_SYNC.replace("posedge rst_b) begin\n    if (rst_b)",
+                            "posedge rst_a_q) begin\n    if (rst_a_q)")
+    assert body != RST_SYNC
+    [f] = blk(run(tree(tmp_path, body)))
+    assert f.startswith("blk: flop b_q (clock clk_b_i") and "flop rst_a_q (clock clk_a_i" in f
+
+
+@needs_verilator
+def test_logic_in_front_of_the_reset_synchronizer_fails(tmp_path):
+    body = RST_SYNC.replace(".src_rst_i(rst_a_q)", ".src_rst_i(rst_a_q | x_i)")
+    [f] = blk(run(tree(tmp_path, body)))
+    assert "cell input u_rst.src_rst_i" in f and "must come straight from a flop" in f
 
 
 # ---------------------------------------------------------------- crossings
@@ -423,6 +469,6 @@ def test_integrated_top_level_ip_is_analyzed_alone_and_in_its_integrator(tmp_pat
     (src / "rtl/oth/oth.rtl.f").write_text("xy_oth.sv\n")
     rtl_f = src / "rtl/blk/blk.rtl.f"
     rtl_f.write_text("-F ../oth/oth.rtl.f\n" + rtl_f.read_text())
-    assert run(src).checked.startswith("2 top-level IP(s), 3 shared block(s)")
+    assert run(src).checked.startswith(f"2 top-level IP(s), {N_CELLS} shared block(s)")
     assert run(src, {"oth"}).checked.startswith("2 top-level IP(s), 0 shared block(s)")
     assert run(src, {"blk"}).checked.startswith("1 top-level IP(s), 0 shared block(s)")

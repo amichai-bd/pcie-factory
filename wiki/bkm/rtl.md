@@ -90,6 +90,12 @@ page refers to it as `<prefix>`.
 - Each IP's spec (HAS, or MAS for a sub-IP) states clock, reset polarity,
   synchronous or asynchronous assertion, release behavior and every reset
   value. Default when the spec is silent: one clock `clk_i`, synchronous active-high reset `rst_i`.
+- An asynchronously asserted reset comes only from a
+  [`common_cdc_rst`](#clock-domain-crossings) in its domain, never from a
+  raw reset input. Each flop that takes it lists it in its sensitivity list
+  (`always_ff @(posedge clk_i or posedge rst)`) and tests it first. The
+  style check has no rule against this form. The CDC check reads the reset
+  as data, so a raw reset from another domain is reported.
 - Reset only state that needs a defined value; storage arrays are not reset.
 - No generated or gated clocks in fabric; use clock enables. A second clock
   domain needs an owning MAS section, and every crossing uses a crossing
@@ -108,15 +114,18 @@ crossing cells in `src/rtl/common/`; each MAS owns its cell's rules
 | A level, or a Gray-coded vector, from a source flop | [`common_cdc_sync2`](../src/rtl/common/common_cdc_sync2.md) |
 | An event: one source cycle becomes one destination cycle | [`common_cdc_pulse`](../src/rtl/common/common_cdc_pulse.md) |
 | Data, or a burst of events, with flow control | [`common_cdc_fifo`](../src/rtl/common/common_cdc_fifo.md) |
+| A reset: asynchronous assertion, synchronous release | [`common_cdc_rst`](../src/rtl/common/common_cdc_rst.md) |
 
 - No hand-built synchronizer, and no signal that fans out to two cells and
   reconverges in the destination domain. A cell with `src=async` (no
-  source clock) takes its source inputs straight from a launching flop,
-  with no logic between; a cell with a source clock samples them with its
+  source clock) takes its source inputs straight from a launching flop
+  (or, for a reset, a reset input pin), with no logic between; a cell with a source clock samples them with its
   own source flops, so ordinary source-domain logic may drive them. A crossing no cell fits needs a new
   `common_cdc_<name>` cell with its MAS and DV plan first.
-- Each domain has its own reset, synchronous to its clock. A cell's MAS
-  says how its two resets must overlap.
+- Each domain has its own reset, synchronous to its clock, or, where its
+  spec requires asynchronous assertion, from `common_cdc_rst`, which
+  releases it synchronously. A cell's MAS says how its two resets must
+  overlap.
 - **Declaration.** A crossing cell declares its clocks in a comment on the
   line directly above its `module` line:
 
