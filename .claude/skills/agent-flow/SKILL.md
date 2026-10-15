@@ -119,7 +119,9 @@ do not review or merge your own PR.
 The firstmate spawns a **fresh** reviewer crewmate that did not author the
 change and hands it the PR number, head SHA, issue and the
 [pr-reviewer](../pr-reviewer/SKILL.md) skill. The reviewer posts exactly one
-`REVIEW-VERDICT: APPROVE|REQUEST-CHANGES @<sha>` comment and never edits.
+`REVIEW-VERDICT: APPROVE|REQUEST-CHANGES @<sha>` comment, never edits and
+never runs anything: the implementer owns all evidence and CI is the
+independent execution check.
 
 On REQUEST-CHANGES the implementer follows [pr-babysit](../pr-babysit/SKILL.md):
 fix or concretely rebut each finding, rerun affected checks, push. The

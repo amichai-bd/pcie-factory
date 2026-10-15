@@ -17,19 +17,24 @@ one GitHub identity and cannot approve their own PRs).
 
 - Use a **fresh** crewmate (Claude Code subagent or session) that did not
   author the change. The firstmate does not review; a crewmate does.
-- Read the PR head SHA (`pull_request_read` method `get`). Optionally create a
-  detached worktree for reading: `git worktree add --detach
-  worktrees/review-<pr> <sha>`.
-- Hand off: repo, PR number, head SHA, issue number, worktree path, this
-  skill, and the expected report (verdict comment URL, reviewed SHA).
+- Read the PR head SHA (`pull_request_read` method `get`). Do not create a
+  worktree for the reviewer: it reads with `git show`/`git diff` on the
+  fetched head or through the GitHub API, and runs nothing.
+- Hand off: repo, PR number, head SHA, issue number, this skill, and the
+  expected report (verdict comment URL, reviewed SHA).
 - After the implementer pushes fixes, re-engage a reviewer (the same one may
-  continue) with the new head SHA. Remove the review worktree when done.
+  continue) with the new head SHA. A re-review checks only the fixes and the
+  merge delta.
 
 ## Part 2: reviewer procedure
 
-Rules: **read-only.** Never edit, commit, push, label, approve natively, mark
-ready or merge. Write scratch notes only under the review worktree's
-`workdir/` or the session scratchpad.
+Rules: **read-only, and review only.** Never edit, commit, push, label,
+approve natively, mark ready or merge. **Never build or run anything:** no
+`./build check`, `regress`, `sim`, `arch` or flows, no `pytest`, no
+mutants, no worktree to run in. Allowed commands are read-only: `git show`,
+`git diff`, `git log`, `grep`, reading files and the GitHub API. Write scratch
+notes only in the session scratchpad. Report every blocking finding in one
+round.
 
 ### 1. Pin the head
 
@@ -62,9 +67,10 @@ Read: the issue (acceptance, scope, comments), `CLAUDE.md`, the diff
 (`pull_request_read` method `get_check_runs`); red or missing is a finding.
 Also audit the local validation recorded in the PR body: it must name the head SHA, exact
 commands, results, seeds and versions, and cover the required levels for the
-affected IPs. Missing, stale or implausible evidence is a finding. Do not
-rerun regressions yourself; you may run cheap read-only checks (grep, YAML
-parse, link check) to confirm a claim.
+affected IPs. Missing, stale or implausible evidence is a finding. Never
+rerun anything to confirm a claim. When a claim lacks recorded proof (a test
+that can fail, a caught mutant, a timing bound), raise a blocking finding
+that asks the author to run it and record the result in the PR.
 
 ### 4. Post the verdict
 

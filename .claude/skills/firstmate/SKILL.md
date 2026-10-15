@@ -51,6 +51,8 @@ worktree.
 - The firstmate may implement an issue itself, but it never reviews its own
   implementation; a crewmate does.
 - An implementer never reviews, approves or merges its own PR.
+- Reviewers only review: never hand a reviewer a worktree or ask it to run
+  checks, regressions or mutants ([pr-reviewer](../pr-reviewer/SKILL.md)).
 
 ## Captain decisions
 

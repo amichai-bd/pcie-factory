@@ -49,6 +49,11 @@ Every tracked change, however small, goes issue → claim → branch and worktre
 merge gate: an APPROVE verdict at the head plus `ci-gate` green on that
 head, which branch protection requires on `main` (admins included).
 
+**Reviewers only review.** A reviewer reads the change, the specs, the
+author's recorded evidence and the CI result. It never builds, simulates or
+runs checks, regressions or mutants. Missing proof is a finding for the
+author to run and record ([pr-reviewer](.claude/skills/pr-reviewer/SKILL.md)).
+
 **Exception:** the nightly data PR may touch only `wiki/tracker/data/**`; a
 guard enforces it and it auto-merges after `ci-gate`, with no issue or
 reviewer.
