@@ -87,7 +87,7 @@ Rule owners: [layout](../../project/layout.md#per-ip-files) and the
 - Every IP has `rtl/<id>/<id>.rtl.f`, `dv/<id>/<id>.dv.f`,
   `dv/<id>/<id>.sim.f` and `dv/<id>/regress/level{0,1,2}.yaml`, and its regression lists pass the
   [regress schema](../regress/SPEC.md#regression-lists) (including unique
-  test names).
+  test names and any [coverage floors](../regress/SPEC.md#coverage-floors)).
 - **SystemVerilog only.** These rules close every route by which a file
   could carry a waiver past the style check and the reviewed waiver file:
   a listed control file (`.vlt`), or any file reached by `` `include``,

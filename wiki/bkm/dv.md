@@ -127,13 +127,42 @@ Each test protects an observable behavior or contract. Before adding one,
 name the regression it would catch that existing tests miss. Remove or merge
 a test only when the plan row it covers stays covered.
 
+## Coverage
+
+Coverage measures how much of the spec and the code the tests reach; it
+never replaces a checker. `./build regress --coverage` merges three metrics
+per IP: Verilator line and toggle coverage, and functional coverage from the
+`regress.funcov` helper (the
+[regress SPEC](../tools/regress/SPEC.md#coverage) owns the command, the
+helper's API, outputs and floor rules).
+
+- **Functional bins come from the spec.** Declare covergroups for the DV
+  plan's features: control values, data classes, corner cases and the
+  crosses the HAS or MAS says interact. Sample them in the test where the
+  stimulus is driven or the outcome observed, so a bin means "this happened",
+  never "this was attempted". Don't mirror RTL state you can't observe.
+- **One covergroup per concern,** named after the IP and the concern, so
+  merged results stay readable across tests.
+- **Holes are findings.** An uncovered bin (`workdir/<ip>/coverage/functional.json`)
+  or line (`verilator_coverage --annotate`) is either a missing test, an
+  unreachable case to explain in the DV plan, or a bin to remove with a
+  reason; never a bin to delete silently.
+- **Floors are optional and per IP.** Add `coverage_floors` to a level file
+  once the IP's DV plan has no gaps, at or just below the merged value that
+  level's runs reach (usually in `level2.yaml`, which the nightly runs).
+  Raise a floor when coverage improves; lowering one needs a reason in the
+  PR, like a budget.
+- Nightly runs L0+L1+L2 with `--coverage`; the tracker charts each IP's
+  coverage over time ([DevOps BKM](devops.md#nightly)).
+
 ## Output and evidence
 
 - Simulation builds, logs, results XML and waves go under
   `workdir/<ip>/<test>/<seed>/` (the sim tool SPEC owns the exact path).
   Waves are opt-in debug output.
 - PR evidence records the exact command, seeds, pass/fail counts, runtime
-  and any non-pass entry with its diagnosis, at the reviewed head. Never
-  commit outputs.
+  and any non-pass entry with its diagnosis, at the reviewed head. A PR that
+  adds tests or covergroups, or sets a floor, also records the merged
+  coverage table of a `--coverage` run. Never commit outputs.
 - Levels to run per change and the merge-gate rule are in the
   [DevOps BKM](devops.md#local-evidence).

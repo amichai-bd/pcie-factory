@@ -207,6 +207,35 @@ def tests_section(summary_path: Path, cfg: Config) -> dict:
     }
 
 
+COVERAGE_METRICS = ("line", "toggle", "functional")
+
+
+def coverage_section(summary_path: Path) -> dict:
+    """Per-IP merged coverage from a ``regress --coverage`` summary."""
+    if not summary_path.is_file():
+        return {"status": "unavailable", "reason": "missing"}
+    try:
+        cov = json.loads(summary_path.read_text()).get("coverage")
+        if cov is None:
+            return {"status": "unavailable", "reason": "disabled"}
+        ips = {}
+        for ip, e in sorted(cov["ips"].items()):
+            if not (isinstance(ip, str) and _NAME.match(ip)):
+                raise ValueError("bad IP id")
+            row = {}
+            for m in COVERAGE_METRICS:
+                pct = e[m]["pct"]
+                row[m] = {"covered": int(e[m]["covered"]), "total": int(e[m]["total"]),
+                          "pct": None if pct is None else float(pct)}
+            row["floors"] = {m: float(e["floors"][m]) for m in COVERAGE_METRICS if m in e["floors"]}
+            row["floors_passed"] = not e["failures"]
+            ips[ip] = row
+        passed = bool(cov["passed"])
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return {"status": "unavailable", "reason": "invalid"}
+    return {"status": "ok", "passed": passed, "ips": ips}
+
+
 def flow_section(workdir: Path, ip_ids: list[str], kind: str, fields) -> dict:
     """``workdir/<ip>/<kind>/metrics.json`` of each IP, whitelisted."""
     ips = {}
@@ -314,6 +343,7 @@ def build_record(*, repo: Path, workdir: Path, ip_ids: list[str], cfg: Config, n
         "github": gh_sections,
         "health": health,
         "tests": tests,
+        "coverage": coverage_section(workdir / "regress" / "summary.json"),
         "fpga": flow_section(workdir, ip_ids, "fpga", cfg.fpga_fields),
         "asic": flow_section(workdir, ip_ids, "asic", cfg.asic_fields),
         "distributions": dict(sorted(dist.items())),

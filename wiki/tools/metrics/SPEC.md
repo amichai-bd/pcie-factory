@@ -176,6 +176,21 @@ From `<workdir>/regress/summary.json` (the [regress spec](../regress/SPEC.md)).
 | `slowest` | The `slowest` longest runs, each `{ip, level, name, seed, status, runtime_s}`. |
 | `runs` | Every run in that form, sorted by IP, level, name, seed: the seeds record. |
 
+### `coverage`
+
+From the `coverage` object of the same summary, present when the nightly
+ran `regress --coverage` ([regress spec](../regress/SPEC.md#coverage));
+`{"status": "unavailable", "reason": "disabled"}` when the summary has none.
+
+| Field | Value |
+| --- | --- |
+| `passed` | False when any IP missed a coverage floor. |
+| `ips.<ip>.line`, `.toggle`, `.functional` | `{covered, total, pct}`; `pct` is `null` when the metric has no points. |
+| `ips.<ip>.floors` | The floors (percent) that applied, by metric; `{}` for none. |
+| `ips.<ip>.floors_passed` | Whether the IP met all of them. |
+
+Bin names, failure messages and paths are dropped.
+
 ### `fpga`, `asic`
 
 `{status, ips: {<ip>: {status, ...}}}` from `<workdir>/<ip>/fpga/metrics.json`
@@ -267,7 +282,7 @@ over the day's real data PR.
 
 | Job | Permissions | Does |
 | --- | --- | --- |
-| `nightly` (480 min) | read: contents, issues, pull-requests, actions | `./build check`; `./build regress --level 0 --level 1 --level 2` (all IPs); `./build fpga --all` and the ASIC flow for IPs with `src/fpga/<ip>/` or `src/asic/<ip>/` (`--all`, else one `--ip` per IP); `./build metrics commits --ref origin/main` continuing the base branch's series, then `./build metrics collect` with the step outcomes; uploads both files. Every step runs even after a failure; a step whose subcommand is still a stub, or has no IP inputs, is `skipped`. |
+| `nightly` (480 min) | read: contents, issues, pull-requests, actions | `./build check`; `./build regress --level 0 --level 1 --level 2 --coverage` (all IPs); `./build fpga --all` and the ASIC flow for IPs with `src/fpga/<ip>/` or `src/asic/<ip>/` (`--all`, else one `--ip` per IP); `./build metrics commits --ref origin/main` continuing the base branch's series, then `./build metrics collect` with the step outcomes; uploads both files. Every step runs even after a failure; a step whose subcommand is still a stub, or has no IP inputs, is `skipped`. |
 | `publish` (15 min) | write: contents, pull-requests, actions | Checks out without persisted credentials and installs PyYAML; commits only the two data files, as `github-actions[bot]`, on the data branch from the base tip; runs `./build metrics guard` from this trusted checkout; force-pushes the branch with the token passed for that one command; closes, with a comment, any other open `nightly/*` PR into the same base (they would conflict on `commits.jsonl`); opens (or reuses) the PR labelled `type:data` and `area:wiki`; dispatches `ci.yml` (`ci-gate`, with the data guard) on the branch; on `main`, enables squash auto-merge and dispatches `pages.yml` on `main`. |
 | `report` (5 min) | read contents, write issues | `./build metrics red` with `success` only when `nightly` and `publish` both succeeded. |
 
@@ -365,7 +380,7 @@ form is not an IP), tree statistics and determinism
 incremental append, CI refresh and idempotence (`test_metrics_tree.py`);
 every GitHub section, distribution and health value from fixtures, and
 unavailable sources (`test_metrics_github.py`); the test, FPGA and ASIC
-whitelists, the forbidden-pattern scan, and an end-to-end `collect` whose
+whitelists, the coverage section, the forbidden-pattern scan, and an end-to-end `collect` whose
 inputs plant paths, emails and names that must not appear in the output
 (`test_metrics_record.py`); the guard on real branches including renames
 and a moving base (`test_metrics_guard.py`); and the red-issue rule

@@ -31,7 +31,7 @@ from checks.common import (
     rel,
     selected,
 )
-from regress.schema import LEVELS, SchemaError, load_ip
+from regress.schema import LEVELS, SchemaError, load_floors, load_ip
 
 
 def all_filelists(src_root: Path) -> list[Path]:
@@ -98,6 +98,7 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                 add(f"{ip.id}: missing {rel(need, src_root)}")
         try:
             load_ip(ip)
+            load_floors(ip)
         except SchemaError as exc:
             add(f"{ip.id}: regression list: {exc}")
 
