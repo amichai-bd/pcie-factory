@@ -18,12 +18,12 @@ write-side fill are out of scope until a consumer needs them.
 | Port | Dir | Width | Clock | Description |
 | --- | --- | --- | --- | --- |
 | `src_clk_i` | in | 1 | - | Source (write) clock. |
-| `src_rst_i` | in | 1 | `src_clk_i` | Synchronous, active-high reset of the source side. |
+| `src_rst_i` | in | 1 | `src_clk_i` | Active-high reset of the source side: synchronous, or asynchronous assertion with `SRC_ASYNC_RESET` 1. |
 | `src_valid_i` | in | 1 | `src_clk_i` | A word is offered. |
 | `src_ready_o` | out | 1 | `src_clk_i` | Not full: the offered word is taken at the edge when both are high. Does not depend on `src_valid_i`. |
 | `src_data_i` | in | `WIDTH` | `src_clk_i` | The offered word. |
 | `dst_clk_i` | in | 1 | - | Destination (read) clock. |
-| `dst_rst_i` | in | 1 | `dst_clk_i` | Synchronous, active-high reset of the destination side. |
+| `dst_rst_i` | in | 1 | `dst_clk_i` | Active-high reset of the destination side: synchronous, or asynchronous assertion with `DST_ASYNC_RESET` 1. |
 | `dst_valid_o` | out | 1 | `dst_clk_i` | Not empty: `dst_data_o` is the oldest word. Does not depend on `dst_ready_i`. |
 | `dst_ready_i` | in | 1 | `dst_clk_i` | The word is taken at the edge when both are high. |
 | `dst_data_o` | out | `WIDTH` | `dst_clk_i` | Oldest word (first-word fall-through); undefined while `dst_valid_o` is low. |
@@ -39,14 +39,25 @@ CDC declaration ([convention](../../../../bkm/rtl.md#clock-domain-crossings)):
 | --- | --- | --- | --- | --- |
 | `WIDTH` | `int unsigned` | 8 | 1 or more | Word width. |
 | `ADDR_W` | `int unsigned` | 2 | 1 or more; less is an elaboration-time `$fatal` that lint and the simulation build report (`COMMON_ASSERT_PARAM` block `g_addr_w_check`) | Depth is `2**ADDR_W` words. |
+| `SRC_ASYNC_RESET` | `bit` | 0 | 0 or 1 | 1: the source pointers (`wbin_q`, `wgray_q`) and the read-pointer synchronizer `u_sync_rptr` enter reset asynchronously (`src_rst_i` must then come from a `COMMON_RESET_SYNC` on `src_clk_i`); 0: synchronously. |
+| `DST_ASYNC_RESET` | `bit` | 0 | 0 or 1 | The same for the destination side: `rbin_q`, `rgray_q` and `u_sync_wptr`, on `dst_rst_i`. |
 
 ## Behavior
 
 - **Reset:** reset both sides together: assert `src_rst_i` and `dst_rst_i`
-  over an interval that contains at least one rising edge of each clock.
-  The FIFO is then empty: `dst_valid_o` low, `src_ready_o` high. Words
-  queued before the reset are discarded. Resetting one side alone while the
-  FIFO holds words is undefined.
+  over an interval that contains at least one rising edge of each clock
+  whose side resets synchronously; an asynchronous side needs no edge of
+  its clock. The FIFO is then empty: `dst_valid_o` low, `src_ready_o`
+  high. Words queued before the reset are discarded. Resetting one side
+  alone while the FIFO holds words is undefined.
+- **Asynchronous sides:** with both parameters 1, the FIFO is empty
+  (`dst_valid_o` low, `dst_fill_o` 0) and not full (`src_ready_o` high) as
+  soon as both resets are high, with no clock edge (the clocks may be
+  stopped). With one parameter 1, that side's pointer and synchronizer
+  clear at once and the other side's at its next edge in reset. An
+  asynchronous reset must fall synchronously to its clock (a
+  `COMMON_RESET_SYNC` output does); a pulse with no edge of that clock
+  between its rise and fall also resets the side.
 - **Offers during reset are dropped:** `src_ready_o` is high while
   `src_rst_i` is asserted (both pointers are zero), so a word offered then
   completes a handshake and is lost. Hold `src_valid_i` low in reset, or
@@ -78,13 +89,16 @@ CDC declaration ([convention](../../../../bkm/rtl.md#clock-domain-crossings)):
 - **Storage:** `mem_q`, `2**ADDR_W` words, written in the source domain
   by one `COMMON_MEM_WRITE` port at `waddr` (no reset) and read
   combinationally at `raddr`. The pointer registers are `COMMON_DFF_RST`
-  forms ([RTL vocabulary](../../../../bkm/rtl.md#registers-and-memories)).
+  forms, or `COMMON_DFF_ARST_VAL` (reset 0) on a side whose parameter is 1
+  (generate blocks `g_src_srst`/`g_src_arst`, `g_dst_srst`/`g_dst_arst`;
+  [RTL vocabulary](../../../../bkm/rtl.md#registers-and-memories)).
 - **Pointers:** each side keeps an `ADDR_W+1`-bit binary pointer
   (`wbin_q`, `rbin_q`) for addressing and a registered Gray copy
   (`wgray_q`, `rgray_q`). The extra bit tells full from empty.
 - **Crossings:** `u_sync_wptr` brings `wgray_q` into the destination
   domain and `u_sync_rptr` brings `rgray_q` into the source domain, both
-  [`common_cdc_sync2`](common_cdc_sync2.md) through `COMMON_METAFLOP`. A Gray pointer changes one bit
+  [`common_cdc_sync2`](common_cdc_sync2.md), instantiated directly with
+  `ASYNC_RESET` set to the parameter of the side that reads them. A Gray pointer changes one bit
   per update, as the synchronizer requires, and the registered Gray copy
   never glitches.
 - **Fill:** the synchronized write pointer `dst_wgray`, converted to binary
@@ -102,6 +116,7 @@ CDC declaration ([convention](../../../../bkm/rtl.md#clock-domain-crossings)):
 | Flags compared in Gray code | No Gray-to-binary conversion on the flag path. | Binary compare after conversion. |
 | Registered memory, combinational read | First-word fall-through with no extra latency; small depths fit in flops or distributed RAM. | Synchronous-read RAM (one more cycle and an output register stage). |
 | Power-of-two depth only | Gray wrap is free. | Arbitrary depth (needs a modified Gray sequence). |
+| One reset-style parameter per side, default synchronous | Each side follows its domain's reset style, so a domain on a `COMMON_RESET_SYNC` output keeps one style per net and its pointers reset even with its clock stopped (#170); defaults keep every other user unchanged. | One parameter for both sides (the two domains' resets differ). |
 | Read-side fill and look-ahead from the cell's own synchronized pointer | One crossing serves the flag, the fill and the look-ahead, so they always agree. A consumer that needs a fill (the pcs elastic buffer) does not duplicate the pointer crossing. | A second Gray counter through `common_cdc_sync2` in the consumer. |
 
 ## Timing
@@ -118,6 +133,9 @@ CDC declaration ([convention](../../../../bkm/rtl.md#clock-domain-crossings)):
   `dst_clk_i` registers.
 - Within each domain, the flag logic is a compare of two registered
   vectors.
+- Reset: an asynchronous side's reset input to its pointers and
+  synchronizer is a reset path, timed by the recovery and removal checks
+  of the `COMMON_RESET_SYNC` that drives it.
 
 ## Files
 

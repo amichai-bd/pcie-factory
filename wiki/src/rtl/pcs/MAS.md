@@ -74,9 +74,13 @@ register, the error counter, loopback and crossing 4.
   `pipe_rx_status_o` 0, `pipe_rx_elec_idle_o` 1, `ser_tx_elec_idle_o` 1.
 - `rx_rst`, the RX-domain reset (crossing 2), is
   `u_elastic.ser_rx_rst_o`: the one `COMMON_RESET_SYNC` of the PCS, inside
-  the elastic buffer, from `rst_i`. The elastic buffer's write side takes
-  it asynchronously; the aligner and the crossing cells' RX sides take it
-  synchronously ([decisions](#decisions)).
+  the elastic buffer, from `rst_i`. Every consumer takes it
+  asynchronously, so the RX domain enters reset with no `ser_rx_clk_i`
+  edge ([HAS](../../arch/pcs/HAS.md#clocks-and-reset)): the aligner's and
+  the write side's registers are `COMMON_DFF_ARST_VAL`, the FIFO's source
+  side has `SRC_ASYNC_RESET` 1, crossing 3 is `COMMON_METAFLOP_ARST`,
+  crossing 4 is `COMMON_PULSE_SYNC_ARST`, and the RX-domain assertions are
+  `COMMON_ASSERT_NEVER_ARST`.
 - The elastic buffer's read side resets on `rst_i` only, so it keeps
   running through a PIPE reset, as the HAS requires.
 
@@ -162,8 +166,9 @@ word) and `rx_q.gen`:
 An errored word adds 1; at `ERR_LIMIT` (3) `relock_req` is 1 for that
 cycle, the count clears and `wait_relock` sets. `ERR_DECAY_WORDS` (8)
 clean words in a row take 1 away. Nothing counts while a request is
-outstanding. `` `COMMON_PULSE_SYNC(u_relock_sync, relock_rx, relock_req,
-clk_i, rst_i, ser_rx_clk_i, rx_rst)`` brings the request to the aligner;
+outstanding. `` `COMMON_PULSE_SYNC_ARST(u_relock_sync, relock_rx, relock_req,
+clk_i, rst_i, ser_rx_clk_i, rx_rst)`` brings the request to the aligner
+(its RX side reset asynchronously);
 requests are far more than two RX cycles apart, since each waits for a new
 lock.
 
@@ -354,7 +359,7 @@ counter that decides a relock is the top's.
 
 | Port | Dir | Type | Description |
 | --- | --- | --- | --- |
-| `clk_i`, `rst_i` | in | `logic` | `ser_rx_clk_i` and `rx_rst`, used synchronously. |
+| `clk_i`, `rst_i` | in | `logic` | `ser_rx_clk_i` and `rx_rst`; every reset register takes `rx_rst` asynchronously (`COMMON_DFF_ARST_VAL`), as do the invariants (`COMMON_ASSERT_NEVER_ARST`). |
 | `data_i` | in | `t_word` | `ser_rx_data_i`: twenty received bits, bit 0 earliest. |
 | `elec_idle_i` | in | `logic` | `ser_rx_elec_idle_i`. |
 | `relock_i` | in | `logic` | One-cycle relock request (crossing 4). |
@@ -460,14 +465,16 @@ asynchronously by the RX reset), each cycle with a word:
   word written carries the overflow flag.
 
 **FIFO.** `u_fifo`, [`common_cdc_fifo`](../common/cdc/common_cdc_fifo.md),
-`WIDTH` 28, `ADDR_W` 4: head word, the word after it and the occupancy.
+`WIDTH` 28, `ADDR_W` 4, `SRC_ASYNC_RESET` 1 (its write side on the RX
+reset, asynchronously): head word, the word after it and the occupancy.
 
 **Read side** (`clk_i`, state `r_q`, `t_eb_rd`, and `fill_high_q`, reset
 by `rst_i`), each cycle:
 
 - **Start.** Nothing is sent until the fill first reaches 8.
 - **Fill high.** `fill_high_q` is the fill at 9 or more; it crosses to the
-  write side through `u_sync_fill_high` (crossing 3).
+  write side through `u_sync_fill_high` (crossing 3,
+  `COMMON_METAFLOP_ARST` on the RX reset).
 - **Recentring.** While the next symbol to send (`c0`: the leftover, or
   the head's first symbol) is unlocked and the fill is 7 or less, nothing
   is sent, at most once per 8 cycles, so a locked leftover is never held
@@ -517,7 +524,7 @@ by `rst_i`), each cycle:
 | Drop an unlocked symbol at a lock start, on both sides of the buffer | Without it the first locked word was paired with an unlocked symbol and RxValid started a word late, up to 11 cycles after the comma (#85 review). | Changing the HAS lock target. |
 | Loopback from the PIPE receive register | The HAS loops back the words as they appear on `pipe_rx_data_o`; it reuses the register and the EDB substitution. | A loopback path before the decoder. |
 | One RX reset synchronizer, in the elastic buffer | Firstmate ruling on #85: one crossing 2, exported on `ser_rx_rst_o`. | A second synchronizer in the top. |
-| The RX reset: asynchronous on the elastic buffer's write-side flops, synchronous in the aligner and the crossing cells | The flops as the leaf issues built them; `common_cdc_rst` holds the reset at least 7 RX cycles and `ser_rx_clk_i` always runs (`phy` contract). One style per net is [#170](https://github.com/amichai-bd/pcie-factory/issues/170) (it needs a common-cell change); until then [`src/lint_waivers.yaml`](../../../../src/lint_waivers.yaml) waives `SYNCASYNCNET` on `rst_i` and on the RX reset, each with its reason. | - |
+| The RX reset taken asynchronously by every consumer, assertions included | One style per reset net ([RTL BKM](../../../bkm/rtl.md#reset-and-clocks), [#170](https://github.com/amichai-bd/pcie-factory/issues/170)): the cells' asynchronous options and the `_ARST` assertion forms, so lint needs no `SYNCASYNCNET` waiver on the RX reset. [`src/lint_waivers.yaml`](../../../../src/lint_waivers.yaml) keeps one on `rst_i`, the synchronous `clk_i` reset that is also the reset synchronizer's asynchronous input. | Synchronous aligner, crossing-cell RX sides and invariants beside the asynchronous write side (the mixed net the leaf issues built, waived until #170). |
 
 ## Timing
 
@@ -539,6 +546,10 @@ by `rst_i`), each cycle:
   separate crossing, which overtook the words; #182).
 - PhyStatus: 16 cycles after reset, receiver detection in 64, PowerDown
   acknowledged after 4.
+- RX reset: every RX-domain flop enters reset in the time step `rst_i`
+  rises, with no `ser_rx_clk_i` edge (all of them take `rx_rst`
+  asynchronously), and leaves it at the second `ser_rx_clk_i` edge after
+  `rst_i` falls (crossing 2).
 - Critical path (`clk_i`): the FIFO head through the elastic buffer's
   read-side selection, the two chained decode lanes and the RxStatus
   precedence into the PIPE register. On `ser_rx_clk_i`: the aligner's

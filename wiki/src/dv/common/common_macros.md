@@ -11,7 +11,8 @@
   [`models/common_macros_model.py`](../../../../src/dv/common/models/common_macros_model.py),
   a cycle model: reset beats enable, arrays copy a whole next-state array,
   reads return the data stored before the same edge's write, lane enables
-  merge, a level synchronizer delays two edges and resets to its value,
+  merge, a level synchronizer delays two edges and resets to its value
+  (at once on the asynchronous reset for `COMMON_METAFLOP_ARST`),
   and the reset synchronizer is high at once on assertion and falls at the
   second edge after release.
   Unwritten words and never-loaded registers are unknown and not compared.
@@ -25,8 +26,8 @@
   on a simulator stop, so
   [`tools/checks/tests/test_vocabulary_headers.py`](../../../../tools/checks/tests/test_vocabulary_headers.py)
   builds the real headers with Verilator `--assert`: each of
-  `COMMON_ASSERT`, `_NO_RESET`, `_NEVER`, `_STABLE_WHEN`, `_CLOCKED` and
-  `_CLOCKED_WHEN` stops its run when tripped, none is present with
+  `COMMON_ASSERT`, `_NO_RESET`, `_NEVER`, `_STABLE_WHEN`, `_CLOCKED`,
+  `_CLOCKED_WHEN`, `_CLOCKED_ARST` and `_NEVER_ARST` stops its run when tripped, none is present with
   `SYNTHESIS` defined (two builds), a false `COMMON_ASSERT_PARAM` fails
   Verilator lint at elaboration, and only its `initial $fatal` form is left
   under `SYNTHESIS`. The tests carry the `vocabulary` marker, so
@@ -40,12 +41,12 @@
   enables of each write. No coverage floor yet.
 - **Out of scope:** the cells behind the crossing macros (their own plans:
   [sync2](cdc/common_cdc_sync2.md), [pulse](cdc/common_cdc_pulse.md),
-  [rst](cdc/common_cdc_rst.md)); here only the wiring, width, latency and reset
-  value.
+  [rst](cdc/common_cdc_rst.md)); here only the wiring, width, latency, reset
+  value and reset style.
 
 ## Plan
 
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
-| [Registers](../../../bkm/rtl.md#registers-and-memories): reset values, capture, enable hold, asynchronous assertion between edges; register arrays; memory read-during-write and lane merge; `COMMON_METAFLOP` latency, `COMMON_METAFLOP_VAL` reset value; five `COMMON_PULSE_SYNC` events; `COMMON_RESET_SYNC` on the asynchronous reset: high before any edge and between edges, released at the second edge after the fall | `macros_contract` | 0 | 1 |
+| [Registers](../../../bkm/rtl.md#registers-and-memories): reset values, capture, enable hold, asynchronous assertion between edges; register arrays; memory read-during-write and lane merge; `COMMON_METAFLOP` latency, `COMMON_METAFLOP_VAL` reset value, `COMMON_METAFLOP_ARST` cleared before any edge and between edges; five `COMMON_PULSE_SYNC` and five `COMMON_PULSE_SYNC_ARST` events, then a high `COMMON_PULSE_SYNC_ARST` pulse dropped between edges by the asynchronous reset while the synchronous form's stays high; `COMMON_RESET_SYNC` on the asynchronous reset: high before any edge and between edges, released at the second edge after the fall | `macros_contract` | 0 | 1 |
 | Every register, array, memory, level-crossing and reset-synchronizer form under random reset, enable, data and memory traffic, against the model | `macros_random` | 1 | 3; 2000 cycles |

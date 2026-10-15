@@ -26,8 +26,8 @@ module pcie_pcs_elastic (
   // ----------------------------------------------------- RX-domain reset
 
   // Asserts with rst_i, with no clock edge; releases on the second
-  // ser_rx_clk_i edge after rst_i falls. Every write-side flop takes it
-  // asynchronously.
+  // ser_rx_clk_i edge after rst_i falls. Every RX-domain flop takes it
+  // asynchronously: the write side, the FIFO's source side and crossing 3.
   logic rx_rst;   // the RX-domain reset
 
   `COMMON_RESET_SYNC(u_rx_rst, rx_rst, rst_i, ser_rx_clk_i)
@@ -144,22 +144,22 @@ module pcie_pcs_elastic (
 
   `COMMON_DFF_ARST_VAL(w_q, w_d, ser_rx_clk_i, rx_rst, '0)
 
-  `COMMON_ASSERT_NEVER(a_one_removal, ser_rx_clk_i, rx_rst, w_rm0 & w_rm1)
-  `COMMON_ASSERT_NEVER(a_rem_after_com, ser_rx_clk_i, rx_rst, w_rm0 & w_q.pend_rem)
+  `COMMON_ASSERT_NEVER_ARST(a_one_removal, ser_rx_clk_i, rx_rst, w_rm0 & w_rm1)
+  `COMMON_ASSERT_NEVER_ARST(a_rem_after_com, ser_rx_clk_i, rx_rst, w_rm0 & w_q.pend_rem)
   // The aligner tags both symbols of a word with one lock, generation and
   // idle flag, except an EIOS tail word (sym0 the locked last IDL, sym1
   // idle), and never locks an idle symbol.
-  `COMMON_ASSERT_NEVER(a_word_one_lock, ser_rx_clk_i, rx_rst,
-                       ser_rx_valid_i & ((ser_rx_i.sym1.gen != ser_rx_i.sym0.gen)
-                                       | (((ser_rx_i.sym1.lock != ser_rx_i.sym0.lock)
-                                           | (ser_rx_i.sym1.idle != ser_rx_i.sym0.idle))
-                                          & ~(ser_rx_i.sym0.lock & ~ser_rx_i.sym0.idle
-                                              & ~ser_rx_i.sym1.lock & ser_rx_i.sym1.idle))))
-  `COMMON_ASSERT_NEVER(a_idle_unlocked, ser_rx_clk_i, rx_rst,
-                       ser_rx_valid_i & ser_rx_i.sym0.idle & ser_rx_i.sym0.lock)
+  `COMMON_ASSERT_NEVER_ARST(a_word_one_lock, ser_rx_clk_i, rx_rst,
+                            ser_rx_valid_i & ((ser_rx_i.sym1.gen != ser_rx_i.sym0.gen)
+                                            | (((ser_rx_i.sym1.lock != ser_rx_i.sym0.lock)
+                                                | (ser_rx_i.sym1.idle != ser_rx_i.sym0.idle))
+                                               & ~(ser_rx_i.sym0.lock & ~ser_rx_i.sym0.idle
+                                                   & ~ser_rx_i.sym1.lock & ser_rx_i.sym1.idle))))
+  `COMMON_ASSERT_NEVER_ARST(a_idle_unlocked, ser_rx_clk_i, rx_rst,
+                            ser_rx_valid_i & ser_rx_i.sym0.idle & ser_rx_i.sym0.lock)
   // Lock start: a FIFO word never holds an unlocked symbol before a locked one.
-  `COMMON_ASSERT_NEVER(a_no_unlocked_then_locked, ser_rx_clk_i, rx_rst,
-                       w_push & ~w_word.lock[0] & w_word.lock[1])
+  `COMMON_ASSERT_NEVER_ARST(a_no_unlocked_then_locked, ser_rx_clk_i, rx_rst,
+                            w_push & ~w_word.lock[0] & w_word.lock[1])
 
   // ------------------------------------------------------------------ FIFO
 
@@ -170,8 +170,9 @@ module pcie_pcs_elastic (
   logic                                r_pop;
 
   common_cdc_fifo #(
-    .WIDTH ($bits(pcie_pcs_pkg::t_eb_word)),
-    .ADDR_W(pcie_pcs_pkg::EB_ADDR_W)
+    .WIDTH          ($bits(pcie_pcs_pkg::t_eb_word)),
+    .ADDR_W         (pcie_pcs_pkg::EB_ADDR_W),
+    .SRC_ASYNC_RESET(1'b1)
   ) u_fifo (
     .src_clk_i      (ser_rx_clk_i),
     .src_rst_i      (rx_rst),
@@ -328,7 +329,7 @@ module pcie_pcs_elastic (
   `COMMON_DFF_RST(fill_high_q, fill_high_d, clk_i, rst_i)
 
   // Crossing 3 of the pcs HAS: fill high, a level from a clk_i flop.
-  `COMMON_METAFLOP(u_sync_fill_high, fill_high_rx, fill_high_q, ser_rx_clk_i, rx_rst)
+  `COMMON_METAFLOP_ARST(u_sync_fill_high, fill_high_rx, fill_high_q, ser_rx_clk_i, rx_rst)
 
   // The word after the head is only looked at for its first symbol, and
   // only the symbol and removed flag of c2; the write side never sets a

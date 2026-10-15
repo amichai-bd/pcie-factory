@@ -41,6 +41,18 @@
   pulse and FIFO plans reuse the same ratio bins (`CLOCK_BINS` in
   `tb/cdc_env.py`). No coverage floor is set yet
   ([DV BKM](../../../../bkm/dv.md#coverage)).
+- **Asynchronous reset (`ASYNC_RESET` 1):** `async_reset` drives
+  `dst_clk_i` from a clock it can stop low (`GatedClock` in
+  `tb/cdc_env.py`) and checks `dst_data_o` in the same time step
+  `dst_rst_i` rises (read-only phase): at time zero, between the edges of a
+  running clock, and with the clock stopped. A reset pulse wholly inside a
+  stop must leave both flops at `RESET_VALUE`; a reset held into the
+  restart is released at a falling edge (synchronously). After every
+  release, with `src_data_i` steady, `dst_data_o` is `RESET_VALUE` at the
+  first edge and the source value at the second. The entry uses `WIDTH` 4
+  and `RESET_VALUE` 9, so the reset value, the old and the new source
+  value all differ. The `async_reset` coverpoint bins the three reset
+  cases (running, stopped pulse, stopped held).
 - **Out of scope:** metastability itself. Verilator is two-state and
   zero-delay, so a late resolution never happens in simulation. Whether crossings use the cells at all is
   the structural CDC check's job ([#70](https://github.com/amichai-bd/pcie-factory/issues/70)).
@@ -52,8 +64,9 @@
 | [Reset](../../../rtl/common/cdc/common_cdc_sync2.md#behavior): zero output in reset with all-ones input; transfer at a fixed 3:5 ratio | `sync2_smoke` | 0 | 1; `WIDTH` 1, 16 updates |
 | [Transfer](../../../rtl/common/cdc/common_cdc_sync2.md#behavior): Gray sequence and latency at random ratios | `sync2_random` | 1 | 3; `WIDTH` 4, 200 updates, ratio up to 8:1 |
 | [Transfer](../../../rtl/common/cdc/common_cdc_sync2.md#behavior), long and wide | `sync2_long` | 2 | 8; `WIDTH` 8, 2000 updates, ratio up to 16:1 |
+| [Asynchronous reset](../../../rtl/common/cdc/common_cdc_sync2.md#behavior): assertion with no edge (time zero, running clock, stopped clock), a pulse inside a stop, synchronous release two edges before the source value | `sync2_arst` | 1 | 2; `WIDTH` 4, `RESET_VALUE` 9, `ASYNC_RESET` 1, ratio up to 8:1 |
 
 Every [interface](../../../rtl/common/cdc/common_cdc_sync2.md#interfaces) port is exercised by all three entries.
-A nonzero `RESET_VALUE`, and the `COMMON_METAFLOP` and `COMMON_METAFLOP_VAL`
-wrappers, are covered by the [macro plan](../common_macros.md) (`macros_contract`,
-`macros_random`).
+A nonzero `RESET_VALUE`, and the `COMMON_METAFLOP`, `COMMON_METAFLOP_VAL`
+and `COMMON_METAFLOP_ARST` wrappers, are covered by the
+[macro plan](../common_macros.md) (`macros_contract`, `macros_random`).

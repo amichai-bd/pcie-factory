@@ -47,6 +47,57 @@ def start_clock(sig, period: int, phase: int = 0) -> None:
     cocotb.start_soon(_start(sig, period, phase))
 
 
+class GatedClock:
+    """A clock that stops low and restarts, for the asynchronous-reset tests
+    (a reset asserted while the clock is stopped must act with no edge).
+    Each start begins with a rising edge, ``phase`` ps later."""
+
+    def __init__(self, sig, period: int):
+        self.sig = sig
+        self.period = period
+        self._task = None
+        sig.value = 0
+
+    @property
+    def running(self) -> bool:
+        return self._task is not None
+
+    def start(self, phase: int = 0) -> None:
+        assert self._task is None, "clock already running"
+        self._task = cocotb.start_soon(self._run(phase))
+
+    async def _run(self, phase: int) -> None:
+        if phase:
+            await Timer(phase, "ps")
+        half = self.period // 2
+        while True:
+            self.sig.value = 1
+            await Timer(half, "ps")
+            self.sig.value = 0
+            await Timer(self.period - half, "ps")
+
+    def halt(self) -> None:
+        """Stop now; call it in the low phase (just after a falling edge)."""
+        assert self._task is not None, "clock not running"
+        assert int(self.sig.value) == 0, "halt() in the high phase"
+        self._task.cancel()
+        self._task = None
+
+    async def stop(self) -> None:
+        """Stop right after the next falling edge: the clock rests low."""
+        await FallingEdge(self.sig)
+        self.halt()
+
+
+async def reset_step(clock: GatedClock, rst, edges: int = 2) -> None:
+    """Hold ``rst`` high (it already is) over ``edges`` rising edges of a
+    running ``clock``, then release it at a falling edge: a release
+    synchronous to that clock, as a COMMON_RESET_SYNC output gives."""
+    for _ in range(edges):
+        await FallingEdge(clock.sig)
+    rst.value = 0
+
+
 class EdgeLog:
     """Times of every rising edge of a clock, recorded from now on, in
     increasing order (lookups bisect, so long runs stay linear)."""

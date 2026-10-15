@@ -6,7 +6,8 @@
 
 module pcie_pcs_align (
   input  logic                   clk_i,        // ser_rx_clk_i of the pcs
-  input  logic                   rst_i,        // RX-domain reset, active high
+  input  logic                   rst_i,        // RX-domain reset, active high, asynchronous
+                                               // assertion (a COMMON_RESET_SYNC output)
   input  pcie_pcs_pkg::t_word    data_i,       // twenty received bits, bit 0 earliest
   input  logic                   elec_idle_i,  // the line is in electrical idle
   input  logic                   relock_i,     // one-cycle relock request
@@ -86,9 +87,9 @@ module pcie_pcs_align (
 
   `COMMON_DFF(in_q, data_i, clk_i)
   `COMMON_DFF(in_prev_q, in_q, clk_i)
-  `COMMON_DFF_RST_VAL(idle_q, elec_idle_i, clk_i, rst_i, 1'b1)
-  `COMMON_DFF_RST_VAL(idle_prev_q, idle_q, clk_i, rst_i, 1'b1)
-  `COMMON_DFF_RST(state_q, state_d, clk_i, rst_i)
+  `COMMON_DFF_ARST_VAL(idle_q, elec_idle_i, clk_i, rst_i, 1'b1)
+  `COMMON_DFF_ARST_VAL(idle_prev_q, idle_q, clk_i, rst_i, 1'b1)
+  `COMMON_DFF_ARST_VAL(state_q, state_d, clk_i, rst_i, '0)
   // EIOS completion: a word received idle may still hold the last IDL of
   // an EIOS when the RX word boundary falls 10 to 19 bits after the
   // transmitter's (the idle starts inside that word). When lock drops for
@@ -108,9 +109,9 @@ module pcie_pcs_align (
              && pcie_pcs_pkg::is_idl(sym_d[9:0]);
 
   `COMMON_DFF(sym_q, sym_d, clk_i)
-  `COMMON_DFF_RST_VAL(sym_idle_q, idle_prev_q, clk_i, rst_i, 1'b1)
-  `COMMON_DFF_RST(eios_q, eios_d, clk_i, rst_i)
-  `COMMON_DFF_RST(tail_q, tail, clk_i, rst_i)
+  `COMMON_DFF_ARST_VAL(sym_idle_q, idle_prev_q, clk_i, rst_i, 1'b1)
+  `COMMON_DFF_ARST_VAL(eios_q, eios_d, clk_i, rst_i, '0)
+  `COMMON_DFF_ARST_VAL(tail_q, tail, clk_i, rst_i, 1'b0)
 
   // Both symbols of the output word start in in_prev_q (the boundary is 0
   // to 9), so the word is idle exactly when that word was received idle;
@@ -137,22 +138,22 @@ module pcie_pcs_align (
   end
 
   // Invariants (MAS, Behavior).
-  `COMMON_ASSERT_NEVER(a_lock_at_lowest_comma, clk_i, rst_i,
-                       acquire && (!low_found || (state_d.offset != low_off)))
-  `COMMON_ASSERT_NEVER(a_offset_in_symbol, clk_i, rst_i,
-                       state_q.offset > OFFSET_MAX)
-  `COMMON_ASSERT_NEVER(a_no_lock_from_idle, clk_i, rst_i, acquire && !hunt_ok)
-  `COMMON_ASSERT_NEVER(a_relock_drops_lock, clk_i, rst_i, relock_i && state_d.lock && !acquire)
-  `COMMON_ASSERT_NEVER(a_idle_word_unlocked, clk_i, rst_i, sym_idle_q && state_q.lock)
-  `COMMON_ASSERT_NEVER(a_tail_is_last_idl, clk_i, rst_i,
-                       tail_q && !(sym_idle_q && !state_q.lock && pcie_pcs_pkg::is_idl(sym_q[9:0])))
-  `COMMON_ASSERT_NEVER(a_lock_kept_into_idle, clk_i, rst_i, idle_prev_q && state_d.lock)
-  `COMMON_ASSERT_NEVER(a_gen_flips_only_on_lock, clk_i, rst_i, (state_d.gen != state_q.gen) && !acquire)
-  `COMMON_ASSERT_NEVER(a_lock_word_holds_comma, clk_i, rst_i,
-                       acquire && !(sym_d[6:0] == COMMA_MINUS
-                                 || sym_d[6:0] == COMMA_PLUS
-                                 || sym_d[16:10] == COMMA_MINUS
-                                 || sym_d[16:10] == COMMA_PLUS))
+  `COMMON_ASSERT_NEVER_ARST(a_lock_at_lowest_comma, clk_i, rst_i,
+                            acquire && (!low_found || (state_d.offset != low_off)))
+  `COMMON_ASSERT_NEVER_ARST(a_offset_in_symbol, clk_i, rst_i,
+                            state_q.offset > OFFSET_MAX)
+  `COMMON_ASSERT_NEVER_ARST(a_no_lock_from_idle, clk_i, rst_i, acquire && !hunt_ok)
+  `COMMON_ASSERT_NEVER_ARST(a_relock_drops_lock, clk_i, rst_i, relock_i && state_d.lock && !acquire)
+  `COMMON_ASSERT_NEVER_ARST(a_idle_word_unlocked, clk_i, rst_i, sym_idle_q && state_q.lock)
+  `COMMON_ASSERT_NEVER_ARST(a_tail_is_last_idl, clk_i, rst_i,
+                            tail_q && !(sym_idle_q && !state_q.lock && pcie_pcs_pkg::is_idl(sym_q[9:0])))
+  `COMMON_ASSERT_NEVER_ARST(a_lock_kept_into_idle, clk_i, rst_i, idle_prev_q && state_d.lock)
+  `COMMON_ASSERT_NEVER_ARST(a_gen_flips_only_on_lock, clk_i, rst_i, (state_d.gen != state_q.gen) && !acquire)
+  `COMMON_ASSERT_NEVER_ARST(a_lock_word_holds_comma, clk_i, rst_i,
+                            acquire && !(sym_d[6:0] == COMMA_MINUS
+                                      || sym_d[6:0] == COMMA_PLUS
+                                      || sym_d[16:10] == COMMA_MINUS
+                                      || sym_d[16:10] == COMMA_PLUS))
 
 endmodule
 

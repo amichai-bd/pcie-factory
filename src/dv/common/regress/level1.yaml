@@ -6,6 +6,13 @@ tests:
     params: {WIDTH: 4}
     seeds: 3
     timeout_s: 120
+  - name: sync2_arst
+    module: tests.test_cdc_sync2
+    testcase: async_reset
+    top: common_cdc_sync2
+    params: {WIDTH: 4, RESET_VALUE: "4'h9", ASYNC_RESET: 1}
+    seeds: 2
+    timeout_s: 120
   - name: pulse_random
     module: tests.test_cdc_pulse
     testcase: random_ratio
@@ -16,6 +23,20 @@ tests:
     module: tests.test_cdc_pulse
     testcase: near_ratio
     top: common_cdc_pulse
+    seeds: 2
+    timeout_s: 120
+  - name: pulse_arst
+    module: tests.test_cdc_pulse
+    testcase: async_reset
+    top: common_cdc_pulse
+    params: {SRC_ASYNC_RESET: 1, DST_ASYNC_RESET: 1}
+    seeds: 2
+    timeout_s: 120
+  - name: pulse_arst_dst
+    module: tests.test_cdc_pulse
+    testcase: async_reset
+    top: common_cdc_pulse
+    params: {DST_ASYNC_RESET: 1}
     seeds: 2
     timeout_s: 120
   - name: fifo_full_empty_src_fast
@@ -34,6 +55,13 @@ tests:
     module: tests.test_cdc_fifo
     testcase: reset_in_flight
     top: common_cdc_fifo
+    seeds: 2
+    timeout_s: 120
+  - name: fifo_arst
+    module: tests.test_cdc_fifo
+    testcase: async_reset
+    top: common_cdc_fifo
+    params: {SRC_ASYNC_RESET: 1, DST_ASYNC_RESET: 1}
     seeds: 2
     timeout_s: 120
   - name: fifo_random

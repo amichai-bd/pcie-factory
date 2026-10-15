@@ -40,6 +40,8 @@ CASES = {
     3: "a_stable",
     4: "a_clocked",
     5: "a_clocked_when",
+    6: "a_clocked_arst",
+    7: "a_never_arst",
 }
 
 DUT = """`default_nettype none
@@ -49,7 +51,8 @@ module vh_dut #(
 ) (
   input  logic       clk_i,
   input  logic       rst_i,
-  input  logic [5:0] bad_i
+  input  logic       arst_i,
+  input  logic [7:0] bad_i
 );
   logic [3:0] cnt_d, cnt_q;
   logic       hold, guard;
@@ -64,6 +67,8 @@ module vh_dut #(
   `COMMON_ASSERT_STABLE_WHEN(a_stable, clk_i, rst_i, hold, cnt_q)
   `COMMON_ASSERT_CLOCKED(a_clocked, clk_i, rst_i, !bad_i[4])
   `COMMON_ASSERT_CLOCKED_WHEN(a_clocked_when, clk_i, rst_i, guard, 1'b0)
+  `COMMON_ASSERT_CLOCKED_ARST(a_clocked_arst, clk_i, arst_i, !bad_i[6])
+  `COMMON_ASSERT_NEVER_ARST(a_never_arst, clk_i, arst_i, bad_i[7])
   `COMMON_ASSERT_PARAM(g_bad_param, BAD_PARAM == 0, "vh_dut: BAD_PARAM must be 0")
 endmodule
 `default_nettype wire
@@ -71,14 +76,14 @@ endmodule
 
 TB = """module vh_tb;
   logic clk = 1'b0, rst = 1'b1;
-  logic [5:0] bad = '0;
+  logic [7:0] bad = '0;
   int unsigned sel;
-  vh_dut #(.BAD_PARAM(`BAD_PARAM)) u_dut (.clk_i(clk), .rst_i(rst), .bad_i(bad));
+  vh_dut #(.BAD_PARAM(`BAD_PARAM)) u_dut (.clk_i(clk), .rst_i(rst), .arst_i(rst), .bad_i(bad));
   always #5 clk = ~clk;
   initial begin
     if (!$value$plusargs("case=%d", sel)) sel = 99;
     #22 rst = 1'b0;
-    #20 if (sel < 6) bad[sel] = 1'b1;
+    #20 if (sel < 8) bad[sel] = 1'b1;
     #60 $display("vh_tb: end");
     $finish;
   end

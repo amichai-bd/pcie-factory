@@ -181,6 +181,20 @@
     .dst_data_o(Q) \
   );
 
+// The level synchronizer reset to '0 asynchronously: DST_RST is a
+// COMMON_RESET_SYNC output on DST_CLK, and both flops enter reset with no
+// DST_CLK edge.
+`define COMMON_METAFLOP_ARST(INST, Q, D, DST_CLK, DST_RST) \
+  common_cdc_sync2 #( \
+    .WIDTH($bits(Q)), \
+    .ASYNC_RESET(1'b1) \
+  ) INST ( \
+    .dst_clk_i (DST_CLK), \
+    .dst_rst_i (DST_RST), \
+    .src_data_i(D), \
+    .dst_data_o(Q) \
+  );
+
 // Event crossing: each SRC_CLK cycle with D high gives one DST_CLK cycle
 // with Q high (common_cdc_pulse spacing rules apply).
 `define COMMON_PULSE_SYNC(INST, Q, D, SRC_CLK, SRC_RST, DST_CLK, DST_RST) \
@@ -193,10 +207,27 @@
     .dst_pulse_o(Q) \
   );
 
+// The same, with the destination side reset asynchronously: DST_RST is a
+// COMMON_RESET_SYNC output on DST_CLK, and the destination flops enter
+// reset with no DST_CLK edge. The source side stays synchronous on SRC_RST.
+`define COMMON_PULSE_SYNC_ARST(INST, Q, D, SRC_CLK, SRC_RST, DST_CLK, DST_RST) \
+  common_cdc_pulse #( \
+    .DST_ASYNC_RESET(1'b1) \
+  ) INST ( \
+    .src_clk_i  (SRC_CLK), \
+    .src_rst_i  (SRC_RST), \
+    .src_pulse_i(D), \
+    .dst_clk_i  (DST_CLK), \
+    .dst_rst_i  (DST_RST), \
+    .dst_pulse_o(Q) \
+  );
+
 // Reset synchronizer: Q, the DST_CLK domain's active-high reset, rises as
 // soon as D rises (no clock edge) and falls two DST_CLK edges after D
 // falls. D comes straight from a flop or a reset input pin. Flops that take
-// Q are COMMON_DFF_ARST_* registers.
+// Q are COMMON_DFF_ARST_* registers, and crossing cells that take Q use
+// their asynchronous-reset forms (COMMON_METAFLOP_ARST,
+// COMMON_PULSE_SYNC_ARST, the FIFO's *_ASYNC_RESET parameters).
 `define COMMON_RESET_SYNC(INST, Q, D, DST_CLK) \
   common_cdc_rst INST ( \
     .dst_clk_i(DST_CLK), \

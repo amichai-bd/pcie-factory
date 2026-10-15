@@ -39,6 +39,19 @@
   full). The derived seeds of L0 to L2 hit every bin. No
   coverage floor is set yet
   ([DV BKM](../../../../bkm/dv.md#coverage)).
+- **Asynchronous reset:** `async_reset` (both `*_ASYNC_RESET` 1) drives
+  both clocks from clocks it can stop low (`GatedClock`). Twice it fills
+  the FIFO, stops both clocks with no handshake pending, raises both
+  resets and checks, in that same time step, `dst_valid_o` 0, `dst_fill_o`
+  0 and `src_ready_o` 1. The first fill starts from pointer 0, so the
+  write Gray pointer and its synchronized copy hold the full pattern; the
+  second starts after exactly `2**ADDR_W` words went through, so the read
+  Gray pointer and its synchronized copy hold it. Between them every
+  pointer register and both pointer synchronizers must reset with no
+  edge, or a flag or the fill shows it. The first reset is a pulse wholly
+  inside the stop, the second is held into the restart and released at a
+  falling edge of each clock; after each, traffic is checked word by word.
+  The `async_reset` coverpoint bins the two.
 - **Clock ratios:** fixed 2:5 in L0; random in L1 and L2 as in the sync2
   plan, and in the directed full/empty tests with the faster side fixed by
   the test (ratio up to 8:1).
@@ -54,6 +67,7 @@
 | [Full, empty, wrap, flag latency](../../../rtl/common/cdc/common_cdc_fifo.md#behavior), source faster | `fifo_full_empty_src_fast` | 1 | 2; five fill/drain rounds |
 | [Full, empty, wrap, flag latency](../../../rtl/common/cdc/common_cdc_fifo.md#behavior), destination faster | `fifo_full_empty_dst_fast` | 1 | 2; five fill/drain rounds |
 | [Reset](../../../rtl/common/cdc/common_cdc_fifo.md#behavior) of both sides with words in flight, three times, then checked traffic | `fifo_reset_in_flight` | 1 | 2; ratio up to 8:1 |
+| [Asynchronous sides](../../../rtl/common/cdc/common_cdc_fifo.md#behavior): a full FIFO empty and not full in the time step both resets rise with the clocks stopped, at two pointer positions; pulse and held reset; checked traffic after | `fifo_arst` | 1 | 2; `SRC_ASYNC_RESET` 1, `DST_ASYNC_RESET` 1, ratio up to 8:1 |
 | [Order and capacity](../../../rtl/common/cdc/common_cdc_fifo.md#behavior) under random rates and ratios; read-side fill and look-ahead every cycle | `fifo_random` | 1 | 3; `ADDR_W` 2, 40 rounds, ratio up to 8:1 |
 | Random traffic, smallest depth | `fifo_long_depth2` | 2 | 4; `ADDR_W` 1, `WIDTH` 4, 400 rounds, ratio up to 16:1 |
 | Random traffic, deep and wide | `fifo_long_depth16` | 2 | 4; `ADDR_W` 4, `WIDTH` 16, 400 rounds, ratio up to 16:1 |

@@ -163,7 +163,10 @@ need testbench state live in DV bind modules
   synchronizer, inside the elastic buffer, exported on its `ser_rx_rst_o`; the
   whole `ser_rx_clk_i` domain (the aligner, the elastic buffer's write side
   and FIFO write side and the crossing cells' RX sides)
-  resets on that output; the FIFO's read side resets on
+  resets on that output, and every one of those flops takes it
+  asynchronously, so the domain enters reset with no `ser_rx_clk_i` edge
+  (one reset style per net,
+  [RTL BKM](../../../bkm/rtl.md#reset-and-clocks)); the FIFO's read side resets on
   `rst_i`, so both sides are in reset together the whole time `rst_i` is
   high (at least 8 `clk_i` and 7 `ser_rx_clk_i` cycles), as the FIFO
   requires.
@@ -196,10 +199,10 @@ cells; there are no others (Q17,
 
 | # | What crosses | From → to | Cell | Source-side reset | Destination-side reset | Owner |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Received words: two raw symbols, a lock and an idle flag per symbol, lock generation, removed and overflow flags; electrical idle crosses here, with the words | `ser_rx_clk_i` → `clk_i` | [`common_cdc_fifo`](../../rtl/common/cdc/common_cdc_fifo.md), `WIDTH` 28, `ADDR_W` 4 (its pointers cross inside it through `common_cdc_sync2`) | RX reset (`src_rst_i`) | `rst_i` (`dst_rst_i`) | elastic buffer |
+| 1 | Received words: two raw symbols, a lock and an idle flag per symbol, lock generation, removed and overflow flags; electrical idle crosses here, with the words | `ser_rx_clk_i` → `clk_i` | [`common_cdc_fifo`](../../rtl/common/cdc/common_cdc_fifo.md), `WIDTH` 28, `ADDR_W` 4, `SRC_ASYNC_RESET` 1 (its pointers cross inside it through `common_cdc_sync2`) | RX reset (`src_rst_i`, asynchronous) | `rst_i` (`dst_rst_i`) | elastic buffer |
 | 2 | RX-domain reset, from `rst_i` | `clk_i` → `ser_rx_clk_i` | `common_cdc_rst` ([#119](https://github.com/amichai-bd/pcie-factory/issues/119)) | none (`rst_i` is the input) | none (it makes the RX reset) | elastic buffer (exported on `ser_rx_rst_o` for the rest of the RX domain) |
-| 3 | Fill high, a level from a `clk_i` flop | `clk_i` → `ser_rx_clk_i` | [`common_cdc_sync2`](../../rtl/common/cdc/common_cdc_sync2.md) | `rst_i` (the source flop) | RX reset (`dst_rst_i`) | elastic buffer |
-| 4 | Relock request, one event per request | `clk_i` → `ser_rx_clk_i` | [`common_cdc_pulse`](../../rtl/common/cdc/common_cdc_pulse.md) | `rst_i` (`src_rst_i`; never `pipe_reset_ni`, so both sides reset together) | RX reset (`dst_rst_i`) | top |
+| 3 | Fill high, a level from a `clk_i` flop | `clk_i` → `ser_rx_clk_i` | [`common_cdc_sync2`](../../rtl/common/cdc/common_cdc_sync2.md), `ASYNC_RESET` 1 (`COMMON_METAFLOP_ARST`) | `rst_i` (the source flop) | RX reset (`dst_rst_i`, asynchronous) | elastic buffer |
+| 4 | Relock request, one event per request | `clk_i` → `ser_rx_clk_i` | [`common_cdc_pulse`](../../rtl/common/cdc/common_cdc_pulse.md), `DST_ASYNC_RESET` 1 (`COMMON_PULSE_SYNC_ARST`) | `rst_i` (`src_rst_i`; never `pipe_reset_ni`, so both sides reset together) | RX reset (`dst_rst_i`, asynchronous) | top |
 
 "RX reset" is the output of crossing 2. No crossing cell resets on
 `pipe_reset_ni`.
@@ -223,6 +226,7 @@ buffer, on the `clk_i` side.
 | Electrical idle carried with the words | The MAC must see the words received before the idle, the whole EIOS, before RxElecIdle (its L0 arcs treat idle without an EIOS as a link error); a flag per symbol through the FIFO keeps line order at any fill. RxElecIdle then takes the receive latency (at most 12 cycles) instead of about 4. | A separate synchronizer for the idle level (overtakes up to the whole receive latency); a fixed delay matched to the latency (breaks when the fill moves). |
 | Recentre while unlocked | Electrical idle can last long enough to drift any buffer empty or full; data then is not valid anyway. | Resetting the buffer on lock (a reset crossing per lock). |
 | RX-domain reset through `common_cdc_rst`, from `rst_i` only | Meets the `phy` contract as signed off (asynchronous assertion); `rst_i` also resets the FIFO's read side, so both sides reset together. Firstmate decision, 2026-10-15. | `common_cdc_sync2` (synchronous assertion, a `phy` contract change); including `pipe_reset_ni` (a short PIPE reset could reset one FIFO side alone). |
+| Every RX-domain flop takes the RX reset asynchronously, the crossing cells' RX sides included | One reset style per net (RTL BKM); the recovered clock can stop, and the FIFO's source pointers must reset without an edge (#170, recommendation of #145). | Synchronous RX-side cells beside the asynchronous elastic-buffer flops (a mixed net, waived in lint before #170). |
 | Acknowledge every PowerDown change with one pulse, P0s included | PIPE asks for it among P0, P0s and P1; P2 keeps the same pulse because `clk_i` never stops ([differences](PIPE_CONTROL.md#differences-from-pipe)). | No pulse for P0s; PIPE's P2 handshake (needs a stopped PCLK). |
 
 ## Targets

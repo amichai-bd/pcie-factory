@@ -48,7 +48,7 @@ def drive(dut, i: Inputs) -> None:
 def observed(dut) -> dict[str, int]:
     out = {name: int(getattr(dut, f"{name}_o").value)
            for name in ("dff", "dff_en", "rst", "rst_val", "rst_en", "arst_val", "arst_en",
-                        "rd", "rd_en", "wrd", "meta", "meta_val", "rst_sync")}
+                        "rd", "rd_en", "wrd", "meta", "meta_val", "meta_arst", "rst_sync")}
     arr, arr_rst = int(dut.arr_en_o.value), int(dut.arr_rst_en_o.value)
     for k in range(ARRAY):
         out[f"arr_en_{k}"] = (arr >> (8 * k)) & 0xFF
@@ -94,6 +94,7 @@ async def contract(dut):
     got = (int(dut.arst_val_o.value), int(dut.arst_en_o.value))
     assert got == (ARST_VAL, ARST_EN_VAL), f"async reset: expected 0x5a/0xc3 got {got}"
     assert int(dut.rst_sync_o.value) == 1, "COMMON_RESET_SYNC: not asserted before any edge"
+    assert int(dut.meta_arst_o.value) == 0, "COMMON_METAFLOP_ARST: not reset before any edge"
     n = 0
     await step(dut, model, Inputs(rst=1, arst=1, en=1, data=0x11), n)
     n += 1
@@ -107,6 +108,7 @@ async def contract(dut):
     await Timer(1, "ns")
     assert int(dut.arst_val_o.value) == ARST_VAL and int(dut.arst_en_o.value) == ARST_EN_VAL
     assert int(dut.rst_sync_o.value) == 1, "COMMON_RESET_SYNC: not asserted between edges"
+    assert int(dut.meta_arst_o.value) == 0, "COMMON_METAFLOP_ARST: not reset between edges"
     model.async_reset()
     n += 1
     got = await step(dut, model, Inputs(arst=0, data=0x35), n)
@@ -134,15 +136,18 @@ async def contract(dut):
     n += 1
     await step(dut, model, Inputs(data=0), n)
 
-    # Pulse crossing: each source pulse gives one destination pulse.
+    # Pulse crossings: each source pulse gives one destination pulse, on
+    # both forms.
     seen = 0
+    seen_arst = 0
 
     async def count():
-        nonlocal seen
+        nonlocal seen, seen_arst
         while True:
             await RisingEdge(dut.clk_i)
             await ReadOnly()
             seen += int(dut.pulse_o.value)
+            seen_arst += int(dut.pulse_arst_o.value)
 
     cocotb.start_soon(count())
     await FallingEdge(dut.src_clk_i)
@@ -155,6 +160,27 @@ async def contract(dut):
         await ClockCycles(dut.src_clk_i, 3)
     await ClockCycles(dut.clk_i, 8)
     assert seen == 5, f"pulse crossing: expected 5 destination pulses got {seen}"
+    assert seen_arst == 5, f"COMMON_PULSE_SYNC_ARST: expected 5 destination pulses got {seen_arst}"
+
+    # COMMON_PULSE_SYNC_ARST: an asynchronous destination reset drops a high
+    # output pulse between edges; the synchronous form keeps it to the edge.
+    await FallingEdge(dut.src_clk_i)
+    dut.pulse_i.value = 1
+    await FallingEdge(dut.src_clk_i)
+    dut.pulse_i.value = 0
+    for _ in range(6):
+        await RisingEdge(dut.clk_i)
+        await ReadOnly()
+        if int(dut.pulse_arst_o.value):
+            break
+    else:
+        raise AssertionError("COMMON_PULSE_SYNC_ARST: no destination pulse for the sixth event")
+    await Timer(CLK_NS // 4, "ns")
+    dut.arst_i.value = 1
+    await ReadOnly()
+    got = (int(dut.pulse_o.value), int(dut.pulse_arst_o.value))
+    assert got == (1, 0), (f"asynchronous reset between edges: (pulse_o, pulse_arst_o) {got}, "
+                           "expected (1, 0)")
 
 
 @cocotb.test()
