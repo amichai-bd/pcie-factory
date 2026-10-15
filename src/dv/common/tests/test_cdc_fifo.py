@@ -111,6 +111,18 @@ class Fifo:
         self.p_write, self.p_read = p_write, p_read
         await falling_edges(self.dut.src_clk_i, src_cycles)
 
+    async def fill(self):
+        """Write with the reader stalled until src_ready_o drops (full),
+        which must happen within 2 * depth + 8 source cycles."""
+        self.p_write, self.p_read = 1.0, 0.0
+        limit = 2 * self.depth + 8
+        for _ in range(limit):
+            await FallingEdge(self.dut.src_clk_i)
+            if not int(self.dut.src_ready_o.value):
+                return
+        raise AssertionError(f"fill: src_ready_o still high after {limit} src cycles "
+                             "of writes with the reader stalled")
+
     async def drain(self):
         """Stop writing and read until every accepted word came out, then
         check the FIFO reports empty and not full."""
@@ -232,14 +244,22 @@ async def full_empty_dst_fast(dut):
 
 async def traffic(dut, rounds, max_ratio):
     """Random rate phases at a random clock ratio; every word checked in
-    order, and the run must have hit full, empty and a pointer wrap."""
+    order, and the run must have hit full, empty and a pointer wrap.
+
+    Each rate phase lasts a number of cycles of the faster clock, and each
+    round then fills the FIFO only until it is full, so the run's clock
+    edges, and its wall time, do not grow with the ratio in either
+    direction."""
     src, dst = random_periods(random, max_ratio)
     await start(dut, src, dst, random.randrange(2, dst, 2))
     f = Fifo(dut, random, src, dst)
     rates = (0.0, 0.2, 0.5, 0.8, 1.0)
+    src_per_fast = min(1.0, dst / src)  # source cycles per faster-clock cycle
     for _ in range(rounds):
-        await f.run(random.choice(rates), random.choice(rates), random.randrange(4, 16 * f.depth))
-        await f.run(1.0, 0.0, 2 * f.depth + 8)  # always reach full once per round
+        p_write, p_read = random.choice(rates), random.choice(rates)
+        fast_cycles = random.randrange(4, 16 * f.depth)
+        await f.run(p_write, p_read, max(1, round(fast_cycles * src_per_fast)))
+        await f.fill()  # always reach full once per round
     await f.drain()
     dut._log.info("%d words, %d full src cycles, %d empties", f.popped, f.full_seen,
                   f.empty_after_data)

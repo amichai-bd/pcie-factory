@@ -5,6 +5,8 @@ Times are integer picoseconds. Clock periods come from
 models/common_cdc_clocks.py.
 """
 
+from bisect import bisect_left, bisect_right
+
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import FallingEdge, RisingEdge, Timer
@@ -46,7 +48,8 @@ def start_clock(sig, period: int, phase: int = 0) -> None:
 
 
 class EdgeLog:
-    """Times of every rising edge of a clock, recorded from now on."""
+    """Times of every rising edge of a clock, recorded from now on, in
+    increasing order (lookups bisect, so long runs stay linear)."""
 
     def __init__(self, clk):
         self.clk = clk
@@ -60,7 +63,10 @@ class EdgeLog:
 
     def last_before(self, t: int) -> int:
         """The last rising edge strictly before ``t``."""
-        return max(e for e in self.times if e < t)
+        i = bisect_left(self.times, t)
+        if not i:
+            raise ValueError(f"no rising edge recorded before {t} ps")
+        return self.times[i - 1]
 
     def check_lag(self, start: int, produced: int, what: str) -> None:
         """A synchronizer update launched at ``start`` reached its output at
@@ -69,10 +75,12 @@ class EdgeLog:
         edge at ``start`` itself may capture the update or not, so then the
         first edge after it is also correct (the MAS's "two or three edges
         at or after the launch")."""
-        after = sum(start < e <= produced for e in self.times)
-        ok = after == 2 or (after == 1 and start in self.times)
+        after = bisect_right(self.times, produced) - bisect_right(self.times, start)
+        i = bisect_left(self.times, start)
+        at_start = i < len(self.times) and self.times[i] == start
+        ok = after == 2 or (after == 1 and at_start)
         assert ok, (f"{what}: launched at {start} ps, output after {after} edge(s) "
-                    f"strictly later (edge at launch: {start in self.times}); expected 2, "
+                    f"strictly later (edge at launch: {at_start}); expected 2, "
                     "or 1 when an edge coincides with the launch")
 
 

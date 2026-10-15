@@ -18,6 +18,12 @@
   two edges of its clock later (one when an edge coincides, as in the
   [sync2 plan](common_cdc_sync2.md#strategy)); a drained FIFO is empty and
   not full; a reset of both sides with words in flight empties it.
+- **Run length:** each random rate phase lasts a number of cycles of the
+  faster clock, and each round's full phase writes only until the FIFO is
+  full (failing if it is not full after `2 * 2**ADDR_W + 8` source
+  cycles). The run's clock edges, and so its wall time, therefore do not
+  grow with the ratio in either direction; the edge log bisects, so long
+  runs stay linear.
 - **Coverage guard:** the random tests force a full phase every round and
   fail unless the run reached full, reached empty after data and wrapped
   the pointers (more than `2 * 2**ADDR_W` words).
@@ -25,7 +31,8 @@
   ratio as in the [sync2 plan](common_cdc_sync2.md#strategy), each source
   cycle (push, stalled by full, idle) and each destination cycle (pop,
   stalled by empty, word held, idle), crossed with the ratio, and a reset
-  with words in flight. No coverage floor is set yet
+  with words in flight. The derived seeds of L0 to L2 hit every bin. No
+  coverage floor is set yet
   ([DV BKM](../../../bkm/dv.md#coverage)).
 - **Clock ratios:** fixed 2:5 in L0; random in L1 and L2 as in the sync2
   plan, and in the directed full/empty tests with the faster side fixed by

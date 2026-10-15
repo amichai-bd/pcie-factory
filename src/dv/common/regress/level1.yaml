@@ -12,6 +12,12 @@ tests:
     top: common_cdc_pulse
     seeds: 3
     timeout_s: 120
+  - name: pulse_near_1to1
+    module: tests.test_cdc_pulse
+    testcase: near_ratio
+    top: common_cdc_pulse
+    seeds: 2
+    timeout_s: 120
   - name: fifo_full_empty_src_fast
     module: tests.test_cdc_fifo
     testcase: full_empty_src_fast

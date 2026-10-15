@@ -33,7 +33,11 @@
   more faster, faster, near 1:1 within 1.25, destination faster, 4x or more
   faster) and the hold (under three or at least three `dst_clk_i` periods),
   crossed. `dst_fast_4x,min` is unreachable: a source period of four or
-  more destination periods holds every update at least four of them. The
+  more destination periods holds every update at least four of them.
+  `dst_fast,min` is reachable but rare, and the derived seeds miss it: it
+  needs a source period in [1.25, 1.5) or [2, 3) destination periods (a
+  whole number of source periods under three destination periods, but at
+  least two). The derived seeds hit every other bin. The
   pulse and FIFO plans reuse the same ratio bins (`CLOCK_BINS` in
   `tb/cdc_env.py`). No coverage floor is set yet
   ([DV BKM](../../../bkm/dv.md#coverage)).

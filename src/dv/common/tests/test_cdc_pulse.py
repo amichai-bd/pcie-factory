@@ -109,6 +109,18 @@ async def random_ratio(dut):
 
 
 @cocotb.test()
+async def near_ratio(dut):
+    """L1: random spacing with the two clocks within 1.2:1 of each other,
+    either side faster, at a random phase: the edges beat slowly past each
+    other, so launches land at every offset from the dst_clk_i edges."""
+    fast = random.randrange(4_000, 20_000, 2)
+    slow = 2 * round(fast * random.uniform(1.0, 1.2) / 2)
+    src, dst = (fast, slow) if random.random() < 0.5 else (slow, fast)
+    await start(dut, src, dst, random.randrange(2, dst, 2))
+    await pulses(dut, random, src, dst, 200, 4)
+
+
+@cocotb.test()
 async def long_ratio(dut):
     """L2: many pulses at a random clock ratio up to 16:1, mostly at the
     minimum spacing."""
