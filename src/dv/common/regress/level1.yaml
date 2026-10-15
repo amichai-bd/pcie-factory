@@ -61,3 +61,44 @@ tests:
     top: common_macros_fixture
     seeds: 3
     timeout_s: 120
+  - name: sync_ram_random
+    module: tests.test_ram
+    testcase: random_ops
+    top: common_sync_ram
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    seeds: 3
+    timeout_s: 120
+  - name: sync_ram_held_random
+    module: tests.test_ram
+    testcase: random_ops
+    top: common_sync_ram_held
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    seeds: 3
+    timeout_s: 120
+  - name: sync_ram_wt_random
+    module: tests.test_ram
+    testcase: random_ops
+    top: common_sync_ram_wt
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    seeds: 3
+    timeout_s: 120
+  - name: sdp_ram_random
+    module: tests.test_ram
+    testcase: random_ops
+    top: common_sdp_ram
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    seeds: 3
+    timeout_s: 120
+  - name: tdp_ram_random
+    module: tests.test_ram
+    testcase: random_ops
+    top: common_tdp_ram
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    seeds: 3
+    timeout_s: 120
+  - name: ram_param_limits
+    module: tests.test_ram_params
+    testcase: param_limits
+    top: common_sync_ram
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    timeout_s: 300
