@@ -1,0 +1,7 @@
+tests:
+  - name: smoke
+    module: tests.test_mac_ltssm
+    testcase: smoke
+    top: pcie_mac_ltssm_tb
+    timeout_s: 120
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
