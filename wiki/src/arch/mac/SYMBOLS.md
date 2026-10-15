@@ -85,6 +85,11 @@ One LFSR per direction, G(X) = X^16 + X^5 + X^4 + X^3 + 1, 16 bits
   with 0039h (taps x^0, x^3, x^4, x^5). The eight key bits of one symbol
   form its key byte, the first one in bit 0. SKP symbols leave the LFSR
   unchanged.
+- **Hold.** Only symbols that cross PIPE move the LFSR. On transmit, a
+  cycle with `pipe_tx_elec_idle_o` 1 sends no word, and the transmit LFSR
+  holds. On receive, a word with `pipe_rx_valid_i` 0 or
+  `pipe_rx_elec_idle_i` 1 is not received, and the receive LFSR holds
+  (the same words the [receive rules](#receive) do not parse).
 - **What is scrambled.** Each data symbol of a packet and each idle data
   symbol is XORed with its key byte (the key of the LFSR value before the
   symbol's advance), unless scrambling is disabled (below). K symbols, TS1
