@@ -113,6 +113,15 @@ async def e2e_rtl_shell(dut):
 
 
 @cocotb.test()
+async def e2e_rtl_link(dut):
+    """WIP: RTL stack link-up and traffic."""
+    env = await rtl_plumbing(dut, 0)
+    await env.train()
+    await env.lossless(16)
+    env.final_checks()
+
+
+@cocotb.test()
 async def e2e_rtl_shell_chan(dut):
     """L0, the same with the RTL channel (CHAN_RTL 1): the top joins the
     lines and the environment only steps the ports."""
