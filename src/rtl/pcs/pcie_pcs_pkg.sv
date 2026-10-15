@@ -79,6 +79,7 @@ package pcie_pcs_pkg;
   // One received raw symbol with its lock tags (aligner to elastic buffer to
   // decoder).
   typedef struct packed {
+    logic   idle;  // starts in a word received in electrical idle (never locked)
     logic   lock;  // received under symbol lock
     logic   gen;   // lock-generation bit
     t_sym10 code;  // bit 0 first on the line
@@ -107,7 +108,8 @@ package pcie_pcs_pkg;
   // The PIPE receive register: one word as it leaves on PIPE, with the
   // error-counter inputs (RECEIVE.md, Decode and RxStatus).
   typedef struct packed {
-    logic       valid;    // RxValid: both symbols locked
+    logic       idle;     // RxElecIdle: the last word presented began in electrical idle
+    logic       valid;    // RxValid: both symbols locked, or sym0 locked before idle
     common_pkg::t_rx_status status;   // RxStatus
     logic       errored;  // a code or disparity error under RxValid
     logic       gen;      // lock generation of the last RxValid word
@@ -135,13 +137,14 @@ package pcie_pcs_pkg;
   localparam int unsigned EB_FILL_W  = 6;   // visible fill, 0 to 34 symbols
   localparam int unsigned HOLDOFF_W  = 4;
 
-  // One FIFO word (25 bits). sym0 is the earlier symbol; ovf marks the
+  // One FIFO word (28 bits). sym0 is the earlier symbol; ovf marks the
   // first word written after a lost one and belongs to sym0.
   typedef struct packed {
     logic       ovf;     // a word was lost just before this one
     logic [1:0] rem;     // rem[i]: a SKP was removed just before sym i
-    logic       gen;     // lock generation
-    logic       lock;    // both symbols are under the same lock
+    logic [1:0] idle;    // idle[i]: sym i began in electrical idle
+    logic       gen;     // lock generation of the locked symbols
+    logic [1:0] lock;    // lock[i]: sym i is locked (a lock end may split a word)
     t_sym10     sym1;
     t_sym10     sym0;
   } t_eb_word;
@@ -150,6 +153,7 @@ package pcie_pcs_pkg;
   typedef struct packed {
     logic   ovf;
     logic   rem;
+    logic   idle;
     logic   gen;
     logic   lock;
     t_sym10 sym;

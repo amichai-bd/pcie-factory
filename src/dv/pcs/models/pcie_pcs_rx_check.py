@@ -33,6 +33,7 @@ class Word:
     valid: int
     syms: tuple[tuple[int, int], tuple[int, int]]   # (k, byte), [7:0] first
     status: int
+    elec_idle: int = 0            # RxElecIdle
 
 
 @dataclass
@@ -49,6 +50,7 @@ class Run:
     sent_of: dict[int, int] = field(default_factory=dict)  # non-SKP symbol -> sent index
     bad: list[int] = field(default_factory=list)            # non-SKP symbols that differ
     resyncs: list[tuple[int, int]] = field(default_factory=list)  # (lost at, found at), ps
+    idle_tail: bool = False       # last word: the last locked symbol, then EDB before idle
 
 
 class CheckError(AssertionError):
@@ -59,16 +61,35 @@ def _key(s: tuple[int, int]) -> bytes:
     return bytes((s[0], s[1]))
 
 
+EDB = (1, 0xFE)
+
+
 def runs_of(words: list[Word]) -> list[Run]:
+    """Runs of RxValid. A run whose last word ends in EDB and is followed,
+    before the next RxValid, by RxElecIdle is an idle tail (RECEIVE.md,
+    Electrical idle): that EDB stands for the first symbol of the idle and
+    is not a sent symbol."""
     runs, cur = [], []
-    for w in words:
+    ends: list[int] = []
+    for i, w in enumerate(words):
         if w.valid:
             cur.append(w)
         elif cur:
             runs.append(Run(cur))
+            ends.append(i)
             cur = []
     if cur:
         runs.append(Run(cur))
+        ends.append(len(words))
+    for r, e in zip(runs, ends):
+        if r.words[-1].syms[1] != EDB or r.words[-1].status in ERROR_CODES:
+            continue
+        for w in words[e:]:
+            if w.valid:
+                break
+            if w.elec_idle:
+                r.idle_tail = True
+                break
     return runs
 
 
@@ -133,7 +154,9 @@ def check_runs(sent: list[tuple[int, int]], words: list[Word], slip_possible=lam
     runs = runs_of(words)
     pos = 0
     for n_run, r in enumerate(runs):
-        flat = [(s, w) for w in r.words for s in w.syms if s != (1, K_SKP)]
+        flat = [(s, w) for i, w in enumerate(r.words)
+                for h, s in enumerate(w.syms)
+                if s != (1, K_SKP) and not (r.idle_tail and i == len(r.words) - 1 and h == 1)]
         syms = [s for s, _ in flat]
         # Symbol j is followed by a reported error within TRIM_MAX symbols.
         flag_after = [False] * len(flat)

@@ -11,7 +11,8 @@ module pcie_pcs_align (
   input  logic                   elec_idle_i,  // the line is in electrical idle
   input  logic                   relock_i,     // one-cycle relock request
   output pcie_pcs_pkg::t_rx_pair rx_o          // two symbols at the boundary, sym0 first,
-                                               // both tagged with the word's lock and generation
+                                               // both tagged with the word's lock, generation
+                                               // and idle
 );
 
   // The two comma forms, bit 0 first on the line: line order 0011111 and
@@ -32,12 +33,15 @@ module pcie_pcs_align (
   pcie_pcs_pkg::t_align  state_d;
   pcie_pcs_pkg::t_word   sym_q;
   pcie_pcs_pkg::t_word   sym_d;
+  logic                  sym_idle_q;  // both output symbols start in an idle word
 
   pcie_pcs_pkg::t_window window;      // in_prev_q then in_q, earliest bit first
   logic [pcie_pcs_pkg::WORD_W-1:0] comma_at;   // a comma starts at window bit p
   logic                  found;       // a comma at some offset 0 to 19
   pcie_pcs_pkg::t_offset first_off;   // lowest such offset, mod 10
-  logic                  keep;        // lock held through this edge
+  logic                  keep;        // lock held through this edge: the output word's
+                                      // symbols start in the previous word, so lock
+                                      // drops only when that word was idle
   logic                  hunt_ok;     // neither word of the window is idle
   logic                  acquire;     // lock taken at this edge
   logic [5:0]            base;        // state_d.offset as a window bit index
@@ -63,7 +67,7 @@ module pcie_pcs_align (
   end
 
   assign found   = |comma_at;
-  assign keep    = state_q.lock && !relock_i && !idle_q;
+  assign keep    = state_q.lock && !relock_i && !idle_prev_q;
   assign hunt_ok = !idle_q && !idle_prev_q;
   assign acquire = !keep && hunt_ok && found;
 
@@ -82,9 +86,14 @@ module pcie_pcs_align (
   `COMMON_DFF_RST_VAL(idle_prev_q, idle_q, clk_i, rst_i, 1'b1)
   `COMMON_DFF_RST(state_q, state_d, clk_i, rst_i)
   `COMMON_DFF(sym_q, sym_d, clk_i)
+  `COMMON_DFF_RST_VAL(sym_idle_q, idle_prev_q, clk_i, rst_i, 1'b1)
 
-  assign rx_o = '{sym1: '{lock: state_q.lock, gen: state_q.gen, code: sym_q[19:10]},
-                  sym0: '{lock: state_q.lock, gen: state_q.gen, code: sym_q[9:0]}};
+  // Both symbols of the output word start in in_prev_q (the boundary is 0
+  // to 9), so the word is idle exactly when that word was received idle.
+  assign rx_o = '{sym1: '{idle: sym_idle_q, lock: state_q.lock, gen: state_q.gen,
+                          code: sym_q[19:10]},
+                  sym0: '{idle: sym_idle_q, lock: state_q.lock, gen: state_q.gen,
+                          code: sym_q[9:0]}};
 
   // The lowest comma offset, scanned upwards, for the assertion that lock
   // is taken at the lowest one (the priority scan above runs downwards).
@@ -109,6 +118,8 @@ module pcie_pcs_align (
                        state_q.offset > OFFSET_MAX)
   `COMMON_ASSERT_NEVER(a_no_lock_from_idle, clk_i, rst_i, acquire && !hunt_ok)
   `COMMON_ASSERT_NEVER(a_relock_drops_lock, clk_i, rst_i, relock_i && state_d.lock && !acquire)
+  `COMMON_ASSERT_NEVER(a_idle_word_unlocked, clk_i, rst_i, sym_idle_q && state_q.lock)
+  `COMMON_ASSERT_NEVER(a_lock_kept_into_idle, clk_i, rst_i, idle_prev_q && state_d.lock)
   `COMMON_ASSERT_NEVER(a_gen_flips_only_on_lock, clk_i, rst_i, (state_d.gen != state_q.gen) && !acquire)
   `COMMON_ASSERT_NEVER(a_lock_word_holds_comma, clk_i, rst_i,
                        acquire && !(sym_d[6:0] == COMMA_MINUS

@@ -206,18 +206,23 @@ module pcie_pcs (
   );
 
   // One PIPE word per elastic-buffer word: RxValid when both symbols are
-  // locked; the RxStatus precedence 4, 5, 6, 7, 1, 2, 0 (RECEIVE.md, Decode
-  // and RxStatus). An underflow word holds two all-zero symbols (elastic
+  // locked, or at the end of a lock before electrical idle when the first
+  // is locked and the second began in idle (an idle tail: the second
+  // symbol goes out as EDB with no error, RECEIVE.md, Electrical idle);
+  // the RxStatus precedence 4, 5, 6, 7, 1, 2, 0 (RECEIVE.md, Decode and
+  // RxStatus). An underflow word holds two all-zero symbols (elastic
   // buffer MAS), a code error in both lanes, so the decoder already gives
   // EDB, EDB as K symbols (a_udf_edb).
   logic                     word_lock;
+  logic                     word_tail;     // sym0 locked, sym1 began in idle
   logic                     word_code_err;
   logic                     word_disp_err;
   common_pkg::t_rx_status word_status;
 
-  assign word_lock     = dec_valid && eb_rx.sym0.lock && eb_rx.sym1.lock;
-  assign word_code_err = word_lock && (dec.sym0.code_err || dec.sym1.code_err);
-  assign word_disp_err = word_lock && (dec.sym0.disp_err || dec.sym1.disp_err);
+  assign word_tail     = eb_rx.sym0.lock && !eb_rx.sym1.lock && eb_rx.sym1.idle;
+  assign word_lock     = dec_valid && eb_rx.sym0.lock && (eb_rx.sym1.lock || word_tail);
+  assign word_code_err = word_lock && (dec.sym0.code_err || (!word_tail && dec.sym1.code_err));
+  assign word_disp_err = word_lock && (dec.sym0.disp_err || (!word_tail && dec.sym1.disp_err));
 
   always_comb begin
     word_status = common_pkg::RX_OK;
@@ -239,8 +244,14 @@ module pcie_pcs (
   end
 
   // PIPE receive register. Data is held when no word is sent (loopback
-  // then repeats the last word, a valid code). The receive status and the
-  // error-counter inputs reset with the PCS clk_i side.
+  // then repeats the last word, a valid code). RxElecIdle travels with the
+  // words: it follows the idle flag of each word's first symbol, so it
+  // rises only after every word that began before the idle has left, and
+  // holds through cycles with no word and underflow words. The receive
+  // status, RxElecIdle and the error-counter inputs reset with the PCS
+  // clk_i side (RxElecIdle to 1).
+  localparam pcie_pcs_pkg::t_rx_word RX_RESET = '{idle: 1'b1, status: common_pkg::RX_OK, default: '0};
+
   pcie_pcs_pkg::t_rx_word rx_q;
   pcie_pcs_pkg::t_rx_word rx_d;
 
@@ -251,14 +262,17 @@ module pcie_pcs (
     rx_d.errored = word_code_err || word_disp_err;
     if (eb_valid) begin
       rx_d.sym0 = dec.sym0.sym;
-      rx_d.sym1 = dec.sym1.sym;
+      rx_d.sym1 = word_tail ? '{k: 1'b1, data: common_pkg::SYM_EDB} : dec.sym1.sym;
+    end
+    if (dec_valid) begin
+      rx_d.idle = eb_rx.sym0.idle;
     end
     if (word_lock) begin
-      rx_d.gen = eb_rx.sym1.gen;
+      rx_d.gen = eb_rx.sym0.gen;
     end
   end
 
-  `COMMON_DFF_RST(rx_q, rx_d, clk_i, pcs_rst)
+  `COMMON_DFF_RST_VAL(rx_q, rx_d, clk_i, pcs_rst, RX_RESET)
 
   // ------------------------------------------------------------------
   // Error counter and relock request (crossing 4). It watches the words
@@ -353,20 +367,6 @@ module pcie_pcs (
   );
 
   // ------------------------------------------------------------------
-  // Crossing 5: receiver active (not electrical idle), registered in the
-  // RX domain and synchronized into clk_i. Reset value 0 is "idle".
-  // ------------------------------------------------------------------
-
-  logic rx_active;
-  logic rx_active_q;
-  logic rx_active_sync;
-
-  assign rx_active = !ser_rx_elec_idle_i;
-
-  `COMMON_DFF_RST(rx_active_q, rx_active, ser_rx_clk_i, rx_rst)
-  `COMMON_METAFLOP(u_rx_active_sync, rx_active_sync, rx_active_q, clk_i, rst_i)
-
-  // ------------------------------------------------------------------
   // Outputs; reset values from the HAS are forced while pcs_rst is 1.
   // ------------------------------------------------------------------
 
@@ -380,7 +380,7 @@ module pcie_pcs (
   assign pipe_rx_valid_o     = !pcs_rst && rx_q.valid;
   assign pipe_rx_data_o      = {rx_q.sym1.data, rx_q.sym0.data};
   assign pipe_rx_datak_o     = {rx_q.sym1.k, rx_q.sym0.k};
-  assign pipe_rx_elec_idle_o = pcs_rst || !rx_active_sync;
+  assign pipe_rx_elec_idle_o = pcs_rst || rx_q.idle;
   assign ser_tx_elec_idle_o  = pcs_rst || !enc_valid;
   assign ser_tx_data_o       = enc_data;
 

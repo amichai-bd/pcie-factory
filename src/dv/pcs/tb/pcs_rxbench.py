@@ -182,7 +182,11 @@ class RxBench:
             out = await tick()
             k, d = out["pipe_rx_datak_o"], out["pipe_rx_data_o"]
             w = Word(now_ps() - CLK_PS // 2, out["pipe_rx_valid_o"],
-                     ((k & 1, d & 0xFF), ((k >> 1) & 1, d >> 8)), out["pipe_rx_status_o"])
+                     ((k & 1, d & 0xFF), ((k >> 1) & 1, d >> 8)), out["pipe_rx_status_o"],
+                     out["pipe_rx_elec_idle_o"])
+            # Electrical idle is in order with the words: never a word under
+            # RxValid while RxElecIdle is 1.
+            assert not (w.valid and w.elec_idle), f"t={w.t} ps: RxValid 1 with RxElecIdle 1"
             self.words.append(w)
             if w.status != 3 and (w.valid or w.status in (5, 6)):
                 COV_RX.sample(status=w.status, ppm=ppm_bin(self.ppm))
