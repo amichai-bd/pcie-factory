@@ -113,14 +113,13 @@ module pcie_mac #(
   common_pkg::t_pipe_ctl   ltssm_pipe, pipe_q;
   common_pkg::t_pipe_rx    rx_st_q;
   logic [7:0]            partner_n_fts;
-  logic                  fr_tx_idle;
 
   // Frame (MAS, Frame).
   pcie_mac_pkg::t_pkt_tx pkt_tx;
   pcie_mac_pkg::t_pkt_rx pkt_rx;
   common_pkg::t_word       fr_word, rx_dscr_word;
-  logic                  fr_skp_gnt, fr_tx_act, fr_tx_pkt, fr_tx_open, fr_frame_err;
-  pcie_mac_pkg::t_fr_tx_stat fr_tx_stat;   // the line word and the upper offer, for the LTSSM
+  logic                  fr_skp_gnt, fr_tx_act, fr_frame_err;
+  pcie_mac_pkg::t_fr_tx_stat fr_tx_stat;   // the line word's status, for the LTSSM
   logic [1:0]            fr_rx_idle;
 
   // Transmit line and scrambler.
@@ -154,7 +153,6 @@ module pcie_mac #(
     .line_o          (line_ctl),
     .rx_scr_off_o    (rx_scr_off),
     .partner_n_fts_o (partner_n_fts),
-    .fr_tx_idle_i    (fr_tx_idle),
     .fr_tx_i         (fr_tx_stat),
     .fr_rx_idle_i    (fr_rx_idle)
   );
@@ -209,16 +207,13 @@ module pcie_mac #(
     .skp_gnt_o      (fr_skp_gnt),
     .tx_act_o       (fr_tx_act),
     .tx_word_o      (fr_word),
-    .tx_pkt_o       (fr_tx_pkt),
-    .tx_open_o      (fr_tx_open),
+    .tx_stat_o      (fr_tx_stat),
     .rx_word_i      (rx_dscr_word),
     .rx_i           (rx_st_q),
     .rx_frame_err_o (fr_frame_err),
     .rx_idle_o      (fr_rx_idle)
   );
 
-  assign fr_tx_idle = fr_tx_act && !fr_tx_pkt;
-  assign fr_tx_stat = '{pkt: fr_tx_pkt, open: fr_tx_open, offer: pkt_tx_valid_i};
   assign line_word  = fr_tx_act ? fr_word : os_word;
   assign line_valid = fr_tx_act || os_tx.valid;
 

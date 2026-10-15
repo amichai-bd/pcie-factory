@@ -92,11 +92,13 @@ package pcie_mac_pkg;
     logic rx_l0;    // main state L0 and Rx_L0: receive packets
   } t_fr_ctl;
 
-  // Transmit status for the LTSSM's power states: the line word of this
-  // cycle and the upper layer's offer (the L0s idle count, the L1 and L2
-  // entry wait, the L0s exit).
+  // The frame's transmit status for the LTSSM, of this cycle's line word:
+  // idle symbols sent (the Idle states' count), and for the power states the
+  // packet status and the upper layer's offer (the L0s idle count, the L1
+  // and L2 entry wait, the L0s exit).
   typedef struct packed {
-    logic pkt;    // the line word carries a packet symbol
+    logic idle;   // the frame drives the word: two idle symbols
+    logic pkt;    // the word carries a packet symbol
     logic open;   // packet symbols remain after this word
     logic offer;  // pkt_tx_valid_i: the upper layer offers a beat
   } t_fr_tx_stat;
@@ -467,7 +469,6 @@ package pcie_mac_pkg;
     logic                 eios_q;        // an EIOS is queued, not yet started
     logic [7:0]           fts_sent;      // Tx_L0s.FTS: FTS started
     logic                 fts_skp;       // Tx_L0s.FTS: the closing SKP started
-    logic [1:0]           ei_cnt;        // cycles in electrical idle, saturating at 3
     logic [L0S_CNT_W-1:0] idle_cnt;      // Tx_L0: cycles without traffic, saturating
     logic [RX_CNT_W-1:0]  rx_cnt;        // cycles since the receive sub-machine moved
     logic                 rx_fts_to;     // the Rx_L0s.FTS timeout expired

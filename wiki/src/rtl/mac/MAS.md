@@ -132,7 +132,7 @@ are in [`common_pkg`](../common/common_pkg.md). Everything is named
 | `t_ts_rx` | os, top, LTSSM | Received TS fields: ts2, ts_inv, link and lane (byte, PAD, number), N_FTS, control bits 4:0. |
 | `t_fr_ctl` | LTSSM, frame | tx_l0, tx_stop, rx_l0. |
 | `t_line_ctl` | LTSSM, top, os | skp_hold (loopback slave), tx_scr_off (Disable Scrambling, transmit). |
-| `t_fr_tx_stat` | frame and port, LTSSM | The line word carries a packet symbol (pkt), packet symbols remain after it (open), the upper layer offers a beat (offer, `pkt_tx_valid_i`). |
+| `t_fr_tx_stat` | frame, LTSSM | The frame's status of this cycle's line word: it is the frame's two idle symbols (idle), it carries a packet symbol (pkt), packet symbols remain after it (open), the upper layer offers a beat (offer, `pkt_tx_valid_i`). |
 | `t_link_req` | ports, LTSSM | retrain, hot_reset, disable_link, loopback, pm_state. |
 
 Internal state structs: `t_rx_state` (the ordered-set parser); the
@@ -251,8 +251,8 @@ counts the SKP interval.
 | `pkt_rx_o` | out | `t_pkt_rx` | Upper receive beat; no ready. |
 | `ctl_i` | in | `t_fr_ctl` | From the LTSSM. `tx_l0`: the line is the frame's; 1 in L0 and also in Configuration.Idle and Recovery.Idle, where the frame is the only source of idle symbols, and as a loopback slave, with `tx_stop` 1 so no packet starts. `tx_stop`: start no packet. `rx_l0`: main state L0 with `Rx_L0`. |
 | `skp_req_i`, `skp_gnt_o` | in, out | 1, 1 | SKP due or a set in progress; the line is the ordered-set block's this cycle. |
-| `tx_act_o`, `tx_word_o`, `tx_pkt_o` | out | 1, `t_word`, 1 | The frame drives the line with this unscrambled word; it carries a packet symbol. |
-| `tx_open_o` | out | 1 | Packet symbols remain after this word (line-open after it); the LTSSM's L1 and L2 entry wait. |
+| `tx_act_o`, `tx_word_o` | out | 1, `t_word` | The frame drives the line with this unscrambled word. |
+| `tx_stat_o` | out | `t_fr_tx_stat` | The word's status for the LTSSM: idle (driven, no packet symbol), pkt (a packet symbol), open (line-open after it: the L1 and L2 entry wait), offer (`pkt_tx_valid_i`). |
 | `rx_word_i`, `rx_i` | in | `t_word`, `t_pipe_rx` | The descrambled word and its PIPE status. |
 | `rx_frame_err_o` | out | 1 | One cycle after a word with a framing error. |
 | `rx_idle_o` | out | 2 | Same cycle: bit *i*, symbol *i* is idle data (00h after descrambling, outside a packet, an ordered set and a resync). |
@@ -324,7 +324,7 @@ Loopback master and slave). Parameters `TIMEOUT_DIV`, `ERR_TIMEOUT_DIV`,
 | Port | Dir | Type | Description |
 | --- | --- | --- | --- |
 | `port_role_i`, `link_up_o`, `ltssm_state_o` | in, out, out | 1, 1, 6 | As the HAS ports. |
-| `req_i` | in | `t_link_req` | Link control; `pm_state` is unused until the power states (#79). |
+| `req_i` | in | `t_link_req` | Link control: retrain, the downstream Hot Reset and Disabled requests, loopback, and `pm_state`, the power request (L0s allowed, L1, L2). |
 | `pipe_o`, `pipe_rx_i` | out, in | `t_pipe_ctl`, `t_pipe_rx` | PIPE control and status. |
 | `os_req_o`, `ts_o`, `os_tx_i` | out, out, in | `t_os_req`, `t_ts_tx`, `t_os_tx` | Requests (TS, compliance, EIOS, loopback pattern, FTS, the SKP that ends an FTS sequence), TS fields with the control bits, the line word's events. |
 | `os_rx_i`, `os_ts_i` | in | `t_os_rx`, `t_ts_rx` | Receive events and fields of the word. |
@@ -332,7 +332,7 @@ Loopback master and slave). Parameters `TIMEOUT_DIV`, `ERR_TIMEOUT_DIV`,
 | `line_o` | out | `t_line_ctl` | SKP hold (loopback slave) and transmit scrambling off. |
 | `rx_scr_off_o` | out | 1 | Receive scrambling off, for the word the next step takes: the next value of the flag, the one output that is not a register ([Top](#top)). |
 | `partner_n_fts_o` | out | 8 | The partner's N_FTS from the TS2 that advance Configuration.Complete or Recovery.RcvrCfg; 255 until learned. `Tx_L0s.FTS` sends that many FTS. |
-| `fr_tx_idle_i`, `fr_tx_i`, `fr_rx_idle_i` | in | 1, `t_fr_tx_stat`, 2 | The line word is the frame's two idle symbols; the line word's packet status and the upper offer; the received word's idle marks. |
+| `fr_tx_i`, `fr_rx_idle_i` | in | `t_fr_tx_stat`, 2 | The frame's status of the line word (idle, packet, open, offer); the received word's idle marks. |
 
 Every output but `rx_scr_off_o` is a register. One step per cycle, in the model's order:
 
@@ -403,7 +403,7 @@ The L0 step, in the model's order:
   `pm_state_req_i` 1 and `L0S_IDLE_CYCLES` words without traffic
   (`idle_cnt`: a word sent in `Tx_L0` with no packet symbol and no beat
   offered); `.Entry` to `.Idle` after the EIOS, 3 cycles of electrical idle
-  (`ei_cnt`) and the P0s acknowledge; `.Idle` to `.FTS` on a pending exit,
+  (the shared `ei_cycles`) and the P0s acknowledge; `.Idle` to `.FTS` on a pending exit,
   a beat offered (`fr_tx_i.offer`, `pkt_tx_valid_i` as sampled) or a
   request other than 1; `.FTS` to `Tx_L0` once P0 is acknowledged and the
   partner's N_FTS FTS (`fts_sent`) and the closing SKP (`fts_skp`) are
