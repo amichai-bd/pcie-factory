@@ -48,7 +48,9 @@ This strategy serves the whole RAM family; each block's plan links here.
     enable with no lane), `partial` or `all`; port `a`'s lanes when it is
     write-enabled, else port `b`'s.
   - `wr_op_x_lanes`: each writing operation crossed with the lanes of the
-    real write (`partial`, `all`).
+    real write (`partial`, `all`); for the true dual-port `both_wr*` bins,
+    the lanes both ports write together, so `both_wr_same_word` with `all`
+    means two disjoint writes fill the word.
   - `addr`: the first, last or another word at port `a`'s address, the
     read address of the simple dual-port RAM. Write-address and port-`b`
     extremes are not binned; the directed test fills and reads every word

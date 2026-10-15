@@ -144,9 +144,12 @@ class Ram:
         if wr is not None:
             values["lanes"] = self._lanes_bin(wr.lanes & self.all_lanes)
         if op in WRITE_OPS[self.kind]:
-            real = a if self._writes(a) else b
+            # Both ports writing: the lanes written in all (disjoint on one
+            # word, so "all" there means the two writes fill the word).
+            lanes = ((a.lanes | b.lanes) if op.startswith("both_wr")
+                     else a.lanes if self._writes(a) else b.lanes)
             values["wr_op"] = op
-            values["wr_lanes"] = self._lanes_bin(real.lanes & self.all_lanes)
+            values["wr_lanes"] = self._lanes_bin(lanes & self.all_lanes)
         cg.sample(**values)
         if op in COLLIDE_OPS[self.kind]:
             self.collisions += 1
