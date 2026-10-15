@@ -899,7 +899,8 @@ the preprocessed audit), prose versus directive comments, a
 comment and a widened exempt path in the config, and look-alike slug hosts.
 Tests that run Verilator are skipped when it is not installed. `test_check_run.py` also runs the neutrality, wiki
 mirror and citation checks on this repository, and `test_publishability.py` runs the
-publishability check on it. `test_cdc.py` also takes a reset from another domain's flop
-into a flop with an asynchronous reset: through the reset synchronizer it
-passes; taken directly, or with logic in front of the synchronizer, it
-fails.
+publishability check on it. `test_cdc.py` also takes a reset from another domain's flop,
+and from an input port annotated with another domain, into a flop with an
+asynchronous reset: through the reset synchronizer (the cell, or for the
+port also `COMMON_RESET_SYNC`) it passes; taken directly, or with logic in
+front of the synchronizer, it fails.

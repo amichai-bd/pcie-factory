@@ -18,8 +18,8 @@ needs_verilator = pytest.mark.skipif(sim.find_verilator() is None,
                                      reason="verilator not available")
 
 CELLS = REPO_ROOT / "src/rtl/common"
-# Shared blocks in the copied tree: one per filelist, each a crossing cell.
-N_CELLS = len(list(CELLS.glob("*.rtl.f")))
+# Crossing cells in the copied tree, each a shared block the check analyzes.
+N_CELLS = len(list(CELLS.glob("common_cdc_*.rtl.f")))
 
 HEAD = """`default_nettype none
 module xy_blk (
@@ -181,7 +181,7 @@ RST_SYNC = """
   );
   always_ff @(posedge clk_b_i or posedge rst_b) begin
     if (rst_b) b_q <= 1'b0;
-    else       b_q <= x_i;
+    else       b_q <= ~b_q;
   end
   assign y_o = b_q;
 """
@@ -204,7 +204,7 @@ def test_reset_taken_directly_from_another_domain_fails(tmp_path):
 
 @needs_verilator
 def test_logic_in_front_of_the_reset_synchronizer_fails(tmp_path):
-    body = RST_SYNC.replace(".src_rst_i(rst_a_q)", ".src_rst_i(rst_a_q | x_i)")
+    body = RST_SYNC.replace(".src_rst_i(rst_a_q)", ".src_rst_i(rst_a_q | rst_a_i)")
     [f] = blk(run(tree(tmp_path, body)))
     assert "cell input u_rst.src_rst_i" in f and "must come straight from a flop" in f
 
@@ -428,53 +428,44 @@ def test_inout_port_needs_no_annotation(tmp_path):
     assert r.passed, r.findings
 
 
-@needs_verilator
-def test_reset_synchronizer_cell_form_is_accepted(tmp_path):
-    src = tree(tmp_path, """
+# rst_a_i is annotated with clk_a_i; a clk_b_i flop with an asynchronous
+# reset takes it through the reset synchronizer (the cell or its macro), or
+# directly.
+RST_PORT = """
   logic rst_b;
   logic b_q;
-  common_cdc_rst u_rst (.dst_clk_i(clk_b_i), .src_rst_i(rst_a_i), .dst_rst_o(rst_b));
-  always_ff @(posedge clk_b_i or posedge rst_b) begin
-    if (rst_b) b_q <= 1'b0;
-    else       b_q <= ~b_q;
+  RESET
+  always_ff @(posedge clk_b_i or posedge RST) begin
+    if (RST) b_q <= 1'b0;
+    else     b_q <= ~b_q;
   end
   assign y_o = b_q;
-""")
-    common = src / "rtl/common"
-    (common / "common_cdc_rst.sv").write_text("""`default_nettype none
-// cdc-cell: src=async dst=dst_clk_i
-module common_cdc_rst (
-  input  logic dst_clk_i,
-  input  logic src_rst_i,
-  output logic dst_rst_o
-);
-  logic meta_q;
-  logic sync_q;
-  always_ff @(posedge dst_clk_i or posedge src_rst_i) begin
-    if (src_rst_i) begin
-      meta_q <= 1'b1;
-      sync_q <= 1'b1;
-    end else begin
-      meta_q <= 1'b0;
-      sync_q <= meta_q;
-    end
-  end
-  assign dst_rst_o = sync_q;
-endmodule
-`default_nettype wire
-""")
-    (common / "common_cdc_rst.rtl.f").write_text("common_cdc_rst.sv\n")
-    rtl_f = src / "rtl/blk/blk.rtl.f"
-    rtl_f.write_text("-F ../common/common_cdc_rst.rtl.f\n" + rtl_f.read_text())
-    r = run(src)
-    assert r.passed, r.findings
-    assert "4 cdc-cell directive(s)" in r.checked
-    # Without the cell, the same reset is a raw crossing.
+"""
+RST_CELL = "common_cdc_rst u_rst (.dst_clk_i(clk_b_i), .src_rst_i(rst_a_i), .dst_rst_o(rst_b));"
+RST_MACRO = "`COMMON_RESET_SYNC(u_rst, rst_b, rst_a_i, clk_b_i)"
+
+
+def rst_port(tmp_path: Path, reset: str, rst: str) -> Path:
+    src = tree(tmp_path, RST_PORT.replace("RESET", reset).replace("RST", rst))
     top = src / "rtl/blk/xy_blk.sv"
-    top.write_text(top.read_text().replace("posedge rst_b)", "posedge rst_a_i)").replace(
-        "if (rst_b)", "if (rst_a_i)"))
-    [f] = blk(run(src))
-    assert "flop b_q (clock clk_b_i" in f and "input port rst_a_i (clock clk_a_i" in f
+    top.write_text(top.read_text().replace("`default_nettype none\n",
+                                           "`default_nettype none\n`include \"common_macros.svh\"\n", 1))
+    rtl_f = src / "rtl/blk/blk.rtl.f"
+    rtl_f.write_text("-F ../common/common_macros.rtl.f\n" + rtl_f.read_text())
+    return src
+
+
+@needs_verilator
+@pytest.mark.parametrize("reset", [RST_CELL, RST_MACRO], ids=["cell", "macro"])
+def test_annotated_reset_port_through_the_reset_synchronizer_passes(tmp_path, reset):
+    r = run(rst_port(tmp_path, reset, "rst_b"))
+    assert r.passed, r.findings
+
+
+@needs_verilator
+def test_annotated_reset_port_taken_directly_fails(tmp_path):
+    [f] = blk(run(rst_port(tmp_path, "", "rst_a_i")))
+    assert f.startswith("blk: flop b_q (clock clk_b_i") and "input port rst_a_i" in f, f
 
 
 @needs_verilator

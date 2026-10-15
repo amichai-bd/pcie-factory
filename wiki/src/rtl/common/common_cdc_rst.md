@@ -25,13 +25,17 @@ CDC declaration ([convention](../../../bkm/rtl.md#clock-domain-crossings)):
 `// cdc-cell: src=async dst=dst_clk_i`. The cell has no source clock port.
 The structural CDC check treats `src_rst_i` as a `src=async` input, so it
 must come straight from a flop or a top-level input port, and
-`dst_rst_o` as a source in the `dst_clk_i` domain.
+`dst_rst_o` as a source in the `dst_clk_i` domain. RTL outside
+`src/rtl/common/` instantiates the cell only through
+`` `COMMON_RESET_SYNC(INST, Q, D, DST_CLK)`` (default `STAGES`; style rule
+`cdc-cell-macro`, [crossings](../../../bkm/rtl.md#clock-domain-crossings)):
+`D` drives `src_rst_i`, `Q` is `dst_rst_o`.
 
 ## Parameters
 
 | Name | Type | Default | Legal range | Effect |
 | --- | --- | --- | --- | --- |
-| `STAGES` | `int unsigned` | 2 | 2 or more; less is an elaboration `$error` (`g_stages_check`) | Flops in the release chain: the release ends `STAGES` `dst_clk_i` edges after `src_rst_i` falls. |
+| `STAGES` | `int unsigned` | 2 | 2 or more; less fails elaboration (`` `COMMON_ASSERT_PARAM``, `g_stages_check`) | Flops in the release chain: the release ends `STAGES` `dst_clk_i` edges after `src_rst_i` falls. |
 
 ## Behavior
 
@@ -62,17 +66,18 @@ cycles of the fall, even with late resolution. That meets a contract of
 "asynchronous assertion, synchronous release within 3 cycles", such as the
 `phy` RX-domain reset ([phy HAS](../../arch/phy/HAS.md#clocks-and-resets)).
 
-**Consumers.** Every flop that takes `dst_rst_o` lists it in its
-sensitivity list, `always_ff @(posedge clk or posedge rst)`, so that it
-also enters reset with no clock edge. A flop that samples `dst_rst_o` as a
-synchronous reset only enters reset at its next edge, and then the
-domain's reset is no longer asynchronous.
+**Consumers.** Every flop that takes `dst_rst_o` is a
+`` `COMMON_DFF_ARST_VAL`` or `` `COMMON_DFF_ARST_EN``
+([RTL BKM](../../../bkm/rtl.md#reset-and-clocks)), so that it also enters
+reset with no clock edge. A flop that samples `dst_rst_o` as a synchronous
+reset only enters reset at its next edge, and then the domain's reset is
+no longer asynchronous.
 
 ## Microarchitecture
 
-`sync_q` is a `STAGES`-bit shift register on `dst_clk_i`, written in one
-`always_ff @(posedge dst_clk_i or posedge src_rst_i)`. `src_rst_i` sets
-every bit to one. On each edge out of reset, `sync_d`, which is `sync_q`
+`sync_q` is a `STAGES`-bit shift register on `dst_clk_i`, one
+`` `COMMON_DFF_ARST_VAL(sync_q, sync_d, dst_clk_i, src_rst_i, '1)``:
+`src_rst_i` sets every bit to one. On each edge out of reset, `sync_d`, which is `sync_q`
 shifted up with a zero entering bit 0, is loaded. `dst_rst_o` is
 `sync_q[STAGES-1]`. Bit 0 is the flop that may go metastable on release;
 the others give it whole `dst_clk_i` periods to resolve.
@@ -107,4 +112,4 @@ attribute is dropped.
 | File | Holds |
 | --- | --- |
 | [`common_cdc_rst.sv`](../../../../src/rtl/common/common_cdc_rst.sv) | The module. |
-| [`common_cdc_rst.rtl.f`](../../../../src/rtl/common/common_cdc_rst.rtl.f) | The module; consumers include it with `-F`. |
+| [`common_cdc_rst.rtl.f`](../../../../src/rtl/common/common_cdc_rst.rtl.f) | `-F common_macros.rtl.f` (the vocabulary), then the module; consumers include it with `-F`. |

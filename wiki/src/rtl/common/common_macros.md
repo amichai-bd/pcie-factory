@@ -16,7 +16,7 @@ owner's permission.
 
 | Item | Use |
 | --- | --- |
-| `` `include "common_macros.svh"`` | The one include a design file writes, after `` `default_nettype none``. It defines the `COMMON_DFF*`, `COMMON_MEM*`, `COMMON_UNUSED_BITS`, `COMMON_METAFLOP*` and `COMMON_PULSE_SYNC` forms and includes `common_assertions.svh`. |
+| `` `include "common_macros.svh"`` | The one include a design file writes, after `` `default_nettype none``. It defines the `COMMON_DFF*`, `COMMON_MEM*`, `COMMON_UNUSED_BITS`, `COMMON_METAFLOP*`, `COMMON_PULSE_SYNC` and `COMMON_RESET_SYNC` forms and includes `common_assertions.svh`. |
 | `common_assertions.svh` | The `COMMON_ASSERT*` forms. It includes `common_macros.svh` back (both are guarded), so either include order works. |
 | `-F ../common/common_macros.rtl.f` | Puts `src/rtl/common/` on the include path. A user of a crossing macro also includes the cell's filelist. |
 | `SYNTHESIS` | Defined only by the FPGA and ASIC flows; removes every assertion form but `COMMON_ASSERT_PARAM`. |
@@ -33,9 +33,10 @@ owner's permission.
 - **Crossings:** `COMMON_METAFLOP` and `COMMON_METAFLOP_VAL` instantiate
   [`common_cdc_sync2`](common_cdc_sync2.md) with `WIDTH` `$bits(Q)` (and
   `RESET_VALUE`); `COMMON_PULSE_SYNC` instantiates
-  [`common_cdc_pulse`](common_cdc_pulse.md). The instance is named by
-  `INST`, so the CDC check, waves and constraints see an ordinary cell
-  instance. The reset-synchronizer macro arrives with its cell (#119).
+  [`common_cdc_pulse`](common_cdc_pulse.md); `COMMON_RESET_SYNC`
+  instantiates [`common_cdc_rst`](common_cdc_rst.md) with its default two
+  stages. The instance is named by `INST`, so the CDC check, waves and
+  constraints see an ordinary cell instance.
 - **Assertions:** concurrent forms use `assert property` with
   `@(posedge (CLK))` and `disable iff (RESET)`; clocked forms are an
   `always_ff` with no state whose body runs while `!(RESET)`. Every failure

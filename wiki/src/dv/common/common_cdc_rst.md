@@ -65,6 +65,10 @@
   - synchronous assertion (no `posedge src_rst_i`);
   - logic on the output (`src_rst_i | sync_q[last]` with synchronous
     flops).
+
+  `macros_contract` also fails on the first three. The CDC check rejects
+  the first and the last structurally: `dst_rst_o` then has a
+  combinational path from `src_rst_i`.
 - **Out of scope:** metastability and late resolution (as in the sync2
   plan), and a source change at the time of a destination edge, which is a
   race in zero-delay simulation. Whether consumers take the reset through
