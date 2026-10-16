@@ -9,7 +9,7 @@ method (inputs, acceptance ladder, review). Code: `tools/asic/` (`cli.py`,
 
 ```
 ./build asic --ip ID [--platform sky130hd] [--timeout S] [--synth-only] [--dry-run]
-             [--src-root DIR] [--workdir DIR]
+             [--study-clock-period NS] [--src-root DIR] [--workdir DIR]
 ```
 
 | Option | Meaning |
@@ -18,10 +18,11 @@ method (inputs, acceptance ladder, review). Code: `tools/asic/` (`cli.py`,
 | `--platform` | ORFS platform; only `sky130hd` is supported. |
 | `--timeout S` | Wall-clock budget for all ORFS steps together (default 3600 s). |
 | `--synth-only` | Run only ORFS `synth`, in `workdir/<ip>/asic-synth/`; no routed metrics. |
+| `--study-clock-period NS` | Explicit full-flow clock study in a finite positive period (ns), for an opted-in SDC; isolated from default evidence. Cannot combine with `--synth-only`. |
 | `--dry-run` | Write `config.mk`, print every command, run nothing. `./build check` runs the same input and ORFS-settings validation for every ASIC target, writing nothing ([flow-input check](../checks/SPEC.md#flow-input-check)). |
 
 Exit codes: `0` the flow passed and every required output was validated; `1`
-a step failed, timed out, logged an error in synthesis-only mode, or required
+a step failed, timed out, logged an error in synthesis-only or study mode, or required
 evidence is missing (the full flow still writes `metrics.json`; synthesis-only
 writes `synthesis.json`); `2` a usage or configuration error.
 
@@ -138,6 +139,33 @@ The mode never writes `metrics.json` or `worst_path.txt`, and never changes
 `workdir/<ip>/asic/`. [CI](../ci/SPEC.md#build-ci-vendor) requires this
 check for affected targets; full implementation remains nightly/on demand.
 
+## Clock studies
+
+`--study-clock-period NS` leaves the default SDC and nightly target unchanged.
+The SDC opts in with the exact comment `# build-asic: study-clock-period` and
+consumes the Tcl variable `study_clock_period_ns` when present. It must apply
+that period to every clock and scale its dependent I/O and crossing budgets;
+uncertainty and other exceptions stay as specified by the design. Unsupported
+SDCs, nonfinite/nonpositive periods and synthesis-only combinations exit 2
+before deleting or writing outputs.
+
+The tool snapshots the source SDC into generated `study.sdc`, prefixed with
+the study variable. A trailing Tcl check rejects absent clocks or any clock
+whose actual period differs from the requested period. ORFS reads this SDC
+throughout implementation. A logged tool error fails the study even if the
+child process returns zero. Each period has its own output directory,
+`workdir/<ip>/asic-study/<period>ns/` (for example `10ns`); only that directory
+is cleaned. Default `asic/` and `asic-synth/` evidence is never touched.
+
+Study `metrics.json` reports the study period in `clock_period_ns` and adds
+`study: {kind: "clock-period", clock_period_ns, target_clock_period_ns}`; the
+last field is the source SDC's original target. The nightly collector reads
+only `asic/metrics.json`, so a study cannot replace target measurements.
+Like the default full flow, success means implementation completed, not timing
+closure: inspect per-clock setup slack, hold slack and route DRCs before
+claiming a checkpoint. Verify the final `6_final.sdc` clock and boundary
+constraints as well as the requested period.
+
 ## Output
 
 | Path | Content |
@@ -201,7 +229,10 @@ code never runs on the self-hosted host if a trigger is added later.
 
 `tools/asic/tests/` runs without ORFS. Synthesis-mode tests exercise the CLI,
 isolation from routed evidence, stale-output cleanup, missing/empty outputs,
-child failure, zero-exit error logs and timeout.
+child failure, zero-exit error logs and timeout. Clock-study tests cover invalid
+periods, unsupported SDCs, synthesis-only rejection, deterministic generated
+constraints, separate study/default outputs and explicit study metadata. The
+metrics collector tests prove studies cannot populate the nightly ASIC record.
 
 | Test file | Proves |
 | --- | --- |

@@ -474,3 +474,89 @@ def test_synth_only_fails_without_fresh_complete_evidence(ctx, monkeypatch, mode
     assert all((results / name).read_text() != "stale"
                for name in ("1_2_yosys.v", "1_synth.odb", "1_synth.sdc")
                if (results / name).exists())
+
+
+# --- explicit clock studies ---
+
+STUDY_SDC = """\
+# build-asic: study-clock-period
+set period 8.5
+if {[info exists study_clock_period_ns]} {
+  set period $study_clock_period_ns
+}
+create_clock -name clk -period $period [get_ports clk_i]
+create_clock -name aux -period $period [get_ports aux_i]
+"""
+
+
+def study_args(ctx, period="10"):
+    return ["asic", "--src-root", str(ctx.src_root), "--workdir", str(ctx.workdir),
+            "--ip", "counter", f"--study-clock-period={period}"]
+
+
+@pytest.mark.parametrize("period", ["0", "-1", "nan", "inf", "-inf"])
+def test_invalid_study_period_preserves_existing_outputs(ctx, monkeypatch, capsys, period):
+    native_env(monkeypatch)
+    sentinel = ctx.workdir / "counter" / "asic-study" / "10ns" / "metrics.json"
+    sentinel.parent.mkdir(parents=True)
+    sentinel.write_text("existing study")
+    assert main(study_args(ctx, period)) == 2
+    assert "finite and > 0" in capsys.readouterr().err
+    assert sentinel.read_text() == "existing study"
+    assert not (ctx.workdir / "counter" / "asic").exists()
+
+
+def test_study_requires_explicit_sdc_opt_in(ctx, monkeypatch, capsys):
+    native_env(monkeypatch)
+    assert main(study_args(ctx)) == 2
+    assert "does not support --study-clock-period" in capsys.readouterr().err
+    assert not ctx.workdir.exists()
+
+
+def test_study_disallows_synthesis_only(ctx, monkeypatch, capsys):
+    native_env(monkeypatch)
+    assert main(study_args(ctx) + ["--synth-only"]) == 2
+    assert "cannot be combined" in capsys.readouterr().err
+    assert not ctx.workdir.exists()
+
+
+def test_study_is_isolated_and_records_original_target(ctx, monkeypatch):
+    native_env(monkeypatch)
+    original = plan_for(ctx).sdc
+    original.write_text(STUDY_SDC)
+    default = plan_for(ctx)
+    assert default.clock_period_ns == 8.5
+    assert default.effective_sdc == original
+    default.out.mkdir(parents=True)
+    default.metrics_json.write_text("default evidence")
+    assert main(study_args(ctx)) == 0
+    result = ctx.workdir / "counter" / "asic-study" / "10ns"
+    doc = json.loads((result / "metrics.json").read_text())
+    assert doc["clock_period_ns"] == 10
+    assert doc["study"] == {"kind": "clock-period", "clock_period_ns": 10,
+                            "target_clock_period_ns": 8.5}
+    assert doc["work_home"] == "counter/asic-study/10ns/run"
+    assert default.metrics_json.read_text() == "default evidence"
+    assert original.read_text() == STUDY_SDC
+    generated = (result / "study.sdc").read_text()
+    assert "set study_clock_period_ns 10.0\n" in generated
+    assert STUDY_SDC in generated
+    assert "foreach study_clk [all_clocks]" in generated
+    assert "get_property $study_clk period" in generated
+    assert f"export SDC_FILE = {result / 'study.sdc'}" in (result / "config.mk").read_text()
+    # Same period spelling shares only its own output; another study is isolated.
+    other = result.parent / "12ns" / "metrics.json"
+    other.parent.mkdir()
+    other.write_text("another study")
+    assert main(study_args(ctx, "10.0") + ["--dry-run"]) == 0
+    assert other.read_text() == "another study"
+    assert default.metrics_json.read_text() == "default evidence"
+    assert (result / "study.sdc").read_text() == generated
+
+
+def test_study_rejects_zero_exit_constraint_error(ctx, monkeypatch):
+    native_env(monkeypatch, "studyerrorzero")
+    plan_for(ctx).sdc.write_text(STUDY_SDC)
+    assert main(study_args(ctx)) == 1
+    path = ctx.workdir / "counter" / "asic-study" / "10ns" / "metrics.json"
+    assert json.loads(path.read_text())["status"] == "flow: fail (error in log)"

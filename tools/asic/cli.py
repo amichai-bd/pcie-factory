@@ -21,6 +21,8 @@ def add_args(p: argparse.ArgumentParser) -> None:
                         f"(default: {flow.DEFAULT_TIMEOUT_S})")
     p.add_argument("--synth-only", action="store_true",
                    help="stop after synthesis; write separate synthesis evidence, no routed metrics")
+    p.add_argument("--study-clock-period", type=float, metavar="NS",
+                   help="opt-in full-flow clock study in ns, isolated from default results")
     p.add_argument("--dry-run", action="store_true",
                    help="write the ORFS config and print the commands; run nothing")
 
@@ -31,7 +33,8 @@ def run(ctx: Context, args) -> int:
 
     try:
         ip = find_ip(discover(ctx.src_root), args.ip)
-        plan = flow.make_plan(ctx, ip, args.platform, synth_only=args.synth_only)
+        plan = flow.make_plan(ctx, ip, args.platform, synth_only=args.synth_only,
+                              study_clock_period_ns=args.study_clock_period)
         orfs = flow.load_orfs(ctx.cfg_dir, dict(os.environ))
     except flow.AsicError as exc:
         print(flow.redact(f"error: {exc}", ctx), file=sys.stderr)
@@ -42,6 +45,9 @@ def run(ctx: Context, args) -> int:
     say(f"[asic] {ip.id}: {plan.design} on {plan.platform}, "
         f"runner {orfs.runner} ({orfs.image if orfs.runner == 'docker' else orfs.root}, "
         f"from {orfs.source})")
+    if plan.study_clock_period_ns is not None:
+        say(f"[asic] clock study: {plan.study_clock_period_ns:g} ns; "
+            f"default target remains {plan.clock_period_ns} ns")
     if args.dry_run:
         flow.write_inputs(plan, clean=False)
         say(f"[asic] wrote {plan.config_mk}")
