@@ -262,7 +262,7 @@ module pcie_pcs (
     rx_d.errored = word_code_err || word_disp_err;
     if (eb_valid) begin
       rx_d.sym0 = dec.sym0.sym;
-      rx_d.sym1 = word_tail ? '{k: 1'b1, data: common_pkg::SYM_EDB} : dec.sym1.sym;
+      rx_d.sym1 = word_tail ? pcie_pcs_pkg::K_EDB : dec.sym1.sym;
     end
     if (dec_valid) begin
       rx_d.idle = eb_rx.sym0.idle;
@@ -344,6 +344,7 @@ module pcie_pcs (
   logic                   tx_word;
   logic                   loopback;
   pcie_pcs_pkg::t_tx_word pipe_tx;
+  pcie_pcs_pkg::t_tx_word lb_tx;    // the received word, re-encoded in loopback
   pcie_pcs_pkg::t_tx_word enc_in;
   logic                   enc_valid;
   pcie_pcs_pkg::t_word    enc_data;
@@ -356,7 +357,8 @@ module pcie_pcs (
   assign pipe_tx = '{compliance: pipe_tx_compliance_i,
                      sym1: '{k: pipe_tx_datak_i[1], data: pipe_tx_data_i[15:8]},
                      sym0: '{k: pipe_tx_datak_i[0], data: pipe_tx_data_i[7:0]}};
-  assign enc_in  = loopback ? '{compliance: 1'b0, sym1: rx_q.sym1, sym0: rx_q.sym0} : pipe_tx;
+  assign lb_tx   = '{compliance: 1'b0, sym1: rx_q.sym1, sym0: rx_q.sym0};
+  assign enc_in  = loopback ? lb_tx : pipe_tx;
 
   pcie_pcs_enc8b10b u_enc (
     .clk_i   (clk_i),
@@ -400,8 +402,8 @@ module pcie_pcs (
                        rl_q.err_cnt > pcie_pcs_pkg::ERR_CNT_W'(pcie_pcs_pkg::ERR_LIMIT - 1))
   // An underflow word is EDB, EDB as K symbols.
   `COMMON_ASSERT_NEVER(a_udf_edb, clk_i, pcs_rst, eb_valid && eb_status.udf
-                       && (dec.sym0.sym != '{k: 1'b1, data: common_pkg::SYM_EDB}
-                           || dec.sym1.sym != '{k: 1'b1, data: common_pkg::SYM_EDB}))
+                       && (dec.sym0.sym != pcie_pcs_pkg::K_EDB
+                           || dec.sym1.sym != pcie_pcs_pkg::K_EDB))
   // Electrical idle never overtakes a word: no RxValid while RxElecIdle.
   `COMMON_ASSERT_NEVER(a_no_valid_in_idle, clk_i, pcs_rst, rx_q.valid && rx_q.idle)
   // An underflow word never carries RxValid.

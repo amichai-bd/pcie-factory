@@ -20,8 +20,8 @@ module pcie_pcs_dec8b10b (
   pcie_pcs_pkg::t_dec_state state_d;
 
   logic                 pol_change;
-  pcie_pcs_pkg::t_sym10 sym0;
-  pcie_pcs_pkg::t_sym10 sym1;
+  pcie_pcs_pkg::t_sym10 code0;  // received codes after RxPolarity
+  pcie_pcs_pkg::t_sym10 code1;
   logic                 known0;
   logic                 known1;
   pcie_pcs_pkg::t_dec   dec0;
@@ -30,8 +30,8 @@ module pcie_pcs_dec8b10b (
   // RxPolarity: inversion applies in the cycle polarity_i is 1; a change
   // makes the RD unknown from that cycle's word.
   assign pol_change = polarity_i != state_q.pol;
-  assign sym0 = in_i.sym0.code ^ {10{polarity_i}};
-  assign sym1 = in_i.sym1.code ^ {10{polarity_i}};
+  assign code0 = in_i.sym0.code ^ {10{polarity_i}};
+  assign code1 = in_i.sym1.code ^ {10{polarity_i}};
 
   // The RD is known for a locked symbol whose predecessor was a locked
   // symbol of the same lock generation, with no polarity change between.
@@ -39,8 +39,8 @@ module pcie_pcs_dec8b10b (
                   && (in_i.sym0.gen == state_q.gen);
   assign known1 = in_i.sym0.lock && in_i.sym1.lock && (in_i.sym1.gen == in_i.sym0.gen);
 
-  assign dec0 = pcie_pcs_pkg::decode(sym0, known0, state_q.rd_pos);
-  assign dec1 = pcie_pcs_pkg::decode(sym1, known1, dec0.rd_pos);
+  assign dec0 = pcie_pcs_pkg::decode(code0, known0, state_q.rd_pos);
+  assign dec1 = pcie_pcs_pkg::decode(code1, known1, dec0.rd_pos);
 
   assign out_o = '{sym1: dec1.sym, sym0: dec0.sym};
 

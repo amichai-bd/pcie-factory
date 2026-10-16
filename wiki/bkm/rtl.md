@@ -41,10 +41,12 @@ two vocabulary headers, `src/rtl/common/common_macros.svh` and
    `$readmem*`, `$random`, ...): an `if (bad) $display(...); $finish;` is a
    hand-written assertion that synthesis silently drops. Only pure system
    functions are allowed (`$bits`, `$clog2`, `$signed`, `$unsigned`,
-   `$size`, `$low`, `$high`, `$left`, `$right`, `$countones`, `$onehot*`,
-   `$isunknown`); the sampled-value functions (`$past`, `$stable`, `$rose`,
-   `$fell`, `$changed`, `$sampled`) are allowed only inside the arguments
-   of a `COMMON_ASSERT*` macro. Use the `COMMON_ASSERT*` macros, including
+   `$size`, `$low`, `$high`, `$left`, `$right`); the bit-vector functions
+   (`$countones`, `$countbits`, `$onehot*`, `$isunknown`), which Quartus
+   Lite does not synthesize, and the sampled-value functions (`$past`,
+   `$stable`, `$rose`, `$fell`, `$changed`, `$sampled`) are allowed only
+   inside the arguments of a `COMMON_ASSERT*` macro; logic counts ones
+   with a package function. Use the `COMMON_ASSERT*` macros, including
    `COMMON_ASSERT_PARAM` for parameter checks ([assertions](#assertions)),
    and give each a plain identifier as its name or label: the macro pastes
    it as a bare token. Rules `raw-assertion`, `raw-initial`, `system-task`,
@@ -206,7 +208,22 @@ and simulation.
 - **Ports.** ANSI ports with explicit direction, type and width. Named
   connections (`.port(sig)`) on every instance; no `.*`, no positional
   connections.
-- **Generate blocks** carry a `g_<name>` label.
+- **Generate blocks** carry a `g_<name>` label, and every module-level
+  generate construct (`for`, `if`, `case`) sits inside an explicit
+  `generate ... endgenerate` region. Quartus Lite reads the RTL as
+  SystemVerilog-2005 and rejects a bare region (`Error (10170)`), which
+  Verilator accepts; the region adds no scope, so block names and
+  hierarchy are unchanged (style rule `bare-generate`). A loop's `genvar`
+  is declared at module level (`genvar i;`, then `for (i = 0; ...)`), not
+  in the `for` header, which Quartus Lite also rejects (`inline-genvar`).
+- **Assignment-pattern keys** (`'{sym0: a, sym1: b}`) never repeat a
+  name used in the same scope: Quartus Lite resolves such a key as the net,
+  parameter or function of that name, not the struct member (style rule
+  `pattern-key-name`). Rename the local, not the struct member. A
+  pattern is only ever the whole right-hand side of `=`, a `return` value
+  or an element of an enclosing pattern; as a `?:` or comparison operand
+  Quartus Lite cannot type it, so name the value with a package constant
+  or a signal (`pattern-context`).
 - **Macros** are only the vocabulary's: a design file defines none.
 - **No functions with side effects, no tasks** in RTL. Pure helper functions
   live in the owning package.

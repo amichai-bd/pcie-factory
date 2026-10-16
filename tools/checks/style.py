@@ -89,8 +89,9 @@ RULES = {
     "raw-initial": ("assertions", "no initial or final block outside the vocabulary headers"),
     "system-task": ("assertions",
                     "no system task or function ($display, $finish, $readmemh, ...) outside the "
-                    "vocabulary headers, except pure functions ($bits, $clog2, $signed, ...) and "
-                    "the sampled-value functions (see sampled-value)"),
+                    "vocabulary headers, except pure functions ($bits, $clog2, $signed, ...), the "
+                    "bit-vector functions ($countones, $onehot, ...) inside a COMMON_ASSERT* "
+                    "argument, and the sampled-value functions (see sampled-value)"),
     "sampled-value": ("assertions",
                       "$past, $stable, $rose, $fell, $changed and $sampled only inside the "
                       "arguments of a COMMON_ASSERT* vocabulary macro (elsewhere $past is a "
@@ -116,6 +117,19 @@ RULES = {
     "include-path": ("includes", "`include names a vocabulary header by its bare file name"),
     "vocabulary-include": ("includes",
                            "a file that uses a vocabulary macro `includes the vocabulary itself"),
+    "bare-generate": ("systemverilog-rules",
+                      "a module-level for, if or case (a generate construct) sits inside "
+                      "generate ... endgenerate (Quartus Lite rejects a bare generate region)"),
+    "inline-genvar": ("systemverilog-rules",
+                      "no genvar declared in a for header; declare it at module level "
+                      "(Quartus Lite rejects for (genvar i ...))"),
+    "pattern-key-name": ("systemverilog-rules",
+                         "a member key of an assignment pattern ('{key: value}) is not also a "
+                         "name used in the same scope (Quartus Lite resolves the key as that name)"),
+    "pattern-context": ("systemverilog-rules",
+                        "an assignment pattern is the whole right-hand side of an =, a return "
+                        "value or an element of an enclosing pattern; never a ?: or comparison "
+                        "operand, an argument or a typed T'{...} (Quartus Lite cannot type it)"),
 }
 
 # A tool directive comment: a tool keyword followed by a directive word.
@@ -161,9 +175,14 @@ _SYSTEM_RE = re.compile(r"(?<![\w$])\$[A-Za-z_][\w$]*")
 # the headers, except the sampled-value functions below.
 PURE_SYSTEM_FUNCTIONS = frozenset({
     "$bits", "$clog2", "$signed", "$unsigned", "$size", "$low", "$high", "$left", "$right",
-    "$increment", "$dimensions", "$unpacked_dimensions", "$countones", "$countbits",
-    "$onehot", "$onehot0", "$isunknown",
+    "$increment", "$dimensions", "$unpacked_dimensions",
 })
+# Bit-vector functions: pure, but Quartus Lite does not synthesize them
+# (Error 10174 for $countones), so like the sampled-value functions they are
+# legal only inside the arguments of an assertion macro, which synthesis
+# compiles out.
+ASSERTION_FUNCTIONS = frozenset({"$countones", "$countbits", "$onehot", "$onehot0",
+                                 "$isunknown"})
 # Sampled-value functions: legal only inside the arguments of an assertion
 # macro (rule sampled-value). Outside one, with a default clocking block in
 # scope, `assign r = $past(d);` is a register that bypasses the DFF macros.
@@ -434,6 +453,204 @@ def find_nonblocking(text: str) -> list[int]:
     return hits
 
 
+_TOKEN_RE = re.compile(r"`?[A-Za-z_][\w$]*|\S")
+_OPEN = {"(": ")", "[": "]", "{": "}"}
+_PROCESSES = frozenset({"always", "always_comb", "always_ff", "always_latch", "initial", "final"})
+_ROUTINES = {"function": "endfunction", "task": "endtask"}
+_CASES = frozenset({"case", "casez", "casex"})
+
+
+def bare_generate(text: str) -> list[int]:
+    """Indices of module-level ``for``, ``if`` and ``case`` keywords (generate
+    constructs) outside a ``generate ... endgenerate`` region, in
+    comment-stripped ``text``. A token scan, not a parser: bracket groups
+    (expressions, port lists, macro arguments) are skipped whole; process
+    bodies (``always*``, ``initial``, ``final``) and functions or tasks are
+    skipped, so their ``for``/``if``/``case`` statements are procedural. Only
+    the outermost construct of a bare region is reported."""
+    toks = [(m.group(), m.start()) for m in _TOKEN_RE.finditer(text)]
+    n = len(toks)
+
+    def group(k: int) -> int:
+        """Index just past the bracket group opening at token ``k``."""
+        stack = []
+        while k < n:
+            t = toks[k][0]
+            if t in _OPEN:
+                stack.append(_OPEN[t])
+            elif stack and t == stack[-1]:
+                stack.pop()
+                if not stack:
+                    return k + 1
+            k += 1
+        return n
+
+    def until(k: int, opens: frozenset[str] | set[str], close: str) -> int:
+        """Index just past the ``close`` that matches the opener at ``k``."""
+        depth = 0
+        while k < n:
+            t = toks[k][0]
+            if t in _OPEN:
+                k = group(k)
+                continue
+            if t in opens:
+                depth += 1
+            elif t == close:
+                depth -= 1
+                if depth == 0:
+                    k += 1
+                    if k + 1 < n and toks[k][0] == ":":  # end : label
+                        k += 2
+                    return k
+            k += 1
+        return n
+
+    def statement(k: int) -> int:
+        """Index just past the statement (or generate item) at token ``k``."""
+        while k < n and toks[k][0] in ("@", "#"):  # timing control
+            k += 1
+            if k < n and toks[k][0] in _OPEN:
+                k = group(k)
+            elif k < n:
+                k += 1
+        if k >= n:
+            return n
+        t = toks[k][0]
+        if t in ("unique", "unique0", "priority"):
+            return statement(k + 1)
+        if t == "begin":
+            return until(k, {"begin"}, "end")
+        if t in _CASES:
+            return until(k, _CASES, "endcase")
+        if t in ("if", "for", "while", "repeat", "foreach"):
+            k += 1
+            if k < n and toks[k][0] == "(":
+                k = group(k)
+            k = statement(k)
+            if t == "if" and k < n and toks[k][0] == "else":
+                k = statement(k + 1)
+            return k
+        while k < n and toks[k][0] != ";":
+            k = group(k) if toks[k][0] in _OPEN else k + 1
+        return k + 1
+
+    hits: list[int] = []
+    module = False
+    regions = 0
+    k = 0
+    while k < n:
+        t, pos = toks[k]
+        if t in _OPEN:
+            k = group(k)
+            continue
+        if t in ("module", "macromodule"):
+            module = True
+        elif t == "endmodule":
+            module = False
+        elif t == "generate":
+            regions += 1
+        elif t == "endgenerate":
+            regions = max(regions - 1, 0)
+        elif module and regions == 0:
+            if t in _PROCESSES:
+                k = statement(k + 1)
+                continue
+            if t in _ROUTINES:
+                k = until(k, {t}, _ROUTINES[t])
+                continue
+            if t in ("for", "if") or t in _CASES:
+                hits.append(pos)
+                k = statement(k)
+                continue
+        k += 1
+    return hits
+
+
+def _blank(text: str, start: int, end: int) -> str:
+    """``text`` with ``[start, end)`` blanked, newlines kept."""
+    return text[:start] + re.sub(r"[^\n]", " ", text[start:end]) + text[end:]
+
+
+def pattern_key_clashes(text: str) -> list[tuple[int, str]]:
+    """(index, key) for each member key of an assignment pattern
+    (`` '{key: value, ...}``; ``default`` excepted) that is also a bare
+    identifier elsewhere in its scope, in comment-stripped ``text``. A bare
+    use (not after ``.``, ``::``, `` ` `` or ``'``, not itself a key) means
+    the name resolves to something there, a net, parameter, type or
+    function, which Quartus Lite takes for the key. A pattern's scope is the
+    text outside every function and task, plus the routine it sits in;
+    struct and union bodies (member declarations) are not uses."""
+    for m in list(re.finditer(r"\b(?:struct|union)\b[^{;]*\{", text)):
+        text = _blank(text, m.end() - 1, _balanced(text, m.end() - 1))
+    routines = [(m.start(), (text.find(f"end{m.group(1)}", m.end()) + 1 or len(text) + 1) - 1)
+                for m in re.finditer(r"\b(function|task)\b", text)]
+    keys: list[tuple[int, str]] = []
+    for m in re.finditer(r"'\{", text):
+        group = text[m.start():_balanced(text, m.start() + 1)]
+        for k in re.finditer(r"(?:'\{|,)\s*([A-Za-z_][\w$]*)\s*:(?!:)", group):
+            if k.group(1) != "default":
+                keys.append((m.start() + k.start(1), k.group(1)))
+    at = {index for index, _ in keys}
+    out = []
+    for index, key in keys:
+        inside = [span for span in routines if span[0] <= index < span[1]]
+        for u in re.finditer(rf"(?<![\w$.`'])(?<!::){re.escape(key)}(?![\w$])", text):
+            spans = [span for span in routines if span[0] <= u.start() < span[1]]
+            if u.start() not in at and (not spans or spans == inside):
+                out.append((index, key))
+                break
+    return out
+
+
+def pattern_contexts(text: str) -> list[int]:
+    """Indices of assignment patterns (`` '{``) in comment-stripped
+    ``text`` that are not in an assignment context: the right-hand side
+    directly after ``=`` (not ``==``, ``!=``, ``<=``, ``>=``), a ``return``
+    value, or an element of an enclosing pattern (directly after its
+    `` '{``, a ``,`` or a ``key:``). The closing brace must be followed by
+    the context's delimiter, not an operator selecting or comparing the
+    pattern. A typed pattern (``T'{``) is reported too:
+    only the assignment contexts are proven with Quartus Lite."""
+    out = []
+    for m in re.finditer(r"'\{", text):
+        before = text[:m.start()]
+        if re.search(r"[\w$)\]]$", before):  # T'{...}
+            out.append(m.start())
+            continue
+        head = before.rstrip()
+        tail = text[_balanced(text, m.start() + 1):].lstrip()
+        after = tail[:1]
+        if re.search(r"(?<![=!<>])=$", head) and after in {";", ",", ")"}:
+            continue
+        if re.search(r"\breturn$", head) and after == ";":
+            continue
+        outer = None  # the enclosing bracket group's opening, if it is a pattern
+        depth = 0
+        for i in range(m.start() - 1, -1, -1):
+            c = text[i]
+            if c in ")]}":
+                depth += 1
+            elif c in "([{":
+                if depth == 0:
+                    outer = i if c == "{" and text[i - 1:i] == "'" else None
+                    break
+                depth -= 1
+        if outer is not None:
+            last, depth = outer + 1, 0  # just after the last element separator
+            for i in range(outer + 1, m.start()):
+                if text[i] in "([{":
+                    depth += 1
+                elif text[i] in ")]}":
+                    depth -= 1
+                elif text[i] == "," and depth == 0:
+                    last = i + 1
+            if (after in {",", "}"}
+                    and re.fullmatch(r"\s*(?:[A-Za-z_][\w$]*\s*:)?\s*", text[last:m.start()])):
+                continue
+        out.append(m.start())
+    return out
+
+
 def assert_argument_spans(text: str, vocab: Vocabulary) -> list[tuple[int, int]]:
     """Spans of the parenthesized argument lists of `` `COMMON_ASSERT*``
     calls in comment-stripped ``text``, for function-like macros a
@@ -478,6 +695,10 @@ def vocabulary_findings(relpath: str, text: str, vocab: Vocabulary) -> list[str]
                 if not _in(m.start(), asserts):
                     add("sampled-value", m.start(),
                         f"{m.group()} outside a {ASSERT_MACRO_PREFIX}* macro argument")
+            elif m.group() in ASSERTION_FUNCTIONS:
+                if not _in(m.start(), asserts):
+                    add("system-task", m.start(), f"{m.group()} outside a {ASSERT_MACRO_PREFIX}* "
+                        "macro argument (not synthesized by every flow)")
             elif m.group() not in PURE_SYSTEM_FUNCTIONS and not _ASSERTION_RE.fullmatch(m.group()):
                 add("system-task", m.start(), m.group())
         for m in re.finditer(r"`([A-Za-z_][\w$]*)", text):
@@ -565,6 +786,15 @@ def check_text(relpath: str, raw: str, expected_prefix: str | None,
         add("interface-union", m.start(), m.group())
     for m in re.finditer(r"\.\s*\*", body):
         add("wildcard-connection", m.start(), ".*")
+    for m in re.finditer(r"\bfor\s*\(\s*genvar\b", body):
+        add("inline-genvar", m.start(), "for (genvar ...): declare the genvar at module level")
+    for index, key in pattern_key_clashes(body):
+        add("pattern-key-name", index, f"pattern key {key} is also a name in this scope")
+    for index in pattern_contexts(body):
+        add("pattern-context", index, "assignment pattern outside an assignment context")
+    for index in bare_generate(body):
+        add("bare-generate", index, f"module-level {_IDENT.match(body, index).group()} "
+            "outside generate ... endgenerate")
     packages = _package_spans(body)
     for m in re.finditer(r"\b(task|function)\b", body):
         if m.group(1) == "task" or not _in(m.start(), packages):
