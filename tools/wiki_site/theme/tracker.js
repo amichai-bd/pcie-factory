@@ -58,6 +58,7 @@
     opts.scales.x.ticks.stepSize = 1;
     opts.scales.x.ticks.autoSkip = true;
     opts.scales.x.ticks.maxRotation = 0;
+    if (spec.max_ticks) opts.scales.x.ticks.maxTicksLimit = spec.max_ticks;
     opts.scales.x.ticks.callback = function (v) { return commit(v); };
     opts.scales.x.grid.display = false;
     opts.scales.x.afterBuildTicks = function (scale) {  // one tick per commit; autoSkip thins labels

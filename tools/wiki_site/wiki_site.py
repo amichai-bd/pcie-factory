@@ -264,8 +264,10 @@ class Site:
             self.pages[src] = Page(self.md, src, md)
             if rel == f"{tracker.IP_DIR}/index.md":
                 ips.landing = src
-            else:
+            elif rel.startswith(f"{tracker.IP_DIR}/"):
                 ips.pages.append(src)
+            else:
+                folder.pages.append(src)
         folder.folders.insert(0, ips)
         self.tree.folders = [f for f in self.tree.folders if f is not folder]
         self.tracker = folder

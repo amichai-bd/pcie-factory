@@ -3,7 +3,7 @@
 `wiki_site.py` calls `render()` when `wiki/tracker/index.md` exists. It reads
 `commits.jsonl` (one line per commit on main) and the nightly `<date>.json`
 records, and returns Markdown (headings plus raw HTML blocks) appended to
-that landing page, plus one generated page per IP. Every trend shares one
+that landing page, plus detailed stats and one generated page per IP. Every trend shares one
 x axis, main commits in order labelled by the first 7 hex digits of the SHA,
 and the trends of a page share one x range. Charts are `<canvas>`
 placeholders whose data travels in one inline JSON block per page;
@@ -36,6 +36,7 @@ LIST_ROWS = 20  # rows in open-PR / open-issue / slowest-test tables
 BLANK_LINE = re.compile(r"\n[ \t]*\n")  # ends a Markdown HTML block (line endings normalised to \n first)
 STALE_DAYS = 7  # an open issue with no activity for longer is stale
 CI_WINDOW = 20  # ci-gate pass rate window, in runs on main
+RECENT_COMMITS = 30  # landing trends only; full history stays in details
 
 # Code kinds (cfg/metrics.yaml keys) in their fixed colour order: the first
 # SLOTS own their slot; later and unknown kinds (sorted) take a slot left free
@@ -642,6 +643,167 @@ def status_series(points, get_value, get_result, label) -> list[dict]:
 
 
 # ----------------------------------------------------------------- sections
+def test_summary(r) -> tuple[float | None, float | None, str]:
+    """Never infer passed tests from a missing failure count."""
+    levels = test_levels(r)
+    counts = [level_value(levels, k, "count") for k in levels]
+    passed = [level_value(levels, k, "passed") for k in levels]
+    failed = [level_value(levels, k, "failed") for k in levels]
+    total = sum(counts) if counts and all(v is not None and v >= 0 for v in counts) else None
+    passes = sum(passed) if passed and all(v is not None and v >= 0 for v in passed) else None
+    bad = dig(r, "tests.passed") is False or any(v is not None and v > 0 for v in failed)
+    bad |= status_of(text(r, "tests.status")) == "critical"
+    bad |= (first(r, "tests.builds.failed") or 0) > 0
+    complete = total is not None and total > 0 and counts == passed and all(v == 0 for v in failed)
+    return passes, total, "critical" if bad else "good" if complete else "info"
+
+
+def coverage_status(r) -> str:
+    reported = dig(r, "coverage.passed")
+    floors = [dig(m, "floors_passed") for m in flow_ips(r, "coverage").values()]
+    if reported is False or any(v is False for v in floors) or status_of(text(r, "coverage.status")) == "critical":
+        return "critical"
+    if reported is True and floors and all(v is True for v in floors):
+        return "good"
+    return "info"
+
+
+def duration_label(seconds) -> str:
+    if seconds is None or seconds < 0:
+        return "Duration unavailable"
+    minutes, seconds = divmod(round(seconds), 60)
+    return f"{minutes}m {seconds:02d}s"
+
+
+def snapshot(point: Point | None, label: str) -> str:
+    if point is None:
+        return f"{escape(label)}: no record yet"
+    return f"{escape(label)}: {escape(point.date)} · <code>{escape(point.sha[:7])}</code>"
+
+
+def flow_failed(m) -> bool:
+    """Physical flows may report a failed step with its diagnostic."""
+    result = text(m, "status") or ""
+    if (status_of(result) == "critical" or result in {"timeout", "incomplete"}
+            or re.match(r"^(?:incomplete:|[^:]+: (?:fail\b|timeout\b))", result)):
+        return True
+    steps = mapping(m, "flow.steps")
+    return (text(m, "flow.lint") in {"fail", "timeout"}
+            or any(text(step, "status") in {"fail", "timeout"} for step in steps.values()))
+
+
+def attention_html(items, prefix="") -> str:
+    return '<ul class="tracker-attention">' + ''.join(
+        f'<li>{badge(state, message)} <a href="{prefix}{target}" aria-label="Details: {escape(message)}">Details →</a></li>'
+        for _, state, message, target in items) + '</ul>'
+
+
+def overview_section(p: Page, d: Data, ips: list[str], details: Page) -> None:
+    night = d.nightly[-1].data if d.nightly else {}
+    p.html('<nav class="tracker-links" aria-label="Metrics views">'
+           '<a href="details/index.md">Detailed stats →</a>'
+           '<a href="ip/index.md">Explore by IP →</a></nav>')
+    p.html('<p class="tracker-asof">' + snapshot(d.nightly[-1] if d.nightly else None, "Nightly snapshot")
+           + '</p>')
+    res = nightly_result(night)
+    passed, total, tests_state = test_summary(night)
+    cov = coverage_status(night)
+    # Commit results are fresher than the health summary captured during nightly.
+    runs = [c for c in d.commits if status_of(ci_result(c.data)) in ("good", "critical")][-CI_WINDOW:]
+    rate = 100 * sum(status_of(ci_result(c.data)) == "good" for c in runs) / len(runs) if runs else None
+    count = len(runs)
+    if rate is None:
+        rate = scaled(first(h_ci_main(night), "pass_rate"), 100)
+        count = first(h_ci_main(night), "runs")
+        if count is None or count <= 0 or rate is None or not 0 <= rate <= 100:
+            rate = None
+    ci_state = "info" if rate is None else "good" if rate >= 95 else "warning" if rate >= 80 else "critical"
+    ci_note = f"Last {fmt(count)} runs on main" if rate is not None else "No completed runs recorded"
+    if runs:
+        ci_note = f"Last {fmt(count)} recorded main commits · through {runs[-1].date}"
+    elif rate is not None:
+        ci_note += " · nightly snapshot"
+    test_value = f"{fmt(passed)} / {fmt(total)}" if total is not None else "Unknown"
+    test_note = "Tests passed · " + ", ".join(level_label(k) for k in sorted(test_levels(night)))
+    if tests_state == "info":
+        test_note = "Incomplete test evidence"
+    cards = [
+        ("Nightly", status_of(res) or "info", res or "Unknown", duration_label(nightly_duration(night))),
+        ("Tests", tests_state, test_value, test_note),
+        ("CI pass rate", ci_state, fmt(rate, "%") if rate is not None else "Unknown", ci_note),
+        ("Coverage floors", cov, {"good": "Met", "critical": "Not met", "info": "Unknown"}[cov],
+         "Recorded coverage requirements"),
+    ]
+    p.html('<div class="tracker-cards tracker-overview-cards">' + ''.join(
+        f'<div class="tracker-card"><div class="tracker-card-label">{escape(label)}</div>'
+        f'<div class="tracker-card-value">{badge(state, value)}</div>'
+        f'<div class="tracker-card-note">{escape(note)}</div></div>'
+        for label, state, value, note in cards) + '</div>')
+    attention: list[tuple[int, str, str, str]] = []
+    if status_of(res) == "critical":
+        attention.append((0, "critical", f"Nightly result: {res}.", "details/index.md#nightly-and-tests"))
+    for step, result in sorted(mapping(night, "meta.nightly.steps").items()):
+        if isinstance(result, str) and status_of(result) == "critical":
+            attention.append((0, "critical", f"Nightly {step}: {result}.", "details/index.md#nightly-and-tests"))
+    if tests_state == "critical":
+        attention.append((0, "critical", "Test or regression build failures recorded.", "details/index.md#nightly-and-tests"))
+    if runs and status_of(ci_result(runs[-1].data)) == "critical":
+        attention.append((0, "critical", f"Latest recorded main CI failed ({runs[-1].sha[:7]}, {runs[-1].date}).",
+                          "details/index.md#ci"))
+    if cov == "critical":
+        attention.append((1, "critical", "Coverage requirements were not met.", "details/index.md#coverage"))
+    for ip in ips:
+        for name, getter in (("FPGA", fpga_ip), ("ASIC", asic_ip), ("Architecture model", arch_ip)):
+            m = getter(night, ip)
+            target = f"{IP_DIR}/{quote(ip)}/index.md#{name.lower().replace(' ', '-')}"
+            result = text(m, "status")
+            if flow_failed(m):
+                attention.append((0, "critical", f"{ip}: {name} result is {result or 'failed'}.", target))
+            if name == "ASIC":
+                wns = ASIC[0].get(m)
+                clocks = [first(c, "wns_ns") for c in mapping(m, "timing.clocks").values()]
+                values = [v for v in [wns, *clocks] if v is not None]
+                if values and min(values) < 0:
+                    attention.append((1, "warning", f"{ip}: ASIC timing gap · WNS {fmt(min(values), 'ns')}.", target))
+            if name == "FPGA" and (dig(m, "timing.met") is False or
+                                    (FPGA[-1].get(m) is not None and FPGA[-1].get(m) < 0)):
+                attention.append((1, "warning", f"{ip}: FPGA timing requirements were not met.", target))
+    unknown = [label for label, state, _, _ in cards if state == "info"]
+    if unknown:
+        attention.append((2, "info", "Incomplete evidence: " + ", ".join(unknown) + ".", "details/index.md"))
+    p.md("## Needs attention")
+    if attention:
+        ordered = sorted(attention, key=lambda a: a[0])
+        p.html(attention_html(ordered[:5]))
+        details.md("## Needs attention")
+        details.html(attention_html(ordered, "../"))
+        if len(ordered) > 5:
+            p.html(f'<p><a href="details/index.md#needs-attention">{len(ordered) - 5} more items · view all metrics →</a></p>')
+    else:
+        p.html('<p>No failures or timing gaps reported in this snapshot. '
+               '<a href="details/index.md">Inspect the full evidence →</a></p>')
+    p.md("## Recent runtimes")
+    p.html('<p class="tracker-asof">' + snapshot(d.commits[-1] if d.commits else None, "Commit data through")
+           + f" · latest {RECENT_COMMITS} main commits</p>")
+    start = max(0, len(d.axis) - RECENT_COMMITS)
+    p.html('<div class="tracker-runtime-grid">')
+    for cid, label, points, duration, result in (
+        ("ci-duration", "CI", d.commits, ci_duration, ci_result),
+        ("nightly-duration", "Nightly", d.nightly, nightly_duration, nightly_result),
+    ):
+        if not p.trend(cid, f"{label} runtime", "minutes", status_series(
+                [pt for pt in points if pt.idx >= start], lambda r, duration=duration: scaled(duration(r), 1 / 60),
+                result, label)):
+            p.html(empty(f"No recent {label} runtime recorded."))
+    p.html('</div>')
+    for chart in p.charts.values():
+        chart["max_ticks"] = 4
+    p.md("## Explore by IP")
+    p.html('<p class="tracker-links">' + ' '.join(
+        f'<a href="{IP_DIR}/{quote(ip)}/index.md">{escape(ip)} →</a>' for ip in ips) + '</p>'
+        if ips else empty("No record names an IP yet."))
+
+
 def health_section(p: Page, d: Data) -> None:
     p.md("## Repo health")
     night = d.nightly[-1].data if d.nightly else {}
@@ -654,14 +816,16 @@ def health_section(p: Page, d: Data) -> None:
                                        "nightly-red open" if red else "green")))
     main = h_ci_main(night)
     rate, n_runs = scaled(first(main, "pass_rate"), 100), first(main, "runs")
+    ci_source = "nightly run snapshot"
     if rate is None:
+        ci_source = "recorded commits"
         runs = [ci_result(c.data) for c in d.commits if status_of(ci_result(c.data)) in ("good", "critical")]
         runs = runs[-CI_WINDOW:]
         if runs:
             rate, n_runs = 100 * sum(status_of(r) == "good" for r in runs) / len(runs), len(runs)
     if rate is not None:
         lvl = "good" if rate >= 95 else "warning" if rate >= 80 else "critical"
-        cards.append((f"ci-gate pass rate, last {fmt(n_runs)} runs on main", badge(lvl, fmt(rate, "%"))))
+        cards.append((f"ci-gate pass rate, last {fmt(n_runs)} runs on main ({ci_source})", badge(lvl, fmt(rate, "%"))))
     prs = h_open_prs(night)
     pr_ages = _ages_days(prs)
     if isinstance(prs, dict) and first(prs, "count") is not None:
@@ -689,8 +853,9 @@ def health_section(p: Page, d: Data) -> None:
         p.html(empty("No health data yet."))
         return
     latest = (d.commits or d.nightly)[-1]
-    p.html(f'<p class="tracker-asof">As of commit <code>{escape(d.axis[latest.idx][0])}</code> '
-           f"({escape(latest.date)}); {len(d.commits)} commits and {len(d.nightly)} nightly records. "
+    p.html('<p class="tracker-asof">' + snapshot(latest, "Code and commit data through") + "; "
+           + snapshot(d.nightly[-1] if d.nightly else None, "Health snapshot") + ". "
+           f"{len(d.commits)} commits and {len(d.nightly)} nightly records. "
            f"Stale: no activity for more than {fmt(first(issues, 'stale_days') or STALE_DAYS)} days.</p>")
     p.html('<div class="tracker-cards">' + "".join(
         f'<div class="tracker-card"><div class="tracker-card-label">{escape(k)}</div>'
@@ -1075,17 +1240,30 @@ def render(data_dir: Path) -> tuple[str, dict[str, str], list[str]]:
     d = load(data_dir)
     ips, bad = ip_ids(d)
     problems = d.problems + bad
-    generated = {f"{IP_DIR}/index.md": ip_index(ips, d)}
-    p = Page(d.axis)
+    p = Page(d.axis, "details/index.md")
+    p.md("# Detailed stats")
+    p.html('<p><a href="../index.md">← Status overview</a> · '
+           '<a href="../ip/index.md">Per-IP metrics</a></p>')
+    p.html('<p>Full history, comparisons and distributions. Trends share the main-commit axis; '
+           'each chart includes a data table. Code and CI are recorded per commit; tests, coverage, '
+           'physical results and repository health are nightly snapshots.</p>')
+    p.html('<p>The nightly adds records through a data-only pull request, and the site rebuilds '
+           'after it merges. Updates can lag by a day. Records contain public counts and durations; '
+           'only the nightly bot writes them. '
+           '<a href="../../tools/wiki_site/SPEC.md#tracker">Data fields and interpretation</a>.</p>')
+    overview = Page(d.axis)
+    generated = {"details/index.md": p, f"{IP_DIR}/index.md": ip_index(ips, d)}
 
     def done():
         pages = {path: g.text() for path, g in generated.items()}
-        return p.text(), pages, problems + [x for g in [p, *generated.values()] for x in g.problems]
+        return overview.text(), pages, problems + [x for g in [overview, *generated.values()] for x in g.problems]
     if d.empty:
+        overview.html(empty("No data yet: the nightly job has not published a snapshot."))
         p.md("## Repo health")
         p.html(empty("No data yet: the nightly job adds records to wiki/tracker/data/, "
                      "and this page then shows charts and tables."))
         return done()
+    overview_section(overview, d, ips, p)
     health_section(p, d)
     overview_compare(p, d)
     code_section(p, d, ips)
@@ -1097,7 +1275,7 @@ def render(data_dir: Path) -> tuple[str, dict[str, str], list[str]]:
     physical_section(p, d, ips, "ASIC", ASIC, asic_ip)
     arch_section(p, d, ips)
     p.md("## Per-IP pages")
-    p.html("<ul>" + "".join(f'<li><a href="{IP_DIR}/{quote(ip)}/index.md">{escape(ip)}</a></li>' for ip in ips)
+    p.html("<ul>" + "".join(f'<li><a href="../{IP_DIR}/{quote(ip)}/index.md">{escape(ip)}</a></li>' for ip in ips)
            + "</ul>" if ips else empty("No record names an IP yet."))
     for ip in ips:
         generated[f"{IP_DIR}/{ip}/index.md"] = ip_page(ip, d)

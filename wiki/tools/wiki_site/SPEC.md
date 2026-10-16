@@ -48,7 +48,7 @@ Dependencies are `markdown-it-py` and `Pygments`, pinned in
 | `CLAUDE.md` (repository root) | `agents.html` |
 | `.claude/skills/<name>/SKILL.md` | `skills/<name>.html` |
 | (theme) | `assets/wiki.css`, `wiki.js`, `tracker.js`, `mermaid.min.js`, `mermaid-LICENSE.txt`, `chart.umd.js`, `chart-LICENSE.md` |
-| (tracker) | `tracker/index.html` gains the rendered tracker; `tracker/ip/index.html` and `tracker/ip/<id>/index.html` are generated ([Tracker](#tracker)) |
+| (tracker) | `tracker/index.html` gains the rendered tracker; `tracker/details/index.html`, `tracker/ip/index.html` and `tracker/ip/<id>/index.html` are generated ([Tracker](#tracker)) |
 | (generated) | `assets/search-index.json` |
 
 The theme and generated paths under `assets/` are reserved: a wiki source that
@@ -235,7 +235,32 @@ ran on (`meta.commit`); a record whose commit is not in the series is
 ignored. Without `commits.jsonl`, the nightly records' SHAs, in date order,
 form the axis.
 
-**`/tracker/`** shows, in order:
+**`/tracker/`** is the compact status overview. It begins with links to the
+full detailed metrics and per-IP pages, then the nightly snapshot's own date
+and commit. Four cards show the recorded nightly result and duration, passed
+versus total tests across the recorded levels, recent CI pass rate, and
+coverage floor outcome. Missing evidence is neutral and labelled unknown;
+zero open nightly issues cannot establish a successful run. Tests require
+complete counts (including failures) to appear green, and coverage requires
+an explicit passing aggregate and passing per-IP floor results.
+
+CI uses the latest 20 completed results from recorded main commits, falling
+back to the nightly health summary when no completed results exist. Its
+context names the recorded-commit count and date, or the nightly run source.
+The detailed health card retains the separate nightly GitHub run snapshot,
+explicitly labelled; its denominator can differ from the commit series. Commit data has
+its own date/commit label, separate from the nightly snapshot.
+
+“Needs attention” puts recorded run, step, test/build, CI and physical-flow
+failures first, then coverage failures and physical timing gaps, then missing
+summary evidence. Negative ASIC WNS remains visible even when its flow
+passed; attention items link to the relevant evidence. At most five items
+appear, with a count and link to the full attention list on Detailed stats. Two compact runtime charts show CI and nightly on the latest 30
+main commits, with at most four x-axis tick labels and accessible data
+tables. Per-IP links complete the view.
+
+**`/tracker/details/`** preserves the full catalogue below, plus cadence and
+data interpretation links. Existing per-IP pages retain their content.
 
 | Section | Content |
 | --- | --- |
@@ -249,8 +274,8 @@ form the axis.
 | FPGA, ASIC | One chart per metric with a series per IP: LEs, registers, M9K blocks, worst-clock Fmax and setup slack; WNS, TNS, std-cell area, cells, max fanout and logic depth. |
 | Architecture model | From `arch.ips.<ip>.scenarios`: a table of each IP and perf scenario's latest status and target-metric values; perf scenarios not passing, a series per IP, on a y axis from 0; and one chart per target metric with a series per IP and scenario (`<ip> / <scenario>`). A chart's unit is the one its metric name carries: the words after the first, less a trailing statistic (`latency_cycles_max` is in cycles). |
 
-The Nightly card takes `meta.nightly.result` (legacy `nightly.result` fallback)
-from the latest record. Its issue snapshot can precede reporting, so an open
+The detailed page's legacy Nightly card takes `meta.nightly.result` (legacy
+`nightly.result` fallback) from the latest record. Its issue snapshot can precede reporting, so an open
 issue cannot override a passing result, nor zero issues a failing result.
 Only a record without a result falls back to `health.nightly_red.open`:
 nonzero is red, zero is green. Without either field the card is omitted.
@@ -293,8 +318,8 @@ Sturges' count; a small integer range gets one bin per value, and a long tail
 first bin edge above the p90.
 
 **No data.** With an empty or missing `data/`, the site still builds:
-`/tracker/` and `/tracker/ip/` say "No data yet", and each empty section or
-IP group says so too. Every value from a record is HTML-escaped, and the
+`/tracker/`, `/tracker/details/` and `/tracker/ip/` say "No data yet", and
+each empty section or IP group says so too. Every value from a record is HTML-escaped, and the
 inline JSON escapes `<`, `>`, `&` and `'`.
 
 ## Publishing
