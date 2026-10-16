@@ -50,7 +50,13 @@ names the file.
 Everything runs in `workdir/<ip>/fpga/`, which a real run deletes and
 recreates first (`--dry-run` only overwrites the two scripts). Each step runs in its own process group, with stdout and stderr in
 `logs/<step>.log` (first line: the command). A step that exceeds the
-timeout has its group killed and counts as `timeout`. The first step that
+timeout has its group killed and counts as `timeout`. SIGINT or SIGTERM
+also kills the active step's whole process group and waits for its leader,
+including when cancellation arrives through `ci vendor`. The flow stops
+without running later steps or publishing metrics, the CLI exits 130, and
+the previous signal handlers are restored. Signals arriving during process
+creation are deferred until the group handle is available, then cleaned up;
+repeated signals cannot interrupt kill/reap. The first step that
 fails or times out stops the flow and prints its
 [failure excerpt](../build/SPEC.md#failure-excerpt): every error line of its
 log (Quartus `Error (<id>):` and `Critical Warning[ (<id>)]:` messages,
@@ -153,8 +159,9 @@ Because `fpga/` lives in `workdir/<ip>/`, no test may be named `fpga`
 
 `.github/workflows/fpga.yml` runs on `[self-hosted, linux, x64]` (the host
 with Quartus) with `contents: read` and a 90-minute job timeout. It has
-**manual dispatch only**: per decision Q26, Quartus runs in nightly L2 or on
-demand, never on pull requests. Input `ip` runs `./build fpga --ip <ip>`,
+**manual dispatch only**; required CI separately runs full Quartus on
+affected targets ([CI selection](../ci/SPEC.md#build-ci-vendor)).
+Input `ip` runs `./build fpga --ip <ip>`,
 or `--all` when empty; nightly (DevOps BKM) calls `./build fpga --all`
 itself. The job still carries the fork guard
 (`head.repo.full_name == github.repository`) from the
@@ -191,3 +198,11 @@ log that leaves the host.
   than 30 lines before its end) before the tail,
   lint failure, timing not met, and a step timeout killing its group; and
   the CLI (`--dry-run`, `--all`, missing Quartus, IP without `src/fpga/<ip>/`).
+
+The cancellation integration tests drive `ci vendor` through the FPGA CLI
+into fake Quartus executables. A fake map step starts a writing grandchild;
+SIGINT and SIGTERM must stop the group and its writes, return 130, and
+leave later steps and success metrics absent. Handler restoration is
+checked on ordinary completion and timeout. Process-creation tests inject
+cancellation before and after spawning a real child, before its handle is
+returned to the caller, and require the child to be killed and reaped.

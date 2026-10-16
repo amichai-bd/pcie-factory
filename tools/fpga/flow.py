@@ -290,28 +290,55 @@ class StepResult:
 
 
 def run_step(name: str, cmd: list[str], cwd: Path, log: Path, timeout_s: float) -> StepResult:
-    """Run one command in its own process group; kill the group on timeout."""
+    """Run in a process group; kill and reap it on timeout or cancellation."""
     start = time.monotonic()
     with open(log, "w") as fh:
         fh.write("$ " + " ".join(cmd) + "\n")
         fh.flush()
+        proc = None
+        interruptible = False
+        cancelled = False
+
+        def cancel(signum, frame):
+            nonlocal cancelled
+            cancelled = True
+            # Popen must return its child handle before cancellation can kill
+            # that group. Raising inside process creation can lose the handle.
+            if interruptible:
+                raise KeyboardInterrupt
+
+        previous = {sig: signal.signal(sig, cancel)
+                    for sig in (signal.SIGINT, signal.SIGTERM)}
         try:
-            proc = subprocess.Popen(cmd, cwd=cwd, stdout=fh, stderr=subprocess.STDOUT,
-                                    start_new_session=True)
-        except OSError as exc:
-            fh.write(f"cannot start: {exc}\n")
-            return StepResult(name, "fail", 0.0, log)
-        try:
+            try:
+                proc = subprocess.Popen(cmd, cwd=cwd, stdout=fh, stderr=subprocess.STDOUT,
+                                        start_new_session=True)
+            except OSError as exc:
+                if cancelled:
+                    raise KeyboardInterrupt
+                fh.write(f"cannot start: {exc}\n")
+                return StepResult(name, "fail", 0.0, log)
+            interruptible = True
+            if cancelled:
+                raise KeyboardInterrupt
             code = proc.wait(timeout=timeout_s)
             status = "pass" if code == 0 else "fail"
-        except subprocess.TimeoutExpired:
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            proc.wait()
+        except (subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
+            interruptible = False  # Repeated signals must not interrupt kill/reap.
+            if proc is not None:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                proc.wait()
+            if isinstance(exc, KeyboardInterrupt):
+                fh.write("\ncancelled; process group killed\n")
+                raise
             fh.write(f"\ntimeout after {timeout_s:.0f}s; process group killed\n")
             status = "timeout"
+        finally:
+            for sig, handler in previous.items():
+                signal.signal(sig, handler)
     return StepResult(name, status, time.monotonic() - start, log)
 
 
