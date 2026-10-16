@@ -22,7 +22,8 @@ LANDING = "# Metrics tracker\n\nIntro text.\n"
 
 def tree(root: Path, data: dict[str, str] | None = None, fixtures: bool = False) -> Path:
     files = {"wiki/index.md": "# Home\n\nSee [tracker](tracker/index.md).\n",
-             "wiki/tracker/index.md": LANDING, "wiki/tracker/data/.gitkeep": ""}
+             "wiki/tracker/index.md": LANDING, "wiki/tracker/data/.gitkeep": "",
+             "wiki/tools/wiki_site/SPEC.md": "# Wiki site\n\n## Tracker\n"}
     for rel, txt in files.items():
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text(txt, encoding="utf-8")
@@ -65,8 +66,8 @@ def nightly(date: str, n: int, result: str | None = None, duration: float | None
 def test_fixture_data_renders_every_section(tmp_path):
     problems, out = build(tree(tmp_path, fixtures=True))
     assert problems == []
-    html = (out / "tracker/index.html").read_text()
-    assert "Intro text." in html  # the landing text stays on top
+    html = (out / "tracker/details/index.html").read_text()
+    assert "Intro text." in (out / "tracker/index.html").read_text()
     for heading in ("Repo health", "Latest vs 7 and 30 days ago", "Code", "File-type distribution", "CI",
                     "Nightly and tests", "Slowest tests", "Issues and pull requests", "FPGA", "ASIC",
                     "Per-IP pages", "Open pull requests", "Open issues"):
@@ -111,7 +112,7 @@ def test_compare_uses_points_at_least_7_and_30_days_back(tmp_path):
                     for i, d in enumerate((1, 2, 10, 20, 30)))
     problems, out = build(tree(tmp_path, {"commits.jsonl": lines}))
     assert problems == []
-    html = (out / "tracker/index.html").read_text()
+    html = (out / "tracker/details/index.html").read_text()
     row = re.search(r"<tr><td>Lines of code</td>(.*?)</tr>", html).group(1)
     cells = re.findall(r"<td>(.*?)</td>", row)
     assert cells[0].startswith("3,000") and "2026-09-30" in cells[0]
@@ -134,7 +135,7 @@ def test_per_ip_pages_and_sidebar(tmp_path):
     index = (out / "tracker/ip/index.html").read_text()
     assert 'href="beta/core/index.html">beta/core</a>' in index
     landing = (out / "tracker/index.html").read_text()
-    assert 'href="ip/beta/core/index.html">beta/core</a>' in landing
+    assert 'href="ip/beta/core/index.html">beta/core →</a>' in landing
     # sidebar: Per-IP metrics folder under the tracker, every IP page listed
     site = wiki_site.Site(tmp_path, SHA, URL)
     nav = site.nav_pages()
@@ -172,7 +173,7 @@ def test_tracker_is_its_own_tab(tmp_path):
     # the tracker is not a wiki section; its own nav is the landing, then the IPs
     assert all(f.rel != "tracker" for f in site.sections)
     top, sections = site.nav("tracker/ip/alpha/index.html")
-    assert top == ["wiki/tracker/index.md"] and [f.rel for f in sections] == ["tracker/ip"]
+    assert top == ["wiki/tracker/index.md", "wiki/tracker/details/index.md"] and [f.rel for f in sections] == ["tracker/ip"]
     assert site.nav("other.html") == (site.top, site.sections)
     tabs = '<div class="navbar-tabs"><a{w} href="{r}index.html">Wiki</a><a{t} href="{r}tracker/index.html">Tracker</a></div>'
     on = ' class="active" aria-current="page"'
@@ -205,7 +206,7 @@ def test_no_data_builds_with_clear_message(tmp_path, with_dir):
         shutil.rmtree(root / "wiki/tracker/data")
     problems, out = build(root)
     assert problems == []
-    html = (out / "tracker/index.html").read_text()
+    html = (out / "tracker/details/index.html").read_text()
     assert "No data yet" in html and "tracker-data" not in html
     ip = (out / "tracker/ip/index.html").read_text()
     assert "No data yet" in ip
@@ -238,7 +239,7 @@ def test_nightly_card_prefers_result_to_issue_snapshot(tmp_path, result, open_is
     rec = nightly("2026-09-05", 7, result, health=health)
     problems, out = build(tree(tmp_path, {"2026-09-05.json": rec}))
     assert problems == []
-    html = (out / "tracker/index.html").read_text()
+    html = (out / "tracker/details/index.html").read_text()
     card = re.search(r'<div class="tracker-card-label">Nightly</div>'
                      r'<div class="tracker-card-value">(.*?)</div>', html)
     if level is None:
@@ -255,7 +256,7 @@ def test_partial_groups_and_unknown_fields(tmp_path):
                   fpga={"status": "unavailable", "reason": "missing"})
     problems, out = build(tree(tmp_path, {"2026-09-05.json": rec}))
     assert problems == []
-    html = (out / "tracker/index.html").read_text()
+    html = (out / "tracker/details/index.html").read_text()
     data = chart_data(html)
     assert data["axis"] == [[sha(7)[:7], "2026-09-05"]]  # no commits.jsonl: nightly SHAs form the axis
     assert data["charts"]["nightly-duration"]["series"][0]["label"] == "Nightly failed"
@@ -272,7 +273,7 @@ def test_commit_index_orders_the_axis(tmp_path):
     problems, out = build(tree(tmp_path, {"commits.jsonl": lines,
                                           "2026-09-02.json": nightly("2026-09-02", 1, "pass", 60)}))
     assert problems == []
-    data = chart_data((out / "tracker/index.html").read_text())
+    data = chart_data((out / "tracker/details/index.html").read_text())
     assert [a[1] for a in data["axis"]] == ["2026-09-01", "2026-09-02", "2026-09-03"]
     assert data["charts"]["nightly-duration"]["series"][0]["points"] == [[1, 1]]
 
@@ -285,7 +286,7 @@ def test_nightly_duration_is_the_collector_field(tmp_path):
                                           "2026-09-01.json": nightly("2026-09-01", 0, "pass", tests={"wall_s": 60}),
                                           "2026-09-02.json": nightly("2026-09-02", 1, "pass", 180)}))
     assert problems == []
-    data = chart_data((out / "tracker/index.html").read_text())
+    data = chart_data((out / "tracker/details/index.html").read_text())
     assert data["charts"]["nightly-duration"]["series"][0]["points"] == [[1, 3]]
 
 
@@ -296,7 +297,7 @@ def test_trends_share_one_x_range(tmp_path):
                                           "2026-09-03.json": nightly("2026-09-03", 2, "pass", 60),
                                           "2026-09-04.json": nightly("2026-09-04", 3, "pass", 120)}))
     assert problems == []
-    data = chart_data((out / "tracker/index.html").read_text())
+    data = chart_data((out / "tracker/details/index.html").read_text())
     assert data["xrange"] == [0, 3]
     assert [p[0] for p in data["charts"]["nightly-duration"]["series"][0]["points"]] == [2, 3]
 
@@ -308,12 +309,12 @@ def test_flow_charts_keep_every_ip_with_data(tmp_path):
                   fpga={"status": "ok", "ips": {ip: {"logic_elements": 5} for ip in ips[7:]}})
     problems, out = build(tree(tmp_path, {"2026-09-05.json": rec}))
     assert problems == []
-    chart = chart_data((out / "tracker/index.html").read_text())["charts"]["fpga-le"]
+    chart = chart_data((out / "tracker/details/index.html").read_text())["charts"]["fpga-le"]
     assert [(s["label"], s["color"]) for s in chart["series"]] == [("ip7", "1"), ("ip8", "2"), ("ip9", "3")]
     # more than eight IPs with data: eight drawn, the rest named in a note
     rec = nightly("2026-09-05", 1, fpga={"status": "ok", "ips": {ip: {"logic_elements": 5} for ip in ips}})
     problems, out = build(tree(tmp_path, {"2026-09-05.json": rec}))
-    html = (out / "tracker/index.html").read_text()
+    html = (out / "tracker/details/index.html").read_text()
     assert len(chart_data(html)["charts"]["fpga-le"]["series"]) == 8
     assert "2 more series not drawn" in html
 
@@ -326,8 +327,8 @@ def test_blank_line_in_a_value_is_a_problem(tmp_path):
                          "slowest": [{"ip": "x\r\n\r\ny", "name": "e\r\rf", "runtime_s": 1}]})
     problems, out = build(tree(tmp_path, {"2026-09-05.json": rec}))
     # one problem line per page, however many values carry blank lines
-    assert len(problems) == 1 and "wiki/tracker/index.md: a record value contains a blank line" in problems[0]
-    html = (out / "tracker/index.html").read_text()
+    assert len(problems) == 1 and "wiki/tracker/details/index.md: a record value contains a blank line" in problems[0]
+    html = (out / "tracker/details/index.html").read_text()
     assert "<code>a b</code>" in html and "<code>c d</code>" in html
     assert "x y" in html and "<code>e f</code>" in html
     assert wiki_site.main(["build", "--strict", "--root", str(tmp_path), "--out", str(out),
@@ -367,7 +368,7 @@ def test_commit_only_data(tmp_path):
         commit(3, "2026-09-03", ci={"status": "none"})
     problems, out = build(tree(tmp_path, {"commits.jsonl": lines}))
     assert problems == []
-    html = (out / "tracker/index.html").read_text()
+    html = (out / "tracker/details/index.html").read_text()
     assert "ci-gate pass rate, last 2 runs on main" in html and "50%" in html
     assert "No nightly or test data yet." in html
 
@@ -426,7 +427,7 @@ def test_values_are_html_escaped(tmp_path):
                         "by_ext": {evil: {"files": 1, "code": 2}}})
     problems, out = build(tree(tmp_path, {"2026-09-05.json": rec}))
     assert problems == []
-    html = (out / "tracker/index.html").read_text()
+    html = (out / "tracker/details/index.html").read_text()
     assert evil not in html.replace('<script type="application/json" id="tracker-data">', "")
     assert "&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;" in html
     assert html.count("</script>") == 3  # theme bootstrap, the data block and wiki.js only
@@ -478,7 +479,7 @@ def test_coverage_charts(tmp_path):
             "2026-09-03.json": nightly("2026-09-03", 3, "pass", tests=tests, coverage=cov(75.0, 40.0, 90.0))}
     problems, out = build(tree(tmp_path, data))
     assert problems == []
-    html = (out / "tracker/index.html").read_text()
+    html = (out / "tracker/details/index.html").read_text()
     assert ">Coverage<a" in html
     charts = chart_data(html)["charts"]
     assert charts["cov-line"]["series"][0]["label"] == "alpha"
@@ -493,7 +494,7 @@ def test_coverage_charts(tmp_path):
 def test_no_coverage_data_says_so(tmp_path):
     problems, out = build(tree(tmp_path, fixtures=True))
     assert problems == []
-    assert "No Coverage metrics yet." in (out / "tracker/index.html").read_text()
+    assert "No Coverage metrics yet." in (out / "tracker/details/index.html").read_text()
     assert "No coverage metrics yet for this IP." in (out / "tracker/ip/alpha/index.html").read_text()
 
 
@@ -515,7 +516,7 @@ def test_arch_charts(tmp_path):
                 half=("pass", {"throughput_ratio": 1.0, "latency_cycles_max": 1})))}
     problems, out = build(tree(tmp_path, data))
     assert problems == []
-    html = (out / "tracker/index.html").read_text()
+    html = (out / "tracker/details/index.html").read_text()
     assert ">Architecture model<a" in html and "from the 2026-09-03 nightly" in html
     charts = chart_data(html)["charts"]
     lat = charts["arch-latency_cycles_max"]
@@ -536,7 +537,7 @@ def test_arch_charts(tmp_path):
 def test_no_arch_data_says_so(tmp_path):
     problems, out = build(tree(tmp_path, fixtures=True))
     assert problems == []
-    assert "No architecture-model metrics yet." in (out / "tracker/index.html").read_text()
+    assert "No architecture-model metrics yet." in (out / "tracker/details/index.html").read_text()
     assert "No architecture-model metrics yet for this IP." in (out / "tracker/ip/alpha/index.html").read_text()
 
 
@@ -544,7 +545,7 @@ def test_arch_names_are_escaped_and_ids_safe(tmp_path):
     rec = nightly("2026-09-05", 1, "pass", arch=arch(**{"<b>x</b>": ("pass", {"a<b": 1, "a>b": 2})}))
     problems, out = build(tree(tmp_path, {"2026-09-05.json": rec}))
     assert problems == []
-    html = (out / "tracker/index.html").read_text()
+    html = (out / "tracker/details/index.html").read_text()
     assert "<b>x</b>" not in html and "&lt;b&gt;x&lt;/b&gt;" in html
     assert {"arch-a-b", "arch-a-b-2"} <= set(chart_data(html)["charts"])
 
@@ -561,7 +562,7 @@ def test_code_kind_beyond_the_slots_is_noted(tmp_path):
     kinds = {k: {"files": 1, "lines": 1, "code": 1} for k in tracker.KINDS}  # nine kinds with data
     problems, out = build(tree(tmp_path, {"commits.jsonl": commit(1, "2026-09-01", code={"kinds": kinds})}))
     assert problems == []
-    html = (out / "tracker/index.html").read_text()
+    html = (out / "tracker/details/index.html").read_text()
     labels = [s["label"] for s in chart_data(html)["charts"]["loc-kind"]["series"]]
     assert len(labels) == 8 and "Arch Python" not in labels and "Skills" in labels
     # the note names the hidden series, and the data table keeps its values
@@ -578,7 +579,7 @@ def test_code_kind_without_data_gives_up_its_slot(tmp_path, gone):
         kinds["workflows"] = gone       # zero everywhere counts as absent
     problems, out = build(tree(tmp_path, {"commits.jsonl": commit(1, "2026-09-01", code={"kinds": kinds})}))
     assert problems == []
-    html = (out / "tracker/index.html").read_text()
+    html = (out / "tracker/details/index.html").read_text()
     series = {s["label"]: s["color"] for s in chart_data(html)["charts"]["loc-kind"]["series"]}
     assert series["Arch Python"] == "7" and series["Skills"] == "8" and "Workflows" not in series
     if gone is not None:
@@ -588,7 +589,7 @@ def test_code_kind_without_data_gives_up_its_slot(tmp_path, gone):
     lines = commit(1, "2026-09-01", code={"kinds": kinds}) + commit(
         2, "2026-09-02", code={"kinds": {**kinds, "workflows": {"files": 1, "lines": 1, "code": 1}}})
     problems, out = build(tree(tmp_path, {"commits.jsonl": lines}))
-    series = {s["label"]: s["color"] for s in chart_data((out / "tracker/index.html").read_text())
+    series = {s["label"]: s["color"] for s in chart_data((out / "tracker/details/index.html").read_text())
               ["charts"]["loc-kind"]["series"]}
     assert series["Workflows"] == "7" and "Arch Python" not in series
 
@@ -597,7 +598,7 @@ def test_ip_series_beyond_the_slots_are_named(tmp_path):
     ips = [f"ip{i}" for i in range(10)]
     rec = commit(1, "2026-09-01", code={"ips": {ip: {"code": 1, "files": 1} for ip in ips}})
     problems, out = build(tree(tmp_path, {"commits.jsonl": rec}))
-    html = (out / "tracker/index.html").read_text()
+    html = (out / "tracker/details/index.html").read_text()
     assert len(chart_data(html)["charts"]["loc-ip"]["series"]) == 8
     assert "2 more series not drawn (no colour slot left): ip8, ip9;" in html
     assert "<th>ip9 (not drawn)</th>" in html
@@ -606,7 +607,7 @@ def test_ip_series_beyond_the_slots_are_named(tmp_path):
 def test_arch_failing_chart_starts_at_zero(tmp_path):
     rec = nightly("2026-09-05", 1, "pass", arch=arch(full=("pass", {"lat": 1})))
     problems, out = build(tree(tmp_path, {"2026-09-05.json": rec}))
-    charts = chart_data((out / "tracker/index.html").read_text())["charts"]
+    charts = chart_data((out / "tracker/details/index.html").read_text())["charts"]
     assert charts["arch-failing"]["ymin"] == 0 and "ymin" not in charts["arch-lat"]
 
 
@@ -624,3 +625,143 @@ def test_repo_home_links_to_tracker_up_front():
             break
         intro += [c.attrGet("href") for c in tok.children or () if c.type == "link_open"]
     assert url in intro
+
+
+# --------------------------------------------------------- compact overview
+
+def overview_html(out):
+    return (out / "tracker/index.html").read_text().split('<article class="markdown">')[-1].split('</article>')[0]
+
+
+def test_overview_keeps_only_recent_runtime_charts_and_links_details(tmp_path):
+    problems, out = build(tree(tmp_path, fixtures=True))
+    assert problems == []
+    html = overview_html(out)
+    assert 'href="details/index.html">Detailed stats' in html
+    charts = chart_data(html)["charts"]
+    assert set(charts) == {"ci-duration", "nightly-duration"}
+    assert all(chart["max_ticks"] == 4 for chart in charts.values())
+    assert min(point[0] for chart in charts.values() for series in chart["series"]
+               for point in series["points"]) >= 6  # 36 commits, last 30 only
+    assert html.count('class="tracker-card"') == 4
+    assert 'Data table (latest' in html
+    assert html.index('tracker-overview-cards') < html.index('Needs attention') < html.index('Recent runtimes')
+    assert 'id="code"' not in html and 'id="issues-and-pull-requests"' not in html
+    details = (out / "tracker/details/index.html").read_text()
+    assert 'href="../index.html">← Status overview' in details
+    assert 'href="../ip/alpha/index.html">alpha</a>' in details
+    assert 'Detailed stats' in menu((out / 'tracker/index.html').read_text())
+
+
+@pytest.mark.parametrize(('result', 'red', 'state'), [('pass', 1, 'good'), ('fail', 0, 'critical'),
+                                                      (None, 0, 'info'), (None, 1, 'info')])
+def test_overview_nightly_uses_result_never_issue_count(tmp_path, result, red, state):
+    rec = nightly('2026-09-01', 1, result, 125, health={'nightly_red': {'open': red}})
+    problems, out = build(tree(tmp_path, {'2026-09-01.json': rec}))
+    assert problems == []
+    html = overview_html(out)
+    card = html.split('tracker-card-label">Nightly</div>')[1].split('tracker-card-note')[0]
+    assert f'tracker-status {state}' in card
+    assert (result or 'Unknown') in card
+    assert ('2m 05s' if result else 'Duration unavailable') in html
+
+
+def test_overview_keeps_snapshot_dates_and_ci_source_separate(tmp_path):
+    lines = commit(1, '2026-09-01', ci={'conclusion': 'failure', 'duration_s': 60}) + \
+        commit(2, '2026-09-02', ci={'conclusion': 'success', 'duration_s': 120})
+    rec = nightly('2026-09-01', 1, 'pass', 180,
+                  health={'ci_gate_main': {'runs': 20, 'pass_rate': 1}})
+    problems, out = build(tree(tmp_path, {'commits.jsonl': lines, '2026-09-01.json': rec}))
+    assert problems == []
+    html = overview_html(out)
+    assert 'Nightly snapshot: 2026-09-01' in html
+    assert 'Commit data through: 2026-09-02' in html
+    assert 'Last 2 recorded main commits · through 2026-09-02' in html and '50%' in html
+    assert '100%' not in html
+    details = (out / 'tracker/details/index.html').read_text()
+    assert 'nightly run snapshot' in details and '100%' in details
+
+
+@pytest.mark.parametrize(('tests', 'coverage', 'test_state', 'cov_state'), [
+    ({'totals': {'level0': {'tests': 2, 'passed': 2, 'failed': 0},
+                 'level1': {'tests': 3, 'passed': 3, 'failed': 0}}},
+     {'passed': True, 'ips': {'alpha': {'floors_passed': True}}}, 'good', 'good'),
+    ({'totals': {'level0': {'tests': 2, 'passed': 2}}}, {'passed': True}, 'info', 'info'),
+    ({'totals': {'level0': {'tests': 2, 'passed': 1, 'failed': 1}}},
+     {'passed': True, 'ips': {'alpha': {'floors_passed': False}}}, 'critical', 'critical'),
+    ({'totals': {'level0': {'tests': 2, 'passed': 2, 'failed': 0}}, 'builds': {'failed': 1}},
+     {'passed': False, 'ips': {'alpha': {'floors_passed': True}}}, 'critical', 'critical'),
+    ({'totals': {'level0': {'tests': 0, 'passed': 0, 'failed': 0}}},
+     {'status': 'unavailable'}, 'info', 'info'),
+])
+def test_overview_tests_and_coverage_need_complete_evidence(tmp_path, tests, coverage, test_state, cov_state):
+    rec = nightly('2026-09-01', 1, 'pass', tests=tests, coverage=coverage)
+    problems, out = build(tree(tmp_path, {'2026-09-01.json': rec}))
+    assert problems == []
+    html = overview_html(out)
+    for label, state in [('Tests', test_state), ('Coverage floors', cov_state)]:
+        card = html.split(f'tracker-card-label">{label}</div>')[1].split('tracker-card-note')[0]
+        assert f'tracker-status {state}' in card
+    if test_state == 'good':
+        assert '5 / 5' in html and 'Tests passed · L0, L1' in html
+
+
+def test_overview_attention_puts_failure_before_timing_and_missing_evidence(tmp_path):
+    rec = nightly('2026-09-01', 1, 'pass',
+                  fpga={'ips': {'alpha': {'status': 'fail'}}},
+                  asic={'ips': {'beta': {'status': 'pass', 'timing': {'wns_ns': -1.25}}}})
+    problems, out = build(tree(tmp_path, {'2026-09-01.json': rec}))
+    assert problems == []
+    html = overview_html(out)
+    assert html.index('alpha: FPGA result is fail') < html.index('beta: ASIC timing gap') < html.index('Incomplete evidence:')
+    assert 'WNS −1.25 ns' in html
+    assert 'href="ip/beta/index.html#asic"' in html
+
+
+def test_overview_attention_is_bounded_with_remaining_count(tmp_path):
+    rec = nightly('2026-09-01', 1, 'fail', fpga={'ips': {f'unit{i}': {'status': 'fail'} for i in range(8)}})
+    problems, out = build(tree(tmp_path, {'2026-09-01.json': rec}))
+    assert problems == []
+    html = overview_html(out)
+    attention = html.split('<ul class="tracker-attention">')[1].split('</ul>')[0]
+    assert attention.count('<li>') == 5
+    assert '5 more items · view all metrics' in html
+
+
+def test_overview_missing_nightly_does_not_reuse_old_health(tmp_path):
+    problems, out = build(tree(tmp_path, {'commits.jsonl': commit(1, '2026-09-01')}))
+    assert problems == []
+    html = overview_html(out)
+    cards = html.split('tracker-overview-cards')[1].split('<h2')[0]
+    assert cards.count('tracker-status info') == 4 and 'tracker-status good' not in cards
+    assert 'Nightly snapshot: no record yet' in html
+
+
+def test_overview_escapes_attention_and_keeps_unknown_results_neutral(tmp_path):
+    rec = nightly('2026-09-01', 1, '<script>bad</script>')
+    problems, out = build(tree(tmp_path, {'2026-09-01.json': rec}))
+    assert problems == []
+    html = overview_html(out)
+    assert '<script>bad</script>' not in html and '&lt;script&gt;bad&lt;/script&gt;' in html
+    assert 'tracker-status good' not in html
+
+
+@pytest.mark.parametrize('result', ['flow: fail (exit 2)', 'clocks: timeout after 3600s',
+                                    'incomplete: missing timing.clocks'])
+def test_overview_reports_real_physical_failure_diagnostics(tmp_path, result):
+    rec = nightly('2026-09-01', 1, 'pass', asic={'ips': {'alpha': {'status': result}}})
+    problems, out = build(tree(tmp_path, {'2026-09-01.json': rec}))
+    assert problems == []
+    html = overview_html(out)
+    assert f'alpha: ASIC result is {result}.' in html
+    assert 'href="ip/alpha/index.html#asic"' in html
+    details = (out / 'tracker/details/index.html').read_text()
+    assert result in details and 'href="../ip/alpha/index.html#asic"' in details
+
+
+def test_overview_reports_per_clock_gap_without_aggregate_wns(tmp_path):
+    rec = nightly('2026-09-01', 1, 'pass', asic={'ips': {'alpha': {'status': 'pass', 'timing': {
+        'clocks': {'fast': {'wns_ns': -0.25}, 'slow': {'wns_ns': 0}}}}}})
+    problems, out = build(tree(tmp_path, {'2026-09-01.json': rec}))
+    assert problems == []
+    assert 'ASIC timing gap · WNS −0.25 ns' in overview_html(out)
