@@ -406,3 +406,117 @@ def test_filelist_may_not_define_synthesis(src, tmp_path):
     f.write_text(f.read_text() + "+define+SYNTHESIS\n")
     with pytest.raises(FilelistError, match="only the synthesis flows set"):
         make_plan(src, tmp_path)
+
+
+@pytest.mark.parametrize("signame", ["SIGINT", "SIGTERM"])
+def test_ci_cancellation_kills_quartus_and_writing_grandchild(src, tmp_path, signame):
+    """Real wrapper/CLI/process groups: no vendor process can outlive cancellation."""
+    import shlex
+    import signal
+    import subprocess
+    import sys
+    import time
+
+    from build.ip import REPO_ROOT
+
+    # The fake compiler starts a worker in its own group, just as a vendor
+    # command can. Its heartbeat detects a live orphan even if the CLI exits.
+    worker = tmp_path / "worker.py"
+    worker.write_text("""import pathlib, time
+heartbeat = pathlib.Path('heartbeat')
+while True:
+    with heartbeat.open('a') as f:
+        f.write('tick\\n')
+    time.sleep(0.01)
+""")
+    compiler = tmp_path / "compiler.py"
+    compiler.write_text("""import json, os, pathlib, subprocess, sys
+child = subprocess.Popen([sys.executable, sys.argv[1]])
+pathlib.Path('pids.json').write_text(json.dumps([os.getpid(), child.pid]))
+child.wait()
+""")
+    bin_dir = fake_quartus(tmp_path / "bin", fail="quartus_map",
+                           fail_body=f"exec {shlex.join([sys.executable, str(compiler), str(worker)])}")
+    fake_exe(bin_dir / "verilator")  # lint succeeds; no real simulator/toolchain needed
+    work = tmp_path / "work"
+    out = work / "widget/fpga"
+    pids = []
+    env = dict(os.environ, PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    with (tmp_path / "ci.log").open("w") as log:
+        proc = subprocess.Popen([sys.executable, str(REPO_ROOT / "build"), "ci", "vendor",
+                                 "--kind", "fpga", "--src-root", str(src),
+                                 "--workdir", str(work)], env=env,
+                                stdout=log, stderr=subprocess.STDOUT)
+        try:
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                if (out / "pids.json").exists() and (out / "heartbeat").exists():
+                    pids = json.loads((out / "pids.json").read_text())
+                    break
+                assert proc.poll() is None, (tmp_path / "ci.log").read_text()
+                time.sleep(0.01)
+            assert pids, "fake Quartus and its grandchild did not start"
+            proc.send_signal(getattr(signal, signame))
+            assert proc.wait(timeout=10) == 130
+            # Linux may retain a dead orphan as a zombie until PID 1 reaps it.
+            for pid in pids:
+                stat_file = Path(f"/proc/{pid}/stat")
+                assert not stat_file.exists() or stat_file.read_text().split(") ")[1][0] == "Z"
+            size = (out / "heartbeat").stat().st_size
+            time.sleep(0.15)
+            assert (out / "heartbeat").stat().st_size == size
+            assert not (out / "logs/fit.log").exists()
+            assert not (out / "metrics.json").exists()
+            assert not (work / "ci/vendor-fpga.json").exists()
+            assert "cancelled; process group killed" in (out / "logs/map.log").read_text()
+        finally:
+            # Also clean up when testing a regression in the cancellation code.
+            if not pids and (out / "pids.json").exists():
+                pids = json.loads((out / "pids.json").read_text())
+            if pids:
+                try:
+                    os.killpg(pids[0], signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=10)
+
+
+@pytest.mark.parametrize("timeout", [False, True])
+def test_run_step_restores_signal_handlers(tmp_path, timeout):
+    import signal
+
+    before = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
+    script = fake_exe(tmp_path / "step", "sleep 5" if timeout else "exit 0")
+    flow.run_step("test", [str(script)], tmp_path, tmp_path / "step.log", 0.1)
+    assert all(signal.getsignal(sig) == handler for sig, handler in before.items())
+
+
+@pytest.mark.parametrize("when", ["before", "after"])
+def test_cancellation_during_process_creation_does_not_lose_child(tmp_path, monkeypatch, when):
+    import signal
+
+    popen = flow.subprocess.Popen
+    children = []
+    before = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
+    def interrupted_popen(*args, **kwargs):
+        if when == "before":
+            os.kill(os.getpid(), signal.SIGTERM)
+        child = popen(*args, **kwargs)
+        children.append(child)
+        if when == "after":
+            os.kill(os.getpid(), signal.SIGTERM)
+        return child
+    monkeypatch.setattr(flow.subprocess, "Popen", interrupted_popen)
+    script = fake_exe(tmp_path / "slow", "exec sleep 60")
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            flow.run_step("test", [str(script)], tmp_path, tmp_path / "step.log", 10)
+        assert len(children) == 1 and children[0].returncode == -signal.SIGKILL
+        assert all(signal.getsignal(sig) == handler for sig, handler in before.items())
+    finally:
+        for child in children:
+            if child.poll() is None:
+                os.killpg(child.pid, signal.SIGKILL)
+                child.wait()

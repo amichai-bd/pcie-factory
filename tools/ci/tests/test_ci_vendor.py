@@ -173,3 +173,33 @@ def test_cancellation_stops_before_later_target(ctx, monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         vendor.run(ctx, RULES, "asic", None)
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("when", ["before", "after"])
+def test_wrapper_cancellation_during_child_creation(tmp_path, monkeypatch, when):
+    import os
+    import signal
+    import sys
+
+    popen = vendor.subprocess.Popen
+    children = []
+    before = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
+    def interrupted_popen(*args, **kwargs):
+        if when == "before":
+            os.kill(os.getpid(), signal.SIGTERM)
+        child = popen(*args, **kwargs)
+        children.append(child)
+        if when == "after":
+            os.kill(os.getpid(), signal.SIGTERM)
+        return child
+    monkeypatch.setattr(vendor.subprocess, "Popen", interrupted_popen)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            vendor.run_child([sys.executable, "-c", "import time; time.sleep(60)"], tmp_path)
+        assert len(children) == 1 and children[0].returncode == -signal.SIGTERM
+        assert all(signal.getsignal(sig) == handler for sig, handler in before.items())
+    finally:
+        for child in children:
+            if child.poll() is None:
+                child.kill()
+                child.wait()

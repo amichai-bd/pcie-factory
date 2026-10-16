@@ -20,9 +20,10 @@ method (inputs, acceptance ladder, review). Code: `tools/asic/` (`cli.py`,
 | `--synth-only` | Run only ORFS `synth`, in `workdir/<ip>/asic-synth/`; no routed metrics. |
 | `--dry-run` | Write `config.mk`, print every command, run nothing. `./build check` runs the same input and ORFS-settings validation for every ASIC target, writing nothing ([flow-input check](../checks/SPEC.md#flow-input-check)). |
 
-Exit codes: `0` the flow passed and every required metric was read; `1`
-a step failed, timed out, or required evidence is missing (`metrics.json`
-is still written); `2` a usage or configuration error.
+Exit codes: `0` the flow passed and every required output was validated; `1`
+a step failed, timed out, logged an error in synthesis-only mode, or required
+evidence is missing (the full flow still writes `metrics.json`; synthesis-only
+writes `synthesis.json`); `2` a usage or configuration error.
 
 ## Inputs
 

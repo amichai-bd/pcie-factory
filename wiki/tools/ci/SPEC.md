@@ -100,8 +100,8 @@ full compile, fit and timing acceptance, and `./build asic --ip ID
 --synth-only` performs the [synthesis check](../asic/SPEC.md#synthesis-only-compatibility-check).
 Each receives the caller's source root and workdir. A failed target does
 not suppress later targets. SIGINT/SIGTERM are forwarded to the active
-flow so its cleanup can run; cancellation starts no later target and exits
-130. Exit 0 means every selected target passed (or
+flow so its cleanup can run; signals during child creation are queued until
+the handle is available. Cancellation starts no later target and exits 130. Exit 0 means every selected target passed (or
 none selected), 1 means a child failed, 2 means selection/configuration failed.
 `workdir/ci/vendor-<kind>.json` records schema 1, kind, stage and each target's
 status and elapsed seconds; it is replaced each execution, even with no targets.

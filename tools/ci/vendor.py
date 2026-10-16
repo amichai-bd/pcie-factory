@@ -46,16 +46,28 @@ def select(ctx: Context, rules: CiRules, kind: str, affected_base: str | None) -
 
 def run_child(command: list[str], cwd: Path) -> int:
     """Forward cancellation to the flow so its own container cleanup runs."""
-    proc = subprocess.Popen(command, cwd=cwd)
+    proc = None
+    pending = []
     cancelled = False
 
     def forward(signum, frame):
         nonlocal cancelled
         cancelled = True
-        proc.send_signal(signum)
+        if proc is None:
+            pending.append(signum)
+        else:
+            proc.send_signal(signum)
 
     previous = {sig: signal.signal(sig, forward) for sig in (signal.SIGINT, signal.SIGTERM)}
     try:
+        try:
+            proc = subprocess.Popen(command, cwd=cwd)
+        except OSError:
+            if cancelled:
+                raise KeyboardInterrupt
+            raise
+        for sig in pending:
+            proc.send_signal(sig)
         code = proc.wait()
         if cancelled:
             raise KeyboardInterrupt  # CLI returns 130; never start another target.
