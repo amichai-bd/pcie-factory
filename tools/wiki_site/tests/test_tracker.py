@@ -221,6 +221,34 @@ def test_no_tracker_landing_means_no_tracker(tmp_path):
 
 
 # ------------------------------------------------------- partial groups
+@pytest.mark.parametrize(("result", "open_issues", "level", "label"), [
+    ("pass", 1, "good", "pass"),
+    ("fail", 0, "critical", "fail"),
+    ("cancelled", 0, "critical", "cancelled"),
+    ("unknown", 0, "info", "unknown"),
+    (None, 1, "critical", "nightly-red open"),
+    (None, 0, "good", "green"),
+    (None, None, None, None),
+])
+def test_nightly_card_prefers_result_to_issue_snapshot(tmp_path, result, open_issues, level, label):
+    # Collection precedes issue reporting: recovery can still have an open
+    # issue, and the first failure can still have none. Old records may omit
+    # the result, or both fields, without inventing a successful run.
+    health = {} if open_issues is None else {"nightly_red": {"open": open_issues}}
+    rec = nightly("2026-09-05", 7, result, health=health)
+    problems, out = build(tree(tmp_path, {"2026-09-05.json": rec}))
+    assert problems == []
+    html = (out / "tracker/index.html").read_text()
+    card = re.search(r'<div class="tracker-card-label">Nightly</div>'
+                     r'<div class="tracker-card-value">(.*?)</div>', html)
+    if level is None:
+        assert card is None
+    else:
+        assert card is not None
+        assert f'class="tracker-status {level}"' in card.group(1)
+        assert f"</span> {label}</span>" in card.group(1)
+
+
 def test_partial_groups_and_unknown_fields(tmp_path):
     rec = nightly("2026-09-05", 7, "fail", 600, tests={"status": "unavailable", "wall_s": 600},
                   future_group={"x": 1}, code={"total": {"code": 10}, "mystery": [1, 2]},

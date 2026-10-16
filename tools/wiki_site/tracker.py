@@ -647,11 +647,11 @@ def health_section(p: Page, d: Data) -> None:
     night = d.nightly[-1].data if d.nightly else {}
     cards = []
     red, res = h_nightly_red(night), nightly_result(night)
-    if red is not None:
+    if res:
+        cards.append(("Nightly", badge(status_of(res), res)))
+    elif red is not None:
         cards.append(("Nightly", badge("critical" if red else "good",
                                        "nightly-red open" if red else "green")))
-    elif res:
-        cards.append(("Nightly", badge(status_of(res), res)))
     main = h_ci_main(night)
     rate, n_runs = scaled(first(main, "pass_rate"), 100), first(main, "runs")
     if rate is None:

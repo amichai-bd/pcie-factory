@@ -239,7 +239,7 @@ form the axis.
 
 | Section | Content |
 | --- | --- |
-| Repo health | Cards: nightly status (an open `nightly-red` issue, else the latest nightly result), `ci-gate` pass rate over the last runs on `main` (from `health`, else the last 20 results in `commits.jsonl`), open PRs with the oldest age, open issues with the stale count, median review rounds, share of merged PRs with `APPROVE` at the merged head, LOC and files. A table of open PR ages (oldest 20) and an open-issue age histogram. |
+| Repo health | Cards: nightly status (the latest recorded nightly result; only without a result, the `nightly-red` issue count), `ci-gate` pass rate over the last runs on `main` (from `health`, else the last 20 results in `commits.jsonl`), open PRs with the oldest age, open issues with the stale count, median review rounds, share of merged PRs with `APPROVE` at the merged head, LOC and files. A table of open PR ages (oldest 20) and an open-issue age histogram. |
 | Latest vs 7 and 30 days ago | Each metric's latest value against the last point dated at least 7 and 30 days earlier, with the difference. |
 | Code | LOC and files by kind, LOC per IP, lines-per-file and file-size histograms, and tables of the file-type distribution by extension and top-level directory with share bars. |
 | CI | `ci-gate` duration per commit, marked by result; duration histogram. |
@@ -248,6 +248,14 @@ form the axis.
 | Issues and pull requests | Open issues and PRs, issues opened and closed and PRs merged in the trailing 7 days; histograms of issue time to close and to first response or claim, PR lead time, PR size and review rounds; open issues by label. |
 | FPGA, ASIC | One chart per metric with a series per IP: LEs, registers, M9K blocks, worst-clock Fmax and setup slack; WNS, TNS, std-cell area, cells, max fanout and logic depth. |
 | Architecture model | From `arch.ips.<ip>.scenarios`: a table of each IP and perf scenario's latest status and target-metric values; perf scenarios not passing, a series per IP, on a y axis from 0; and one chart per target metric with a series per IP and scenario (`<ip> / <scenario>`). A chart's unit is the one its metric name carries: the words after the first, less a trailing statistic (`latency_cycles_max` is in cycles). |
+
+The Nightly card takes `meta.nightly.result` (legacy `nightly.result` fallback)
+from the latest record. Its issue snapshot can precede reporting, so an open
+issue cannot override a passing result, nor zero issues a failing result.
+Only a record without a result falls back to `health.nightly_red.open`:
+nonzero is red, zero is green. Without either field the card is omitted.
+Rendered-page tests in `test_tracker.py` cover contradictory snapshots,
+other recorded results, and both legacy fallback and missing-data cases.
 
 **`/tracker/ip/<id>/`** (`<id>` may contain `/`, as sub-IP ids did in records
 written before the kind-first layout) shows that
