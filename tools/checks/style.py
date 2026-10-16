@@ -607,7 +607,9 @@ def pattern_contexts(text: str) -> list[int]:
     ``text`` that are not in an assignment context: the right-hand side
     directly after ``=`` (not ``==``, ``!=``, ``<=``, ``>=``), a ``return``
     value, or an element of an enclosing pattern (directly after its
-    `` '{``, a ``,`` or a ``key:``). A typed pattern (``T'{``) is reported too:
+    `` '{``, a ``,`` or a ``key:``). The closing brace must be followed by
+    the context's delimiter, not an operator selecting or comparing the
+    pattern. A typed pattern (``T'{``) is reported too:
     only the assignment contexts are proven with Quartus Lite."""
     out = []
     for m in re.finditer(r"'\{", text):
@@ -616,7 +618,11 @@ def pattern_contexts(text: str) -> list[int]:
             out.append(m.start())
             continue
         head = before.rstrip()
-        if re.search(r"(?<![=!<>])=$", head) or re.search(r"\breturn$", head):
+        tail = text[_balanced(text, m.start() + 1):].lstrip()
+        after = tail[:1]
+        if re.search(r"(?<![=!<>])=$", head) and after in {";", ",", ")"}:
+            continue
+        if re.search(r"\breturn$", head) and after == ";":
             continue
         outer = None  # the enclosing bracket group's opening, if it is a pattern
         depth = 0
@@ -638,7 +644,8 @@ def pattern_contexts(text: str) -> list[int]:
                     depth -= 1
                 elif text[i] == "," and depth == 0:
                     last = i + 1
-            if re.fullmatch(r"\s*(?:[A-Za-z_][\w$]*\s*:)?\s*", text[last:m.start()]):
+            if (after in {",", "}"}
+                    and re.fullmatch(r"\s*(?:[A-Za-z_][\w$]*\s*:)?\s*", text[last:m.start()])):
                 continue
         out.append(m.start())
     return out

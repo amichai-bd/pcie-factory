@@ -734,6 +734,30 @@ def test_pattern_context_accepts_assignment_contexts():
     assert check(pkg, "xy_a_pkg.sv") == []
 
 
+@pytest.mark.parametrize("operand", [
+    "'{member: 1'b0} == value", "'{member: 1'b0} != value",
+    "'{member: 1'b0} === value", "'{member: 1'b0} !== value",
+    "'{member: 1'b0} ? value : other", "'{member: 1'b0}[0]",
+])
+@pytest.mark.parametrize("context", [
+    "assign flag = EXPR;", "return EXPR;",
+    "assign word = '{field: EXPR};", "assign word = '{EXPR, value};",
+    "return '{first: value, last: EXPR};",
+])
+def test_pattern_context_rejects_left_operands(context, operand):
+    text = context.replace("EXPR", operand)
+    assert style.pattern_contexts(text) == [text.index(operand)]
+
+
+@pytest.mark.parametrize("text", [
+    "parameter T A = '{default: '0}, B = '{default: '1};",
+    "module m #(parameter T A = '{default: '0}) (); endmodule",
+    "return '{field: '{1'b0, 1'b1}, last: '{default: '0}};",
+])
+def test_pattern_context_accepts_complete_values(text):
+    assert style.pattern_contexts(text) == []
+
+
 @pytest.mark.parametrize("fn", ["$countones(d_i) == 1", "$countbits(d_i, 1'b1) == 1", "$onehot(d_i)",
                                 "$onehot0(d_i)", "$isunknown(d_i)"])
 def test_bit_vector_functions_only_in_assertion_macros(fn):
