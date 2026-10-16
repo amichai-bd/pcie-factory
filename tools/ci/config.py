@@ -8,7 +8,7 @@ from pathlib import Path, PurePosixPath
 import yaml
 
 CONFIG_NAME = "ci.yaml"
-_KEYS = {"global", "shared_dv", "models", "import_root", "tools_tests", "vocabulary_tests"}
+_KEYS = {"global", "shared_dv", "models", "import_root", "tools_tests", "vocabulary_tests", "vendor"}
 _VOCABULARY_KEYS = {"marker", "paths"}
 _GLOBAL_KEYS = {"prefixes", "files", "levels"}
 
@@ -28,6 +28,7 @@ class CiRules:
     vocabulary_paths: tuple[str, ...] = ()
     global_levels: tuple[int, ...] = (0,)
     import_root: str = "tools"
+    vendor_files: tuple[str, ...] = ()
 
     def is_vocabulary(self, rel: str) -> bool:
         """True when ``rel`` is a path whose change runs the marked tests."""
@@ -91,6 +92,9 @@ def load_rules(cfg_dir: Path) -> CiRules:
                             f"{sorted(_VOCABULARY_KEYS)}")
     if not isinstance(v["marker"], str) or not v["marker"].isidentifier():
         raise CiConfigError(f"{path}: vocabulary_tests.marker: expected a pytest marker name")
+    vendor = data["vendor"]
+    if not isinstance(vendor, dict) or set(vendor) != {"files"}:
+        raise CiConfigError(f"{path}: vendor: must be a mapping with key files")
     return CiRules(
         global_prefixes=_paths(f"{path}: global.prefixes", g["prefixes"], trailing_slash=True),
         global_files=_paths(f"{path}: global.files", g["files"]),
@@ -101,4 +105,5 @@ def load_rules(cfg_dir: Path) -> CiRules:
         vocabulary_paths=_paths(f"{path}: vocabulary_tests.paths", v["paths"]),
         global_levels=tuple(sorted(set(levels))),
         import_root=import_root.rstrip("/"),
+        vendor_files=_paths(f"{path}: vendor.files", vendor["files"]),
     )

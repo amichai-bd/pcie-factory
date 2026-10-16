@@ -19,6 +19,8 @@ def add_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--timeout", type=float, default=flow.DEFAULT_TIMEOUT_S,
                    help=f"wall-clock budget in seconds for the whole flow "
                         f"(default: {flow.DEFAULT_TIMEOUT_S})")
+    p.add_argument("--synth-only", action="store_true",
+                   help="stop after synthesis; write separate synthesis evidence, no routed metrics")
     p.add_argument("--dry-run", action="store_true",
                    help="write the ORFS config and print the commands; run nothing")
 
@@ -29,7 +31,7 @@ def run(ctx: Context, args) -> int:
 
     try:
         ip = find_ip(discover(ctx.src_root), args.ip)
-        plan = flow.make_plan(ctx, ip, args.platform)
+        plan = flow.make_plan(ctx, ip, args.platform, synth_only=args.synth_only)
         orfs = flow.load_orfs(ctx.cfg_dir, dict(os.environ))
     except flow.AsicError as exc:
         print(flow.redact(f"error: {exc}", ctx), file=sys.stderr)
@@ -46,9 +48,14 @@ def run(ctx: Context, args) -> int:
         name = flow.container_name(plan)
         for step, script in flow.step_scripts(orfs, plan):
             say(f"[asic] {step}: {shlex.join(flow.wrap(orfs, plan, ctx, script, f'{name}-{step}'))}")
-        say(f"[asic] metrics: {plan.metrics_json}")
+        say(f"[asic] result: {plan.synthesis_json if plan.synth_only else plan.metrics_json}")
         return 0
     code, doc = flow.run(ctx, plan, orfs, args.timeout)
+    if plan.synth_only:
+        say(f"[asic] synthesis {doc['status']}: {doc['elapsed_s']} s")
+        say(f"[asic] result: {plan.synthesis_json}")
+        say(f"[asic] log: {plan.flow_log}")
+        return code
     t, a = doc["timing"], doc["area"]
     say(f"[asic] {doc['status']}: WNS {t['wns_ns']} ns, TNS {t['tns_ns']} ns, "
         f"area {a['stdcell_um2']} um2, cells {doc['cells']}, util {doc['utilization']}, "

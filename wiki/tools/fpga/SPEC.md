@@ -153,8 +153,9 @@ Because `fpga/` lives in `workdir/<ip>/`, no test may be named `fpga`
 
 `.github/workflows/fpga.yml` runs on `[self-hosted, linux, x64]` (the host
 with Quartus) with `contents: read` and a 90-minute job timeout. It has
-**manual dispatch only**: per decision Q26, Quartus runs in nightly L2 or on
-demand, never on pull requests. Input `ip` runs `./build fpga --ip <ip>`,
+**manual dispatch only**; required CI separately runs full Quartus on
+affected targets ([CI selection](../ci/SPEC.md#build-ci-vendor)).
+Input `ip` runs `./build fpga --ip <ip>`,
 or `--all` when empty; nightly (DevOps BKM) calls `./build fpga --all`
 itself. The job still carries the fork guard
 (`head.repo.full_name == github.repository`) from the

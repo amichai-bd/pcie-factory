@@ -21,6 +21,8 @@ from checks.common import CheckConfigError
 from ci import status as ci_status
 from ci import summary as ci_summary
 from ci import unit as ci_unit
+from ci import vendor as ci_vendor
+from ci import gate as ci_gate
 from ci.config import CiConfigError, load_rules
 from checks.run import CHECKS, run_checks
 from fpga import flow as fpga
@@ -126,7 +128,11 @@ def cmd_ci(ctx: Context, args) -> int:
         return 0
     if args.action == "status":
         return ci_status.run(ctx, args)
+    if args.action == "gate":
+        return ci_gate.run({"tests": args.tests, "fpga": args.fpga, "asic-synth": args.asic_synth})
     rules = load_rules(ctx.cfg_dir)
+    if args.action == "vendor":
+        return ci_vendor.run(ctx, rules, args.kind, args.affected, args.dry_run)
     return ci_unit.run(ci_unit.plan(ctx, rules, args.affected))
 
 
@@ -249,6 +255,13 @@ def _ci_args(p: argparse.ArgumentParser) -> None:
     u = act.add_parser("unit", help="run the tools and model unit tests a change needs")
     u.add_argument("--affected", metavar="BASE",
                    help="only the suites affected since the merge base with BASE")
+    v = act.add_parser("vendor", help="run required vendor checks for affected synthesis targets")
+    v.add_argument("--kind", choices=ci_vendor.KINDS, required=True)
+    v.add_argument("--affected", metavar="BASE", help="select since the merge base with BASE")
+    v.add_argument("--dry-run", action="store_true", help="print target selection without vendor execution")
+    g = act.add_parser("gate", help="fail unless every required CI job succeeded")
+    for name in ("tests", "fpga", "asic-synth"):
+        g.add_argument(f"--{name}", required=True, help="required job result")
     act.add_parser("summary", help="print the regress summary as Markdown")
     st = act.add_parser("status", help="post the ci-gate commit status on a nightly data branch")
     st.add_argument("--result", required=True, help="the ci-gate job result: "
@@ -281,7 +294,7 @@ COMMANDS = {
     "clean": ("remove generated output", cmd_clean, _clean_args),
     "check": ("static checks: layout, filelist, style, wiki mirror, flow inputs, neutrality, citation, publishability, spec-cache, lint, cdc", cmd_check, _check_args),
     "labels": ("GitHub label sync and check", cmd_labels, _labels_args),
-    "ci": ("ci-gate helpers: unit suites, job summary, data-branch status", cmd_ci, _ci_args),
+    "ci": ("ci-gate helpers: tests, vendor flows, aggregate, summary, data-branch status", cmd_ci, _ci_args),
     "wiki": ("build or serve the wiki site", cmd_wiki, _wiki_args),
     "metrics": ("nightly metrics, data guard and red issue", metrics.run, metrics.add_args),
     "fpga": ("FPGA flow: Quartus compile and metrics", cmd_fpga, _fpga_args),

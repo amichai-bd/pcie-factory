@@ -38,7 +38,7 @@ SHARED_DIR = "common"
 # Directories under workdir/ that the tools own; an IP may not use these ids.
 RESERVED_IP_IDS = {"regress"}
 # Directory names inside workdir/<ip>/ that a test may not use.
-RESERVED_TEST_NAMES = {"build", "fpga", "asic", "arch", "coverage"}
+RESERVED_TEST_NAMES = {"build", "fpga", "asic", "asic-synth", "arch", "coverage"}
 
 
 @dataclass(frozen=True)

@@ -44,3 +44,8 @@ tools_tests: [tools]
 vocabulary_tests:
   marker: vocabulary
   paths: [src/rtl/common/common_macros.svh, src/rtl/common/common_assertions.svh]
+
+# These workflow files select all vendor targets in addition to global paths.
+# Source selection uses synthesis filelists and the target's vendor folder.
+vendor:
+  files: [.github/workflows/ci.yml, .github/workflows/fpga.yml, .github/workflows/asic.yml, .github/workflows/nightly.yml]

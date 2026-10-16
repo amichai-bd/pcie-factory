@@ -12,6 +12,8 @@ shared_dv: [dv/common]
 models: models
 import_root: tools
 tools_tests: [tools]
+vendor:
+  files: [.github/workflows/ci.yml]
 vocabulary_tests:
   marker: vocabulary
   paths: [src/rtl/common/h.svh, src/x/]
@@ -50,6 +52,8 @@ def test_is_global(tmp_path):
     ("", "top level must be a mapping"),
     ("global: [", "invalid YAML"),
     (GOOD.replace("models: models\n", ""), "missing \\['models'\\]"),
+    (GOOD.replace("vendor:\n  files: [.github/workflows/ci.yml]", "vendor: []"), "vendor: must be"),
+    (GOOD.replace("files: [.github/workflows/ci.yml]", "files: [../x]"), "relative path"),
     (GOOD + "extra: 1\n", "unknown \\['extra'\\]"),
     (GOOD.replace("files: [build]", "file: [build]"), "global: must be a mapping"),
     (GOOD.replace("  levels: [0]\n", ""), "global: must be a mapping"),

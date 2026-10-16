@@ -172,6 +172,7 @@ class Plan:
     incdirs: list[Path]
     defines: dict[str, str | None]
     clock_period_ns: float | None
+    synth_only: bool = False
 
     @property
     def config_mk(self) -> Path:
@@ -184,6 +185,10 @@ class Plan:
     @property
     def metrics_json(self) -> Path:
         return self.out / "metrics.json"
+
+    @property
+    def synthesis_json(self) -> Path:
+        return self.out / "synthesis.json"
 
     @property
     def worst_path_txt(self) -> Path:
@@ -227,7 +232,7 @@ def parse_clock_period(sdc_text: str) -> float | None:
         return None
 
 
-def make_plan(ctx: Context, ip: Ip, platform: str) -> Plan:
+def make_plan(ctx: Context, ip: Ip, platform: str, *, synth_only: bool = False) -> Plan:
     if platform not in PLATFORMS:
         raise AsicError(f"unknown platform {platform!r} (known: {', '.join(PLATFORMS)})")
     mk, sdc = find_inputs(ip, platform)
@@ -244,7 +249,8 @@ def make_plan(ctx: Context, ip: Ip, platform: str) -> Plan:
         raise AsicError(f"{ip.rtl_f}: no sources")
     return Plan(
         ip=ip, platform=platform, design=design, nick=ip.id,
-        out=ip.work_dir(ctx.workdir) / "asic", design_mk=mk, sdc=sdc,
+        out=ip.work_dir(ctx.workdir) / ("asic-synth" if synth_only else "asic"),
+        design_mk=mk, sdc=sdc, synth_only=synth_only,
         sources=resolved.sources, incdirs=resolved.incdirs,
         defines=synthesis_defines(resolved, ip.rtl_f),
         clock_period_ns=parse_clock_period(sdc.read_text()),
@@ -296,6 +302,8 @@ def step_scripts(orfs: Orfs, plan: Plan) -> list[tuple[str, str]]:
         + f"echo \"orfs: $(git -C {shlex.quote(orfs.root)} describe --always --dirty "
         + "2>/dev/null || echo unknown)\""
     )
+    if plan.synth_only:
+        return [("versions", versions), ("synth", prologue + make_args(orfs, plan, "synth"))]
     return [
         ("versions", versions),
         ("flow", prologue + make_args(orfs, plan, "finish")),
@@ -457,10 +465,32 @@ def _run(ctx: Context, plan: Plan, orfs: Orfs, timeout_s: float, name: str) -> t
             log.flush()
             if step == "versions":
                 versions = parse_versions(_section(plan.flow_log, mark))
+            if plan.synth_only and result == "pass" and any(
+                    ERROR_RE.search(line) for line in _section(plan.flow_log, mark).splitlines()):
+                result = "fail (error in log)"
             if result != "pass":
                 print_failure(ctx, plan, step, _section(plan.flow_log, mark))
                 status = f"{step}: {result if result != 'timeout' else f'timeout after {timeout_s:g}s'}"
                 break
+    if plan.synth_only:
+        results = plan.work_home / "results" / plan.platform / plan.nick / VARIANT
+        required = ("1_2_yosys.v", "1_synth.odb", "1_synth.sdc")
+        absent = [name for name in required if not (results / name).is_file()
+                  or (results / name).is_symlink() or (results / name).stat().st_size == 0]
+        if status == "pass" and absent:
+            status = f"incomplete: missing synthesis outputs {', '.join(absent)}"
+        doc = {
+            "schema": 1, "stage": "synthesis", "ip": plan.ip.id,
+            "design": plan.design, "platform": plan.platform, "status": status,
+            "outputs": [str((results / name).relative_to(ctx.workdir))
+                        for name in required if name not in absent],
+            "toolchain": {"runner": orfs.runner, "image": orfs.image,
+                          "orfs_pin": orfs.commit, **versions},
+            "source": source_revision(ctx.repo_root),
+            "elapsed_s": round(time.monotonic() - started, 1),
+        }
+        plan.synthesis_json.write_text(json.dumps(doc, indent=2) + "\n")
+        return (0 if status == "pass" else 1), doc
     summary, worst_text = asic_metrics.collect(plan.work_home, plan.platform, plan.nick,
                                                VARIANT)
     plan.worst_path_txt.write_text(worst_text)

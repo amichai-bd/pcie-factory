@@ -40,7 +40,7 @@ on it at runtime, and anything adapted from it carries a provenance note.
 | Q23 | FPGA: Quartus Lite targeting the DE2-115 (Cyclone IV E EP4CE115F29C7). Runs on the Omarchy host only. |
 | Q24 | ASIC: OpenROAD-flow-scripts with sky130hd. Reports WNS/TNS, area, cells, max fanout and logic depth. Runs on the Omarchy host. |
 | Q25 | Per-IP physical inputs live in `src/fpga/<ip>/` and `src/asic/<ip>/` (constraints and config only; paths per the kind-first layout update), and both consume `src/rtl/<ip>/<ip>.rtl.f`. |
-| Q26 | Quartus and ORFS run in nightly L2 only, or on demand locally (`./build fpga\|asic`). |
+| Q26 | Originally nightly/on-demand only; superseded by the required vendor CI update below. |
 | Q27 | The README carries badges (`ci-gate`, nightly, pages) and a link to the tracker. The bot never edits it. |
 | Q28 | `/tracker/` shows charts over time plus "latest vs 7/30 days ago" tables and a page per IP. The chart library is bundled locally. |
 
@@ -118,3 +118,12 @@ pd (ORFS/sky130hd).
   ([layout page](../layout.md)). IP ids are unchanged except that a nested
   sub-IP's id becomes `<ip>_<sub>`; tracker records keep the id that was
   current when they were written.
+
+- **Required vendor compatibility CI (captain, 2026-10-16,
+  [#243](https://github.com/amichai-bd/pcie-factory/issues/243)), superseding Q26:**
+  affected synthesis targets run full Quartus compile/fitting/timing and
+  pinned ORFS synthesis-only checks in parallel with simulation. The single
+  required `ci-gate` requires all jobs to succeed. Full ASIC implementation
+  and L2 remain nightly. Synthesis-only evidence is isolated from routed
+  metrics and makes no physical timing closure claim. The
+  [CI spec](../../tools/ci/SPEC.md#build-ci-vendor) owns selection.

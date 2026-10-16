@@ -1,13 +1,14 @@
 # ASIC tool: `./build asic`
 
 `./build asic` runs OpenROAD-flow-scripts (ORFS) from RTL to a routed design
-for one IP and writes `metrics.json`. The [PD BKM](../../bkm/pd.md) owns the
+for one IP and writes `metrics.json`. With `--synth-only`, it stops after
+synthesis and writes separate compatibility evidence. The [PD BKM](../../bkm/pd.md) owns the
 method (inputs, acceptance ladder, review). Code: `tools/asic/` (`cli.py`,
 `flow.py`, `metrics.py`, `extra_metrics.tcl`, `clock_slacks.tcl`); workflow:
 [`.github/workflows/asic.yml`](../../../.github/workflows/asic.yml).
 
 ```
-./build asic --ip ID [--platform sky130hd] [--timeout S] [--dry-run]
+./build asic --ip ID [--platform sky130hd] [--timeout S] [--synth-only] [--dry-run]
              [--src-root DIR] [--workdir DIR]
 ```
 
@@ -16,10 +17,11 @@ method (inputs, acceptance ladder, review). Code: `tools/asic/` (`cli.py`,
 | `--ip ID` | Required. A top-level IP id with a `src/asic/<ip>/` folder. |
 | `--platform` | ORFS platform; only `sky130hd` is supported. |
 | `--timeout S` | Wall-clock budget for all ORFS steps together (default 3600 s). |
+| `--synth-only` | Run only ORFS `synth`, in `workdir/<ip>/asic-synth/`; no routed metrics. |
 | `--dry-run` | Write `config.mk`, print every command, run nothing. `./build check` runs the same input and ORFS-settings validation for every ASIC target, writing nothing ([flow-input check](../checks/SPEC.md#flow-input-check)). |
 
 Exit codes: `0` the flow passed and every required metric was read; `1`
-a step failed, timed out, or a required metric is missing (`metrics.json`
+a step failed, timed out, or required evidence is missing (`metrics.json`
 is still written); `2` a usage or configuration error.
 
 ## Inputs
@@ -114,6 +116,27 @@ the default workdir and source root as `<repo>/workdir` and `<repo>/src`,
 others as `<workdir>` and `<src>`. The commands that run, `config.mk` and
 `flow.log` keep the real paths.
 
+## Synthesis-only compatibility check
+
+`--synth-only` validates the same inputs and uses the same pinned runner,
+CPU/memory limits, read-only source mounts and timeout/cancellation cleanup.
+It deletes only `workdir/<ip>/asic-synth/`, writes its config there, then
+runs `versions` and `make … synth`. ORFS synthesizes the RTL and loads the
+mapped netlist and constraints into an OpenROAD database; it does not run
+floorplanning, placement, CTS or routing. It fails on a nonzero exit,
+timeout, an error line matching the flow's error patterns even with exit
+zero, or absent/empty/symlinked required outputs: `1_2_yosys.v`,
+`1_synth.odb`, `1_synth.sdc` in `run/results/<platform>/<ip>/base/`.
+Cleaning before execution prevents a previous run from satisfying this check.
+
+`synthesis.json` records `schema: 1`, `stage: synthesis`, `ip`, `design`,
+`platform`, `status`, the present output paths relative to the workdir,
+`toolchain`, `source` and `elapsed_s`. It is written on pass or ordinary
+failure. It carries no routed area, timing, worst path or closure claim.
+The mode never writes `metrics.json` or `worst_path.txt`, and never changes
+`workdir/<ip>/asic/`. [CI](../ci/SPEC.md#build-ci-vendor) requires this
+check for affected targets; full implementation remains nightly/on demand.
+
 ## Output
 
 | Path | Content |
@@ -160,8 +183,8 @@ liberty time is ns, area µm².
 
 ## Workflow
 
-`asic.yml` runs only on `workflow_dispatch` (nightly L2 dispatches it; never
-in `ci-gate`), on `[self-hosted, linux, x64]`, the host with ORFS. Input
+`asic.yml` runs the full flow only on `workflow_dispatch` (nightly L2
+also runs the full command directly), on `[self-hosted, linux, x64]`, the host with ORFS. Input
 `ip`: one IP id; empty (the default) runs every IP that has a `src/asic/<ip>/`
 folder, found with `find`, one `./build asic --ip <id>` each
 (the job fails if any fails). A discovery step prints only `ORFS_IMAGE`, the
@@ -175,7 +198,9 @@ code never runs on the self-hosted host if a trigger is added later.
 
 ## Tests
 
-`tools/asic/tests/` runs without ORFS:
+`tools/asic/tests/` runs without ORFS. Synthesis-mode tests exercise the CLI,
+isolation from routed evidence, stale-output cleanup, missing/empty outputs,
+child failure, zero-exit error logs and timeout.
 
 | Test file | Proves |
 | --- | --- |

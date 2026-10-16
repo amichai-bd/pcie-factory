@@ -417,3 +417,60 @@ def test_redact_paths(tmp_path):
                                     "<repo>/src/a.sv")
     other = Context(repo, tmp_path / "s", tmp_path / "w")
     assert flow.redact(f"{tmp_path}/w/x {tmp_path}/s/y", other) == "<workdir>/x <src>/y"
+
+
+# Synthesis is independent evidence, never a substitute for routed metrics.
+def synth_plan(ctx):
+    return flow.make_plan(ctx, find_ip(discover(ctx.src_root), "counter"),
+                          "sky130hd", synth_only=True)
+
+
+def test_synth_only_steps_and_isolated_output(ctx):
+    plan = synth_plan(ctx)
+    orfs = flow.Orfs("native", str(FAKE_ORFS))
+    assert plan.out == ctx.workdir / "counter/asic-synth"
+    steps = dict(flow.step_scripts(orfs, plan))
+    assert list(steps) == ["versions", "synth"]
+    assert steps["synth"].endswith(" synth")
+
+
+def test_synth_only_cli_preserves_full_metrics(ctx, monkeypatch):
+    native_env(monkeypatch)
+    full = plan_for(ctx)
+    full.out.mkdir(parents=True)
+    full.metrics_json.write_text("existing routed evidence")
+    assert main(["asic", "--ip", "counter", "--synth-only", "--src-root", str(ctx.src_root),
+                 "--workdir", str(ctx.workdir)]) == 0
+    plan = synth_plan(ctx)
+    doc = json.loads(plan.synthesis_json.read_text())
+    assert doc["stage"] == "synthesis" and doc["status"] == "pass"
+    assert len(doc["outputs"]) == 3
+    assert not {"timing", "area", "worst_path", "clock_period_ns"} & doc.keys()
+    assert not plan.metrics_json.exists() and not plan.worst_path_txt.exists()
+    assert full.metrics_json.read_text() == "existing routed evidence"
+
+
+@pytest.mark.parametrize("mode, status", [
+    ("fail", "synth: fail (exit 3)"),
+    ("missing", "incomplete: missing synthesis outputs"),
+    ("empty", "incomplete: missing synthesis outputs 1_synth.odb"),
+    ("errorzero", "synth: fail (error in log)"),
+    ("sleep", "synth: timeout after 1s"),
+])
+def test_synth_only_fails_without_fresh_complete_evidence(ctx, monkeypatch, mode, status):
+    native_env(monkeypatch, mode)
+    plan = synth_plan(ctx)
+    # Even valid-looking previous outputs must not make an incomplete run pass.
+    results = plan.work_home / "results/sky130hd/counter/base"
+    results.mkdir(parents=True)
+    for name in ("1_2_yosys.v", "1_synth.odb", "1_synth.sdc"):
+        (results / name).write_text("stale")
+    plan.synthesis_json.write_text('{"status":"pass"}')
+    code, doc = flow.run(ctx, plan, flow.Orfs("native", str(FAKE_ORFS)),
+                         timeout_s=1 if mode == "sleep" else 60)
+    assert code == 1 and doc["status"].startswith(status)
+    assert json.loads(plan.synthesis_json.read_text())["status"] == doc["status"]
+    assert not plan.metrics_json.exists()
+    assert all((results / name).read_text() != "stale"
+               for name in ("1_2_yosys.v", "1_synth.odb", "1_synth.sdc")
+               if (results / name).exists())

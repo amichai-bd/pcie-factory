@@ -216,7 +216,7 @@ flat sibling):
 
 Because test directories share `workdir/<ip>/` with the tools' own output,
 a test may not be named `build`, `fpga` (the [fpga tool's](../fpga/SPEC.md#output) output),
-`asic` (the [asic tool's](../asic/SPEC.md#output) output), `arch` (the
+`asic` and `asic-synth` (the [asic tool's](../asic/SPEC.md#output) output), `arch` (the
 [arch tool's](../arch/SPEC.md#behavior-and-output) output) or `coverage`
 (the [merged coverage](../regress/SPEC.md#coverage)).
 
