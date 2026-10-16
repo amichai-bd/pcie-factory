@@ -235,6 +235,11 @@ layer hands them down (sequence number, TLP, LCRC), not TLP payload.
 | RX latency | At most 16 cycles from a packet's first symbol on `ser_rx_data_i` (once aligned) to its `sop` beat, with the elastic buffer at 12 symbols or fewer. A packet of 2 bytes or fewer ended by EDB in `[15:8]`, never a well-formed TLP or DLLP, may take 1 more ([`mac` HAS, Targets](../mac/HAS.md#targets)). |
 | Clocks | `clk_i` and `ser_rx_clk_i` at 125 MHz on the ASIC flow and 50 MHz on the FPGA (DE2-115) flow. The FPGA figure is a timing and resource target only, with no board bring-up at line rate; the design's rates, including PIPE at 125 MHz, are unchanged ([Q26](../../decisions/0002-m1-grill.md#decisions)). |
 
+The ASIC intermediate checkpoint is 100 MHz on both clocks, measured by an
+explicit [clock study](../../asic/phy/ASIC.md#running). It does not change the
+125 MHz default/nightly/final target or Gen1 rates
+([Q27](../../decisions/0002-m1-grill.md#decisions)).
+
 The budgets the `mac` and `pcs` HAS pages must meet or rebalance: MAC
 transmit 3 and receive 3 cycles (+1 for a packet in the high byte), PCS
 transmit 2 and receive 6 cycles plus half the elastic-buffer fill, an

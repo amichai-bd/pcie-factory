@@ -236,3 +236,17 @@ def test_write_refuses_leaks(tmp_path):
 def test_bad_step_argument():
     with pytest.raises(MetricsError, match="--step"):
         cli._steps(["check=maybe"])
+
+
+def test_clock_study_never_substitutes_for_default_asic(tmp_path, cfg):
+    study = tmp_path / "blk" / "asic-study" / "10ns" / "metrics.json"
+    study.parent.mkdir(parents=True)
+    study.write_text(json.dumps({"clock_period_ns": 10, "timing": {"setup_ws_ns": 2}}))
+    assert record.flow_section(tmp_path, ["blk"], "asic", cfg.asic_fields) == {
+        "status": "unavailable", "reason": "missing"}
+    default = tmp_path / "blk" / "asic" / "metrics.json"
+    default.parent.mkdir()
+    default.write_text(json.dumps({"clock_period_ns": 8, "timing": {"setup_ws_ns": -1}}))
+    row = record.flow_section(tmp_path, ["blk"], "asic", cfg.asic_fields)["ips"]["blk"]
+    assert row["clock_period_ns"] == 8
+    assert row["timing"]["setup_ws_ns"] == -1

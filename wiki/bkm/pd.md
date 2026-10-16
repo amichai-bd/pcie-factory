@@ -51,7 +51,10 @@ resolver, plus only what is in `src/asic/<ip>/`:
 
 ORFS logs, reports, results (netlists, DEF, ODB, GDS) and `metrics.json` go
 under `workdir/<ip>/asic/` for full runs, or `workdir/<ip>/asic-synth/`
-for synthesis-only checks, and are never committed. Each run starts from
+for synthesis-only checks. Explicit clock studies use
+`workdir/<ip>/asic-study/<period>ns/`; the [ASIC tool spec](../tools/asic/SPEC.md#clock-studies)
+owns opt-in constraints and isolation from default/nightly measurements.
+Generated output is never committed. Each run starts from
 a clean work directory so stale results never mask a failure. The `asic`
 workflow publishes only `metrics.json` and the tool's `worst_path.txt`
 summary as its `asic-metrics` artifact, never raw ORFS reports or logs.

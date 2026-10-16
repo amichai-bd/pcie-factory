@@ -10,6 +10,7 @@ license file); rewritten for this repository's IP layout and runners.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shlex
@@ -33,6 +34,7 @@ PLATFORMS = ("sky130hd",)
 VARIANT = "base"
 DEFAULT_TIMEOUT_S = 3600
 EXTRA_TCL = Path(__file__).resolve().parent / "extra_metrics.tcl"
+STUDY_MARKER = "# build-asic: study-clock-period"
 CLOCKS_TCL = Path(__file__).resolve().parent / "clock_slacks.tcl"
 
 # Variables the tool generates; an IP's <platform>.mk must not set them.
@@ -173,6 +175,11 @@ class Plan:
     defines: dict[str, str | None]
     clock_period_ns: float | None
     synth_only: bool = False
+    study_clock_period_ns: float | None = None
+
+    @property
+    def effective_sdc(self) -> Path:
+        return self.out / "study.sdc" if self.study_clock_period_ns is not None else self.sdc
 
     @property
     def config_mk(self) -> Path:
@@ -232,10 +239,22 @@ def parse_clock_period(sdc_text: str) -> float | None:
         return None
 
 
-def make_plan(ctx: Context, ip: Ip, platform: str, *, synth_only: bool = False) -> Plan:
+def make_plan(ctx: Context, ip: Ip, platform: str, *, synth_only: bool = False,
+              study_clock_period_ns: float | None = None) -> Plan:
     if platform not in PLATFORMS:
         raise AsicError(f"unknown platform {platform!r} (known: {', '.join(PLATFORMS)})")
     mk, sdc = find_inputs(ip, platform)
+    if study_clock_period_ns is not None:
+        if not math.isfinite(study_clock_period_ns) or study_clock_period_ns <= 0:
+            raise AsicError("--study-clock-period must be finite and > 0 ns")
+        if synth_only:
+            raise AsicError("--study-clock-period cannot be combined with --synth-only")
+        if STUDY_MARKER not in sdc.read_text().splitlines():
+            raise AsicError(f"{sdc}: does not support --study-clock-period (missing {STUDY_MARKER})")
+    out = ip.work_dir(ctx.workdir) / ("asic-synth" if synth_only else "asic")
+    if study_clock_period_ns is not None:
+        period = str(float(study_clock_period_ns)).removesuffix(".0")
+        out = ip.work_dir(ctx.workdir) / "asic-study" / f"{period}ns"
     knobs = read_design_mk(mk)
     owned = sorted(k for k in knobs if k in TOOL_OWNED)
     if owned:
@@ -249,7 +268,7 @@ def make_plan(ctx: Context, ip: Ip, platform: str, *, synth_only: bool = False) 
         raise AsicError(f"{ip.rtl_f}: no sources")
     return Plan(
         ip=ip, platform=platform, design=design, nick=ip.id,
-        out=ip.work_dir(ctx.workdir) / ("asic-synth" if synth_only else "asic"),
+        out=out, study_clock_period_ns=study_clock_period_ns,
         design_mk=mk, sdc=sdc, synth_only=synth_only,
         sources=resolved.sources, incdirs=resolved.incdirs,
         defines=synthesis_defines(resolved, ip.rtl_f),
@@ -272,7 +291,7 @@ def render_config_mk(plan: Plan) -> str:
         "",
         f"export PLATFORM = {plan.platform}",
         f"export DESIGN_NICKNAME = {plan.nick}",
-        f"export SDC_FILE = {plan.sdc}",
+        f"export SDC_FILE = {plan.effective_sdc}",
         f"export VERILOG_FILES = {_mk_list([str(p) for p in plan.sources])}",
     ]
     if plan.incdirs:
@@ -375,6 +394,23 @@ def write_inputs(plan: Plan, clean: bool) -> None:
         shutil.rmtree(plan.out)
     plan.out.mkdir(parents=True, exist_ok=True)
     plan.config_mk.write_text(render_config_mk(plan))
+    if plan.study_clock_period_ns is not None:
+        # Snapshot the complete design constraints, rather than substituting
+        # clock text: the opted-in SDC owns its domain and boundary budgets.
+        plan.effective_sdc.write_text(
+            "# Generated clock study; the source SDC and default target are unchanged.\n"
+            f"set study_clock_period_ns {plan.study_clock_period_ns!r}\n"
+            + plan.sdc.read_text() + "\n"
+            + """# Reject an opt-in that forgot a clock or ignored the requested period.
+if {[llength [all_clocks]] == 0} {
+  error "clock study: no clocks defined"
+}
+foreach study_clk [all_clocks] {
+  if {abs([get_property $study_clk period] - $study_clock_period_ns) > 1.0e-9} {
+    error "clock study: period mismatch on [get_property $study_clk name]"
+  }
+}
+""")
 
 
 def _kill(proc: subprocess.Popen, orfs: Orfs, name: str) -> None:
@@ -465,7 +501,7 @@ def _run(ctx: Context, plan: Plan, orfs: Orfs, timeout_s: float, name: str) -> t
             log.flush()
             if step == "versions":
                 versions = parse_versions(_section(plan.flow_log, mark))
-            if plan.synth_only and result == "pass" and any(
+            if (plan.synth_only or plan.study_clock_period_ns is not None) and result == "pass" and any(
                     ERROR_RE.search(line) for line in _section(plan.flow_log, mark).splitlines()):
                 result = "fail (error in log)"
             if result != "pass":
@@ -505,7 +541,7 @@ def _run(ctx: Context, plan: Plan, orfs: Orfs, timeout_s: float, name: str) -> t
         "design": plan.design,
         "platform": plan.platform,
         "status": status,
-        "clock_period_ns": plan.clock_period_ns,
+        "clock_period_ns": plan.study_clock_period_ns or plan.clock_period_ns,
         **summary,
         "toolchain": {"runner": orfs.runner, "image": orfs.image, "root": orfs.root,
                       "orfs_pin": orfs.commit, **versions},
@@ -514,5 +550,8 @@ def _run(ctx: Context, plan: Plan, orfs: Orfs, timeout_s: float, name: str) -> t
         # Relative to the workdir: metrics.json is published, host paths are not.
         "work_home": plan.work_home.relative_to(ctx.workdir).as_posix(),
     }
+    if plan.study_clock_period_ns is not None:
+        doc["study"] = {"kind": "clock-period", "clock_period_ns": plan.study_clock_period_ns,
+                        "target_clock_period_ns": plan.clock_period_ns}
     plan.metrics_json.write_text(json.dumps(doc, indent=2) + "\n")
     return (0 if status == "pass" else 1), doc
