@@ -370,49 +370,49 @@
   "ips": {
    "phy": {
     "area": {
-     "core_um2": 251862,
-     "die_um2": 255864,
-     "stdcell_um2": 90907.2
+     "core_um2": 248890,
+     "die_um2": 252838,
+     "stdcell_um2": 89836.2
     },
-    "cells": 12059,
+    "cells": 11970,
     "clock_period_ns": 8.0,
     "design": "pcie_phy",
-    "elapsed_s": 412.0,
+    "elapsed_s": 490.3,
     "logic_depth": {
-     "value": 54
+     "value": 46
     },
     "max_fanout": {
      "value": 49
     },
     "platform": "sky130hd",
-    "power_w": 0.0402188,
+    "power_w": 0.0423124,
     "route_drc_errors": 0,
     "schema": 1,
     "status": "pass",
-    "synth_cells": 8146,
+    "synth_cells": 8065,
     "timing": {
      "clocks": {
       "clk": {
-       "setup_ws_ns": -1.5522,
-       "tns_ns": -9.1211,
-       "wns_ns": -1.5522
+       "setup_ws_ns": -1.0088,
+       "tns_ns": -4.7263,
+       "wns_ns": -1.0088
       },
       "rx_clk": {
-       "setup_ws_ns": 0.6471,
+       "setup_ws_ns": 1.1996,
        "tns_ns": 0.0,
        "wns_ns": 0.0
       }
      },
-     "hold_ws_ns": 0.0769776,
-     "setup_ws_ns": -1.55218,
-     "tns_ns": -9.12109,
-     "wns_ns": -1.55218
+     "hold_ws_ns": 0.0654367,
+     "setup_ws_ns": -1.00879,
+     "tns_ns": -4.72631,
+     "wns_ns": -1.00879
     },
-    "utilization": 0.360941,
+    "utilization": 0.360947,
     "worst_path": {
      "cells": 2,
      "group": "asynchronous",
-     "slack_ns": 6.29
+     "slack_ns": 6.43
     }
    },
    "top": {
@@ -424,7 +424,7 @@
     "cells": 167,
     "clock_period_ns": 10.0,
     "design": "pcie_top",
-    "elapsed_s": 22.2,
+    "elapsed_s": 21.9,
     "logic_depth": {
      "value": 4
     },
@@ -483,19 +483,19 @@
     "lines": 334
    },
    "src": {
-    "code": 21156,
+    "code": 21182,
     "files": 198,
-    "lines": 23074
+    "lines": 23103
    },
    "tools": {
-    "code": 23450,
+    "code": 23771,
     "files": 301,
-    "lines": 24043
+    "lines": 24382
    },
    "wiki": {
-    "code": 10650,
+    "code": 10693,
     "files": 78,
-    "lines": 10650
+    "lines": 10693
    },
    "worktrees": {
     "code": 10,
@@ -545,9 +545,9 @@
     "lines": 96
    },
    ".md": {
-    "code": 12021,
+    "code": 12064,
     "files": 133,
-    "lines": 12021
+    "lines": 12064
    },
    ".mk": {
     "code": 13,
@@ -555,9 +555,9 @@
     "lines": 35
    },
    ".py": {
-    "code": 33590,
+    "code": 33911,
     "files": 186,
-    "lines": 34722
+    "lines": 35061
    },
    ".rpt": {
     "code": 291,
@@ -580,9 +580,9 @@
     "lines": 16
    },
    ".sv": {
-    "code": 4932,
+    "code": 4958,
     "files": 48,
-    "lines": 5889
+    "lines": 5918
    },
    ".svh": {
     "code": 263,
@@ -610,11 +610,11 @@
     "lines": 697
    }
   },
-  "commits": 98,
+  "commits": 101,
   "contributors": 3,
   "ips": {
    "mac": {
-    "code": 7068,
+    "code": 7073,
     "files": 34,
     "kinds": {
      "arch_py": {
@@ -638,15 +638,15 @@
       "lines": 91
      },
      "rtl_sv": {
-      "code": 2412,
+      "code": 2417,
       "files": 6,
-      "lines": 2781
+      "lines": 2786
      }
     },
-    "lines": 7673
+    "lines": 7678
    },
    "pcs": {
-    "code": 7074,
+    "code": 7085,
     "files": 55,
     "kinds": {
      "arch_py": {
@@ -665,12 +665,12 @@
       "lines": 4280
      },
      "rtl_sv": {
-      "code": 1192,
+      "code": 1203,
       "files": 7,
-      "lines": 1484
+      "lines": 1498
      }
     },
-    "lines": 7652
+    "lines": 7666
    },
    "phy": {
     "code": 3121,
@@ -776,9 +776,9 @@
     "lines": 384
    },
    "rtl_sv": {
-    "code": 4472,
+    "code": 4498,
     "files": 29,
-    "lines": 5413
+    "lines": 5442
    },
    "skills": {
     "code": 1005,
@@ -786,14 +786,14 @@
     "lines": 1005
    },
    "tools_py": {
-    "code": 19202,
+    "code": 19523,
     "files": 113,
-    "lines": 19703
+    "lines": 20042
    },
    "wiki_md": {
-    "code": 10750,
+    "code": 10793,
     "files": 80,
-    "lines": 10750
+    "lines": 10793
    },
    "workflows": {
     "code": 586,
@@ -804,10 +804,10 @@
   "repo_size_kb": 2616,
   "status": "ok",
   "total": {
-   "bytes": 6088890,
-   "code": 57635,
+   "bytes": 6114304,
+   "code": 58025,
    "files": 615,
-   "lines": 60403
+   "lines": 60814
   }
  },
  "coverage": {
@@ -867,14 +867,14 @@
      "total": 2940
     },
     "line": {
-     "covered": 388,
-     "pct": 99.23,
-     "total": 391
+     "covered": 390,
+     "pct": 99.24,
+     "total": 393
     },
     "toggle": {
-     "covered": 3236,
-     "pct": 98.06,
-     "total": 3300
+     "covered": 3272,
+     "pct": 98.02,
+     "total": 3338
     }
    },
    "phy": {
@@ -890,14 +890,14 @@
      "total": 63
     },
     "line": {
-     "covered": 1319,
-     "pct": 79.27,
-     "total": 1664
+     "covered": 1321,
+     "pct": 79.29,
+     "total": 1666
     },
     "toggle": {
-     "covered": 10891,
-     "pct": 75.77,
-     "total": 14374
+     "covered": 10927,
+     "pct": 75.82,
+     "total": 14412
     }
    },
    "top": {
@@ -1079,6 +1079,7 @@
    162.0,
    162.0,
    164.0,
+   170.0,
    173.0,
    175.0,
    177.0,
@@ -1105,6 +1106,7 @@
    233.0,
    234.0,
    238.0,
+   240.0,
    241.0,
    245.0,
    245.0,
@@ -1164,17 +1166,21 @@
    775.0,
    790.0,
    795.0,
+   798.0,
    812.0,
    820.0,
    829.0,
    832.0,
    860.0,
    889.0,
+   927.0,
    949.0,
+   955.0,
    998.0,
    1030.0,
    1070.0,
    1073.0,
+   1101.0,
    1114.0,
    1206.0,
    1230.0,
@@ -1507,7 +1513,7 @@
    1686,
    1692,
    1717,
-   1745,
+   1784,
    1790,
    1818,
    1877,
@@ -1521,9 +1527,9 @@
    1985,
    1986,
    1988,
-   1993,
    2013,
    2046,
+   2063,
    2074,
    2094,
    2099,
@@ -1575,7 +1581,7 @@
    3300,
    3327,
    3345,
-   3351,
+   3393,
    3416,
    3425,
    3432,
@@ -1613,18 +1619,18 @@
    4509,
    4543,
    4608,
-   4659,
    4780,
    4799,
    4804,
    4817,
+   4860,
    4864,
-   4887,
    4921,
    4939,
-   4947,
    4949,
+   4983,
    5008,
+   5025,
    5027,
    5058,
    5059,
@@ -1653,7 +1659,6 @@
    6471,
    6505,
    6526,
-   6594,
    6638,
    6662,
    6681,
@@ -1687,6 +1692,7 @@
    8080,
    8093,
    8162,
+   8167,
    8171,
    8231,
    8246,
@@ -1780,15 +1786,15 @@
    16608,
    16944,
    17080,
-   17341,
    17375,
+   17394,
    17798,
    18417,
-   18659,
    18849,
    19110,
-   19197,
+   19162,
    19524,
+   19748,
    20092,
    20113,
    21471,
@@ -1802,26 +1808,26 @@
    26234,
    27039,
    30089,
-   30501,
    30578,
    30750,
-   32157,
-   32218,
+   31690,
+   33470,
    33757,
-   35107,
-   37601,
+   37816,
    37827,
    37970,
    38078,
+   38707,
    41227,
    45113,
+   45299,
    51657,
    54946,
    59058,
    59349,
    60206,
    68466,
-   76512,
+   79322,
    205615,
    2571900
   ],
@@ -2143,8 +2149,8 @@
    34,
    35,
    36,
-   36,
    37,
+   38,
    39,
    40,
    40,
@@ -2187,11 +2193,11 @@
    52,
    53,
    53,
-   53,
    54,
    55,
    56,
    56,
+   57,
    57,
    58,
    59,
@@ -2246,10 +2252,10 @@
    90,
    91,
    91,
-   91,
    94,
    95,
    95,
+   96,
    96,
    96,
    97,
@@ -2272,7 +2278,6 @@
    108,
    108,
    109,
-   109,
    111,
    111,
    112,
@@ -2286,9 +2291,10 @@
    117,
    117,
    118,
-   120,
    121,
    123,
+   123,
+   124,
    124,
    124,
    126,
@@ -2385,10 +2391,10 @@
    266,
    270,
    271,
-   271,
    274,
    276,
    276,
+   278,
    282,
    283,
    288,
@@ -2408,7 +2414,7 @@
    334,
    348,
    349,
-   352,
+   354,
    358,
    362,
    364,
@@ -2417,23 +2423,23 @@
    414,
    417,
    418,
-   422,
+   434,
    441,
    442,
-   449,
+   466,
    467,
-   500,
-   504,
+   501,
    506,
-   535,
+   530,
    579,
    583,
    592,
-   647,
+   632,
    732,
    748,
    825,
-   937,
+   863,
+   941,
    958,
    1001,
    1206,
@@ -2445,6 +2451,7 @@
   "issue_close_h": [
    0.03,
    0.07,
+   0.12,
    0.12,
    0.14,
    0.14,
@@ -2518,6 +2525,7 @@
    7.89,
    8.13,
    8.33,
+   8.97,
    9.11,
    9.33,
    9.36,
@@ -2545,6 +2553,7 @@
    25.77
   ],
   "issue_first_response_h": [
+   0.0,
    0.0,
    0.0,
    0.0,
@@ -2660,6 +2669,7 @@
    300.0,
    326.0,
    328.0,
+   1634.0,
    1881.0,
    2102.0,
    7026.0
@@ -2672,6 +2682,7 @@
    0.05,
    0.05,
    0.05,
+   0.06,
    0.06,
    0.06,
    0.06,
@@ -2756,7 +2767,8 @@
    1.76,
    5.11,
    5.44,
-   6.27
+   6.27,
+   7.49
   ],
   "pr_review_rounds": [
    0,
@@ -2793,6 +2805,8 @@
    1,
    1,
    1,
+   1,
+   2,
    2,
    2,
    2,
@@ -2858,6 +2872,7 @@
    27,
    35,
    38,
+   44,
    50,
    70,
    78,
@@ -2897,6 +2912,7 @@
    522,
    543,
    570,
+   573,
    578,
    589,
    611,
@@ -2947,488 +2963,675 @@
    10951
   ],
   "test_runtime_s": [
-   0.909,
-   0.956,
-   0.956,
-   0.957,
-   0.965,
-   0.966,
+   0.916,
+   0.958,
+   0.958,
    0.967,
-   0.967,
-   0.967,
-   0.972,
-   1.009,
-   1.009,
    1.01,
-   1.01,
-   1.011,
-   1.011,
-   1.012,
+   1.016,
+   1.016,
    1.017,
-   1.02,
-   1.021,
-   1.025,
-   1.055,
-   1.057,
-   1.061,
-   1.061,
-   1.063,
-   1.107,
-   1.108,
-   1.112,
-   1.114,
-   1.122,
-   1.158,
-   1.158,
-   1.158,
-   1.16,
-   1.162,
-   1.162,
-   1.162,
+   1.022,
+   1.058,
+   1.059,
+   1.06,
+   1.065,
+   1.066,
+   1.066,
+   1.067,
+   1.069,
+   1.073,
+   1.109,
+   1.11,
+   1.111,
+   1.111,
+   1.111,
+   1.113,
+   1.113,
+   1.117,
+   1.117,
+   1.118,
+   1.161,
+   1.163,
+   1.163,
+   1.165,
+   1.165,
+   1.167,
+   1.173,
    1.174,
-   1.207,
-   1.208,
-   1.209,
-   1.21,
-   1.212,
+   1.203,
+   1.206,
+   1.211,
+   1.211,
    1.212,
    1.213,
-   1.214,
-   1.214,
-   1.215,
-   1.215,
+   1.213,
+   1.213,
    1.215,
    1.216,
-   1.221,
-   1.227,
-   1.229,
-   1.23,
-   1.233,
-   1.235,
-   1.241,
-   1.242,
-   1.257,
-   1.257,
-   1.257,
-   1.259,
-   1.26,
-   1.261,
-   1.263,
+   1.219,
+   1.219,
+   1.219,
+   1.224,
+   1.245,
    1.267,
-   1.277,
-   1.278,
-   1.283,
-   1.289,
-   1.309,
-   1.313,
-   1.313,
-   1.355,
-   1.358,
+   1.27,
+   1.27,
+   1.273,
+   1.282,
+   1.296,
+   1.314,
+   1.317,
+   1.32,
+   1.322,
+   1.322,
+   1.325,
+   1.327,
+   1.327,
+   1.342,
+   1.342,
+   1.343,
+   1.345,
+   1.346,
+   1.351,
+   1.36,
    1.363,
-   1.364,
-   1.41,
-   1.412,
+   1.366,
+   1.366,
+   1.369,
+   1.381,
+   1.383,
+   1.405,
+   1.408,
    1.415,
-   1.416,
-   1.418,
-   1.418,
-   1.422,
-   1.427,
+   1.42,
+   1.426,
    1.435,
-   1.458,
-   1.462,
-   1.468,
-   1.471,
-   1.51,
-   1.51,
-   1.519,
-   1.52,
-   1.562,
-   1.562,
-   1.567,
-   1.614,
-   1.663,
-   1.67,
-   1.76,
-   1.819,
-   1.821,
-   1.858,
-   1.882,
-   1.906,
-   1.911,
-   1.924,
-   1.966,
-   2.004,
-   2.023,
-   2.164,
-   2.26,
-   2.288,
-   2.364,
-   2.573,
-   2.621,
-   2.624,
-   2.632,
-   2.715,
-   2.832,
-   2.865,
-   2.887,
-   2.917,
-   2.922,
-   2.972,
-   3.017,
-   3.033,
-   3.072,
-   3.119,
-   3.169,
-   3.174,
-   3.175,
-   3.213,
-   3.215,
-   3.266,
-   3.271,
+   1.475,
+   1.48,
+   1.486,
+   1.492,
+   1.507,
+   1.515,
+   1.515,
+   1.559,
+   1.561,
+   1.609,
+   1.616,
+   1.659,
+   1.705,
+   1.706,
+   1.767,
+   1.774,
+   1.801,
+   1.817,
+   1.85,
+   1.868,
+   1.912,
+   1.913,
+   1.913,
+   1.928,
+   1.939,
+   1.965,
+   1.972,
+   1.98,
+   2.108,
+   2.277,
+   2.325,
+   2.465,
+   2.466,
+   2.612,
+   2.614,
+   2.767,
+   2.779,
+   2.811,
+   2.818,
+   2.932,
+   2.966,
+   3.071,
+   3.078,
+   3.08,
+   3.092,
+   3.114,
+   3.176,
+   3.176,
+   3.228,
+   3.236,
+   3.28,
+   3.317,
    3.319,
-   3.323,
+   3.32,
    3.332,
-   3.367,
-   3.375,
+   3.369,
+   3.373,
+   3.374,
+   3.38,
+   3.39,
+   3.396,
+   3.416,
+   3.417,
+   3.426,
    3.432,
-   3.468,
+   3.441,
+   3.467,
    3.471,
-   3.516,
-   3.531,
-   3.533,
-   3.565,
-   3.569,
+   3.474,
+   3.487,
+   3.518,
    3.583,
-   3.619,
-   3.673,
-   3.673,
-   3.731,
-   3.768,
-   3.79,
-   3.829,
-   3.867,
-   3.872,
-   3.967,
-   3.971,
-   3.98,
-   3.982,
-   4.0,
-   4.021,
-   4.025,
-   4.032,
-   4.047,
-   4.055,
-   4.183,
-   4.203,
-   4.324,
-   4.325,
-   4.34,
-   4.343,
-   4.37,
-   4.372,
-   4.397,
+   3.621,
+   3.621,
+   3.626,
+   3.668,
+   3.68,
+   3.685,
+   3.722,
+   3.729,
+   3.777,
+   3.778,
+   3.788,
+   3.811,
+   3.836,
+   3.873,
+   3.983,
+   4.028,
+   4.136,
+   4.138,
+   4.172,
+   4.175,
+   4.232,
+   4.267,
+   4.316,
+   4.371,
+   4.377,
+   4.381,
+   4.419,
+   4.419,
    4.43,
-   4.469,
-   4.469,
-   4.484,
-   4.52,
    4.524,
-   4.62,
-   4.629,
-   4.631,
-   4.638,
-   4.671,
-   4.717,
-   4.727,
-   4.945,
-   4.996,
-   5.185,
-   5.233,
-   5.243,
-   5.246,
-   5.286,
-   5.292,
-   5.339,
-   5.343,
-   5.349,
-   5.363,
-   5.375,
-   5.445,
-   5.482,
-   5.487,
-   5.516,
-   5.542,
-   5.548,
-   5.594,
-   5.703,
-   5.771,
-   5.797,
-   5.936,
-   5.946,
-   5.952,
-   5.969,
-   5.97,
-   5.975,
-   6.032,
-   6.041,
-   6.08,
-   6.081,
-   6.086,
-   6.101,
-   6.141,
-   6.231,
-   6.249,
-   6.304,
-   6.327,
-   6.394,
-   6.484,
-   6.529,
-   6.582,
-   6.593,
-   6.628,
-   6.63,
-   6.7,
-   6.717,
-   6.836,
-   6.874,
-   7.031,
-   7.073,
-   7.165,
-   7.166,
-   7.269,
-   7.278,
-   7.393,
-   7.452,
-   7.475,
-   7.724,
-   7.77,
-   7.859,
-   7.932,
-   8.009,
-   8.256,
-   8.329,
-   8.384,
-   8.485,
-   8.493,
-   8.505,
-   8.564,
-   8.574,
-   8.612,
-   8.836,
-   8.863,
-   8.881,
-   8.908,
-   8.927,
-   8.986,
-   9.013,
-   9.087,
-   9.145,
-   9.331,
-   9.363,
-   9.382,
-   9.395,
-   9.403,
-   9.452,
-   9.532,
-   9.585,
-   9.819,
-   9.838,
-   9.924,
-   10.014,
-   10.036,
-   10.189,
-   10.197,
-   10.228,
-   10.258,
-   10.388,
-   10.395,
-   10.417,
-   10.43,
-   10.433,
-   10.525,
-   10.564,
-   10.728,
+   4.533,
+   4.553,
+   4.567,
+   4.571,
+   4.589,
+   4.617,
+   4.622,
+   4.623,
+   4.678,
+   4.679,
+   4.687,
+   4.73,
+   4.782,
+   4.787,
+   4.829,
+   4.847,
+   4.896,
+   4.961,
+   5.196,
+   5.223,
+   5.228,
+   5.228,
+   5.251,
+   5.27,
+   5.28,
+   5.289,
+   5.29,
+   5.296,
+   5.338,
+   5.399,
+   5.426,
+   5.435,
+   5.485,
+   5.622,
+   5.674,
+   5.733,
+   5.737,
+   5.781,
+   5.786,
+   5.847,
+   5.888,
+   5.993,
+   6.039,
+   6.052,
+   6.129,
+   6.132,
+   6.15,
+   6.168,
+   6.173,
+   6.217,
+   6.226,
+   6.236,
+   6.279,
+   6.542,
+   6.616,
+   6.654,
+   6.656,
+   6.87,
+   6.932,
+   6.997,
+   7.028,
+   7.067,
+   7.205,
+   7.239,
+   7.373,
+   7.596,
+   7.693,
+   7.695,
+   7.824,
+   7.825,
+   7.887,
+   7.935,
+   7.938,
+   8.05,
+   8.111,
+   8.177,
+   8.441,
+   8.443,
+   8.445,
+   8.5,
+   8.65,
+   8.677,
+   8.678,
+   8.699,
+   8.715,
+   8.869,
+   8.942,
+   8.997,
+   9.005,
+   9.035,
+   9.06,
+   9.222,
+   9.352,
+   9.422,
+   9.429,
+   9.551,
+   9.602,
+   9.61,
+   9.76,
+   9.874,
+   9.908,
+   9.95,
+   9.954,
+   9.957,
+   10.003,
+   10.027,
+   10.126,
+   10.151,
+   10.237,
+   10.327,
+   10.33,
+   10.366,
+   10.466,
+   10.485,
+   10.493,
+   10.501,
+   10.508,
+   10.652,
+   10.691,
+   10.724,
+   10.729,
+   10.751,
    10.753,
-   10.77,
-   10.77,
-   10.783,
-   10.79,
-   10.847,
-   10.899,
-   10.992,
-   11.16,
-   11.19,
-   11.221,
-   11.3,
-   11.325,
-   11.383,
-   11.517,
-   11.521,
-   11.543,
-   11.776,
-   11.869,
-   11.934,
-   12.067,
-   12.067,
-   12.189,
-   12.235,
-   12.684,
-   12.687,
-   13.414,
-   13.517,
-   14.053,
+   10.791,
+   10.794,
+   10.94,
+   10.958,
+   10.991,
+   11.2,
+   11.215,
+   11.333,
+   11.367,
+   11.647,
+   11.679,
+   11.79,
+   11.841,
+   12.429,
+   12.664,
+   12.667,
+   13.353,
+   13.362,
+   13.701,
+   13.842,
+   13.879,
+   14.242,
+   14.281,
    14.475,
-   15.382,
-   16.937,
-   18.812,
-   20.277,
-   22.047,
-   22.548,
-   24.974,
-   25.009,
-   26.337,
-   27.607,
-   27.807,
-   28.874,
-   29.25,
-   29.751,
-   29.806,
-   29.855,
-   33.101,
-   33.533,
-   33.649,
-   33.862,
-   34.271,
-   34.734,
-   35.122,
-   35.377,
-   35.582,
-   35.947,
-   36.463,
-   36.562,
-   37.535,
-   37.647,
-   37.724,
-   37.868,
-   38.353,
-   38.695,
-   39.086,
-   39.12,
-   40.146,
-   40.563,
-   40.885,
-   41.001,
-   41.77,
-   42.52,
-   42.908,
-   44.558,
-   44.56,
-   44.6,
-   45.66,
-   45.7,
-   46.124,
-   47.054,
-   47.68,
-   47.888,
-   49.373,
-   50.154,
-   51.142,
-   51.505,
-   52.48,
-   53.137,
-   59.963,
-   70.799,
-   73.544,
-   76.933,
-   78.819,
-   82.13,
-   92.297,
-   97.472,
-   115.552,
-   116.58,
-   131.351,
-   132.885,
-   136.429,
-   139.66,
-   140.026,
-   144.248,
-   150.43,
-   155.966,
-   158.527,
-   161.228,
-   165.598,
-   166.861,
-   167.34,
-   202.1,
-   391.627,
-   727.619,
-   741.021
+   16.288,
+   19.729,
+   21.64,
+   22.867,
+   23.187,
+   24.587,
+   25.008,
+   25.646,
+   25.949,
+   26.088,
+   26.255,
+   27.918,
+   28.171,
+   31.002,
+   31.046,
+   31.746,
+   32.169,
+   32.989,
+   33.355,
+   34.035,
+   34.681,
+   35.01,
+   35.446,
+   36.28,
+   37.127,
+   37.297,
+   37.434,
+   38.458,
+   39.31,
+   39.367,
+   40.197,
+   40.764,
+   40.843,
+   41.035,
+   41.492,
+   41.618,
+   42.684,
+   42.979,
+   43.469,
+   43.524,
+   44.163,
+   44.785,
+   45.13,
+   45.274,
+   45.311,
+   46.041,
+   46.074,
+   46.121,
+   47.43,
+   47.504,
+   48.836,
+   48.871,
+   49.691,
+   50.168,
+   50.606,
+   53.737,
+   54.441,
+   60.965,
+   67.877,
+   70.166,
+   70.485,
+   74.66,
+   75.06,
+   90.426,
+   92.954,
+   100.918,
+   106.874,
+   108.102,
+   113.735,
+   133.033,
+   134.189,
+   146.262,
+   147.794,
+   151.12,
+   151.483,
+   151.757,
+   159.26,
+   161.249,
+   163.167,
+   166.027,
+   199.825,
+   391.885,
+   716.845,
+   743.85
   ]
  },
  "fpga": {
-  "reason": "missing",
-  "status": "unavailable"
+  "ips": {
+   "phy": {
+    "board": "de2_115",
+    "device": "EP4CE115F29C7",
+    "family": "Cyclone IV E",
+    "flow": {
+     "lint": "pass",
+     "steps": {
+      "fit": {
+       "runtime_s": 15.6,
+       "status": "pass",
+       "warnings": 2
+      },
+      "map": {
+       "runtime_s": 14.0,
+       "status": "pass",
+       "warnings": 5
+      },
+      "project": {
+       "runtime_s": 0.9,
+       "status": "pass",
+       "warnings": 0
+      },
+      "sta": {
+       "runtime_s": 2.3,
+       "status": "pass",
+       "warnings": 0
+      },
+      "worst_path": {
+       "runtime_s": 1.1,
+       "status": "pass",
+       "warnings": 0
+      }
+     }
+    },
+    "quartus_version": "25.1std.0 Build 1129 10/21/2025 SC Lite Edition",
+    "resources": {
+     "dsp_9bit": {
+      "total": 532,
+      "used": 0
+     },
+     "logic_elements": {
+      "total": 114480,
+      "used": 3847
+     },
+     "memory_bits": {
+      "total": 3981312,
+      "used": 0
+     },
+     "memory_blocks": {
+      "total": 432,
+      "type": "M9K",
+      "used": 0
+     },
+     "pins": {
+      "total": 529,
+      "used": 14
+     },
+     "plls": {
+      "total": 4,
+      "used": 0
+     },
+     "registers": 1316
+    },
+    "schema": 1,
+    "status": "ok",
+    "timing": {
+     "clocks": {
+      "clk_core": {
+       "fmax_mhz": 50.12,
+       "hold_slack_ns": 0.18,
+       "recovery_slack_ns": null,
+       "removal_slack_ns": null,
+       "restricted_fmax_mhz": 50.12,
+       "setup_slack_ns": 0.048
+      },
+      "clk_rx": {
+       "fmax_mhz": 59.41,
+       "hold_slack_ns": 0.181,
+       "recovery_slack_ns": 16.376,
+       "removal_slack_ns": 0.498,
+       "restricted_fmax_mhz": 59.41,
+       "setup_slack_ns": 3.168
+      }
+     },
+     "critical_path": {
+      "data_delay_ns": 19.879,
+      "slack_ns": 0.048
+     },
+     "met": true,
+     "unconstrained_total": 0,
+     "worst_hold_slack_ns": 0.18,
+     "worst_recovery_slack_ns": 16.376,
+     "worst_removal_slack_ns": 0.498,
+     "worst_setup_slack_ns": 0.048
+    },
+    "top": "pcie_phy_de2_115"
+   },
+   "top": {
+    "board": "de2_115",
+    "device": "EP4CE115F29C7",
+    "family": "Cyclone IV E",
+    "flow": {
+     "lint": "pass",
+     "steps": {
+      "fit": {
+       "runtime_s": 6.2,
+       "status": "pass",
+       "warnings": 2
+      },
+      "map": {
+       "runtime_s": 5.7,
+       "status": "pass",
+       "warnings": 0
+      },
+      "project": {
+       "runtime_s": 0.4,
+       "status": "pass",
+       "warnings": 0
+      },
+      "sta": {
+       "runtime_s": 1.5,
+       "status": "pass",
+       "warnings": 0
+      },
+      "worst_path": {
+       "runtime_s": 1.0,
+       "status": "pass",
+       "warnings": 0
+      }
+     }
+    },
+    "quartus_version": "25.1std.0 Build 1129 10/21/2025 SC Lite Edition",
+    "resources": {
+     "dsp_9bit": {
+      "total": 532,
+      "used": 0
+     },
+     "logic_elements": {
+      "total": 114480,
+      "used": 68
+     },
+     "memory_bits": {
+      "total": 3981312,
+      "used": 0
+     },
+     "memory_blocks": {
+      "total": 432,
+      "type": "M9K",
+      "used": 0
+     },
+     "pins": {
+      "total": 529,
+      "used": 21
+     },
+     "plls": {
+      "total": 4,
+      "used": 0
+     },
+     "registers": 62
+    },
+    "schema": 1,
+    "status": "ok",
+    "timing": {
+     "clocks": {
+      "CLOCK_50": {
+       "fmax_mhz": 260.15,
+       "hold_slack_ns": 0.183,
+       "recovery_slack_ns": null,
+       "removal_slack_ns": null,
+       "restricted_fmax_mhz": 250.0,
+       "setup_slack_ns": 16.156
+      }
+     },
+     "critical_path": {
+      "data_delay_ns": 3.741,
+      "slack_ns": 16.156
+     },
+     "met": true,
+     "unconstrained_total": 0,
+     "worst_hold_slack_ns": 0.183,
+     "worst_recovery_slack_ns": null,
+     "worst_removal_slack_ns": null,
+     "worst_setup_slack_ns": 16.156
+    },
+    "top": "pcie_top_de2_115"
+   }
+  },
+  "status": "ok"
  },
  "github": {
   "ci": {
    "latest_main": {
     "conclusion": "success",
-    "duration_s": 232.0,
-    "sha": "7b2501c130bd"
+    "duration_s": 798.0,
+    "sha": "7ad976da8fa4"
    },
    "status": "ok",
    "windows": {
     "1d": {
-     "completed": 142,
+     "completed": 141,
      "duration_s": {
-      "median": 428.0,
+      "median": 451.0,
       "p90": 2064.0
      },
-     "pass_rate": 0.9661,
-     "runs": 142
+     "pass_rate": 0.9573,
+     "runs": 141
     },
     "30d": {
-     "completed": 263,
+     "completed": 269,
      "duration_s": {
-      "median": 155.0,
+      "median": 164.0,
       "p90": 1312.0
      },
-     "pass_rate": 0.9578,
-     "runs": 263
+     "pass_rate": 0.9547,
+     "runs": 269
     },
     "7d": {
-     "completed": 263,
+     "completed": 269,
      "duration_s": {
-      "median": 155.0,
+      "median": 164.0,
       "p90": 1312.0
      },
-     "pass_rate": 0.9578,
-     "runs": 263
+     "pass_rate": 0.9547,
+     "runs": 269
     }
    },
    "workflow": "ci.yml"
   },
   "issues": {
-   "open": 34,
+   "open": 33,
    "open_by_label": {
     "area:build": 4,
     "area:ci": 8,
     "area:dv": 18,
-    "area:fpga": 6,
+    "area:fpga": 5,
     "area:pd": 4,
-    "area:rtl": 13,
+    "area:rtl": 12,
     "area:skills": 2,
     "area:wiki": 18,
-    "in-progress": 4,
+    "in-progress": 3,
     "ip:mac": 2,
     "ip:pcs": 2,
-    "ip:phy": 4,
+    "ip:phy": 3,
     "nightly-red": 1,
-    "prio:p0": 9,
+    "prio:p0": 8,
     "prio:p1": 8,
     "prio:p2": 9,
-    "type:bug": 3,
+    "type:bug": 2,
     "type:docs": 5,
     "type:epic": 2,
     "type:feat": 10,
@@ -3437,83 +3640,83 @@
     "type:test": 6
    },
    "status": "ok",
-   "total": 134,
+   "total": 135,
    "windows": {
     "1d": {
-     "closed": 48,
+     "closed": 46,
      "closed_by_label": {
-      "area:build": 10,
+      "area:build": 9,
       "area:ci": 3,
-      "area:dv": 29,
-      "area:fpga": 2,
+      "area:dv": 27,
+      "area:fpga": 3,
       "area:pd": 3,
-      "area:rtl": 27,
+      "area:rtl": 24,
       "area:skills": 2,
-      "area:wiki": 29,
+      "area:wiki": 28,
       "in-progress": 3,
       "ip:mac": 9,
       "ip:pcs": 6,
-      "ip:phy": 2,
+      "ip:phy": 3,
       "nightly-red": 1,
-      "prio:p0": 10,
-      "prio:p1": 8,
-      "prio:p2": 11,
-      "type:bug": 4,
+      "prio:p0": 11,
+      "prio:p1": 7,
+      "prio:p2": 10,
+      "type:bug": 6,
       "type:docs": 6,
-      "type:feat": 16,
-      "type:infra": 10,
+      "type:feat": 14,
+      "type:infra": 8,
       "type:refactor": 4,
       "type:test": 8
      },
-     "opened": 55,
+     "opened": 52,
      "opened_by_label": {
-      "area:build": 9,
+      "area:build": 10,
       "area:ci": 9,
-      "area:dv": 28,
+      "area:dv": 24,
       "area:fpga": 5,
       "area:pd": 5,
-      "area:rtl": 20,
+      "area:rtl": 18,
       "area:skills": 4,
-      "area:wiki": 28,
-      "in-progress": 4,
-      "ip:mac": 8,
-      "ip:pcs": 8,
+      "area:wiki": 25,
+      "in-progress": 2,
+      "ip:mac": 7,
+      "ip:pcs": 5,
       "ip:phy": 6,
       "nightly-red": 2,
-      "prio:p0": 15,
+      "prio:p0": 13,
       "prio:p1": 14,
       "prio:p2": 16,
-      "type:bug": 7,
-      "type:docs": 11,
+      "type:bug": 8,
+      "type:docs": 10,
       "type:epic": 1,
       "type:feat": 9,
       "type:infra": 12,
-      "type:refactor": 5,
-      "type:test": 10
+      "type:refactor": 3,
+      "type:test": 9
      }
     },
     "30d": {
-     "closed": 100,
+     "closed": 102,
      "closed_by_label": {
-      "area:build": 34,
+      "area:build": 35,
       "area:ci": 15,
       "area:dv": 39,
-      "area:fpga": 3,
+      "area:fpga": 4,
       "area:pd": 4,
-      "area:rtl": 34,
+      "area:rtl": 35,
       "area:skills": 14,
-      "area:wiki": 61,
+      "area:wiki": 62,
       "in-progress": 3,
       "ip:mac": 9,
       "ip:pcs": 6,
-      "ip:phy": 2,
+      "ip:phy": 3,
       "ip:top": 1,
       "ip:top_lfsr": 1,
       "nightly-red": 1,
-      "prio:p0": 13,
+      "prio:p0": 14,
       "prio:p1": 15,
       "prio:p2": 19,
-      "type:bug": 8,
+      "type:bug": 10,
       "type:docs": 17,
       "type:epic": 1,
       "type:feat": 25,
@@ -3521,17 +3724,17 @@
       "type:refactor": 6,
       "type:test": 9
      },
-     "opened": 134,
+     "opened": 135,
      "opened_by_label": {
-      "area:build": 38,
+      "area:build": 39,
       "area:ci": 23,
       "area:dv": 57,
       "area:fpga": 9,
       "area:pd": 8,
       "area:rtl": 47,
       "area:skills": 16,
-      "area:wiki": 79,
-      "in-progress": 7,
+      "area:wiki": 80,
+      "in-progress": 6,
       "ip:mac": 11,
       "ip:pcs": 8,
       "ip:phy": 6,
@@ -3541,7 +3744,7 @@
       "prio:p0": 22,
       "prio:p1": 23,
       "prio:p2": 28,
-      "type:bug": 11,
+      "type:bug": 12,
       "type:docs": 22,
       "type:epic": 3,
       "type:feat": 35,
@@ -3551,27 +3754,27 @@
      }
     },
     "7d": {
-     "closed": 100,
+     "closed": 102,
      "closed_by_label": {
-      "area:build": 34,
+      "area:build": 35,
       "area:ci": 15,
       "area:dv": 39,
-      "area:fpga": 3,
+      "area:fpga": 4,
       "area:pd": 4,
-      "area:rtl": 34,
+      "area:rtl": 35,
       "area:skills": 14,
-      "area:wiki": 61,
+      "area:wiki": 62,
       "in-progress": 3,
       "ip:mac": 9,
       "ip:pcs": 6,
-      "ip:phy": 2,
+      "ip:phy": 3,
       "ip:top": 1,
       "ip:top_lfsr": 1,
       "nightly-red": 1,
-      "prio:p0": 13,
+      "prio:p0": 14,
       "prio:p1": 15,
       "prio:p2": 19,
-      "type:bug": 8,
+      "type:bug": 10,
       "type:docs": 17,
       "type:epic": 1,
       "type:feat": 25,
@@ -3579,17 +3782,17 @@
       "type:refactor": 6,
       "type:test": 9
      },
-     "opened": 134,
+     "opened": 135,
      "opened_by_label": {
-      "area:build": 38,
+      "area:build": 39,
       "area:ci": 23,
       "area:dv": 57,
       "area:fpga": 9,
       "area:pd": 8,
       "area:rtl": 47,
       "area:skills": 16,
-      "area:wiki": 79,
-      "in-progress": 7,
+      "area:wiki": 80,
+      "in-progress": 6,
       "ip:mac": 11,
       "ip:pcs": 8,
       "ip:phy": 6,
@@ -3599,7 +3802,7 @@
       "prio:p0": 22,
       "prio:p1": 23,
       "prio:p2": 28,
-      "type:bug": 11,
+      "type:bug": 12,
       "type:docs": 22,
       "type:epic": 3,
       "type:feat": 35,
@@ -3611,45 +3814,45 @@
    }
   },
   "pulls": {
-   "merged": 92,
-   "open": 1,
+   "merged": 94,
+   "open": 0,
    "status": "ok",
-   "total": 93,
+   "total": 94,
    "windows": {
     "1d": {
-     "data_merged": 3,
+     "data_merged": 4,
      "lead_time_h": {
       "median": 0.49,
-      "p90": 1.23
+      "p90": 1.45
      },
      "merged": 41,
-     "opened": 39,
+     "opened": 38,
      "review_rounds": {
       "max": 4,
       "median": 2
      }
     },
     "30d": {
-     "data_merged": 5,
+     "data_merged": 6,
      "lead_time_h": {
       "median": 0.34,
-      "p90": 1.06
+      "p90": 1.1
      },
-     "merged": 92,
-     "opened": 93,
+     "merged": 94,
+     "opened": 94,
      "review_rounds": {
       "max": 5,
       "median": 2.0
      }
     },
     "7d": {
-     "data_merged": 5,
+     "data_merged": 6,
      "lead_time_h": {
       "median": 0.34,
-      "p90": 1.06
+      "p90": 1.1
      },
-     "merged": 92,
-     "opened": 93,
+     "merged": 94,
+     "opened": 94,
      "review_rounds": {
       "max": 5,
       "median": 2.0
@@ -3660,9 +3863,9 @@
  },
  "health": {
   "approve_at_merged_head": {
-   "approved": 91,
-   "merged": 92,
-   "share": 0.9891
+   "approved": 93,
+   "merged": 94,
+   "share": 0.9894
   },
   "ci_gate_main": {
    "pass_rate": 1.0,
@@ -3673,66 +3876,63 @@
   },
   "open_issues": {
    "age_h": [
-    8.5,
-    8.5,
-    8.55,
-    9.4,
+    9.42,
     9.47,
-    9.47,
-    10.41,
-    11.03,
-    12.19,
-    12.19,
-    12.19,
-    12.19,
-    12.19,
-    12.19,
-    12.19,
-    12.19,
-    12.19,
-    12.19,
-    12.19,
-    12.19,
-    12.19,
-    12.19,
-    12.2,
-    12.2,
-    12.2,
-    14.16,
-    14.66,
-    15.97,
-    20.41,
-    22.67,
-    34.26,
-    34.26,
-    34.26,
-    34.27
+    10.32,
+    10.39,
+    10.39,
+    11.33,
+    11.95,
+    13.11,
+    13.11,
+    13.11,
+    13.11,
+    13.11,
+    13.11,
+    13.11,
+    13.11,
+    13.11,
+    13.11,
+    13.11,
+    13.12,
+    13.12,
+    13.12,
+    13.12,
+    13.12,
+    13.12,
+    15.08,
+    15.58,
+    16.89,
+    21.33,
+    23.59,
+    35.18,
+    35.19,
+    35.19,
+    35.2
    ],
-   "count": 34,
+   "count": 33,
    "stale": 0,
    "stale_days": 7
   },
   "open_prs": {
-   "age_h": [
-    7.02
-   ],
-   "count": 1
+   "age_h": [],
+   "count": 0
   },
   "review_rounds_median": 2.0
  },
  "meta": {
-  "commit": "7b2501c130bdd2a77adce935ffa0ba3d1c966969",
-  "commit_date": "2026-10-15T22:56:05Z",
-  "commit_short": "7b2501c130bd",
+  "commit": "7ad976da8fa4c0d362c17f323e8edbb730751932",
+  "commit_date": "2026-10-16T07:20:22Z",
+  "commit_short": "7ad976da8fa4",
   "date": "2026-10-16",
-  "generated_at": "2026-10-16T06:52:03Z",
+  "generated_at": "2026-10-16T07:47:21Z",
   "nightly": {
-   "duration_s": 1505.0,
-   "result": "fail",
+   "duration_s": 1596.0,
+   "result": "pass",
    "steps": {
     "asic": "pass",
     "check": "pass",
-    "fpga": "fail",
+    "fpga": "pass",
     "regress": "pass",
     "unit": "pass"
    }
@@ -3759,19 +3959,19 @@
     "level0": {
      "failed": 0,
      "passed": 12,
-     "runtime_s": 14.966,
+     "runtime_s": 16.261,
      "tests": 12
     },
     "level1": {
      "failed": 0,
      "passed": 49,
-     "runtime_s": 60.472,
+     "runtime_s": 63.113,
      "tests": 49
     },
     "level2": {
      "failed": 0,
      "passed": 56,
-     "runtime_s": 145.274,
+     "runtime_s": 148.394,
      "tests": 56
     }
    },
@@ -3779,19 +3979,19 @@
     "level0": {
      "failed": 0,
      "passed": 1,
-     "runtime_s": 9.382,
+     "runtime_s": 9.422,
      "tests": 1
     },
     "level1": {
      "failed": 0,
      "passed": 15,
-     "runtime_s": 378.172,
+     "runtime_s": 378.496,
      "tests": 15
     },
     "level2": {
      "failed": 0,
      "passed": 19,
-     "runtime_s": 2704.229,
+     "runtime_s": 2665.383,
      "tests": 19
     }
    },
@@ -3799,19 +3999,19 @@
     "level0": {
      "failed": 0,
      "passed": 7,
-     "runtime_s": 12.192,
+     "runtime_s": 13.057,
      "tests": 7
     },
     "level1": {
      "failed": 0,
      "passed": 67,
-     "runtime_s": 402.628,
+     "runtime_s": 381.468,
      "tests": 67
     },
     "level2": {
      "failed": 0,
      "passed": 122,
-     "runtime_s": 2225.742,
+     "runtime_s": 2243.098,
      "tests": 122
     }
    },
@@ -3819,19 +4019,19 @@
     "level0": {
      "failed": 0,
      "passed": 4,
-     "runtime_s": 90.14,
+     "runtime_s": 81.724,
      "tests": 4
     },
     "level1": {
      "failed": 0,
      "passed": 28,
-     "runtime_s": 479.943,
+     "runtime_s": 475.886,
      "tests": 28
     },
     "level2": {
      "failed": 0,
      "passed": 13,
-     "runtime_s": 1916.553,
+     "runtime_s": 1853.095,
      "tests": 13
     }
    },
@@ -3839,19 +4039,19 @@
     "level0": {
      "failed": 0,
      "passed": 1,
-     "runtime_s": 0.956,
+     "runtime_s": 1.016,
      "tests": 1
     },
     "level1": {
      "failed": 0,
      "passed": 3,
-     "runtime_s": 4.298,
+     "runtime_s": 4.186,
      "tests": 3
     },
     "level2": {
      "failed": 0,
      "passed": 8,
-     "runtime_s": 87.812,
+     "runtime_s": 83.707,
      "tests": 8
     }
    },
@@ -3859,19 +4059,19 @@
     "level0": {
      "failed": 0,
      "passed": 1,
-     "runtime_s": 0.957,
+     "runtime_s": 1.067,
      "tests": 1
     },
     "level1": {
      "failed": 0,
      "passed": 3,
-     "runtime_s": 3.436,
+     "runtime_s": 3.282,
      "tests": 3
     },
     "level2": {
      "failed": 0,
      "passed": 8,
-     "runtime_s": 77.561,
+     "runtime_s": 82.252,
      "tests": 8
     }
    }
@@ -3887,7 +4087,7 @@
     "ip": "common",
     "level": 0,
     "name": "fifo_smoke",
-    "runtime_s": 1.277,
+    "runtime_s": 1.383,
     "seed": 1391480337,
     "status": "pass"
    },
@@ -3895,7 +4095,7 @@
     "ip": "common",
     "level": 0,
     "name": "macros_contract",
-    "runtime_s": 1.283,
+    "runtime_s": 1.435,
     "seed": 618525865,
     "status": "pass"
    },
@@ -3903,7 +4103,7 @@
     "ip": "common",
     "level": 0,
     "name": "pulse_slow_to_fast",
-    "runtime_s": 1.235,
+    "runtime_s": 1.405,
     "seed": 922612451,
     "status": "pass"
    },
@@ -3911,7 +4111,7 @@
     "ip": "common",
     "level": 0,
     "name": "pulse_smoke",
-    "runtime_s": 1.233,
+    "runtime_s": 1.351,
     "seed": 1003209788,
     "status": "pass"
    },
@@ -3919,7 +4119,7 @@
     "ip": "common",
     "level": 0,
     "name": "rst_glitch",
-    "runtime_s": 1.278,
+    "runtime_s": 1.369,
     "seed": 447639052,
     "status": "pass"
    },
@@ -3927,7 +4127,7 @@
     "ip": "common",
     "level": 0,
     "name": "rst_smoke",
-    "runtime_s": 1.229,
+    "runtime_s": 1.342,
     "seed": 1223848553,
     "status": "pass"
    },
@@ -3935,7 +4135,7 @@
     "ip": "common",
     "level": 0,
     "name": "sdp_ram_contract",
-    "runtime_s": 1.242,
+    "runtime_s": 1.322,
     "seed": 1305197499,
     "status": "pass"
    },
@@ -3943,7 +4143,7 @@
     "ip": "common",
     "level": 0,
     "name": "sync2_smoke",
-    "runtime_s": 1.289,
+    "runtime_s": 1.327,
     "seed": 1794830821,
     "status": "pass"
    },
@@ -3951,7 +4151,7 @@
     "ip": "common",
     "level": 0,
     "name": "sync_ram_contract",
-    "runtime_s": 1.241,
+    "runtime_s": 1.296,
     "seed": 1785294612,
     "status": "pass"
    },
@@ -3959,7 +4159,7 @@
     "ip": "common",
     "level": 0,
     "name": "sync_ram_held_contract",
-    "runtime_s": 1.221,
+    "runtime_s": 1.346,
     "seed": 1103837002,
     "status": "pass"
    },
@@ -3967,7 +4167,7 @@
     "ip": "common",
     "level": 0,
     "name": "sync_ram_wt_contract",
-    "runtime_s": 1.208,
+    "runtime_s": 1.343,
     "seed": 565932459,
     "status": "pass"
    },
@@ -3975,7 +4175,7 @@
     "ip": "common",
     "level": 0,
     "name": "tdp_ram_contract",
-    "runtime_s": 1.23,
+    "runtime_s": 1.342,
     "seed": 753250783,
     "status": "pass"
    },
@@ -3983,7 +4183,7 @@
     "ip": "common",
     "level": 1,
     "name": "fifo_arst",
-    "runtime_s": 1.02,
+    "runtime_s": 1.363,
     "seed": 239901468,
     "status": "pass"
    },
@@ -3991,7 +4191,7 @@
     "ip": "common",
     "level": 1,
     "name": "fifo_arst",
-    "runtime_s": 1.01,
+    "runtime_s": 1.167,
     "seed": 2035002250,
     "status": "pass"
    },
@@ -3999,7 +4199,7 @@
     "ip": "common",
     "level": 1,
     "name": "fifo_full_empty_dst_fast",
-    "runtime_s": 0.967,
+    "runtime_s": 1.325,
     "seed": 844326524,
     "status": "pass"
    },
@@ -4007,7 +4207,7 @@
     "ip": "common",
     "level": 1,
     "name": "fifo_full_empty_dst_fast",
-    "runtime_s": 0.956,
+    "runtime_s": 1.118,
     "seed": 1163155178,
     "status": "pass"
    },
@@ -4015,7 +4215,7 @@
     "ip": "common",
     "level": 1,
     "name": "fifo_full_empty_src_fast",
-    "runtime_s": 1.055,
+    "runtime_s": 1.174,
     "seed": 371511452,
     "status": "pass"
    },
@@ -4023,7 +4223,7 @@
     "ip": "common",
     "level": 1,
     "name": "fifo_full_empty_src_fast",
-    "runtime_s": 0.965,
+    "runtime_s": 1.163,
     "seed": 1629741066,
     "status": "pass"
    },
@@ -4031,7 +4231,7 @@
     "ip": "common",
     "level": 1,
     "name": "fifo_random",
-    "runtime_s": 1.158,
+    "runtime_s": 1.066,
     "seed": 538841560,
     "status": "pass"
    },
@@ -4039,7 +4239,7 @@
     "ip": "common",
     "level": 1,
     "name": "fifo_random",
-    "runtime_s": 1.216,
+    "runtime_s": 1.224,
     "seed": 1309700340,
     "status": "pass"
    },
@@ -4047,7 +4247,7 @@
     "ip": "common",
     "level": 1,
     "name": "fifo_random",
-    "runtime_s": 1.162,
+    "runtime_s": 1.165,
     "seed": 1461264718,
     "status": "pass"
    },
@@ -4055,7 +4255,7 @@
     "ip": "common",
     "level": 1,
     "name": "fifo_reset_in_flight",
-    "runtime_s": 1.108,
+    "runtime_s": 1.173,
     "seed": 135257441,
     "status": "pass"
    },
@@ -4063,7 +4263,7 @@
     "ip": "common",
     "level": 1,
     "name": "fifo_reset_in_flight",
-    "runtime_s": 1.009,
+    "runtime_s": 0.916,
     "seed": 2131291639,
     "status": "pass"
    },
@@ -4071,7 +4271,7 @@
     "ip": "common",
     "level": 1,
     "name": "macros_random",
-    "runtime_s": 1.567,
+    "runtime_s": 1.868,
     "seed": 88184606,
     "status": "pass"
    },
@@ -4079,7 +4279,7 @@
     "ip": "common",
     "level": 1,
     "name": "macros_random",
-    "runtime_s": 1.858,
+    "runtime_s": 1.817,
     "seed": 1800402482,
     "status": "pass"
    },
@@ -4087,7 +4287,7 @@
     "ip": "common",
     "level": 1,
     "name": "macros_random",
-    "runtime_s": 1.663,
+    "runtime_s": 1.767,
     "seed": 1917233032,
     "status": "pass"
    },
@@ -4095,7 +4295,7 @@
     "ip": "common",
     "level": 1,
     "name": "pulse_arst",
-    "runtime_s": 1.025,
+    "runtime_s": 1.01,
     "seed": 855918735,
     "status": "pass"
    },
@@ -4103,7 +4303,7 @@
     "ip": "common",
     "level": 1,
     "name": "pulse_arst",
-    "runtime_s": 1.017,
+    "runtime_s": 1.066,
     "seed": 1141078041,
     "status": "pass"
    },
@@ -4111,7 +4311,7 @@
     "ip": "common",
     "level": 1,
     "name": "pulse_arst_dst",
-    "runtime_s": 0.909,
+    "runtime_s": 1.073,
     "seed": 391930980,
     "status": "pass"
    },
@@ -4119,7 +4319,7 @@
     "ip": "common",
     "level": 1,
     "name": "pulse_arst_dst",
-    "runtime_s": 0.967,
+    "runtime_s": 1.017,
     "seed": 1616598258,
     "status": "pass"
    },
@@ -4127,7 +4327,7 @@
     "ip": "common",
     "level": 1,
     "name": "pulse_near_1to1",
-    "runtime_s": 1.057,
+    "runtime_s": 1.111,
     "seed": 706382019,
     "status": "pass"
    },
@@ -4135,7 +4335,7 @@
     "ip": "common",
     "level": 1,
     "name": "pulse_near_1to1",
-    "runtime_s": 1.009,
+    "runtime_s": 1.163,
     "seed": 1562228821,
     "status": "pass"
    },
@@ -4143,7 +4343,7 @@
     "ip": "common",
     "level": 1,
     "name": "pulse_random",
-    "runtime_s": 0.967,
+    "runtime_s": 1.117,
     "seed": 195434251,
     "status": "pass"
    },
@@ -4151,7 +4351,7 @@
     "ip": "common",
     "level": 1,
     "name": "pulse_random",
-    "runtime_s": 1.012,
+    "runtime_s": 1.069,
     "seed": 313476785,
     "status": "pass"
    },
@@ -4159,7 +4359,7 @@
     "ip": "common",
     "level": 1,
     "name": "pulse_random",
-    "runtime_s": 1.158,
+    "runtime_s": 1.016,
     "seed": 1705539111,
     "status": "pass"
    },
@@ -4167,7 +4367,7 @@
     "ip": "common",
     "level": 1,
     "name": "ram_param_limits",
-    "runtime_s": 5.246,
+    "runtime_s": 5.435,
     "seed": 570540821,
     "status": "pass"
    },
@@ -4175,7 +4375,7 @@
     "ip": "common",
     "level": 1,
     "name": "rst_random",
-    "runtime_s": 1.061,
+    "runtime_s": 1.111,
     "seed": 165534332,
     "status": "pass"
    },
@@ -4183,7 +4383,7 @@
     "ip": "common",
     "level": 1,
     "name": "rst_random",
-    "runtime_s": 1.162,
+    "runtime_s": 0.967,
     "seed": 282364870,
     "status": "pass"
    },
@@ -4191,7 +4391,7 @@
     "ip": "common",
     "level": 1,
     "name": "rst_random",
-    "runtime_s": 1.01,
+    "runtime_s": 1.113,
     "seed": 2128276202,
     "status": "pass"
    },
@@ -4199,7 +4399,7 @@
     "ip": "common",
     "level": 1,
     "name": "rst_random_stages3",
-    "runtime_s": 1.011,
+    "runtime_s": 1.117,
     "seed": 526130068,
     "status": "pass"
    },
@@ -4207,7 +4407,7 @@
     "ip": "common",
     "level": 1,
     "name": "rst_random_stages3",
-    "runtime_s": 0.972,
+    "runtime_s": 1.113,
     "seed": 1750805250,
     "status": "pass"
    },
@@ -4215,7 +4415,7 @@
     "ip": "common",
     "level": 1,
     "name": "sdp_ram_random",
-    "runtime_s": 1.214,
+    "runtime_s": 1.282,
     "seed": 96800220,
     "status": "pass"
    },
@@ -4223,7 +4423,7 @@
     "ip": "common",
     "level": 1,
     "name": "sdp_ram_random",
-    "runtime_s": 1.212,
+    "runtime_s": 1.213,
     "seed": 1808493808,
     "status": "pass"
    },
@@ -4231,7 +4431,7 @@
     "ip": "common",
     "level": 1,
     "name": "sdp_ram_random",
-    "runtime_s": 1.21,
+    "runtime_s": 1.42,
     "seed": 1925332298,
     "status": "pass"
    },
@@ -4239,7 +4439,7 @@
     "ip": "common",
     "level": 1,
     "name": "sync2_arst",
-    "runtime_s": 1.011,
+    "runtime_s": 0.958,
     "seed": 961962027,
     "status": "pass"
    },
@@ -4247,7 +4447,7 @@
     "ip": "common",
     "level": 1,
     "name": "sync2_arst",
-    "runtime_s": 1.021,
+    "runtime_s": 1.111,
     "seed": 1313951933,
     "status": "pass"
    },
@@ -4255,7 +4455,7 @@
     "ip": "common",
     "level": 1,
     "name": "sync2_random",
-    "runtime_s": 1.061,
+    "runtime_s": 1.11,
     "seed": 443952482,
     "status": "pass"
    },
@@ -4263,7 +4463,7 @@
     "ip": "common",
     "level": 1,
     "name": "sync2_random",
-    "runtime_s": 1.112,
+    "runtime_s": 1.022,
     "seed": 1836129780,
     "status": "pass"
    },
@@ -4271,7 +4471,7 @@
     "ip": "common",
     "level": 1,
     "name": "sync2_random",
-    "runtime_s": 0.966,
+    "runtime_s": 1.065,
     "seed": 1954040910,
     "status": "pass"
    },
@@ -4279,7 +4479,7 @@
     "ip": "common",
     "level": 1,
     "name": "sync_ram_held_random",
-    "runtime_s": 1.261,
+    "runtime_s": 1.27,
     "seed": 590588091,
     "status": "pass"
    },
@@ -4287,7 +4487,7 @@
     "ip": "common",
     "level": 1,
     "name": "sync_ram_held_random",
-    "runtime_s": 1.259,
+    "runtime_s": 1.267,
     "seed": 1295894935,
     "status": "pass"
    },
@@ -4295,7 +4495,7 @@
     "ip": "common",
     "level": 1,
     "name": "sync_ram_held_random",
-    "runtime_s": 1.458,
+    "runtime_s": 1.317,
     "seed": 1412732973,
     "status": "pass"
    },
@@ -4303,7 +4503,7 @@
     "ip": "common",
     "level": 1,
     "name": "sync_ram_random",
-    "runtime_s": 1.267,
+    "runtime_s": 1.211,
     "seed": 591279688,
     "status": "pass"
    },
@@ -4311,7 +4511,7 @@
     "ip": "common",
     "level": 1,
     "name": "sync_ram_random",
-    "runtime_s": 1.227,
+    "runtime_s": 1.212,
     "seed": 976709618,
     "status": "pass"
    },
@@ -4319,7 +4519,7 @@
     "ip": "common",
     "level": 1,
     "name": "sync_ram_random",
-    "runtime_s": 1.214,
+    "runtime_s": 1.109,
     "seed": 1295013732,
     "status": "pass"
    },
@@ -4327,7 +4527,7 @@
     "ip": "common",
     "level": 1,
     "name": "sync_ram_wt_random",
-    "runtime_s": 1.26,
+    "runtime_s": 1.219,
     "seed": 644655698,
     "status": "pass"
    },
@@ -4335,7 +4535,7 @@
     "ip": "common",
     "level": 1,
     "name": "sync_ram_wt_random",
-    "runtime_s": 1.313,
+    "runtime_s": 1.213,
     "seed": 1063648232,
     "status": "pass"
    },
@@ -4343,7 +4543,7 @@
     "ip": "common",
     "level": 1,
     "name": "sync_ram_wt_random",
-    "runtime_s": 1.174,
+    "runtime_s": 1.415,
     "seed": 1366006468,
     "status": "pass"
    },
@@ -4351,7 +4551,7 @@
     "ip": "common",
     "level": 1,
     "name": "tdp_ram_random",
-    "runtime_s": 1.257,
+    "runtime_s": 1.215,
     "seed": 255575359,
     "status": "pass"
    },
@@ -4359,7 +4559,7 @@
     "ip": "common",
     "level": 1,
     "name": "tdp_ram_random",
-    "runtime_s": 1.207,
+    "runtime_s": 1.314,
     "seed": 372413573,
     "status": "pass"
    },
@@ -4367,7 +4567,7 @@
     "ip": "common",
     "level": 1,
     "name": "tdp_ram_random",
-    "runtime_s": 1.471,
+    "runtime_s": 1.366,
     "seed": 2017260969,
     "status": "pass"
    },
@@ -4375,7 +4575,7 @@
     "ip": "common",
     "level": 2,
     "name": "fifo_long_depth16",
-    "runtime_s": 8.256,
+    "runtime_s": 8.177,
     "seed": 170188762,
     "status": "pass"
    },
@@ -4383,7 +4583,7 @@
     "ip": "common",
     "level": 2,
     "name": "fifo_long_depth16",
-    "runtime_s": 7.165,
+    "runtime_s": 8.111,
     "seed": 321752672,
     "status": "pass"
    },
@@ -4391,7 +4591,7 @@
     "ip": "common",
     "level": 2,
     "name": "fifo_long_depth16",
-    "runtime_s": 5.548,
+    "runtime_s": 4.687,
     "seed": 1680522998,
     "status": "pass"
    },
@@ -4399,7 +4599,7 @@
     "ip": "common",
     "level": 2,
     "name": "fifo_long_depth16",
-    "runtime_s": 8.564,
+    "runtime_s": 7.935,
     "seed": 2099507020,
     "status": "pass"
    },
@@ -4407,7 +4607,7 @@
     "ip": "common",
     "level": 2,
     "name": "fifo_long_depth2",
-    "runtime_s": 1.562,
+    "runtime_s": 1.609,
     "seed": 187954431,
     "status": "pass"
    },
@@ -4415,7 +4615,7 @@
     "ip": "common",
     "level": 2,
     "name": "fifo_long_depth2",
-    "runtime_s": 2.023,
+    "runtime_s": 2.466,
     "seed": 305833285,
     "status": "pass"
    },
@@ -4423,7 +4623,7 @@
     "ip": "common",
     "level": 2,
     "name": "fifo_long_depth2",
-    "runtime_s": 1.911,
+    "runtime_s": 1.913,
     "seed": 1698534867,
     "status": "pass"
    },
@@ -4431,7 +4631,7 @@
     "ip": "common",
     "level": 2,
     "name": "fifo_long_depth2",
-    "runtime_s": 1.462,
+    "runtime_s": 1.616,
     "seed": 2083832937,
     "status": "pass"
    },
@@ -4439,7 +4639,7 @@
     "ip": "common",
     "level": 2,
     "name": "pulse_long",
-    "runtime_s": 1.162,
+    "runtime_s": 1.161,
     "seed": 737778185,
     "status": "pass"
    },
@@ -4447,7 +4647,7 @@
     "ip": "common",
     "level": 2,
     "name": "pulse_long",
-    "runtime_s": 1.257,
+    "runtime_s": 1.211,
     "seed": 747920912,
     "status": "pass"
    },
@@ -4455,7 +4655,7 @@
     "ip": "common",
     "level": 2,
     "name": "pulse_long",
-    "runtime_s": 1.614,
+    "runtime_s": 1.515,
     "seed": 854641587,
     "status": "pass"
    },
@@ -4463,7 +4663,7 @@
     "ip": "common",
     "level": 2,
     "name": "pulse_long",
-    "runtime_s": 1.415,
+    "runtime_s": 1.06,
     "seed": 899485610,
     "status": "pass"
    },
@@ -4471,7 +4671,7 @@
     "ip": "common",
     "level": 2,
     "name": "pulse_long",
-    "runtime_s": 1.418,
+    "runtime_s": 1.36,
     "seed": 1117404988,
     "status": "pass"
    },
@@ -4479,7 +4679,7 @@
     "ip": "common",
     "level": 2,
     "name": "pulse_long",
-    "runtime_s": 1.52,
+    "runtime_s": 1.98,
     "seed": 1173879589,
     "status": "pass"
    },
@@ -4487,7 +4687,7 @@
     "ip": "common",
     "level": 2,
     "name": "pulse_long",
-    "runtime_s": 1.358,
+    "runtime_s": 1.213,
     "seed": 1536388742,
     "status": "pass"
    },
@@ -4495,7 +4695,7 @@
     "ip": "common",
     "level": 2,
     "name": "pulse_long",
-    "runtime_s": 1.313,
+    "runtime_s": 1.206,
     "seed": 1560193695,
     "status": "pass"
    },
@@ -4503,7 +4703,7 @@
     "ip": "common",
     "level": 2,
     "name": "rst_long",
-    "runtime_s": 1.412,
+    "runtime_s": 1.219,
     "seed": 542584226,
     "status": "pass"
    },
@@ -4511,7 +4711,7 @@
     "ip": "common",
     "level": 2,
     "name": "rst_long",
-    "runtime_s": 1.215,
+    "runtime_s": 1.216,
     "seed": 658172347,
     "status": "pass"
    },
@@ -4519,7 +4719,7 @@
     "ip": "common",
     "level": 2,
     "name": "rst_long",
-    "runtime_s": 1.16,
+    "runtime_s": 1.273,
     "seed": 962493464,
     "status": "pass"
    },
@@ -4527,7 +4727,7 @@
     "ip": "common",
     "level": 2,
     "name": "rst_long",
-    "runtime_s": 1.418,
+    "runtime_s": 1.972,
     "seed": 1043576833,
     "status": "pass"
    },
@@ -4535,7 +4735,7 @@
     "ip": "common",
     "level": 2,
     "name": "rst_long",
-    "runtime_s": 1.158,
+    "runtime_s": 1.426,
     "seed": 1228179607,
     "status": "pass"
    },
@@ -4543,7 +4743,7 @@
     "ip": "common",
     "level": 2,
     "name": "rst_long",
-    "runtime_s": 1.213,
+    "runtime_s": 1.32,
     "seed": 1314475150,
     "status": "pass"
    },
@@ -4551,7 +4751,7 @@
     "ip": "common",
     "level": 2,
     "name": "rst_long",
-    "runtime_s": 1.41,
+    "runtime_s": 1.774,
     "seed": 1346230573,
     "status": "pass"
    },
@@ -4559,7 +4759,7 @@
     "ip": "common",
     "level": 2,
     "name": "rst_long",
-    "runtime_s": 1.51,
+    "runtime_s": 1.939,
     "seed": 1464868148,
     "status": "pass"
    },
@@ -4567,7 +4767,7 @@
     "ip": "common",
     "level": 2,
     "name": "rst_long_stages4",
-    "runtime_s": 1.309,
+    "runtime_s": 1.48,
     "seed": 203704906,
     "status": "pass"
    },
@@ -4575,7 +4775,7 @@
     "ip": "common",
     "level": 2,
     "name": "rst_long_stages4",
-    "runtime_s": 1.257,
+    "runtime_s": 1.322,
     "seed": 355277808,
     "status": "pass"
    },
@@ -4583,7 +4783,7 @@
     "ip": "common",
     "level": 2,
     "name": "rst_long_stages4",
-    "runtime_s": 1.263,
+    "runtime_s": 1.475,
     "seed": 1646930790,
     "status": "pass"
    },
@@ -4591,7 +4791,7 @@
     "ip": "common",
     "level": 2,
     "name": "rst_long_stages4",
-    "runtime_s": 1.51,
+    "runtime_s": 1.928,
     "seed": 2065922780,
     "status": "pass"
    },
@@ -4599,7 +4799,7 @@
     "ip": "common",
     "level": 2,
     "name": "sdp_ram_long_min",
-    "runtime_s": 3.673,
+    "runtime_s": 3.396,
     "seed": 490695640,
     "status": "pass"
    },
@@ -4607,7 +4807,7 @@
     "ip": "common",
     "level": 2,
     "name": "sdp_ram_long_min",
-    "runtime_s": 3.367,
+    "runtime_s": 3.426,
     "seed": 1782078286,
     "status": "pass"
    },
@@ -4615,7 +4815,7 @@
     "ip": "common",
     "level": 2,
     "name": "sdp_ram_long_wide",
-    "runtime_s": 3.731,
+    "runtime_s": 4.175,
     "seed": 891997043,
     "status": "pass"
    },
@@ -4623,7 +4823,7 @@
     "ip": "common",
     "level": 2,
     "name": "sdp_ram_long_wide",
-    "runtime_s": 3.79,
+    "runtime_s": 3.983,
     "seed": 1110309861,
     "status": "pass"
    },
@@ -4631,7 +4831,7 @@
     "ip": "common",
     "level": 2,
     "name": "sync2_long",
-    "runtime_s": 1.562,
+    "runtime_s": 1.345,
     "seed": 564900525,
     "status": "pass"
    },
@@ -4639,7 +4839,7 @@
     "ip": "common",
     "level": 2,
     "name": "sync2_long",
-    "runtime_s": 1.212,
+    "runtime_s": 1.327,
     "seed": 650540724,
     "status": "pass"
    },
@@ -4647,7 +4847,7 @@
     "ip": "common",
     "level": 2,
     "name": "sync2_long",
-    "runtime_s": 1.364,
+    "runtime_s": 1.381,
     "seed": 950199063,
     "status": "pass"
    },
@@ -4655,7 +4855,7 @@
     "ip": "common",
     "level": 2,
     "name": "sync2_long",
-    "runtime_s": 1.821,
+    "runtime_s": 1.85,
     "seed": 1070540558,
     "status": "pass"
    },
@@ -4663,7 +4863,7 @@
     "ip": "common",
     "level": 2,
     "name": "sync2_long",
-    "runtime_s": 1.215,
+    "runtime_s": 1.245,
     "seed": 1221072792,
     "status": "pass"
    },
@@ -4671,7 +4871,7 @@
     "ip": "common",
     "level": 2,
     "name": "sync2_long",
-    "runtime_s": 1.355,
+    "runtime_s": 1.561,
     "seed": 1336267649,
     "status": "pass"
    },
@@ -4679,7 +4879,7 @@
     "ip": "common",
     "level": 2,
     "name": "sync2_long",
-    "runtime_s": 1.468,
+    "runtime_s": 1.515,
     "seed": 1371620898,
     "status": "pass"
    },
@@ -4687,7 +4887,7 @@
     "ip": "common",
     "level": 2,
     "name": "sync2_long",
-    "runtime_s": 1.76,
+    "runtime_s": 1.366,
     "seed": 1454146107,
     "status": "pass"
    },
@@ -4695,7 +4895,7 @@
     "ip": "common",
     "level": 2,
     "name": "sync_ram_held_long_min",
-    "runtime_s": 2.917,
+    "runtime_s": 3.68,
     "seed": 289400617,
     "status": "pass"
    },
@@ -4703,7 +4903,7 @@
     "ip": "common",
     "level": 2,
     "name": "sync_ram_held_long_min",
-    "runtime_s": 3.266,
+    "runtime_s": 3.319,
     "seed": 1715001279,
     "status": "pass"
    },
@@ -4711,7 +4911,7 @@
     "ip": "common",
     "level": 2,
     "name": "sync_ram_held_long_wide",
-    "runtime_s": 3.271,
+    "runtime_s": 3.317,
     "seed": 136002019,
     "status": "pass"
    },
@@ -4719,7 +4919,7 @@
     "ip": "common",
     "level": 2,
     "name": "sync_ram_held_long_wide",
-    "runtime_s": 3.98,
+    "runtime_s": 3.518,
     "seed": 2132543861,
     "status": "pass"
    },
@@ -4727,7 +4927,7 @@
     "ip": "common",
     "level": 2,
     "name": "sync_ram_long_min",
-    "runtime_s": 2.832,
+    "runtime_s": 3.114,
     "seed": 983416695,
     "status": "pass"
    },
@@ -4735,7 +4935,7 @@
     "ip": "common",
     "level": 2,
     "name": "sync_ram_long_min",
-    "runtime_s": 3.119,
+    "runtime_s": 2.767,
     "seed": 1301975009,
     "status": "pass"
    },
@@ -4743,7 +4943,7 @@
     "ip": "common",
     "level": 2,
     "name": "sync_ram_long_wide",
-    "runtime_s": 2.972,
+    "runtime_s": 3.078,
     "seed": 82044744,
     "status": "pass"
    },
@@ -4751,7 +4951,7 @@
     "ip": "common",
     "level": 2,
     "name": "sync_ram_long_wide",
-    "runtime_s": 3.213,
+    "runtime_s": 3.236,
     "seed": 1944377310,
     "status": "pass"
    },
@@ -4759,7 +4959,7 @@
     "ip": "common",
     "level": 2,
     "name": "sync_ram_wt_long_min",
-    "runtime_s": 3.432,
+    "runtime_s": 2.811,
     "seed": 105419102,
     "status": "pass"
    },
@@ -4767,7 +4967,7 @@
     "ip": "common",
     "level": 2,
     "name": "sync_ram_wt_long_min",
-    "runtime_s": 2.922,
+    "runtime_s": 3.417,
     "seed": 1901044168,
     "status": "pass"
    },
@@ -4775,7 +4975,7 @@
     "ip": "common",
     "level": 2,
     "name": "sync_ram_wt_long_wide",
-    "runtime_s": 3.323,
+    "runtime_s": 3.373,
     "seed": 678538205,
     "status": "pass"
    },
@@ -4783,7 +4983,7 @@
     "ip": "common",
     "level": 2,
     "name": "sync_ram_wt_long_wide",
-    "runtime_s": 4.025,
+    "runtime_s": 3.873,
     "seed": 1601608523,
     "status": "pass"
    },
@@ -4791,7 +4991,7 @@
     "ip": "common",
     "level": 2,
     "name": "tdp_ram_long_min",
-    "runtime_s": 4.032,
+    "runtime_s": 3.777,
     "seed": 186011946,
     "status": "pass"
    },
@@ -4799,7 +4999,7 @@
     "ip": "common",
     "level": 2,
     "name": "tdp_ram_long_min",
-    "runtime_s": 3.619,
+    "runtime_s": 4.419,
     "seed": 2081513916,
     "status": "pass"
    },
@@ -4807,7 +5007,7 @@
     "ip": "common",
     "level": 2,
     "name": "tdp_ram_long_wide",
-    "runtime_s": 4.629,
+    "runtime_s": 4.533,
     "seed": 135491758,
     "status": "pass"
    },
@@ -4815,7 +5015,7 @@
     "ip": "common",
     "level": 2,
     "name": "tdp_ram_long_wide",
-    "runtime_s": 4.021,
+    "runtime_s": 4.028,
     "seed": 2132033592,
     "status": "pass"
    },
@@ -4823,7 +5023,7 @@
     "ip": "mac",
     "level": 0,
     "name": "smoke",
-    "runtime_s": 9.382,
+    "runtime_s": 9.422,
     "seed": 1824675579,
     "status": "pass"
    },
@@ -4831,7 +5031,7 @@
     "ip": "mac",
     "level": 1,
     "name": "arcs_quick",
-    "runtime_s": 92.297,
+    "runtime_s": 90.426,
     "seed": 1797099791,
     "status": "pass"
    },
@@ -4839,7 +5039,7 @@
     "ip": "mac",
     "level": 1,
     "name": "control_quick",
-    "runtime_s": 59.963,
+    "runtime_s": 60.965,
     "seed": 720490885,
     "status": "pass"
    },
@@ -4847,7 +5047,7 @@
     "ip": "mac",
     "level": 1,
     "name": "no_scramble",
-    "runtime_s": 73.544,
+    "runtime_s": 74.66,
     "seed": 9068861,
     "status": "pass"
    },
@@ -4855,7 +5055,7 @@
     "ip": "mac",
     "level": 1,
     "name": "polarity",
-    "runtime_s": 20.277,
+    "runtime_s": 21.64,
     "seed": 488841841,
     "status": "pass"
    },
@@ -4863,7 +5063,7 @@
     "ip": "mac",
     "level": 1,
     "name": "random_soak",
-    "runtime_s": 35.947,
+    "runtime_s": 37.434,
     "seed": 517787592,
     "status": "pass"
    },
@@ -4871,7 +5071,7 @@
     "ip": "mac",
     "level": 1,
     "name": "random_soak",
-    "runtime_s": 29.855,
+    "runtime_s": 27.918,
     "seed": 1776025438,
     "status": "pass"
    },
@@ -4879,7 +5079,7 @@
     "ip": "mac",
     "level": 1,
     "name": "rx_errors",
-    "runtime_s": 6.141,
+    "runtime_s": 5.399,
     "seed": 112185741,
     "status": "pass"
    },
@@ -4887,7 +5087,7 @@
     "ip": "mac",
     "level": 1,
     "name": "rx_errors",
-    "runtime_s": 6.304,
+    "runtime_s": 6.15,
     "seed": 1906893083,
     "status": "pass"
    },
@@ -4895,7 +5095,7 @@
     "ip": "mac",
     "level": 1,
     "name": "rx_idle_tail",
-    "runtime_s": 5.233,
+    "runtime_s": 5.29,
     "seed": 757502145,
     "status": "pass"
    },
@@ -4903,7 +5103,7 @@
     "ip": "mac",
     "level": 1,
     "name": "traffic",
-    "runtime_s": 10.899,
+    "runtime_s": 11.367,
     "seed": 73290187,
     "status": "pass"
    },
@@ -4911,7 +5111,7 @@
     "ip": "mac",
     "level": 1,
     "name": "traffic",
-    "runtime_s": 10.847,
+    "runtime_s": 10.958,
     "seed": 492241009,
     "status": "pass"
    },
@@ -4919,7 +5119,7 @@
     "ip": "mac",
     "level": 1,
     "name": "traffic",
-    "runtime_s": 12.067,
+    "runtime_s": 12.664,
     "seed": 1783640295,
     "status": "pass"
    },
@@ -4927,7 +5127,7 @@
     "ip": "mac",
     "level": 1,
     "name": "ts_fields",
-    "runtime_s": 5.185,
+    "runtime_s": 4.829,
     "seed": 648699848,
     "status": "pass"
    },
@@ -4935,7 +5135,7 @@
     "ip": "mac",
     "level": 1,
     "name": "ts_fields",
-    "runtime_s": 4.37,
+    "runtime_s": 4.377,
     "seed": 1370320734,
     "status": "pass"
    },
@@ -4943,7 +5143,7 @@
     "ip": "mac",
     "level": 1,
     "name": "tx_bubble",
-    "runtime_s": 5.243,
+    "runtime_s": 4.419,
     "seed": 89400715,
     "status": "pass"
    },
@@ -4951,7 +5151,7 @@
     "ip": "mac",
     "level": 2,
     "name": "arcs_full_downstream",
-    "runtime_s": 741.021,
+    "runtime_s": 743.85,
     "seed": 1735214538,
     "status": "pass"
    },
@@ -4959,7 +5159,7 @@
     "ip": "mac",
     "level": 2,
     "name": "arcs_full_upstream",
-    "runtime_s": 727.619,
+    "runtime_s": 716.845,
     "seed": 1350184107,
     "status": "pass"
    },
@@ -4967,7 +5167,7 @@
     "ip": "mac",
     "level": 2,
     "name": "control_full_downstream",
-    "runtime_s": 52.48,
+    "runtime_s": 49.691,
     "seed": 1993177876,
     "status": "pass"
    },
@@ -4975,7 +5175,7 @@
     "ip": "mac",
     "level": 2,
     "name": "control_full_upstream",
-    "runtime_s": 44.558,
+    "runtime_s": 40.197,
     "seed": 1668930130,
     "status": "pass"
    },
@@ -4983,7 +5183,7 @@
     "ip": "mac",
     "level": 2,
     "name": "dividers",
-    "runtime_s": 139.66,
+    "runtime_s": 134.189,
     "seed": 644599648,
     "status": "pass"
    },
@@ -4991,7 +5191,7 @@
     "ip": "mac",
     "level": 2,
     "name": "partner_arc_sweep",
-    "runtime_s": 51.505,
+    "runtime_s": 48.871,
     "seed": 1023827278,
     "status": "pass"
    },
@@ -4999,7 +5199,7 @@
     "ip": "mac",
     "level": 2,
     "name": "rx_errors_long",
-    "runtime_s": 6.086,
+    "runtime_s": 6.039,
     "seed": 664941257,
     "status": "pass"
    },
@@ -5007,7 +5207,7 @@
     "ip": "mac",
     "level": 2,
     "name": "rx_errors_long",
-    "runtime_s": 5.292,
+    "runtime_s": 5.781,
     "seed": 969320298,
     "status": "pass"
    },
@@ -5015,7 +5215,7 @@
     "ip": "mac",
     "level": 2,
     "name": "rx_errors_long",
-    "runtime_s": 5.797,
+    "runtime_s": 6.279,
     "seed": 1051419507,
     "status": "pass"
    },
@@ -5023,7 +5223,7 @@
     "ip": "mac",
     "level": 2,
     "name": "rx_errors_long",
-    "runtime_s": 6.101,
+    "runtime_s": 5.296,
     "seed": 1236030437,
     "status": "pass"
    },
@@ -5031,7 +5231,7 @@
     "ip": "mac",
     "level": 2,
     "name": "rx_errors_long",
-    "runtime_s": 6.041,
+    "runtime_s": 6.173,
     "seed": 1321310204,
     "status": "pass"
    },
@@ -5039,7 +5239,7 @@
     "ip": "mac",
     "level": 2,
     "name": "rx_errors_long",
-    "runtime_s": 5.375,
+    "runtime_s": 5.426,
     "seed": 1352991327,
     "status": "pass"
    },
@@ -5047,7 +5247,7 @@
     "ip": "mac",
     "level": 2,
     "name": "smoke_n_fts_1",
-    "runtime_s": 161.228,
+    "runtime_s": 161.249,
     "seed": 1972127776,
     "status": "pass"
    },
@@ -5055,7 +5255,7 @@
     "ip": "mac",
     "level": 2,
     "name": "smoke_n_fts_255",
-    "runtime_s": 167.34,
+    "runtime_s": 146.262,
     "seed": 908217547,
     "status": "pass"
    },
@@ -5063,7 +5263,7 @@
     "ip": "mac",
     "level": 2,
     "name": "traffic_long",
-    "runtime_s": 51.142,
+    "runtime_s": 50.168,
     "seed": 644855963,
     "status": "pass"
    },
@@ -5071,7 +5271,7 @@
     "ip": "mac",
     "level": 2,
     "name": "traffic_long",
-    "runtime_s": 45.7,
+    "runtime_s": 47.43,
     "seed": 1063708961,
     "status": "pass"
    },
@@ -5079,7 +5279,7 @@
     "ip": "mac",
     "level": 2,
     "name": "traffic_long",
-    "runtime_s": 42.52,
+    "runtime_s": 45.311,
     "seed": 1214372279,
     "status": "pass"
    },
@@ -5087,7 +5287,7 @@
     "ip": "mac",
     "level": 2,
     "name": "traffic_long",
-    "runtime_s": 53.137,
+    "runtime_s": 54.441,
     "seed": 1365805069,
     "status": "pass"
    },
@@ -5095,7 +5295,7 @@
     "ip": "mac",
     "level": 2,
     "name": "train_spec",
-    "runtime_s": 391.627,
+    "runtime_s": 391.885,
     "seed": 76094105,
     "status": "pass"
    },
@@ -5103,7 +5303,7 @@
     "ip": "pcs",
     "level": 0,
     "name": "pipe_detect",
-    "runtime_s": 1.422,
+    "runtime_s": 1.507,
     "seed": 223288673,
     "status": "pass"
    },
@@ -5111,7 +5311,7 @@
     "ip": "pcs",
     "level": 0,
     "name": "pipe_reset",
-    "runtime_s": 1.435,
+    "runtime_s": 1.486,
     "seed": 1762832269,
     "status": "pass"
    },
@@ -5119,7 +5319,7 @@
     "ip": "pcs",
     "level": 0,
     "name": "rx_decode_smoke",
-    "runtime_s": 1.427,
+    "runtime_s": 1.492,
     "seed": 503366828,
     "status": "pass"
    },
@@ -5127,7 +5327,7 @@
     "ip": "pcs",
     "level": 0,
     "name": "rx_lock_controls",
-    "runtime_s": 2.887,
+    "runtime_s": 3.176,
     "seed": 1,
     "status": "pass"
    },
@@ -5135,7 +5335,7 @@
     "ip": "pcs",
     "level": 0,
     "name": "rx_lock_offsets",
-    "runtime_s": 2.288,
+    "runtime_s": 2.325,
     "seed": 1,
     "status": "pass"
    },
@@ -5143,7 +5343,7 @@
     "ip": "pcs",
     "level": 0,
     "name": "rx_smoke",
-    "runtime_s": 1.67,
+    "runtime_s": 1.801,
     "seed": 1,
     "status": "pass"
    },
@@ -5151,7 +5351,7 @@
     "ip": "pcs",
     "level": 0,
     "name": "tx_smoke",
-    "runtime_s": 1.063,
+    "runtime_s": 1.27,
     "seed": 2061514873,
     "status": "pass"
    },
@@ -5159,7 +5359,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "eb_dense",
-    "runtime_s": 5.343,
+    "runtime_s": 5.223,
     "seed": 1,
     "status": "pass"
    },
@@ -5167,7 +5367,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "eb_dense",
-    "runtime_s": 5.349,
+    "runtime_s": 5.622,
     "seed": 2,
     "status": "pass"
    },
@@ -5175,7 +5375,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "eb_idle_m600",
-    "runtime_s": 6.582,
+    "runtime_s": 5.27,
     "seed": 1,
     "status": "pass"
    },
@@ -5183,7 +5383,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "eb_idle_p600",
-    "runtime_s": 6.63,
+    "runtime_s": 5.228,
     "seed": 1,
     "status": "pass"
    },
@@ -5191,7 +5391,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "eb_lock_start",
-    "runtime_s": 11.325,
+    "runtime_s": 11.333,
     "seed": 1,
     "status": "pass"
    },
@@ -5199,7 +5399,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "eb_lock_start",
-    "runtime_s": 9.819,
+    "runtime_s": 9.551,
     "seed": 2,
     "status": "pass"
    },
@@ -5207,7 +5407,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "eb_overflow",
-    "runtime_s": 4.945,
+    "runtime_s": 4.43,
     "seed": 1,
     "status": "pass"
    },
@@ -5215,7 +5415,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "eb_random_m300",
-    "runtime_s": 10.433,
+    "runtime_s": 9.06,
     "seed": 1,
     "status": "pass"
    },
@@ -5223,7 +5423,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "eb_random_offset",
-    "runtime_s": 7.859,
+    "runtime_s": 10.126,
     "seed": 1,
     "status": "pass"
    },
@@ -5231,7 +5431,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "eb_random_offset",
-    "runtime_s": 8.881,
+    "runtime_s": 7.693,
     "seed": 2,
     "status": "pass"
    },
@@ -5239,7 +5439,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "eb_random_p300",
-    "runtime_s": 8.927,
+    "runtime_s": 8.5,
     "seed": 1,
     "status": "pass"
    },
@@ -5247,7 +5447,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "eb_short_burst",
-    "runtime_s": 8.009,
+    "runtime_s": 8.699,
     "seed": 1,
     "status": "pass"
    },
@@ -5255,7 +5455,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "eb_stress",
-    "runtime_s": 4.397,
+    "runtime_s": 4.679,
     "seed": 1,
     "status": "pass"
    },
@@ -5263,7 +5463,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "eb_stress",
-    "runtime_s": 4.524,
+    "runtime_s": 4.589,
     "seed": 2,
     "status": "pass"
    },
@@ -5271,7 +5471,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "eb_stress_sizes",
-    "runtime_s": 9.585,
+    "runtime_s": 10.501,
     "seed": 1,
     "status": "pass"
    },
@@ -5279,7 +5479,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "eb_stress_sizes",
-    "runtime_s": 9.924,
+    "runtime_s": 9.61,
     "seed": 2,
     "status": "pass"
    },
@@ -5287,7 +5487,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "eb_tlp_m600",
-    "runtime_s": 8.329,
+    "runtime_s": 9.035,
     "seed": 1,
     "status": "pass"
    },
@@ -5295,7 +5495,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "eb_tlp_p600",
-    "runtime_s": 10.258,
+    "runtime_s": 8.441,
     "seed": 1,
     "status": "pass"
    },
@@ -5303,7 +5503,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "eb_underflow",
-    "runtime_s": 4.047,
+    "runtime_s": 3.668,
     "seed": 1,
     "status": "pass"
    },
@@ -5311,7 +5511,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "loopback",
-    "runtime_s": 2.715,
+    "runtime_s": 2.612,
     "seed": 1,
     "status": "pass"
    },
@@ -5319,7 +5519,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "pipe_power",
-    "runtime_s": 1.209,
+    "runtime_s": 1.203,
     "seed": 773539760,
     "status": "pass"
    },
@@ -5327,7 +5527,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "pipe_power",
-    "runtime_s": 1.122,
+    "runtime_s": 0.958,
     "seed": 1495037734,
     "status": "pass"
    },
@@ -5335,7 +5535,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "pipe_random",
-    "runtime_s": 1.882,
+    "runtime_s": 1.913,
     "seed": 98053844,
     "status": "pass"
    },
@@ -5343,7 +5543,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "pipe_random",
-    "runtime_s": 1.819,
+    "runtime_s": 1.706,
     "seed": 1809207288,
     "status": "pass"
    },
@@ -5351,7 +5551,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "pipe_random",
-    "runtime_s": 2.004,
+    "runtime_s": 1.659,
     "seed": 1927224898,
     "status": "pass"
    },
@@ -5359,7 +5559,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "round_trip",
-    "runtime_s": 3.533,
+    "runtime_s": 3.374,
     "seed": 1,
     "status": "pass"
    },
@@ -5367,7 +5567,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_close_errors",
-    "runtime_s": 5.363,
+    "runtime_s": 4.622,
     "seed": 1,
     "status": "pass"
    },
@@ -5375,7 +5575,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_close_errors",
-    "runtime_s": 5.445,
+    "runtime_s": 5.28,
     "seed": 2,
     "status": "pass"
    },
@@ -5383,7 +5583,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_decode_random",
-    "runtime_s": 8.505,
+    "runtime_s": 7.028,
     "seed": 352464483,
     "status": "pass"
    },
@@ -5391,7 +5591,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_decode_random",
-    "runtime_s": 8.612,
+    "runtime_s": 6.997,
     "seed": 1644502773,
     "status": "pass"
    },
@@ -5399,7 +5599,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_decode_random",
-    "runtime_s": 9.452,
+    "runtime_s": 7.239,
     "seed": 2064404303,
     "status": "pass"
    },
@@ -5407,7 +5607,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_decode_table",
-    "runtime_s": 37.868,
+    "runtime_s": 36.28,
     "seed": 1227015761,
     "status": "pass"
    },
@@ -5415,7 +5615,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_dllp",
-    "runtime_s": 2.624,
+    "runtime_s": 2.966,
     "seed": 1,
     "status": "pass"
    },
@@ -5423,7 +5623,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_dllp",
-    "runtime_s": 2.26,
+    "runtime_s": 2.465,
     "seed": 2,
     "status": "pass"
    },
@@ -5431,7 +5631,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_eios_idle",
-    "runtime_s": 6.529,
+    "runtime_s": 7.067,
     "seed": 1,
     "status": "pass"
    },
@@ -5439,7 +5639,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_eios_idle",
-    "runtime_s": 6.231,
+    "runtime_s": 6.656,
     "seed": 2,
     "status": "pass"
    },
@@ -5447,7 +5647,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_eios_phases",
-    "runtime_s": 1.924,
+    "runtime_s": 2.108,
     "seed": 1,
     "status": "pass"
    },
@@ -5455,7 +5655,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_eios_phases",
-    "runtime_s": 2.164,
+    "runtime_s": 1.912,
     "seed": 2,
     "status": "pass"
    },
@@ -5463,7 +5663,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_elec_idle",
-    "runtime_s": 1.906,
+    "runtime_s": 1.965,
     "seed": 1,
     "status": "pass"
    },
@@ -5471,7 +5671,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_elec_idle",
-    "runtime_s": 1.966,
+    "runtime_s": 1.705,
     "seed": 2,
     "status": "pass"
    },
@@ -5479,7 +5679,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_elec_idle_gaps",
-    "runtime_s": 2.865,
+    "runtime_s": 3.369,
     "seed": 1,
     "status": "pass"
    },
@@ -5487,7 +5687,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_elec_idle_gaps",
-    "runtime_s": 4.34,
+    "runtime_s": 3.583,
     "seed": 2,
     "status": "pass"
    },
@@ -5495,7 +5695,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_error_bursts",
-    "runtime_s": 6.394,
+    "runtime_s": 5.888,
     "seed": 1,
     "status": "pass"
    },
@@ -5503,7 +5703,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_error_bursts",
-    "runtime_s": 7.166,
+    "runtime_s": 6.168,
     "seed": 2,
     "status": "pass"
    },
@@ -5511,7 +5711,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_errors",
-    "runtime_s": 4.372,
+    "runtime_s": 3.39,
     "seed": 1,
     "status": "pass"
    },
@@ -5519,7 +5719,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_errors",
-    "runtime_s": 3.982,
+    "runtime_s": 3.811,
     "seed": 2,
     "status": "pass"
    },
@@ -5527,7 +5727,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_no_false_lock",
-    "runtime_s": 3.673,
+    "runtime_s": 4.787,
     "seed": 1,
     "status": "pass"
    },
@@ -5535,7 +5735,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_no_false_lock",
-    "runtime_s": 4.0,
+    "runtime_s": 3.836,
     "seed": 2,
     "status": "pass"
    },
@@ -5543,7 +5743,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_polarity",
-    "runtime_s": 2.364,
+    "runtime_s": 2.277,
     "seed": 1,
     "status": "pass"
    },
@@ -5551,7 +5751,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_polarity_toggle",
-    "runtime_s": 2.573,
+    "runtime_s": 2.932,
     "seed": 2,
     "status": "pass"
    },
@@ -5559,7 +5759,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_ppm",
-    "runtime_s": 3.072,
+    "runtime_s": 3.092,
     "seed": 1,
     "status": "pass"
    },
@@ -5567,7 +5767,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_ppm",
-    "runtime_s": 3.971,
+    "runtime_s": 3.228,
     "seed": 2,
     "status": "pass"
    },
@@ -5575,7 +5775,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_relock_mid_word",
-    "runtime_s": 9.403,
+    "runtime_s": 8.05,
     "seed": 1,
     "status": "pass"
    },
@@ -5583,7 +5783,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_relock_mid_word",
-    "runtime_s": 8.493,
+    "runtime_s": 8.869,
     "seed": 2,
     "status": "pass"
    },
@@ -5591,7 +5791,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_reset_traffic",
-    "runtime_s": 5.97,
+    "runtime_s": 4.782,
     "seed": 1,
     "status": "pass"
    },
@@ -5599,7 +5799,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_reset_traffic",
-    "runtime_s": 5.946,
+    "runtime_s": 4.678,
     "seed": 2,
     "status": "pass"
    },
@@ -5607,7 +5807,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_slips",
-    "runtime_s": 5.952,
+    "runtime_s": 5.786,
     "seed": 1,
     "status": "pass"
    },
@@ -5615,7 +5815,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_slips",
-    "runtime_s": 5.969,
+    "runtime_s": 6.132,
     "seed": 2,
     "status": "pass"
    },
@@ -5623,7 +5823,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_slips_packets",
-    "runtime_s": 4.638,
+    "runtime_s": 4.73,
     "seed": 1,
     "status": "pass"
    },
@@ -5631,7 +5831,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_slips_packets",
-    "runtime_s": 5.703,
+    "runtime_s": 4.381,
     "seed": 2,
     "status": "pass"
    },
@@ -5639,7 +5839,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_slips_training",
-    "runtime_s": 9.363,
+    "runtime_s": 9.352,
     "seed": 1,
     "status": "pass"
    },
@@ -5647,7 +5847,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "rx_slips_training",
-    "runtime_s": 12.067,
+    "runtime_s": 10.466,
     "seed": 2,
     "status": "pass"
    },
@@ -5655,7 +5855,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "table_round_trip",
-    "runtime_s": 5.516,
+    "runtime_s": 5.251,
     "seed": 1,
     "status": "pass"
    },
@@ -5663,7 +5863,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "tx_random",
-    "runtime_s": 3.531,
+    "runtime_s": 3.332,
     "seed": 223447528,
     "status": "pass"
    },
@@ -5671,7 +5871,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "tx_random",
-    "runtime_s": 3.332,
+    "runtime_s": 3.38,
     "seed": 341366866,
     "status": "pass"
    },
@@ -5687,7 +5887,7 @@
     "ip": "pcs",
     "level": 1,
     "name": "tx_table",
-    "runtime_s": 4.203,
+    "runtime_s": 3.474,
     "seed": 767703684,
     "status": "pass"
    },
@@ -5695,7 +5895,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_dense_sweep",
-    "runtime_s": 5.594,
+    "runtime_s": 4.316,
     "seed": 3,
     "status": "pass"
    },
@@ -5703,7 +5903,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_dense_sweep",
-    "runtime_s": 4.52,
+    "runtime_s": 4.571,
     "seed": 4,
     "status": "pass"
    },
@@ -5711,7 +5911,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_dense_sweep",
-    "runtime_s": 5.771,
+    "runtime_s": 4.267,
     "seed": 5,
     "status": "pass"
    },
@@ -5719,7 +5919,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_dense_sweep",
-    "runtime_s": 5.339,
+    "runtime_s": 5.338,
     "seed": 6,
     "status": "pass"
    },
@@ -5727,7 +5927,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_dense_sweep",
-    "runtime_s": 4.62,
+    "runtime_s": 4.567,
     "seed": 7,
     "status": "pass"
    },
@@ -5735,7 +5935,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_dense_sweep",
-    "runtime_s": 5.482,
+    "runtime_s": 4.623,
     "seed": 8,
     "status": "pass"
    },
@@ -5743,7 +5943,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_lock_start_sweep",
-    "runtime_s": 8.863,
+    "runtime_s": 8.677,
     "seed": 3,
     "status": "pass"
    },
@@ -5751,7 +5951,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_lock_start_sweep",
-    "runtime_s": 10.728,
+    "runtime_s": 10.751,
     "seed": 4,
     "status": "pass"
    },
@@ -5759,7 +5959,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_lock_start_sweep",
-    "runtime_s": 8.908,
+    "runtime_s": 8.65,
     "seed": 5,
     "status": "pass"
    },
@@ -5767,7 +5967,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_lock_start_sweep",
-    "runtime_s": 10.228,
+    "runtime_s": 8.715,
     "seed": 6,
     "status": "pass"
    },
@@ -5775,7 +5975,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_lock_start_sweep",
-    "runtime_s": 10.388,
+    "runtime_s": 10.508,
     "seed": 7,
     "status": "pass"
    },
@@ -5783,7 +5983,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_lock_start_sweep",
-    "runtime_s": 8.836,
+    "runtime_s": 9.908,
     "seed": 8,
     "status": "pass"
    },
@@ -5791,7 +5991,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_lock_start_sweep",
-    "runtime_s": 11.517,
+    "runtime_s": 8.997,
     "seed": 9,
     "status": "pass"
    },
@@ -5799,7 +5999,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_lock_start_sweep",
-    "runtime_s": 10.43,
+    "runtime_s": 10.366,
     "seed": 10,
     "status": "pass"
    },
@@ -5807,7 +6007,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_idle",
-    "runtime_s": 22.047,
+    "runtime_s": 26.088,
     "seed": 1,
     "status": "pass"
    },
@@ -5815,7 +6015,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_idle",
-    "runtime_s": 29.806,
+    "runtime_s": 25.949,
     "seed": 2,
     "status": "pass"
    },
@@ -5823,7 +6023,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_idle",
-    "runtime_s": 22.548,
+    "runtime_s": 22.867,
     "seed": 3,
     "status": "pass"
    },
@@ -5831,7 +6031,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_idle",
-    "runtime_s": 26.337,
+    "runtime_s": 31.002,
     "seed": 4,
     "status": "pass"
    },
@@ -5839,7 +6039,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_random",
-    "runtime_s": 42.908,
+    "runtime_s": 38.458,
     "seed": 250931266,
     "status": "pass"
    },
@@ -5847,7 +6047,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_random",
-    "runtime_s": 40.146,
+    "runtime_s": 46.074,
     "seed": 277904865,
     "status": "pass"
    },
@@ -5855,7 +6055,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_random",
-    "runtime_s": 49.373,
+    "runtime_s": 47.504,
     "seed": 402504184,
     "status": "pass"
    },
@@ -5863,7 +6063,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_random",
-    "runtime_s": 47.888,
+    "runtime_s": 40.764,
     "seed": 1627031918,
     "status": "pass"
    },
@@ -5871,7 +6071,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_random",
-    "runtime_s": 50.154,
+    "runtime_s": 44.785,
     "seed": 1737969015,
     "status": "pass"
    },
@@ -5879,7 +6079,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_random",
-    "runtime_s": 40.563,
+    "runtime_s": 50.606,
     "seed": 2046023892,
     "status": "pass"
    },
@@ -5887,7 +6087,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_stress",
-    "runtime_s": 29.751,
+    "runtime_s": 33.355,
     "seed": 1,
     "status": "pass"
    },
@@ -5895,7 +6095,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_stress",
-    "runtime_s": 39.12,
+    "runtime_s": 42.684,
     "seed": 2,
     "status": "pass"
    },
@@ -5903,7 +6103,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_stress",
-    "runtime_s": 33.533,
+    "runtime_s": 32.989,
     "seed": 3,
     "status": "pass"
    },
@@ -5911,7 +6111,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_stress",
-    "runtime_s": 41.001,
+    "runtime_s": 40.843,
     "seed": 4,
     "status": "pass"
    },
@@ -5919,7 +6119,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_stress",
-    "runtime_s": 47.68,
+    "runtime_s": 53.737,
     "seed": 5,
     "status": "pass"
    },
@@ -5927,7 +6127,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_stress",
-    "runtime_s": 27.607,
+    "runtime_s": 28.171,
     "seed": 6,
     "status": "pass"
    },
@@ -5935,7 +6135,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_tlp",
-    "runtime_s": 44.6,
+    "runtime_s": 46.041,
     "seed": 1,
     "status": "pass"
    },
@@ -5943,7 +6143,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_tlp",
-    "runtime_s": 34.734,
+    "runtime_s": 41.492,
     "seed": 2,
     "status": "pass"
    },
@@ -5951,7 +6151,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_tlp",
-    "runtime_s": 35.377,
+    "runtime_s": 43.524,
     "seed": 3,
     "status": "pass"
    },
@@ -5959,7 +6159,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_tlp",
-    "runtime_s": 39.086,
+    "runtime_s": 44.163,
     "seed": 4,
     "status": "pass"
    },
@@ -5967,7 +6167,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_tlp",
-    "runtime_s": 40.885,
+    "runtime_s": 39.367,
     "seed": 5,
     "status": "pass"
    },
@@ -5975,7 +6175,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_long_tlp",
-    "runtime_s": 44.56,
+    "runtime_s": 42.979,
     "seed": 6,
     "status": "pass"
    },
@@ -5983,7 +6183,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_random_offset_sweep",
-    "runtime_s": 7.031,
+    "runtime_s": 10.003,
     "seed": 3,
     "status": "pass"
    },
@@ -5991,7 +6191,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_random_offset_sweep",
-    "runtime_s": 6.874,
+    "runtime_s": 8.445,
     "seed": 4,
     "status": "pass"
    },
@@ -5999,7 +6199,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_random_offset_sweep",
-    "runtime_s": 9.395,
+    "runtime_s": 9.95,
     "seed": 5,
     "status": "pass"
    },
@@ -6007,7 +6207,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_random_offset_sweep",
-    "runtime_s": 7.278,
+    "runtime_s": 7.695,
     "seed": 6,
     "status": "pass"
    },
@@ -6015,7 +6215,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_short_burst_sweep",
-    "runtime_s": 7.073,
+    "runtime_s": 7.938,
     "seed": 2,
     "status": "pass"
    },
@@ -6023,7 +6223,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "eb_short_burst_sweep",
-    "runtime_s": 7.393,
+    "runtime_s": 6.932,
     "seed": 3,
     "status": "pass"
    },
@@ -6031,7 +6231,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "pipe_random_long",
-    "runtime_s": 4.717,
+    "runtime_s": 3.467,
     "seed": 686202454,
     "status": "pass"
    },
@@ -6039,7 +6239,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "pipe_random_long",
-    "runtime_s": 3.768,
+    "runtime_s": 4.617,
     "seed": 797661775,
     "status": "pass"
    },
@@ -6047,7 +6247,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "pipe_random_long",
-    "runtime_s": 4.484,
+    "runtime_s": 3.729,
     "seed": 837799916,
     "status": "pass"
    },
@@ -6055,7 +6255,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "pipe_random_long",
-    "runtime_s": 3.565,
+    "runtime_s": 4.172,
     "seed": 1189674874,
     "status": "pass"
    },
@@ -6063,7 +6263,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "pipe_random_long",
-    "runtime_s": 3.468,
+    "runtime_s": 3.626,
     "seed": 1485597401,
     "status": "pass"
    },
@@ -6071,7 +6271,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "pipe_random_long",
-    "runtime_s": 4.324,
+    "runtime_s": 4.371,
     "seed": 1608625856,
     "status": "pass"
    },
@@ -6079,7 +6279,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_align_long",
-    "runtime_s": 37.535,
+    "runtime_s": 48.836,
     "seed": 688035763,
     "status": "pass"
    },
@@ -6087,7 +6287,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_align_long",
-    "runtime_s": 46.124,
+    "runtime_s": 41.618,
     "seed": 779047850,
     "status": "pass"
    },
@@ -6095,7 +6295,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_align_long",
-    "runtime_s": 38.695,
+    "runtime_s": 41.035,
     "seed": 806077961,
     "status": "pass"
    },
@@ -6103,7 +6303,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_align_long",
-    "runtime_s": 38.353,
+    "runtime_s": 46.121,
     "seed": 929432080,
     "status": "pass"
    },
@@ -6111,7 +6311,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_align_long",
-    "runtime_s": 41.77,
+    "runtime_s": 39.31,
     "seed": 1080111750,
     "status": "pass"
    },
@@ -6119,7 +6319,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_align_long",
-    "runtime_s": 37.647,
+    "runtime_s": 43.469,
     "seed": 1192031903,
     "status": "pass"
    },
@@ -6127,7 +6327,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_align_long",
-    "runtime_s": 47.054,
+    "runtime_s": 45.274,
     "seed": 1500013372,
     "status": "pass"
    },
@@ -6135,7 +6335,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_align_long",
-    "runtime_s": 45.66,
+    "runtime_s": 45.13,
     "seed": 1577428773,
     "status": "pass"
    },
@@ -6143,7 +6343,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_close_errors_sweep",
-    "runtime_s": 4.671,
+    "runtime_s": 4.524,
     "seed": 3,
     "status": "pass"
    },
@@ -6151,7 +6351,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_close_errors_sweep",
-    "runtime_s": 5.975,
+    "runtime_s": 5.674,
     "seed": 4,
     "status": "pass"
    },
@@ -6159,7 +6359,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_close_errors_sweep",
-    "runtime_s": 4.469,
+    "runtime_s": 5.485,
     "seed": 5,
     "status": "pass"
    },
@@ -6167,7 +6367,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_close_errors_sweep",
-    "runtime_s": 4.469,
+    "runtime_s": 6.236,
     "seed": 6,
     "status": "pass"
    },
@@ -6175,7 +6375,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_decode_random_long",
-    "runtime_s": 78.819,
+    "runtime_s": 67.877,
     "seed": 207175736,
     "status": "pass"
    },
@@ -6183,7 +6383,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_decode_random_long",
-    "runtime_s": 70.799,
+    "runtime_s": 70.166,
     "seed": 357568898,
     "status": "pass"
    },
@@ -6191,7 +6391,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_decode_random_long",
-    "runtime_s": 76.933,
+    "runtime_s": 70.485,
     "seed": 1649877268,
     "status": "pass"
    },
@@ -6199,7 +6399,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_decode_random_long",
-    "runtime_s": 82.13,
+    "runtime_s": 75.06,
     "seed": 2069786798,
     "status": "pass"
    },
@@ -6207,7 +6407,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_eios_idle_sweep",
-    "runtime_s": 6.081,
+    "runtime_s": 6.542,
     "seed": 3,
     "status": "pass"
    },
@@ -6215,7 +6415,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_eios_idle_sweep",
-    "runtime_s": 6.08,
+    "runtime_s": 7.887,
     "seed": 4,
     "status": "pass"
    },
@@ -6223,7 +6423,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_eios_idle_sweep",
-    "runtime_s": 6.249,
+    "runtime_s": 7.373,
     "seed": 5,
     "status": "pass"
    },
@@ -6231,7 +6431,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_eios_idle_sweep",
-    "runtime_s": 6.7,
+    "runtime_s": 6.226,
     "seed": 6,
     "status": "pass"
    },
@@ -6239,7 +6439,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_eios_idle_sweep",
-    "runtime_s": 6.593,
+    "runtime_s": 7.596,
     "seed": 7,
     "status": "pass"
    },
@@ -6247,7 +6447,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_eios_idle_sweep",
-    "runtime_s": 6.628,
+    "runtime_s": 6.129,
     "seed": 8,
     "status": "pass"
    },
@@ -6255,7 +6455,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_elec_idle_gaps_sweep",
-    "runtime_s": 4.055,
+    "runtime_s": 4.553,
     "seed": 3,
     "status": "pass"
    },
@@ -6263,7 +6463,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_elec_idle_gaps_sweep",
-    "runtime_s": 3.174,
+    "runtime_s": 3.08,
     "seed": 4,
     "status": "pass"
    },
@@ -6271,7 +6471,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_elec_idle_gaps_sweep",
-    "runtime_s": 3.033,
+    "runtime_s": 2.614,
     "seed": 5,
     "status": "pass"
    },
@@ -6279,7 +6479,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_elec_idle_gaps_sweep",
-    "runtime_s": 3.175,
+    "runtime_s": 3.416,
     "seed": 6,
     "status": "pass"
    },
@@ -6287,7 +6487,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_elec_idle_gaps_sweep",
-    "runtime_s": 4.325,
+    "runtime_s": 3.722,
     "seed": 12,
     "status": "pass"
    },
@@ -6295,7 +6495,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_elec_idle_gaps_sweep",
-    "runtime_s": 3.867,
+    "runtime_s": 4.136,
     "seed": 14,
     "status": "pass"
    },
@@ -6303,7 +6503,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_elec_idle_gaps_sweep",
-    "runtime_s": 3.017,
+    "runtime_s": 3.32,
     "seed": 22,
     "status": "pass"
    },
@@ -6311,7 +6511,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_elec_idle_gaps_sweep",
-    "runtime_s": 2.632,
+    "runtime_s": 3.071,
     "seed": 24,
     "status": "pass"
    },
@@ -6319,7 +6519,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_elec_idle_gaps_sweep",
-    "runtime_s": 3.319,
+    "runtime_s": 2.818,
     "seed": 28,
     "status": "pass"
    },
@@ -6327,7 +6527,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_elec_idle_gaps_sweep",
-    "runtime_s": 3.829,
+    "runtime_s": 3.28,
     "seed": 30,
     "status": "pass"
    },
@@ -6335,7 +6535,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_elec_idle_gaps_sweep",
-    "runtime_s": 2.621,
+    "runtime_s": 2.779,
     "seed": 34,
     "status": "pass"
    },
@@ -6343,7 +6543,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_elec_idle_gaps_sweep",
-    "runtime_s": 3.375,
+    "runtime_s": 3.778,
     "seed": 36,
     "status": "pass"
    },
@@ -6351,7 +6551,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_error_bursts_sweep",
-    "runtime_s": 7.475,
+    "runtime_s": 5.993,
     "seed": 3,
     "status": "pass"
    },
@@ -6359,7 +6559,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_error_bursts_sweep",
-    "runtime_s": 6.717,
+    "runtime_s": 5.847,
     "seed": 4,
     "status": "pass"
    },
@@ -6367,7 +6567,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_error_bursts_sweep",
-    "runtime_s": 6.836,
+    "runtime_s": 5.733,
     "seed": 5,
     "status": "pass"
    },
@@ -6375,7 +6575,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_error_bursts_sweep",
-    "runtime_s": 7.269,
+    "runtime_s": 6.654,
     "seed": 6,
     "status": "pass"
    },
@@ -6383,7 +6583,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_error_bursts_sweep",
-    "runtime_s": 7.77,
+    "runtime_s": 6.616,
     "seed": 7,
     "status": "pass"
    },
@@ -6391,7 +6591,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_error_bursts_sweep",
-    "runtime_s": 7.724,
+    "runtime_s": 5.737,
     "seed": 8,
     "status": "pass"
    },
@@ -6399,7 +6599,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_errors_sweep",
-    "runtime_s": 4.43,
+    "runtime_s": 4.232,
     "seed": 3,
     "status": "pass"
    },
@@ -6407,7 +6607,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_errors_sweep",
-    "runtime_s": 4.343,
+    "runtime_s": 3.487,
     "seed": 4,
     "status": "pass"
    },
@@ -6415,7 +6615,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_errors_sweep",
-    "runtime_s": 4.183,
+    "runtime_s": 4.138,
     "seed": 5,
     "status": "pass"
    },
@@ -6423,7 +6623,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_errors_sweep",
-    "runtime_s": 3.569,
+    "runtime_s": 3.432,
     "seed": 6,
     "status": "pass"
    },
@@ -6431,7 +6631,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_max_tlp",
-    "runtime_s": 6.484,
+    "runtime_s": 7.825,
     "seed": 1,
     "status": "pass"
    },
@@ -6439,7 +6639,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_max_tlp",
-    "runtime_s": 6.327,
+    "runtime_s": 7.205,
     "seed": 2,
     "status": "pass"
    },
@@ -6447,7 +6647,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_max_tlp",
-    "runtime_s": 7.452,
+    "runtime_s": 6.87,
     "seed": 3,
     "status": "pass"
    },
@@ -6455,7 +6655,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_max_tlp",
-    "runtime_s": 7.932,
+    "runtime_s": 7.824,
     "seed": 4,
     "status": "pass"
    },
@@ -6463,7 +6663,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_ppm_sweep",
-    "runtime_s": 3.967,
+    "runtime_s": 3.176,
     "seed": 3,
     "status": "pass"
    },
@@ -6471,7 +6671,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_ppm_sweep",
-    "runtime_s": 3.583,
+    "runtime_s": 3.685,
     "seed": 4,
     "status": "pass"
    },
@@ -6479,7 +6679,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_ppm_sweep",
-    "runtime_s": 3.169,
+    "runtime_s": 3.788,
     "seed": 5,
     "status": "pass"
    },
@@ -6487,7 +6687,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_ppm_sweep",
-    "runtime_s": 3.516,
+    "runtime_s": 3.621,
     "seed": 6,
     "status": "pass"
    },
@@ -6495,7 +6695,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_ppm_sweep",
-    "runtime_s": 3.215,
+    "runtime_s": 3.621,
     "seed": 7,
     "status": "pass"
    },
@@ -6503,7 +6703,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_ppm_sweep",
-    "runtime_s": 3.872,
+    "runtime_s": 3.441,
     "seed": 8,
     "status": "pass"
    },
@@ -6511,7 +6711,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_reset_traffic_sweep",
-    "runtime_s": 5.487,
+    "runtime_s": 4.896,
     "seed": 3,
     "status": "pass"
    },
@@ -6519,7 +6719,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_reset_traffic_sweep",
-    "runtime_s": 5.936,
+    "runtime_s": 5.289,
     "seed": 4,
     "status": "pass"
    },
@@ -6527,7 +6727,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_reset_traffic_sweep",
-    "runtime_s": 4.996,
+    "runtime_s": 5.228,
     "seed": 5,
     "status": "pass"
    },
@@ -6535,7 +6735,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_reset_traffic_sweep",
-    "runtime_s": 5.542,
+    "runtime_s": 6.217,
     "seed": 6,
     "status": "pass"
    },
@@ -6543,7 +6743,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_slips_sweep",
-    "runtime_s": 5.286,
+    "runtime_s": 4.847,
     "seed": 3,
     "status": "pass"
    },
@@ -6551,7 +6751,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_slips_sweep",
-    "runtime_s": 4.631,
+    "runtime_s": 4.961,
     "seed": 4,
     "status": "pass"
    },
@@ -6559,7 +6759,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_slips_sweep",
-    "runtime_s": 4.727,
+    "runtime_s": 6.052,
     "seed": 5,
     "status": "pass"
    },
@@ -6567,7 +6767,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_slips_sweep",
-    "runtime_s": 6.032,
+    "runtime_s": 5.196,
     "seed": 6,
     "status": "pass"
    },
@@ -6575,7 +6775,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_slips_training_sweep",
-    "runtime_s": 9.145,
+    "runtime_s": 10.94,
     "seed": 3,
     "status": "pass"
    },
@@ -6583,7 +6783,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_slips_training_sweep",
-    "runtime_s": 10.992,
+    "runtime_s": 9.005,
     "seed": 4,
     "status": "pass"
    },
@@ -6591,7 +6791,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_slips_training_sweep",
-    "runtime_s": 8.986,
+    "runtime_s": 8.678,
     "seed": 5,
     "status": "pass"
    },
@@ -6599,7 +6799,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "rx_slips_training_sweep",
-    "runtime_s": 11.521,
+    "runtime_s": 11.215,
     "seed": 6,
     "status": "pass"
    },
@@ -6607,7 +6807,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "tx_random_long",
-    "runtime_s": 33.649,
+    "runtime_s": 37.297,
     "seed": 586356742,
     "status": "pass"
    },
@@ -6615,7 +6815,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "tx_random_long",
-    "runtime_s": 35.122,
+    "runtime_s": 31.746,
     "seed": 631168031,
     "status": "pass"
    },
@@ -6623,7 +6823,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "tx_random_long",
-    "runtime_s": 37.724,
+    "runtime_s": 35.446,
     "seed": 1006258620,
     "status": "pass"
    },
@@ -6631,7 +6831,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "tx_random_long",
-    "runtime_s": 34.271,
+    "runtime_s": 31.046,
     "seed": 1016565157,
     "status": "pass"
    },
@@ -6639,7 +6839,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "tx_random_long",
-    "runtime_s": 33.101,
+    "runtime_s": 35.01,
     "seed": 1267776819,
     "status": "pass"
    },
@@ -6647,7 +6847,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "tx_random_long",
-    "runtime_s": 35.582,
+    "runtime_s": 34.681,
     "seed": 1291680042,
     "status": "pass"
    },
@@ -6655,7 +6855,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "tx_random_long",
-    "runtime_s": 36.463,
+    "runtime_s": 37.127,
     "seed": 1385819273,
     "status": "pass"
    },
@@ -6663,7 +6863,7 @@
     "ip": "pcs",
     "level": 2,
     "name": "tx_random_long",
-    "runtime_s": 36.562,
+    "runtime_s": 34.035,
     "seed": 1442064528,
     "status": "pass"
    },
@@ -6671,7 +6871,7 @@
     "ip": "phy",
     "level": 0,
     "name": "e2e_rtl_link",
-    "runtime_s": 28.874,
+    "runtime_s": 24.587,
     "seed": 737010230,
     "status": "pass"
    },
@@ -6679,7 +6879,7 @@
     "ip": "phy",
     "level": 0,
     "name": "e2e_rtl_link",
-    "runtime_s": 27.807,
+    "runtime_s": 25.008,
     "seed": 1558893216,
     "status": "pass"
    },
@@ -6687,7 +6887,7 @@
     "ip": "phy",
     "level": 0,
     "name": "e2e_rtl_link_chan",
-    "runtime_s": 24.974,
+    "runtime_s": 23.187,
     "seed": 198540274,
     "status": "pass"
    },
@@ -6695,7 +6895,7 @@
     "ip": "phy",
     "level": 0,
     "name": "e2e_smoke",
-    "runtime_s": 8.485,
+    "runtime_s": 8.942,
     "seed": 700451857,
     "status": "pass"
    },
@@ -6703,7 +6903,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_bit_slips",
-    "runtime_s": 11.776,
+    "runtime_s": 12.667,
     "seed": 950572862,
     "status": "pass"
    },
@@ -6711,7 +6911,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_bit_slips",
-    "runtime_s": 11.543,
+    "runtime_s": 13.842,
     "seed": 1336911784,
     "status": "pass"
    },
@@ -6719,7 +6919,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_bit_slips_model",
-    "runtime_s": 10.783,
+    "runtime_s": 10.493,
     "seed": 946346016,
     "status": "pass"
    },
@@ -6727,7 +6927,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_bit_slips_model",
-    "runtime_s": 10.79,
+    "runtime_s": 10.485,
     "seed": 1332684982,
     "status": "pass"
    },
@@ -6735,7 +6935,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_control",
-    "runtime_s": 33.862,
+    "runtime_s": 32.169,
     "seed": 1768007665,
     "status": "pass"
    },
@@ -6743,7 +6943,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_dsp_first_neg300",
-    "runtime_s": 12.235,
+    "runtime_s": 13.353,
     "seed": 1035405344,
     "status": "pass"
    },
@@ -6751,7 +6951,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_dsp_first_neg300_model",
-    "runtime_s": 11.383,
+    "runtime_s": 10.027,
     "seed": 1247896894,
     "status": "pass"
    },
@@ -6759,7 +6959,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_dsp_first_pos600",
-    "runtime_s": 15.382,
+    "runtime_s": 13.701,
     "seed": 542227338,
     "status": "pass"
    },
@@ -6767,7 +6967,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_dsp_first_pos600_model",
-    "runtime_s": 11.934,
+    "runtime_s": 10.33,
     "seed": 593367093,
     "status": "pass"
    },
@@ -6775,7 +6975,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_elec_idle",
-    "runtime_s": 14.475,
+    "runtime_s": 14.242,
     "seed": 1011312886,
     "status": "pass"
    },
@@ -6783,7 +6983,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_elec_idle",
-    "runtime_s": 11.3,
+    "runtime_s": 13.362,
     "seed": 1262508128,
     "status": "pass"
    },
@@ -6791,7 +6991,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_elec_idle_model",
-    "runtime_s": 11.19,
+    "runtime_s": 10.753,
     "seed": 111327943,
     "status": "pass"
    },
@@ -6799,7 +6999,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_elec_idle_model",
-    "runtime_s": 10.525,
+    "runtime_s": 9.602,
     "seed": 1906674257,
     "status": "pass"
    },
@@ -6807,7 +7007,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_encoder_block",
-    "runtime_s": 10.77,
+    "runtime_s": 11.79,
     "seed": 518431615,
     "status": "pass"
    },
@@ -6815,7 +7015,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_loopback",
-    "runtime_s": 29.25,
+    "runtime_s": 25.646,
     "seed": 74580909,
     "status": "pass"
    },
@@ -6823,7 +7023,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_polarity",
-    "runtime_s": 16.937,
+    "runtime_s": 19.729,
     "seed": 386704176,
     "status": "pass"
    },
@@ -6831,7 +7031,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_power",
-    "runtime_s": 18.812,
+    "runtime_s": 16.288,
     "seed": 2093394178,
     "status": "pass"
    },
@@ -6839,7 +7039,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_reset_single",
-    "runtime_s": 97.472,
+    "runtime_s": 92.954,
     "seed": 751634332,
     "status": "pass"
    },
@@ -6847,7 +7047,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_scrambler_block",
-    "runtime_s": 9.013,
+    "runtime_s": 10.794,
     "seed": 1322251444,
     "status": "pass"
    },
@@ -6855,7 +7055,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_symbol_errors",
-    "runtime_s": 13.414,
+    "runtime_s": 11.647,
     "seed": 56477928,
     "status": "pass"
    },
@@ -6863,7 +7063,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_symbol_errors",
-    "runtime_s": 12.189,
+    "runtime_s": 13.879,
     "seed": 1952118910,
     "status": "pass"
    },
@@ -6871,7 +7071,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_symbol_errors_model",
-    "runtime_s": 11.221,
+    "runtime_s": 9.429,
     "seed": 684548986,
     "status": "pass"
    },
@@ -6879,7 +7079,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_symbol_errors_model",
-    "runtime_s": 10.564,
+    "runtime_s": 11.2,
     "seed": 1607095276,
     "status": "pass"
    },
@@ -6887,7 +7087,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_targets",
-    "runtime_s": 25.009,
+    "runtime_s": 26.255,
     "seed": 1406428085,
     "status": "pass"
    },
@@ -6895,7 +7095,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_usp_first_neg600",
-    "runtime_s": 13.517,
+    "runtime_s": 14.281,
     "seed": 883322281,
     "status": "pass"
    },
@@ -6903,7 +7103,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_usp_first_neg600_model",
-    "runtime_s": 11.16,
+    "runtime_s": 11.841,
     "seed": 1165546342,
     "status": "pass"
    },
@@ -6911,7 +7111,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_usp_first_pos300",
-    "runtime_s": 12.684,
+    "runtime_s": 14.475,
     "seed": 692116995,
     "status": "pass"
    },
@@ -6919,7 +7119,7 @@
     "ip": "phy",
     "level": 1,
     "name": "e2e_usp_first_pos300_model",
-    "runtime_s": 10.753,
+    "runtime_s": 10.652,
     "seed": 742893165,
     "status": "pass"
    },
@@ -6927,7 +7127,7 @@
     "ip": "phy",
     "level": 2,
     "name": "e2e_link_up_spec",
-    "runtime_s": 202.1,
+    "runtime_s": 199.825,
     "seed": 718020321,
     "status": "pass"
    },
@@ -6935,7 +7135,7 @@
     "ip": "phy",
     "level": 2,
     "name": "e2e_soak_dsp_first",
-    "runtime_s": 144.248,
+    "runtime_s": 133.033,
     "seed": 729640957,
     "status": "pass"
    },
@@ -6943,7 +7143,7 @@
     "ip": "phy",
     "level": 2,
     "name": "e2e_soak_dsp_first",
-    "runtime_s": 166.861,
+    "runtime_s": 163.167,
     "seed": 846478919,
     "status": "pass"
    },
@@ -6951,7 +7151,7 @@
     "ip": "phy",
     "level": 2,
     "name": "e2e_soak_dsp_first",
-    "runtime_s": 165.598,
+    "runtime_s": 166.027,
     "seed": 1165168337,
     "status": "pass"
    },
@@ -6959,7 +7159,7 @@
     "ip": "phy",
     "level": 2,
     "name": "e2e_soak_dsp_first",
-    "runtime_s": 150.43,
+    "runtime_s": 159.26,
     "seed": 1551523691,
     "status": "pass"
    },
@@ -6967,7 +7167,7 @@
     "ip": "phy",
     "level": 2,
     "name": "e2e_soak_dsp_first_model",
-    "runtime_s": 115.552,
+    "runtime_s": 106.874,
     "seed": 800918450,
     "status": "pass"
    },
@@ -6975,7 +7175,7 @@
     "ip": "phy",
     "level": 2,
     "name": "e2e_soak_dsp_first_model",
-    "runtime_s": 132.885,
+    "runtime_s": 100.918,
     "seed": 1488599844,
     "status": "pass"
    },
@@ -6983,7 +7183,7 @@
     "ip": "phy",
     "level": 2,
     "name": "e2e_soak_usp_first",
-    "runtime_s": 155.966,
+    "runtime_s": 151.483,
     "seed": 705369562,
     "status": "pass"
    },
@@ -6991,7 +7191,7 @@
     "ip": "phy",
     "level": 2,
     "name": "e2e_soak_usp_first",
-    "runtime_s": 140.026,
+    "runtime_s": 151.12,
     "seed": 855786592,
     "status": "pass"
    },
@@ -6999,7 +7199,7 @@
     "ip": "phy",
     "level": 2,
     "name": "e2e_soak_usp_first",
-    "runtime_s": 136.429,
+    "runtime_s": 147.794,
     "seed": 1141208310,
     "status": "pass"
    },
@@ -7007,7 +7207,7 @@
     "ip": "phy",
     "level": 2,
     "name": "e2e_soak_usp_first",
-    "runtime_s": 158.527,
+    "runtime_s": 151.757,
     "seed": 1561077068,
     "status": "pass"
    },
@@ -7015,7 +7215,7 @@
     "ip": "phy",
     "level": 2,
     "name": "e2e_soak_usp_first_model",
-    "runtime_s": 131.351,
+    "runtime_s": 113.735,
     "seed": 1061837196,
     "status": "pass"
    },
@@ -7023,7 +7223,7 @@
     "ip": "phy",
     "level": 2,
     "name": "e2e_soak_usp_first_model",
-    "runtime_s": 116.58,
+    "runtime_s": 108.102,
     "seed": 1213032730,
     "status": "pass"
    },
@@ -7031,7 +7231,7 @@
     "ip": "top",
     "level": 0,
     "name": "smoke",
-    "runtime_s": 0.956,
+    "runtime_s": 1.016,
     "seed": 855499442,
     "status": "pass"
    },
@@ -7039,7 +7239,7 @@
     "ip": "top",
     "level": 1,
     "name": "random_vs_model",
-    "runtime_s": 1.416,
+    "runtime_s": 1.408,
     "seed": 552382085,
     "status": "pass"
    },
@@ -7047,7 +7247,7 @@
     "ip": "top",
     "level": 1,
     "name": "random_vs_model",
-    "runtime_s": 1.519,
+    "runtime_s": 1.219,
     "seed": 971374399,
     "status": "pass"
    },
@@ -7055,7 +7255,7 @@
     "ip": "top",
     "level": 1,
     "name": "random_vs_model",
-    "runtime_s": 1.363,
+    "runtime_s": 1.559,
     "seed": 1475059219,
     "status": "pass"
    },
@@ -7063,7 +7263,7 @@
     "ip": "top",
     "level": 2,
     "name": "long_random",
-    "runtime_s": 9.838,
+    "runtime_s": 10.791,
     "seed": 152092948,
     "status": "pass"
    },
@@ -7071,7 +7271,7 @@
     "ip": "top",
     "level": 2,
     "name": "long_random",
-    "runtime_s": 10.395,
+    "runtime_s": 10.691,
     "seed": 243074317,
     "status": "pass"
    },
@@ -7079,7 +7279,7 @@
     "ip": "top",
     "level": 2,
     "name": "long_random",
-    "runtime_s": 10.189,
+    "runtime_s": 10.151,
     "seed": 270110894,
     "status": "pass"
    },
@@ -7087,7 +7287,7 @@
     "ip": "top",
     "level": 2,
     "name": "long_random",
-    "runtime_s": 14.053,
+    "runtime_s": 10.327,
     "seed": 393499831,
     "status": "pass"
    },
@@ -7095,7 +7295,7 @@
     "ip": "top",
     "level": 2,
     "name": "long_random",
-    "runtime_s": 12.687,
+    "runtime_s": 10.237,
     "seed": 1618175009,
     "status": "pass"
    },
@@ -7103,7 +7303,7 @@
     "ip": "top",
     "level": 2,
     "name": "long_random",
-    "runtime_s": 10.197,
+    "runtime_s": 11.679,
     "seed": 1730060344,
     "status": "pass"
    },
@@ -7111,7 +7311,7 @@
     "ip": "top",
     "level": 2,
     "name": "long_random",
-    "runtime_s": 10.036,
+    "runtime_s": 9.957,
     "seed": 2038052251,
     "status": "pass"
    },
@@ -7119,7 +7319,7 @@
     "ip": "top",
     "level": 2,
     "name": "long_random",
-    "runtime_s": 10.417,
+    "runtime_s": 9.874,
     "seed": 2115498370,
     "status": "pass"
    },
@@ -7127,7 +7327,7 @@
     "ip": "top_lfsr",
     "level": 0,
     "name": "smoke",
-    "runtime_s": 0.957,
+    "runtime_s": 1.067,
     "seed": 605234569,
     "status": "pass"
    },
@@ -7135,7 +7335,7 @@
     "ip": "top_lfsr",
     "level": 1,
     "name": "random_vs_model",
-    "runtime_s": 1.107,
+    "runtime_s": 1.058,
     "seed": 18677000,
     "status": "pass"
    },
@@ -7143,7 +7343,7 @@
     "ip": "top_lfsr",
     "level": 1,
     "name": "random_vs_model",
-    "runtime_s": 1.114,
+    "runtime_s": 1.059,
     "seed": 1863490596,
     "status": "pass"
    },
@@ -7151,7 +7351,7 @@
     "ip": "top_lfsr",
     "level": 1,
     "name": "random_vs_model",
-    "runtime_s": 1.215,
+    "runtime_s": 1.165,
     "seed": 1981533598,
     "status": "pass"
    },
@@ -7159,7 +7359,7 @@
     "ip": "top_lfsr",
     "level": 2,
     "name": "long_random",
-    "runtime_s": 11.869,
+    "runtime_s": 10.729,
     "seed": 63702135,
     "status": "pass"
    },
@@ -7167,7 +7367,7 @@
     "ip": "top_lfsr",
     "level": 2,
     "name": "long_random",
-    "runtime_s": 10.77,
+    "runtime_s": 10.724,
     "seed": 77709422,
     "status": "pass"
    },
@@ -7175,7 +7375,7 @@
     "ip": "top_lfsr",
     "level": 2,
     "name": "long_random",
-    "runtime_s": 9.532,
+    "runtime_s": 12.429,
     "seed": 449140173,
     "status": "pass"
    },
@@ -7183,7 +7383,7 @@
     "ip": "top_lfsr",
     "level": 2,
     "name": "long_random",
-    "runtime_s": 10.014,
+    "runtime_s": 10.991,
     "seed": 497586644,
     "status": "pass"
    },
@@ -7191,7 +7391,7 @@
     "ip": "top_lfsr",
     "level": 2,
     "name": "long_random",
-    "runtime_s": 9.331,
+    "runtime_s": 9.222,
     "seed": 1789894978,
     "status": "pass"
    },
@@ -7199,7 +7399,7 @@
     "ip": "top_lfsr",
     "level": 2,
     "name": "long_random",
-    "runtime_s": 9.087,
+    "runtime_s": 9.954,
     "seed": 1841456475,
     "status": "pass"
    },
@@ -7207,7 +7407,7 @@
     "ip": "top_lfsr",
     "level": 2,
     "name": "long_random",
-    "runtime_s": 8.574,
+    "runtime_s": 9.76,
     "seed": 1940320504,
     "status": "pass"
    },
@@ -7215,7 +7415,7 @@
     "ip": "top_lfsr",
     "level": 2,
     "name": "long_random",
-    "runtime_s": 8.384,
+    "runtime_s": 8.443,
     "seed": 1959474401,
     "status": "pass"
    }
@@ -7225,7 +7425,7 @@
     "ip": "mac",
     "level": 2,
     "name": "arcs_full_downstream",
-    "runtime_s": 741.021,
+    "runtime_s": 743.85,
     "seed": 1735214538,
     "status": "pass"
    },
@@ -7233,7 +7433,7 @@
     "ip": "mac",
     "level": 2,
     "name": "arcs_full_upstream",
-    "runtime_s": 727.619,
+    "runtime_s": 716.845,
     "seed": 1350184107,
     "status": "pass"
    },
@@ -7241,7 +7441,7 @@
     "ip": "mac",
     "level": 2,
     "name": "train_spec",
-    "runtime_s": 391.627,
+    "runtime_s": 391.885,
     "seed": 76094105,
     "status": "pass"
    },
@@ -7249,47 +7449,47 @@
     "ip": "phy",
     "level": 2,
     "name": "e2e_link_up_spec",
-    "runtime_s": 202.1,
+    "runtime_s": 199.825,
     "seed": 718020321,
     "status": "pass"
    },
    {
-    "ip": "mac",
-    "level": 2,
-    "name": "smoke_n_fts_255",
-    "runtime_s": 167.34,
-    "seed": 908217547,
-    "status": "pass"
-   },
-   {
     "ip": "phy",
     "level": 2,
     "name": "e2e_soak_dsp_first",
-    "runtime_s": 166.861,
-    "seed": 846478919,
-    "status": "pass"
-   },
-   {
-    "ip": "phy",
-    "level": 2,
-    "name": "e2e_soak_dsp_first",
-    "runtime_s": 165.598,
+    "runtime_s": 166.027,
     "seed": 1165168337,
+    "status": "pass"
+   },
+   {
+    "ip": "phy",
+    "level": 2,
+    "name": "e2e_soak_dsp_first",
+    "runtime_s": 163.167,
+    "seed": 846478919,
     "status": "pass"
    },
    {
     "ip": "mac",
     "level": 2,
     "name": "smoke_n_fts_1",
-    "runtime_s": 161.228,
+    "runtime_s": 161.249,
     "seed": 1972127776,
     "status": "pass"
    },
    {
     "ip": "phy",
     "level": 2,
+    "name": "e2e_soak_dsp_first",
+    "runtime_s": 159.26,
+    "seed": 1551523691,
+    "status": "pass"
+   },
+   {
+    "ip": "phy",
+    "level": 2,
     "name": "e2e_soak_usp_first",
-    "runtime_s": 158.527,
+    "runtime_s": 151.757,
     "seed": 1561077068,
     "status": "pass"
    },
@@ -7297,7 +7497,7 @@
     "ip": "phy",
     "level": 2,
     "name": "e2e_soak_usp_first",
-    "runtime_s": 155.966,
+    "runtime_s": 151.483,
     "seed": 705369562,
     "status": "pass"
    }
@@ -7307,9 +7507,9 @@
    "level0": {
     "budget_s": 120.0,
     "failed": 0,
-    "over_budget": true,
+    "over_budget": false,
     "passed": 26,
-    "runtime_s": 128.593,
+    "runtime_s": 122.547,
     "tests": 26
    },
    "level1": {
@@ -7317,7 +7517,7 @@
     "failed": 0,
     "over_budget": true,
     "passed": 165,
-    "runtime_s": 1328.949,
+    "runtime_s": 1306.431,
     "tests": 165
    },
    "level2": {
@@ -7325,10 +7525,10 @@
     "failed": 0,
     "over_budget": false,
     "passed": 226,
-    "runtime_s": 7157.171,
+    "runtime_s": 7075.929,
     "tests": 226
    }
   },
-  "wall_s": 908.857
+  "wall_s": 886.07
  }
 }
