@@ -86,7 +86,8 @@ optional feature [cite: PCIe Base Spec, rev 3.0, §7.8].
 | 0x74 | 4:3, 5 | Phantom Functions, Extended Tag Field Supported | RO | 0 | Tags 0 to 7 only. |
 | 0x74 | 8:6, 11:9 | Endpoint L0s, L1 Acceptable Latency | RO | 0 | No ASPM; not used. |
 | 0x74 | 15 | Role-Based Error Reporting | RO | 1 | [Errors](HAS.md#errors) follow it. |
-| 0x74 | 27:18, 28 | Captured Slot Power Limit, Function Level Reset Capability | RO | 0 | No FLR (Q10). |
+| 0x74 | 25:18, 27:26 | Captured Slot Power Limit Value, Scale | RO | 0 | Read 0: a received Set_Slot_Power_Limit message is not captured (see the [open questions](HAS.md#open-questions)) [cite: PCIe Base Spec, rev 3.0, §7.8.3]. |
+| 0x74 | 28 | Function Level Reset Capability | RO | 0 | No FLR (Q10). |
 | 0x78 | 0, 1, 2, 3 | Correctable, Non-Fatal, Fatal, Unsupported Request Reporting Enable | RW | 0 | The [message decision](HAS.md#errors) [cite: PCIe Base Spec, rev 3.0, §7.8.4]. |
 | 0x78 | 4, 11 | Enable Relaxed Ordering, Enable No Snoop | RW | 1, 1 | No effect. |
 | 0x78 | 7:5 | Max_Payload_Size | RW | 0 | `max_payload_o`, as written; `tl` uses 128 bytes whatever it holds. |
@@ -107,9 +108,12 @@ optional feature [cite: PCIe Base Spec, rev 3.0, §7.8].
 | 0x80 | 19:16, 25:20 | Current Link Speed, Negotiated Link Width | RO | 1, 1 | 2.5 GT/s, x1: `cfg` is out of reset only while the link is up [cite: PCIe Base Spec, rev 3.0, §7.8.8]. |
 | 0x80 | 27, 28, 29 to 31 | Link Training, Slot Clock Configuration, DLL Link Active and bandwidth status | RO | 0 | — |
 | 0x84 to 0x90 | 31:0 | Slot and Root registers | RO | 0 | Not an Endpoint's. |
-| 0x94 | 3:0, 4 | Completion Timeout Ranges Supported, Completion Timeout Disable Supported | RO | 0 | The `tl` timeout is fixed and cannot be disabled [cite: PCIe Base Spec, rev 3.0, §7.8.15]. |
+| 0x94 | 3:0 | Completion Timeout Ranges Supported | RO | 0 | No programmable range: the `tl` timeout is fixed [cite: PCIe Base Spec, rev 3.0, §7.8.15]. |
+| 0x94 | 4 | Completion Timeout Disable Supported | RO | 0 | The `tl` timeout cannot be disabled. |
 | 0x94 | 31:5 | Other Device Capabilities 2 | RO | 0 | No ARI, AtomicOp, LTR, TPH, OBFF or prefixes. |
-| 0x98 | 31:0 | Device Control 2, Device Status 2 | RO | 0 | Nothing to enable [cite: PCIe Base Spec, rev 3.0, §7.8.16]. |
+| 0x98 | 3:0 | Completion Timeout Value | RO | 0 | Not programmable; writes ignored [cite: PCIe Base Spec, rev 3.0, §7.8.16]. |
+| 0x98 | 4 | Completion Timeout Disable | RO | 0 | Not supported: reads 0, writes ignored; the timeout always runs. |
+| 0x98 | 31:5 | Other Device Control 2, Device Status 2 | RO | 0 | Nothing to enable. |
 | 0x9C | 7:1 | Supported Link Speeds Vector | RO | 0000001 | Its bit 0 (register bit 1): 2.5 GT/s only [cite: PCIe Base Spec, rev 3.0, §7.8.18]. |
 | 0xA0 | 3:0 | Target Link Speed | RO | 1 | 2.5 GT/s, hardwired as a 2.5 GT/s-only component may [cite: PCIe Base Spec, rev 3.0, §7.8.19]. |
 | 0xA0 | 31:4 | Other Link Control 2, Link Status 2 | RO | 0 | Compliance, margin and de-emphasis controls hardwired. |

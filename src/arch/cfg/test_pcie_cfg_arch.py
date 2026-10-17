@@ -133,6 +133,10 @@ def test_device_control_and_link_control():
     assert c.cfg_read(CAP_PCIE + 0x10) & 0xFFFF == 0x00C3
     c.cfg_write(CAP_PCIE + 0x30, 0xFFFF_FFFF)         # Link Control 2 hardwired
     assert c.cfg_read(CAP_PCIE + 0x30) == 1
+    c.cfg_write(CAP_PCIE + 0x28, 0xFFFF_FFFF)         # Completion Timeout Value, Disable RO 0
+    assert c.cfg_read(CAP_PCIE + 0x24) == 0 and c.cfg_read(CAP_PCIE + 0x28) == 0
+    c.cfg_write(CAP_PCIE + 0x04, 0xFFFF_FFFF)         # slot power limit and the rest RO
+    assert c.cfg_read(CAP_PCIE + 0x04) == 1 << 15
 
 
 # ---------------------------------------------------------------- power
