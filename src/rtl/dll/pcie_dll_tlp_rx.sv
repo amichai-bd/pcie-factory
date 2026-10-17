@@ -163,7 +163,7 @@ module pcie_dll_tlp_rx (
   assign ahead     = good && seq_dist != 12'd0 && !seq_dist[11];
   assign dup       = good && seq_dist[11];
   assign malformed = expected && pcie_dll_pkg::tlp_malformed(chk_q.beats, chk_q.hdr.hdr4,
-                                                             chk_q.hdr.with_data, chk_q.hdr.len);
+                                                             chk_q.hdr.with_data, chk_q.hdr.length);
   assign cand      = expected && !malformed;
   assign store     = cand && fit_i && !chk_q.noroom;
   assign accept    = malformed || store;
@@ -178,7 +178,7 @@ module pcie_dll_tlp_rx (
   // chk_o has its own process: fit_i answers it combinationally and store
   // depends on fit_i, so one process for all three would be a loop.
   always_comb begin
-    chk_o       = pcie_dll_pkg::tlp_credit(chk_q.hdr.with_data, chk_q.hdr.typ, chk_q.hdr.len);
+    chk_o       = pcie_dll_pkg::tlp_credit(chk_q.hdr.with_data, chk_q.hdr.typ, chk_q.hdr.length);
     chk_o.valid = cand;
   end
 
