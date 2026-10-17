@@ -33,3 +33,32 @@ tests:
     top: pcie_dll_tb
     seeds: [0, 1]
     timeout_s: 300
+  - name: fc_rx_accounting_finite
+    module: tests.test_dll_fc
+    testcase: fc_rx_accounting
+    top: pcie_dll_tb
+    seeds: 2
+    timeout_s: 300
+    params: {FC_PH: 6, FC_PD: 40, FC_NPH: 4, FC_NPD: 2, FC_CPLH: 16, FC_CPLD: 64}
+  - name: fc_rx_accounting_infinite
+    module: tests.test_dll_fc
+    testcase: fc_rx_accounting
+    top: pcie_dll_tb
+    seeds: 2
+    timeout_s: 300
+    params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
+  # The test seed picks the partner's credits (one of four, test seed mod
+  # 4): three with every class finite, one with completions infinite.
+  - name: credit_starve
+    module: tests.test_dll_fc
+    testcase: credit_starve
+    top: pcie_dll_tb
+    seeds: [0, 1, 2, 3]
+    timeout_s: 600
+  - name: credits_infinite
+    module: tests.test_dll_fc
+    testcase: credits_infinite
+    top: pcie_dll_tb
+    seeds: 2
+    timeout_s: 300
+    params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}

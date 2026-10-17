@@ -24,3 +24,13 @@ tests:
     testcase: link_down_mid_dllp
     top: pcie_dll_tb
     timeout_s: 120
+  - name: fc_tx_gate
+    module: tests.test_dll_fc
+    testcase: fc_tx_gate
+    top: pcie_dll_tb
+    timeout_s: 300
+  - name: fc_rx_accounting
+    module: tests.test_dll_fc
+    testcase: fc_rx_accounting
+    top: pcie_dll_tb
+    timeout_s: 300
