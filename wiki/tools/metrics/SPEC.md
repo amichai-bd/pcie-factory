@@ -6,12 +6,13 @@ the single `nightly-red` issue. The [DevOps BKM](../../bkm/devops.md#metrics)
 owns what is measured and when; this page owns the command line, the data
 schemas, the publishability rules and the workflows. Code: `tools/metrics/`
 (`config.py`, `tree.py`, `gh.py`, `github.py`, `record.py`, `commits.py`,
-`guard.py`, `red.py`, `cli.py`); configuration: `cfg/metrics.yaml`.
+`guard.py`, `red.py`, `trends.py`, `cli.py`); configuration: `cfg/metrics.yaml`.
 
 ```
 ./build metrics collect [--out FILE] [--no-github] [--step NAME=pass|fail|skipped]... [--started TIME] [--repo OWNER/NAME]
 ./build metrics commits [--file FILE] [--ref REV] [--no-ci] [--limit N] [--repo OWNER/NAME]
 ./build metrics guard   --branch NAME --base REV [--head REV]
+./build metrics trends  [--dir DIR]...
 ./build metrics red     --outcome success|failure --run-url URL [--repo OWNER/NAME]
 ```
 
@@ -42,6 +43,7 @@ GitHub (for `red`) or publishability error.
 | `max_pr_details` | How many most recently merged PRs are fetched one by one for their size. |
 | `slowest` | Number of slowest test runs kept. |
 | `fpga_fields`, `asic_fields` | The whitelist of dotted keys copied from each IP's flow `metrics.json`; `*` matches one key. |
+| `drop_alerts` | Per [trend series](#trends), the drop (in the series' unit) beyond which it alerts: exactly the eight series keys, each a non-negative number. |
 
 Globs are repository-relative: `*` stays within a path segment, `**`
 crosses segments. Every key is required and no other is allowed; a missing
@@ -274,6 +276,45 @@ IP id changes (a layout move or a rename) its history before the change
 stays under the old id and the new id starts at the change. A fresh backfill
 discovers IPs with the current layout rules only. `--no-ci` skips the API; `--limit N` adds at most `N` commits.
 
+## `trends`
+
+Per-IP nightly trend series and their drop alerts. `tools/metrics/trends.py`
+owns the series and the rule (standard library only); the
+[tracker](../wiki_site/SPEC.md#tracker) imports it, so the site and the
+nightly summary flag the same drops. Every series is higher-is-better:
+
+| Key | Series | Unit | Record path, per IP |
+| --- | --- | --- | --- |
+| `coverage_line`, `coverage_toggle`, `coverage_functional` | Merged regression coverage | % | `coverage.ips.<ip>.<metric>.pct` |
+| `mutant_score` | Mutant score | % | `mutants.ips.<ip>.score_pct`, else `100 * killed / total` |
+| `fpga_fmax` | FPGA Fmax, worst clock | MHz | lowest `fpga.ips.<ip>.timing.clocks.*.fmax_mhz` |
+| `fpga_setup_slack` | FPGA worst setup slack | ns | `fpga.ips.<ip>.timing.worst_setup_slack_ns` |
+| `asic_wns`, `asic_tns` | ASIC WNS, TNS | ns | `asic.ips.<ip>.timing.wns_ns`, `.tns_ns` |
+
+`mutants` is an optional record section that no nightly step writes yet;
+the series is read where a record carries it. Values must be finite numbers;
+anything else (a missing section, `unavailable`, `null`, a string, a
+boolean) is a gap.
+
+**Rule.** Over the nightly records in order, a series *drops* at a record
+when its value there is lower than its previous recorded value (the nearest
+earlier record carrying the series) by more than its `drop_alerts`
+threshold; a drop equal to the threshold does not count. A gap neither
+drops nor resets the comparison, so a drop across a gap still counts. The
+drops at the latest record are the **alerts**; earlier drops are history.
+An IP absent from the latest record (retired) therefore never alerts, but
+its history stays.
+
+**`./build metrics trends`** reads every `*.json` record in each `--dir`
+(default `data_dir`), keyed by `meta.date` (else the file stem); a later
+`--dir` wins on the same date, and an unreadable file, a schema other than
+`1` or a record without a date is skipped with a note on stderr. It prints
+Markdown to stdout: a `## Trend drop alerts` heading, the latest record's
+date and commit, and a table of the alerts (IP, series, previous value and
+its date, latest value, change, threshold), or a line saying no series
+dropped or no records were found. Alerts never fail the command; it exits 2
+only on a configuration error.
+
 ## `guard`
 
 Lists the paths changed between the merge base of `--base` and `--head`
@@ -307,7 +348,7 @@ over the day's real data PR.
 
 | Job | Permissions | Does |
 | --- | --- | --- |
-| `nightly` (480 min) | read: contents, issues, pull-requests, actions | `./build check`; `./build ci unit` (every suite, including `./build arch --ip <ip>` for each IP with `src/arch/<ip>/perf/`, the only arch perf run); `./build regress --level 0 --level 1 --level 2 --coverage` (all IPs); `./build fpga --all` and the ASIC flow for IPs with `src/fpga/<ip>/` or `src/asic/<ip>/` (`--all`, else one `--ip` per IP); `./build metrics commits --ref origin/main` continuing the base branch's series, then `./build metrics collect` with the step outcomes; uploads both files. Every step runs even after a failure; a step whose subcommand is still a stub, or has no IP inputs, is `skipped`. |
+| `nightly` (480 min) | read: contents, issues, pull-requests, actions | `./build check`; `./build ci unit` (every suite, including `./build arch --ip <ip>` for each IP with `src/arch/<ip>/perf/`, the only arch perf run); `./build regress --level 0 --level 1 --level 2 --coverage` (all IPs); `./build fpga --all` and the ASIC flow for IPs with `src/fpga/<ip>/` or `src/asic/<ip>/` (`--all`, else one `--ip` per IP); `./build metrics commits --ref origin/main` continuing the base branch's series, then `./build metrics collect` with the step outcomes; `./build metrics trends --dir wiki/tracker/data --dir <tonight's data>` into the job summary (the nightly summary); uploads both files. Every step runs even after a failure; a step whose subcommand is still a stub, or has no IP inputs, is `skipped`. |
 | `publish` (15 min) | write: contents, pull-requests, actions | Checks out without persisted credentials and installs PyYAML; commits only the two data files, as `github-actions[bot]`, on the data branch from the base tip; runs `./build metrics guard` from this trusted checkout; force-pushes the branch with the token passed for that one command; closes, with a comment, any other open `nightly/*` PR into the same base (they would conflict on `commits.jsonl`); opens (or reuses) the PR labelled `type:data` and `area:wiki`; dispatches `ci.yml` (`ci-gate`, with the data guard) on the branch; on `main`, enables squash auto-merge and dispatches `pages.yml` on `main`. |
 | `report` (5 min) | read contents, write issues | `./build metrics red` with `success` only when `nightly` and `publish` both succeeded. |
 
@@ -410,4 +451,10 @@ invalid files), the `arch_py` kind, the forbidden-pattern scan, and an end-to-en
 inputs plant paths, emails and names that must not appear in the output
 (`test_metrics_record.py`); the guard on real branches including renames
 and a moving base (`test_metrics_guard.py`); and the red-issue rule
-(`test_metrics_red.py`).
+(`test_metrics_red.py`); the trend series and drop rule on a fixture
+history (`fixtures/trends/`) with a drop that alerts across a gap, a flat
+series, a drop equal to its threshold, a rise, a gap at the latest record,
+retired and new IPs, malformed and missing values, and the `trends`
+summary, its `--dir` precedence and skipped files
+(`test_metrics_trends.py`). Each rule is pinned by a mutant the suite
+catches (recorded in the delivering PR).

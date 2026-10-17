@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from datetime import datetime, timezone
@@ -10,7 +11,7 @@ from pathlib import Path
 
 from build.ip import Context, DiscoveryError, discover
 
-from . import commits, github, guard, red, record
+from . import commits, github, guard, red, record, trends
 from .config import MetricsError, load
 from .gh import Gh, resolve_repo
 from .tree import TreeReader
@@ -41,6 +42,10 @@ def add_args(p: argparse.ArgumentParser) -> None:
     g.add_argument("--branch", required=True, help="head branch name of the change")
     g.add_argument("--base", required=True, help="base revision (diffed from the merge base)")
     g.add_argument("--head", default="HEAD", help="head revision (default: HEAD)")
+    t = act.add_parser("trends", help="print the per-IP drop alerts of the latest nightly record")
+    t.add_argument("--dir", action="append", default=[], metavar="DIR",
+                   help="directory of <date>.json records; repeatable, a later one wins on "
+                   "the same date (default: <data_dir>)")
     r = act.add_parser("red", parents=[repo], help="open, update or close the nightly-red issue")
     r.add_argument("--outcome", required=True, choices=red.OUTCOMES)
     r.add_argument("--run-url", required=True, help="the nightly run's URL")
@@ -122,12 +127,83 @@ def series(ctx: Context, args, gh_factory=Gh) -> int:
     return 0
 
 
+def _record_date(data: dict, stem: str) -> str | None:
+    meta = data.get("meta")
+    raw = meta.get("date") if isinstance(meta, dict) else None
+    raw = raw if isinstance(raw, str) else stem
+    return raw[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", raw) else None
+
+
+def load_history(dirs: list[Path]) -> tuple[list[tuple[str, dict]], list[str]]:
+    """(date, record) oldest first from every `*.json` in `dirs`, and notes
+    on the files skipped (unreadable, not schema 1, no date)."""
+    by_date, notes = {}, []
+    for d in dirs:
+        for f in sorted(d.glob("*.json")) if d.is_dir() else []:
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                notes.append(f"{f.name}: not a readable JSON record; skipped")
+                continue
+            if not isinstance(data, dict) or data.get("schema_version") != record.SCHEMA_VERSION:
+                notes.append(f"{f.name}: not a schema {record.SCHEMA_VERSION} record; skipped")
+                continue
+            date = _record_date(data, f.stem)
+            if not date:
+                notes.append(f"{f.name}: no YYYY-MM-DD date; skipped")
+                continue
+            by_date[date] = data
+    return sorted(by_date.items()), notes
+
+
+def _short_sha(data: dict) -> str | None:
+    meta = data.get("meta")
+    sha = meta.get("commit") if isinstance(meta, dict) else None
+    return sha[:7] if isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{7,64}", sha) else None
+
+
+def summary(history: list[tuple[str, dict]], thresholds: dict) -> str:
+    """The nightly summary's Markdown: the latest record's drop alerts."""
+    out = ["## Trend drop alerts", ""]
+    if not history:
+        return "\n".join(out + ["No nightly records found.", ""])
+    records = [r for _, r in history]
+    date, last = history[-1]
+    commit = _short_sha(last)
+    found = trends.alerts(records, thresholds)
+    out.append(f"Latest nightly {date}{f' at `{commit}`' if commit else ''}, over {len(history)} records; "
+               "each series is compared with its previous recorded value "
+               "(thresholds: `drop_alerts` in `cfg/metrics.yaml`).")
+    out.append("")
+    if not found:
+        return "\n".join(out + ["No series dropped beyond its threshold.", ""])
+    out += ["| IP | Series | Previous | Latest | Change | Threshold |", "| --- | --- | --- | --- | --- | --- |"]
+    for d in found:
+        u = d.series.unit
+        du = "pts" if u == "%" else u
+        out.append(f"| `{d.ip}` | {d.series.label} | {trends.fmt(d.previous, u)} ({history[d.before][0]}) "
+                   f"| {trends.fmt(d.value, u)} | {trends.fmt(d.change, du)} | {trends.fmt(d.threshold, du)} |")
+    return "\n".join(out + [""])
+
+
+def trend_alerts(ctx: Context, args) -> int:
+    cfg = load(ctx.cfg_dir)
+    dirs = [Path(d) for d in args.dir] or [ctx.repo_root / cfg.data_dir]
+    history, notes = load_history(dirs)
+    for n in notes:
+        print(f"[metrics] trends: {n}", file=sys.stderr)
+    print(summary(history, cfg.drop_alerts), end="")
+    return 0
+
+
 def run(ctx: Context, args) -> int:
     try:
         if args.action == "collect":
             return collect(ctx, args)
         if args.action == "commits":
             return series(ctx, args)
+        if args.action == "trends":
+            return trend_alerts(ctx, args)
         if args.action == "guard":
             cfg = load(ctx.cfg_dir)
             files = guard.changed_files(ctx.repo_root, args.base, args.head)
