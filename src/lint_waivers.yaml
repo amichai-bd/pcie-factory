@@ -28,3 +28,10 @@ waivers:
     rule: SYNCASYNCNET
     match: "'rst_i'"
     reason: rst_i resets the dll and the phy synchronously and reaches the pcs RX reset synchronizer (pcs crossing 2), as the link, phy and pcs HAS require.
+  # The sky130 backend of common_sdp_ram (#279) declares the block's own
+  # module in a per-backend file, so that ASIC source lists select it
+  # without a conditional (layout page, Backends).
+  - file: rtl/common/ram/common_sdp_ram_sky130.sv
+    rule: DECLFILENAME
+    match: "'common_sdp_ram'"
+    reason: a shared-block backend file <block>_<backend>.sv declares module <block> by design; the style check enforces that name instead.

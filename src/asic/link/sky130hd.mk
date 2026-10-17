@@ -1,7 +1,8 @@
 # pcie_link ORFS design knobs on sky130hd (wiki/bkm/pd.md,
 # wiki/src/asic/link/ASIC.md). ./build asic generates the platform, sources,
-# include dirs, defines and SDC_FILE from rtl/link.rtl.f and pcie_link.sdc;
-# never list sources here.
+# include dirs, defines and SDC_FILE from rtl/link.rtl.f, sky130hd.backends.f
+# and pcie_link.sdc, and sets ASIC_INPUT_DIR to this folder; never list
+# sources here.
 
 export DESIGN_NAME = pcie_link
 
@@ -10,15 +11,19 @@ export DESIGN_NAME = pcie_link
 # of Yosys's own partial SV parser.
 export SYNTH_HDL_FRONTEND = slang
 
-# Size the core from the cell area, with room for two clock trees and
-# resizing buffers, as for pcie_phy. The dll replay and receive buffers are
-# behavioral common_sdp_ram instances, mapped to flops (no memory macro is
-# specified), and dominate the cell area. ORFS stops synthesis on any
-# inferred memory above SYNTH_MEMORY_MAX_BITS (4096 by default); the largest
-# here is the receive buffer, 512 x 34 = 17408 bits at the default credits
-# (the replay buffer is 256 x 32 = 8192), so the limit is raised to exactly
-# that, and a larger memory still fails the flow.
-export SYNTH_MEMORY_MAX_BITS = 17408
+# The dll replay (256 x 32) and receive (512 x 34) buffers use the sky130
+# backend of common_sdp_ram (sky130hd.backends.f): three
+# sky130_sram_1rw1r_64x256_8 OpenRAM macros from the pinned ORFS image's
+# sky130ram platform folder. Their abstract, timing and layout views:
+SKY130_SRAM = $(PLATFORM_HOME)/sky130ram/sky130_sram_1rw1r_64x256_8/sky130_sram_1rw1r_64x256_8
+export ADDITIONAL_LEFS = $(SKY130_SRAM).lef
+export ADDITIONAL_LIBS = $(SKY130_SRAM)_TT_1p8V_25C.lib
+export ADDITIONAL_GDS = $(SKY130_SRAM).gds
+# The platform grid plus the macros' power pins (pdn.tcl).
+export PDN_TCL = $(ASIC_INPUT_DIR)/pdn.tcl
+
+# Size the core from the instance area (macros included), with room for
+# two clock trees and resizing buffers, as for pcie_phy.
 export CORE_UTILIZATION = 30
 export PLACE_DENSITY_LB_ADDON = 0.20
 export TNS_END_PERCENT = 100

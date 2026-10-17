@@ -12,6 +12,8 @@ Inputs, all under the ORFS work home (``WORK_HOME``):
   ``extra_metrics.tcl`` (max fanout, logic depth).
 - ``reports/<platform>/<nick>/base/asic_clocks.json``: written by
   ``clock_slacks.tcl`` (setup slack per clock).
+- ``logs/<platform>/<nick>/base/*.log``: each step's ``Peak memory: <N>KB``
+  line (ORFS times every step); the largest is the run's peak memory.
 
 Every parser is pure (text in, dict out) so unit tests run on fixtures.
 """
@@ -239,10 +241,28 @@ def clock_warning(doc: dict) -> str | None:
     return f"timing.clocks missing (required, run incomplete): {cause}"
 
 
+_PEAK_MEMORY = re.compile(r"Peak memory: (\d+)KB")
+
+
+def peak_memory(logs: dict[str, str]) -> dict:
+    """The largest ``Peak memory: <N>KB`` over the step logs (name -> text),
+    in MB (1024 KB) with the step that reached it; first name wins a tie.
+    ``{"mb": None, "step": None}`` when no log has the line."""
+    best: tuple[int, str] | None = None
+    for name in sorted(logs):
+        for kb in _PEAK_MEMORY.findall(logs[name]):
+            if best is None or int(kb) > best[0]:
+                best = (int(kb), name)
+    if best is None:
+        return {"mb": None, "step": None}
+    return {"mb": round(best[0] / 1024, 1), "step": best[1]}
+
+
 def summarize(step: dict, synth: dict, worst: dict | None, extra: dict,
-              clocks: dict | None = None) -> dict:
+              clocks: dict | None = None, peak: dict | None = None) -> dict:
     """Combine the parsed inputs into the metrics.json body (minus run info);
-    ``clocks`` is the parsed ``asic_clocks.json``."""
+    ``clocks`` is the parsed ``asic_clocks.json``, ``peak`` the result of
+    ``peak_memory``."""
     clocks = clocks or {}
     ws = latest(step, "timing__setup__ws")
     tns = latest(step, "timing__setup__tns")
@@ -273,6 +293,7 @@ def summarize(step: dict, synth: dict, worst: dict | None, extra: dict,
                        else {"from": None, "to": None}),
         "power_w": latest(step, "power__total"),
         "route_drc_errors": step.get("detailedroute__route__drc_errors"),
+        "peak_memory": peak or {"mb": None, "step": None},
         "warnings": [w for w in (clock_warning(clocks),) if w],
     }
 
@@ -308,4 +329,6 @@ def collect(work_home: Path, platform: str, nick: str,
     worst = parse_worst_path(_read(reports / "6_finish.rpt") or "")
     extra = parse_extra(_read(reports / "asic_extra.json") or "")
     clocks = parse_extra(_read(reports / "asic_clocks.json") or "")
-    return summarize(step, synth, worst, extra, clocks), format_worst_path(worst)
+    peak = peak_memory({p.stem: t for p in sorted(logs.glob("*.log"))
+                        if (t := _read(p)) is not None})
+    return summarize(step, synth, worst, extra, clocks, peak), format_worst_path(worst)
