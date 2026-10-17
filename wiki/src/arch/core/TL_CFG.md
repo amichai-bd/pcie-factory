@@ -143,6 +143,17 @@ so there is no Signaled Target Abort event.
 - An error message is a Message routed to the Root Complex with no data,
   with the code of its kind [cite: PCIe Base Spec, rev 3.0, §2.2.8.3].
 - A message taken is sent unless the link goes down first.
+- <a id="outside-d0"></a>**Outside D0.** A function outside D0 originates
+  no requests other than PME, which `core` does not implement
+  [cite: PCIe Base Spec, rev 3.0, §5.3.1.4]. So while `d_state` is not D0,
+  `cfg` offers no message of any kind: interrupts wait as pending
+  ([resolution](#interrupt-resolution)), and an error event still sets
+  its status bits but sends no ERR_COR, ERR_NONFATAL or ERR_FATAL, then
+  or later on the return to D0 (firstmate decision as the captain's
+  delegate, which the captain may override). `tl` still sends every
+  completion: configuration completions, the one for the Power State
+  write that returns the function to D0, and the Unsupported Request
+  completions for memory requests outside D0.
 - **No wait between the two handshakes.** `cfg` never holds
   `reg_req_ready` or delays `reg_cpl_valid` waiting for `msg_ready`, and
   `tl` never holds `msg_ready` waiting for `reg_cpl_valid` or a
@@ -156,7 +167,10 @@ The application's [interrupt port](APP.md#interrupts) belongs to `cfg`,
 which resolves each request and answers it:
 
 An interrupt is **allowed** while `bus_master_en` is 1 and `d_state` is
-D0: nothing leaves the function otherwise (decision record 0004, Q11).
+D0 (decision record [0004](../../decisions/0004-m3-grill.md#updates),
+Q11). Outside D0 the function originates no requests: no `rq` requests,
+no interrupt writes and no error messages; it still sends completions
+([outside D0](#outside-d0)).
 
 1. Neither MSI nor MSI-X enabled: dropped (there is no INTx).
 2. MSI-X enabled (it wins if software also enabled MSI): `cfg` reads the
@@ -177,7 +191,15 @@ the interrupt is allowed, in whichever order the two happen: `cfg` then
 clears the pending bit and offers the write itself, and the application
 sees no report for it [cite: PCIe Base Spec, rev 3.0, §6.1.4]. Unmasking
 while the interrupt is not allowed leaves the bit set. Pending bits are
-read through BAR2 like the table. A vector at or above `MSIX_TABLE_SIZE`
+read through BAR2 like the table.
+
+MSI-X pending bits are kept while MSI-X Enable is 0, as the
+software-visible state of the pending-bit array: clearing MSI-X Enable,
+or switching to MSI, neither clears nor sends them. While MSI-X is
+disabled nothing is sent from them; once it is enabled again, each
+pending vector goes out by the rule above. Only reset clears them
+(firstmate decision as the captain's delegate, which the captain may
+override). A vector at or above `MSIX_TABLE_SIZE`
 is an application error that the RTL checks with an assertion.
 
 ## Link to cfg
