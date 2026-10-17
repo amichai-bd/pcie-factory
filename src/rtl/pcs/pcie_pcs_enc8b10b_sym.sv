@@ -49,7 +49,7 @@ module pcie_pcs_enc8b10b_sym (
   // set for two ones. Every other x, and D24, uses a fixed form with four
   // ones. Literals are {i,e,d,c,b,a}; the comment gives line order abcdei.
   always_comb begin
-    six_minus = {($countones(x) == 2), x};
+    six_minus = {(pcie_pcs_pkg::ones({5'd0, x}) == 2), x};
     unique case (x)
       5'd0:    six_minus = 6'b111001;  // 100111
       5'd1:    six_minus = 6'b101110;  // 011101
@@ -64,7 +64,7 @@ module pcie_pcs_enc8b10b_sym (
       5'd29:   six_minus = 6'b011101;  // 101110
       5'd30:   six_minus = 6'b011110;  // 011110
       5'd31:   six_minus = 6'b110101;  // 101011
-      default: six_minus = {($countones(x) == 2), x};
+      default: six_minus = {(pcie_pcs_pkg::ones({5'd0, x}) == 2), x};
     endcase
     if (k28) begin
       six_minus = 6'b111100;           // 001111
@@ -73,7 +73,7 @@ module pcie_pcs_enc8b10b_sym (
 
   // An unbalanced block flips RD. 111000 / 000111 leave RD negative /
   // positive, so as sent (111000 at RD-, 000111 at RD+) they keep it.
-  assign six_flip = $countones(six_minus) != 3;
+  assign six_flip = pcie_pcs_pkg::ones({4'd0, six_minus}) != 3;
   assign six_comp = six_flip || (six_minus == 6'b000111);  // 111000
   assign six      = (rd_i && six_comp) ? ~six_minus : six_minus;
   assign rd6      = rd_i ^ six_flip;
@@ -85,16 +85,16 @@ module pcie_pcs_enc8b10b_sym (
   // 4b sub-block, RD- form. Literals are {j,h,g,f}; the comment gives line
   // order fghj.
   always_comb begin
-    four_minus = {($countones(y) == 1), y};  // 1, 2, 5, 6 balanced; 3 is 1100
+    four_minus = {(pcie_pcs_pkg::ones({7'd0, y}) == 1), y};  // 1, 2, 5, 6 balanced; 3 is 1100
     unique case (y)
       3'd0:    four_minus = 4'b1101;                      // 1011
       3'd4:    four_minus = 4'b1011;                      // 1101
       3'd7:    four_minus = alt7 ? 4'b1110 : 4'b0111;     // A7 0111, P7 1110
-      default: four_minus = {($countones(y) == 1), y};
+      default: four_minus = {(pcie_pcs_pkg::ones({7'd0, y}) == 1), y};
     endcase
   end
 
-  assign four_flip = $countones(four_minus) != 2;
+  assign four_flip = pcie_pcs_pkg::ones({6'd0, four_minus}) != 2;
   assign four_comp = four_flip || (four_minus == 4'b0011);  // 1100, kept like 111000
   // At RD+ a K28 code is the complement of its whole RD- code, so a balanced
   // 4b sub-block is complemented too (K28.1, .2, .5, .6); otherwise the

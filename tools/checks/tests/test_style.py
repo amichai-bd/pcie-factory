@@ -174,6 +174,22 @@ DFF = "`COMMON_DFF_RST(q_q, q_d, clk_i, rst)"
     ("cdc-cell-macro", mutate("  sub u_sub", "  common_cdc_sync2 #(.WIDTH(1)) u_s (.dst_clk_i(clk_i),"
                               " .dst_rst_i(rst), .src_data_i(q_q[0]), .dst_data_o());\n  sub u_sub"),
      None),
+    # Quartus Lite (SystemVerilog-2005 input) rejects a bare generate region.
+    ("bare-generate", mutate(DFF, "for (genvar i = 0; i < W; i++) begin : g_b\n"
+                             "    assign q_d[i] = d_i[i];\n  end"), None),
+    ("inline-genvar", mutate(DFF, "generate\n  for (genvar i = 0; i < W; i++) begin : g_b\n"
+                             "    assign q_d[i] = d_i[i];\n  end\n  endgenerate"), None),
+    ("pattern-key-name", mutate("  assign q_o = q_q;", "  assign q_o = '{rst: q_q[0], default: '0};"),
+     None),
+    ("pattern-context", mutate("    q_d = d_i;", "    q_d = rst ? '{lo: 1'b0, default: '0} : d_i;"), None),
+    ("pattern-context", mutate("  assign q_o = q_q;", "  assign q_o = q_q;\n  assign busy_no = "
+                               "q_q != '{lo: 1'b1, default: '0};"), None),
+    ("pattern-context", mutate("  assign q_o = q_q;", "  assign q_o = xy_a_pkg::t_w'{default: '0};"),
+     None),
+    ("bare-generate", mutate(DFF, "if (W > 1) begin : g_w\n    " + DFF + "\n  end"), None),
+    ("bare-generate", mutate(DFF, "case (W)\n    1: begin : g_one\n      " + DFF
+                             + "\n    end\n    default: begin : g_many\n      " + DFF
+                             + "\n    end\n  endcase"), None),
 ])
 def test_rule_fires(rule, text, name):
     assert rule in rules(check(text, name or "xy_a_m.sv"))
@@ -186,7 +202,8 @@ def test_every_rule_is_tested_and_documented():
               "nonblocking-assignment", "conditional-compilation", "raw-always-ff",
               "raw-assertion", "raw-initial", "package-import", "include-path",
               "vocabulary-include", "cdc-cell-macro", "system-task", "local-define",
-              "sampled-value", "clocking-block", "object-macro", "assert-label"}
+              "sampled-value", "clocking-block", "object-macro", "assert-label",
+              "bare-generate", "inline-genvar", "pattern-key-name", "pattern-context"}
     assert tested == set(RULES)
     spec = (Path(__file__).resolve().parents[3] / "wiki/tools/checks/SPEC.md").read_text()
     for rule, (anchor, _) in RULES.items():
@@ -214,7 +231,7 @@ def test_vocabulary_header_may_hold_reserved_constructs():
 
 
 def test_pure_system_functions_pass():
-    text = mutate("    q_d = d_i;", "    q_d = d_i + W'($clog2(W)) + W'($bits(q_q)) + W'($countones(d_i))"
+    text = mutate("    q_d = d_i;", "    q_d = d_i + W'($clog2(W)) + W'($bits(q_q))"
                   " + W'($signed(d_i)) + W'($unsigned(d_i)) + W'($size(d_i)) + W'($high(d_i));")
     assert check(text) == []
 
@@ -653,3 +670,101 @@ def test_cdc_cell_macro_allows_macro_and_shared_folder():
     inst = mutate("  sub u_sub", "  common_cdc_sync2 u_s ();\n  sub u_sub")
     assert "cdc-cell-macro" not in rules(check_text("rtl/common/common_x.sv", inst, "common_",
                                                     vocab=VOCAB))
+
+
+BARE = "  if (W > 1) begin : g_w\n    " + DFF + "\n  end else begin : g_n\n    " + DFF + "\n  end\n"
+
+
+def test_bare_generate_reports_outermost_region_once():
+    text = mutate(DFF, "for (genvar i = 0; i < W; i++) begin : g_b\n" + BARE + "  end")
+    found = [f for f in check(text) if "bare-generate" in f]
+    assert found == ["xy_a_m.sv:20: bare-generate: module-level for outside generate ... endgenerate"]
+
+
+def test_generate_region_and_procedural_statements_pass():
+    # Inside generate ... endgenerate a nested if/for/case is fine, and
+    # for/if/case statements in a process or a package function are
+    # procedural, not generate constructs.
+    region = mutate(DFF, "genvar i;\n  generate\n  for (i = 0; i < W; i++) begin : g_b\n" + BARE
+                    + "  end\n  case (W)\n    1: begin : g_one end\n    default: begin : g_many end\n"
+                    "  endcase\n  endgenerate")
+    assert check(region) == []
+    procedural = mutate("    q_d = d_i;", "    q_d = d_i;\n    for (int i = 0; i < W; i++) begin\n"
+                        "      if (d_i[i]) q_d[i] = 1'b0; else q_d[i] = 1'b1;\n    end\n"
+                        "    case (d_i[0])\n      1'b1: q_d[0] = 1'b0;\n      default: ;\n"
+                        "    endcase")
+    assert check(procedural) == []
+    pkg = ("`default_nettype none\npackage xy_a_pkg;\n  function automatic logic f(input logic a);\n"
+           "    if (a) return 1'b0;\n    for (int i = 0; i < 2; i++) begin end\n    return a;\n"
+           "  endfunction\nendpackage\n`default_nettype wire\n")
+    assert check(pkg, "xy_a_pkg.sv") == []
+
+
+def test_bare_generate_after_region_still_fires():
+    # A closed region does not cover a later bare construct.
+    text = mutate(DFF, "generate\n" + BARE + "  endgenerate\n" + BARE)
+    found = [f for f in check(text) if "bare-generate" in f]
+    assert len(found) == 1 and found[0].startswith("xy_a_m.sv:27:"), found
+
+
+def test_pattern_key_name_scopes():
+    # A key that is only a member (after "." or in a struct body) passes,
+    # as does default; a name used only in another function's scope passes.
+    ok = mutate("  assign q_o = q_q;", "  assign q_o = '{lo: q_q[0], hi: rst, default: '0};\n"
+                "  assign busy_no = q_d.lo;")
+    assert check(ok) == []
+    pkg = ("`default_nettype none\npackage xy_a_pkg;\n  typedef struct packed {logic a; logic b;} t_s;\n"
+           "  function automatic t_s f(input logic a);\n    return '{a: a, b: 1'b0};\n"
+           "  endfunction\n  function automatic logic g(input logic b);\n    return b;\n"
+           "  endfunction\n  localparam t_s S = '{b: 1'b1, default: '0};\nendpackage\n"
+           "`default_nettype wire\n")
+    found = check(pkg, "xy_a_pkg.sv")
+    assert found == ["xy_a_pkg.sv:5: pattern-key-name: pattern key a is also a name in this scope"], found
+
+
+def test_pattern_context_accepts_assignment_contexts():
+    # The right-hand side of =, a return value, and elements of an
+    # enclosing pattern (positional or after a key) are assignment contexts.
+    ok = mutate("  assign q_o = q_q;", "  assign q_o = '{hi: '{a: 1'b0, b: rst}, lo: '{rst, 1'b0},\n"
+                "                 default: '0};\n  localparam xy_a_pkg::t_p P = '{'{1'b0}, '{1'b1}};")
+    assert check(ok) == []
+    pkg = ("`default_nettype none\npackage xy_a_pkg;\n  typedef struct packed {logic a; logic b;} t_s;\n"
+           "  function automatic t_s f(input logic x);\n    return '{a: x, b: 1'b0};\n"
+           "  endfunction\nendpackage\n`default_nettype wire\n")
+    assert check(pkg, "xy_a_pkg.sv") == []
+
+
+@pytest.mark.parametrize("operand", [
+    "'{member: 1'b0} == value", "'{member: 1'b0} != value",
+    "'{member: 1'b0} === value", "'{member: 1'b0} !== value",
+    "'{member: 1'b0} ? value : other", "'{member: 1'b0}[0]",
+])
+@pytest.mark.parametrize("context", [
+    "assign flag = EXPR;", "return EXPR;",
+    "assign word = '{field: EXPR};", "assign word = '{EXPR, value};",
+    "return '{first: value, last: EXPR};",
+])
+def test_pattern_context_rejects_left_operands(context, operand):
+    text = context.replace("EXPR", operand)
+    assert style.pattern_contexts(text) == [text.index(operand)]
+
+
+@pytest.mark.parametrize("text", [
+    "parameter T A = '{default: '0}, B = '{default: '1};",
+    "module m #(parameter T A = '{default: '0}) (); endmodule",
+    "return '{field: '{1'b0, 1'b1}, last: '{default: '0}};",
+])
+def test_pattern_context_accepts_complete_values(text):
+    assert style.pattern_contexts(text) == []
+
+
+@pytest.mark.parametrize("fn", ["$countones(d_i) == 1", "$countbits(d_i, 1'b1) == 1", "$onehot(d_i)",
+                                "$onehot0(d_i)", "$isunknown(d_i)"])
+def test_bit_vector_functions_only_in_assertion_macros(fn):
+    # Quartus Lite does not synthesize them: legal only where synthesis
+    # compiles them out.
+    inside = mutate(DFF, DFF + f"\n  `COMMON_ASSERT(a_b, clk_i, rst, {fn})")
+    assert check_text("xy_a_m.sv", inside, "xy_a", vocab=ASSERT_VOCAB) == []
+    outside = mutate("  assign busy_no = 1'b1;", f"  assign busy_no = {fn};")
+    found = check_text("xy_a_m.sv", outside, "xy_a", vocab=ASSERT_VOCAB)
+    assert rules(found) == ["system-task"], found

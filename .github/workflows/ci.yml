@@ -23,7 +23,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  ci-gate:
+  ci-tests:
     # Fork guard; the rule is in wiki/bkm/devops.md (Forks). This `if:` lives
     # in the PR's own copy of this file, so a fork can delete it: defense in
     # depth only. Maintainers NEVER approve a fork PR's workflow run; fork
@@ -149,7 +149,7 @@ jobs:
           REGRESS: ${{ steps.regress.outcome }}
         run: |
           {
-            echo "## ci-gate (${GITHUB_EVENT_NAME}${AFFECTED:+, $AFFECTED})"
+            echo "## ci-tests (${GITHUB_EVENT_NAME}${AFFECTED:+, $AFFECTED})"
             echo
             echo "| Step | Outcome |"
             echo "| --- | --- |"
@@ -170,6 +170,120 @@ jobs:
           path: workdir/regress/summary.json
           if-no-files-found: warn
           retention-days: 14
+
+  ci-fpga:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 20
+    env:
+      AFFECTED: ${{ github.event_name == 'pull_request' && '--affected HEAD^1' || '' }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Python dependencies
+        run: |
+          # Use the runner's environment when it already has every pin in
+          # tools/requirements.txt (checked offline); otherwise install them
+          # into a job venv and put it first on PATH for the later steps.
+          if python3 -m pip install --dry-run --no-index --quiet -r tools/requirements.txt >/dev/null 2>&1; then
+            echo "runner Python satisfies tools/requirements.txt"
+          else
+            echo "runner Python lacks some pins; installing them into workdir/venv"
+            python3 -m venv workdir/venv
+            workdir/venv/bin/pip install --quiet -r tools/requirements.txt
+            echo "$PWD/workdir/venv/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Required fpga compatibility
+        run: ./build ci vendor --kind fpga $AFFECTED
+
+      - name: Upload vendor summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ci-fpga-summary
+          path: |
+            workdir/*/fpga/metrics.json
+            workdir/ci/vendor-fpga.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  ci-asic-synth:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 20
+    env:
+      AFFECTED: ${{ github.event_name == 'pull_request' && '--affected HEAD^1' || '' }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Python dependencies
+        run: |
+          # Use the runner's environment when it already has every pin in
+          # tools/requirements.txt (checked offline); otherwise install them
+          # into a job venv and put it first on PATH for the later steps.
+          if python3 -m pip install --dry-run --no-index --quiet -r tools/requirements.txt >/dev/null 2>&1; then
+            echo "runner Python satisfies tools/requirements.txt"
+          else
+            echo "runner Python lacks some pins; installing them into workdir/venv"
+            python3 -m venv workdir/venv
+            workdir/venv/bin/pip install --quiet -r tools/requirements.txt
+            echo "$PWD/workdir/venv/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Required asic compatibility
+        run: ./build ci vendor --kind asic $AFFECTED
+
+      - name: Upload vendor summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ci-asic-synth-summary
+          path: |
+            workdir/*/asic-synth/synthesis.json
+            workdir/ci/vendor-asic.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  ci-gate:
+    needs: [ci-tests, ci-fpga, ci-asic-synth]
+    # always() makes failures, cancellations and unexpected skips reach the
+    # aggregate. The helper accepts only explicit success from every job.
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Python dependencies
+        run: |
+          # Use the runner's environment when it already has every pin in
+          # tools/requirements.txt (checked offline); otherwise install them
+          # into a job venv and put it first on PATH for the later steps.
+          if python3 -m pip install --dry-run --no-index --quiet -r tools/requirements.txt >/dev/null 2>&1; then
+            echo "runner Python satisfies tools/requirements.txt"
+          else
+            echo "runner Python lacks some pins; installing them into workdir/venv"
+            python3 -m venv workdir/venv
+            workdir/venv/bin/pip install --quiet -r tools/requirements.txt
+            echo "$PWD/workdir/venv/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Require every CI job
+        env:
+          TESTS: ${{ needs.ci-tests.result }}
+          FPGA: ${{ needs.ci-fpga.result }}
+          ASIC_SYNTH: ${{ needs.ci-asic-synth.result }}
+        run: ./build ci gate --tests "$TESTS" --fpga "$FPGA" --asic-synth "$ASIC_SYNTH"
 
   # The data PR is opened with GITHUB_TOKEN, so its ci-gate runs by dispatch,
   # and branch protection does not count a dispatched check run toward a PR.

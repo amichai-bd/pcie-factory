@@ -27,10 +27,22 @@ logs="$work/logs/$platform/$nick/$variant"
 reports="$work/reports/$platform/$nick/$variant"
 mode="${FAKE_MAKE:-ok}"
 case "$target" in
-  finish)
+  finish|synth)
     [ "$mode" = fail ] && exit 3
     [ "$mode" = faillog ] && { cat "$here/../flow_fail.log"; exit 2; }
     [ "$mode" = sleep ] && exec sleep 600
+    if [ "$target" = synth ]; then
+      [ "$mode" = missing ] && exit 0
+      results="$work/results/$platform/$nick/$variant"
+      mkdir -p "$results"
+      printf 'module counter; endmodule\n' > "$results/1_2_yosys.v"
+      printf 'fake database\n' > "$results/1_synth.odb"
+      printf 'create_clock -period 8 [get_ports clk]\n' > "$results/1_synth.sdc"
+      [ "$mode" = empty ] && : > "$results/1_synth.odb"
+      [ "$mode" = errorzero ] && echo 'ERROR: frontend error despite exit zero'
+      exit 0
+    fi
+    [ "$mode" = studyerrorzero ] && echo "Error: clock study: period mismatch on aux"
     mkdir -p "$logs" "$reports"
     cp "$here"/logs/*.json "$logs/"
     cp "$here"/reports/6_finish.rpt "$here"/reports/synth_stat.txt "$reports/"

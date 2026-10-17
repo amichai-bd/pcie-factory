@@ -6,6 +6,13 @@ set clk_port      clk_i
 set rx_clk_period 8.0
 set rx_clk_port   ser_rx_clk_i
 
+# build-asic: study-clock-period
+# Explicit studies override both domains; normal/nightly runs keep 8 ns.
+if {[info exists study_clock_period_ns]} {
+  set clk_period    $study_clock_period_ns
+  set rx_clk_period $study_clock_period_ns
+}
+
 # Core clock (also PIPE PCLK and the TX symbol clock) and the recovered RX
 # clock. They come from different references, within +-600 ppm of each other
 # (phy HAS, Clocks and resets), so they have no phase relationship.

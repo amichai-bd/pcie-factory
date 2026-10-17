@@ -73,13 +73,15 @@ module common_cdc_fifo #(
 
   assign waddr       = wbin_q[ADDR_W-1:0];
 
-  if (SRC_ASYNC_RESET) begin : g_src_arst
-    `COMMON_DFF_ARST_VAL(wbin_q, wbin_d, src_clk_i, src_rst_i, '0)
-    `COMMON_DFF_ARST_VAL(wgray_q, wgray_d, src_clk_i, src_rst_i, '0)
-  end else begin : g_src_srst
-    `COMMON_DFF_RST(wbin_q, wbin_d, src_clk_i, src_rst_i)
-    `COMMON_DFF_RST(wgray_q, wgray_d, src_clk_i, src_rst_i)
-  end
+  generate
+    if (SRC_ASYNC_RESET) begin : g_src_arst
+      `COMMON_DFF_ARST_VAL(wbin_q, wbin_d, src_clk_i, src_rst_i, '0)
+      `COMMON_DFF_ARST_VAL(wgray_q, wgray_d, src_clk_i, src_rst_i, '0)
+    end else begin : g_src_srst
+      `COMMON_DFF_RST(wbin_q, wbin_d, src_clk_i, src_rst_i)
+      `COMMON_DFF_RST(wgray_q, wgray_d, src_clk_i, src_rst_i)
+    end
+  endgenerate
   `COMMON_MEM_WRITE(mem_q, src_clk_i, push, waddr, src_data_i)
 
   assign dst_valid_o = rgray_q != dst_wgray;
@@ -102,13 +104,15 @@ module common_cdc_fifo #(
   assign raddr_next      = raddr + ADDR_W'(1);
   assign dst_next_data_o = mem_q[raddr_next];
 
-  if (DST_ASYNC_RESET) begin : g_dst_arst
-    `COMMON_DFF_ARST_VAL(rbin_q, rbin_d, dst_clk_i, dst_rst_i, '0)
-    `COMMON_DFF_ARST_VAL(rgray_q, rgray_d, dst_clk_i, dst_rst_i, '0)
-  end else begin : g_dst_srst
-    `COMMON_DFF_RST(rbin_q, rbin_d, dst_clk_i, dst_rst_i)
-    `COMMON_DFF_RST(rgray_q, rgray_d, dst_clk_i, dst_rst_i)
-  end
+  generate
+    if (DST_ASYNC_RESET) begin : g_dst_arst
+      `COMMON_DFF_ARST_VAL(rbin_q, rbin_d, dst_clk_i, dst_rst_i, '0)
+      `COMMON_DFF_ARST_VAL(rgray_q, rgray_d, dst_clk_i, dst_rst_i, '0)
+    end else begin : g_dst_srst
+      `COMMON_DFF_RST(rbin_q, rbin_d, dst_clk_i, dst_rst_i)
+      `COMMON_DFF_RST(rgray_q, rgray_d, dst_clk_i, dst_rst_i)
+    end
+  endgenerate
 
   // Pointer crossings: one Gray bit changes per update, as the synchronizer
   // requires. Each synchronizer resets with the side that reads it.

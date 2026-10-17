@@ -28,7 +28,7 @@ it; nothing calls a tool script directly.
 | `asic` | ORFS flow for one IP ([PD BKM](pd.md)). |
 | `arch` | Architecture-model perf scenarios of a top-level IP ([arch BKM](arch.md)). |
 | `labels` | Label sync from `cfg/labels.yaml`. |
-| `ci` | `ci-gate` helpers: unit-test suites and job summary ([CI spec](../tools/ci/SPEC.md)). |
+| `ci` | `ci-gate` helpers: unit suites, vendor checks, aggregation and job summary ([CI spec](../tools/ci/SPEC.md)). |
 | `metrics` | Nightly metrics, the data guard and the `nightly-red` issue ([metrics spec](../tools/metrics/SPEC.md)). |
 | `wiki` | Wiki site build. |
 | `specs` | Local cache of official reference documents, outside the repository and never committed ([specs spec](../tools/specs/SPEC.md)). |
@@ -169,6 +169,15 @@ pushes to `main` and manual dispatch:
    the Verilator-built vocabulary tests, when an RTL vocabulary header
    changed), and the model unit tests of the affected IPs (`./build ci unit`).
 4. `./build regress --level 0 --level 1` for the affected IPs.
+5. In parallel with those steps, full Quartus compilation/fitting/timing and
+   ASIC synthesis-only checks for affected synthesis targets. Source/filelist,
+   wrapper/constraint and tool/config changes select targets; docs-only PRs
+   select none ([selection](../tools/ci/SPEC.md#build-ci-vendor)). Full ASIC
+   physical implementation and L2 remain nightly.
+
+The single required `ci-gate` aggregates the simulation/checks and both
+vendor jobs. All three must explicitly succeed; failure, cancellation or
+an unexpected skip fails the gate. Push/dispatch still select all targets.
 
 **`ci-gate` on the data PR.** The nightly opens its data PR with
 `GITHUB_TOKEN`, which starts no runnable `pull_request` run, so it

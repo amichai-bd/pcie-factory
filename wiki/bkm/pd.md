@@ -11,11 +11,13 @@
 | --- | --- |
 | Flow | OpenROAD-flow-scripts (ORFS): synthesis, floorplan, place, CTS, route |
 | Platform | `sky130hd` |
-| Host | The Omarchy CI host, through the pinned `openroad/orfs` Docker image recorded in `cfg/host.yaml` (`hosts.omarchy.orfs_image`) |
-| When | Nightly L2 or on demand only: the `asic` workflow (`workflow_dispatch`, which nightly calls) or `./build asic --ip <id>` on the host; never in `ci-gate` or on pull requests |
+| Host | Self-hosted runners, through the pinned `openroad/orfs` Docker image recorded in `cfg/host.yaml` (`hosts.omarchy.orfs_image`) |
+| When | Synthesis-only for affected targets in required CI; full flow in nightly L2 or on demand (`asic` dispatch or `./build asic --ip <id>`) |
 
-The flow is an estimation and quality signal for the RTL, not a tape-out. It
-never runs in `ci-gate`. Its unit tests (config generation, report parsing)
+The flow is an estimation and quality signal for the RTL, not a tape-out. The
+[required CI synthesis check](../tools/asic/SPEC.md#synthesis-only-compatibility-check)
+exercises the pinned frontend and config; it proves no routed timing or area.
+Its unit tests (config generation, report parsing)
 use fixture reports and run without ORFS.
 
 ## Inputs
@@ -48,7 +50,11 @@ resolver, plus only what is in `src/asic/<ip>/`:
 ## Generated output
 
 ORFS logs, reports, results (netlists, DEF, ODB, GDS) and `metrics.json` go
-under `workdir/<ip>/asic/` only and are never committed. Each run starts from
+under `workdir/<ip>/asic/` for full runs, or `workdir/<ip>/asic-synth/`
+for synthesis-only checks. Explicit clock studies use
+`workdir/<ip>/asic-study/<period>ns/`; the [ASIC tool spec](../tools/asic/SPEC.md#clock-studies)
+owns opt-in constraints and isolation from default/nightly measurements.
+Generated output is never committed. Each run starts from
 a clean work directory so stale results never mask a failure. The `asic`
 workflow publishes only `metrics.json` and the tool's `worst_path.txt`
 summary as its `asic-metrics` artifact, never raw ORFS reports or logs.

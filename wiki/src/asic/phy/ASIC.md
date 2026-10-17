@@ -10,9 +10,11 @@ files below.
 
 The [HAS clock target](../../arch/phy/HAS.md#targets): `clk_i` and
 `ser_rx_clk_i` both at 125 MHz (8 ns), as the periods in
-[`pcie_phy.sdc`](../../../../src/asic/phy/pcie_phy.sdc). These are the study
-clocks; a different study clock is a run option, never an edit to this
-target.
+[`pcie_phy.sdc`](../../../../src/asic/phy/pcie_phy.sdc). These remain the default, nightly and final clocks.
+The captain's intermediate checkpoint is **100 MHz (10 ns) on both domains**
+([Q27](../../decisions/0002-m1-grill.md#decisions)); it is an explicit study,
+not final Gen1 timing closure. [#235](https://github.com/amichai-bd/pcie-factory/issues/235)
+continues to own the 125 MHz target.
 
 | SDC clock | Port | Period | Runs |
 | --- | --- | --- | --- |
@@ -67,17 +69,30 @@ from the flow's separate `clocks` step and are required
 step fails, times out or writes no clock, the run fails, and `metrics.json`
 still holds the other results.
 
+The intermediate checkpoint runs with
+`./build asic --ip phy --study-clock-period 10`. Its results are isolated in
+`workdir/phy/asic-study/10ns/`, with both clocks at 10 ns, I/O delays at 2 ns,
+and crossing max delays at 10 ns. Uncertainty stays 0.25 ns and the hold
+exceptions are unchanged. A checkpoint requires nonnegative setup slack on
+both clocks, nonnegative hold slack and zero route DRCs. Inspect the final
+`6_final.sdc` as well as `metrics.json`; result evidence belongs on
+[#248](https://github.com/amichai-bd/pcie-factory/issues/248), not the default
+nightly tracker.
+
 ## Timing status
 
 The first nightly run (2026-10-15, at `7c267e2`) met `rx_clk` but not
-`clk`: setup WNS -1.754 ns, TNS -10.11 ns at 8 ns, logic depth 60
-([#235](https://github.com/amichai-bd/pcie-factory/issues/235)). The
-`clk` paths are one LTSSM step in the MAC, the PCS receive path through
-the elastic buffer's read side and the decoder, and the encoder's running
-disparity chain; #235 shortens them without moving a cycle
-([`mac` MAS](../../rtl/mac/MAS.md#timing),
+`clk`: setup WNS -1.754 ns, TNS -10.11 ns at 8 ns, logic depth 60; the
+2026-10-16 run (at `ed166e7`) gave WNS -1.009 ns, TNS -4.73 ns, logic depth
+46 ([#235](https://github.com/amichai-bd/pcie-factory/issues/235)). The
+10 ns checkpoint is met
+([#249](https://github.com/amichai-bd/pcie-factory/issues/249)); 125 MHz
+stays the target (Q27). The `clk` paths are one LTSSM step in the MAC, the
+PCS receive path through the elastic buffer's read side and the decoder,
+and the encoder's running disparity chain; #235 shortens them without
+moving a cycle ([`mac` MAS](../../rtl/mac/MAS.md#timing),
 [`pcs` MAS](../../rtl/pcs/MAS.md#timing)). Only this flow measures the
-result: a manual `asic` workflow run, then the nightly.
+result: the nightly, or a manual `asic` workflow run.
 
 ## Files
 

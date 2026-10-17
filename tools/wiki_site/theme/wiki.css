@@ -254,3 +254,18 @@ a:hover { text-decoration: underline; }
 .tracker-status.info > span { background: var(--status-info); }
 .tracker-share { display: inline-flex; align-items: center; gap: 8px; min-width: 140px; }
 .tracker-share-bar { display: inline-block; height: 10px; border-radius: 0 4px 4px 0; background: var(--series-1); min-width: 2px; max-width: 90px; }
+
+/* Compact tracker landing; full charts retain their existing dimensions. */
+.tracker-links { display: flex; flex-wrap: wrap; gap: 8px 24px; }
+.tracker-overview-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.tracker-card-note { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.tracker-attention { padding: 14px 18px 14px 36px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.tracker-attention li + li { margin-top: 8px; }
+.tracker-attention .tracker-status { white-space: normal; font-weight: 500; overflow-wrap: anywhere; }
+.tracker-runtime-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.tracker-runtime-grid .tracker-chart { min-width: 0; margin-bottom: 0; }
+.tracker-runtime-grid .tracker-canvas { height: 210px; }
+@media (max-width: 900px) {
+  .tracker-overview-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tracker-runtime-grid { grid-template-columns: minmax(0, 1fr); }
+}

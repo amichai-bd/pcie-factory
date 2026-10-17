@@ -20,8 +20,8 @@ module pcie_pcs_dec8b10b (
   pcie_pcs_pkg::t_dec_state state_d;
 
   logic                 pol_change;
-  pcie_pcs_pkg::t_sym10 sym0;
-  pcie_pcs_pkg::t_sym10 sym1;
+  pcie_pcs_pkg::t_sym10 code0;  // received codes after RxPolarity
+  pcie_pcs_pkg::t_sym10 code1;
   logic                 known0;
   logic                 known1;
   pcie_pcs_pkg::t_dec   dec0;
@@ -30,8 +30,8 @@ module pcie_pcs_dec8b10b (
   // RxPolarity: inversion applies in the cycle polarity_i is 1; a change
   // makes the RD unknown from that cycle's word.
   assign pol_change = polarity_i != state_q.pol;
-  assign sym0 = in_i.sym0.code ^ {10{polarity_i}};
-  assign sym1 = in_i.sym1.code ^ {10{polarity_i}};
+  assign code0 = in_i.sym0.code ^ {10{polarity_i}};
+  assign code1 = in_i.sym1.code ^ {10{polarity_i}};
 
   // The RD is known for a locked symbol whose predecessor was a locked
   // symbol of the same lock generation, with no polarity change between.
@@ -42,12 +42,12 @@ module pcie_pcs_dec8b10b (
   // Lane 1 is decoded for both running disparities in parallel with lane 0,
   // and lane 0's RD picks one: the RD chain is a select, not a second decode
   // in series (MAS, Timing).
-  pcie_pcs_pkg::t_dec   dec1_neg;  // sym1 decoded after an RD- symbol
-  pcie_pcs_pkg::t_dec   dec1_pos;  // sym1 decoded after an RD+ symbol
+  pcie_pcs_pkg::t_dec   dec1_neg;  // code1 decoded after an RD- symbol
+  pcie_pcs_pkg::t_dec   dec1_pos;  // code1 decoded after an RD+ symbol
 
-  assign dec0     = pcie_pcs_pkg::decode(sym0, known0, state_q.rd_pos);
-  assign dec1_neg = pcie_pcs_pkg::decode(sym1, known1, 1'b0);
-  assign dec1_pos = pcie_pcs_pkg::decode(sym1, known1, 1'b1);
+  assign dec0     = pcie_pcs_pkg::decode(code0, known0, state_q.rd_pos);
+  assign dec1_neg = pcie_pcs_pkg::decode(code1, known1, 1'b0);
+  assign dec1_pos = pcie_pcs_pkg::decode(code1, known1, 1'b1);
   assign dec1     = dec0.rd_pos ? dec1_pos : dec1_neg;
 
   assign out_o = '{sym1: dec1.sym, sym0: dec0.sym};

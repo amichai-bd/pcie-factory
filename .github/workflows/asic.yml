@@ -1,5 +1,6 @@
 # ASIC flow (ORFS); see wiki/tools/asic/SPEC.md and wiki/bkm/pd.md.
-# On demand only (nightly L2 dispatches it); never part of ci-gate. Runs on the
+# Full flow on demand; nightly calls it directly. CI uses only --synth-only.
+# Runs on the
 # self-hosted host that has ORFS and uploads only metrics.json and the
 # worst-path summary, never raw ORFS reports or logs.
 name: asic

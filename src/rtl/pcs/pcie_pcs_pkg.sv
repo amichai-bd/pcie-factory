@@ -68,6 +68,20 @@ package pcie_pcs_pkg;
     t_byte data;
   } t_k_byte;
 
+  // EDB as a K symbol: what a code error or an underflow word carries.
+  localparam t_k_byte K_EDB = '{k: 1'b1, data: common_pkg::SYM_EDB};
+
+  // Number of ones in a symbol or sub-block, zero-extended to SYM_W bits
+  // (Quartus Lite does not synthesize the count-ones system function).
+  function automatic logic [3:0] ones(input t_sym10 x);
+    logic [3:0] n;
+    n = '0;
+    for (int unsigned i = 0; i < SYM_W; i++) begin
+      n = n + {3'd0, x[i]};
+    end
+    return n;
+  endfunction
+
   // One PIPE transmit word for the encoder: two symbols, sym0 first on the
   // line, and TxCompliance (negative RD before sym0).
   typedef struct packed {
@@ -324,7 +338,7 @@ package pcie_pcs_pkg;
     logic [5:0] hit_x;
     if (abcdei == 6'b111000) begin
       hit_x = 6'd0;
-    end else if ($countones(abcdei) == 3 && abcdei != 6'b000111) begin
+    end else if (ones({4'd0, abcdei}) == 3 && abcdei != 6'b000111) begin
       hit_x = six_minus(abcdei);
     end else begin
       hit_x = six_minus(~abcdei);
@@ -336,7 +350,7 @@ package pcie_pcs_pkg;
     logic [4:0] hit_y;
     if (fghj == 4'b1100) begin
       hit_y = 5'd0;
-    end else if ($countones(fghj) == 2 && fghj != 4'b0011) begin
+    end else if (ones({6'd0, fghj}) == 2 && fghj != 4'b0011) begin
       hit_y = four_minus(fghj);
     end else begin
       hit_y = four_minus(~fghj);
@@ -347,9 +361,9 @@ package pcie_pcs_pkg;
   // Running disparity after a sub-block (8B10B.md, Running disparity).
   function automatic logic rd_after6(input logic [5:0] abcdei, input logic rd_pos);
     logic rd;
-    if ($countones(abcdei) > 3 || abcdei == 6'b000111) begin
+    if (ones({4'd0, abcdei}) > 3 || abcdei == 6'b000111) begin
       rd = 1'b1;
-    end else if ($countones(abcdei) < 3 || abcdei == 6'b111000) begin
+    end else if (ones({4'd0, abcdei}) < 3 || abcdei == 6'b111000) begin
       rd = 1'b0;
     end else begin
       rd = rd_pos;
@@ -359,9 +373,9 @@ package pcie_pcs_pkg;
 
   function automatic logic rd_after4(input logic [3:0] fghj, input logic rd_pos);
     logic rd;
-    if ($countones(fghj) > 2 || fghj == 4'b0011) begin
+    if (ones({6'd0, fghj}) > 2 || fghj == 4'b0011) begin
       rd = 1'b1;
-    end else if ($countones(fghj) < 2 || fghj == 4'b1100) begin
+    end else if (ones({6'd0, fghj}) < 2 || fghj == 4'b1100) begin
       rd = 1'b0;
     end else begin
       rd = rd_pos;

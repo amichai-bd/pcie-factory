@@ -896,34 +896,36 @@ module pcie_mac_ltssm #(
   pcie_mac_pkg::t_step_end end_go;
   pcie_mac_pkg::t_step_end step;
 
-  assign end_ctx = '{st:            st,
-                     dsp:           dsp,
-                     in_l0:         in_l0,
-                     req_disable:   req_i.disable_link,
-                     req_hot_reset: req_i.hot_reset,
-                     req_loopback:  req_i.loopback,
-                     directed_q:    r_q.directed,
-                     tx_sub_q:      r_q.tx_sub,
-                     tx_sub_x:      tx_sub_x,
-                     pm_wait_q:     r_q.pm.pm_wait,
-                     pm_wait_go:    pm_wait_go,
-                     l0_exit_c:     l0_exit_c,
-                     q_old:         q_old,
-                     tx_busy:       tx_busy,
-                     eios_pend:     eios_pend,
-                     fts_skp_c:     fts_skp_c,
-                     dis_ts_c:      dis_ts_c,
-                     eios_done_c:   eios_done_c,
-                     tx_ei_q:       r_q.tx_ei,
-                     ei_cycles_q:   r_q.ei_cycles,
-                     pd_q:          r_q.pd,
-                     pd_pending_c:  pd_pending_c,
-                     detect_done_c: detect_done_c,
-                     detect_rx_q:   r_q.detect_rx,
-                     scr_off_q:     r_q.scr_off,
-                     dscr_c:        dscr_c,
-                     tx_link_pad_q: r_q.tx_link_pad,
-                     tx_lane_pad_q: r_q.tx_lane_pad};
+  always_comb begin
+    end_ctx.st            = st;
+    end_ctx.dsp           = dsp;
+    end_ctx.in_l0         = in_l0;
+    end_ctx.req_disable   = req_i.disable_link;
+    end_ctx.req_hot_reset = req_i.hot_reset;
+    end_ctx.req_loopback  = req_i.loopback;
+    end_ctx.directed_q    = r_q.directed;
+    end_ctx.tx_sub_q      = r_q.tx_sub;
+    end_ctx.tx_sub_x      = tx_sub_x;
+    end_ctx.pm_wait_q     = r_q.pm.pm_wait;
+    end_ctx.pm_wait_go    = pm_wait_go;
+    end_ctx.l0_exit_c     = l0_exit_c;
+    end_ctx.q_old         = q_old;
+    end_ctx.tx_busy       = tx_busy;
+    end_ctx.eios_pend     = eios_pend;
+    end_ctx.fts_skp_c     = fts_skp_c;
+    end_ctx.dis_ts_c      = dis_ts_c;
+    end_ctx.eios_done_c   = eios_done_c;
+    end_ctx.tx_ei_q       = r_q.tx_ei;
+    end_ctx.ei_cycles_q   = r_q.ei_cycles;
+    end_ctx.pd_q          = r_q.pd;
+    end_ctx.pd_pending_c  = pd_pending_c;
+    end_ctx.detect_done_c = detect_done_c;
+    end_ctx.detect_rx_q   = r_q.detect_rx;
+    end_ctx.scr_off_q     = r_q.scr_off;
+    end_ctx.dscr_c        = dscr_c;
+    end_ctx.tx_link_pad_q = r_q.tx_link_pad;
+    end_ctx.tx_lane_pad_q = r_q.tx_lane_pad;
+  end
 
   assign end_stay = pcie_mac_pkg::step_end(1'b0, st, end_ctx);
 

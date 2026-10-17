@@ -4,10 +4,12 @@ The `ci-gate` workflow (`.github/workflows/ci.yml`) is the one required
 check; the [DevOps BKM](../../bkm/devops.md#continuous-integration) owns
 what it must cover. This page owns the selection rules file `cfg/ci.yaml`
 and the `./build ci` helpers the workflow calls. The code lives in
-`tools/ci/` (`config.py`, `unit.py`, `summary.py`, `status.py`).
+`tools/ci/` (`config.py`, `unit.py`, `vendor.py`, `gate.py`, `summary.py`, `status.py`).
 
 ```
 ./build ci [--src-root DIR] [--workdir DIR] unit [--affected BASE]
+./build ci [--src-root DIR] [--workdir DIR] vendor --kind {fpga,asic} [--affected BASE] [--dry-run]
+./build ci gate --tests RESULT --fpga RESULT --asic-synth RESULT
 ./build ci [--workdir DIR] summary
 ./build ci status --result RESULT --sha SHA --ref REF [--target-url URL] [--repo OWNER/NAME] [--dry-run]
 ```
@@ -16,21 +18,10 @@ and the `./build ci` helpers the workflow calls. The code lives in
 
 Facts that decide what a change selects live here, not in Python or in the
 workflow. [`./build regress --affected`](../regress/SPEC.md#selection) and
-`./build ci unit` read them.
+`./build ci unit` and `./build ci vendor` read them.
 
-```yaml
-global:
-  prefixes: [tools/, cfg/]   # repo-relative; each ends with '/'
-  files: [build]             # repo-relative exact paths
-  levels: [0]                # regression levels an IP selected only by these runs
-shared_dv: [dv/common]       # relative to the source root
-models: models               # relative to each IP's src/dv/<ip>/
-import_root: tools           # repo-relative; the Python DV imports at run time
-tools_tests: [tools]         # repo-relative pytest paths
-vocabulary_tests:            # marked tools tests a source change selects
-  marker: vocabulary         # pytest marker (registered in tools/pytest.ini)
-  paths: [src/rtl/common/common_macros.svh, src/rtl/common/common_assertions.svh]
-```
+The configured paths are in [`cfg/ci.yaml`](../../../cfg/ci.yaml); the table
+below defines each required key.
 
 | Key | Meaning |
 | --- | --- |
@@ -38,6 +29,7 @@ vocabulary_tests:            # marked tools tests a source change selects
 | `shared_dv` | Shared DV Python that no filelist reaches; a change under one selects every IP. |
 | `models` | An IP's reference models and their unit tests. A change under a sub-IP's (or an integrated IP's) models directory also selects every ancestor IP, because parent models import sub-IP models ([DV BKM](../../bkm/dv.md#reusing-a-sub-ip-model)). `./build ci unit` runs the model tests of each selected IP. |
 | `import_root` | The directory whose Python the DV imports at run time (on `sys.path` in every simulation). `--affected` scans the imports of each IP's DV and arch Python and selects the IP, at every level, when a file it reaches under this root or in another IP's arch or models folder changes ([regress selection](../regress/SPEC.md#selection)). |
+| `vendor.files` | Additional repo-relative files whose changes select every FPGA and ASIC target. Global paths already select all vendor targets; regression levels do not limit vendor checks. |
 | `tools_tests` | The pytest paths of the tools unit tests. |
 | `vocabulary_tests` | `marker`: a pytest marker on tools tests that build source files (the RTL vocabulary headers, with Verilator); `paths`: repo-relative files (a trailing `/` makes a prefix) whose change runs those tests; a checks unit test keeps them equal to the style check's vocabulary header list ([checks SPEC](../checks/SPEC.md#style-check)). |
 
@@ -89,6 +81,38 @@ Suites run with `PYTHONDONTWRITEBYTECODE=1` and without the pytest cache, so
 nothing is written under `src/`. Exit `0` when every suite passed (or none
 was selected), `1` when any failed, `2` on a configuration or git error.
 
+## `./build ci vendor`
+
+Discovers IPs with the requested kind folder, including folders with malformed
+or missing required inputs: the real flow must diagnose those. Without
+`--affected`, every target runs. With it, the diff uses the same merge-base,
+uncommitted and untracked semantics as `ci unit`. Global paths and
+`vendor.files` select all targets. Otherwise a target is selected when its
+RTL filelist reaches a changed source, nested filelist or include-directory
+header, or a file under its corresponding vendor folder changes (wrapper,
+constraints, configuration). Deleted paths participate; an unresolvable RTL
+closure selects the target so the flow reports the failure. Selection does
+not use simulation filelists or Python/DV imports. Docs-only changes select
+none. Reasons print before execution; `--dry-run` only prints the selection.
+
+Selected targets run in sorted order: `./build fpga --ip ID` performs the
+full compile, fit and timing acceptance, and `./build asic --ip ID
+--synth-only` performs the [synthesis check](../asic/SPEC.md#synthesis-only-compatibility-check).
+Each receives the caller's source root and workdir. A failed target does
+not suppress later targets. SIGINT/SIGTERM are forwarded to the active
+flow so its cleanup can run; signals during child creation are queued until
+the handle is available. Cancellation starts no later target and exits 130. Exit 0 means every selected target passed (or
+none selected), 1 means a child failed, 2 means selection/configuration failed.
+`workdir/ci/vendor-<kind>.json` records schema 1, kind, stage and each target's
+status and elapsed seconds; it is replaced each execution, even with no targets.
+Only that summary and the flows' summary JSON are uploaded, never raw logs.
+
+## `./build ci gate`
+
+Returns 0 only when all three required results equal `success`; `failure`,
+`cancelled`, `skipped`, empty or unknown results return 1. Missing arguments
+are usage errors (2). It prints every dependency result before deciding.
+
 ## `./build ci summary`
 
 Prints `<workdir>/regress/summary.json` as short Markdown for the GitHub job
@@ -130,7 +154,7 @@ is posted, so the PR stays blocked).
 
 ## The workflow
 
-`ci.yml` runs the job `ci-gate` on `[self-hosted, linux, x64]` for pull
+`ci.yml` runs `ci-tests` and the vendor/aggregate jobs below on `[self-hosted, linux, x64]` for pull
 requests to `main`, pushes to `main` and manual dispatch:
 
 1. Toolchain discovery (prints `python3`, the Verilator found on `PATH` or
@@ -160,7 +184,17 @@ requests to `main`, pushes to `main` and manual dispatch:
    (step outcomes plus `./build ci summary`) and the `regress-summary`
    artifact (`workdir/regress/summary.json`).
 
-**Forks:** the job carries the fork guard `if:` that the
+The steps above are the `ci-tests` job. Two independent jobs run in parallel:
+`ci-fpga` calls `./build ci vendor --kind fpga $AFFECTED`, and
+`ci-asic-synth` calls it with `--kind asic`. Both use the same checkout,
+Python pins and PR-base selection; push and dispatch run every target.
+No-target jobs succeed after executing selection, rather than being skipped.
+The required `ci-gate` job depends on all three and uses `always()` plus the
+fork guard, so failed, cancelled or unexpectedly skipped dependencies reach
+`./build ci gate`. The aggregate takes each actual `needs.<job>.result`;
+only explicit success from all three satisfies protection.
+
+**Forks:** every job carries the fork guard `if:` that the
 [DevOps BKM](../../bkm/devops.md#continuous-integration) prescribes. That
 guard lives in the PR's own copy of `ci.yml`, so a fork can remove it: it is
 defense in depth only. Maintainers never approve a fork PR's workflow run;
@@ -170,12 +204,12 @@ review-and-re-push route.
 Concurrency cancels a superseded run of the same PR; every push and
 dispatch has its own group. `permissions: contents: read` and
 `pull-requests: read` (the guard's base lookup), actions pinned
-to exact versions, and a 20-minute hard timeout. The 10-minute `ci-gate`
+to exact versions, and a 20-minute hard timeout per work job (5 minutes for aggregation). The 10-minute `ci-gate`
 budget of the DevOps BKM is a target the job is expected to meet, not
 enforced by the workflow; the timeout leaves headroom for a cold
 dependency install.
 
-**`ci-gate-status`** is a second job, `needs: ci-gate` with `always()`,
+**`ci-gate-status`** is a separate job, `needs: ci-gate` with `always()`,
 that runs only when the event is not `pull_request` and the ref is
 `refs/heads/nightly/*`, which in practice means a dispatch on a data branch
 (the nightly's own, or a writer's). It
@@ -216,7 +250,10 @@ same status. The guard base is not in the description; the run behind
 
 ## Tests
 
-`tools/ci/tests/`: rule loading and every malformed-input case
+`tools/ci/tests/`: all 64 aggregate success/failure/cancelled/skipped combinations
+and unknown-result rejection through the CLI, workflow dependency/guard wiring,
+vendor selection on synthetic git trees, child failure propagation, actual-child signal forwarding, no-target
+and dry-run behavior (`test_ci_gate.py`, `test_ci_vendor.py`); rule loading and every malformed-input case
 (`test_ci_config.py`), suite planning on a synthetic git repository
 (including an IP with an arch model and scenario, and a vocabulary header
 change selecting only the marked tools tests), running the arch and perf
