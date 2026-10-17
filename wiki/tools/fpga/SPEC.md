@@ -9,7 +9,7 @@ the command line, the generated project, the metrics schema and failures.
 | --- | --- |
 | `tools/fpga/flow.py` | Input validation, project generation, Quartus discovery, running the steps. |
 | `tools/fpga/reports.py` | Parsing Quartus reports into metrics. |
-| `cfg/fpga.yaml` | Board name, per-step timeout, Quartus processor count. |
+| `cfg/fpga.yaml` | Board name, per-step timeout, Quartus processor count, known Quartus warning IDs (`known_warnings`, a list of distinct positive integers; optional, default empty). |
 | `cfg/backends.yaml` | The `fpga` key: the suffix of the source backend files this flow selects ([layout](../../project/layout.md#source-backends)). |
 | `.github/workflows/fpga.yml` | The self-hosted CI job. |
 
@@ -109,7 +109,7 @@ After the steps pass, the tool parses `output_files/<top>.fit.summary`,
 summary: device, logic elements and registers, the memory block count, one
 line per RAM (name, mode, clock mode, depth x width, blocks, mixed-port
 read-during-write mode), each clock's Fmax and slack, the unconstrained
-paths and the critical path. Before the steps, and in `--dry-run`, it
+paths, the [warnings](#warnings) and the critical path. Before the steps, and in `--dry-run`, it
 prints one `[backend] <portable> -> <backend>` line per selected backend
 file.
 
@@ -132,7 +132,30 @@ file.
 | `timing.met` | True when setup and hold paths exist with worst slack `>= 0`, recovery and removal slack (when present) are `>= 0`, and `unconstrained_total` is 0. Pulse-width checks are not included. |
 | `timing.critical_path` | `{from, to, from_clock, to_clock, slack_ns, data_delay_ns}` from `worst_path.txt` (slow model), or `null` when there is no path. |
 | `flow.lint` | `pass`, `fail` or `skipped`. |
-| `flow.steps.<step>` | `{status, runtime_s, warnings}`; `warnings` is the count from the step's closing "was successful. N errors, M warnings" line, or `null`. |
+| `flow.steps.<step>` | `{status, runtime_s, warnings, warning_ids}`; `warnings` is the count from the step's closing "was successful. N errors, M warnings" line, or `null`; `warning_ids` maps each Quartus message ID (a string, in numeric order) of the step log's warnings to its count ([warnings](#warnings)). |
+
+### Warnings
+
+Each Quartus step's log is scanned for `Warning (<id>): <message>` and
+`Critical Warning (<id>): <message>` lines, indented sub-messages included;
+a warning without an ID is not counted by ID, so `warnings` can differ from
+the sum of `warning_ids`. An ID is known when `known_warnings` in
+`cfg/fpga.yaml` lists it (the [FPGA BKM](../../bkm/fpga.md#known-quartus-warnings)
+table says why; a unit test keeps the two equal). For each step with a
+warning, the summary prints:
+
+```
+  warnings <step>: known <k>, unknown <u> (closing line: <warnings>)
+    unknown <id> (x<count>): <message>
+```
+
+with one `unknown` line per unknown ID, in ID order, holding the ID's first
+message, sanitized: paths under the checkout made relative to it, any other
+absolute path cut to `.../<file name>`, the user and host names (whole
+words) replaced by `<name>`, e-mail and IPv4 addresses by `<email>` and
+`<ip>`, whitespace runs collapsed, and the text cut to 160 characters
+(ending in `...` when cut). Known IDs print only as a count. Nothing else
+from the logs is printed for a passing run.
 
 A ratio missing from the fitter summary is `null`. These are report errors
 (exit 1): fitter status other than `Successful`, no logic-element, register
@@ -181,8 +204,9 @@ and versions. The artifact `fpga-metrics` (kept 14 days, uploaded even when a
 step fails) holds only this tool's own output, `metrics.json` and
 `worst_path.txt`, for each IP. Quartus reports and logs carry the vendor's
 notice, so they stay in `workdir/` on the host and are never uploaded or
-committed; the failure excerpt printed to the job log is the only part of a
-log that leaves the host.
+committed; the failure excerpt and the sanitized
+[unknown-warning lines](#warnings) printed to the job log are the only parts
+of a log that leave the host.
 
 ## Unit tests
 
@@ -202,8 +226,15 @@ log that leaves the host.
   deterministic generation, the lint command, Quartus discovery order,
   lint waivers (a waived warning passes, an unwaived one or an invalid
   waiver file fails),
-  `cfg/fpga.yaml` and `cfg/backends.yaml` loading, and the run loop with fake `quartus_*` scripts
-  that replay the fixtures: metrics written, a failing step stops the flow
+  `cfg/fpga.yaml` (including bad `known_warnings`) and `cfg/backends.yaml`
+  loading, the known IDs in `cfg/fpga.yaml` equal to the FPGA BKM table,
+  warning-ID parsing of the hand-made `map_warnings.log` (counts, critical
+  and indented warnings, lines that are not warnings), message sanitizing
+  (checkout-relative and cut absolute paths, a home path, user and host
+  names as whole words, e-mail and IPv4 addresses, the length cut),
+  and the run loop with fake `quartus_*` scripts
+  that replay the fixtures: metrics written with `warning_ids`, the summary's
+  known and unknown counts with and without the repository's known IDs, a failing step stops the flow
   and prints every error line of the hand-made `map_fail.log` (errors more
   than 30 lines before its end) before the tail,
   lint failure, timing not met, and a step timeout killing its group; and

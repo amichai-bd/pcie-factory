@@ -3,6 +3,7 @@ Quartus: fake quartus_* scripts replay the hand-made fixture reports."""
 
 import json
 import os
+import re
 import stat
 from pathlib import Path
 
@@ -222,6 +223,9 @@ def test_load_config_repo():
     ("board: x\nstep_timeout_s: -1\nprocessors: 1\n", "step_timeout_s"),
     ("board: x\nstep_timeout_s: 1\nprocessors: 0\n", "processors"),
     ("board: [\n", "cannot read"),
+    ("board: x\nstep_timeout_s: 1\nprocessors: 1\nknown_warnings: [1, 1]\n", "known_warnings"),
+    ("board: x\nstep_timeout_s: 1\nprocessors: 1\nknown_warnings: 10036\n", "known_warnings"),
+    ("board: x\nstep_timeout_s: 1\nprocessors: 1\nknown_warnings: ['10036']\n", "known_warnings"),
 ])
 def test_load_config_errors(tmp_path, text, message):
     with pytest.raises(FpgaError, match=message):
@@ -265,7 +269,7 @@ def fake_quartus(bin_dir: Path, fail: str | None = None, fail_body: str = "echo 
     copy_reports = f"mkdir -p output_files && cp {FIX}/output_files/* output_files/"
     bodies = {
         "quartus_sh": ok,
-        "quartus_map": ok,
+        "quartus_map": f"cat {FIX}/map_warnings.log",
         "quartus_fit": ok,
         "quartus_sta": (f'if [ "$1" = "-t" ]; then cp {FIX}/worst_path.txt .; '
                         f'else {copy_reports}; fi\n{ok}'),
@@ -284,10 +288,19 @@ def test_run_writes_metrics(src, tmp_path, capsys):
     assert m["timing"]["met"] is True
     assert m["flow"]["lint"] == "skipped"
     assert set(m["flow"]["steps"]) == {"project", "map", "fit", "sta", "worst_path"}
-    assert all(s["status"] == "pass" and s["warnings"] == 2 for s in m["flow"]["steps"].values())
+    steps = m["flow"]["steps"]
+    assert all(s["status"] == "pass" for s in steps.values())
+    assert steps["fit"]["warnings"] == 2 and steps["fit"]["warning_ids"] == {}
+    assert steps["map"]["warnings"] == 7
+    assert steps["map"]["warning_ids"] == {"10036": 2, "15610": 1, "21074": 1, "99999": 1,
+                                           "292013": 1, "332012": 1}
     assert (p.out_dir / "logs" / "fit.log").read_text().startswith("$ ")
     out = capsys.readouterr().out
     assert "clock CLK_B: fmax 260.42 MHz" in out
+    # No known IDs passed: every map warning is unknown; fit has a count only.
+    assert "  warnings map: known 0, unknown 7 (closing line: 7)" in out
+    assert "  warnings fit: known 0, unknown 0 (closing line: 2)" in out
+    assert "    unknown 10036 (x2): Verilog HDL or VHDL warning at widget.sv(12):" in out
 
 
 def test_run_step_failure(src, tmp_path, capsys):
@@ -379,6 +392,80 @@ def test_run_step_timeout_kills_group(tmp_path):
     res = flow.run_step("slow", [str(script)], tmp_path, tmp_path / "slow.log", 0.5)
     assert res.status == "timeout" and res.runtime_s < 4
     assert "timeout after" in (tmp_path / "slow.log").read_text()
+
+
+def test_run_classifies_known_warnings(src, tmp_path, capsys):
+    p = make_plan(src, tmp_path)
+    known = flow.load_config(Path(flow.REPO_ROOT) / "cfg")["known_warnings"]
+    assert flow.run(p, fake_quartus(tmp_path / "bin"), 30, None, known) == 0
+    out = capsys.readouterr().out
+    assert "  warnings map: known 3, unknown 4 (closing line: 7)" in out
+    unknown = [l for l in out.splitlines() if l.startswith("    unknown ")]
+    assert [l.split()[1] for l in unknown] == ["15610", "21074", "99999", "332012"]
+    assert all(len(l.split(": ", 1)[1]) <= flow.MESSAGE_CHARS for l in unknown)
+    assert "/var/lib" not in out and "/opt/" not in out  # names: see test_sanitize_*
+
+
+def test_warning_ids(tmp_path):
+    ids, first = flow.warning_ids(FIX / "map_warnings.log")
+    assert list(ids) == ["10036", "15610", "21074", "99999", "292013", "332012"]
+    assert sum(ids.values()) == 7 == flow.quartus_warnings(FIX / "map_warnings.log")
+    assert first[10036].endswith('"dbg_q" assigned a value but never read')
+    assert flow.warning_ids(tmp_path / "missing.log") == ({}, {})
+    log = tmp_path / "x.log"
+    log.write_text("Info (1): Warning (2): not a warning line\nWarning: no ID\n")
+    assert flow.warning_ids(log) == ({}, {})
+
+
+ROOT = Path("/var/lib/ci/work/checkout")
+NAMES = ["build-host-07", "ci-user"]
+
+
+def test_sanitize_paths_names_and_length():
+    _, first = flow.warning_ids(FIX / "map_warnings.log")
+    msg = flow.sanitize(first[99999], ROOT, NAMES)
+    assert msg.startswith("Settings written by <name> on <name> to .../widget_board.ini "
+                          "and copied to workdir/widget/fpga/db/widget_board.ini")
+    assert len(msg) == flow.MESSAGE_CHARS and msg.endswith("...")
+    assert "/var" not in msg and "/opt" not in msg and "ci-user" not in msg
+    assert flow.sanitize(first[15610], ROOT, NAMES) == (
+        'No output dependent on input pin "key_i" File: '
+        "src/fpga/widget/widget_board.sv Line: 4")
+    assert flow.sanitize(first[332012], ROOT, NAMES) == (
+        "Constraint file workdir/widget/fpga/extra.sdc was not found")
+
+
+def test_sanitize_home_email_address():
+    home = "/" + "home/" + "someone/proj/x.sv"  # built so the publishability scan never sees it
+    mail = "someone" + "@" + "example.org"
+    ip = ".".join(["10", "1", "2", "3"])
+    msg = flow.sanitize(f"at {home}({3}) by {mail} from {ip}, see widget.sv(4)", ROOT, [])
+    assert msg == "at .../x.sv(3) by <email> from <ip>, see widget.sv(4)"
+    assert flow.sanitize("a  b\tc", ROOT, []) == "a b c"
+    assert flow.sanitize("x" * 200, ROOT, [], limit=10) == "xxxxxxx..."
+    # A name is replaced only as a whole word.
+    assert flow.sanitize("ci-user ci-users xci-user", ROOT, ["ci-user"]) == "<name> ci-users xci-user"
+
+
+def test_warning_lines_skip_quiet_steps():
+    steps = {"project": {"warnings": 0, "warning_ids": {}},
+             "fit": {"warnings": 1, "warning_ids": {"169177": 1}}}
+    assert flow.warning_lines(steps, frozenset({169177}), {}, ROOT, []) == [
+        "  warnings fit: known 1, unknown 0 (closing line: 1)"]
+
+
+def bkm_known_ids() -> list[int]:
+    """IDs in the FPGA BKM's "Known Quartus warnings" table."""
+    text = (Path(flow.REPO_ROOT) / "wiki/bkm/fpga.md").read_text()
+    section = text.split("## Known Quartus warnings", 1)[1].split("\n## ", 1)[0]
+    return [int(m) for m in re.findall(r"^\| (\d+) \|", section, re.M)]
+
+
+def test_known_warnings_match_bkm_table():
+    known = flow.load_config(Path(flow.REPO_ROOT) / "cfg")["known_warnings"]
+    ids = bkm_known_ids()
+    assert ids and len(ids) == len(set(ids))
+    assert set(ids) == known, "cfg/fpga.yaml known_warnings must equal the FPGA BKM table"
 
 
 def test_quartus_warnings(tmp_path):

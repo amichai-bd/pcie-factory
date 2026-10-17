@@ -267,8 +267,10 @@ permissions and data PR mechanics:
 2. `./build fpga` and `./build asic` for every IP with `src/fpga/<ip>/` or
    `src/asic/<ip>/` inputs. A failed step prints every error line of its
    log before the tail ([failure excerpt](../tools/build/SPEC.md#failure-excerpt))
-   to the job log. That excerpt is the only part of a vendor log that
-   leaves the host: the logs themselves stay in `workdir/` and are never
+   to the job log. That excerpt, and the FPGA summary's one sanitized line
+   per unknown Quartus warning ID ([FPGA BKM](fpga.md#known-quartus-warnings)),
+   are the only parts of a vendor log that
+   leave the host: the logs themselves stay in `workdir/` and are never
    uploaded as artifacts (publishability).
 3. Metrics: the per-commit series `wiki/tracker/data/commits.jsonl` and the
    nightly record `wiki/tracker/data/<date>.json` (versioned schemas), and
