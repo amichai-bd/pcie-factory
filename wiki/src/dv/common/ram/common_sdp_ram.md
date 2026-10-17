@@ -25,6 +25,11 @@ hold, read and hold.
 | Intel backend: the stub accepts the backend shape and rejects each rule alone | `ram_intel_stub_rejects` | 0 | 1; 15 lint runs |
 | Intel backend under random traffic, against the model | `sdp_ram_intel_random` | 1 | 3; 2000 cycles; `backend: fpga` |
 | Intel backend at the dll receive buffer shape (512 x 34, one lane) | `sdp_ram_intel_rx_buf_shape` | 1 | 1; `backend: fpga` |
+| [sky130 backend](../../../rtl/common/ram/common_sdp_ram.md#sky130-backend) through the DV macro model: separate ports, hold, collision (pending-write bypass), lane enable | `sdp_ram_sky130_contract` | 0 | 1; one lane, low words of one macro; `backend: asic` |
+| sky130 backend: legal geometries (both dll shapes, two macros across, the smallest) lint with only `DECLFILENAME`; illegal ones, `LANES` 2 included, fail with the block's message | `ram_sky130_lint` | 0 | 1; 8 lint runs |
+| sky130 backend under random traffic, against the model (the macro model is fatal on any physical same-word collision) | `sdp_ram_sky130_random` | 1 | 3; 2000 cycles; `backend: asic` |
+| sky130 backend at the dll receive buffer shape (512 x 34: two macro rows) | `sdp_ram_sky130_rx_buf_shape` | 1 | 1; `backend: asic` |
+| sky130 backend at the dll replay buffer shape (256 x 32: one full macro) | `sdp_ram_sky130_replay_shape` | 1 | 1; `backend: asic` |
 
 Mutation evidence ([#126](https://github.com/amichai-bd/pcie-factory/issues/126)),
 in a scratch copy: a read port that ignores `rd_en_i` fails
@@ -33,3 +38,9 @@ in a scratch copy: a read port that ignores `rd_en_i` fails
 tied high fails `sdp_ram_intel_contract` at the first held edge, and a
 mixed-port `DONT_CARE` request fails `ram_intel_lint` with the stub's
 message.
+For the sky130 backend ([#279](https://github.com/amichai-bd/pcie-factory/issues/279)):
+a backend that ignores the lane enable failed `sdp_ram_sky130_contract`
+during development, and in scratch copies the hold register removed, the
+bypass removed and the collision suppression removed each fail the
+contract entry (the last with the macro model's fatal collision message);
+the PR records them.
