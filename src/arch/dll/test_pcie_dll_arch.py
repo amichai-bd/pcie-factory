@@ -319,6 +319,92 @@ def test_receiver_overflow_is_detected_and_not_acknowledged():
     b.receive(tlp_pkt(0, t), p.now)
     b.receive(tlp_pkt(1, t), p.now)               # partner ignored the credit limit
     assert b.errors[m.E_OVERFLOW] == 1 and b.nrs == 1
+    assert not b.nak_due and not b.ack_due and not b.nak_scheduled   # neither Ack nor Nak
+    run(p, 100, sinks=(True, False))
+    assert b.counts["naks"] == 0 and b.nrs == 1   # the Ack sent covers sequence 0 only
+    assert m.decode_dllp(m.ack_dllp(m.ACK, b.nrs - 1))[3] == 0
+
+
+def test_malformed_tlp_is_acknowledged_not_delivered_and_credits_return():
+    p, a, b = up_pair()
+    t = m.make_tlp("mwr", 32, 1)
+    short = t[:-4]                                # header says 8 DW of data, 7 sent
+    b.receive(tlp_pkt(0, short), p.now)
+    assert b.errors[m.E_MALFORMED] == 1 and b.nrs == 1 and not b.rxq and not b.nak_due
+    assert b.ca[m.P] == [9, 34] and b.cr[m.P] == [1, 2]
+    big = bytes([0x40, 0, 0, 40]) + bytes(12 + 160)   # 160-byte payload, above 144 bytes
+    b.receive(tlp_pkt(1, big), p.now)
+    assert b.errors[m.E_MALFORMED] == 2 and b.nrs == 2 and not b.rxq
+
+
+def test_default_completion_credits_are_infinite():
+    d = m.Dll("d")
+    assert d.adv[m.CPL] == (0, 0) and d.adv[m.P] == (8, 32)
+
+
+def test_sink_must_not_stall_when_a_class_is_infinite():
+    with pytest.raises(ValueError):
+        m.perf({"kind": "traffic", "tlps": 10, "sink_duty": 0.5}, 1)
+
+
+def test_infinite_credits_with_skew_send_entry_update_fc():
+    inf = {"ph": 0, "pd": 0, "nph": 0, "npd": 0, "cplh": 0, "cpld": 0}
+    a, b = m.Dll("a", inf), m.Dll("b", inf)
+    p = m.Pair(a, b, m.Channel(random.Random(1)))
+    for _ in range(1000):
+        p.step(link=(True, p.now >= 300))
+    assert a.state == b.state == m.ACTIVE
+    assert a.counts["updatefc"] >= 3 and b.counts["updatefc"] >= 3
+
+
+def test_nak_or_timeout_during_replay_gives_exactly_one_more_replay():
+    p, a, b = up_pair(errors={"drop_tlp_window": (0, 10**9)})
+    for i in range(3):
+        while not a.offer(m.make_tlp("mwr", 128, i), p.now):
+            p.step()
+    while a.send_idx < 3:
+        p.step()
+    a.receive(m.Packet(True, m.ack_dllp(m.NAK, 4095)), p.now)
+    assert a.replay_active and a.counts["replays"] == 1 and a.replay_num == 1
+    a.receive(m.Packet(True, m.ack_dllp(m.NAK, 4095)), p.now)    # during the replay
+    a._start_replay()                                            # as a timeout would
+    assert a.replay_pending and a.counts["replays"] == 1
+    while a.counts["replays"] == 1:
+        p.step()
+    assert a.replay_active and a.counts["replays"] == 2 and not a.replay_pending
+    while a.replay_active:
+        p.step()
+    assert a.counts["replays"] == 2 and a.replay_num == 2
+
+
+def test_rollover_holds_tlps_until_the_ltssm_returns_to_l0():
+    p, a, b = up_pair(errors={"drop_tlp_window": (0, 10**9)})
+    p.ch.retrain_cycles = 300
+    assert a.offer(m.make_tlp("mwr", 64, 1), p.now)
+    while not a.errors[m.E_ROLLOVER]:
+        p.step()
+    sent = a.counts["tx_tlps"]
+    assert a.replay_hold
+    while p.ch.recovery(p.now) or p.now == p.ch.recovery_until - 300:
+        p.step()
+        assert a.counts["tx_tlps"] == sent
+    p.step()
+    assert not a.replay_hold                      # released on the first cycle back in L0
+    run(p, 20)                                    # after the DLLPs already due
+    assert a.counts["tx_tlps"] == sent + 1
+
+
+def test_rollover_hold_falls_back_when_no_retrain_happens():
+    p, a, b = up_pair(errors={"drop_tlp_window": (0, 10**9)})
+    p.ch.retrain = lambda now: None               # the retrain request is not acted on
+    assert a.offer(m.make_tlp("mwr", 64, 1), p.now)
+    while not a.errors[m.E_ROLLOVER]:
+        p.step()
+    sent = a.counts["tx_tlps"]
+    run(p, m.ROLLOVER_HOLD_MAX - 2)
+    assert a.replay_hold and a.counts["tx_tlps"] == sent
+    run(p, 3)
+    assert not a.replay_hold and a.counts["tx_tlps"] == sent + 1
 
 
 def test_sequence_numbers_wrap():
@@ -357,3 +443,18 @@ def test_perf_init_and_bad_workloads():
         m.perf({"kind": "nope"}, 1)
     with pytest.raises(ValueError):
         m.perf({"kind": "traffic", "tlps": 0}, 1)
+
+
+def test_ack_progress_restarts_a_stopped_timer_while_sent_tlps_remain():
+    p, a, b = up_pair(errors={"drop_tlp_window": (0, 10**9)})
+    for i in range(3):
+        while not a.offer(m.make_tlp("mwr", 16, i), p.now):
+            p.step()
+    while a.send_idx < 3:
+        p.step()
+    a.receive(m.Packet(True, m.ack_dllp(m.NAK, 4095)), p.now)   # replay starts: timer stopped
+    assert not a.rt_running and a.send_idx == 0
+    a.receive(m.Packet(True, m.ack_dllp(m.ACK, 0)), p.now)      # progress, two sent remain
+    assert a.rt_running and a.rt_count == 0
+    a.receive(m.Packet(True, m.ack_dllp(m.ACK, 2)), p.now)      # nothing sent remains
+    assert not a.rt_running

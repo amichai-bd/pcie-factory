@@ -1,0 +1,11 @@
+# Initialisation with every credit infinite, any link-up skew
+# (wiki/src/arch/dll/FLOW_CONTROL.md#initialisation, wiki/src/arch/dll/HAS.md#targets).
+description: 200 initialisations, all credits infinite, link-up skew up to 2000 cycles.
+seed: 1
+workload:
+  kind: init
+  trials: 200
+  skew: 2000
+  fc: {ph: 0, pd: 0, nph: 0, npd: 0, cplh: 0, cpld: 0}
+targets:
+  dl_active_cycles_max: {max: 200}

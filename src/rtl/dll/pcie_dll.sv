@@ -11,8 +11,8 @@ module pcie_dll #(
   parameter int unsigned FC_PD   = 32,  // posted data credits; 0 infinite, else 8..2047
   parameter int unsigned FC_NPH  = 8,   // non-posted header credits; 0 infinite, else 1..127
   parameter int unsigned FC_NPD  = 8,   // non-posted data credits; 0 infinite, else 1..2047
-  parameter int unsigned FC_CPLH = 8,   // completion header credits; 0 infinite, else 1..127
-  parameter int unsigned FC_CPLD = 32   // completion data credits; 0 infinite, else 8..2047
+  parameter int unsigned FC_CPLH = 0,   // completion header credits; 0 infinite (default), else 1..127
+  parameter int unsigned FC_CPLD = 0    // completion data credits; 0 infinite (default), else 8..2047
 ) (
   // Clock and reset
   input  logic        clk_i,            // core clock, 125 MHz
@@ -43,7 +43,7 @@ module pcie_dll #(
   // Status
   output logic        dl_up_o,
   output logic [1:0]  dl_state_o,       // 0 DL_Inactive, 1 FC_INIT1, 2 FC_INIT2, 3 DL_Active
-  output logic [5:0]  err_o,            // one-cycle error pulses, bit order in the HAS
+  output logic [6:0]  err_o,            // one-cycle error pulses, bit order in the HAS
 
   // Lower packet stream, transmit (to phy)
   output logic        pkt_tx_valid_o,
@@ -64,7 +64,7 @@ module pcie_dll #(
 
   // Physical-layer status and control
   input  logic        link_up_i,        // phy link_up_o // cdc-domain: clk_i
-  input  logic [5:0]  ltssm_state_i,    // phy ltssm_state_o // cdc-domain: clk_i
+  input  logic [5:0]  ltssm_state_i,    // phy ltssm_state_o; L0 is 0x20..0x2F // cdc-domain: clk_i
   output logic        retrain_req_o     // one-cycle pulse on REPLAY_NUM rollover
 );
 
@@ -91,7 +91,7 @@ module pcie_dll #(
   assign fc_cpld_avail_o = 12'd0;
   assign dl_up_o         = 1'b0;
   assign dl_state_o      = 2'd0;
-  assign err_o           = 6'd0;
+  assign err_o           = 7'd0;
   assign pkt_tx_valid_o  = 1'b0;
   assign pkt_tx_data_o   = 16'd0;
   assign pkt_tx_sop_o    = 1'b0;

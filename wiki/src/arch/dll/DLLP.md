@@ -26,7 +26,7 @@ channel and bit 3 is 0. This design sends VC 0 only.
 | Nak | `0x10` | In DL_Active, by the [Nak rules](RETRY.md#ack-and-nak-scheduling). | As Ack, then a replay. |
 | InitFC1-P, -NP, -Cpl | `0x40`, `0x50`, `0x60` | In FC_INIT1, as a group of three in that order ([initialisation](FLOW_CONTROL.md#initialisation)). | Records the partner's credits in FC_INIT1. |
 | InitFC2-P, -NP, -Cpl | `0xC0`, `0xD0`, `0xE0` | In FC_INIT2, likewise. | Records credits in FC_INIT1; ends FC_INIT2. |
-| UpdateFC-P, -NP, -Cpl | `0x80`, `0x90`, `0xA0` | In DL_Active ([UpdateFC](FLOW_CONTROL.md#updatefc-scheduling)). | New credit limit in FC_INIT2 and DL_Active; ends FC_INIT2. |
+| UpdateFC-P, -NP, -Cpl | `0x80`, `0x90`, `0xA0` | In DL_Active, for every class, infinite ones included ([UpdateFC](FLOW_CONTROL.md#updatefc-scheduling)). | New credit limit in FC_INIT2 and DL_Active; ends FC_INIT2. |
 | Any other | - | Never: no power-management or vendor DLLPs (no ASPM changes, Q6). | Discarded without error. |
 
 A flow-control DLLP for a VC other than 0 is discarded without error.
@@ -80,7 +80,8 @@ from this definition by the
 
 ## Receiving DLLPs
 
-At the `eop` of a packet tagged DLLP, in any state but DL_Inactive:
+At the `eop` of a packet tagged DLLP, in any state but DL_Inactive
+[cite: PCIe Base Spec, rev 3.0, §3.5.2.2]:
 
 1. `pkt_rx_err_i` set, a length other than 6 bytes, or a CRC-16 mismatch:
    discard it and pulse Bad DLLP on `err_o`. Nothing else changes; a lost

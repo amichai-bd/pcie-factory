@@ -42,9 +42,10 @@ data length give the TLP's size in bytes for the replay buffer.
   class) or good TLP received sets the done flag; when it is set and no
   group is being sent, the `dll` enters DL_Active. An UpdateFC received in
   FC_INIT2 also sets its class's limits ([transmit](#transmit-accounting)).
-- **DL_Active.** On entry an UpdateFC is due at once for every class with
-  a finite field: a partner still in FC_INIT2 needs one to finish, since
-  this side has stopped sending InitFC2.
+- **DL_Active.** On entry an UpdateFC is due at once for every class,
+  infinite fields sent as 0: a partner still in FC_INIT2 needs one to
+  finish, since this side has stopped sending InitFC2 and sends TLPs only
+  if its upper layer has any. This holds with every class infinite.
 - Lost or corrupted InitFC DLLPs are covered by the resends.
 
 ## Transmit accounting
@@ -73,8 +74,8 @@ Per class and field, for finite fields only
 
 | Counter | Reset | Rule |
 | --- | --- | --- |
-| CREDITS_ALLOCATED | the `FC_*` parameter | Adds a TLP's credits when the upper layer takes its `eop` beat. |
-| CREDITS_RECEIVED | 0 | Adds a TLP's credits when it is stored (good, expected, and covered). Duplicates, bad and discarded TLPs add nothing. |
+| CREDITS_ALLOCATED | the `FC_*` parameter | Adds a TLP's credits when the upper layer takes its `eop` beat, or at once for a malformed TLP. |
+| CREDITS_RECEIVED | 0 | Adds a TLP's credits when it is stored (good, expected, and covered), or accepted as malformed. Duplicates, bad and overflowed TLPs add nothing. |
 
 ## Receive buffer
 
@@ -88,13 +89,17 @@ space.
 - **Overflow check.** An expected, good TLP is covered when, for each
   finite field, its credits are at most
   `(CREDITS_ALLOCATED − CREDITS_RECEIVED)` modulo 2^w, and for each
-  infinite field they fit in the reserve's free space. A partner that
-  respects the advertised credits never fails it; a TLP that does is
-  discarded with a Receiver overflow pulse, neither acknowledged nor
-  Nak'd, so the partner replays it later
-  [cite: PCIe Base Spec, rev 3.0, §2.6.1.2].
-- **Infinite classes.** The upper layer keeps up with them (it never
-  holds `tlp_rx_ready_i` low for long); a 4-byte beat per cycle drains
+  infinite field they fit in the reserve's free space
+  [cite: PCIe Base Spec, rev 3.0, §2.6.1.2]. A TLP that fails it is
+  discarded with a Receiver overflow pulse and neither acknowledged nor
+  Nak'd. The TLPs behind it then arrive ahead of NEXT_RCV_SEQ, pulse Bad
+  TLP and schedule one Nak, and the partner replays from the overflowed
+  TLP; if the cause persists, the replays overflow again, REPLAY_NUM rolls
+  over and the link retrains ([receiving TLPs](RETRY.md#receiving-tlps)).
+- **Never with a compliant pair.** A partner that respects the
+  advertised credits never fails the check for a finite field. For an
+  infinite field the upper layer must never stall
+  ([obligation](HAS.md#receive)): it then takes a 4-byte beat per cycle,
   faster than the 2-byte line fills, so the reserve covers the TLPs queued
   behind one maximum TLP being drained.
 
@@ -103,13 +108,14 @@ space.
 In DL_Active, for each class with at least one finite field
 [cite: PCIe Base Spec, rev 3.0, §2.6.1.2]:
 
-- **Due** when CREDITS_ALLOCATED differs from the values last sent for
-  the class (credits were returned), or 2048 cycles have passed since the
-  class's last UpdateFC (the periodic refresh, which recovers a lost one),
-  and at once on entering DL_Active.
+- **Due**, for every class, at once on entering DL_Active and when 2048
+  cycles have passed since the class's last UpdateFC (the periodic
+  refresh, which recovers a lost one); and, for a class with a finite
+  field, when CREDITS_ALLOCATED differs from the values last sent (credits
+  were returned). An infinite class's credits never change, so it gets
+  only the entry UpdateFC and the refresh.
 - **Content:** HdrFC and DataFC are CREDITS_ALLOCATED modulo 256 and 4096;
   an infinite field is sent as 0.
 - **Order:** due classes take turns P, NP, Cpl, round robin, at
   [priority](RETRY.md#transmit-priority) 4. One UpdateFC carries every
   credit returned so far for its class, so returns coalesce while it waits.
-- A class with both fields infinite never gets an UpdateFC.

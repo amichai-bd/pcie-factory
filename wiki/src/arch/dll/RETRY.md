@@ -53,9 +53,10 @@ LCRC bytes `E1 F1 E7 E2`.
 
 A TLP accepted from the upper stream gets the next sequence number in
 order (the first is 0); NEXT_TRANSMIT_SEQ moves past it when it is first
-handed to `phy`. At most 2047 TLPs are unacknowledged
-(`(NEXT_TRANSMIT_SEQ − ACKD_SEQ − 1)` stays below 2047): the
-[transmit rule](HAS.md#transmit) holds a new TLP back otherwise. The
+handed to `phy`. At most 2047 TLPs hold a sequence number and are not
+yet acknowledged, counting those accepted and not yet sent: with N the
+next sequence number to assign, `(N − ACKD_SEQ − 1)` stays below 2047, and
+the [transmit rule](HAS.md#transmit) holds a new TLP back otherwise. The
 1024-byte replay buffer reaches its limit long before.
 
 ## Replay buffer
@@ -90,11 +91,14 @@ a cycle.
 
 - Starts from 0, when stopped, as the last beat of any TLP (new or
   replayed) is taken by `phy`.
-- Restarts from 0 when an Ack or Nak acknowledges at least one TLP and
-  sent TLPs remain unacknowledged; stops when none remain.
+- Restarts from 0, running, when an Ack or Nak acknowledges at least one
+  TLP and TLPs that were sent remain unacknowledged (even if a replay had
+  stopped it); stops at 0 when none remain.
 - Stops at 0 when a replay starts (it starts again with the first
   replayed TLP's last beat).
-- Holds its value while `ltssm_state_i` is a Recovery code.
+- Holds its value while `ltssm_state_i` is not an L0 code (`0x20` to
+  `0x2F`): in Recovery, and through a pass from Recovery to Configuration
+  and back, during which `link_up_i` stays 1.
 - At 356 it stops, pulses Replay timeout on `err_o`, and requests a
   [replay](#replay).
 
@@ -105,9 +109,16 @@ Counts replays without forward progress
 
 - Each replay that starts (by Nak or timeout) first adds 1. From 3 it
   rolls over to 0: the `dll` pulses `retrain_req_o` and REPLAY_NUM
-  rollover on `err_o` in that cycle, and the replay still goes ahead; the
-  `phy` holds it (`pkt_tx_ready_i` 0) while it retrains, so it runs once
-  the link is back in L0.
+  rollover on `err_o` in that cycle, and the replay is held.
+- **Rollover hold.** From the rollover, no TLP (replayed or new) starts
+  on the `phy` stream until `ltssm_state_i` has left L0 and then shown an
+  L0 code again: the retrain has run. DLLPs are not held. If the LTSSM
+  has not left L0 within 1024 cycles of the rollover (the `phy` ignored
+  the request, which it does outside L0), the hold ends then. Once the
+  LTSSM has left L0 there is no time bound: the `mac` returns to L0 or
+  falls to Detect, which drops `link_up_i` and resets the `dll`. The
+  1024 cycles exceed the `mac`'s 4 µs (500-cycle) retrain target
+  ([`mac` HAS, Targets](../mac/HAS.md#targets)).
 - An Ack or Nak that acknowledges at least one TLP sets it to 0.
 
 ## Replay
@@ -160,11 +171,19 @@ states it is discarded silently) [cite: PCIe Base Spec, rev 3.0, §3.5.3.1]:
 4. The TLP is good. In FC_INIT2 it ends initialisation
    ([control states](HAS.md#data-link-control-states)). With S its
    sequence number and D = `(S − NEXT_RCV_SEQ)` modulo 4096:
-   - **D = 0, expected:** if its class's free credits do not cover it,
-     discard; Receiver overflow; no Ack or Nak
-     ([receive buffer](FLOW_CONTROL.md#receive-buffer)). Otherwise store
-     it, add 1 to NEXT_RCV_SEQ, clear NAK_SCHEDULED, start the Ack timer
-     if stopped.
+   - **D = 0, expected, malformed:** its byte count differs from the
+     size its header's Fmt and Length give, or exceeds 144: accept it at
+     this layer (add 1 to NEXT_RCV_SEQ, clear NAK_SCHEDULED, start the
+     Ack timer if stopped) but do not store or deliver it; return its
+     header's credits at once (CREDITS_RECEIVED and CREDITS_ALLOCATED
+     both advance); Malformed TLP.
+   - **D = 0, expected, does not fit:** if its class's free credits do not
+     cover it, discard; Receiver overflow; no Ack or Nak
+     ([receive buffer](FLOW_CONTROL.md#receive-buffer)). NEXT_RCV_SEQ
+     does not move, so TLPs that follow arrive ahead (next item): Bad TLP
+     and one Nak, and the partner replays from the overflowed TLP.
+   - **D = 0, expected:** otherwise store it, add 1 to NEXT_RCV_SEQ,
+     clear NAK_SCHEDULED, start the Ack timer if stopped.
    - **D from 1 to 2047, ahead** (TLPs were lost): discard; Bad TLP;
      schedule a Nak.
    - **D from 2048 to 4095, a duplicate** (already received): discard; no

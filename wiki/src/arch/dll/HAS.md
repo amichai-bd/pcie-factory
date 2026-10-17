@@ -97,7 +97,7 @@ DL_Active.
 | --- | --- | --- | --- | --- |
 | `dl_up_o` | out | 1 | `clk_i` | DL_Up: 1 in FC_INIT2 and DL_Active ([control states](#data-link-control-states)). |
 | `dl_state_o` | out | 2 | `clk_i` | 0 DL_Inactive, 1 DL_Init in FC_INIT1, 2 DL_Init in FC_INIT2, 3 DL_Active. |
-| `err_o` | out | 6 | `clk_i` | One-cycle error pulses ([errors](#errors)). |
+| `err_o` | out | 7 | `clk_i` | One-cycle error pulses ([errors](#errors)). |
 
 ### Lower packet stream and link status
 
@@ -119,7 +119,7 @@ ties the `phy` `pkt_tx_nullify_i` to 0.
 | `pkt_rx_dllp_i` | in | 1 | 0 TLP, 1 DLLP. |
 | `pkt_rx_err_i`, `pkt_rx_nullify_i` | in | 1, 1 | With `eop`: bad packet, or ended by EDB. |
 | `link_up_i` | in | 1 | The `phy` `link_up_o`: the physical layer's LinkUp. |
-| `ltssm_state_i` | in | 6 | The `phy` `ltssm_state_o` ([encoding](../mac/LTSSM.md#state-encoding)); the `dll` uses only "in Recovery", codes `0x10` to `0x14`. |
+| `ltssm_state_i` | in | 6 | The `phy` `ltssm_state_o` ([encoding](../mac/LTSSM.md#state-encoding)). The `dll` uses only "in L0": codes `0x20` to `0x2F` (L0 with any L0s sub-state). Every other code (Recovery, Configuration, the power and control states) is "not in L0". |
 | `retrain_req_o` | out | 1 | One-cycle pulse to the `phy` `retrain_req_i` on a [REPLAY_NUM rollover](RETRY.md#replay_num). |
 
 ## Parameters
@@ -136,13 +136,18 @@ one TLP header; one data credit is 16 bytes of payload
 | `FC_PD` | `int unsigned` | 32 | 0, 8 to 2047 | Posted data credits (8 is one 128-byte payload). |
 | `FC_NPH` | `int unsigned` | 8 | 0, 1 to 127 | Non-posted header credits. |
 | `FC_NPD` | `int unsigned` | 8 | 0, 1 to 2047 | Non-posted data credits. |
-| `FC_CPLH` | `int unsigned` | 8 | 0, 1 to 127 | Completion header credits. |
-| `FC_CPLD` | `int unsigned` | 32 | 0, 8 to 2047 | Completion data credits. |
+| `FC_CPLH` | `int unsigned` | 0 (infinite) | 0, 1 to 127 | Completion header credits. |
+| `FC_CPLD` | `int unsigned` | 0 (infinite) | 0, 8 to 2047 | Completion data credits. |
 
 The upper bounds keep every advertisement within half the counter range,
 as the accounting requires [cite: PCIe Base Spec, rev 3.0, §2.6.1]. The
-defaults let one direction run at line rate with 128-byte payloads
-([Targets](#targets)). Fixed, not parameters (Q6): maximum payload 128
+posted and non-posted defaults let one direction run at line rate with
+128-byte payloads ([Targets](#targets)). Completion credits default to
+infinite: an Endpoint, and a Root Port that does not route peer-to-peer,
+must advertise them so [cite: PCIe Base Spec, rev 3.0, §2.6.1]. The `dll`
+is port-role neutral; a finite `FC_CPLH` or `FC_CPLD` is an override for a
+port whose role allows it. Any infinite class binds the upper layer to
+never stall the receive stream ([Receive](#receive)). Fixed, not parameters (Q6): maximum payload 128
 bytes, VC0 only, no ECRC, a 1024-byte [replay buffer](RETRY.md#replay-buffer),
 the [timer values](RETRY.md#timers).
 
@@ -179,6 +184,8 @@ stays 1 through Recovery, so a retrain does not leave DL_Active.
 
 ### Transmit
 
+- TLPs are taken and sent only in DL_Active, although `dl_up_o` is
+  already 1 in FC_INIT2.
 - `tlp_tx_ready_o` is 1 on a `sop` beat only in DL_Active, when no TLP is
   being taken, and when the TLP described by that beat (its first DW, so
   ready may depend on `tlp_tx_data_i`) meets all three of:
@@ -209,17 +216,34 @@ stays 1 through Recovery, so a retrain does not leave DL_Active.
   TLP that passes every check is stored without its sequence number and
   LCRC and offered on the upper stream in arrival order; no other TLP is
   ever offered.
-- The upper layer may hold `tlp_rx_ready_i` low; credits then stop being
-  returned. When it takes a TLP's `eop` beat, the TLP's credits return to
-  the partner ([UpdateFC](FLOW_CONTROL.md#updatefc-scheduling)).
+- `tlp_rx_valid_o` may drop between beats inside a TLP; `sop` and `eop`
+  mark its ends. When the upper layer takes a TLP's `eop` beat, the TLP's
+  credits return to the partner
+  ([UpdateFC](FLOW_CONTROL.md#updatefc-scheduling)).
+- **Upper-layer obligation.** If any `FC_*` parameter is 0 (by default
+  the completion credits are), the upper layer holds `tlp_rx_ready_i` at 1
+  in every cycle that `dl_up_o` is 1: it never stalls. The RTL checks this
+  with an assertion. With every parameter finite it may stall freely; the
+  credits bound what the receive buffer must hold
+  ([receive buffer](FLOW_CONTROL.md#receive-buffer)).
+- A good, expected TLP whose byte count differs from what its header's
+  Fmt and Length give, or exceeds 144 bytes, is malformed: it is
+  acknowledged (the sequence advances), not delivered, and its header's
+  credits are returned at once; Malformed TLP pulses
+  ([receiving TLPs](RETRY.md#receiving-tlps)).
 
 ### Errors
 
 `err_o` bits are one-cycle pulses, one per event; several events of the
 same kind in one cycle give one pulse. The data link layer reports these
 errors [cite: PCIe Base Spec, rev 3.0, §3.5.2.1]
+[cite: PCIe Base Spec, rev 3.0, §3.5.2.2]
 [cite: PCIe Base Spec, rev 3.0, §3.5.3.1]; the upper layer owns logging
-and severity.
+and severity. A TLP that `phy` flags with `pkt_rx_err_i` has already
+pulsed `rcv_err_o` at the `phy`, and pulses Bad TLP here too: one event,
+two reports. Link-level error counting (`link`,
+[#209](https://github.com/amichai-bd/pcie-factory/issues/209)) must not
+add the two together.
 
 | Bit | Name | Event |
 | --- | --- | --- |
@@ -229,6 +253,7 @@ and severity.
 | 3 | REPLAY_NUM rollover | A [rollover](RETRY.md#replay_num); `retrain_req_o` pulses in the same cycle. |
 | 4 | DL protocol error | An Ack or Nak whose sequence number names no unacknowledged TLP ([Ack and Nak](RETRY.md#received-ack-and-nak)). |
 | 5 | Receiver overflow | A good TLP that its class's free credits do not cover ([receive buffer](FLOW_CONTROL.md#receive-buffer)). |
+| 6 | Malformed TLP | A good, expected TLP whose byte count disagrees with its header or exceeds 144 bytes ([Receive](#receive)). |
 
 ## Decisions
 
@@ -241,7 +266,12 @@ and severity.
 | Credit-available as six flat count ports | Mirrors the six counters the spec names; one meaning per port (M1 Q25 keeps single-meaning top ports flat). | One packed struct port (no package shared with M3 exists yet). |
 | `dl_up_o` from FC_INIT2 | DL_Up is reported once the partner's credits are recorded [cite: PCIe Base Spec, rev 3.0, §3.2.1]. | DL_Active only. |
 | A Nak or timeout during a replay replays again after it | One replay at a time keeps the replay buffer read path simple; the second request is not lost. | Restarting the replay at once. |
-| Overflowed TLPs are neither acknowledged nor Nak'd | The partner's replay timer resends them once the upper layer drains; the error is still reported. | Acknowledging and dropping (loses the TLP). |
+| Overflowed TLPs are discarded, neither acknowledged nor Nak'd | Never loses a TLP and needs no extra state. The consequence is spelled out: NEXT_RCV_SEQ does not advance, so the TLPs behind it arrive "ahead", pulse Bad TLP and schedule one Nak, and the partner replays from the overflowed TLP. If the stall persists, each replay overflows again, REPLAY_NUM rolls over and the link retrains. A credit-correct partner with a compliant upper layer never triggers it. | Acknowledging and dropping (loses the TLP). |
+| Completion credits infinite by default; `dll` port-role neutral | The Endpoint and Root Port rule; one IP serves both roles, and a role that may advertise finite completion credits overrides `FC_CPLH`/`FC_CPLD`. | Finite defaults (non-compliant for an Endpoint). |
+| The upper layer never stalls when any class is infinite | An exact, checkable rule. With one FIFO in arrival order, a stall on any TLP would let infinite-class TLPs behind it overrun the reserve even with a credit-correct partner. | A cycle bound (hard to size and verify). |
+| An entry UpdateFC and the 2048-cycle refresh for every class, infinite fields sent as 0 | With all classes infinite and link-up skew, the side that leaves FC_INIT2 first would otherwise send nothing that ends the partner's FC_INIT2, so the partner never reaches DL_Active. | Allowing TLPs in FC_INIT2. |
+| After a REPLAY_NUM rollover, TLPs wait until the LTSSM has left L0 and returned | The replay then never starts into a retrain that would cut it; the `dll` enforces it without relying on `phy` ready timing. | Replaying at once (the first replayed TLP is lost and needs another Nak or timeout). |
+| Malformed TLPs acknowledged and dropped, credits returned | The data link layer accepted it; the receive buffer is sized from header credits, so it is not stored. The transaction layer's own malformed checks come in M3. | Nak (the partner would replay it forever). |
 
 ## Targets
 
@@ -259,9 +289,9 @@ in the `dll` and `link` DV.
 | Replay buffer sizing | The same at 99% with the partner sending Acks at the spec's latest, 118 cycles: the replay buffer never stalls the line ([sizing](RETRY.md#replay-buffer)). | `ack_spec_max` |
 | Ack latency | Every good TLP is covered by an Ack or Nak that starts on the `phy` stream within 118 cycles (237 symbol times) of its `eop` from `phy`, error-free, both directions loaded [cite: PCIe Base Spec, rev 3.0, §3.5.3.1]. | `mwr_max`, `mixed_bidir` |
 | Lossless | With 2% of packets corrupted, 1% dropped and 1% flagged by `phy`, both ways and for TLPs and DLLPs: every TLP delivered exactly once and in order, no protocol error, no overflow. | `error_recovery` |
-| Rollover | TLPs lost one way for 2500 cycles: one REPLAY_NUM rollover, one retrain, then every TLP delivered once, in order. | `replay_rollover` |
-| Credits | No receiver overflow when the upper layer stalls for 4000 and 10000 cycles and otherwise takes 30% of beats (finite credits), or never stalls (all classes infinite). | `credit_starve`, `credits_infinite` |
-| Initialisation | Both ends in DL_Active within 200 cycles of the later `link_up_i`, any skew; within 4500 cycles with 10% of DLLPs corrupted. | `fc_init`, `fc_init_errors` |
+| Rollover | TLPs lost one way from a set cycle until the retrain: exactly 4 replay timeouts, 1 rollover, 1 retrain, at most 4 replays, no Bad TLP at the partner, then every TLP delivered once, in order. | `replay_rollover` |
+| Credits | No receiver overflow when the upper layer stalls for 4000 and 10000 cycles and otherwise takes 30% of beats (every class finite), or never stalls (all classes infinite). | `credit_starve`, `credits_infinite` |
+| Initialisation | Both ends in DL_Active within 200 cycles of the later `link_up_i`, any skew, finite or all-infinite credits; within 4500 cycles with 10% of DLLPs corrupted. With all credits infinite and 300 cycles of skew, the side that reaches DL_Active last delivers all its TLPs. | `fc_init`, `fc_init_infinite`, `fc_init_errors`, `infinite_skew` |
 | TX latency | At most 4 cycles from a TLP's accepted `eop` to its `sop` on the `phy` stream, when nothing else is queued. | budget, `TX_STORE` |
 | RX latency | At most 4 cycles from a good TLP's `eop` from `phy` to its `sop` on the upper stream, when the receive buffer is empty. | budget, `RX_CHECK` |
 | Clock | 50 MHz on the `link` FPGA (DE2-115) flow, a timing and resource target only (M1 Q26); on the `link` ASIC flow the 100 MHz checkpoint is the gate and 125 MHz is reported ([Q10](../../decisions/0003-m2-grill.md#decisions)). The design's rates are unchanged: `clk_i` is 125 MHz. | `link` flows |
@@ -289,10 +319,11 @@ DV oracle: the independent link partner of Q3 is
 | [`ack_spec_max`](../../../../src/arch/dll/perf/ack_spec_max.yaml) | The same, partner Ack latency 118 cycles. |
 | [`mixed_bidir`](../../../../src/arch/dll/perf/mixed_bidir.yaml) | 2000 random TLPs each way. |
 | [`error_recovery`](../../../../src/arch/dll/perf/error_recovery.yaml) | 3000 random TLPs each way with injected errors. |
-| [`replay_rollover`](../../../../src/arch/dll/perf/replay_rollover.yaml) | All TLPs one way dropped for 2500 cycles. |
+| [`replay_rollover`](../../../../src/arch/dll/perf/replay_rollover.yaml) | All TLPs one way dropped from cycle 5000 to 7000, across the retrain. |
 | [`credit_starve`](../../../../src/arch/dll/perf/credit_starve.yaml) | A stalling, slow upper layer with finite credits. |
 | [`credits_infinite`](../../../../src/arch/dll/perf/credits_infinite.yaml) | All credits infinite. |
-| [`fc_init`](../../../../src/arch/dll/perf/fc_init.yaml), [`fc_init_errors`](../../../../src/arch/dll/perf/fc_init_errors.yaml) | 200 initialisations with skew, without and with DLLP errors. |
+| [`fc_init`](../../../../src/arch/dll/perf/fc_init.yaml), [`fc_init_errors`](../../../../src/arch/dll/perf/fc_init_errors.yaml), [`fc_init_infinite`](../../../../src/arch/dll/perf/fc_init_infinite.yaml) | 200 initialisations with skew: default credits, DLLP errors, all credits infinite. |
+| [`infinite_skew`](../../../../src/arch/dll/perf/infinite_skew.yaml) | All credits infinite, 300 cycles of skew, TLPs only from the later side. |
 
 ## Open items
 
@@ -308,4 +339,5 @@ corrects the rule and the model together.
 | DL_Up reported from FC_INIT2, TLP transmission only from DL_Active, and the "group being sent is complete" rule for leaving FC_INIT1 and FC_INIT2. | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
 | The timer values: replay timeout 711 symbol times (no L0s adjustment, since `dll` makes no ASPM changes), Ack limit 237 symbol times, InitFC resend at most every 34 µs, UpdateFC refresh at most every 30 µs ([timers](RETRY.md#timers)). | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
 | A Nak not resent while NAK_SCHEDULED is set (a lost Nak is recovered by the partner's replay timer), and a phy-flagged TLP treated as a bad TLP that schedules a Nak. | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
+| L0s: the replay timeout has no L0s adjustment, so `link` must not enable L0s through the `phy` `pm_state_req_i` unless the timeout gains it. | [#209](https://github.com/amichai-bd/pcie-factory/issues/209) |
 | The minimum advertised credits (`FC_PD` and `FC_CPLD` at least one maximum payload, the others at least 1). | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |

@@ -1,12 +1,14 @@
 # The receiving upper layer stops for long windows and drains slowly:
-# credits run out and return, with no overflow (wiki/src/arch/dll/HAS.md#targets).
-description: 1500 random TLPs one way, default finite credits, sink stopped twice and otherwise ready 30% of cycles.
+# with every class finite (stalls are allowed only then), credits run out
+# and return, with no overflow (wiki/src/arch/dll/HAS.md#targets).
+description: 1500 random TLPs one way, every class finite (completions 8 and 32 by override), sink stopped twice and otherwise ready 30% of cycles.
 seed: 4
 workload:
   kind: traffic
   tlps: 1500
   mix: mixed
   payload: -1
+  fc: {cplh: 8, cpld: 32}
   sink_duty: 0.3
   sink_starve: [[2000, 6000], [10000, 20000]]
 targets:

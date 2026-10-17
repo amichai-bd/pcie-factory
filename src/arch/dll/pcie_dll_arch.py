@@ -51,12 +51,13 @@ UPDATEFC_PERIOD = 2048      # cycles; at most 30 us [cite: PCIe Base Spec, rev 3
 INF_RESERVE = (8, 24)       # receive space of an infinite class (HAS, receive buffer)
 TX_STORE = 1                # cycles: TLP eop accepted to eligible for transmission
 RX_CHECK = 2                # cycles: TLP eop from phy to the upper sop
-RECOVERY_LTSSM = range(0x10, 0x15)  # Recovery codes of ltssm_state (mac HAS)
+L0_LTSSM = range(0x20, 0x30)        # L0 codes of ltssm_state, any L0s sub-state (mac HAS)
+ROLLOVER_HOLD_MAX = 1024    # cycles: rollover replay released if the LTSSM never left L0
 
 # Classes and the advertised-credit parameter names per class.
 P, NP, CPL = 0, 1, 2
 CLASSES = ("p", "np", "cpl")
-DEFAULT_FC = {"ph": 8, "pd": 32, "nph": 8, "npd": 8, "cplh": 8, "cpld": 32}
+DEFAULT_FC = {"ph": 8, "pd": 32, "nph": 8, "npd": 8, "cplh": 0, "cpld": 0}
 
 # DLLP type byte [cite: PCIe Base Spec, rev 3.0, §3.4.1].
 ACK, NAK = 0x00, 0x10
@@ -68,9 +69,9 @@ UPDATEFC = (0x80, 0x90, 0xA0)
 INACTIVE, INIT1, INIT2, ACTIVE = 0, 1, 2, 3
 
 # Error pulse bits (HAS, err_o).
-E_BAD_TLP, E_BAD_DLLP, E_TIMEOUT, E_ROLLOVER, E_PROTOCOL, E_OVERFLOW = range(6)
+E_BAD_TLP, E_BAD_DLLP, E_TIMEOUT, E_ROLLOVER, E_PROTOCOL, E_OVERFLOW, E_MALFORMED = range(7)
 ERR_NAMES = ("bad_tlp", "bad_dllp", "replay_timeout", "replay_rollover",
-             "dl_protocol", "rx_overflow")
+             "dl_protocol", "rx_overflow", "malformed_tlp")
 
 
 # --------------------------------------------------------------- formats
@@ -200,6 +201,9 @@ class Dll:
         self.replay_end = 0                # entries a replay resends
         self.replay_active = False
         self.replay_pending = False
+        self.replay_hold = False           # after a rollover: wait for the retrain
+        self.hold_left_l0 = False
+        self.hold_count = 0
         self.replay_num = 0
         self.rt_running, self.rt_count = False, 0
         self.retrain_req = False
@@ -330,6 +334,15 @@ class Dll:
         if ahead == 0:
             tlp = d[SEQ_BYTES:-LCRC_BYTES]
             cls, h, dc, n = tlp_info(tlp)
+            if n != len(tlp) or len(tlp) > MAX_TLP:
+                # Malformed: acknowledged, not delivered, credits returned.
+                self.err(E_MALFORMED)
+                for f, v in ((0, h), (1, dc)):
+                    if self.adv[cls][f]:
+                        self.cr[cls][f] = (self.cr[cls][f] + v) % MODS[f]
+                        self.ca[cls][f] = (self.ca[cls][f] + v) % MODS[f]
+                self._accept_seq(now)
+                return
             if not self._rx_space(cls, (h, dc)):
                 self.err(E_OVERFLOW)
                 return                                  # no Ack: the partner replays
@@ -339,17 +352,20 @@ class Dll:
                 else:
                     self.occ[cls][f] += v
             self.rxq.append([now + RX_CHECK, tlp, (cls, h, dc), -(-len(tlp) // 4)])
-            self.nrs = (self.nrs + 1) % SEQ_MOD
-            self.nak_scheduled = False
-            self.unacked.append(now)
-            if self.ack_since is None:
-                self.ack_since = now
+            self._accept_seq(now)
         elif ahead < SEQ_HALF:
             self.err(E_BAD_TLP)                         # a TLP was lost
             self._schedule_nak()
         else:
             self.counts["duplicates"] += 1
             self.ack_due = True
+
+    def _accept_seq(self, now: int) -> None:
+        self.nrs = (self.nrs + 1) % SEQ_MOD
+        self.nak_scheduled = False
+        self.unacked.append(now)
+        if self.ack_since is None:
+            self.ack_since = now
 
     def _rx_space(self, cls: int, need: tuple) -> bool:
         for f in (0, 1):
@@ -397,8 +413,8 @@ class Dll:
             self.replay_end = max(0, self.replay_end - n)
             self.ackd = seq
             self.replay_num = 0
-            if self.send_idx:
-                self.rt_count = 0
+            if (self.nts - 1 - self.ackd) % SEQ_MOD:   # sent TLPs still unacknowledged
+                self.rt_running, self.rt_count = True, 0
             else:
                 self.rt_running, self.rt_count = False, 0
             if self.replay_active and self.send_idx >= self.replay_end:
@@ -418,6 +434,7 @@ class Dll:
             self.replay_num = 0
             self.err(E_ROLLOVER)
             self.retrain_req = True
+            self.replay_hold, self.hold_left_l0, self.hold_count = True, False, 0
             self.counts["retrains"] += 1
         else:
             self.replay_num += 1
@@ -433,12 +450,19 @@ class Dll:
             self._start_replay()
 
     # ------------------------------------------------------- one clock
-    def tick(self, now: int, ltssm_recovery: bool, can_send: bool, sink_ready: bool) -> Packet | None:
+    def tick(self, now: int, in_l0: bool, can_send: bool, sink_ready: bool) -> Packet | None:
         """Timers, the upper receive stream and the transmit arbiter for one
         cycle. Returns the packet that starts on the phy stream, if any."""
         self.retrain_req = False
         # replay timer, held while the LTSSM is in Recovery
-        if self.rt_running and not ltssm_recovery:
+        # rollover: TLPs wait until the LTSSM has left L0 and come back
+        if self.replay_hold:
+            self.hold_count += 1
+            if not in_l0:
+                self.hold_left_l0 = True
+            elif self.hold_left_l0 or self.hold_count >= ROLLOVER_HOLD_MAX:
+                self.replay_hold = False
+        if self.rt_running and in_l0:
             self.rt_count += 1
             if self.rt_count >= REPLAY_TIMEOUT:
                 self.err(E_TIMEOUT)
@@ -499,8 +523,6 @@ class Dll:
             return Packet(True, ack_dllp(kind, last_rcv))
         for k in range(3):
             c = (self.upd_rr + k) % 3
-            if self.adv[c] == (0, 0):
-                continue
             if self.ca[c] != self.last_adv[c] or now - self.upd_time[c] >= UPDATEFC_PERIOD:
                 self.upd_rr = (c + 1) % 3
                 self.last_adv[c] = list(self.ca[c])
@@ -509,7 +531,8 @@ class Dll:
                 h = self.ca[c][0] if self.adv[c][0] else 0
                 d = self.ca[c][1] if self.adv[c][1] else 0
                 return Packet(True, fc_dllp(UPDATEFC, c, h, d))
-        if self.send_idx < len(self.rbuf) and self.rbuf[self.send_idx][2] <= now:
+        if (not self.replay_hold and self.send_idx < len(self.rbuf)
+                and self.rbuf[self.send_idx][2] <= now):
             seq, data, _ = self.rbuf[self.send_idx]
             self.send_idx += 1
             if (seq - self.nts) % SEQ_MOD < SEQ_HALF:
@@ -592,7 +615,7 @@ class Pair:
                 d.receive(pkt, now)
         rec = ch.recovery(now)
         for way, d in ((0, self.a), (1, self.b)):
-            pkt = d.tick(now, rec, not rec, sinks[way])
+            pkt = d.tick(now, not rec, not rec, sinks[way])
             if pkt is not None:
                 ch.send(way, pkt, now)
             if d.retrain_req:
@@ -634,8 +657,14 @@ def run_traffic(w: dict, seed: int) -> dict[str, float]:
     pair = Pair(a, b, ch)
     starve = w.get("sink_starve", [])            # [[start, end], ...] for b's sink
     duty = float(w.get("sink_duty", 1.0))
+    if (starve or duty < 1.0) and any(0 in adv for adv in b.adv):
+        raise ValueError("an infinite class needs a sink that never stalls (HAS, receive)")
+    skew = _int(w, "link_skew", 0, 0, 100000)    # b's link-up delay
+    sender = w.get("sender", "a")                # 'a', or 'b' for b to a only
     sent = {0: make_traffic(rng, count, mix, payload), 1: []}
-    if both:
+    if sender == "b":
+        sent = {0: [], 1: sent[0]}
+    elif both:
         sent[1] = make_traffic(rng, count, mix, payload)
     idx, first, last = [0, 0], None, 0
     busy_a = 0
@@ -647,7 +676,7 @@ def run_traffic(w: dict, seed: int) -> dict[str, float]:
                 first = now if first is None else first
                 idx[i] += 1
         sink_b = (not any(s <= now < e for s, e in starve)) and (duty >= 1.0 or rng.random() < duty)
-        pair.step(sinks=(True, sink_b))
+        pair.step(sinks=(True, sink_b), link=(True, now >= skew))
         if a.tx_busy and a.tx_cur is not None and not a.tx_cur.dllp:
             busy_a += 1
         if len(b.delivered) >= len(sent[0]) and len(a.delivered) >= len(sent[1]):
@@ -658,7 +687,8 @@ def run_traffic(w: dict, seed: int) -> dict[str, float]:
     m = _score(sent[0], b.delivered)
     m2 = _score(sent[1], a.delivered)
     span = max(1, last - (first or 0))
-    payload_bytes = sum(tlp_info(t)[3] - (16 if t[0] & 0x20 else 12) for t in b.delivered)
+    payload_bytes = sum(tlp_info(t)[3] - (16 if t[0] & 0x20 else 12)
+                        for t in (b.delivered if sent[0] else a.delivered))
     met = {
         "tlps_lost": m[0] + m2[0], "tlps_duplicated": m[1] + m2[1],
         "tlps_out_of_order": m[2] + m2[2],
@@ -666,6 +696,8 @@ def run_traffic(w: dict, seed: int) -> dict[str, float]:
         "tlp_line_fraction": busy_a / span,
         "cycles": float(last),
         "ack_latency_cycles_max": float(max(b.ack_lat + a.ack_lat, default=0)),
+        "tlps_delivered": float(len(a.delivered) + len(b.delivered)),
+        "bad_tlp_at_receiver": float(b.errors[E_BAD_TLP] if sent[0] else a.errors[E_BAD_TLP]),
         "replays": float(a.counts["replays"] + b.counts["replays"]),
         "retrains": float(a.counts["retrains"] + b.counts["retrains"]),
         "credit_blocked_cycles": float(a.counts["credit_blocked"] + b.counts["credit_blocked"]),
