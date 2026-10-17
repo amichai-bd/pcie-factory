@@ -44,8 +44,6 @@ module common_sdp_ram #(
   localparam int unsigned DEPTH      = 2 ** ADDR_W;
   localparam int unsigned LANES_SAFE = (LANES == 0) ? 1 : LANES;
   localparam int unsigned LANE_W     = WIDTH / LANES_SAFE;
-  // A byte enable covers 8 or 9 bits on M9K; one lane needs no byte enable.
-  localparam int unsigned BYTE_SIZE  = (LANES_SAFE == 1) ? 8 : LANE_W;
 
   `COMMON_ASSERT_PARAM(g_width_check, WIDTH >= 1, "common_sdp_ram: WIDTH must be at least 1")
   `COMMON_ASSERT_PARAM(g_addr_w_check, ADDR_W >= 1, "common_sdp_ram: ADDR_W must be at least 1")
@@ -61,56 +59,113 @@ module common_sdp_ram #(
   // Pins absent in DUAL_PORT mode are left explicitly unconnected, as
   // Intel-generated wrappers leave them: data_b (port B never writes), q_a
   // and eccstatus. Every other input is driven: the used ones by the ports,
-  // the rest tied to their inactive levels.
-  altsyncram #(
-    .operation_mode                     ("DUAL_PORT"),
-    .intended_device_family             (INTEL_DEVICE_FAMILY),
-    .ram_block_type                     (INTEL_RAM_BLOCK_TYPE),
-    .lpm_type                           ("altsyncram"),
-    .width_a                            (WIDTH),
-    .widthad_a                          (ADDR_W),
-    .numwords_a                         (DEPTH),
-    .width_byteena_a                    (LANES),
-    .byte_size                          (BYTE_SIZE),
-    .outdata_reg_a                      ("UNREGISTERED"),
-    .width_b                            (WIDTH),
-    .widthad_b                          (ADDR_W),
-    .numwords_b                         (DEPTH),
-    .address_reg_b                      ("CLOCK0"),
-    .rdcontrol_reg_b                    ("CLOCK0"),
-    .outdata_reg_b                      ("UNREGISTERED"),
-    .read_during_write_mode_mixed_ports ("OLD_DATA"),
-    .clock_enable_input_a               ("BYPASS"),
-    .clock_enable_output_a              ("BYPASS"),
-    .clock_enable_input_b               ("BYPASS"),
-    .clock_enable_output_b              ("BYPASS"),
-    .init_file                          ("UNUSED"),
-    .power_up_uninitialized             ("FALSE")
-  ) u_ram (
-    .clock0         (clk_i),
-    .wren_a         (wr_any),
-    .byteena_a      (wr_lanes_i),
-    .address_a      (wr_addr_i),
-    .data_a         (wr_data_i),
-    .rden_b         (rd_en_i),
-    .address_b      (rd_addr_i),
-    .q_b            (rd_data_o),
-    .wren_b         (1'b0),
-    .rden_a         (1'b1),
-    .clock1         (1'b1),
-    .clocken0       (1'b1),
-    .clocken1       (1'b1),
-    .clocken2       (1'b1),
-    .clocken3       (1'b1),
-    .aclr0          (1'b0),
-    .aclr1          (1'b0),
-    .byteena_b      (1'b1),
-    .addressstall_a (1'b0),
-    .addressstall_b (1'b0),
-    .data_b         (),
-    .q_a            (),
-    .eccstatus      ()
-  );
+  // the rest tied to their inactive levels. One lane uses no byte enables:
+  // width_byteena_a, byte_size and byteena_a stay at their defaults (byteena_a
+  // unconnected), as Intel-generated wrappers leave them, and wren_a alone
+  // gates the write; Quartus rejects width_byteena_a = 1 with a byte_size that
+  // does not divide the width (Error 272006). Several lanes use byte enables
+  // of LANE_W (8 or 9) bits.
+  generate
+    if (LANES_SAFE == 1) begin : g_one_lane
+      altsyncram #(
+        .operation_mode                     ("DUAL_PORT"),
+        .intended_device_family             (INTEL_DEVICE_FAMILY),
+        .ram_block_type                     (INTEL_RAM_BLOCK_TYPE),
+        .lpm_type                           ("altsyncram"),
+        .width_a                            (WIDTH),
+        .widthad_a                          (ADDR_W),
+        .numwords_a                         (DEPTH),
+        .outdata_reg_a                      ("UNREGISTERED"),
+        .width_b                            (WIDTH),
+        .widthad_b                          (ADDR_W),
+        .numwords_b                         (DEPTH),
+        .address_reg_b                      ("CLOCK0"),
+        .rdcontrol_reg_b                    ("CLOCK0"),
+        .outdata_reg_b                      ("UNREGISTERED"),
+        .read_during_write_mode_mixed_ports ("OLD_DATA"),
+        .clock_enable_input_a               ("BYPASS"),
+        .clock_enable_output_a              ("BYPASS"),
+        .clock_enable_input_b               ("BYPASS"),
+        .clock_enable_output_b              ("BYPASS"),
+        .init_file                          ("UNUSED"),
+        .power_up_uninitialized             ("FALSE")
+      ) u_ram (
+        .clock0         (clk_i),
+        .wren_a         (wr_any),
+        .address_a      (wr_addr_i),
+        .data_a         (wr_data_i),
+        .rden_b         (rd_en_i),
+        .address_b      (rd_addr_i),
+        .q_b            (rd_data_o),
+        .wren_b         (1'b0),
+        .rden_a         (1'b1),
+        .clock1         (1'b1),
+        .clocken0       (1'b1),
+        .clocken1       (1'b1),
+        .clocken2       (1'b1),
+        .clocken3       (1'b1),
+        .aclr0          (1'b0),
+        .aclr1          (1'b0),
+        .byteena_b      (1'b1),
+        .addressstall_a (1'b0),
+        .addressstall_b (1'b0),
+        .byteena_a      (),
+        .data_b         (),
+        .q_a            (),
+        .eccstatus      ()
+      );
+    end else begin : g_lanes
+      altsyncram #(
+        .operation_mode                     ("DUAL_PORT"),
+        .intended_device_family             (INTEL_DEVICE_FAMILY),
+        .ram_block_type                     (INTEL_RAM_BLOCK_TYPE),
+        .lpm_type                           ("altsyncram"),
+        .width_a                            (WIDTH),
+        .widthad_a                          (ADDR_W),
+        .numwords_a                         (DEPTH),
+        .width_byteena_a                    (LANES),
+        .byte_size                          (LANE_W),
+        .outdata_reg_a                      ("UNREGISTERED"),
+        .width_b                            (WIDTH),
+        .widthad_b                          (ADDR_W),
+        .numwords_b                         (DEPTH),
+        .address_reg_b                      ("CLOCK0"),
+        .rdcontrol_reg_b                    ("CLOCK0"),
+        .outdata_reg_b                      ("UNREGISTERED"),
+        .read_during_write_mode_mixed_ports ("OLD_DATA"),
+        .clock_enable_input_a               ("BYPASS"),
+        .clock_enable_output_a              ("BYPASS"),
+        .clock_enable_input_b               ("BYPASS"),
+        .clock_enable_output_b              ("BYPASS"),
+        .init_file                          ("UNUSED"),
+        .power_up_uninitialized             ("FALSE")
+      ) u_ram (
+        .clock0         (clk_i),
+        .wren_a         (wr_any),
+        .byteena_a      (wr_lanes_i),
+        .address_a      (wr_addr_i),
+        .data_a         (wr_data_i),
+        .rden_b         (rd_en_i),
+        .address_b      (rd_addr_i),
+        .q_b            (rd_data_o),
+        .wren_b         (1'b0),
+        .rden_a         (1'b1),
+        .clock1         (1'b1),
+        .clocken0       (1'b1),
+        .clocken1       (1'b1),
+        .clocken2       (1'b1),
+        .clocken3       (1'b1),
+        .aclr0          (1'b0),
+        .aclr1          (1'b0),
+        .byteena_b      (1'b1),
+        .addressstall_a (1'b0),
+        .addressstall_b (1'b0),
+        .data_b         (),
+        .q_a            (),
+        .eccstatus      ()
+      );
+    end
+  endgenerate
 
 endmodule
 
