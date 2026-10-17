@@ -30,8 +30,10 @@ env:
   BASE: ${{ inputs.base || 'main' }}
 
 jobs:
+  # Every job runs only on the WSL host's runners (label wsl), never on the
+  # Omarchy runners (wiki/bkm/devops.md, Nightly).
   nightly:
-    runs-on: [self-hosted, linux, x64]
+    runs-on: [self-hosted, linux, x64, wsl]
     timeout-minutes: 480
     permissions:
       contents: read
@@ -177,7 +179,7 @@ jobs:
   publish:
     needs: nightly
     if: ${{ !cancelled() && needs.nightly.outputs.collected == 'true' }}
-    runs-on: [self-hosted, linux, x64]
+    runs-on: [self-hosted, linux, x64, wsl]
     timeout-minutes: 15
     permissions:
       contents: write        # push nightly/<date>
@@ -284,7 +286,7 @@ jobs:
     needs: [nightly, publish]
     # Test dispatches against another base never touch the nightly-red issue.
     if: ${{ !cancelled() && (github.event_name == 'schedule' || inputs.base == 'main') }}
-    runs-on: [self-hosted, linux, x64]
+    runs-on: [self-hosted, linux, x64, wsl]
     timeout-minutes: 5
     permissions:
       contents: read

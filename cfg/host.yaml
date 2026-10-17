@@ -42,3 +42,14 @@ hosts:
     orfs_commit: d4b96380b10e          # ORFS revision in that image
     orfs_cores: 4                     # NUM_CORES and docker --cpus for ./build asic
     pdftotext: "26.08.0"              # from the ci-gate "Reference documents" step log (text extractor line); extracts reference text
+  wsl:
+    description: self-hosted CI host (Ubuntu 24.04 under WSL2); provisioned by hand; the only host the nightly runs on (runner label wsl)
+    # Versions only; install paths are private to the host and not recorded.
+    # Quartus is on the runner PATH; ./build asic uses the one orfs_image pin
+    # above (the asic tool reads a single ORFS host entry), pulled here too.
+    verilator_version: "5.052"      # built from the pinned tag into a user prefix, on the runner PATH
+    python: "3.12.3"                # base interpreter of the runner venv
+    venv: runner                    # the runner service's own venv ($VIRTUAL_ENV), first on PATH; holds the tools/requirements.txt pins
+    quartus_version: "25.1std.0 Build 1129"         # `quartus_sh --version`; Lite Edition
+    docker_version: "29.4.0"        # runner service runs in the docker group
+    pdftotext: "24.02.0"            # Ubuntu poppler-utils

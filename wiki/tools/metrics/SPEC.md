@@ -339,7 +339,9 @@ PRs carrying the label are ignored.
 ## Workflows
 
 **`nightly.yml`** runs at 03:17 UTC daily and on `workflow_dispatch`, never
-on `pull_request`, on `[self-hosted, linux, x64]`. Its `base` input
+on `pull_request`. Every job runs on `[self-hosted, linux, x64, wsl]`, the
+WSL host's runners only
+([DevOps BKM, Nightly](../../bkm/devops.md#nightly)). Its `base` input
 (default `main`) is the data PR's base; any other base is for testing the
 workflow and skips auto-merge and the `nightly-red` issue. The data branch
 is `nightly/<date>` for `main` and `nightly/<date>-<base>` (slashes in the

@@ -50,8 +50,10 @@ issue worktree per [agent-flow](../agent-flow/SKILL.md).
 
 ## 3. Workflows (`.github/`)
 
-- [ ] `runs-on: [self-hosted, linux, x64]`; no hosted runners, no design
-      names in job names, paths or labels.
+- [ ] `runs-on: [self-hosted, linux, x64]`, plus a host label only where the
+      [DevOps BKM](../../../wiki/bkm/devops.md#continuous-integration) pins
+      a workflow to one host (the nightly's `wsl`); no hosted runners, no
+      design names in job names, paths or labels.
 - [ ] Every job a `pull_request` can trigger carries
       `if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository`
       (push and dispatch still run). The guard is defense in depth only: a
