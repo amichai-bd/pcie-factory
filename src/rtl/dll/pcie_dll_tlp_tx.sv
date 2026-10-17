@@ -46,6 +46,7 @@ module pcie_dll_tlp_tx (
 
   logic        active;       // DL_Active
   logic        in_l0;        // ltssm_state_i is an L0 code
+  logic        in_l0_q;      // in_l0 at the last edge: what the replay timer counts by
   logic [11:0] held;         // TLPs holding a sequence number, not acknowledged
   logic        lock;         // the TLP on the phy stream has been acknowledged
   logic [7:0]  used_words;
@@ -65,6 +66,12 @@ module pcie_dll_tlp_tx (
 
   assign active = state_i == pcie_dll_pkg::DL_ACTIVE;
   assign in_l0  = ltssm_state_i[5:4] == 2'b10;
+
+  // The replay timer follows L0 one edge late, so nothing from
+  // ltssm_state_i reaches the transmit outputs combinationally (through
+  // roll_now); it still holds for exactly as many cycles as the LTSSM is
+  // out of L0.
+  `COMMON_DFF_RST(in_l0_q, in_l0, clk_i, rst_i)
   assign held   = st_q.seq_alloc - st_q.ackd - 12'd1;
   // Each held TLP takes n + 4 bytes of words (TLP and LCRC) and counts
   // n + 6 (its sequence number too), as the HAS sizes the buffer. A TLP an
@@ -180,8 +187,10 @@ module pcie_dll_tlp_tx (
   // running and sent TLPs unacknowledged. (A take that ends a replay and
   // starts a pending one happens only with the stream free, so no sop is
   // waiting then.) The arbiter then stops offering a waiting TLP sop at
-  // this very edge, so none starts ahead of the rollover replay.
-  assign timer_at_end = st_q.rt_run && in_l0 && st_q.rt == pcie_dll_pkg::REPLAY_TIMEOUT - 9'd1;
+  // this very edge, so none starts ahead of the rollover replay. It reads
+  // only registers and the registered received DLLP (the timer uses the
+  // registered in_l0_q), so pkt_tx_valid_o stays a function of registers.
+  assign timer_at_end = st_q.rt_run && in_l0_q && st_q.rt == pcie_dll_pkg::REPLAY_TIMEOUT - 9'd1;
   assign roll_now     = (nak || timer_at_end || st_q.rp_pending) && !progress
                      && !st_q.rp_active && st_q.replay_num == 2'd3
                      && st_q.nts != st_q.ackd + 12'd1;
@@ -221,9 +230,9 @@ module pcie_dll_tlp_tx (
       st_d.seq_done = st_q.seq_done + 12'd1;
     end
 
-    // Replay timer: counts in L0 while running; at 356 it stops and
-    // requests a replay.
-    if (st_q.rt_run && in_l0) begin
+    // Replay timer: counts in L0 (as seen at the last edge) while running;
+    // at 356 it stops and requests a replay.
+    if (st_q.rt_run && in_l0_q) begin
       if (st_q.rt == pcie_dll_pkg::REPLAY_TIMEOUT - 9'd1) begin
         expire     = 1'b1;
         st_d.rt_run = 1'b0;

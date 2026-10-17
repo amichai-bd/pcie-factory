@@ -275,13 +275,17 @@ take, the timer stopped, REPLAY_NUM (after this edge's Ack or Nak) plus 1,
 or, from 3, the rollover: 0, `err_o` bit 3 and `retrain_req_o` in the same
 cycle, and the hold. `hold_o` is the hold or `roll_now`: a rollover in this
 cycle from a Nak, the timer or a pending request, computed from the
-registers and the received DLLP alone, so the arbiter's take never feeds
-it back (a take that ends a replay and starts a pending one needs a free
-stream, so no `sop` waits then); `a_roll_now` checks it implies the
+registers and the registered received DLLP alone: the arbiter's take
+never feeds it back (a take that ends a replay and starts a pending one
+needs a free stream, so no `sop` waits then), and no input reaches
+`pkt_tx_valid_o` through it; `a_roll_now` checks it implies the
 rollover.
 
-**Timer and hold.** `rt` counts in L0 (`ltssm_state_i` bits 5:4 `10`) while
-running; at the edge where it would reach 356 it stops, pulses `err_o`
+**Timer and hold.** `rt` counts while running and in L0 as registered at
+the last edge (`in_l0_q`, from `ltssm_state_i` bits 5:4 `10`): it holds
+for as many cycles as the LTSSM is out of L0, one edge later, so the
+expiry time is unchanged and `ltssm_state_i` stays off the transmit
+outputs; at the edge where it would reach 356 it stops, pulses `err_o`
 bit 2 and requests a replay; it starts at a TLP's `eop` taken when
 stopped. The hold counts cycles from the rollover; it ends at the first
 L0 code after a non-L0 one, or at 1024 cycles if the LTSSM never left L0.
