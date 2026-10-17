@@ -291,7 +291,7 @@ whatever the limit holds.
 ## Coverage holes
 
 No floors yet (the plan has gaps). Merged over levels 0 to 2: line 98.0%
-(431 of 440 line and branch points), toggle 76.1%, functional 100% (152
+(434 of 443 line and branch points), toggle 76.1%, functional 100% (152
 bins). Every line and branch point of the TLP transmit block is hit;
 every one but these is hit:
 
@@ -303,7 +303,7 @@ every one but these is hit:
 
 Toggle holes are mostly the tied-off TLP receive ports, the upper data
 bits of the credit limits (no partner advertises them) and the
-testbench's pass-through ports. In the TLP transmit block 23 of 1820
+testbench's pass-through ports. In the TLP transmit block 23 of 1822
 toggle points are missed: `credit_ok_i` never falls (tied to 1 until
 #214); `hold_left` never falls, as only the next rollover or DL_Inactive
 clears it; bits that are constant by construction: bit 0 of the
