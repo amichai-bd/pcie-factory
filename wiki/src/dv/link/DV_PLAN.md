@@ -2,7 +2,7 @@
 
 How `pcie_link` is verified: the back-to-back end-to-end bench of the
 [HAS end-to-end plan](../../arch/link/HAS.md#end-to-end-plan), with the
-independent partner's [passive mode](../dll/PARTNER.md#passive-mode) as the
+independent partner's [passive mode](../dll/PASSIVE.md) as the
 second opinion. Each stacked IP keeps its own unit DV
 ([`dll`](../dll/DV_PLAN.md), [`phy`](../phy/DV_PLAN.md)); this bench
 verifies the stack wiring and the stack-level targets through the `link`
@@ -29,7 +29,8 @@ flowchart LR
   `TIMEOUT_DIV` is 1024 (link-up in about 10000 cycles) and
   `ERR_TIMEOUT_DIV` 1, as the HAS bench sets. The top taps the
   packet-stream nets between each instance's `dll` and `phy`, which the
-  [MAS](../../rtl/link/MAS.md#microarchitecture) names, on `<e>_mon_*_o`.
+  [MAS](../../rtl/link/MAS.md#microarchitecture) names, onto its own
+  `<e>_mon_*_o` ports for the environment's boundary Ack check.
 - **Environment:** [`link_e2e_env.py`](../../../../src/dv/link/tb/link_e2e_env.py).
   One coroutine per clock, at each falling edge: the end samples its
   outputs and drives its inputs, then its serial word crosses its
@@ -82,11 +83,18 @@ flowchart LR
     whose `sop` the `phy` takes within 118 cycles of its `eop`, outside
     the times the LTSSM is out of L0;
   - the partner's passive checker on both views: credits, sequence, Ack
-    and Nak, and Ack timing at the 140-cycle line bound. Ack timing does
-    not apply while either end is out of L0 or after a line impairment,
-    which the views (before the channel) cannot see; the environment
-    marks those ranges. Every accepted TLP must have been judged once as
-    a first transmission.
+    and Nak, and Ack timing at the 140-cycle line bound (duplicates
+    included). The environment passes it each end's out-of-L0 ranges,
+    rollover pulses and link-downs and the line impairments, which tie
+    its exemptions and allowances to their triggers ([`link` HAS, passive
+    checker](../../arch/link/HAS.md#passive-checker)): a replay short by
+    its newest TLP only across the sender's rollover retrain, a cut TLP
+    only at its exit from L0. Every accepted TLP must have been judged
+    once as a first transmission;
+  - in the error-free entries (`e2e_smoke`, every `e2e_credits_*`): no Bad
+    TLP, Bad DLLP, replay timeout or rollover pulse, no `rcv_err_o`, and
+    neither end leaves L0. Credit starvation and stalls are no error:
+    nothing is lost or replayed.
 - **Directed classes:** the tests inject one class at a time with traffic
   both ways and check its pulses from the HAS: Bad TLP (and `rcv_err_o`
   for an invalid symbol) and a Nak for an LCRC error or a corrupted TLP;
@@ -107,7 +115,7 @@ flowchart LR
   checks the injector against a reference transmitter and a strict
   decoder (pass-through bit exact, each class, running disparity and the
   scrambler kept); the partner's passive mode has its own
-  ([partner unit tests](../dll/PARTNER.md#unit-tests)).
+  ([passive mode unit tests](../dll/PASSIVE.md#unit-tests)).
 
 ## Plan
 
@@ -116,14 +124,14 @@ All entries run on `pcie_link_e2e_tb`; credits are the default
 
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
-| [Stack wiring](../../arch/link/HAS.md#stack-wiring) and [reset values](../../arch/link/HAS.md#reset-values): reset, link-up to DL_Active at both ends, 60 TLPs of the mix each way, every check | `e2e_smoke` | 0 | 1 |
+| [Stack wiring](../../arch/link/HAS.md#stack-wiring) and [reset values](../../arch/link/HAS.md#reset-values): reset, link-up to DL_Active at both ends, 60 TLPs of the mix each way, every check, error-free | `e2e_smoke` | 0 | 1 |
 | [Error injection](../../arch/link/HAS.md#error-injection): LCRC error, corrupted TLP, dropped TLP (with a TLP behind it, and as the last), each way, with their pulses | `e2e_tlp_errors` | 1 | 1 |
 | Corrupted and dropped DLLP, the Nak class and the duplicate class, each way, with their pulses | `e2e_dllp_errors` | 1 | 1 |
 | [REPLAY_NUM rollover](../../arch/link/HAS.md#error-injection), each way: 4 timeouts, 1 rollover, the retrain through the `retrain_req` OR, traffic resumes | `e2e_rollover` | 1 | 1 |
 | Line impairments each way: flips, a slip, an electrical-idle dropout of 200 to 1000 cycles | `e2e_line` | 1 | 1 |
 | Every per-packet class at random both ways, ±600 ppm; Bad TLP and Bad DLLP at least the corruptions | `e2e_mixed` | 1 | 1 |
 | Hot Reset passed through ([stack wiring](../../arch/link/HAS.md#stack-wiring)): link down at both ends, `dll` outputs at reset values, link-up again, lossless after | `e2e_hot_reset` | 1 | 1 |
-| [Credits](../../arch/link/HAS.md#credit-configurations): starvation (30% of beats taken, stalls of 4000 and 10000 cycles) and recovery, no overflow, credits back when drained | `e2e_credits_minimum`, `e2e_credits_finite`, `e2e_credits_asymmetric` | 1 | 1 each; `CREDITS` 1, 2, 4 |
+| [Credits](../../arch/link/HAS.md#credit-configurations): starvation (30% of beats taken, stalls of 4000 and 10000 cycles) and recovery, no overflow, credits back when drained, error-free; both ends starve (b only, into a's minimum, when asymmetric) | `e2e_credits_minimum`, `e2e_credits_finite`, `e2e_credits_asymmetric` | 1 | 1 each; `CREDITS` 1, 2, 4 |
 | The same with every class infinite (no stall) | `e2e_credits_infinite` | 1 | 1; `CREDITS` 3 |
 | Disabled and Loopback passed through | `e2e_disable`, `e2e_loopback` | 2 | 1 each |
 | Soak: random classes, line flips and credit stalls together, 1000 TLPs each way, ppm from the seed, in every credit configuration | `e2e_soak_default`, `e2e_soak_minimum`, `e2e_soak_finite`, `e2e_soak_infinite`, `e2e_soak_asymmetric` | 2 | 3, 3, 2, 2, 2; `CREDITS` 0 to 4 |

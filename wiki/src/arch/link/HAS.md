@@ -229,7 +229,7 @@ the [DV plan](../../dv/link/DV_PLAN.md) maps it to tests.
   [#210](https://github.com/amichai-bd/pcie-factory/issues/210) (Q3) is the
   far end in the `dll` DV. In the `link` e2e it runs as a passive
   checker instead ([below](#passive-checker); its
-  [passive mode](../../dv/dll/PARTNER.md#passive-mode),
+  [passive mode](../../dv/dll/PASSIVE.md),
   [#215](https://github.com/amichai-bd/pcie-factory/issues/215)).
 
 ### Error injection
@@ -298,8 +298,9 @@ Each kind is at least 20% of the TLPs.
 - **Liveness:** a test fails if no TLP is delivered for 20000 cycles while
   any is outstanding.
 - **Ack latency:** at each `link`'s `dll`-to-`phy` boundary, 118 cycles
-  ([targets](#targets)), through bind checkers on the internal nets the
-  MAS names. A check on the line uses the derived 140-cycle bound.
+  ([targets](#targets)), on the packet-stream nets the MAS names, which
+  the testbench top taps onto its own ports for the environment to check.
+  A check on the line uses the derived 140-cycle bound.
 - **Throughput:** with the bench error-free, at 0 ppm, the upper layers
   always offering and taking, payload bytes delivered over at least 2000
   TLPs per direction, from the first accepted to the last delivered, meet
@@ -311,28 +312,50 @@ The injector records, per direction and with each packet's start and end
 cycle, two decoded packet views:
 
 - **sent:** before injection, what the transmitting `link` put on the line;
-- **delivered:** after injection, what the receiving `link` gets.
+- **delivered:** after injection, what the receiving `link` would get from
+  a clean channel.
 
 It also records an injection log: cycle, direction, class and the packet
-affected. Both views are timed at a `link` port, so the 140-cycle bound
-applies to the line alone: the injector sits at the transmitter's
-`ser_tx_data_o`, where it records **sent**, and **delivered** adds the
-channel delay from the injector to the receiver's `ser_rx_data_i`. The
-partner's passive checks read both directions together, each from a
-fixed view:
+affected. Where each view sits on the line, per direction:
+
+```text
+ser_tx_data_o -> injector -> phy channel (delay, flips, slips, idle) -> ser_rx_data_i
+                 ^ sent      ^ delivered (timed + channel delay)
+```
+
+Both views are timed at a `link` port, so the 140-cycle bound applies to
+the line alone: sent at the transmitter's `ser_tx_data_o`, where the
+injector sits, and delivered at the receiver's `ser_rx_data_i`, the
+injector's output time plus the channel delay. The line impairments
+happen after both views, so neither shows them. The partner's passive
+checks read both directions together, each from a fixed view:
 
 | Check | Reads | Flags |
 | --- | --- | --- |
 | Credits | The sender's TLPs from the **sent** view of its own direction. The limits from the InitFC and UpdateFC DLLPs in the **delivered** view of the reverse direction, those that reached the sender's line before the TLP started. | A first transmission of a TLP whose credits exceed that limit. Using line arrival makes the check looser by the `phy` RX latency, never stricter, so it raises no false flag. |
 | Sequence | The **sent** view of one direction, with the Acks and Naks in the **delivered** reverse view. | A new TLP whose number is not one past the previous new one, or a replay that does not restart at the oldest TLP the sender has not seen acknowledged and resend in order. |
 | Ack and Nak | Acks and Naks in the **sent** view of one direction, against TLPs in the **delivered** view of the other. | A sequence number naming a TLP that did not arrive good and in order. |
-| Ack timing | The covered TLP's end in the **delivered** view, and the DLLP's start in the reverse **sent** view. | A gap above the derived 140-cycle line bound. |
+| Ack timing | The covered TLP's end in the **delivered** view (a good TLP in order, or a duplicate, which is Acked at once), and the DLLP's start in the reverse **sent** view. | A gap above the derived 140-cycle line bound. |
 
-Injected drops, corruptions and duplicates appear only in the delivered
-view. The checks above take what an end sent from the sent view and what
-it received from the delivered view, so injected events need no
-exemption. The injection log ties each expected error pulse
-([checks](#checks)) to its cause.
+The injector's own classes (drops, corruptions, duplicates) need no
+exemption: they appear only in the delivered view, and each check takes
+what an end sent from the sent view and what it received from the
+delivered view. The injection log ties each expected error pulse
+([checks](#checks)) to its cause. Everything else the views cannot show
+needs an exemption or an allowance, each tied to its trigger:
+
+| Trigger | Window | Effect |
+| --- | --- | --- |
+| Either end out of L0 (a retrain, a rollover's retrain included) | From 140 cycles before it leaves L0 to 140 cycles after it returns | No Ack timing bound: an Ack cannot go out during Recovery. |
+| A line impairment on the channel (flip, slip, idle) | From 140 cycles before it to 3000 cycles after | No Ack timing bound, and an Ack delivered in the window counts as maybe seen by its sender (it widens the accepted replay start). A packet the channel damaged reached the receiver bad although the delivered view shows it good, so the Acks that follow it lag until the replay; 3000 cycles cover the longest dropout (1000 cycles), the Recovery that may follow, and the replays after it. |
+| An end's link-down | From that link-down to the next | A new epoch for that end: its sequence numbers, credits and NEXT_RCV_SEQ restart; a TLP that arrived within 140 cycles of the receiver's link-down needs no Ack. |
+| The sender's REPLAY_NUM rollover or retrain between two replays | — | The earlier replay may stop short by its newest TLP only: the rollover withdraws a TLP offered but not started, and resends it after the retrain ([REPLAY_NUM](../dll/RETRY.md#replay_num)). Without such a retrain a short replay is flagged. |
+| The sender out of L0, or its link-down | Within 20 cycles of the TLP's end | A TLP cut short on the line (sent view, with a symbol or framing error) still counts as sent: the `phy` cuts a packet when the LTSSM leaves L0 ([errors](#errors)). In L0 a cut TLP is flagged. |
+
+The testbench records the triggers (each end's out-of-L0 ranges, rollover
+pulses and link-downs, and the line impairments) and passes them to the
+checker. The partner's [passive mode](../../dv/dll/PASSIVE.md) has the
+check rules in detail.
 
 ## Architecture model
 

@@ -299,6 +299,8 @@ class LinkEnd:
             for b in range(7):
                 if err >> b & 1:
                     self.err[b] += 1
+                    if b == ROLLOVER:
+                        self.env.chk.retrain(self.name, t, t)
                     if b in NEVER:
                         self.violations.append(f"end {self.name} cycle {n}: "
                                                f"{ERR_NAMES[b]} pulsed on dl_err_o")
@@ -692,8 +694,9 @@ class Env:
         bound = ACK_LINE_BOUND * CORE_PS
         for e in self.ends:
             for left, back in e.not_l0:
-                self.chk.exempt(left - bound, (back if back is not None else now_ps()) + bound,
-                                f"{e.name} out of L0")
+                back = back if back is not None else now_ps()
+                self.chk.exempt(left - bound, back + bound, f"{e.name} out of L0")
+                self.chk.retrain(e.name, left, back)
         for t, d, kind in self.line_events:
             self.chk.exempt(t - bound, t + 3000 * CORE_PS, f"line {kind} on {d}", line=True)
         v = self.chk.check()
@@ -717,6 +720,8 @@ class Env:
             "injected": {d: dict(self.injectors[i].counts) for i, d in enumerate(("ab", "ba"))},
             "l0_leaves": {e.name: e.l0_leaves for e in self.ends},
             "lost_at_link_down": {d: sb.lost for d, sb in self.sb.items()},
+            "passive": {k: v for k, v in sorted(self.chk.stats.items())
+                        if k.startswith(("withdrawn", "cut", "dup_ack", "replays"))},
         }
         for e in self.ends:
             if e.err[BAD_TLP]:

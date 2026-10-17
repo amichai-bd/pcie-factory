@@ -48,9 +48,17 @@ the receiving end's processing time, never stricter. The sequence check
 accepts a replay starting at any TLP between the oldest not acknowledged
 by Acks that arrived ``ack_window`` cycles before it (the sender may not
 have seen later ones yet) and the oldest not acknowledged by every Ack
-that arrived before it. A replay may stop short by its newest TLP when
-the next starts at least ``retrain_gap`` cycles later: the REPLAY_NUM
-rollover withdraws a TLP not yet started and retrains.
+that arrived before it.
+
+``retrain(name, start, end)`` records a time range in which end ``name``
+left L0 (a retrain, its REPLAY_NUM rollover included; ``start == end``
+for a rollover pulse alone). Two allowances hold only around such a range
+of the sender, never otherwise: a replay may stop short by its newest TLP
+when a range falls between it and the next replay (the REPLAY_NUM
+rollover withdraws a TLP not yet started, then retrains); and a TLP may
+be cut short on the line (``err`` in the sent view) only when it ends
+within ``cut_slack`` cycles of such a range or of the sender's link-down
+(the phy cuts a packet when the LTSSM leaves L0).
 
 ``link_down(name, t)`` starts a new epoch for that end (its state restarts
 in DL_Inactive). ``exempt(start, end, why)`` marks a time range in which the Ack timing
@@ -121,11 +129,12 @@ class PassiveChecker:
     """Collects the views of both directions, then ``check()`` judges them."""
 
     def __init__(self, cycle: float = 1.0, ack_bound: int = 140, ack_window: int = 40,
-                 retrain_gap: int = 100, names: tuple[str, str] = ("a", "b")) -> None:
+                 cut_slack: int = 20, names: tuple[str, str] = ("a", "b")) -> None:
         self.cycle = cycle
         self.ack_bound = ack_bound
         self.ack_window = ack_window
-        self.retrain_gap = retrain_gap
+        self.cut_slack = cut_slack
+        self.retrains: dict[str, list[tuple[float, float]]] = {n: [] for n in names}
         self.names = names
         self.views = {(v, d): [] for v in ("sent", "delivered") for d in DIRECTIONS}
         self.log: list[Injection] = []
@@ -157,6 +166,11 @@ class PassiveChecker:
         self.exempts.append((start, end, why))
         if line:
             self.unsure.append((start, end, why))
+
+    def retrain(self, name: str, start: float, end: float) -> None:
+        """End ``name`` was out of L0 from ``start`` to ``end`` (or pulsed a
+        REPLAY_NUM rollover at ``start == end``)."""
+        self.retrains[name].append((start, end))
 
     def link_down(self, name: str, t: float) -> None:
         """End ``name``'s LinkUp fell at ``t``: it went to DL_Inactive, so its
@@ -269,6 +283,9 @@ class PassiveChecker:
             self._count(f"tlp_{d}")
             if p.err:
                 self._count(f"cut_{d}")
+                if not self._cut_ok(d, p):
+                    self._violate("sequence", d, t, f"TLP {s} cut short on the line while "
+                                  "the sender was in L0 (no retrain or link-down near it)")
             prev_end, last_end = last_end, p.end
             if s == next_new:
                 if replay is not None and not self._replay_done(replay, ackd):
@@ -296,7 +313,7 @@ class PassiveChecker:
                 continue
             # A replay starts here.
             if replay is not None and not self._replay_done(replay, ackd):
-                if self._withdrawn(replay, ackd, t, prev_end):
+                if self._withdrawn(d, replay, ackd, t, prev_end):
                     self._count(f"withdrawn_{d}")
                 else:
                     self._violate("sequence", d, t, f"replay restarts at {s} before the one "
@@ -317,16 +334,26 @@ class PassiveChecker:
         last, end = replay
         return all(not _ahead(q, ackd) for q in self._between(last, (end + 1) % SEQ_MOD))
 
-    def _withdrawn(self, replay: list[int], ackd: int, t: float, prev_end) -> bool:
+    def _sender(self, d: str) -> str:
+        return self.names[DIRECTIONS.index(d)]
+
+    def _withdrawn(self, d: str, replay: list[int], ackd: int, t: float, prev_end) -> bool:
         """The REPLAY_NUM rollover withdrawal (dll RETRY page, REPLAY_NUM):
         the TLP offered but not started when the rollover happens is not
         sent, and the rollover replay, after the retrain, resends it. So a
         replay may stop short by its newest TLP only, and only when the
-        next TLP starts a retrain's time (``retrain_gap`` cycles) later."""
+        sender's rollover or retrain falls between it and the next TLP."""
         last, end = replay
         missing = [q for q in self._between(last, (end + 1) % SEQ_MOD) if _ahead(q, ackd)]
         return (missing == [end] and prev_end is not None
-                and t - prev_end >= self.retrain_gap * self.cycle)
+                and any(prev_end <= b and a <= t for a, b in self.retrains[self._sender(d)]))
+
+    def _cut_ok(self, d: str, p: ViewPacket) -> bool:
+        """A sent TLP cut short: allowed only at the sender's exit from L0
+        (a retrain) or its link-down, within ``cut_slack`` cycles."""
+        name, slack = self._sender(d), self.cut_slack * self.cycle
+        near = [(a, b) for a, b in self.retrains[name]] + [(t, t) for t in self.downs[name]]
+        return any(a - slack <= p.end <= b + slack for a, b in near)
 
     def _credit(self, d, t, s, tlp, limit, infinite, consumed) -> None:
         if len(tlp) < 4:
@@ -356,11 +383,17 @@ class PassiveChecker:
         ``d``: the receiver's NEXT_RCV_SEQ from the delivered view, its Acks
         and Naks from the reverse sent view."""
         rcv = []                        # (end, seq) of TLPs that arrived good and in order
+        dup = []                        # (end, seq) of good duplicates: Acked at once
         nxt = 0
         for p in self._view("delivered", d):
-            if good_tlp(p) and _seq(p.data) == nxt:
+            if not good_tlp(p):
+                continue
+            q = _seq(p.data)
+            if q == nxt:
                 rcv.append((p.end, nxt))
                 nxt = (nxt + 1) % SEQ_MOD
+            elif not _ahead(q, (nxt - 1) % SEQ_MOD):
+                dup.append((p.end, q))
         acks = self._acks("sent", _rev(d))
         # Ack and Nak: never ahead of what had arrived good and in order.
         i, last = 0, SEQ_MOD - 1
@@ -374,11 +407,12 @@ class PassiveChecker:
                               f"TLP not yet received good and in order (last {last})")
         # Ack timing: the first covering Ack or Nak after each such TLP.
         horizon = min(self._horizon, self._hi)     # the receiver's link-down ends its epoch
+        timed = sorted([(end, s, "") for end, s in rcv] + [(end, s, "dup_") for end, s in dup])
         j = 0
-        for end, s in rcv:
+        for end, s, kind in timed:
             if any(a <= end + self.ack_bound * self.cycle and b >= end
                    for a, b, _ in self.exempts):
-                self._count(f"ack_timing_exempt_{d}")
+                self._count(f"{kind}ack_timing_exempt_{d}")
                 continue
             while j < len(acks) and acks[j][0] < end:
                 j += 1
@@ -389,7 +423,8 @@ class PassiveChecker:
                 continue
             gap = (cover[0] - end) / self.cycle
             self.ack_gap_max = max(self.ack_gap_max, gap)
-            self._count(f"ack_timing_{d}")
+            self._count(f"{kind}ack_timing_{d}")
             if gap > self.ack_bound:
-                self._violate("ack_timing", _rev(d), end, f"TLP {s} covered by an Ack or Nak "
+                what = "duplicate TLP" if kind else "TLP"
+                self._violate("ack_timing", _rev(d), end, f"{what} {s} covered by an Ack or Nak "
                               f"{gap:.1f} cycles after it arrived, bound {self.ack_bound}")

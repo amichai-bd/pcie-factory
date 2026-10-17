@@ -326,11 +326,13 @@ def test_ack_timing_flags_a_tlp_never_acknowledged():
     assert len(v) == 1 and "never acknowledged" in v[0]
 
 
-def test_rollover_withdrawal_allowed_only_for_the_newest_across_a_retrain():
-    """A replay cut short by its newest TLP, then the rollover replay after
-    a retrain-long gap: allowed. Cut short by two, or with no gap: flagged."""
-    def views(cut, gap):
-        chk = PassiveChecker(retrain_gap=100)
+def test_rollover_withdrawal_allowed_only_across_a_retrain():
+    """A replay cut short by its newest TLP, then the next replay: allowed
+    only when the sender retrained (or pulsed a rollover) in between. With
+    no retrain, even a timeout-spaced replay is flagged; cut short by two,
+    flagged in any case."""
+    def views(cut, retrain):
+        chk = PassiveChecker()
         init_views(chk)
         for i, s in enumerate((0, 1, 2)):
             chk.sent("ab", tlp(s, start=100 + 20 * i))
@@ -339,13 +341,15 @@ def test_rollover_withdrawal_allowed_only_for_the_newest_across_a_retrain():
         for s in range(0, 3 - cut):
             chk.sent("ab", tlp(s, start=t))
             t += 20
-        chk.sent("ab", tlp(0, start=t - 10 + gap))
+        if retrain:
+            chk.retrain("a", t + 50, t + 300)
+        chk.sent("ab", tlp(0, start=t + 356))       # a replay-timeout later
         return chk.check()
-    assert views(1, 400) == []
-    v = views(2, 400)
-    assert len(v) == 1 and "before the one from 0 to 2 completed" in v[0]
-    v = views(1, 50)
+    assert views(1, True) == []
+    v = views(1, False)
     assert len(v) == 1 and "before the one from 1 to 2 completed" in v[0]
+    v = views(2, True)
+    assert len(v) == 1 and "before the one from 0 to 2 completed" in v[0]
 
 
 def test_line_unsure_ack_widens_the_replay_start():
@@ -404,21 +408,44 @@ def test_link_down_starts_a_new_epoch(mark):
         assert any(x.startswith("sequence") for x in v)
 
 
-def test_cut_tlp_counts_as_sent():
+@pytest.mark.parametrize("retrain", [True, False])
+def test_cut_tlp_counts_as_sent_only_at_a_retrain(retrain):
     """A TLP the phy cut short on the line (err in the sent view) used its
     sequence number: the next new TLP follows it, and its replay is a
-    replay. One cut before its header is long enough is not judged on
-    credits."""
-    chk = PassiveChecker()
+    replay. One cut before its first DW is not judged on credits. A cut
+    is allowed only when the sender left L0 (or its link went down) at
+    that time; in L0 it is flagged."""
+    chk = PassiveChecker(cut_slack=20)
     init_views(chk)
     chk.sent("ab", tlp(0, start=100))
     cut = tlp(1, start=120)
-    chk.sent("ab", cut._replace(data=cut.data[:9], err=True))
+    chk.sent("ab", cut._replace(data=cut.data[:9], end=125, err=True))
     chk.sent("ab", ViewPacket(130, 131, False, tlp(2).data[:5], True))   # too short to read
     chk.sent("ab", tlp(3, start=140))
     chk.delivered("ba", dllp(m.NAK, 0, start=300))
     chk.sent("ab", tlp(1, start=400))
     chk.sent("ab", tlp(2, start=420))
     chk.sent("ab", tlp(3, start=440))
-    assert chk.check() == []
+    if retrain:
+        chk.retrain("a", 128, 135)
+        assert chk.check() == []
+    else:
+        v = chk.check()
+        assert len(v) == 2 and all("cut short on the line while the sender was in L0" in x for x in v)
     assert chk.stats["cut_ab"] == 2 and chk.stats["credit_unread_ab"] == 1
+
+
+def test_duplicate_acknowledged_in_time():
+    """A good duplicate is Acked at once: an Ack covering it within the
+    bound passes; a late one is flagged."""
+    def views(gap):
+        chk = PassiveChecker(cycle=1, ack_bound=140)
+        chk.delivered("ab", tlp(0, start=0, end=10))
+        chk.sent("ba", dllp(m.ACK, 0, start=50))
+        chk.delivered("ab", tlp(0, start=500, end=510))   # the replay: a duplicate
+        chk.sent("ba", dllp(m.ACK, 0, start=510 + gap))
+        return chk
+    chk = views(60)
+    assert chk.check() == [] and chk.stats["dup_ack_timing_ab"] == 1
+    v = views(200).check()
+    assert len(v) == 1 and "duplicate TLP 0" in v[0]

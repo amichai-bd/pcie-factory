@@ -5,7 +5,7 @@ design, and the passive checker of the `link` e2e: a pure-Python model,
 [`pcie_dll_partner.py`](../../../../src/dv/dll/models/pcie_dll_partner.py),
 with its CRCs in
 [`pcie_dll_partner_crc.py`](../../../../src/dv/dll/models/pcie_dll_partner_crc.py)
-and its [passive mode](#passive-mode) in
+and its [passive mode](PASSIVE.md) in
 [`pcie_dll_partner_passive.py`](../../../../src/dv/dll/models/pcie_dll_partner_passive.py).
 It is the independent oracle of decision record
 [0003](../../decisions/0003-m2-grill.md#decisions), Q3: the second opinion
@@ -153,72 +153,6 @@ other hooks are attributes or calls on the partner.
 | `withhold_credits` | No UpdateFC is sent. Returned credits pile up until it is cleared. |
 | `upper_ready = 0` | The partner's upper layer stalls, so credits stop being returned. |
 
-## Passive mode
-
-In the `link` e2e the partner is a checker, not a far end
-([`link` HAS, passive checker](../../arch/link/HAS.md#passive-checker),
-[#215](https://github.com/amichai-bd/pcie-factory/issues/215)).
-`PassiveChecker` takes, per direction (`"ab"` sent by end a, `"ba"` the
-reverse), the two packet views the `link` testbench's line injector
-records, and `check()` judges both transmitters against the rules of
-this page's sources.
-
-**Views.** A `ViewPacket` is one packet: start and end time, the
-TLP/DLLP tag, the bytes between its framing symbols (a TLP's sequence
-number, TLP and LCRC; a DLLP's 6 bytes) and `err` when the receiver sees
-it as bad on the line (an invalid symbol, or cut short). Times are in any
-one unit, `cycle` being one `clk_i` cycle in it. The recorder places each
-view at a `link` port, so the bounds apply to the line alone:
-
-| View | Recorded | Time |
-| --- | --- | --- |
-| sent | before injection: what the transmitter put on the line | at the transmitter's serial output (the injector sits there) |
-| delivered | after injection: what the receiver gets | at the receiver's serial input: the injector's output plus the channel delay after it |
-
-**Checks**, each reading fixed views, so injected drops, corruptions and
-duplicates (only in the delivered view) need no exemption:
-
-| Check | Direction and views | Flags |
-| --- | --- | --- |
-| `credits` | The sender's TLPs, sent view of its direction; the limits from InitFC (first per class) and UpdateFC in the delivered reverse view, ended before the TLP started. Only first transmissions consume, by the [accounting](../../arch/dll/FLOW_CONTROL.md#transmit-accounting) modular rule. | A TLP whose credits exceed the limit, or sent before the class was advertised. |
-| `sequence` | The sent view of one direction; the Acks and Naks in the delivered reverse view. | A TLP neither new (one past the last new one) nor sent and unacknowledged; a replay not starting at the oldest unacknowledged TLP; a replay not resending the rest in order (skipping only TLPs an Ack removed, [replay](../../arch/dll/RETRY.md#replay)); a new TLP or a second replay before a replay completed. |
-| `acknak` | Acks and Naks in the sent view of one direction; the TLPs of the delivered view of the other, followed through NEXT_RCV_SEQ. | A sequence number ahead of the last TLP that arrived good and in order. |
-| `ack_timing` | The end of each TLP that arrived good and in order (delivered view); the start of the first Ack or Nak covering it in the reverse sent view. | A gap above `ack_bound` (140 cycles, the `link` HAS line bound), or none by the end of the record. |
-
-Rules that keep each check looser than the sender's real knowledge, never
-stricter:
-
-- An Ack or Nak counts from its end on the line, before the sender could
-  have acted on it. A replay may start anywhere from the oldest TLP not
-  acknowledged by Acks that ended `ack_window` (40) cycles before it (the
-  sender's `phy` receive and decode time) to the oldest not acknowledged
-  by every Ack before it.
-- **Rollover withdrawal.** A replay may stop short by its newest TLP only,
-  and only when the next TLP starts at least `retrain_gap` (100) cycles
-  later: at a REPLAY_NUM rollover the `dll` withdraws a TLP offered but
-  not started and resends it after the retrain
-  ([REPLAY_NUM](../../arch/dll/RETRY.md#replay_num)); `stats["withdrawn_<d>"]`.
-- **Cut TLPs.** A TLP the `phy` cut short in the sent view (the LTSSM left
-  L0 inside it) still went out: its sequence number counts, and its
-  credits when its first DW is there (`cut_<d>`, `credit_unread_<d>`).
-- **Link-down.** `link_down(end, t)` starts a new epoch for that end: its
-  sequence numbers, credits and NEXT_RCV_SEQ restart. The transmit checks
-  follow the sender's epochs (sent by start, delivered DLLPs by end), the
-  Ack checks the receiver's; a TLP that arrived within `ack_bound` of the
-  receiver's link-down needs no Ack.
-- `exempt(start, end, why)`: no Ack timing bound for TLPs arriving in the
-  range (the testbench marks every time either end is out of L0). With
-  `line=True` the range is a line impairment after the views (the `phy`
-  channel's flips, slips and idle): an Ack delivered in it counts as
-  maybe seen, which widens the accepted replay start.
-- `inject(time, direction, cls, what)` keeps the injection log;
-  `injections()` filters it.
-
-`stats` counts what each check judged (`new_<d>`, `credit_checked_<d>`,
-`replays_<d>`, `acknak_<d>`, `ack_timing_<d>`, the exemptions) so a test
-can show it is not vacuous; `ack_gap_max` is the largest Ack gap judged,
-in cycles.
-
 ## CRCs
 
 `crc` is a generic bit-serial CRC in the usual parameter model (width,
@@ -257,7 +191,7 @@ run with `python3 -m pytest src/dv/dll/models`, and in `ci-gate` through
 | One partner, hand-driven | Initialisation and InitFC resend; entry UpdateFC, infinite classes included; receive rules: expected, ahead, NAK_SCHEDULED, duplicate, nullified, flagged, too short, LCRC, malformed lengths and payloads; Ack timing (32 cycles); DLLP checks; UpdateFC checks; Ack, Nak and replay, a TLP going out at a Nak included; replay timeout at 356 cycles; rollover hold through a retrain and its 1024-cycle fallback; replay timer held outside L0; overflow; the credit gate; a received TLP prefix; the flag and nullify hooks; link-down reset. |
 | Two partners back to back | Initialisation at three skews. Clean bidirectional traffic. Lossless, exactly once and in order, with every injection hook on, three seeds, finite and default credits, upper-layer stalls with finite credits. Delayed Acks and forced Naks. Withheld credits. Rollover and recovery. A sender that ignores credits is caught. Same seed, same run. |
 | Link-down | A started TLP finished up to its `eop` after `link_up` falls, held by `tx_ready`; nothing after a link-down between packets; a tail ending before the next FC_INIT1 when the link returns first (`test_link_down_finishes_started_packet`). |
-| Passive mode | Two partners through tap lines that record both views: clean traffic gives no violation and judges every TLP; drops and corruptions both ways at three credit settings, a rollover, and a link-down mid-TLP (with the epochs recorded; without them it flags) give none. Hand-built views: each check flags a replay not from the oldest, a skipped TLP, a new TLP inside a replay, a wrong new number, a credit overrun (and respects UpdateFC and replays), an Ack ahead, a slow or missing Ack; the Ack window, the rollover withdrawal, line-unsure Acks and cut TLPs are accepted only within their rules. A sender ignoring credits is caught. |
+| Passive mode | Its own tests ([passive mode, unit tests](PASSIVE.md#unit-tests)). |
 | Independence | No imports or paths outside the partner and the standard library. |
 
 ## Cross-check with the architecture model
@@ -313,10 +247,6 @@ of the replay, where the architecture model resends it. Resolved in
 is sent, so the replay resends it; the partner is corrected to do so
 (`test_nak_during_a_tlp_replays_it_too`).
 
-Found independently and already resolved in #259 (by `feb7ccb`):
-
-- With every class infinite, no UpdateFC was ever sent. The side that left
-  FC_INIT2 first could then leave its partner in FC_INIT2 for good. The
-  fix is the entry UpdateFC and refresh for every class.
-- After a rollover, the replay could start before the retrain did. The fix
-  is the rollover hold.
+Two points found independently were resolved in #259 (`feb7ccb`): the
+entry UpdateFC and refresh for every class (with all classes infinite a
+side could stay in FC_INIT2 for good), and the rollover hold.

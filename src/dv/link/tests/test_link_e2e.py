@@ -56,6 +56,18 @@ def delta(end, bit, since):
     return end.pulses(bit, since)
 
 
+def assert_quiet(env, why=""):
+    """An error-free run: no Bad TLP, Bad DLLP, replay timeout or rollover
+    on dl_err_o, no rcv_err_o, and neither end ever left L0 (DV BKM: a
+    check the test could fail on)."""
+    for e in env.ends:
+        bits = {n: e.err[b] for n, b in (("bad_tlp", BAD_TLP), ("bad_dllp", BAD_DLLP),
+                                          ("replay_timeout", TIMEOUT), ("rollover", ROLLOVER))}
+        assert not any(bits.values()) and e.rcv_err == 0 and e.l0_leaves == 0, (
+            f"end {e.name} in an error-free run{why}: dl_err_o {bits}, rcv_err_o "
+            f"{e.rcv_err}, left L0 {e.l0_leaves} times")
+
+
 def trace(env, d, since):
     """The injections and error pulses since ``since``, for a failure message."""
     cyc = lambda t: round(t / CORE_PS, 1)  # noqa: E731
@@ -89,6 +101,7 @@ async def e2e_smoke(dut):
     await env.drain()
     await env.cycles(500)
     env.finish()
+    assert_quiet(env)
 
 
 # ------------------------------------------------------- error classes
@@ -284,6 +297,8 @@ async def credit_run(dut, n=120, stalls=(4000, 10000)):
     await env.drain()
     await env.cycles(2500)          # the last UpdateFCs arrive
     stats = env.finish()
+    # Starvation and stalls are not errors: nothing is lost or replayed.
+    assert_quiet(env, f" ({env.credits} credits)")
     for e in env.ends:
         if stallers:
             env.log.info("end %s starved: %s, sop waits %d", e.name, sorted(e.starved), e.sop_wait)
@@ -299,6 +314,9 @@ async def e2e_credits(dut):
     if env.credits in ("minimum", "finite"):
         for e in env.ends:
             assert e.starved, f"end {e.name}: never waited on credits in {env.credits}"
+    elif env.credits == "asymmetric":
+        # b sends into a's minimum credits.
+        assert env.ends[1].starved, "end b: never waited on a's minimum credits (asymmetric)"
 
 
 # ------------------------------------------------------------------- L2
