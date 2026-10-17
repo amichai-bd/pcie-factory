@@ -13,6 +13,11 @@
   falling `clk_i` edge, through two reset pulses.
 - **Functional coverage:** the `dll_shell` covergroup bins `rst` (low,
   high) and `link_up` (down, up), crossed.
+- **Independent link partner:** the [partner model](PARTNER.md)
+  (`models/pcie_dll_partner.py`, M2 Q3) and its pytest unit tests, run by
+  `./build ci unit`, not by a regression entry. It shares no code with the
+  architecture model; its possible disagreements with the HAS are listed
+  on its page.
 - **Planned (wave 2):** one `dll` testbench driving the upper TLP stream
   and a stand-in `phy` packet stream, with the independent DLL link
   partner ([#210](https://github.com/amichai-bd/pcie-factory/issues/210),

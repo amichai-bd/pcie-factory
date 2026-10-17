@@ -16,7 +16,7 @@ on protocol behaviour beside the
 | Rule | How it holds |
 | --- | --- |
 | A different author from the architecture model | Written by a separate crewmate under [#210](https://github.com/amichai-bd/pcie-factory/issues/210); the PR records it. |
-| Written from the spec and the HAS | Sources: the [`dll` HAS](../../arch/dll/HAS.md) and its [DLLP](../../arch/dll/DLLP.md), [retry](../../arch/dll/RETRY.md) and [flow-control](../../arch/dll/FLOW_CONTROL.md) pages, at the [#259](https://github.com/amichai-bd/pcie-factory/pull/259) head `e2fc2db`, and the author's own reading of the rules they cite. |
+| Written from the spec and the HAS | Sources: the [`dll` HAS](../../arch/dll/HAS.md) and its [DLLP](../../arch/dll/DLLP.md), [retry](../../arch/dll/RETRY.md) and [flow-control](../../arch/dll/FLOW_CONTROL.md) pages, at the [#259](https://github.com/amichai-bd/pcie-factory/pull/259) head `724c6e9`, merged to `main` as `69b4ac5`, and the author's own reading of the rules they cite. |
 | No shared code | Nothing under `src/arch/dll/`, the architecture model, its CRC code or its self-tests, was read or imported. The partner has its own CRCs, framing and state machines. |
 | Checked | `test_independence_no_shared_code` fails if a partner module imports anything but the standard library and its own modules, or names a path under `arch/` in code. |
 | Disagreements stay visible | Where the partner's reading may differ from the HAS, it is listed below as a [possible disagreement](#possible-disagreements) for the HAS Open items. It is never settled by looking at the model. |
@@ -40,7 +40,7 @@ and `nullify`. None is an idle cycle.
 | `link_up` | input | The physical layer's LinkUp. 0 resets the partner to DL_Inactive. |
 | `tx_ready` | input | The stream takes the partner's beat this cycle (0 holds it, even inside a packet). |
 | `in_l0` | input | The LTSSM is in L0. 0 holds the replay timer; a replay held after a rollover waits for it to fall and rise again. |
-| `upper_ready` | input | The partner's upper layer takes stored TLPs, one per cycle. 0 stops credits being returned. |
+| `upper_ready` | input | The partner's upper layer takes stored TLPs, one per cycle. 0 stops credits being returned. The partner's store is unbounded, so it may stall even with an infinite class; the HAS's never-stall obligation binds the `dll`'s upper layer, not the partner. |
 | `send(tlp)` | call | Queue a TLP (header and data, no sequence number or LCRC). `check=False` lets a malformed TLP through. |
 | `received` | output | TLPs delivered upward, in order. |
 | `retrain_req` | output | 1 for the cycle of a REPLAY_NUM rollover. |
@@ -179,7 +179,7 @@ not into either model silently.
 
 ## Possible disagreements
 
-Points where the partner's reading may differ from the HAS at `e2fc2db`,
+Points where the partner's reading may differ from the HAS at `724c6e9`,
 for the [HAS Open items](../../arch/dll/HAS.md#open-items). None is settled
 by the architecture model.
 
