@@ -59,3 +59,8 @@ tests:
     testcase: rollover_edge
     top: pcie_dll_tb
     timeout_s: 120
+  - name: timer_edge
+    module: tests.test_dll_tlp_tx
+    testcase: timer_edge
+    top: pcie_dll_tb
+    timeout_s: 120

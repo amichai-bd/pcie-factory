@@ -736,3 +736,31 @@ async def rollover_edge(dut):
     env.inject(ack(1))
     await settle(env)
     env.check_clean()
+
+
+@cocotb.test()
+async def timer_edge(dut):
+    """L0: the replay timer is never early (RETRY.md, timers). The LTSSM
+    leaves L0 for 5 cycles starting in the very cycle the timer would reach
+    356: the timeout comes only after 356 cycles in L0, 361 cycles after
+    the eop that started it."""
+    env = Env(dut, cocotb.RANDOM_SEED)
+    await env.start()
+    await active_by_hand(env)
+    env.send(make_tlp("MRd", 0, 1))
+    await env.run_until(lambda: env.tlp_packets and not env.in_pkt, 100, "the TLP sent")
+    sop, data = env.tlp_packets[-1]
+    start = sop + len(data) // 2              # the edge that took its eop
+    await env.run_until(lambda: env.cycle == start + REPLAY_TIMEOUT - 1, REPLAY_TIMEOUT,
+                        "the cycle the timer would reach 356")
+    env.l0 = False
+    await env.run(5)
+    env.l0 = True
+    await env.run_until(lambda: env.err_counts[ERR_TIMEOUT] == 1, 50, "the timeout")
+    got = env.err_cycles[ERR_TIMEOUT][0] - start
+    assert got == REPLAY_TIMEOUT + 5, f"timeout {got} cycles after the eop, expected 361"
+    COV_REPLAY.sample(timer="held_outside_l0")
+    await settle(env)
+    env.inject(ack(0))
+    await settle(env)
+    env.check_clean()

@@ -275,17 +275,15 @@ take, the timer stopped, REPLAY_NUM (after this edge's Ack or Nak) plus 1,
 or, from 3, the rollover: 0, `err_o` bit 3 and `retrain_req_o` in the same
 cycle, and the hold. `hold_o` is the hold or `roll_now`: a rollover in this
 cycle from a Nak, the timer or a pending request, computed from the
-registers and the registered received DLLP alone: the arbiter's take
-never feeds it back (a take that ends a replay and starts a pending one
-needs a free stream, so no `sop` waits then), and no input reaches
-`pkt_tx_valid_o` through it; `a_roll_now` checks it implies the
+registers, the registered received DLLP and `ltssm_state_i` (the timer's
+L0 condition, its one direct input): the arbiter's take never feeds it
+back (a take that ends a replay and starts a pending one needs a free
+stream, so no `sop` waits then); `a_roll_now` checks it implies the
 rollover.
 
-**Timer and hold.** `rt` counts while running and in L0 as registered at
-the last edge (`in_l0_q`, from `ltssm_state_i` bits 5:4 `10`): it holds
-for as many cycles as the LTSSM is out of L0, one edge later, so the
-expiry time is unchanged and `ltssm_state_i` stays off the transmit
-outputs; at the edge where it would reach 356 it stops, pulses `err_o`
+**Timer and hold.** `rt` counts in L0 (`ltssm_state_i` bits 5:4 `10`, in
+the same cycle) while running, so it expires after exactly 356 L0
+cycles, never earlier; at the edge where it would reach 356 it stops, pulses `err_o`
 bit 2 and requests a replay; it starts at a TLP's `eop` taken when
 stopped. The hold counts cycles from the rollover; it ends at the first
 L0 code after a non-L0 one, or at 1024 cycles if the LTSSM never left L0.
@@ -416,8 +414,8 @@ overflowed one (no Ack or Nak), never stored with a hole.
 ## Timing
 
 - One clock (`clk_i`, 125 MHz), synchronous active-high reset; no
-  crossings. Every output but `tlp_tx_ready_o` (below) is a register or a
-  function of registers and the parameters.
+  crossings. Every output but `tlp_tx_ready_o` and `pkt_tx_valid_o`
+  (below) is a register or a function of registers and the parameters.
 - A received DLLP's effect: decoded at the edge after its `eop` beat;
   credits recorded and `done` set at the next edge; a state change at the
   edge after that.
@@ -432,9 +430,12 @@ overflowed one (no Ack or Nak), never stored with a hole.
   received Ack or Nak acts at the edge after its decode, so two edges
   after its `eop`. The replay timer reaches 356 exactly 356 cycles after
   the `eop` that started it.
-- `tlp_tx_ready_o` is the one output that depends on inputs: on a `sop`
-  beat it reads `tlp_tx_sop_i` and the first DW of `tlp_tx_data_i`
-  ([HAS, transmit](../../arch/dll/HAS.md#transmit)).
+- Two outputs depend on inputs. `tlp_tx_ready_o`: on a `sop` beat it reads
+  `tlp_tx_sop_i` and the first DW of `tlp_tx_data_i`
+  ([HAS, transmit](../../arch/dll/HAS.md#transmit)). `pkt_tx_valid_o`:
+  `ltssm_state_i` through `roll_now`, in the rollover cycle only (the
+  timer expires on the cycle's L0 state, so it is never early), dropping
+  valid for a waiting TLP `sop`.
 - Received TLP, from its `eop` beat from `phy` (cycle c): checked and
   registered at the edge ending c, judged in c+1 (Bad TLP and Malformed
   TLP pulse in c+2), committed at the edge ending c+1, read at the edge
@@ -454,7 +455,14 @@ overflowed one (no Ack or Nak), never stored with a hole.
   the two chained 16-step LCRC steps from `tlp_tx_data_i` (and, at a
   `sop`, the sequence number) into the `crc` register, and the room check
   from `tlp_tx_data_i` to `tlp_tx_ready_o` (a 13-bit size, a 14-bit add
-  and compare). Each CRC bit is the parity of at most 32 (CRC-16), 48
+  and compare); and `ltssm_state_i` to `pkt_tx_valid_o`: a 2-bit compare
+  (`in_l0`), an AND with the timer's 9-bit compare (`timer_at_end`), the
+  `roll_now` AND-OR, `hold_o` OR and the `withdraw` AND gating valid,
+  about five gate levels. In `link` it is safe: the mac's
+  `ltssm_state_o` is a decode of its LTSSM state register, so nothing that `pkt_tx_valid_o` drives
+  in the `phy` comes back to `ltssm_state_i` within the cycle, and the
+  path has no combinational loop; it adds these five levels to the mac's
+  register-to-input path into the `phy` transmit stream. Each CRC bit is the parity of at most 32 (CRC-16), 48
   (receive LCRC) or 64 (transmit LCRC) input bits.
 
 ## Files

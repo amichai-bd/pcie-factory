@@ -180,6 +180,7 @@ into a model or the RTL silently.
 | [Sequence numbers](../../arch/dll/RETRY.md#transmitter-state) from 0 and the [LCRC](../../arch/dll/RETRY.md#lcrc): the retry page's example (`E1 F1 E7 E2`), 86 random TLPs of every shape with upper gaps and `phy` stalls; [TX latency target](../../arch/dll/HAS.md#targets) | `lcrc_kat` | 0 | 1; latency 3 cycles, target 4 |
 | [Received Ack and Nak](../../arch/dll/RETRY.md#received-ack-and-nak) and the [replay](../../arch/dll/RETRY.md#replay) by hand: Ack, Nak with and without progress, out of range, everything acknowledged; [replay timer](../../arch/dll/RETRY.md#timers) at 356 cycles, held outside L0, restarted by progress; Ack during a replay, Nak during a replay | `replay_directed` | 0 | 1 |
 | [REPLAY_NUM](../../arch/dll/RETRY.md#replay_num) rollover, `retrain_req_o`, the hold with and without a retrain, progress setting REPLAY_NUM to 0 | `rollover_directed` | 0 | 1; hold 1025 cycles without, 302 with a 300-cycle Recovery |
+| [Replay timer](../../arch/dll/RETRY.md#timers) never early: the LTSSM leaves L0 for 5 cycles from the cycle the timer would reach 356; timeout 361 cycles after the `eop` | `timer_edge` | 0 | 1 |
 | [Rollover edge](../../arch/dll/RETRY.md#replay_num): a TLP `sop` waiting for the `phy` in the rollover cycle, the `phy` ready in exactly that cycle: not offered, resent after the oldest by the replay | `rollover_edge` | 0 | 1 |
 | [Replay-buffer](../../arch/dll/RETRY.md#replay-buffer) back-pressure on the upper stream: 6 maximum TLPs, the 1024-byte boundary (1022 taken, 1026 refused), room freed by an Ack | `rbuf_full` | 0 | 1 |
 | [A started TLP finished across a link-down](../../arch/dll/HAS.md#reset-values), the TLP being taken abandoned, sequence numbers from 0 after the relink; an offered TLP withdrawn | `link_down_mid_tlp` | 0 | 1 |
@@ -197,11 +198,10 @@ Each mutant was applied to the RTL and levels 0 and 1 run one test at a
 time; each is caught, and the unmutated RTL passes. The entry named is the
 first that fails in that run, at its first seed (level 0 unless marked).
 The TLP transmit mutants ([#212](https://github.com/amichai-bd/pcie-factory/issues/212))
-were all run serially; those whose code changed with the registered L0
-condition of the replay timer (the timer and rollover ones: replay timeout
-at 355, timer not held outside L0, progress not restarting the timer,
+were all run serially; the timer and rollover ones (replay timeout at
+355, timer not held outside L0, progress not restarting the timer,
 rollover after 3 replays, no withdrawal, `sop` offered in the rollover
-cycle) were rerun on the final RTL, with the same results.
+cycle, timer on L0 registered late) were rerun on the final RTL.
 
 | Block | Mutant | First failing entry | Result |
 | --- | --- | --- | --- |
@@ -248,6 +248,7 @@ cycle) were rerun on the final RTL, with the same results.
 | TLP transmit | A started TLP's stream cleared when the link goes down | `link_down_mid_tlp` | Stops on `a_beat_without_tlp`. |
 | TLP transmit | New TLPs before a running replay | `rbuf_full` | At cycle 1972 TLP 15 taken before the replay sent TLP 10. |
 | TLP transmit | A waiting `sop` still offered in the rollover cycle (hold from the register only) | `rollover_edge` | A TLP started at the rollover edge, ahead of the replay. |
+| TLP transmit | Replay timer on L0 registered one edge late | `timer_edge` | RESULT_M25 |
 | Package | LCRC polynomial `04C11DB7`h to `04C11DB6`h | `rx_directed` | DL_Active not reached: the TLP that should end FC_INIT2 has a bad LCRC. |
 | Package | LCRC remainder not complemented | `rx_directed` | The same. |
 | TLP receive | The nullified check inverted (an inverted LCRC is bad, a plain one silent) | `rx_errors` | Bad TLP pulses 196, expected 188 (seed 0). |
