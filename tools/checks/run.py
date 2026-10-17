@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import sys
 
+from build import backends
 from build.ip import Context, discover, find_ip
 from checks import cdc, citation, filelists, flows, layout, lint, neutrality, publishability, spec_cache, style, wiki_mirror
-from checks.common import CheckResult
+from checks.common import CheckConfigError, CheckResult
 
 # Report order. Lint and cdc run last: they are the slowest and need
 # Verilator; lint audits the sources that cdc then elaborates.
@@ -25,14 +26,18 @@ def run_checks(ctx: Context, ip_ids: list[str] | None, only: list[str] | None,
     names = [c for c in CHECKS if not only or c in only]
     print(f"check: {len(ips)} IP(s) under {ctx.src_root}"
           + (f"; --ip {' '.join(sorted(ids))}" if ids else ""), file=out)
+    try:
+        known = backends.load(ctx.cfg_dir)
+    except backends.BackendError as exc:
+        raise CheckConfigError(str(exc)) from None
     results: list[CheckResult] = []
     for name in names:
         if name == "layout":
             r = layout.run(ctx.src_root, ips, ids, layout.load_groups(ctx.repo_root))
         elif name == "filelist":
-            r = filelists.run(ctx.src_root, ips, ids)
+            r = filelists.run(ctx.src_root, ips, ids, known)
         elif name == "style":
-            r = style.run(ctx.src_root, ips, ids)
+            r = style.run(ctx.src_root, ips, ids, known)
         elif name == "wiki":
             r = wiki_mirror.run(ctx.src_root, ips, ids)
         elif name == "flows":

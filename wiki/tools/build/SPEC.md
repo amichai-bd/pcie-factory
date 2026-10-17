@@ -190,7 +190,11 @@ If none of these has it, the command fails with exit code 2.
 Sources, include directories and defines come from the resolved
 `dv/<id>/<id>.sim.f`. A bare define is passed as `-DNAME=`. The test entry's
 `top` is the HDL toplevel, and its `params` become top-level parameter
-overrides (`-G`). Every build passes `--assert` (`BUILD_ARGS` in `sim.py`),
+overrides (`-G`). An entry with `backend: <kind>` swaps each source that has
+that flow's [backend file](../../project/layout.md#source-backends) beside
+it for that file and appends the kind's `dv_models`
+(`build.backends`, from `cfg/backends.yaml`); an unknown kind or a filelist
+that lists a backend file is a build `error`. Every build passes `--assert` (`BUILD_ARGS` in `sim.py`),
 so the [assertion macros](../../bkm/rtl.md#assertions) are live in every
 simulation; `SYNTHESIS` is never defined.
 
@@ -213,7 +217,7 @@ flat sibling):
 
 | Path | Content |
 | --- | --- |
-| `workdir/<ip>/build/<top>[-<hash>]/` | Verilator build and `build.log`. `<hash>` (8 hex digits) is added when the test has `params`, waves are on or it is a coverage build, so different elaborations never share a directory. |
+| `workdir/<ip>/build/<top>[-<hash>]/` | Verilator build and `build.log`. `<hash>` (8 hex digits) is added when the test has `params` or a `backend`, waves are on or it is a coverage build, so different elaborations never share a directory. |
 | `workdir/<ip>/<test>/<seed>/` | `results.xml`, `sim.log` (the full simulator output), waves (`dump.vcd`) with `--waves`, and `coverage.dat` and `funcov.json` in a coverage run ([regress coverage](../regress/SPEC.md#coverage)). This directory is cleared before each run. |
 
 Because test directories share `workdir/<ip>/` with the tools' own output,
@@ -272,6 +276,12 @@ shared blocks and shared unit (`units` adds it only with
 `dv/common/common.sim.f`; it owns the `common/` folders). `test_logexcerpt.py`
 covers the failure excerpt: error lines before the tail in log order, the
 cap with its count and cut note, exactly the cap, and no error lines.
+`test_backends.py` covers `build.backends`: the repository configuration and
+its stand-ins, `cfg/backends.yaml` errors (shape, suffix, `dv_models`
+outside `dv/`, a shared suffix), backend naming (the portable file must
+exist), in-place selection per flow kind, and the refusal of a listed
+backend file; `test_sim.py` covers a backend build's sources and key and an
+unknown kind as a build `error`.
 
 Python dependencies (pinned in `tools/requirements.txt`): `PyYAML`,
 `pytest`, `cocotb`.

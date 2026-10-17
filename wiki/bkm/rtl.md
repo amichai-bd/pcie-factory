@@ -316,7 +316,7 @@ page refers to it as `<prefix>`.
 | Item | Rule | Example shape |
 | --- | --- | --- |
 | Folder | IP id; a sub-IP's id is a parent's id plus `_<sub>`, a flat sibling under each kind | `src/rtl/<ip>/`, `src/rtl/<ip>_<sub>/` |
-| Module, file | `<prefix><id>[_<role>]`, one module per file, file named after the module | `<prefix><ip>_<sub>.sv` |
+| Module, file | `<prefix><id>[_<role>]`, one module per file, file named after the module (a shared block's [source backend](../project/layout.md#source-backends) is `<block>_<suffix>.sv`) | `<prefix><ip>_<sub>.sv` |
 | Package | Module rule plus `_pkg` | `<prefix><ip>_pkg` |
 | Shared block | `common_<name>` | `common_<name>.sv` |
 | Vocabulary macro | `COMMON_<FORM>` | `COMMON_DFF_RST` |

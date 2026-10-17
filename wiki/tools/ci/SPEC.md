@@ -89,7 +89,9 @@ or missing required inputs: the real flow must diagnose those. Without
 uncommitted and untracked semantics as `ci unit`. Global paths and
 `vendor.files` select all targets. Otherwise a target is selected when its
 RTL filelist reaches a changed source, nested filelist or include-directory
-header, or a file under its corresponding vendor folder changes (wrapper,
+header, a changed file is the kind's [source backend file](../../project/layout.md#source-backends)
+of a source it reaches (`cfg/backends.yaml`), or a file under its
+corresponding vendor folder changes (wrapper,
 constraints, configuration). Deleted paths participate; an unresolvable RTL
 closure selects the target so the flow reports the failure. Selection does
 not use simulation filelists or Python/DV imports. Docs-only changes select
@@ -288,7 +290,7 @@ same status. The guard base is not in the description; the run behind
 
 `tools/ci/tests/`: all 64 aggregate success/failure/cancelled/skipped combinations
 and unknown-result rejection through the CLI, workflow dependency/guard wiring,
-vendor selection on synthetic git trees, child failure propagation, actual-child signal forwarding, no-target
+vendor selection on synthetic git trees (a backend file selects only its own flow), child failure propagation, actual-child signal forwarding, no-target
 and dry-run behavior (`test_ci_gate.py`, `test_ci_vendor.py`); rule loading and every malformed-input case
 (`test_ci_config.py`), suite planning on a synthetic git repository
 (including an IP with an arch model and scenario, and a vocabulary header
