@@ -215,7 +215,8 @@ captain may override.
 ## Targets
 
 Measured by the [architecture model](#architecture-model) with `core`
-back to back with a host's `link`, error-free, default parameters, the
+back to back with a host's `link`, error-free, default parameters unless
+the row says otherwise, the
 application and the host always taking and offering, after the host has
 enumerated the function. The line rate and the payload measure are the
 [`link` targets](../link/HAS.md#targets)'. `tl` adds no bytes on the line.
@@ -232,13 +233,13 @@ read ([`link` throughput](../link/HAS.md#throughput)).
 | --- | --- | --- | --- |
 | Host writes in | 128-byte memory writes from the host to BAR0, payload on `cq`: ≥ 0.98 of the link rate, ≥ 0.833 of the line (208 MB/s). | 0.999, 0.856 | [`host_write`](../../../../src/arch/core/perf/host_write.yaml) |
 | Host reads | 128-byte reads from BAR0, the application answering in 16 cycles: ≥ 0.98, ≥ 0.745 (186 MB/s). | 0.999, 0.774 | [`host_read`](../../../../src/arch/core/perf/host_read.yaml) |
-| Split reads | 512 bytes at offset 4: 5 completions; 4 KiB aligned: 32; every field and every split checked by the host stand-in. | 5, 32; no error | [`host_read_split`](../../../../src/arch/core/perf/host_read_split.yaml), [`host_read_4k`](../../../../src/arch/core/perf/host_read_4k.yaml) |
+| Split reads | 512 bytes at offset 4: 5 completions; 4 KiB aligned: 32; 128 bytes at offset 4 (across a 64-byte boundary): 1; every field checked by the host stand-in, and a split accepted only while more than 128 bytes are left. | 5, 32, 1; no error | [`host_read_split`](../../../../src/arch/core/perf/host_read_split.yaml), [`host_read_4k`](../../../../src/arch/core/perf/host_read_4k.yaml), [`host_read_unaligned`](../../../../src/arch/core/perf/host_read_unaligned.yaml) |
 | Application writes out | 128-byte writes on `rq`: ≥ 0.98, ≥ 0.833. | 0.999, 0.856 | [`app_write`](../../../../src/arch/core/perf/app_write.yaml) |
 | Application reads | 128-byte reads on `rq`, host latency 100 cycles: ≥ 0.98, ≥ 0.745. | 0.998, 0.773 | [`app_read`](../../../../src/arch/core/perf/app_read.yaml) |
 | Both ways | Host writes in and application writes out at once, in each direction: ≥ 0.98 of the both-ways link rate, ≥ 0.745. | 1.000, 0.774 | [`bidir_write`](../../../../src/arch/core/perf/bidir_write.yaml) |
 | Enumeration | IDs, capability walk, BAR sizing and assignment, enables, MSI and MSI-X set-up and one interrupt each way, for default and random parameters: no mismatch. | no mismatch; 4950 cycles (40 µs) from DL_Active | [`enumeration`](../../../../src/arch/core/perf/enumeration.yaml) |
 | MSI | Each MSI write reaches the host after the `rq` data the application wrote before the request; none lost. | 50 of 50 | [`msi`](../../../../src/arch/core/perf/msi.yaml) |
-| MSI-X | Masked vectors pend, the host reads the pending bits set through BAR2, each unmask sends one write and clears its bit; unmasked requests are sent at once. | 64 vectors, 128 writes | [`msix_pending`](../../../../src/arch/core/perf/msix_pending.yaml) |
+| MSI-X | `MSIX_TABLE_SIZE` 64: masked vectors pend, the host reads the pending bits set through BAR2, each unmask sends one write and clears its bit; unmasked requests are sent at once. | 64 vectors, 128 writes | [`msix_pending`](../../../../src/arch/core/perf/msix_pending.yaml) |
 | Unsupported Request | An I/O read, a memory read just past BAR0, a memory write hitting no BAR, a configuration read to function 1: Unsupported Request completions for the non-posted ones, Unsupported Request Detected, ERR_COR (advisory) and ERR_NONFATAL with reporting enabled, BAR0 still served. | 3 completions, 1 drop per round; no error | [`unsupported_request`](../../../../src/arch/core/perf/unsupported_request.yaml) |
 | Enumeration and traffic | Goal items 4 to 6 of the [M3 record](../../decisions/0004-m3-grill.md#goal), end to end against the host model. | | [#293](https://github.com/amichai-bd/pcie-factory/issues/293) |
 | FPGA clock | `clk_i` and `ser_rx_clk_i` at 50 MHz on the DE2-115 (Quartus): timing and resources only (M1 Q26). | | [#295](https://github.com/amichai-bd/pcie-factory/issues/295) |
@@ -270,7 +271,7 @@ independent host model DV uses, which is
 [#288](https://github.com/amichai-bd/pcie-factory/issues/288)'s. Until
 [#303](https://github.com/amichai-bd/pcie-factory/issues/303) the host
 stand-in keeps the release rule's credit count itself, as in the `tl`
-model. The [self-tests](../../../../src/arch/core/test_pcie_core_arch.py)
+model. The scenarios are error-free: `rcv_err` is not driven. The [self-tests](../../../../src/arch/core/test_pcie_core_arch.py)
 check these pages' examples; `./build arch --ip core` runs the
 scenarios of the [targets](#targets) and writes
 `workdir/core/arch/perf.json`.

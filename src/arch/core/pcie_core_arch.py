@@ -163,6 +163,9 @@ class Core:
                 self.tl.reset()
                 self.cfg.reset()
             self.up = False
+            # cfg is in reset: events while down are lost, never pulsed later
+            self.tl_err[:] = self.tl.errors
+            self.dl_err[:] = self.dll.errors
             self.seen = len(self.dll.delivered)
             return
         self.up = True
@@ -232,8 +235,9 @@ class Host(tlm.Host):
     def _bar0_cpl(self, h: dict) -> None:
         """A BAR0 read completion, checked by rule: status, Byte Count (the
         bytes left), Lower Address, at most 128 bytes, the data, and a split
-        only where one is needed: a completion that is not the last ends at
-        the highest 64-byte boundary within 128 bytes of its start."""
+        only where one is needed: a completion that is not the last is legal
+        only while more than 128 bytes are left, and ends at the highest
+        64-byte boundary within 128 bytes of its start."""
         r = self.bar0[h["tag"]]
         data, n = h["data"], len(h["data"])
         end = r["next"] + n
@@ -242,7 +246,8 @@ class Host(tlm.Host):
                         for i in range(n // 4))
         ok = (h["status"] == tlm.SC and h["bc"] == r["left"] and h["la"] == r["next"] & 0x7F
               and 0 < n <= min(MAX_PAYLOAD, r["left"]) and data == want
-              and (last or end == (r["next"] + MAX_PAYLOAD) // RCB * RCB))
+              and (last or (r["left"] > MAX_PAYLOAD
+                            and end == (r["next"] + MAX_PAYLOAD) // RCB * RCB)))
         self.read_cpls += 1
         self.read_errors += not ok
         r["next"], r["left"] = end, r["left"] - n

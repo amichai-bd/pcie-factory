@@ -84,7 +84,9 @@ def test_bar_decode():
 
     def prog():
         yield from m.wait(lambda: b.a.dl_up and b.b.dl_up)
-        got["before"] = (yield from h.mem_rd(BAR0))["status"]
+        got["before"] = (yield from h.mem_rd(BAR0))["status"]          # BAR0 unassigned
+        yield from h.cfg_wr(0x10, BAR0)
+        got["mse_off"] = (yield from h.mem_rd(BAR0))["status"]         # assigned, MSE 0
         yield from m.setup(b, BAR0, BAR2)
         yield from h.mem_wr(BAR0 + 0xFFC, [0x11223344])
         got["edge"] = (yield from h.mem_rd(BAR0 + 0x1000))["status"]
@@ -93,25 +95,29 @@ def test_bar_decode():
         yield from m.wait(lambda: not h.bar0)
 
     run(b, prog())
-    assert got == {"before": tlm.UR, "edge": tlm.UR, "bar2": tlm.SC}
+    assert got == {"before": tlm.UR, "mse_off": tlm.UR, "edge": tlm.UR, "bar2": tlm.SC}
     writes = [p for p in b.app.cq_got if p["write"]]
     assert [(p["addr"], p["data"]) for p in writes] == [(0xFFC, (0x11223344).to_bytes(4, "little"))]
     assert h.reads_done == 1 and h.read_errors == 0
 
 
-@pytest.mark.parametrize("parts,ok", [
-    ([(4, 124), (128, 128), (256, 128), (384, 128), (512, 4)], True),
-    ([(4, 60), (64, 64), (128, 64), (192, 64), (256, 64), (320, 64), (384, 64), (448, 64),
-      (512, 4)], False),                                    # split at every boundary
-    ([(4, 128), (132, 128), (260, 128), (388, 128)], False),  # not on a boundary
+@pytest.mark.parametrize("start,size,parts,ok", [
+    (4, 512, [(4, 124), (128, 128), (256, 128), (384, 128), (512, 4)], True),
+    (4, 512, [(4, 60), (64, 64), (128, 64), (192, 64), (256, 64), (320, 64), (384, 64),
+              (448, 64), (512, 4)], False),                 # split at every boundary
+    (4, 512, [(4, 128), (132, 128), (260, 128), (388, 128)], False),  # not on a boundary
+    (4, 128, [(4, 128)], True),
+    (4, 128, [(4, 124), (128, 4)], False),                 # an unneeded split
+    (40, 100, [(40, 24), (64, 76)], False),                # the same, 100 bytes at 40
+    (40, 100, [(40, 100)], True),
 ])
-def test_host_checks_splitting(parts, ok):
+def test_host_checks_splitting(start, size, parts, ok):
     """The host stand-in checks each BAR0 read completion by rule: a split
-    only where needed, ending at the highest 64-byte boundary within 128
-    bytes (tl COMPLETIONS.md)."""
+    only where needed (more than 128 bytes left), ending at the highest
+    64-byte boundary within 128 bytes (tl COMPLETIONS.md)."""
     h = m.Host(m.FC, 0, 12, 1, 0)
-    h.bar0[7] = {"next": 4, "left": 512, "size": 512}
-    left = 512
+    h.bar0[7] = {"next": start, "left": size, "size": size}
+    left = size
     for addr, n in parts:
         data = b"".join(tlm.App.pattern((addr + 4 * i) & 0xFFF).to_bytes(4, "little")
                         for i in range(n // 4))
@@ -150,10 +156,12 @@ def test_throughput_targets(w, frac, floor):
     assert r["completion_errors"] == 0 and r["tl_errors"] == 0
 
 
-def test_split_reads():
-    """A 512-byte host read at offset 4 comes back in 5 completions."""
-    r = m.perf({"kind": "traffic", "host": "read", "tlps": 20, "bytes": 512, "offset": 4}, 1)
-    assert (r["completions_per_read"], r["completion_errors"], r["host_reads_done"]) == (5, 0, 20)
+@pytest.mark.parametrize("size,offset,cpls", [(512, 4, 5), (128, 4, 1), (100, 40, 1)])
+def test_split_reads(size, offset, cpls):
+    """A 512-byte host read at offset 4 comes back in 5 completions; a read
+    whose rest fits in 128 bytes in one, even across a 64-byte boundary."""
+    r = m.perf({"kind": "traffic", "host": "read", "tlps": 20, "bytes": size, "offset": offset}, 1)
+    assert (r["completions_per_read"], r["completion_errors"], r["host_reads_done"]) == (cpls, 0, 20)
 
 
 def test_msi_follows_the_data():
