@@ -131,8 +131,12 @@ to the author to run.
 Workflows live in `.github/workflows/` (`ci`, `nightly`, `pages`, `fpga`,
 `asic`) and run on self-hosted runners selected with
 `runs-on: [self-hosted, linux, x64]`. The runners are registered to this
-repository only, so no workflow names the design target. The CI host is
-the Omarchy machine; `cfg/host.yaml` pins its toolchain.
+repository only, so no workflow names the design target. Two hosts run
+them, both with the same pinned toolchain
+([host SPEC](../tools/host/SPEC.md#hosts)): the Omarchy machine and the WSL
+host, whose runners also carry the label `wsl`. Any runner takes any job,
+except the nightly, which selects `[self-hosted, linux, x64, wsl]` and so
+runs only on the WSL host ([Nightly](#nightly)).
 
 **Forks.** The repository is public, so fork code must not reach these
 runners. Every job that a `pull_request` can trigger carries
@@ -245,7 +249,11 @@ gets its own run
 
 ## Nightly
 
-The nightly workflow runs daily on the same runners (the
+The nightly workflow runs daily on the WSL host's runners only (label
+`wsl`), never on the Omarchy runners: there it takes about 27 minutes
+against about 2 hours on Omarchy (captain decision, #273). If no `wsl`
+runner is online, the nightly waits in the queue rather than fall back
+(the
 [metrics spec](../tools/metrics/SPEC.md#workflows) owns its jobs,
 permissions and data PR mechanics):
 

@@ -157,8 +157,8 @@ Because `fpga/` lives in `workdir/<ip>/`, no test may be named `fpga`
 
 ## CI
 
-`.github/workflows/fpga.yml` runs on `[self-hosted, linux, x64]` (the host
-with Quartus) with `contents: read` and a 90-minute job timeout. It has
+`.github/workflows/fpga.yml` runs on `[self-hosted, linux, x64]` (every
+CI host has Quartus) with `contents: read` and a 90-minute job timeout. It has
 **manual dispatch only**; required CI separately runs full Quartus on
 affected targets ([CI selection](../ci/SPEC.md#build-ci-vendor)).
 Input `ip` runs `./build fpga --ip <ip>`,
