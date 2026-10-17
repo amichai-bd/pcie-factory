@@ -332,9 +332,19 @@ def test_malformed_tlp_is_acknowledged_not_delivered_and_credits_return():
     b.receive(tlp_pkt(0, short), p.now)
     assert b.errors[m.E_MALFORMED] == 1 and b.nrs == 1 and not b.rxq and not b.nak_due
     assert b.ca[m.P] == [9, 34] and b.cr[m.P] == [1, 2]
-    big = bytes([0x40, 0, 0, 40]) + bytes(12 + 160)   # 160-byte payload, above 144 bytes
+    big = bytes([0x40, 0, 0, 40]) + bytes(8 + 160)    # 160-byte payload, header agrees
     b.receive(tlp_pkt(1, big), p.now)
     assert b.errors[m.E_MALFORMED] == 2 and b.nrs == 2 and not b.rxq
+    over = bytes([0x40, 0, 0, 33]) + bytes(8 + 132)   # 132-byte payload: above 128, 144 bytes
+    assert len(over) == 144
+    b.receive(tlp_pkt(2, over), p.now)
+    assert b.errors[m.E_MALFORMED] == 3 and b.nrs == 3 and not b.rxq
+    odd = m.tlp_frame(3, m.make_tlp("mrd", 0, 5) + b"\x00")  # good LCRC, 19 bytes
+    b.receive(m.Packet(False, odd), p.now)
+    assert b.errors[m.E_MALFORMED] == 4 and b.nrs == 4 and not b.nak_due
+    assert b.errors[m.E_BAD_TLP] == 0
+    b.receive(m.Packet(False, bytes([0, 4, 1])), p.now)    # too short to hold an LCRC
+    assert b.errors[m.E_BAD_TLP] == 1 and b.nak_due
 
 
 def test_default_completion_credits_are_infinite():

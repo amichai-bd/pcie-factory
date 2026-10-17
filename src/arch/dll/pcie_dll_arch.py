@@ -316,14 +316,17 @@ class Dll:
             self.err(E_BAD_TLP)
             self._schedule_nak()
             return
-        ok_len = len(d) >= SEQ_BYTES + 12 + LCRC_BYTES and len(d) % 4 == 2
+        if len(d) < SEQ_BYTES + LCRC_BYTES:             # no LCRC to check
+            self.err(E_BAD_TLP)
+            self._schedule_nak()
+            return
         if pkt.nullify:
-            if ok_len and d[-4:] == invert(lcrc(d[:-4])):
+            if d[-4:] == invert(lcrc(d[:-4])):
                 return                                  # nullified: silent discard
             self.err(E_BAD_TLP)
             self._schedule_nak()
             return
-        if not ok_len or d[-4:] != lcrc(d[:-4]):
+        if d[-4:] != lcrc(d[:-4]):
             self.err(E_BAD_TLP)
             self._schedule_nak()
             return
@@ -333,9 +336,10 @@ class Dll:
         ahead = (seq - self.nrs) % SEQ_MOD
         if ahead == 0:
             tlp = d[SEQ_BYTES:-LCRC_BYTES]
-            cls, h, dc, n = tlp_info(tlp)
-            if n != len(tlp) or len(tlp) > MAX_TLP:
-                # Malformed: acknowledged, not delivered, credits returned.
+            cls, h, dc, n = tlp_info(tlp) if len(tlp) >= 4 else (P, 0, 0, -1)
+            payload = n - (16 if tlp[0] & 0x20 else 12) if n > 0 else 0
+            if len(d) % 4 != 2 or len(tlp) < 12 or n != len(tlp) or payload > MAX_PAYLOAD:
+                # Malformed: acknowledged, not delivered, header credits returned.
                 self.err(E_MALFORMED)
                 for f, v in ((0, h), (1, dc)):
                     if self.adv[cls][f]:

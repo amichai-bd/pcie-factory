@@ -226,8 +226,10 @@ stays 1 through Recovery, so a retrain does not leave DL_Active.
   with an assertion. With every parameter finite it may stall freely; the
   credits bound what the receive buffer must hold
   ([receive buffer](FLOW_CONTROL.md#receive-buffer)).
-- A good, expected TLP whose byte count differs from what its header's
-  Fmt and Length give, or exceeds 144 bytes, is malformed: it is
+- A good-LCRC, expected TLP is malformed when its packet length is not
+  2 more than a multiple of 4, it is shorter than a 3-DW header, its byte
+  count differs from what its header's Fmt and Length give, or its
+  payload is above 128 bytes (Q6). It is
   acknowledged (the sequence advances), not delivered, and its header's
   credits are returned at once; Malformed TLP pulses
   ([receiving TLPs](RETRY.md#receiving-tlps)).
@@ -253,7 +255,7 @@ add the two together.
 | 3 | REPLAY_NUM rollover | A [rollover](RETRY.md#replay_num); `retrain_req_o` pulses in the same cycle. |
 | 4 | DL protocol error | An Ack or Nak whose sequence number names no unacknowledged TLP ([Ack and Nak](RETRY.md#received-ack-and-nak)). |
 | 5 | Receiver overflow | A good TLP that its class's free credits do not cover ([receive buffer](FLOW_CONTROL.md#receive-buffer)). |
-| 6 | Malformed TLP | A good, expected TLP whose byte count disagrees with its header or exceeds 144 bytes ([Receive](#receive)). |
+| 6 | Malformed TLP | A good-LCRC, expected TLP with a bad length, a byte count that disagrees with its header, or a payload above 128 bytes ([Receive](#receive)). |
 
 ## Decisions
 
@@ -268,10 +270,10 @@ add the two together.
 | A Nak or timeout during a replay replays again after it | One replay at a time keeps the replay buffer read path simple; the second request is not lost. | Restarting the replay at once. |
 | Overflowed TLPs are discarded, neither acknowledged nor Nak'd | Never loses a TLP and needs no extra state. The consequence is spelled out: NEXT_RCV_SEQ does not advance, so the TLPs behind it arrive "ahead", pulse Bad TLP and schedule one Nak, and the partner replays from the overflowed TLP. If the stall persists, each replay overflows again, REPLAY_NUM rolls over and the link retrains. A credit-correct partner with a compliant upper layer never triggers it. | Acknowledging and dropping (loses the TLP). |
 | Completion credits infinite by default; `dll` port-role neutral | The Endpoint and Root Port rule; one IP serves both roles, and a role that may advertise finite completion credits overrides `FC_CPLH`/`FC_CPLD`. | Finite defaults (non-compliant for an Endpoint). |
-| The upper layer never stalls when any class is infinite | An exact, checkable rule. With one FIFO in arrival order, a stall on any TLP would let infinite-class TLPs behind it overrun the reserve even with a credit-correct partner. | A cycle bound (hard to size and verify). |
+| The upper layer never stalls when any class is infinite | An exact, checkable rule. With one FIFO in arrival order, a stall on any TLP would let infinite-class TLPs behind it overrun the reserve even with a credit-correct partner. In M2 the receive side therefore never stalls whenever any class is infinite, which with the default (infinite completion credits) means always; M3's transaction layer must accept every TLP at line rate. | A cycle bound (hard to size and verify); per-class receive queues, rejected on ordering grounds (the bypass rules between classes belong to the transaction layer). |
 | An entry UpdateFC and the 2048-cycle refresh for every class, infinite fields sent as 0 | With all classes infinite and link-up skew, the side that leaves FC_INIT2 first would otherwise send nothing that ends the partner's FC_INIT2, so the partner never reaches DL_Active. | Allowing TLPs in FC_INIT2. |
 | After a REPLAY_NUM rollover, TLPs wait until the LTSSM has left L0 and returned | The replay then never starts into a retrain that would cut it; the `dll` enforces it without relying on `phy` ready timing. | Replaying at once (the first replayed TLP is lost and needs another Nak or timeout). |
-| Malformed TLPs acknowledged and dropped, credits returned | The data link layer accepted it; the receive buffer is sized from header credits, so it is not stored. The transaction layer's own malformed checks come in M3. | Nak (the partner would replay it forever). |
+| Malformed TLPs, bad lengths with a good LCRC included, acknowledged and dropped, credits returned | The data link layer accepted it; the receive buffer is sized from header credits, so it is not stored. The size limit is the 128-byte maximum payload (Q6). The transaction layer's own malformed checks come in M3. | Nak (the partner would replay it until REPLAY_NUM rolls over); a 144-byte packet limit (lets a 132-byte payload with a 3-DW header through). |
 
 ## Targets
 
@@ -335,7 +337,7 @@ corrects the rule and the model together.
 | Item | Owner |
 | --- | --- |
 | Every section number cited on this page and its sub-pages, checked against rev 3.0. | Captain, with a local copy; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) cross-checks |
-| The bit and byte mapping of the CRC-16 and LCRC onto the line ([DLLP page](DLLP.md#crc-16), [retry page](RETRY.md#lcrc)): this design takes the standard CRC-32 convention for both. | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
+| The bit and byte mapping of the CRC-16 and LCRC onto the line ([DLLP page](DLLP.md#crc-16), [retry page](RETRY.md#lcrc)): this design takes the standard CRC-32 convention for both. #210's partner, written from the [DLLP page](DLLP.md#crc-16) alone, gets the same CRC-16 bytes (`B3 94` and `7D 70` on its vectors). That shows the page is self-consistent, not that it matches the spec; the captain closes this item against the spec. | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
 | DL_Up reported from FC_INIT2, TLP transmission only from DL_Active, and the "group being sent is complete" rule for leaving FC_INIT1 and FC_INIT2. | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
 | The timer values: replay timeout 711 symbol times (no L0s adjustment, since `dll` makes no ASPM changes), Ack limit 237 symbol times, InitFC resend at most every 34 µs, UpdateFC refresh at most every 30 µs ([timers](RETRY.md#timers)). | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
 | A Nak not resent while NAK_SCHEDULED is set (a lost Nak is recovered by the partner's replay timer), and a phy-flagged TLP treated as a bad TLP that schedules a Nak. | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |

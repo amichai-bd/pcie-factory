@@ -163,16 +163,24 @@ At the `eop` of a packet tagged TLP, in FC_INIT2 or DL_Active (in other
 states it is discarded silently) [cite: PCIe Base Spec, rev 3.0, §3.5.3.1]:
 
 1. **Flagged by `phy`** (`pkt_rx_err_i`): discard; Bad TLP; schedule a Nak.
-2. **Ended by EDB** (`pkt_rx_nullify_i`): if the length is valid and the
-   LCRC is the inverse of the computed one, discard silently (a nullified
-   TLP). Otherwise discard; Bad TLP; schedule a Nak.
-3. **Length or LCRC.** A length below 18 bytes or not 2 more than a
-   multiple of 4, or an LCRC mismatch: discard; Bad TLP; schedule a Nak.
-4. The TLP is good. In FC_INIT2 it ends initialisation
+2. **Too short** to hold a sequence number and an LCRC (below 6 bytes):
+   discard; Bad TLP; schedule a Nak.
+3. **Ended by EDB** (`pkt_rx_nullify_i`): if the LCRC is the inverse of the
+   computed one, discard silently (a nullified TLP). Otherwise discard;
+   Bad TLP; schedule a Nak.
+4. **LCRC mismatch:** discard; Bad TLP; schedule a Nak. A packet whose
+   length is wrong but whose LCRC is good is not a transmission error: no
+   compliant transmitter sends it, and a Nak would only replay it until
+   REPLAY_NUM rolls over. It goes on to the sequence check and, if
+   expected, is malformed (below).
+5. The LCRC is good. In FC_INIT2 it ends initialisation
    ([control states](HAS.md#data-link-control-states)). With S its
    sequence number and D = `(S − NEXT_RCV_SEQ)` modulo 4096:
-   - **D = 0, expected, malformed:** its byte count differs from the
-     size its header's Fmt and Length give, or exceeds 144: accept it at
+   - **D = 0, expected, malformed:** the packet is malformed when any of these holds: its length is not 2 more
+     than a multiple of 4; the TLP is shorter than a 3-DW header (packet
+     below 18 bytes); its byte count differs from the size the header's
+     Fmt and Length give; or its payload is above 128 bytes, the maximum
+     payload (Q6). Accept it at
      this layer (add 1 to NEXT_RCV_SEQ, clear NAK_SCHEDULED, start the
      Ack timer if stopped) but do not store or deliver it; return its
      header's credits at once (CREDITS_RECEIVED and CREDITS_ALLOCATED

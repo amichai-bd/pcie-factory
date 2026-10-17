@@ -105,7 +105,7 @@ space.
 
 ## UpdateFC scheduling
 
-In DL_Active, for each class with at least one finite field
+In DL_Active, for every class
 [cite: PCIe Base Spec, rev 3.0, §2.6.1.2]:
 
 - **Due**, for every class, at once on entering DL_Active and when 2048
