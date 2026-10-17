@@ -72,17 +72,23 @@ resizing buffers, as for `phy`.
 **Memories.** The `dll` replay buffer (256 × 32 bits) and receive buffer
 (512 × 34 bits at the default credits) are
 [`common_sdp_ram`](../../rtl/common/ram/common_sdp_ram.md) instances.
-[`sky130hd.backends.f`](../../../../src/asic/link/sky130hd.backends.f)
-selects the RAM's [sky130 backend](../../rtl/common/ram/common_sdp_ram.md#sky130-backend)
+The ASIC flow selects the RAM's
+[sky130 backend](../../rtl/common/ram/common_sdp_ram.md#sky130-backend)
+(`cfg/backends.yaml`)
 ([#279](https://github.com/amichai-bd/pcie-factory/issues/279)), so they
 are three `sky130_sram_1rw1r_64x256_8` SRAM macros (one for the replay
 buffer, two deep for the receive buffer), about 1.26 mm² together, instead
 of about 25 kbit of flops. Simulation and the FPGA flow keep the portable
 RAM, with the same cycle behavior. `sky130hd.mk` adds the macro's LEF,
-Liberty and GDS views from the image's `sky130ram` platform folder, and
-[`pdn.tcl`](../../../../src/asic/link/pdn.tcl), the platform's power grid
-plus global connections for the macros' lowercase `vdd`/`gnd` pins and met4
-straps over each macro down to its met3 power pins. The macro placer
+Liberty and GDS views from the image's `sky130ram` platform folder.
+**Power limitation:** the macros' `vdd` and `gnd` pins are only small met3
+pads spread over the array (no rings or straps), which the platform's
+met4/met5 grid does not reach and its pin patterns do not name, so the
+macros stay off the power grid, and the flow's power figures and IR-drop
+check cover the standard cells only. A first attempt with met4 straps over
+each macro shorted VDD vias onto `gnd` pads (`asic` run 39069113585, IR
+check); aligning straps to each net's pad columns, per macro orientation,
+is a follow-up. Timing and area are unaffected. The macro placer
 places the macros. No inferred memory remains above ORFS's default
 `SYNTH_MEMORY_MAX_BITS`, so the knob keeps its default.
 
@@ -113,5 +119,3 @@ Study results never replace the nightly 125 MHz measurements.
 | --- | --- |
 | [`pcie_link.sdc`](../../../../src/asic/link/pcie_link.sdc) | The two clocks, the study opt-in, uncertainty, I/O delays and the crossing exceptions. |
 | [`sky130hd.mk`](../../../../src/asic/link/sky130hd.mk) | ORFS design knobs and the SRAM macro views; never a source list. |
-| [`sky130hd.backends.f`](../../../../src/asic/link/sky130hd.backends.f) | The backend selection: the `common_sdp_ram` sky130 backend. |
-| [`pdn.tcl`](../../../../src/asic/link/pdn.tcl) | The power grid with the SRAM macros' power connections. |

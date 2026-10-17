@@ -1,105 +1,83 @@
-"""build.backends: backend-list discovery and source substitution."""
-
-from __future__ import annotations
+"""Source backends (build.backends): configuration, naming and selection."""
 
 from pathlib import Path
 
 import pytest
 
 from build import backends
-from build.filelist import resolve
+from build.backends import Backend, BackendError
+from build.ip import REPO_ROOT
+
+FPGA = Backend("fpga", "alt", ("dv/common/tb/prim.sv",))
+ASIC = Backend("asic", "macro", ())
+KNOWN = {"fpga": FPGA, "asic": ASIC}
 
 
-def write(path: Path, text: str) -> Path:
+def touch(path: Path, text: str = "") -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
     return path
 
 
-@pytest.fixture
-def tree(tmp_path):
-    """A shared block common_x with a portable file and an 'alt' backend,
-    and an IP filelist that uses the block."""
-    ram = tmp_path / "rtl" / "common" / "ram"
-    write(tmp_path / "rtl" / "common" / "inc" / "h.svh", "")
-    write(ram / "common_x.sv", "module common_x; endmodule\n")
-    write(ram / "common_x.rtl.f", "common_x.sv\n")
-    write(ram / "common_x_alt.sv", "// module not_this;\nmodule common_x; endmodule\n")
-    write(ram / "common_x.alt.f", "+incdir+../inc\n+define+ALT_ONLY\ncommon_x_alt.sv\n")
-    write(tmp_path / "rtl" / "ip" / "ip_top.sv", "module ip_top; endmodule\n")
-    write(tmp_path / "rtl" / "ip" / "ip.rtl.f", "-F ../common/ram/common_x.rtl.f\nip_top.sv\n")
-    return tmp_path
+def test_load_repo_config():
+    known = backends.load(REPO_ROOT / "cfg")
+    assert known["fpga"].suffix  # the FPGA flow has a backend
+    for b in known.values():  # every stand-in exists in the repository
+        assert backends.dv_models(b, REPO_ROOT / "src")
 
 
-def test_parse_list_name():
-    b = backends.parse_list_name(Path("/s/rtl/common/ram/common_x.sky130.f"))
-    assert (b.block, b.backend) == ("common_x", "sky130")
-    assert b.source == Path("/s/rtl/common/ram/common_x_sky130.sv")
-    assert backends.parse_list_name(Path("common_x.rtl.f")) is None
-    assert backends.parse_list_name(Path("common_x.f")) is None
-    assert backends.parse_list_name(Path("common_x.Bad.f")) is None
+def test_load_absent_is_empty(tmp_path):
+    assert backends.load(tmp_path) == {}
 
 
-def test_backend_lists_are_found_in_the_shared_folder_and_groups(tree):
-    write(tree / "rtl" / "common" / "common_y.alt.f", "")
-    write(tree / "rtl" / "ip" / "ip.alt.f", "")   # not shared: not a backend list
-    found = [(b.block, b.backend) for b in backends.backend_lists(tree)]
-    assert found == [("common_y", "alt"), ("common_x", "alt")]   # by path
+@pytest.mark.parametrize("text, message", [
+    ("[a]\n", "mapping"),
+    ("fpga: alt\n", "expected keys"),
+    ("fpga: {suffix: Alt}\n", "lowercase word"),
+    ("fpga: {suffix: alt, extra: 1}\n", "expected keys"),
+    ("fpga: {suffix: alt, dv_models: [rtl/x.sv]}\n", "below dv/"),
+    ("fpga: {suffix: alt, dv_models: [dv/../rtl/x.sv]}\n", "below dv/"),
+    ("fpga: {suffix: alt}\nasic: {suffix: alt}\n", "share one backend suffix"),
+    ("Fpga-x: {suffix: alt}\n", "plain name"),
+    ("fpga: [\n", "cannot read"),
+])
+def test_load_errors(tmp_path, text, message):
+    (tmp_path / "backends.yaml").write_text(text)
+    with pytest.raises(BackendError, match=message):
+        backends.load(tmp_path)
 
 
-def test_declared_modules_ignore_comments(tree):
-    assert backends.declared_modules(tree / "rtl/common/ram/common_x_alt.sv") == ["common_x"]
+def test_portable_of_needs_the_portable_file(tmp_path):
+    alt = touch(tmp_path / "blk_alt.sv")
+    assert backends.portable_of(alt, KNOWN) is None  # no blk.sv beside it
+    portable = touch(tmp_path / "blk.sv")
+    assert backends.portable_of(alt, KNOWN) == (portable, FPGA)
+    assert backends.portable_of(portable, KNOWN) is None
+    # Another suffix, a header and a bare suffix are not backend files.
+    assert backends.portable_of(touch(tmp_path / "blk_held.sv"), KNOWN) is None
+    assert backends.portable_of(touch(tmp_path / "blk_alt.svh"), KNOWN) is None
+    assert backends.portable_of(touch(tmp_path / "_alt.sv"), KNOWN) is None
 
 
-def test_apply_replaces_in_place_and_merges_dirs_and_defines(tree):
-    flat = resolve(tree / "rtl/ip/ip.rtl.f")
-    sel = write(tree / "asic/ip/sky.backends.f", "-F ../../rtl/common/ram/common_x.alt.f\n")
-    out, pairs = backends.apply(flat, sel)
-    ram = (tree / "rtl/common/ram").resolve()
-    assert pairs == [(ram / "common_x.sv", ram / "common_x_alt.sv")]
-    assert [p.name for p in out.sources] == ["common_x_alt.sv", "ip_top.sv"]
-    assert (tree / "rtl/common/inc").resolve() in out.incdirs
-    assert out.defines == {"ALT_ONLY": None}
-    # Deterministic.
-    assert backends.apply(flat, sel)[0].sources == out.sources
+def test_select_replaces_in_place(tmp_path):
+    a, b, c = (touch(tmp_path / n) for n in ("a.sv", "b.sv", "c.sv"))
+    b_alt = touch(tmp_path / "b_alt.sv")
+    touch(tmp_path / "c_macro.sv")
+    assert backends.select([a, b, c], FPGA, KNOWN) == [a, b_alt.resolve(), c]
+    assert backends.select([a, b, c], ASIC, KNOWN) == [a, b, (tmp_path / "c_macro.sv").resolve()]
+    assert backends.select([a, b, c], None, KNOWN) == [a, b, c]
 
 
-def test_apply_skips_sources_the_ip_already_has(tree):
-    flat = resolve(tree / "rtl/ip/ip.rtl.f")
-    sel = write(tree / "sel.f", "rtl/common/ram/common_x.sv\nrtl/common/ram/common_x_alt.sv\n")
-    out, pairs = backends.apply(flat, sel)
-    assert len(pairs) == 1 and [p.name for p in out.sources] == ["common_x_alt.sv", "ip_top.sv"]
+def test_select_rejects_a_listed_backend(tmp_path):
+    b = touch(tmp_path / "b.sv")
+    b_alt = touch(tmp_path / "b_alt.sv")
+    for chosen in (FPGA, ASIC, None):  # two implementations of one module
+        with pytest.raises(BackendError, match="lists a backend file"):
+            backends.select([b, b_alt], chosen, KNOWN)
 
 
-def test_two_backends_of_one_module_are_an_error(tree):
-    write(tree / "rtl/common/ram/common_x_b.sv", "module common_x; endmodule\n")
-    sel = write(tree / "sel.f", "rtl/common/ram/common_x_alt.sv\nrtl/common/ram/common_x_b.sv\n")
-    with pytest.raises(backends.BackendError, match="two backends of module common_x"):
-        backends.apply(resolve(tree / "rtl/ip/ip.rtl.f"), sel)
-
-
-def test_backend_of_a_module_the_ip_lacks_is_an_error(tree):
-    write(tree / "rtl/common/ram/other.sv", "module other; endmodule\n")
-    sel = write(tree / "sel.f", "rtl/common/ram/other.sv\n")
-    with pytest.raises(backends.BackendError, match="module other, which 0 source"):
-        backends.apply(resolve(tree / "rtl/ip/ip.rtl.f"), sel)
-
-
-def test_backend_with_two_modules_is_an_error(tree):
-    write(tree / "rtl/common/ram/two.sv", "module common_x; endmodule\nmodule z; endmodule\n")
-    sel = write(tree / "sel.f", "rtl/common/ram/two.sv\n")
-    with pytest.raises(backends.BackendError, match="exactly one module, found 2"):
-        backends.apply(resolve(tree / "rtl/ip/ip.rtl.f"), sel)
-
-
-def test_unresolvable_backend_list_is_an_error(tree):
-    sel = write(tree / "sel.f", "-F nope.f\n")
-    with pytest.raises(backends.BackendError, match="nope.f"):
-        backends.apply(resolve(tree / "rtl/ip/ip.rtl.f"), sel)
-
-
-def test_conflicting_define_is_an_error(tree):
-    write(tree / "rtl/ip/ip.rtl.f", "+define+ALT_ONLY=1\n-F ../common/ram/common_x.rtl.f\nip_top.sv\n")
-    sel = write(tree / "sel.f", "-F rtl/common/ram/common_x.alt.f\n")
-    with pytest.raises(backends.BackendError, match="define ALT_ONLY conflicts"):
-        backends.apply(resolve(tree / "rtl/ip/ip.rtl.f"), sel)
+def test_dv_models(tmp_path):
+    with pytest.raises(BackendError, match="dv model dv/common/tb/prim.sv not found"):
+        backends.dv_models(FPGA, tmp_path)
+    prim = touch(tmp_path / "dv/common/tb/prim.sv")
+    assert backends.dv_models(FPGA, tmp_path) == [prim.resolve()]

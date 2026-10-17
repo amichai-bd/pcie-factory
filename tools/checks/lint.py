@@ -4,10 +4,7 @@ For each IP the sources, include directories and defines come from the
 resolved ``rtl/<id>/<id>.rtl.f``. The top is ``<prefix><id>`` when a module of that name is declared in those sources;
 otherwise Verilator picks it (several candidates raise MULTITOP). Each
 ``fpga/<id>/*.sv`` board wrapper is linted again with the IP's sources plus the
-wrapper, with the wrapper (named after its file) as top. Each shared-block
-backend list ``rtl/common/[<group>/]<block>.<backend>.f`` is linted with top
-``<block>`` plus the DV-only models ``dv/common/tb/<cell>.sv`` of the vendor
-cells it names (``cell_models``). Without ``--ip``,
+wrapper, with the wrapper (named after its file) as top. Without ``--ip``,
 each shared block's ``rtl/common/[<group>/]<block>.rtl.f`` is linted the same way, with
 top ``<block>``; a block with no sources (include directories only) is not
 linted on its own, since every closure that includes its headers lints them.
@@ -29,7 +26,7 @@ from pathlib import Path
 
 import yaml
 
-from build import backends, sim
+from build import sim
 from build.filelist import FilelistError, Resolved, resolve
 from build.ip import Ip, block_name, shared_blocks
 from checks.common import SV_SUFFIXES, CheckConfigError, CheckResult, in_kind, read_prefix, rel
@@ -216,18 +213,6 @@ def targets(ip: Ip, flat: Resolved, prefix: str | None) -> list[Target]:
     return out
 
 
-CELL_MODELS = ("dv", "common", "tb")
-
-
-def cell_models(src_root: Path, sources: list[Path]) -> tuple[Path, ...]:
-    """DV-only models of the vendor cells a backend instantiates: each
-    ``dv/common/tb/<cell>.sv`` whose ``<cell>`` the backend sources name."""
-    d = Path(src_root).joinpath(*CELL_MODELS)
-    text = "\n".join(Path(s).read_text(errors="replace") for s in sources)
-    return tuple(m for m in sorted(d.glob("*.sv"))
-                 if re.search(rf"\b{re.escape(m.stem)}\b", text))
-
-
 def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
     waivers = load_waivers(src_root)
     prefix = read_prefix(src_root)
@@ -264,15 +249,6 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
             top = block_name(rtl_f)
             plan.append(Target(label, flat, (), top if top in declared_modules(flat.sources)
                                else None))
-    if ip_ids is None:
-        for bl in backends.backend_lists(src_root):
-            try:
-                flat = resolve(bl.path)
-            except FilelistError as exc:
-                result.findings.append(f"{bl.path.name}: backend list does not resolve: {exc}")
-                continue
-            plan.append(Target(f"common/{bl.path.name}", flat,
-                               cell_models(src_root, flat.sources), bl.block))
     verilator = None
     if plan:
         verilator = sim.find_verilator()

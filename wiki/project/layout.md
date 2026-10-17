@@ -111,30 +111,6 @@ name that matches two groups, an unlisted group folder, and any file
 deeper than one group folder. A new group is a reviewed change to
 that list and to this table.
 
-### Backends
-
-A shared block may have **backends**: target-specific implementations of
-the same contract, such as an SRAM-macro array for one ASIC platform. A
-backend `<block>_<backend>.sv` sits beside the block's portable file and
-declares the **same module** `<block>`, with the same parameters, ports and
-cycle behavior; its **backend list** `<block>.<backend>.f`, in the same
-folder, lists the vocabulary filelists it needs and then the file. No
-design file holds a conditional ([RTL BKM](../bkm/rtl.md#no-conditional-compilation)):
-the portable file stays in the block's `.rtl.f`, so simulation, lint of
-the IPs and every other flow use it, and only a flow's own source list
-selects a backend. The ASIC flow reads `asic/<ip>/<platform>.backends.f`
-and substitutes each backend source for the source that declares the same
-module ([asic spec](../tools/asic/SPEC.md#backends)). The block's MAS
-specifies each backend.
-
-Checks: the `layout` check accepts a backend list only beside its block's
-`.rtl.f`; the `style` check holds a listed backend file to its block's
-module name; the `lint` check lints each backend list with top `<block>`,
-plus the **DV-only cell models** `dv/common/tb/<cell>.sv` of the vendor
-cells the backend names. A cell model is written for this repository from
-the vendor's documented behavior, never copied from a vendor, and never
-enters a synthesis source list.
-
 The shared blocks are verified together as the **shared unit**, id
 `common`, laid out like an IP's DV folder:
 
@@ -152,6 +128,26 @@ one testbench for every group. Each block has a MAS
 `wiki/src/dv/common/[<group>/]<block>.md`, in the same group folder as its
 filelist ([wiki BKM](../bkm/wiki.md#page-set)).
 
+### Source backends
+
+A shared block may have, beside its portable file `<block>.sv`, a
+**backend file** `<block>_<suffix>.sv` that declares the same module, with
+the same ports, parameters and cycle behavior, for one synthesis flow (for
+example a vendor RAM primitive). [`cfg/backends.yaml`](../../cfg/backends.yaml)
+maps each flow kind (`fpga`, `asic`) to its suffix and to the DV-only
+stand-ins (`dv_models`, under `dv/`) that let Verilator elaborate its
+backend files. Selection is by source list only, never by `` `ifdef``:
+
+| Rule | Enforced by |
+| --- | --- |
+| No filelist lists a backend file; the block's filelist lists only the portable file. So simulation, `./build check` lint and the other flows never read it, and no source list holds two implementations of one module. | `filelist` check; the flows' and the simulator's selection fails on a listed backend file |
+| A backend file is reached through its portable file (which must be listed) and declares exactly that file's module. | `filelist` check (orphans) and `style` check (`file-name`) |
+| A flow replaces each source that has its backend file beside it, in place, in the source list it hands its tool. | `build.backends.select`, used by `./build fpga` ([fpga spec](../tools/fpga/SPEC.md#inputs)) and `./build asic` ([asic spec](../tools/asic/SPEC.md#backends)) |
+| A regression entry with `backend: <kind>` builds the unit with that selection plus the kind's `dv_models`, so the block's contract tests run on the backend. | `./build sim`, `./build regress` ([regress spec](../tools/regress/SPEC.md#regression-lists)) |
+
+The block's MAS owns each backend's mapping and its evidence; only the
+consuming flow's own reports prove a vendor mapping.
+
 ## Per-IP files
 
 | File | Rule |
@@ -160,7 +156,7 @@ filelist ([wiki BKM](../bkm/wiki.md#page-set)).
 | `dv/<ip>/<ip>.dv.f` | Simulation-only SystemVerilog (testbench tops, bind and assertion files, SV models). |
 | `dv/<ip>/<ip>.sim.f` | `-F ../../rtl/<ip>/<ip>.rtl.f` plus `-F <ip>.dv.f`. |
 | `dv/<ip>/regress/level{0,1,2}.yaml` | This IP's own tests per level. Levels are exclusive; sub-IP tests are not inherited. |
-| `fpga/<ip>/`, `asic/<ip>/` | Top-level IPs only. Constraints and flow config only (for ASIC also the backend selection `<platform>.backends.f` and files its `.mk` names, such as a power-grid script); generated output goes to `workdir/`. |
+| `fpga/<ip>/`, `asic/<ip>/` | Top-level IPs only. Constraints and flow config only; generated output goes to `workdir/`. |
 | `arch/<ip>/` | Top-level IPs only: `<prefix><ip>_arch.py` (Python architecture model, not verification), its self-tests and `perf/<scenario>.yaml`; required once the HAS defines targets ([arch BKM](../bkm/arch.md)). |
 
 `./build check` enforces the source layout (its `layout` check), the

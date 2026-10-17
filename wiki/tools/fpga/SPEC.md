@@ -10,6 +10,7 @@ the command line, the generated project, the metrics schema and failures.
 | `tools/fpga/flow.py` | Input validation, project generation, Quartus discovery, running the steps. |
 | `tools/fpga/reports.py` | Parsing Quartus reports into metrics. |
 | `cfg/fpga.yaml` | Board name, per-step timeout, Quartus processor count. |
+| `cfg/backends.yaml` | The `fpga` key: the suffix of the source backend files this flow selects ([layout](../../project/layout.md#source-backends)). |
 | `.github/workflows/fpga.yml` | The self-hosted CI job. |
 
 ## Command line
@@ -36,7 +37,7 @@ For IP `<ip>` (its id), and `<board>` from
 
 | Input | Rule |
 | --- | --- |
-| `src/rtl/<ip>/<ip>.rtl.f` | Flattened by the [filelist resolver](../build/SPEC.md#filelists): sources, include directories, defines. The flow adds `SYNTHESIS`, so the [assertion macros](../../bkm/rtl.md#assertions) compile out; a filelist that defines `SYNTHESIS` itself is an input error. |
+| `src/rtl/<ip>/<ip>.rtl.f` | Flattened by the [filelist resolver](../build/SPEC.md#filelists): sources, include directories, defines. The flow adds `SYNTHESIS`, so the [assertion macros](../../bkm/rtl.md#assertions) compile out; a filelist that defines `SYNTHESIS` itself is an input error. Each source with an `fpga` [backend file](../../project/layout.md#source-backends) beside it (`<stem>_<suffix>.sv`) is replaced by that file, in place, in the Quartus source list; a filelist that lists a backend file is an input error. |
 | `src/fpga/<ip>/<board>.qsf.tcl` | Required. Quartus Tcl run inside the open project: device, pins, I/O standards. |
 | `src/fpga/<ip>/*.sdc` | Exactly one. Added as the project's `SDC_FILE`. |
 | `src/fpga/<ip>/*.sv` | Exactly one: the board wrapper. Its file stem is the top-level module, and it must declare `module <stem>`. It must not also be in `<ip>.rtl.f`. |
@@ -66,7 +67,7 @@ is not an error line; it is in the tail.
 
 | Step | Command | Does |
 | --- | --- | --- |
-| `lint` | `verilator --lint-only -Wall -Wno-fatal --top-module <top> ...` | Lints the flattened sources plus the wrapper (BKM acceptance stage 2), in the simulation view: without `SYNTHESIS`, like `./build check`. It passes only when every `%Warning` and `%Error` in its log is covered by a reviewed waiver in `src/lint_waivers.yaml`, matched as the [lint check](../checks/SPEC.md#waivers) matches them, and a nonzero exit has an error message; each other message is printed as a finding, and an unreadable or invalid waiver file fails the step. Stale waivers are left to `./build check`. Skipped, and recorded as `skipped`, when Verilator is not found ([build spec](../build/SPEC.md#simulation-build-sim) search order). |
+| `lint` | `verilator --lint-only -Wall -Wno-fatal --top-module <top> ...` | Lints the flattened sources plus the wrapper (BKM acceptance stage 2), in the simulation view: the portable files (backends are not selected) and without `SYNTHESIS`, like `./build check`. It passes only when every `%Warning` and `%Error` in its log is covered by a reviewed waiver in `src/lint_waivers.yaml`, matched as the [lint check](../checks/SPEC.md#waivers) matches them, and a nonzero exit has an error message; each other message is printed as a finding, and an unreadable or invalid waiver file fails the step. Stale waivers are left to `./build check`. Skipped, and recorded as `skipped`, when Verilator is not found ([build spec](../build/SPEC.md#simulation-build-sim) search order). |
 | `project` | `quartus_sh -t project.tcl` | Creates `<top>.qpf` and `<top>.qsf` (revision = top). |
 | `map` | `quartus_map <top> -c <top>` | Analysis and synthesis. |
 | `fit` | `quartus_fit <top> -c <top>` | Place and route. |
@@ -105,7 +106,12 @@ looked. `--dry-run` never looks.
 After the steps pass, the tool parses `output_files/<top>.fit.summary`,
 `output_files/<top>.fit.rpt`, `output_files/<top>.sta.rpt` and
 `worst_path.txt`, writes `metrics.json` (two-space indent) and prints a
-summary.
+summary: device, logic elements and registers, the memory block count, one
+line per RAM (name, mode, clock mode, depth x width, blocks, mixed-port
+read-during-write mode), each clock's Fmax and slack, the unconstrained
+paths and the critical path. Before the steps, and in `--dry-run`, it
+prints one `[backend] <portable> -> <backend>` line per selected backend
+file.
 
 | Key | Source and meaning |
 | --- | --- |
@@ -116,6 +122,7 @@ summary.
 | `resources.registers` | Fitter summary "Total registers". |
 | `resources.memory_bits` | `{used, total}`, "Total memory bits". |
 | `resources.memory_blocks` | `{type, used, total}` from the fitter resource usage line `M9Ks` (any `M<n>Ks`), or `null`. |
+| `resources.rams` | One entry per row of the fitter's "Fitter RAM Summary" panel: `name` (hierarchical), `mode`, `clock_mode`, `port_a_depth`, `port_a_width`, `port_b_depth`, `port_b_width`, `bits` (`Size`), `mixed_rdw` ("Mixed Width RDW Mode") and `blocks` (the `M<n>Ks` column); a missing column is `null`. Empty when there is no such panel. |
 | `resources.dsp_9bit` | `{used, total}`, "Embedded Multiplier 9-bit elements". |
 | `resources.pins`, `resources.plls` | `{used, total}`. |
 | `timing.clocks.<clock>` | `fmax_mhz`, `restricted_fmax_mhz`, `setup_slack_ns`, `hold_slack_ns`, `recovery_slack_ns`, `removal_slack_ns`: for each clock, the worst value over every timing model (corner) panel `* Model Fmax Summary` and `* Model <Setup\|Hold\|Recovery\|Removal> Summary`; `null` when a kind has no paths for that clock. |
@@ -185,14 +192,17 @@ log that leaves the host.
   `tools/fpga/tests/fixtures/` (layout of Quartus Lite Cyclone IV E reports;
   not real tool output, see its README): resources, worst-of-corners timing,
   the worst path, failed fitter status, malformed values, missing panels,
-  no clocks, negative slack.
+  no clocks, negative slack, and the per-RAM rows (all columns, a missing
+  panel, missing columns, a malformed block count).
 - `test_fpga_flow.py` builds a synthetic IP tree and checks planning and
-  input errors (a filelist defining `SYNTHESIS`), the generated Tcl (order,
+  input errors (a filelist defining `SYNTHESIS`, a listed backend file),
+  backend selection (the backend file in place in the Quartus sources and
+  `project.tcl`, the portable file in the lint command), the generated Tcl (order,
   defines with `SYNTHESIS`, include paths, `--part`),
   deterministic generation, the lint command, Quartus discovery order,
   lint waivers (a waived warning passes, an unwaived one or an invalid
   waiver file fails),
-  `cfg/fpga.yaml` validation, and the run loop with fake `quartus_*` scripts
+  `cfg/fpga.yaml` and `cfg/backends.yaml` loading, and the run loop with fake `quartus_*` scripts
   that replay the fixtures: metrics written, a failing step stops the flow
   and prints every error line of the hand-made `map_fail.log` (errors more
   than 30 lines before its end) before the tail,

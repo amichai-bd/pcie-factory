@@ -50,34 +50,63 @@ Illegal values stop elaboration through `COMMON_ASSERT_PARAM` blocks
   at `wr_addr_i` and one `COMMON_MEM_READ_EN` process into `rd_data_o` at
   `rd_addr_i`, both on `clk_i`. Separate processes make a collision
   read-first.
-- **Inference shape:** the conventional simple dual-port template.
-  Expected, not yet measured: Quartus maps it to block RAM in simple
-  dual-port mode with old-data mixed-port read-during-write, and the read
-  enable to the read port's read or clock enable; lanes map to byte
-  enables as in the [base MAS](common_sync_ram.md#microarchitecture).
-  Yosys infers a memory with one write port and one non-transparent
-  synchronous read port with an enable; the ASIC flow maps it to flops
-  unless the target selects the [sky130 backend](#sky130-backend).
+- **Inference shape:** the conventional simple dual-port template. The
+  FPGA flow does not rely on inference: it selects the
+  [Intel backend](#intel-backend). Yosys infers a memory with one write
+  port and one non-transparent synchronous read port with an enable; the
+  ASIC flow does not rely on it either: it selects the
+  [sky130 backend](#sky130-backend).
 
-## Decisions
+## Intel backend
 
-| Choice | Rationale | Rejected |
+`common_sdp_ram_intel.sv` is the same module for Quartus: one `altsyncram`
+named `u_ram`, a [source backend](../../../../project/layout.md#source-backends)
+that only the FPGA flow's source list selects (`cfg/backends.yaml`, suffix
+`intel`), in place of the portable file. Simulation, `./build check` lint
+and the ASIC flow read the portable file; Verilator reads the backend only
+against the DV-only stub `src/dv/common/tb/altsyncram.sv`.
+
+| `altsyncram` parameter | Value | Why |
 | --- | --- | --- |
-| One module with a read enable | The source's two modules differ only in a tied-high enable; one block keeps one page and one test set. | The source's separate always-read wrapper. |
-| A sky130 backend file, selected by the ASIC source list ([#279](https://github.com/amichai-bd/pcie-factory/issues/279)) | Inferred arrays map to flops on sky130hd, too large to route (about 25 kbit in `link`); one module name per backend file keeps the RTL free of conditionals and lint still sees the backend. | A flow define or top parameter (a conditional or plumbing through every consumer); Yosys memory mapping in an ORFS hook (no reviewed RTL, no lint). |
-| Pending write with a bypass in the sky130 backend | The macro defines no same-word write and read in one edge; delaying the write one edge and bypassing it keeps the read-first contract for every input. | Requiring consumers never to collide (a contract change). |
+| `operation_mode` | `DUAL_PORT` | Port A writes, port B reads (simple dual port). |
+| `intended_device_family`, `ram_block_type` | `INTEL_DEVICE_FAMILY` (default `Cyclone IV E`), `INTEL_RAM_BLOCK_TYPE` (default `M9K`) | Vendor facts, not contract: the backend's two extra parameters; another Intel board overrides them from its board settings file. |
+| `width_a`, `widthad_a`, `numwords_a`; `width_b`, `widthad_b`, `numwords_b` | `WIDTH`, `ADDR_W`, `2**ADDR_W` on both ports | No mixed widths. |
+| `width_byteena_a`, `byte_size` | `LANES`; 8 for one lane, else the lane width | Lanes are byte enables; an M9K byte is 8 or 9 bits, so more than one lane needs 8- or 9-bit lanes (`g_lane_w_check`, Intel backend only). |
+| `outdata_reg_a`, `outdata_reg_b` | `UNREGISTERED` | One-edge read latency: `rd_data_o` is the block's read register. |
+| `address_reg_b`, `rdcontrol_reg_b` | `CLOCK0` | One clock. |
+| `read_during_write_mode_mixed_ports` | `OLD_DATA` | Read-first collision, as the portable file. |
+| `clock_enable_*` | `BYPASS` | No clock enables. |
+| `init_file`, `power_up_uninitialized` | `UNUSED`, `FALSE` | No image; contents stay undefined to the contract. |
 
-Provenance: adapted from nand2anything `src/common/rtl/n2a_sdp_ram_portable.sv`
-(modules `n2a_sdp_ram_enabled` and `n2a_sdp_ram`, commit `085ef4b`),
-adapted with the owner's permission.
+Pins: `clock0` is `clk_i`; `wren_a` is `wr_en_i` with at least one lane
+enabled, `byteena_a` is `wr_lanes_i`, `address_a` and `data_a` the write
+port; `rden_b` is `rd_en_i` (a disabled read holds `q_b`), `address_b` and
+`q_b` the read port. `wren_b`, `aclr*` and `addressstall_*` tie low;
+`rden_a`, `clock1`, `clocken*` and `byteena_b` tie high. `data_b`, `q_a` and
+`eccstatus`, absent in this mode, are explicit empty connections, as
+Intel-generated wrappers leave them; the backend's lint test expects
+exactly `DECLFILENAME` and those three `PINCONNECTEMPTY` messages. The
+parameter checks are the portable file's plus `g_lane_w_check`.
+
+**Fitter evidence.** Simulation never proves the mapping; each consuming
+target's fit does (`resources.rams` in its `metrics.json`). Expected per
+instance: `Simple Dual Port`, `Single Clock`, mixed-port RDW `Old data`,
+and the M9K count below (an M9K holds 256 words of up to 36 bits, or 512
+of up to 18, in this mode). Measured:
+
+| Consumer (target) | Geometry | Expected M9K | Measured |
+| --- | --- | --- | --- |
+| dll receive buffer (`link`, DE2-115) | 512 x 34 | 2 (two x18 at 512 words) | Pending the first `link` fit ([#276](https://github.com/amichai-bd/pcie-factory/pull/276)). |
+| dll replay buffer (`link`, DE2-115) | 256 x 32 | 1 (x32 at 256 words) | Pending the first `link` fit ([#276](https://github.com/amichai-bd/pcie-factory/pull/276)). |
 
 ## sky130 backend
 
-[`common_sdp_ram_sky130.sv`](../../../../../src/rtl/common/ram/common_sdp_ram_sky130.sv),
-listed by its backend list `common_sdp_ram.sky130.f`, is this module on
-sky130 SRAM macros ([backends](../../../../project/layout.md#backends)).
-Only an ASIC source list selects it (`asic/<ip>/sky130hd.backends.f`);
-simulation, lint of the IPs and the FPGA flow use the portable file. Its
+[`common_sdp_ram_sky130.sv`](../../../../../src/rtl/common/ram/common_sdp_ram_sky130.sv)
+is this module on sky130 SRAM macros, a
+[source backend](../../../../project/layout.md#source-backends) that only
+the ASIC flow's source list selects (`cfg/backends.yaml`, suffix `sky130`),
+in place of the portable file. Simulation, `./build check` lint and the
+FPGA flow read the portable file. Its
 parameters, ports and the behavior above are identical, with one limit:
 `LANES` must be 1 (`g_lanes_check`).
 
@@ -121,15 +150,40 @@ port 1 read of the word port 0 writes at the same edge is undefined.
   of a register, so the consumer's logic after `rd_data_o` gets the
   remaining half period. STA covers it through the macro's Liberty arcs.
 
-**Verification.** The [lint check](../../../../tools/checks/SPEC.md#lint-check)
-lints the backend list with the DV-only cell model
-[`sky130_sram_1rw1r_64x256_8.sv`](../../../../../src/dv/common/tb/sky130_sram_1rw1r_64x256_8.sv),
-written for this repository from the macro's documented behavior: inputs
-at the rising edge, read data for one cycle only, junk otherwise, and a
-fatal error on a same-word write and read. The backend's equivalence with
-the portable RAM, against that model and against the OpenRAM model, is PR
-evidence (#279), not a regression yet. Silicon behavior and timing come
-only from the ASIC flow.
+**Verification.** Verilator reads the backend only against the DV-only
+cell model
+[`sky130_sram_1rw1r_64x256_8.sv`](../../../../../src/dv/common/tb/sky130_sram_1rw1r_64x256_8.sv)
+(`dv_models` of the `asic` entry), written for this repository from the
+macro's documented behavior: inputs at the rising edge, read data for one
+cycle only and junk otherwise, and a fatal error on a same-word write and
+read. The shared contract tests run on the backend through the regression
+entries with `backend: asic` ([DV plan](../../../dv/common/ram/common_sdp_ram.md)),
+at the regression shape and at both `dll` buffer shapes (one and two macro
+rows), and `tests.test_ram_backends` lints it with `-Wall`. Silicon
+behavior and timing come only from the ASIC flow.
+
+## Decisions
+
+| Choice | Rationale | Rejected |
+| --- | --- | --- |
+| One module with a read enable | The source's two modules differ only in a tied-high enable; one block keeps one page and one test set. | The source's separate always-read wrapper. |
+| An explicit Intel backend selected by source list | The fit must be known (M9K, old-data collision), not inferred; one module name in two files keeps every consumer and test unchanged. | Inference alone (shape unmeasured); `ifdef` or `ramstyle` in the block; vendor primitives in IP RTL. |
+| Lanes on byte enables, 8- or 9-bit lanes only | Matches M9K byte sizes; the consumers use one lane. | Emulating narrow lanes with read-modify-write. |
+| A sky130 SRAM-macro backend for the ASIC flow ([#279](https://github.com/amichai-bd/pcie-factory/issues/279)) | Inferred arrays map to flops on sky130hd, too large to route in `link` (about 25 kbit); the same source-backend mechanism as the Intel one. | Yosys memory mapping in an ORFS hook (no reviewed RTL, no lint); raising the container memory alone (timing stays far off). |
+| Pending write with a bypass in the sky130 backend | The macro defines no same-word write and read in one edge; delaying the write one edge and bypassing it keeps the read-first contract for every input. | Requiring consumers never to collide (a contract change). |
+
+Provenance: adapted from nand2anything `src/common/rtl/n2a_sdp_ram_portable.sv`
+(modules `n2a_sdp_ram_enabled` and `n2a_sdp_ram`, commit `085ef4b`),
+adapted with the owner's permission. The Intel backend is adapted from
+nand2anything `src/common/rtl/n2a_sdp_ram_intel.sv`, and its stub and
+rejection set from `src/common/dv/memory/n2a_altsyncram_port_stub.sv` and
+its reject fixtures (commit `8bb70d248d4755d7510fb2c0ec6487a5e05dec41`),
+adapted with the owner's permission; that project fits the same backend on
+the DE2-115. The sky130 backend's pattern (pending write with a collision
+bypass, tiling, a strict DV-only macro model) is adapted from nand2anything
+`src/common/rtl/n2a_sdp_ram_ihp_edge.sv` and
+`src/common/dv/memory/n2a_ihp_edge_2p_model.sv` (commit `8bb70d2`), adapted
+with the owner's permission, for another macro.
 
 ## Timing
 
@@ -141,5 +195,5 @@ One clock, no reset. `rd_data_o` is the RAM's read register.
 | --- | --- |
 | [`common_sdp_ram.sv`](../../../../../src/rtl/common/ram/common_sdp_ram.sv) | The module. |
 | [`common_sdp_ram.rtl.f`](../../../../../src/rtl/common/ram/common_sdp_ram.rtl.f) | `-F ../common_macros.rtl.f`, then the module. |
-| [`common_sdp_ram_sky130.sv`](../../../../../src/rtl/common/ram/common_sdp_ram_sky130.sv) | The [sky130 backend](#sky130-backend): the same module on SRAM macros. |
-| [`common_sdp_ram.sky130.f`](../../../../../src/rtl/common/ram/common_sdp_ram.sky130.f) | Its backend list: `-F ../common_macros.rtl.f`, then the backend. |
+| [`common_sdp_ram_intel.sv`](../../../../../src/rtl/common/ram/common_sdp_ram_intel.sv) | The [Intel backend](#intel-backend); in no filelist, selected by the FPGA flow. |
+| [`common_sdp_ram_sky130.sv`](../../../../../src/rtl/common/ram/common_sdp_ram_sky130.sv) | The [sky130 backend](#sky130-backend); in no filelist, selected by the ASIC flow. |

@@ -19,14 +19,22 @@
 - No orphan RTL: every ``.sv`` below ``rtl/<name>/`` is listed by a filelist
   directly in ``rtl/<name>/`` (for an IP, its ``.rtl.f``; for ``common/``,
   also one in a group folder ``rtl/common/<group>/``), and every
-  ``.svh`` is listed or below one of its include directories.
+  ``.svh`` is listed or below one of its include directories. A source
+  backend file (``build.backends``: ``<stem>_<suffix>.sv`` beside a portable
+  ``<stem>.sv``, for a suffix of ``cfg/backends.yaml``) is reached through its
+  portable file instead: that file must be listed, and the backend file must
+  declare exactly ``module <stem>``.
+- No filelist lists a backend file: only a flow selects one, in place of its
+  portable file, so no source list holds two implementations of a module.
 """
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from pathlib import Path
 
+from build import backends as source_backends
 from build.filelist import FilelistError, _parse_line, resolve
 from build.ip import SHARED_DIR, Ip, shared_blocks, shared_unit
 from checks.common import (
@@ -97,7 +105,13 @@ def _shared_unit_findings(src_root: Path) -> list[str]:
     return out
 
 
-def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
+_MODULE_RE = re.compile(r"^\s*module\s+([A-Za-z_][A-Za-z0-9_$]*)", re.M)
+
+
+def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None,
+        known: dict[str, source_backends.Backend] | None = None) -> CheckResult:
+    """``known`` is cfg/backends.yaml (``build.backends.load``)."""
+    known = known or {}
     result = CheckResult("filelist")
     add = result.findings.append
     lists = [f for f in all_filelists(src_root) if selected(f, ips, ip_ids)]
@@ -110,6 +124,11 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
             continue
         for dup in duplicates(f):
             add(f"{rel(f, src_root)}: lists {rel(Path(dup), src_root)} more than once after flattening")
+        for source in resolved[f].sources:
+            if source_backends.portable_of(source, known) is not None:
+                add(f"{rel(f, src_root)}: lists backend file {rel(source, src_root)}; only a "
+                    "flow selects a backend, in place of its portable file "
+                    "(cfg/backends.yaml)")
         if in_kind(f, src_root, ("rtl",)):
             for d in resolved[f].incdirs:
                 if not in_kind(d, src_root, ("rtl",)):
@@ -139,8 +158,19 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
         result.findings += _shared_unit_findings(src_root)
 
     sources = [f for f in kind_files(src_root, ("rtl",)) if selected(f, ips, ip_ids)]
+    n_backends = 0
     for src in sources:
         home = _home(src, src_root)
+        backend = source_backends.portable_of(src, known)
+        if backend is not None:  # reached through its portable file
+            n_backends += 1
+            portable = backend[0]
+            modules = _MODULE_RE.findall(src.read_text(errors="replace"))
+            if modules != [portable.stem]:
+                add(f"{rel(src, src_root)}: a {backend[1].kind} backend of {portable.name} "
+                    f"must declare exactly module {portable.stem}, found "
+                    f"{', '.join(modules) or 'none'}")
+            src = portable
         # The shared folder's filelists also sit in its group folders.
         shared_home = home.name == SHARED_DIR and home.parent.name == "rtl"
         owners = [r for f, r in resolved.items()
@@ -163,5 +193,6 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
             "(SystemVerilog .sv/.svh only; waivers go in the waiver file)")
 
     result.checked = (f"{len(lists)} filelist(s), {len(chosen)} IP(s)"
-                      f"{' and the shared unit' if shared else ''} with regression lists, {len(sources)} RTL file(s) for orphans")
+                      f"{' and the shared unit' if shared else ''} with regression lists, {len(sources)} RTL file(s) for orphans"
+                      f"{f' ({n_backends} backend file(s))' if n_backends else ''}")
     return result

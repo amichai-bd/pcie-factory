@@ -6,7 +6,7 @@
 // behavior of the portable common_sdp_ram.sv (one-edge read, hold with
 // rd_en_i low, read-first collision), built from sky130 OpenRAM SRAM macros
 // instead of an inferred array. Only ASIC source lists select it, through
-// common_sdp_ram.sky130.f; simulation and the FPGA flow keep the portable
+// cfg/backends.yaml (asic); simulation and the FPGA flow keep the portable
 // file. Spec: wiki/src/rtl/common/ram/common_sdp_ram.md#sky130-backend.
 //
 // Macro: sky130_sram_1rw1r_64x256_8, 256 words of 64 bits, port 0 read or
@@ -60,11 +60,14 @@ module common_sdp_ram #(
 
   // ------------------------------------------------------------ pending write
 
+  logic              wr_take;       // a write with its one lane enabled
   logic              pend_q;        // a write waits to commit at this edge
   logic [ADDR_W-1:0] pend_addr_q;
   logic [WIDTH-1:0]  pend_data_q;
 
-  `COMMON_DFF(pend_q, wr_en_i, clk_i)
+  assign wr_take = wr_en_i && wr_lanes_i[0];
+
+  `COMMON_DFF(pend_q, wr_take, clk_i)
   `COMMON_DFF(pend_addr_q, wr_addr_i, clk_i)
   `COMMON_DFF(pend_data_q, wr_data_i, clk_i)
 
@@ -119,8 +122,7 @@ module common_sdp_ram #(
     end
   endgenerate
 
-  // One lane (asserted above), and port 0 only writes.
-  `COMMON_UNUSED_BITS(unused_lanes, wr_lanes_i)
+  // Port 0 only writes.
   `COMMON_UNUSED_BITS(unused_dout0, dout0_all)
 
   // ------------------------------------------------------------ read data

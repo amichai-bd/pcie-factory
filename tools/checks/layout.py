@@ -13,8 +13,7 @@ Rules, owned by the layout page (wiki/project/layout.md):
   siblings, never nested);
 - ``rtl/common/`` holds filelists only directly in it or one folder down in
   a group folder ``rtl/common/<group>/``, each a shared block
-  ``common_<name>.rtl.f`` or a backend list ``common_<name>.<backend>.f``
-  next to its block's filelist (``build.backends``), and ``dv/common/`` none but ``common.dv.f`` and
+  ``common_<name>.rtl.f``, and ``dv/common/`` none but ``common.dv.f`` and
   ``common.sim.f`` (the shared unit);
 - with the group rules of ``cfg/checks.yaml`` (``layout.shared_groups``:
   group folder name to block-name patterns), every group folder is a listed
@@ -38,7 +37,6 @@ from pathlib import Path
 
 import yaml
 
-from build import backends
 from build.ip import KINDS, SHARED_DIR, TOP_LEVEL_KINDS, Ip, block_group, block_name
 from checks.common import COMMON_PREFIX, CheckConfigError, CheckResult, rel
 
@@ -98,13 +96,6 @@ def _shared_findings(d: Path, kind: str, src_root: Path,
                 f.name.startswith(COMMON_PREFIX) and f.name.endswith(".rtl.f"):
             if groups is not None:
                 out += _group_findings(f, "block", block_name(f), src_root, groups)
-            continue
-        bl = backends.parse_list_name(f) if kind == "rtl" else None
-        if bl is not None and f.parent in (d, d / f.parent.name):
-            # A backend list sits next to its block's own filelist.
-            if not (f.parent / f"{bl.block}.rtl.f").is_file():
-                out.append(f"{rel(f, src_root)}: backend list of {bl.block}, which has no "
-                           f"{bl.block}.rtl.f in the same folder")
             continue
         want = (f"{COMMON_PREFIX}<name>.rtl.f directly in it or in a group folder <group>/ "
                 "(one per shared block)"

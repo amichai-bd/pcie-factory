@@ -70,6 +70,17 @@ def test_wrapper_constraint_or_config_selects_only_its_flow(ctx, kind):
     assert ids(ctx, other) == []
 
 
+def test_backend_file_selects_only_the_flow_that_selects_it(ctx):
+    (ctx.repo_root / "cfg").mkdir()
+    (ctx.repo_root / "cfg/backends.yaml").write_text("fpga:\n  suffix: alt\n")
+    git(ctx.repo_root, "add", ".")
+    git(ctx.repo_root, "commit", "-qm", "backends")
+    # inc.sv is in counter's closure; inc_alt.sv is its fpga backend file.
+    (ctx.src_root / "rtl/counter_inc/inc_alt.sv").write_text("module inc; endmodule\n")
+    assert ids(ctx) == ["counter"]
+    assert ids(ctx, "asic") == []
+
+
 def test_deleted_source_broken_closure_is_selected(ctx):
     (ctx.src_root / "rtl/counter_inc/inc.sv").unlink()
     assert ids(ctx) == ids(ctx, "asic") == ["counter"]

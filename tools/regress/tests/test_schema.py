@@ -21,6 +21,8 @@ def test_explicit_seed_list():
 def test_all_fields():
     e = parse_entry(dict(GOOD, testcase="tc", seeds=3, params={"W": 4, "S": "x"}), "a", 2, "w")
     assert (e.level, e.seeds, e.testcase, e.params) == (2, 3, "tc", {"W": 4, "S": "x"})
+    assert e.backend is None
+    assert parse_entry(dict(GOOD, backend="fpga"), "a", 0, "w").backend == "fpga"
 
 
 @pytest.mark.parametrize(
@@ -46,6 +48,8 @@ def test_all_fields():
         ({"params": [1]}, "'params' must be a mapping"),
         ({"params": {"W": 1.5}}, "integer or string"),
         ({"params": {"bad-name": 1}}, "not an identifier"),
+        ({"backend": "fp ga"}, "'backend' must be a flow kind"),
+        ({"backend": 1}, "'backend' must be a flow kind"),
     ],
 )
 def test_entry_errors(change, message):

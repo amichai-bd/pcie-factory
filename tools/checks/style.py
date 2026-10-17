@@ -34,7 +34,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from build import backends
+from build.backends import portable_of
 from build.filelist import FilelistError, Resolved, resolve
 from build.ip import SHARED_DIR, Ip, locate, owner_ip
 from checks import filelists
@@ -750,7 +750,7 @@ def check_text(relpath: str, raw: str, expected_prefix: str | None,
     """Apply every rule to one file; ``expected_prefix`` is the name prefix
     a unit in this file must start with (None: no prefix declared);
     ``unit_name`` is the name its unit must have (default: the file stem; a
-    backend file ``<block>_<backend>.sv`` declares ``<block>``);
+    source backend file declares its portable file's module);
     ``defined`` holds the macros the rest of its RTL closure defines;
     ``vocab`` describes the vocabulary headers (``relpath`` is relative to
     the source root, so a header is recognized by its path)."""
@@ -927,16 +927,9 @@ def _defined_for(path: Path, closures, by_fpga) -> set[str]:
     return out
 
 
-def _listed(filelist: Path) -> set[Path]:
-    """The sources a filelist reaches; empty when it does not resolve (the
-    filelist check reports it)."""
-    try:
-        return set(resolve(filelist).sources)
-    except FilelistError:
-        return set()
-
-
-def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
+def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None,
+        known: dict | None = None) -> CheckResult:
+    """``known`` is cfg/backends.yaml (``build.backends.load``)."""
     prefix = read_prefix(src_root)
     files = [f for f in kind_files(src_root, ("rtl", "fpga")) if selected(f, ips, ip_ids)]
     extra = [f for f in include_scope(src_root, ips, ip_ids) if f not in set(files)]
@@ -944,14 +937,12 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                          f"{len(extra)} other includable or fpga/ file(s) for directives")
     closures, by_fpga = closure_macros(src_root, ips)
     vocab = vocabulary(src_root)
-    # A backend file, listed by its backend list, declares its block's module.
-    backend_of = {b.source.resolve(): b.block for b in backends.backend_lists(src_root)
-                  if b.source.is_file() and b.source.resolve() in _listed(b.path)}
     for f in files:
         exp = expected_prefix(f, src_root, ips, prefix)
+        backend = portable_of(f, known or {})
         result.findings += check_text(rel(f, src_root), f.read_text(errors="replace"), exp,
                                       _defined_for(f, closures, by_fpga), vocab,
-                                      backend_of.get(f.resolve()))
+                                      backend[0].stem if backend else None)
     for f in extra:
         text = _text(f)
         if text is not None:  # binary files cannot carry directives

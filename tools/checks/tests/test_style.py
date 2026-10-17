@@ -1,10 +1,12 @@
 import re
+import shutil
 from pathlib import Path
 
 import pytest
 
 from build.ip import REPO_ROOT, SHARED_DIR, discover
 from ci.config import load_rules
+from build.backends import Backend
 from checks import style
 from checks.style import RULES, check_text, module_ports
 
@@ -430,6 +432,27 @@ def test_file_name(name, prefix, body, detail):
         assert any(f.endswith(detail) for f in found), found
 
 
+def test_file_name_backend_unit():
+    # A backend file declares its portable file's module, not its own stem.
+    body = GOOD.replace("xy_a_m", "xy_a_q")
+    assert not [f for f in check_text("xy_a_q_alt.sv", body, "xy_a", vocab=VOCAB,
+                                      unit_name="xy_a_q") if ": file-name: " in f]
+    found = [f for f in check_text("xy_a_q_alt.sv", GOOD, "xy_a", vocab=VOCAB,
+                                   unit_name="xy_a_q") if ": file-name: " in f]
+    assert found and found[0].endswith("(a backend file declares xy_a_q)")
+
+
+def test_run_backend_file(tmp_path):
+    src = tmp_path / "src"
+    shutil.copytree(FIXTURES / "good/src", src)
+    flop = (src / "rtl/common/common_flop.sv").read_text()
+    (src / "rtl/common/common_flop_alt.sv").write_text(flop)
+    known = {"fpga": Backend("fpga", "alt", ())}
+    assert style.run(src, discover(src), None, known).passed
+    r = style.run(src, discover(src), None)  # unknown suffix: an ordinary file
+    assert any("module common_flop in file common_flop_alt.sv" in f for f in r.findings)
+
+
 def test_comments_and_strings_do_not_trigger():
     text = mutate("  assign q_o = q_q;",
                   '  // always @* wire reg typedef union .* always_ff assert import `ifdef X\n'
@@ -768,33 +791,3 @@ def test_bit_vector_functions_only_in_assertion_macros(fn):
     outside = mutate("  assign busy_no = 1'b1;", f"  assign busy_no = {fn};")
     found = check_text("xy_a_m.sv", outside, "xy_a", vocab=ASSERT_VOCAB)
     assert rules(found) == ["system-task"], found
-
-
-BACKEND = """`default_nettype none
-`include "common_macros.svh"
-module common_flop #(
-    parameter int W = 8
-) (
-    input  logic         clk_i,
-    input  logic         rst_i,
-    input  logic         en_i,
-    input  logic [W-1:0] d_i,
-    output logic [W-1:0] q_o
-);
-  `COMMON_DFF_RST_EN(q_o, d_i, clk_i, en_i, rst_i, '0)
-endmodule
-`default_nettype wire
-"""
-
-
-def test_backend_file_declares_its_block(tmp_path):
-    # common_flop_alt.sv, listed by common_flop.alt.f, declares common_flop.
-    src = _good_copy(tmp_path)
-    (src / "rtl/common/common_flop_alt.sv").write_text(BACKEND)
-    (src / "rtl/common/common_flop.alt.f").write_text("+incdir+.\ncommon_flop_alt.sv\n")
-    assert style.run(src, discover(src), None).passed
-    # Unlisted, the same file must declare its own stem.
-    (src / "rtl/common/common_flop.alt.f").write_text("+incdir+.\n")
-    found = [f for f in style.run(src, discover(src), None).findings if ": file-name: " in f]
-    assert found == ["rtl/common/common_flop_alt.sv:3: file-name: module common_flop in file "
-                     "common_flop_alt.sv"]

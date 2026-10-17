@@ -12,6 +12,7 @@ import sys
 import time
 from pathlib import Path
 
+from build import backends
 from build.filelist import FilelistError, resolve
 from build.ip import Context, Ip, discover
 from ci.config import CiRules
@@ -22,6 +23,7 @@ KINDS = ("fpga", "asic")
 
 def select(ctx: Context, rules: CiRules, kind: str, affected_base: str | None) -> list[tuple[Ip, str]]:
     targets = [ip for ip in discover(ctx.src_root) if ip.dir(kind).is_dir()]
+    known = backends.load(ctx.cfg_dir)
     if affected_base is None:
         return [(ip, "all targets") for ip in targets]
     repo, changed = changed_files(affected_base, ctx.repo_root)
@@ -36,9 +38,14 @@ def select(ctx: Context, rules: CiRules, kind: str, affected_base: str | None) -
             # The real flow reports the broken closure instead of silently skipping it.
             selected.append((ip, "RTL filelist does not resolve"))
             continue
+        # The flow's own source list: a backend file it selects is an input.
+        chosen = known.get(kind)
+        selected_files = ({backends.backend_file(s, chosen).resolve() for s in rtl.sources}
+                          if chosen else set())
         for rel in changed:
             path = (repo / rel).resolve()
-            if rtl.reaches(path) or ip.dir(kind) == path or ip.dir(kind) in path.parents:
+            if (rtl.reaches(path) or path in selected_files or ip.dir(kind) == path
+                    or ip.dir(kind) in path.parents):
                 selected.append((ip, f"changed synthesis input: {rel}"))
                 break
     return selected

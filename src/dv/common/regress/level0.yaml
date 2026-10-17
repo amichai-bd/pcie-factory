@@ -64,3 +64,35 @@ tests:
     top: common_tdp_ram
     params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
     timeout_s: 60
+  - name: sdp_ram_intel_contract
+    module: tests.test_ram
+    testcase: contract
+    top: common_sdp_ram
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    backend: fpga
+    timeout_s: 60
+  - name: ram_intel_lint
+    module: tests.test_ram_backends
+    testcase: intel_lint
+    top: common_sync_ram
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    timeout_s: 300
+  - name: ram_intel_stub_rejects
+    module: tests.test_ram_backends
+    testcase: stub_rejects
+    top: common_sync_ram
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    timeout_s: 300
+  - name: sdp_ram_sky130_contract
+    module: tests.test_ram
+    testcase: contract
+    top: common_sdp_ram
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 1}
+    backend: asic
+    timeout_s: 60
+  - name: ram_sky130_lint
+    module: tests.test_ram_backends
+    testcase: sky130_lint
+    top: common_sync_ram
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    timeout_s: 300

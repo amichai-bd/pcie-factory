@@ -31,17 +31,15 @@ writes `synthesis.json`); `2` a usage or configuration error.
 | File | Use |
 | --- | --- |
 | `src/rtl/<ip>/<ip>.rtl.f` | Flattened by the [filelist resolver](../build/SPEC.md#filelists) into `VERILOG_FILES`, `VERILOG_INCLUDE_DIRS` and `VERILOG_DEFINES` (`-DNAME` or `-DNAME=VALUE`), in filelist order. `VERILOG_DEFINES` ends with `-DSYNTHESIS`, so the [assertion macros](../../bkm/rtl.md#assertions) compile out; a filelist that defines `SYNTHESIS` itself is an input error. |
-| `src/asic/<ip>/<platform>.mk` | Design knobs, included first by the generated config (after `ASIC_INPUT_DIR`). `DESIGN_NAME` is required. It may name other files of `src/asic/<ip>/` through `$(ASIC_INPUT_DIR)`, such as a `PDN_TCL`, and macro views (`ADDITIONAL_LEFS`, `ADDITIONAL_LIBS`, `ADDITIONAL_GDS`) from the image. |
-| `src/asic/<ip>/<platform>.backends.f` | Optional [backend selection](#backends): shared-block backends that replace portable sources. |
+| `src/asic/<ip>/<platform>.mk` | Design knobs, included first by the generated config. `DESIGN_NAME` is required. It may name macro views (`ADDITIONAL_LEFS`, `ADDITIONAL_LIBS`, `ADDITIONAL_GDS`) from the image. |
+| `cfg/backends.yaml` `asic` | The ASIC [source backends](#backends) (suffix `sky130`). |
 | `src/asic/<ip>/*.sdc` | Exactly one SDC; becomes `SDC_FILE`. Its first `create_clock -period` is reported as `clock_period_ns`. |
 | `cfg/host.yaml` `hosts.<name>.orfs_*` | How to reach ORFS (below). |
 
 The tool owns `PLATFORM`, `DESIGN_NICKNAME`, `DESIGN_CONFIG`, `SDC_FILE`,
 `VERILOG_FILES`, `VERILOG_INCLUDE_DIRS`, `VERILOG_DEFINES`, `WORK_HOME`,
 `FLOW_VARIANT`, `NUM_CORES`, `RESULTS_DIR`, `LOG_DIR`, `REPORTS_DIR`,
-`OBJECTS_DIR` and `ASIC_INPUT_DIR` (the IP's `src/asic/<ip>/` folder,
-exported before the `.mk` is included); a `.mk` that sets any of them is a
-configuration error. The
+`OBJECTS_DIR`; a `.mk` that sets any of them is a configuration error. The
 check reads assignments (`=`, `:=`, `::=`, `:::=`, `?=`, `+=`, `!=`, with
 `export` and/or `override`) and `define NAME` blocks, with line continuations
 joined; it does not evaluate make.
@@ -54,25 +52,16 @@ pinned image's Yosys). The tool passes the knob through unchanged.
 
 ### Backends
 
-A shared block may have backends, per-target files that declare the block's
-own module ([layout](../../project/layout.md#backends)). When
-`src/asic/<ip>/<platform>.backends.f` exists, the tool resolves it as a
-filelist (normally `-F` lines naming backend lists such as
-`../../rtl/common/ram/common_sdp_ram.sky130.f`) and, for each of its
-sources that the IP filelist does not already hold:
-
-- the source must declare exactly one module, and exactly one source of the
-  IP's flattened filelist must declare that module (and only it);
-- the backend replaces that source in place, so `VERILOG_FILES` keeps
-  filelist order; include directories are appended (deduplicated) and
-  defines merged.
-
-Two backends of one module, a backend of a module the IP lacks, a list
-that does not resolve, a conflicting define, or a list that selects no
-backend exits 2 before anything runs (`./build check` runs the same
-validation). The command prints `[asic] backend: <new> replaces <old>` for
-each. The macro views are design knobs in `<platform>.mk`. Code:
-`tools/build/backends.py`.
+`VERILOG_FILES` is the flattened filelist with the `asic` entry of
+[`cfg/backends.yaml`](../../../cfg/backends.yaml) applied by
+`build.backends.select`: each source with a backend file
+`<stem>_<suffix>.sv` beside it (suffix `sky130`) is replaced by that file,
+in place, so filelist order is kept
+([source backends](../../project/layout.md#source-backends)). A filelist
+that lists a backend file, or a bad `cfg/backends.yaml`, exits 2 before
+anything runs (`./build check` runs the same validation). The command
+prints `[asic] backend: <new> replaces <old>` for each. A backend's macro
+views are design knobs in the IP's `.mk`.
 
 ## ORFS runners
 
@@ -266,8 +255,7 @@ metrics collector tests prove studies cannot populate the nightly ASIC record.
 
 | Test file | Proves |
 | --- | --- |
-| `test_asic_flow.py` | `config.mk` generation (filelist order, include dirs, defines with `SYNTHESIS`, nickname and output path from the IP id, determinism); `.mk` validation (including `override`, `define`, the ORFS directory variables and `ASIC_INPUT_DIR`); `ASIC_INPUT_DIR` exported before the `.mk`; backends (a backend replacing its module's source in place, none without a list, and an unknown module, an empty selection and an unresolvable list each exit 2); SDC count; ORFS settings (digest required, `ORFS_IMAGE` ignored, cores, overrides); docker hardening flags and mounts; unique container names; step commands; `--dry-run`; and a full run against `fixtures/fake_orfs` (a fake `env.sh`, `make`, `openroad`, `yosys`): pass, step failure, timeout, SIGTERM, missing metrics; a failing step that prints the hand-made `fixtures/flow_fail.log` (its error lines more than 30 lines before the end) shows every error line, redacted, before the tail, and one without error lines says `none matched`; and, for the `clocks` step, an empty `clocks` (`incomplete: missing timing.clocks`), a failing step (`clocks: fail (exit 3)`) and a hanging one cut by the run budget (`clocks: timeout after <S>s`), each exit 1 with fanout and depth kept and, where the clocks are missing, the cause in `warnings`. |
-| `tools/build/tests/test_backends.py` | Backend-list names and discovery, module parsing without comments, in-place substitution with merged include directories and defines, determinism, skipped shared sources, and the errors (two backends of one module, an unknown module, two modules in a backend, an unresolvable list, a conflicting define). |
+| `test_asic_flow.py` | `config.mk` generation (filelist order, include dirs, defines with `SYNTHESIS`, nickname and output path from the IP id, determinism); `.mk` validation (including `override`, `define`, the ORFS directory variables); source backends (a `sky130` backend file replacing its portable file in place, no swap without one, another flow's backend ignored, a listed backend file exiting 2); SDC count; ORFS settings (digest required, `ORFS_IMAGE` ignored, cores, overrides); docker hardening flags and mounts; unique container names; step commands; `--dry-run`; and a full run against `fixtures/fake_orfs` (a fake `env.sh`, `make`, `openroad`, `yosys`): pass, step failure, timeout, SIGTERM, missing metrics; a failing step that prints the hand-made `fixtures/flow_fail.log` (its error lines more than 30 lines before the end) shows every error line, redacted, before the tail, and one without error lines says `none matched`; and, for the `clocks` step, an empty `clocks` (`incomplete: missing timing.clocks`), a failing step (`clocks: fail (exit 3)`) and a hanging one cut by the run budget (`clocks: timeout after <S>s`), each exit 1 with fanout and depth kept and, where the clocks are missing, the cause in `warnings`. |
 | `test_asic_metrics.py` | Each parser, the peak memory (largest step, absent or malformed lines, in the summary), the per-clock slacks (sorted, `wns_ns`, non-numbers dropped; missing, empty or malformed `clocks` alone makes the run `incomplete`, with a warning naming the cause) and the worst-path summary on the fixture reports in `fixtures/orfs/` and on malformed or empty input. |
 
 `fixtures/orfs/` holds report files cut from a real run of the pinned image

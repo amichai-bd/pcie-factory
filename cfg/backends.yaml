@@ -1,0 +1,14 @@
+# Source backends. Owning spec: wiki/project/layout.md#source-backends.
+#
+# Per synthesis flow kind: `suffix` names its backend files
+# (<stem>_<suffix>.sv beside a shared block's portable <stem>.sv, declaring
+# the same module), which that flow's source list selects in place of the
+# portable file. `dv_models` lists the DV-only stand-ins, relative to the
+# source root, that let Verilator elaborate the backend files for lint and
+# for regression entries with `backend: <kind>`. Never name an IP here.
+fpga:
+  suffix: intel
+  dv_models: [dv/common/tb/altsyncram.sv]
+asic:
+  suffix: sky130
+  dv_models: [dv/common/tb/sky130_sram_1rw1r_64x256_8.sv]

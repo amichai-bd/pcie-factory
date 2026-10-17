@@ -3,7 +3,8 @@
 Reads, from a compiled project directory:
 
     output_files/<rev>.fit.summary   key : value resource summary
-    output_files/<rev>.fit.rpt       memory block count (M9K, M10K, ...)
+    output_files/<rev>.fit.rpt       memory block count (M9K, M10K, ...) and
+                                     the per-instance Fitter RAM Summary
     output_files/<rev>.sta.rpt       Fmax, setup and hold summary panels
     worst_path.txt                   key=value worst setup path, written by
                                      the generated worst_path.tcl
@@ -106,6 +107,38 @@ def parse_fit_memory_blocks(path: Path) -> dict | None:
         if m:
             return {"type": m.group(1)[:-1], **_ratio(m.group(2))}
     return None
+
+
+_RAM_PANEL = "Fitter RAM Summary"
+# metrics key -> Fitter RAM Summary column; a missing column gives None.
+_RAM_COLUMNS = {
+    "name": "Name", "mode": "Mode", "clock_mode": "Clock Mode",
+    "port_a_depth": "Port A Depth", "port_a_width": "Port A Width",
+    "port_b_depth": "Port B Depth", "port_b_width": "Port B Width",
+    "bits": "Size", "mixed_rdw": "Mixed Width RDW Mode",
+}
+_INT_RAM_KEYS = ("port_a_depth", "port_a_width", "port_b_depth", "port_b_width", "bits")
+
+
+def parse_fit_rams(path: Path) -> list[dict]:
+    """One entry per row of the "Fitter RAM Summary" panel: the inferred or
+    instantiated RAM's hierarchical name, mode, clock mode, port geometry,
+    size in bits, mixed-port read-during-write mode and its memory block
+    count (``blocks``, from the ``M<n>Ks`` column). Empty when the design
+    has no RAM (Quartus then prints no such panel)."""
+    tables = panels(_read(path))
+    out = []
+    for row in tables.get(_RAM_PANEL, []):
+        if not row.get("Name"):
+            continue
+        entry = {k: (row.get(col) or None) for k, col in _RAM_COLUMNS.items()}
+        for k in _INT_RAM_KEYS:
+            if entry[k] is not None:
+                entry[k] = _count(entry[k])
+        block_cols = [c for c in row if re.fullmatch(r"M\d+Ks", c)]
+        entry["blocks"] = _count(row[block_cols[0]]) if block_cols else None
+        out.append(entry)
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -254,6 +287,7 @@ def collect(project_dir: Path, revision: str) -> dict:
     out = Path(project_dir) / "output_files"
     fit = parse_fit_summary(out / f"{revision}.fit.summary")
     fit["resources"]["memory_blocks"] = parse_fit_memory_blocks(out / f"{revision}.fit.rpt")
+    fit["resources"]["rams"] = parse_fit_rams(out / f"{revision}.fit.rpt")
     sta = parse_sta(out / f"{revision}.sta.rpt")
     clocks = sta["clocks"]
     worst = {}

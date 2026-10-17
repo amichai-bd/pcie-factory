@@ -1,17 +1,14 @@
-"""Shared-block backends: per-target implementations of one shared block.
+"""Source backends: per-flow implementations of one RTL module.
 
-Spec: wiki/project/layout.md#backends (files) and
-wiki/tools/asic/SPEC.md#backends (selection by the ASIC flow).
-
-A shared block ``common_x`` has its portable file, listed by
-``rtl/common/[<group>/]common_x.rtl.f``, and may have backend files
-``common_x_<backend>.sv`` that declare the **same module** ``common_x``. Each
-backend file is listed by its backend list ``common_x.<backend>.f`` in the
-same folder (the vocabulary filelists it needs, then the file). No source
-holds a conditional: a flow selects a backend by naming its backend list in
-the target's own source list (for example ``asic/<ip>/<platform>.backends.f``),
-and :func:`apply` substitutes each backend source for the source that
-declares the same module. Simulation and lint of the IP never see a backend.
+A shared block may have, beside its portable file ``<dir>/<stem>.sv`` (the
+one its filelist lists), a backend file ``<dir>/<stem>_<suffix>.sv`` that
+declares the same module for one synthesis flow (for example a vendor RAM
+primitive). ``cfg/backends.yaml`` maps a flow kind (``fpga``, ``asic``) to
+its backend suffix and to the DV-only stand-ins (``dv_models``) that let
+Verilator elaborate that backend's files. No filelist lists a backend file:
+the flow's source list selects it in place of the portable file, so no
+source list holds two implementations of one module and no file needs an
+``ifdef``. Spec: wiki/project/layout.md#source-backends.
 """
 
 from __future__ import annotations
@@ -20,110 +17,101 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from build.filelist import FilelistError, Resolved, resolve
-from build.ip import SHARED_DIR
+import yaml
 
-# "<block>.<backend>.f": not a block's own "<block>.rtl.f".
-_LIST_RE = re.compile(r"\A(?P<block>[A-Za-z_][A-Za-z0-9_]*)\.(?P<backend>[a-z][a-z0-9]*)\.f\Z")
-_MODULE_RE = re.compile(r"^\s*module\s+(?:automatic\s+|static\s+)?([A-Za-z_][A-Za-z0-9_$]*)",
-                        re.M)
-_COMMENTS = re.compile(r"//[^\n]*|/\*.*?\*/", re.S)
+CONFIG = "backends.yaml"
+_SUFFIX_RE = re.compile(r"^[a-z][a-z0-9]*$")
+_KIND_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 class BackendError(Exception):
-    """A backend list or substitution is invalid."""
+    """A bad ``cfg/backends.yaml`` or a source list that breaks the rules."""
 
 
 @dataclass(frozen=True)
-class BackendList:
-    path: Path      # rtl/common/[<group>/]<block>.<backend>.f
-    block: str      # the module every backend source of this list declares
-    backend: str
-
-    @property
-    def source(self) -> Path:
-        """The backend file this list must list: ``<block>_<backend>.sv``."""
-        return self.path.parent / f"{self.block}_{self.backend}.sv"
+class Backend:
+    kind: str                    # the flow kind that selects it
+    suffix: str                  # backend files are <stem>_<suffix>.sv
+    dv_models: tuple[str, ...]   # stand-ins, relative to the source root
 
 
-def parse_list_name(path: Path) -> BackendList | None:
-    """The block and backend of a ``<block>.<backend>.f`` path, else None
-    (``rtl`` is a block's own filelist, never a backend)."""
-    m = _LIST_RE.match(Path(path).name)
-    if not m or m.group("backend") == "rtl":
+def load(cfg_dir: Path) -> dict[str, Backend]:
+    """``cfg/backends.yaml`` as ``{kind: Backend}``; empty when absent."""
+    path = Path(cfg_dir) / CONFIG
+    if not path.is_file():
+        return {}
+    try:
+        data = yaml.safe_load(path.read_text()) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        raise BackendError(f"cannot read {path}: {exc}") from None
+    if not isinstance(data, dict):
+        raise BackendError(f"{path}: expected a mapping of flow kind to backend")
+    out: dict[str, Backend] = {}
+    for kind, entry in data.items():
+        where = f"{path}: {kind}"
+        if not isinstance(kind, str) or not _KIND_RE.match(kind):
+            raise BackendError(f"{path}: flow kind {kind!r} is not a plain name")
+        if not isinstance(entry, dict) or set(entry) - {"suffix", "dv_models"}:
+            raise BackendError(f"{where}: expected keys 'suffix' and optional 'dv_models'")
+        suffix = entry.get("suffix")
+        if not isinstance(suffix, str) or not _SUFFIX_RE.match(suffix):
+            raise BackendError(f"{where}: 'suffix' must be a lowercase word, got {suffix!r}")
+        models = entry.get("dv_models") or []
+        if not isinstance(models, list) or not all(
+                isinstance(m, str) and m.startswith("dv/") and ".." not in m for m in models):
+            raise BackendError(f"{where}: 'dv_models' must list paths below dv/ in the "
+                               "source root")
+        out[kind] = Backend(kind, suffix, tuple(models))
+    suffixes = [b.suffix for b in out.values()]
+    if len(set(suffixes)) != len(suffixes):
+        raise BackendError(f"{path}: two flow kinds share one backend suffix")
+    return out
+
+
+def portable_of(path: Path, backends: dict[str, Backend]) -> tuple[Path, Backend] | None:
+    """``(<dir>/<stem>.sv, backend)`` when ``path`` is named
+    ``<stem>_<suffix>.sv`` for a configured suffix and that portable file
+    exists; otherwise None."""
+    path = Path(path)
+    if path.suffix != ".sv":
         return None
-    return BackendList(Path(path).resolve(), m.group("block"), m.group("backend"))
+    for b in backends.values():
+        tail = f"_{b.suffix}"
+        if path.stem.endswith(tail) and len(path.stem) > len(tail):
+            portable = path.with_name(path.stem[: -len(tail)] + ".sv")
+            if portable.is_file():
+                return portable, b
+    return None
 
 
-def backend_lists(src_root: Path) -> list[BackendList]:
-    """Every backend list directly in ``rtl/common/`` or in a group folder,
-    sorted by path."""
-    d = Path(src_root).resolve() / "rtl" / SHARED_DIR
-    if not d.is_dir():
-        return []
-    found = [p for p in list(d.glob("*.f")) + list(d.glob("*/*.f"))
-             if p.is_file() and not p.parent.name.startswith(".")]
-    return sorted((b for p in found if (b := parse_list_name(p)) is not None),
-                  key=lambda b: b.path)
+def backend_file(portable: Path, backend: Backend) -> Path:
+    """Where ``portable``'s backend file for ``backend`` would be."""
+    portable = Path(portable)
+    return portable.with_name(f"{portable.stem}_{backend.suffix}.sv")
 
 
-def declared_modules(path: Path) -> list[str]:
-    """Module names declared in a source file, in order (comments ignored)."""
-    try:
-        text = Path(path).read_text(errors="replace")
-    except OSError as exc:
-        raise BackendError(f"{path}: {exc.strerror}") from None
-    return _MODULE_RE.findall(_COMMENTS.sub(" ", text))
+def select(sources: list[Path], backend: Backend | None,
+           backends: dict[str, Backend]) -> list[Path]:
+    """The flow's source list: each source with a ``backend`` file beside it
+    is replaced by that file, in place. A source that is itself a backend
+    file (of any flow) is an error: a filelist never lists one, so the
+    result never holds two implementations of one module."""
+    out: list[Path] = []
+    for src in sources:
+        if portable_of(src, backends) is not None:
+            raise BackendError(f"{src}: a filelist lists a backend file; only a flow "
+                               "selects a backend, in place of its portable file")
+        alt = backend_file(src, backend) if backend is not None else None
+        out.append(alt.resolve() if alt is not None and alt.is_file() else src)
+    return out
 
 
-def apply(resolved: Resolved, backends_f: Path) -> tuple[Resolved, list[tuple[Path, Path]]]:
-    """Substitute the sources of ``backends_f`` (a filelist, normally ``-F``
-    lines naming backend lists) into ``resolved``.
-
-    Each backend source declares exactly one module, which exactly one source
-    of ``resolved`` declares; it replaces that source in place, so filelist
-    order is kept. Sources already in ``resolved`` (a shared vocabulary file)
-    are skipped; include directories and defines are merged. Returns the new
-    ``Resolved`` and the ``(replaced, backend)`` pairs. Any other case is a
-    :class:`BackendError` (two backends of one module, a source declaring
-    nothing the IP has, a missing file)."""
-    try:
-        extra = resolve(backends_f)
-    except FilelistError as exc:
-        raise BackendError(f"{backends_f}: {exc}") from None
-    sources = list(resolved.sources)
-    declared = {s: declared_modules(s) for s in sources}
-    pairs: list[tuple[Path, Path]] = []
-    seen: dict[str, Path] = {}
-    for src in extra.sources:
-        if src in resolved.sources:
-            continue
-        mods = declared_modules(src)
-        if len(mods) != 1:
-            raise BackendError(f"{src}: a backend source declares exactly one module, "
-                               f"found {len(mods)}")
-        mod = mods[0]
-        if mod in seen:
-            raise BackendError(f"{backends_f}: two backends of module {mod}: "
-                               f"{seen[mod]} and {src}")
-        seen[mod] = src
-        hits = [i for i, s in enumerate(sources) if mod in declared.get(s, [])]
-        if len(hits) != 1:
-            raise BackendError(f"{src}: backend of module {mod}, which {len(hits)} source(s) "
-                               f"of the IP filelist declare (exactly one needed)")
-        i = hits[0]
-        if len(declared[sources[i]]) != 1:
-            raise BackendError(f"{sources[i]}: declares more than module {mod}, so a backend "
-                               "cannot replace it")
-        pairs.append((sources[i], src))
-        declared[src] = [mod]
-        sources[i] = src
-    incdirs = list(dict.fromkeys(list(resolved.incdirs) + list(extra.incdirs)))
-    defines = dict(resolved.defines)
-    for k, v in extra.defines.items():
-        if k in defines and defines[k] != v:
-            raise BackendError(f"{backends_f}: define {k} conflicts with the IP filelist")
-        defines[k] = v
-    out = Resolved(sources=sources, incdirs=incdirs, defines=defines,
-                   filelists=list(dict.fromkeys(list(resolved.filelists) + list(extra.filelists))))
-    return out, pairs
+def dv_models(backend: Backend, src_root: Path) -> list[Path]:
+    """The backend's DV-only stand-ins, resolved; a missing one is an error."""
+    out = []
+    for m in backend.dv_models:
+        p = (Path(src_root) / m).resolve()
+        if not p.is_file():
+            raise BackendError(f"cfg/{CONFIG}: {backend.kind}: dv model {m} not found")
+        out.append(p)
+    return out

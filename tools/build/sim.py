@@ -32,6 +32,7 @@ import yaml
 if __package__ in (None, ""):  # executed as a script by the parent process
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from build import backends  # noqa: E402
 from build.filelist import FilelistError, resolve  # noqa: E402
 from build.ip import REPO_ROOT, Ip  # noqa: E402
 
@@ -85,20 +86,25 @@ def not_found_message() -> str:
 
 @dataclass
 class BuildSpec:
-    """One Verilator build: an IP's sim filelist elaborated for one top."""
+    """One Verilator build: an IP's sim filelist elaborated for one top.
+    With ``backend`` (a flow kind of cfg/backends.yaml) the sources are that
+    flow's selection (build.backends.select) plus its DV-only stand-ins."""
 
     ip: Ip
     top: str
     params: dict = field(default_factory=dict)
     waves: bool = False
     coverage: bool = False
+    backend: str | None = None
 
     @property
     def key(self) -> str:
         extra = {"params": self.params, "waves": self.waves}
         if self.coverage:
             extra["coverage"] = True
-        if not self.params and not self.waves and not self.coverage:
+        if self.backend:
+            extra["backend"] = self.backend
+        if not self.params and not self.waves and not self.coverage and not self.backend:
             return self.top
         digest = hashlib.sha1(json.dumps(extra, sort_keys=True).encode()).hexdigest()
         return f"{self.top}-{digest[:8]}"
@@ -214,20 +220,37 @@ def _job(spec: BuildSpec, workdir: Path, verilator: Path) -> dict:
     }
 
 
-def build(spec: BuildSpec, workdir: Path, verilator: Path) -> Result:
+def sources_for(spec: BuildSpec, sources: list[Path], cfg_dir: Path) -> list[Path]:
+    """The build's sources: the sim filelist's, or with ``spec.backend`` that
+    flow's backend selection followed by its DV-only stand-ins."""
+    if not spec.backend:
+        return list(sources)
+    known = backends.load(cfg_dir)
+    if spec.backend not in known:
+        raise backends.BackendError(f"backend {spec.backend!r} is not a flow kind of "
+                                    f"cfg/{backends.CONFIG} (known: "
+                                    f"{', '.join(sorted(known)) or 'none'})")
+    chosen = known[spec.backend]
+    return (backends.select(sources, chosen, known)
+            + backends.dv_models(chosen, spec.ip.src_root))
+
+
+def build(spec: BuildSpec, workdir: Path, verilator: Path,
+          cfg_dir: Path = REPO_ROOT / "cfg") -> Result:
     """Elaborate and compile ``spec``; log at ``<build_dir>/build.log``.
-    A filelist that does not resolve is a build ``error`` (not an exception),
-    with the ``file:line`` message as detail and in the log."""
+    A filelist that does not resolve, or a bad backend, is a build ``error``
+    (not an exception), with the message as detail and in the log."""
     log = spec.build_dir(workdir) / "build.log"
     try:
         flat = resolve(spec.ip.sim_f)
-    except FilelistError as exc:
+        sources = sources_for(spec, flat.sources, cfg_dir)
+    except (FilelistError, backends.BackendError) as exc:
         log.parent.mkdir(parents=True, exist_ok=True)
         log.write_text(f"error: {exc}\n")
         return Result("error", 0.0, log, str(exc))
     job = _job(spec, workdir, verilator)
     job.update(
-        sources=[str(p) for p in flat.sources],
+        sources=[str(p) for p in sources],
         incdirs=[str(p) for p in flat.incdirs],
         defines=flat.defines,
     )

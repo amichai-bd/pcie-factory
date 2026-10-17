@@ -272,12 +272,3 @@ def test_ip_filter(good):
     assert run(good, {"blk_sub"}).findings == [
         "fpga/blk_sub/: fpga/ is for top-level IPs only (blk_sub is a sub-IP of blk)"]
     assert len(run(good).findings) == 2
-
-
-def test_backend_lists_sit_next_to_their_block(good):
-    write(good / "rtl/common/common_lib.alt.f", "common_lib_alt.sv\n")   # beside common_lib.rtl.f
-    write(good / "rtl/common/common_none.alt.f")                       # no common_none.rtl.f
-    assert run(good).findings == [
-        "rtl/common/common_none.alt.f: backend list of common_none, which has no "
-        "common_none.rtl.f in the same folder",
-    ]
