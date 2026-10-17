@@ -59,7 +59,8 @@ Illegal values stop elaboration through `COMMON_ASSERT_PARAM` blocks
 ## Intel backend
 
 `common_sdp_ram_intel.sv` is the same module for Quartus: one `altsyncram`
-named `u_ram`, a [source backend](../../../../project/layout.md#source-backends)
+named `u_ram` (in generate block `g_one_lane` for one lane, else
+`g_lanes`), a [source backend](../../../../project/layout.md#source-backends)
 that only the FPGA flow's source list selects (`cfg/backends.yaml`, suffix
 `intel`), in place of the portable file. Simulation, `./build check` lint
 and the ASIC flow read the portable file; Verilator reads the backend only
@@ -70,7 +71,7 @@ against the DV-only stub `src/dv/common/tb/altsyncram.sv`.
 | `operation_mode` | `DUAL_PORT` | Port A writes, port B reads (simple dual port). |
 | `intended_device_family`, `ram_block_type` | `INTEL_DEVICE_FAMILY` (default `Cyclone IV E`), `INTEL_RAM_BLOCK_TYPE` (default `M9K`) | Vendor facts, not contract: the backend's two extra parameters; another Intel board overrides them from its board settings file. |
 | `width_a`, `widthad_a`, `numwords_a`; `width_b`, `widthad_b`, `numwords_b` | `WIDTH`, `ADDR_W`, `2**ADDR_W` on both ports | No mixed widths. |
-| `width_byteena_a`, `byte_size` | `LANES`; 8 for one lane, else the lane width | Lanes are byte enables; an M9K byte is 8 or 9 bits, so more than one lane needs 8- or 9-bit lanes (`g_lane_w_check`, Intel backend only). |
+| `width_byteena_a`, `byte_size` | One lane: not given (vendor defaults, no byte enables). Several lanes: `LANES` and the lane width | One lane writes whole words through `wren_a` alone, as Intel-generated wrappers do; Quartus rejects `width_byteena_a = 1` with a `byte_size` that is not the width (Error 272006, seen on the first `link` fit with 34-bit words). Several lanes are byte enables; an M9K byte is 8 or 9 bits, so they need 8- or 9-bit lanes (`g_lane_w_check`, Intel backend only). |
 | `outdata_reg_a`, `outdata_reg_b` | `UNREGISTERED` | One-edge read latency: `rd_data_o` is the block's read register. |
 | `address_reg_b`, `rdcontrol_reg_b` | `CLOCK0` | One clock. |
 | `read_during_write_mode_mixed_ports` | `OLD_DATA` | Read-first collision, as the portable file. |
@@ -78,25 +79,33 @@ against the DV-only stub `src/dv/common/tb/altsyncram.sv`.
 | `init_file`, `power_up_uninitialized` | `UNUSED`, `FALSE` | No image; contents stay undefined to the contract. |
 
 Pins: `clock0` is `clk_i`; `wren_a` is `wr_en_i` with at least one lane
-enabled, `byteena_a` is `wr_lanes_i`, `address_a` and `data_a` the write
+enabled, `byteena_a` is `wr_lanes_i` with several lanes (unconnected with
+one), `address_a` and `data_a` the write
 port; `rden_b` is `rd_en_i` (a disabled read holds `q_b`), `address_b` and
 `q_b` the read port. `wren_b`, `aclr*` and `addressstall_*` tie low;
 `rden_a`, `clock1`, `clocken*` and `byteena_b` tie high. `data_b`, `q_a` and
 `eccstatus`, absent in this mode, are explicit empty connections, as
-Intel-generated wrappers leave them; the backend's lint test expects
-exactly `DECLFILENAME` and those three `PINCONNECTEMPTY` messages. The
+Intel-generated wrappers leave them, and so is `byteena_a` with one lane;
+the backend's lint test expects exactly `DECLFILENAME` and those
+`PINCONNECTEMPTY` messages, counted over both generate branches (Verilator
+reports each branch's empty connections whatever `LANES` is). The
 parameter checks are the portable file's plus `g_lane_w_check`.
 
 **Fitter evidence.** Simulation never proves the mapping; each consuming
 target's fit does (`resources.rams` in its `metrics.json`). Expected per
 instance: `Simple Dual Port`, `Single Clock`, mixed-port RDW `Old data`,
 and the M9K count below (an M9K holds 256 words of up to 36 bits, or 512
-of up to 18, in this mode). Measured:
+of up to 18, in this mode). Measured on the first `link` fit
+([#276](https://github.com/amichai-bd/pcie-factory/pull/276) `ci-fpga`, run
+39074066731 at the temporary head `080031d` with this backend merged in, Quartus
+Prime Lite 25.1std, EP4CE115F29C7, with this backend's one-lane form; map,
+fit and timing passed). The fit's fourth M9K is not this block: Quartus
+infers the 64 x 8 `end_q` array of the dll TX path as a RAM.
 
 | Consumer (target) | Geometry | Expected M9K | Measured |
 | --- | --- | --- | --- |
-| dll receive buffer (`link`, DE2-115) | 512 x 34 | 2 (two x18 at 512 words) | Pending the first `link` fit ([#276](https://github.com/amichai-bd/pcie-factory/pull/276)). |
-| dll replay buffer (`link`, DE2-115) | 256 x 32 | 1 (x32 at 256 words) | Pending the first `link` fit ([#276](https://github.com/amichai-bd/pcie-factory/pull/276)). |
+| dll receive buffer (`link`, DE2-115) | 512 x 34 | 2 (two x18 at 512 words) | 2 M9K: Simple Dual Port, Single Clock, 512 x 34, 17408 bits, mixed RDW Old data (`altsyncram:g_one_lane.u_ram`). |
+| dll replay buffer (`link`, DE2-115) | 256 x 32 | 1 (x32 at 256 words) | 1 M9K: Simple Dual Port, Single Clock, 256 x 32, 8192 bits, mixed RDW Old data (`altsyncram:g_one_lane.u_ram`). |
 
 ## Decisions
 

@@ -1,0 +1,16 @@
+# Completion splitting on the 64-byte read completion boundary
+# (wiki/src/arch/tl/COMPLETIONS.md#splitting): a 512-byte read at offset 4
+# gives completions of 124, 128, 128, 128 and 4 bytes.
+description: 300 host MRd of 512 bytes from BAR0 offset 4, every completion checked by the host.
+seed: 1
+workload:
+  kind: completer
+  op: read
+  tlps: 300
+  bytes: 512
+  offset: 4
+targets:
+  completions_per_read: {min: 5, max: 5}
+  completion_errors: {max: 0}
+  requests_done: {min: 300}
+  tl_errors: {max: 0}

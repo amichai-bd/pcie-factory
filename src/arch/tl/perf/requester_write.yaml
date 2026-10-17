@@ -1,0 +1,10 @@
+# Application writes out through rq (wiki/src/arch/tl/HAS.md#targets).
+description: 2000 application MWr of 128 bytes to host memory back to back, default host credits.
+seed: 1
+workload:
+  kind: requester
+  op: write
+  tlps: 2000
+targets:
+  fraction_of_link: {min: 0.98}
+  payload_line_fraction: {min: 0.833}
