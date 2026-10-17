@@ -10,10 +10,15 @@
   until the TLP transmit path attaches, no port reaches the transmit
   credit gate. A test that sets `slot_tx_i` gets `tlp_tx_ready_o` forced
   to a stand-in for #212's arbiter (DL_Active, and on a `sop` beat the
-  gate `fc_tx_ok`); `probe_tx_ok_o` shows the gate. It drives only the
+  gate `fc_tx_ok`). It drives only the
   signal the [MAS slot table](../../rtl/dll/MAS.md#slots-for-the-tlp-paths)
   names and goes when [#212](https://github.com/amichai-bd/pcie-factory/issues/212)
   lands; the transmit tests then run on the real path.
+- **Gate tap:** [`tb/pcie_dll_fc_tap.sv`](../../../../src/dv/dll/tb/pcie_dll_fc_tap.sv),
+  a bind module on `pcie_dll` listed in `dll.dv.f`, observes the
+  MAS-named `fc_tx_ok` ([credit interface](../../rtl/dll/MAS.md#credit-interface));
+  the testbench top shows it as `probe_tx_ok_o` for the gate check. It
+  drives nothing, and `pcie_dll`'s ports stay the HAS's.
 - **Environment:** [`tb/dll_env.py`](../../../../src/dv/dll/tb/dll_env.py),
   one step per `clk_i` cycle at the falling edge:
   - a **phy stand-in** on the transmit stream: ready 1 from an accepted

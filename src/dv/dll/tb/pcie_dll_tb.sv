@@ -11,7 +11,7 @@
 // forced to a stand-in for #212's TLP arbiter (DL_Active, and on a sop
 // beat the credit gate fc_tx_ok). It drives only the signal the MAS slot
 // table names and is removed when #212 lands. probe_tx_ok_o shows the
-// MAS-named gate.
+// MAS-named gate through the bind tap pcie_dll_fc_tap.
 `default_nettype none
 
 module pcie_dll_tb #(
@@ -115,12 +115,12 @@ module pcie_dll_tb #(
     .retrain_req_o    (retrain_req_o)
   );
 
-  assign probe_tx_ok_o   = u_dut.fc_tx_ok;
+  assign probe_tx_ok_o   = u_dut.u_fc_tap.tx_ok;   // the bind tap (pcie_dll_fc_tap.sv)
 
   always @* begin
     if (slot_tx_i) begin
       force u_dut.tlp_tx_ready_o = u_dut.dl_state == pcie_dll_pkg::DL_ACTIVE
-                                   && (!tlp_tx_sop_i || u_dut.fc_tx_ok);
+                                   && (!tlp_tx_sop_i || u_dut.u_fc_tap.tx_ok);
     end else begin
       release u_dut.tlp_tx_ready_o;
     end
