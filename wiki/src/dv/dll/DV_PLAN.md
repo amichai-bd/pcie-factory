@@ -196,6 +196,8 @@ into a model or the RTL silently.
 Each mutant was applied to the RTL and levels 0 and 1 run one test at a
 time; each is caught, and the unmutated RTL passes. The entry named is the
 first that fails in that run, at its first seed (level 0 unless marked).
+The TLP transmit mutants ([#212](https://github.com/amichai-bd/pcie-factory/issues/212))
+were all run, serially, on the RTL and tests of its final revision.
 
 | Block | Mutant | First failing entry | Result |
 | --- | --- | --- | --- |
@@ -224,7 +226,7 @@ first that fails in that run, at its first seed (level 0 unless marked).
 | TLP transmit | Sequence numbers assigned two apart | `lcrc_kat` | Stops on `a_held_limit`. |
 | TLP transmit | Room check allows 1026 bytes | `rbuf_full` | A TLP taken beyond 1024 bytes. |
 | TLP transmit | Room check counts 1 sequence-number byte per TLP, not 2 | `rbuf_full` | A TLP taken beyond 1024 bytes. |
-| TLP transmit | Space of an acknowledged TLP on the stream freed at once | `rbuf_full` | A TLP taken while the acknowledged replay of TLP 8 is on the stream. |
+| TLP transmit | Space of an acknowledged TLP on the stream freed at once | `rbuf_full` | A TLP taken at cycle 1830, the acknowledged replay of TLP 8 still on the stream. |
 | TLP transmit | Out-of-range Ack/Nak not reported | `replay_directed` | DL protocol errors 0, expected 2. |
 | TLP transmit | A Nak does not replay | `replay_directed` | Nothing sent after Nak 2, expected 3 and 4 replayed. |
 | TLP transmit | A replay stops before the newest TLP sent | `replay_directed` | Only 3 replayed after Nak 2. |
@@ -232,15 +234,16 @@ first that fails in that run, at its first seed (level 0 unless marked).
 | Package | Replay timeout at 355 cycles | `replay_directed` | Timeout 355 cycles after the `eop`, expected 356. |
 | TLP transmit | Replay timer not held outside L0 | `replay_directed` | Timeout 356 cycles after the `eop` with 100 cycles of Recovery, expected 456. |
 | TLP transmit | Forward progress does not restart the replay timer | `replay_directed` | Timeout 135 cycles after the Ack, expected 357. |
-| TLP transmit | A replay requested during a replay is lost | `replay_directed` | One replay after two Naks. |
 | TLP transmit | REPLAY_NUM rolls over after 3 replays | `rollover_directed` | Rollover after 3 timeouts. |
-| TLP transmit | No retrain request on a rollover | `rollover_directed` | `retrain_req_o` never pulses. |
+| TLP transmit | No retrain request on a rollover | `rollover_directed` | `retrain_req_o` never pulses (rollover at cycle 1526). |
 | TLP transmit | Rollover hold ignores the LTSSM's return to L0 | `rollover_directed` | No replay within 400 cycles of a 300-cycle Recovery. |
 | Package | Rollover hold falls back after 512 cycles | `rollover_directed` | First TLP 513 cycles after the rollover, expected 1024. |
+| TLP transmit | A replay requested during a replay is lost | `replay_directed` | One replay after two Naks. |
+| Transmit | No withdrawal at a rollover | `rollover_edge` | A TLP started at the rollover edge, ahead of the replay. |
 | TLP transmit | A `sop` taken while the LCRC word is written | `lcrc_kat` | Stops on `a_tlp_words`. |
 | TLP transmit | A started TLP's stream cleared when the link goes down | `link_down_mid_tlp` | Stops on `a_beat_without_tlp`. |
-| Transmit | No withdrawal at a rollover (level 1) | `tlp_rollover` | 5 replays: the TLP taken at the rollover goes out ahead of the rollover replay, a Nak follows. |
-| TLP transmit | New TLPs before a running replay | `rbuf_full` | A new TLP taken before the replay sent the oldest unacknowledged one. |
+| TLP transmit | New TLPs before a running replay | `rbuf_full` | At cycle 1972 TLP 15 taken before the replay sent TLP 10. |
+| TLP transmit | A waiting `sop` still offered in the rollover cycle (hold from the register only) | `rollover_edge` | A TLP started at the rollover edge, ahead of the replay. |
 | Package | LCRC polynomial `04C11DB7`h to `04C11DB6`h | `rx_directed` | DL_Active not reached: the TLP that should end FC_INIT2 has a bad LCRC. |
 | Package | LCRC remainder not complemented | `rx_directed` | The same. |
 | TLP receive | The nullified check inverted (an inverted LCRC is bad, a plain one silent) | `rx_errors` | Bad TLP pulses 196, expected 188 (seed 0). |
@@ -296,7 +299,7 @@ every one but these is hit:
 
 Toggle holes are mostly the tied-off TLP receive ports, the upper data
 bits of the credit limits (no partner advertises them) and the
-testbench's pass-through ports. In the TLP transmit block 23 of 1816
+testbench's pass-through ports. In the TLP transmit block 23 of 1820
 toggle points are missed: `credit_ok_i` never falls (tied to 1 until
 #214); `hold_left` never falls, as only the next rollover or DL_Inactive
 clears it; bits that are constant by construction: bit 0 of the
