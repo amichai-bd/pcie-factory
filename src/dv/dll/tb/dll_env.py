@@ -160,6 +160,8 @@ class Env:
         self.tx_state = INACTIVE               # DUT state at the packet's sop
         self.tx_sop_wait = 0
         self.sent: list[tuple[int, str, int, bytes]] = []   # (sop cycle, kind, class, bytes)
+        self.offers: list[int] = []            # per sent DLLP: first cycle its sop was offered
+        self.tx_offer: int | None = None
         self.group_starts: list[int] = []      # sop cycles of each InitFC group's P
         self.upd_last: dict[int, int] = {}     # class -> sop cycle of its last UpdateFC
         self.upd_entry: set[int] = set()       # classes still owed their entry UpdateFC
@@ -241,6 +243,8 @@ class Env:
                 self.violations.append(f"cycle {n}: pkt_tx_valid_o dropped inside a packet")
             self.in_pkt = False                # cut by the link going down
             self.tx_beats = []
+        if not valid:
+            self.tx_offer = None
 
         # phy stand-in: transmit ready, the line towards the far end.
         if self.in_pkt:
@@ -257,6 +261,8 @@ class Env:
                             bool(d.pkt_tx_eop_o.value), bool(d.pkt_tx_dllp_o.value))
             if beat.sop and not self.in_pkt and not self.tx_beats:
                 self.tx_state = state
+                if self.tx_offer is None:
+                    self.tx_offer = n           # the arbiter took it at the edge before
             if beat.sop and not ready:
                 self.tx_sop_wait += 1
             if ready:
@@ -386,6 +392,8 @@ class Env:
                 self.violations.append(f"cycle {n}: sop inside a packet")
             self.tx_beats = []
             self.tx_sop_cycle = n
+            self.tx_sop_offer = self.tx_offer if self.tx_offer is not None else n
+            self.tx_offer = None
             COV_TX.sample(stall="sop_waited" if self.tx_sop_wait else "sop_at_once")
             self.tx_sop_wait = 0
         elif not self.in_pkt:
@@ -442,6 +450,7 @@ class Env:
             self.upd_last[cls] = sop
         COV_TX.sample(kind=kind, cls=CLASSES[cls])
         self.sent.append((sop, kind, cls, data))
+        self.offers.append(self.tx_sop_offer)
 
     # ------------------------------------------------------------ checks
 

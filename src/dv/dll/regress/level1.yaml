@@ -3,6 +3,7 @@ tests:
     module: tests.test_dll
     testcase: updatefc_refresh
     top: pcie_dll_tb
+    seeds: 2
     timeout_s: 120
   # The test seed picks the partner's credits (one of four, test seed mod
   # 4); four consecutive seeds give all four.

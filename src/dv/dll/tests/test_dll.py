@@ -29,6 +29,10 @@ INIT_TARGET_ERRORS = 4500
 # its group.
 SHADOW_BOUND = 200
 
+# An UpdateFC's start may lag its due cycle by the packets ahead of it on a
+# stalling stream (ready_p 0.5): at most two DLLPs and their stalls.
+STALL_SLACK = 64
+
 # Known answers (wiki/src/arch/dll/DLLP.md#crc-16 and the partner's own,
 # wiki/src/dv/dll/PARTNER.md#crcs): body and CRC-16 bytes 4, 5.
 KAT = (
@@ -285,10 +289,11 @@ async def fc_init_directed(dut):
 
 @cocotb.test()
 async def updatefc_refresh(dut):
-    """L1: in DL_Active every class gets an UpdateFC again 2048 cycles
-    after its last one, with no credits returned, infinite classes
-    included, round robin."""
-    env = Env(dut, cocotb.RANDOM_SEED)
+    """L1, seeded: in DL_Active every class gets an UpdateFC again 2048
+    cycles after its last one, with no credits returned, infinite classes
+    included, round robin. The phy stalls between packets, so a class can
+    fall due while another's UpdateFC is still waiting on the stream."""
+    env = Env(dut, cocotb.RANDOM_SEED, ready_p=0.5)
     await env.start()
     env.dut_link = True
     await wait_state(env, INIT1, 10)
@@ -299,11 +304,14 @@ async def updatefc_refresh(dut):
     await wait_state(env, ACTIVE, 300)
     await env.run(2 * 2048 + 200)
     for c, cls in enumerate(CLASSES):
-        starts = [s for s, k, cc, _ in env.sent if k == "update" and cc == c]
+        # Counted from the arbiter's take: the first cycle the sop is offered.
+        starts = [o for o, (_, k, cc, _) in zip(env.offers, env.sent)
+                  if k == "update" and cc == c]
         assert len(starts) == 3, f"{cls}: {len(starts)} UpdateFCs, expected 3 in 2 periods"
         gaps = [b - a for a, b in zip(starts, starts[1:])]
-        assert all(2048 <= g <= 2048 + 12 for g in gaps), (
-            f"{cls}: UpdateFC every {gaps} cycles, expected 2048 (+ the arbiter's turn)")
+        assert all(2048 <= g <= 2048 + STALL_SLACK for g in gaps), (
+            f"{cls}: UpdateFC every {gaps} cycles, expected 2048 plus the wait for the "
+            f"stream, at most {STALL_SLACK}")
     order = [cc for _, k, cc, _ in env.sent if k == "update"]
     assert order == [0, 1, 2] * 3, f"UpdateFC classes in order {order}"
     env.check_clean()

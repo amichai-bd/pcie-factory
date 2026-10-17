@@ -79,7 +79,7 @@ never into a model or the RTL silently.
 | [Credit parameter ranges](../../arch/dll/HAS.md#parameters) | `param_limits` | 0 | 1; 8 illegal and 3 legal lints, no simulation |
 | [CRC-16](../../arch/dll/DLLP.md#crc-16) known answers, transmit and receive; [receiving DLLPs](../../arch/dll/DLLP.md#receiving-dllps): bad CRC, flagged, wrong length, DL_Inactive | `crc16_kat` | 0 | 1; 5 known answers and every single-bit error of them, 150 random DLLPs and one-bit errors, gaps |
 | [Control states](../../arch/dll/HAS.md#data-link-control-states) and [initialisation](../../arch/dll/FLOW_CONTROL.md#initialisation) by hand: groups and 128-cycle resend, recording, ignored DLLPs, FC_INIT2 ends, entry UpdateFC, [credits available](../../arch/dll/HAS.md#credits-available), UpdateFC limits, link down from each state | `fc_init_directed` | 0 | 1 |
-| [UpdateFC refresh](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling), round robin | `updatefc_refresh` | 1 | 1; two 2048-cycle periods |
+| [UpdateFC refresh](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling), round robin, with ready stalls | `updatefc_refresh` | 1 | 2; two 2048-cycle periods |
 | Link-up against the partner, default DUT credits, [init target](../../arch/dll/HAS.md#targets) 200 cycles; cross-check | `link_up` | 1 | 0 to 3 (the four partner advertisements); 6 link-ups each |
 | The same, DUT completions finite | `link_up_cpl_finite` | 1 | 0, 2; `FC_CPLH` 16, `FC_CPLD` 64 |
 | The same, DUT all infinite | `link_up_infinite` | 1 | 1, 3; every `FC_*` 0 |
@@ -127,9 +127,14 @@ whatever the limit holds.
 
 ## Coverage holes
 
-No floors yet (the plan has gaps). The line points not hit, by cause:
+No floors yet (the plan has gaps). Merged over levels 0 to 2, every line
+point but these is hit:
 
 | Cause | Points |
 | --- | --- |
-| Tied off until a later issue | The Ack/Nak request branch of the arbiter and `rx_tlp_good` (#213); the TLP outputs (#212, #213). |
-| Unreachable until #214 | The round-robin picks of the second and third class: without credit returns, classes fall due only in turn. |
+| Tied off until a later issue | The Ack/Nak branch of the transmit arbiter (#213). |
+| Unreachable until #214 | The round-robin picks of the second and third class: without credit returns, classes fall due only in turn, so the pointer always names the due class. |
+
+Toggle holes are mostly the tied-off TLP ports, the upper data bits of the
+credit limits (no partner advertises them) and the testbench's
+pass-through ports.

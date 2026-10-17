@@ -7,7 +7,7 @@ tests:
   - name: param_limits
     module: tests.test_dll_params
     testcase: param_limits
-    top: pcie_dll
+    top: pcie_dll_tb
     timeout_s: 300
   - name: crc16_kat
     module: tests.test_dll
