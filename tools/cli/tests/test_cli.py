@@ -10,7 +10,7 @@ from cli.main import COMMANDS, main, make_parser
 
 def test_dispatch_table():
     assert set(COMMANDS) == {"sim", "regress", "clean", "labels", "wiki", "check", "fpga", "asic",
-                             "ci", "metrics", "arch", "specs"}
+                             "ci", "metrics", "arch", "specs", "pr"}
 
 
 def test_launcher_runs():
@@ -135,7 +135,7 @@ def test_wiki_requires_action():
 
 
 @pytest.mark.parametrize("argv", [
-    ["wiki", "build"], ["wiki", "serve"], ["labels", "sync"], ["labels", "check", "7"],
+    ["wiki", "build"], ["wiki", "serve"], ["labels", "sync"], ["labels", "check", "7"], ["pr", "check", "7"],
     ["ci", "summary"], ["metrics", "guard", "--branch", "b", "--base", "m"],
     ["check"], ["clean"],
 ])
