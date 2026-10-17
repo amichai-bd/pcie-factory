@@ -96,14 +96,14 @@ never into a model or the RTL silently.
 
 ## Mutation evidence
 
-Each mutant was applied to the RTL and run with levels 0 and 1; each is
-caught, and the unmutated RTL passes. The entry named is one that fails,
-at its first seed.
+Each mutant was applied to the RTL and levels 0 and 1 run one test at a
+time; each is caught, and the unmutated RTL passes. The entry named is the
+first that fails in that run, at its first seed.
 
 | Block | Mutant | First failing entry | Result |
 | --- | --- | --- | --- |
 | Package | CRC-16 polynomial `100B`h to `100A`h | `crc16_kat` | InitFC1-P sent as `40020020288c`, the DLLP page's `40020020f534`. |
-| Package | CRC-16 bytes 4 and 5 swapped | `fc_init_directed` | FC_INIT2 never reached: every received DLLP is bad. |
+| Package | CRC-16 bytes 4 and 5 swapped | `crc16_kat` | InitFC1-P sent as `4002002034f5`. |
 | DLLP receive | Length check removed | `crc16_kat` | 394 Bad DLLP pulses for 396 bad DLLPs: the long DLLPs ending in a good CRC pass. |
 | DLLP receive | `pkt_rx_err_i` ignored | `crc16_kat` | 395 pulses for 396. |
 | Package | VC of an FC DLLP not checked | `fc_init_directed` | P credits (5, 5) from a VC 1 InitFC1, expected (12, infinite). |
@@ -117,8 +117,9 @@ at its first seed.
 | Flow control | An UpdateFC does not move a finite data limit | `fc_init_directed` | NP data credits 40, expected 41. |
 | Flow control | The refresh never falls due | `updatefc_refresh` | One UpdateFC per class in two periods. |
 | Flow control | An infinite field shown as 0 | `fc_init_directed` | NP header credits 0, expected all ones. |
-| Top | `dl_up_o` only in DL_Active | `fc_init_directed` | `dl_up_o` 0 in FC_INIT2. |
-| Transmit | Beats advance without ready | `fc_init_directed` | An entry UpdateFC lost (NP missing). |
+| Top | `dl_up_o` only in DL_Active | `crc16_kat` | `dl_up_o` 0 in FC_INIT2. |
+| Transmit | Beats advance without ready | `crc16_kat` | A beat outside a packet at the phy stand-in. |
+| Transmit | A started DLLP cut when the link goes down | `link_down_mid_dllp` | Stops on `a_eop_follows_sop`: valid falls inside the open packet. |
 
 An UpdateFC that writes an infinite field's stored limit is not a mutant
 that can be caught: an infinite field shows all ones from its flag,
