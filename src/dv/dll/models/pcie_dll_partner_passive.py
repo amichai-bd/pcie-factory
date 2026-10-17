@@ -250,7 +250,7 @@ class PassiveChecker:
         ackd = SEQ_MOD - 1
         next_new = 0
         replay = None                   # [last seq on the line, newest sent at start]
-        last_end = None                 # end of the previous TLP on the line
+        last_start = None               # start of the previous TLP on the line
         for t, _, kind, p in events:
             if kind == "dllp":
                 typ = p.data[0]
@@ -290,7 +290,7 @@ class PassiveChecker:
                 if not self._cut_ok(d, p):
                     self._violate("sequence", d, t, f"TLP {s} cut short on the line while "
                                   "the sender was in L0 (no retrain or link-down near it)")
-            prev_end, last_end = last_end, p.end
+            prev_start, last_start = last_start, p.start
             if s == next_new:
                 if replay is not None and not self._replay_done(replay, ackd):
                     self._violate("sequence", d, t, f"new TLP {s} before the replay from "
@@ -317,7 +317,7 @@ class PassiveChecker:
                 continue
             # A replay starts here.
             if replay is not None and not self._replay_done(replay, ackd):
-                if self._withdrawn(d, replay, ackd, t, prev_end):
+                if self._withdrawn(d, replay, ackd, t, prev_start):
                     self._count(f"withdrawn_{d}")
                 else:
                     self._violate("sequence", d, t, f"replay restarts at {s} before the one "
@@ -341,18 +341,22 @@ class PassiveChecker:
     def _sender(self, d: str) -> str:
         return self.names[DIRECTIONS.index(d)]
 
-    def _withdrawn(self, d: str, replay: list[int], ackd: int, t: float, prev_end) -> bool:
+    def _withdrawn(self, d: str, replay: list[int], ackd: int, t: float, prev_start) -> bool:
         """The REPLAY_NUM rollover withdrawal (dll RETRY page, REPLAY_NUM):
         the TLP offered but not started when the rollover happens is not
         sent, and the rollover replay, after the retrain, resends it. So a
         replay may stop short by its newest TLP only, and only when the
-        sender's rollover pulse or link-down falls between it and the next
-        TLP (dll RETRY page, REPLAY_NUM; dll MAS decisions)."""
+        sender's rollover pulse or link-down falls between the start of the
+        short replay's last TLP (``cut_slack`` earlier, the phy transmit
+        latency) and the next TLP: the rollover withdraws the TLP offered
+        while that last one is still going out (dll RETRY page,
+        REPLAY_NUM; dll MAS decisions)."""
         last, end = replay
         missing = [q for q in self._between(last, (end + 1) % SEQ_MOD) if _ahead(q, ackd)]
         name = self._sender(d)
-        return (missing == [end] and prev_end is not None
-                and any(prev_end <= x <= t for x in self.rollovers[name] + self.downs[name]))
+        lo = None if prev_start is None else prev_start - self.cut_slack * self.cycle
+        return (missing == [end] and lo is not None
+                and any(lo <= x <= t for x in self.rollovers[name] + self.downs[name]))
 
     def _cut_ok(self, d: str, p: ViewPacket) -> bool:
         """A sent TLP cut short: allowed only at the sender's exit from L0

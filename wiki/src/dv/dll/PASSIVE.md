@@ -48,8 +48,10 @@ stricter, and each is tied to a trigger the testbench reports:
   out of L0 (the testbench closes it at the return to L0 or at the
   link-down).
   - *Rollover withdrawal:* a replay may stop short by its newest TLP only
-    when the sender's rollover pulse or link-down falls between it and the
-    next replay: there the `dll` withdraws a TLP offered but not started,
+    when the sender's rollover pulse or link-down falls between the start
+    of its last TLP (`cut_slack` earlier) and the next replay: the
+    rollover comes while that TLP is still going out, and withdraws the
+    TLP offered behind it, not started,
     and the replay after the retrain resends it
     ([REPLAY_NUM](../../arch/dll/RETRY.md#replay_num)); at a plain
     Recovery the offered TLP just waits. `stats["withdrawn_<d>"]`. Without

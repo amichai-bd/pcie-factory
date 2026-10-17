@@ -344,7 +344,7 @@ def test_rollover_withdrawal_allowed_only_at_a_rollover(trigger):
             chk.sent("ab", tlp(s, start=t))
             t += 20
         if trigger == "rollover":
-            chk.rollover("a", t + 10)
+            chk.rollover("a", t - 15)               # while the replay's last TLP is going out
             chk.retrain("a", t + 50, t + 300)
         elif trigger == "recovery":
             chk.retrain("a", t + 50, t + 300)
@@ -370,6 +370,9 @@ def test_rollover_withdrawal_allowed_only_at_a_rollover(trigger):
         assert chk._withdrawn("ab", [1, 2], 4095, 400.0, 300.0) is False
         chk.link_down("a", 350.0)
         assert chk._withdrawn("ab", [1, 2], 4095, 400.0, 300.0) is True
+        chk2 = PassiveChecker()
+        chk2.rollover("a", 250.0)                   # before the last TLP started: no
+        assert chk2._withdrawn("ab", [1, 2], 4095, 400.0, 300.0) is False
 
 def test_line_unsure_ack_widens_the_replay_start():
     """An Ack delivered inside a line-impairment range may have been lost
