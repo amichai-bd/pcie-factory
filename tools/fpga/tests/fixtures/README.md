@@ -11,7 +11,7 @@ the parser together.
 | File | Mimics |
 | --- | --- |
 | `output_files/widget_board.fit.summary` | Fitter summary |
-| `output_files/widget_board.fit.rpt` | Fitter report: resource usage panel, a trimmed per-entity table (its `M9Ks` column must not be read as the block count) and a Fitter RAM Summary with one simple dual-port RAM (its columns follow the Quartus 25.1std Cyclone IV E panel; not yet checked against a CI report with a RAM) |
+| `output_files/widget_board.fit.rpt` | Fitter report: resource usage panel, a trimmed per-entity table (its `M9Ks` column must not be read as the block count) and a Fitter RAM Summary with one simple dual-port RAM (its columns follow the Quartus 25.1std Cyclone IV E panel; the first CI fit with RAMs, `link` on PR #276, filled every field) |
 | `output_files/widget_board.sta.rpt` | Timing analyzer report: Fmax (slow models only, as Quartus prints), setup and hold summaries for three corners, recovery and removal summaries (one empty), the unconstrained paths summary, plus unrelated panels including one with blank rows |
 | `worst_path.txt` | Output of the generated `worst_path.tcl` |
 | `map_fail.log` | A failed `quartus_map` log: one `Critical Warning (…)` and three `Error (…)` messages more than 30 lines before the end, then the closing `Error:` summary block |
