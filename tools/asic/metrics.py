@@ -83,11 +83,32 @@ _PORT_LINE = re.compile(r"\s(?P<port>\S+) \((?:in|out)\)\s*$")
 def parse_worst_path(text: str) -> dict | None:
     """The worst setup path from an OpenSTA ``report_checks -path_delay max``
     section: start and end point, slack and the number of cells on the data
-    path (instances strictly between start and end). None if absent."""
+    path (instances strictly between start and end). The section may hold
+    one path per path group (an asynchronous group first, say); the one
+    with the least slack wins, the first on a tie. None if absent."""
     start = text.find("report_checks -path_delay max")
     if start < 0:
         return None
     section = text[start:].splitlines()
+    # The section ends at the next report banner.
+    for i, line in enumerate(section[1:], 1):
+        if line.startswith("=" * 10):
+            section = section[:i]
+            break
+    starts = [i for i, line in enumerate(section) if re.match(r"\s*Startpoint:", line)]
+    best = None
+    for k, i in enumerate(starts):
+        path = _parse_path(section[i:starts[k + 1] if k + 1 < len(starts) else len(section)])
+        if path is None:
+            continue
+        if best is None or (path.get("slack_ns") is not None and (
+                best.get("slack_ns") is None or path["slack_ns"] < best["slack_ns"])):
+            best = path
+    return best
+
+
+def _parse_path(section: list[str]) -> dict | None:
+    """One path of a ``report_checks`` section (from its Startpoint line)."""
     path: dict = {}
     pending = None  # "from_kind"/"to_kind" when the "(...)" wraps to the next line
     for line in section:
@@ -220,6 +241,12 @@ def clock_slacks(doc: dict) -> dict | None:
         ws, tns = _num(v.get("setup_ws")), _num(v.get("setup_tns"))
         out[name] = {"setup_ws_ns": ws, "wns_ns": None if ws is None else min(ws, 0.0),
                      "tns_ns": tns}
+        paths = [{"slack_ns": _num(p.get("slack")), "from": _unescape(p.get("from")),
+                  "to": _unescape(p.get("to"))}
+                 for p in v.get("worst_paths") or [] if isinstance(p, dict)
+                 and isinstance(p.get("from"), str) and isinstance(p.get("to"), str)]
+        if paths:
+            out[name]["worst_paths"] = paths
     return out or None
 
 
