@@ -3,11 +3,11 @@
 // wiki/src/rtl/dll/MAS.md.
 //
 // The top: the DLLP path (receive, transmit arbiter), the data link
-// control states and the flow-control initialisation and UpdateFC, and the
-// TLP receive path with its receive buffer and Ack/Nak scheduling. The
-// outputs that the other TLP paths drive (#212 transmit, #214 credit
-// accounting) and the error bits they own are tied to their reset values
-// here (MAS, slots for the TLP paths).
+// control states, the flow-control initialisation and UpdateFC, the TLP
+// transmit path (sequence numbers, LCRC, replay) and the TLP receive path
+// with its receive buffer and Ack/Nak scheduling. The outputs that credit
+// accounting (#214) drives and the error bit it owns are tied to their
+// reset values here (MAS, slots for the TLP paths).
 `default_nettype none
 
 `include "common_macros.svh"
@@ -129,6 +129,14 @@ module pcie_dll #(
   logic                    acknak_take;
   logic                    initfc_take;
   logic                    updfc_take;
+  pcie_dll_pkg::t_tlp_beat tlp_tx;
+  pcie_dll_pkg::t_tlp_src  tlp_src;
+  logic                    tx_credit_ok;
+  logic                    tlp_take;
+  logic                    tlp_beat;
+  logic                    tlp_abort;
+  logic                    tlp_hold;
+  logic [2:0]              tlp_tx_err;
   // TLP receive path (#213)
   pcie_dll_pkg::t_rx_word   rx_wr_word;
   pcie_dll_pkg::t_rx_word   rx_word;
@@ -150,6 +158,11 @@ module pcie_dll #(
 
   // The receive overflow check is #214's: until it lands every TLP fits.
   assign rx_fit = 1'b1;
+
+  // The credit gate (#214): open until credit accounting exists.
+  assign tx_credit_ok = 1'b1;
+
+  assign tlp_tx = '{data: tlp_tx_data_i, sop: tlp_tx_sop_i, eop: tlp_tx_eop_i};
 
   pcie_dll_dllp_rx u_dllp_rx (
     .clk_i      (clk_i),
@@ -236,13 +249,38 @@ module pcie_dll #(
     .acknak_req_i   (acknak_req),
     .initfc_req_i   (initfc_req),
     .updfc_req_i    (updfc_req),
+    .tlp_src_i      (tlp_src),
+    .tlp_hold_i     (tlp_hold),
     .acknak_take_o  (acknak_take),
     .initfc_take_o  (initfc_take),
     .updfc_take_o   (updfc_take),
+    .tlp_take_o     (tlp_take),
+    .tlp_beat_o     (tlp_beat),
+    .tlp_abort_o    (tlp_abort),
     .busy_o         (tx_busy),
     .pkt_tx_valid_o (pkt_tx_valid_o),
     .pkt_tx_ready_i (pkt_tx_ready_i),
     .pkt_tx_o       (pkt_tx)
+  );
+
+  pcie_dll_tlp_tx u_tlp_tx (
+    .clk_i         (clk_i),
+    .rst_i         (rst_i),
+    .flush_i       (flush),
+    .state_i       (dl_state),
+    .ltssm_state_i (ltssm_state_i),
+    .tlp_valid_i   (tlp_tx_valid_i),
+    .tlp_i         (tlp_tx),
+    .tlp_ready_o   (tlp_tx_ready_o),
+    .credit_ok_i   (tx_credit_ok),
+    .rx_dllp_i     (rx_dllp),
+    .src_o         (tlp_src),
+    .take_i        (tlp_take),
+    .beat_i        (tlp_beat),
+    .abort_i       (tlp_abort),
+    .hold_o        (tlp_hold),
+    .err_o         (tlp_tx_err),
+    .retrain_req_o (retrain_req_o)
   );
 
   // ------------------------------------------------------------ outputs
@@ -262,21 +300,15 @@ module pcie_dll #(
   assign fc_cplh_avail_o = avail.cpl.hdr;
   assign fc_cpld_avail_o = avail.cpl.data;
 
-  // err_o: bit 0 Bad TLP, 1 Bad DLLP, 6 Malformed TLP; bits 2 to 4 belong
-  // to the TLP transmit path (#212), bit 5 to the receive credit check (#214).
-  assign err_o = {malformed_tlp, 1'b0, 3'd0, bad_dllp, bad_tlp};
+  // err_o: bit 0 Bad TLP, 1 Bad DLLP, 2 to 4 the TLP transmit path's (replay
+  // timeout, REPLAY_NUM rollover, DL protocol error), 6 Malformed TLP; bit 5
+  // belongs to the receive credit check (#214).
+  assign err_o = {malformed_tlp, 1'b0, tlp_tx_err, bad_dllp, bad_tlp};
 
   assign tlp_rx_data_o = rx_word.data;
   assign tlp_rx_sop_o  = tlp_rx_valid_o && rx_word.sop;
   assign tlp_rx_eop_o  = tlp_rx_valid_o && rx_word.eop;
 
-  // Owned by the TLP transmit path (#212).
-  assign tlp_tx_ready_o = 1'b0;
-  assign retrain_req_o  = 1'b0;
-
-  // Inputs the TLP transmit path (#212) consumes.
-  `COMMON_UNUSED_BITS(unused_inputs, {tlp_tx_valid_i, tlp_tx_data_i, tlp_tx_sop_i,
-                                      tlp_tx_eop_i, ltssm_state_i})
   // Receive accounting events, for the credit accounting (#214).
   `COMMON_UNUSED_BITS(unused_rx_credit, {rx_chk, rx_stored, rx_malformed, rx_taken})
 

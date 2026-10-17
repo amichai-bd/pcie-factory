@@ -507,3 +507,24 @@ def test_malformed_four_byte_non_posted_tlp_returns_its_credits():
     assert b.ca[m.NP] == [ca[m.NP][0] + 1, ca[m.NP][1] + 1]
     assert b.cr[m.NP] == [cr[m.NP][0] + 1, cr[m.NP][1] + 1]
     assert b.ca[m.P] == ca[m.P] and b.cr[m.P] == cr[m.P]
+
+
+def test_tlp_acknowledged_while_replayed_keeps_its_space_until_sent():
+    p, a, b = up_pair(errors={"drop_tlp_window": (0, 10**9)})
+    tlps = [m.make_tlp("mwr", 128, i) for i in range(3)]
+    for t in tlps:
+        while not a.offer(t, p.now):
+            p.step()
+    while a.send_idx < 3:
+        p.step()
+    while a.tx_busy:
+        p.step()
+    a.receive(m.Packet(True, m.ack_dllp(m.NAK, 4095)), p.now)   # replay all three
+    while a._tx_seq() != 0:
+        p.step()
+    full = a.rbuf_bytes()
+    a.receive(m.Packet(True, m.ack_dllp(m.ACK, 1)), p.now)     # 0 (on the stream) and 1 go
+    assert len(a.rbuf) == 1 and a.rbuf_bytes() == full         # still reserved
+    while a._tx_seq() == 0:
+        p.step()
+    assert a.rbuf_bytes() == len(m.tlp_frame(2, tlps[2]))      # released at its last beat

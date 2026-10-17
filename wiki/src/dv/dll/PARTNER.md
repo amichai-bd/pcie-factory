@@ -170,7 +170,7 @@ run with `python3 -m pytest src/dv/dll/models`, and in `ci-gate` through
 | --- | --- |
 | Formats | DLLP fields placed bit by bit from the field tables; TLP classes and credits. |
 | Wrap | Sequence numbers preloaded near 4095 crossing to 0 with expected TLPs, Ack, a duplicate, a Nak and a replay, and a range error behind ACKD_SEQ (`test_sequence_wrap`). A loopback of 520 maximum-payload MWr wraps the 8-bit header and 12-bit data counters on both sides (`test_credit_counters_wrap_loopback`). |
-| One partner, hand-driven | Initialisation and InitFC resend; entry UpdateFC, infinite classes included; receive rules: expected, ahead, NAK_SCHEDULED, duplicate, nullified, flagged, too short, LCRC, malformed lengths and payloads; Ack timing (32 cycles); DLLP checks; UpdateFC checks; Ack, Nak and replay; replay timeout at 356 cycles; rollover hold through a retrain and its 1024-cycle fallback; replay timer held outside L0; overflow; the credit gate; a received TLP prefix; the flag and nullify hooks; link-down reset. |
+| One partner, hand-driven | Initialisation and InitFC resend; entry UpdateFC, infinite classes included; receive rules: expected, ahead, NAK_SCHEDULED, duplicate, nullified, flagged, too short, LCRC, malformed lengths and payloads; Ack timing (32 cycles); DLLP checks; UpdateFC checks; Ack, Nak and replay, a TLP going out at a Nak included; replay timeout at 356 cycles; rollover hold through a retrain and its 1024-cycle fallback; replay timer held outside L0; overflow; the credit gate; a received TLP prefix; the flag and nullify hooks; link-down reset. |
 | Two partners back to back | Initialisation at three skews. Clean bidirectional traffic. Lossless, exactly once and in order, with every injection hook on, three seeds, finite and default credits, upper-layer stalls with finite credits. Delayed Acks and forced Naks. Withheld credits. Rollover and recovery. A sender that ignores credits is caught. Same seed, same run. |
 | Independence | No imports or paths outside the partner and the standard library. |
 
@@ -180,9 +180,14 @@ The `dll` testbench runs the partner, the architecture model and the RTL
 against each other for the features the RTL has (DLLPs, InitFC, the
 control states), as the [DV plan](DV_PLAN.md#cross-check-rtl-architecture-model-partner)
 describes ([#211](https://github.com/amichai-bd/pcie-factory/issues/211)).
-No disagreement was found there. The TLP receive path and Ack/Nak
-scheduling are cross-checked in the `rx_*` entries (#213); the replay and
-credit features are cross-checked as #212 and #214 add them. Any disagreement goes to the
+The TLP receive path and Ack/Nak scheduling are cross-checked in the
+`rx_*` entries ([#213](https://github.com/amichai-bd/pcie-factory/issues/213)).
+Since [#212](https://github.com/amichai-bd/pcie-factory/issues/212) the
+partner is also the far end of the TLP transmit tests, with its fault
+hooks, and receives the architecture model's TLPs in the rollover
+scenario. A reading difference found there, when a running replay ends,
+is a [HAS open item](../../arch/dll/HAS.md#open-items); the credit
+features are cross-checked as #214 adds them. Any disagreement goes to the
 HAS Open items, not into either model silently.
 
 ## Possible disagreements
@@ -211,8 +216,11 @@ drops its packet on link-down. It is a [HAS open item](../../arch/dll/HAS.md#ope
 the partner is unchanged. An eighth was found by the `dll` receive tests
 ([#213](https://github.com/amichai-bd/pcie-factory/issues/213)): the
 partner leaves a TLP still on the line when a Nak or timeout arrives out
-of the replay, where the architecture model resends it; also a
-[HAS open item](../../arch/dll/HAS.md#open-items), for #212.
+of the replay, where the architecture model resends it. Resolved in
+[#212](https://github.com/amichai-bd/pcie-factory/issues/212) as a
+[HAS decision](../../arch/dll/HAS.md#decisions): a TLP handed to the line
+is sent, so the replay resends it; the partner is corrected to do so
+(`test_nak_during_a_tlp_replays_it_too`).
 
 Found independently and already resolved in #259 (by `feb7ccb`):
 

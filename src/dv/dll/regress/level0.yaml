@@ -24,8 +24,43 @@ tests:
     testcase: link_down_mid_dllp
     top: pcie_dll_tb
     timeout_s: 120
+  - name: lcrc_kat
+    module: tests.test_dll_tlp_tx
+    testcase: lcrc_kat
+    top: pcie_dll_tb
+    timeout_s: 120
+  - name: replay_directed
+    module: tests.test_dll_tlp_tx
+    testcase: replay_directed
+    top: pcie_dll_tb
+    timeout_s: 120
+  - name: rollover_directed
+    module: tests.test_dll_tlp_tx
+    testcase: rollover_directed
+    top: pcie_dll_tb
+    timeout_s: 120
+  - name: rbuf_full
+    module: tests.test_dll_tlp_tx
+    testcase: rbuf_full
+    top: pcie_dll_tb
+    timeout_s: 120
+  - name: link_down_mid_tlp
+    module: tests.test_dll_tlp_tx
+    testcase: link_down_mid_tlp
+    top: pcie_dll_tb
+    timeout_s: 120
   - name: rx_directed
     module: tests.test_dll_rx
     testcase: rx_directed
+    top: pcie_dll_tb
+    timeout_s: 120
+  - name: rollover_edge
+    module: tests.test_dll_tlp_tx
+    testcase: rollover_edge
+    top: pcie_dll_tb
+    timeout_s: 120
+  - name: timer_edge
+    module: tests.test_dll_tlp_tx
+    testcase: timer_edge
     top: pcie_dll_tb
     timeout_s: 120
