@@ -43,6 +43,14 @@ Classes (HAS error injection), on the next matching packet:
                 TLP, gets an LCRC error
 ========== ==========================================================
 
+Line tally (the throughput measurement, HAS throughput): with
+``line_runs`` set to a list, every sent symbol outside a packet is
+recorded there in runs ``[first t, last t, class, symbols]``, class one of
+``skp`` (COM and SKP of an ordered set), ``idle`` (a data symbol: logical
+idle), ``other_k`` (any other K symbol) or ``ei`` (an electrical-idle
+word, 2 symbols). A packet symbol ends the run, so runs never span a
+packet; with the sent view, every symbol on the line is accounted for.
+
 Level switches: ``drop_acks`` drops every Ack (the duplicate class),
 ``drop_tlps`` every TLP (the REPLAY_NUM rollover class). ``rates`` gives a
 per-packet probability for the first five classes.
@@ -171,6 +179,8 @@ class Injector:
         self.sent_parser = _Parser(self.on_sent)
         self.out_parser = _Parser(self._delivered)
         self.steps = 0
+        self.line_runs: list | None = None   # the line tally, off unless a list
+        self._run = None
 
     # -- control ----------------------------------------------------------
 
@@ -194,6 +204,7 @@ class Injector:
         if ei:
             self.rd_in = None
             self.sent_parser.idle(t)
+            self._tally(t, "ei", 2)
             self.pkt = None
             self.buf.append((True, None, t))
         else:
@@ -221,9 +232,26 @@ class Injector:
         else:
             key = self.scr.feed(0, 0, True)
         s = _Sym(code, k, byte, key, rd_before, rd_after, t)
+        if self.line_runs is not None:
+            if self.sent_parser.cur is not None or (k and byte in (K_STP, K_SDP)):
+                self._run = None         # a packet symbol: the sent view counts it
+            else:
+                self._tally(t, ("skp" if byte in (K_COM, K_SKP) else "other_k") if k
+                            else "idle", 1)
         self.sent_parser.symbol(t, k, s.plain())
         self._track(s)
         return s
+
+    def _tally(self, t, cls: str, n: int) -> None:
+        if self.line_runs is None:
+            return
+        r = self._run
+        if r is not None and r[2] == cls:
+            r[1] = t
+            r[3] += n
+        else:
+            self._run = [t, t, cls, n]
+            self.line_runs.append(self._run)
 
     # -- packet decisions -----------------------------------------------------
 

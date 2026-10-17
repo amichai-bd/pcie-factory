@@ -74,3 +74,18 @@ tests:
     top: pcie_link_e2e_tb
     seeds: 4
     timeout_s: 900
+# The HAS throughput measurement (2000 TLPs per direction, 0 ppm), swept
+# over seeds: each seed draws the start against the SKP schedule and, both
+# ways, b's start against a's, so the items line up differently.
+  - name: e2e_throughput_oneway
+    module: tests.test_link_e2e
+    testcase: e2e_throughput_oneway
+    top: pcie_link_e2e_tb
+    seeds: 3
+    timeout_s: 1800
+  - name: e2e_throughput_bidir
+    module: tests.test_link_e2e
+    testcase: e2e_throughput_bidir
+    top: pcie_link_e2e_tb
+    seeds: 3
+    timeout_s: 1800
