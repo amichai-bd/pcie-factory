@@ -1542,14 +1542,20 @@ class Env:
         overflow, Nak and duplicate events, and delivers the same TLPs. At a
         link-down the TLPs stored and not yet delivered are abandoned, and
         which of them each side finished first is a matter of its delivery
-        latency: within a link-up epoch ended by a link-down the shorter
-        delivery list must be a prefix of the longer, at most one TLP
-        apart, and the final epoch must match exactly. Returns those
-        link-down differences, diagnosed. A verdict that differs on the same
-        free credits would be a rule difference (HAS open items)."""
+        latency: within a link-up epoch ended by a link-down the two
+        delivery lists are equal, or the longer is the shorter plus exactly
+        one TLP; the final epoch must match exactly. Returns those
+        link-down differences, diagnosed. Both sides' free credits for the
+        TLP's class must be equal before every TLP, so a counter that drifts
+        fails at the first TLP it affects, before any verdict differs; a
+        verdict that differs on the same free credits would be a rule
+        difference (HAS open items)."""
         sh, ref = self.shadow, self.ref
         rv, sv = self.ref_verdicts, self.sh_verdicts
         assert len(rv) == len(sv), f"{len(rv)} TLPs judged by the reference, {len(sv)} by the shadow"
+        i = next((k for k, (a, b) in enumerate(zip(rv, sv)) if a[2:] != b[2:]), None)
+        assert i is None, (f"TLP {i}: free credits before it differ: reference (DUT counters) "
+                           f"{rv[i]}, shadow (arch) {sv[i]} (cycle, verdict, credits, free)")
         i = next((k for k, (a, b) in enumerate(zip(rv, sv)) if a[1] != b[1]), None)
         assert i is None, (f"TLP {i}: reference (DUT counters) {rv[i]}, shadow (arch) {sv[i]}; "
                            f"verdict, credits and free credits before it")

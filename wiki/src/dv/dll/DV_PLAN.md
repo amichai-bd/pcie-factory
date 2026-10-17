@@ -167,7 +167,7 @@ for credit accounting:
 | RTL and architecture model | DLLP bytes and CRC-16 (every DLLP sent); the sequence of control states visited by the DUT and the shadow, each change within 200 cycles of the other; credits available equal to the shadow's. The LCRC of every TLP sent. Replay-buffer room: a TLP the DUT takes is taken by the shadow within 200 cycles, and a `sop` the DUT refuses is refused by the shadow (outside the cycles where the two act on an Ack at different edges, the LCRC-write cycle, or an acknowledged TLP still on the DUT's stream). The counts of replay timeouts, rollovers, DL protocol errors and replays equal the shadow's in `lcrc_kat`, `replay_directed`, `rollover_directed`, `rbuf_full`, `tlp_partner` and `tlp_rollover`. In `tlp_partner_errors` and `tlp_bidir` they are logged, not compared: the shadow transmits at its own pace (no `phy` stall or upper-stream gap, its own Acks), so with errors a Nak can land inside a replay of one model and after the replay of the other, and with both directions loaded its TLPs lag the DUT's, so an Ack can name a TLP it has not sent yet. |
 | Architecture model and partner | A run of the model against a fresh partner with the same skew and credits (`ArchEnd` puts the model on the partner's beat stream): both reach DL_Active, each records the other's advertisement, no partner violation, and the time to DL_Active within 200 cycles of the RTL's. CRC-16 of every received DLLP and of the known answers computed by both. In `tlp_rollover`, the model sends the same TLPs to a fresh partner with the same loss window and Recovery (`arch_partner_send`): 4 timeouts, 1 rollover, 1 retrain, no Bad TLP, every TLP delivered once and in order, as the RTL. |
 | RTL, reference and partner (receive) | The partner sends TLPs with its fault hooks; the DUT delivers exactly the partner's TLPs, once and in order; the partner sees no violation (every Ack and Nak in range) and its replay buffer drains (every TLP acknowledged); the RTL's pulses and Naks equal the reference's. |
-| RTL and architecture model (receive) | The shadow, given the same packets, judges every received TLP as the reference does on the DUT's counters (stored, overflow, malformed, bad, duplicate, discarded), overflows included, and counts the same Bad TLP, Malformed TLP, Receiver overflow, Nak and duplicate events (`check_shadow_rx`). It delivers the same TLPs, except that at a link-down the TLP being delivered may be finished by one side and abandoned by the other (their delivery latencies differ): within an epoch ended by a link-down one delivery list must be a prefix of the other, at most one TLP apart; the last epoch must match exactly. A verdict that differed on the same free credits would be a rule difference and go to the HAS open items. |
+| RTL and architecture model (receive) | The shadow, given the same packets, judges every received TLP as the reference does on the DUT's counters (stored, overflow, malformed, bad, duplicate, discarded), overflows included, and counts the same Bad TLP, Malformed TLP, Receiver overflow, Nak and duplicate events (`check_shadow_rx`). It delivers the same TLPs, except that at a link-down the TLP being delivered may be finished by one side and abandoned by the other (their delivery latencies differ): within an epoch ended by a link-down the two delivery lists are equal, or the longer is the shorter plus exactly one TLP; the last epoch must match exactly. Both sides' free credits for the TLP's class are equal before every TLP, so a drifting counter fails at the first TLP it affects. A verdict that differed on the same free credits would be a rule difference and go to the HAS open items. |
 | RTL and architecture model, transmit credits | Every cycle: the gate and the credits available ([checks](#strategy)). |
 | RTL and partner, credits | `credit_starve`, `credits_infinite`: the partner receives the TLPs the DUT accepted, on its real transmit stream, and judges each against its advertisement, no overflow violation, every TLP once and in order. `credit_starve_rx`, `credits_infinite_rx`: the partner sends as the DUT's UpdateFCs allow while the DUT's upper layer starves it; no Receiver overflow, every TLP delivered once and in order. |
 | Architecture model and partner, credits | The same TLPs, credits and upper-layer schedule from the model to a fresh partner (`arch_to_partner_traffic`): every TLP once and in order, no violation. |
@@ -216,6 +216,7 @@ into a model or the RTL silently.
 | The same with the partner's TLPs dropped 2%, corrupted 3%, nullified 2%, flagged 2%, its DLLPs corrupted 3%, and 15% of the DUT's Acks and Naks lost (replays, duplicates): no bad TLP delivered | `rx_errors` | 1 | 0 to 2 |
 | The same, DUT all infinite | `rx_errors_infinite` | 1 | 0; every `FC_*` 0 |
 | The same, wide sweep | `rx_errors_sweep` | 2 | 8 derived |
+| The same injection with 300 TLPs beyond the advertisement, the partner sending as the UpdateFCs allow, DUT at the smallest legal credits: bad and duplicate TLPs discarded in the smallest receive buffer (its rewind) | `rx_errors_smallest` | 2 | 2 derived; every `FC_*` at its smallest |
 | [Receive buffer](../../arch/dll/FLOW_CONTROL.md#receive-buffer) sizing: every class finite, the upper layer stalls while the partner sends TLPs that use every advertised credit, then takes 30% of beats | `rx_stall` | 1 | 0, 1; `FC_CPLH` 16, `FC_CPLD` 64 |
 | The same at the smallest legal credits | `rx_stall_smallest` | 2 | 4 derived |
 | NEXT_RCV_SEQ wrapping past 4095: 4200 short TLPs with light errors (Naks and duplicates around the wrap) | `rx_seq_wrap` | 2 | 1 derived |
@@ -357,29 +358,53 @@ that is too small is caught (the last row above).
 
 | Feature | Owning issue |
 | --- | --- |
-| Ack and Nak waiting behind a TLP on the transmit stream (the 118-cycle bound with both directions loaded) | Checked at each `dll`-to-`phy` boundary in the [`link` e2e](../link/DV_PLAN.md#strategy) ([#215](https://github.com/amichai-bd/pcie-factory/issues/215)); here [#212](https://github.com/amichai-bd/pcie-factory/issues/212) |
 | [Targets](../../arch/dll/HAS.md#targets) end to end: line use, through the `link` stack | [#216](https://github.com/amichai-bd/pcie-factory/issues/216); Lossless with errors both ways, Rollover and Credits run in the [`link` e2e](../link/DV_PLAN.md) ([#215](https://github.com/amichai-bd/pcie-factory/issues/215)) |
+
+The remaining gap is a stack-level measurement in the `link` bench that
+adds no `dll` logic or stimulus here, so the floors below apply. An Ack or
+Nak waiting behind a TLP (the 118-cycle bound with both directions loaded)
+runs here in `tlp_bidir` and at each `dll`-to-`phy` boundary of the
+[`link` e2e](../link/DV_PLAN.md#strategy).
 
 ## Coverage holes
 
-No floors yet (the plan has gaps). Merged over levels 0 to 2 (the run
-recorded in [#270](https://github.com/amichai-bd/pcie-factory/pull/270)):
-line 98.7% (471 of 477 line and branch points), toggle 80.2%, functional
-100% (208 of 208 bins). The 6 points not hit:
+Floors in [`level2.yaml`](../../../../src/dv/dll/regress/level2.yaml),
+checked by every `--coverage` run that selects level 2 (the nightly runs
+levels 0 to 2): line 98.4, toggle 80.0, functional 100. Merged over levels
+0 to 2 ([#217](https://github.com/amichai-bd/pcie-factory/issues/217)):
+line 98.95% (472 of 477 line and branch points), toggle 80.53% (13566 of
+16846), functional 100% (208 of 208 bins in the 17 covergroups the level file
+names). The
+line and toggle floors are the merged values less 0.5 points, rounded
+down to a tenth ([floor margin](../../../bkm/dv.md#coverage)).
+
+Verilator counts each parameter set of a block apart
+([regress SPEC](../../../tools/regress/SPEC.md#coverage)): `pcie_dll` and
+`pcie_dll_rx_buf` are built with the credit sets of the entries (default,
+completions finite, all infinite, every class finite, smallest), so a
+point is missed once per set that does not reach it. The 5 line points
+not hit:
 
 | Points | Where | Cause |
 | --- | --- | --- |
 | 4 | The lane-disable `else` branch of `COMMON_MEM_WRITE_LANES` in `common_sdp_ram`, once per RAM specialization: the replay buffer (`u_tlp_tx.u_rbuf`) and the receive buffer at its three sizes (`u_rx_buf.u_ram`, 7-, 9- and 10-bit addresses) | Unreachable by construction: `LANES` is 1 and the lane enable is tied to 1. |
 | 1 | `u_tlp_rx`: the `buf_full_i` branch that sets `noroom` | Unreachable by construction: the receive buffer holds every TLP the advertised credits cover plus the one being collected ([MAS, receive buffer](../../rtl/dll/MAS.md#receive-buffer)), and the overflow check admits nothing more. |
-| 1 | `u_rx_buf`: the rewind arm in the 7-bit-address specialization (the smallest credits) | Not reached: no TLP is discarded at the smallest credits (`rx_stall_smallest` and `link_up_stress_smallest` send no bad TLP). The rewind is hit in the other two sizes; an error-injecting entry at the smallest credits would reach it. |
 
-Toggle holes are mostly the upper bits of the credit counters and limits
-(wrapped only by the P class in `fc_tx_gate`) and the testbench's
-pass-through ports. In the TLP transmit block 23 of 1820
-toggle points are missed: `hold_left` never falls, as only the next rollover or DL_Inactive
-clears it; bits that are constant by construction: bit 0 of the
-space-in-use sums (whole words plus 2 bytes per TLP), bits 1:0 of a TLP's
-size (whole DWs), bits 7:4 of the sequence-number beat (reserved, 0);
-bit 13 of the space in use, which stays below 8192; and bit 10 of the
-offered payload size (a 1024-DW Length, never offered: the upper layer
-offers payloads of at most 128 bytes).
+The rewind arm of `u_rx_buf` in the 7-bit specialization (the smallest
+credits), a hole until now, is closed by `rx_errors_smallest`, which
+discards bad and duplicate TLPs at the smallest credits.
+
+The 3280 toggle points not hit, by cause:
+
+| Cause | Points | Signals |
+| --- | ---: | --- |
+| Hit in another parameter set | 1028 | The same bit and direction toggles in another credit set's copy of the block: for example, the infinite-field flags and the upper limit bits toggle only in the sets with finite classes, the receive buffer's upper address bits only in its larger sizes. |
+| Constant per build | 599 | The credit parameters (`adv_i` in `u_ctrl` and `u_fc`, `rx_base`, `grp_base`) and the InitFC bodies built from them (`initfc_req` in the top, `u_ctrl` and `u_tx`, with their fixed type and reserved bits): a parameter does not change during a run, so its bits rise at most once after reset. |
+| Constant by the DLLP format | 447 | Ack and Nak bodies (`acknak_req` in the top, `u_tlp_rx` and `u_tx`): the type bits other than the Ack-to-Nak bit, the reserved byte and the reserved nibble above the sequence number; the UpdateFC bodies (`updfc_req`): the type code's low bits and the reserved bits between the fields; the same bits of the transmit block's chosen body and packet register (`body`, `tx_q.pkt`). |
+| Constant by construction: one TLP's credits | 771 | The credit fields of a single TLP (`rx_chk`, `rx_stored`, `rx_malformed`, `rx_taken`, their `u_fc` and `u_tlp_rx` ports, `u_rx_buf` `cur_q` and `taken_o`, and `u_fc` `tx_cost`): the header field is always 1 (bits 7:1 never set, bit 0 never falls once the field holds a TLP), the data field is at most 256 (1024 DWs, bits 11:9 never set), and the `valid` flag that `tlp_credit` sets to 1. |
+| Not reached: large data credits | 242 | Bits 8:4 of a delivered TLP's data credits (`rx_taken`, `u_rx_buf` `cur_q` and `taken_o`): a TLP that is delivered carries at most 128 bytes, 8 credits. Bits 7:6 of the credit fields of `rx_chk`, `rx_stored` and `rx_malformed` and their ports, which carry every judged TLP's credits whatever its verdict (64 to 255 credits, a Length of 253 to 1020 DWs), and `hdr.len` bit 9 in `u_tlp_rx`. Only malformed TLPs exceed 8 credits; `rx_directed`'s malformed cases toggle bits 5:4 and 8 (Length 0 is 1024 DWs), and a Length in between would add no check. |
+| Unreachable by construction: receive buffer full | 32 | `rx_full`, `u_rx_buf` `full_o` and its fill's top bit (`used`), `u_tlp_rx` `buf_full_i` and `noroom`: the line hole above. |
+| Not reached: counter top bits | 137 | The top bits of the NP and Cpl credit counters and recorded limits in `u_fc` (`alloc`, `rcvd`, `sent`, `upd`, `used`, `lim_np`, `lim_cpl`) and bit 7 of the completion header in use: only the P class wraps its counters (`fc_tx_gate`), and the NP data counter grows by one credit per CfgWr, so a wrap would take over 2048 non-posted writes in one link-up. The wrap arithmetic is shared by every class (`fc_charge`, `fc_record`), and the P wrap checks it. |
+| Constant by construction: transmit block | 18 | In `u_tlp_tx`: bit 0 of the space-in-use sums (`need_bytes`, `used_bytes`: whole words plus 2 bytes per TLP), bits 1:0 of a TLP's size (`sop_bytes`: whole DWs), bits 7:4 of the sequence-number beat (reserved, 0) and bit 13 of the space in use, which stays below 8192. |
+| Constant by construction: RAM lanes | 4 | `wr_lanes_i` of each `common_sdp_ram` (tied to 1). |
+| Not reached: hold release | 2 | `u_tlp_tx` `hold_left` never falls: only a second rollover or DL_Inactive clears it after a hold that a retrain ended, and no test rolls over twice in one link-up; its rise and the hold's end are checked in `rollover_directed`. |
