@@ -11,6 +11,13 @@
   `clk_i` running and every input toggled at random, it checks each output
   with a defined [reset value](../../arch/dll/HAS.md#reset-values) at every
   falling `clk_i` edge, through two reset pulses.
+- **Parameter limits:** [`tests/test_dll_params.py`](../../../../src/dv/dll/tests/test_dll_params.py)
+  lints `pcie_dll` with Verilator from `dll.rtl.f` for one illegal value
+  of each `FC_*` (and the upper bound of `FC_PD` and `FC_NPD`), each of
+  which must stop elaboration with its `COMMON_ASSERT_PARAM` message, and
+  for the legal boundaries (smallest finite values, including `FC_NPD` 2
+  and `FC_PD`/`FC_CPLD` 8; all infinite; the largest), which must lint
+  clean.
 - **Functional coverage:** the `dll_shell` covergroup bins `rst` (low,
   high) and `link_up` (down, up), crossed.
 - **Planned (wave 2):** one `dll` testbench driving the upper TLP stream
@@ -27,6 +34,7 @@
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Reset values of the shell](../../arch/dll/HAS.md#reset-values) | `smoke` | 0 | 1; 128 cycles with random inputs |
+| [Credit parameter ranges](../../arch/dll/HAS.md#parameters) | `param_limits` | 0 | 1; 8 illegal and 3 legal lints, no simulation |
 
 Levels 1 and 2 have no entries yet (`tests: []`).
 

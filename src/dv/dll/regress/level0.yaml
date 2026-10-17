@@ -4,3 +4,8 @@ tests:
     testcase: smoke
     top: pcie_dll
     timeout_s: 60
+  - name: param_limits
+    module: tests.test_dll_params
+    testcase: param_limits
+    top: pcie_dll
+    timeout_s: 300

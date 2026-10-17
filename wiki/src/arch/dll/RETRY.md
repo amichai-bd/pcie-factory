@@ -182,9 +182,13 @@ states it is discarded silently) [cite: PCIe Base Spec, rev 3.0, §3.5.3.1]:
      Fmt and Length give; or its payload is above 128 bytes, the maximum
      payload (Q6). Accept it at
      this layer (add 1 to NEXT_RCV_SEQ, clear NAK_SCHEDULED, start the
-     Ack timer if stopped) but do not store or deliver it; return its
-     header's credits at once (CREDITS_RECEIVED and CREDITS_ALLOCATED
-     both advance); Malformed TLP.
+     Ack timer if stopped) but do not store or deliver it; Malformed TLP.
+     Return its credits at once (CREDITS_RECEIVED and CREDITS_ALLOCATED
+     both advance by them, so nothing leaks): when the TLP has at least
+     4 bytes, 1 header credit plus the data credits its header implies,
+     in the class its Fmt and Type give ([classes](FLOW_CONTROL.md#classes-and-credits):
+     Length in DWs divided by 4 and rounded up, when Fmt says with data);
+     with fewer than 4 bytes it has no header and returns none.
    - **D = 0, expected, does not fit:** if its class's free credits do not
      cover it, discard; Receiver overflow; no Ack or Nak
      ([receive buffer](FLOW_CONTROL.md#receive-buffer)). NEXT_RCV_SEQ
