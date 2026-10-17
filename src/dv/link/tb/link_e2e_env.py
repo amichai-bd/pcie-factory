@@ -144,8 +144,14 @@ class Scoreboard:
         self.delivered = 0
         self.lost = 0                   # dropped at a requested link-down (HAS, stack wiring)
         self.last_delivery = 0          # cycle of the receiving end
+        # The throughput window (HAS checks): first accepted to last delivered, ps.
+        self.first_accept_t: int | None = None
+        self.last_deliver_t = 0
+        self.payload = 0                # payload bytes delivered
 
     def accept(self, tlp: bytes) -> None:
+        if self.first_accept_t is None:
+            self.first_accept_t = now_ps()
         self.accepted.append(tlp)
         COV_TRAFFIC.sample(kind=tlp_kind(tlp), dir=self.name, payload=payload_bytes(tlp))
 
@@ -161,6 +167,8 @@ class Scoreboard:
             "reordered or corrupted")
         self.delivered += 1
         self.last_delivery = cycle
+        self.last_deliver_t = now_ps()
+        self.payload += payload_bytes(tlp)
 
     def outstanding(self) -> int:
         return len(self.accepted) - self.delivered

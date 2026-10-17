@@ -93,10 +93,28 @@ flowchart LR
     TLP only at its exit from L0. The link-control tests require Acks
     timed after the relink. Every accepted TLP must have been judged
     once as a first transmission;
-  - in the error-free entries (`e2e_smoke`, every `e2e_credits_*`): no Bad
-    TLP, Bad DLLP, replay timeout or rollover pulse, no `rcv_err_o`, and
-    neither end leaves L0. Credit starvation and stalls are no error:
+  - in the error-free entries (`e2e_smoke`, every `e2e_credits_*` and
+    `e2e_throughput_*`): no Bad TLP, Bad DLLP, replay timeout or rollover
+    pulse, no `rcv_err_o`, and neither end leaves L0. Credit starvation and stalls are no error:
     nothing is lost or replayed.
+- **Throughput** ([HAS throughput](../../arch/link/HAS.md#throughput)):
+  error-free, 0 ppm, default credits, 128-byte memory writes back to back
+  one way (a to b) or each way, the transmit drivers offering every beat
+  (no valid drop) and the takers never stalling (Cpl is infinite). The
+  check is the HAS one: payload bytes delivered over the cycles from the
+  first TLP accepted to the last delivered, inclusive, at least 0.85 of
+  the line rate one way and 0.76 in each direction both ways, with no
+  tolerance. The injector's line tally and the sent view
+  ([`pcie_link_throughput_model.py`](../../../../src/dv/link/models/pcie_link_throughput_model.py))
+  attribute every symbol of each line, from the first TLP's STP to the
+  last TLP's END, as the HAS derives it: payload, TLP header, TLP framing
+  (STP, sequence number, LCRC, END), Ack, Nak, UpdateFC per class, SKP,
+  logical idle, replays and the rest. The attribution must close on the
+  window (every symbol counted once), and it is logged with the HAS
+  closed form of the [architecture model](../../arch/link/HAS.md#architecture-model)
+  (`derived_fractions`) and quoted in a failure message, so a miss names
+  its cause. Each run is also error-free and lossless, as the other
+  error-free entries.
 - **Directed classes:** the tests inject one class at a time with traffic
   both ways and check its pulses from the HAS: Bad TLP (and `rcv_err_o`
   for an invalid symbol) and a Nak for an LCRC error or a corrupted TLP;
@@ -116,7 +134,10 @@ flowchart LR
 - **Model unit tests:** [`test_pcie_link_injector_model.py`](../../../../src/dv/link/models/test_pcie_link_injector_model.py)
   checks the injector against a reference transmitter and a strict
   decoder (pass-through bit exact, each class, running disparity and the
-  scrambler kept); the partner's passive mode has its own
+  scrambler kept);
+  [`test_pcie_link_throughput_model.py`](../../../../src/dv/link/models/test_pcie_link_throughput_model.py)
+  checks the line tally and the attribution on a stream of known content
+  (every symbol attributed, windows and straddling packets); the partner's passive mode has its own
   ([passive mode unit tests](../dll/PASSIVE.md#unit-tests)).
 
 ## Plan
@@ -137,13 +158,14 @@ All entries run on `pcie_link_e2e_tb`; credits are the default
 | The same with every class infinite (no stall) | `e2e_credits_infinite` | 1 | 1; `CREDITS` 3 |
 | Disabled and Loopback passed through | `e2e_disable`, `e2e_loopback` | 2 | 1 each |
 | Soak: random classes, line flips and credit stalls together, 1000 TLPs each way, ppm from the seed, in every credit configuration | `e2e_soak_default`, `e2e_soak_minimum`, `e2e_soak_finite`, `e2e_soak_infinite`, `e2e_soak_asymmetric` | 2 | 3, 3, 2, 2, 2; `CREDITS` 0 to 4 |
+| [Throughput](../../arch/link/HAS.md#throughput), one way, screen: 400 128-byte memory writes a to b against the 0.85 target (more start and drain in the window than 2000 TLPs, so stricter), every line symbol attributed | `e2e_throughput_short` | 1 | 1 |
+| [Throughput targets](../../arch/link/HAS.md#targets): 2000 128-byte memory writes one way (0.85) and each way (0.76 per direction), every line symbol attributed; each seed draws the start against the SKP schedule (within one SKP interval) and, both ways, b's start against a's (within one TLP time) | `e2e_throughput_oneway`, `e2e_throughput_bidir` | 2 | 3 each |
 | Seed sweeps of the directed and mixed tests | `e2e_tlp_errors_sweep`, `e2e_dllp_errors_sweep`, `e2e_rollover_sweep`, `e2e_line_sweep`, `e2e_mixed_sweep` | 2 | 2, 2, 2, 3, 4 |
 
 ## Gaps
 
 | Feature | Owning issue |
 | --- | --- |
-| [Throughput targets](../../arch/link/HAS.md#throughput) end to end | [#216](https://github.com/amichai-bd/pcie-factory/issues/216) |
 | The `link` wiring of `pkt_rx_err`: a packet the `phy` flags with its bytes intact (a running-disparity-only error) is undetected by the current injector, so a tie-off of `pkt_rx_err` in `pcie_link` survives every entry (it is caught inside the `dll` by `crc16_kat`) | [#302](https://github.com/amichai-bd/pcie-factory/issues/302) |
 | The `ltssm_state_o` to `pkt_tx_valid` path on the FPGA and ASIC timing reports ([MAS timing](../../rtl/link/MAS.md#timing)) | [#218](https://github.com/amichai-bd/pcie-factory/issues/218), [#219](https://github.com/amichai-bd/pcie-factory/issues/219) |
 
