@@ -1,1 +1,35 @@
-tests: []
+tests:
+  - name: updatefc_refresh
+    module: tests.test_dll
+    testcase: updatefc_refresh
+    top: pcie_dll_tb
+    seeds: 2
+    timeout_s: 120
+  # The test seed picks the partner's credits (one of four, test seed mod
+  # 4); four consecutive seeds give all four.
+  - name: link_up
+    module: tests.test_dll
+    testcase: link_up
+    top: pcie_dll_tb
+    seeds: [0, 1, 2, 3]
+    timeout_s: 300
+  - name: link_up_cpl_finite
+    module: tests.test_dll
+    testcase: link_up
+    top: pcie_dll_tb
+    seeds: [0, 1, 2, 3]
+    timeout_s: 300
+    params: {FC_CPLH: 16, FC_CPLD: 64}
+  - name: link_up_infinite
+    module: tests.test_dll
+    testcase: link_up
+    top: pcie_dll_tb
+    seeds: [0, 1, 2, 3]
+    timeout_s: 300
+    params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
+  - name: link_up_stress
+    module: tests.test_dll
+    testcase: link_up_stress
+    top: pcie_dll_tb
+    seeds: [0, 1]
+    timeout_s: 300

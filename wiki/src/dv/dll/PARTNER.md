@@ -176,10 +176,13 @@ run with `python3 -m pytest src/dv/dll/models`, and in `ci-gate` through
 
 ## Cross-check with the architecture model
 
-The partner and the architecture model are not run against each other
-here. The `dll` testbench ([#211](https://github.com/amichai-bd/pcie-factory/issues/211))
-runs both, and any disagreement found there goes to the HAS Open items,
-not into either model silently.
+The `dll` testbench runs the partner, the architecture model and the RTL
+against each other for the features the RTL has (DLLPs, InitFC, the
+control states), as the [DV plan](DV_PLAN.md#cross-check-rtl-architecture-model-partner)
+describes ([#211](https://github.com/amichai-bd/pcie-factory/issues/211)).
+No disagreement was found there; the replay, Ack/Nak and credit features
+are cross-checked as #212 to #214 add them. Any disagreement goes to the
+HAS Open items, not into either model silently.
 
 ## Possible disagreements
 
@@ -198,6 +201,13 @@ available (`./build specs list`).
 | 4 | The CRC-16 and LCRC line mapping (open item). | Derived from the DLLP page text alone, it gives the same bytes as every HAS example, and the known answers `B3 94` and `7D 70` ([CRCs](#crcs)). Both readings come from the same sentences, so this agreement shows the page is self-consistent, not that it matches the Base Spec; the open item stays with the captain. | As the HAS. |
 | 5 | DL_Up from FC_INIT2, TLPs only from DL_Active, the "group being sent is complete" exit rule (open item). | Could not be confirmed without the spec. No observable difference: a far end that waits for its group is compliant either way. | The same rules. |
 | 6 | Classes come from the Type field ([classes](../../arch/dll/FLOW_CONTROL.md#classes-and-credits)); the HAS has no TLP prefixes. | A received TLP whose byte 0 is a prefix (Fmt `100`) is not a TLP of this design: no `dll` sends one, so the HAS gives it no class of its own. | Flags it as a far-end violation; accounts it by the Type rule. |
+
+A seventh point was found by the `dll` RTL review
+([#211](https://github.com/amichai-bd/pcie-factory/issues/211)): the
+HAS now finishes a packet whose `sop` the `phy` took before the link went
+down ([decisions](../../arch/dll/HAS.md#decisions)), while the partner
+drops its packet on link-down. It is a [HAS open item](../../arch/dll/HAS.md#open-items);
+the partner is unchanged.
 
 Found independently and already resolved in #259 (by `feb7ccb`):
 
