@@ -31,8 +31,7 @@ flowchart TB
 `dll` and `phy` are top-level IPs that `pcie_link` integrates, not
 sub-IPs: each keeps its own HAS, arch model and unit DV (Q4; M1 Q19,
 Q24), as `phy` integrates `mac` and `pcs`. `link.rtl.f` reaches their
-filelists with `-F` once the stack is integrated
-([#215](https://github.com/amichai-bd/pcie-factory/issues/215)).
+filelists with `-F` ([MAS](../../rtl/link/MAS.md#files)).
 
 ## Interfaces
 
@@ -228,10 +227,10 @@ the [DV plan](../../dv/link/DV_PLAN.md) maps it to tests.
   than any impairment below.
 - **Second opinion:** the independent DLL link partner of
   [#210](https://github.com/amichai-bd/pcie-factory/issues/210) (Q3) is the
-  far end in the `dll` DV. In the `link` e2e it also runs as a passive
-  checker ([below](#passive-checker)). #210 delivered only the far-end
-  role, so the passive mode is [#215](https://github.com/amichai-bd/pcie-factory/issues/215)'s
-  work.
+  far end in the `dll` DV. In the `link` e2e it runs as a passive
+  checker instead ([below](#passive-checker); its
+  [passive mode](../../dv/dll/PARTNER.md#passive-mode),
+  [#215](https://github.com/amichai-bd/pcie-factory/issues/215)).
 
 ### Error injection
 
@@ -315,8 +314,12 @@ cycle, two decoded packet views:
 - **delivered:** after injection, what the receiving `link` gets.
 
 It also records an injection log: cycle, direction, class and the packet
-affected. The partner's passive checks read both directions together,
-each from a fixed view:
+affected. Both views are timed at a `link` port, so the 140-cycle bound
+applies to the line alone: the injector sits at the transmitter's
+`ser_tx_data_o`, where it records **sent**, and **delivered** adds the
+channel delay from the injector to the receiver's `ser_rx_data_i`. The
+partner's passive checks read both directions together, each from a
+fixed view:
 
 | Check | Reads | Flags |
 | --- | --- | --- |
@@ -358,7 +361,6 @@ writes `workdir/link/arch/perf.json`.
 
 | Item | Owner |
 | --- | --- |
-| The injector's structure (where it sits in the testbench top, how it tracks disparity and the scrambler across SKP) and the partner's passive mode ([passive checker](#passive-checker)). | [#215](https://github.com/amichai-bd/pcie-factory/issues/215) |
-| If the Base Spec measures its Ack limit at the port (on the line), not at the data link layer's boundary, the 32-cycle `dll` Ack timer may be too long. The line bound here is 140 cycles against the 118 limit. | Captain |
+| If the Base Spec measures its Ack limit at the port (on the line), not at the data link layer's boundary, the 32-cycle `dll` Ack timer may be too long. The line bound here is 140 cycles against the 118 limit. The e2e measured up to 125.4 cycles on the line error-free and 126.4 under injection (111 at the `dll` boundary; [MAS timing](../../rtl/link/MAS.md#timing), [#215](https://github.com/amichai-bd/pcie-factory/issues/215)), so on the line the stack does not meet 118. | Captain |
 | M3 and later: software-directed L1 and L2 will need a power-state port on `link` and power-management DLLPs in `dll`. That changes the `link` port list, which conflicts with Q5's "M3 adds it on top unchanged". | Captain |
 | The cited sections on this page, checked against rev 3.0 (the Base Spec is not in the local cache). | Captain, with a local copy |

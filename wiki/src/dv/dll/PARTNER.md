@@ -1,10 +1,12 @@
 # pcie_dll independent link partner
 
-The far-end data link layer that the `dll` and `link` testbenches put
-opposite the design: a pure-Python model,
+The far-end data link layer that the `dll` testbench puts opposite the
+design, and the passive checker of the `link` e2e: a pure-Python model,
 [`pcie_dll_partner.py`](../../../../src/dv/dll/models/pcie_dll_partner.py),
 with its CRCs in
-[`pcie_dll_partner_crc.py`](../../../../src/dv/dll/models/pcie_dll_partner_crc.py).
+[`pcie_dll_partner_crc.py`](../../../../src/dv/dll/models/pcie_dll_partner_crc.py)
+and its [passive mode](#passive-mode) in
+[`pcie_dll_partner_passive.py`](../../../../src/dv/dll/models/pcie_dll_partner_passive.py).
 It is the independent oracle of decision record
 [0003](../../decisions/0003-m2-grill.md#decisions), Q3: the second opinion
 on protocol behaviour beside the
@@ -17,8 +19,8 @@ on protocol behaviour beside the
 | --- | --- |
 | A different author from the architecture model | Written by a separate crewmate under [#210](https://github.com/amichai-bd/pcie-factory/issues/210); the PR records it. |
 | Written from the spec and the HAS | Sources: the [`dll` HAS](../../arch/dll/HAS.md) and its [DLLP](../../arch/dll/DLLP.md), [retry](../../arch/dll/RETRY.md) and [flow-control](../../arch/dll/FLOW_CONTROL.md) pages, at the [#259](https://github.com/amichai-bd/pcie-factory/pull/259) head `724c6e9`, merged to `main` as `69b4ac5`, and the author's own reading of the rules they cite. |
-| No shared code | Nothing under `src/arch/dll/`, the architecture model, its CRC code or its self-tests, was read or imported. The partner has its own CRCs, framing and state machines. |
-| Checked | `test_independence_no_shared_code` scans the partner modules and their tests. It fails on an import other than the standard library, pytest and the partner's own modules. It also fails on a dynamic import (`importlib`, `runpy`, `__import__`, `exec`, `eval`), and on code in a partner module that names an `arch/` path or the architecture model's module names. |
+| No shared code | Nothing under `src/arch/dll/`, the architecture model, its CRC code or its self-tests, was read or imported. The partner has its own CRCs, framing and state machines. The passive mode reads only the plain packet views it is given; it imports nothing from the `link` testbench, its injector or the RTL side ([#215](https://github.com/amichai-bd/pcie-factory/issues/215)). |
+| Checked | `test_independence_no_shared_code` scans the three partner modules and their tests. It fails on an import other than the standard library, pytest and the partner's own modules. It also fails on a dynamic import (`importlib`, `runpy`, `__import__`, `exec`, `eval`), and on code in a partner module that names an `arch/` path, the architecture models' module names or the `link` injector's. |
 | Disagreements stay visible | Where the partner's reading may differ from the HAS, it is listed below as a [possible disagreement](#possible-disagreements) for the HAS Open items. It is never settled by looking at the model. |
 
 The CRCs are checked only against values found without the spec or the
@@ -37,7 +39,7 @@ and `nullify`. None is an idle cycle.
 
 | Member | Kind | Meaning |
 | --- | --- | --- |
-| `link_up` | input | The physical layer's LinkUp. 0 resets the partner to DL_Inactive: every counter, timer, flag and credit is cleared, and the replay buffer and the receive store are emptied. TLPs lost from the replay buffer are counted in `stats["lost_on_reset"]`. TLPs lost from the receive store (not yet taken by `upper_ready`) are not counted. The upper transmit queue (`send`) is kept and resent after the next initialisation. |
+| `link_up` | input | The physical layer's LinkUp. 0 resets the partner to DL_Inactive: every counter, timer, flag and credit is cleared, and the replay buffer and the receive store are emptied. A packet whose first beat has gone out is finished first: its remaining beats follow, held by `tx_ready`, up to its `eop`; one not started is dropped ([link-down](#link-down)). TLPs lost from the replay buffer are counted in `stats["lost_on_reset"]`. TLPs lost from the receive store (not yet taken by `upper_ready`) are not counted. The upper transmit queue (`send`) is kept and resent after the next initialisation. |
 | `tx_ready` | input | The stream takes the partner's beat this cycle (0 holds it, even inside a packet). |
 | `in_l0` | input | The LTSSM is in L0. 0 holds the replay timer; a replay held after a rollover waits for it to fall and rise again. |
 | `upper_ready` | input | The partner's upper layer takes stored TLPs, one per cycle. 0 stops credits being returned. The partner's store is unbounded, so it may stall even with an infinite class; the HAS's never-stall obligation binds the `dll`'s upper layer, not the partner. |
@@ -97,6 +99,21 @@ unbounded, and the upper layer takes one TLP per cycle.
   default advertisement is the HAS parameter defaults: P 8 and 32, NP 8
   and 8, completions infinite.
 
+### Link-down
+
+A packet the partner has started when `link_up` falls is finished, as the
+`dll` finishes one ([HAS decisions](../../arch/dll/HAS.md#decisions),
+[#211](https://github.com/amichai-bd/pcie-factory/issues/211)): from the
+first `clock` call that sees `link_up` 0, the partner is in DL_Inactive
+with everything cleared, and it sends the packet's remaining beats (one
+per cycle while `tx_ready` is 1) up to its `eop`, then nothing. A `phy`
+keeps a packet open from its `sop` until its `eop` whatever the link does,
+so a cut packet would put the next link-up's first DLLP inside it. If
+`link_up` rises again before that `eop`, the tail ends first and the
+partner then enters FC_INIT1. `stats["tail_finished"]` counts the tails
+(`test_link_down_finishes_started_packet`;
+[#215](https://github.com/amichai-bd/pcie-factory/issues/215)).
+
 ### Far-end checks
 
 Beyond what a receiver needs, the partner judges the far end's transmit
@@ -136,6 +153,72 @@ other hooks are attributes or calls on the partner.
 | `withhold_credits` | No UpdateFC is sent. Returned credits pile up until it is cleared. |
 | `upper_ready = 0` | The partner's upper layer stalls, so credits stop being returned. |
 
+## Passive mode
+
+In the `link` e2e the partner is a checker, not a far end
+([`link` HAS, passive checker](../../arch/link/HAS.md#passive-checker),
+[#215](https://github.com/amichai-bd/pcie-factory/issues/215)).
+`PassiveChecker` takes, per direction (`"ab"` sent by end a, `"ba"` the
+reverse), the two packet views the `link` testbench's line injector
+records, and `check()` judges both transmitters against the rules of
+this page's sources.
+
+**Views.** A `ViewPacket` is one packet: start and end time, the
+TLP/DLLP tag, the bytes between its framing symbols (a TLP's sequence
+number, TLP and LCRC; a DLLP's 6 bytes) and `err` when the receiver sees
+it as bad on the line (an invalid symbol, or cut short). Times are in any
+one unit, `cycle` being one `clk_i` cycle in it. The recorder places each
+view at a `link` port, so the bounds apply to the line alone:
+
+| View | Recorded | Time |
+| --- | --- | --- |
+| sent | before injection: what the transmitter put on the line | at the transmitter's serial output (the injector sits there) |
+| delivered | after injection: what the receiver gets | at the receiver's serial input: the injector's output plus the channel delay after it |
+
+**Checks**, each reading fixed views, so injected drops, corruptions and
+duplicates (only in the delivered view) need no exemption:
+
+| Check | Direction and views | Flags |
+| --- | --- | --- |
+| `credits` | The sender's TLPs, sent view of its direction; the limits from InitFC (first per class) and UpdateFC in the delivered reverse view, ended before the TLP started. Only first transmissions consume, by the [accounting](../../arch/dll/FLOW_CONTROL.md#transmit-accounting) modular rule. | A TLP whose credits exceed the limit, or sent before the class was advertised. |
+| `sequence` | The sent view of one direction; the Acks and Naks in the delivered reverse view. | A TLP neither new (one past the last new one) nor sent and unacknowledged; a replay not starting at the oldest unacknowledged TLP; a replay not resending the rest in order (skipping only TLPs an Ack removed, [replay](../../arch/dll/RETRY.md#replay)); a new TLP or a second replay before a replay completed. |
+| `acknak` | Acks and Naks in the sent view of one direction; the TLPs of the delivered view of the other, followed through NEXT_RCV_SEQ. | A sequence number ahead of the last TLP that arrived good and in order. |
+| `ack_timing` | The end of each TLP that arrived good and in order (delivered view); the start of the first Ack or Nak covering it in the reverse sent view. | A gap above `ack_bound` (140 cycles, the `link` HAS line bound), or none by the end of the record. |
+
+Rules that keep each check looser than the sender's real knowledge, never
+stricter:
+
+- An Ack or Nak counts from its end on the line, before the sender could
+  have acted on it. A replay may start anywhere from the oldest TLP not
+  acknowledged by Acks that ended `ack_window` (40) cycles before it (the
+  sender's `phy` receive and decode time) to the oldest not acknowledged
+  by every Ack before it.
+- **Rollover withdrawal.** A replay may stop short by its newest TLP only,
+  and only when the next TLP starts at least `retrain_gap` (100) cycles
+  later: at a REPLAY_NUM rollover the `dll` withdraws a TLP offered but
+  not started and resends it after the retrain
+  ([REPLAY_NUM](../../arch/dll/RETRY.md#replay_num)); `stats["withdrawn_<d>"]`.
+- **Cut TLPs.** A TLP the `phy` cut short in the sent view (the LTSSM left
+  L0 inside it) still went out: its sequence number counts, and its
+  credits when its first DW is there (`cut_<d>`, `credit_unread_<d>`).
+- **Link-down.** `link_down(end, t)` starts a new epoch for that end: its
+  sequence numbers, credits and NEXT_RCV_SEQ restart. The transmit checks
+  follow the sender's epochs (sent by start, delivered DLLPs by end), the
+  Ack checks the receiver's; a TLP that arrived within `ack_bound` of the
+  receiver's link-down needs no Ack.
+- `exempt(start, end, why)`: no Ack timing bound for TLPs arriving in the
+  range (the testbench marks every time either end is out of L0). With
+  `line=True` the range is a line impairment after the views (the `phy`
+  channel's flips, slips and idle): an Ack delivered in it counts as
+  maybe seen, which widens the accepted replay start.
+- `inject(time, direction, cls, what)` keeps the injection log;
+  `injections()` filters it.
+
+`stats` counts what each check judged (`new_<d>`, `credit_checked_<d>`,
+`replays_<d>`, `acknak_<d>`, `ack_timing_<d>`, the exemptions) so a test
+can show it is not vacuous; `ack_gap_max` is the largest Ack gap judged,
+in cycles.
+
 ## CRCs
 
 `crc` is a generic bit-serial CRC in the usual parameter model (width,
@@ -161,8 +244,9 @@ x^(w−1).
 
 ## Unit tests
 
-[`test_pcie_dll_partner_crc.py`](../../../../src/dv/dll/models/test_pcie_dll_partner_crc.py)
-and [`test_pcie_dll_partner.py`](../../../../src/dv/dll/models/test_pcie_dll_partner.py)
+[`test_pcie_dll_partner_crc.py`](../../../../src/dv/dll/models/test_pcie_dll_partner_crc.py),
+[`test_pcie_dll_partner.py`](../../../../src/dv/dll/models/test_pcie_dll_partner.py)
+and [`test_pcie_dll_partner_passive.py`](../../../../src/dv/dll/models/test_pcie_dll_partner_passive.py)
 run with `python3 -m pytest src/dv/dll/models`, and in `ci-gate` through
 `./build ci unit`. They need no simulator.
 
@@ -172,6 +256,8 @@ run with `python3 -m pytest src/dv/dll/models`, and in `ci-gate` through
 | Wrap | Sequence numbers preloaded near 4095 crossing to 0 with expected TLPs, Ack, a duplicate, a Nak and a replay, and a range error behind ACKD_SEQ (`test_sequence_wrap`). A loopback of 520 maximum-payload MWr wraps the 8-bit header and 12-bit data counters on both sides (`test_credit_counters_wrap_loopback`). |
 | One partner, hand-driven | Initialisation and InitFC resend; entry UpdateFC, infinite classes included; receive rules: expected, ahead, NAK_SCHEDULED, duplicate, nullified, flagged, too short, LCRC, malformed lengths and payloads; Ack timing (32 cycles); DLLP checks; UpdateFC checks; Ack, Nak and replay, a TLP going out at a Nak included; replay timeout at 356 cycles; rollover hold through a retrain and its 1024-cycle fallback; replay timer held outside L0; overflow; the credit gate; a received TLP prefix; the flag and nullify hooks; link-down reset. |
 | Two partners back to back | Initialisation at three skews. Clean bidirectional traffic. Lossless, exactly once and in order, with every injection hook on, three seeds, finite and default credits, upper-layer stalls with finite credits. Delayed Acks and forced Naks. Withheld credits. Rollover and recovery. A sender that ignores credits is caught. Same seed, same run. |
+| Link-down | A started TLP finished up to its `eop` after `link_up` falls, held by `tx_ready`; nothing after a link-down between packets; a tail ending before the next FC_INIT1 when the link returns first (`test_link_down_finishes_started_packet`). |
+| Passive mode | Two partners through tap lines that record both views: clean traffic gives no violation and judges every TLP; drops and corruptions both ways at three credit settings, a rollover, and a link-down mid-TLP (with the epochs recorded; without them it flags) give none. Hand-built views: each check flags a replay not from the oldest, a skipped TLP, a new TLP inside a replay, a wrong new number, a credit overrun (and respects UpdateFC and replays), an Ack ahead, a slow or missing Ack; the Ack window, the rollover withdrawal, line-unsure Acks and cut TLPs are accepted only within their rules. A sender ignoring credits is caught. |
 | Independence | No imports or paths outside the partner and the standard library. |
 
 ## Cross-check with the architecture model
@@ -213,10 +299,12 @@ available (`./build specs list`).
 
 A seventh point was found by the `dll` RTL review
 ([#211](https://github.com/amichai-bd/pcie-factory/issues/211)): the
-HAS now finishes a packet whose `sop` the `phy` took before the link went
+HAS finishes a packet whose `sop` the `phy` took before the link went
 down ([decisions](../../arch/dll/HAS.md#decisions)), while the partner
-drops its packet on link-down. It is a [HAS open item](../../arch/dll/HAS.md#open-items);
-the partner is unchanged. An eighth was found by the `dll` receive tests
+dropped its packet on link-down. Resolved in
+[#215](https://github.com/amichai-bd/pcie-factory/issues/215): the
+partner now finishes a started packet too ([link-down](#link-down)),
+consistent with the decision and the `phy` packet contract. An eighth was found by the `dll` receive tests
 ([#213](https://github.com/amichai-bd/pcie-factory/issues/213)): the
 partner leaves a TLP still on the line when a Nak or timeout arrives out
 of the replay, where the architecture model resends it. Resolved in

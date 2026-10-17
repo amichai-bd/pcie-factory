@@ -1,1 +1,58 @@
-tests: []
+# Default credits (CREDITS 0) unless an entry sets CREDITS: the error
+# classes on the HAS default configuration, then one entry per other credit
+# configuration (tb/pcie_link_e2e_tb.sv).
+tests:
+  - name: e2e_tlp_errors
+    module: tests.test_link_e2e
+    testcase: e2e_tlp_errors
+    top: pcie_link_e2e_tb
+    timeout_s: 600
+  - name: e2e_dllp_errors
+    module: tests.test_link_e2e
+    testcase: e2e_dllp_errors
+    top: pcie_link_e2e_tb
+    timeout_s: 600
+  - name: e2e_rollover
+    module: tests.test_link_e2e
+    testcase: e2e_rollover
+    top: pcie_link_e2e_tb
+    timeout_s: 600
+  - name: e2e_line
+    module: tests.test_link_e2e
+    testcase: e2e_line
+    top: pcie_link_e2e_tb
+    timeout_s: 600
+  - name: e2e_mixed
+    module: tests.test_link_e2e
+    testcase: e2e_mixed
+    top: pcie_link_e2e_tb
+    timeout_s: 600
+  - name: e2e_hot_reset
+    module: tests.test_link_e2e
+    testcase: e2e_hot_reset
+    top: pcie_link_e2e_tb
+    timeout_s: 600
+  - name: e2e_credits_minimum
+    module: tests.test_link_e2e
+    testcase: e2e_credits
+    top: pcie_link_e2e_tb
+    params: {CREDITS: 1}
+    timeout_s: 600
+  - name: e2e_credits_finite
+    module: tests.test_link_e2e
+    testcase: e2e_credits
+    top: pcie_link_e2e_tb
+    params: {CREDITS: 2}
+    timeout_s: 600
+  - name: e2e_credits_infinite
+    module: tests.test_link_e2e
+    testcase: e2e_credits
+    top: pcie_link_e2e_tb
+    params: {CREDITS: 3}
+    timeout_s: 600
+  - name: e2e_credits_asymmetric
+    module: tests.test_link_e2e
+    testcase: e2e_credits
+    top: pcie_link_e2e_tb
+    params: {CREDITS: 4}
+    timeout_s: 600

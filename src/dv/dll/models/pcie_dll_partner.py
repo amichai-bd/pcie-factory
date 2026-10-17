@@ -360,9 +360,17 @@ class Partner:
         self.cycle += 1
         self.retrain_req = False
         if not self.link_up:
-            if self.state != INACTIVE or self.cur:
+            if self.state != INACTIVE:
+                # A packet already started on the line is finished, as the
+                # dll HAS decides for link-down (Decisions): its remaining
+                # beats go out up to its eop. One not yet started is dropped.
+                tail = self.cur if self.cur is not None and self.cur.pos > 0 else None
                 self._reset()
-            return None
+                self.cur = tail
+            return self._tail_beat()
+        if self.state == INACTIVE and self.cur is not None:
+            # Link up again before the tail ended: finish it first.
+            return self._tail_beat()
         if self.state == INACTIVE:
             self._enter(FC_INIT1)
         if beat_in is not None:
@@ -370,6 +378,19 @@ class Partner:
         self._upper_take()
         self._timers()
         return self._tx_beat()
+
+    def _tail_beat(self) -> Beat | None:
+        """The next beat of a packet finished in DL_Inactive (no bookkeeping:
+        everything it belonged to was cleared on link-down)."""
+        cur = self.cur
+        if cur is None or not self.tx_ready:
+            return None
+        beat = cur.beats[cur.pos]
+        cur.pos += 1
+        if cur.pos == len(cur.beats):
+            self.cur = None
+            self._count("tail_finished")
+        return None if cur.drop else beat
 
     def _enter(self, state: str) -> None:
         self.state = state
