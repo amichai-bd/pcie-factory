@@ -97,9 +97,10 @@ instance: `Simple Dual Port`, `Single Clock`, mixed-port RDW `Old data`,
 and the M9K count below (an M9K holds 256 words of up to 36 bits, or 512
 of up to 18, in this mode). Measured on the first `link` fit
 ([#276](https://github.com/amichai-bd/pcie-factory/pull/276) `ci-fpga`, run
-39074066731 at the temporary head `080031d` with this backend merged in, Quartus
-Prime Lite 25.1std, EP4CE115F29C7, with this backend's one-lane form; map,
-fit and timing passed). The fit's fourth M9K is not this block: Quartus
+39074066731 at `080031d`, whose `link` FPGA inputs equal the PR's final
+head, which reproduces it; Quartus Prime Lite 25.1std, EP4CE115F29C7, with
+this backend's one-lane form; map, fit and timing passed;
+[`link` FPGA, Results](../../../fpga/link/FPGA.md#results)). The fit's fourth M9K is not this block: Quartus
 infers the 64 x 8 `end_q` array of the dll TX path as a RAM.
 
 | Consumer (target) | Geometry | Expected M9K | Measured |

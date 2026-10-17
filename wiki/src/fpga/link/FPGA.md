@@ -109,33 +109,39 @@ parity tree) is included in the resource counts.
 
 ## Results
 
-The nightly tracker owns the live figures. This is the acceptance run:
-`ci-gate` run 39070824979, job `ci-fpga`, at `031eeba`, Quartus Prime Lite
-25.1std.0, slow and fast models.
+The nightly tracker owns the live figures. This is the acceptance fit,
+with the [Intel `common_sdp_ram` backend](../../rtl/common/ram/common_sdp_ram.md#intel-backend):
+`ci-gate` run 39074066731, job `ci-fpga`, at `080031d`, Quartus Prime Lite
+25.1std.0, slow and fast models. Its `link` FPGA inputs are byte-identical
+to the PR's final head, whose own `ci-fpga` run reproduces it (PR #276).
 
 | Item | Result |
 | --- | --- |
-| `clk_core` (50 MHz target) | Met: setup slack +1.673 ns, hold +0.117 ns, Fmax 54.56 MHz. |
-| `clk_rx` (50 MHz target) | Met: setup slack +2.903 ns, hold +0.182 ns, recovery +16.135 ns, removal +0.817 ns, Fmax 58.49 MHz. |
+| `clk_core` (50 MHz target) | Met: setup slack +1.150 ns, hold +0.140 ns, Fmax 53.05 MHz. |
+| `clk_rx` (50 MHz target) | Met: setup slack +2.814 ns, hold +0.182 ns, recovery +15.986 ns, removal +0.498 ns, Fmax 58.19 MHz. |
 | Unconstrained paths | 0. |
-| Logic elements | 7465 / 114480. |
-| Registers | 2923. |
+| Logic elements | 7376 / 114480. |
+| Registers | 2836. |
 | Memory | 4 / 432 M9K, 26112 memory bits. |
-| Worst setup path | `clk_core`, from the `mac` LTSSM `tx_mode` state to the receive descrambler's data register: 18.22 ns of data delay, slack +1.673 ns. |
+| Worst setup path | `clk_core`, inside the receive descrambler (`data_q[1]` to `data_q[15]`), slack +1.150 ns. |
+| Quartus warnings | Map 6, fit 2. |
 
-**Block RAM.** The two `dll` buffers are `common_sdp_ram` instances. The
-receive buffer (512 × 34) needs 2 M9Ks, since an M9K holds 512 × 18; the
-replay buffer (256 × 32) needs 1. That accounts for 3 of the 4 M9Ks and
-25600 of the 26112 block-RAM bits. If either buffer had stayed in
-registers, the total could not reach 25600. The fourth M9K holds a 512-bit memory
-elsewhere in the stack. `metrics.json` has only the totals; the
-per-instance RAM summary is in the Quartus map report, which stays on the
-CI host.
+**Block RAM** (`resources.rams`, one row per RAM in the fitter report):
+
+| Instance | Mode | Geometry | Bits | M9K | Mixed-port read during write |
+| --- | --- | --- | --- | --- | --- |
+| `dll` receive buffer, `u_rx_buf` `common_sdp_ram` | Simple dual port, single clock | 512 × 34 | 17408 | 2 | Old data |
+| `dll` replay buffer, `u_tlp_tx` `common_sdp_ram` | Simple dual port, single clock | 256 × 32 | 8192 | 1 | Old data |
+| `dll` TX `end_q` array, inferred by Quartus | Simple dual port, single clock | 64 × 8 | 512 | 1 | Old data |
+
+Both `dll` buffers are in M9K through the Intel backend's one-lane form, so
+neither is in registers. The fourth M9K is not a `common_sdp_ram`: Quartus
+infers the TX path's 64-entry `end_q` array as a RAM.
 
 **`dll` rollover path.** `ltssm_state_o` → `pkt_tx_valid` → `phy` is a
-`clk_core` path, so its slack is at least the clock's worst, +1.673 ns. The
+`clk_core` path, so its slack is at least the clock's worst, +1.150 ns. The
 flow reports only the single worst path, which is a different one (above),
-so the exact slack of this path is not measured.
+so this path's exact slack is a bound, not a measurement.
 
 ## Files
 
