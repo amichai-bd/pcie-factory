@@ -104,7 +104,8 @@ Memory reads and writes the application issues as bus master. A write is
   never below 128 bytes.
 - `rq_ready_o` is 0 on a `sop` beat while `bus_master_en_o` is 0,
   `d_state_o` is not D0, or `dl_up_o` is 0: a function issues no memory
-  request then [cite: PCIe Base Spec, rev 3.0, §7.5.1.1]. An offered
+  request then [cite: PCIe Base Spec, rev 3.0, §7.5.1.1]
+  [cite: PCIe Base Spec, rev 3.0, §5.3.1.4]. An offered
   request then waits.
 - `tl` sends requests in the order taken; posted writes keep that order
   with the interrupt writes `cfg` asks for ([ordering](TL_CFG.md#messages)).
@@ -147,6 +148,11 @@ The streams keep PCI Express ordering for what the application can see
   `tl` offers it only once every such write has been taken on `cq`. It
   never waits for an earlier read. The application therefore never makes
   taking a `cq` write depend on taking an `rc` beat.
+- On the transmit side, `tl` sends a completion formed from `cc` only
+  after every posted write it took on `rq` before that completion's `sop`
+  beat, so a host that reads a flag through BAR0 after the application
+  wrote data to host memory sees the data. Interrupt writes keep the same
+  order behind `rq` writes ([messages](TL_CFG.md#messages)).
 
 ## Interrupts
 
@@ -158,12 +164,15 @@ software has programmed (decision F4,
 | --- | --- | --- | --- | --- |
 | `irq_valid_i` | in | 1 | `clk_i` | An interrupt request. |
 | `irq_ready_o` | out | 1 | `clk_i` | `cfg` takes it; 0 from then until its `irq_done_o`. |
-| `irq_vector_i` | in | 6 | `clk_i` | MSI-X vector, 0 to `MSIX_TABLE_SIZE` − 1. Ignored under MSI, which has one vector. |
+| `irq_vector_i` | in | 6 | `clk_i` | MSI-X vector, 0 to `MSIX_TABLE_SIZE` − 1 (an application obligation, checked by an assertion). Ignored under MSI, which has one vector. |
 | `irq_done_o` | out | 1 | `clk_i` | One-cycle pulse: the request is resolved. |
-| `irq_status_o` | out | 2 | `clk_i` | With `irq_done_o`: 0 sent (handed to `tl`, which sends it after every posted request taken before), 1 pending (MSI-X vector or function masked: the pending bit is set and the message goes out when software unmasks it), 2 dropped. |
+| `irq_status_o` | out | 2 | `clk_i` | With `irq_done_o`: 0 sent (handed to `tl`, which sends it after every posted request taken before), 1 pending (held in a pending bit and sent by `cfg` once allowed, with no further report), 2 dropped. |
 
-A request is dropped when neither MSI nor MSI-X is enabled, bus mastering
-is disabled, the function is not in D0, or the vector is out of range.
+A request is pending when it may not leave yet: under MSI-X when its
+vector or the function is masked, and under MSI or MSI-X when bus
+mastering is disabled or the function is not in D0 (decision record
+[0004](../../decisions/0004-m3-grill.md#updates), Q11). No interrupt is
+lost: a request is dropped only when neither MSI nor MSI-X is enabled.
 
 ## Status
 

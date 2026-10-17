@@ -82,8 +82,10 @@ configuration write takes effect, or at reset.
 - **BAR hit.** A memory request hits BARn when `mem_space_en` is 1,
   `d_state` is D0, its address bits `[63:32]` are 0 and its bits
   `[31:k]` equal those of `barn_base`, with k = `BAR0_ADDR_W` for BAR0 and
-  12 for BAR2 (BAR2 is 4 KiB). Any other memory request is an
-  Unsupported Request [cite: PCIe Base Spec, rev 3.0, §2.3.1].
+  12 for BAR2 (BAR2 is 4 KiB). Any other memory request, those outside
+  D0 included, is an Unsupported Request
+  [cite: PCIe Base Spec, rev 3.0, §2.3.1]
+  [cite: PCIe Base Spec, rev 3.0, §5.3.1.4].
 - `bus_master_en` 0 or `d_state` not D0 stops `tl` taking requests on
   `rq`; `cfg` already gates the interrupts it asks for.
 - Not on this interface: the MSI and MSI-X state (`cfg` resolves
@@ -92,6 +94,10 @@ configuration write takes effect, or at reset.
   bytes, decision F2; `cfg` drives the [status outputs](APP.md#status)).
   The completion timeout is fixed in `tl`; `cfg` advertises it as not
   programmable ([#285](https://github.com/amichai-bd/pcie-factory/issues/285)).
+- The read completion boundary is fixed at 64 bytes: `cfg` hardwires the
+  Link Control RCB bit to 0 (64 bytes), so software cannot set a boundary
+  that disagrees with how `tl` splits completions
+  [cite: PCIe Base Spec, rev 3.0, §7.8.7].
 
 ### Error events
 
@@ -104,7 +110,7 @@ cycle give one pulse. `cfg` turns them into status bits and messages
 | 0 | Unsupported Request, posted: a posted request or message `tl` does not serve; dropped, no completion. |
 | 1 | Unsupported Request, non-posted: `tl` answered it with an Unsupported Request completion. |
 | 2 | Malformed TLP: a received TLP failed a `tl` format check; dropped. |
-| 3 | Poisoned request: a received request with its poisoned bit set; dropped. |
+| 3 | Poisoned request: a received request with its poisoned bit set. A posted one is dropped; a non-posted one (a configuration write, say) is discarded without effect and answered with an Unsupported Request completion [cite: PCIe Base Spec, rev 3.0, §2.7.2.2]. Only bit 3 pulses, never bit 1 as well, so `cfg` counts the event once. |
 | 4 | Poisoned completion: a received completion for one of this function's reads with its poisoned bit set. |
 | 5 | Unexpected completion: a completion that matches no outstanding read. |
 | 6 | Completion timeout: a read's completions did not all arrive in time. |
@@ -137,28 +143,42 @@ so there is no Signaled Target Abort event.
 - An error message is a Message routed to the Root Complex with no data,
   with the code of its kind [cite: PCIe Base Spec, rev 3.0, §2.2.8.3].
 - A message taken is sent unless the link goes down first.
+- **No wait between the two handshakes.** `cfg` never holds
+  `reg_req_ready` or delays `reg_cpl_valid` waiting for `msg_ready`, and
+  `tl` never holds `msg_ready` waiting for `reg_cpl_valid` or a
+  `reg_req_ready`. A BAR2 write that unmasks a pending vector makes `cfg`
+  offer a message while `tl` waits for that write's `reg_cpl_valid`; the
+  rule keeps the two IPs, specified apart, free of deadlock.
 
 ### Interrupt resolution
 
 The application's [interrupt port](APP.md#interrupts) belongs to `cfg`,
 which resolves each request and answers it:
 
-1. Neither MSI nor MSI-X enabled, `bus_master_en` 0, or `d_state` not
-   D0: dropped.
-2. MSI-X enabled (it wins if software also enabled MSI): an out-of-range
-   vector is dropped. Otherwise `cfg` reads the vector's table entry; if
-   the vector or the function is masked, it sets the vector's pending bit
-   (status pending). Otherwise it offers an interrupt write with the
-   entry's address and data.
-3. MSI enabled: an interrupt write with the MSI address and data. MSI has
-   one vector and no per-vector masking (decision F4).
+An interrupt is **allowed** while `bus_master_en` is 1 and `d_state` is
+D0: nothing leaves the function otherwise (decision record 0004, Q11).
 
-`irq_status_o` reports sent when `tl` takes the write. When software
-unmasks a vector, or clears the function mask, while its pending bit is
-set and step 1 does not drop it, `cfg` clears the bit and
-offers the write itself; the application sees no report for it
-[cite: PCIe Base Spec, rev 3.0, §6.1.4]. Pending bits are read through
-BAR2 like the table.
+1. Neither MSI nor MSI-X enabled: dropped (there is no INTx).
+2. MSI-X enabled (it wins if software also enabled MSI): `cfg` reads the
+   vector's table entry. If the vector or the function is masked, or the
+   interrupt is not allowed, it sets the vector's pending bit (status
+   pending). Otherwise it offers an interrupt write with the entry's
+   address and data. An MSI-X request is never dropped.
+3. MSI enabled: if allowed, an interrupt write with the MSI address and
+   data. If not, `cfg` sets its one internal MSI pending flag (status
+   pending) and offers the write once allowed; the flag clears when the
+   write is taken, when software clears MSI Enable, or at reset. MSI has
+   one vector and no per-vector masking (decision F4), so several
+   requests while pending give one write.
+
+`irq_status_o` reports sent when `tl` takes the write. A pending vector
+is sent once it is unmasked (vector and function mask both clear) and
+the interrupt is allowed, in whichever order the two happen: `cfg` then
+clears the pending bit and offers the write itself, and the application
+sees no report for it [cite: PCIe Base Spec, rev 3.0, §6.1.4]. Unmasking
+while the interrupt is not allowed leaves the bit set. Pending bits are
+read through BAR2 like the table. A vector at or above `MSIX_TABLE_SIZE`
+is an application error that the RTL checks with an assertion.
 
 ## Link to cfg
 

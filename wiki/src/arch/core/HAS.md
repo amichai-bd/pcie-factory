@@ -94,7 +94,8 @@ the [`link` ones](../link/HAS.md#clocks-and-resets), unchanged: `tl` and
 - `rst_i` (synchronous, active high, at least 8 `clk_i` cycles) resets
   `link`, `tl` and `cfg`.
 - `tl` and `cfg` are also held in reset in every cycle where the `link`
-  `dl_up_o` is 0. For an Upstream Port the link going down is a reset of
+  `dl_up_o` is 0 (decision record
+  [0004](../../decisions/0004-m3-grill.md#updates), Q10). For an Upstream Port the link going down is a reset of
   the function [cite: PCIe Base Spec, rev 3.0, §2.9.1]
   [cite: PCIe Base Spec, rev 3.0, §6.6.1]. A Hot Reset from the host takes
   the LTSSM out of L0, so `link_up_o` and then `dl_up_o` fall: it resets
@@ -141,10 +142,19 @@ queues received posted and non-posted requests per class, each queue
 sized by the credits advertised, and the credits of a request return to
 the host only when the request leaves `tl`'s queue (to the application or
 `cfg`, or answered with Unsupported Request), not when `link` delivers
-it. This needs a credit-release input on `link` and `dll`, which return
-credits at delivery today ([open questions](#open-questions)). Completions
-need no release: `tl` reserves room for every outstanding read (8 of at
-most 128 bytes).
+it (decision record [0004](../../decisions/0004-m3-grill.md#updates),
+Q9). `link` and `dll` gain the credit-release input this needs; they
+return credits at delivery until then
+([#303](https://github.com/amichai-bd/pcie-factory/issues/303)), and
+`core` and `tl` assume it. Completions need no release: `tl` reserves room
+for every outstanding read (8 of at most 128 bytes).
+
+Non-posted requests may pass one another
+[cite: PCIe Base Spec, rev 3.0, §2.4.1], so configuration and BAR2
+requests pass BAR0 reads waiting for a free handle: enumeration and
+interrupt set-up never wait on the application. How `tl` arranges its
+non-posted queue to do so is the `tl` HAS's
+([#286](https://github.com/amichai-bd/pcie-factory/issues/286)).
 
 ### Link down
 
@@ -167,35 +177,46 @@ nothing is lost ([`link` stack wiring](../link/HAS.md#stack-wiring)).
 
 ## Decisions
 
+Rows citing Q9 to Q12 are the captain's decisions of 2026-10-18
+(decision record [0004](../../decisions/0004-m3-grill.md#updates)). The
+others are firstmate decisions as the captain's delegate, which the
+captain may override.
+
 | Choice | Rationale | Rejected |
 | --- | --- | --- |
 | 32-bit beats on all four streams | One DW per `clk_i` cycle is 500 MB/s per stream, twice the 250 MB/s Gen1 x1 line; it matches the `dll` stream, so `tl` needs no width conversion and the application keeps up with a 128-byte write (32 beats in the 74 cycles it takes on the line). | 64-bit beats (twice the muxes and buffers for no rate gain until Gen2 or a wider link). |
 | Decoded headers, data in DWs, `tl` forms completions | The application sees addresses, lengths and byte enables, never TLP formats; splitting on the read completion boundary stays in `tl`. | Raw TLPs (every application re-implements the header rules); the application forming its completions. |
 | Completer reads answered by handle (8) | The application returns 3 bits; `tl` keeps the requester ID, tag, attributes and address for the completion. Eight matches the requester side (F2). | Passing the requester ID and tag through the application (wider ports, one more contract to check). |
 | The application chooses requester tags 0 to 7 | It already tracks its reads; `tl` checks the tag is free. | `tl` allocating tags (a return path to the application before the read is sent). |
-| Credits released when a request leaves `tl` | Bounds `tl`'s queues by the advertised credits and lets the application stall; the host sends no more than `core` can hold. | Releasing at delivery, as `dll` does today: then nothing bounds what the host sends, so either `tl` needs unbounded queues or the application must never stall and must queue unbounded reads itself. |
+| Credits released when a request leaves `tl`, through a new `link` and `dll` input (Q9, amending M2 Q5; [#303](https://github.com/amichai-bd/pcie-factory/issues/303)) | Bounds `tl`'s queues by the advertised credits and lets the application stall; the host sends no more than `core` can hold. | Releasing at delivery with `link` unchanged: nothing bounds what the host sends, so the application must never stall `cq` and must queue any number of host reads itself, and `tl` has no bound on the configuration and BAR2 reads and Unsupported Request completions it holds. |
 | Endpoint only: upstream role and no link control inputs | Q1. The downstream-only requests and Retrain Link do not apply. | Exposing the `link` controls (inputs with no legal use). |
-| `tl` and `cfg` held in reset while `dl_up_o` is 0 | One rule covers link-down, Hot Reset and power-on alike. | Separate link-down clean-up logic in each IP. |
+| `tl` and `cfg`, configuration space included, held in reset while `dl_up_o` is 0; no function-level reset (Q10) | One rule covers link-down, Hot Reset and power-on alike. | Separate link-down clean-up logic in each IP; a function-level reset (no M3 user). |
+| Outside D0, memory requests get Unsupported Request and nothing leaves the function; an MSI or MSI-X request that may not leave yet is held pending and sent once allowed (Q11) | No interrupt is lost; one "allowed" rule (bus mastering on, D0) gates every request and interrupt. | Dropping interrupts while bus mastering is off. |
+| Configuration and BAR2 requests pass BAR0 reads waiting for a handle | Enumeration never depends on the application answering; non-posted requests may pass one another. | One strict non-posted order (a slow application blocks configuration). |
 | Flat `logic` nets between `tl` and `cfg` | They are the top ports of two top-level IPs and mirror the interface this HAS names, the [RTL BKM](../../../bkm/rtl.md#structs-at-interfaces) exception; inside each IP, structs. | Structs in `common_pkg` (a shared package for one pair of IPs). |
 | BAR bases cross, not a hit signal | The sizes are parameters both IPs know; `tl` decodes on its own receive path. | A hit signal from `cfg` (a round trip through `cfg` on every request). |
 | `cfg` decides error messages; `tl` reports events | Severity, enables and status bits sit together in `cfg`. | `tl` deciding from enables (the enables cross and the rules split). |
-| `cfg` resolves interrupts and owns the application's interrupt port | MSI and MSI-X state, the table and pending bits stay in `cfg`; `tl` only sends writes. MSI-X wins if both are enabled. | `tl` reading the table through `cfg` (the state crosses and unmasking needs `tl`). |
+| `cfg` resolves interrupts and owns the application's interrupt port; MSI and MSI-X state stays in `cfg` | The table, masks and pending bits stay where software writes them; `tl` only sends the writes `cfg` asks for. MSI-X wins if both are enabled; MSI ignores the vector. This departs from #284's acceptance wording, which lists MSI and MSI-X state among what `tl` needs. | `tl` reading the table through `cfg` (the state crosses and unmasking needs `tl`). |
 | No error inputs from the application, no Completer Abort | Every BAR0 read is answered with data; M3 needs no completer error. | A Completer Abort status on `cc` (no M3 user). |
 | BAR2 fixed at 4 KiB, at most 64 vectors | One page holds the largest table (1 KiB) and the pending bits; `tl`'s BAR2 decode is fixed. | A BAR2 size that follows `MSIX_TABLE_SIZE`. |
-| Identity defaults all zero, class FFh | Claim no assigned vendor (F7). | Any assigned or commonly reused ID. |
+| Identity defaults all zero, class FFh (Q12 for the Vendor ID) | Claim no assigned vendor (F7); users override the ID parameters. | Any assigned or commonly reused ID. |
+| Throughput at least 0.98 of the `link` payload rate | See [targets](#targets); `tl` adds no line bytes. | 1.0 (no margin for start, drain and the longer credit loop). |
 
 ## Targets
 
 Measured with `core` back to back with a host's `link`, error-free, the
 application and the host always taking and offering. The line rate and the payload
 measure are the [`link` targets](../link/HAS.md#targets)'. `tl` adds no
-bytes on the line: each target is a fraction of the `link` payload rate.
+bytes on the line. Each throughput target has two bounds, both checked:
+`core`'s payload rate is at least 0.98 of the `link` payload rate
+(`fraction_of_link`), and at least 0.98 of the `link` payload target as a
+fraction of the line (`payload_line_fraction`).
 
 | Item | Target | Check |
 | --- | --- | --- |
-| Host writes in | 128-byte memory writes from the host to BAR0, back to back: payload delivered on `cq` at least **0.98 of the `link` one-way payload rate** (0.98 × 0.85 = 0.833 of the line, 208 MB/s). | `mwr_derived` (closed form); to be confirmed by the `core` arch model, [#287](https://github.com/amichai-bd/pcie-factory/issues/287) |
+| Host writes in | 128-byte memory writes from the host to BAR0, back to back: payload delivered on `cq` at least **0.98 of the `link` one-way payload rate** and at least **0.833 of the line** (0.98 × the 0.85 `link` target, 208 MB/s). | `mwr_derived` (closed form); to be confirmed by the `core` arch model, [#287](https://github.com/amichai-bd/pcie-factory/issues/287) |
 | Application writes out | The same, the application writing to the host on `rq`. | as above |
-| Both ways | Both at once: at least 0.98 of the `link` both-ways payload rate (0.98 × 0.76 = 0.745 of the line, 186 MB/s) in each direction. | as above |
+| Both ways | Both at once, in each direction: at least **0.98 of the `link` both-ways payload rate** and at least **0.745 of the line** (0.98 × the 0.76 `link` target, 186 MB/s). | as above |
 | Enumeration and traffic | Goal items 4 to 6 of the [M3 record](../../decisions/0004-m3-grill.md#goal), end to end against the host model. | [#293](https://github.com/amichai-bd/pcie-factory/issues/293) |
 | FPGA clock | `clk_i` and `ser_rx_clk_i` at 50 MHz on the DE2-115 (Quartus): timing and resources only (M1 Q26). | [#295](https://github.com/amichai-bd/pcie-factory/issues/295) |
 | ASIC clock | sky130hd (ORFS): the gate is the 100 MHz checkpoint in study mode (M1 Q27); 125 MHz reported nightly, its closure future work ([#235](https://github.com/amichai-bd/pcie-factory/issues/235)). | [#296](https://github.com/amichai-bd/pcie-factory/issues/296) |
@@ -229,10 +250,5 @@ The Base Spec is not in the local cache (`./build specs list`:
 
 | Item | Owner |
 | --- | --- |
-| **Credit release.** The [credits](#credits) rule needs `link` and `dll` to return posted and non-posted credits on a release from `tl`, not at delivery: a change to two signed-off IPs and to M2 Q5's "unchanged" `link`. The fallback keeps `link` unchanged and makes the application never stall `cq` and queue any number of host reads itself. | Captain |
-| **Link down resets the function**, as [reset](#reset) states, including the configuration space. | Captain |
-| **D3hot:** memory requests are Unsupported Requests and the function issues no requests or interrupts outside D0 ([BAR hit](TL_CFG.md#register-state), [interrupts](APP.md#interrupts)) [cite: PCIe Base Spec, rev 3.0, §5.3.1.4]. | Captain; [#285](https://github.com/amichai-bd/pcie-factory/issues/285), [#286](https://github.com/amichai-bd/pcie-factory/issues/286) |
-| **MSI-X with bus mastering disabled:** this design drops the request; the spec may require setting the pending bit instead. | Captain; [#285](https://github.com/amichai-bd/pcie-factory/issues/285) |
-| **Placeholder IDs:** Vendor ID 0x0000 claims no vendor but some host software skips it; a real board needs an assigned ID. | Captain |
 | **Throughput targets** from the closed form; the composed model confirms or corrects them. | [#287](https://github.com/amichai-bd/pcie-factory/issues/287) |
-| The cited sections on this page and its sub-pages, checked against rev 3.0. | Captain, with a local copy |
+| The cited sections on this page and its sub-pages, checked against rev 3.0; on [TL_CFG](TL_CFG.md#error-events), the poisoned non-posted request answered with Unsupported Request [cite: PCIe Base Spec, rev 3.0, §2.7.2.2]; outside D0, memory requests answered with Unsupported Request [cite: PCIe Base Spec, rev 3.0, §5.3.1.4]. | Captain, with a local copy; [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
