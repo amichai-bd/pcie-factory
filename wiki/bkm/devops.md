@@ -30,7 +30,7 @@ it; nothing calls a tool script directly.
 | `labels` | Label sync from `cfg/labels.yaml`. |
 | `pr` | Read-only pre-check of a PR body's recorded evidence before review ([pr spec](../tools/pr/SPEC.md)). |
 | `ci` | `ci-gate` helpers: unit suites, vendor checks, aggregation and job summary ([CI spec](../tools/ci/SPEC.md)). |
-| `metrics` | Nightly metrics, the data guard and the `nightly-red` issue ([metrics spec](../tools/metrics/SPEC.md)). |
+| `metrics` | Nightly metrics, trend drop alerts, the data guard and the `nightly-red` issue ([metrics spec](../tools/metrics/SPEC.md)). |
 | `wiki` | Wiki site build. |
 | `specs` | Local cache of official reference documents, outside the repository and never committed ([specs spec](../tools/specs/SPEC.md)). |
 | `clean` | Remove `workdir/` output. |
@@ -262,7 +262,9 @@ permissions and data PR mechanics):
    leaves the host: the logs themselves stay in `workdir/` and are never
    uploaded as artifacts (publishability).
 3. Metrics: the per-commit series `wiki/tracker/data/commits.jsonl` and the
-   nightly record `wiki/tracker/data/<date>.json` (versioned schemas).
+   nightly record `wiki/tracker/data/<date>.json` (versioned schemas), and
+   the per-IP trend drop alerts (thresholds in `cfg/metrics.yaml`) in the
+   job summary and on the tracker ([trends](../tools/metrics/SPEC.md#trends)).
 4. A data PR from branch `nightly/<date>`, labelled `type:data`, under the
    permanent exception in [`CLAUDE.md`](../../CLAUDE.md#flow): the data
    guard in `ci-gate` fails it if it touches anything outside

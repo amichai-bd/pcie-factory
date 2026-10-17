@@ -790,3 +790,91 @@ def test_retired_ip_history_still_renders(tmp_path):
     html = overview_html(out)
     assert 'href="ip/gone/index.html">gone →</a>' in html
     assert "gone:" not in html  # its old FPGA failure and ASIC gap are not current
+
+
+# ------------------------------------------------------------ drop alerts
+TRENDS = Path(__file__).resolve().parents[2] / "metrics" / "tests" / "fixtures" / "trends"
+REPO = Path(__file__).resolve().parents[3]
+
+
+def trends_tree(root: Path, cfg: str | None = "repo") -> Path:
+    """The metrics trend fixture history (see test_metrics_trends.py), and
+    the repository's cfg/metrics.yaml, or `cfg` as its text, or none."""
+    tree(root, {f.name: f.read_text() for f in TRENDS.glob("*.json")})
+    if cfg is not None:
+        (root / "cfg").mkdir()
+        text = (REPO / "cfg/metrics.yaml").read_text() if cfg == "repo" else cfg
+        (root / "cfg/metrics.yaml").write_text(text)
+    return root
+
+
+def attention(html: str) -> list[str]:
+    block = re.search(r'<ul class="tracker-attention">(.*?)</ul>', html, re.S)
+    return re.findall(r"<li>(.*?)</li>", block.group(1)) if block else []
+
+
+def test_drop_alerts_on_landing_details_and_ip_pages(tmp_path):
+    problems, out = build(trends_tree(tmp_path))
+    assert problems == []
+    landing = (out / "tracker/index.html").read_text()
+    drops = [a for a in attention(landing) if "dropped" in a]
+    assert len(drops) == 3
+    assert "alpha: Line coverage dropped 90% → 88.5% (−1.5 pts; threshold 1 pts)." in drops[0]
+    assert all('href="ip/alpha/index.html#drop-alerts"' in a and "warning" in a for a in drops)
+    details = (out / "tracker/details/index.html").read_text()
+    section = details[details.index('id="drop-alerts"'):details.index('id="architecture-model"')]
+    assert section.count("alert</span>") == 3 and 'href="../ip/alpha/index.html"' in section
+    assert "Line coverage 1 pts; Toggle coverage 1 pts" in section
+    assert chart_data(details)["charts"]["mutant-score"]["series"][0]["points"] == [[1, 90.0], [3, 80.0]]
+    alpha = (out / "tracker/ip/alpha/index.html").read_text()
+    ip_section = alpha[alpha.index('id="drop-alerts"'):]
+    assert ip_section.count("alert</span>") == 3 and "<td>Mutant score</td>" in ip_section
+    assert chart_data(alpha)["charts"]["ip-mutant-score"]["series"][0]["points"] == [[1, 90.0], [3, 80.0]]
+    # line coverage keeps a gap at the record without coverage
+    cov = {s["label"]: s["points"] for s in chart_data(alpha)["charts"]["ip-coverage"]["series"]}
+    assert [x for x, _ in cov["Line coverage"]] == [1, 3]
+
+
+def test_retired_and_coverage_only_ips_render_without_alerts(tmp_path):
+    problems, out = build(trends_tree(tmp_path))
+    assert problems == []
+    for ip in ("beta", "gamma"):  # beta retired before the latest record; gamma has coverage only
+        page = (out / f"tracker/ip/{ip}/index.html").read_text()
+        assert chart_data(page)["charts"]["ip-coverage"]["series"]
+        assert "No series has dropped beyond its threshold." in page
+    assert not [a for a in attention((out / "tracker/index.html").read_text()) if "beta" in a or "gamma" in a]
+
+
+def test_flat_history_does_not_alert(tmp_path):
+    flat = {f.name: f.read_text() for f in sorted(TRENDS.glob("*.json"))[:3]}
+    tree(tmp_path, flat)
+    (tmp_path / "cfg").mkdir()
+    (tmp_path / "cfg/metrics.yaml").write_text((REPO / "cfg/metrics.yaml").read_text())
+    problems, out = build(tmp_path)
+    assert problems == []
+    assert not [a for a in attention((out / "tracker/index.html").read_text()) if "dropped" in a]
+    assert "No series has dropped beyond its threshold." in (out / "tracker/details/index.html").read_text()
+
+
+def test_drop_alerts_off_without_config_and_reported_when_invalid(tmp_path):
+    problems, out = build(trends_tree(tmp_path / "none", cfg=None))
+    assert problems == []
+    assert not [a for a in attention((out / "tracker/index.html").read_text()) if "dropped" in a]
+    assert "Drop alerts are off" in (out / "tracker/ip/alpha/index.html").read_text()
+    problems, out = build(trends_tree(tmp_path / "bad", cfg="data_dir: x\n"))
+    assert len(problems) == 1 and "cfg/metrics.yaml: missing keys" in problems[0]
+    assert "drop alerts are off" in problems[0]
+
+
+def test_an_earlier_drop_is_history_not_an_alert(tmp_path):
+    cov = lambda v: {"coverage": {"ips": {"alpha": {"line": {"pct": v}}}}}  # noqa: E731
+    tree(tmp_path, {f"2026-01-0{i + 1}.json": nightly(f"2026-01-0{i + 1}", i + 1, **cov(v))
+                    for i, v in enumerate((90.0, 80.0, 85.0))})
+    (tmp_path / "cfg").mkdir()
+    (tmp_path / "cfg/metrics.yaml").write_text((REPO / "cfg/metrics.yaml").read_text())
+    problems, out = build(tmp_path)
+    assert problems == []
+    assert not [a for a in attention((out / "tracker/index.html").read_text()) if "dropped" in a]
+    page = (out / "tracker/ip/alpha/index.html").read_text()
+    section = page[page.index('id="drop-alerts"'):]
+    assert "<td>2026-01-02</td><td>Line coverage</td>" in section and "alert</span>" not in section

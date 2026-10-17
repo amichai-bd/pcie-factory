@@ -252,8 +252,8 @@ explicitly labelled; its denominator can differ from the commit series. Commit d
 its own date/commit label, separate from the nightly snapshot.
 
 “Needs attention” puts recorded run, step, test/build, CI and physical-flow
-failures first, then coverage failures and physical timing gaps, then missing
-summary evidence. Negative ASIC WNS remains visible even when its flow
+failures first, then coverage failures, physical timing gaps and
+[drop alerts](#drop-alerts), then missing summary evidence. Negative ASIC WNS remains visible even when its flow
 passed; attention items link to the relevant evidence. At most five items
 appear, with a count and link to the full attention list on Detailed stats. Two compact runtime charts show CI and nightly on the latest 30
 main commits, with at most four x-axis tick labels and accessible data
@@ -269,9 +269,10 @@ data interpretation links. Existing per-IP pages retain their content.
 | Code | LOC and files by kind, LOC per IP, lines-per-file and file-size histograms, and tables of the file-type distribution by extension and top-level directory with share bars. |
 | CI | `ci-gate` duration per commit, marked by result; duration histogram. |
 | Nightly and tests | Nightly duration marked by result; tests, failing tests and runtime per level; test runtime histogram; slowest tests table. |
-| Coverage | Line, toggle and functional coverage (`coverage.ips.<ip>.<metric>.pct`), one chart per metric with a series per IP. |
+| Coverage | Line, toggle and functional coverage (`coverage.ips.<ip>.<metric>.pct`), one chart per metric with a series per IP; the mutant score, a series per IP, where records carry it ([metrics spec](../metrics/SPEC.md#trends)). |
 | Issues and pull requests | Open issues and PRs, issues opened and closed and PRs merged in the trailing 7 days; histograms of issue time to close and to first response or claim, PR lead time, PR size and review rounds; open issues by label. |
 | FPGA, ASIC | One chart per metric with a series per IP: LEs, registers, M9K blocks, worst-clock Fmax and setup slack; WNS, TNS, std-cell area, cells, max fanout and logic depth. |
+| Drop alerts | The thresholds, then every drop beyond its threshold over the nightly records, newest first, with IP, series, previous value and date, value, change and threshold; the latest record's drops are marked as alerts ([Drop alerts](#drop-alerts)). |
 | Architecture model | From `arch.ips.<ip>.scenarios`: a table of each IP and perf scenario's latest status and target-metric values; perf scenarios not passing, a series per IP, on a y axis from 0; and one chart per target metric with a series per IP and scenario (`<ip> / <scenario>`). A chart's unit is the one its metric name carries: the words after the first, less a trailing statistic (`latency_cycles_max` is in cycles). |
 
 The detailed page's legacy Nightly card takes `meta.nightly.result` (legacy
@@ -288,10 +289,23 @@ IP's comparison table (with each scenario's target metrics), LOC by kind,
 tests per level, its FPGA and ASIC charts (plus, when its ASIC records carry
 `timing.clocks`, WNS and TNS charts with a series per clock, sorted by
 name), one coverage chart with a series
-per metric, and its architecture model: the scenario status table and one
+per metric and a mutant score chart where recorded, its drop alerts (the
+details table for this IP), and its architecture model: the scenario status table and one
 chart per target metric with a series per scenario. `/tracker/ip/` lists the
 IPs, with their latest arch status; the tracker sidebar lists them under it
-([Tabs](#navigation)).
+([Tabs](#navigation)). An IP is any id under `code.ips`, `tests.ips` or the
+`ips` of `fpga`, `asic`, `arch`, `coverage` or `mutants` in any record, so a
+retired IP keeps its page.
+
+<a id="drop-alerts"></a>**Drop alerts.** The per-IP series, the drop rule and
+the thresholds are the metrics tool's
+([`trends`](../metrics/SPEC.md#trends)); the site reads `drop_alerts` from
+`cfg/metrics.yaml` beside `wiki/` and applies the rule to the nightly
+records in axis order. Each alert (a drop at the latest record) is a warning
+in “Needs attention”, written as `<ip>: <series> dropped <previous> →
+<value> (<change>; threshold <t>)` and linking to the IP page's drop alerts.
+Without `cfg/metrics.yaml` alerts are off and the drop sections say so; a
+file that does not load is a problem and alerts are off.
 
 **Charts.** Each chart is a `<canvas>` with a caption naming the quantity and
 unit, an axis title on both axes, and a data table (the latest 30 points, or
@@ -364,5 +378,5 @@ every change.
 | [`tools/cli/main.py`](../../../tools/cli/main.py) | `./build wiki` entry in `COMMANDS`. |
 | [`tools/wiki_site/tracker.py`](../../../tools/wiki_site/tracker.py) | Tracker rendering. |
 | [`tools/wiki_site/theme/`](../../../tools/wiki_site/theme/) | CSS, JS (`wiki.js`, `tracker.js`), vendored Mermaid and Chart.js, provenance. |
-| [`tools/wiki_site/tests/`](../../../tools/wiki_site/tests/) | Unit tests (pytest); synthetic tracker records in `fixtures/tracker/`. |
+| [`tools/wiki_site/tests/`](../../../tools/wiki_site/tests/) | Unit tests (pytest); synthetic tracker records in `fixtures/tracker/`; the drop-alert tests reuse the metrics trend history (`tools/metrics/tests/fixtures/trends/`): alerts on the landing, details and IP pages, an earlier drop kept as history, a flat history, retired and coverage-only IPs, and a missing or invalid configuration. |
 | [`.github/workflows/pages.yml`](../../../.github/workflows/pages.yml) | Build and deploy workflow. |

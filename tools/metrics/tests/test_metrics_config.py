@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from metrics import trends
 from metrics.config import MetricsError, load, match
 
 from conftest import REPO_ROOT
@@ -20,6 +21,7 @@ def test_repo_config_loads(cfg):
     assert cfg.branch_prefix == "nightly/"
     assert cfg.windows == (1, 7, 30)
     assert "rtl_sv" in cfg.kinds
+    assert set(cfg.drop_alerts) == set(trends.KEYS) and all(v >= 0 for v in cfg.drop_alerts.values())
 
 
 @pytest.mark.parametrize("change, msg", [
@@ -32,6 +34,12 @@ def test_repo_config_loads(cfg):
     (lambda r: r.update(kinds={"Bad Kind": ["x"]}), "bad kind name"),
     (lambda r: r.update(line_comments={"py": ["#"]}), "must start with"),
     (lambda r: r.update(fpga_fields=["a..b"]), "bad field path"),
+    (lambda r: r.update(drop_alerts=[1]), "drop_alerts: must be a mapping"),
+    (lambda r: r["drop_alerts"].pop("asic_wns"), "missing: asic_wns"),
+    (lambda r: r["drop_alerts"].update(other=1), "unknown: other"),
+    (lambda r: r["drop_alerts"].update(asic_wns=-0.1), "drop_alerts.asic_wns: must be a non-negative"),
+    (lambda r: r["drop_alerts"].update(asic_wns=True), "drop_alerts.asic_wns: must be a non-negative"),
+    (lambda r: r["drop_alerts"].update(asic_wns="1"), "drop_alerts.asic_wns: must be a non-negative"),
 ])
 def test_bad_config(tmp_path, change, msg):
     with pytest.raises(MetricsError, match=msg):

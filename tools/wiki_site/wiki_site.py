@@ -251,7 +251,7 @@ class Site:
         folder = next((f for f in self.tree.folders if f.rel == "tracker"), None)
         if landing is None or folder is None:
             return
-        body, pages, problems = tracker.render(self.root / TRACKER / tracker.DATA_DIR)
+        body, pages, problems = tracker.render(self.root / TRACKER / tracker.DATA_DIR, self.root / "cfg")
         self.problems += problems
         text = self.pages[landing].source.rstrip("\n") + "\n\n" + body
         self.pages[landing] = Page(self.md, landing, text)

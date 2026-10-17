@@ -18,10 +18,15 @@ import datetime as dt
 import json
 import math
 import re
+import sys
 from dataclasses import dataclass, field
 from html import escape
 from pathlib import Path
 from urllib.parse import quote
+
+if str(Path(__file__).resolve().parents[1]) not in sys.path:  # tools/, when run as a script
+    sys.path.append(str(Path(__file__).resolve().parents[1]))
+from metrics import trends  # noqa: E402  per-IP trend series and the drop rule
 
 SUPPORTED_SCHEMAS = (1,)
 DATA_DIR = "data"  # under wiki/tracker/
@@ -273,6 +278,7 @@ def test_slowest(r):          return dig(r, "tests.slowest")
 def fpga_ip(r, ip):           return flow_ips(r, "fpga").get(ip)
 def asic_ip(r, ip):           return flow_ips(r, "asic").get(ip)
 def coverage_ip(r, ip):       return flow_ips(r, "coverage").get(ip)  # {line, toggle, functional: {pct}}
+def mutants_ip(r, ip):        return flow_ips(r, "mutants").get(ip)  # {score_pct} or {killed, total}
 def arch_ip(r, ip):           return flow_ips(r, "arch").get(ip)  # {status, scenarios: {name: {status, targets}}}
 def arch_scenarios(r, ip):    return mapping(arch_ip(r, ip), "scenarios")
 def arch_status(r, ip, sc):   return text(arch_scenarios(r, ip).get(sc), "status")
@@ -340,6 +346,8 @@ COVERAGE = [
     Metric("cov-toggle", "Toggle coverage", "%", lambda m: first(m, "toggle.pct")),
     Metric("cov-functional", "Functional coverage", "%", lambda m: first(m, "functional.pct")),
 ]
+# Mutant score per IP, where a record carries `mutants` (wiki/tools/metrics/SPEC.md#trends).
+MUTANTS = [Metric("mutant-score", "Mutant score", "%", trends.mutant_score)]
 
 # Histograms: (key in `distributions`, title, unit shown, factor from stored unit, integer bins)
 HISTOGRAMS = {
@@ -623,7 +631,8 @@ def ip_ids(d: Data) -> tuple[list[str], list[str]]:
     seen: set[str] = set()
     for p in d.commits + d.nightly:
         for m in (mapping(p.data, "code.ips", "code.by_ip"), mapping(p.data, "tests.ips", "tests.by_ip"),
-                  flow_ips(p.data, "fpga"), flow_ips(p.data, "asic"), flow_ips(p.data, "arch")):
+                  flow_ips(p.data, "fpga"), flow_ips(p.data, "asic"), flow_ips(p.data, "arch"),
+                  flow_ips(p.data, "coverage"), flow_ips(p.data, "mutants")):
             seen.update(k for k in m if isinstance(k, str))
     good = sorted(i for i in seen if IP_ID.match(i) and ".." not in i.split("/"))
     return good, [f"wiki/tracker/{DATA_DIR}: IP id {i!r} is not a safe path; skipped"
@@ -698,7 +707,7 @@ def attention_html(items, prefix="") -> str:
         for _, state, message, target in items) + '</ul>'
 
 
-def overview_section(p: Page, d: Data, ips: list[str], details: Page) -> None:
+def overview_section(p: Page, d: Data, ips: list[str], details: Page, alerts) -> None:
     night = d.nightly[-1].data if d.nightly else {}
     p.html('<nav class="tracker-links" aria-label="Metrics views">'
            '<a href="details/index.md">Detailed stats →</a>'
@@ -768,6 +777,9 @@ def overview_section(p: Page, d: Data, ips: list[str], details: Page) -> None:
             if name == "FPGA" and (dig(m, "timing.met") is False or
                                     (FPGA[-1].get(m) is not None and FPGA[-1].get(m) < 0)):
                 attention.append((1, "warning", f"{ip}: FPGA timing requirements were not met.", target))
+    for drop in alerts.latest:
+        attention.append((1, "warning", trends.describe(drop) + ".",
+                          f"{IP_DIR}/{quote(drop.ip)}/index.md#drop-alerts"))
     unknown = [label for label, state, _, _ in cards if state == "info"]
     if unknown:
         attention.append((2, "info", "Incomplete evidence: " + ", ".join(unknown) + ".", "details/index.md"))
@@ -1017,16 +1029,20 @@ def flow_section(p: Page, d: Data) -> None:
         p.html(empty("No issue or pull request data yet."))
 
 
-def physical_section(p: Page, d: Data, ips: list[str], name: str, metrics: list[Metric], getter) -> None:
+def physical_section(p: Page, d: Data, ips: list[str], name: str, metrics: list[Metric], getter,
+                     more: tuple = ()) -> None:
+    """One chart per metric with a series per IP; `more` adds (metrics,
+    getter) groups from other record sections under the same heading."""
     p.md(f"## {name}")
     n = d.nightly
-    with_data = [ip for ip in ips if any(isinstance(getter(r.data, ip), dict) for r in n)]
     drew = False
-    for m in metrics:  # slots go to IPs with data in this flow, in sorted order
-        drew |= p.trend(m.key, m.label, m.unit, [
-            {"label": ip, "color": i + 1, "points": n,
-             "get": lambda r, ip=ip, m=m: m.get(getter(r, ip)) if isinstance(getter(r, ip), dict) else None}
-            for i, ip in enumerate(with_data)])
+    for group, get in ((metrics, getter), *more):
+        with_data = [ip for ip in ips if any(isinstance(get(r.data, ip), dict) for r in n)]
+        for m in group:  # slots go to IPs with data in this flow, in sorted order
+            drew |= p.trend(m.key, m.label, m.unit, [
+                {"label": ip, "color": i + 1, "points": n,
+                 "get": lambda r, ip=ip, m=m, g=get: m.get(g(r, ip)) if isinstance(g(r, ip), dict) else None}
+                for i, ip in enumerate(with_data)])
     if not drew:
         p.html(empty(f"No {name} metrics yet."))
 
@@ -1117,7 +1133,68 @@ def arch_section(p: Page, d: Data, ips: list[str]) -> None:
         p.html(empty("No architecture-model metrics yet."))
 
 
-def ip_page(ip: str, d: Data) -> Page:
+def drop_thresholds(cfg_dir: Path | None) -> tuple[dict | None, list[str]]:
+    """`drop_alerts` of `cfg_dir/metrics.yaml`; None (alerts off) without
+    that file, and a problem when it does not load."""
+    if cfg_dir is None or not (cfg_dir / "metrics.yaml").is_file():
+        return None, []
+    from metrics.config import MetricsError, load as load_cfg  # PyYAML only when configured
+    try:
+        return load_cfg(cfg_dir).drop_alerts, []
+    except MetricsError as exc:
+        return None, [f"{exc}; drop alerts are off"]
+
+
+@dataclass
+class Alerts:
+    """Drops beyond their thresholds over the nightly records (`trends`)."""
+    thresholds: dict | None
+    every: list = field(default_factory=list)  # trends.Drop, history order
+    last: int = -1  # index of the latest nightly record
+
+    @classmethod
+    def of(cls, d: Data, ips: list[str], thresholds: dict | None) -> "Alerts":
+        history = [x.data for x in d.nightly]
+        return cls(thresholds, trends.drops(history, thresholds, ips) if thresholds else [], len(history) - 1)
+
+    @property
+    def latest(self) -> list:
+        return [x for x in self.every if x.at == self.last]
+
+
+def drops_section(p: Page, d: Data, alerts: Alerts, ip: str | None = None) -> None:
+    """Every drop beyond its threshold, newest first; the latest record's
+    drops are the alerts (Needs attention, nightly summary)."""
+    p.md("## Drop alerts")
+    if alerts.thresholds is None:
+        p.html(empty("Drop alerts are off: no drop_alerts thresholds are configured."))
+        return
+    rule = ("A per-IP series drops when its value in a nightly record is lower than its previous "
+            "recorded value by more than its threshold; a record without the value is a gap. "
+            "Drops in the latest record are alerts.")
+    p.html(f'<p class="tracker-note">{escape(rule)} Thresholds: ' + escape("; ".join(
+        f"{s.label} {trends.fmt(alerts.thresholds[s.key], 'pts' if s.unit == '%' else s.unit)}"
+        for s in trends.SERIES)) + ".</p>")
+    rows = []
+    for x in sorted(alerts.every, key=lambda x: (-x.at, x.ip, trends.KEYS.index(x.series.key))):
+        if ip is not None and x.ip != ip:
+            continue
+        u = x.series.unit
+        du = "pts" if u == "%" else u
+        prev, at = d.nightly[x.before], d.nightly[x.at]
+        rows.append([escape(at.date) + (" " + badge("warning", "alert") if x.at == alerts.last else "")]
+                    + ([] if ip else [f'<a href="../{IP_DIR}/{quote(x.ip)}/index.md">{escape(x.ip)}</a>'])
+                    + [escape(x.series.label),
+                       escape(trends.fmt(x.previous, u)) + f' <span class="tracker-when">{escape(prev.date)}</span>',
+                       escape(trends.fmt(x.value, u)), escape(trends.fmt(x.change, du)),
+                       escape(trends.fmt(x.threshold, du))])
+    if not rows:
+        p.html(empty("No series has dropped beyond its threshold."))
+        return
+    p.html(table(["When", *([] if ip else ["IP"]), "Series", "Previous", "Value", "Change", "Threshold"], rows))
+
+
+def ip_page(ip: str, d: Data, alerts: Alerts) -> Page:
     p = Page(d.axis, f"{IP_DIR}/{ip}/index.md")
     up = "../" * (ip.count("/") + 1)
     p.md(f"# {md_escape(ip)} metrics")
@@ -1125,7 +1202,7 @@ def ip_page(ip: str, d: Data) -> Page:
            f'<a href="{up}index.md">all IPs</a>.</p>')
     c = [x for x in d.commits if code_ip(x.data, ip)]
     n = [x for x in d.nightly if test_ip_levels(x.data, ip) or fpga_ip(x.data, ip) or asic_ip(x.data, ip)
-         or code_ip(x.data, ip) or arch_ip(x.data, ip)]
+         or code_ip(x.data, ip) or arch_ip(x.data, ip) or coverage_ip(x.data, ip) or mutants_ip(x.data, ip)]
     if not c and not n:
         p.html(empty("No data yet for this IP."))
         return p
@@ -1164,6 +1241,7 @@ def ip_page(ip: str, d: Data) -> Page:
         if not drew:
             p.html(empty(f"No {name} metrics yet for this IP."))
     ip_coverage(p, n, ip)
+    drops_section(p, d, alerts, ip)
     ip_arch(p, n, ip)
     return p
 
@@ -1199,12 +1277,17 @@ def ip_arch(p: Page, n: list[Point], ip: str) -> None:
 
 
 def ip_coverage(p: Page, n: list[Point], ip: str) -> None:
-    """One chart: the IP's line, toggle and functional coverage."""
+    """One chart of the IP's line, toggle and functional coverage, and its
+    mutant score where recorded."""
     p.md("## Coverage")
-    if not p.trend("ip-coverage", "Coverage", "%", [
-            {"label": m.label, "color": i + 1, "points": n,
-             "get": lambda r, m=m: m.get(coverage_ip(r, ip)) if isinstance(coverage_ip(r, ip), dict) else None}
-            for i, m in enumerate(COVERAGE)]):
+    drew = p.trend("ip-coverage", "Coverage", "%", [
+        {"label": m.label, "color": i + 1, "points": n,
+         "get": lambda r, m=m: m.get(coverage_ip(r, ip)) if isinstance(coverage_ip(r, ip), dict) else None}
+        for i, m in enumerate(COVERAGE)])
+    drew |= p.trend("ip-mutant-score", "Mutant score", "%", [
+        {"label": ip, "color": 1, "points": n,
+         "get": lambda r: MUTANTS[0].get(mutants_ip(r, ip)) if isinstance(mutants_ip(r, ip), dict) else None}])
+    if not drew:
         p.html(empty("No coverage metrics yet for this IP."))
 
 
@@ -1234,12 +1317,15 @@ def ip_index(ips: list[str], d: Data) -> Page:
     return p
 
 
-def render(data_dir: Path) -> tuple[str, dict[str, str], list[str]]:
+def render(data_dir: Path, cfg_dir: Path | None = None) -> tuple[str, dict[str, str], list[str]]:
     """Return (Markdown appended to the tracker landing page,
-    {path under wiki/tracker/: generated page Markdown}, problems)."""
+    {path under wiki/tracker/: generated page Markdown}, problems).
+    `cfg_dir` holds `metrics.yaml`, whose `drop_alerts` set the drop alerts."""
     d = load(data_dir)
     ips, bad = ip_ids(d)
-    problems = d.problems + bad
+    thresholds, cfg_problems = drop_thresholds(cfg_dir)
+    problems = d.problems + bad + cfg_problems
+    alerts = Alerts.of(d, ips, thresholds)
     p = Page(d.axis, "details/index.md")
     p.md("# Detailed stats")
     p.html('<p><a href="../index.md">← Status overview</a> · '
@@ -1263,20 +1349,21 @@ def render(data_dir: Path) -> tuple[str, dict[str, str], list[str]]:
         p.html(empty("No data yet: the nightly job adds records to wiki/tracker/data/, "
                      "and this page then shows charts and tables."))
         return done()
-    overview_section(overview, d, ips, p)
+    overview_section(overview, d, ips, p, alerts)
     health_section(p, d)
     overview_compare(p, d)
     code_section(p, d, ips)
     ci_section(p, d)
     nightly_section(p, d)
-    physical_section(p, d, ips, "Coverage", COVERAGE, coverage_ip)
+    physical_section(p, d, ips, "Coverage", COVERAGE, coverage_ip, more=((MUTANTS, mutants_ip),))
     flow_section(p, d)
     physical_section(p, d, ips, "FPGA", FPGA, fpga_ip)
     physical_section(p, d, ips, "ASIC", ASIC, asic_ip)
+    drops_section(p, d, alerts)
     arch_section(p, d, ips)
     p.md("## Per-IP pages")
     p.html("<ul>" + "".join(f'<li><a href="../{IP_DIR}/{quote(ip)}/index.md">{escape(ip)}</a></li>' for ip in ips)
            + "</ul>" if ips else empty("No record names an IP yet."))
     for ip in ips:
-        generated[f"{IP_DIR}/{ip}/index.md"] = ip_page(ip, d)
+        generated[f"{IP_DIR}/{ip}/index.md"] = ip_page(ip, d, alerts)
     return done()
