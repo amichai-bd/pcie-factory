@@ -291,9 +291,11 @@ async def fc_init_directed(dut):
 async def link_down_mid_dllp(dut):
     """L0: the link goes down inside a DLLP (MAS, Transmit; HAS decision on
     a started packet): the DUT sends the remaining beats, two or one, up to
-    eop with valid held, enters DL_Inactive, offers nothing more, and after
-    the next link-up starts its InitFC1 group cleanly. A DLLP offered but
-    not yet taken when the link goes down is withdrawn."""
+    eop with valid held, and all three when the phy takes the sop at the
+    very edge that samples link_up_i 0; it enters DL_Inactive, offers
+    nothing more, and after the next link-up starts its InitFC1 group
+    cleanly. A DLLP offered but not yet taken when the link goes down is
+    withdrawn."""
     env = Env(dut, cocotb.RANDOM_SEED)
     await env.start()
     for taken in (1, 2):
@@ -313,6 +315,20 @@ async def link_down_mid_dllp(dut):
         for _ in range(30):
             await env.step()
             assert int(dut.pkt_tx_valid_o.value) == 0, "a packet offered in DL_Inactive"
+    # Taken at the edge that samples link_up_i 0: the first InitFC1's sop is
+    # offered with ready 1 in the very cycle the link drops.
+    env.dut_link = True
+    await wait_state(env, INIT1, 10)
+    n_sent = len(env.sent)
+    await env.run_until(lambda: int(dut.pkt_tx_valid_o.value) and int(dut.pkt_tx_sop_o.value)
+                        and not env.framing and not env.in_pkt, 10, "an InitFC1 sop offered")
+    env.dut_link = False
+    await env.run_until(lambda: len(env.sent) > n_sent, 10, "the cut DLLP's eop")
+    assert env.tails[-1][1] == 3, f"beats after link-down {env.tails}, expected 3"
+    await wait_state(env, INACTIVE, 3)
+    for _ in range(30):
+        await env.step()
+        assert int(dut.pkt_tx_valid_o.value) == 0, "a packet offered in DL_Inactive"
     # Withdrawn: the link drops while a sop waits in the framing cycle.
     env.dut_link = True
     await wait_state(env, INIT1, 10)

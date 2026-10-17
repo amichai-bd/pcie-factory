@@ -57,8 +57,8 @@
   VC; bad CRC, bad length, flagged; discarded in DL_Inactive; gaps inside),
   `dll_fc_init` (what ended FC_INIT2; finite and infinite fields on both
   sides; which side came up first), `dll_updatefc_tx` (entry and refresh
-  per class), `dll_tx_tail` (a DLLP finished with one or two beats after
-  the link went down), `dll_reset` (reset and link-up, crossed).
+  per class), `dll_tx_tail` (a DLLP finished with one, two or three beats
+  taken at or after the edge that sampled the link down), `dll_reset` (reset and link-up, crossed).
 
 ## Cross-check: RTL, architecture model, partner
 
@@ -85,7 +85,7 @@ never into a model or the RTL silently.
 | [Credit parameter ranges](../../arch/dll/HAS.md#parameters) | `param_limits` | 0 | 1; 8 illegal and 3 legal lints, no simulation |
 | [CRC-16](../../arch/dll/DLLP.md#crc-16) known answers, transmit and receive; [receiving DLLPs](../../arch/dll/DLLP.md#receiving-dllps): bad CRC, flagged, wrong length, DL_Inactive | `crc16_kat` | 0 | 1; 5 known answers and every single-bit error of them, 150 random DLLPs and one-bit errors, gaps |
 | [Control states](../../arch/dll/HAS.md#data-link-control-states) and [initialisation](../../arch/dll/FLOW_CONTROL.md#initialisation) by hand: groups and 128-cycle resend, recording, ignored DLLPs, FC_INIT2 ends, entry UpdateFC, [credits available](../../arch/dll/HAS.md#credits-available), UpdateFC limits, link down from each state | `fc_init_directed` | 0 | 1 |
-| [A started DLLP finished across a link-down](../../arch/dll/HAS.md#reset-values), two and one beats left; an offered one withdrawn; clean restart | `link_down_mid_dllp` | 0 | 1 |
+| [A started DLLP finished across a link-down](../../arch/dll/HAS.md#reset-values), two and one beats left, and all three when the `sop` is taken at the edge that samples `link_up_i` 0; an offered one withdrawn; clean restart | `link_down_mid_dllp` | 0 | 1 |
 | [UpdateFC refresh](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling), round robin, with ready stalls | `updatefc_refresh` | 1 | 2; two 2048-cycle periods |
 | Link-up against the partner, default DUT credits, [init target](../../arch/dll/HAS.md#targets) 200 cycles; cross-check | `link_up` | 1 | 0 to 3 (the four partner advertisements); 6 link-ups each |
 | The same, DUT completions finite | `link_up_cpl_finite` | 1 | 0 to 3; `FC_CPLH` 16, `FC_CPLD` 64 |
@@ -120,6 +120,7 @@ first that fails in that run, at its first seed.
 | Top | `dl_up_o` only in DL_Active | `crc16_kat` | `dl_up_o` 0 in FC_INIT2. |
 | Transmit | Beats advance without ready | `crc16_kat` | A beat outside a packet at the phy stand-in. |
 | Transmit | A started DLLP cut when the link goes down | `link_down_mid_dllp` | Stops on `a_eop_follows_sop`: valid falls inside the open packet. |
+| Transmit | A `sop` taken at the edge that samples `link_up_i` 0 not counted as started (`started` from `tx_q` only) | `link_down_mid_dllp` | Stops on `a_eop_follows_sop`: the packet opened at the phy is abandoned. |
 
 An UpdateFC that writes an infinite field's stored limit is not a mutant
 that can be caught: an infinite field shows all ones from its flag,

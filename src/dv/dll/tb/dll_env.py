@@ -91,10 +91,10 @@ COV_INIT.coverpoint("partner_hdr", bins=["finite", "infinite"])
 COV_INIT.coverpoint("partner_data", bins=["finite", "infinite"])
 COV_INIT.coverpoint("first_up", bins=["dut", "partner", "same"])
 
-# A DLLP finished after the link went down (MAS, Transmit): the beats sent
-# after link_up_i fell.
+# A DLLP finished after the link went down (MAS, Transmit): the beats the
+# phy took at or after the edge that sampled link_up_i 0.
 COV_TAIL = Covergroup("dll_tx_tail")
-COV_TAIL.coverpoint("beats_after_link_down", bins={"one": 1, "two": 2})
+COV_TAIL.coverpoint("beats_after_link_down", bins={"one": 1, "two": 2, "three": 3})
 
 COV_UPDFC = Covergroup("dll_updatefc_tx")
 COV_UPDFC.coverpoint("cause", bins=["entry", "refresh"])
@@ -275,7 +275,7 @@ class Env:
                 self.tx_sop_wait += 1
             if ready:
                 to_far = beat
-                if not beat.sop and self.in_pkt and not self.dut_link:   # same edge samples link
+                if (beat.sop or self.in_pkt) and not self.dut_link:   # same edge samples link
                     self.tail_beats += 1
                 self._tx_beat(n, beat)
                 if beat.eop:

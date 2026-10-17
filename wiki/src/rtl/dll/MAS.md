@@ -160,8 +160,9 @@ InitFC, UpdateFC), loads the body with its `crc16`, and offers it from the
 next cycle. `pkt_tx_valid_o` is 1 from load to the accepted `eop`, so a
 request is never dropped while the `phy` holds ready low between packets,
 and a packet once started is finished. `flush_i` withdraws only a packet
-whose `sop` the `phy` has not taken; once taken (`started`), the
-remaining beats, at most 2, go out up to `eop` with valid held, link down
+whose `sop` the `phy` has not taken; once taken (`started`: at an
+earlier edge, or at this one, including the edge that samples `link_up_i`
+0), the remaining beats, at most 2, go out up to `eop` with valid held, link down
 or not, and no request loads under `flush_i`, so DL_Inactive then offers
 nothing ([HAS, reset values](../../arch/dll/HAS.md#reset-values)). The tag
 is always DLLP; a TLP source (#212) adds the tag and priorities 5 and 6.

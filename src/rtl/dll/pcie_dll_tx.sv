@@ -31,7 +31,7 @@ module pcie_dll_tx (
   pcie_dll_pkg::t_tx_state tx_q, tx_d;
 
   logic        accept;     // the stream takes the beat at this edge
-  logic        started;    // the phy has taken this packet's sop
+  logic        started;    // the phy has taken, or takes now, this packet's sop
   logic        open_q, open_d;  // assertion state: a packet is open at the phy
   logic        free;       // nothing on the stream after this edge
   logic        load;       // a request starts at this edge
@@ -39,7 +39,9 @@ module pcie_dll_tx (
   logic [15:0] beat_data;  // the beat offered: bytes 2*beat and 2*beat+1
 
   assign accept  = tx_q.busy && pkt_tx_ready_i;
-  assign started = tx_q.busy && tx_q.beat != 2'd0;
+  // Started: the phy took the sop earlier, or takes it at this edge (also
+  // at the edge that samples link_up_i 0).
+  assign started = tx_q.busy && (tx_q.beat != 2'd0 || pkt_tx_ready_i);
   assign free   = !tx_q.busy || (accept && tx_q.beat == LAST_BEAT);
 
   always_comb begin
@@ -109,7 +111,8 @@ module pcie_dll_tx (
   `COMMON_ASSERT_NEVER(a_beat_range, clk_i, rst_i, tx_q.busy && tx_q.beat == 2'd3)
   // From an accepted sop to its eop the stream must be ready every cycle
   // (phy HAS, packet stream), link down or not; the dll keeps valid high.
-  `COMMON_ASSERT_NEVER(a_ready_inside_packet, clk_i, rst_i, started && !pkt_tx_ready_i)
+  `COMMON_ASSERT_NEVER(a_ready_inside_packet, clk_i, rst_i,
+                       tx_q.busy && tx_q.beat != 2'd0 && !pkt_tx_ready_i)
   // No sop while a packet is open, and every open packet runs to its eop,
   // across a link-down too: valid never drops inside it.
   `COMMON_ASSERT_NEVER(a_sop_inside_packet, clk_i, rst_i,

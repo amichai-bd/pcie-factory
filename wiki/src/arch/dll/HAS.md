@@ -159,10 +159,10 @@ While `rst_i` is high, and in DL_Inactive: `tlp_tx_ready_o`,
 `tlp_rx_valid_o`, `tlp_rx_sop_o`, `tlp_rx_eop_o`, every `fc_*_avail_o`,
 `dl_up_o`, `dl_state_o`, `err_o`, `pkt_tx_valid_o` and `retrain_req_o`
 are 0; data outputs are don't care while not qualified. One exception in
-DL_Inactive, not in reset: a packet whose `sop` the `phy` took before
-`link_up_i` fell is finished, so `pkt_tx_valid_o` stays 1 for its
-remaining beats (at most 2, a DLLP's) up to and including its `eop`, then
-falls ([Decisions](#decisions)). Reset puts the
+DL_Inactive, not in reset: a packet whose `sop` the `phy` took at or
+before the edge that samples `link_up_i` 0 is finished, so
+`pkt_tx_valid_o` stays 1 for its remaining beats (at most 2, a DLLP's)
+up to and including its `eop`, then falls ([Decisions](#decisions)). Reset puts the
 `dll` in DL_Inactive with every counter, timer, buffer and flag at the
 value listed for DL_Inactive below.
 
@@ -277,7 +277,7 @@ neither ([`link` errors](../link/HAS.md#errors)).
 | The upper layer never stalls when any class is infinite | An exact, checkable rule. With one FIFO in arrival order, a stall on any TLP would let infinite-class TLPs behind it overrun the reserve even with a credit-correct partner. In M2 the receive side therefore never stalls whenever any class is infinite, which with the default (infinite completion credits) means always; M3's transaction layer must accept every TLP at line rate. | A cycle bound (hard to size and verify); per-class receive queues, rejected on ordering grounds (the bypass rules between classes belong to the transaction layer). |
 | An entry UpdateFC and the 2048-cycle refresh for every class, infinite fields sent as 0 | With all classes infinite and link-up skew, the side that leaves FC_INIT2 first would otherwise send nothing that ends the partner's FC_INIT2, so the partner never reaches DL_Active. | Allowing TLPs in FC_INIT2. |
 | After a REPLAY_NUM rollover, TLPs wait until the LTSSM has left L0 and returned | The replay then never starts into a retrain that would cut it; the `dll` enforces it without relying on `phy` ready timing. | Replaying at once (the first replayed TLP is lost and needs another Nak or timeout). |
-| A packet being sent when `link_up_i` falls is finished: after its `sop` was taken, the remaining beats (at most 2 for a DLLP) go out up to `eop`, then DL_Inactive sends nothing (firstmate decision as the captain's delegate, [#211](https://github.com/amichai-bd/pcie-factory/issues/211)) | The [transmit priority](RETRY.md#transmit-priority) says a started packet is always finished, and the `phy` expects it: the MAC keeps the packet open from its `sop` until an accepted `eop` (its `up_open` clears only on `eop` or reset, whatever the link does), takes and discards the rest, and treats a new `sop` before that `eop` as a contract break (`a_tx_sop_inside_packet`); a cut packet would leave the next link-up's first DLLP inside the old packet. | Cutting the packet at link-down (the next `sop` lands inside the open packet). |
+| A packet being sent when `link_up_i` falls is finished: once its `sop` was taken, at or before the edge that samples `link_up_i` 0, the remaining beats (at most 2 for a DLLP) go out up to `eop`, then DL_Inactive sends nothing (firstmate decision as the captain's delegate, [#211](https://github.com/amichai-bd/pcie-factory/issues/211)) | The [transmit priority](RETRY.md#transmit-priority) says a started packet is always finished, and the `phy` expects it: the MAC keeps the packet open from its `sop` until an accepted `eop` (its `up_open` clears only on `eop` or reset, whatever the link does), takes and discards the rest, and treats a new `sop` before that `eop` as a contract break (`a_tx_sop_inside_packet`); a cut packet would leave the next link-up's first DLLP inside the old packet. | Cutting the packet at link-down (the next `sop` lands inside the open packet). |
 | Malformed TLPs, bad lengths with a good LCRC included, acknowledged and dropped, credits returned | The data link layer accepted it; the receive buffer is sized from header credits, so it is not stored. The size limit is the 128-byte maximum payload (Q6). The transaction layer's own malformed checks come in M3. | Nak (the partner would replay it until REPLAY_NUM rolls over); a 144-byte packet limit (lets a 132-byte payload with a 3-DW header through). |
 
 ## Targets
