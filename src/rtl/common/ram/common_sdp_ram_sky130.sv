@@ -120,8 +120,8 @@ module common_sdp_ram #(
   endgenerate
 
   // One lane (asserted above), and port 0 only writes.
-  `COMMON_UNUSED_BITS(lanes_unused, wr_lanes_i)
-  `COMMON_UNUSED_BITS(dout0_unused, dout0_all)
+  `COMMON_UNUSED_BITS(unused_lanes, wr_lanes_i)
+  `COMMON_UNUSED_BITS(unused_dout0, dout0_all)
 
   // ------------------------------------------------------------ read data
 

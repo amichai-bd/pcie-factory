@@ -768,3 +768,33 @@ def test_bit_vector_functions_only_in_assertion_macros(fn):
     outside = mutate("  assign busy_no = 1'b1;", f"  assign busy_no = {fn};")
     found = check_text("xy_a_m.sv", outside, "xy_a", vocab=ASSERT_VOCAB)
     assert rules(found) == ["system-task"], found
+
+
+BACKEND = """`default_nettype none
+`include "common_macros.svh"
+module common_flop #(
+    parameter int W = 8
+) (
+    input  logic         clk_i,
+    input  logic         rst_i,
+    input  logic         en_i,
+    input  logic [W-1:0] d_i,
+    output logic [W-1:0] q_o
+);
+  `COMMON_DFF_RST_EN(q_o, d_i, clk_i, en_i, rst_i, '0)
+endmodule
+`default_nettype wire
+"""
+
+
+def test_backend_file_declares_its_block(tmp_path):
+    # common_flop_alt.sv, listed by common_flop.alt.f, declares common_flop.
+    src = _good_copy(tmp_path)
+    (src / "rtl/common/common_flop_alt.sv").write_text(BACKEND)
+    (src / "rtl/common/common_flop.alt.f").write_text("+incdir+.\ncommon_flop_alt.sv\n")
+    assert style.run(src, discover(src), None).passed
+    # Unlisted, the same file must declare its own stem.
+    (src / "rtl/common/common_flop.alt.f").write_text("+incdir+.\n")
+    found = [f for f in style.run(src, discover(src), None).findings if ": file-name: " in f]
+    assert found == ["rtl/common/common_flop_alt.sv:3: file-name: module common_flop in file "
+                     "common_flop_alt.sv"]

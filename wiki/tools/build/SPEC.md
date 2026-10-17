@@ -9,6 +9,7 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `tools/cli/main.py` | Argument parsing and the subcommand dispatch table (`COMMANDS`). |
 | `tools/build/filelist.py` | The `.f` filelist resolver. |
 | `tools/build/ip.py` | Repository context (source root, workdir) and IP discovery. |
+| `tools/build/backends.py` | Shared-block [backends](../../project/layout.md#backends): backend-list discovery and the substitution a flow applies ([asic spec](../asic/SPEC.md#backends)); tests in `test_backends.py`. |
 | `tools/build/sim.py` | Verilator + cocotb build and test driver. |
 | `tools/build/logexcerpt.py` | The [failure excerpt](#failure-excerpt) the vendor flows print for a failed step. |
 | `tools/regress/` | Regression lists, selection and summary; see the [regress spec](../regress/SPEC.md). |

@@ -191,3 +191,23 @@ def test_full_clocks_file_has_no_warning():
 def test_clock_slacks_reject_non_numbers():
     clocks = metrics.clock_slacks({"clocks": {"c": {"setup_ws": "x", "setup_tns": True}}})
     assert clocks == {"c": {"setup_ws_ns": None, "wns_ns": None, "tns_ns": None}}
+
+
+def test_peak_memory_is_the_largest_step_peak():
+    line = "Elapsed time: 0:04.26[h:]min:sec. CPU time: user 4.08 sys 0.17 (99%). Peak memory: {}KB."
+    logs = {"2_1_floorplan": line.format(671508), "5_2_route": "x\n" + line.format(3145728),
+            "1_2_yosys": line.format(1024)}
+    assert metrics.peak_memory(logs) == {"mb": 3072.0, "step": "5_2_route"}
+
+
+def test_peak_memory_absent_or_malformed():
+    assert metrics.peak_memory({}) == {"mb": None, "step": None}
+    assert metrics.peak_memory({"a": "Peak memory: lots"}) == {"mb": None, "step": None}
+
+
+def test_peak_memory_in_the_summary(tmp_path):
+    logs = tmp_path / "logs" / "sky130hd" / "counter" / "base"
+    logs.mkdir(parents=True)
+    (logs / "3_3_place_gp.log").write_text("Peak memory: 2048KB.\n")
+    summary, _ = metrics.collect(tmp_path, "sky130hd", "counter")
+    assert summary["peak_memory"] == {"mb": 2.0, "step": "3_3_place_gp"}

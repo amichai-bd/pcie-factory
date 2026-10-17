@@ -83,7 +83,10 @@ IPs, sub-IPs and top-level IPs are as the
 - **Shared folders** ([layout](../../project/layout.md#shared-blocks)):
   `rtl/common/` holds filelists only directly in it or one folder down in a
   group folder `rtl/common/<group>/`, each a shared block named
-  `common_<name>.rtl.f`, and `dv/common/` holds no filelist but
+  `common_<name>.rtl.f` or a backend list `<block>.<backend>.f` beside
+  its block's `<block>.rtl.f` ([backends](../../project/layout.md#backends);
+  without that filelist: `<path>: backend list of <block>, which has no
+  <block>.rtl.f in the same folder`), and `dv/common/` holds no filelist but
   `common.dv.f` and `common.sim.f` (the shared unit). Anything else is
   `<path>: rtl/common/ holds no filelist but ...`. No other file sits
   deeper than one group folder either (`<path>: rtl/common/ holds files
@@ -189,7 +192,10 @@ from them the macro names they `` `define`` (noting which are function-like, def
 `raw-always-ff`, `nonblocking-assignment`, `raw-assertion`, `raw-initial`,
 `system-task`, `sampled-value`, `assert-label`, `object-macro` and `vocabulary-include`, and may test
 `SYNTHESIS` and `VERILATOR` (not `SIMULATION`); `clocking-block` applies to
-it too. A **design file** is any other `.sv`: in it
+it too. A `.sv` must declare one unit named after its file stem, except a
+**backend file** `<block>_<backend>.sv` that its backend list
+`<block>.<backend>.f` lists: it declares `<block>`
+([backends](../../project/layout.md#backends)). A **design file** is any other `.sv`: in it
 `conditional-compilation` replaces `sim-ifdef` and `external-ifdef`, which
 still apply to `.svh` and other includable files, and `local-define`
 applies.
@@ -561,6 +567,14 @@ then `verilator.prefix` in `cfg/host.yaml`); see the
   not linted on its own: every closure that includes its headers lints
   them. The summary then adds `, N include-only block(s) linted through
   their users`.
+- **Backends:** without `--ip`, each backend list
+  `rtl/common/[<group>/]<block>.<backend>.f` is linted with top `<block>`,
+  labelled `common/<block>.<backend>.f`, plus the DV-only cell models
+  `dv/common/tb/<cell>.sv` whose `<cell>` the backend sources name as a
+  word ([backends](../../project/layout.md#backends)); the run counts with
+  the others, and a backend list that does not resolve is a finding. A
+  backend file's `DECLFILENAME` (its module is its block's) is waived in
+  the waiver file, with its reason.
 - An IP whose `.rtl.f` does not resolve is a lint finding (the filelist check
   reports the cause).
 - An IP whose `.rtl.f` closure lists a source that is not `.sv`/`.svh` (for
@@ -573,7 +587,7 @@ then `verilator.prefix` in `cfg/host.yaml`); see the
   - every file it entered (each `` `line N "<file>" `` marker) must be inside
     the source root and below `rtl/` (any IP's or `rtl/common/`, since
     closures include sub-IP and common lists), or be
-    the board wrapper of that run;
+    the board wrapper or a cell model of that run;
   - the output must contain no `` `verilator_config`` and no
     `/*verilator <directive>*/` metacomment (`-E` turns every comment that
     starts with `verilator` into one, so both `//` and `/* */` forms appear,
@@ -922,7 +936,9 @@ Tests also build variants in temporary directories: the superseded
 IP-first tree, a nested sub-IP, a sub-IP with `arch/`, `fpga/` or `asic/`, a
 folder that names no IP, misnamed or too deeply nested filelists in the shared folders, the
 shared-block group rules (a block or a source outside its group, in the wrong group, in two
-groups, two folders down or in an unlisted folder), their configuration, and both through the
+groups, two folders down or in an unlisted folder), a backend list with and without its block's
+filelist, a listed and an unlisted backend file's module name (`test_style.py`), a backend list
+linted with and without its cell model and the cell-model selection (`test_lint.py`), their configuration, and both through the
 command line (exit 1 on a finding, exit 2 on a bad `layout` section), and a reached IP without its includer's prefix
 staying top-level with `arch/`, `fpga/` and `asic/` while a prefixed one is a sub-IP, and
 an unconfirmed parent prefix (`test_layout.py`), one bad case per style

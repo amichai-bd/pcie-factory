@@ -182,7 +182,10 @@ which alone may test those two macros (rule `sim-ifdef` elsewhere). An
 include file other than the headers may hold only an include guard, and
 then only on a macro the RTL closure defines (rule `external-ifdef`): a
 macro that only a vendor or tool flow defines would hide code from lint
-and simulation.
+and simulation. A shared block's vendor implementation (an SRAM macro
+array, say) is instead a backend file that declares the block's own module;
+only a flow's source list selects it, and lint still sees it
+([backends](../project/layout.md#backends)).
 
 ## SystemVerilog rules
 

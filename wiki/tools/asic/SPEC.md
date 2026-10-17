@@ -31,14 +31,17 @@ writes `synthesis.json`); `2` a usage or configuration error.
 | File | Use |
 | --- | --- |
 | `src/rtl/<ip>/<ip>.rtl.f` | Flattened by the [filelist resolver](../build/SPEC.md#filelists) into `VERILOG_FILES`, `VERILOG_INCLUDE_DIRS` and `VERILOG_DEFINES` (`-DNAME` or `-DNAME=VALUE`), in filelist order. `VERILOG_DEFINES` ends with `-DSYNTHESIS`, so the [assertion macros](../../bkm/rtl.md#assertions) compile out; a filelist that defines `SYNTHESIS` itself is an input error. |
-| `src/asic/<ip>/<platform>.mk` | Design knobs, included first by the generated config. `DESIGN_NAME` is required. |
+| `src/asic/<ip>/<platform>.mk` | Design knobs, included first by the generated config (after `ASIC_INPUT_DIR`). `DESIGN_NAME` is required. It may name other files of `src/asic/<ip>/` through `$(ASIC_INPUT_DIR)`, such as a `PDN_TCL`, and macro views (`ADDITIONAL_LEFS`, `ADDITIONAL_LIBS`, `ADDITIONAL_GDS`) from the image. |
+| `src/asic/<ip>/<platform>.backends.f` | Optional [backend selection](#backends): shared-block backends that replace portable sources. |
 | `src/asic/<ip>/*.sdc` | Exactly one SDC; becomes `SDC_FILE`. Its first `create_clock -period` is reported as `clock_period_ns`. |
 | `cfg/host.yaml` `hosts.<name>.orfs_*` | How to reach ORFS (below). |
 
 The tool owns `PLATFORM`, `DESIGN_NICKNAME`, `DESIGN_CONFIG`, `SDC_FILE`,
 `VERILOG_FILES`, `VERILOG_INCLUDE_DIRS`, `VERILOG_DEFINES`, `WORK_HOME`,
-`FLOW_VARIANT`, `NUM_CORES`, `RESULTS_DIR`, `LOG_DIR`, `REPORTS_DIR` and
-`OBJECTS_DIR`; a `.mk` that sets any of them is a configuration error. The
+`FLOW_VARIANT`, `NUM_CORES`, `RESULTS_DIR`, `LOG_DIR`, `REPORTS_DIR`,
+`OBJECTS_DIR` and `ASIC_INPUT_DIR` (the IP's `src/asic/<ip>/` folder,
+exported before the `.mk` is included); a `.mk` that sets any of them is a
+configuration error. The
 check reads assignments (`=`, `:=`, `::=`, `:::=`, `?=`, `+=`, `!=`, with
 `export` and/or `override`) and `define NAME` blocks, with line continuations
 joined; it does not evaluate make.
@@ -48,6 +51,28 @@ SystemVerilog (package imports in a module header, typed parameters). An IP
 whose RTL needs more sets `SYNTH_HDL_FRONTEND = slang` in its `.mk`; ORFS
 then reads all sources in one `read_slang` call (slang is built into the
 pinned image's Yosys). The tool passes the knob through unchanged.
+
+### Backends
+
+A shared block may have backends, per-target files that declare the block's
+own module ([layout](../../project/layout.md#backends)). When
+`src/asic/<ip>/<platform>.backends.f` exists, the tool resolves it as a
+filelist (normally `-F` lines naming backend lists such as
+`../../rtl/common/ram/common_sdp_ram.sky130.f`) and, for each of its
+sources that the IP filelist does not already hold:
+
+- the source must declare exactly one module, and exactly one source of the
+  IP's flattened filelist must declare that module (and only it);
+- the backend replaces that source in place, so `VERILOG_FILES` keeps
+  filelist order; include directories are appended (deduplicated) and
+  defines merged.
+
+Two backends of one module, a backend of a module the IP lacks, a list
+that does not resolve, a conflicting define, or a list that selects no
+backend exits 2 before anything runs (`./build check` runs the same
+validation). The command prints `[asic] backend: <new> replaces <old>` for
+each. The macro views are design knobs in `<platform>.mk`. Code:
+`tools/build/backends.py`.
 
 ## ORFS runners
 
@@ -193,6 +218,7 @@ constraints as well as the requested period.
 | `worst_path.from`, `.to`, `.group`, `.slack_ns`, `.cells` | First `report_checks -path_delay max` section of `6_finish.rpt`; `cells` counts instances strictly between start and end point on the data path. |
 | `warnings` | When `timing.clocks` is missing, one line with its cause (absent `asic_clocks.json`, no `clocks` entry, no clock written, malformed); `[]` when none. |
 | `power_w`, `route_drc_errors` | `*__power__total`, `detailedroute__route__drc_errors`. |
+| `peak_memory.mb`, `.step` | The largest `Peak memory: <N>KB` line over the step logs (`logs/…/*.log`, which ORFS times), in MB (1024 KB), and the log it came from; `null` without one. Not required: an OOM-killed step writes none, which the step's failure already reports. |
 | `toolchain` | Runner, image, root, `orfs_pin` (the host's `orfs_commit`, see above) and the `versions` step output (`openroad`, `yosys`, `orfs`; the pinned image's OpenROAD and ORFS report `unknown`, so the image digest and `orfs_pin` identify them). |
 | `source`, `elapsed_s`, `work_home` | Repository `HEAD`, run time, ORFS work home relative to the workdir (`<ip>/asic/run`; no host paths, since the file is published). |
 
@@ -216,10 +242,14 @@ liberty time is ns, area µm².
 also runs the full command directly), on `[self-hosted, linux, x64]` (every CI host runs the ORFS image). Input
 `ip`: one IP id; empty (the default) runs every IP that has a `src/asic/<ip>/`
 folder, found with `find`, one `./build asic --ip <id>` each
-(the job fails if any fails). A discovery step prints only `ORFS_IMAGE`, the
+(the job fails if any fails). Input `study_clock_period`: empty (the
+default) runs the SDC target; a number of ns adds
+`--study-clock-period <ns>` to each run ([clock studies](#clock-studies));
+anything else fails the job before the flow. A discovery step prints only `ORFS_IMAGE`, the
 docker version, the local ORFS images (name, tag, digest) and where
 `openroad`, `yosys` and `klayout` are on `PATH`. The `asic-metrics` artifact
-(14-day retention) holds only `metrics.json` and `worst_path.txt` per IP,
+(14-day retention) holds only `metrics.json` and `worst_path.txt` per IP
+(from `asic/`, or `asic-study/<period>ns/` for a study),
 never raw ORFS reports or logs; the redacted failure excerpt printed to the
 job log is the only part of `flow.log` that leaves the host. The job keeps the fork guard (`if:` requires
 a non-`pull_request` event or a head repository equal to this one), so fork
@@ -236,8 +266,9 @@ metrics collector tests prove studies cannot populate the nightly ASIC record.
 
 | Test file | Proves |
 | --- | --- |
-| `test_asic_flow.py` | `config.mk` generation (filelist order, include dirs, defines with `SYNTHESIS`, nickname and output path from the IP id, determinism); `.mk` validation (including `override`, `define` and the ORFS directory variables); SDC count; ORFS settings (digest required, `ORFS_IMAGE` ignored, cores, overrides); docker hardening flags and mounts; unique container names; step commands; `--dry-run`; and a full run against `fixtures/fake_orfs` (a fake `env.sh`, `make`, `openroad`, `yosys`): pass, step failure, timeout, SIGTERM, missing metrics; a failing step that prints the hand-made `fixtures/flow_fail.log` (its error lines more than 30 lines before the end) shows every error line, redacted, before the tail, and one without error lines says `none matched`; and, for the `clocks` step, an empty `clocks` (`incomplete: missing timing.clocks`), a failing step (`clocks: fail (exit 3)`) and a hanging one cut by the run budget (`clocks: timeout after <S>s`), each exit 1 with fanout and depth kept and, where the clocks are missing, the cause in `warnings`. |
-| `test_asic_metrics.py` | Each parser, the per-clock slacks (sorted, `wns_ns`, non-numbers dropped; missing, empty or malformed `clocks` alone makes the run `incomplete`, with a warning naming the cause) and the worst-path summary on the fixture reports in `fixtures/orfs/` and on malformed or empty input. |
+| `test_asic_flow.py` | `config.mk` generation (filelist order, include dirs, defines with `SYNTHESIS`, nickname and output path from the IP id, determinism); `.mk` validation (including `override`, `define`, the ORFS directory variables and `ASIC_INPUT_DIR`); `ASIC_INPUT_DIR` exported before the `.mk`; backends (a backend replacing its module's source in place, none without a list, and an unknown module, an empty selection and an unresolvable list each exit 2); SDC count; ORFS settings (digest required, `ORFS_IMAGE` ignored, cores, overrides); docker hardening flags and mounts; unique container names; step commands; `--dry-run`; and a full run against `fixtures/fake_orfs` (a fake `env.sh`, `make`, `openroad`, `yosys`): pass, step failure, timeout, SIGTERM, missing metrics; a failing step that prints the hand-made `fixtures/flow_fail.log` (its error lines more than 30 lines before the end) shows every error line, redacted, before the tail, and one without error lines says `none matched`; and, for the `clocks` step, an empty `clocks` (`incomplete: missing timing.clocks`), a failing step (`clocks: fail (exit 3)`) and a hanging one cut by the run budget (`clocks: timeout after <S>s`), each exit 1 with fanout and depth kept and, where the clocks are missing, the cause in `warnings`. |
+| `tools/build/tests/test_backends.py` | Backend-list names and discovery, module parsing without comments, in-place substitution with merged include directories and defines, determinism, skipped shared sources, and the errors (two backends of one module, an unknown module, two modules in a backend, an unresolvable list, a conflicting define). |
+| `test_asic_metrics.py` | Each parser, the peak memory (largest step, absent or malformed lines, in the summary), the per-clock slacks (sorted, `wns_ns`, non-numbers dropped; missing, empty or malformed `clocks` alone makes the run `incomplete`, with a warning naming the cause) and the worst-path summary on the fixture reports in `fixtures/orfs/` and on malformed or empty input. |
 
 `fixtures/orfs/` holds report files cut from a real run of the pinned image
 on the first synthesis target (see its `README.md`); the fake `make` copies

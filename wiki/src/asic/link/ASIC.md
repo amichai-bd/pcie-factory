@@ -70,15 +70,25 @@ utilization, with placement-density headroom for the two clock trees and
 resizing buffers, as for `phy`.
 
 **Memories.** The `dll` replay buffer (256 × 32 bits) and receive buffer
-(512 × 34 bits at the default credits) are behavioral
-[`common_sdp_ram`](../../rtl/common/ram/common_sdp_ram.md) instances. As
-for the `phy` elastic buffer's array, no memory macro is specified (PD BKM: memories
-stay behavioral until the MAS specifies one), so synthesis maps them to
-flops and read multiplexers, about 25 kbit of storage. ORFS stops synthesis on an
-inferred memory above `SYNTH_MEMORY_MAX_BITS` (4096 bits by default), so
-`sky130hd.mk` raises it to 17408, the receive buffer's size: a larger
-memory, for example from bigger credit parameters, still fails the flow. They dominate the
-cell area; a macro would be its own issue, with its MAS change.
+(512 × 34 bits at the default credits) are
+[`common_sdp_ram`](../../rtl/common/ram/common_sdp_ram.md) instances.
+[`sky130hd.backends.f`](../../../../src/asic/link/sky130hd.backends.f)
+selects the RAM's [sky130 backend](../../rtl/common/ram/common_sdp_ram.md#sky130-backend)
+([#279](https://github.com/amichai-bd/pcie-factory/issues/279)), so they
+are three `sky130_sram_1rw1r_64x256_8` SRAM macros (one for the replay
+buffer, two deep for the receive buffer), about 1.26 mm² together, instead
+of about 25 kbit of flops. Simulation and the FPGA flow keep the portable
+RAM, with the same cycle behavior. `sky130hd.mk` adds the macro's LEF,
+Liberty and GDS views from the image's `sky130ram` platform folder, and
+[`pdn.tcl`](../../../../src/asic/link/pdn.tcl), the platform's power grid
+plus global connections for the macros' lowercase `vdd`/`gnd` pins and met4
+straps over each macro down to its met3 power pins. The macro placer
+places the macros. No inferred memory remains above ORFS's default
+`SYNTH_MEMORY_MAX_BITS`, so the knob keeps its default.
+
+The macro drives its read data after the falling edge, so the logic after
+each buffer's read port gets about half a period minus 0.5 ns
+(the backend's timing note).
 
 ## Running
 
@@ -102,4 +112,6 @@ Study results never replace the nightly 125 MHz measurements.
 | File | Holds |
 | --- | --- |
 | [`pcie_link.sdc`](../../../../src/asic/link/pcie_link.sdc) | The two clocks, the study opt-in, uncertainty, I/O delays and the crossing exceptions. |
-| [`sky130hd.mk`](../../../../src/asic/link/sky130hd.mk) | ORFS design knobs; never a source list. |
+| [`sky130hd.mk`](../../../../src/asic/link/sky130hd.mk) | ORFS design knobs and the SRAM macro views; never a source list. |
+| [`sky130hd.backends.f`](../../../../src/asic/link/sky130hd.backends.f) | The backend selection: the `common_sdp_ram` sky130 backend. |
+| [`pdn.tcl`](../../../../src/asic/link/pdn.tcl) | The power grid with the SRAM macros' power connections. |
