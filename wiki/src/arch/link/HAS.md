@@ -123,10 +123,13 @@ and `link` has no power-state port. This resolves the `dll`'s L0s item:
 
 `dl_err_o` (the `dll` errors) and `rcv_err_o` (the `phy` receiver errors)
 are separate one-cycle pulse ports, and `link` keeps no error counter. A
-TLP that `phy` flags pulses both: `rcv_err_o` for the symbol or framing
-error, then Bad TLP on `dl_err_o` at its `eop`. That is one event with two
-reports, so a consumer counting link errors counts each port as its own
-class and never adds them ([`dll` errors](../dll/HAS.md#errors)).
+TLP that `phy` flags for a symbol or framing error inside it pulses both:
+`rcv_err_o` for the error, then Bad TLP on `dl_err_o` at its `eop`. That
+is one event with two reports, so a consumer counting link errors counts
+each port as its own class and never adds them
+([`dll` errors](../dll/HAS.md#errors)). A TLP cut short because the LTSSM
+left L0 or the line went to electrical idle is flagged with no symbol
+error: it pulses Bad TLP only.
 
 ## Decisions
 
@@ -152,11 +155,11 @@ only, without header, sequence number, LCRC or framing.
 | --- | --- | --- |
 | Throughput, both ways | 128-byte memory writes (3-DW header) back to back in both directions, default credits, upper layers never waiting: TLP payload at least **0.76 of the line rate (190 MB/s) in each direction**. | `mwr_bidir`; [#216](https://github.com/amichai-bd/pcie-factory/issues/216) |
 | Throughput, one way | The same in one direction only: at least 0.85 of the line rate (212.5 MB/s). | `mwr_oneway`; [#216](https://github.com/amichai-bd/pcie-factory/issues/216) |
-| Ack latency | Every Ack or Nak starts on the line within 118 cycles of the TLP it covers, with SKP ordered sets and both directions loaded [cite: PCIe Base Spec, rev 3.0, §3.5.3.1]. | `mwr_bidir`, `mixed_bidir` |
+| Ack latency | Measured at the `dll`-to-`phy` boundary, as the [`dll` target](../dll/HAS.md#targets) is: every good TLP is covered by an Ack or Nak that starts on the `phy` packet stream within 118 cycles (237 symbol times) of the TLP's `eop` from `phy`, with SKP ordered sets and both directions loaded [cite: PCIe Base Spec, rev 3.0, §3.5.3.1]. A SKP ordered set holds `pkt_tx_ready` low, so its wait is inside the 118. Derived bound on the line, from the TLP's last symbol on `ser_rx_data_i` to the covering DLLP's first symbol on `ser_tx_data_o`: 118 + 16 (`phy` RX) + 6 (`phy` TX) = **140 cycles**. | `mwr_bidir`, `mixed_bidir` (`ack_latency_dll_cycles_max`) |
 | Lossless | Under every [error class](#error-injection): each TLP delivered once, in order, byte for byte; no DL protocol error or receiver overflow. | `error_recovery`, `replay_rollover`; [#215](https://github.com/amichai-bd/pcie-factory/issues/215) |
 | Credits | No receiver overflow in any [credit configuration](#credit-configurations), through starvation and recovery. | `dll` `credit_starve`, `credits_infinite`; [#215](https://github.com/amichai-bd/pcie-factory/issues/215) |
 | Link-up | `rst_i` release to DL_Active at both ends: the [`phy` link-up target](../phy/HAS.md#targets) plus at most 200 cycles after the later `link_up_o`, finite or all-infinite credits. | `link_init`, `link_init_infinite`; [#215](https://github.com/amichai-bd/pcie-factory/issues/215) |
-| TLP latency | From a TLP's accepted `eop` at one `link` to its `sop` at the other: at most B + 30 cycles plus the channel delay, B = (n + 6) / 2 the `phy` beats of an n-byte TLP (103 for a 128-byte write), with nothing else queued and no SKP ordered set inside. The sum of the `dll` TX 4 and RX 4, the `phy` TX 6 and RX 16 (+1 for a packet in the high byte), and the packet's B − 1 beats. | budget; [#215](https://github.com/amichai-bd/pcie-factory/issues/215) |
+| TLP latency | From a TLP's accepted `eop` at one `link` to its `sop` at the other: at most B + 29 cycles plus the channel delay, B = (n + 6) / 2 the `phy` beats of an n-byte TLP (102 for a 128-byte write), with nothing else queued and no SKP ordered set inside. It is the sum of the `dll` TX 4 and RX 4, the `phy` TX 6 and RX 16, and the packet's B − 1 beats after its first. | budget; [#215](https://github.com/amichai-bd/pcie-factory/issues/215) |
 | FPGA clock | `clk_i` and `ser_rx_clk_i` at 50 MHz on the DE2-115 (Quartus): timing and resources only, no board bring-up; the design's rates are unchanged (M1 Q26, Q2). | [#218](https://github.com/amichai-bd/pcie-factory/issues/218) |
 | ASIC clock | sky130hd (ORFS): the **gate** is the 100 MHz checkpoint on both clocks, an explicit clock study (`--study-clock-period 10`, M1 Q27). 125 MHz stays the default target and is reported nightly; its closure is future timing work ([#235](https://github.com/amichai-bd/pcie-factory/issues/235)) and does not block M2 (Q10). | [#219](https://github.com/amichai-bd/pcie-factory/issues/219) |
 
@@ -189,10 +192,24 @@ never falls due (UpdateFC-P goes out every TLP), so the refresh is 16 per
 4096 (0.39%). TLPs get (1 − 0.0034 − 0.0039) × 148 / 164 = **0.896** of
 each line, and payload 0.896 × 128 / 148 = **0.775** (194 MB/s).
 
-The [model](#architecture-model) measures 0.990 and 0.857 one way, 0.896
-and 0.775 both ways, over 2000 TLPs per direction. The targets keep about
-1% (one way) and 2% (both ways) of margin for the start and drain of a
-finite run and for clock offset.
+The both-ways figures are the worst case. They count one Ack per TLP,
+but an Ack that waits behind a TLP going out can cover two incoming TLPs,
+depending on how the two directions line up; that only lowers the
+overhead.
+
+The [model](#architecture-model) records 0.990 and 0.856 one way, and
+0.896 and 0.774 both ways, over 2000 TLPs per direction. The payload
+targets sit 0.7% (one way) and 1.8% (both ways) below those figures. The
+margin covers the start and drain of a finite run; the measurement runs
+at 0 ppm.
+
+**From the `dll` floor.** The [`dll` line-use target](../dll/HAS.md#targets)
+is at least 0.99 of the cycles busy with TLPs, framing included, with no
+SKP. A `dll` that only just meets it gives
+0.99 × (1 − 0.0034) × 128 / 148 = 0.853 one way, which still meets 0.85.
+That leaves under one cycle per TLP of slack: a `dll` that adds an idle
+cycle between packets (75 instead of 74 per TLP) gives 0.845 and misses
+the target.
 
 ## End-to-end plan
 
@@ -205,13 +222,16 @@ the [DV plan](../../dv/link/DV_PLAN.md) maps it to tests.
   each on its own clock, ±600 ppm apart in some tests, joined by a channel
   per direction like the [`phy` e2e](../../dv/phy/DV_PLAN.md#strategy)'s.
   The testbench drives and checks the upper TLP streams only through the
-  `link` ports. `TIMEOUT_DIV` 1024 shortens link-up.
+  `link` ports. `TIMEOUT_DIV` 1024 shortens link-up. `ERR_TIMEOUT_DIV` is
+  1, so a Recovery timeout to Detect (24 ms) never falls inside a test.
+  Even the shortest timeout any divider allows (16384 cycles) is far longer
+  than any impairment below.
 - **Second opinion:** the independent DLL link partner of
   [#210](https://github.com/amichai-bd/pcie-factory/issues/210) (Q3) is the
-  far end in the `dll` DV. In the `link` e2e it watches each direction
-  passively, fed the packets the injector decodes, and flags a TLP sent
-  beyond the advertised credits, a sequence number out of order, an Ack or
-  Nak for a TLP never sent, and an Ack later than 118 cycles.
+  far end in the `dll` DV. In the `link` e2e it also runs as a passive
+  checker ([below](#passive-checker)). #210 delivered only the far-end
+  role, so the passive mode is [#215](https://github.com/amichai-bd/pcie-factory/issues/215)'s
+  work.
 
 ### Error injection
 
@@ -230,17 +250,27 @@ re-encodes so that the receiver sees no other error.
 | Nak | A Nak dropped or corrupted, and a TLP of a running replay corrupted. | The receiver does not resend the Nak; the sender's replay timeout replays. A second replay follows the first. |
 | Duplicate | Acks dropped until the sender replays TLPs the receiver holds. | The receiver discards the duplicates and Acks at once; no error pulse. |
 | REPLAY_NUM rollover | Every TLP one way dropped for longer than 4 replay timeouts (over 1500 cycles). | The fourth replay rolls REPLAY_NUM over: Rollover on `dl_err_o`, a retrain (`ltssm_state_o` leaves L0 and returns; `link_up_o` and DL_Active stay), then traffic resumes. |
-| Line impairments | The `phy` channel's bit flips, slips and electrical-idle dropouts. | `rcv_err_o`; packets cut short arrive flagged (Bad TLP, Nak, replay); any Recovery keeps `link_up_o`. |
+| Line impairments | The `phy` channel's bit flips, slips, and electrical-idle dropouts of at most 1000 cycles. | `rcv_err_o`; packets cut short arrive flagged (Bad TLP, Nak, replay); any Recovery returns to L0 and keeps `link_up_o`. |
 
 ### Credit configurations
 
 | Configuration | `FC_*` (H, D per class) at both ends unless stated | Upper receive stream |
 | --- | --- | --- |
 | Default | P 8, 32; NP 8, 8; Cpl infinite | Never stalls (Cpl is infinite). |
-| Finite, minimum | P 1, 8; NP 1, 1; Cpl 1, 8 | Stalls of 4000 and 10000 cycles, otherwise takes 30% of beats: starvation, then recovery through UpdateFC. |
+| Finite, minimum | P 1, 8; NP 1, 2; Cpl 1, 8 | Stalls of 4000 and 10000 cycles, otherwise takes 30% of beats: starvation, then recovery through UpdateFC. |
 | Finite, default sizes | P 8, 32; NP 8, 8; Cpl 8, 32 | As above. |
 | All infinite | every class infinite | Never stalls. |
 | Asymmetric | a finite minimum, b default | a may stall; b never stalls. |
+
+In every configuration, both ends send a random mix, so that each class's
+header and data gates both bind:
+
+- memory writes (posted) with payloads of 4 to 128 bytes;
+- memory reads (non-posted, no data);
+- configuration or I/O writes (non-posted, one DW of data);
+- completions with data (completion) of 4 to 128 bytes.
+
+Each kind is at least 20% of the TLPs.
 
 ### Checks
 
@@ -253,17 +283,53 @@ re-encodes so that the receiver sees no other error.
   `fc_*_avail_o` never exceeds what the partner has advertised and
   returned, and with traffic drained every finite one is back at the
   partner's advertised value.
-- **Errors:** DL protocol error and Malformed TLP never pulse; every
-  injected TLP error yields at least one Bad TLP; the delivered bytes
-  rule out any undetected corruption.
+- **Errors:** DL protocol error and Malformed TLP never pulse, and the
+  delivered bytes rule out any undetected corruption. Per injected class,
+  at the receiving end unless stated:
+  - an LCRC error or corrupted TLP yields at least one Bad TLP;
+  - a dropped TLP yields Bad TLP and a Nak when a later TLP arrives
+    before the sender's replay timeout, and a Replay timeout pulse at the
+    sender otherwise;
+  - a corrupted DLLP yields Bad DLLP; a dropped DLLP yields no pulse;
+  - a rollover yields, at the sender, exactly 4 Replay timeout pulses and
+    1 REPLAY_NUM rollover pulse, and no Bad TLP at the receiver;
+  - a duplicate yields no pulse.
 - **Link:** `link_up_o` stays 1 and `dl_state_o` stays DL_Active through
   every class, the rollover's retrain included.
 - **Liveness:** a test fails if no TLP is delivered for 20000 cycles while
   any is outstanding.
+- **Ack latency:** at each `link`'s `dll`-to-`phy` boundary, 118 cycles
+  ([targets](#targets)), through bind checkers on the internal nets the
+  MAS names. A check on the line uses the derived 140-cycle bound.
 - **Throughput:** with the bench error-free, at 0 ppm, the upper layers
   always offering and taking, payload bytes delivered over at least 2000
   TLPs per direction, from the first accepted to the last delivered, meet
   the [targets](#targets).
+
+### Passive checker
+
+The injector records, per direction and with each packet's start and end
+cycle, two decoded packet views:
+
+- **sent:** before injection, what the transmitting `link` put on the line;
+- **delivered:** after injection, what the receiving `link` gets.
+
+It also records an injection log: cycle, direction, class and the packet
+affected. The partner's passive checks read both directions together,
+each from a fixed view:
+
+| Check | Reads | Flags |
+| --- | --- | --- |
+| Credits | The sender's TLPs from the **sent** view of its own direction. The limits from the InitFC and UpdateFC DLLPs in the **delivered** view of the reverse direction, those that reached the sender's line before the TLP started. | A first transmission of a TLP whose credits exceed that limit. Using line arrival makes the check looser by the `phy` RX latency, never stricter, so it raises no false flag. |
+| Sequence | The **sent** view of one direction, with the Acks and Naks in the **delivered** reverse view. | A new TLP whose number is not one past the previous new one, or a replay that does not restart at the oldest TLP the sender has not seen acknowledged and resend in order. |
+| Ack and Nak | Acks and Naks in the **sent** view of one direction, against TLPs in the **delivered** view of the other. | A sequence number naming a TLP that did not arrive good and in order. |
+| Ack timing | The covered TLP's end in the **delivered** view, and the DLLP's start in the reverse **sent** view. | A gap above the derived 140-cycle line bound. |
+
+Injected drops, corruptions and duplicates appear only in the delivered
+view. The checks above take what an end sent from the sent view and what
+it received from the delivered view, so injected events need no
+exemption. The injection log ties each expected error pulse
+([checks](#checks)) to its cause.
 
 ## Architecture model
 
@@ -292,5 +358,7 @@ writes `workdir/link/arch/perf.json`.
 
 | Item | Owner |
 | --- | --- |
-| The injector's structure (where it sits in the testbench top, how it tracks disparity and the scrambler across SKP) and the partner's monitor hook. | [#215](https://github.com/amichai-bd/pcie-factory/issues/215), [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
+| The injector's structure (where it sits in the testbench top, how it tracks disparity and the scrambler across SKP) and the partner's passive mode ([passive checker](#passive-checker)). | [#215](https://github.com/amichai-bd/pcie-factory/issues/215) |
+| If the Base Spec measures its Ack limit at the port (on the line), not at the data link layer's boundary, the 32-cycle `dll` Ack timer may be too long. The line bound here is 140 cycles against the 118 limit. | Captain |
+| M3 and later: software-directed L1 and L2 will need a power-state port on `link` and power-management DLLPs in `dll`. That changes the `link` port list, which conflicts with Q5's "M3 adds it on top unchanged". | Captain |
 | The cited sections on this page, checked against rev 3.0 (the Base Spec is not in the local cache). | Captain, with a local copy |

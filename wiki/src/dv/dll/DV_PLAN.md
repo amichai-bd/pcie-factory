@@ -11,8 +11,20 @@
   `clk_i` running and every input toggled at random, it checks each output
   with a defined [reset value](../../arch/dll/HAS.md#reset-values) at every
   falling `clk_i` edge, through two reset pulses.
+- **Parameter limits:** [`tests/test_dll_params.py`](../../../../src/dv/dll/tests/test_dll_params.py)
+  lints `pcie_dll` with Verilator from `dll.rtl.f` for one illegal value
+  of each `FC_*` (and the upper bound of `FC_PD` and `FC_NPD`), each of
+  which must stop elaboration with its `COMMON_ASSERT_PARAM` message, and
+  for the legal boundaries (smallest finite values, including `FC_NPD` 2
+  and `FC_PD`/`FC_CPLD` 8; all infinite; the largest), which must lint
+  clean.
 - **Functional coverage:** the `dll_shell` covergroup bins `rst` (low,
   high) and `link_up` (down, up), crossed.
+- **Independent link partner:** the [partner model](PARTNER.md)
+  (`models/pcie_dll_partner.py`, M2 Q3) and its pytest unit tests, run by
+  `./build ci unit`, not by a regression entry. It shares no code with the
+  architecture model; its possible disagreements with the HAS are listed
+  on its page.
 - **Planned (wave 2):** one `dll` testbench driving the upper TLP stream
   and a stand-in `phy` packet stream, with the independent DLL link
   partner ([#210](https://github.com/amichai-bd/pcie-factory/issues/210),
@@ -27,6 +39,7 @@
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Reset values of the shell](../../arch/dll/HAS.md#reset-values) | `smoke` | 0 | 1; 128 cycles with random inputs |
+| [Credit parameter ranges](../../arch/dll/HAS.md#parameters) | `param_limits` | 0 | 1; 8 illegal and 3 legal lints, no simulation |
 
 Levels 1 and 2 have no entries yet (`tests: []`).
 
@@ -38,4 +51,5 @@ Levels 1 and 2 have no entries yet (`tests: []`).
 | [Sequence numbers, LCRC, replay buffer, replay timer, REPLAY_NUM](../../arch/dll/RETRY.md#replay) | [#212](https://github.com/amichai-bd/pcie-factory/issues/212) |
 | [Receive checks, duplicates, Ack and Nak scheduling](../../arch/dll/RETRY.md#receiving-tlps) | [#213](https://github.com/amichai-bd/pcie-factory/issues/213) |
 | [Flow-control initialisation, accounting, UpdateFC](../../arch/dll/FLOW_CONTROL.md) | [#214](https://github.com/amichai-bd/pcie-factory/issues/214) |
+| Partner vs architecture model cross-check; disagreements to HAS Open items | [#211](https://github.com/amichai-bd/pcie-factory/issues/211) |
 | [Targets](../../arch/dll/HAS.md#targets) end to end | [#215](https://github.com/amichai-bd/pcie-factory/issues/215), [#216](https://github.com/amichai-bd/pcie-factory/issues/216) |

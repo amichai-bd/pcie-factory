@@ -10,7 +10,7 @@ module pcie_link #(
   parameter int unsigned FC_PH           = 8,  // posted header credits advertised; 0 infinite, else 1..127
   parameter int unsigned FC_PD           = 32, // posted data credits; 0 infinite, else 8..2047
   parameter int unsigned FC_NPH          = 8,  // non-posted header credits; 0 infinite, else 1..127
-  parameter int unsigned FC_NPD          = 8,  // non-posted data credits; 0 infinite, else 1..2047
+  parameter int unsigned FC_NPD          = 8,  // non-posted data credits; 0 infinite, else 2..2047
   parameter int unsigned FC_CPLH         = 0,  // completion header credits; 0 infinite (default), else 1..127
   parameter int unsigned FC_CPLD         = 0,  // completion data credits; 0 infinite (default), else 8..2047
   parameter int unsigned TIMEOUT_DIV     = 1,  // 1..1024: divides Detect.Quiet and Hot Reset waits; 1 for silicon

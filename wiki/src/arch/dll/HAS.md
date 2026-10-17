@@ -135,7 +135,7 @@ one TLP header; one data credit is 16 bytes of payload
 | `FC_PH` | `int unsigned` | 8 | 0, 1 to 127 | Posted header credits. |
 | `FC_PD` | `int unsigned` | 32 | 0, 8 to 2047 | Posted data credits (8 is one 128-byte payload). |
 | `FC_NPH` | `int unsigned` | 8 | 0, 1 to 127 | Non-posted header credits. |
-| `FC_NPD` | `int unsigned` | 8 | 0, 1 to 2047 | Non-posted data credits. |
+| `FC_NPD` | `int unsigned` | 8 | 0, 2 to 2047 | Non-posted data credits (2 is one compare-and-swap with 16-byte operands, 32 bytes of data; the `dll` cannot tell TLPs apart, so it must take the largest non-posted payload). |
 | `FC_CPLH` | `int unsigned` | 0 (infinite) | 0, 1 to 127 | Completion header credits. |
 | `FC_CPLD` | `int unsigned` | 0 (infinite) | 0, 8 to 2047 | Completion data credits. |
 
@@ -230,8 +230,9 @@ stays 1 through Recovery, so a retrain does not leave DL_Active.
   2 more than a multiple of 4, it is shorter than a 3-DW header, its byte
   count differs from what its header's Fmt and Length give, or its
   payload is above 128 bytes (Q6). It is
-  acknowledged (the sequence advances), not delivered, and its header's
-  credits are returned at once; Malformed TLP pulses
+  acknowledged (the sequence advances), not delivered, and the credits
+  its header states (1 header credit plus the data credits its Length
+  implies; none under 4 bytes) are returned at once; Malformed TLP pulses
   ([receiving TLPs](RETRY.md#receiving-tlps)).
 
 ### Errors
@@ -267,7 +268,7 @@ neither ([`link` errors](../link/HAS.md#errors)).
 | Credit-available as six flat count ports | Mirrors the six counters the spec names; one meaning per port (M1 Q25 keeps single-meaning top ports flat). | One packed struct port (no package shared with M3 exists yet). |
 | `dl_up_o` from FC_INIT2 | DL_Up is reported once the partner's credits are recorded [cite: PCIe Base Spec, rev 3.0, §3.2.1]. | DL_Active only. |
 | A Nak or timeout during a replay replays again after it | One replay at a time keeps the replay buffer read path simple; the second request is not lost. | Restarting the replay at once. |
-| Overflowed TLPs are discarded, neither acknowledged nor Nak'd | Never loses a TLP and needs no extra state. The consequence is spelled out: NEXT_RCV_SEQ does not advance, so the TLPs behind it arrive "ahead", pulse Bad TLP and schedule one Nak, and the partner replays from the overflowed TLP. If the stall persists, each replay overflows again, REPLAY_NUM rolls over and the link retrains. A credit-correct partner with a compliant upper layer never triggers it. | Acknowledging and dropping (loses the TLP). |
+| Overflowed TLPs are discarded, neither acknowledged nor Nak'd | Never loses a TLP and needs no extra state. The consequence is spelled out: NEXT_RCV_SEQ does not advance, so the TLPs behind it arrive "ahead", pulse Bad TLP and schedule one Nak, and the partner replays from the overflowed TLP. If the stall persists, each replay overflows again, REPLAY_NUM rolls over and the link retrains. A credit-correct partner with a compliant upper layer never triggers it. The independent link partner ([#210](https://github.com/amichai-bd/pcie-factory/issues/210)) reads the spec as acknowledging an overflowed TLP at the data link layer and dropping it at the transaction layer; the two readings differ only with a credit-incorrect far end, and this design keeps the discard ([#261](https://github.com/amichai-bd/pcie-factory/issues/261)). | Acknowledging and dropping (loses the TLP). |
 | Completion credits infinite by default; `dll` port-role neutral | The Endpoint and Root Port rule; one IP serves both roles, and a role that may advertise finite completion credits overrides `FC_CPLH`/`FC_CPLD`. | Finite defaults (non-compliant for an Endpoint). |
 | The upper layer never stalls when any class is infinite | An exact, checkable rule. With one FIFO in arrival order, a stall on any TLP would let infinite-class TLPs behind it overrun the reserve even with a credit-correct partner. In M2 the receive side therefore never stalls whenever any class is infinite, which with the default (infinite completion credits) means always; M3's transaction layer must accept every TLP at line rate. | A cycle bound (hard to size and verify); per-class receive queues, rejected on ordering grounds (the bypass rules between classes belong to the transaction layer). |
 | An entry UpdateFC and the 2048-cycle refresh for every class, infinite fields sent as 0 | With all classes infinite and link-up skew, the side that leaves FC_INIT2 first would otherwise send nothing that ends the partner's FC_INIT2, so the partner never reaches DL_Active. | Allowing TLPs in FC_INIT2. |
@@ -340,4 +341,4 @@ corrects the rule and the model together.
 | DL_Up reported from FC_INIT2, TLP transmission only from DL_Active, and the "group being sent is complete" rule for leaving FC_INIT1 and FC_INIT2. | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
 | The timer values: replay timeout 711 symbol times (no L0s adjustment: `dll` makes no ASPM changes and `link` holds the `phy` out of L0s, [`link` power states](../link/HAS.md#power-states)), Ack limit 237 symbol times, InitFC resend at most every 34 µs, UpdateFC refresh at most every 30 µs ([timers](RETRY.md#timers)). | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
 | A Nak not resent while NAK_SCHEDULED is set (a lost Nak is recovered by the partner's replay timer), and a phy-flagged TLP treated as a bad TLP that schedules a Nak. | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
-| The minimum advertised credits (`FC_PD` and `FC_CPLD` at least one maximum payload, the others at least 1). | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
+| The minimum advertised credits (`FC_PD` and `FC_CPLD` at least one maximum payload, `FC_NPD` at least 2, the headers at least 1). | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |

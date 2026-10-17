@@ -218,7 +218,11 @@ def run_traffic(w: dict, seed: int) -> dict[str, float]:
         "updatefc_per_tlp": (a.counts["updatefc"] + b.counts["updatefc"])
         / max(1, len(a.delivered) + len(b.delivered)),
         "cycles": float(span),
-        "ack_latency_cycles_max": float(max(a.ack_lat + b.ack_lat, default=0)),
+        # At the dll-to-phy boundary (the dll and link HAS Ack target): from
+        # a TLP's eop into the dll to the start of its Ack or Nak on the
+        # phy stream, SKP waits included. The line bound adds the phy RX
+        # and TX latencies (link HAS, Targets).
+        "ack_latency_dll_cycles_max": float(max(a.ack_lat + b.ack_lat, default=0)),
         "replays": float(a.counts["replays"] + b.counts["replays"]),
         "retrains": float(a.counts["retrains"] + b.counts["retrains"]),
     }

@@ -19,7 +19,7 @@
   every error class and credit configuration, the no-loss, no-duplicate
   and no-reorder scoreboard, the independent DLL link partner
   ([#210](https://github.com/amichai-bd/pcie-factory/issues/210)) as a
-  passive second opinion, and the throughput measurement.
+  [passive checker](../../arch/link/HAS.md#passive-checker), and the throughput measurement.
 
 ## Plan
 
@@ -34,6 +34,6 @@ Levels 1 and 2 have no entries yet (`tests: []`).
 | Feature | Owning issue |
 | --- | --- |
 | [Stack wiring](../../arch/link/HAS.md#stack-wiring), [power states](../../arch/link/HAS.md#power-states), [errors](../../arch/link/HAS.md#errors) | [#215](https://github.com/amichai-bd/pcie-factory/issues/215) |
-| [Error injection](../../arch/link/HAS.md#error-injection), [credit configurations](../../arch/link/HAS.md#credit-configurations), [checks](../../arch/link/HAS.md#checks) | [#215](https://github.com/amichai-bd/pcie-factory/issues/215) |
+| [Error injection](../../arch/link/HAS.md#error-injection), [credit configurations](../../arch/link/HAS.md#credit-configurations), [checks](../../arch/link/HAS.md#checks), [passive checker](../../arch/link/HAS.md#passive-checker) | [#215](https://github.com/amichai-bd/pcie-factory/issues/215) |
 | [Throughput targets](../../arch/link/HAS.md#throughput) end to end | [#216](https://github.com/amichai-bd/pcie-factory/issues/216) |
 | Coverage floors | [#217](https://github.com/amichai-bd/pcie-factory/issues/217) |

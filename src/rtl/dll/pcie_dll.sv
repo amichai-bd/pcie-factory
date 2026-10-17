@@ -6,11 +6,13 @@
 // value. The data link blocks arrive in wave 2.
 `default_nettype none
 
+`include "common_macros.svh"
+
 module pcie_dll #(
   parameter int unsigned FC_PH   = 8,   // posted header credits advertised; 0 infinite, else 1..127
   parameter int unsigned FC_PD   = 32,  // posted data credits; 0 infinite, else 8..2047
   parameter int unsigned FC_NPH  = 8,   // non-posted header credits; 0 infinite, else 1..127
-  parameter int unsigned FC_NPD  = 8,   // non-posted data credits; 0 infinite, else 1..2047
+  parameter int unsigned FC_NPD  = 8,   // non-posted data credits; 0 infinite, else 2..2047
   parameter int unsigned FC_CPLH = 0,   // completion header credits; 0 infinite (default), else 1..127
   parameter int unsigned FC_CPLD = 0    // completion data credits; 0 infinite (default), else 8..2047
 ) (
@@ -73,9 +75,20 @@ module pcie_dll #(
   assign unused_inputs = ^{clk_i, rst_i, tlp_tx_valid_i, tlp_tx_data_i, tlp_tx_sop_i,
                            tlp_tx_eop_i, tlp_rx_ready_i, pkt_tx_ready_i, pkt_rx_valid_i,
                            pkt_rx_data_i, pkt_rx_sop_i, pkt_rx_eop_i, pkt_rx_dllp_i,
-                           pkt_rx_err_i, pkt_rx_nullify_i, link_up_i, ltssm_state_i,
-                           FC_PH[0], FC_PD[0], FC_NPH[0], FC_NPD[0], FC_CPLH[0],
-                           FC_CPLD[0]};
+                           pkt_rx_err_i, pkt_rx_nullify_i, link_up_i, ltssm_state_i};
+
+  // Parameter ranges from the HAS: 0 is infinite; finite headers 1..127,
+  // finite data at least one 128-byte payload (posted, completion) or one
+  // 16-byte-operand CAS (non-posted), at most 2047.
+  `COMMON_ASSERT_PARAM(g_bad_fc_ph, FC_PH <= 127, "FC_PH must be 0 or 1..127")
+  `COMMON_ASSERT_PARAM(g_bad_fc_pd, FC_PD == 0 || (FC_PD >= 8 && FC_PD <= 2047),
+                       "FC_PD must be 0 or 8..2047")
+  `COMMON_ASSERT_PARAM(g_bad_fc_nph, FC_NPH <= 127, "FC_NPH must be 0 or 1..127")
+  `COMMON_ASSERT_PARAM(g_bad_fc_npd, FC_NPD == 0 || (FC_NPD >= 2 && FC_NPD <= 2047),
+                       "FC_NPD must be 0 or 2..2047")
+  `COMMON_ASSERT_PARAM(g_bad_fc_cplh, FC_CPLH <= 127, "FC_CPLH must be 0 or 1..127")
+  `COMMON_ASSERT_PARAM(g_bad_fc_cpld, FC_CPLD == 0 || (FC_CPLD >= 8 && FC_CPLD <= 2047),
+                       "FC_CPLD must be 0 or 8..2047")
 
   // Reset values from the HAS: DL_Inactive, no traffic, no credits.
   assign tlp_tx_ready_o  = 1'b0;

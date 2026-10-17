@@ -9,7 +9,7 @@ workload:
   payload: -1
   bidirectional: true
 targets:
-  ack_latency_cycles_max: {max: 118}
+  ack_latency_dll_cycles_max: {max: 118}   # at the dll-to-phy boundary
   tlps_lost: {max: 0}
   tlps_duplicated: {max: 0}
   tlps_out_of_order: {max: 0}
