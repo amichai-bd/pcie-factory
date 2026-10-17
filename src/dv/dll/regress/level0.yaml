@@ -2,10 +2,20 @@ tests:
   - name: smoke
     module: tests.test_dll
     testcase: smoke
-    top: pcie_dll
+    top: pcie_dll_tb
     timeout_s: 60
   - name: param_limits
     module: tests.test_dll_params
     testcase: param_limits
     top: pcie_dll
     timeout_s: 300
+  - name: crc16_kat
+    module: tests.test_dll
+    testcase: crc16_kat
+    top: pcie_dll_tb
+    timeout_s: 120
+  - name: fc_init_directed
+    module: tests.test_dll
+    testcase: fc_init_directed
+    top: pcie_dll_tb
+    timeout_s: 120

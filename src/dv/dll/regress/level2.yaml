@@ -1,1 +1,14 @@
-tests: []
+tests:
+  - name: link_up_stress_sweep
+    module: tests.test_dll
+    testcase: link_up_stress
+    top: pcie_dll_tb
+    seeds: 8
+    timeout_s: 600
+  - name: link_up_stress_smallest
+    module: tests.test_dll
+    testcase: link_up_stress
+    top: pcie_dll_tb
+    seeds: 4
+    timeout_s: 600
+    params: {FC_PH: 1, FC_PD: 8, FC_NPH: 1, FC_NPD: 2, FC_CPLH: 1, FC_CPLD: 8}

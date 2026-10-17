@@ -1,4 +1,9 @@
-// pcie_dll: synthesizable sources only. The blocks of
-// wiki/src/rtl/dll/MAS.md join in wave 2.
+// pcie_dll: synthesizable sources only: the shared vocabulary, the IP
+// package, the blocks, then the top (wiki/src/rtl/dll/MAS.md#files).
 -F ../common/common_macros.rtl.f
+pcie_dll_pkg.sv
+pcie_dll_dllp_rx.sv
+pcie_dll_ctrl.sv
+pcie_dll_fc.sv
+pcie_dll_tx.sv
 pcie_dll.sv
