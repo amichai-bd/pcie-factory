@@ -76,7 +76,7 @@ configuration write takes effect, or at reset.
 | `d_state` | cfg→tl | 2 | `clk_i` | Power State: 0 D0, 3 D3hot (decision F5). |
 | `bar0_base` | cfg→tl | 32 | `clk_i` | BAR0 address: bits `[31:BAR0_ADDR_W]` as software wrote them, lower bits 0. |
 | `bar2_base` | cfg→tl | 32 | `clk_i` | BAR2 address: bits `[31:12]` as software wrote them, lower bits 0. |
-| `cpl_timeout_dis` | cfg→tl | 1 | `clk_i` | Device Control 2 Completion Timeout Disable: 1 disables `tl`'s requester completion timeout. |
+| `cpl_timeout_dis` | cfg→tl | 1 | `clk_i` | Device Control 2 Completion Timeout Disable: 1 disables `tl`'s requester completion timeout. When it falls, each read still outstanding gets a fresh full timeout from that cycle. |
 
 - The completer ID and requester ID of every TLP `tl` sends are
   `bus_num`, `dev_num` and function 0.
@@ -99,7 +99,8 @@ configuration write takes effect, or at reset.
   [cite: PCIe Base Spec, rev 3.0, §7.8.15]. `cfg` does advertise
   Completion Timeout Disable, which `tl` honors through `cpl_timeout_dis`:
   while it is 1, an outstanding read waits for its completions with no
-  timeout (firstmate decision as the captain's delegate, which the captain
+  timeout, and when it falls each read still outstanding gets a fresh
+  full timeout from that cycle (firstmate decision as the captain's delegate, which the captain
   may override).
 - The read completion boundary is fixed at 64 bytes: `cfg` hardwires the
   Link Control RCB bit to 0 (64 bytes), so software cannot set a boundary
@@ -126,7 +127,7 @@ cycle give one pulse. `cfg` turns them into status bits and messages
 | 0 | Unsupported Request, posted: a posted request or message `tl` does not serve; dropped, no completion. |
 | 1 | Unsupported Request, non-posted: `tl` answered it with an Unsupported Request completion. |
 | 2 | Malformed TLP: a received TLP failed a `tl` format check; dropped. |
-| 3 | Poisoned request: a received request with its poisoned bit set. A posted one is dropped; a non-posted one (a configuration write, say) is discarded without effect and answered with an Unsupported Request completion [cite: PCIe Base Spec, rev 3.0, §2.7.2.2]. Only bit 3 pulses, never bit 1 as well, so `cfg` counts the event once. |
+| 3 | Poisoned request: a received request with its poisoned bit set. A posted one is dropped; a non-posted one (a configuration write, say) is discarded without effect and answered with an Unsupported Request completion [cite: PCIe Base Spec, rev 3.0, §2.7.2.2]. Only bit 3 pulses, never bit 1 as well, so `cfg` counts the event once. A poisoned request that is otherwise an Unsupported Request is reported as the Unsupported Request (bit 0 or 1) only. |
 | 4 | Poisoned completion: a received completion for one of this function's reads with its poisoned bit set. |
 | 5 | Unexpected completion: a completion that matches no outstanding read. |
 | 6 | Completion timeout: a read's completions did not all arrive in time. |

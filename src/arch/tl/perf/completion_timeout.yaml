@@ -1,0 +1,20 @@
+# Completion timeout (wiki/src/arch/tl/COMPLETIONS.md#completion-timeout):
+# with CPL_TIMEOUT_DIV 1024 a read times out 2048 to 2176 cycles after it was
+# sent, is reported once with status failed, and frees its tag.
+description: 100 application MRd of 128 bytes; the host drops the last completion of every fifth read; CPL_TIMEOUT_DIV 1024.
+seed: 1
+workload:
+  kind: requester
+  op: read
+  tlps: 100
+  bytes: 128
+  host_latency: 100
+  drop_every: 5
+  cpl_timeout_div: 1024
+targets:
+  timeouts: {min: 20, max: 20}
+  reads_failed: {min: 20, max: 20}
+  reads_finished: {min: 100}
+  timeout_cycles_min: {min: 2048}
+  timeout_cycles_max: {max: 2176}
+  unexpected_completions: {max: 0}

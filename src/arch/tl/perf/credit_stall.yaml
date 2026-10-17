@@ -1,0 +1,16 @@
+# The receive queues hold what the advertised credits allow and no more
+# (wiki/src/arch/tl/HAS.md#credits): the application stalls cq, the host
+# keeps sending, nothing overflows and nothing is lost.
+description: 1000 host MWr of 128 bytes; the application takes cq beats 30% of the time and stalls from cycle 3000 to 13000.
+seed: 1
+workload:
+  kind: completer
+  op: write
+  tlps: 1000
+  cq_duty: 0.3
+  cq_stall: [[3000, 13000]]
+targets:
+  posted_header_credits_held_max: {max: 8}
+  posted_data_credits_held_max: {max: 32}
+  requests_done: {min: 1000}
+  tl_errors: {max: 0}
