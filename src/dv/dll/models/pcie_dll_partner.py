@@ -257,6 +257,10 @@ class Partner:
             h, d = self.adv[cls]
             if not (0 <= h < 2 ** (HDR_W - 1) and 0 <= d < 2 ** (DATA_W - 1)):
                 raise ValueError(f"{cls} credits {self.adv[cls]} out of range")
+        if self.adv["NP"][1] == 1:
+            # 0 (infinite) or at least 2: a compare-and-swap AtomicOp with
+            # 16-byte operands needs 2 NP data credits (#261).
+            raise ValueError("NP data credits must be 0 or at least 2")
         self.t = timers or Timers()
         self.inject = inject or Inject()
         self.replay_bytes = replay_bytes

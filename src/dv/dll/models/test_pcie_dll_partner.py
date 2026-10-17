@@ -641,3 +641,12 @@ def test_receive_order_and_malformed_lengths():
         b2.p.send(big)
     with pytest.raises(ValueError):
         b2.p.send(bytes([0x80]) + bytes(11), check=False)
+
+
+def test_np_data_credit_minimum():
+    """FC_NPD is 0 (infinite) or at least 2 (#261): 1 is rejected."""
+    with pytest.raises(ValueError):
+        m.Partner(credits={"P": (8, 32), "NP": (8, 1), "Cpl": (0, 0)})
+    for npd in (0, 2):
+        p = m.Partner(credits={"P": (8, 32), "NP": (8, npd), "Cpl": (0, 0)})
+        assert p.adv["NP"] == (8, npd)
