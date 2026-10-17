@@ -556,7 +556,8 @@ def _perf_enumeration(w: dict, rng: random.Random) -> dict:
 
 def _perf_stress(w: dict, rng: random.Random) -> dict:
     """Random interrupt requests, masks, enables, D-state changes, error
-    events and message takes; then a drain with everything allowed."""
+    events, and message offers taken at once or left waiting across the
+    other operations; then a drain with everything allowed."""
     c = Cfg(Params(msix_table_size=int(w.get("vectors", 8))))
     n = c.p.msix_table_size
     for v in range(n):                                 # one address per vector
@@ -598,8 +599,10 @@ def _perf_stress(w: dict, rng: random.Random) -> dict:
                 stats["requests"] += 1
                 if status != "dropped":
                     owed[key] = owed.get(key, 0) + 1
-        elif op < 0.55:
+        elif op < 0.48:
             take()
+        elif op < 0.55:
+            c.offer()                                  # msg_valid seen, msg_ready 0
         elif op < 0.65:
             v = rng.randrange(n)
             c.bar2_write(16 * v + 12, int(rng.random() < 0.3))

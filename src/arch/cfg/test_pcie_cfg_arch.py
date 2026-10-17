@@ -273,6 +273,19 @@ def test_msix_masks_and_pending():
     assert c.take().addr == ADDR + 4
 
 
+def test_msix_request_merges_into_pending_bit():
+    """A request for a vector already pending, even one about to go out,
+    gives no second write."""
+    c = Cfg()
+    ready(c, msix=True)
+    c.cfg_write(CAP_MSIX, 0xC000 << 16, be=0x8)
+    assert c.irq_request(2) == "pending"
+    c.cfg_write(CAP_MSIX, 0x8000 << 16, be=0x8)        # eligible, not yet taken
+    assert c.irq_request(2) == "pending"
+    assert c.take().addr == ADDR + 8
+    assert c.offer() is None
+
+
 def test_msix_wins_over_msi():
     c = Cfg()
     ready(c, msi=True, msix=True)

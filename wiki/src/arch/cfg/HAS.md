@@ -241,7 +241,7 @@ rule above and the register map; `./build arch --ip cfg` writes
 | Scenario | Workload |
 | --- | --- |
 | [`enumeration`](../../../../src/arch/cfg/perf/enumeration.yaml) | 200 enumerations, random IDs, BAR0 size and table size. |
-| [`irq_stress`](../../../../src/arch/cfg/perf/irq_stress.yaml) | 5000 random operations, 8 vectors, then a drain. |
+| [`irq_stress`](../../../../src/arch/cfg/perf/irq_stress.yaml) | 5000 random operations, 8 vectors, offers taken at once or left waiting, then a drain. |
 
 ## Open questions
 
