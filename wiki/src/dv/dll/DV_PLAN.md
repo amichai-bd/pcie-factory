@@ -356,15 +356,16 @@ that is too small is caught (the last row above).
 
 ## Gaps
 
-| Feature | Owning issue |
-| --- | --- |
-| [Targets](../../arch/dll/HAS.md#targets) end to end: line use, through the `link` stack | [#216](https://github.com/amichai-bd/pcie-factory/issues/216); Lossless with errors both ways, Rollover and Credits run in the [`link` e2e](../link/DV_PLAN.md) ([#215](https://github.com/amichai-bd/pcie-factory/issues/215)) |
-
-The remaining gap is a stack-level measurement in the `link` bench that
-adds no `dll` logic or stimulus here, so the floors below apply ([firstmate decision on #217](https://github.com/amichai-bd/pcie-factory/issues/217#issuecomment-6241327256): floors may be set before #216 lands, by plan). An Ack or
+None. The [targets](../../arch/dll/HAS.md#targets) end to end run in the
+[`link` e2e](../link/DV_PLAN.md): Lossless with errors both ways, Rollover
+and Credits ([#215](https://github.com/amichai-bd/pcie-factory/issues/215))
+and line use, as the stack's throughput
+([#216](https://github.com/amichai-bd/pcie-factory/issues/216)). An Ack or
 Nak waiting behind a TLP (the 118-cycle bound with both directions loaded)
 runs here in `tlp_bidir` and at each `dll`-to-`phy` boundary of the
-[`link` e2e](../link/DV_PLAN.md#strategy).
+`link` e2e. The floors below were set while #216 was open, by plan
+([firstmate decision on #217](https://github.com/amichai-bd/pcie-factory/issues/217#issuecomment-6241327256));
+its entries are on the `link` bench and add nothing to this one.
 
 ## Coverage holes
 
@@ -402,7 +403,7 @@ The 3280 toggle points not hit, by cause:
 | Constant per build | 599 | The credit parameters (`adv_i` in `u_ctrl` and `u_fc`, `rx_base`, `grp_base`) and the InitFC bodies built from them (`initfc_req` in the top, `u_ctrl` and `u_tx`, with their fixed type and reserved bits): a parameter does not change during a run, so its bits rise at most once after reset. |
 | Constant by the DLLP format | 447 | Ack and Nak bodies (`acknak_req` in the top, `u_tlp_rx` and `u_tx`): the type bits other than the Ack-to-Nak bit, the reserved byte and the reserved nibble above the sequence number; the UpdateFC bodies (`updfc_req`): the type code's low bits and the reserved bits between the fields; the same bits of the transmit block's chosen body and packet register (`body`, `tx_q.pkt`). |
 | Constant by construction: one TLP's credits | 771 | The credit fields of a single TLP (`rx_chk`, `rx_stored`, `rx_malformed`, `rx_taken`, their `u_fc` and `u_tlp_rx` ports, `u_rx_buf` `cur_q` and `taken_o`, and `u_fc` `tx_cost`): the header field is always 1 (bits 7:1 never set, bit 0 never falls once the field holds a TLP), the data field is at most 256 (1024 DWs, bits 11:9 never set), and the `valid` flag that `tlp_credit` sets to 1. |
-| Not reached: large data credits | 242 | Bits 8:4 of a delivered TLP's data credits (`rx_taken`, `u_rx_buf` `cur_q` and `taken_o`): a TLP that is delivered carries at most 128 bytes, 8 credits. Bits 7:6 of the credit fields of `rx_chk`, `rx_stored` and `rx_malformed` and their ports, which carry every judged TLP's credits whatever its verdict (64 to 255 credits, a Length of 253 to 1020 DWs), and `hdr.len` bit 9 in `u_tlp_rx`. Only malformed TLPs exceed 8 credits; `rx_directed`'s malformed cases toggle bits 5:4 and 8 (Length 0 is 1024 DWs), and a Length in between would add no check. |
+| Not reached: large data credits | 242 | Bits 8:4 of a delivered TLP's data credits (`rx_taken`, `u_rx_buf` `cur_q` and `taken_o`): a TLP that is delivered carries at most 128 bytes, 8 credits. Bits 7:6 of the credit fields of `rx_chk`, `rx_stored` and `rx_malformed` and their ports, which carry every judged TLP's credits whatever its verdict (64 to 255 credits, a Length of 253 to 1020 DWs), and `hdr.length` bit 9 in `u_tlp_rx`. Only malformed TLPs exceed 8 credits; `rx_directed`'s malformed cases toggle bits 5:4 and 8 (Length 0 is 1024 DWs), and a Length in between would add no check. |
 | Unreachable by construction: receive buffer full | 32 | `rx_full`, `u_rx_buf` `full_o` and its fill's top bit (`used`), `u_tlp_rx` `buf_full_i` and `noroom`: the line hole above. |
 | Not reached: counter top bits | 137 | The top bits of the NP and Cpl credit counters and recorded limits in `u_fc` (`alloc`, `rcvd`, `sent`, `upd`, `used`, `lim_np`, `lim_cpl`) and bit 7 of the completion header in use: only the P class wraps its counters (`fc_tx_gate`), and the NP data counter grows by one credit per CfgWr, so a wrap would take over 2048 non-posted writes in one link-up. The wrap arithmetic is shared by every class (`fc_charge`, `fc_record`), and the P wrap checks it. |
 | Constant by construction: transmit block | 18 | In `u_tlp_tx`: bit 0 of the space-in-use sums (`need_bytes`, `used_bytes`: whole words plus 2 bytes per TLP), bits 1:0 of a TLP's size (`sop_bytes`: whole DWs), bits 7:4 of the sequence-number beat (reserved, 0) and bit 13 of the space in use, which stays below 8192. |
@@ -418,7 +419,7 @@ bodies and `u_tx` `body` and `tx_q.pkt` (DLLP format); the `.cred` fields
 of `rx_chk`, `rx_stored`, `rx_malformed`, `rx_taken`, `chk_o`, `stored_o`,
 `malformed_o`, `cur_q`, `taken_o` and `tx_cost`, header bits 7:1, data bits
 11:9, header bit 0 falling and the `valid` flags (one TLP's credits), data
-bits 8:4 and `hdr.len` bit 9 (large credits); `rx_full`, `full_o`,
+bits 8:4 and `hdr.length` bit 9 (large credits); `rx_full`, `full_o`,
 `buf_full_i`, `noroom` and the fill's top bits (buffer full); the `u_fc`
 `alloc`, `rcvd`, `sent`, `upd`, `used` and `lim_*` fields (counter top
 bits); then the named transmit-block bits, `wr_lanes_i` and `hold_left`.

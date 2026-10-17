@@ -91,9 +91,11 @@ tests:
     timeout_s: 1800
 # Floors on the merged levels 0 to 2 (the nightly run), at the merged value
 # less 0.5 points rounded down to a tenth (DV BKM, floor margin): measured
-# 90.72% line (1379/1520), 80.08% toggle (24641/30770) over the whole
-# stack; every point not hit has a reason in the DV plan (Coverage holes).
+# 90.72% line (1379/1520), 80.35% toggle (24724/30770) over the whole
+# stack, with #216's throughput entries; every point not hit has a reason in
+# the DV plan (Coverage holes). An entry with a new parameter set (a new
+# CREDITS value) re-measures these floors in the same PR.
 # Functional 100 must hold every bin of link_e2e_config, link_e2e_control,
 # link_e2e_credit, link_e2e_inject, link_e2e_recovery and link_e2e_traffic;
 # a renamed or undeclared covergroup leaves the total, so keep this list.
-coverage_floors: {line: 90.2, toggle: 79.5, functional: 100}
+coverage_floors: {line: 90.2, toggle: 79.8, functional: 100}

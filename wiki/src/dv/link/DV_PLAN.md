@@ -171,21 +171,27 @@ All entries run on `pcie_link_e2e_tb`; credits are the default
 
 ## Coverage holes
 
-The floors are set before the gaps above close, by plan
-([firstmate decision on #217](https://github.com/amichai-bd/pcie-factory/issues/217#issuecomment-6241327256)). #216 adds default-configuration
-entries to this bench: they reuse an existing parameter set, so they can
-only raise line and toggle, and the link floors are re-measured over levels
-0 to 2 when it lands. #302 adds an injector class, and #218 and #219 add
-timing reports, not simulation. A future entry with a new parameter set
-(a new `CREDITS` value) re-measures the floors in the same PR. Floors in [`level2.yaml`](../../../../src/dv/link/regress/level2.yaml),
+The floors were planned before #216 landed
+([firstmate decision on #217](https://github.com/amichai-bd/pcie-factory/issues/217#issuecomment-6241327256)): its throughput entries use the
+default configuration, an existing parameter set, so they could only raise
+line and toggle. They were set from a run that includes those entries. The
+remaining gaps add no simulation stimulus that could lower them: #302 adds
+an injector class, and #218 and #219 are timing reports. A future entry
+with a new parameter set (a new `CREDITS` value) re-measures the floors in
+the same PR.
+
+Floors in [`level2.yaml`](../../../../src/dv/link/regress/level2.yaml),
 checked by every `--coverage` run that selects level 2 (the nightly runs
-levels 0 to 2): line 90.2, toggle 79.5, functional 100. Merged over levels
-0 to 2 ([#217](https://github.com/amichai-bd/pcie-factory/issues/217)),
+levels 0 to 2): line 90.2, toggle 79.8, functional 100. Merged over levels
+0 to 2 with the [#216](https://github.com/amichai-bd/pcie-factory/issues/216)
+entries ([#217](https://github.com/amichai-bd/pcie-factory/issues/217)),
 over the whole stack that `link.rtl.f` reaches: line 90.72% (1379 of 1520
-points), toggle 80.08% (24641 of 30770), functional 100% (82 of 82 bins in
+points), toggle 80.35% (24724 of 30770), functional 100% (82 of 82 bins in
 the six covergroups the level file names). The line and toggle floors are
 the merged values less 0.5 points, rounded down to a tenth
-([floor margin](../../../bkm/dv.md#coverage)).
+([floor margin](../../../bkm/dv.md#coverage)). Before #216 the same run gave
+80.08% toggle (the throughput entries hit 83 more points) and the same line
+count.
 
 Verilator merges the two ends into one copy of each block when they share
 parameters (`u_*`), and keeps a copy per parameter set otherwise: the
@@ -200,16 +206,16 @@ by cause:
 | Elaboration only or tool artefact | 29 | `pcie_mac_pkg.sv`: `err_timeout`, called only for `localparam` values; the early `return` branches of `run_next` ([`mac` plan](../mac/DV_PLAN.md#coverage-holes)); the 23 arms of `arc_target`, called only with the constant indices of unrolled loops (`step_end_arc`, `arc_target_listed`), which Verilator folds at elaboration. |
 | Unreachable by construction | 9 | The RAM lane-disable branch of each `common_sdp_ram` copy (5: `LANES` is 1), the `dll` receive buffer's full branch (`noroom`, [`dll` plan](../dll/DV_PLAN.md#coverage-holes)), and the `default` arms of the LTSSM's state groups, the ordered-set kind and the transmit mode. |
 
-The 6129 toggle points not hit, by cause:
+The 6046 toggle points not hit, by cause:
 
 | Cause | Points | Signals |
 | --- | ---: | --- |
-| Hit in another parameter set or at the other end | 1270 | The same bit and direction toggles in another credit configuration's copy, or at the other end of the asymmetric configuration (for example, the limit and infinite-field bits of the finite configurations, the larger receive buffer's address bits, a request input driven at one end only). |
-| `dll`: the causes of its [unit plan](../dll/DV_PLAN.md#coverage-holes) | 2624 | Constant per build (credit parameters, InitFC bodies: 718), constant by the DLLP format (Ack, Nak and UpdateFC reserved and type bits: 520), one TLP's credits (917), large data credits (238), receive buffer full (34), credit counter top bits (174), the transmit block's constant bits (18), RAM lanes (5), counted in each copy. |
-| `dll`: behaviour the stack does not produce | 579 | The bench checks that no DL protocol error, Receiver overflow or Malformed TLP pulses (`err_o`, `rx_overflow`, `malformed_tlp`, `tlp_tx_err`, the error flags of `u_fc`, `u_tlp_rx` and `u_tlp_tx`), the `phy` never delivers a nullified TLP (the `dll` never nullifies), credits available never exceed the advertisement (their upper bits), and sequence numbers stay below 1024 (at most 1000 new TLPs each way per link-up: their top bits in `u_tlp_tx` and `u_tlp_rx`); the DLLP assembly of a wrong-length DLLP, the InitFC group timer's top bits and the rollover hold counter's top bits. Each is reached in the `dll` unit DV. |
+| Hit in another parameter set or at the other end | 1280 | The same bit and direction toggles in another credit configuration's copy, or at the other end of the asymmetric configuration (for example, the limit and infinite-field bits of the finite configurations, the larger receive buffer's address bits, a request input driven at one end only). |
+| `dll`: the causes of its [unit plan](../dll/DV_PLAN.md#coverage-holes) | 2570 | Constant per build (credit parameters, InitFC bodies: 718), constant by the DLLP format (Ack, Nak and UpdateFC reserved and type bits: 504), one TLP's credits (917), large data credits (238), receive buffer full (34), credit counter top bits (136), the transmit block's constant bits (18), RAM lanes (5), counted in each copy. |
+| `dll`: behaviour the stack does not produce | 544 | The bench checks that no DL protocol error, Receiver overflow or Malformed TLP pulses (`err_o`, `rx_overflow`, `malformed_tlp`, `tlp_tx_err`, the error flags of `u_fc`, `u_tlp_rx` and `u_tlp_tx`), the `phy` never delivers a nullified TLP (the `dll` never nullifies), credits available never exceed the advertisement (their upper bits), and sequence numbers do not wrap (at most 2000 new TLPs each way per link-up, in the throughput entries, and at most 1000 in the entries that replay: the top bits of the sequence and replay counters in `u_tlp_tx` and `u_tlp_rx`); the DLLP assembly of a wrong-length DLLP, the InitFC group timer's top bits and the rollover hold counter's top bits. Each is reached in the `dll` unit DV. |
 | `link` ports | 204 | `dl_err_o` (never pulses, as checked), the upper bits of `fc_*_avail_o` (at most the advertisement), `pkt_rx_nullify` (never set), and inputs the bench holds constant at an end: `port_role_i`, `retrain_req_i`, `ser_tx_rxdet_i`, and the control requests in the copies that never get them. |
 | `mac` and `pcs`: power states tied off | 394 | The L0s, L1 and L2 logic: FTS counts and requests, `pm_state`, PM waits, electrical-idle ordered sets for power entry, power-down and the receive and transmit sub-states. |
-| `mac` and `pcs`: not reached by two compliant ends, or constant by design | 1058 | Compliance, polarity inversion (the channel never inverts), link and lane numbers other than 0 and N_FTS other than the default (both ends use them), TS control bits, Disable Scrambling, the Configuration and Recovery error-exit run counters and mismatch counts, the LTSSM timer's top bits, the frame's second receive-queue slot and its nullify path, the elastic buffer's fill extremes and the decoder's error classes. Each is covered by the [`mac`](../mac/DV_PLAN.md#coverage-holes), [`pcs`](../pcs/DV_PLAN.md#coverage-holes) or [`phy`](../phy/DV_PLAN.md#coverage-holes) plan, or listed there as a hole with its reason. |
+| `mac` and `pcs`: not reached by two compliant ends, or constant by design | 1054 | Compliance, polarity inversion (the channel never inverts), link and lane numbers other than 0 and N_FTS other than the default (both ends use them), TS control bits, Disable Scrambling, the Configuration and Recovery error-exit run counters and mismatch counts, the LTSSM timer's top bits, the frame's second receive-queue slot and its nullify path, the elastic buffer's fill extremes and the decoder's error classes. Each is covered by the [`mac`](../mac/DV_PLAN.md#coverage-holes), [`pcs`](../pcs/DV_PLAN.md#coverage-holes) or [`phy`](../phy/DV_PLAN.md#coverage-holes) plan, or listed there as a hole with its reason. |
 
 How the toggle points were sorted, so a re-measurement reproduces the
 counts: a point is "hit in another parameter set or at the other end" when
