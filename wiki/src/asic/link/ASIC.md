@@ -74,7 +74,10 @@ resizing buffers, as for `phy`.
 [`common_sdp_ram`](../../rtl/common/ram/common_sdp_ram.md) instances. As
 for the `phy` elastic buffer's array, no memory macro is specified (PD BKM: memories
 stay behavioral until the MAS specifies one), so synthesis maps them to
-flops and read multiplexers, about 25 kbit of storage. They dominate the
+flops and read multiplexers, about 25 kbit of storage. ORFS stops synthesis on an
+inferred memory above `SYNTH_MEMORY_MAX_BITS` (4096 bits by default), so
+`sky130hd.mk` raises it to 17408, the receive buffer's size: a larger
+memory, for example from bigger credit parameters, still fails the flow. They dominate the
 cell area; a macro would be its own issue, with its MAS change.
 
 ## Running
