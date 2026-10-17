@@ -1,0 +1,16 @@
+# Application reads through rq (wiki/src/arch/tl/HAS.md#targets): eight tags
+# cover the round trip at a 100-cycle host latency.
+description: 1000 application MRd of 128 bytes, the host answering 100 cycles after each read.
+seed: 1
+workload:
+  kind: requester
+  op: read
+  tlps: 1000
+  host_latency: 100
+targets:
+  fraction_of_link: {min: 0.98}
+  payload_line_fraction: {min: 0.759}
+  reads_finished: {min: 1000}
+  reads_failed: {max: 0}
+  unexpected_completions: {max: 0}
+  malformed: {max: 0}

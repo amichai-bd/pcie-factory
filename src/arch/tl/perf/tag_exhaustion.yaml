@@ -1,0 +1,16 @@
+# Eight tags against a slow host (wiki/src/arch/tl/COMPLETIONS.md#requester-tags):
+# all eight in use, rq waits for a free tag, nothing lost; throughput is
+# eight reads per round trip.
+description: 200 application MRd of 128 bytes, the host answering 2000 cycles after each read.
+seed: 1
+workload:
+  kind: requester
+  op: read
+  tlps: 200
+  host_latency: 2000
+targets:
+  tags_in_use_max: {min: 8, max: 8}
+  rq_tag_stall_cycles: {min: 1}
+  reads_finished: {min: 200}
+  reads_failed: {max: 0}
+  payload_bytes_per_cycle: {min: 0.4}
