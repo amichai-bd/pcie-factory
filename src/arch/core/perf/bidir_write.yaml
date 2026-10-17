@@ -1,0 +1,14 @@
+# Both ways (wiki/src/arch/core/HAS.md#targets): host MWr to BAR0 and application MWr on rq at once,
+# each direction >= 0.98 of the link both-ways payload rate and >= 0.745
+# of the line.
+description: 2000 host MWr to BAR0 and 2000 application MWr on rq at once, 128 bytes each.
+seed: 1
+workload:
+  kind: traffic
+  host: write
+  app: write
+  tlps: 2000
+targets:
+  fraction_of_link: {min: 0.98}
+  payload_line_fraction: {min: 0.745}
+  tl_errors: {max: 0}

@@ -1,0 +1,13 @@
+# MSI delivery (wiki/src/arch/core/HAS.md#targets): the application writes 128 bytes on rq, then
+# raises an interrupt; every MSI write reaches the host after that data.
+description: 50 rounds of a 128-byte rq write then an MSI, after enumeration.
+seed: 1
+workload:
+  kind: interrupts
+  mode: msi
+  count: 50
+targets:
+  reported_sent: {min: 50, max: 50}
+  interrupt_writes: {min: 50, max: 50}
+  interrupts_wrong: {max: 0}
+  interrupt_overtakes: {max: 0}
