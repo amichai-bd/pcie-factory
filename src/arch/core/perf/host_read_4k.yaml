@@ -1,0 +1,13 @@
+# Split reads (wiki/src/arch/core/HAS.md#targets): a 4 KiB aligned read gives 32 completions of 128 bytes.
+description: 40 host MRd of 4 KiB from BAR0.
+seed: 1
+workload:
+  kind: traffic
+  host: read
+  tlps: 40
+  bytes: 4096
+targets:
+  completions_per_read: {min: 32, max: 32}
+  completion_errors: {max: 0}
+  host_reads_done: {min: 40}
+  tl_errors: {max: 0}

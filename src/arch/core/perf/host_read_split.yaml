@@ -1,0 +1,16 @@
+# Split reads (wiki/src/arch/core/HAS.md#targets): a 512-byte read at offset 4 gives completions of
+# 124, 128, 128, 128 and 4 bytes; the host stand-in checks every field and
+# that each split falls only where one is needed.
+description: 300 host MRd of 512 bytes from BAR0 offset 4.
+seed: 1
+workload:
+  kind: traffic
+  host: read
+  tlps: 300
+  bytes: 512
+  offset: 4
+targets:
+  completions_per_read: {min: 5, max: 5}
+  completion_errors: {max: 0}
+  host_reads_done: {min: 300}
+  tl_errors: {max: 0}

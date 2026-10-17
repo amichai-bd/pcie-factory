@@ -1,0 +1,17 @@
+# MSI-X delivery (wiki/src/arch/core/HAS.md#targets): 64 vectors programmed through BAR2 and masked;
+# one request each pends, the host reads every pending bit set, unmasks
+# each vector, gets one write per vector and reads the bits clear; then one
+# request each is sent at once.
+description: 64 MSI-X vectors masked, pending, unmasked, then sent directly.
+seed: 1
+workload:
+  kind: interrupts
+  mode: msix
+  vectors: 64
+targets:
+  reported_pending: {min: 64, max: 64}
+  pending_bits_seen: {min: 64, max: 64}
+  pending_bits_after: {max: 0}
+  reported_sent: {min: 64, max: 64}
+  interrupt_writes: {min: 128, max: 128}
+  interrupts_wrong: {max: 0}
