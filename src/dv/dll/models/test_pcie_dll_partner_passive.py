@@ -326,53 +326,94 @@ def test_ack_timing_flags_a_tlp_never_acknowledged():
     assert len(v) == 1 and "never acknowledged" in v[0]
 
 
-@pytest.mark.parametrize("trigger", ["rollover", "link_down", "recovery", None])
-def test_rollover_withdrawal_allowed_only_at_a_rollover(trigger):
-    """A replay cut short by its newest TLP, then the next replay: allowed
-    only when the sender's rollover pulse (or link-down) falls in between.
-    A plain Recovery (out of L0, no rollover) is not enough: the offered TLP
-    just waits. With no trigger, even a timeout-spaced replay is flagged;
-    cut short by two, flagged in any case."""
-    def views(cut):
-        chk = PassiveChecker()
-        init_views(chk)
-        for i, s in enumerate((0, 1, 2)):
-            chk.sent("ab", tlp(s, start=100 + 20 * i))
-        chk.delivered("ba", dllp(m.NAK, 4095, start=170))
-        t = 300
-        for s in range(0, 3 - cut):
-            chk.sent("ab", tlp(s, start=t))
-            t += 20
-        if trigger == "rollover":
-            chk.rollover("a", t - 15)               # while the replay's last TLP is going out
-            chk.retrain("a", t + 50, t + 300)
-        elif trigger == "recovery":
-            chk.retrain("a", t + 50, t + 300)
-        chk.sent("ab", tlp(0, start=t + 356))       # a replay-timeout later
-        return chk
-
-    def run(cut):
-        chk = views(cut)
-        if trigger == "link_down":                  # the sender's state restarts: epoch split
-            return chk
-        return chk.check()
-    if trigger in ("rollover",):
-        assert run(1) == []
-    elif trigger is None or trigger == "recovery":
-        v = run(1)
-        assert len(v) == 1 and "before the one from 1 to 2 completed" in v[0]
+def short_replay_views(cut, trigger=None, at=None):
+    """TLPs 0 to 2, a Nak of all three, then a replay cut short by ``cut``
+    TLPs (each TLP 10 cycles long, 20 apart) and a second replay from 0 a
+    replay timeout later. ``trigger`` (rollover, recovery or link_down) is
+    recorded ``at`` cycles after the start of the short replay's last TLP.
+    Returns the checker and the start of the second replay."""
+    chk = PassiveChecker()
+    init_views(chk)
+    for i, s in enumerate((0, 1, 2)):
+        chk.sent("ab", tlp(s, start=100 + 20 * i))
+    chk.delivered("ba", dllp(m.NAK, 4095, start=170))
+    t = 300
+    for s in range(0, 3 - cut):
+        chk.sent("ab", tlp(s, start=t))
+        t += 20
+    last = t - 20                               # the short replay's last TLP: [last, last + 10]
     if trigger == "rollover":
-        v = run(2)
-        assert len(v) == 1 and "before the one from 0 to 2 completed" in v[0]
+        chk.rollover("a", last + at)
+        chk.retrain("a", last + 60, last + 300)
+    elif trigger == "recovery":
+        chk.retrain("a", last + at, last + 300)
+    elif trigger == "link_down":
+        chk.link_down("a", last + at)
+    nxt = last + 376                            # a replay-timeout later
     if trigger == "link_down":
-        chk = PassiveChecker()
-        chk._sel = {}
-        assert chk._withdrawn("ab", [1, 2], 4095, 400.0, 300.0) is False
-        chk.link_down("a", 350.0)
-        assert chk._withdrawn("ab", [1, 2], 4095, 400.0, 300.0) is True
-        chk2 = PassiveChecker()
-        chk2.rollover("a", 250.0)                   # before the last TLP started: no
-        assert chk2._withdrawn("ab", [1, 2], 4095, 400.0, 300.0) is False
+        # A new epoch for a: the InitFCs again, then sequence numbers from 0.
+        for cls in m.CLASSES:
+            chk.delivered("ba", dllp(m.INITFC1[cls], *FINITE[cls], start=nxt - 50))
+    chk.sent("ab", tlp(0, start=nxt))
+    return chk, nxt
+
+
+@pytest.mark.parametrize("at", [-20, 5, 30])
+def test_rollover_withdrawal_inside_the_window(at):
+    """A replay short by its newest TLP is accepted when the sender's
+    rollover pulse falls while the replay's last TLP goes out: from
+    ``cut_slack`` (20) cycles before its start to 20 cycles after its end
+    (the TLP ends 10 cycles after its start)."""
+    chk, _ = short_replay_views(1, "rollover", at)
+    assert chk.check() == [] and chk.stats["withdrawn_ab"] == 1
+
+
+@pytest.mark.parametrize("at", [-21, 31, 200])
+def test_rollover_withdrawal_outside_the_window(at):
+    """The same short replay with the rollover before the window or after
+    it is flagged: a rollover long after the last TLP ended cannot have
+    withdrawn the newest, which was due on the line by then, even though
+    the pulse still comes before the next replay."""
+    chk, _ = short_replay_views(1, "rollover", at)
+    v = chk.check()
+    assert len(v) == 1 and "before the one from 1 to 2 completed" in v[0]
+
+
+@pytest.mark.parametrize("trigger", ["recovery", None])
+def test_short_replay_flagged_without_a_rollover(trigger):
+    """A plain Recovery (out of L0, no rollover) does not withdraw: the
+    offered TLP just waits, so the short replay is flagged; with no trigger
+    at all, a replay-timeout gap is no excuse either."""
+    chk, _ = short_replay_views(1, trigger, 30)
+    v = chk.check()
+    assert len(v) == 1 and "before the one from 1 to 2 completed" in v[0]
+
+
+def test_short_by_two_flagged_even_at_a_rollover():
+    chk, _ = short_replay_views(2, "rollover", 5)
+    v = chk.check()
+    assert len(v) == 1 and "before the one from 0 to 2 completed" in v[0]
+
+
+@pytest.mark.parametrize("mark", [True, False])
+def test_link_down_withdrawal_through_check(mark):
+    """The link-down case through ``check()``: a replay short by its newest
+    TLP, then the sender's link-down long after it, and a new epoch from
+    sequence number 0. With the link-down recorded, the short replay ends
+    a's epoch and nothing is flagged (the epoch after it is judged from its
+    own InitFCs, its new TLP 0 counted). Without it, the TLP 0 after the
+    relink reads as a replay restarted before the short one completed."""
+    chk, nxt = short_replay_views(1, "link_down" if mark else None, 200)
+    if not mark:
+        for cls in m.CLASSES:
+            chk.delivered("ba", dllp(m.INITFC1[cls], *FINITE[cls], start=nxt - 50))
+    v = chk.check()
+    if mark:
+        assert v == [], v
+        assert chk.stats["new_ab"] == 4 and "withdrawn_ab" not in chk.stats
+    else:
+        assert len(v) == 1 and "before the one from 1 to 2 completed" in v[0]
+
 
 def test_line_unsure_ack_widens_the_replay_start():
     """An Ack delivered inside a line-impairment range may have been lost

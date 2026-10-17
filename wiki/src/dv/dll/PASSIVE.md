@@ -48,14 +48,17 @@ stricter, and each is tied to a trigger the testbench reports:
   out of L0 (the testbench closes it at the return to L0 or at the
   link-down).
   - *Rollover withdrawal:* a replay may stop short by its newest TLP only
-    when the sender's rollover pulse or link-down falls between the start
-    of its last TLP (`cut_slack` earlier) and the next replay: the
-    rollover comes while that TLP is still going out, and withdraws the
-    TLP offered behind it, not started,
-    and the replay after the retrain resends it
-    ([REPLAY_NUM](../../arch/dll/RETRY.md#replay_num)); at a plain
-    Recovery the offered TLP just waits. `stats["withdrawn_<d>"]`. Without
-    such a trigger a short replay is flagged however long the gap.
+    when the sender's rollover pulse falls while its last TLP goes out,
+    from `cut_slack` cycles before that TLP's start to `cut_slack` cycles
+    after its end: the rollover withdraws the TLP offered behind it, not
+    started, and the replay after the retrain resends it
+    ([REPLAY_NUM](../../arch/dll/RETRY.md#replay_num)). A later rollover
+    cannot have withdrawn it, as the newest TLP was due on the line by
+    then, and at a plain Recovery the offered TLP just waits.
+    `stats["withdrawn_<d>"]`. Without such a pulse a short replay is
+    flagged however long the gap. The sender's link-down needs no window:
+    it ends the sender's epoch, so a short replay before it is the last
+    that epoch judges.
   - *Cut TLPs:* a TLP the `phy` cut short in the sent view counts as sent
     (its sequence number, and its credits when its first DW is there:
     `cut_<d>`, `credit_unread_<d>`) only when it ends within `cut_slack`
@@ -91,4 +94,4 @@ run with `python3 -m pytest src/dv/dll/models` and in `ci-gate`:
 | --- | --- |
 | Partners through tap lines | Clean traffic: no violation, every TLP judged. Drops and corruptions both ways at three credit settings, a rollover, a link-down mid-TLP with the epochs recorded: none; without the epochs: flagged. A sender ignoring credits: caught. |
 | Each check, hand-built views | A replay not from the oldest; a skipped TLP; a new TLP inside a replay; a wrong new number; a credit overrun (UpdateFC and replays respected); an Ack ahead; a slow, missing or late duplicate Ack. |
-| Each allowance, hand-built views | The Ack window; the rollover withdrawal at a rollover pulse or link-down (accepted), at a plain Recovery or with nothing after a timeout gap, or short by two (flagged); a cut TLP at a retrain (accepted) and in L0 (flagged); line-unsure Acks. |
+| Each allowance, hand-built views | The Ack window; the rollover withdrawal with the pulse inside its window at both edges (accepted), just before it, just after it or long after the last TLP (flagged), at a plain Recovery or with nothing after a timeout gap, or short by two (flagged); a short replay followed by the sender's link-down, through `check()` (accepted with the link-down recorded, flagged without); a cut TLP at a retrain (accepted) and in L0 (flagged); line-unsure Acks. |

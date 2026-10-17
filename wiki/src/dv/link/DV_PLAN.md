@@ -88,8 +88,9 @@ flowchart LR
     rollover pulses and link-downs and the line impairments, which tie
     its exemptions and allowances to their triggers ([`link` HAS, passive
     checker](../../arch/link/HAS.md#passive-checker)): a replay short by
-    its newest TLP only across the sender's rollover pulse or link-down, a
-    cut TLP only at its exit from L0. The link-control tests require Acks
+    its newest TLP only at a rollover pulse while its last TLP goes out
+    (or as the last of the sender's epoch, before its link-down), a cut
+    TLP only at its exit from L0. The link-control tests require Acks
     timed after the relink. Every accepted TLP must have been judged
     once as a first transmission;
   - in the error-free entries (`e2e_smoke`, every `e2e_credits_*` and
@@ -165,18 +166,65 @@ All entries run on `pcie_link_e2e_tb`; credits are the default
 
 | Feature | Owning issue |
 | --- | --- |
-| Coverage floors | [#217](https://github.com/amichai-bd/pcie-factory/issues/217) |
+| The `link` wiring of `pkt_rx_err`: a packet the `phy` flags with its bytes intact (a running-disparity-only error) is undetected by the current injector, so a tie-off of `pkt_rx_err` in `pcie_link` survives every entry (it is caught inside the `dll` by `crc16_kat`) | [#302](https://github.com/amichai-bd/pcie-factory/issues/302) |
 | The `ltssm_state_o` to `pkt_tx_valid` path on the FPGA and ASIC timing reports ([MAS timing](../../rtl/link/MAS.md#timing)) | [#218](https://github.com/amichai-bd/pcie-factory/issues/218), [#219](https://github.com/amichai-bd/pcie-factory/issues/219) |
 
 ## Coverage holes
 
-No floors yet ([#217](https://github.com/amichai-bd/pcie-factory/issues/217)).
-Merged over levels 0 to 2 at the [#215](https://github.com/amichai-bd/pcie-factory/issues/215)
-head: line 90.7% (1379 of 1520 points over the whole stack), toggle
-80.1%, functional 100% (82 of 82 bins). The points not hit, by cause:
+The floors were planned before #216 landed
+([firstmate decision on #217](https://github.com/amichai-bd/pcie-factory/issues/217#issuecomment-6241327256)): its throughput entries use the
+default configuration, an existing parameter set, so they could only raise
+line and toggle. They were set from a run that includes those entries. The
+remaining gaps add no simulation stimulus that could lower them: #302 adds
+an injector class, and #218 and #219 are timing reports. A future entry
+with a new parameter set (a new `CREDITS` value) re-measures the floors in
+the same PR.
 
-| Cause | Points |
-| --- | --- |
-| Tied off by `link` ([power states](../../arch/link/HAS.md#power-states)) | The `mac` L0s, L1 and L2 arcs and their ordered-set and electrical-idle handling (most of the 102 `pcie_mac_ltssm.sv` and 18 `pcie_mac_os.sv` points), the nullify path of `pcie_mac_frame.sv`. |
-| Not reached by two compliant ends | Polling.Compliance, the Configuration and Detect fallback arcs and timeouts, polarity inversion (the channel never inverts here), the `pcs` elastic buffer's overflow and underflow branches. Each is covered by the `mac`, `pcs` or `phy` unit DV ([granularity](../../../bkm/rtl.md#granularity)). |
-| Unreachable by construction | Parameter checks of the instances (`COMMON_ASSERT_PARAM` lines), the receive buffer full branch of `pcie_dll_rx_buf.sv`, the RAM lane-disable branch, the testbench top's unused tap lines. |
+Floors in [`level2.yaml`](../../../../src/dv/link/regress/level2.yaml),
+checked by every `--coverage` run that selects level 2 (the nightly runs
+levels 0 to 2): line 90.2, toggle 79.8, functional 100. Merged over levels
+0 to 2 with the [#216](https://github.com/amichai-bd/pcie-factory/issues/216)
+entries ([#217](https://github.com/amichai-bd/pcie-factory/issues/217)),
+over the whole stack that `link.rtl.f` reaches: line 90.72% (1379 of 1520
+points), toggle 80.35% (24724 of 30770), functional 100% (82 of 82 bins in
+the six covergroups the level file names). The line and toggle floors are
+the merged values less 0.5 points, rounded down to a tenth
+([floor margin](../../../bkm/dv.md#coverage)). Before #216 the same run gave
+80.08% toggle (the throughput entries hit 83 more points) and the same line
+count.
+
+Verilator merges the two ends into one copy of each block when they share
+parameters (`u_*`), and keeps a copy per parameter set otherwise: the
+`dll` and its receive buffer once per credit configuration, the
+asymmetric configuration's two ends apart. The 141 line points not hit,
+by cause:
+
+| Cause | Points | Where |
+| --- | ---: | --- |
+| Tied off by `link` ([power states](../../arch/link/HAS.md#power-states)) | 40 | The `mac` L0s sub-states (receive and transmit), the L1 and L2 states and the `pm_state` request arc, the FTS ordered sets they send (`pcie_mac_ltssm.sv` 35, `pcie_mac_os.sv` 2, the transmit-mode table in `pcie_mac_pkg.sv` 3). |
+| Not reached by two compliant ends | 63 | Behaviour that two conforming stacks over this channel never produce, each covered by the [`mac`](../mac/DV_PLAN.md), [`pcs`](../pcs/DV_PLAN.md) or [`dll`](../dll/DV_PLAN.md) unit DV ([granularity](../../../bkm/rtl.md#granularity)): Polling.Compliance and the compliance pattern, receiver detection with no receiver, the Polling and Configuration timeouts and their fallbacks, the Configuration and Recovery error exits (PAD and renumbering runs, mismatching TS, the `idle_to_rlock` count), Disable Scrambling, the LTSSM timer's saturation, framing errors from a K symbol inside a packet, the elastic buffer's overflow and underflow (outside ±600 ppm), the encoder's unsupported K and run-length check, the aligner's tail case; in the `dll`, a DLLP of the wrong length or an unknown type, a packet beyond the beat counter and the InitFC group resend (`mac` 44, `pcs` 14, `dll` 5). |
+| Elaboration only or tool artefact | 29 | `pcie_mac_pkg.sv`: `err_timeout`, called only for `localparam` values; the early `return` branches of `run_next` ([`mac` plan](../mac/DV_PLAN.md#coverage-holes)); the 23 arms of `arc_target`, called only with the constant indices of unrolled loops (`step_end_arc`, `arc_target_listed`), which Verilator folds at elaboration. |
+| Unreachable by construction | 9 | The RAM lane-disable branch of each `common_sdp_ram` copy (5: `LANES` is 1), the `dll` receive buffer's full branch (`noroom`, [`dll` plan](../dll/DV_PLAN.md#coverage-holes)), and the `default` arms of the LTSSM's state groups, the ordered-set kind and the transmit mode. |
+
+The 6046 toggle points not hit, by cause:
+
+| Cause | Points | Signals |
+| --- | ---: | --- |
+| Hit in another parameter set or at the other end | 1280 | The same bit and direction toggles in another credit configuration's copy, or at the other end of the asymmetric configuration (for example, the limit and infinite-field bits of the finite configurations, the larger receive buffer's address bits, a request input driven at one end only). |
+| `dll`: the causes of its [unit plan](../dll/DV_PLAN.md#coverage-holes) | 2570 | Constant per build (credit parameters, InitFC bodies: 718), constant by the DLLP format (Ack, Nak and UpdateFC reserved and type bits: 504), one TLP's credits (917), large data credits (238), receive buffer full (34), credit counter top bits (136), the transmit block's constant bits (18), RAM lanes (5), counted in each copy. |
+| `dll`: behaviour the stack does not produce | 544 | The bench checks that no DL protocol error, Receiver overflow or Malformed TLP pulses (`err_o`, `rx_overflow`, `malformed_tlp`, `tlp_tx_err`, the error flags of `u_fc`, `u_tlp_rx` and `u_tlp_tx`), the `phy` never delivers a nullified TLP (the `dll` never nullifies), credits available never exceed the advertisement (their upper bits), and sequence numbers do not wrap (at most 2000 new TLPs each way per link-up, in the throughput entries, and at most 1000 in the entries that replay: the top bits of the sequence and replay counters in `u_tlp_tx` and `u_tlp_rx`); the DLLP assembly of a wrong-length DLLP, the InitFC group timer's top bits and the rollover hold counter's top bits. Each is reached in the `dll` unit DV. |
+| `link` ports | 204 | `dl_err_o` (never pulses, as checked), the upper bits of `fc_*_avail_o` (at most the advertisement), `pkt_rx_nullify` (never set), and inputs the bench holds constant at an end: `port_role_i`, `retrain_req_i`, `ser_tx_rxdet_i`, and the control requests in the copies that never get them. |
+| `mac` and `pcs`: power states tied off | 394 | The L0s, L1 and L2 logic: FTS counts and requests, `pm_state`, PM waits, electrical-idle ordered sets for power entry, power-down and the receive and transmit sub-states. |
+| `mac` and `pcs`: not reached by two compliant ends, or constant by design | 1054 | Compliance, polarity inversion (the channel never inverts), link and lane numbers other than 0 and N_FTS other than the default (both ends use them), TS control bits, Disable Scrambling, the Configuration and Recovery error-exit run counters and mismatch counts, the LTSSM timer's top bits, the frame's second receive-queue slot and its nullify path, the elastic buffer's fill extremes and the decoder's error classes. Each is covered by the [`mac`](../mac/DV_PLAN.md#coverage-holes), [`pcs`](../pcs/DV_PLAN.md#coverage-holes) or [`phy`](../phy/DV_PLAN.md#coverage-holes) plan, or listed there as a hole with its reason. |
+
+How the toggle points were sorted, so a re-measurement reproduces the
+counts: a point is "hit in another parameter set or at the other end" when
+the same file, hierarchy (with `u_a`, `u_b` and `u_*` taken as one), signal
+bit and direction is hit in any copy. The rest go by file and signal name:
+`dll` files by the rules of the [`dll` plan](../dll/DV_PLAN.md#coverage-holes)
+(unmatched `dll` signals form the "does not produce" row), `pcie_link.sv`
+to the ports row, and `mac` and `pcs` signals whose names contain `fts`,
+`pm`, `l0s`, `rx_sub`, `tx_sub`, `power_down`, `pd`, `in_power`, `pwr_`,
+`l0_to`, `l0_blocked`, `idle_sent`, `eios`, `tx_mode`, `l0_exit`,
+`rx_moved`, `rx_age`, `pend`, `ei_cycles` or `q_old` to the power row, the
+others to the last row.
