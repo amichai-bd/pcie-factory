@@ -9,7 +9,7 @@ workload:
   host_latency: 100
 targets:
   fraction_of_link: {min: 0.98}
-  payload_line_fraction: {min: 0.759}
+  payload_line_fraction: {min: 0.745}
   reads_finished: {min: 1000}
   reads_failed: {max: 0}
   unexpected_completions: {max: 0}

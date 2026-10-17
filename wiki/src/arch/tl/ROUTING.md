@@ -40,14 +40,23 @@ made [cite: PCIe Base Spec, rev 3.0, §2.3]
 | 3. Memory byte enables | Length 1: Last DW BE 0. Length 2 or more: neither byte-enable field 0, and, unless Length is 2 with address bit 2 at 0 (one aligned 8-byte block), First DW BE one of `1111`, `1110`, `1100`, `1000` and Last DW BE one of `0001`, `0011`, `0111`, `1111` (no gaps) [cite: PCIe Base Spec, rev 3.0, §2.2.5]. A memory read of Length 1 with First DW BE 0 is a valid zero-length read. | Malformed. |
 | 4. 4 KiB boundary | A memory request's bytes, from its DW address for Length DWs, stay inside one aligned 4 KiB block [cite: PCIe Base Spec, rev 3.0, §2.2.7]. | Malformed. |
 | 5. Configuration and I/O | Length 1, Last DW BE 0, TC 0, Attr bits 1:0 0 [cite: PCIe Base Spec, rev 3.0, §2.2.7]. | Malformed. |
-| 6. Poisoned | EP is 0 on a request or message [cite: PCIe Base Spec, rev 3.0, §2.7.2.2]. | Poisoned request. |
+| 6. Message TC | TC is 0 on an INTx (`0x20` to `0x27`), power-management (`0x14`, `0x18`, `0x19`, `0x1B`), error-signalling (`0x30`, `0x31`, `0x33`), Unlock (`0x00`) or Set_Slot_Power_Limit (`0x50`) message: a receiver must check it [cite: PCIe Base Spec, rev 3.0, §2.2.8.1] [cite: PCIe Base Spec, rev 3.0, §2.2.8.2] [cite: PCIe Base Spec, rev 3.0, §2.2.8.3] [cite: PCIe Base Spec, rev 3.0, §2.2.8.4] [cite: PCIe Base Spec, rev 3.0, §2.2.8.5]. | Malformed. |
 | 7. Route | By kind, [below](#routing). | Unsupported Request, or a message outcome. |
+| 8. Poisoned | EP is 0 on a request or message that step 7 did not make an Unsupported Request [cite: PCIe Base Spec, rev 3.0, §2.7.2.2]. | Poisoned request. |
+
+Step 7 comes before step 8 so that a TLP that is both an Unsupported
+Request and poisoned reports one error, the higher-ranked Unsupported
+Request (bit 0 or 1, not bit 3), as the spec recommends for a TLP with
+several errors [cite: PCIe Base Spec, rev 3.0, §6.2.3.2.3]. A poisoned
+request that step 7 would serve, or a poisoned message it would drop or
+answer, is a poisoned request.
 
 The Length check against the maximum payload (128 bytes, fixed, decision
 F2) is the `dll`'s, so a payload above 128 bytes never reaches `tl`. A
 read's Length is not limited: the host's maximum read request size
 applies to the host, and `tl` answers any read of up to 4 KiB (step 4
-bounds it). TC and Attr of a memory request are not checked; `tl` keeps
+bounds it). TC and Attr of a memory request, and TC of any other
+message, are not checked; `tl` keeps
 them for the completion.
 
 ## Routing
@@ -100,8 +109,10 @@ By Message Code; the routing subfield is not checked
 | Ignored messages (former hot-plug indicator and button messages) | `0x40`, `0x41`, `0x43`, `0x44`, `0x45`, `0x47`, `0x48` | Dropped [cite: PCIe Base Spec, rev 3.0, §2.2.8.7]. |
 | Every other code: Vendor_Defined Type 0 (`0x7E`), INTx, PM_PME, PME_TO_Ack, ERR_*, LTR, OBFF and undefined codes | | Unsupported Request, posted (bit 0) [cite: PCIe Base Spec, rev 3.0, §2.2.8.6]. |
 
-A poisoned message is a poisoned request (step 6): dropped, bit 3, and a
-poisoned PME_Turn_Off is not answered.
+A poisoned message that is not an Unsupported Request is a poisoned
+request (step 8): dropped, bit 3, and a poisoned PME_Turn_Off is not
+answered. A message of the codes in step 6 with TC not 0 is malformed
+before its code is looked at.
 
 ## Outside D0
 

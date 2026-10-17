@@ -137,7 +137,7 @@ defines them, one pulse per kind per cycle:
 | 0 | An Unsupported Request that is posted, an unsupported message included ([routing](ROUTING.md#routing)). |
 | 1 | An Unsupported Request that is non-posted ([routing](ROUTING.md#routing)). |
 | 2 | A failed [receive check](ROUTING.md#checks) or [completion check](COMPLETIONS.md#checks). |
-| 3 | A poisoned request or message ([checks](ROUTING.md#checks), step 6). |
+| 3 | A poisoned request or message that is not an Unsupported Request ([checks](ROUTING.md#checks), step 8). |
 | 4 | A poisoned completion for an outstanding read. |
 | 5 | An [unexpected completion](COMPLETIONS.md#matching). |
 | 6 | A [completion timeout](COMPLETIONS.md#completion-timeout). |
@@ -156,9 +156,10 @@ override; Q-rows are the captain's.
 | Two non-posted lines | Configuration and BAR2 never wait on the application (`core` HAS); BAR0 reads keep their own order. | One line with a bypass (more state to order). |
 | Fewest completions per read | 128-byte completions end on 64-byte boundaries anyway; splitting at every boundary would double the headers. | A split at every 64 bytes. |
 | Completion timeout 2^21 cycles, 16 prescaler steps | 16.8 to 17.8 ms: in the 50 µs to 50 ms default range and above the 10 ms recommendation; one shared prescaler, a 5-bit count per tag. | A per-tag 21-bit counter; a programmable range (no M3 user). |
-| The checks the spec leaves optional are made: byte-enable rules, configuration and I/O TC, Attr, Length | A malformed request never reaches `cq` or `cfg`. | Ignoring them. |
+| Besides the required checks (message TC among them), the checks the spec may leave optional are made: byte-enable rules, configuration and I/O TC, Attr, Length | A malformed request never reaches `cq` or `cfg`. | Ignoring them. |
+| Unsupported Request is checked before poisoned: a poisoned request that is otherwise an Unsupported Request reports only the Unsupported Request (firstmate decision) | One error per TLP, the higher-ranked one, as the spec recommends [cite: PCIe Base Spec, rev 3.0, §6.2.3.2.3]. | Poisoned first (a poisoned write to no BAR would report bit 3). |
 | `tl` answers PME_Turn_Off itself with PME_TO_Ack, in any D-state | The host waits for the acknowledgment before removing power; `cfg` has nothing to decide. | Through the `cfg` message channel (a `msg_kind` with no `cfg` rule); not answering. |
-| Set_Slot_Power_Limit dropped | The tl-cfg interface has no net for its value. | A new net (a `core` interface change, [open questions](#open-questions)). |
+| Set_Slot_Power_Limit dropped | The tl-cfg interface has no net for its value. | A new net (a `core` interface change, [open questions](#open-questions), [#309](https://github.com/amichai-bd/pcie-factory/issues/309)). |
 | A poisoned completion keeps its tag until the read's last byte or its timeout, then fails once | Later completions of the read are not unexpected; the application sees one status. | Failing at once and freeing the tag (later completions would match a reused tag). |
 | A completion that disagrees with its read is malformed and dropped; the read waits | One rule for byte count, lower address and boundary errors; the timeout bounds the wait. | Ending the read at once (a corrupt completion would finish a read). |
 | Requests already taken are sent after bus mastering or D0 ends | Holding them would hold every later completion, the one that restores D0 included. | Discarding them (data the application issued is lost). |
@@ -169,20 +170,23 @@ override; Q-rows are the captain's.
 Measured by the [architecture model](#architecture-model) with `tl` over a
 `link` back to back with a host's, error-free, default credits, the
 application and host always ready unless stated. `tl` adds no bytes on
-the line, so throughput targets restate the `core` ones: at least 0.98 of
-the `link` payload rate ([`core` targets](../core/HAS.md#targets)). For
-writes that rate is the one-way closed form (0.857 of the line); for
-reads it is the both-ways closed form (0.775), since the completion
+the line, so throughput targets restate the `core` ones, with the same two
+bounds ([`core` targets](../core/HAS.md#targets)): the payload rate is at
+least 0.98 of the `link` payload rate (`fraction_of_link`, against the
+`link` closed form), and at least 0.98 of the `link` payload target as a
+fraction of the line (`payload_line_fraction`). Writes use the one-way
+`link` figures (closed form 0.857, target 0.85, so ≥ 0.833); reads use
+the both-ways ones (0.775 and 0.76, so ≥ 0.745), since the completion
 direction also carries the Ack and UpdateFC of every read
 ([`link` throughput](../link/HAS.md#throughput)).
 
 | Item | Target | Scenario |
 | --- | --- | --- |
 | Host writes in | 128-byte writes to BAR0: ≥ 0.98 of the link rate, ≥ 0.833 of the line. | `completer_write` |
-| Host reads | 128-byte reads from BAR0, the application answering in 16 cycles: ≥ 0.98, ≥ 0.759. | `completer_read` |
+| Host reads | 128-byte reads from BAR0, the application answering in 16 cycles: ≥ 0.98, ≥ 0.745. | `completer_read` |
 | Application writes out | 128-byte writes on `rq`: ≥ 0.98, ≥ 0.833. | `requester_write` |
-| Application reads | 128-byte reads on `rq`, host latency 100 cycles: ≥ 0.98, ≥ 0.759. | `requester_read` |
-| Splitting | 512 bytes at offset 4: 5 completions; 4 KiB aligned: 32; every field checked by the host. | `split_completions`, `split_4k` |
+| Application reads | 128-byte reads on `rq`, host latency 100 cycles: ≥ 0.98, ≥ 0.745. | `requester_read` |
+| Splitting | 512 bytes at offset 4: 5 completions; 4 KiB aligned: 32; every field checked by the host stand-in (a self-consistency check; the independent one is [#288](https://github.com/amichai-bd/pcie-factory/issues/288)'s). | `split_completions`, `split_4k` |
 | Tags | Host latency 2000 cycles: all 8 tags in use, `rq` waits, nothing lost, ≥ 0.4 bytes per cycle (8 reads per round trip). | `tag_exhaustion` |
 | Timeout | `CPL_TIMEOUT_DIV` 1024: every lost read times out once, 2048 to 2176 cycles after it was sent. | `completion_timeout` |
 | Queues | The application stalling `cq`: posted credits held never above the advertised 8 and 32; nothing lost. | `credit_stall` |
@@ -224,8 +228,8 @@ design's reading.
 
 | Item | Owner |
 | --- | --- |
-| Every cited section, checked against rev 3.0; in particular which receive checks the spec requires and which it only permits (byte enables, configuration and I/O TC and Attr), the message outcomes (Ignored messages dropped; OBFF, LTR and INTx received as Unsupported Request; PM_Active_State_Nak dropped), CRS and a successful completion without data as malformed, the locked completion for a refused locked read, Byte Count 4 for Unsupported Request completions of atomic operations, and AT not 0 as Unsupported Request. | Captain, with a local copy; [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
+| Every cited section, checked against rev 3.0; in particular which receive checks the spec requires and which it only permits (byte enables, configuration and I/O TC and Attr), the message codes that require TC 0, the message outcomes (Ignored messages dropped; OBFF, LTR and INTx received as Unsupported Request; PM_Active_State_Nak dropped), CRS and a successful completion without data as malformed, the locked completion for a refused locked read, Byte Count 4 for Unsupported Request completions of atomic operations, and AT not 0 as Unsupported Request. | Captain, with a local copy; [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
 | The credit-release port: names, widths and timing follow this page until #303 specifies the `dll` and `link` side; `tl` follows #303 if they differ. | [#303](https://github.com/amichai-bd/pcie-factory/issues/303) |
-| A received TLP with a digest (TD 1) is dropped as malformed by the `dll`'s length check, where a receiver without ECRC checking should ignore the digest. Hosts send one only with ECRC generation enabled, which needs AER. | Captain; [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
-| Set_Slot_Power_Limit: an upstream port captures its value into the Device Capabilities slot power fields; the tl-cfg interface has no net for it, so `cfg` reads them as 0. | [#285](https://github.com/amichai-bd/pcie-factory/issues/285), [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
+| A received TLP with a digest (TD 1) is dropped as malformed by the `dll`'s length check, where a receiver without ECRC checking should ignore the digest. Hosts send one only with ECRC generation enabled, which needs AER. | [#308](https://github.com/amichai-bd/pcie-factory/issues/308) |
+| Set_Slot_Power_Limit: an upstream port captures its value into the Device Capabilities slot power fields; the tl-cfg interface has no net for it, so `cfg` reads them as 0. | [#309](https://github.com/amichai-bd/pcie-factory/issues/309) |
 | Throughput targets from the `link` closed form; the `core` model confirms them. | [#287](https://github.com/amichai-bd/pcie-factory/issues/287) |

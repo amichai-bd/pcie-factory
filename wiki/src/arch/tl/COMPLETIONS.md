@@ -49,18 +49,22 @@ data ([APP completer completions](../core/APP.md#completer-completions)).
 A read's data goes out in one or more completions in increasing address
 order. With the read completion boundary fixed at 64 bytes (decision F2,
 [RCB](../core/TL_CFG.md#register-state)) and the maximum payload at 128
-bytes, each completion is as long as it may be: it starts where the
-previous one ended (the first at A) and ends at the read's end or at the
-highest 64-byte-aligned address that keeps it at most 128 bytes, whichever
-is lower [cite: PCIe Base Spec, rev 3.0, §2.3.1.1].
+bytes, `tl` sends the fewest completions: each starts where the previous
+one ended (the first at A); if the rest of the read fits in 128 bytes it
+goes in this one completion, otherwise the completion ends at the highest
+64-byte-aligned address that keeps it at most 128 bytes. A single
+completion for all that remains is always allowed; only a completion
+that leaves data for a later one must end on the boundary
+[cite: PCIe Base Spec, rev 3.0, §2.3.1.1].
 
 | Read | Completions (data bytes) |
 | --- | --- |
 | 128 bytes at a 64-byte-aligned address | 128 |
-| 128 bytes at offset 4 | 124, 4 |
+| 128 bytes at offset 4 | 128 |
 | 512 bytes at offset 4 | 124, 128, 128, 128, 4 |
 | 4096 bytes, aligned | 32 of 128 |
-| 8 bytes at `0x7C` | 8: a boundary is where a split may fall, not where one must |
+| 256 bytes at offset 4 | 124, 128, 4 |
+| 8 bytes at `0x7C` | 8 |
 
 The completions of one read go out in order. A configuration, BAR2 or
 Unsupported Request completion may go out between two completions of a
@@ -127,7 +131,7 @@ On a matching completion, in this order:
 | --- | --- |
 | Status Configuration Request Retry | Malformed (bit 2): `tl` sends no configuration requests. Dropped; the read keeps waiting. |
 | Status Unsupported Request, Completer Abort or a reserved value | The read ends: one `rc` beat with `rc_status_o` 1 (reserved values too) or 2, `rc_done_o` 1; bit 7 or 8. The tag is free. |
-| Successful, with no data, with a Byte Count other than the read's remaining bytes, a Lower Address other than the read's next byte bits `[6:0]`, or data that ends neither on a 64-byte boundary nor within the last DW of the read | Malformed (bit 2): dropped; the read keeps waiting. |
+| Successful, with no data, with a Byte Count other than the read's remaining bytes, a Lower Address other than the read's next byte bits `[6:0]`, or data that ends past the read's last DW, or before it but not on a 64-byte boundary | Malformed (bit 2): dropped; the read keeps waiting. |
 | Successful, poisoned | Bit 4. Its data is dropped and the read is marked failed. |
 | Successful | Its data goes to `rc` as one packet. The read's remaining bytes and next byte advance by the bytes it covers. |
 

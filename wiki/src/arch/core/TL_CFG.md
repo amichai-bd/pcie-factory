@@ -127,7 +127,7 @@ cycle give one pulse. `cfg` turns them into status bits and messages
 | 0 | Unsupported Request, posted: a posted request or message `tl` does not serve; dropped, no completion. |
 | 1 | Unsupported Request, non-posted: `tl` answered it with an Unsupported Request completion. |
 | 2 | Malformed TLP: a received TLP failed a `tl` format check; dropped. |
-| 3 | Poisoned request: a received request with its poisoned bit set. A posted one is dropped; a non-posted one (a configuration write, say) is discarded without effect and answered with an Unsupported Request completion [cite: PCIe Base Spec, rev 3.0, §2.7.2.2]. Only bit 3 pulses, never bit 1 as well, so `cfg` counts the event once. |
+| 3 | Poisoned request: a received request with its poisoned bit set. A posted one is dropped; a non-posted one (a configuration write, say) is discarded without effect and answered with an Unsupported Request completion [cite: PCIe Base Spec, rev 3.0, §2.7.2.2]. Only bit 3 pulses, never bit 1 as well, so `cfg` counts the event once. A poisoned request that is otherwise an Unsupported Request is reported as the Unsupported Request (bit 0 or 1) only. |
 | 4 | Poisoned completion: a received completion for one of this function's reads with its poisoned bit set. |
 | 5 | Unexpected completion: a completion that matches no outstanding read. |
 | 6 | Completion timeout: a read's completions did not all arrive in time. |

@@ -115,7 +115,9 @@ def test_byte_enable_rules(length, fbe, lbe, addr, ok):
 
 def test_split_on_the_read_completion_boundary():
     assert m.split_read(0x100, 32, 0xF, 0xF) == [(0, 32, 128, 0)]
-    assert m.split_read(0x104, 32, 0xF, 0xF) == [(0, 31, 128, 4), (31, 1, 4, 0)]
+    assert m.split_read(0x104, 32, 0xF, 0xF) == [(0, 32, 128, 4)]          # fits: one
+    assert m.split_read(0x104, 64, 0xF, 0xF) == [(0, 31, 256, 4), (31, 32, 132, 0), (63, 1, 4, 0)]
+    assert [p[1] for p in m.split_read(0x4, 128, 0xF, 0xF)] == [31, 32, 32, 32, 1]
     assert len(m.split_read(0, 1024, 0xF, 0xF)) == 32
     assert m.split_read(0x10, 1, 0x0, 0) == [(0, 1, 1, 0x10)]          # zero-length read
     # one completion when the data fits: a boundary is a split point, not a must
@@ -141,6 +143,11 @@ def test_split_properties():
 
 
 # ------------------------------------------------------- classification
+
+def tc(tlp, value=1):
+    """The TLP with its TC field set."""
+    return bytes([tlp[0], (tlp[1] & 0x8F) | (value << 4)]) + tlp[2:]
+
 
 @pytest.fixture
 def cfg():
@@ -168,6 +175,9 @@ def cfg():
     (m.cfg_tlp(False, 0, 0, 0, 0, 0xF, RID, 0, length=2), ("malformed", m.E_MALFORMED)),
     (m.cfg_tlp(False, 0, 0, 0, 0, 0xF, RID, 0, tc=1), ("malformed", m.E_MALFORMED)),
     (m.cfg_tlp(True, 0, 0, 0, 0, 0xF, RID, 0, bytes(4), ep=1), ("ur", m.E_POISONED_REQ)),
+    (mwr(0x8000_1000, ep=1), ("drop", m.E_UR_P)),                   # UR outranks poisoned
+    (mrd(0xA000_0000, ep=1), ("ur", m.E_UR_NP)),
+    (m.cfg_tlp(True, 0, 0, 1, 0, 0xF, RID, 0, bytes(4), ep=1), ("ur", m.E_UR_NP)),
     (bytes([0x02, 0, 0, 1, 1, 0, 0, 0xF, 0, 0, 0, 0]), ("ur", m.E_UR_NP)),       # I/O read
     (bytes([0x01, 0, 0, 1, 1, 0, 0, 0xF, 0x80, 0, 0, 0]), ("ur", m.E_UR_NP)),    # MRdLk
     (bytes([0x4C, 0, 0, 1, 1, 0, 0, 0xF, 0x80, 0, 0, 0]) + bytes(4), ("ur", m.E_UR_NP)),
@@ -180,6 +190,13 @@ def cfg():
     (m.msg_tlp(0x7E, m.R_LOCAL, 0), ("drop", m.E_UR_P)),                        # VDM Type 0
     (m.msg_tlp(0x30, m.R_TO_RC, 0), ("drop", m.E_UR_P)),
     (m.msg_tlp(0x20, m.R_LOCAL, 0), ("drop", m.E_UR_P)),
+    (m.msg_tlp(m.MSG_PME_TURN_OFF, m.R_BROADCAST, 0, ep=1), ("drop", m.E_POISONED_REQ)),
+    (tc(m.msg_tlp(m.MSG_PME_TURN_OFF, m.R_BROADCAST, 0)), ("malformed", m.E_MALFORMED)),
+    (tc(m.msg_tlp(m.MSG_UNLOCK, m.R_BROADCAST, 0)), ("malformed", m.E_MALFORMED)),
+    (tc(m.msg_tlp(m.MSG_SET_SLOT_POWER, m.R_LOCAL, 0, bytes(4))), ("malformed", m.E_MALFORMED)),
+    (tc(m.msg_tlp(0x30, m.R_TO_RC, 0)), ("malformed", m.E_MALFORMED)),
+    (tc(m.msg_tlp(0x24, m.R_LOCAL, 0)), ("malformed", m.E_MALFORMED)),
+    (tc(m.msg_tlp(m.MSG_VDM1, m.R_LOCAL, 0)), ("drop", None)),         # any TC
 ])
 def test_classify(cfg, tlp, want):
     assert m.classify(m.parse(tlp), cfg, 12) == want
@@ -296,7 +313,7 @@ def test_long_read_splits_into_completions():
     tl.receive(mrd(0x8000_0004, 64), 0)
     run(tl, app, wire, 300)
     got = [m.parse(t) for t in wire.sent]
-    assert [len(g["data"]) // 4 for g in got] == [31, 32, 1]
+    assert [len(g["data"]) // 4 for g in got] == [31, 32, 1]     # 256 bytes at offset 4
     assert [g["bc"] for g in got] == [256, 132, 4]
     assert [g["la"] for g in got] == [0x04, 0x00, 0x00]
 
@@ -415,10 +432,12 @@ def test_disabled_timeout_never_fires():
     assert not app.rc_got and tl.errors[m.E_TIMEOUT] == 0 and tl.np_pending
     tl.cfg.cpl_timeout_dis = False              # a full timeout from the clear
     lo, hi = tl.track.timeout_bounds()
-    run(tl, app, wire, lo - 64, now)
-    assert not app.rc_got
-    run(tl, app, wire, hi - lo + 128, now + lo - 64)
-    assert [p["status"] for p in app.rc_got] == [m.RC_FAILED] and not tl.np_pending
+    run(tl, app, wire, lo, now)                 # cycles now .. now + lo - 1
+    assert tl.errors[m.E_TIMEOUT] == 0 and tl.np_pending
+    run(tl, app, wire, hi - lo, now + lo)       # cycles now + lo .. now + hi - 1
+    assert tl.errors[m.E_TIMEOUT] == 1 and not tl.np_pending
+    run(tl, app, wire, 5, now + hi)
+    assert [p["status"] for p in app.rc_got] == [m.RC_FAILED]
 
 
 def test_rc_completion_waits_for_earlier_posted_writes():

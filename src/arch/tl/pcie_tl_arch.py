@@ -83,6 +83,9 @@ MSG_SET_SLOT_POWER = 0x50
 MSG_VDM1 = 0x7F
 MSG_IGNORED = {0x40, 0x41, 0x43, 0x44, 0x45, 0x47, 0x48}
 SILENT_MSGS = {MSG_UNLOCK, MSG_PM_AS_NAK, MSG_SET_SLOT_POWER, MSG_VDM1} | MSG_IGNORED
+# Codes that must use TC 0, checked on receive [cite: PCIe Base Spec, rev 3.0, §2.2.8.1]
+TC0_MSGS = set(range(0x20, 0x28)) | {0x14, 0x18, 0x19, 0x1B, 0x30, 0x31, 0x33, MSG_UNLOCK,
+                                     MSG_SET_SLOT_POWER}
 R_TO_RC, R_BROADCAST, R_LOCAL, R_GATHER = 0b000, 0b011, 0b100, 0b101
 
 # tl_err bits (TL_CFG error events)
@@ -220,16 +223,18 @@ def enabled_data(data: bytes, length: int, fbe: int, lbe: int) -> bytes:
 
 def split_read(addr: int, length: int, fbe: int, lbe: int) -> list[tuple[int, int, int, int]]:
     """The completions of a successful read: (first DW index, DWs, Byte
-    Count, Lower Address) each. Every completion but the last ends on a
-    64-byte boundary and carries at most 128 bytes; each is as long as
-    those two rules allow (COMPLETIONS.md)."""
+    Count, Lower Address) each, the fewest the rules allow: the rest of
+    the read in one completion when it fits in 128 bytes, else a
+    completion ending at the highest 64-byte boundary within 128 bytes
+    (COMPLETIONS.md)."""
     total = byte_count(length, fbe, lbe)
     first = addr + _lo(fbe)                    # first enabled byte
     end_byte = first + total                   # one past the last enabled byte
     out, s, dw = [], addr, 0
     end_all = addr + 4 * length
     while s < end_all:
-        e = min(end_all, (s + MAX_PAYLOAD) // RCB * RCB)
+        # the rest in one completion if it fits, else end on a boundary
+        e = end_all if end_all - s <= MAX_PAYLOAD else (s + MAX_PAYLOAD) // RCB * RCB
         n = (e - s) // 4
         start = first if dw == 0 else s
         out.append((dw, n, end_byte - start, start & 0x7F))
@@ -313,10 +318,19 @@ def classify(h: dict, cfg: Cfg, bar0_addr_w: int) -> tuple[str, int | None]:
     if typ in (T_IO, T_CFG0, T_CFG1):
         if length != 1 or h["lbe"] != 0 or h["tc"] != 0 or h["attr"] != 0:
             return "malformed", E_MALFORMED
-    # 3. poisoned requests
+    if typ & 0x18 == 0x10 and h["code"] in TC0_MSGS and h["tc"]:
+        return "malformed", E_MALFORMED            # these messages use TC 0 only
+    # route, then poisoned: an Unsupported Request outranks a poisoned TLP
+    kind, bit = _route(h, cfg, bar0_addr_w, posted)
+    if kind in ("ur", "drop") and bit in (E_UR_P, E_UR_NP):
+        return kind, bit
     if h["ep"]:
         return ("drop" if posted else "ur"), E_POISONED_REQ
-    # 4. routing
+    return kind, bit
+
+
+def _route(h: dict, cfg: Cfg, bar0_addr_w: int, posted: bool) -> tuple[str, int | None]:
+    typ = h["type"]
     if typ == T_MEM and h["at"] == 0:
         hit = bar_hit(cfg, h["addr"], bar0_addr_w)
         if hit == 0:

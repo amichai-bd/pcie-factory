@@ -43,11 +43,11 @@ Byte 0 to 3 of every TLP [cite: PCIe Base Spec, rev 3.0, §2.2.1]
 | Field | Position | Sent | On receive |
 | --- | --- | --- | --- |
 | Fmt, Type | byte 0 `[7:5]`, `[4:0]` | As [kinds](#kinds). | Selects the kind; undefined pairs are malformed. |
-| TC | byte 1 `[6:4]` | 0 on requests and messages; on a completion, the request's TC. | Copied into the completion. Not 0 on a configuration or I/O request: malformed. |
+| TC | byte 1 `[6:4]` | 0 on requests and messages; on a completion, the request's TC. | Copied into the completion. Not 0 on a configuration or I/O request, or on a message whose code requires TC 0: malformed. |
 | Attr bit 2 (ID-based ordering) | byte 1 `[2]` | 0 | Ignored. |
 | TH (processing hints) | byte 1 `[0]` | 0 | Ignored, with the hint bits it would qualify. |
 | TD (digest present) | byte 2 `[7]` | 0: no ECRC. | Not read by `tl`: a TLP with a digest has 4 bytes more than its Length gives, which the `dll` drops as malformed ([open questions](HAS.md#open-questions)). |
-| EP (poisoned) | byte 2 `[6]` | 0 | [Poisoned requests](ROUTING.md#checks), [poisoned completions](COMPLETIONS.md#checks). |
+| EP (poisoned) | byte 2 `[6]` | 0 | [Poisoned requests](ROUTING.md#checks) (after the Unsupported Request check), [poisoned completions](COMPLETIONS.md#checks). |
 | Attr bits 1:0 (Relaxed Ordering, No Snoop) | byte 2 `[5:4]` | 0 on requests and messages; on a completion, the request's bits. | Copied into the completion; ordering ignores Relaxed Ordering. Not 0 on a configuration or I/O request: malformed. |
 | AT (address type) | byte 2 `[3:2]` | 0: untranslated. | Not 0 on a memory request: Unsupported Request (no address translation). |
 | Length | byte 2 `[1:0]`, byte 3 | DWs of data, 1 to 32; 0 on a TLP without data other than a memory read. | DWs, 0 meaning 1024. The `dll` has already checked it against the bytes that arrived and against the 128-byte payload limit ([`dll` receive](../dll/HAS.md#receive)). |
@@ -112,4 +112,4 @@ Type `[2:0]`.
 | --- | --- | --- | --- |
 | Requester ID | bytes 4, 5 | `bus_num`, `dev_num`, function 0. | Ignored. |
 | Tag | byte 6 | 0 | Ignored. |
-| Message Code | byte 7 | ERR_COR `0x30`, ERR_NONFATAL `0x31`, ERR_FATAL `0x33` with routing `000` (to the Root Complex); PME_TO_Ack `0x1B` with routing `101` (gathered to the Root Complex). | Selects the [outcome](ROUTING.md#messages); the routing subfield and bytes 8 to 15 are not checked. |
+| Message Code | byte 7 | ERR_COR `0x30`, ERR_NONFATAL `0x31`, ERR_FATAL `0x33` with routing `000` (to the Root Complex); PME_TO_Ack `0x1B` with routing `101` (gathered to the Root Complex). | Selects the [outcome](ROUTING.md#messages); INTx, power-management, error-signalling, Unlock and Set_Slot_Power_Limit codes require TC 0 ([checks](ROUTING.md#checks), step 6). The routing subfield and bytes 8 to 15 are not checked. |
