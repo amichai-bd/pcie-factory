@@ -121,7 +121,7 @@ shows where each of their checks went.
 | [Idle tail](../../arch/mac/HAS.md#receive) (#197), directed, both roles, outcomes from the HAS: a nullified TLP then idle data stays nullified with no error; the same symbols then electrical idle (idle mid-TLP, no EIOS) end bad with exactly one receiver error, as does the cut one symbol earlier; a received EDB in `[15:8]` outside a packet is one framing error, then resync, and without resync when a retrain 0 to 2 cycles later takes the receiver out of `Rx_L0` as the next word arrives (#90); a 3-byte DLLP from `[15:8]`, whose end is the second beat pushed in its word (the receive queue's second slot), is one bad DLLP with one receiver error (#90); an EIOS ending in an idle tail starts receive L0s with no error. Upstream: an EIOS with an idle tail in `Rx_L0` while L1 is requested and the DUT's own packet keeps its wait from starting gives no error (asserted still in L0 with `Rx_L0` and the packet open), then L1 | `rx_idle_tail` | 1 | 1; deterministic; fails on the pre-fix RTL and model |
 | The same, more seeds | `rx_errors_long` | 2 | 6 |
 | [Received TS fields and events](../../arch/mac/SYMBOLS.md#ts1-and-ts2): every link, lane and N_FTS byte, PAD, each control bit, TS2, both lanes; EIOS and FTS at both lanes; K link and lane fields, K, unknown and mismatched identifiers, a TS cut by COM; inverted TS1 and TS2 at both lanes | `ts_fields` | 1 | 2 |
-| Random partner resets, mutes, freezes, retrains, wrong TS fields and N_FTS, inverted wire, symbol errors, power requests on either side (L0s, L1, L2, mixed) with traffic, both roles | `random_soak` | 1 | 2 |
+| Random partner resets, mutes, freezes, retrains, wrong TS fields and N_FTS, inverted wire, symbol errors, power requests on either side (L0s, L1, L2, mixed) with traffic, both roles | `random_soak` | 2 | 2 |
 | [Every core and power arc, timeouts included](../../arch/mac/ARCS.md), downstream; the 256-timeout `idle_to_rlock` loop | `arcs_full_downstream` | 2 | 1 |
 | The same, upstream | `arcs_full_upstream` | 2 | 1 |
 | [Timeout dividers](../../arch/mac/HAS.md#parameters) and the error-timeout floor; the control-state recipes at these dividers (Hot Reset dwell 976 cycles, the 2 ms control timeouts at their floor) | `dividers` | 2 | 1; Polling.Active 23437 cycles |
@@ -132,7 +132,20 @@ shows where each of their checks went.
 | A following Hot Reset's dwell restarted at the timeout's boundary (the registered timeout, [MAS, Timing](../../rtl/mac/MAS.md#timing)), upstream: a line hook captures a TS1 with Hot Reset from the partner, sends idle data, and plays that TS1 so the restart falls in the step with timer `limit - 3`, `limit - 2` and `limit - 1`; a first restart measures the line-to-restart delay, and each restart must land on its step; then the dwell times out to Detect.Quiet (`mac_hr_dwell`) | `hr_dwell_boundary` | 1 | 1 |
 | Every control-state arc, downstream: the above, plus following Hot Reset and Disabled on partner TS1 with the bit (the dwell restarted while they arrive; Disabled's timeout with no EIOS) and the Loopback master's entry timeout | `control_full_downstream` | 2 | 1 |
 | The same, upstream | `control_full_upstream` | 2 | 1 |
-| [Disable Scrambling](../../arch/mac/SYMBOLS.md#scrambling): the partner's TS2 carry it; idle and packets unscrambled from Configuration.Idle, kept through Recovery, cleared in Detect.Quiet; both roles, 12- and 1-cycle lines; a crafted line where the first word in Configuration.Idle is already unscrambled idle (the test fails if no offset reaches that case) | `no_scramble` | 1 | 1 |
+| [Disable Scrambling](../../arch/mac/SYMBOLS.md#scrambling): the partner's TS2 carry it; idle and packets unscrambled from Configuration.Idle, kept through Recovery, cleared in Detect.Quiet; both roles, 12- and 1-cycle lines; a crafted line where the first word in Configuration.Idle is already unscrambled idle (the test fails if no offset reaches that case) | `no_scramble` | 2 | 1 |
+
+**Level placement** ([#272](https://github.com/amichai-bd/pcie-factory/issues/272)):
+`random_soak` and `no_scramble` run in level 2. Level 1 is what `ci-gate`
+runs for every change that reaches `mac`, `phy` or `link`, and these two
+were about 100 s of its CPU. `random_soak` is a soak by design (random
+impairments and power requests over two seeds), and the arcs, control
+states and streams it mixes keep their directed level 1 entries
+(`arcs_quick`, `control_quick`, `traffic`, `ts_fields`, `rx_errors`).
+`no_scramble` is the one entry for Disable Scrambling, an optional
+training feature that the stack above never sets: its one mutant below
+(the registered receive flag) is now caught in level 2. The merged level
+0 to 2 coverage is unchanged, and the level 1 covergroup floors
+(`mac_os_tx`, `mac_os_rx`, `mac_frame`) still pass on levels 0 and 1.
 
 ## Leaf checks, old to new
 
@@ -180,7 +193,7 @@ listed entry; each fails, and the unmutated RTL passes. Each entry runs its firs
 | LTSSM | The registered timeout ignores a following Hot Reset's restart (`timeout_d` without `!timer_restart`) | `hr_dwell_boundary` | Stops on `a_timeout_matches` at 88,496 ns (seed 1096319065), at the `limit - 2` restart. `control_full_downstream` passes: its restarts never fall on that step. |
 | LTSSM | The registered timeout ignores the arc (`timeout_d` without `!go`) | `smoke` | Stops on `a_timeout_matches` at 12,184 ns (seed 1824675579). |
 | LTSSM | Disabled sends 8 TS1, not 16 | `control_quick` | Fails at cycle 21869: EIOS symbols (COM, IDL) sent where the shadow sends a TS1 (COM, link 0). |
-| LTSSM | Receive Disable Scrambling from the registered flag (one word late) | `no_scramble` | Fails at cycle 10334 on the crafted line: `ltssm_state_o` 0x0D, the shadow already in L0 (0x20). Without the crafted line no partner timing reaches the case. |
+| LTSSM | Receive Disable Scrambling from the registered flag (one word late) | `no_scramble` (level 2) | Fails at cycle 10334 on the crafted line: `ltssm_state_o` 0x0D, the shadow already in L0 (0x20). Without the crafted line no partner timing reaches the case. |
 | LTSSM | Recovery.Idle: Disabled requested wins over Hot Reset requested | `control_quick` | Fails at cycle 34377: `ltssm_state_o` 0x18 (Disabled), the shadow in Hot Reset (0x19). |
 | LTSSM | Recovery.Idle takes `hot_reset_req_i` in the upstream role | `control_quick` | Fails at cycle 37435: `ltssm_state_o` 0x19, the shadow in Recovery.Idle (0x12) (`ep_upstream_ignores`). |
 | Ordered sets | The loopback pattern counts by 1 per word, not 2 | `control_quick` | Fails at cycle 19168: pattern (01h, 02h) sent, the shadow (02h, 03h). |

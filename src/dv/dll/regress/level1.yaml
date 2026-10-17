@@ -80,16 +80,6 @@ tests:
     top: pcie_dll_tb
     seeds: [0, 1]
     timeout_s: 300
-  - name: mwr_max
-    module: tests.test_dll_tlp_tx
-    testcase: mwr_max
-    top: pcie_dll_tb
-    timeout_s: 300
-  - name: ack_spec_max
-    module: tests.test_dll_tlp_tx
-    testcase: ack_spec_max
-    top: pcie_dll_tb
-    timeout_s: 300
   - name: rx_traffic
     module: tests.test_dll_rx
     testcase: rx_traffic

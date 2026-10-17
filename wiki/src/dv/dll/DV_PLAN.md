@@ -233,9 +233,17 @@ into a model or the RTL silently.
 | TLPs to the partner with its fault hooks: Nak'd, lost, lost and damaged Acks, forced Naks, Ack delays past the timeout; delivered once and in order | `tlp_partner_errors` | 1 | 0, 1, 2 |
 | The same, wide sweep | `tlp_partner_errors_sweep` | 2 | 8 derived |
 | [Rollover target](../../arch/dll/HAS.md#targets): TLPs lost from a set cycle until the retrain; architecture model against the partner in the same scenario | `tlp_rollover` | 1 | 0, 1 |
-| [Line use and replay-buffer sizing targets](../../arch/dll/HAS.md#targets) (`mwr_max`, `ack_spec_max`): 500 128-byte writes, partner Acks at 32 and 118 cycles, at least 99% | `mwr_max`, `ack_spec_max` | 1 | 1 each; 99.30% both (architecture model 99.20%) |
+| [Line use and replay-buffer sizing targets](../../arch/dll/HAS.md#targets) (`mwr_max`, `ack_spec_max`): 500 128-byte writes, partner Acks at 32 and 118 cycles, at least 99% | `mwr_max`, `ack_spec_max` | 2 | 1 each; 99.30% both (architecture model 99.20%) |
 | Sequence numbers across the 4095-to-0 wrap with Naks, lost TLPs and lost Acks around it | `seq_wrap` | 2 | 2 derived |
 | Both directions loaded: 300 TLPs each way, the DUT's Acks waiting behind its own TLPs; [Ack latency target](../../arch/dll/HAS.md#targets) 118 cycles | `tlp_bidir` | 1 | 0, 1; worst Ack 107 and 108 cycles |
+
+**Level placement** ([#272](https://github.com/amichai-bd/pcie-factory/issues/272)):
+`mwr_max` and `ack_spec_max` run in level 2. They measure the line-use and
+replay-buffer sizing targets, performance numbers like the `link`
+throughput entries, at about 10 s of CPU each; no mutant in the table
+below is first caught by them, and the transmit and replay paths they load
+stay under `ci-gate` through `lcrc_kat`, `rbuf_full`, `tlp_partner` and
+`tlp_bidir`.
 
 ## Mutation evidence
 
