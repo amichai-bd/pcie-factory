@@ -929,14 +929,9 @@ module pcie_mac_ltssm #(
 
   assign end_stay = pcie_mac_pkg::step_end(1'b0, st, end_ctx);
 
-  // The arc's step end, at every target in parallel (step_end_arc). Every
-  // group's target is a state, so the target is no state only when the
-  // state the step starts in is in no group (then it is that state).
-  logic nxt_other;
-
-  assign nxt_other = !(in_detect || in_polling || in_cfg || in_l0 || in_recovery
-                       || in_power || in_control);
-  assign end_go    = pcie_mac_pkg::step_end_arc(nxt_go, nxt_other, end_ctx);
+  // The arc's step end, at every target in parallel (step_end_arc); used
+  // only with go, when the target is a state (a_arc_target_listed).
+  assign end_go = pcie_mac_pkg::step_end_arc(nxt_go, end_ctx);
 
   assign step = go ? end_go : end_stay;
 
@@ -1245,6 +1240,8 @@ module pcie_mac_ltssm #(
                        rlock_inc && r_q.idle_to_rlock == IDLE_TO_RLOCK_MAX)
   // A state whose timeout always exits never outlives it.
   `COMMON_ASSERT_NEVER(a_timeout_exits, clk_i, rst_i, timed_exit && r_q.timer >= limit)
+  `COMMON_ASSERT_NEVER(a_arc_target_listed, clk_i, rst_i,
+                       go && !pcie_mac_pkg::arc_target_listed(nxt_go))
   `COMMON_ASSERT_NEVER(a_timeout_matches, clk_i, rst_i, timeout_q != (r_q.timer >= limit - 1'b1))
 
 endmodule

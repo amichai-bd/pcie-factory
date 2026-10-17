@@ -16,7 +16,7 @@ from collections import deque
 import cocotb
 from cocotb.triggers import FallingEdge, Timer
 
-from tb.harness import (CONTROL_ARCS, COV_ARCS, COV_CTL, COV_OS_RX, COV_PKT,  # noqa: F401
+from tb.harness import (CONTROL_ARCS, COV_ARCS, COV_CTL, COV_HR_DWELL, COV_OS_RX, COV_PKT,  # noqa: F401
                         CORE_ARCS, FIELDS_IN, Harness, arch)
 
 LIMIT = 400_000          # cycles any one wait may take at dividers 1024
@@ -584,6 +584,87 @@ async def ep_loopback_no_echo(h, role):
     h.request(loopback=1)
     await h.run_until(took(h, arch.LBE, arch.LBX, t), LIMIT, "Loopback.Entry timeout")
     h.request(loopback=0)
+    await settle(h)
+
+
+class DwellLine:
+    """A line hook for a following Hot Reset: it captures one TS1 with the
+    Hot Reset bit from the partner's stream, then replaces every received
+    word with idle data 00h, except one copy of that TS1 played from a
+    chosen cycle. Idle data is no TS, so the run of TS1 with the bit (2 or
+    more from the partner's stream) holds, and each played TS1 restarts
+    the dwell."""
+
+    def __init__(self) -> None:
+        self.words: list = []
+        self.ts1 = None
+        self.play: deque = deque()
+        self.start = None          # harness cycle of the first played word
+        self.last = None           # harness cycle of the last played word
+
+    def schedule(self, start: int) -> None:
+        self.start = start
+        self.play = deque(self.ts1)
+
+    def __call__(self, h, rx):
+        if self.ts1 is None:
+            self.words.append(rx.syms)
+            w = self.words[-8:]
+            if (len(w) == 8 and w[0][0] == arch.COM and w[2][1] == (0, arch.CTL_HOT_RESET)
+                    and all(s == (0, arch.TS1_ID) for x in w[3:] for s in x)):
+                self.ts1 = list(w)
+            return rx
+        s0, s1 = IDLE, IDLE
+        if self.play and h.now >= self.start:
+            s0, s1 = self.play.popleft()
+            if not self.play:
+                self.last = h.now
+        return arch.PipeRx(syms=(s0, s1), valid=True, elec_idle=False,
+                           phy_status=rx.phy_status)
+
+
+async def _hr_restart(h, line, start, what):
+    """Play the TS1 from harness cycle ``start``; return the shadow
+    cycle of the dwell restart it makes and the dwell's age then (cycles
+    since the last restart or the entry), failing if Hot Reset is left."""
+    line.schedule(start)
+    for _ in range(start - h.now + 200):
+        prev = h.shadow.hr_last
+        await h.step()
+        assert h.shadow.state == arch.HR, f"{h.where()}: Hot Reset left before {what}"
+        if line.last is not None and h.shadow.hr_last != prev:
+            return h.shadow.hr_last, h.shadow.hr_last - prev, line.last
+    raise AssertionError(f"{h.where()}: no dwell restart for {what}")
+
+
+async def ep_hr_dwell_boundary(h, role):
+    """A following Hot Reset whose dwell is restarted by a TS1 in the
+    step whose timer is limit - 3, limit - 2 and limit - 1 (the timeout
+    step: the restart wins), then left on its timeout. The LTSSM's timeout
+    is a register (MAS, Timing), so these steps check that a restart
+    clears the next step's timeout. A first restart measures the cycles
+    from the line to the restart; each later one must land on its step."""
+    t = h.now
+    await _partner_frozen_in(h, role, arch.RC)
+    await h.run_until(h.in_state(arch.RI), LIMIT)
+    h.partner.inject.ts = {"kind": "TS1", "ctl": arch.CTL_HOT_RESET}
+    await h.run_until(took(h, arch.RI, arch.HR, t), LIMIT, "Recovery.Idle to Hot Reset, following")
+    line = DwellLine()
+    h.line_hook = line
+    await h.run_until(lambda q: line.ts1 is not None, 200, "a TS1 with Hot Reset captured")
+    dwell = h.shadow.dwell_cycles
+    off = h.shadow.now - h.now                 # shadow cycle of a harness cycle
+    last, _, played = await _hr_restart(h, line, h.now + 4, "the calibration restart")
+    delay = last - (played + off)              # last played word to the restart
+    # The restart in the step with timer limit - k: dwell - k + 1 cycles
+    # after the last one (timer 0 is the step after a restart).
+    for k, name in ((3, "limit_minus_3"), (2, "limit_minus_2"), (1, "limit_minus_1")):
+        age = dwell - k + 1
+        start = last + age - delay - off - 7
+        last, got, _ = await _hr_restart(h, line, start, name)
+        assert got == age, f"{h.where()}: restart {name} at age {got}, wanted {age}"
+        COV_HR_DWELL.sample(restart_at=name)
+    await h.run_until(took(h, arch.HR, arch.DQ, t), 2 * dwell, "Hot Reset timeout after the restarts")
     await settle(h)
 
 
@@ -1267,6 +1348,13 @@ async def control_quick(dut):
     Configuration.Linkwidth.Start, both roles; upstream ignores the
     downstream-only requests."""
     await run_arcs(dut, arch.ROLES, CONTROL_QUICK, False, CONTROL_ARCS)
+
+
+@cocotb.test()
+async def hr_dwell_boundary(dut):
+    """L1: a following Hot Reset's dwell restarted at timer limit - 3,
+    limit - 2 and limit - 1, upstream role (ep_hr_dwell_boundary)."""
+    await run_arcs(dut, ("upstream",), (ep_hr_dwell_boundary,), False, CONTROL_ARCS)
 
 
 @cocotb.test()

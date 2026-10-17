@@ -613,10 +613,10 @@ package pcie_mac_pkg;
     logic                    tx_lane_pad; // r_d.tx_lane_pad
   } t_step_end;
 
-  // Every LTSSM state, then one invalid code that stands for every other
-  // code (each case of step_end takes its default for it): the arc targets
-  // the LTSSM evaluates the step end at (MAS, Timing).
-  localparam int unsigned N_ARC_TARGETS = 24;
+  // Every LTSSM state: the arc targets the LTSSM evaluates the step end at
+  // (MAS, Timing). A state added to common_pkg::t_ltssm_state must be added
+  // here too (a_arc_target_listed).
+  localparam int unsigned N_ARC_TARGETS = 23;
 
   function automatic common_pkg::t_ltssm_state arc_target(input int unsigned i);
     case (i)
@@ -832,19 +832,26 @@ package pcie_mac_pkg;
     return e;
   endfunction
 
+  // Whether nxt is one of the arc targets.
+  function automatic logic arc_target_listed(input common_pkg::t_ltssm_state nxt);
+    logic hit;
+    hit = 1'b0;
+    for (int unsigned i = 0; i < N_ARC_TARGETS; i++) begin
+      hit = hit | (nxt == arc_target(i));
+    end
+    return hit;
+  endfunction
+
   // The end of a step that takes its arc to nxt: step_end at every target
   // in parallel, each a constant, and nxt picks one (an AND-OR, the targets
   // being distinct), so the target is not in series with the step end
-  // (MAS, Timing). other is 1 when nxt is no state (the last target).
+  // (MAS, Timing).
   function automatic t_step_end step_end_arc(input common_pkg::t_ltssm_state nxt,
-                                             input logic other,
                                              input t_end_ctx c);
     t_step_end e;
-    logic      hit;
     e = '0;
     for (int unsigned i = 0; i < N_ARC_TARGETS; i++) begin
-      hit = (i == N_ARC_TARGETS - 1) ? other : (nxt == arc_target(i));
-      e   = e | ({$bits(t_step_end){hit}} & step_end(1'b1, arc_target(i), c));
+      e = e | ({$bits(t_step_end){nxt == arc_target(i)}} & step_end(1'b1, arc_target(i), c));
     end
     return e;
   endfunction

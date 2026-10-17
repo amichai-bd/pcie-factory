@@ -532,7 +532,8 @@ an equivalence check of the module before and after proved:
 
 - **Step end in parallel.** `step_end` runs for the step that stays and at
   every one of the `N_ARC_TARGETS` targets (each a constant, so each copy
-  is small); the target selects with an AND-OR and `go` selects last, so
+  is small; `a_arc_target_listed` checks that every arc's target is
+  listed); the target selects with an AND-OR and `go` selects last, so
   neither the arc nor its target is in series with the transmit mode,
   PowerDown and EIOS logic. `active` is written without the new EIOS (a
   new EIOS needs mode `TX_NONE`).
@@ -542,8 +543,10 @@ an equivalence check of the module before and after proved:
   them against the compares they replace every cycle.
 - **Compares before the increment.** The TS count's `MIN_TS1` and the FTS
   count's `N_FTS` checks compare the registered count and the count plus 1
-  in parallel and let the transmit event select, and the L0 arc's target
-  no longer waits for its gate.
+  in parallel and let the transmit event select.
+- **L0 target without its gate.** The L0 arc's target (Recovery.RcvrLock,
+  or L1 or L2 entry) no longer waits for the arc's gate; it is read only
+  when the arc is taken.
 
 ## Files
 

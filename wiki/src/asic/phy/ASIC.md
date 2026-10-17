@@ -87,7 +87,8 @@ The first nightly run (2026-10-15, at `7c267e2`) met `rx_clk` but not
 46 ([#235](https://github.com/amichai-bd/pcie-factory/issues/235)). The
 10 ns checkpoint is met
 ([#249](https://github.com/amichai-bd/pcie-factory/issues/249)); 125 MHz
-stays the target (Q27). The `clk` paths are one LTSSM step in the MAC, the
+stays the target (Q27), outside M1: its closure is future timing work
+(Q28). The `clk` paths are one LTSSM step in the MAC, the
 PCS receive path through the elastic buffer's read side and the decoder,
 and the encoder's running disparity chain; #235 shortens them without
 moving a cycle ([`mac` MAS](../../rtl/mac/MAS.md#timing),
