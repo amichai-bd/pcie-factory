@@ -50,8 +50,9 @@ are in [decision record 0003](decisions/0003-m2-grill.md).
 | 3, `link` | `link` stack and back-to-back e2e with error injection and credit tests; then throughput, coverage floors, FPGA and ASIC | #215, then #216, #217, #218, #219 |
 
 M2 is done when the goal checklist in the decision record holds on `main`.
-The `link` ASIC target is 125 MHz on sky130hd (goal item 8), so it needs the
-`phy` closure deferred from M1 (#235; [0003](decisions/0003-m2-grill.md#carried-over-from-m1) Q28).
+The `link` ASIC gate is the 100 MHz checkpoint, with 125 MHz reported
+nightly; 125 MHz closure (#235) does not block M2
+([0003](decisions/0003-m2-grill.md) Q10).
 
 ## Later
 

@@ -4,7 +4,7 @@
 - **Source:** captain grill session for M2 (2026-10-15), recorded in the M2
   epic ([#203](https://github.com/amichai-bd/pcie-factory/issues/203)). The
   goal and decision table are copied verbatim from the epic body: "this
-  epic" refers to the epic. Waves and their issues are on the
+  epic" refers to the epic. Later decisions are listed under Updates. Waves and their issues are on the
   [design roadmap](../roadmap.md#m2-data-link-layer).
 - **Numbering:** decision records are numbered once across the repository;
   [0001](../../project/decisions/0001-m0-grill.md) is the factory's M0
@@ -23,7 +23,7 @@ M2 starts only after M1 (#65) closes (captain, M2 grill). M2 is done when all of
 5. **Credits:** no receiver overflow under credit starvation and recovery, with finite and infinite credit configurations both regressed.
 6. **Throughput:** sustained TLP throughput at the fraction of Gen1 x1 line rate stated in the `link` HAS, measured in e2e with ACK and UpdateFC overhead.
 7. **Independent oracle:** the `dll` and `link` DV use a DLL link partner written independently of the `dll` arch model (separate author, no shared code) as the second opinion on protocol behaviour.
-8. **Physical:** nightly reports met timing for `link` at **50 MHz on the DE2-115** (Quartus) and **125 MHz on sky130hd** (ORFS) (M1 Q26), shown on the tracker.
+8. **Physical:** nightly reports met timing for `link` at **50 MHz on the DE2-115** (Quartus, M1 Q26). On sky130hd (ORFS), `link` meets the **100 MHz checkpoint** in study mode (M1 Q27) and reports 125 MHz metrics nightly; 125 MHz closure is future timing optimization (Q10, #235), shown on the tracker.
 9. **Factory:** CI cancels superseded runs, PR evidence is pre-checked before review, and the tracker shows per-IP regression trends with drop alerts.
 
 ## Decisions
@@ -39,6 +39,7 @@ M2 starts only after M1 (#65) closes (captain, M2 grill). M2 is done when all of
 | Q7 | **Exit bar:** error-recovery e2e, credit correctness, a throughput target set in the `link` HAS, and FPGA/ASIC timing met for `link` (goal items 4–6 and 8). |
 | Q8 | **Factory ride-alongs:** CI cancels superseded runs (concurrency groups); a machine pre-check of PR evidence before review; nightly per-IP regression trends with drop alerts. |
 | Q9 | **Sequencing:** M2 starts strictly after M1 closes. |
+| Q10 | **ASIC timing gate for M2 follows M1 Q28 (firstmate as the captain's delegate, 2026-10-17, after the captain's ruling that 125 MHz is future optimization).** `link` contains `phy`, which does not yet meet 125 MHz on sky130hd (#235). The M2 ASIC gate is therefore the 100 MHz checkpoint (`--study-clock-period 10`, Q27), with 125 MHz reported nightly. 125 MHz closure stays with #235 and does not block M2. |
 
 ## Carried over from M1
 
@@ -53,9 +54,9 @@ as it does to `phy`, `mac` and `pcs`:
 | Q22 | The shared RTL vocabulary and the hard coding-style rules apply to all `dll` and `link` RTL. |
 | Q24 | One testbench per IP; no sub-IPs (M2 Q4 applies it to `dll` and `link`). |
 | Q25 | Structs at interfaces inside an IP, declared in a package and referenced as `pkg::t_name`. |
-| Q26 | The FPGA (DE2-115) timing target is 50 MHz; the ASIC (sky130hd) target is 125 MHz (goal item 8). |
-| Q27 | 125 MHz stays the default, nightly and final ASIC target; any study constraint is kept separate from that default evidence. |
-| Q28 | 125 MHz ASIC closure for `phy` was left outside M1 ([#235](https://github.com/amichai-bd/pcie-factory/issues/235)). Since `link` contains `phy`, goal item 8 needs that closure before `link` can meet 125 MHz. |
+| Q26 | The FPGA (DE2-115) timing target for `link` is 50 MHz (goal item 8). |
+| Q27 | The 100 MHz study checkpoint is M2's ASIC gate for `link` (Q10); 125 MHz stays the default, nightly target, and study results are kept separate from that default evidence. |
+| Q28 | 125 MHz ASIC closure is future timing optimization ([#235](https://github.com/amichai-bd/pcie-factory/issues/235)); it does not block M2 (Q10). |
 
 ## Waves
 
@@ -69,3 +70,9 @@ maps each wave to its issues.
 
 M1 itself closed on 2026-10-17 ([#65](https://github.com/amichai-bd/pcie-factory/issues/65)),
 which satisfies Q9.
+
+## Updates
+
+- **2026-10-17:** Q10 (the M2 ASIC gate is the 100 MHz checkpoint, with
+  125 MHz reported nightly) added and goal item 8 changed to match, both
+  copied verbatim from the epic body above.
