@@ -77,6 +77,12 @@ Per class and field, for finite fields only
 | CREDITS_ALLOCATED | the `FC_*` parameter | Adds a TLP's credits when the upper layer takes its `eop` beat, or at once for a malformed TLP. |
 | CREDITS_RECEIVED | 0 | Adds a TLP's credits when it is stored (good, expected, and covered), or accepted as malformed. Duplicates, bad and overflowed TLPs add nothing. |
 
+A malformed TLP's credits are those its header states, as the
+transmitter counted them: 1 header credit plus the data credits its
+Length implies, in the class of its Fmt and Type, whatever bytes actually
+arrived. A malformed TLP of fewer than 4 bytes has no header and counts no
+credits ([receiving TLPs](RETRY.md#receiving-tlps)).
+
 ## Receive buffer
 
 Holds stored TLPs (without sequence number and LCRC) in arrival order

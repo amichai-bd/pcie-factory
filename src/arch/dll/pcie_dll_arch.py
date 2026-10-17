@@ -179,6 +179,8 @@ class Dll:
             raise ValueError("pd below one maximum payload")
         if self.adv[CPL][1] and self.adv[CPL][1] < MAX_PAYLOAD // CREDIT_BYTES:
             raise ValueError("cpld below one maximum payload")
+        if self.adv[NP][1] == 1:
+            raise ValueError("npd below one 16-byte-operand CAS (2 credits)")
         self.ack_latency = ack_latency
         self.errors = [0] * len(ERR_NAMES)
         self.counts = {"replays": 0, "retrains": 0, "acks": 0, "naks": 0, "updatefc": 0,
@@ -336,10 +338,13 @@ class Dll:
         ahead = (seq - self.nrs) % SEQ_MOD
         if ahead == 0:
             tlp = d[SEQ_BYTES:-LCRC_BYTES]
+            # A malformed TLP returns 1 header credit plus the data credits
+            # its Length implies; with under 4 bytes there is no header and
+            # it returns none.
             cls, h, dc, n = tlp_info(tlp) if len(tlp) >= 4 else (P, 0, 0, -1)
             payload = n - (16 if tlp[0] & 0x20 else 12) if n > 0 else 0
             if len(d) % 4 != 2 or len(tlp) < 12 or n != len(tlp) or payload > MAX_PAYLOAD:
-                # Malformed: acknowledged, not delivered, header credits returned.
+                # Malformed: acknowledged, not delivered, its credits returned.
                 self.err(E_MALFORMED)
                 for f, v in ((0, h), (1, dc)):
                     if self.adv[cls][f]:

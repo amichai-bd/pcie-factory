@@ -16,7 +16,9 @@ each a file of `dll` with its own section here.
 
 The shell drives every output to its
 [reset value](../../arch/dll/HAS.md#reset-values) and folds every input
-and parameter into one `unused_inputs` net so lint stays clean. Every input
+into one `unused_inputs` net so lint stays clean, and checks each `FC_*`
+parameter against its [HAS range](../../arch/dll/HAS.md#parameters) with
+`COMMON_ASSERT_PARAM`, so lint and the simulation build reject a bad one. Every input
 other than the clock carries its `cdc-domain` annotation. It instantiates
 nothing yet.
 
@@ -30,4 +32,4 @@ No logic in the shell. The latency budgets are in the
 | File | Holds |
 | --- | --- |
 | [`pcie_dll.sv`](../../../../src/rtl/dll/pcie_dll.sv) | The shell module. |
-| [`dll.rtl.f`](../../../../src/rtl/dll/dll.rtl.f) | `pcie_dll.sv`. |
+| [`dll.rtl.f`](../../../../src/rtl/dll/dll.rtl.f) | The shared vocabulary (`common_macros.rtl.f`), then `pcie_dll.sv`. |

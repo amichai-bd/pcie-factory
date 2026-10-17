@@ -468,3 +468,30 @@ def test_ack_progress_restarts_a_stopped_timer_while_sent_tlps_remain():
     assert a.rt_running and a.rt_count == 0
     a.receive(m.Packet(True, m.ack_dllp(m.ACK, 2)), p.now)      # nothing sent remains
     assert not a.rt_running
+
+
+def test_malformed_credit_return_is_header_plus_length_data():
+    p, a, b = up_pair()
+    ca, cr = [list(x) for x in b.ca], [list(x) for x in b.cr]
+    big = bytes([0x40, 0, 0, 40]) + bytes(8 + 160)    # posted, Length 40 DW: 10 data credits
+    b.receive(tlp_pkt(0, big), p.now)
+    assert b.errors[m.E_MALFORMED] == 1
+    assert b.ca[m.P] == [ca[m.P][0] + 1, ca[m.P][1] + 10]
+    assert b.cr[m.P] == [cr[m.P][0] + 1, cr[m.P][1] + 10]
+    # CREDITS_ALLOCATED - CREDITS_RECEIVED is unchanged: no credit leaks
+    assert [x - y for x, y in zip(b.ca[m.P], b.cr[m.P])] == [ca[m.P][0] - cr[m.P][0],
+                                                            ca[m.P][1] - cr[m.P][1]]
+    before = [list(x) for x in b.ca], [list(x) for x in b.cr]
+    nohdr = m.tlp_frame(1, bytes([0x40, 0, 0]))       # 3 TLP bytes: no header
+    b.receive(m.Packet(False, nohdr), p.now)
+    assert b.errors[m.E_MALFORMED] == 2 and b.nrs == 2
+    assert ([list(x) for x in b.ca], [list(x) for x in b.cr]) == before
+
+
+@pytest.mark.parametrize("npd,ok", [(1, False), (2, True), (0, True)])
+def test_npd_minimum_is_two(npd, ok):
+    if ok:
+        m.Dll("x", {"npd": npd})
+    else:
+        with pytest.raises(ValueError):
+            m.Dll("x", {"npd": npd})
