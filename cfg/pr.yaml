@@ -1,0 +1,22 @@
+# PR evidence pre-check rules, read by `./build pr check`.
+# Owning spec: wiki/tools/pr/SPEC.md. The pr-creation skill states the same
+# rules for authors; change the skill, this file and the tool together.
+# Level CPU budgets come from cfg/levels.yaml. Never name an IP here.
+
+# A PR that changes a file under one of these paths (relative to the
+# repository root) must record a mutation table.
+mutation_paths: [src/rtl/, src/dv/]
+
+# A validation command containing one of these substrings runs seeded tests:
+# the Validation section must state the seeds (or point to the seed rule).
+seeded_commands: ["./build regress", "./build sim"]
+
+# A validation command containing `when` makes each tool in `need` require a
+# stated version ("<Tool> <digits>.<digits>...") in the Validation section.
+versions:
+  - when: "pytest"
+    need: [Python, pytest]
+  - when: "./build regress"
+    need: [Verilator, cocotb, Python]
+  - when: "./build sim"
+    need: [Verilator, cocotb, Python]

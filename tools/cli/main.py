@@ -28,6 +28,7 @@ from checks.run import CHECKS, run_checks
 from fpga import flow as fpga
 from labels import core as labels
 from metrics import cli as metrics
+from pr import check as pr_check
 from regress import run as regress
 from regress.affected import GitError
 from regress.coverage import CoverageError
@@ -38,7 +39,7 @@ from specs.core import SpecsError
 WIKI_SITE = Path(__file__).resolve().parents[1] / "wiki_site"
 USER_ERRORS = (FilelistError, DiscoveryError, SchemaError, GitError, sim.SimError, CoverageError,
                fpga.FpgaError, labels.LabelsError, CheckConfigError, CiConfigError,
-               ArchError, SpecsError)
+               ArchError, SpecsError, pr_check.PrError)
 
 
 def cmd_sim(ctx: Context, args) -> int:
@@ -120,6 +121,24 @@ def cmd_labels(ctx: Context, args) -> int:
         print(f"error: #{args.number}: {e}")
     print(f"#{args.number}: labels {'FAIL' if errors else 'OK'}")
     return 1 if errors else 0
+
+
+def cmd_pr(ctx: Context, args) -> int:
+    rules = pr_check.load_rules(ctx.cfg_dir)
+    standard = labels.load_repo_standard(ctx.cfg_dir, ctx.src_root)
+    if args.body_file:
+        if args.head is None:
+            raise pr_check.PrError("--body-file needs --head SHA")
+        pr = pr_check.from_file(args.number, Path(args.body_file), args.head, args.files,
+                                None if args.labels is None else
+                                [x for x in args.labels.split(",") if x])
+    else:
+        if args.head or args.files is not None or args.labels is not None:
+            raise pr_check.PrError("--head, --files and --labels need --body-file")
+        gh = labels.Gh(labels.resolve_repo(args.repo, ctx.repo_root))
+        pr = pr_check.fetch(gh, args.number)
+    findings, notes = pr_check.check(pr, rules, standard)
+    return pr_check.report(pr, findings, notes, sys.stdout)
 
 
 def cmd_ci(ctx: Context, args) -> int:
@@ -250,6 +269,21 @@ def _labels_args(p: argparse.ArgumentParser) -> None:
     c.add_argument("number", type=int, help="issue or pull request number")
 
 
+def _pr_args(p: argparse.ArgumentParser) -> None:
+    act = p.add_subparsers(dest="action", required=True, metavar="action")
+    c = act.add_parser("check", help="pre-check a PR body's recorded evidence (read-only)")
+    c.add_argument("number", type=int, help="pull request number")
+    c.add_argument("--repo", help="OWNER/NAME (default: $GH_REPO, then the origin remote)")
+    c.add_argument("--body-file", metavar="FILE",
+                   help="read the body from FILE instead of GitHub (offline)")
+    c.add_argument("--head", metavar="SHA", help="with --body-file: the PR head SHA")
+    c.add_argument("--files", nargs="*", metavar="PATH",
+                   help="with --body-file: the changed paths (default: unknown, "
+                        "the mutation rule is skipped)")
+    c.add_argument("--labels", metavar="A,B",
+                   help="with --body-file: the PR labels (default: unknown, skipped)")
+
+
 def _ci_args(p: argparse.ArgumentParser) -> None:
     act = p.add_subparsers(dest="action", required=True, metavar="action")
     u = act.add_parser("unit", help="run the tools and model unit tests a change needs")
@@ -294,6 +328,7 @@ COMMANDS = {
     "clean": ("remove generated output", cmd_clean, _clean_args),
     "check": ("static checks: layout, filelist, style, wiki mirror, flow inputs, neutrality, citation, publishability, spec-cache, lint, cdc", cmd_check, _check_args),
     "labels": ("GitHub label sync and check", cmd_labels, _labels_args),
+    "pr": ("read-only pre-check of a PR's recorded evidence", cmd_pr, _pr_args),
     "ci": ("ci-gate helpers: tests, vendor flows, aggregate, summary, data-branch status", cmd_ci, _ci_args),
     "wiki": ("build or serve the wiki site", cmd_wiki, _wiki_args),
     "metrics": ("nightly metrics, data guard and red issue", metrics.run, metrics.add_args),

@@ -61,8 +61,8 @@ issue worktree per [agent-flow](../agent-flow/SKILL.md).
       with a PR checkout; never echo secrets.
 - [ ] Jobs call `./build <subcommand>`, never a tool script directly.
 - [ ] Explicit `permissions:` (least privilege), `timeout-minutes`, and
-      `concurrency` that cancels superseded PR runs but keeps every push to
-      `main` ([continuous integration](../../../wiki/bkm/devops.md#continuous-integration)).
+      `concurrency` that cancels superseded PR and push runs but never cancels
+      a dispatched, scheduled or deploy run in progress ([continuous integration](../../../wiki/bkm/devops.md#continuous-integration)).
 - [ ] Actions pinned to an exact version; toolchain versions come from
       `cfg/host.yaml`, not the workflow.
 - [ ] `ci-gate` stays the single required check; affected-IP selection
