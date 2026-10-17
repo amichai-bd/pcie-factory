@@ -197,7 +197,11 @@ Each mutant was applied to the RTL and levels 0 and 1 run one test at a
 time; each is caught, and the unmutated RTL passes. The entry named is the
 first that fails in that run, at its first seed (level 0 unless marked).
 The TLP transmit mutants ([#212](https://github.com/amichai-bd/pcie-factory/issues/212))
-were all run, serially, on the RTL and tests of its final revision.
+were all run serially; those whose code changed with the registered L0
+condition of the replay timer (the timer and rollover ones: replay timeout
+at 355, timer not held outside L0, progress not restarting the timer,
+rollover after 3 replays, no withdrawal, `sop` offered in the rollover
+cycle) were rerun on the final RTL, with the same results.
 
 | Block | Mutant | First failing entry | Result |
 | --- | --- | --- | --- |
