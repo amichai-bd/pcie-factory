@@ -282,7 +282,7 @@ async def fc_rx_accounting(dut):
             await env.run(30)
     stats = env.check_rx()
     # The arch shadow judges every TLP as the reference does, overflows
-    # included; a link-down may leave it one TLP apart (env, check_shadow_rx).
+    # included; a link-down may leave it exactly one TLP apart (env, check_shadow_rx).
     link_down_diffs = env.check_shadow_rx()
     dut._log.info("arch shadow: all %d TLP verdicts agree (%d overflow); link-down "
                   "differences %s", len(env.ref_verdicts), env.ref.overflow, link_down_diffs)

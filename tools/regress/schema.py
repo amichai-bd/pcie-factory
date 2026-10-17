@@ -19,7 +19,7 @@ _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _MODULE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
 
 _REQUIRED = {"name", "module", "top", "timeout_s"}
-_OPTIONAL = {"testcase", "seeds", "params"}
+_OPTIONAL = {"testcase", "seeds", "params", "backend"}
 
 
 class SchemaError(Exception):
@@ -37,6 +37,7 @@ class TestEntry:
     testcase: str | None = None
     seeds: int | tuple[int, ...] = 1  # count (derived seeds) or explicit seeds
     params: dict = field(default_factory=dict)
+    backend: str | None = None  # a cfg/backends.yaml flow kind (build.backends)
 
     @property
     def runs(self) -> int:
@@ -107,7 +108,11 @@ def parse_entry(raw, ip: str, level: int, where: str) -> TestEntry:
             raise SchemaError(f"{where}: param name {k!r} is not an identifier")
         if isinstance(v, bool) or not isinstance(v, (int, str)):
             raise SchemaError(f"{where}: param {k} must be an integer or string")
-    return TestEntry(ip, level, name, module, top, float(timeout), testcase, seeds, dict(params))
+    backend = raw.get("backend")
+    if backend is not None and (not isinstance(backend, str) or not _IDENT_RE.match(backend)):
+        raise SchemaError(f"{where}: 'backend' must be a flow kind from cfg/backends.yaml")
+    return TestEntry(ip, level, name, module, top, float(timeout), testcase, seeds, dict(params),
+                     backend)
 
 
 FLOOR_KEY = "coverage_floors"

@@ -87,4 +87,19 @@ issues.
 
 ## Updates
 
-None yet.
+**2026-10-18, captain decisions** on the `core` HAS open questions (PR
+[#301](https://github.com/amichai-bd/pcie-factory/pull/301) for
+[#284](https://github.com/amichai-bd/pcie-factory/issues/284)), copied
+verbatim from the epic
+([#282](https://github.com/amichai-bd/pcie-factory/issues/282)):
+
+| # | Decision |
+|---|---|
+| Q9 | **Credit release:** `dll` and `link` gain a credit-release input; `tl` queues posted and non-posted requests sized by the advertised credits and releases them when a request leaves `tl`. Amends M2 Q5 ("unchanged"). Tracked by #303. |
+| Q10 | **Reset:** while the data link is down (including Hot Reset), `tl` and `cfg`, config space included, are held in reset. No function-level reset in M3. |
+| Q11 | **D3hot and MSI-X:** memory requests in D3hot get Unsupported Request and the function issues no requests or interrupts outside D0. An MSI-X request while bus mastering is off sets its pending bit and is sent once allowed; no interrupt is lost. |
+| Q12 | **Vendor ID default:** 0x0000 placeholder, which claims no vendor; users override the ID parameters. |
+
+The other open questions of that draft (throughput target,
+application-interface details, citations unchecked) stay as the author
+proposed, as firstmate decisions the captain may override.

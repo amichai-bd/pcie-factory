@@ -96,7 +96,8 @@ def select(
 
 
 def _spec(ips: dict[str, Ip], entry: TestEntry, waves: bool, coverage: bool = False) -> sim.BuildSpec:
-    return sim.BuildSpec(ips[entry.ip], entry.top, dict(entry.params), waves, coverage)
+    return sim.BuildSpec(ips[entry.ip], entry.top, dict(entry.params), waves, coverage,
+                         entry.backend)
 
 
 def run(

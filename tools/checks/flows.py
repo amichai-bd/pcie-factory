@@ -41,7 +41,7 @@ def fpga_findings(ips: list[Ip], cfg_dir: Path, workdir: Path, short) -> list[st
     out = []
     for ip in ips:
         try:
-            p = fpga.plan(ip, workdir, cfg["board"], None, cfg["processors"])
+            p = fpga.plan(ip, workdir, cfg["board"], None, cfg["processors"], cfg["backends"])
             fpga.project_tcl(p)
             fpga.worst_path_tcl(p)
         except ERRORS as exc:

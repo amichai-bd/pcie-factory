@@ -61,11 +61,38 @@ resolver, plus only what is in `src/fpga/<ip>/`:
   button press; the board file sets `ALLOW_POWER_UP_DONT_CARE OFF` so that
   counter starts at 0.
 - No duplicate source list: the flow never names RTL files other than
-  through `<ip>.rtl.f` and the wrapper.
+  through `<ip>.rtl.f` and the wrapper; the only substitution is a shared
+  block's Intel backend (below).
 - Vendor IP (PLLs, memories) is avoided while behavioral RTL suffices. When
   needed, it sits behind a module boundary with a synthesizable simulation
   model, and its generator, parameters and license are in the IP's FPGA
   page (`wiki/src/fpga/<ip>/FPGA.md`).
+
+## Intel backends
+
+A shared block whose inferred form is not good enough on the board (a RAM
+that must land in M9K blocks with exact read-during-write behavior) gets an
+Intel [source backend](../project/layout.md#source-backends):
+`<block>_intel.sv` beside the portable `<block>.sv`, the same module built
+from a vendor primitive (`altsyncram`). `cfg/backends.yaml` gives the flow
+the `intel` suffix, and `./build fpga` puts the backend file in place of the
+portable one in the Quartus source list; simulation, `./build check` lint
+and the ASIC flow keep the portable file.
+
+- One module name in two files, no `` `ifdef``, no `ramstyle` attribute, no
+  vendor primitive in IP RTL: the IP instantiates the shared block only.
+- The backend requests exactly the shape the block's MAS lists; the device
+  family defaults to this board's (Cyclone IV E), and another Intel board
+  overrides it from its board settings file.
+- Verilator sees a backend only through the DV-only primitive stub in
+  `dv_models`: a lint test with the expected messages named, stub tests
+  that reject every parameter outside the shape, and the block's contract
+  tests run with `backend: fpga`. The stub is never a vendor model and
+  never enters a Quartus or product source list.
+- Simulation never proves the vendor mapping. Each consuming target's fit
+  records it: the per-RAM rows of `metrics.json` (`resources.rams`: mode,
+  clock mode, geometry, block count, mixed-port read-during-write mode),
+  reported in the PR and in the block's MAS.
 
 ## Layers
 
@@ -107,6 +134,7 @@ least:
 | --- | --- |
 | Logic elements, registers, memory bits | Fitter summary |
 | M9K blocks, embedded multipliers (DSP) | Fitter resource usage summary |
+| Per RAM: mode, clock mode, depth, width, M9K blocks, mixed-port read-during-write mode | Fitter RAM Summary |
 | Fmax and restricted Fmax per clock | Timing analyzer, worst over the slow models |
 | Worst setup, hold, recovery and removal slack | Timing analyzer, worst over all models |
 | Unconstrained paths | Timing analyzer "Unconstrained Paths Summary" |
@@ -146,7 +174,10 @@ this board and need no action; any other warning is a finding:
 
 ## Review checklist
 
-- Inputs limited to `<ip>.rtl.f`, the wrapper, SDC and QSF Tcl.
+- Inputs limited to `<ip>.rtl.f` (with the shared blocks' Intel backends
+  selected), the wrapper, SDC and QSF Tcl.
+- Each RAM a consuming target fits is in the expected mode with the expected
+  M9K count, as the block's MAS records.
 - Every SDC exception has a reason.
 - Timing met on every clock, or the PR states the gap and the owning issue.
 - Quartus warnings are the known ones above, or the PR explains each new one.

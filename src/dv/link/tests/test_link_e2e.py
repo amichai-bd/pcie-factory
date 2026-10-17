@@ -10,11 +10,18 @@ tests also check each injected class's expected pulses (HAS, checks).
 """
 
 import random
+import sys
+from pathlib import Path
 
 import cocotb
 
 from tb.link_e2e_env import (BAD_DLLP, BAD_TLP, CORE_PS, COV_CREDIT, COV_LINK, COV_RECOVERY,
-                             ROLLOVER, TIMEOUT, Env, now_ps)
+                             ROLLOVER, TIMEOUT, Env, now_ps, ptn)
+
+sys.path.append(str(Path(__file__).resolve().parents[1] / "models"))
+sys.path.append(str(Path(__file__).resolve().parents[3] / "arch" / "link"))
+import pcie_link_arch as arch  # noqa: E402  (shadow figures only; DV may import arch)
+import pcie_link_throughput_model as thr  # noqa: E402
 
 REPLAY_TIMEOUT = 356                 # dll RETRY page, timers
 
@@ -403,3 +410,115 @@ async def e2e_disable(dut):
 async def e2e_loopback(dut):
     """Loopback passed through (HAS, stack wiring)."""
     await link_control(dut, "loopback")
+
+
+# -------------------------------------------------------------- throughput
+
+# HAS targets (throughput): TLP payload as a fraction of the line rate, at
+# least these, for 128-byte memory writes back to back, default credits,
+# 0 ppm, error-free, upper layers never waiting, over at least 2000 TLPs
+# per direction from the first accepted to the last delivered.
+TARGET = {False: 0.85, True: 0.76}
+THROUGHPUT_TLPS = 2000
+MWR_DW = 32                          # 128-byte payload, 3-DW header: 140 bytes
+
+
+async def throughput(dut, both: bool, n: int = THROUGHPUT_TLPS):
+    """The HAS throughput measurement: ``n`` 128-byte MWr one way (a to b)
+    or each way. Checks the delivered payload efficiency per direction
+    against the HAS target, exactly, and attributes every symbol on each
+    line in the measured window (``pcie_link_throughput_model``): payload,
+    TLP header and framing, Ack, UpdateFC, SKP, idle and the rest; the
+    attribution must close on the window. Lossless and error-free (every
+    final check, no error pulse, no exit from L0)."""
+    env = await up(dut)
+    assert env.ppm == 0 and env.credits == "default", "the HAS measures at 0 ppm, default credits"
+    for e in env.ends:
+        e.valid_p = 1.0                  # the upper layer never waits (HAS checks)
+    for inj in env.injectors:
+        inj.line_runs = []
+    # The seed moves the traffic against the SKP schedules (a start within
+    # one SKP interval) and, both ways, b's first TLP against a's (within
+    # one TLP time), so seeds line the items up differently.
+    rng = random.Random(seed() ^ 0x7A9)
+    await env.cycles(rng.randrange(arch.SKP_INTERVAL_MIN // 2))
+    t_start = now_ps()
+    dirs = ("ab", "ba") if both else ("ab",)
+    tlps = [[ptn.make_tlp("MWr", MWR_DW, (k + 0x4000 * i) & 0xFFFF) for k in range(n)]
+            for i in range(len(dirs))]
+    env.ends[0].send(tlps[0])
+    if both:
+        stagger = rng.randrange(arch.tlp_line_symbols(4 * (3 + MWR_DW)) // 2)
+        await env.cycles(stagger)
+        env.ends[1].send(tlps[1])
+        env.log.info("throughput: b starts %d cycles after a", stagger)
+    await env.drain(400 * n)
+    await env.cycles(500)
+    env.finish()
+    assert_quiet(env, " (throughput)")
+    target = TARGET[both]
+    has = arch.derived_fractions(4 * (3 + MWR_DW), 4 * MWR_DW, both)
+    results, misses = {}, []
+    for d in ("ab", "ba"):
+        sb = env.sb[d]
+        line = attribute_line(env, d, t_start)
+        res = {"line": line}
+        if d in dirs:
+            assert sb.delivered == n and sb.payload == n * 4 * MWR_DW, (d, sb.delivered, sb.payload)
+            cycles = (sb.last_deliver_t - sb.first_accept_t) / CORE_PS + 1
+            eff = sb.payload / (arch.LINE_BYTES_PER_CYCLE * cycles)
+            res.update(efficiency=round(eff, 5), cycles=round(cycles, 1),
+                       payload_bytes=sb.payload, target=target,
+                       has_derived=round(has["payload_line_fraction"], 5))
+            if eff < target:
+                misses.append(f"{d}: payload efficiency {eff:.5f} below the HAS target {target} "
+                              f"({sb.payload} payload bytes in {cycles:.1f} cycles, HAS derived "
+                              f"{has['payload_line_fraction']:.5f}); line attribution "
+                              f"{line['per_tlp']} symbols per TLP, {line['fraction']}")
+        results[d] = res
+        env.log.info("throughput %s %s: %s", "both ways" if both else "one way", d, res)
+    assert not misses, "; ".join(misses)
+    return env, results
+
+
+def attribute_line(env, d, since):
+    """Every symbol of direction ``d``'s line from the first TLP sent after
+    ``since`` to the last TLP's end (the reverse line of a one-way run: the
+    forward window), attributed; the attribution must close."""
+    i = 0 if d == "ab" else 1
+    view = env.chk.views[("sent", d)]
+    period = env.periods[i]
+    fwd = [p for p in env.chk.views[("sent", "ab")] if not p.dllp and p.start >= since]
+    tlps = [p for p in view if not p.dllp and p.start >= since] or fwd
+    t0, t1 = tlps[0].start, tlps[-1].end
+    att = thr.attribute(view, env.injectors[i].line_runs, t0, t1, period)
+    c, w = att["counts"], att["window"]
+    assert sum(c.values()) == w, (f"{d}: line attribution does not close: {sum(c.values())} "
+                                  f"symbols attributed, {w} in the window; {c}")
+    k = att["tlps"] or max(1, len(fwd))  # per TLP sent (the forward ones, one way)
+    return {"window_symbols": w, "tlps": att["tlps"],
+            "fraction": thr.summary(att),
+            "per_tlp": {cat: round(v / k, 3) for cat, v in c.items() if v},
+            "non_data": w - c["payload"]}
+
+
+@cocotb.test()
+async def e2e_throughput_oneway(dut):
+    """HAS throughput, one way: 2000 128-byte MWr a to b, payload at least
+    0.85 of the line rate; the Acks and UpdateFC-P ride the reverse line."""
+    await throughput(dut, both=False)
+
+
+@cocotb.test()
+async def e2e_throughput_bidir(dut):
+    """HAS throughput, both ways: 2000 128-byte MWr each way, payload at
+    least 0.76 of the line rate in each direction."""
+    await throughput(dut, both=True)
+
+
+@cocotb.test()
+async def e2e_throughput_short(dut):
+    """L1 screen of the one-way measurement: 400 TLPs instead of 2000,
+    against the same 0.85. Fewer TLPs put more of the start and drain in
+    the window, so this is stricter than the HAS run, never looser."""
+    await throughput(dut, both=False, n=400)

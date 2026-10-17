@@ -149,10 +149,42 @@ def test_build_key_and_dirs(tmp_path):
     p1 = sim.BuildSpec(ip, "top", {"W": 4})
     p2 = sim.BuildSpec(ip, "top", {"W": 5})
     wv = sim.BuildSpec(ip, "top", {}, waves=True)
-    keys = {plain.key, p1.key, p2.key, wv.key}
-    assert len(keys) == 4 and all(k.startswith("top") for k in keys)
+    be = sim.BuildSpec(ip, "top", backend="fpga")
+    keys = {plain.key, p1.key, p2.key, wv.key, be.key}
+    assert len(keys) == 5 and all(k.startswith("top") for k in keys)
     assert sim.BuildSpec(ip, "top", {"W": 4}).key == p1.key  # deterministic
     assert sim.test_dir(tmp_path, ip, "t", 3) == tmp_path / "a_b/t/3"
+
+
+def test_sources_for_backend(tmp_path):
+    """A backend build swaps each portable file for its backend file and
+    appends the backend's DV stand-ins; a bad backend is an error."""
+    src = tmp_path / "src"
+    rtl = src / "rtl" / "common"
+    rtl.mkdir(parents=True)
+    a, b = rtl / "a.sv", rtl / "b.sv"
+    for p in (a, b, rtl / "b_alt.sv"):
+        p.write_text("")
+    model = src / "dv" / "common" / "tb" / "prim.sv"
+    model.parent.mkdir(parents=True)
+    model.write_text("")
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    (cfg / "backends.yaml").write_text(
+        "fpga:\n  suffix: alt\n  dv_models: [dv/common/tb/prim.sv]\n")
+    ip = Ip("common", src, shared=True)
+    assert sim.sources_for(sim.BuildSpec(ip, "b"), [a, b], cfg) == [a, b]
+    got = sim.sources_for(sim.BuildSpec(ip, "b", backend="fpga"), [a, b], cfg)
+    assert got == [a, (rtl / "b_alt.sv").resolve(), model.resolve()]
+    with pytest.raises(sim.backends.BackendError, match="not a flow kind"):
+        sim.sources_for(sim.BuildSpec(ip, "b", backend="asic"), [a, b], cfg)
+
+
+def test_build_bad_backend_is_a_build_error(fixture_src, tmp_path):
+    ip = Ip("counter", fixture_src)
+    res = sim.build(sim.BuildSpec(ip, "counter", backend="nope"), tmp_path / "w",
+                    Path("/fake/verilator"), cfg_dir=tmp_path)
+    assert res.status == "error" and "not a flow kind" in res.detail
 
 
 def test_find_verilator_fallbacks(tmp_path, monkeypatch):

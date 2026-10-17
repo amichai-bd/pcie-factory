@@ -124,6 +124,21 @@ tests:
     params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
     seeds: 3
     timeout_s: 120
+  - name: sdp_ram_intel_random
+    module: tests.test_ram
+    testcase: random_ops
+    top: common_sdp_ram
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    backend: fpga
+    seeds: 3
+    timeout_s: 120
+  - name: sdp_ram_intel_rx_buf_shape
+    module: tests.test_ram
+    testcase: contract
+    top: common_sdp_ram
+    params: {WIDTH: 34, ADDR_W: 9, LANES: 1}
+    backend: fpga
+    timeout_s: 120
   - name: ram_param_limits
     module: tests.test_ram_params
     testcase: param_limits

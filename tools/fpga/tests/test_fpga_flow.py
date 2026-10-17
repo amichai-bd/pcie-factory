@@ -11,6 +11,7 @@ import pytest
 from build.filelist import FilelistError
 from build.ip import Ip, discover, find_ip
 from cli.main import main
+from build import backends
 from fpga import flow
 from fpga.flow import FpgaError
 
@@ -122,6 +123,47 @@ def test_lint_command(src, tmp_path):
     assert cmd[-1].endswith(f"{TOP}.sv")
 
 
+def with_backend(src: Path) -> dict:
+    """Give widget.sv an ``alt`` fpga backend file; return cfg/backends.yaml."""
+    rtl = src / "rtl" / "widget"
+    (rtl / "widget_alt.sv").write_text(
+        "module widget(input logic clk_i, output logic q_o); endmodule\n")
+    return {"fpga": backends.Backend("fpga", "alt", ()),
+            "asic": backends.Backend("asic", "other", ())}
+
+
+def test_plan_selects_backend(src, tmp_path):
+    known = with_backend(src)
+    p = make_plan(src, tmp_path, known=known)
+    # Quartus gets the backend file in place; lint keeps the portable view.
+    assert [s.name for s in p.sources] == ["widget_pkg.sv", "widget_alt.sv", f"{TOP}.sv"]
+    assert [s.name for s in p.lint_sources] == ["widget_pkg.sv", "widget.sv", f"{TOP}.sv"]
+    assert [(a.name, b.name) for a, b in p.swapped] == [("widget.sv", "widget_alt.sv")]
+    assert "widget_alt.sv" in flow.project_tcl(p)
+    assert "widget_alt.sv" not in " ".join(flow.lint_command(p, "verilator"))
+    # Without a configured backend nothing is swapped.
+    assert [s.name for s in make_plan(src, tmp_path).sources][1] == "widget.sv"
+
+
+def test_plan_rejects_listed_backend(src, tmp_path):
+    known = with_backend(src)
+    (src / "rtl" / "widget" / "widget.rtl.f").write_text("widget_pkg.sv\nwidget.sv\nwidget_alt.sv\n")
+    with pytest.raises(FpgaError, match="lists a backend file"):
+        make_plan(src, tmp_path, known=known)
+
+
+def test_load_config_backends(src, tmp_path):
+    with_backend(src)
+    cfg = tmp_path / "repo" / "cfg"
+    cfg.mkdir(parents=True)
+    for name in ("fpga.yaml", "host.yaml"):
+        (cfg / name).write_text((Path(flow.REPO_ROOT) / "cfg" / name).read_text())
+    (cfg / "backends.yaml").write_text("fpga:\n  suffix: alt\n")
+    p = flow.plan(widget(src), tmp_path / "w", "de2_115",
+                  known=flow.load_config(cfg)["backends"])
+    assert [b.name for _, b in p.swapped] == ["widget_alt.sv"]
+
+
 def test_fpga_ips(src):
     assert [ip.id for ip in flow.fpga_ips(discover(src))] == ["widget"]
 
@@ -172,6 +214,7 @@ def write_cfg(d: Path, fpga_yaml: str, quartus_root: str = "") -> Path:
 def test_load_config_repo():
     cfg = flow.load_config(Path(flow.REPO_ROOT) / "cfg")
     assert cfg["board"] and cfg["step_timeout_s"] > 0 and cfg["processors"] >= 1
+    assert cfg["backends"]["fpga"].suffix  # cfg/backends.yaml names the fpga backend
 
 
 @pytest.mark.parametrize("text, message", [

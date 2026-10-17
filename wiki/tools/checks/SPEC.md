@@ -148,7 +148,16 @@ Rule owners: [layout](../../project/layout.md#per-ip-files) and the
   `rtl/common/`, any filelist there or in one of its group folders), and every `.svh` is
   listed or below one of that filelist's include directories (an include
   directory does not compile a module). `fpga/` wrappers are not in any
-  filelist and are not orphans.
+  filelist and are not orphans. A source [backend file](../../project/layout.md#source-backends)
+  (`<stem>_<suffix>.sv` beside an existing `<stem>.sv`, for a suffix of
+  `cfg/backends.yaml`) is reached through its portable file instead: the
+  portable file must be listed, and the backend file must declare exactly
+  `module <stem>` (`<path>: a <kind> backend of <stem>.sv must declare
+  exactly module <stem>, found ...`).
+- **No listed backend:** no filelist lists a backend file, so no source
+  list holds two implementations of one module (`<filelist>: lists backend
+  file <path>; only a flow selects a backend, in place of its portable file
+  (cfg/backends.yaml)`). The flows select backends themselves.
 
 `rtl/common/` is never an IP; its filelists, the shared blocks (for example
 `common_lib.rtl.f`, or `<group>/common_x.rtl.f` in a group folder), are
@@ -205,7 +214,7 @@ applies.
 | `external-ifdef` | No `` `ifdef``/`` `ifndef``/`` `elsif`` on a macro the RTL closure does not define (a vendor or tool macro such as `ALTERA_RESERVED_QIS`, or one nothing defines): such code is hidden from lint and simulation while another flow compiles it. A macro is defined when the file itself, or any closure that reaches it, `` `define``s it or passes it with `+define+`. A closure is an `rtl/` filelist's resolved sources, every file below its include directories (inside the source root) and its `+define+` names; a file reached by several closures gets their union, and an `fpga/<id>/` file also gets its IP's `.rtl.f` closure (the lint check links the wrapper with it). So an include guard (`` `ifndef X_SVH`` then `` `define X_SVH``) passes. Each name in a parenthesized expression (`` `ifdef (A && B)``) is checked; a directive with no name is a finding. The macro name (or the opening parenthesis) must be on the directive's line: the scan is lexical and fails closed, so a name on a later line, `SYNTHESIS` included, is reported as `` `ifdef/`ifndef/`elsif without a macro name`` (naming the directive found). Macro names may contain `$` after the first character. `SYNTHESIS`, `SIMULATION` and `VERILATOR` are left to `sim-ifdef`. Two cases are deliberately permissive: a file reached by several closures may condition on a macro only one of them defines (a sub-IP on a parent-only macro, which its own lint run does not define), and every file below an include directory counts as defining its macros, whether or not it is `` `include``d. In both cases the macro must still be `` `define``d by a file in the source tree, or passed with a filelist `+define+`, of a closure that reaches the file, so a macro that only a vendor or tool flow defines never passes. | [rtl.md#no-conditional-compilation](../../bkm/rtl.md#no-conditional-compilation) |
 | `task-function` | No `task`; `function` only inside a package. | [rtl.md#systemverilog-rules](../../bkm/rtl.md#systemverilog-rules) |
 | `typedef-outside-package` | `typedef`, `enum` and `struct` only inside `package ... endpackage`, so an anonymous FSM `enum` or `struct` in a module is a finding (`union` is `interface-union`'s). | [rtl.md#types-and-constants-live-in-packages](../../bkm/rtl.md#types-and-constants-live-in-packages) |
-| `file-name` | A `.sv` declares exactly one module or package, named after the file. A package name ends in `_pkg` and a module name does not. The name starts with the owner's prefix: `common_` under `rtl/common/` or `dv/common/`, otherwise `<prefix><id>` of the owning IP (sub-IP `a_b` gives `<prefix>a_b`) followed by the end or `_`; `<prefix>` alone when no IP owns the file. `<prefix>` is read from the `Module/package/file prefix` row of `src/README.md`; a missing row is a finding. | [rtl.md#naming](../../bkm/rtl.md#naming) |
+| `file-name` | A `.sv` declares exactly one module or package, named after the file (a source [backend file](../../project/layout.md#source-backends) is named after its portable file's module). A package name ends in `_pkg` and a module name does not. The name starts with the owner's prefix: `common_` under `rtl/common/` or `dv/common/`, otherwise `<prefix><id>` of the owning IP (sub-IP `a_b` gives `<prefix>a_b`) followed by the end or `_`; `<prefix>` alone when no IP owns the file. `<prefix>` is read from the `Module/package/file prefix` row of `src/README.md`; a missing row is a finding. | [rtl.md#naming](../../bkm/rtl.md#naming) |
 | `port-suffix` | Every module port is ANSI with a direction. Inputs end in `_i`, outputs in `_o`, inouts in `_io`, each optionally with `n` before the direction letter for active-low (`rst_ni`). `ref` ports are not allowed. | [rtl.md#naming](../../bkm/rtl.md#naming) |
 | `verilator-config` | No `` `verilator_config`` block in any checked file, including includable files of any type (a listed or `` `include``d file would otherwise carry `lint_off` rules past the waiver file). | [rtl.md#lint-and-style-checks](../../bkm/rtl.md#lint-and-style-checks) |
 | `tool-pragma` | No tool directive comment: `verilator`, `synthesis`, `synopsys`, `pragma` or `altera` followed by a directive word (`lint_off`, `translate_off`, `full_case`, `public`, `protect`, `message_off`, ...). This covers inline lint waivers (`/* verilator lint_off */`). Prose that only starts with the tool name (`// Synthesis infers a flop`) is not flagged. | [rtl.md#lint-and-style-checks](../../bkm/rtl.md#lint-and-style-checks) |
@@ -935,11 +944,11 @@ the vocabulary header's exemptions and the `SIMULATION` limit, comparisons
 that are not nonblocking assignments, vocabulary discovery (cells in a group folder included), the design-file
 conditional reported once, and `external-ifdef` closure cases in include
 files (a vendor and an undefined macro fail; include guards, `` `define``s
-in an include file, `+define+` and a board-wrapper folder pass)
-(`test_style.py`), the repository's vocabulary headers built by Verilator
+in an include file, `+define+` and a board-wrapper folder pass), a backend file's
+unit name (`test_style.py`), the repository's vocabulary headers built by Verilator
 (each assertion form fires with `--assert`, none is present under
 `SYNTHESIS`, the parameter check is in both views) (`test_vocabulary_headers.py`), duplicate, diamond, orphan and regression cases
-the shared unit's files, lists and block coverage, a block in a group folder owning its sources, and a `-F` cycle between two top-level IPs (`test_filelists_check.py`), each wiki mirror rule: every required page,
+the shared unit's files, lists and block coverage, a block in a group folder owning its sources, a `-F` cycle between two top-level IPs, and source backend files (reached through a listed portable file, the wrong module, an unlisted portable file, a listed backend) (`test_filelists_check.py`), each wiki mirror rule: every required page,
 `asic/` and `fpga/` pages following the source folders, the top-level
 `arch/` exemption without targets and its limit, HAS targets requiring
 `src/arch/<ip>/` (and only a level-2 heading counting), a source `arch/`

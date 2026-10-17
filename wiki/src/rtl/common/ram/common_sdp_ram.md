@@ -50,26 +50,70 @@ Illegal values stop elaboration through `COMMON_ASSERT_PARAM` blocks
   at `wr_addr_i` and one `COMMON_MEM_READ_EN` process into `rd_data_o` at
   `rd_addr_i`, both on `clk_i`. Separate processes make a collision
   read-first.
-- **Inference shape:** the conventional simple dual-port template.
-  Quartus maps it to block RAM. Measured on Cyclone IV E with the `link`
-  FPGA harness ([`link` FPGA, Results](../../../fpga/link/FPGA.md#results)):
-  the `dll` receive buffer (512 × 34) and replay buffer (256 × 32) take
-  M9Ks, not registers. The mode details are still expected, not measured:
-  simple dual-port with old-data mixed-port read-during-write, the read
-  enable on the read port's read or clock enable, and lanes on byte
-  enables as in the [base MAS](common_sync_ram.md#microarchitecture).
-  Yosys infers a memory with one write port and one non-transparent
-  synchronous read port with an enable; the ASIC flow maps it to flops.
+- **Inference shape:** the conventional simple dual-port template. The
+  FPGA flow does not rely on inference: it selects the
+  [Intel backend](#intel-backend). Yosys infers a memory with one write
+  port and one non-transparent synchronous read port with an enable; the
+  ASIC flow maps it to flops.
+
+## Intel backend
+
+`common_sdp_ram_intel.sv` is the same module for Quartus: one `altsyncram`
+named `u_ram`, a [source backend](../../../../project/layout.md#source-backends)
+that only the FPGA flow's source list selects (`cfg/backends.yaml`, suffix
+`intel`), in place of the portable file. Simulation, `./build check` lint
+and the ASIC flow read the portable file; Verilator reads the backend only
+against the DV-only stub `src/dv/common/tb/altsyncram.sv`.
+
+| `altsyncram` parameter | Value | Why |
+| --- | --- | --- |
+| `operation_mode` | `DUAL_PORT` | Port A writes, port B reads (simple dual port). |
+| `intended_device_family`, `ram_block_type` | `INTEL_DEVICE_FAMILY` (default `Cyclone IV E`), `INTEL_RAM_BLOCK_TYPE` (default `M9K`) | Vendor facts, not contract: the backend's two extra parameters; another Intel board overrides them from its board settings file. |
+| `width_a`, `widthad_a`, `numwords_a`; `width_b`, `widthad_b`, `numwords_b` | `WIDTH`, `ADDR_W`, `2**ADDR_W` on both ports | No mixed widths. |
+| `width_byteena_a`, `byte_size` | `LANES`; 8 for one lane, else the lane width | Lanes are byte enables; an M9K byte is 8 or 9 bits, so more than one lane needs 8- or 9-bit lanes (`g_lane_w_check`, Intel backend only). |
+| `outdata_reg_a`, `outdata_reg_b` | `UNREGISTERED` | One-edge read latency: `rd_data_o` is the block's read register. |
+| `address_reg_b`, `rdcontrol_reg_b` | `CLOCK0` | One clock. |
+| `read_during_write_mode_mixed_ports` | `OLD_DATA` | Read-first collision, as the portable file. |
+| `clock_enable_*` | `BYPASS` | No clock enables. |
+| `init_file`, `power_up_uninitialized` | `UNUSED`, `FALSE` | No image; contents stay undefined to the contract. |
+
+Pins: `clock0` is `clk_i`; `wren_a` is `wr_en_i` with at least one lane
+enabled, `byteena_a` is `wr_lanes_i`, `address_a` and `data_a` the write
+port; `rden_b` is `rd_en_i` (a disabled read holds `q_b`), `address_b` and
+`q_b` the read port. `wren_b`, `aclr*` and `addressstall_*` tie low;
+`rden_a`, `clock1`, `clocken*` and `byteena_b` tie high. `data_b`, `q_a` and
+`eccstatus`, absent in this mode, are explicit empty connections, as
+Intel-generated wrappers leave them; the backend's lint test expects
+exactly `DECLFILENAME` and those three `PINCONNECTEMPTY` messages. The
+parameter checks are the portable file's plus `g_lane_w_check`.
+
+**Fitter evidence.** Simulation never proves the mapping; each consuming
+target's fit does (`resources.rams` in its `metrics.json`). Expected per
+instance: `Simple Dual Port`, `Single Clock`, mixed-port RDW `Old data`,
+and the M9K count below (an M9K holds 256 words of up to 36 bits, or 512
+of up to 18, in this mode). Measured:
+
+| Consumer (target) | Geometry | Expected M9K | Measured |
+| --- | --- | --- | --- |
+| dll receive buffer (`link`, DE2-115) | 512 x 34 | 2 (two x18 at 512 words) | Pending the first `link` fit ([#276](https://github.com/amichai-bd/pcie-factory/pull/276)). |
+| dll replay buffer (`link`, DE2-115) | 256 x 32 | 1 (x32 at 256 words) | Pending the first `link` fit ([#276](https://github.com/amichai-bd/pcie-factory/pull/276)). |
 
 ## Decisions
 
 | Choice | Rationale | Rejected |
 | --- | --- | --- |
 | One module with a read enable | The source's two modules differ only in a tied-high enable; one block keeps one page and one test set. | The source's separate always-read wrapper. |
+| An explicit Intel backend selected by source list | The fit must be known (M9K, old-data collision), not inferred; one module name in two files keeps every consumer and test unchanged. | Inference alone (shape unmeasured); `ifdef` or `ramstyle` in the block; vendor primitives in IP RTL. |
+| Lanes on byte enables, 8- or 9-bit lanes only | Matches M9K byte sizes; the consumers use one lane. | Emulating narrow lanes with read-modify-write. |
 
 Provenance: adapted from nand2anything `src/common/rtl/n2a_sdp_ram_portable.sv`
 (modules `n2a_sdp_ram_enabled` and `n2a_sdp_ram`, commit `085ef4b`),
-adapted with the owner's permission.
+adapted with the owner's permission. The Intel backend is adapted from
+nand2anything `src/common/rtl/n2a_sdp_ram_intel.sv`, and its stub and
+rejection set from `src/common/dv/memory/n2a_altsyncram_port_stub.sv` and
+its reject fixtures (commit `8bb70d248d4755d7510fb2c0ec6487a5e05dec41`),
+adapted with the owner's permission; that project fits the same backend on
+the DE2-115.
 
 ## Timing
 
@@ -81,3 +125,4 @@ One clock, no reset. `rd_data_o` is the RAM's read register.
 | --- | --- |
 | [`common_sdp_ram.sv`](../../../../../src/rtl/common/ram/common_sdp_ram.sv) | The module. |
 | [`common_sdp_ram.rtl.f`](../../../../../src/rtl/common/ram/common_sdp_ram.rtl.f) | `-F ../common_macros.rtl.f`, then the module. |
+| [`common_sdp_ram_intel.sv`](../../../../../src/rtl/common/ram/common_sdp_ram_intel.sv) | The [Intel backend](#intel-backend); in no filelist, selected by the FPGA flow. |
