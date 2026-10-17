@@ -28,6 +28,7 @@ it; nothing calls a tool script directly.
 | `asic` | ORFS flow for one IP ([PD BKM](pd.md)). |
 | `arch` | Architecture-model perf scenarios of a top-level IP ([arch BKM](arch.md)). |
 | `labels` | Label sync from `cfg/labels.yaml`. |
+| `pr` | Read-only pre-check of a PR body's recorded evidence before review ([pr spec](../tools/pr/SPEC.md)). |
 | `ci` | `ci-gate` helpers: unit suites, vendor checks, aggregation and job summary ([CI spec](../tools/ci/SPEC.md)). |
 | `metrics` | Nightly metrics, the data guard and the `nightly-red` issue ([metrics spec](../tools/metrics/SPEC.md)). |
 | `wiki` | Wiki site build. |
@@ -43,7 +44,7 @@ Subcommands land with their issues (#6 core, #7 check, #10 labels, #11 ci, #12 w
 build                       launcher only
 tools/<tool>/               generic Python, unit tests in tools/<tool>/tests/
 wiki/tools/<tool>/SPEC.md   outcomes, CLI, behavior, failures, tests
-cfg/                        generic configuration (levels, ci, host, checks, labels)
+cfg/                        generic configuration (levels, ci, host, checks, labels, pr)
 workdir/                    all generated output, ignored
 ```
 
@@ -119,9 +120,11 @@ commands, seeds, counts and every non-pass entry in the PR. Evidence shows
 behavior, not command success. Treat every warning (lint, simulation, flow)
 as a failure unless a reviewed waiver explains it. Logs, waves and reports
 stay under `workdir/`; the PR summarizes them and never commits them.
-Missing evidence is a review finding. The author owns all evidence: the
-reviewer audits it and the `ci-gate` result and never re-runs anything; a
-claim without recorded proof goes back to the author to run.
+Missing evidence is a review finding; `./build pr check <pr>` catches
+missing or malformed evidence before review ([pr spec](../tools/pr/SPEC.md)).
+The author owns all evidence: the reviewer audits it and the `ci-gate`
+result and never re-runs anything; a claim without recorded proof goes back
+to the author to run.
 
 ## Continuous integration
 
