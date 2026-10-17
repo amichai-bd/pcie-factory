@@ -136,3 +136,16 @@ All entries run on `pcie_link_e2e_tb`; credits are the default
 | [Throughput targets](../../arch/link/HAS.md#throughput) end to end | [#216](https://github.com/amichai-bd/pcie-factory/issues/216) |
 | Coverage floors | [#217](https://github.com/amichai-bd/pcie-factory/issues/217) |
 | The `ltssm_state_o` to `pkt_tx_valid` path on the FPGA and ASIC timing reports ([MAS timing](../../rtl/link/MAS.md#timing)) | [#218](https://github.com/amichai-bd/pcie-factory/issues/218), [#219](https://github.com/amichai-bd/pcie-factory/issues/219) |
+
+## Coverage holes
+
+No floors yet ([#217](https://github.com/amichai-bd/pcie-factory/issues/217)).
+Merged over levels 0 to 2 at the [#215](https://github.com/amichai-bd/pcie-factory/issues/215)
+head: line 90.7% (1379 of 1520 points over the whole stack), toggle
+80.1%, functional 100% (82 of 82 bins). The points not hit, by cause:
+
+| Cause | Points |
+| --- | --- |
+| Tied off by `link` ([power states](../../arch/link/HAS.md#power-states)) | The `mac` L0s, L1 and L2 arcs and their ordered-set and electrical-idle handling (most of the 102 `pcie_mac_ltssm.sv` and 18 `pcie_mac_os.sv` points), the nullify path of `pcie_mac_frame.sv`. |
+| Not reached by two compliant ends | Polling.Compliance, the Configuration and Detect fallback arcs and timeouts, polarity inversion (the channel never inverts here), the `pcs` elastic buffer's overflow and underflow branches. Each is covered by the `mac`, `pcs` or `phy` unit DV ([granularity](../../../bkm/rtl.md#granularity)). |
+| Unreachable by construction | Parameter checks of the instances (`COMMON_ASSERT_PARAM` lines), the receive buffer full branch of `pcie_dll_rx_buf.sv`, the RAM lane-disable branch, the testbench top's unused tap lines. |

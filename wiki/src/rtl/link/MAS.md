@@ -63,8 +63,17 @@ latency is the sum of the two IPs' ([HAS targets](../../arch/link/HAS.md#targets
   FPGA and ASIC flows' to report
   ([#218](https://github.com/amichai-bd/pcie-factory/issues/218),
   [#219](https://github.com/amichai-bd/pcie-factory/issues/219)).
-- **Ack latency.** Measured by the e2e ([DV plan](../../dv/link/DV_PLAN.md#strategy)):
-  MEASURED.
+- **Ack latency.** The largest values the e2e measured over every L0 to
+  L2 run ([DV plan](../../dv/link/DV_PLAN.md#strategy)), against the
+  [HAS targets](../../arch/link/HAS.md#targets):
+
+  | Where | Error-free (`e2e_smoke`) | Any test | Bound |
+  | --- | --- | --- | --- |
+  | `dll`-to-`phy` boundary: a good TLP's `eop` from the `phy` to the covering Ack's or Nak's `sop` taken | 111 cycles | 111 cycles | 118 |
+  | On the line: the TLP's last symbol at `ser_rx_data_i` to the DLLP's first at `ser_tx_data_o` (the passive checker) | 125.4 cycles | 126.4 cycles | 140 |
+
+  The worst case is the 32-cycle Ack timer plus a maximum TLP already
+  going out ahead of the Ack ([`dll` RETRY page, timers](../../arch/dll/RETRY.md#timers)).
 - **Clocks and crossings.** `dll` runs on `clk_i` only; the only crossings
   are inside `pcie_pcs`. Every `link` input carries a `cdc-domain`
   annotation: `ser_rx_data_i` and `ser_rx_elec_idle_i` are on
