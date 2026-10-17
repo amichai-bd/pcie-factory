@@ -70,7 +70,7 @@ run alongside M2's `link` wave; RTL starts after M2 closes (Q6).
 | --- | --- | --- |
 | 0, record | This roadmap and the decision record | #283 |
 | 1, specs and models | `core` HAS with the `tl`↔`cfg` interface; then the `tl` and `cfg` HAS with arch models (each signed off by the captain or the captain's delegate); then the `core` arch model; the independent host model | #284, then #285, #286; then #287; #288 |
-| 2, RTL (after M2) | `cfg` with its testbench; `tl` receive path, then transmit path with completions and MSI/MSI-X, then completion tracking and timeout | #289; #290, then #291, then #292 |
+| 2, RTL (after M2) | `cfg` with its testbench; `dll` and `link` credit release (Q9); then the `tl` receive path, then transmit path with completions and MSI/MSI-X, then completion tracking and timeout | #289; #303, then #290, then #291, then #292 |
 | 3, `core` | `core` stack and back-to-back e2e enumeration and traffic; then coverage floors, FPGA and ASIC | #293, then #294, #295, #296 |
 
 M3 is done when the goal checklist in the decision record holds on `main`.
