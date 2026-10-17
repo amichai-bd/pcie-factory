@@ -32,7 +32,7 @@ flowchart TB
   subgraph tl["pcie_tl"]
     rx["receive: checks, BAR decode,<br/>P and NP queues"]
     cpl["completions: handles, split,<br/>tracker and timeout"]
-    tx["transmit: request and<br/>completion queues, arbiter"]
+    tx["transmit: posted, non-posted<br/>and completion lines, arbiter"]
   end
   tl <-- "register access, state,<br/>error events, messages" --> cfg["pcie_cfg"]
   tl <-- "TLP stream, credits available,<br/>dl_up, credit release" --> link["pcie_link"]
@@ -152,6 +152,7 @@ override; Q-rows are the captain's.
 | --- | --- | --- |
 | Release port: a pulse per class with a 4-bit data count, header count 1 per pulse (Q9) | One request leaves per class per cycle; the widths cover the largest TLP the `dll` delivers. #303 owns the `link` side. | A count per field per cycle (wider, no user). |
 | Dropped posted requests leave the posted queue in order | One in-order posted queue; a non-posted request counts the posted ones before it with no exceptions. | Releasing them at once (a second path past the queue). |
+| Transmit: separate posted and non-posted lines (firstmate decision) | Posted requests must be able to pass non-posted ones that wait for credits, or a host that holds non-posted credits until it sees a posted write deadlocks [cite: PCIe Base Spec, rev 3.0, §2.4.1]; each line keeps its own order. | One queue in the order taken (an `rq` write blocked behind a credit-blocked read). |
 | Two non-posted lines | Configuration and BAR2 never wait on the application (`core` HAS); BAR0 reads keep their own order. | One line with a bypass (more state to order). |
 | Fewest completions per read | 128-byte completions end on 64-byte boundaries anyway; splitting at every boundary would double the headers. | A split at every 64 bytes. |
 | Completion timeout 2^21 cycles, 16 prescaler steps | 16.8 to 17.8 ms: in the 50 µs to 50 ms default range and above the 10 ms recommendation; one shared prescaler, a 5-bit count per tag. | A per-tag 21-bit counter; a programmable range (no M3 user). |
@@ -225,7 +226,6 @@ design's reading.
 | --- | --- |
 | Every cited section, checked against rev 3.0; in particular which receive checks the spec requires and which it only permits (byte enables, configuration and I/O TC and Attr), the message outcomes (Ignored messages dropped; OBFF, LTR and INTx received as Unsupported Request; PM_Active_State_Nak dropped), CRS and a successful completion without data as malformed, the locked completion for a refused locked read, Byte Count 4 for Unsupported Request completions of atomic operations, and AT not 0 as Unsupported Request. | Captain, with a local copy; [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
 | The credit-release port: names, widths and timing follow this page until #303 specifies the `dll` and `link` side; `tl` follows #303 if they differ. | [#303](https://github.com/amichai-bd/pcie-factory/issues/303) |
-| `rq` requests go out in the order taken ([APP](../core/APP.md#requester-requests)), so an `rq` write waits behind an earlier `rq` read whose non-posted credits the host withholds, where the spec requires that posted requests be able to pass non-posted ones. It deadlocks only with a host that withholds non-posted credits until it receives a posted write. | Captain; [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
 | A received TLP with a digest (TD 1) is dropped as malformed by the `dll`'s length check, where a receiver without ECRC checking should ignore the digest. Hosts send one only with ECRC generation enabled, which needs AER. | Captain; [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
 | Set_Slot_Power_Limit: an upstream port captures its value into the Device Capabilities slot power fields; the tl-cfg interface has no net for it, so `cfg` reads them as 0. | [#285](https://github.com/amichai-bd/pcie-factory/issues/285), [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
 | Throughput targets from the `link` closed form; the `core` model confirms them. | [#287](https://github.com/amichai-bd/pcie-factory/issues/287) |

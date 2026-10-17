@@ -443,6 +443,42 @@ def test_completion_passes_a_credit_blocked_read():
     assert [m.parse(t)["type"] for t in wire.sent] == [m.T_CPL]
 
 
+def test_posted_write_passes_a_credit_blocked_read():
+    """A posted request may pass a non-posted one waiting for credits;
+    reads keep their order among themselves."""
+    tl, app, wire = make_tl()
+    wire.credits = {(m.NP, 0): 0}
+    rq_read(app, 0)
+    app.rq.append({"write": True, "addr": 0x5000, "len": 1, "fbe": 0xF, "lbe": 0, "data": [7]})
+    rq_read(app, 1)
+    run(tl, app, wire, 40)
+    assert [(m.parse(t)["fmt"] & 2, m.parse(t)["addr"]) for t in wire.sent] == [(2, 0x5000)]
+    wire.credits = {}
+    run(tl, app, wire, 40, 40)
+    assert [m.parse(t)["tag"] for t in wire.sent[1:]] == [0, 1]
+
+
+def test_read_never_passes_an_earlier_write():
+    tl, app, wire = make_tl()
+    wire.credits = {(m.P, 0): 0}
+    app.rq.append({"write": True, "addr": 0x5000, "len": 1, "fbe": 0xF, "lbe": 0, "data": [7]})
+    rq_read(app, 0)
+    run(tl, app, wire, 30)
+    assert not wire.sent
+    wire.credits = {}
+    run(tl, app, wire, 30, 30)
+    assert [m.parse(t)["fmt"] & 2 for t in wire.sent] == [2, 0]
+
+
+def test_interrupt_write_follows_earlier_rq_writes():
+    tl, app, wire = make_tl()
+    app.rq.append({"write": True, "addr": 0x5000, "len": 1, "fbe": 0xF, "lbe": 0, "data": [7]})
+    run(tl, app, wire, 3)
+    assert tl.message(0, 0xFEE0_0000, 1)
+    run(tl, app, wire, 30, 3)
+    assert [m.parse(t)["addr"] for t in wire.sent] == [0x5000, 0xFEE0_0000]
+
+
 def test_interrupt_and_error_messages():
     tl, app, wire = make_tl()
     assert tl.message(0, 0xFEE0_0000, 0x41)
@@ -471,7 +507,7 @@ def test_reset_drops_everything():
     tl.receive(mrd(0x8000_0000), 0)
     run(tl, app, wire, 10)
     tl.reset()
-    assert not tl.track.reads and not tl.handles and not tl.reqq and tl.occ == [0, 0, 0, 0]
+    assert not tl.track.reads and not tl.handles and not tl.reqp and not tl.reqnp and tl.occ == [0, 0, 0, 0]
 
 
 def test_queue_never_exceeds_advertised_credits():

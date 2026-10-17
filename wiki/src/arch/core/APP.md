@@ -107,8 +107,10 @@ Memory reads and writes the application issues as bus master. A write is
   request then [cite: PCIe Base Spec, rev 3.0, §7.5.1.1]
   [cite: PCIe Base Spec, rev 3.0, §5.3.1.4]. An offered
   request then waits.
-- `tl` sends requests in the order taken; posted writes keep that order
-  with the interrupt writes `cfg` asks for ([ordering](TL_CFG.md#messages)).
+- `tl` keeps the order taken within posted writes, with the interrupt
+  writes `cfg` asks for among them ([ordering](TL_CFG.md#messages)), and
+  within reads; a posted write may pass a read that waits for credits
+  [cite: PCIe Base Spec, rev 3.0, §2.4.1] ([decisions](HAS.md#decisions)).
 
 ## Requester completions
 

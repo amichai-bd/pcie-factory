@@ -92,7 +92,8 @@ Byte Count 4 and Lower Address 0 [cite: PCIe Base Spec, rev 3.0, §2.2.9].
 ## Requester requests
 
 `tl` takes a request on `rq` only on a `sop` beat with `bus_master_en`
-1, `d_state` D0 and room in its transmit request queue
+1, `d_state` D0 and room in its transmit posted line (a write) or
+non-posted line (a read)
 ([APP requester requests](../core/APP.md#requester-requests)). It forms a
 memory read or write with this function's Requester ID, TC 0, Attr 0, a
 3-DW header when `rq_addr_i[63:32]` is 0 and a 4-DW header otherwise, the

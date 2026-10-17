@@ -94,7 +94,7 @@ By Message Code; the routing subfield is not checked
 | --- | --- | --- |
 | Unlock | `0x00` | Dropped: an Endpoint with no locked access ignores it [cite: PCIe Base Spec, rev 3.0, §2.2.8.4]. |
 | PM_Active_State_Nak | `0x14` | Dropped: `tl` never requests a link power state, so there is nothing to refuse [cite: PCIe Base Spec, rev 3.0, §2.2.8.2]. |
-| PME_Turn_Off | `0x19` | Answered with PME_TO_Ack (`0x1B`, routed gathered to the Root Complex) from the transmit request queue, in any D-state; nothing else changes. `link` stays in L0 ([`link` power states](../link/HAS.md#power-states)) [cite: PCIe Base Spec, rev 3.0, §2.2.8.2] [cite: PCIe Base Spec, rev 3.0, §5.3.3.2.1]. |
+| PME_Turn_Off | `0x19` | Answered with PME_TO_Ack (`0x1B`, routed gathered to the Root Complex) from the transmit posted line, in any D-state; nothing else changes. `link` stays in L0 ([`link` power states](../link/HAS.md#power-states)) [cite: PCIe Base Spec, rev 3.0, §2.2.8.2] [cite: PCIe Base Spec, rev 3.0, §5.3.3.2.1]. |
 | Set_Slot_Power_Limit | `0x50` | Dropped; its value is not captured ([open questions](HAS.md#open-questions)) [cite: PCIe Base Spec, rev 3.0, §2.2.8.5]. |
 | Vendor_Defined Type 1 | `0x7F` | Dropped [cite: PCIe Base Spec, rev 3.0, §2.2.8.6]. |
 | Ignored messages (former hot-plug indicator and button messages) | `0x40`, `0x41`, `0x43`, `0x44`, `0x45`, `0x47`, `0x48` | Dropped [cite: PCIe Base Spec, rev 3.0, §2.2.8.7]. |
