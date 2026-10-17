@@ -144,13 +144,18 @@ All entries run on `pcie_link_e2e_tb`; credits are the default
 | Feature | Owning issue |
 | --- | --- |
 | [Throughput targets](../../arch/link/HAS.md#throughput) end to end | [#216](https://github.com/amichai-bd/pcie-factory/issues/216) |
+| The `link` wiring of `pkt_rx_err`: a packet the `phy` flags with its bytes intact (a running-disparity-only error) is undetected by the current injector, so a tie-off of `pkt_rx_err` in `pcie_link` survives every entry (it is caught inside the `dll` by `crc16_kat`) | [#302](https://github.com/amichai-bd/pcie-factory/issues/302) |
 | The `ltssm_state_o` to `pkt_tx_valid` path on the FPGA and ASIC timing reports ([MAS timing](../../rtl/link/MAS.md#timing)) | [#218](https://github.com/amichai-bd/pcie-factory/issues/218), [#219](https://github.com/amichai-bd/pcie-factory/issues/219) |
 
 ## Coverage holes
 
-The two gaps above add no stimulus to this bench's code coverage (a
-throughput measurement and the implementation timing reports), so the
-floors apply. Floors in [`level2.yaml`](../../../../src/dv/link/regress/level2.yaml),
+The floors are set before the gaps above close, by plan
+([firstmate decision on #217](https://github.com/amichai-bd/pcie-factory/issues/217#issuecomment-6241327256)). #216 adds default-configuration
+entries to this bench: they reuse an existing parameter set, so they can
+only raise line and toggle, and the link floors are re-measured over levels
+0 to 2 when it lands. #302 adds an injector class, and #218 and #219 add
+timing reports, not simulation. A future entry with a new parameter set
+(a new `CREDITS` value) re-measures the floors in the same PR. Floors in [`level2.yaml`](../../../../src/dv/link/regress/level2.yaml),
 checked by every `--coverage` run that selects level 2 (the nightly runs
 levels 0 to 2): line 90.2, toggle 79.5, functional 100. Merged over levels
 0 to 2 ([#217](https://github.com/amichai-bd/pcie-factory/issues/217)),
@@ -183,3 +188,15 @@ The 6129 toggle points not hit, by cause:
 | `link` ports | 204 | `dl_err_o` (never pulses, as checked), the upper bits of `fc_*_avail_o` (at most the advertisement), `pkt_rx_nullify` (never set), and inputs the bench holds constant at an end: `port_role_i`, `retrain_req_i`, `ser_tx_rxdet_i`, and the control requests in the copies that never get them. |
 | `mac` and `pcs`: power states tied off | 394 | The L0s, L1 and L2 logic: FTS counts and requests, `pm_state`, PM waits, electrical-idle ordered sets for power entry, power-down and the receive and transmit sub-states. |
 | `mac` and `pcs`: not reached by two compliant ends, or constant by design | 1058 | Compliance, polarity inversion (the channel never inverts), link and lane numbers other than 0 and N_FTS other than the default (both ends use them), TS control bits, Disable Scrambling, the Configuration and Recovery error-exit run counters and mismatch counts, the LTSSM timer's top bits, the frame's second receive-queue slot and its nullify path, the elastic buffer's fill extremes and the decoder's error classes. Each is covered by the [`mac`](../mac/DV_PLAN.md#coverage-holes), [`pcs`](../pcs/DV_PLAN.md#coverage-holes) or [`phy`](../phy/DV_PLAN.md#coverage-holes) plan, or listed there as a hole with its reason. |
+
+How the toggle points were sorted, so a re-measurement reproduces the
+counts: a point is "hit in another parameter set or at the other end" when
+the same file, hierarchy (with `u_a`, `u_b` and `u_*` taken as one), signal
+bit and direction is hit in any copy. The rest go by file and signal name:
+`dll` files by the rules of the [`dll` plan](../dll/DV_PLAN.md#coverage-holes)
+(unmatched `dll` signals form the "does not produce" row), `pcie_link.sv`
+to the ports row, and `mac` and `pcs` signals whose names contain `fts`,
+`pm`, `l0s`, `rx_sub`, `tx_sub`, `power_down`, `pd`, `in_power`, `pwr_`,
+`l0_to`, `l0_blocked`, `idle_sent`, `eios`, `tx_mode`, `l0_exit`,
+`rx_moved`, `rx_age`, `pend`, `ei_cycles` or `q_old` to the power row, the
+others to the last row.

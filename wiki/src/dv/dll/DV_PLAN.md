@@ -361,7 +361,7 @@ that is too small is caught (the last row above).
 | [Targets](../../arch/dll/HAS.md#targets) end to end: line use, through the `link` stack | [#216](https://github.com/amichai-bd/pcie-factory/issues/216); Lossless with errors both ways, Rollover and Credits run in the [`link` e2e](../link/DV_PLAN.md) ([#215](https://github.com/amichai-bd/pcie-factory/issues/215)) |
 
 The remaining gap is a stack-level measurement in the `link` bench that
-adds no `dll` logic or stimulus here, so the floors below apply. An Ack or
+adds no `dll` logic or stimulus here, so the floors below apply ([firstmate decision on #217](https://github.com/amichai-bd/pcie-factory/issues/217#issuecomment-6241327256): floors may be set before #216 lands, by plan). An Ack or
 Nak waiting behind a TLP (the 118-cycle bound with both directions loaded)
 runs here in `tlp_bidir` and at each `dll`-to-`phy` boundary of the
 [`link` e2e](../link/DV_PLAN.md#strategy).
@@ -407,4 +407,18 @@ The 3280 toggle points not hit, by cause:
 | Not reached: counter top bits | 137 | The top bits of the NP and Cpl credit counters and recorded limits in `u_fc` (`alloc`, `rcvd`, `sent`, `upd`, `used`, `lim_np`, `lim_cpl`) and bit 7 of the completion header in use: only the P class wraps its counters (`fc_tx_gate`), and the NP data counter grows by one credit per CfgWr, so a wrap would take over 2048 non-posted writes in one link-up. The wrap arithmetic is shared by every class (`fc_charge`, `fc_record`), and the P wrap checks it. |
 | Constant by construction: transmit block | 18 | In `u_tlp_tx`: bit 0 of the space-in-use sums (`need_bytes`, `used_bytes`: whole words plus 2 bytes per TLP), bits 1:0 of a TLP's size (`sop_bytes`: whole DWs), bits 7:4 of the sequence-number beat (reserved, 0) and bit 13 of the space in use, which stays below 8192. |
 | Constant by construction: RAM lanes | 4 | `wr_lanes_i` of each `common_sdp_ram` (tied to 1). |
-| Not reached: hold release | 2 | `u_tlp_tx` `hold_left` never falls: only a second rollover or DL_Inactive clears it after a hold that a retrain ended, and no test rolls over twice in one link-up; its rise and the hold's end are checked in `rollover_directed`. |
+| Not reached: hold release | 2 | `u_tlp_tx` `hold_left` never falls: only a second rollover or DL_Inactive clears it after a hold that a retrain ended, and no test rolls over twice in one link-up; its rise and the hold's end are checked in `rollover_directed`. Cost: a second rollover there, about 2500 more cycles (four replay timeouts and the hold) for a flag whose clearing line is already hit at DL_Inactive; not worth an L0 entry, so no owning issue. |
+
+How the toggle points were sorted, so a re-measurement reproduces the
+counts: a point is "hit in another parameter set" when the same file,
+hierarchy, signal bit and direction is hit in any copy. The rest go by
+signal name, in this order: `adv_i`, `rx_base`, `grp_base` and the
+`initfc_req` bodies (constant per build); the `acknak_req` and `updfc_req`
+bodies and `u_tx` `body` and `tx_q.pkt` (DLLP format); the `.cred` fields
+of `rx_chk`, `rx_stored`, `rx_malformed`, `rx_taken`, `chk_o`, `stored_o`,
+`malformed_o`, `cur_q`, `taken_o` and `tx_cost`, header bits 7:1, data bits
+11:9, header bit 0 falling and the `valid` flags (one TLP's credits), data
+bits 8:4 and `hdr.len` bit 9 (large credits); `rx_full`, `full_o`,
+`buf_full_i`, `noroom` and the fill's top bits (buffer full); the `u_fc`
+`alloc`, `rcvd`, `sent`, `upd`, `used` and `lim_*` fields (counter top
+bits); then the named transmit-block bits, `wr_lanes_i` and `hold_left`.
