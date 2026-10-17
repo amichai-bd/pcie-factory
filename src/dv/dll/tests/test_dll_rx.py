@@ -73,7 +73,10 @@ async def drain(env: Env, extra: int = 60) -> None:
 
 
 def first_acknak_after(env: Env, cycle: int, kind: str | None = None) -> int:
-    return next(s for s, _, k, _ in env.acknaks if s > cycle and (kind is None or k == kind))
+    got = next((s for s, _, k, _ in env.acknaks if s > cycle and (kind is None or k == kind)),
+               None)
+    assert got is not None, f"no {kind or 'Ack or Nak'} sent after cycle {cycle}"
+    return got
 
 
 @cocotb.test()

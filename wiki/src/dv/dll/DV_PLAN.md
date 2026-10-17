@@ -166,6 +166,33 @@ first that fails in that run, at its first seed.
 | Transmit | Beats advance without ready | `crc16_kat` | A beat outside a packet at the phy stand-in. |
 | Transmit | A started DLLP cut when the link goes down | `link_down_mid_dllp` | Stops on `a_eop_follows_sop`: valid falls inside the open packet. |
 | Transmit | A `sop` taken at the edge that samples `link_up_i` 0 not counted as started (`started` from `tx_q` only) | `link_down_mid_dllp` | Stops on `a_eop_follows_sop`: the packet opened at the phy is abandoned. |
+| Package | LCRC polynomial `04C11DB7`h to `04C11DB6`h | `rx_directed` | DL_Active not reached: the TLP that should end FC_INIT2 has a bad LCRC. |
+| Package | LCRC remainder not complemented | `rx_directed` | The same. |
+| TLP receive | The nullified check inverted (an inverted LCRC is bad, a plain one silent) | `rx_errors` | Bad TLP pulses 196, expected 188 (seed 0). |
+| TLP receive | D = 2047 taken as a duplicate | `rx_directed` | Bad TLP pulses 9, expected 10. |
+| TLP receive | A Nak for every bad TLP (NAK_SCHEDULED ignored) | `rx_directed` | 10 Naks sent, expected 6. |
+| TLP receive | NAK_SCHEDULED not cleared by an accepted TLP | `rx_directed` | No Nak after the next bad TLP. |
+| Package | Ack timer limit 32 to 16 cycles | `rx_directed` | Ack 19 cycles after the eop, expected 35. |
+| TLP receive | No Ack at once after a duplicate | `rx_directed` | No Ack or Nak after the duplicate. |
+| Package | A payload above 128 bytes not malformed | `rx_directed` | Malformed TLP pulses 7, expected 8. |
+| Package | A length that is not whole DWs not malformed | `rx_directed` | Malformed TLP pulses 7, expected 8. |
+| TLP receive | Ack and Nak carry NEXT_RCV_SEQ, not NEXT_RCV_SEQ − 1 | `rx_directed` | Nak 1, expected 0. |
+| TLP receive | A discarded TLP not rewound out of the buffer | `rx_directed` | The bad TLP's DWs delivered before the TLP that ended FC_INIT2. |
+| Receive buffer | Read up to the write pointer, not the commit pointer | `rx_directed` | A TLP delivered in FC_INIT1. |
+| Receive buffer | A beat dropped when the upper layer stalls | `rx_stall` | Not every TLP delivered within 200000 cycles (seed 0). |
+| TLP receive | Link down does not clear NEXT_RCV_SEQ | `rx_directed` | After the next link-up, sequence 0 is a duplicate: no delivery. |
+| Top | A good TLP does not end FC_INIT2 | `rx_directed` | DL_Active not reached. |
+| TLP receive | An ahead TLP pulses no Bad TLP | `rx_directed` | Bad TLP pulses 8, expected 10. |
+| TLP receive | Ack and Nak sent outside DL_Active | `rx_directed` | A Nak sent in FC_INIT2. |
+| TLP receive | Sending an Ack does not stop the Ack timer | `rx_directed` | Ack 9 cycles after the eop, expected 35. |
+| TLP receive | A malformed TLP not acknowledged | `rx_directed` | 17 TLPs delivered, 19 expected. |
+| TLP receive | A TLP one ahead taken as expected | `rx_directed` | 5 Naks sent, expected 6. |
+| Receive buffer | Commit drops a stored TLP's last DW | `rx_directed` | The TLP that ended FC_INIT2 not delivered. |
+| TLP receive | The two received LCRC beats swapped | `rx_directed` | DL_Active not reached. |
+| TLP receive | Sequence number bytes swapped | `rx_directed` | Ack 3 cycles after the eop, expected 35. |
+| TLP receive | Every accepted TLP restarts the Ack timer | `rx_traffic` | An Ack 154 cycles after its TLP's eop, HAS bound 118 (seed 0). |
+| TLP receive | The last DW not marked eop | `rx_directed` | The TLP that ended FC_INIT2 not delivered. |
+| TLP receive | A 4-byte packet not too short | `rx_directed` | Bad TLP pulses 9, expected 10: four zero bytes pass as the LCRC of nothing. |
 
 An UpdateFC that writes an infinite field's stored limit is not a mutant
 that can be caught: an infinite field shows all ones from its flag,
