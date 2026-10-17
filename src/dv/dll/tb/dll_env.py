@@ -23,7 +23,15 @@ One cycle, at the falling edge of clk_i after rising edge n:
 5. Every DLLP the DUT sends is checked as it ends (``_tx_packet``): 6
    bytes, its CRC-16 equal to both the architecture model's and the
    partner's, its type allowed in the DUT's state, its values the DUT's
-   parameters, and its bytes equal to what both models encode.
+   parameters, and its bytes equal to what both models encode; an Ack or
+   Nak carries the sequence number the receive reference expects.
+6. The **receive reference** (``RxRef``) judges every TLP packet the DUT
+   receives by the HAS receive rules, with the partner's CRC and header
+   helpers: the TLPs the upper stream must deliver, the Bad TLP and
+   Malformed TLP pulses, NEXT_RCV_SEQ and each NAK_SCHEDULED setting. The
+   **upper layer** takes received beats (``tlp_rx_ready_i``, stalling with
+   ``rx_ready_p`` below 1 only when every class is finite) and checks
+   each delivered TLP against the reference.
 """
 
 from __future__ import annotations
@@ -53,12 +61,17 @@ STATE_NAMES = ("DL_Inactive", "FC_INIT1", "FC_INIT2", "DL_Active")
 PARTNER_STATE = {ptn.INACTIVE: INACTIVE, ptn.FC_INIT1: INIT1, ptn.FC_INIT2: INIT2,
                  ptn.ACTIVE: ACTIVE}
 CLASSES = ("P", "NP", "Cpl")        # the partner's names; arch index 0, 1, 2
-ERR_BAD_DLLP = 1 << 1               # err_o bit 1 (HAS, errors)
+ERR_BAD_TLP = 1 << 0                # err_o bit 0 (HAS, errors)
+ERR_BAD_DLLP = 1 << 1               # err_o bit 1
+ERR_MALFORMED = 1 << 6              # err_o bit 6
+ERR_ALLOWED = ERR_BAD_TLP | ERR_BAD_DLLP | ERR_MALFORMED   # the bits the DUT drives today
 L0_CODE = 0x20                      # an L0 code of ltssm_state_i (mac LTSSM encoding)
+ACK_BOUND = 118                     # HAS targets: an Ack starts within 118 cycles of the eop
+RX_LATENCY = 4                      # HAS targets: eop from phy to upper sop, buffer empty
 
 # DLLP types the DUT may send in each state (DLLP.md, types used): the
-# InitFC of the state's group in DL_Init, UpdateFC in DL_Active. Ack and
-# Nak (#213) are not sent yet.
+# InitFC of the state's group in DL_Init, UpdateFC in DL_Active; Ack and
+# Nak only in DL_Active (checked in _tx_packet).
 TX_KINDS = {INIT1: "init1", INIT2: "init2", ACTIVE: "update"}
 ARCH_KINDS = {"init1": arch.INITFC1, "init2": arch.INITFC2, "update": arch.UPDATEFC}
 
@@ -102,6 +115,126 @@ COV_UPDFC.coverpoint("cls", bins=list(CLASSES))
 COV_UPDFC.cross("cause_x_cls", "cause", "cls")
 
 
+# TLP receive (DV plan, coverage): the outcome of each TLP packet the DUT
+# receives, by the HAS rules (RETRY.md, receiving TLPs).
+COV_TLP_RX = Covergroup("dll_tlp_rx")
+COV_TLP_RX.coverpoint("outcome", bins=["stored", "duplicate", "ahead", "bad_lcrc", "flagged",
+                                       "too_short", "nullified", "edb_bad", "malformed",
+                                       "not_live"])
+COV_TLP_RX.coverpoint("cls", bins=list(CLASSES))
+COV_TLP_RX.coverpoint("gap", bins=["no_gap", "gap_inside"])
+COV_TLP_RX.coverpoint("nak", bins=["scheduled", "already_scheduled"])
+
+COV_MALFORMED = Covergroup("dll_malformed")
+COV_MALFORMED.coverpoint("cause", bins=["not_whole_dw", "short", "length", "payload",
+                                        "no_header"])
+
+COV_ACKNAK = Covergroup("dll_acknak_tx")
+COV_ACKNAK.coverpoint("kind", bins=["ack", "nak"])
+COV_ACKNAK.coverpoint("cause", bins=["timer", "duplicate", "nak"])
+
+COV_RX_STREAM = Covergroup("dll_rx_stream")
+COV_RX_STREAM.coverpoint("beat", bins=["taken", "stalled"])
+COV_RX_STREAM.coverpoint("sop", bins=["back_to_back", "after_idle"])
+
+# TLP header byte 0 (Fmt, Type) to the class names of the partner.
+def tlp_cls(tlp: bytes) -> str:
+    return ptn.has_class(tlp) if len(tlp) >= 4 else "P"
+
+
+class RxRef:
+    """The HAS receive rules for TLPs (RETRY.md, receiving TLPs) applied
+    to every TLP packet the DUT receives, written with the partner's CRC
+    and header helpers only: neither the RTL nor the architecture model.
+    The DUT's overflow check is #214's, so every expected, well-formed TLP
+    is stored here."""
+
+    def __init__(self) -> None:
+        self.expect: list[bytes] = []          # TLPs the upper stream must deliver, in order
+        self.store_cycle: list[int] = []       # eop cycle of each, at the DUT input
+        self.empty_at_store: list[bool] = []   # nothing older waiting when it was stored
+        self.bad = 0                           # Bad TLP pulses due
+        self.malformed = 0                     # Malformed TLP pulses due
+        self.nak_sets = 0                      # NAK_SCHEDULED settings: one Nak each
+        self.dups: list[int] = []              # eop cycle of each duplicate (Ack at once)
+        self.bads: list[int] = []              # eop cycle of each packet that set NAK_SCHEDULED
+        self.accepts: list[tuple[int, int, bool]] = []   # (eop cycle, seq, in DL_Active)
+        self.hist: list[tuple[int, int]] = [(-1, 0)]     # (judging step, NEXT_RCV_SEQ after)
+        self.nrs = 0
+        self.nak_sched = False
+
+    def reset(self, step: int, delivered: int) -> None:
+        """DL_Inactive: the receiver state clears, and stored TLPs not yet
+        delivered are dropped (HAS, control states)."""
+        if self.nrs:
+            self.hist.append((step, 0))
+        self.nrs = 0
+        self.nak_sched = False
+        del self.expect[delivered:], self.store_cycle[delivered:]
+        del self.empty_at_store[delivered:]
+        # TLPs accepted before the link went down may never be acknowledged.
+        if any(a[2] for a in self.accepts[-1:]):
+            self.accepts = [(e, q, False) for e, q, _ in self.accepts]
+
+    def judge(self, step: int, eop: int, data: bytes, err: bool, nullify: bool, live: bool,
+              active: bool, delivered: int) -> str:
+        if not live:
+            return "not_live"
+        out = self._judge(eop, data, err, nullify, active, delivered)
+        if out in ("bad_lcrc", "flagged", "too_short", "edb_bad", "ahead"):
+            self.bad += 1
+            COV_TLP_RX.sample(nak="already_scheduled" if self.nak_sched else "scheduled")
+            if not self.nak_sched:
+                self.nak_sched = True
+                self.nak_sets += 1
+                self.bads.append(eop)
+        self.hist.append((step, self.nrs))
+        return out
+
+    def _judge(self, eop: int, data: bytes, err: bool, nullify: bool, active: bool,
+               delivered: int) -> str:
+        if err:
+            return "flagged"
+        if len(data) < 6:
+            return "too_short"
+        crc = ptn_crc.lcrc_bytes(data[:-4])
+        if nullify:
+            return "nullified" if data[-4:] == bytes(x ^ 0xFF for x in crc) else "edb_bad"
+        if data[-4:] != crc:
+            return "bad_lcrc"
+        seq = ((data[0] & 0x0F) << 8) | data[1]
+        tlp = data[2:-4]
+        d = (seq - self.nrs) % 4096
+        if d == 0:
+            if ptn.tlp_malformed(tlp):
+                self.malformed += 1
+                if len(tlp) < 4:
+                    cause = "no_header"
+                elif len(tlp) % 4:
+                    cause = "not_whole_dw"
+                elif len(tlp) < 12:
+                    cause = "short"
+                elif len(tlp) != ptn.tlp_size(tlp):
+                    cause = "length"
+                else:
+                    cause = "payload"
+                COV_MALFORMED.sample(cause=cause)
+                out = "malformed"
+            else:
+                self.empty_at_store.append(delivered == len(self.expect))
+                self.expect.append(tlp)
+                self.store_cycle.append(eop)
+                out = "stored"
+            self.accepts.append((eop, seq, active))
+            self.nrs = (self.nrs + 1) % 4096
+            self.nak_sched = False
+            return out
+        if d < 2048:
+            return "ahead"
+        self.dups.append(eop)
+        return "duplicate"
+
+
 def fc_field(v: int) -> str:
     return "infinite" if v == 0 else "finite"
 
@@ -141,8 +274,22 @@ class Env:
     """The DUT, the phy stand-in, the far end and the shadow."""
 
     def __init__(self, dut, seed: int, *, partner: ptn.Partner | None = None,
-                 ready_p: float = 1.0, gap_p: float = 0.0, delay: int = 22) -> None:
+                 ready_p: float = 1.0, gap_p: float = 0.0, delay: int = 22,
+                 rx_ready_p: float = 1.0) -> None:
         self.dut = dut
+        self.rx_ready_p = rx_ready_p           # upper layer takes a beat (stalls below 1)
+        self.rx_stall_until = 0                # upper layer stalls until this cycle
+        self.ref = RxRef()
+        self.ref_q: deque[tuple[int, int, bytes, bool, bool, bool]] = deque()
+        self.rx_gaps: dict[int, bool] = {}
+        self.up_beats: list[int] = []          # the TLP being delivered upward
+        self.up_sop: list[int] = []            # cycle of each delivered sop
+        self.delivered: list[bytes] = []
+        self.up_last_eop = -10
+        self.acknaks: list[tuple[int, int, str, int]] = []  # (sop cycle, offer cycle, kind, seq)
+        self.bad_tlp_seen = 0
+        self.malformed_seen = 0
+        self.rx_outcomes: list[tuple[int, str]] = []   # (eop cycle, reference outcome)
         self.rng = random.Random(seed)
         self.partner = partner
         self.ready_p = ready_p
@@ -211,10 +358,11 @@ class Env:
                                           "cplh": cplh, "cpld": cpld})
 
     def inject(self, pkt: bytes, *, dllp: bool = True, err: bool = False,
-               gaps: int = 0) -> None:
+               gaps: int = 0, nullify: bool = False) -> None:
         """Queue a raw packet towards the DUT (hand-driven far end), with
-        ``gaps`` idle cycles after each beat but the last."""
-        beats = ptn.to_beats(pkt, dllp)
+        ``gaps`` idle cycles after each beat but the last; ``nullify`` marks
+        its eop as ended by EDB."""
+        beats = ptn.to_beats(pkt, dllp, nullify)
         if err:
             beats[-1] = beats[-1]._replace(err=True)
         for i, b in enumerate(beats):
@@ -233,9 +381,13 @@ class Env:
             self.errs.append((n, err))
             if err & ERR_BAD_DLLP:
                 self.bad_seen += 1
-            if err & ~ERR_BAD_DLLP:
-                self.violations.append(f"cycle {n}: err_o {err:#04x}: only Bad DLLP is "
-                                       f"reported before the TLP paths exist")
+            if err & ERR_BAD_TLP:
+                self.bad_tlp_seen += 1
+            if err & ERR_MALFORMED:
+                self.malformed_seen += 1
+            if err & ~ERR_ALLOWED:
+                self.violations.append(f"cycle {n}: err_o {err:#04x}: a bit the DUT does not "
+                                       f"drive yet (#212, #214)")
         if state != self.state:
             COV_STATES.sample(arc=(self.state, state))
             self.states.append((n, state))
@@ -253,6 +405,22 @@ class Env:
             self.violations.append(f"cycle {n}: pkt_tx_valid_o dropped inside a packet")
         if not valid:
             self.tx_offer = None
+        # The DUT judged last cycle's TLP eops in this cycle's state.
+        while self.ref_q and self.ref_q[0][0] <= n:
+            _, eop, data, err_b, null_b, gap = self.ref_q.popleft()
+            live = state in (INIT2, ACTIVE) and self.dut_link
+            out = self.ref.judge(n, eop, data, err_b, null_b, live, state == ACTIVE,
+                                 len(self.delivered))
+            self.rx_outcomes.append((eop, out))
+            kinds = {"cls": tlp_cls(data[2:-4])} if out == "stored" else {}
+            COV_TLP_RX.sample(outcome=out, gap="gap_inside" if gap else "no_gap", **kinds)
+        if state == INACTIVE:
+            # Everything received is cleared, a TLP being delivered abandoned.
+            if self.up_beats:
+                self.up_beats = []
+                self.up_sop.pop()
+            self.ref.reset(n, len(self.delivered))
+        self._upper(n)
 
         # phy stand-in: transmit ready, the line towards the far end.
         if self.in_pkt:
@@ -363,6 +531,7 @@ class Env:
         self.shadow_rx.append((n + 1, arch.Packet(b.dllp, data, b.err, b.nullify)))
         self.rx_beats = []
         if not b.dllp:
+            self.ref_q.append((n + 1, n, data, b.err, b.nullify, self.rx_gap))
             return
         if len(data) == 6 and arch_crc.crc16(data[:4]) != ptn_crc.crc16_bytes(data[:4]):
             self.violations.append(f"cycle {n}: CRC-16 of {data[:4].hex()}: arch "
@@ -439,6 +608,9 @@ class Env:
                                    f"{arch_crc.crc16(body).hex()}, partner "
                                    f"{ptn_crc.crc16_bytes(body).hex()}")
         kind, cls, vc, hdr, dat = arch.decode_dllp(data)
+        if kind in ("ack", "nak"):
+            self._tx_acknak(where, kind, hdr, st, sop)
+            return
         want = TX_KINDS.get(st)
         if kind != want or vc != 0:
             self.violations.append(f"{where}: kind {kind} VC {vc}, expected {want} VC 0")
@@ -470,7 +642,106 @@ class Env:
         self.sent.append((sop, kind, cls, data))
         self.offers.append(self.tx_sop_offer)
 
+    def _tx_acknak(self, where: str, kind: str, seq: int, st: int, sop: int) -> None:
+        """An Ack or Nak: only in DL_Active, with NEXT_RCV_SEQ - 1 as the
+        reference had it when the arbiter took the request (the cycle
+        before the sop was first offered, from the judgements made up to
+        the cycle before that)."""
+        offer = self.tx_sop_offer
+        if st != ACTIVE:
+            self.violations.append(f"{where}: {kind} outside DL_Active")
+        nrs = [v for j, v in self.ref.hist if j <= offer - 2][-1]
+        if seq != (nrs - 1) % 4096:
+            self.violations.append(f"{where}: {kind} {seq}, expected NEXT_RCV_SEQ - 1 = "
+                                   f"{(nrs - 1) % 4096}")
+        cause = "nak" if kind == "nak" else (
+            "duplicate" if any(offer - 8 <= c <= offer for c in self.ref.dups) else "timer")
+        COV_ACKNAK.sample(kind=kind, cause=cause)
+        self.acknaks.append((sop, offer, kind, seq))
+        self.sent.append((sop, kind, 0, b""))
+        self.offers.append(offer)
+
+    def _upper(self, n: int) -> None:
+        """The upper layer: decide tlp_rx_ready_i for the next edge and
+        take the beat offered now if it is 1."""
+        d = self.dut
+        stall = n < self.rx_stall_until or (self.rx_ready_p < 1.0
+                                            and self.rng.random() >= self.rx_ready_p)
+        if stall and any(v == 0 for c in CLASSES for v in self.adv.get(c, (1, 1))):
+            raise AssertionError("the upper layer may stall only with every class finite "
+                                 "(HAS, receive)")
+        ready = int(not stall)
+        d.tlp_rx_ready_i.value = ready
+        if not int(d.tlp_rx_valid_o.value):
+            return
+        COV_RX_STREAM.sample(beat="taken" if ready else "stalled")
+        if not ready:
+            return
+        data = int(d.tlp_rx_data_o.value)
+        sop, eop = int(d.tlp_rx_sop_o.value), int(d.tlp_rx_eop_o.value)
+        if sop:
+            if self.up_beats:
+                self.violations.append(f"cycle {n}: upper sop inside a TLP")
+            self.up_beats = []
+            self.up_sop.append(n)
+            COV_RX_STREAM.sample(sop="back_to_back" if self.up_last_eop == n - 1
+                                 else "after_idle")
+        elif not self.up_beats:
+            self.violations.append(f"cycle {n}: upper beat outside a TLP")
+            return
+        self.up_beats.append(data)
+        if eop:
+            self.up_last_eop = n
+            tlp = b"".join(x.to_bytes(4, "little") for x in self.up_beats)
+            self.up_beats = []
+            i = len(self.delivered)
+            self.delivered.append(tlp)
+            if i >= len(self.ref.expect):
+                self.violations.append(f"cycle {n}: TLP {tlp[:8].hex()} delivered, none expected")
+            elif tlp != self.ref.expect[i]:
+                self.violations.append(f"cycle {n}: TLP {i} delivered {tlp[:16].hex()}..., "
+                                       f"expected {self.ref.expect[i][:16].hex()}...")
+
     # ------------------------------------------------------------ checks
+
+    def check_rx(self, *, ack_bound: int | None = None) -> dict[str, int]:
+        """After a drain: every expected TLP delivered and nothing else, the
+        Bad TLP and Malformed TLP pulses and the Naks as the reference
+        counts them, every TLP accepted in DL_Active covered by an Ack or
+        Nak within ``ack_bound`` cycles of its eop (when given), and the
+        receive latency of a TLP stored into an empty buffer within the
+        HAS's 4 cycles when the upper layer never stalls. Returns the worst
+        latencies."""
+        ref = self.ref
+        assert len(self.delivered) == len(ref.expect), (
+            f"{len(self.delivered)} TLPs delivered, {len(ref.expect)} expected")
+        assert self.bad_tlp_seen == ref.bad, (
+            f"Bad TLP pulses {self.bad_tlp_seen}, expected {ref.bad}")
+        assert self.malformed_seen == ref.malformed, (
+            f"Malformed TLP pulses {self.malformed_seen}, expected {ref.malformed}")
+        naks = sum(1 for a in self.acknaks if a[2] == "nak")
+        assert naks == ref.nak_sets, f"{naks} Naks sent, expected {ref.nak_sets}"
+        worst_ack = 0
+        for eop, seq, active in ref.accepts:
+            if not active:
+                continue
+            cover = next((s for s, _, _, q in self.acknaks
+                          if s > eop and (q - seq) % 4096 < 2048), None)
+            assert cover is not None, f"TLP {seq} (eop cycle {eop}) never acknowledged"
+            worst_ack = max(worst_ack, cover - eop)
+        if ack_bound is not None:
+            assert worst_ack <= ack_bound, (
+                f"an Ack started {worst_ack} cycles after its TLP's eop, HAS bound {ack_bound}")
+        worst_rx = 0
+        never_stalls = self.rx_ready_p == 1.0 and self.rx_stall_until == 0
+        for i, (eop, empty) in enumerate(zip(ref.store_cycle, ref.empty_at_store)):
+            if empty and never_stalls:
+                worst_rx = max(worst_rx, self.up_sop[i] - eop)
+        assert worst_rx <= RX_LATENCY, (
+            f"a TLP reached the upper stream {worst_rx} cycles after its eop, HAS bound "
+            f"{RX_LATENCY}")
+        return {"ack": worst_ack, "rx": worst_rx}
+
 
     def dut_avail(self) -> dict[str, tuple[int, int]]:
         d = self.dut
@@ -504,6 +775,27 @@ class Env:
                                    f"cycle {cb}, more than {bound} apart")
             worst = max(worst, diff)
         return worst
+
+    def check_shadow_rx(self) -> None:
+        """The architecture-model shadow, given the same packets, delivers
+        the same TLPs and counts the same Bad TLP, Malformed TLP and Nak
+        events (HAS open items get any disagreement)."""
+        sh, ref = self.shadow, self.ref
+        diff = next((i for i, (x, y) in enumerate(zip(sh.delivered, self.delivered)) if x != y),
+                    min(len(sh.delivered), len(self.delivered)))
+        assert sh.delivered == self.delivered, (
+            f"shadow (arch) delivered {len(sh.delivered)} TLPs, DUT {len(self.delivered)}; "
+            f"first difference at TLP {diff}")
+        assert sh.errors[arch.E_BAD_TLP] == ref.bad, (
+            f"shadow (arch) Bad TLP {sh.errors[arch.E_BAD_TLP]}, reference {ref.bad}")
+        assert sh.errors[arch.E_MALFORMED] == ref.malformed, (
+            f"shadow (arch) Malformed TLP {sh.errors[arch.E_MALFORMED]}, reference "
+            f"{ref.malformed}")
+        assert sh.errors[arch.E_OVERFLOW] == 0, "shadow (arch) reports a receiver overflow"
+        assert sh.counts["naks"] == ref.nak_sets, (
+            f"shadow (arch) sent {sh.counts['naks']} Naks, reference {ref.nak_sets}")
+        assert sh.counts["duplicates"] == len(ref.dups), (
+            f"shadow (arch) duplicates {sh.counts['duplicates']}, reference {len(ref.dups)}")
 
     def check_clean(self) -> None:
         assert not self.violations, "DUT violations:\n" + "\n".join(self.violations[:20])
@@ -574,3 +866,33 @@ def arch_partner_init(adv: dict[str, tuple[int, int]], partner: ptn.Partner, *,
         if a.dll.state == arch.ACTIVE and partner.state == ptn.ACTIVE:
             return n, a.dll
     raise AssertionError(f"arch model and partner not both in DL_Active within {limit} cycles")
+
+
+def arch_partner_traffic(adv: dict[str, tuple[int, int]], errors: dict[str, float], seed: int,
+                         tlps: list[bytes], *, delay: int = 22, limit: int = 400000) -> int:
+    """The architecture model (credits ``adv``) receiving ``tlps`` from a
+    fresh partner with the same error injection: every TLP delivered once
+    and in order, all acknowledged, no partner violation. Returns the
+    cycles it took."""
+    fc = {"ph": adv["P"][0], "pd": adv["P"][1], "nph": adv["NP"][0], "npd": adv["NP"][1],
+          "cplh": adv["Cpl"][0], "cpld": adv["Cpl"][1]}
+    a = ArchEnd(arch.Dll("arch", fc))
+    partner = ptn.Partner("fresh", inject=ptn.Inject(**errors), seed=seed)
+    ab, ba = ptn.Line(delay), ptn.Line(delay)
+    a.link_up = partner.link_up = True
+    to_a = to_p = None
+    sent = False
+    for n in range(limit):
+        out_a = a.clock(to_a)
+        out_p = partner.clock(to_p)
+        to_p, to_a = ab.push(out_a), ba.push(out_p)
+        if not sent and a.dll.state == arch.ACTIVE and partner.state == ptn.ACTIVE:
+            for t in tlps:
+                partner.send(t)
+            sent = True
+        if sent and len(a.dll.delivered) >= len(tlps) and not partner.rbuf \
+                and not partner.tx_queue:
+            assert a.dll.delivered == tlps, "arch model: TLPs not delivered once and in order"
+            assert not partner.violations, "\n".join(partner.violations[:10])
+            return n
+    raise AssertionError(f"arch model and partner: not all delivered within {limit} cycles")

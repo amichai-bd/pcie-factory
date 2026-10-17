@@ -20,7 +20,18 @@
     link is down, as a `phy` would;
   - the **shadow**, the [architecture model](../../arch/dll/HAS.md#architecture-model)
     `Dll` with the DUT's parameters, given the same link state and the
-    same received packets. It sends into nothing and is never steered.
+    same received packets. It sends into nothing and is never steered;
+  - the **receive reference** (`RxRef`), the [receive rules](../../arch/dll/RETRY.md#receiving-tlps)
+    written with the partner's CRC and header helpers (neither the RTL nor
+    the architecture model), judging every TLP packet the DUT receives in
+    the DUT's state of the verdict cycle: the TLPs the upper stream must
+    deliver, the Bad TLP and Malformed TLP pulses due, NEXT_RCV_SEQ and
+    every NAK_SCHEDULED setting. Until #214 every expected, well-formed
+    TLP is stored;
+  - the **upper layer** on `tlp_rx_*`: takes beats, stalling at random
+    (`rx_ready_p`) or for a set time only when every class is finite (the
+    [obligation](../../arch/dll/HAS.md#receive)), and checks each
+    delivered TLP against the reference.
 - **Checks on every run:** each DLLP the DUT sends is 6 bytes with the
   CRC-16 that both the architecture model and the partner compute, has a
   type allowed in the DUT's state at its `sop` (InitFC1 in FC_INIT1,
@@ -33,7 +44,12 @@
   except the tail of a DLLP started before the link went down;
   `pkt_tx_valid_o` never drops inside a packet and no `sop` comes inside
   one, link up or down.
-  With the partner, its `violations` list stays empty.
+  With the partner, its `violations` list stays empty. Every Ack and Nak
+  is sent only in DL_Active and carries NEXT_RCV_SEQ − 1 as the reference
+  had it when the arbiter took it; every TLP delivered upward is the next
+  one the reference stored, `sop` to `eop`; the Bad TLP and Malformed TLP
+  pulses, and one Nak per NAK_SCHEDULED setting, match the reference
+  (`check_rx`).
 - **Port roles:** the `dll` is role neutral
   ([HAS, parameters](../../arch/dll/HAS.md#parameters)); a role shows only
   as the credits it advertises. Link-up is run with the DUT advertising
@@ -48,6 +64,13 @@
   (and the upper bound of `FC_PD` and `FC_NPD`), which must stop
   elaboration with its `COMMON_ASSERT_PARAM` message, and for the legal
   boundaries, which must lint clean.
+- **Never-stall assertion:** `a_rx_never_stall` (the upper layer holds
+  `tlp_rx_ready_i` at 1 while `dl_up_o` is 1 when a class is infinite)
+  holds in every run, since the upper layer stalls only with every class
+  finite. Its negative check, default credits and `tlp_rx_ready_i` 0 in
+  DL_Active, stops the simulation on the assertion; a regression entry
+  cannot expect a fatal stop, so it is a one-off run recorded in the
+  [#213](https://github.com/amichai-bd/pcie-factory/issues/213) PR.
 - **Partner model:** its pytest unit tests run in `./build ci unit`, not
   as a regression entry ([partner page](PARTNER.md#unit-tests)).
 - **Functional coverage** (sampled where driven or observed):
@@ -58,24 +81,38 @@
   `dll_fc_init` (what ended FC_INIT2; finite and infinite fields on both
   sides; which side came up first), `dll_updatefc_tx` (entry and refresh
   per class), `dll_tx_tail` (a DLLP finished with one, two or three beats
-  taken at or after the edge that sampled the link down), `dll_reset` (reset and link-up, crossed).
+  taken at or after the edge that sampled the link down), `dll_reset` (reset and link-up, crossed),
+  `dll_tlp_rx` (each receive outcome: stored, duplicate, ahead, bad LCRC,
+  flagged, too short, nullified, EDB without the inverse, malformed,
+  outside FC_INIT2 and DL_Active; class of each stored TLP; gaps inside;
+  a Nak scheduled or already scheduled), `dll_malformed` (not whole DWs,
+  shorter than a header, Length disagreeing, payload above 128 bytes, no
+  header), `dll_acknak_tx` (Ack and Nak; Ack by the timer or after a
+  duplicate), `dll_rx_stream` (a beat taken or stalled; a `sop` back to
+  back or after idle).
 
 ## Cross-check: RTL, architecture model, partner
 
-Run in the `link_up` entries for the features `dll` has today (DLLPs,
-InitFC, control states):
+Run in the `link_up` entries for DLLPs, InitFC and the control states, and
+in the `rx_*` entries for the TLP receive path:
 
 | Pair | Compared |
 | --- | --- |
 | RTL and partner | The partner as the far end and judge: both reach DL_Active, each records the other's advertisement, no partner violation. |
 | RTL and architecture model | DLLP bytes and CRC-16 (every DLLP sent); the sequence of control states visited by the DUT and the shadow, each change within 200 cycles of the other; credits available equal to the shadow's. |
 | Architecture model and partner | A run of the model against a fresh partner with the same skew and credits (`ArchEnd` puts the model on the partner's beat stream): both reach DL_Active, each records the other's advertisement, no partner violation, and the time to DL_Active within 200 cycles of the RTL's. CRC-16 of every received DLLP and of the known answers computed by both. |
+| RTL, reference and partner (receive) | The partner sends TLPs with its fault hooks; the DUT delivers exactly the partner's TLPs, once and in order; the partner sees no violation (every Ack and Nak in range) and its replay buffer drains (every TLP acknowledged); the RTL's pulses and Naks equal the reference's. |
+| RTL and architecture model (receive) | The shadow, given the same packets, delivers the same TLPs and counts the same Bad TLP, Malformed TLP, Nak and duplicate events, and no overflow (`check_shadow_rx`). |
+| Architecture model and partner (receive) | The model receives the same TLPs from a fresh partner with the same injection (`arch_partner_traffic`): all delivered once and in order, all acknowledged, no partner violation. |
 
 The two models step at packet level with their own transmit timing, so the
 state and timing comparisons allow one InitFC resend (128 cycles) and its
-group; the logs record the largest difference. No disagreement was found;
-any later one goes to the [HAS open items](../../arch/dll/HAS.md#open-items),
-never into a model or the RTL silently.
+group; the logs record the largest difference. The receive path found one
+disagreement, between the partner and the architecture model on the
+transmit side: which TLPs a replay resends when one is on the line as the
+Nak arrives. It is in the [HAS open items](../../arch/dll/HAS.md#open-items)
+for #212; the RTL's receive side is not involved. Any later one goes there
+too, never into a model or the RTL silently.
 
 ## Plan
 
@@ -86,11 +123,19 @@ never into a model or the RTL silently.
 | [CRC-16](../../arch/dll/DLLP.md#crc-16) known answers, transmit and receive; [receiving DLLPs](../../arch/dll/DLLP.md#receiving-dllps): bad CRC, flagged, wrong length, DL_Inactive | `crc16_kat` | 0 | 1; 5 known answers and every single-bit error of them, 150 random DLLPs and one-bit errors, gaps |
 | [Control states](../../arch/dll/HAS.md#data-link-control-states) and [initialisation](../../arch/dll/FLOW_CONTROL.md#initialisation) by hand: groups and 128-cycle resend, recording, ignored DLLPs, FC_INIT2 ends, entry UpdateFC, [credits available](../../arch/dll/HAS.md#credits-available), UpdateFC limits, link down from each state | `fc_init_directed` | 0 | 1 |
 | [A started DLLP finished across a link-down](../../arch/dll/HAS.md#reset-values), two and one beats left, and all three when the `sop` is taken at the edge that samples `link_up_i` 0; an offered one withdrawn; clean restart | `link_down_mid_dllp` | 0 | 1 |
+| [Receiving TLPs](../../arch/dll/RETRY.md#receiving-tlps) by hand: discarded in DL_Inactive and FC_INIT1; a bad TLP's Nak held in FC_INIT2; a good TLP ends FC_INIT2; every class and size, 3- and 4-DW headers, gaps and back to back; duplicates with an Ack at once (D = 2048 too); ahead (D = 1, 2047) with one Nak per NAK_SCHEDULED; bad LCRC, flagged, too short, nullified, EDB without the inverse; each malformed kind, packets beyond the beat counter; link down while a TLP arrives and while one is delivered. [Ack timer](../../arch/dll/RETRY.md#ack-and-nak-scheduling): 35 cycles on an idle stream ([MAS, timing](../../rtl/dll/MAS.md#timing)); Nak and duplicate Ack within 7; [receive latency](../../arch/dll/HAS.md#targets) within 4 | `rx_directed` | 0 | 1 |
 | [UpdateFC refresh](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling), round robin, with ready stalls | `updatefc_refresh` | 1 | 2; two 2048-cycle periods |
 | Link-up against the partner, default DUT credits, [init target](../../arch/dll/HAS.md#targets) 200 cycles; cross-check | `link_up` | 1 | 0 to 3 (the four partner advertisements); 6 link-ups each |
 | The same, DUT completions finite | `link_up_cpl_finite` | 1 | 0 to 3; `FC_CPLH` 16, `FC_CPLD` 64 |
 | The same, DUT all infinite | `link_up_infinite` | 1 | 0 to 3; every `FC_*` 0 |
 | Link-up with stalls, gaps and DLLP errors both ways (5% corrupted, 3% dropped, 2% flagged by the partner; 5% lost at it), target 4500 cycles | `link_up_stress` | 1 | 0, 1 |
+| 300 random TLPs from the partner within the DUT's credits, error-free: delivered once and in order; [Ack latency](../../arch/dll/HAS.md#targets) within 118 cycles, receive latency within 4; cross-checks | `rx_traffic` | 1 | 0, 1 |
+| The same with the partner's TLPs dropped 2%, corrupted 3%, nullified 2%, flagged 2%, its DLLPs corrupted 3%, and 15% of the DUT's Acks and Naks lost (replays, duplicates): no bad TLP delivered | `rx_errors` | 1 | 0 to 2 |
+| The same, DUT all infinite | `rx_errors_infinite` | 1 | 0; every `FC_*` 0 |
+| The same, wide sweep | `rx_errors_sweep` | 2 | 8 derived |
+| [Receive buffer](../../arch/dll/FLOW_CONTROL.md#receive-buffer) sizing: every class finite, the upper layer stalls while the partner sends TLPs that use every advertised credit, then takes 30% of beats | `rx_stall` | 1 | 0, 1; `FC_CPLH` 16, `FC_CPLD` 64 |
+| The same at the smallest legal credits | `rx_stall_smallest` | 2 | 4 derived |
+| NEXT_RCV_SEQ wrapping past 4095: 4200 short TLPs with light errors (Naks and duplicates around the wrap) | `rx_seq_wrap` | 2 | 1 derived |
 | The same, wide sweep | `link_up_stress_sweep` | 2 | 8 derived |
 | The same, DUT at the smallest legal credits | `link_up_stress_smallest` | 2 | 4 derived |
 
@@ -131,7 +176,8 @@ whatever the limit holds.
 | Feature | Owning issue |
 | --- | --- |
 | [Sequence numbers, LCRC, replay buffer, replay timer, REPLAY_NUM, received Ack and Nak](../../arch/dll/RETRY.md#replay) | [#212](https://github.com/amichai-bd/pcie-factory/issues/212) |
-| [Receive checks, duplicates, Ack and Nak scheduling](../../arch/dll/RETRY.md#receiving-tlps); a good TLP ending FC_INIT2; the assertion that the upper layer never stalls the receive stream when a class is infinite ([HAS, Receive](../../arch/dll/HAS.md#receive)) | [#213](https://github.com/amichai-bd/pcie-factory/issues/213) |
+| The receive overflow check and the overflowed-TLP verdict ([receive buffer](../../arch/dll/FLOW_CONTROL.md#receive-buffer)), driven through `rx_fit` | [#214](https://github.com/amichai-bd/pcie-factory/issues/214) |
+| Ack and Nak waiting behind a TLP on the transmit stream (the 118-cycle bound with both directions loaded) | [#212](https://github.com/amichai-bd/pcie-factory/issues/212), [#215](https://github.com/amichai-bd/pcie-factory/issues/215) |
 | [Credit consumption, the credit gate, receive accounting, UpdateFC on returned credits](../../arch/dll/FLOW_CONTROL.md) | [#214](https://github.com/amichai-bd/pcie-factory/issues/214) |
 | [Targets](../../arch/dll/HAS.md#targets) end to end | [#215](https://github.com/amichai-bd/pcie-factory/issues/215), [#216](https://github.com/amichai-bd/pcie-factory/issues/216) |
 
@@ -142,7 +188,7 @@ point but these is hit:
 
 | Cause | Points |
 | --- | --- |
-| Tied off until a later issue | The Ack/Nak branch of the transmit arbiter (#213). |
+| Unreachable by construction | The receive buffer full (`rx_full`, `noroom`): the buffer holds every TLP the advertised credits cover plus the one being collected ([MAS, receive buffer](../../rtl/dll/MAS.md#receive-buffer)), and the partner respects the credits. |
 | Unreachable until #214 | The round-robin picks of the second and third class: without credit returns, classes fall due only in turn, so the pointer always names the due class. |
 
 Toggle holes are mostly the tied-off TLP ports, the upper data bits of the

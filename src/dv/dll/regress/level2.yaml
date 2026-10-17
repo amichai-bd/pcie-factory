@@ -12,3 +12,22 @@ tests:
     seeds: 4
     timeout_s: 600
     params: {FC_PH: 1, FC_PD: 8, FC_NPH: 1, FC_NPD: 2, FC_CPLH: 1, FC_CPLD: 8}
+  - name: rx_errors_sweep
+    module: tests.test_dll_rx
+    testcase: rx_errors
+    top: pcie_dll_tb
+    seeds: 8
+    timeout_s: 600
+  - name: rx_stall_smallest
+    module: tests.test_dll_rx
+    testcase: rx_stall
+    top: pcie_dll_tb
+    seeds: 4
+    timeout_s: 600
+    params: {FC_PH: 1, FC_PD: 8, FC_NPH: 1, FC_NPD: 2, FC_CPLH: 1, FC_CPLD: 8}
+  - name: rx_seq_wrap
+    module: tests.test_dll_rx
+    testcase: rx_seq_wrap
+    top: pcie_dll_tb
+    seeds: 1
+    timeout_s: 1200
