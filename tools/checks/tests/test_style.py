@@ -203,7 +203,8 @@ def test_every_rule_is_tested_and_documented():
               "raw-assertion", "raw-initial", "package-import", "include-path",
               "vocabulary-include", "cdc-cell-macro", "system-task", "local-define",
               "sampled-value", "clocking-block", "object-macro", "assert-label",
-              "bare-generate", "inline-genvar", "pattern-key-name", "pattern-context"}
+              "bare-generate", "inline-genvar", "pattern-key-name", "pattern-context",
+              "method-member-name"}
     assert tested == set(RULES)
     spec = (Path(__file__).resolve().parents[3] / "wiki/tools/checks/SPEC.md").read_text()
     for rule, (anchor, _) in RULES.items():
@@ -720,6 +721,23 @@ def test_pattern_key_name_scopes():
            "`default_nettype wire\n")
     found = check(pkg, "xy_a_pkg.sv")
     assert found == ["xy_a_pkg.sv:5: pattern-key-name: pattern key a is also a name in this scope"], found
+
+
+def test_method_member_name_in_functions_only():
+    # A member named like a built-in method (len) selected inside a
+    # function fires; the same select at module level, a method call and a
+    # member with another name pass.
+    pkg = ("`default_nettype none\npackage xy_a_pkg;\n"
+           "  typedef struct packed {logic [3:0] len; logic [3:0] n;} t_s;\n"
+           "  function automatic t_s f(input logic [3:0] a);\n    t_s s;\n"
+           "    s.n   = a;\n    s.len = a;\n    return s;\n  endfunction\nendpackage\n"
+           "`default_nettype wire\n")
+    found = check(pkg, "xy_a_pkg.sv")
+    assert found == ["xy_a_pkg.sv:7: method-member-name: member select .len in a function "
+                     "names a built-in method"], found
+    ok = mutate("  assign q_o = q_q;", "  assign q_o = q_q;\n  assign busy_no = q_d.len;")
+    assert check(ok) == []
+    assert check(pkg.replace("s.len = a;", "s.n   = a.size();"), "xy_a_pkg.sv") == []
 
 
 def test_pattern_context_accepts_assignment_contexts():
