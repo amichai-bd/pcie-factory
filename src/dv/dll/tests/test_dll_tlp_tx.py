@@ -160,7 +160,7 @@ async def replay_directed(dut):
     """L0: received Ack and Nak and the replay, by hand. An Ack frees TLPs;
     a Nak replays what follows its sequence number, in order and complete;
     a Nak naming ACKD_SEQ replays everything; an Ack with nothing sent
-    unacknowledged stops the timer; out-of-range Acks and Naks are DL
+    unacknowledged stops the timer, and a Nak then replays nothing; out-of-range Acks and Naks are DL
     protocol errors that change nothing; the replay timer expires 356
     cycles after the last TLP's eop, holds while the LTSSM is out of L0 and
     restarts on forward progress; an Ack during a replay skips the TLPs it
@@ -191,6 +191,10 @@ async def replay_directed(dut):
     assert len(env.tlp_sent) == start and env.err_counts[ERR_TIMEOUT] == 0, (
         "a replay or timeout with everything acknowledged")
     COV_REPLAY.sample(timer="stopped_by_ack")
+    # A Nak with nothing sent and unacknowledged replays nothing.
+    env.inject(ack(4, nak=True))
+    await settle(env)
+    assert len(env.tlp_sent) == start and env.replay_runs == 2, "a replay of nothing"
     # Out of range: ahead of the newest sent, and behind ACKD_SEQ.
     env.inject(ack(10))
     env.inject(ack(1, nak=True))

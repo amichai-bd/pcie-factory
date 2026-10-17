@@ -217,8 +217,8 @@ first that fails in that run, at its first seed (level 0 unless marked).
 | Transmit | Beats advance without ready | `crc16_kat` | A beat outside a packet at the phy stand-in. |
 | Transmit | A started DLLP cut when the link goes down | `link_down_mid_dllp` | Stops on `a_eop_follows_sop`: valid falls inside the open packet. |
 | Transmit | A `sop` taken at the edge that samples `link_up_i` 0 not counted as started (`started` from `tx_q` only) | `link_down_mid_dllp` | Stops on `a_eop_follows_sop`: the packet opened at the phy is abandoned. |
-| Package | LCRC polynomial `EDB88320`h to `EDB88321`h | `lcrc_kat` | The example sent with LCRC `4894a8b7`, not the retry page's `e1f1e7e2`. |
-| TLP transmit | LCRC not complemented | `lcrc_kat` | The example sent with LCRC `1e0e181d`. |
+| TLP transmit | Transmit LCRC register seeded with 0 | `lcrc_kat` | The example sent with LCRC `d977a3cc`, not the retry page's `e1f1e7e2`. |
+| TLP transmit | LCRC word without the bit reversal | `lcrc_kat` | The example sent with LCRC `47e78f87`. |
 | TLP transmit | Sequence-number bytes swapped | `lcrc_kat` | TLPs from sequence 1 on not recognised: 1 of 7 TX latencies measured. |
 | TLP transmit | Sequence numbers assigned two apart | `lcrc_kat` | Stops on `a_held_limit`. |
 | TLP transmit | Room check allows 1026 bytes | `rbuf_full` | A TLP taken beyond 1024 bytes. |
@@ -239,7 +239,7 @@ first that fails in that run, at its first seed (level 0 unless marked).
 | TLP transmit | A `sop` taken while the LCRC word is written | `lcrc_kat` | Stops on `a_tlp_words`. |
 | TLP transmit | A started TLP's stream cleared when the link goes down | `link_down_mid_tlp` | Stops on `a_beat_without_tlp`. |
 | Transmit | No withdrawal at a rollover (level 1) | `tlp_rollover` | 5 replays: the TLP taken at the rollover goes out ahead of the rollover replay, a Nak follows. |
-| TLP transmit | New TLPs before a running replay (level 1) | `tlp_partner_errors` | 18 of 300 TLPs delivered in 80000 cycles. |
+| TLP transmit | New TLPs before a running replay | `rbuf_full` | A new TLP taken before the replay sent the oldest unacknowledged one. |
 | Package | LCRC polynomial `04C11DB7`h to `04C11DB6`h | `rx_directed` | DL_Active not reached: the TLP that should end FC_INIT2 has a bad LCRC. |
 | Package | LCRC remainder not complemented | `rx_directed` | The same. |
 | TLP receive | The nullified check inverted (an inverted LCRC is bad, a plain one silent) | `rx_errors` | Bad TLP pulses 196, expected 188 (seed 0). |
@@ -282,20 +282,25 @@ whatever the limit holds.
 
 ## Coverage holes
 
-No floors yet (the plan has gaps). Merged over levels 0 to 2: line 98.1%
-(257 of 262), toggle 66.9%, functional 100% (121 bins). Every line point
-of the TLP transmit block is hit; every line point but these is hit:
+No floors yet (the plan has gaps). Merged over levels 0 to 2: line 98.0%
+(431 of 440 line and branch points), toggle 76.1%, functional 100% (152
+bins). Every line and branch point of the TLP transmit block is hit;
+every one but these is hit:
 
 | Cause | Points |
 | --- | --- |
 | Unreachable by construction | The receive buffer full (`rx_full`, `noroom`): the buffer holds every TLP the advertised credits cover plus the one being collected ([MAS, receive buffer](../../rtl/dll/MAS.md#receive-buffer)), and the partner respects the credits. |
+| Unreachable by construction | The lane-disable branch of both RAM instances' write port (`LANES` is 1, the lane enable tied to 1). |
 | Unreachable until #214 | The round-robin picks of the second and third class: without credit returns, classes fall due only in turn, so the pointer always names the due class. |
 
 Toggle holes are mostly the tied-off TLP receive ports, the upper data
 bits of the credit limits (no partner advertises them) and the
-testbench's pass-through ports. In the TLP transmit block 9 of 1696
+testbench's pass-through ports. In the TLP transmit block 23 of 1816
 toggle points are missed: `credit_ok_i` never falls (tied to 1 until
 #214); `hold_left` never falls, as only the next rollover or DL_Inactive
-clears it; bit 0 of the space-in-use sums, which are even by
-construction (whole words plus 2 bytes per TLP), and bit 13 of the space
-in use, which stays below 8192.
+clears it; bits that are constant by construction: bit 0 of the
+space-in-use sums (whole words plus 2 bytes per TLP), bits 1:0 of a TLP's
+size (whole DWs), bits 7:4 of the sequence-number beat (reserved, 0);
+bit 13 of the space in use, which stays below 8192; and bit 10 of the
+offered payload size (a 1024-DW Length, never offered: the upper layer
+offers payloads of at most 128 bytes).
