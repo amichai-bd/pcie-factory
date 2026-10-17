@@ -76,6 +76,7 @@ configuration write takes effect, or at reset.
 | `d_state` | cfg→tl | 2 | `clk_i` | Power State: 0 D0, 3 D3hot (decision F5). |
 | `bar0_base` | cfg→tl | 32 | `clk_i` | BAR0 address: bits `[31:BAR0_ADDR_W]` as software wrote them, lower bits 0. |
 | `bar2_base` | cfg→tl | 32 | `clk_i` | BAR2 address: bits `[31:12]` as software wrote them, lower bits 0. |
+| `cpl_timeout_dis` | cfg→tl | 1 | `clk_i` | Device Control 2 Completion Timeout Disable: 1 disables `tl`'s requester completion timeout. |
 
 - The completer ID and requester ID of every TLP `tl` sends are
   `bus_num`, `dev_num` and function 0.
@@ -92,12 +93,27 @@ configuration write takes effect, or at reset.
   interrupts), the error-reporting enables (`cfg` decides messages), and
   the maximum payload and read request sizes (`tl` uses the fixed 128
   bytes, decision F2; `cfg` drives the [status outputs](APP.md#status)).
-  The completion timeout is fixed in `tl`; `cfg` advertises it as not
-  programmable ([#285](https://github.com/amichai-bd/pcie-factory/issues/285)).
+  The completion timeout value is fixed in `tl`; `cfg` advertises no
+  programmable range (Completion Timeout Ranges Supported 0000b), which
+  obliges that fixed value to lie between 50 µs and 50 ms
+  [cite: PCIe Base Spec, rev 3.0, §7.8.15]. `cfg` does advertise
+  Completion Timeout Disable, which `tl` honors through `cpl_timeout_dis`:
+  while it is 1, an outstanding read waits for its completions with no
+  timeout (firstmate decision as the captain's delegate, which the captain
+  may override).
 - The read completion boundary is fixed at 64 bytes: `cfg` hardwires the
   Link Control RCB bit to 0 (64 bytes), so software cannot set a boundary
   that disagrees with how `tl` splits completions
   [cite: PCIe Base Spec, rev 3.0, §7.8.7].
+
+### Requester state
+
+A level from `tl`, for the Device Status register (firstmate decision as
+the captain's delegate, which the captain may override).
+
+| Net | Dir | Width | Clock | Meaning |
+| --- | --- | --- | --- | --- |
+| `tl_np_pending` | tl→cfg | 1 | `clk_i` | 1 while any application non-posted request taken on `rq` still awaits its final completion or its timeout. `cfg` shows it as Device Status Transactions Pending [cite: PCIe Base Spec, rev 3.0, §7.8.5]. |
 
 ### Error events
 
@@ -143,6 +159,18 @@ so there is no Signaled Target Abort event.
 - An error message is a Message routed to the Root Complex with no data,
   with the code of its kind [cite: PCIe Base Spec, rev 3.0, §2.2.8.3].
 - A message taken is sent unless the link goes down first.
+- <a id="withdrawal"></a>**Withdrawal.** `msg_valid` falls without
+  `msg_ready` only when the offered message may no longer go out: the
+  function leaves D0, Bus Master Enable is cleared (interrupt writes), the
+  enable of the offer's interrupt mode is cleared (MSI Enable for an MSI
+  write, MSI-X Enable for an MSI-X write), or reset. `tl` takes a message
+  only in a cycle where it sees `msg_valid` and raises `msg_ready`, samples
+  the fields in that cycle, and never assumes an offer stays up. A
+  withdrawn interrupt write becomes pending, or is dropped when neither
+  MSI nor MSI-X is enabled ([resolution](#interrupt-resolution)); a
+  withdrawn error message is
+  discarded, its status bits already set (firstmate decision as the
+  captain's delegate, which the captain may override).
 - <a id="outside-d0"></a>**Outside D0.** A function outside D0 originates
   no requests other than PME, which `core` does not implement
   [cite: PCIe Base Spec, rev 3.0, §5.3.1.4]. So while `d_state` is not D0,

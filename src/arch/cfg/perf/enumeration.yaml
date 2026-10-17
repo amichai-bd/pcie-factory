@@ -1,0 +1,10 @@
+# Host enumeration over random parameters: IDs, capability walk, BAR sizing
+# and assignment, enables, MSI and MSI-X with one interrupt each, the MSI-X
+# one pending first (wiki/src/arch/cfg/HAS.md#targets).
+description: 200 host enumerations, random IDs, BAR0 size and MSI-X table size.
+seed: 1
+workload:
+  kind: enumeration
+  trials: 200
+targets:
+  enumeration_errors: {max: 0}

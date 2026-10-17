@@ -166,8 +166,11 @@ When `dl_up_o` falls, `link` has already abandoned every TLP it holds
   outstanding requester tag is dropped; no completion is sent or delivered
   for them, and no timeout is reported;
 - the configuration space returns to its reset values (bus and device
-  number, BARs, enables, MSI and MSI-X state, pending bits): the host
-  enumerates again after the next link-up;
+  number, BARs, enables, MSI and MSI-X state, the MSI-X vector masks and
+  pending bits): the host enumerates again after the next link-up. The
+  MSI-X table entries (address and data) sit in a RAM and are not
+  cleared: like every other register, software programs them again
+  before it unmasks a vector (firstmate decision, F4);
 - the application sees `dl_up_o` 0 and the streams idle, abandons its own
   packets in progress, pending reads and interrupt request, and restarts
   every stream with a `sop` beat once `dl_up_o` is 1 again.
@@ -194,6 +197,10 @@ captain may override.
 | Outside D0, memory requests get Unsupported Request and the function issues no `rq` requests and no interrupt writes, but still sends completions (configuration completions, the completion for the Power State write back to D0, Unsupported Request completions); an MSI or MSI-X request that may not go out yet is held pending and sent once allowed (Q11) | No interrupt is lost; one "allowed" rule (bus mastering on, D0) gates every request and interrupt [cite: PCIe Base Spec, rev 3.0, §5.3.1.4]. | Dropping interrupts while bus mastering is off; withholding completions outside D0 (the host could not return the function to D0). |
 | No ERR_COR, ERR_NONFATAL or ERR_FATAL message outside D0; the error status bits still record the event, and nothing is held and sent on the return to D0 ([outside D0](TL_CFG.md#outside-d0); firstmate decision) | A function outside D0 originates no requests other than PME, which `core` does not implement [cite: PCIe Base Spec, rev 3.0, §5.3.1.4]; software reads the status bits after it restores D0. | Sending error messages in D3hot; holding them for D0 (a stale report and state to keep). |
 | MSI-X pending bits kept while MSI-X is disabled or MSI is chosen, cleared only by reset, and sent only while MSI-X is enabled ([resolution](TL_CFG.md#interrupt-resolution); firstmate decision) | The pending-bit array is software-visible state; keeping it loses no interrupt across a mode switch. | Clearing the bits when MSI-X Enable is cleared (loses interrupts). |
+| An offered message may be withdrawn (`msg_valid` falls without `msg_ready`) only when it may no longer go out: outside D0, Bus Master Enable cleared, its interrupt mode's enable cleared, or reset; a withdrawn interrupt becomes pending, a withdrawn error message is discarded ([withdrawal](TL_CFG.md#withdrawal); firstmate decision) | The outside-D0 and no-wait rules together need it: a Power State write to D3hot completes while a message waits for `msg_ready`. `tl` samples a message only in the cycle it takes it. | Holding an offer until taken (a message after leaving D0, or `cfg` stalling the Power State write, which breaks the no-wait rule). |
+| Completion Timeout Disable supported, through `cpl_timeout_dis` to `tl`; no programmable range, so the fixed `tl` timeout lies between 50 µs and 50 ms (the `tl` HAS uses 2^21 cycles, about 16.8 ms at 125 MHz) ([register state](TL_CFG.md#register-state); firstmate decision) | An Endpoint that issues requests of its own must support the disable [cite: PCIe Base Spec, rev 3.0, §7.8.15]; a fixed value keeps `tl` simple. | Advertising no disable (non-compliant for a requester); programmable ranges (more `tl` logic, no M3 user). |
+| `tl` reports outstanding application non-posted requests on `tl_np_pending` (firstmate decision) | Device Status Transactions Pending must reflect them, and only `tl` tracks tags. | Hardwiring Transactions Pending to 0. |
+| MSI-X table address and data not cleared by a link-down reset; masks and pending bits are (firstmate decision) | F4 puts the table in a `common` RAM; software reprograms it after any reset, as it does the rest of the header. | Clearing 64 × 3 DWs in flops. |
 | Configuration and BAR2 requests pass BAR0 reads waiting for a handle | Enumeration never depends on the application answering; non-posted requests may pass one another. | One strict non-posted order (a slow application blocks configuration). |
 | Flat `logic` nets between `tl` and `cfg` | They are the top ports of two top-level IPs and mirror the interface this HAS names, the [RTL BKM](../../../bkm/rtl.md#structs-at-interfaces) exception; inside each IP, structs. | Structs in `common_pkg` (a shared package for one pair of IPs). |
 | BAR bases cross, not a hit signal | The sizes are parameters both IPs know; `tl` decodes on its own receive path. | A hit signal from `cfg` (a round trip through `cfg` on every request). |

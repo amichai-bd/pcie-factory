@@ -171,7 +171,9 @@ software has programmed (decision F4,
 A request is pending when it may not leave yet: under MSI-X when its
 vector or the function is masked, and under MSI or MSI-X when bus
 mastering is disabled or the function is not in D0 (decision record
-[0004](../../decisions/0004-m3-grill.md#updates), Q11). No interrupt is
+[0004](../../decisions/0004-m3-grill.md#updates), Q11). It is also
+pending when it merges into a write already waiting to go out for the same
+vector (or, under MSI, the one MSI write waiting): one write follows. No interrupt is
 lost: a request is dropped only when neither MSI nor MSI-X is enabled.
 
 ## Status
