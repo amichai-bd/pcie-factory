@@ -27,3 +27,4 @@ Numbers are shared with the factory records in
 | # | Record | Status |
 | --- | --- | --- |
 | 0002 | [M1 grill: Gen1 x1 physical layer, kind-first layout](decisions/0002-m1-grill.md) | accepted |
+| 0003 | [M2 grill: data link layer, `dll` and `link` IPs](decisions/0003-m2-grill.md) | accepted |

@@ -336,6 +336,19 @@ inline JSON escapes `<`, `>`, `&` and `'`.
   `actions/deploy-pages`. The schedule, and a dispatch by the nightly, cover
   nightly data merged by GitHub Actions auto-merge, whose push starts no
   workflows ([metrics spec](../metrics/SPEC.md#workflows)).
+- **Concurrency.** A new PR head or push to `main` cancels the superseded
+  build of that PR or branch, and a cancelled build skips its deploy. A
+  dispatch or scheduled build has a group of its own run, so no push
+  cancels the nightly's republish or the backstop. The deploy job is never
+  cancelled mid-run: deploys share one group, `pages`, without
+  `cancel-in-progress`, because cancelling `actions/deploy-pages` cancels
+  its deployment and leaves the site on the old version until the next run.
+  A newer queued deploy replaces an older queued one, which is GitHub's
+  rule for one group
+  ([CI concurrency](../ci/SPEC.md#concurrency)). One ordering case is
+  bounded: a dispatched build of an older `main` can finish after a newer
+  push build and deploy last. The next push or the daily backstop
+  corrects it.
 
 The repository and the published site are **public**; the
 [wiki BKM](../../bkm/wiki.md#publishability) owns what may be published. The

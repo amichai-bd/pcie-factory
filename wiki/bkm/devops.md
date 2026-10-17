@@ -228,7 +228,17 @@ when the parent's filelists reach the changed file or the change is in the
 sub-IP's models. An integrated top-level IP is selected the same way
 relative to the IP that integrates it.
 
-Superseded PR runs are cancelled; every push to `main` keeps its run.
+**Superseded runs are cancelled.** A new PR head or push to `main` cancels
+that PR's or branch's in-flight and queued `ci` run and `pages` build.
+A dispatched `ci` run (the data PR's gate and `ci-gate-status`) and a
+dispatched or scheduled `pages` build (the nightly's republish and the daily
+backstop) each have a group of their own run, so a push never cancels them.
+The nightly and the manual `fpga` and `asic` flows keep their own groups
+without `cancel-in-progress` and run only by dispatch or schedule, so no
+push reaches them. The pages deploy is never cancelled mid-run. The merge gate is unchanged: a
+cancelled run's `ci-gate` fails on the old SHA only, and the new head always
+gets its own run
+([CI spec](../tools/ci/SPEC.md#concurrency)).
 
 ## Nightly
 
