@@ -22,6 +22,17 @@
     `Dll` with the DUT's parameters, given the same link state, LTSSM
     state, received packets and the TLPs the DUT takes. It sends into
     nothing at its own pace and is never steered;
+  - the **receive reference** (`RxRef`), the [receive rules](../../arch/dll/RETRY.md#receiving-tlps)
+    written with the partner's CRC and header helpers (neither the RTL nor
+    the architecture model), judging every TLP packet the DUT receives in
+    the DUT's state of the verdict cycle: the TLPs the upper stream must
+    deliver, the Bad TLP and Malformed TLP pulses due, NEXT_RCV_SEQ and
+    every NAK_SCHEDULED setting. Until #214 every expected, well-formed
+    TLP is stored;
+  - the **upper layer** on `tlp_rx_*`: takes beats, stalling at random
+    (`rx_ready_p`) or for a set time only when every class is finite (the
+    [obligation](../../arch/dll/HAS.md#receive)), and checks each
+    delivered TLP against the reference;
   - the **upper transmit driver**, which offers queued TLPs on `tlp_tx_*`
     (valid may drop inside a TLP) and records each TLP the DUT takes, in
     order, as its sequence number;
@@ -41,7 +52,12 @@
   except the tail of a DLLP started before the link went down;
   `pkt_tx_valid_o` never drops inside a packet and no `sop` comes inside
   one, link up or down.
-  With the partner, its `violations` list stays empty.
+  With the partner, its `violations` list stays empty. Every Ack and Nak
+  is sent only in DL_Active and carries NEXT_RCV_SEQ − 1 as the reference
+  had it when the arbiter took it; every TLP delivered upward is the next
+  one the reference stored, `sop` to `eop`; the Bad TLP and Malformed TLP
+  pulses, and one Nak per NAK_SCHEDULED setting, match the reference
+  (`check_rx`).
 - **TLP checks on every run:** `tlp_tx_ready_o` is 0 outside DL_Active and
   1 every cycle from a taken `sop` to its `eop`. Every TLP the DUT sends
   carries the sequence number it was taken with and that TLP, and its LCRC
@@ -53,7 +69,7 @@
   Ack removed), and completes before any new TLP; no acknowledged TLP is
   sent; and the DL protocol errors it predicts from the range check equal
   the `err_o` bit 4 pulses. `retrain_req_o` pulses exactly with REPLAY_NUM
-  rollover. `err_o` bits 0, 5 and 6 never pulse (#213, #214).
+  rollover. `err_o` bit 5 never pulses (#214).
 - **Port roles:** the `dll` is role neutral
   ([HAS, parameters](../../arch/dll/HAS.md#parameters)); a role shows only
   as the credits it advertises. Link-up is run with the DUT advertising
@@ -68,6 +84,13 @@
   (and the upper bound of `FC_PD` and `FC_NPD`), which must stop
   elaboration with its `COMMON_ASSERT_PARAM` message, and for the legal
   boundaries, which must lint clean.
+- **Never-stall assertion:** `a_rx_never_stall` (the upper layer holds
+  `tlp_rx_ready_i` at 1 while `dl_up_o` is 1 when a class is infinite)
+  holds in every run, since the upper layer stalls only with every class
+  finite. Its negative check, default credits and `tlp_rx_ready_i` 0 in
+  DL_Active, stops the simulation on the assertion; a regression entry
+  cannot expect a fatal stop, so it is a one-off run recorded in the
+  [#213](https://github.com/amichai-bd/pcie-factory/issues/213) PR.
 - **Partner model:** its pytest unit tests run in `./build ci unit`, not
   as a regression entry ([partner page](PARTNER.md#unit-tests)).
 - **Partner credits:** until the credit gate exists (#214) the partner
@@ -89,18 +112,30 @@
   rollover then retrain or fallback; the timer held outside L0, restarted
   or stopped by an Ack), `dll_acknak_rx` (Ack and Nak, each with progress
   over one or many TLPs, no progress, out of range), `dll_rbuf` (full with
-  maximum TLPs, refused by bytes, freed by an Ack).
+  maximum TLPs, refused by bytes, freed by an Ack, held until a replayed TLP's eop),
+  `dll_tlp_rx` (each receive outcome: stored, duplicate, ahead, bad LCRC,
+  flagged, too short, nullified, EDB without the inverse, malformed,
+  outside FC_INIT2 and DL_Active; class of each stored TLP; gaps inside;
+  a Nak scheduled or already scheduled), `dll_malformed` (not whole DWs,
+  shorter than a header, Length disagreeing, payload above 128 bytes, no
+  header), `dll_acknak_tx` (Ack and Nak; Ack by the timer or after a
+  duplicate), `dll_rx_stream` (a beat taken or stalled; a `sop` back to
+  back or after idle).
 
 ## Cross-check: RTL, architecture model, partner
 
-Run in the `link_up` entries for DLLPs, InitFC and the control states,
-and in the TLP entries for sequence numbers, LCRC and replay:
+Run in the `link_up` entries for DLLPs, InitFC and the control states, in
+the TLP transmit entries for sequence numbers, LCRC and replay, and in the
+`rx_*` entries for the TLP receive path:
 
 | Pair | Compared |
 | --- | --- |
-| RTL and partner | The partner as the far end and judge: both reach DL_Active, each records the other's advertisement, no partner violation. Every TLP delivered by the partner exactly once and in order, under its fault hooks (Naks, lost TLPs, lost and damaged Acks, Ack delays). |
-| RTL and architecture model | DLLP bytes and CRC-16 (every DLLP sent); the sequence of control states visited by the DUT and the shadow, each change within 200 cycles of the other; credits available equal to the shadow's. The LCRC of every TLP sent. Replay-buffer room: a TLP the DUT takes is taken by the shadow within 200 cycles, and a `sop` the DUT refuses is refused by the shadow (outside the cycles where the two act on an Ack at different edges, the LCRC-write cycle, or an acknowledged TLP still on the DUT's stream). The counts of replay timeouts, rollovers, DL protocol errors and replays equal the shadow's in `lcrc_kat`, `replay_directed`, `rollover_directed`, `rbuf_full`, `tlp_partner` and `tlp_rollover`. In `tlp_partner_errors` they are logged, not compared: with errors each model's replays depend on its own transmit timing (the shadow sees no `phy` stall or upper-stream gap), so a Nak can land inside a replay of one and after the replay of the other. |
-| Architecture model and partner | A run of the model against a fresh partner with the same skew and credits (`ArchEnd` puts the model on the partner's beat stream): both reach DL_Active, each records the other's advertisement, no partner violation, and the time to DL_Active within 200 cycles of the RTL's. CRC-16 of every received DLLP and of the known answers computed by both. In `tlp_rollover`, the model sends the same TLPs to a fresh partner with the same loss window and Recovery: 4 timeouts, 1 rollover, 1 retrain, no Bad TLP, every TLP delivered once and in order, as the RTL. |
+| RTL and partner | The partner as the far end and judge: both reach DL_Active, each records the other's advertisement, no partner violation. Every TLP the DUT sends delivered by the partner exactly once and in order, under its fault hooks (Naks, lost TLPs, lost and damaged Acks, Ack delays). |
+| RTL and architecture model | DLLP bytes and CRC-16 (every DLLP sent); the sequence of control states visited by the DUT and the shadow, each change within 200 cycles of the other; credits available equal to the shadow's. The LCRC of every TLP sent. Replay-buffer room: a TLP the DUT takes is taken by the shadow within 200 cycles, and a `sop` the DUT refuses is refused by the shadow (outside the cycles where the two act on an Ack at different edges, the LCRC-write cycle, or an acknowledged TLP still on the DUT's stream). The counts of replay timeouts, rollovers, DL protocol errors and replays equal the shadow's in `lcrc_kat`, `replay_directed`, `rollover_directed`, `rbuf_full`, `tlp_partner` and `tlp_rollover`. In `tlp_partner_errors` and `tlp_bidir` they are logged, not compared: the shadow transmits at its own pace (no `phy` stall or upper-stream gap, its own Acks), so with errors a Nak can land inside a replay of one model and after the replay of the other, and with both directions loaded its TLPs lag the DUT's, so an Ack can name a TLP it has not sent yet. |
+| Architecture model and partner | A run of the model against a fresh partner with the same skew and credits (`ArchEnd` puts the model on the partner's beat stream): both reach DL_Active, each records the other's advertisement, no partner violation, and the time to DL_Active within 200 cycles of the RTL's. CRC-16 of every received DLLP and of the known answers computed by both. In `tlp_rollover`, the model sends the same TLPs to a fresh partner with the same loss window and Recovery (`arch_partner_send`): 4 timeouts, 1 rollover, 1 retrain, no Bad TLP, every TLP delivered once and in order, as the RTL. |
+| RTL, reference and partner (receive) | The partner sends TLPs with its fault hooks; the DUT delivers exactly the partner's TLPs, once and in order; the partner sees no violation (every Ack and Nak in range) and its replay buffer drains (every TLP acknowledged); the RTL's pulses and Naks equal the reference's. |
+| RTL and architecture model (receive) | The shadow, given the same packets, delivers the same TLPs and counts the same Bad TLP, Malformed TLP, Nak and duplicate events, and no overflow (`check_shadow_rx`). |
+| Architecture model and partner (receive) | The model receives the same TLPs from a fresh partner with the same injection (`arch_partner_traffic`): all delivered once and in order, all acknowledged, no partner violation. |
 
 The two models step at packet level with their own transmit timing, so the
 state and timing comparisons allow one InitFC resend (128 cycles) and its
@@ -110,7 +145,11 @@ new TLP could overwrite an acknowledged one still being replayed (now the
 [space-in-use rule](../../arch/dll/RETRY.md#replay-buffer), which the
 architecture model follows too), and a TLP taken at a rollover went out
 ahead of the rollover replay (now the [withdrawal](../../arch/dll/RETRY.md#replay_num)).
-One reading difference with the partner is a [HAS open item](../../arch/dll/HAS.md#open-items)
+The receive path found that the partner left a TLP still going out at a
+Nak out of the replay; the [retry page](../../arch/dll/RETRY.md#replay)
+now says it is resent, and the partner is corrected
+([HAS decision](../../arch/dll/HAS.md#decisions)). One reading difference
+with the partner remains a [HAS open item](../../arch/dll/HAS.md#open-items)
 (when a running replay ends). Any later disagreement goes there, never
 into a model or the RTL silently.
 
@@ -123,11 +162,19 @@ into a model or the RTL silently.
 | [CRC-16](../../arch/dll/DLLP.md#crc-16) known answers, transmit and receive; [receiving DLLPs](../../arch/dll/DLLP.md#receiving-dllps): bad CRC, flagged, wrong length, DL_Inactive | `crc16_kat` | 0 | 1; 5 known answers and every single-bit error of them, 150 random DLLPs and one-bit errors, gaps |
 | [Control states](../../arch/dll/HAS.md#data-link-control-states) and [initialisation](../../arch/dll/FLOW_CONTROL.md#initialisation) by hand: groups and 128-cycle resend, recording, ignored DLLPs, FC_INIT2 ends, entry UpdateFC, [credits available](../../arch/dll/HAS.md#credits-available), UpdateFC limits, link down from each state | `fc_init_directed` | 0 | 1 |
 | [A started DLLP finished across a link-down](../../arch/dll/HAS.md#reset-values), two and one beats left, and all three when the `sop` is taken at the edge that samples `link_up_i` 0; an offered one withdrawn; clean restart | `link_down_mid_dllp` | 0 | 1 |
+| [Receiving TLPs](../../arch/dll/RETRY.md#receiving-tlps) by hand: discarded in DL_Inactive and FC_INIT1; a bad TLP's Nak held in FC_INIT2; a good TLP ends FC_INIT2; every class and size, 3- and 4-DW headers, gaps and back to back; duplicates with an Ack at once (D = 2048 too); ahead (D = 1, 2047) with one Nak per NAK_SCHEDULED; bad LCRC, flagged, too short, nullified, EDB without the inverse; each malformed kind, packets beyond the beat counter; link down while a TLP arrives and while one is delivered. [Ack timer](../../arch/dll/RETRY.md#ack-and-nak-scheduling): 35 cycles on an idle stream ([MAS, timing](../../rtl/dll/MAS.md#timing)); Nak and duplicate Ack within 7; [receive latency](../../arch/dll/HAS.md#targets) within 4 | `rx_directed` | 0 | 1 |
 | [UpdateFC refresh](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling), round robin, with ready stalls | `updatefc_refresh` | 1 | 2; two 2048-cycle periods |
 | Link-up against the partner, default DUT credits, [init target](../../arch/dll/HAS.md#targets) 200 cycles; cross-check | `link_up` | 1 | 0 to 3 (the four partner advertisements); 6 link-ups each |
 | The same, DUT completions finite | `link_up_cpl_finite` | 1 | 0 to 3; `FC_CPLH` 16, `FC_CPLD` 64 |
 | The same, DUT all infinite | `link_up_infinite` | 1 | 0 to 3; every `FC_*` 0 |
 | Link-up with stalls, gaps and DLLP errors both ways (5% corrupted, 3% dropped, 2% flagged by the partner; 5% lost at it), target 4500 cycles | `link_up_stress` | 1 | 0, 1 |
+| 300 random TLPs from the partner within the DUT's credits, error-free: delivered once and in order; [Ack latency](../../arch/dll/HAS.md#targets) within 118 cycles, receive latency within 4; cross-checks | `rx_traffic` | 1 | 0, 1 |
+| The same with the partner's TLPs dropped 2%, corrupted 3%, nullified 2%, flagged 2%, its DLLPs corrupted 3%, and 15% of the DUT's Acks and Naks lost (replays, duplicates): no bad TLP delivered | `rx_errors` | 1 | 0 to 2 |
+| The same, DUT all infinite | `rx_errors_infinite` | 1 | 0; every `FC_*` 0 |
+| The same, wide sweep | `rx_errors_sweep` | 2 | 8 derived |
+| [Receive buffer](../../arch/dll/FLOW_CONTROL.md#receive-buffer) sizing: every class finite, the upper layer stalls while the partner sends TLPs that use every advertised credit, then takes 30% of beats | `rx_stall` | 1 | 0, 1; `FC_CPLH` 16, `FC_CPLD` 64 |
+| The same at the smallest legal credits | `rx_stall_smallest` | 2 | 4 derived |
+| NEXT_RCV_SEQ wrapping past 4095: 4200 short TLPs with light errors (Naks and duplicates around the wrap) | `rx_seq_wrap` | 2 | 1 derived |
 | The same, wide sweep | `link_up_stress_sweep` | 2 | 8 derived |
 | The same, DUT at the smallest legal credits | `link_up_stress_smallest` | 2 | 4 derived |
 | [Sequence numbers](../../arch/dll/RETRY.md#transmitter-state) from 0 and the [LCRC](../../arch/dll/RETRY.md#lcrc): the retry page's example (`E1 F1 E7 E2`), 86 random TLPs of every shape with upper gaps and `phy` stalls; [TX latency target](../../arch/dll/HAS.md#targets) | `lcrc_kat` | 0 | 1; latency 3 cycles, target 4 |
@@ -141,6 +188,7 @@ into a model or the RTL silently.
 | [Rollover target](../../arch/dll/HAS.md#targets): TLPs lost from a set cycle until the retrain; architecture model against the partner in the same scenario | `tlp_rollover` | 1 | 0, 1 |
 | [Line use and replay-buffer sizing targets](../../arch/dll/HAS.md#targets) (`mwr_max`, `ack_spec_max`): 500 128-byte writes, partner Acks at 32 and 118 cycles, at least 99% | `mwr_max`, `ack_spec_max` | 1 | 1 each; 99.30% both (architecture model 99.20%) |
 | Sequence numbers across the 4095-to-0 wrap with Naks, lost TLPs and lost Acks around it | `seq_wrap` | 2 | 2 derived |
+| Both directions loaded: 300 TLPs each way, the DUT's Acks waiting behind its own TLPs; [Ack latency target](../../arch/dll/HAS.md#targets) 118 cycles | `tlp_bidir` | 1 | 0, 1; worst Ack 107 and 108 cycles |
 
 ## Mutation evidence
 
@@ -192,6 +240,33 @@ first that fails in that run, at its first seed (level 0 unless marked).
 | TLP transmit | A started TLP's stream cleared when the link goes down | `link_down_mid_tlp` | Stops on `a_beat_without_tlp`. |
 | Transmit | No withdrawal at a rollover (level 1) | `tlp_rollover` | 5 replays: the TLP taken at the rollover goes out ahead of the rollover replay, a Nak follows. |
 | TLP transmit | New TLPs before a running replay (level 1) | `tlp_partner_errors` | 18 of 300 TLPs delivered in 80000 cycles. |
+| Package | LCRC polynomial `04C11DB7`h to `04C11DB6`h | `rx_directed` | DL_Active not reached: the TLP that should end FC_INIT2 has a bad LCRC. |
+| Package | LCRC remainder not complemented | `rx_directed` | The same. |
+| TLP receive | The nullified check inverted (an inverted LCRC is bad, a plain one silent) | `rx_errors` | Bad TLP pulses 196, expected 188 (seed 0). |
+| TLP receive | D = 2047 taken as a duplicate | `rx_directed` | Bad TLP pulses 9, expected 10. |
+| TLP receive | A Nak for every bad TLP (NAK_SCHEDULED ignored) | `rx_directed` | 10 Naks sent, expected 6. |
+| TLP receive | NAK_SCHEDULED not cleared by an accepted TLP | `rx_directed` | No Nak after the next bad TLP. |
+| Package | Ack timer limit 32 to 16 cycles | `rx_directed` | Ack 19 cycles after the eop, expected 35. |
+| TLP receive | No Ack at once after a duplicate | `rx_directed` | No Ack or Nak after the duplicate. |
+| Package | A payload above 128 bytes not malformed | `rx_directed` | Malformed TLP pulses 7, expected 8. |
+| Package | A length that is not whole DWs not malformed | `rx_directed` | Malformed TLP pulses 7, expected 8. |
+| TLP receive | Ack and Nak carry NEXT_RCV_SEQ, not NEXT_RCV_SEQ − 1 | `rx_directed` | Nak 1, expected 0. |
+| TLP receive | A discarded TLP not rewound out of the buffer | `rx_directed` | The bad TLP's DWs delivered before the TLP that ended FC_INIT2. |
+| Receive buffer | Read up to the write pointer, not the commit pointer | `rx_directed` | A TLP delivered in FC_INIT1. |
+| Receive buffer | A beat dropped when the upper layer stalls | `rx_stall` | Not every TLP delivered within 200000 cycles (seed 0). |
+| TLP receive | Link down does not clear NEXT_RCV_SEQ | `rx_directed` | After the next link-up, sequence 0 is a duplicate: no delivery. |
+| Top | A good TLP does not end FC_INIT2 | `rx_directed` | DL_Active not reached. |
+| TLP receive | An ahead TLP pulses no Bad TLP | `rx_directed` | Bad TLP pulses 8, expected 10. |
+| TLP receive | Ack and Nak sent outside DL_Active | `rx_directed` | A Nak sent in FC_INIT2. |
+| TLP receive | Sending an Ack does not stop the Ack timer | `rx_directed` | Ack 9 cycles after the eop, expected 35. |
+| TLP receive | A malformed TLP not acknowledged | `rx_directed` | 17 TLPs delivered, 19 expected. |
+| TLP receive | A TLP one ahead taken as expected | `rx_directed` | 5 Naks sent, expected 6. |
+| Receive buffer | Commit drops a stored TLP's last DW | `rx_directed` | The TLP that ended FC_INIT2 not delivered. |
+| TLP receive | The two received LCRC beats swapped | `rx_directed` | DL_Active not reached. |
+| TLP receive | Sequence number bytes swapped | `rx_directed` | Ack 3 cycles after the eop, expected 35. |
+| TLP receive | Every accepted TLP restarts the Ack timer | `rx_traffic` | An Ack 154 cycles after its TLP's eop, HAS bound 118 (seed 0). |
+| TLP receive | The last DW not marked eop | `rx_directed` | The TLP that ended FC_INIT2 not delivered. |
+| TLP receive | A 4-byte packet not too short | `rx_directed` | Bad TLP pulses 9, expected 10: four zero bytes pass as the LCRC of nothing. |
 
 An UpdateFC that writes an infinite field's stored limit is not a mutant
 that can be caught: an infinite field shows all ones from its flag,
@@ -201,9 +276,9 @@ whatever the limit holds.
 
 | Feature | Owning issue |
 | --- | --- |
-| [Receive checks, duplicates, Ack and Nak scheduling](../../arch/dll/RETRY.md#receiving-tlps); a good TLP ending FC_INIT2; the assertion that the upper layer never stalls the receive stream when a class is infinite ([HAS, Receive](../../arch/dll/HAS.md#receive)) | [#213](https://github.com/amichai-bd/pcie-factory/issues/213) |
+| The receive overflow check and the overflowed-TLP verdict ([receive buffer](../../arch/dll/FLOW_CONTROL.md#receive-buffer)), driven through `rx_fit` | [#214](https://github.com/amichai-bd/pcie-factory/issues/214) |
 | [Credit consumption, the credit gate, receive accounting, UpdateFC on returned credits](../../arch/dll/FLOW_CONTROL.md) | [#214](https://github.com/amichai-bd/pcie-factory/issues/214) |
-| [Targets](../../arch/dll/HAS.md#targets) end to end; the Lossless target needs both directions (#213) | [#215](https://github.com/amichai-bd/pcie-factory/issues/215), [#216](https://github.com/amichai-bd/pcie-factory/issues/216) |
+| [Targets](../../arch/dll/HAS.md#targets) end to end (Lossless with errors both ways) | [#215](https://github.com/amichai-bd/pcie-factory/issues/215), [#216](https://github.com/amichai-bd/pcie-factory/issues/216) |
 
 ## Coverage holes
 
@@ -213,7 +288,7 @@ of the TLP transmit block is hit; every line point but these is hit:
 
 | Cause | Points |
 | --- | --- |
-| Tied off until a later issue | The Ack/Nak branch of the transmit arbiter (#213). |
+| Unreachable by construction | The receive buffer full (`rx_full`, `noroom`): the buffer holds every TLP the advertised credits cover plus the one being collected ([MAS, receive buffer](../../rtl/dll/MAS.md#receive-buffer)), and the partner respects the credits. |
 | Unreachable until #214 | The round-robin picks of the second and third class: without credit returns, classes fall due only in turn, so the pointer always names the due class. |
 
 Toggle holes are mostly the tied-off TLP receive ports, the upper data

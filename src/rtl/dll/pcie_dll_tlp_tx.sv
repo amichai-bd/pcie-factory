@@ -52,13 +52,15 @@ module pcie_dll_tlp_tx (
   logic [11:0] used_tlps;
   logic [13:0] used_bytes;   // framed bytes in the replay buffer
   logic [13:0] need_bytes;   // used + the offered TLP + 6
-  logic [1:0]  sop_fmt;      // Fmt bits 1:0 of the offered sop beat
-  logic [9:0]  sop_len;      // its Length field
+  logic [10:0] sop_pdw;      // payload DWs the offered sop beat's header states
+  logic [12:0] sop_bytes;    // the bytes of its TLP
   logic        room_ok;
   logic        beat_take;    // the upper stream's beat is taken at this edge
   logic        sop_take;
   logic        eop_take;
+  logic [15:0] seq_beat;     // the sequence-number beat of the TLP being taken
   logic [31:0] crc_in;
+  logic [31:0] crc_lo;
   logic [31:0] crc_next;
 
   assign active = state_i == pcie_dll_pkg::DL_ACTIVE;
@@ -73,9 +75,12 @@ module pcie_dll_tlp_tx (
   assign used_words = lock ? st_q.wr_addr - sm_q.start : st_q.wr_addr - st_q.base;
   assign used_tlps  = lock ? st_q.seq_alloc - sm_q.seq : held;
   assign used_bytes = {4'd0, used_words, 2'b00} + {1'b0, used_tlps, 1'b0};
-  assign sop_fmt    = tlp_i.data[6:5];
-  assign sop_len    = {tlp_i.data[17:16], tlp_i.data[31:24]};
-  assign need_bytes = used_bytes + {1'b0, pcie_dll_pkg::tlp_bytes(sop_fmt, sop_len)} + 14'd6;
+  // A 3- or 4-DW header (Fmt bit 0, byte 0 bit 5) and the payload (Fmt
+  // bit 1, byte 0 bit 6; Length in byte 2 bits 1:0 and byte 3).
+  assign sop_pdw    = pcie_dll_pkg::tlp_payload_dw(tlp_i.data[6], {tlp_i.data[17:16],
+                                                                   tlp_i.data[31:24]});
+  assign sop_bytes  = (tlp_i.data[5] ? 13'd16 : 13'd12) + {sop_pdw, 2'b00};
+  assign need_bytes = used_bytes + {1'b0, sop_bytes} + 14'd6;
   assign room_ok    = need_bytes <= 14'(pcie_dll_pkg::RBUF_BYTES);
 
   // Ready on a sop beat only in DL_Active, between TLPs (the LCRC word of
@@ -85,22 +90,26 @@ module pcie_dll_tlp_tx (
   assign beat_take   = tlp_valid_i && tlp_ready_o;
   assign sop_take    = beat_take && !st_q.taking;
   assign eop_take    = beat_take && tlp_i.eop;
-  assign crc_in      = sop_take ? pcie_dll_pkg::lcrc_seq(st_q.seq_alloc) : st_q.crc;
-  assign crc_next    = pcie_dll_pkg::lcrc_dw(crc_in, tlp_i.data);
+  // The LCRC register (seeded with all ones) over the 2 sequence-number
+  // bytes at the sop, then each DW as two 16-bit steps.
+  assign seq_beat    = {st_q.seq_alloc[7:0], 4'h0, st_q.seq_alloc[11:8]};
+  assign crc_in      = sop_take ? pcie_dll_pkg::lcrc_step(32'hFFFF_FFFF, seq_beat) : st_q.crc;
+  assign crc_lo      = pcie_dll_pkg::lcrc_step(crc_in, tlp_i.data[15:0]);
+  assign crc_next    = pcie_dll_pkg::lcrc_step(crc_lo, tlp_i.data[31:16]);
 
   // ------------------------------------------------------------ replay buffer
 
   logic        wr_en;
   logic [7:0]  wr_addr;
   logic [31:0] wr_data;
-  logic [31:0] lcrc_word;    // the complemented register: LCRC byte 0 in [7:0]
+  logic [31:0] lcrc_word;    // the LCRC bytes from the register, byte 0 in [7:0]
   logic        rd_en;
   logic [7:0]  rd_addr;
   logic [31:0] rd_data;
   logic [7:0]  wr_end;       // word after the TLP whose LCRC is written now
   logic        end_we;
 
-  assign lcrc_word = ~st_q.crc;
+  assign lcrc_word = pcie_dll_pkg::lcrc_bytes(st_q.crc);
   assign wr_en     = beat_take || st_q.lcrc_due;
   assign wr_addr   = st_q.wr_addr;
   assign wr_data   = st_q.lcrc_due ? lcrc_word : tlp_i.data;

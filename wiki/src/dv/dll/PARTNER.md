@@ -180,14 +180,15 @@ The `dll` testbench runs the partner, the architecture model and the RTL
 against each other for the features the RTL has (DLLPs, InitFC, the
 control states), as the [DV plan](DV_PLAN.md#cross-check-rtl-architecture-model-partner)
 describes ([#211](https://github.com/amichai-bd/pcie-factory/issues/211)).
+The TLP receive path and Ack/Nak scheduling are cross-checked in the
+`rx_*` entries ([#213](https://github.com/amichai-bd/pcie-factory/issues/213)).
 Since [#212](https://github.com/amichai-bd/pcie-factory/issues/212) the
 partner is also the far end of the TLP transmit tests, with its fault
 hooks, and receives the architecture model's TLPs in the rollover
-scenario. One reading difference was found there, when a running replay
-ends, and is a [HAS open item](../../arch/dll/HAS.md#open-items); the
-Ack/Nak scheduling and credit features are cross-checked as #213 and #214
-add them. Any disagreement goes to the HAS Open items, not into either
-model silently.
+scenario. A reading difference found there, when a running replay ends,
+is a [HAS open item](../../arch/dll/HAS.md#open-items); the credit
+features are cross-checked as #214 adds them. Any disagreement goes to the
+HAS Open items, not into either model silently.
 
 ## Possible disagreements
 
@@ -212,13 +213,14 @@ A seventh point was found by the `dll` RTL review
 HAS now finishes a packet whose `sop` the `phy` took before the link went
 down ([decisions](../../arch/dll/HAS.md#decisions)), while the partner
 drops its packet on link-down. It is a [HAS open item](../../arch/dll/HAS.md#open-items);
-the partner is unchanged.
-
-Found by the `dll` cross-check and corrected in the partner
-([#212](https://github.com/amichai-bd/pcie-factory/issues/212)): a replay
-left out a TLP still going out when the replay started; it now resends
-every TLP handed to the line, as the [retry page](../../arch/dll/RETRY.md#replay)
-says (`test_nak_during_a_tlp_replays_it_too`).
+the partner is unchanged. An eighth was found by the `dll` receive tests
+([#213](https://github.com/amichai-bd/pcie-factory/issues/213)): the
+partner leaves a TLP still on the line when a Nak or timeout arrives out
+of the replay, where the architecture model resends it. Resolved in
+[#212](https://github.com/amichai-bd/pcie-factory/issues/212) as a
+[HAS decision](../../arch/dll/HAS.md#decisions): a TLP handed to the line
+is sent, so the replay resends it; the partner is corrected to do so
+(`test_nak_during_a_tlp_replays_it_too`).
 
 Found independently and already resolved in #259 (by `feb7ccb`):
 

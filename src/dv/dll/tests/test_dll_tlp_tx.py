@@ -16,8 +16,8 @@ import random
 
 import cocotb
 
-from tb.dll_env import (ACTIVE, CLASSES, COV_RBUF, COV_REPLAY, ERR_PROTOCOL, ERR_ROLLOVER,
-                        ERR_TIMEOUT, INIT1, INIT2, SEQ_MOD, Env, arch, arch_partner_traffic, ptn,
+from tb.dll_env import (ACK_BOUND, ACTIVE, CLASSES, COV_RBUF, COV_REPLAY, ERR_PROTOCOL, ERR_ROLLOVER,
+                        ERR_TIMEOUT, INIT1, INIT2, SEQ_MOD, Env, arch, arch_partner_send, ptn,
                         raw_dllp)
 
 # RETRY.md, LCRC: sequence 0 and this memory read give these LCRC bytes.
@@ -564,7 +564,7 @@ async def tlp_rollover(dut):
     pairs = env.check_shadow_tx()
     assert got["replays"] == 4 and pairs["replays"][1] == 4, pairs
     fresh = ptn.Partner("fresh", credits=INFINITE, seed=seed)
-    model, cycles = arch_partner_traffic(tlps, fresh, drop_from=drop_at, retrain_cycles=500)
+    model, cycles = arch_partner_send(tlps, fresh, drop_from=drop_at, retrain_cycles=500)
     arch_got = {"timeouts": model.errors[arch.E_TIMEOUT],
                 "rollovers": model.errors[arch.E_ROLLOVER],
                 "retrains": model.counts["retrains"], "bad_tlp": fresh.stats.get("bad_tlp", 0)}
@@ -643,4 +643,48 @@ async def seq_wrap(dut):
     assert len(wrapped) >= 2 and env.replay_runs, f"wrap {wrapped}, {env.replay_runs} replays"
     dut._log.info("seed %d: %d TLPs, %d replays, %d timeouts", seed, len(tlps),
                   env.replay_runs, env.err_counts[ERR_TIMEOUT])
+    env.check_clean()
+
+
+@cocotb.test()
+async def tlp_bidir(dut):
+    """L1, seeded: both directions loaded. The DUT sends 300 random TLPs
+    (many of maximum size) to the partner while the partner sends it 300
+    within the DUT's credits: each side delivers the other's TLPs once and
+    in order, and every TLP the DUT receives is covered by an Ack or Nak
+    that starts within the HAS's 118 cycles of its eop, though the DUT's
+    Acks wait behind its own TLPs on the stream (RETRY.md, transmit
+    priority)."""
+    from tests.test_dll_rx import traffic as rx_traffic_tlps
+    seed = cocotb.RANDOM_SEED
+    rng = random.Random(seed)
+    env, partner = await partner_env(dut, seed)
+    to_dut = rx_traffic_tlps(rng, env.adv, 300)
+    to_partner = [make_tlp(rng.choice(("MWr", "MWr64", "CplD")), rng.choice((32, 32, 16, 1)),
+                           i) for i in range(300)]
+    for t in to_dut:
+        partner.send(t)
+    took = await deliver(env, partner, to_partner)
+    await env.run_until(lambda: len(env.delivered) == len(to_dut) and not partner.rbuf, 20000,
+                        "the partner's TLPs delivered and acknowledged")
+    await env.run(200)
+    env.check_tlp_delivered(partner, to_partner)
+    assert env.delivered == to_dut, "the upper stream does not carry the partner's TLPs"
+    lat = env.check_rx(ack_bound=ACK_BOUND)
+    # On an idle stream an Ack starts 35 cycles after the eop (MAS, timing):
+    # later ones waited behind a packet on the stream.
+    idle_ack = 35
+    behind = sum(1 for eop, seq, _ in env.ref.accepts
+                 if next(s for s, _, _, q in env.acknaks
+                         if s > eop and (q - seq) % SEQ_MOD < 2048) - eop > idle_ack)
+    assert behind and lat["ack"] > idle_ack, "no Ack waited behind a TLP"
+    assert env.replay_runs == 0 and env.err_counts[ERR_TIMEOUT] == 0
+    dut._log.info("seed %d: %d TLPs each way in %d cycles; worst Ack %d cycles (HAS %d); "
+                  "%d TLPs acknowledged after waiting for the stream; DUT vs arch shadow "
+                  "(logged, not compared) %s", seed, len(to_partner), took, lat["ack"],
+                  ACK_BOUND, behind, env.check_shadow_tx())
+    # The shadow sends its own Acks at its own pace, so its TLPs lag the
+    # DUT's and Acks can name TLPs it has not sent yet (DV plan, cross-check).
+    env.xcheck.clear()
+    env.check_shadow_rx()
     env.check_clean()
