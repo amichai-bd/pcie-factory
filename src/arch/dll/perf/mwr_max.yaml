@@ -1,0 +1,16 @@
+# Back-to-back 128-byte memory writes one way, default credits: the dll
+# keeps the line busy (wiki/src/arch/dll/HAS.md#targets).
+description: 500 MWr TLPs with 128-byte payloads, one way, default credits, error-free.
+seed: 1
+workload:
+  kind: traffic
+  tlps: 500
+  mix: mwr
+  payload: 128
+targets:
+  tlp_line_fraction: {min: 0.99}
+  ack_latency_cycles_max: {max: 118}
+  tlps_lost: {max: 0}
+  tlps_duplicated: {max: 0}
+  tlps_out_of_order: {max: 0}
+  replays: {max: 0}

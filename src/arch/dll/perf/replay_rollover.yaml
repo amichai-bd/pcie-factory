@@ -1,0 +1,21 @@
+# Every TLP one way is lost from cycle 5000 until the retrain: exactly four
+# replay timeouts roll REPLAY_NUM over, the dll requests a retrain and holds
+# the replay until the LTSSM is back in L0, so the partner sees no bad TLP
+# (wiki/src/arch/dll/RETRY.md#replay_num, wiki/src/arch/dll/HAS.md#targets).
+description: 300 MWr TLPs, all TLPs a to b dropped in cycles 5000 to 7000 (the retrain starts near 6730).
+seed: 1
+workload:
+  kind: traffic
+  tlps: 300
+  mix: mwr
+  payload: 128
+  errors: {drop_tlp_window: [5000, 7000]}
+targets:
+  err_replay_timeout: {min: 4, max: 4}
+  err_replay_rollover: {min: 1, max: 1}
+  retrains: {min: 1, max: 1}
+  replays: {max: 4}
+  bad_tlp_at_receiver: {max: 0}
+  tlps_lost: {max: 0}
+  tlps_duplicated: {max: 0}
+  tlps_out_of_order: {max: 0}
