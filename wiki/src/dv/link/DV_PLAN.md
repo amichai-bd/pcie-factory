@@ -88,8 +88,9 @@ flowchart LR
     rollover pulses and link-downs and the line impairments, which tie
     its exemptions and allowances to their triggers ([`link` HAS, passive
     checker](../../arch/link/HAS.md#passive-checker)): a replay short by
-    its newest TLP only across the sender's rollover retrain, a cut TLP
-    only at its exit from L0. Every accepted TLP must have been judged
+    its newest TLP only across the sender's rollover pulse or link-down, a
+    cut TLP only at its exit from L0. The link-control tests require Acks
+    timed after the relink. Every accepted TLP must have been judged
     once as a first transmission;
   - in the error-free entries (`e2e_smoke`, every `e2e_credits_*`): no Bad
     TLP, Bad DLLP, replay timeout or rollover pulse, no `rcv_err_o`, and

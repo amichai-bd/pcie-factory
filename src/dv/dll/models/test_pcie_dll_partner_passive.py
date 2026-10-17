@@ -326,12 +326,14 @@ def test_ack_timing_flags_a_tlp_never_acknowledged():
     assert len(v) == 1 and "never acknowledged" in v[0]
 
 
-def test_rollover_withdrawal_allowed_only_across_a_retrain():
+@pytest.mark.parametrize("trigger", ["rollover", "link_down", "recovery", None])
+def test_rollover_withdrawal_allowed_only_at_a_rollover(trigger):
     """A replay cut short by its newest TLP, then the next replay: allowed
-    only when the sender retrained (or pulsed a rollover) in between. With
-    no retrain, even a timeout-spaced replay is flagged; cut short by two,
-    flagged in any case."""
-    def views(cut, retrain):
+    only when the sender's rollover pulse (or link-down) falls in between.
+    A plain Recovery (out of L0, no rollover) is not enough: the offered TLP
+    just waits. With no trigger, even a timeout-spaced replay is flagged;
+    cut short by two, flagged in any case."""
+    def views(cut):
         chk = PassiveChecker()
         init_views(chk)
         for i, s in enumerate((0, 1, 2)):
@@ -341,16 +343,33 @@ def test_rollover_withdrawal_allowed_only_across_a_retrain():
         for s in range(0, 3 - cut):
             chk.sent("ab", tlp(s, start=t))
             t += 20
-        if retrain:
+        if trigger == "rollover":
+            chk.rollover("a", t + 10)
+            chk.retrain("a", t + 50, t + 300)
+        elif trigger == "recovery":
             chk.retrain("a", t + 50, t + 300)
         chk.sent("ab", tlp(0, start=t + 356))       # a replay-timeout later
-        return chk.check()
-    assert views(1, True) == []
-    v = views(1, False)
-    assert len(v) == 1 and "before the one from 1 to 2 completed" in v[0]
-    v = views(2, True)
-    assert len(v) == 1 and "before the one from 0 to 2 completed" in v[0]
+        return chk
 
+    def run(cut):
+        chk = views(cut)
+        if trigger == "link_down":                  # the sender's state restarts: epoch split
+            return chk
+        return chk.check()
+    if trigger in ("rollover",):
+        assert run(1) == []
+    elif trigger is None or trigger == "recovery":
+        v = run(1)
+        assert len(v) == 1 and "before the one from 1 to 2 completed" in v[0]
+    if trigger == "rollover":
+        v = run(2)
+        assert len(v) == 1 and "before the one from 0 to 2 completed" in v[0]
+    if trigger == "link_down":
+        chk = PassiveChecker()
+        chk._sel = {}
+        assert chk._withdrawn("ab", [1, 2], 4095, 400.0, 300.0) is False
+        chk.link_down("a", 350.0)
+        assert chk._withdrawn("ab", [1, 2], 4095, 400.0, 300.0) is True
 
 def test_line_unsure_ack_widens_the_replay_start():
     """An Ack delivered inside a line-impairment range may have been lost

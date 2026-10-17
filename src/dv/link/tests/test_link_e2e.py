@@ -377,6 +377,12 @@ async def link_control(dut, request: str):
     await env.drain()
     await env.cycles(500)
     stats = env.finish()
+    # Not vacuous after the relink: the passive checker timed the Acks of
+    # the receiver's second epoch (the out-of-L0 range closes at the
+    # link-down, so no exemption covers the traffic after it).
+    for d in ("ab", "ba"):
+        n = env.chk.stats.get(f"ack_timing_{d}_epoch1", 0)
+        assert n > 0, f"{request}: no Ack timed on {d} after the relink"
     COV_LINK.sample(request=request)
     env.log.info("%s: lost at the link-down %s", request, stats["lost_at_link_down"])
 

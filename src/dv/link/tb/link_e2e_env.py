@@ -300,7 +300,7 @@ class LinkEnd:
                 if err >> b & 1:
                     self.err[b] += 1
                     if b == ROLLOVER:
-                        self.env.chk.retrain(self.name, t, t)
+                        self.env.chk.rollover(self.name, t)
                     if b in NEVER:
                         self.violations.append(f"end {self.name} cycle {n}: "
                                                f"{ERR_NAMES[b]} pulsed on dl_err_o")
@@ -539,6 +539,10 @@ class Env:
         held; once both are down, what was not delivered is lost."""
         self.chk.link_down(end.name, t)
         self.link_downs += 1
+        # An exit from L0 that ends in the link-down closes here: after the
+        # relink the end's L0 tracking starts afresh.
+        if end.not_l0 and end.not_l0[-1][1] is None:
+            end.not_l0[-1][1] = t
         end.ack.reset()
         end.cur = None
         end.rx_beats = []

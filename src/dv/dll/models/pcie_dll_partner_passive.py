@@ -50,15 +50,15 @@ by Acks that arrived ``ack_window`` cycles before it (the sender may not
 have seen later ones yet) and the oldest not acknowledged by every Ack
 that arrived before it.
 
-``retrain(name, start, end)`` records a time range in which end ``name``
-left L0 (a retrain, its REPLAY_NUM rollover included; ``start == end``
-for a rollover pulse alone). Two allowances hold only around such a range
-of the sender, never otherwise: a replay may stop short by its newest TLP
-when a range falls between it and the next replay (the REPLAY_NUM
-rollover withdraws a TLP not yet started, then retrains); and a TLP may
-be cut short on the line (``err`` in the sent view) only when it ends
-within ``cut_slack`` cycles of such a range or of the sender's link-down
-(the phy cuts a packet when the LTSSM leaves L0).
+``rollover(name, t)`` records end ``name``'s REPLAY_NUM rollover pulse and
+``retrain(name, start, end)`` a time range in which it was out of L0. A
+replay may stop short by its newest TLP only when the sender's rollover
+or link-down falls between it and the next replay (the rollover, or the
+link-down, withdraws a TLP offered but not started; at a plain Recovery
+the offered TLP just waits). A TLP may be cut short on the line (``err``
+in the sent view) only when it ends within ``cut_slack`` cycles of the
+sender's out-of-L0 range or link-down (the phy cuts a packet when the
+LTSSM leaves L0).
 
 ``link_down(name, t)`` starts a new epoch for that end (its state restarts
 in DL_Inactive). ``exempt(start, end, why)`` marks a time range in which the Ack timing
@@ -135,6 +135,7 @@ class PassiveChecker:
         self.ack_window = ack_window
         self.cut_slack = cut_slack
         self.retrains: dict[str, list[tuple[float, float]]] = {n: [] for n in names}
+        self.rollovers: dict[str, list[float]] = {n: [] for n in names}
         self.names = names
         self.views = {(v, d): [] for v in ("sent", "delivered") for d in DIRECTIONS}
         self.log: list[Injection] = []
@@ -168,9 +169,12 @@ class PassiveChecker:
             self.unsure.append((start, end, why))
 
     def retrain(self, name: str, start: float, end: float) -> None:
-        """End ``name`` was out of L0 from ``start`` to ``end`` (or pulsed a
-        REPLAY_NUM rollover at ``start == end``)."""
+        """End ``name`` was out of L0 from ``start`` to ``end``."""
         self.retrains[name].append((start, end))
+
+    def rollover(self, name: str, t: float) -> None:
+        """End ``name`` pulsed a REPLAY_NUM rollover at ``t``."""
+        self.rollovers[name].append(t)
 
     def link_down(self, name: str, t: float) -> None:
         """End ``name``'s LinkUp fell at ``t``: it went to DL_Inactive, so its
@@ -214,7 +218,7 @@ class PassiveChecker:
             for name, check, sent_d, dlv_d in ((sender, self._check_tx, d, _rev(d)),
                                                 (receiver, self._check_acknak, _rev(d), d)):
                 cuts = [-inf] + sorted(self.downs[name]) + [inf]
-                for lo, hi in zip(cuts, cuts[1:]):
+                for self._epoch, (lo, hi) in enumerate(zip(cuts, cuts[1:])):
                     self._sel = {
                         ("sent", sent_d): [p for p in self.views[("sent", sent_d)]
                                            if lo <= p.start < hi],
@@ -342,11 +346,13 @@ class PassiveChecker:
         the TLP offered but not started when the rollover happens is not
         sent, and the rollover replay, after the retrain, resends it. So a
         replay may stop short by its newest TLP only, and only when the
-        sender's rollover or retrain falls between it and the next TLP."""
+        sender's rollover pulse or link-down falls between it and the next
+        TLP (dll RETRY page, REPLAY_NUM; dll MAS decisions)."""
         last, end = replay
         missing = [q for q in self._between(last, (end + 1) % SEQ_MOD) if _ahead(q, ackd)]
+        name = self._sender(d)
         return (missing == [end] and prev_end is not None
-                and any(prev_end <= b and a <= t for a, b in self.retrains[self._sender(d)]))
+                and any(prev_end <= x <= t for x in self.rollovers[name] + self.downs[name]))
 
     def _cut_ok(self, d: str, p: ViewPacket) -> bool:
         """A sent TLP cut short: allowed only at the sender's exit from L0
@@ -424,6 +430,7 @@ class PassiveChecker:
             gap = (cover[0] - end) / self.cycle
             self.ack_gap_max = max(self.ack_gap_max, gap)
             self._count(f"{kind}ack_timing_{d}")
+            self._count(f"{kind}ack_timing_{d}_epoch{self._epoch}")
             if gap > self.ack_bound:
                 what = "duplicate TLP" if kind else "TLP"
                 self._violate("ack_timing", _rev(d), end, f"{what} {s} covered by an Ack or Nak "
