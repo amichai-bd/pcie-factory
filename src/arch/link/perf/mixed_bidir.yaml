@@ -1,0 +1,17 @@
+# Random reads, writes and completions both ways over the line with SKP:
+# Acks still start within the limit, nothing lost (wiki/src/arch/link/HAS.md#targets).
+description: 2000 random TLPs each way, payloads 4 to 128 bytes, SKP every 1180 symbols, error-free.
+seed: 2
+workload:
+  kind: traffic
+  tlps: 2000
+  mix: mixed
+  payload: -1
+  bidirectional: true
+targets:
+  ack_latency_dll_cycles_max: {max: 118}   # at the dll-to-phy boundary
+  tlps_lost: {max: 0}
+  tlps_duplicated: {max: 0}
+  tlps_out_of_order: {max: 0}
+  replays: {max: 0}
+  err_rx_overflow: {max: 0}

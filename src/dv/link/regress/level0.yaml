@@ -1,0 +1,6 @@
+tests:
+  - name: smoke
+    module: tests.test_link
+    testcase: smoke
+    top: pcie_link
+    timeout_s: 60

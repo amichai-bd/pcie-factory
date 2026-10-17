@@ -1,0 +1,16 @@
+# The one-way throughput target: back-to-back 128-byte memory writes, the
+# Acks and UpdateFC-P on the reverse line (wiki/src/arch/link/HAS.md#throughput).
+description: 2000 MWr TLPs with 128-byte payloads one way, default credits, SKP every 1180 symbols, error-free.
+seed: 1
+workload:
+  kind: traffic
+  tlps: 2000
+  mix: mwr
+  payload: 128
+targets:
+  tlp_line_fraction: {min: 0.98}
+  payload_line_fraction: {min: 0.85}
+  tlps_lost: {max: 0}
+  tlps_duplicated: {max: 0}
+  tlps_out_of_order: {max: 0}
+  replays: {max: 0}

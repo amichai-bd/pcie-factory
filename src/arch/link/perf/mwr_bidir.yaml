@@ -1,0 +1,19 @@
+# The headline throughput target: 128-byte memory writes both ways, so each
+# line also carries the Acks and UpdateFC-P for the other direction
+# (wiki/src/arch/link/HAS.md#throughput).
+description: 2000 MWr TLPs with 128-byte payloads each way, default credits, SKP every 1180 symbols, error-free.
+seed: 1
+workload:
+  kind: traffic
+  tlps: 2000
+  mix: mwr
+  payload: 128
+  bidirectional: true
+targets:
+  tlp_line_fraction: {min: 0.88}
+  payload_line_fraction: {min: 0.76}
+  ack_latency_dll_cycles_max: {max: 118}   # at the dll-to-phy boundary
+  tlps_lost: {max: 0}
+  tlps_duplicated: {max: 0}
+  tlps_out_of_order: {max: 0}
+  replays: {max: 0}

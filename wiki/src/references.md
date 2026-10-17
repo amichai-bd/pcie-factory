@@ -42,7 +42,7 @@ on the entry's **Verified** line and removes it here.
 | Official link | [PCI-SIG specifications](https://pcisig.com/specifications) |
 | Access | Members only (download for PCI-SIG members); hard copies for purchase. |
 | Local cache | `local`: the captain places a copy they hold under their own license at `./build specs path --local pcie-base`; the factory works without it. |
-| Relied on by | [`phy` HAS](arch/phy/HAS.md) and its [architecture model](../../src/arch/phy/pcie_phy_arch.py); the [`pcs` HAS](arch/pcs/HAS.md) and its [architecture model](../../src/arch/pcs/pcie_pcs_arch.py); the `mac` HAS ([#72](https://github.com/amichai-bd/pcie-factory/issues/72)); the [`dll` HAS](arch/dll/HAS.md), its sub-pages and its [architecture model](../../src/arch/dll/pcie_dll_arch.py); the `dll` [link partner page](dv/dll/PARTNER.md). |
+| Relied on by | [`phy` HAS](arch/phy/HAS.md) and its [architecture model](../../src/arch/phy/pcie_phy_arch.py); the [`pcs` HAS](arch/pcs/HAS.md) and its [architecture model](../../src/arch/pcs/pcie_pcs_arch.py); the `mac` HAS ([#72](https://github.com/amichai-bd/pcie-factory/issues/72)); the [`dll` HAS](arch/dll/HAS.md), its sub-pages and its [architecture model](../../src/arch/dll/pcie_dll_arch.py); the `dll` [link partner page](dv/dll/PARTNER.md); the [`link` HAS](arch/link/HAS.md) and its [architecture model](../../src/arch/link/pcie_link_arch.py). |
 | Verified | The publisher's domain answers, behind a bot challenge that blocks automated reads; the page content was not read. |
 
 ## pipe

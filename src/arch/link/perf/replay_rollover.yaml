@@ -1,0 +1,16 @@
+# Every TLP one way lost for 2000 cycles: REPLAY_NUM rolls over, the link
+# retrains and traffic resumes (wiki/src/arch/link/HAS.md#end-to-end-plan).
+description: 300 MWr TLPs with 128-byte payloads one way, all TLPs dropped from cycle 5000 to 7000.
+seed: 4
+workload:
+  kind: traffic
+  tlps: 300
+  mix: mwr
+  payload: 128
+  errors: {drop_tlp_window: [5000, 7000]}
+targets:
+  err_replay_rollover: {min: 1, max: 1}
+  retrains: {min: 1, max: 1}
+  tlps_lost: {max: 0}
+  tlps_duplicated: {max: 0}
+  tlps_out_of_order: {max: 0}

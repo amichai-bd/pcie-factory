@@ -1,0 +1,10 @@
+# The same with every credit class infinite (wiki/src/arch/link/HAS.md#targets).
+description: 200 initialisations with up to 300 cycles of link-up skew, all credits infinite.
+seed: 6
+workload:
+  kind: init
+  trials: 200
+  skew: 300
+  fc: {ph: 0, pd: 0, nph: 0, npd: 0, cplh: 0, cpld: 0}
+targets:
+  dl_active_cycles_max: {max: 200}
