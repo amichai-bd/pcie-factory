@@ -229,11 +229,16 @@ async def fc_rx_accounting(dut):
         await rx_deliver(env, rx_items(rng, 120, tag), gap=2)
         tag += 120
         if finite:
-            # A slow upper layer and a long stall: bursts overflow.
+            # A slow upper layer and a long stall: bursts overflow, then a
+            # burst of each class beyond its credits.
             env.rx_ready_p = 0.3
             env.rx_stall_until = env.cycle + 600
             await rx_deliver(env, rx_items(rng, 80, tag))
             tag += 80
+            for kind in ("MWr", "MRd", "CplD"):
+                env.rx_stall_until = env.cycle + 400
+                await rx_deliver(env, [ptn.make_tlp(kind, 32, tag + i) for i in range(20)])
+                tag += 20
             env.rx_ready_p = 1.0
         for kind in ("MWr", "MRd", "CplD", "Msg"):
             await rx_deliver(env, [ptn.make_tlp(kind, 8, tag + i) for i in range(12)])

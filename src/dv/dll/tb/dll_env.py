@@ -147,7 +147,9 @@ COV_FC_RX = Covergroup("dll_fc_rx")
 COV_FC_RX.coverpoint("decision", bins=["stored", "overflow", "malformed",
                                        "malformed_no_hdr"])
 COV_FC_RX.coverpoint("cls", bins=list(CLASSES))
-COV_FC_RX.cross("decision_x_cls", "decision", "cls")
+# A malformed TLP under 4 bytes has no header, so no class.
+COV_FC_RX.cross("decision_x_cls", "decision", "cls",
+                unreachable=[("malformed_no_hdr", c) for c in CLASSES])
 COV_FC_RX.coverpoint("field", bins=["finite", "infinite"])
 COV_FC_RX.coverpoint("returned", bins=["P", "NP", "Cpl"])
 
