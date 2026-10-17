@@ -1,0 +1,17 @@
+# Every class advertised infinite, upper layer always ready: no overflow
+# in the infinite-class reserve (wiki/src/arch/dll/HAS.md#targets).
+description: 3000 random TLPs each way, all credits infinite, sinks always ready.
+seed: 5
+workload:
+  kind: traffic
+  tlps: 3000
+  mix: mixed
+  payload: -1
+  bidirectional: true
+  fc: {ph: 0, pd: 0, nph: 0, npd: 0, cplh: 0, cpld: 0}
+targets:
+  err_rx_overflow: {max: 0}
+  tlps_lost: {max: 0}
+  tlps_duplicated: {max: 0}
+  tlps_out_of_order: {max: 0}
+  replays: {max: 0}

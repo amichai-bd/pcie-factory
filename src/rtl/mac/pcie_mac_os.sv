@@ -66,7 +66,13 @@ module pcie_mac_os #(
 
   assign req_any = tx_req_i.ts | tx_req_i.skp | tx_req_i.eios | tx_req_i.fts
                  | tx_req_i.compliance | tx_req_i.pattern;
-  assign tx_skp_due_o = (skp_credit_q >= pcie_mac_pkg::SKP_CREDIT_W'(pcie_mac_pkg::SKP_INTERVAL));
+  // SKP due: the compare of the count is made on its next value and
+  // registered, so the due flag leaves a flop (MAS, Timing). It equals
+  // skp_credit_q >= SKP_INTERVAL in every cycle (a_skp_due_matches); the
+  // count resets to 0, below the interval.
+  logic skp_due_q, skp_due_d;
+
+  assign tx_skp_due_o = skp_due_q;
   assign start_sched  = !tx_busy_q && tx_skp_due_o && tx_skp_ok_i && !tx_skp_hold_i;
   assign start_req    = !tx_busy_q && !start_sched && req_any;
   assign start        = start_sched | start_req;
@@ -209,6 +215,10 @@ module pcie_mac_os #(
   `COMMON_DFF_RST_VAL(tx_kind_q, tx_kind_d, clk_i, rst_i, pcie_mac_pkg::KIND_TS)
   `COMMON_DFF_RST(tx_idx_q, tx_idx_d, clk_i, rst_i)
   `COMMON_DFF_RST(skp_credit_q, skp_credit_d, clk_i, rst_i)
+
+  assign skp_due_d = skp_credit_d >= pcie_mac_pkg::SKP_CREDIT_W'(pcie_mac_pkg::SKP_INTERVAL);
+
+  `COMMON_DFF_RST(skp_due_q, skp_due_d, clk_i, rst_i)
   `COMMON_DFF_RST(pat_q, pat_d, clk_i, rst_i)
   `COMMON_DFF_EN(f_ts2_q, tx_ts_i.ts2, clk_i, start)
   `COMMON_DFF_EN(f_lane_pad_q, tx_ts_i.lane_pad, clk_i, start)
@@ -219,6 +229,8 @@ module pcie_mac_os #(
                  $onehot0({tx_req_i.ts, tx_req_i.skp, tx_req_i.eios, tx_req_i.fts,
                            tx_req_i.compliance, tx_req_i.pattern}))
   `COMMON_ASSERT_NEVER(a_count_while_valid, clk_i, rst_i, tx_count_i && tx_valid)
+  `COMMON_ASSERT_NEVER(a_skp_due_matches, clk_i, rst_i,
+                       skp_due_q != (skp_credit_q >= pcie_mac_pkg::SKP_CREDIT_W'(pcie_mac_pkg::SKP_INTERVAL)))
   `COMMON_ASSERT_NEVER(a_skp_credit_saturates, clk_i, rst_i,
                        skp_credit_q == pcie_mac_pkg::SKP_CREDIT_MAX)
 

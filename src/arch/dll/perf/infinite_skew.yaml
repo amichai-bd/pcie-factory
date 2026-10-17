@@ -1,0 +1,20 @@
+# All credits infinite, link-up 300 cycles apart, TLPs only from the side
+# that reaches DL_Active last: the entry UpdateFC of every class ends the
+# partner's FC_INIT2, so traffic flows (wiki/src/arch/dll/FLOW_CONTROL.md#initialisation).
+description: 200 random TLPs b to a only, all credits infinite, b's link up 300 cycles after a's.
+seed: 1
+workload:
+  kind: traffic
+  tlps: 200
+  mix: mixed
+  payload: -1
+  sender: b
+  link_skew: 300
+  fc: {ph: 0, pd: 0, nph: 0, npd: 0, cplh: 0, cpld: 0}
+  max_cycles: 100000
+targets:
+  tlps_delivered: {min: 200, max: 200}
+  tlps_lost: {max: 0}
+  tlps_duplicated: {max: 0}
+  tlps_out_of_order: {max: 0}
+  err_rx_overflow: {max: 0}

@@ -94,6 +94,12 @@ COV_CTL.coverpoint("disabled_exit", bins=["directed", "following_eios", "followi
 COV_CTL.coverpoint("l0_exit_request", bins=["hot_reset", "disable", "loopback"])
 COV_CTL.coverpoint("scrambling_off", bins=list(arch.ROLES))
 
+# A following Hot Reset's dwell restarted by a TS1 at the cycles around its
+# timeout (the LTSSM's registered timeout, MAS Timing): the restart in the
+# step whose timer is limit - 3, limit - 2 or limit - 1 (the timeout step).
+COV_HR_DWELL = Covergroup("mac_hr_dwell")
+COV_HR_DWELL.coverpoint("restart_at", bins=["limit_minus_3", "limit_minus_2", "limit_minus_1"])
+
 COV_PKT = Covergroup("mac_frame")
 COV_PKT.coverpoint("tx_outcome", bins=["tlp_end", "tlp_nullify", "dllp_end",
                                        "dllp_nullify_ignored", "abort_l0_exit",

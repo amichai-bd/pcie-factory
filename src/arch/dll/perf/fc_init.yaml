@@ -1,0 +1,10 @@
+# Flow-control initialisation from the later link-up to both ends in
+# DL_Active, any link-up skew (wiki/src/arch/dll/HAS.md#targets).
+description: 200 initialisations, link-up skew up to 2000 cycles, error-free.
+seed: 1
+workload:
+  kind: init
+  trials: 200
+  skew: 2000
+targets:
+  dl_active_cycles_max: {max: 200}

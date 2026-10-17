@@ -1,0 +1,14 @@
+# The partner acknowledges at the spec's latest (118 cycles): the replay
+# buffer still never stalls the line (wiki/src/arch/dll/HAS.md#targets).
+description: 500 MWr TLPs with 128-byte payloads, partner Ack latency 118 cycles.
+seed: 1
+workload:
+  kind: traffic
+  tlps: 500
+  mix: mwr
+  payload: 128
+  partner_ack_latency: 118
+targets:
+  tlp_line_fraction: {min: 0.99}
+  tlps_lost: {max: 0}
+  replays: {max: 0}

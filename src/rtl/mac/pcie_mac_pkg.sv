@@ -559,6 +559,303 @@ package pcie_mac_pkg;
     default:       '0
   };
 
+  // The end of an LTSSM step (MAS, LTSSM, Structure): what the state the
+  // step ends in sends, its PowerDown and the PIPE control registers. The
+  // LTSSM evaluates it twice, for the step that stays (go 0, the state it
+  // started in) and for the step that takes its arc (go 1, the arc's
+  // target), and the arc's go selects one, so go is not in series with
+  // this logic (MAS, Timing).
+  typedef struct packed {
+    common_pkg::t_ltssm_state st;            // the state the step starts in
+    logic                     dsp;           // downstream role
+    logic                     in_l0;
+    logic                     req_disable;   // req_i.disable_link
+    logic                     req_hot_reset; // req_i.hot_reset
+    logic                     req_loopback;  // req_i.loopback
+    logic                     directed_q;    // r_q.directed
+    common_pkg::t_l0s_sub     tx_sub_q;      // r_q.tx_sub
+    common_pkg::t_l0s_sub     tx_sub_x;      // the transmit sub-state after this step's arcs
+    logic                     pm_wait_q;     // r_q.pm.pm_wait
+    logic                     pm_wait_go;
+    logic                     l0_exit_c;
+    logic                     q_old;         // a set in progress or an EIOS not yet started
+    logic                     tx_busy;       // a started set has words left
+    logic                     eios_pend;     // an EIOS queued and not yet started
+    logic                     fts_skp_c;
+    logic [DIS_TS_W-1:0]      dis_ts_c;
+    logic                     eios_done_c;
+    logic                     tx_ei_q;       // r_q.tx_ei
+    logic [EI_CNT_W-1:0]      ei_cycles_q;   // r_q.ei_cycles
+    common_pkg::t_power_down  pd_q;          // r_q.pd
+    logic                     pd_pending_c;
+    logic                     detect_done_c;
+    logic                     detect_rx_q;   // r_q.detect_rx
+    logic                     scr_off_q;     // r_q.scr_off
+    logic                     dscr_c;
+    logic                     tx_link_pad_q; // r_q.tx_link_pad
+    logic                     tx_lane_pad_q; // r_q.tx_lane_pad
+  } t_end_ctx;
+
+  typedef struct packed {
+    logic                    directed;    // r_d.directed
+    logic                    eios_new;    // an EIOS queued by this step
+    logic                    active;      // the transmitter sends
+    t_tx_mode                tx_mode;     // r_d.tx_mode
+    logic                    tx_ei;       // r_d.tx_ei
+    logic                    eios_q;      // r_d.pm.eios_q
+    logic [EI_CNT_W-1:0]     ei_cycles;   // r_d.ei_cycles
+    common_pkg::t_power_down pd;          // r_d.pd
+    logic                    pd_pending;  // r_d.pd_pending
+    logic                    detect_rx;   // r_d.detect_rx
+    logic                    scr_off;     // r_d.scr_off
+    logic                    tx_ts2;      // r_d.tx_ts2
+    logic                    tx_link_pad; // r_d.tx_link_pad
+    logic                    tx_lane_pad; // r_d.tx_lane_pad
+  } t_step_end;
+
+  // Every LTSSM state: the arc targets the LTSSM evaluates the step end at
+  // (MAS, Timing). A state added to common_pkg::t_ltssm_state must be added
+  // here too (a_arc_target_listed).
+  localparam int unsigned N_ARC_TARGETS = 23;
+
+  function automatic common_pkg::t_ltssm_state arc_target(input int unsigned i);
+    case (i)
+      0:       return common_pkg::LTSSM_DETECT_QUIET;
+      1:       return common_pkg::LTSSM_DETECT_ACTIVE;
+      2:       return common_pkg::LTSSM_POLLING_ACTIVE;
+      3:       return common_pkg::LTSSM_POLLING_COMPLIANCE;
+      4:       return common_pkg::LTSSM_POLLING_CONFIGURATION;
+      5:       return common_pkg::LTSSM_CFG_LINKWIDTH_START;
+      6:       return common_pkg::LTSSM_CFG_LINKWIDTH_ACCEPT;
+      7:       return common_pkg::LTSSM_CFG_LANENUM_WAIT;
+      8:       return common_pkg::LTSSM_CFG_LANENUM_ACCEPT;
+      9:       return common_pkg::LTSSM_CFG_COMPLETE;
+      10:      return common_pkg::LTSSM_CFG_IDLE;
+      11:      return common_pkg::LTSSM_RECOVERY_RCVRLOCK;
+      12:      return common_pkg::LTSSM_RECOVERY_RCVRCFG;
+      13:      return common_pkg::LTSSM_RECOVERY_IDLE;
+      14:      return common_pkg::LTSSM_DISABLED;
+      15:      return common_pkg::LTSSM_HOT_RESET;
+      16:      return common_pkg::LTSSM_LOOPBACK_ENTRY;
+      17:      return common_pkg::LTSSM_LOOPBACK_ACTIVE;
+      18:      return common_pkg::LTSSM_LOOPBACK_EXIT;
+      19:      return common_pkg::LTSSM_L0;
+      20:      return common_pkg::LTSSM_L1_ENTRY;
+      21:      return common_pkg::LTSSM_L1_IDLE;
+      22:      return common_pkg::LTSSM_L2_IDLE;
+      default: return common_pkg::t_ltssm_state'(6'h3F);
+    endcase
+  endfunction
+
+  // The end of a step that ends in nxt, with go its arc flag
+  // (wiki/src/arch/mac/LTSSM.md#what-each-state-transmits).
+  function automatic t_step_end step_end(input logic go,
+                                         input common_pkg::t_ltssm_state nxt,
+                                         input t_end_ctx c);
+    t_step_end               e;
+    t_tx_mode                mode;
+    common_pkg::t_power_down want_pd;
+    common_pkg::t_l0s_sub    tx_sub_n;
+    logic                    pm_wait_n;
+    logic                    l0_exit_n;
+    logic                    eios_now;
+    logic                    eios_q_c;
+    logic                    dis_ts_done;
+    logic                    eios_left;
+    logic                    detect_done_n;
+
+    // Directed or master, decided at entry: the request then (Disabled, Hot
+    // Reset downstream only); Loopback.Active keeps Loopback.Entry's.
+    e.directed = c.directed_q;
+    if (go) begin
+      case (nxt)
+        common_pkg::LTSSM_DISABLED:        e.directed = c.dsp && c.req_disable;
+        common_pkg::LTSSM_HOT_RESET:       e.directed = c.dsp && c.req_hot_reset;
+        common_pkg::LTSSM_LOOPBACK_ENTRY:  e.directed = c.req_loopback;
+        common_pkg::LTSSM_LOOPBACK_ACTIVE: e.directed = c.directed_q;
+        default:                           e.directed = 1'b0;
+      endcase
+    end
+
+    // The power states' view of the step's end: the sub-states, the upstream
+    // wait and the latched exit; an EIOS to send now (the model's send_eios:
+    // on transmit L0s entry, L1 or L2 entry and the upstream wait), queued
+    // only when the transmitter is not already in electrical idle.
+    tx_sub_n  = (go && nxt == common_pkg::LTSSM_L0) ? common_pkg::L0S_SUB_L0 : c.tx_sub_x;
+    pm_wait_n = !go && (c.pm_wait_q || c.pm_wait_go);
+    l0_exit_n = !go && c.l0_exit_c;
+    eios_now  = (c.in_l0 && !go && c.tx_sub_x == common_pkg::L0S_SUB_ENTRY
+                 && c.tx_sub_q == common_pkg::L0S_SUB_L0)
+             || (go && (nxt == common_pkg::LTSSM_L1_ENTRY
+                        || nxt == common_pkg::LTSSM_L2_IDLE))
+             || c.pm_wait_go;
+
+    // Control states: Disabled's 16 TS1 sent, and the state's EIOS still to
+    // send (an EIOS goes out only from a transmitter that is sending).
+    dis_ts_done = !go && c.dis_ts_c == DIS_TS_W'(DISABLE_TS1);
+    eios_left   = !(!go && c.eios_done_c) && !c.tx_ei_q;
+
+    mode    = TX_TS;
+    want_pd = common_pkg::PD_P0;
+    case (nxt)
+      common_pkg::LTSSM_DETECT_QUIET,
+      common_pkg::LTSSM_DETECT_ACTIVE: begin
+        mode    = TX_NONE;
+        want_pd = common_pkg::PD_P1;
+      end
+      common_pkg::LTSSM_POLLING_COMPLIANCE: mode = TX_COMPLIANCE;
+      common_pkg::LTSSM_CFG_IDLE,
+      common_pkg::LTSSM_RECOVERY_IDLE:      mode = TX_IDLE;
+      common_pkg::LTSSM_L0:
+        if (tx_sub_n == common_pkg::L0S_SUB_ENTRY || tx_sub_n == common_pkg::L0S_SUB_IDLE) begin
+          mode    = TX_NONE;
+          want_pd = c.q_old ? common_pkg::PD_P0 : common_pkg::PD_P0S;
+        end else if (pm_wait_n) begin
+          mode    = TX_NONE;     // the upstream wait: P0, electrical idle
+        end else if (tx_sub_n == common_pkg::L0S_SUB_FTS) begin
+          mode    = (c.tx_sub_q == common_pkg::L0S_SUB_FTS && c.fts_skp_c) ? TX_NONE : TX_FTS;
+        end else begin
+          mode    = l0_exit_n ? TX_IDLE : TX_L0;
+        end
+      common_pkg::LTSSM_L1_ENTRY,
+      common_pkg::LTSSM_L1_IDLE: begin
+        mode    = TX_NONE;
+        want_pd = c.q_old ? common_pkg::PD_P0 : common_pkg::PD_P1;
+      end
+      common_pkg::LTSSM_L2_IDLE: begin
+        mode    = TX_NONE;
+        want_pd = c.q_old ? common_pkg::PD_P0 : common_pkg::PD_P2;
+      end
+      common_pkg::LTSSM_POLLING_ACTIVE,
+      common_pkg::LTSSM_POLLING_CONFIGURATION,
+      common_pkg::LTSSM_CFG_LINKWIDTH_START,
+      common_pkg::LTSSM_CFG_LINKWIDTH_ACCEPT,
+      common_pkg::LTSSM_CFG_LANENUM_WAIT,
+      common_pkg::LTSSM_CFG_LANENUM_ACCEPT,
+      common_pkg::LTSSM_CFG_COMPLETE,
+      common_pkg::LTSSM_RECOVERY_RCVRLOCK,
+      common_pkg::LTSSM_RECOVERY_RCVRCFG:   mode = TX_TS;
+      common_pkg::LTSSM_DISABLED:
+        if (!dis_ts_done) begin
+          mode = TX_TS;       // 16 TS1 with Disable Link
+        end else begin
+          mode    = eios_left ? TX_EIOS : TX_NONE;
+          want_pd = common_pkg::PD_P1;
+        end
+      common_pkg::LTSSM_HOT_RESET:          mode = TX_TS;
+      common_pkg::LTSSM_LOOPBACK_ENTRY:
+        mode = e.directed ? TX_TS : TX_LOOP;
+      common_pkg::LTSSM_LOOPBACK_ACTIVE:
+        mode = e.directed ? TX_PATTERN : TX_LOOP;
+      common_pkg::LTSSM_LOOPBACK_EXIT:
+        mode = eios_left ? TX_EIOS : TX_NONE;
+      default:                              mode = TX_NONE;
+    endcase
+
+    // The transmitter sends in P0 with no PowerDown change pending: what the
+    // state sends, the rest of an ordered set already started (a set is
+    // finished before electrical idle, with no request made meanwhile), or a
+    // queued EIOS.
+    // A new EIOS needs mode NONE, so active does not wait for it: when the
+    // mode sends, the transmitter is active anyway (MAS, Timing).
+    e.eios_new = eios_now && mode == TX_NONE && !c.tx_ei_q;
+    eios_q_c   = c.eios_pend || e.eios_new;
+    e.active   = (mode != TX_NONE || c.tx_busy || c.eios_pend || (eios_now && !c.tx_ei_q))
+              && c.pd_q == common_pkg::PD_P0 && !c.pd_pending_c;
+
+    // PIPE control: one PowerDown change at a time, only with the
+    // transmitter already in electrical idle; receiver detection in P1.
+    detect_done_n = !(go && nxt == common_pkg::LTSSM_DETECT_ACTIVE) && c.detect_done_c;
+    e.pd          = c.pd_q;
+    e.pd_pending  = c.pd_pending_c;
+    e.detect_rx   = c.detect_rx_q;
+    e.tx_mode     = TX_NONE;
+    e.ei_cycles   = '0;
+    if (!e.active) begin
+      if (c.pd_q != want_pd && !c.pd_pending_c && c.tx_ei_q) begin
+        // Between two low-power states (P2 to P1) through P0.
+        e.pd         = (c.pd_q == common_pkg::PD_P0 || want_pd == common_pkg::PD_P0)
+                     ? want_pd : common_pkg::PD_P0;
+        e.pd_pending = 1'b1;
+      end
+      e.tx_ei     = 1'b1;
+      e.eios_q    = 1'b0;
+      e.ei_cycles = !c.tx_ei_q ? EI_CNT_W'(1)
+                  : (c.ei_cycles_q == EI_CNT_W'(TX_IDLE_MIN)) ? c.ei_cycles_q
+                  : c.ei_cycles_q + 1'b1;
+      if (nxt == common_pkg::LTSSM_DETECT_ACTIVE
+          && e.pd == common_pkg::PD_P1 && !e.pd_pending) begin
+        e.detect_rx = !detect_done_n;
+      end else if (c.detect_rx_q && nxt != common_pkg::LTSSM_DETECT_ACTIVE) begin
+        e.detect_rx = 1'b0;
+      end
+    end else begin
+      e.tx_ei   = 1'b0;
+      e.tx_mode = eios_q_c ? TX_EIOS : mode;
+      e.eios_q  = eios_q_c;
+    end
+
+    // Disable Scrambling: from Configuration.Idle to Detect.Quiet.
+    e.scr_off = c.scr_off_q;
+    if (go) begin
+      if (c.st == common_pkg::LTSSM_CFG_COMPLETE && nxt == common_pkg::LTSSM_CFG_IDLE
+          && c.dscr_c) begin
+        e.scr_off = 1'b1;
+      end
+      if (nxt == common_pkg::LTSSM_DETECT_QUIET) begin
+        e.scr_off = 1'b0;
+      end
+    end
+
+    // TS fields of the state this step ends in. Disabled and Loopback.Entry
+    // send the link and lane of the state they came from: Linkwidth.Start's,
+    // else link N and lane 0.
+    e.tx_ts2      = nxt == common_pkg::LTSSM_POLLING_CONFIGURATION
+                 || nxt == common_pkg::LTSSM_CFG_COMPLETE
+                 || nxt == common_pkg::LTSSM_RECOVERY_RCVRCFG;
+    e.tx_link_pad = nxt == common_pkg::LTSSM_POLLING_ACTIVE
+                 || nxt == common_pkg::LTSSM_POLLING_CONFIGURATION
+                 || (nxt == common_pkg::LTSSM_CFG_LINKWIDTH_START && !c.dsp);
+    e.tx_lane_pad = nxt == common_pkg::LTSSM_POLLING_ACTIVE
+                 || nxt == common_pkg::LTSSM_POLLING_CONFIGURATION
+                 || nxt == common_pkg::LTSSM_CFG_LINKWIDTH_START
+                 || nxt == common_pkg::LTSSM_CFG_LINKWIDTH_ACCEPT;
+    if (nxt == common_pkg::LTSSM_DISABLED || nxt == common_pkg::LTSSM_LOOPBACK_ENTRY) begin
+      if (!go) begin
+        e.tx_link_pad = c.tx_link_pad_q;
+        e.tx_lane_pad = c.tx_lane_pad_q;
+      end else begin
+        e.tx_link_pad = c.st == common_pkg::LTSSM_CFG_LINKWIDTH_START && !c.dsp;
+        e.tx_lane_pad = c.st == common_pkg::LTSSM_CFG_LINKWIDTH_START;
+      end
+    end
+    return e;
+  endfunction
+
+  // Whether nxt is one of the arc targets.
+  function automatic logic arc_target_listed(input common_pkg::t_ltssm_state nxt);
+    logic hit;
+    hit = 1'b0;
+    for (int unsigned i = 0; i < N_ARC_TARGETS; i++) begin
+      hit = hit | (nxt == arc_target(i));
+    end
+    return hit;
+  endfunction
+
+  // The end of a step that takes its arc to nxt: step_end at every target
+  // in parallel, each a constant, and nxt picks one (an AND-OR, the targets
+  // being distinct), so the target is not in series with the step end
+  // (MAS, Timing).
+  function automatic t_step_end step_end_arc(input common_pkg::t_ltssm_state nxt,
+                                             input t_end_ctx c);
+    t_step_end e;
+    e = '0;
+    for (int unsigned i = 0; i < N_ARC_TARGETS; i++) begin
+      e = e | ({$bits(t_step_end){nxt == arc_target(i)}} & step_end(1'b1, arc_target(i), c));
+    end
+    return e;
+  endfunction
+
 endpackage
 
 `default_nettype wire

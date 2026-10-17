@@ -15,6 +15,9 @@ module pcie_pcs_elastic (
   input  pcie_pcs_pkg::t_rx_pair   ser_rx_i,        // cdc-domain: ser_rx_clk_i
   // Read side outputs, combinational from clk_i registers.
   output logic                     rx_valid_o,
+  // The two symbols the read side sends, or would send: meaningful only
+  // with rx_valid_o and no underflow (not forced to 0, so the decoder works
+  // in parallel with the fill; MAS, Timing).
   output pcie_pcs_pkg::t_rx_pair   rx_o,
   output pcie_pcs_pkg::t_eb_status rx_status_o,
   output logic [pcie_pcs_pkg::EB_FILL_W-1:0] fill_o,
@@ -315,9 +318,6 @@ module pcie_pcs_elastic (
     rx_valid_o  = r_go | r_udf;
     rx_o        = '{sym1: '{idle: o1.idle, lock: o1.lock, gen: o1.gen, code: o1.sym},
                     sym0: '{idle: o0.idle, lock: o0.lock, gen: o0.gen, code: o0.sym}};
-    if (!r_go) begin
-      rx_o = '0;
-    end
     rx_status_o = '{skp_add: r_go & (r_add0 | r_add1),
                     skp_rem: r_go & (o0.rem | o1.rem | r_rem1),
                     ovf:     r_go & (o0.ovf | o1.ovf),

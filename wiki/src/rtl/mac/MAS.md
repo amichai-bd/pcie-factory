@@ -139,7 +139,12 @@ Internal state structs: `t_rx_state` (the ordered-set parser); the
 frame's `t_fr_tx_ctl` and `t_fr_tx_data` (transmit), `t_fr_rx_ctl` and
 `t_fr_rx_data` (parser, with the idle tail's waiting beat) and `t_fr_rxq` (the receive queue of `t_rx_beat`),
 split into reset and unreset registers; `t_regs` (every LTSSM register),
-with the power states' registers in its `t_pm_regs` field `pm`.
+with the power states' registers in its `t_pm_regs` field `pm`. The end of
+an LTSSM step is the pure function `step_end(go, nxt, ctx)`: from the
+step's context `t_end_ctx` and the state it ends in, the PIPE control,
+transmit mode, Disable Scrambling and TS fields of `t_step_end`;
+`arc_target(i)` lists the `N_ARC_TARGETS` states it is evaluated at
+([Timing](#timing)).
 
 ## Scrambler
 
@@ -198,7 +203,7 @@ LTSSM decision (no run counting, no comparison with `N`).
 | --- | --- | --- | --- |
 | `tx_req_i` | in | `t_os_req` | Level requests, at most one high (assertion); taken when the set starts. A held request sends sets back to back. |
 | `tx_ts_i` | in | `t_ts_tx` | The TS fields, taken at the start of a TS. |
-| `tx_skp_due_o` | out | 1 | At least 1180 counted symbols since the last SKP. |
+| `tx_skp_due_o` | out | 1 | At least 1180 counted symbols since the last SKP; a register, compared on the count's next value (`a_skp_due_matches`). |
 | `tx_skp_ok_i` | in | 1 | A scheduled SKP may start this cycle. |
 | `tx_count_i` | in | 1 | The data source put a counted word on the line; never with `tx_o.valid`. |
 | `tx_skp_hold_i` | in | 1 | Loopback slave: no word is counted and no scheduled SKP starts. |
@@ -486,7 +491,14 @@ is stubbed. Structure: every register is a field of `t_regs`, one
 `COMMON_DFF_RST_VAL` with `REGS_RESET`; the power states' registers are
 its `t_pm_regs` field. One match decode of the received fields; one
 `always_comb` per state group proposes the arc (L0 with its
-sub-machines); one builds the next registers. Assertions cover the legal
+sub-machines; a group's target is used only when its arc is taken); one
+builds the next registers. The end of the step (`pcie_mac_pkg::step_end`:
+transmit mode, PowerDown, electrical idle, the EIOS queue, receiver
+detection, Disable Scrambling, the TS fields) is evaluated for the step
+that stays and, at every target state in parallel, for the step that
+takes its arc; the arc's target picks one of the latter and `go` picks
+between the two ([Timing](#timing)). The state timeout is a register
+(`timeout_q`, `a_timeout_matches`). Assertions cover the legal
 state, one group, nothing sent in Detect, the transmitter only in P0, one
 PowerDown change at a time in electrical idle and only to or from P0,
 detection only in Detect.Active, polarity only in Polling, the link down in
@@ -509,11 +521,32 @@ exit only from `Tx_L0`.
 ## Timing
 
 One clock, `clk_i`, one synchronous reset, no crossing. The longest paths
-are the frame's two receive symbol steps into its queue, the descrambled
-word through the frame's idle marks into the LTSSM's run counters, the
-line mux through the transmit scrambler's two lanes, and the LTSSM's arc
-selection through `rx_scr_off_o` into the receive descrambler's data
-register; each a few levels of logic at 125 MHz.
+are one LTSSM step: a received word (the descrambled word through the
+frame's idle marks and the run counters) or a transmit event (the LTSSM's
+mode through the frame's line grant and the ordered-set block's start,
+`os_tx_i`), through the state group's arc into the next registers, the
+PIPE control register and `rx_scr_off_o`. The `phy` ASIC flow
+([#235](https://github.com/amichai-bd/pcie-factory/issues/235)) cuts them
+without moving a cycle; each change keeps every register's next value, as
+an equivalence check of the module before and after proved:
+
+- **Step end in parallel.** `step_end` runs for the step that stays and at
+  every one of the `N_ARC_TARGETS` targets (each a constant, so each copy
+  is small; `a_arc_target_listed` checks that every arc's target is
+  listed); the target selects with an AND-OR and `go` selects last, so
+  neither the arc nor its target is in series with the transmit mode,
+  PowerDown and EIOS logic. `active` is written without the new EIOS (a
+  new EIOS needs mode `TX_NONE`).
+- **Registered compares.** The state timeout (`timeout_q`: next step's
+  timeout is the timer at `limit - 2` now, unless the timer restarts) and
+  the SKP due flag (`tx_skp_due_o`) are registers; their assertions check
+  them against the compares they replace every cycle.
+- **Compares before the increment.** The TS count's `MIN_TS1` and the FTS
+  count's `N_FTS` checks compare the registered count and the count plus 1
+  in parallel and let the transmit event select.
+- **L0 target without its gate.** The L0 arc's target (Recovery.RcvrLock,
+  or L1 or L2 entry) no longer waits for the arc's gate; it is read only
+  when the arc is taken.
 
 ## Files
 
