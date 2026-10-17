@@ -51,9 +51,12 @@ Illegal values stop elaboration through `COMMON_ASSERT_PARAM` blocks
   `rd_addr_i`, both on `clk_i`. Separate processes make a collision
   read-first.
 - **Inference shape:** the conventional simple dual-port template.
-  Expected, not yet measured: Quartus maps it to block RAM in simple
-  dual-port mode with old-data mixed-port read-during-write, and the read
-  enable to the read port's read or clock enable; lanes map to byte
+  Quartus maps it to block RAM. Measured on Cyclone IV E with the `link`
+  FPGA harness ([`link` FPGA, Results](../../../fpga/link/FPGA.md#results)):
+  the `dll` receive buffer (512 × 34) and replay buffer (256 × 32) take
+  M9Ks, not registers. The mode details are still expected, not measured:
+  simple dual-port with old-data mixed-port read-during-write, the read
+  enable on the read port's read or clock enable, and lanes on byte
   enables as in the [base MAS](common_sync_ram.md#microarchitecture).
   Yosys infers a memory with one write port and one non-transparent
   synchronous read port with an enable; the ASIC flow maps it to flops.

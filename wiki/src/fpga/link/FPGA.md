@@ -107,6 +107,36 @@ are not recorded here but in `metrics.json` and, from the nightly run, on
 the tracker's `link` page; the wrapper's own logic (211 flops and the
 parity tree) is included in the resource counts.
 
+## Results
+
+The nightly tracker owns the live figures. This is the acceptance run:
+`ci-gate` run 39070824979, job `ci-fpga`, at `031eeba`, Quartus Prime Lite
+25.1std.0, slow and fast models.
+
+| Item | Result |
+| --- | --- |
+| `clk_core` (50 MHz target) | Met: setup slack +1.673 ns, hold +0.117 ns, Fmax 54.56 MHz. |
+| `clk_rx` (50 MHz target) | Met: setup slack +2.903 ns, hold +0.182 ns, recovery +16.135 ns, removal +0.817 ns, Fmax 58.49 MHz. |
+| Unconstrained paths | 0. |
+| Logic elements | 7465 / 114480. |
+| Registers | 2923. |
+| Memory | 4 / 432 M9K, 26112 memory bits. |
+| Worst setup path | `clk_core`, from the `mac` LTSSM `tx_mode` state to the receive descrambler's data register: 18.22 ns of data delay, slack +1.673 ns. |
+
+**Block RAM.** The two `dll` buffers are `common_sdp_ram` instances. The
+receive buffer (512 × 34) needs 2 M9Ks, since an M9K holds 512 × 18; the
+replay buffer (256 × 32) needs 1. That accounts for 3 of the 4 M9Ks and
+25600 of the 26112 block-RAM bits. If either buffer had stayed in
+registers, the total could not reach 25600. The fourth M9K holds a 512-bit memory
+elsewhere in the stack. `metrics.json` has only the totals; the
+per-instance RAM summary is in the Quartus map report, which stays on the
+CI host.
+
+**`dll` rollover path.** `ltssm_state_o` → `pkt_tx_valid` → `phy` is a
+`clk_core` path, so its slack is at least the clock's worst, +1.673 ns. The
+flow reports only the single worst path, which is a different one (above),
+so the exact slack of this path is not measured.
+
 ## Files
 
 | File | Holds |
