@@ -61,9 +61,9 @@ All ports are synchronous to `clk_i`. Port names follow the
 
 Each tl-cfg net `<x>` is `<x>_o` or `<x>_i` here as the
 [tl-cfg page](../core/TL_CFG.md#signals) gives its direction.
-`tl_np_pending`, `cpl_timeout_dis` and the message-offer withdrawal below are being added to
-that page by the `cfg` HAS
-([#305](https://github.com/amichai-bd/pcie-factory/pull/305)).
+`tl_np_pending` is in its [requester state](../core/TL_CFG.md#requester-state)
+group, `cpl_timeout_dis` in its register state, and the message-offer
+[withdrawal](../core/TL_CFG.md#withdrawal) rule under its messages.
 
 ### Credit release
 

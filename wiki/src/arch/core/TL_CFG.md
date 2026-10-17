@@ -76,7 +76,7 @@ configuration write takes effect, or at reset.
 | `d_state` | cfg→tl | 2 | `clk_i` | Power State: 0 D0, 3 D3hot (decision F5). |
 | `bar0_base` | cfg→tl | 32 | `clk_i` | BAR0 address: bits `[31:BAR0_ADDR_W]` as software wrote them, lower bits 0. |
 | `bar2_base` | cfg→tl | 32 | `clk_i` | BAR2 address: bits `[31:12]` as software wrote them, lower bits 0. |
-| `cpl_timeout_dis` | cfg→tl | 1 | `clk_i` | Device Control 2 Completion Timeout Disable: 1 disables `tl`'s requester completion timeout. |
+| `cpl_timeout_dis` | cfg→tl | 1 | `clk_i` | Device Control 2 Completion Timeout Disable: 1 disables `tl`'s requester completion timeout. When it falls, each read still outstanding gets a fresh full timeout from that cycle. |
 
 - The completer ID and requester ID of every TLP `tl` sends are
   `bus_num`, `dev_num` and function 0.
@@ -99,7 +99,8 @@ configuration write takes effect, or at reset.
   [cite: PCIe Base Spec, rev 3.0, §7.8.15]. `cfg` does advertise
   Completion Timeout Disable, which `tl` honors through `cpl_timeout_dis`:
   while it is 1, an outstanding read waits for its completions with no
-  timeout (firstmate decision as the captain's delegate, which the captain
+  timeout, and when it falls each read still outstanding gets a fresh
+  full timeout from that cycle (firstmate decision as the captain's delegate, which the captain
   may override).
 - The read completion boundary is fixed at 64 bytes: `cfg` hardwires the
   Link Control RCB bit to 0 (64 bytes), so software cannot set a boundary

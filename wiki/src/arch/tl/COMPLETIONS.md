@@ -155,7 +155,7 @@ taken until the tracker ends it (its last completion matched, an error
 status, or the timeout), whether or not the application has taken the
 `rc` beats yet. It is 0 in reset. `cfg` shows it as the Device Status
 Transactions Pending bit
-([#305](https://github.com/amichai-bd/pcie-factory/pull/305))
+([tl-cfg requester state](../core/TL_CFG.md#requester-state))
 [cite: PCIe Base Spec, rev 3.0, §7.8.5].
 
 ### Completion timeout

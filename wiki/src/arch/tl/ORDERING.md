@@ -51,7 +51,8 @@ among them.
 drives `msg_ready_o` 1, and samples `msg_kind_i`, `msg_addr_i` and
 `msg_data_i` at that edge. `cfg` may withdraw an offer (drop `msg_valid_i`
 without `msg_ready_o`) when the message may no longer go out: outside D0,
-Bus Master Enable or the matching enable cleared, or reset; `tl` never
+Bus Master Enable or the matching enable cleared, or reset
+([withdrawal](../core/TL_CFG.md#withdrawal)); `tl` never
 assumes an offer stays up and keeps no state for an offer it has not
 taken. `msg_ready_o` depends only on room in the transmit posted line,
 never on the register-access handshakes (the
