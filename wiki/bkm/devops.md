@@ -250,12 +250,13 @@ gets its own run
 ## Nightly
 
 The nightly workflow runs daily on the WSL host's runners only (label
-`wsl`), never on the Omarchy runners: there it takes about 27 minutes
-against about 2 hours on Omarchy (captain decision, #273). If no `wsl`
-runner is online, the nightly waits in the queue rather than fall back
-(the
+`wsl`), never on the Omarchy runners, where it takes about 2 hours against
+about 27 minutes on WSL (captain decision, #273). If no `wsl` runner is
+online, every nightly job waits in the queue rather than fall back, its
+`report` job too, so no `nightly-red` issue opens; GitHub cancels a job
+queued for 24 hours. The
 [metrics spec](../tools/metrics/SPEC.md#workflows) owns its jobs,
-permissions and data PR mechanics):
+permissions and data PR mechanics:
 
 1. `./build check`, `./build ci unit` (every unit suite, including the
    Verilator-built vocabulary header tests and the `perf:<ip>` suites, which

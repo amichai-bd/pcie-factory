@@ -69,7 +69,9 @@ pd (ORFS/sky130hd).
   here. The repository keeps GitHub's default fork-run approval setting and
   the captain accepts the residual risk (recorded on #1).
 - **CI host:** the self-hosted runners, Quartus Lite and ORFS/sky130hd run on
-  the Omarchy host (supersedes earlier "WSL host" wording).
+  the Omarchy host (supersedes earlier "WSL host" wording). Later, #273
+  added the WSL host as a second CI host and pinned the nightly to it
+  ([DevOps BKM](../../bkm/devops.md#nightly)).
 - **Branch protection: `ci-gate` required (captain, recorded on #1):**
   branch protection on `main` requires `ci-gate`, with `enforce_admins`. The
   merge gate is an APPROVE verdict at the head plus `ci-gate` green on that

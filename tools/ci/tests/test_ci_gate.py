@@ -45,3 +45,11 @@ def test_workflow_wires_required_results_and_preserves_guards():
                    for s in job["steps"])
     assert jobs["ci-gate-status"]["needs"] == "ci-gate"
     assert "github.event_name != 'pull_request'" in jobs["ci-gate-status"]["if"]
+
+
+def test_nightly_runs_only_on_the_wsl_host():
+    """Every nightly job selects the WSL host's label (wiki/bkm/devops.md, Nightly)."""
+    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/nightly.yml").read_text())
+    assert workflow["jobs"]
+    for name, job in workflow["jobs"].items():
+        assert job["runs-on"] == ["self-hosted", "linux", "x64", "wsl"], name
