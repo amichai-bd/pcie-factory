@@ -25,6 +25,8 @@ done criteria and the decisions are in
 M1 is done when the goal checklist in the decision record holds on `main`.
 The board loopback demo on physical hardware (#89) needs the captain's
 board and is tracked outside M1 ([0002](decisions/0002-m1-grill.md) Q20).
+ASIC timing closure at 125 MHz (#235) is also outside M1: the 100 MHz
+checkpoint is M1's ASIC timing evidence ([0002](decisions/0002-m1-grill.md) Q27, Q28).
 
 ## Later
 
