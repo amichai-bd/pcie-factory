@@ -607,13 +607,14 @@ def run_traffic(w: dict, seed: int) -> dict[str, float]:
 
 
 def run_interrupts(w: dict, seed: int) -> dict[str, float]:
-    """MSI: the application writes ``bytes`` to host memory, then raises an
-    interrupt, ``count`` times; each MSI write must reach the host after
-    the data written before it. MSI-X: every vector programmed and masked,
+    """MSI: the application writes ``burst`` writes of ``bytes`` to host
+    memory back to back, then raises an interrupt as soon as the last is
+    taken (writes still queued in tl), ``count`` times; each MSI write must
+    reach the host after the data written before it. MSI-X: every vector programmed and masked,
     one request each pends, the host reads the pending bits through BAR2,
     unmasks every vector, receives one write each, reads the pending bits
     clear, then one request each is sent at once."""
-    _check_keys(w, {"mode", "count", "bytes", "vectors", "max_cycles"})
+    _check_keys(w, {"mode", "count", "bytes", "burst", "vectors", "max_cycles"})
     rng = random.Random(seed)
     mode = w.get("mode")
     if mode not in ("msi", "msix"):
@@ -624,6 +625,7 @@ def run_interrupts(w: dict, seed: int) -> dict[str, float]:
     bar2 = 0x9000_0000
     count = _int(w, "count", 50, 1, 10000)
     size = _int(w, "bytes", MAX_PAYLOAD, 0, MAX_PAYLOAD)
+    burst = _int(w, "burst", 1, 1, 64)
     bad: list[str] = []
     pba_seen = [0]
     pba_after = [0]
@@ -636,8 +638,9 @@ def run_interrupts(w: dict, seed: int) -> dict[str, float]:
             yield from h.cfg_wr(cfgm.CAP_MSI, 1 << 16, 0x4)
             for i in range(count):
                 if size:
-                    app.rq.append({"write": True, "addr": HOST_MEM, "len": size // 4, "fbe": 0xF,
-                                   "lbe": 0xF if size > 4 else 0, "data": [i] * (size // 4)})
+                    app.rq.extend({"write": True, "addr": HOST_MEM, "len": size // 4, "fbe": 0xF,
+                                   "lbe": 0xF if size > 4 else 0, "data": [i] * (size // 4)}
+                                  for _ in range(burst))
                     yield from wait(lambda: not app.rq)
                 app.irqs.append(0)
                 yield from wait(lambda: len(h.irqs) > i)

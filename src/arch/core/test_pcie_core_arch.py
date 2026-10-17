@@ -166,8 +166,9 @@ def test_split_reads(size, offset, cpls):
 
 def test_msi_follows_the_data():
     """An interrupt write goes out after every posted request the
-    application had taken on rq before it (TL_CFG messages)."""
-    r = m.perf({"kind": "interrupts", "mode": "msi", "count": 10}, 1)
+    application had taken on rq before it, with writes still queued in tl
+    when the interrupt is raised (TL_CFG messages)."""
+    r = m.perf({"kind": "interrupts", "mode": "msi", "count": 10, "burst": 4}, 1)
     assert r["interrupt_writes"] == r["reported_sent"] == 10
     assert r["interrupts_wrong"] == r["interrupt_overtakes"] == 0
 
