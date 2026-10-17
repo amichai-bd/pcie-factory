@@ -180,8 +180,9 @@ The `dll` testbench runs the partner, the architecture model and the RTL
 against each other for the features the RTL has (DLLPs, InitFC, the
 control states), as the [DV plan](DV_PLAN.md#cross-check-rtl-architecture-model-partner)
 describes ([#211](https://github.com/amichai-bd/pcie-factory/issues/211)).
-No disagreement was found there; the replay, Ack/Nak and credit features
-are cross-checked as #212 to #214 add them. Any disagreement goes to the
+No disagreement was found there. The TLP receive path and Ack/Nak
+scheduling are cross-checked in the `rx_*` entries (#213); the replay and
+credit features are cross-checked as #212 and #214 add them. Any disagreement goes to the
 HAS Open items, not into either model silently.
 
 ## Possible disagreements
@@ -207,7 +208,11 @@ A seventh point was found by the `dll` RTL review
 HAS now finishes a packet whose `sop` the `phy` took before the link went
 down ([decisions](../../arch/dll/HAS.md#decisions)), while the partner
 drops its packet on link-down. It is a [HAS open item](../../arch/dll/HAS.md#open-items);
-the partner is unchanged.
+the partner is unchanged. An eighth was found by the `dll` receive tests
+([#213](https://github.com/amichai-bd/pcie-factory/issues/213)): the
+partner leaves a TLP still on the line when a Nak or timeout arrives out
+of the replay, where the architecture model resends it; also a
+[HAS open item](../../arch/dll/HAS.md#open-items), for #212.
 
 Found independently and already resolved in #259 (by `feb7ccb`):
 
