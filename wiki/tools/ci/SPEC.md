@@ -229,7 +229,9 @@ the one dropped. The merge gate is unchanged:
   already passed before the cancel arrived, it really passed on that commit.
   Either way the check binds to the old commit's SHA, never to the new head.
 - **No stuck check.** The new head's run is in the same group and is not
-  cancelled by the old one, so its `ci-gate` always completes.
+  cancelled by the old one, so its `ci-gate` always completes. It waits,
+  pending, until the cancelled run's `ci-gate` finishes, about 10 s; a
+  push in that window replaces it, and the newest head runs.
 - **`main`.** A cancelled push run leaves that commit without a gate result.
   The newer commit's run tests a tree that contains it. The metrics record
   the commit's push run as `cancelled`, and pass rates skip cancelled runs
