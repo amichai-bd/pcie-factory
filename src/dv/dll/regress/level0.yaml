@@ -34,3 +34,8 @@ tests:
     testcase: fc_rx_accounting
     top: pcie_dll_tb
     timeout_s: 300
+  - name: rx_directed
+    module: tests.test_dll_rx
+    testcase: rx_directed
+    top: pcie_dll_tb
+    timeout_s: 120

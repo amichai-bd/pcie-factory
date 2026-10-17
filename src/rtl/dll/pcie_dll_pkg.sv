@@ -98,6 +98,163 @@ package pcie_dll_pkg;
     logic        nullify;// with eop only
   } t_pkt_rx;
 
+  // --------------------------------------------------------- TLP receive
+
+  // The TLP receive path and Ack/Nak scheduling (MAS, TLP receive; RETRY.md).
+  localparam logic [31:0] LCRC_POLY     = 32'h04C1_1DB7;
+  localparam logic [5:0]  RX_MAX_TLP_DW = 6'd36;   // 4-DW header and a 128-byte payload
+  localparam logic [5:0]  ACK_LATENCY   = 6'd32;   // Ack timer limit, cycles
+  // The receive-buffer reserve of an infinite field (FLOW_CONTROL.md,
+  // receive buffer): 8 headers, 24 data credits.
+  localparam int unsigned RX_INF_HDR    = 8;
+  localparam int unsigned RX_INF_DATA   = 24;
+
+  // The header fields of a TLP's DW 0 the dll reads (FLOW_CONTROL.md,
+  // classes and credits): Fmt bits 5 and 6 of byte 0, Type, Length.
+  typedef struct packed {
+    logic       hdr4;       // Fmt bit 5: a 4-DW header
+    logic       with_data;  // Fmt bit 6: a payload follows
+    logic [4:0] typ;        // Type, byte 0 bits 4:0
+    logic [9:0] len;        // Length in DWs, byte 2 bits 1:0 and byte 3; 0 is 1024
+  } t_tlp_hdr;
+
+  // A received TLP's class and the credits its header states, as the
+  // receive side reports it to the flow-control accounting (MAS, TLP
+  // receive, events).
+  typedef struct packed {
+    logic      valid;
+    t_fc_class cls;
+    t_fc_val   cred;   // header credits (0 or 1) and data credits
+  } t_rx_credit;
+
+  // One DW of the receive buffer with the TLP's first and last marks.
+  typedef struct packed {
+    logic [31:0] data;  // [7:0] is the earlier byte
+    logic        sop;
+    logic        eop;
+  } t_rx_word;
+
+  // TLP receive: the packet being collected. Beats pass a two-beat delay
+  // line (b1, b2) so the last two, the LCRC, are never stored or summed.
+  typedef struct packed {
+    logic        open;    // a TLP-tagged packet's sop has arrived, not its eop
+    logic [7:0]  beats;   // beats so far, saturating at 255
+    logic [5:0]  dws;     // TLP DWs completed, at most RX_MAX_TLP_DW
+    logic        noroom;  // a DW found the receive buffer full
+    logic [11:0] seq;     // the sequence number, from the sop beat
+    t_tlp_hdr    hdr;     // from TLP header DW 0
+    logic [15:0] lo;      // first half of the DW being assembled
+    logic [15:0] b1;      // the previous beat
+    logic [15:0] b2;      // the beat before it
+    logic [31:0] crc;     // LCRC register over the beats that left the delay line
+  } t_tlp_asm;
+
+  // A TLP packet as checked at its eop, judged in the next cycle.
+  typedef struct packed {
+    logic        valid;
+    logic [7:0]  beats;    // packet length in beats, saturating at 255
+    logic [11:0] seq;
+    t_tlp_hdr    hdr;
+    logic        err;      // flagged by phy
+    logic        nullify;  // ended by EDB
+    logic        lcrc_ok;  // the LCRC matches
+    logic        lcrc_inv; // the LCRC is the inverse: a nullified TLP
+    logic        noroom;   // not all DWs were stored
+  } t_tlp_chk;
+
+  // Receiver state and Ack/Nak scheduling (RETRY.md, receiver state).
+  typedef struct packed {
+    logic [11:0] nrs;        // NEXT_RCV_SEQ
+    logic        nak_sched;  // NAK_SCHEDULED
+    logic        nak_due;    // a Nak waits for the arbiter
+    logic        ack_due;    // an Ack is due at once (a duplicate)
+    logic        timer_on;   // the Ack timer runs
+    logic [5:0]  timer;      // cycles since it started, saturating at ACK_LATENCY
+  } t_acknak_state;
+
+  // One 16-bit beat into the LCRC register: bytes [7:0] then [15:8], each
+  // bit 0 first, polynomial 04C11DB7h (RETRY.md, LCRC).
+  function automatic logic [31:0] lcrc_step(input logic [31:0] crc, input logic [15:0] beat);
+    logic [31:0] r;
+    logic        fb;
+    r = crc;
+    for (int unsigned i = 0; i < 16; i++) begin
+      fb = r[31] ^ beat[i];
+      r  = {r[30:0], 1'b0} ^ (fb ? LCRC_POLY : 32'h0000_0000);
+    end
+    return r;
+  endfunction
+
+  // The 4 LCRC bytes from the register, byte 0 in [7:0]: the remainder
+  // complemented, its bit 31 first on the line, so byte k bit i holds
+  // remainder bit 31-8k-i.
+  function automatic logic [31:0] lcrc_bytes(input logic [31:0] crc);
+    logic [31:0] r;
+    for (int unsigned i = 0; i < 32; i++) begin
+      r[i] = ~crc[31 - i];
+    end
+    return r;
+  endfunction
+
+  // The fields of a TLP header DW 0: byte 0 bits 6:0 (Fmt bits 6 and 5,
+  // Type), byte 2 bits 1:0 and byte 3 (Length).
+  function automatic t_tlp_hdr tlp_hdr(input logic [6:0] b0, input logic [1:0] b2,
+                                       input logic [7:0] b3);
+    t_tlp_hdr h;
+    h.hdr4      = b0[5];
+    h.with_data = b0[6];
+    h.typ       = b0[4:0];
+    h.len       = {b2, b3};
+    return h;
+  endfunction
+
+  // Payload DWs a TLP header states: Length (0 is 1024) when Fmt says with
+  // data, else 0 (FLOW_CONTROL.md, classes and credits).
+  function automatic logic [10:0] tlp_payload_dw(input logic with_data, input logic [9:0] len);
+    logic [10:0] r;
+    r = 11'd0;
+    if (with_data) begin
+      r = len == 10'd0 ? 11'd1024 : {1'b0, len};
+    end
+    return r;
+  endfunction
+
+  // The class and credits a TLP header states: posted for a memory write
+  // (Type 00000 with data) or a message (Type 10xxx), completion for Type
+  // 01010 and 01011, otherwise non-posted; 1 header credit, and payload
+  // DWs / 4 rounded up data credits.
+  function automatic t_rx_credit tlp_credit(input logic with_data, input logic [4:0] typ,
+                                            input logic [9:0] len);
+    t_rx_credit  r;
+    logic [10:0] pdw;
+    pdw     = tlp_payload_dw(with_data, len);
+    r.valid = 1'b1;
+    if ((typ == 5'b00000 && with_data) || typ[4:3] == 2'b10) begin
+      r.cls = FC_P;
+    end else if (typ[4:1] == 4'b0101) begin
+      r.cls = FC_CPL;
+    end else begin
+      r.cls = FC_NP;
+    end
+    r.cred.hdr  = 8'd1;
+    r.cred.data = {3'd0, pdw[10:2]} + {11'd0, pdw[1:0] != 2'b00};
+    return r;
+  endfunction
+
+  // A good-LCRC packet of `beats` beats is malformed (RETRY.md, receiving
+  // TLPs): its length is not 2 more than a multiple of 4 (an even beat
+  // count), the TLP is shorter than a 3-DW header (below 9 beats), its DWs
+  // differ from what its header's Fmt and Length give, or its payload is
+  // above 128 bytes.
+  function automatic logic tlp_malformed(input logic [7:0] beats, input logic hdr4,
+                                         input logic with_data, input logic [9:0] len);
+    logic [10:0] want_dw;
+    logic [10:0] got_dw;
+    want_dw = (hdr4 ? 11'd4 : 11'd3) + tlp_payload_dw(with_data, len);
+    got_dw  = {4'd0, beats[7:1]} - 11'd1;   // (beats - 3) / 2 for an odd count
+    return !beats[0] || beats < 8'd9 || got_dw != want_dw || tlp_payload_dw(with_data, len) > 11'd32;
+  endfunction
+
   // ------------------------------------------------------ block state
 
   // DLLP receive: the packet being collected (MAS, DLLP receive).
@@ -131,36 +288,6 @@ package pcie_dll_pkg;
     logic    inf_data;   // data credits infinite
     t_fc_val limit;      // CREDIT_LIMIT, header and data
   } t_fc_limit;
-
-  // Credit accounting (FLOW_CONTROL.md, transmit and receive accounting).
-
-  // What a TLP costs: its class and its header and data credits.
-  typedef struct packed {
-    t_fc_class cls;
-    t_fc_val   val;
-  } t_fc_cost;
-
-  // One beat of an upper TLP stream as flow control watches it: taken
-  // (valid and ready both 1), first and last beat, the DW.
-  typedef struct packed {
-    logic        take;
-    logic        sop;
-    logic        eop;
-    logic [31:0] data;   // [7:0] is the earlier byte
-  } t_tlp_beat;
-
-  // The receive decision on one TLP from the TLP receive path (#213): a
-  // good-LCRC TLP with the expected sequence number, for one cycle.
-  typedef struct packed {
-    logic        valid;
-    logic        malformed;  // accepted as malformed: its credits return at once
-    logic        no_hdr;     // malformed and under 4 bytes: it counts no credits
-    logic [31:0] dw0;        // header DW0 (byte 0 in [7:0]), don't care if no_hdr
-  } t_fc_rx_tlp;
-
-  // Receive space of an infinite field (FLOW_CONTROL.md, receive buffer).
-  localparam logic [7:0]  RX_RESERVE_HDR  = 8'd8;
-  localparam logic [11:0] RX_RESERVE_DATA = 12'd24;
 
   // ---------------------------------------------------------- helpers
 
@@ -285,50 +412,24 @@ package pcie_dll_pkg;
     return r;
   endfunction
 
-  // The credits a TLP costs, from header byte 0 (with_data: Fmt bit 6;
-  // typ: Type, bits 4:0) and the Length field (len: byte 2 bits 1:0, then
-  // byte 3): the class by Fmt and Type, 1 header credit, and Length in DWs
-  // (0 is 1024) divided by 4 and rounded up when Fmt says with data
-  // (FLOW_CONTROL.md, classes and credits). The other Fmt bits do not
-  // matter. Callers slice header DW0 (byte 0 in [7:0]).
-  function automatic t_fc_cost tlp_cost(input logic with_data, input logic [4:0] typ,
-                                        input logic [9:0] len);
-    t_fc_cost    r;
-    logic [10:0] len_dw;
-    len_dw = {1'b0, len};
-    if (len_dw == 11'd0) begin
-      len_dw = 11'd1024;
-    end
-    if ((typ == 5'b00000 && with_data) || typ[4:3] == 2'b10) begin
-      r.cls = FC_P;       // memory write, messages
-    end else if (typ == 5'b01010 || typ == 5'b01011) begin
-      r.cls = FC_CPL;     // completions
-    end else begin
-      r.cls = FC_NP;
-    end
-    r.val.hdr  = 8'd1;
-    r.val.data = with_data ? {3'd0, 9'((len_dw + 11'd3) >> 2)} : 12'd0;
-    return r;
-  endfunction
-
-  // Add cost c to its class in v when en (credit counters, modulo 2^w).
+  // Add credits c of class cls to v when en (credit counters, modulo 2^w).
   function automatic t_fc_vals fc_charge(input t_fc_vals v, input logic en,
-                                         input t_fc_cost c);
+                                         input t_fc_class cls, input t_fc_val c);
     t_fc_vals r;
     r = v;
     if (en) begin
-      case (c.cls)
+      case (cls)
         FC_NP: begin
-          r.np.hdr  = v.np.hdr + c.val.hdr;
-          r.np.data = v.np.data + c.val.data;
+          r.np.hdr  = v.np.hdr + c.hdr;
+          r.np.data = v.np.data + c.data;
         end
         FC_CPL: begin
-          r.cpl.hdr  = v.cpl.hdr + c.val.hdr;
-          r.cpl.data = v.cpl.data + c.val.data;
+          r.cpl.hdr  = v.cpl.hdr + c.hdr;
+          r.cpl.data = v.cpl.data + c.data;
         end
         default: begin
-          r.p.hdr  = v.p.hdr + c.val.hdr;
-          r.p.data = v.p.data + c.val.data;
+          r.p.hdr  = v.p.hdr + c.hdr;
+          r.p.data = v.p.data + c.data;
         end
       endcase
     end
@@ -365,12 +466,12 @@ package pcie_dll_pkg;
   // the advertisement for a finite field, the reserve for an infinite one.
   function automatic t_fc_vals fc_rx_base(input t_fc_vals adv);
     t_fc_vals r;
-    r.p.hdr    = adv.p.hdr == 8'd0 ? RX_RESERVE_HDR : adv.p.hdr;
-    r.p.data   = adv.p.data == 12'd0 ? RX_RESERVE_DATA : adv.p.data;
-    r.np.hdr   = adv.np.hdr == 8'd0 ? RX_RESERVE_HDR : adv.np.hdr;
-    r.np.data  = adv.np.data == 12'd0 ? RX_RESERVE_DATA : adv.np.data;
-    r.cpl.hdr  = adv.cpl.hdr == 8'd0 ? RX_RESERVE_HDR : adv.cpl.hdr;
-    r.cpl.data = adv.cpl.data == 12'd0 ? RX_RESERVE_DATA : adv.cpl.data;
+    r.p.hdr    = adv.p.hdr == 8'd0 ? 8'(RX_INF_HDR) : adv.p.hdr;
+    r.p.data   = adv.p.data == 12'd0 ? 12'(RX_INF_DATA) : adv.p.data;
+    r.np.hdr   = adv.np.hdr == 8'd0 ? 8'(RX_INF_HDR) : adv.np.hdr;
+    r.np.data  = adv.np.data == 12'd0 ? 12'(RX_INF_DATA) : adv.np.data;
+    r.cpl.hdr  = adv.cpl.hdr == 8'd0 ? 8'(RX_INF_HDR) : adv.cpl.hdr;
+    r.cpl.data = adv.cpl.data == 12'd0 ? 12'(RX_INF_DATA) : adv.cpl.data;
     return r;
   endfunction
 

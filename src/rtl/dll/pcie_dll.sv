@@ -3,10 +3,11 @@
 // wiki/src/rtl/dll/MAS.md.
 //
 // The top: the DLLP path (receive, transmit arbiter), the data link
-// control states and flow control (initialisation, credit accounting,
-// the credit gate, UpdateFC). The outputs that the TLP paths drive (#212
-// transmit, #213 receive) and the error bits they own are tied to their
-// reset values here (MAS, slots for the TLP paths).
+// control states, flow control (initialisation, credit accounting, the
+// credit gate, the receive overflow check, UpdateFC), and the TLP receive
+// path with its receive buffer and Ack/Nak scheduling. The outputs that
+// the TLP transmit path (#212) drives and the error bits it owns are tied
+// to their reset values here (MAS, slots for the TLP paths).
 `default_nettype none
 
 `include "common_macros.svh"
@@ -93,6 +94,22 @@ module pcie_dll #(
     cpl: '{hdr: 8'(FC_CPLH), data: 12'(FC_CPLD)}
   };
 
+  // Receive buffer size (MAS, receive buffer): for each class, 4 DWs per
+  // header credit and 4 per data credit advertised (the reserve for an
+  // infinite field), plus one maximum TLP being collected.
+  localparam int unsigned RX_HDR_CAP  = (FC_PH == 0 ? pcie_dll_pkg::RX_INF_HDR : FC_PH)
+                                      + (FC_NPH == 0 ? pcie_dll_pkg::RX_INF_HDR : FC_NPH)
+                                      + (FC_CPLH == 0 ? pcie_dll_pkg::RX_INF_HDR : FC_CPLH);
+  localparam int unsigned RX_DATA_CAP = (FC_PD == 0 ? pcie_dll_pkg::RX_INF_DATA : FC_PD)
+                                      + (FC_NPD == 0 ? pcie_dll_pkg::RX_INF_DATA : FC_NPD)
+                                      + (FC_CPLD == 0 ? pcie_dll_pkg::RX_INF_DATA : FC_CPLD);
+  localparam int unsigned RX_BUF_DW   = 4 * (RX_HDR_CAP + RX_DATA_CAP)
+                                      + int'(pcie_dll_pkg::RX_MAX_TLP_DW);
+  localparam int unsigned RX_ADDR_W   = $clog2(RX_BUF_DW);
+  // Any class advertised infinite: the upper layer never stalls (HAS, receive).
+  localparam logic        RX_ANY_INF  = FC_PH == 0 || FC_PD == 0 || FC_NPH == 0 || FC_NPD == 0
+                                     || FC_CPLH == 0 || FC_CPLD == 0;
+
   // ------------------------------------------------------------ blocks
 
   pcie_dll_pkg::t_pkt_rx   pkt_rx;
@@ -104,10 +121,7 @@ module pcie_dll #(
   pcie_dll_pkg::t_dl_state dl_state;
   pcie_dll_pkg::t_fc_vals  avail;
   logic                    tx_sop_take;
-  pcie_dll_pkg::t_tlp_beat rx_beat;
-  pcie_dll_pkg::t_fc_rx_tlp rx_tlp;
   logic                    fc_tx_ok;
-  logic                    rx_fits;
   logic                    rx_overflow;
   logic                    bad_dllp;
   logic                    flush;
@@ -118,22 +132,28 @@ module pcie_dll #(
   logic                    acknak_take;
   logic                    initfc_take;
   logic                    updfc_take;
+  // TLP receive path (#213)
+  pcie_dll_pkg::t_rx_word   rx_wr_word;
+  pcie_dll_pkg::t_rx_word   rx_word;
+  pcie_dll_pkg::t_rx_credit rx_chk;        // a TLP to store, for the overflow check
+  pcie_dll_pkg::t_rx_credit rx_stored;     // receive accounting events
+  pcie_dll_pkg::t_rx_credit rx_malformed;
+  pcie_dll_pkg::t_rx_credit rx_taken;
+  logic                     rx_fit;
+  logic                     rx_wr_en;
+  logic                     rx_commit;
+  logic                     rx_rewind;
+  logic                     rx_full;
+  logic                     bad_tlp;
+  logic                     malformed_tlp;
 
   assign pkt_rx = '{valid: pkt_rx_valid_i, data: pkt_rx_data_i, sop: pkt_rx_sop_i,
                     eop: pkt_rx_eop_i, dllp: pkt_rx_dllp_i, err: pkt_rx_err_i,
                     nullify: pkt_rx_nullify_i};
 
-  // Owned by the TLP receive path and Ack/Nak scheduling (#213): no Ack or
-  // Nak is due, no good TLP ends FC_INIT2 and no TLP is decided yet.
-  assign acknak_req  = '0;
-  assign rx_tlp_good = 1'b0;
-  assign rx_tlp      = '0;
-
-  // The upper streams as flow control watches them (MAS, credit interface):
-  // a taken transmit sop consumes credits, a taken receive eop returns them.
+  // The transmit upper stream as flow control watches it (MAS, credit
+  // interface): a taken sop consumes credits.
   assign tx_sop_take = tlp_tx_valid_i && tlp_tx_ready_o && tlp_tx_sop_i;
-  assign rx_beat = '{take: tlp_rx_valid_o && tlp_rx_ready_i, sop: tlp_rx_sop_o,
-                     eop: tlp_rx_eop_o, data: tlp_rx_data_o};
 
   pcie_dll_dllp_rx u_dllp_rx (
     .clk_i      (clk_i),
@@ -142,6 +162,45 @@ module pcie_dll #(
     .pkt_rx_i   (pkt_rx),
     .rx_dllp_o  (rx_dllp),
     .bad_dllp_o (bad_dllp)
+  );
+
+  pcie_dll_tlp_rx u_tlp_rx (
+    .clk_i           (clk_i),
+    .rst_i           (rst_i),
+    .flush_i         (flush),
+    .state_i         (dl_state),
+    .pkt_rx_i        (pkt_rx),
+    .buf_full_i      (rx_full),
+    .wr_en_o         (rx_wr_en),
+    .wr_word_o       (rx_wr_word),
+    .commit_o        (rx_commit),
+    .rewind_o        (rx_rewind),
+    .chk_o           (rx_chk),
+    .fit_i           (rx_fit),
+    .stored_o        (rx_stored),
+    .malformed_o     (rx_malformed),
+    .good_o          (rx_tlp_good),
+    .bad_tlp_o       (bad_tlp),
+    .malformed_err_o (malformed_tlp),
+    .acknak_req_o    (acknak_req),
+    .acknak_take_i   (acknak_take)
+  );
+
+  pcie_dll_rx_buf #(
+    .ADDR_W (RX_ADDR_W)
+  ) u_rx_buf (
+    .clk_i      (clk_i),
+    .rst_i      (rst_i),
+    .flush_i    (flush),
+    .wr_en_i    (rx_wr_en),
+    .wr_word_i  (rx_wr_word),
+    .commit_i   (rx_commit),
+    .rewind_i   (rx_rewind),
+    .full_o     (rx_full),
+    .rx_valid_o (tlp_rx_valid_o),
+    .rx_ready_i (tlp_rx_ready_i),
+    .rx_word_o  (rx_word),
+    .taken_o    (rx_taken)
   );
 
   pcie_dll_ctrl u_ctrl (
@@ -175,9 +234,11 @@ module pcie_dll #(
     .tx_data_i      (tlp_tx_data_i),
     .tx_sop_take_i  (tx_sop_take),
     .tx_ok_o        (fc_tx_ok),
-    .rx_tlp_i       (rx_tlp),
-    .rx_fits_o      (rx_fits),
-    .rx_beat_i      (rx_beat),
+    .rx_chk_i       (rx_chk),
+    .rx_fit_o       (rx_fit),
+    .rx_stored_i    (rx_stored),
+    .rx_malformed_i (rx_malformed),
+    .rx_taken_i     (rx_taken),
     .overflow_o     (rx_overflow)
   );
 
@@ -214,22 +275,25 @@ module pcie_dll #(
   assign fc_cplh_avail_o = avail.cpl.hdr;
   assign fc_cpld_avail_o = avail.cpl.data;
 
-  // err_o bit 1 is Bad DLLP and bit 5 Receiver overflow; the others
-  // belong to the TLP paths (#212, #213).
-  assign err_o = {1'b0, rx_overflow, 3'd0, bad_dllp, 1'b0};
+  // err_o: bit 0 Bad TLP, 1 Bad DLLP, 5 Receiver overflow, 6 Malformed
+  // TLP; bits 2 to 4 belong to the TLP transmit path (#212).
+  assign err_o = {malformed_tlp, rx_overflow, 3'd0, bad_dllp, bad_tlp};
 
-  // Owned by the TLP transmit path (#212) and receive path (#213).
+  assign tlp_rx_data_o = rx_word.data;
+  assign tlp_rx_sop_o  = tlp_rx_valid_o && rx_word.sop;
+  assign tlp_rx_eop_o  = tlp_rx_valid_o && rx_word.eop;
+
+  // Owned by the TLP transmit path (#212).
   assign tlp_tx_ready_o = 1'b0;
-  assign tlp_rx_valid_o = 1'b0;
-  assign tlp_rx_data_o  = 32'd0;
-  assign tlp_rx_sop_o   = 1'b0;
-  assign tlp_rx_eop_o   = 1'b0;
   assign retrain_req_o  = 1'b0;
 
-  // Inputs the TLP paths (#212, #213) consume, the Ack/Nak grant, and the
-  // credit gate and overflow check they will read (MAS, credit interface).
-  `COMMON_UNUSED_BITS(unused_inputs, {tlp_tx_eop_i, ltssm_state_i, acknak_take, fc_tx_ok,
-                                      rx_fits})
+  // Inputs the TLP transmit path (#212) consumes, and the credit gate it
+  // will read (MAS, credit interface).
+  `COMMON_UNUSED_BITS(unused_inputs, {tlp_tx_eop_i, ltssm_state_i, fc_tx_ok})
+
+  // The upper-layer obligation (HAS, receive): with any class infinite,
+  // tlp_rx_ready_i is 1 in every cycle dl_up_o is 1.
+  `COMMON_ASSERT_NEVER(a_rx_never_stall, clk_i, rst_i, RX_ANY_INF && dl_up_o && !tlp_rx_ready_i)
 
   // Nothing starts in DL_Inactive (HAS, reset values): only the tail of a
   // DLLP whose sop the phy took before the link went down.

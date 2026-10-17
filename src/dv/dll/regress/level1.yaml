@@ -62,3 +62,43 @@ tests:
     seeds: 2
     timeout_s: 300
     params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
+  - name: rx_traffic
+    module: tests.test_dll_rx
+    testcase: rx_traffic
+    top: pcie_dll_tb
+    seeds: [0, 1]
+    timeout_s: 300
+  - name: rx_errors
+    module: tests.test_dll_rx
+    testcase: rx_errors
+    top: pcie_dll_tb
+    seeds: [0, 1, 2]
+    timeout_s: 300
+  - name: rx_errors_infinite
+    module: tests.test_dll_rx
+    testcase: rx_errors
+    top: pcie_dll_tb
+    seeds: [0]
+    timeout_s: 300
+    params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
+  - name: rx_stall
+    module: tests.test_dll_rx
+    testcase: rx_stall
+    top: pcie_dll_tb
+    seeds: [0, 1]
+    timeout_s: 300
+    params: {FC_CPLH: 16, FC_CPLD: 64}
+  - name: credit_starve_rx
+    module: tests.test_dll_fc
+    testcase: credit_starve_rx
+    top: pcie_dll_tb
+    seeds: 2
+    timeout_s: 600
+    params: {FC_PH: 8, FC_PD: 32, FC_NPH: 8, FC_NPD: 8, FC_CPLH: 8, FC_CPLD: 32}
+  - name: credits_infinite_rx
+    module: tests.test_dll_fc
+    testcase: credits_infinite_rx
+    top: pcie_dll_tb
+    seeds: 2
+    timeout_s: 600
+    params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}

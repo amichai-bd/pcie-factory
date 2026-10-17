@@ -17,13 +17,14 @@ import random
 import cocotb
 
 from tb.dll_env import (ACTIVE, CLASSES, INACTIVE, INIT1, INIT2, MODS, STATE_NAMES, Env,
-                        arch_partner_traffic, ptn, raw_dllp)
+                        arch_to_partner_traffic, ptn, raw_dllp)
 
 # A credit returned in DL_Active is in an UpdateFC that starts within this
-# many cycles when the phy never stalls: at most the packet on the stream
-# and the two other classes' UpdateFCs ahead of it in round robin, each 3
-# beats and a framing cycle (FLOW_CONTROL.md, UpdateFC scheduling).
-UPD_BOUND = 16
+# many cycles when the phy never stalls: at most the packet on the stream,
+# an Ack or Nak, and the two other classes' UpdateFCs ahead of it in round
+# robin, each 3 beats and a framing cycle (FLOW_CONTROL.md, UpdateFC
+# scheduling; RETRY.md, transmit priority).
+UPD_BOUND = 20
 
 # Partner advertisements for the starvation test, by seed: every class
 # finite (two sizes), and the default (completions infinite).
@@ -161,88 +162,107 @@ async def fc_tx_gate(dut):
     env.check_clean()
 
 
-async def rx_traffic(env: Env, rng: random.Random, count: int, burst: float) -> None:
-    """Push ``count`` receive decisions: well-formed TLPs of every class,
-    some malformed (a byte count other than the header's, or under 4
-    bytes); with probability ``burst`` several back to back."""
-    tag = 0
-    for _ in range(count):
-        tlp = random_tlp(rng, tag, big=0.1)
-        tag += 1
+def rx_items(rng: random.Random, count: int, tag: int) -> list[bytes]:
+    """TLPs to receive: well-formed of every class, some malformed (a byte
+    count other than the header's, or under 4 bytes)."""
+    items = []
+    for i in range(count):
+        tlp = random_tlp(rng, tag + i, big=0.1)
         r = rng.random()
         if r < 0.08:
-            env.rx_dec_q.append((tlp[:-4] if len(tlp) > 12 else tlp + bytes(4), True, False))
+            tlp = tlp[:-4] if len(tlp) > 12 else tlp + bytes(4)
         elif r < 0.11:
-            env.rx_dec_q.append((tlp[:2], True, True))
-        else:
-            env.rx_dec_q.append((tlp, False, False))
-        if rng.random() > burst:
-            await env.run(rng.randint(1, 60))
+            tlp = tlp[:2]
+        items.append(tlp)
+    return items
+
+
+async def rx_deliver(env: Env, items: list[bytes], *, gap: int = 0, rounds: int = 40) -> None:
+    """Send ``items`` to the DUT in order, framed from its NEXT_RCV_SEQ, as
+    a far end that replays: after each drain, whatever was not accepted (an
+    overflowed TLP and the ones behind it, which arrive ahead) goes again
+    from the first one not accepted."""
+    pending = list(items)
+    for _ in range(rounds):
+        if not pending:
+            return
+        start = env.ref.nrs
+        for i, tlp in enumerate(pending):
+            env.inject(ptn.frame_tlp((start + i) % 4096, tlp), dllp=False)
+            if gap:
+                env.raw.extend([None] * gap)
+        await env.run_until(lambda: not env.raw, 40000, "TLPs received")
+        await env.run(80)
+        pending = pending[(env.ref.nrs - start) % 4096:]
+        if pending and env.ref.overflow == 0 and env.rx_stall_until <= env.cycle:
+            raise AssertionError(f"{len(pending)} TLPs not accepted with no overflow")
+    assert not pending, f"{len(pending)} TLPs never accepted"
 
 
 @cocotb.test()
 async def fc_rx_accounting(dut):
-    """L0/L1, per parameter set: receive accounting through the slot
-    drivers. Decisions in FC_INIT2 and DL_Active, stored, overflowing and
-    malformed TLPs of every class; the overflow check (finite credits, or
-    the reserve of an infinite field) against the rule and the
-    architecture model every cycle; each overflow pulses err_o bit 5 once;
-    malformed TLPs return their header's credits at once, nothing under 4
-    bytes; delivered TLPs return their credits at their eop; every UpdateFC
-    carries CREDITS_ALLOCATED, is due, goes in round robin, and a return is
-    sent within the bound; link down clears the counters. With every class
-    finite the upper layer stalls."""
+    """L0/L1, per parameter set: receive accounting on real TLPs from a
+    hand-driven far end that replays. TLPs stored, malformed (their
+    header's credits returned at once, nothing under 4 bytes) and, with
+    every class finite and the upper layer stalling, overflowing (Receiver
+    overflow, no Ack or Nak: the TLPs behind arrive ahead and are sent
+    again); credits returned at each delivered eop. Every UpdateFC carries
+    CREDITS_ALLOCATED, is due, goes in round robin, and a return is sent
+    within the bound; returns in FC_INIT2 are in the entry UpdateFC;
+    refreshes; link down clears the counters. The reference and the
+    architecture-model shadow judge every TLP."""
     seed = cocotb.RANDOM_SEED
     rng = random.Random(seed)
-    env = Env(dut, seed, slot_rx=True)
+    env = Env(dut, seed)
     await env.start()
     finite = all(v for cls in CLASSES for v in env.adv[cls])
-    if finite:
-        env.up_ready_p = 0.5
     env.upd_bound = UPD_BOUND
     far = {"P": (8, 32), "NP": (8, 8), "Cpl": (0, 0)}
+    tag = 0
 
     async def init2(e: Env) -> None:
-        # Stored, returned and malformed before DL_Active: the entry
-        # UpdateFC carries what was returned.
-        for kind in ("MWr", "MRd", "CplD"):
-            e.rx_dec_q.append((ptn.make_tlp(kind, 2, 7), False, False))
-        e.rx_dec_q.append((ptn.make_tlp("MWr", 4, 8)[:-4], True, False))
-        await e.run(40)
+        await rx_deliver(e, [ptn.make_tlp(k, 2, 7) for k in ("MWr", "MRd", "CplD")]
+                         + [ptn.make_tlp("MWr", 4, 8)[:-4]])
 
     for epoch in range(2):
         await bring_up(env, far, in_init2=init2)
-        await rx_traffic(env, rng, 150, burst=0.3)
-        # A burst per class: more than its credits or reserve hold.
-        for kind in ("MWr", "MRd", "CplD", "Msg"):
-            for i in range(12):
-                env.rx_dec_q.append((ptn.make_tlp(kind, 8, i), False, False))
-            await env.run(rng.randint(1, 30))
+        await rx_deliver(env, rx_items(rng, 120, tag), gap=2)
+        tag += 120
         if finite:
-            env.up_stall = 600
-        await rx_traffic(env, rng, 100, burst=0.5)
-        await env.run_until(lambda: not env.rx_dec_q and not env.rx_store
-                            and env.rx_cur is None, 20000, "receive decisions drained")
+            # A slow upper layer and a long stall: bursts overflow.
+            env.rx_ready_p = 0.3
+            env.rx_stall_until = env.cycle + 600
+            await rx_deliver(env, rx_items(rng, 80, tag))
+            tag += 80
+            env.rx_ready_p = 1.0
+        for kind in ("MWr", "MRd", "CplD", "Msg"):
+            await rx_deliver(env, [ptn.make_tlp(kind, 8, tag + i) for i in range(12)])
+            tag += 12
         await env.run(2 * 2048 + 100)     # refreshes after the returns
         if epoch == 0:
             # Link down while TLPs are stored and one is being delivered.
             if finite:
-                env.up_stall = 50
+                env.rx_stall_until = env.cycle + 50
             for i in range(4):
-                env.rx_dec_q.append((ptn.make_tlp("MWr", 1, i), False, False))
-            await env.run(20)
+                env.inject(ptn.frame_tlp((env.ref.nrs + i) % 4096,
+                                         ptn.make_tlp("MWr", 8, i)), dllp=False)
+            await env.run(60)
             env.dut_link = False
             await wait_state(env, INACTIVE, 3)
+            env.raw.clear()
             await env.run(30)
-    decisions = [d for _, d, _ in env.decided]
-    overflows = decisions.count("overflow")
-    assert overflows == env.ovf_seen, f"{overflows} overflows, {env.ovf_seen} pulses"
-    for want in ("stored", "overflow", "malformed", "malformed_no_hdr"):
-        assert want in decisions, f"no {want} decision"
-    dut._log.info("seed %d, credits %s: %d decisions (%d stored, %d overflow), %d delivered; "
-                  "UpdateFC latency after a return at most %d cycles", seed, env.adv,
-                  len(decisions), decisions.count("stored"), overflows, len(env.delivered),
-                  env.upd_lat_max)
+    stats = env.check_rx()
+    if env.ref.overflow == 0:
+        # With overflows the shadow's own delivery timing (packet level)
+        # can decide a borderline TLP the other way, and the replays then
+        # differ; the reference judges the rule on the DUT's own timing.
+        env.check_shadow_rx()
+    if finite:
+        assert env.ref.overflow > 0, "no overflow with every class finite and a stalling layer"
+    dut._log.info("seed %d, credits %s: %d TLPs delivered, %d malformed, %d overflow; "
+                  "UpdateFC latency after a return at most %d cycles; %s", seed, env.adv,
+                  len(env.delivered), env.ref.malformed, env.ref.overflow, env.upd_lat_max,
+                  stats)
     env.check_clean()
 
 
@@ -291,7 +311,7 @@ async def starve_run(dut, credits: dict[str, tuple[int, int]], schedule) -> Env:
     # The architecture model against a fresh partner: the same TLPs, the
     # same credits and upper-layer schedule; the partner judges the model.
     fresh = ptn.Partner("fresh", credits=credits, seed=seed)
-    model = arch_partner_traffic(env.adv, fresh, list(env.accepted), schedule,
+    model = arch_to_partner_traffic(env.adv, fresh, list(env.accepted), schedule,
                                  random.Random(seed))
     assert fresh.received == env.accepted, (
         f"partner received {len(fresh.received)} of {len(env.accepted)} TLPs from the arch model")
@@ -327,3 +347,60 @@ async def credits_infinite(dut):
     all ones, and the partner receives every TLP."""
     env = await starve_run(dut, INFINITE, [(3000, 0.0), (2000, 0.3)])
     assert env.refused == 0, f"the gate refused {env.refused} cycles with infinite credits"
+
+
+async def starve_rx_run(dut, schedule) -> Env:
+    """The independent partner sends TLPs to the DUT, gated by the DUT's
+    UpdateFCs; the DUT's upper layer follows ``schedule`` (cycles, take
+    probability; below 1 only with every class finite), then takes all."""
+    seed = cocotb.RANDOM_SEED
+    rng = random.Random(seed)
+    partner = ptn.Partner("partner", seed=seed)
+    env = Env(dut, seed, partner=partner)
+    await env.start()
+    env.upd_bound = UPD_BOUND
+    env.dut_link = env.partner_link = True
+    await env.run_until(lambda: env.state == ACTIVE and partner.state == ptn.ACTIVE, 400,
+                        "both ends in DL_Active")
+    tlps = [random_tlp(rng, i) for i in range(1500)]
+    for t in tlps:
+        partner.send(t)
+    for cycles, take in schedule:
+        env.rx_ready_p = take if take < 1.0 else 1.0
+        if take == 0.0:
+            env.rx_stall_until = env.cycle + cycles
+            env.rx_ready_p = 1.0
+        start = len(env.delivered)
+        await env.run(cycles)
+        dut._log.info("%d cycles, upper layer takes %.0f%%: %d TLPs delivered", cycles,
+                      100 * take, len(env.delivered) - start)
+    env.rx_ready_p = 1.0
+    await env.run_until(lambda: len(env.delivered) == len(tlps) and not partner.rbuf, 60000,
+                        "every TLP delivered and acknowledged")
+    await env.run(200)
+    assert env.delivered == tlps, "the DUT did not deliver the partner's TLPs once, in order"
+    assert env.ovf_seen == 0 and env.ref.overflow == 0, "Receiver overflow with a compliant partner"
+    stats = env.check_rx()
+    env.check_shadow_rx()
+    dut._log.info("partner stats %s; UpdateFC latency after a return at most %d cycles; %s",
+                  partner.stats, env.upd_lat_max, stats)
+    env.check_clean()
+    return env
+
+
+@cocotb.test()
+async def credit_starve_rx(dut):
+    """L1, seeded: the credits target on the receive side, every class
+    finite. The DUT's upper layer takes 30% of the time, stalls 4000
+    cycles, takes 30%, stalls 10000 cycles, then takes all, while the
+    partner sends as fast as the DUT's UpdateFCs allow: no Receiver
+    overflow, every TLP delivered once and in order, every UpdateFC
+    checked, cross-checked with the reference and the architecture model."""
+    await starve_rx_run(dut, [(2000, 0.3), (4000, 0.0), (2000, 0.3), (10000, 0.0)])
+
+
+@cocotb.test()
+async def credits_infinite_rx(dut):
+    """L1, seeded: the same with every DUT class infinite and an upper
+    layer that never stalls (HAS, receive): no overflow of the reserve."""
+    await starve_rx_run(dut, [(6000, 1.0)])

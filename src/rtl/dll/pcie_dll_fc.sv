@@ -26,11 +26,13 @@ module pcie_dll_fc (
   input  logic [31:0]              tx_data_i,       // tlp_tx_data_i
   input  logic                     tx_sop_take_i,   // a sop taken from the upper stream
   output logic                     tx_ok_o,
-  // Receive: the decision on an expected good-LCRC TLP (#213), whether it
-  // fits, and the upper receive stream whose taken eop returns credits.
-  input  pcie_dll_pkg::t_fc_rx_tlp rx_tlp_i,
-  output logic                     rx_fits_o,
-  input  pcie_dll_pkg::t_tlp_beat  rx_beat_i,
+  // Receive: the TLP receive path's events (MAS, receive events for
+  // credit accounting); rx_fit_o answers rx_chk_i in the same cycle.
+  input  pcie_dll_pkg::t_rx_credit rx_chk_i,        // a TLP to store: does it fit?
+  output logic                     rx_fit_o,
+  input  pcie_dll_pkg::t_rx_credit rx_stored_i,     // stored: CREDITS_RECEIVED
+  input  pcie_dll_pkg::t_rx_credit rx_malformed_i,  // malformed: both counters
+  input  pcie_dll_pkg::t_rx_credit rx_taken_i,      // eop taken upward: CREDITS_ALLOCATED
   output logic                     overflow_o       // Receiver overflow pulse
 );
 
@@ -41,7 +43,6 @@ module pcie_dll_fc (
   pcie_dll_pkg::t_fc_vals  alloc_q, alloc_d;   // CREDITS_ALLOCATED
   pcie_dll_pkg::t_fc_vals  rcvd_q, rcvd_d;     // CREDITS_RECEIVED
   pcie_dll_pkg::t_fc_vals  sent_q, sent_d;     // the values last sent in UpdateFC
-  pcie_dll_pkg::t_fc_cost  up_cost_q;          // the TLP being taken on the receive stream
   logic                    ovf_q;
   logic [2:0]              due_q, due_d;       // entry UpdateFC due, bit per class
   logic [10:0]             ref_p_q, ref_p_d;   // cycles since the class's last UpdateFC
@@ -62,26 +63,21 @@ module pcie_dll_fc (
   logic                    take_np;
   logic                    take_cpl;
   pcie_dll_pkg::t_fc_val   upd_pick;
-  pcie_dll_pkg::t_fc_cost  tx_cost;    // the offered TLP's credits
+  pcie_dll_pkg::t_rx_credit tx_cost;   // the offered TLP's class and credits
   pcie_dll_pkg::t_fc_limit tx_lim;
   logic                    tx_consume; // a TLP's sop taken: CREDITS_CONSUMED
-  pcie_dll_pkg::t_fc_cost  rx_cost;    // the decided TLP's credits
-  logic                    rx_store;   // stored: CREDITS_RECEIVED
-  logic                    rx_ovf;     // does not fit: Receiver overflow
-  logic                    rx_mal;     // malformed: both counters at once
-  pcie_dll_pkg::t_fc_cost  beat_cost;  // credits of the TLP whose sop is on the receive stream
-  pcie_dll_pkg::t_fc_cost  ret_cost;   // credits returned by a taken eop
-  logic                    ret;
-  logic                    up_sop;
+  logic                    rx_ovf;     // a TLP to store does not fit: Receiver overflow
+  logic                    rx_mal;     // malformed with credits (a stale class has none)
   pcie_dll_pkg::t_fc_vals  alloc_mal;
+  pcie_dll_pkg::t_fc_vals  rcvd_mal;
 
   assign active  = state_i == pcie_dll_pkg::DL_ACTIVE;
   assign rx_base = pcie_dll_pkg::fc_rx_base(adv_i);
 
   // ------------------------------------------------------------ transmit
 
-  assign tx_cost = pcie_dll_pkg::tlp_cost(tx_data_i[6], tx_data_i[4:0],
-                                    {tx_data_i[17:16], tx_data_i[31:24]});
+  assign tx_cost = pcie_dll_pkg::tlp_credit(tx_data_i[6], tx_data_i[4:0],
+                                           {tx_data_i[17:16], tx_data_i[31:24]});
 
   always_comb begin
     case (tx_cost.cls)
@@ -94,35 +90,18 @@ module pcie_dll_fc (
   assign tx_ok_o    = active && pcie_dll_pkg::fc_gate(tx_lim.inf_hdr, tx_lim.inf_data,
                                                       tx_lim.limit,
                                                       pcie_dll_pkg::fc_get(used_q, tx_cost.cls),
-                                                      tx_cost.val);
+                                                      tx_cost.cred);
   assign tx_consume = tx_sop_take_i;
 
   // ------------------------------------------------------------ receive
 
-  always_comb begin
-    rx_cost = pcie_dll_pkg::tlp_cost(rx_tlp_i.dw0[6], rx_tlp_i.dw0[4:0],
-                                     {rx_tlp_i.dw0[17:16], rx_tlp_i.dw0[31:24]});
-    if (rx_tlp_i.no_hdr) begin
-      rx_cost.val = '0;
-    end
-  end
-
-  assign rx_fits_o = pcie_dll_pkg::fc_fits(pcie_dll_pkg::fc_get(alloc_q, rx_cost.cls),
-                                           pcie_dll_pkg::fc_get(rcvd_q, rx_cost.cls),
-                                           rx_cost.val);
-  assign rx_store  = rx_tlp_i.valid && !rx_tlp_i.malformed && rx_fits_o;
-  assign rx_ovf    = rx_tlp_i.valid && !rx_tlp_i.malformed && !rx_fits_o;
-  assign rx_mal    = rx_tlp_i.valid && rx_tlp_i.malformed;
-
-  // A delivered TLP's credits return when the upper layer takes its eop
-  // beat; its cost is read from its sop beat.
-  assign beat_cost = pcie_dll_pkg::tlp_cost(rx_beat_i.data[6], rx_beat_i.data[4:0],
-                                      {rx_beat_i.data[17:16], rx_beat_i.data[31:24]});
-  assign up_sop    = rx_beat_i.take && rx_beat_i.sop;
-  assign ret       = rx_beat_i.take && rx_beat_i.eop;
-  assign ret_cost  = rx_beat_i.sop ? beat_cost : up_cost_q;
-
-  `COMMON_DFF_EN(up_cost_q, beat_cost, clk_i, up_sop)
+  // A malformed TLP under 5 beats has no header: its credits are 0 and its
+  // class is stale, so it counts nothing and its class is not read.
+  assign rx_fit_o = pcie_dll_pkg::fc_fits(pcie_dll_pkg::fc_get(alloc_q, rx_chk_i.cls),
+                                          pcie_dll_pkg::fc_get(rcvd_q, rx_chk_i.cls),
+                                          rx_chk_i.cred);
+  assign rx_ovf   = rx_chk_i.valid && !rx_fit_o;
+  assign rx_mal   = rx_malformed_i.valid && rx_malformed_i.cred != '0;
 
   // ------------------------------------------------------------ UpdateFC
 
@@ -166,10 +145,15 @@ module pcie_dll_fc (
     lim_cpl_d = pcie_dll_pkg::fc_record(lim_cpl_q, rx_dllp_i.valid, rx_dllp_i.kind,
                                           rx_dllp_i.cls, rx_dllp_i.val,
                                           pcie_dll_pkg::FC_CPL, state_i);
-    used_d    = pcie_dll_pkg::fc_charge(used_q, tx_consume, tx_cost);
-    rcvd_d    = pcie_dll_pkg::fc_charge(rcvd_q, rx_store || rx_mal, rx_cost);
-    alloc_mal = pcie_dll_pkg::fc_charge(alloc_q, rx_mal, rx_cost);
-    alloc_d   = pcie_dll_pkg::fc_charge(alloc_mal, ret, ret_cost);
+    used_d    = pcie_dll_pkg::fc_charge(used_q, tx_consume, tx_cost.cls, tx_cost.cred);
+    rcvd_mal  = pcie_dll_pkg::fc_charge(rcvd_q, rx_mal, rx_malformed_i.cls,
+                                        rx_malformed_i.cred);
+    rcvd_d    = pcie_dll_pkg::fc_charge(rcvd_mal, rx_stored_i.valid, rx_stored_i.cls,
+                                        rx_stored_i.cred);
+    alloc_mal = pcie_dll_pkg::fc_charge(alloc_q, rx_mal, rx_malformed_i.cls,
+                                        rx_malformed_i.cred);
+    alloc_d   = pcie_dll_pkg::fc_charge(alloc_mal, rx_taken_i.valid, rx_taken_i.cls,
+                                        rx_taken_i.cred);
     sent_d    = sent_q;
     if (take_p) begin
       sent_d.p = upd_pick;
@@ -235,20 +219,20 @@ module pcie_dll_fc (
   assign overflow_o        = ovf_q;
 
   // Header bits other than Fmt bit 6, Type and Length do not set the
-  // credits; the gate does not read the limit's record flag.
-  `COMMON_UNUSED_BITS(unused_bits, {rx_dllp_i.seq, tx_lim.recorded,
-                                       tx_data_i[23:18], tx_data_i[15:7],
-                                       tx_data_i[5], rx_tlp_i.dw0[23:18],
-                                       rx_tlp_i.dw0[15:7], rx_tlp_i.dw0[5],
-                                       rx_beat_i.data[23:18], rx_beat_i.data[15:7],
-                                       rx_beat_i.data[5]})
+  // credits; the gate does not read the limit's record flag, nor the
+  // offered TLP's valid flag (always 1 from tlp_credit).
+  `COMMON_UNUSED_BITS(unused_bits, {rx_dllp_i.seq, tx_lim.recorded, tx_cost.valid,
+                                    tx_data_i[23:18], tx_data_i[15:7], tx_data_i[5]})
 
   `COMMON_ASSERT_NEVER(a_take_without_due, clk_i, rst_i, updfc_take_i && !updfc_req_o.valid)
   // The TLP source accepts only TLPs the gate covers (HAS, transmit).
   `COMMON_ASSERT_NEVER(a_consume_without_credit, clk_i, rst_i, tx_consume && !tx_ok_o)
-  // TLPs are decided only in FC_INIT2 and DL_Active (retry, receiving TLPs).
-  `COMMON_ASSERT_NEVER(a_rx_tlp_outside_dl_up, clk_i, rst_i,
-                       rx_tlp_i.valid && state_i != pcie_dll_pkg::DL_INIT2 && !active)
+  // TLPs are decided only in FC_INIT2 and DL_Active (retry, receiving TLPs),
+  // and only one that fits is stored.
+  `COMMON_ASSERT_NEVER(a_rx_chk_outside_dl_up, clk_i, rst_i,
+                       rx_chk_i.valid && state_i != pcie_dll_pkg::DL_INIT2 && !active)
+  `COMMON_ASSERT_NEVER(a_stored_without_fit, clk_i, rst_i,
+                       rx_stored_i.valid && !(rx_chk_i.valid && rx_fit_o))
   // Credits are returned only for TLPs stored: the free credits of each
   // class never exceed its receive space.
   `COMMON_ASSERT_NEVER(a_free_within_space, clk_i, rst_i,
