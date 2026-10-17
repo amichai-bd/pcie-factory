@@ -61,9 +61,9 @@ and `cfg` simply applies the byte enables.
 
 | BAR2 offset | Field | Access | Reset | Effect |
 | --- | --- | --- | --- | --- |
-| 16n + 0, bits 31:2 | Entry n Message Address | RW | undefined | `msg_addr_o[31:2]` of vector n; bits 1:0 RO 0. |
-| 16n + 4 | Entry n Message Upper Address | RW | undefined | `msg_addr_o[63:32]`. |
-| 16n + 8 | Entry n Message Data | RW | undefined | `msg_data_o`. |
+| 16n + 0, bits 31:2 | Entry n Message Address | RW | not reset: undefined at power-on, kept across a link-down reset | `msg_addr_o[31:2]` of vector n; bits 1:0 RO 0. |
+| 16n + 4 | Entry n Message Upper Address | RW | not reset, as above | `msg_addr_o[63:32]`. |
+| 16n + 8 | Entry n Message Data | RW | not reset, as above | `msg_data_o`. |
 | 16n + 12, bit 0 | Entry n Mask Bit | RW | 1 | 1 masks vector n; clearing it sends the vector if pending. Bits 31:1 RO 0. |
 | 0x800 + 4k | Pending bits 32k to 32k + 31 | RO | 0 | Bit i of DW k is vector 32k + i's pending bit; bits at or above `MSIX_TABLE_SIZE` read 0. Writes are ignored. |
 | Any other offset | — | RO | 0 | — |
@@ -106,14 +106,15 @@ optional feature [cite: PCIe Base Spec, rev 3.0, §7.8].
 | 0x80 | 6, 7 | Common Clock Configuration, Extended Synch | RW | 0 | No effect. |
 | 0x80 | 4, 5, 8 to 11 | Link Disable, Retrain Link, Clock PM, Autonomous Width Disable, Bandwidth interrupt enables | RO | 0 | Reserved for an Endpoint or not supported. |
 | 0x80 | 19:16, 25:20 | Current Link Speed, Negotiated Link Width | RO | 1, 1 | 2.5 GT/s, x1: `cfg` is out of reset only while the link is up [cite: PCIe Base Spec, rev 3.0, §7.8.8]. |
-| 0x80 | 27, 28, 29 to 31 | Link Training, Slot Clock Configuration, DLL Link Active and bandwidth status | RO | 0 | — |
+| 0x80 | 27, 29 to 31 | Link Training, DLL Link Active and bandwidth status | RO | 0 | — |
+| 0x80 | 28 | Slot Clock Configuration | RO | 0 | Separate reference clock assumed; a card using the connector's clock needs 1 (see the [open questions](HAS.md#open-questions)). |
 | 0x84 to 0x90 | 31:0 | Slot and Root registers | RO | 0 | Not an Endpoint's. |
-| 0x94 | 3:0 | Completion Timeout Ranges Supported | RO | 0 | No programmable range: the `tl` timeout is fixed [cite: PCIe Base Spec, rev 3.0, §7.8.15]. |
-| 0x94 | 4 | Completion Timeout Disable Supported | RO | 0 | The `tl` timeout cannot be disabled. |
+| 0x94 | 3:0 | Completion Timeout Ranges Supported | RO | 0 | No programmable range: the `tl` timeout is fixed, and so must lie between 50 µs and 50 ms [cite: PCIe Base Spec, rev 3.0, §7.8.15]; `tl` uses 2^21 cycles, about 16.8 ms. |
+| 0x94 | 4 | Completion Timeout Disable Supported | RO | 1 | Required of an Endpoint that issues its own requests. |
 | 0x94 | 31:5 | Other Device Capabilities 2 | RO | 0 | No ARI, AtomicOp, LTR, TPH, OBFF or prefixes. |
 | 0x98 | 3:0 | Completion Timeout Value | RO | 0 | Not programmable; writes ignored [cite: PCIe Base Spec, rev 3.0, §7.8.16]. |
-| 0x98 | 4 | Completion Timeout Disable | RO | 0 | Not supported: reads 0, writes ignored; the timeout always runs. |
-| 0x98 | 31:5 | Other Device Control 2, Device Status 2 | RO | 0 | Nothing to enable. |
+| 0x98 | 4 | Completion Timeout Disable | RW | 0 | `cpl_timeout_dis_o`: 1 disables the `tl` requester completion timeout ([register state](../core/TL_CFG.md#register-state)). |
+| 0x98 | 31:5 | Other Device Control 2, Device Status 2 | RO | 0 | Nothing else to enable. |
 | 0x9C | 7:1 | Supported Link Speeds Vector | RO | 0000001 | Its bit 0 (register bit 1): 2.5 GT/s only [cite: PCIe Base Spec, rev 3.0, §7.8.18]. |
 | 0xA0 | 3:0 | Target Link Speed | RO | 1 | 2.5 GT/s, hardwired as a 2.5 GT/s-only component may [cite: PCIe Base Spec, rev 3.0, §7.8.19]. |
 | 0xA0 | 31:4 | Other Link Control 2, Link Status 2 | RO | 0 | Compliance, margin and de-emphasis controls hardwired. |

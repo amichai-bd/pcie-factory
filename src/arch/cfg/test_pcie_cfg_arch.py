@@ -133,8 +133,8 @@ def test_device_control_and_link_control():
     assert c.cfg_read(CAP_PCIE + 0x10) & 0xFFFF == 0x00C3
     c.cfg_write(CAP_PCIE + 0x30, 0xFFFF_FFFF)         # Link Control 2 hardwired
     assert c.cfg_read(CAP_PCIE + 0x30) == 1
-    c.cfg_write(CAP_PCIE + 0x28, 0xFFFF_FFFF)         # Completion Timeout Value, Disable RO 0
-    assert c.cfg_read(CAP_PCIE + 0x24) == 0 and c.cfg_read(CAP_PCIE + 0x28) == 0
+    c.cfg_write(CAP_PCIE + 0x28, 0xFFFF_FFFF)         # only Completion Timeout Disable is RW
+    assert c.cfg_read(CAP_PCIE + 0x24) == 0x10 and c.cfg_read(CAP_PCIE + 0x28) == 0x10
     c.cfg_write(CAP_PCIE + 0x04, 0xFFFF_FFFF)         # slot power limit and the rest RO
     assert c.cfg_read(CAP_PCIE + 0x04) == 1 << 15
 
@@ -396,7 +396,43 @@ def test_table_reads_and_reserved_bits():
     assert c.bar2_read(PBA_OFFSET + 8) == 0
 
 
-def test_reset_clears_everything():
+def test_capability_first_dws_literal():
+    """The first DWs as CAPS.md gives them, not through model constants."""
+    c = Cfg(Params(msix_table_size=8))
+    assert c.cfg_read(0x40) == 0x0003_5001             # PM v3, next 0x50
+    assert c.cfg_read(0x44) == 0x0000_0008             # No_Soft_Reset
+    assert c.cfg_read(0x50) == 0x0080_6005             # MSI 64-bit, next 0x60
+    assert c.cfg_read(0x60) == 0x0007_7011             # MSI-X size 8, next 0x70
+    assert c.cfg_read(0x64) == 0x0000_0002             # table BIR 2, offset 0
+    assert c.cfg_read(0x68) == 0x0000_0802             # PBA BIR 2, offset 0x800
+    assert c.cfg_read(0x70) == 0x0002_0010             # PCIe v2, Endpoint, last
+    assert c.cfg_read(0x74) == 0x0000_8000             # role-based error reporting
+    assert c.cfg_read(0x78) == 0x0000_2810             # RO and NS enables, MRRS 512
+    assert c.cfg_read(0x94) == 0x0000_0010             # CT Disable Supported only
+
+
+def test_completion_timeout_disable():
+    c = Cfg()
+    assert not c.cpl_timeout_dis
+    c.cfg_write(CAP_PCIE + 0x28, 0xFFFF_FFFF)
+    assert c.cfg_read(CAP_PCIE + 0x28) == 0x10 and c.cpl_timeout_dis
+    c.reset()
+    assert not c.cpl_timeout_dis
+
+
+def test_table_survives_reset():
+    """Link-down reset keeps the table address and data, resets the masks
+    and clears the pending bits."""
+    c = Cfg()
+    ready(c, msix=True)
+    c.cfg_write(0x04, CMD_MSE, be=0x1)
+    c.irq_request(2)
+    c.reset()
+    assert c.bar2_read(32) == ADDR + 8 and c.bar2_read(40) == 0x102
+    assert c.bar2_read(44) == 1 and c.bar2_read(PBA_OFFSET) == 0
+
+
+def test_reset_clears_registers_and_pending():
     c = Cfg()
     ready(c, msix=True)
     c.cfg_write(0x04, CMD_MSE, be=0x1)

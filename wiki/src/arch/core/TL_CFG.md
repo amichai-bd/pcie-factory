@@ -76,6 +76,7 @@ configuration write takes effect, or at reset.
 | `d_state` | cfg→tl | 2 | `clk_i` | Power State: 0 D0, 3 D3hot (decision F5). |
 | `bar0_base` | cfg→tl | 32 | `clk_i` | BAR0 address: bits `[31:BAR0_ADDR_W]` as software wrote them, lower bits 0. |
 | `bar2_base` | cfg→tl | 32 | `clk_i` | BAR2 address: bits `[31:12]` as software wrote them, lower bits 0. |
+| `cpl_timeout_dis` | cfg→tl | 1 | `clk_i` | Device Control 2 Completion Timeout Disable: 1 disables `tl`'s requester completion timeout. |
 
 - The completer ID and requester ID of every TLP `tl` sends are
   `bus_num`, `dev_num` and function 0.
@@ -92,8 +93,14 @@ configuration write takes effect, or at reset.
   interrupts), the error-reporting enables (`cfg` decides messages), and
   the maximum payload and read request sizes (`tl` uses the fixed 128
   bytes, decision F2; `cfg` drives the [status outputs](APP.md#status)).
-  The completion timeout is fixed in `tl`; `cfg` advertises it as not
-  programmable ([#285](https://github.com/amichai-bd/pcie-factory/issues/285)).
+  The completion timeout value is fixed in `tl`; `cfg` advertises no
+  programmable range (Completion Timeout Ranges Supported 0000b), which
+  obliges that fixed value to lie between 50 µs and 50 ms
+  [cite: PCIe Base Spec, rev 3.0, §7.8.15]. `cfg` does advertise
+  Completion Timeout Disable, which `tl` honors through `cpl_timeout_dis`:
+  while it is 1, an outstanding read waits for its completions with no
+  timeout (firstmate decision as the captain's delegate, which the captain
+  may override).
 - The read completion boundary is fixed at 64 bytes: `cfg` hardwires the
   Link Control RCB bit to 0 (64 bytes), so software cannot set a boundary
   that disagrees with how `tl` splits completions
@@ -159,8 +166,9 @@ so there is no Signaled Target Abort event.
   write, MSI-X Enable for an MSI-X write), or reset. `tl` takes a message
   only in a cycle where it sees `msg_valid` and raises `msg_ready`, samples
   the fields in that cycle, and never assumes an offer stays up. A
-  withdrawn interrupt write becomes pending
-  ([resolution](#interrupt-resolution)); a withdrawn error message is
+  withdrawn interrupt write becomes pending, or is dropped when neither
+  MSI nor MSI-X is enabled ([resolution](#interrupt-resolution)); a
+  withdrawn error message is
   discarded, its status bits already set (firstmate decision as the
   captain's delegate, which the captain may override).
 - <a id="outside-d0"></a>**Outside D0.** A function outside D0 originates

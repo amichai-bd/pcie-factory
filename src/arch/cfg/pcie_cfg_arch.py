@@ -145,6 +145,8 @@ class Cfg:
             CAP_PCIE + 0x08: (0x2810, 0x78FF, DS_CED | DS_NFED | DS_FED | DS_URD),
             CAP_PCIE + 0x0C: (0x00400011, 0, 0),      # Link Capabilities: 2.5 GT/s x1
             CAP_PCIE + 0x10: (0x0011 << 16, 0x00C3, 0),
+            CAP_PCIE + 0x24: (1 << 4, 0, 0),          # Device Capabilities 2: CT Disable Supported
+            CAP_PCIE + 0x28: (0, 1 << 4, 0),          # Device Control 2: CT Disable RW
             CAP_PCIE + 0x2C: (0x00000002, 0, 0),      # Link Capabilities 2: 2.5 GT/s
             CAP_PCIE + 0x30: (0x00000001, 0, 0),      # Link Control 2: target 2.5 GT/s
         }
@@ -158,9 +160,13 @@ class Cfg:
             self.r[dw] = rst
         self.bus_num = 0
         self.dev_num = 0
-        # Table entry DWs; address and data are undefined after reset in the
-        # HAS (a RAM that is not reset): the model uses 0. Mask bits reset to 1.
-        self.table = [[0, 0, 0, 1] for _ in range(self.p.msix_table_size)]
+        # Table entries: address and data sit in a RAM that reset leaves
+        # alone (undefined at power-on: the model starts them at 0 once, at
+        # construction); only the mask bits reset, to 1.
+        if not hasattr(self, "table"):
+            self.table = [[0, 0, 0, 1] for _ in range(self.p.msix_table_size)]
+        for e in self.table:
+            e[3] = 1
         self.pba = 0
         self.msi_pending = False
         self.np_pending = False   # tl_np_pending_i
@@ -189,6 +195,10 @@ class Cfg:
     @property
     def bar0_base(self) -> int:
         return self._reg(0x10)
+
+    @property
+    def cpl_timeout_dis(self) -> bool:
+        return bool(self._reg(CAP_PCIE + 0x28) >> 4 & 1)
 
     @property
     def bar2_base(self) -> int:
@@ -558,7 +568,7 @@ def enumerate_function(c: Cfg, rng: random.Random, bus: int = 1, dev: int = 0) -
 
 def _random_params(rng: random.Random) -> Params:
     return Params(bar0_addr_w=rng.randint(12, 28), msix_table_size=rng.randint(1, 64),
-                  vendor_id=rng.randrange(0xFFFF), device_id=rng.randrange(0x10000),
+                  vendor_id=rng.randrange(0xFFFF), device_id=rng.randrange(0xFFFF),
                   subsys_vendor_id=rng.randrange(0xFFFF), subsys_id=rng.randrange(0xFFFF),
                   class_code=rng.randrange(1 << 24), revision_id=rng.randrange(256))
 
@@ -574,7 +584,9 @@ def _perf_enumeration(w: dict, rng: random.Random) -> dict:
 def _perf_stress(w: dict, rng: random.Random) -> dict:
     """Random interrupt requests, masks, enables, D-state changes, error
     events, and message offers taken at once or left waiting across the
-    other operations; then a drain with everything allowed."""
+    other operations; then a drain with everything allowed. A request is
+    lost when it is reported pending with no pending bit or flag holding
+    it, or when it is still owed a write after the drain."""
     c = Cfg(Params(msix_table_size=int(w.get("vectors", 8))))
     n = c.p.msix_table_size
     for v in range(n):                                 # one address per vector
@@ -586,6 +598,8 @@ def _perf_stress(w: dict, rng: random.Random) -> dict:
     owed: dict[object, int] = {}                     # key -> requests owed a write
     stats = {"requests": 0, "writes": 0, "writes_while_blocked": 0,
              "messages_outside_d0": 0, "error_messages": 0}
+    unheld = 0                                       # pending reports with nothing holding them
+    open_vector = None                               # vector of the request not yet resolved
 
     def key_of(m: Msg):
         return "msi" if m.addr == MSI_ADDR + 0x100 else (m.addr - MSI_ADDR) // 4
@@ -614,6 +628,7 @@ def _perf_stress(w: dict, rng: random.Random) -> dict:
                 key = v if c.msix_en else "msi"
                 status = c.irq_request(v)
                 stats["requests"] += 1
+                open_vector = v
                 if status != "dropped":
                     owed[key] = owed.get(key, 0) + 1
         elif op < 0.48:
@@ -637,6 +652,12 @@ def _perf_stress(w: dict, rng: random.Random) -> dict:
             c.cfg_write(CAP_PM + 4, rng.choice((0, 0, 0, 3, 1)), be=0x1)
         elif op < 0.96:
             c.error(tl=rng.getrandbits(9), dl=rng.getrandbits(7), rcv=rng.getrandbits(1))
+        if open_vector is not None and c.irq_status is not None:
+            # A request reported pending must be held by a pending bit or
+            # the MSI pending flag, as the host would later see it sent.
+            if c.irq_status == "pending" and not (c.pba >> open_vector & 1 or c.msi_pending):
+                unheld += 1
+            open_vector = None
     # Drain: D0, bus mastering, MSI alone, then MSI-X unmasked.
     c.cfg_write(CAP_PM + 4, 0, be=0x1)
     c.cfg_write(0x04, CMD_MSE | CMD_BME, be=0x3)
@@ -646,6 +667,7 @@ def _perf_stress(w: dict, rng: random.Random) -> dict:
         c.cfg_write(CAP_MSIX, 0, be=0x8)
         for _ in range(4):
             take()
+    lost_msi = int(c.msi_en and owed.get("msi", 0) > 0)   # MSI on, write never sent
     c.cfg_write(CAP_MSI, 0, be=0x4)
     owed.pop("msi", None)
     c.cfg_write(CAP_MSIX, 0x8000 << 16, be=0x8)
@@ -653,7 +675,7 @@ def _perf_stress(w: dict, rng: random.Random) -> dict:
         c.bar2_write(16 * v + 12, 0)
     for _ in range(n + 4):
         take()
-    stats["interrupts_lost"] = sum(1 for k, cnt in owed.items() if cnt)
+    stats["interrupts_lost"] = unheld + lost_msi + sum(1 for k, cnt in owed.items() if cnt)
     return stats
 
 

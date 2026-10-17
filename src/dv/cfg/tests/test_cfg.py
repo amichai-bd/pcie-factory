@@ -18,7 +18,7 @@ from regress.funcov import Covergroup
 # (wiki/src/arch/cfg/HAS.md#reset); data outputs are don't care.
 RESET_VALUES = {
     "reg_req_ready_o": 0, "reg_cpl_valid_o": 0,
-    "bus_num_o": 0, "dev_num_o": 0, "bar0_base_o": 0, "bar2_base_o": 0,
+    "bus_num_o": 0, "dev_num_o": 0, "bar0_base_o": 0, "bar2_base_o": 0, "cpl_timeout_dis_o": 0,
     "mem_space_en_o": 0, "bus_master_en_o": 0, "d_state_o": 0,
     "msg_valid_o": 0, "irq_ready_o": 0, "irq_done_o": 0,
     "max_payload_o": 0, "max_read_req_o": 2,

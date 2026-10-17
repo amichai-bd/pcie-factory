@@ -40,6 +40,7 @@ module pcie_cfg #(
   output logic [4:0]  dev_num_o,
   output logic [31:0] bar0_base_o,
   output logic [31:0] bar2_base_o,
+  output logic        cpl_timeout_dis_o, // Device Control 2 Completion Timeout Disable
   output logic        mem_space_en_o,
   output logic        bus_master_en_o,
   output logic [1:0]  d_state_o,        // 0 D0, 3 D3hot
@@ -89,6 +90,7 @@ module pcie_cfg #(
   assign dev_num_o       = 5'd0;
   assign bar0_base_o     = 32'd0;
   assign bar2_base_o     = 32'd0;
+  assign cpl_timeout_dis_o = 1'b0;
   assign mem_space_en_o  = 1'b0;
   assign bus_master_en_o = 1'b0;
   assign d_state_o       = 2'd0;

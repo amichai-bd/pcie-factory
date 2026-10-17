@@ -50,6 +50,7 @@ of the same name; this table gives the `cfg` port, its direction and width.
 | `reg_cpl_valid_o`, `reg_cpl_data_o` | out | 1, 32 | `clk_i` | Access finished; read data. |
 | `bus_num_o`, `dev_num_o` | out | 8, 5 | `clk_i` | [Register state](../core/TL_CFG.md#register-state): captured numbers. |
 | `bar0_base_o`, `bar2_base_o` | out | 32, 32 | `clk_i` | BAR0 and BAR2 addresses. |
+| `cpl_timeout_dis_o` | out | 1 | `clk_i` | Device Control 2 Completion Timeout Disable, to `tl`. |
 | `mem_space_en_o`, `bus_master_en_o`, `d_state_o` | out | 1, 1, 2 | `clk_i` | Command enables and Power State; to `tl` and to the `core` [status](../core/APP.md#status) ports. |
 | `tl_np_pending_i` | in | 1 | `clk_i` | [Requester state](../core/TL_CFG.md#requester-state): Device Status Transactions Pending. |
 | `tl_err_i` | in | 9 | `clk_i` | [Error events](../core/TL_CFG.md#error-events) from `tl`. |
@@ -82,7 +83,7 @@ MSI pending flag, every error message due and every offer return to their
 reset values ([REGISTERS.md](REGISTERS.md), [CAPS.md](CAPS.md)), and the
 outputs are: `reg_req_ready_o`, `reg_cpl_valid_o`, `msg_valid_o`,
 `irq_ready_o`, `irq_done_o`, `bus_num_o`, `dev_num_o`, `bar0_base_o`,
-`bar2_base_o`, `mem_space_en_o`, `bus_master_en_o`, `d_state_o` (D0) and
+`bar2_base_o`, `cpl_timeout_dis_o`, `mem_space_en_o`, `bus_master_en_o`, `d_state_o` (D0) and
 `max_payload_o` 0, and `max_read_req_o` 2. Data outputs are don't care
 while not qualified. The MSI-X table address and data DWs are not reset
 (they sit in a RAM), as the `core` [link down](../core/HAS.md#link-down)
@@ -235,7 +236,7 @@ override; Q and F numbers are the [record](../../decisions/0004-m3-grill.md)'s.
 | Item | Target | Check |
 | --- | --- | --- |
 | Enumeration | A host enumeration (IDs, capability walk, BAR sizing and assignment, enables, MSI and MSI-X, one interrupt each way with an MSI-X one pending first) finds no mismatch for any legal parameters. | [`enumeration`](../../../../src/arch/cfg/perf/enumeration.yaml): `enumeration_errors` 0 |
-| No interrupt lost | Under random masks, enables, D-state changes and error events, every request reported sent or pending is followed by a write of its vector once allowed and unmasked; no write is taken while blocked; no message is taken outside D0. | [`irq_stress`](../../../../src/arch/cfg/perf/irq_stress.yaml): `interrupts_lost`, `writes_while_blocked`, `messages_outside_d0` 0 |
+| No interrupt lost | Under random masks, enables, D-state changes and error events, every request reported pending is held by a pending bit or the MSI pending flag, and every request reported sent or pending is followed by a write of its vector once allowed and unmasked (an MSI one counted while MSI stays enabled); no write is taken while blocked; no message is taken outside D0. | [`irq_stress`](../../../../src/arch/cfg/perf/irq_stress.yaml): `interrupts_lost`, `writes_while_blocked`, `messages_outside_d0` 0 |
 | Access latency | `reg_cpl_valid_o` at most 4 cycles after the take, BAR2 table reads included; `irq_done_o` for a dropped or pending request at most 4 cycles after the take. | `cfg` testbench, [#289](https://github.com/amichai-bd/pcie-factory/issues/289) |
 
 ## Architecture model
@@ -264,5 +265,6 @@ The Base Spec is not in the local cache (`./build specs list`:
 | The cited sections on this page, [REGISTERS.md](REGISTERS.md) and [CAPS.md](CAPS.md), checked against rev 3.0. | Captain, with a local copy; [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
 | Advisory non-fatal handling without AER: ERR_COR for a UR completion gated by Unsupported Request Reporting Enable and Correctable Error Reporting Enable together; Device Status sets Correctable, not Non-Fatal, Error Detected. | [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
 | A posted UR sends ERR_NONFATAL only with Unsupported Request Reporting Enable 1, SERR# Enable alone does not. | [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
+| **Slot Clock Configuration** (Link Status) reads 0; a board that uses the connector's reference clock needs 1, which a parameter would provide. | [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
 | **Captured Slot Power Limit** (Device Capabilities) reads 0: `tl` does not pass a received Set_Slot_Power_Limit message to `cfg`, so its value and scale are not captured. | [#309](https://github.com/amichai-bd/pcie-factory/issues/309) |
 | **D3hot without L1:** the standard has the link enter L1 when the function is in D3hot; `link` stays in L0 (F5, the `mac` link power states). | [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
