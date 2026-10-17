@@ -224,6 +224,11 @@ and simulation.
   or an element of an enclosing pattern; as a `?:` or comparison operand
   Quartus Lite cannot type it, so name the value with a package constant
   or a signal (`pattern-context`).
+- **Struct members** are never named like a built-in method of strings,
+  arrays or enums (`len`, `size`, `first`, `last`, `name`, ...) when a function
+  selects them: Quartus Lite takes `h.len` inside a function for the `len()`
+  method and rejects the assignment (`Error (10049)`), which Verilator accepts
+  (style rule `method-member-name`). Rename the member.
 - **Macros** are only the vocabulary's: a design file defines none.
 - **No functions with side effects, no tasks** in RTL. Pure helper functions
   live in the owning package.

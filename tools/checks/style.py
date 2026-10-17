@@ -131,6 +131,9 @@ RULES = {
                         "an assignment pattern is the whole right-hand side of an =, a return "
                         "value or an element of an enclosing pattern; never a ?: or comparison "
                         "operand, an argument or a typed T'{...} (Quartus Lite cannot type it)"),
+    "method-member-name": ("systemverilog-rules",
+                           "no member select inside a function names a built-in method "
+                           "(x.len, x.size, ...); Quartus Lite takes it for the method"),
 }
 
 # A tool directive comment: a tool keyword followed by a directive word.
@@ -652,6 +655,40 @@ def pattern_contexts(text: str) -> list[int]:
     return out
 
 
+# Built-in method names of strings, arrays, queues and enums (IEEE 1800
+# string, array and enumeration methods). Quartus Lite resolves a member
+# select of one of these names inside a function as the method, not the
+# member: proven for len (Error (10049), assignment to a nonvariable); the
+# rest share the name class and are kept out of member selects in functions.
+BUILTIN_METHODS = frozenset({
+    "len", "putc", "getc", "toupper", "tolower", "compare", "icompare", "substr",
+    "atoi", "atohex", "atooct", "atobin", "atoreal", "itoa", "hextoa", "octtoa",
+    "bintoa", "realtoa", "size", "delete", "exists", "first", "last", "next", "prev",
+    "num", "name", "insert", "pop_front", "pop_back", "push_front", "push_back",
+    "find", "find_index", "find_first", "find_first_index", "find_last",
+    "find_last_index", "min", "max", "unique", "unique_index", "reverse", "sort",
+    "rsort", "shuffle", "sum", "product",
+})
+
+
+_MEMBER_SELECT_RE = re.compile(r"[\w$\])]\s*\.\s*([A-Za-z_][\w$]*)(?![\w$])(?!\s*\()")
+
+
+def method_member_selects(text: str) -> list[tuple[int, str]]:
+    """(index, name) for each member select ``x.name`` inside a function
+    of comment-stripped ``text`` whose name is in ``BUILTIN_METHODS``: a
+    ``.`` straight after an identifier, ``]`` or ``)``, so not a named port
+    connection. A call (``x.name(``) is not a member select and passes."""
+    out = []
+    for m in re.finditer(r"\bfunction\b", text):
+        end = text.find("endfunction", m.end())
+        end = len(text) if end < 0 else end
+        for d in _MEMBER_SELECT_RE.finditer(text, m.end(), end):
+            if d.group(1) in BUILTIN_METHODS:
+                out.append((d.start(1), d.group(1)))
+    return out
+
+
 def assert_argument_spans(text: str, vocab: Vocabulary) -> list[tuple[int, int]]:
     """Spans of the parenthesized argument lists of `` `COMMON_ASSERT*``
     calls in comment-stripped ``text``, for function-like macros a
@@ -793,6 +830,9 @@ def check_text(relpath: str, raw: str, expected_prefix: str | None,
         add("inline-genvar", m.start(), "for (genvar ...): declare the genvar at module level")
     for index, key in pattern_key_clashes(body):
         add("pattern-key-name", index, f"pattern key {key} is also a name in this scope")
+    for index, name in method_member_selects(body):
+        add("method-member-name", index, f"member select .{name} in a function names a "
+            "built-in method")
     for index in pattern_contexts(body):
         add("pattern-context", index, "assignment pattern outside an assignment context")
     for index in bare_generate(body):

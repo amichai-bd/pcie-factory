@@ -115,7 +115,7 @@ package pcie_dll_pkg;
     logic       hdr4;       // Fmt bit 5: a 4-DW header
     logic       with_data;  // Fmt bit 6: a payload follows
     logic [4:0] typ;        // Type, byte 0 bits 4:0
-    logic [9:0] len;        // Length in DWs, byte 2 bits 1:0 and byte 3; 0 is 1024
+    logic [9:0] length;     // Length in DWs, byte 2 bits 1:0 and byte 3; 0 is 1024
   } t_tlp_hdr;
 
   // A received TLP's class and the credits its header states, as the
@@ -204,7 +204,7 @@ package pcie_dll_pkg;
     h.hdr4      = b0[5];
     h.with_data = b0[6];
     h.typ       = b0[4:0];
-    h.len       = {b2, b3};
+    h.length    = {b2, b3};
     return h;
   endfunction
 

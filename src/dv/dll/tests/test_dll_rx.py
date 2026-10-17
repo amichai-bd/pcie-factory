@@ -301,7 +301,8 @@ def fill(rng: random.Random, adv: dict[str, tuple[int, int]]) -> list[bytes]:
 
 
 async def partner_run(dut, *, errors: dict[str, float], count: int = 300,
-                      stall: bool = False, max_dw: int = 32, limit: int = 200000) -> None:
+                      stall: bool = False, max_dw: int = 32, limit: int = 200000,
+                      gated: bool = False) -> None:
     seed = cocotb.RANDOM_SEED
     rng = random.Random(seed)
     partner = ptn.Partner("partner", inject=ptn.Inject(**errors), seed=seed)
@@ -310,7 +311,14 @@ async def partner_run(dut, *, errors: dict[str, float], count: int = 300,
     env.dut_link = env.partner_link = True
     await env.run_until(lambda: env.state == ACTIVE and partner.state == ptn.ACTIVE
                         and env.shadow.state == arch.ACTIVE, 5000, "all in DL_Active")
-    tlps = fill(rng, env.adv) if stall else traffic(rng, env.adv, count, max_dw)
+    if stall:
+        tlps = fill(rng, env.adv)
+    elif gated:
+        # Beyond the advertisement: the partner sends as the DUT's UpdateFCs
+        # allow (no class is limited here).
+        tlps = traffic(rng, {c: (0, 0) for c in CLASSES}, count, max_dw)
+    else:
+        tlps = traffic(rng, env.adv, count, max_dw)
     if stall:
         # The upper layer stalls while the partner sends every credit.
         env.rx_stall_until = env.cycle + 3000
@@ -354,6 +362,16 @@ async def rx_errors(dut):
     every TLP delivered exactly once and in order, one Nak per
     NAK_SCHEDULED setting."""
     await partner_run(dut, errors=ERRORS)
+
+
+@cocotb.test()
+async def rx_errors_gated(dut):
+    """L2, seeded: the error injection of ``rx_errors`` with 300 TLPs beyond
+    the DUT's advertisement, so the partner sends as the DUT's UpdateFCs
+    allow. At the smallest credits it is the one entry that discards TLPs
+    (bad and duplicate) in the smallest receive buffer, whose rewind no
+    error-free entry reaches."""
+    await partner_run(dut, errors=ERRORS, gated=True)
 
 
 @cocotb.test()
