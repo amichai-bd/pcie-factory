@@ -2,8 +2,13 @@
 // Interfaces and behavior: wiki/src/arch/link/HAS.md; structure:
 // wiki/src/rtl/link/MAS.md.
 //
-// Wave-1 shell: the ports of the HAS with every output tied to its reset
-// value. The stack integration arrives in wave 3.
+// Thin integration (HAS, stack wiring): no logic of its own but one OR.
+// The upper TLP stream, the credits and the data link status go straight
+// to pcie_dll, the link control and the lower symbol interface straight to
+// pcie_phy, and the two IPs meet on the packet stream. The phy's nullify
+// input and power-state request are tied off (the dll never nullifies; the
+// link holds the phy at L0), and the phy retrain request is the OR of the
+// port and the dll's REPLAY_NUM rollover pulse.
 `default_nettype none
 
 module pcie_link #(
@@ -68,36 +73,110 @@ module pcie_link #(
   input  logic        ser_rx_elec_idle_i // the line is in electrical idle // cdc-domain: ser_rx_clk_i
 );
 
-  // Inputs the shell does not use yet; the wave-3 integration consumes them.
-  logic unused_inputs;
-  assign unused_inputs = ^{clk_i, rst_i, port_role_i, tlp_tx_valid_i, tlp_tx_data_i,
-                           tlp_tx_sop_i, tlp_tx_eop_i, tlp_rx_ready_i, retrain_req_i,
-                           hot_reset_req_i, disable_req_i, loopback_req_i, ser_tx_rxdet_i,
-                           FC_PH[0], FC_PD[0], FC_NPH[0], FC_NPD[0], FC_CPLH[0], FC_CPLD[0],
-                           TIMEOUT_DIV[0], ERR_TIMEOUT_DIV[0]};
-  logic unused_rx_inputs;
-  assign unused_rx_inputs = ^{ser_rx_clk_i, ser_rx_data_i, ser_rx_elec_idle_i};
+  // The packet stream between the two IPs (dll HAS, lower packet stream):
+  // flat, as both IPs name its ports.
+  logic        pkt_tx_valid;
+  logic        pkt_tx_ready;
+  logic [15:0] pkt_tx_data;
+  logic        pkt_tx_sop;
+  logic        pkt_tx_eop;
+  logic        pkt_tx_dllp;
+  logic        pkt_rx_valid;
+  logic [15:0] pkt_rx_data;
+  logic        pkt_rx_sop;
+  logic        pkt_rx_eop;
+  logic        pkt_rx_dllp;
+  logic        pkt_rx_err;
+  logic        pkt_rx_nullify;
+  logic        dll_retrain_req;    // one-cycle pulse on a REPLAY_NUM rollover
+  logic        phy_retrain_req;
 
-  // Reset values from the HAS: DL_Inactive, Detect.Quiet, electrical idle.
-  assign tlp_tx_ready_o     = 1'b0;
-  assign tlp_rx_valid_o     = 1'b0;
-  assign tlp_rx_data_o      = 32'd0;
-  assign tlp_rx_sop_o       = 1'b0;
-  assign tlp_rx_eop_o       = 1'b0;
-  assign fc_ph_avail_o      = 8'd0;
-  assign fc_pd_avail_o      = 12'd0;
-  assign fc_nph_avail_o     = 8'd0;
-  assign fc_npd_avail_o     = 12'd0;
-  assign fc_cplh_avail_o    = 8'd0;
-  assign fc_cpld_avail_o    = 12'd0;
-  assign dl_up_o            = 1'b0;
-  assign dl_state_o         = 2'd0;
-  assign dl_err_o           = 7'd0;
-  assign link_up_o          = 1'b0;
-  assign ltssm_state_o      = 6'd0;
-  assign rcv_err_o          = 1'b0;
-  assign ser_tx_data_o      = 20'd0;
-  assign ser_tx_elec_idle_o = 1'b1;
+  // Either source retrains the link; each is a one-cycle pulse (HAS, stack wiring).
+  assign phy_retrain_req = retrain_req_i | dll_retrain_req;
+
+  pcie_dll #(
+    .FC_PH   (FC_PH),
+    .FC_PD   (FC_PD),
+    .FC_NPH  (FC_NPH),
+    .FC_NPD  (FC_NPD),
+    .FC_CPLH (FC_CPLH),
+    .FC_CPLD (FC_CPLD)
+  ) u_dll (
+    .clk_i            (clk_i),
+    .rst_i            (rst_i),
+    .tlp_tx_valid_i   (tlp_tx_valid_i),
+    .tlp_tx_ready_o   (tlp_tx_ready_o),
+    .tlp_tx_data_i    (tlp_tx_data_i),
+    .tlp_tx_sop_i     (tlp_tx_sop_i),
+    .tlp_tx_eop_i     (tlp_tx_eop_i),
+    .tlp_rx_valid_o   (tlp_rx_valid_o),
+    .tlp_rx_ready_i   (tlp_rx_ready_i),
+    .tlp_rx_data_o    (tlp_rx_data_o),
+    .tlp_rx_sop_o     (tlp_rx_sop_o),
+    .tlp_rx_eop_o     (tlp_rx_eop_o),
+    .fc_ph_avail_o    (fc_ph_avail_o),
+    .fc_pd_avail_o    (fc_pd_avail_o),
+    .fc_nph_avail_o   (fc_nph_avail_o),
+    .fc_npd_avail_o   (fc_npd_avail_o),
+    .fc_cplh_avail_o  (fc_cplh_avail_o),
+    .fc_cpld_avail_o  (fc_cpld_avail_o),
+    .dl_up_o          (dl_up_o),
+    .dl_state_o       (dl_state_o),
+    .err_o            (dl_err_o),
+    .pkt_tx_valid_o   (pkt_tx_valid),
+    .pkt_tx_ready_i   (pkt_tx_ready),
+    .pkt_tx_data_o    (pkt_tx_data),
+    .pkt_tx_sop_o     (pkt_tx_sop),
+    .pkt_tx_eop_o     (pkt_tx_eop),
+    .pkt_tx_dllp_o    (pkt_tx_dllp),
+    .pkt_rx_valid_i   (pkt_rx_valid),
+    .pkt_rx_data_i    (pkt_rx_data),
+    .pkt_rx_sop_i     (pkt_rx_sop),
+    .pkt_rx_eop_i     (pkt_rx_eop),
+    .pkt_rx_dllp_i    (pkt_rx_dllp),
+    .pkt_rx_err_i     (pkt_rx_err),
+    .pkt_rx_nullify_i (pkt_rx_nullify),
+    .link_up_i        (link_up_o),
+    .ltssm_state_i    (ltssm_state_o),
+    .retrain_req_o    (dll_retrain_req)
+  );
+
+  pcie_phy #(
+    .TIMEOUT_DIV     (TIMEOUT_DIV),
+    .ERR_TIMEOUT_DIV (ERR_TIMEOUT_DIV)
+  ) u_phy (
+    .clk_i              (clk_i),
+    .rst_i              (rst_i),
+    .port_role_i        (port_role_i),
+    .pkt_tx_valid_i     (pkt_tx_valid),
+    .pkt_tx_ready_o     (pkt_tx_ready),
+    .pkt_tx_data_i      (pkt_tx_data),
+    .pkt_tx_sop_i       (pkt_tx_sop),
+    .pkt_tx_eop_i       (pkt_tx_eop),
+    .pkt_tx_dllp_i      (pkt_tx_dllp),
+    .pkt_tx_nullify_i   (1'b0),        // the dll never nullifies
+    .pkt_rx_valid_o     (pkt_rx_valid),
+    .pkt_rx_data_o      (pkt_rx_data),
+    .pkt_rx_sop_o       (pkt_rx_sop),
+    .pkt_rx_eop_o       (pkt_rx_eop),
+    .pkt_rx_dllp_o      (pkt_rx_dllp),
+    .pkt_rx_err_o       (pkt_rx_err),
+    .pkt_rx_nullify_o   (pkt_rx_nullify),
+    .link_up_o          (link_up_o),
+    .ltssm_state_o      (ltssm_state_o),
+    .rcv_err_o          (rcv_err_o),
+    .retrain_req_i      (phy_retrain_req),
+    .hot_reset_req_i    (hot_reset_req_i),
+    .disable_req_i      (disable_req_i),
+    .loopback_req_i     (loopback_req_i),
+    .pm_state_req_i     (2'd0),        // L0 only: no L0s, L1 or L2 (HAS, power states)
+    .ser_tx_data_o      (ser_tx_data_o),
+    .ser_tx_elec_idle_o (ser_tx_elec_idle_o),
+    .ser_tx_rxdet_i     (ser_tx_rxdet_i),
+    .ser_rx_clk_i       (ser_rx_clk_i),
+    .ser_rx_data_i      (ser_rx_data_i),
+    .ser_rx_elec_idle_i (ser_rx_elec_idle_i)
+  );
 
 endmodule
 

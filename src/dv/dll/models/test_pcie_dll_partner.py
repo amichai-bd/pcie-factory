@@ -406,12 +406,66 @@ def test_link_down_resets():
     b.p.send(m.make_tlp("MWr", 2, 0))
     b.run(40)
     b.p.link_up = False
-    b.run(3)
+    b.run(80)                           # any started packet finishes first
     assert b.p.state == m.INACTIVE and b.p.rbuf == [] and b.p.next_tx_seq == 0
     assert b.p.stats["lost_on_reset"] == 1
     b.p.link_up = True
     b.init()
     assert b.p.ackd_seq == 4095
+
+
+def test_link_down_finishes_started_packet():
+    """Link-down inside a packet (dll HAS, Decisions, as for the dll): the
+    partner sends the rest of a started TLP up to its eop, held by
+    tx_ready, then nothing; it is already in DL_Inactive meanwhile. A
+    packet not yet started is dropped, and the next link-up's first DLLP
+    starts after the old eop, never inside it."""
+    b = Bench(credits=FINITE)
+    b.init()
+    tlp = m.make_tlp("MWr", 32, 7)              # 140 bytes: 73 beats framed
+    b.p.send(tlp)
+    beats = []
+    while len(beats) < 10:
+        out = b.p.clock(None)
+        if out is not None:
+            beats.append(out)
+    assert beats[0].sop and not beats[0].dllp
+    b.p.link_up = False
+    b.p.tx_ready = False                        # the tail waits for the stream
+    assert b.p.clock(None) is None and b.p.state == m.INACTIVE and b.p.rbuf == []
+    b.p.tx_ready = True
+    for _ in range(200):
+        out = b.p.clock(None)
+        if out is not None:
+            beats.append(out)
+    assert len(beats) == 73 and beats[-1].eop and not any(x.sop for x in beats[1:])
+    data = bytes(v for x in beats for v in (x.data & 0xFF, x.data >> 8))
+    assert data == m.frame_tlp(0, tlp)
+    assert b.p.stats["tail_finished"] == 1
+    # A link-down between packets sends nothing more.
+    b.p.link_up = True
+    b.init()
+    b.p.link_up = False
+    assert all(b.p.clock(None) is None for _ in range(50))
+    # Link-down and up again inside a tail: the tail ends before FC_INIT1's first DLLP.
+    b.p.link_up = True
+    b.init()
+    b.p.send(m.make_tlp("MWr", 32, 8))
+    seen = []
+    while len(seen) < 5:
+        out = b.p.clock(None)
+        if out is not None and (seen or (out.sop and not out.dllp)):
+            seen.append(out)
+    b.p.link_up = False
+    seen.append(b.p.clock(None))                # the tail goes on while down
+    b.p.link_up = True
+    for _ in range(300):
+        out = b.p.clock(None)
+        if out is not None:
+            seen.append(out)
+    eop = next(i for i, x in enumerate(seen) if x.eop)
+    assert eop == 72 and not seen[eop].dllp
+    assert seen[eop + 1].sop and seen[eop + 1].dllp     # the first InitFC1, after the tail
 
 
 # -- two partners back to back ------------------------------------------------
@@ -580,7 +634,7 @@ def test_lcrc_bytes_match_framing():
 
 
 def test_independence_no_shared_code():
-    """M2 Q3: the partner modules and their tests import only the standard
+    """M2 Q3: the partner modules (passive mode included) and their tests import only the standard
     library, pytest and the partner's own modules; none uses a dynamic
     import (importlib, runpy, __import__, exec, eval); and no partner
     module names an arch/ path or the architecture model's module names
@@ -591,10 +645,12 @@ def test_independence_no_shared_code():
     here = Path(m.__file__).resolve().parent
     own = {p.stem for p in here.glob("pcie_dll_partner*.py")}
     files = sorted(here.glob("pcie_dll_partner*.py")) + sorted(here.glob("test_pcie_dll_partner*.py"))
-    assert len(files) == 4
+    assert len(files) == 6                  # the partner, its CRCs, its passive mode, their tests
     banned_mods = {"importlib", "runpy"}
     banned_calls = {"__import__", "exec", "eval"}
-    banned_text = ("pcie_dll_crc", "pcie_dll_arch")
+    # The architecture models and the link e2e's line injector (the passive
+    # mode reads only the plain views it is given).
+    banned_text = ("pcie_dll_crc", "pcie_dll_arch", "pcie_link_arch", "pcie_link_injector")
     for path in files:
         tree = ast.parse(path.read_text())
         docs = {id(n.value) for n in ast.walk(tree)

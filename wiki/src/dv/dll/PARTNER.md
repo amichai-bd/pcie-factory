@@ -1,10 +1,12 @@
 # pcie_dll independent link partner
 
-The far-end data link layer that the `dll` and `link` testbenches put
-opposite the design: a pure-Python model,
+The far-end data link layer that the `dll` testbench puts opposite the
+design, and the passive checker of the `link` e2e: a pure-Python model,
 [`pcie_dll_partner.py`](../../../../src/dv/dll/models/pcie_dll_partner.py),
 with its CRCs in
-[`pcie_dll_partner_crc.py`](../../../../src/dv/dll/models/pcie_dll_partner_crc.py).
+[`pcie_dll_partner_crc.py`](../../../../src/dv/dll/models/pcie_dll_partner_crc.py)
+and its [passive mode](PASSIVE.md) in
+[`pcie_dll_partner_passive.py`](../../../../src/dv/dll/models/pcie_dll_partner_passive.py).
 It is the independent oracle of decision record
 [0003](../../decisions/0003-m2-grill.md#decisions), Q3: the second opinion
 on protocol behaviour beside the
@@ -17,8 +19,8 @@ on protocol behaviour beside the
 | --- | --- |
 | A different author from the architecture model | Written by a separate crewmate under [#210](https://github.com/amichai-bd/pcie-factory/issues/210); the PR records it. |
 | Written from the spec and the HAS | Sources: the [`dll` HAS](../../arch/dll/HAS.md) and its [DLLP](../../arch/dll/DLLP.md), [retry](../../arch/dll/RETRY.md) and [flow-control](../../arch/dll/FLOW_CONTROL.md) pages, at the [#259](https://github.com/amichai-bd/pcie-factory/pull/259) head `724c6e9`, merged to `main` as `69b4ac5`, and the author's own reading of the rules they cite. |
-| No shared code | Nothing under `src/arch/dll/`, the architecture model, its CRC code or its self-tests, was read or imported. The partner has its own CRCs, framing and state machines. |
-| Checked | `test_independence_no_shared_code` scans the partner modules and their tests. It fails on an import other than the standard library, pytest and the partner's own modules. It also fails on a dynamic import (`importlib`, `runpy`, `__import__`, `exec`, `eval`), and on code in a partner module that names an `arch/` path or the architecture model's module names. |
+| No shared code | Nothing under `src/arch/dll/`, the architecture model, its CRC code or its self-tests, was read or imported. The partner has its own CRCs, framing and state machines. The passive mode reads only the plain packet views it is given; it imports nothing from the `link` testbench, its injector or the RTL side ([#215](https://github.com/amichai-bd/pcie-factory/issues/215)). |
+| Checked | `test_independence_no_shared_code` scans the three partner modules and their tests. It fails on an import other than the standard library, pytest and the partner's own modules. It also fails on a dynamic import (`importlib`, `runpy`, `__import__`, `exec`, `eval`), and on code in a partner module that names an `arch/` path, the architecture models' module names or the `link` injector's. |
 | Disagreements stay visible | Where the partner's reading may differ from the HAS, it is listed below as a [possible disagreement](#possible-disagreements) for the HAS Open items. It is never settled by looking at the model. |
 
 The CRCs are checked only against values found without the spec or the
@@ -37,7 +39,7 @@ and `nullify`. None is an idle cycle.
 
 | Member | Kind | Meaning |
 | --- | --- | --- |
-| `link_up` | input | The physical layer's LinkUp. 0 resets the partner to DL_Inactive: every counter, timer, flag and credit is cleared, and the replay buffer and the receive store are emptied. TLPs lost from the replay buffer are counted in `stats["lost_on_reset"]`. TLPs lost from the receive store (not yet taken by `upper_ready`) are not counted. The upper transmit queue (`send`) is kept and resent after the next initialisation. |
+| `link_up` | input | The physical layer's LinkUp. 0 resets the partner to DL_Inactive: every counter, timer, flag and credit is cleared, and the replay buffer and the receive store are emptied. A packet whose first beat has gone out is finished first: its remaining beats follow, held by `tx_ready`, up to its `eop`; one not started is dropped ([link-down](#link-down)). TLPs lost from the replay buffer are counted in `stats["lost_on_reset"]`. TLPs lost from the receive store (not yet taken by `upper_ready`) are not counted. The upper transmit queue (`send`) is kept and resent after the next initialisation. |
 | `tx_ready` | input | The stream takes the partner's beat this cycle (0 holds it, even inside a packet). |
 | `in_l0` | input | The LTSSM is in L0. 0 holds the replay timer; a replay held after a rollover waits for it to fall and rise again. |
 | `upper_ready` | input | The partner's upper layer takes stored TLPs, one per cycle. 0 stops credits being returned. The partner's store is unbounded, so it may stall even with an infinite class; the HAS's never-stall obligation binds the `dll`'s upper layer, not the partner. |
@@ -96,6 +98,21 @@ unbounded, and the upper layer takes one TLP per cycle.
   ([UpdateFC](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling)). The
   default advertisement is the HAS parameter defaults: P 8 and 32, NP 8
   and 8, completions infinite.
+
+### Link-down
+
+A packet the partner has started when `link_up` falls is finished, as the
+`dll` finishes one ([HAS decisions](../../arch/dll/HAS.md#decisions),
+[#211](https://github.com/amichai-bd/pcie-factory/issues/211)): from the
+first `clock` call that sees `link_up` 0, the partner is in DL_Inactive
+with everything cleared, and it sends the packet's remaining beats (one
+per cycle while `tx_ready` is 1) up to its `eop`, then nothing. A `phy`
+keeps a packet open from its `sop` until its `eop` whatever the link does,
+so a cut packet would put the next link-up's first DLLP inside it. If
+`link_up` rises again before that `eop`, the tail ends first and the
+partner then enters FC_INIT1. `stats["tail_finished"]` counts the tails
+(`test_link_down_finishes_started_packet`;
+[#215](https://github.com/amichai-bd/pcie-factory/issues/215)).
 
 ### Far-end checks
 
@@ -161,8 +178,9 @@ x^(w−1).
 
 ## Unit tests
 
-[`test_pcie_dll_partner_crc.py`](../../../../src/dv/dll/models/test_pcie_dll_partner_crc.py)
-and [`test_pcie_dll_partner.py`](../../../../src/dv/dll/models/test_pcie_dll_partner.py)
+[`test_pcie_dll_partner_crc.py`](../../../../src/dv/dll/models/test_pcie_dll_partner_crc.py),
+[`test_pcie_dll_partner.py`](../../../../src/dv/dll/models/test_pcie_dll_partner.py)
+and [`test_pcie_dll_partner_passive.py`](../../../../src/dv/dll/models/test_pcie_dll_partner_passive.py)
 run with `python3 -m pytest src/dv/dll/models`, and in `ci-gate` through
 `./build ci unit`. They need no simulator.
 
@@ -172,6 +190,8 @@ run with `python3 -m pytest src/dv/dll/models`, and in `ci-gate` through
 | Wrap | Sequence numbers preloaded near 4095 crossing to 0 with expected TLPs, Ack, a duplicate, a Nak and a replay, and a range error behind ACKD_SEQ (`test_sequence_wrap`). A loopback of 520 maximum-payload MWr wraps the 8-bit header and 12-bit data counters on both sides (`test_credit_counters_wrap_loopback`). |
 | One partner, hand-driven | Initialisation and InitFC resend; entry UpdateFC, infinite classes included; receive rules: expected, ahead, NAK_SCHEDULED, duplicate, nullified, flagged, too short, LCRC, malformed lengths and payloads; Ack timing (32 cycles); DLLP checks; UpdateFC checks; Ack, Nak and replay, a TLP going out at a Nak included; replay timeout at 356 cycles; rollover hold through a retrain and its 1024-cycle fallback; replay timer held outside L0; overflow; the credit gate; a received TLP prefix; the flag and nullify hooks; link-down reset. |
 | Two partners back to back | Initialisation at three skews. Clean bidirectional traffic. Lossless, exactly once and in order, with every injection hook on, three seeds, finite and default credits, upper-layer stalls with finite credits. Delayed Acks and forced Naks. Withheld credits. Rollover and recovery. A sender that ignores credits is caught. Same seed, same run. |
+| Link-down | A started TLP finished up to its `eop` after `link_up` falls, held by `tx_ready`; nothing after a link-down between packets; a tail ending before the next FC_INIT1 when the link returns first (`test_link_down_finishes_started_packet`). |
+| Passive mode | Its own tests ([passive mode, unit tests](PASSIVE.md#unit-tests)). |
 | Independence | No imports or paths outside the partner and the standard library. |
 
 ## Cross-check with the architecture model
@@ -213,10 +233,12 @@ available (`./build specs list`).
 
 A seventh point was found by the `dll` RTL review
 ([#211](https://github.com/amichai-bd/pcie-factory/issues/211)): the
-HAS now finishes a packet whose `sop` the `phy` took before the link went
+HAS finishes a packet whose `sop` the `phy` took before the link went
 down ([decisions](../../arch/dll/HAS.md#decisions)), while the partner
-drops its packet on link-down. It is a [HAS open item](../../arch/dll/HAS.md#open-items);
-the partner is unchanged. An eighth was found by the `dll` receive tests
+dropped its packet on link-down. Resolved in
+[#215](https://github.com/amichai-bd/pcie-factory/issues/215): the
+partner now finishes a started packet too ([link-down](#link-down)),
+consistent with the decision and the `phy` packet contract. An eighth was found by the `dll` receive tests
 ([#213](https://github.com/amichai-bd/pcie-factory/issues/213)): the
 partner leaves a TLP still on the line when a Nak or timeout arrives out
 of the replay, where the architecture model resends it. Resolved in
@@ -225,10 +247,6 @@ of the replay, where the architecture model resends it. Resolved in
 is sent, so the replay resends it; the partner is corrected to do so
 (`test_nak_during_a_tlp_replays_it_too`).
 
-Found independently and already resolved in #259 (by `feb7ccb`):
-
-- With every class infinite, no UpdateFC was ever sent. The side that left
-  FC_INIT2 first could then leave its partner in FC_INIT2 for good. The
-  fix is the entry UpdateFC and refresh for every class.
-- After a rollover, the replay could start before the retrain did. The fix
-  is the rollover hold.
+Two points found independently were resolved in #259 (`feb7ccb`): the
+entry UpdateFC and refresh for every class (with all classes infinite a
+side could stay in FC_INIT2 for good), and the rollover hold.

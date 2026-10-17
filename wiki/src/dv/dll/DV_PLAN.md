@@ -357,8 +357,8 @@ that is too small is caught (the last row above).
 
 | Feature | Owning issue |
 | --- | --- |
-| Ack and Nak waiting behind a TLP on the transmit stream (the 118-cycle bound with both directions loaded) | [#212](https://github.com/amichai-bd/pcie-factory/issues/212), [#215](https://github.com/amichai-bd/pcie-factory/issues/215) |
-| [Targets](../../arch/dll/HAS.md#targets) end to end (Lossless with errors both ways) | [#215](https://github.com/amichai-bd/pcie-factory/issues/215), [#216](https://github.com/amichai-bd/pcie-factory/issues/216) |
+| Ack and Nak waiting behind a TLP on the transmit stream (the 118-cycle bound with both directions loaded) | Checked at each `dll`-to-`phy` boundary in the [`link` e2e](../link/DV_PLAN.md#strategy) ([#215](https://github.com/amichai-bd/pcie-factory/issues/215)); here [#212](https://github.com/amichai-bd/pcie-factory/issues/212) |
+| [Targets](../../arch/dll/HAS.md#targets) end to end: line use, through the `link` stack | [#216](https://github.com/amichai-bd/pcie-factory/issues/216); Lossless with errors both ways, Rollover and Credits run in the [`link` e2e](../link/DV_PLAN.md) ([#215](https://github.com/amichai-bd/pcie-factory/issues/215)) |
 
 ## Coverage holes
 
