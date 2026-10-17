@@ -1,0 +1,175 @@
+# pcie_core tl-cfg interface
+
+The interface between the transaction layer `pcie_tl` and the
+configuration space `pcie_cfg` inside [`pcie_core`](HAS.md) (decision
+record [0004](../../decisions/0004-m3-grill.md#decisions), F8). It is part
+of the `core` HAS: the same sign-off covers it, and the `tl` and `cfg` HAS
+pages implement it exactly. A change here changes both.
+
+## Ownership
+
+| Concern | Owner | Why |
+| --- | --- | --- |
+| TLP parsing, routing, Unsupported Request and malformed checks, completions, tags and completion timeout | `tl` | Header rules live in one IP. |
+| Every configuration register, BAR, capability, the MSI-X table and pending bits | `cfg` | Register state lives in one IP. |
+| Matching a memory request to BAR0 or BAR2 | `tl`, from the bases `cfg` drives | The decode sits on the receive path; the sizes are parameters both IPs see, so no mask crosses. |
+| Status bits and the decision to send an error message | `cfg` | It holds the severity rules, the Device Control enables and SERR# enable; `tl` reports events and holds none of them. |
+| Resolving an interrupt to an MSI or MSI-X write, masking and pending bits | `cfg` | It holds the MSI and MSI-X state and the table; `tl` only sends the write `cfg` asks for. |
+| Forming and sending every TLP, interrupt writes and error messages included | `tl` | One transmit path and one ordering point. |
+
+## Signals
+
+Each net `<x>` is the port `<x>_o` of the IP that drives it and `<x>_i` of
+the other; none is a `core` port. All are synchronous to `clk_i`. Both IPs
+are held in reset while `rst_i` is 1 or `dl_up_o` is 0
+([reset](HAS.md#reset)); every output below is 0 in reset.
+
+### Register access
+
+`tl` hands `cfg` every Type 0 configuration request addressed to function
+0, and every memory request that hits BAR2 (the MSI-X table and pending-bit
+array, decision F3), one DW at a time.
+
+| Net | Dir | Width | Clock | Meaning |
+| --- | --- | --- | --- | --- |
+| `reg_req_valid` | tl→cfg | 1 | `clk_i` | An access is offered. |
+| `reg_req_ready` | cfg→tl | 1 | `clk_i` | `cfg` takes the access at this edge. |
+| `reg_req_bar2` | tl→cfg | 1 | `clk_i` | 0 configuration space, 1 BAR2 memory. |
+| `reg_req_write` | tl→cfg | 1 | `clk_i` | 1 write, 0 read. |
+| `reg_req_addr` | tl→cfg | 10 | `clk_i` | DW index. Configuration: the request's Extended Register Number in `[9:6]` and Register Number in `[5:0]` [cite: PCIe Base Spec, rev 3.0, §2.2.7]. BAR2: the byte offset in BAR2 divided by 4. |
+| `reg_req_be` | tl→cfg | 4 | `clk_i` | Byte enables of this DW; bit i enables `reg_req_data[8i+7:8i]`. |
+| `reg_req_data` | tl→cfg | 32 | `clk_i` | Write data, byte 0 in `[7:0]`; don't care for a read. |
+| `reg_req_bus` | tl→cfg | 8 | `clk_i` | Configuration write only: the Bus Number the request is addressed to. |
+| `reg_req_dev` | tl→cfg | 5 | `clk_i` | Configuration write only: the Device Number the request is addressed to. |
+| `reg_cpl_valid` | cfg→tl | 1 | `clk_i` | One-cycle pulse: the access taken last has finished. |
+| `reg_cpl_data` | cfg→tl | 32 | `clk_i` | With `reg_cpl_valid`, for a read: the DW, disabled bytes included; don't care for a write. |
+
+- **One access at a time.** After an access is taken, `tl` offers no
+  other until `reg_cpl_valid`, which comes 1 or more cycles after the
+  take, for writes too. Fields are held while valid is 1.
+- **Configuration.** One request is one access. `cfg` completes every
+  access successfully: a register it does not implement reads 0 and
+  ignores writes, so there is no completion status on this interface.
+  `tl` builds the completion (with data for a read) itself. A request to
+  a function other than 0 never reaches `cfg`; `tl` completes it with
+  Unsupported Request [cite: PCIe Base Spec, rev 3.0, §2.3.1].
+- **Bus and device number.** On every configuration write it takes, `cfg`
+  captures `reg_req_bus` and `reg_req_dev` as this function's bus and
+  device number, whatever the register
+  [cite: PCIe Base Spec, rev 3.0, §2.2.6.2].
+- **BAR2.** `tl` splits a BAR2 request into DW accesses in address order,
+  with the byte enables of each DW. For a read it gathers the `reg_cpl_data`
+  DWs into its completions; a write needs no completion on the link, but
+  its accesses still finish before the next one starts.
+
+### Register state
+
+Levels `cfg` drives every cycle. Each changes only at the edge a
+configuration write takes effect, or at reset.
+
+| Net | Dir | Width | Clock | Meaning |
+| --- | --- | --- | --- | --- |
+| `bus_num` | cfg→tl | 8 | `clk_i` | Captured Bus Number; 0 from reset to the first configuration write. |
+| `dev_num` | cfg→tl | 5 | `clk_i` | Captured Device Number, as above. |
+| `mem_space_en` | cfg→tl | 1 | `clk_i` | Command register Memory Space Enable. |
+| `bus_master_en` | cfg→tl | 1 | `clk_i` | Command register Bus Master Enable. |
+| `d_state` | cfg→tl | 2 | `clk_i` | Power State: 0 D0, 3 D3hot (decision F5). |
+| `bar0_base` | cfg→tl | 32 | `clk_i` | BAR0 address: bits `[31:BAR0_ADDR_W]` as software wrote them, lower bits 0. |
+| `bar2_base` | cfg→tl | 32 | `clk_i` | BAR2 address: bits `[31:12]` as software wrote them, lower bits 0. |
+
+- The completer ID and requester ID of every TLP `tl` sends are
+  `bus_num`, `dev_num` and function 0.
+- **BAR hit.** A memory request hits BARn when `mem_space_en` is 1,
+  `d_state` is D0, its address bits `[63:32]` are 0 and its bits
+  `[31:k]` equal those of `barn_base`, with k = `BAR0_ADDR_W` for BAR0 and
+  12 for BAR2 (BAR2 is 4 KiB). Any other memory request is an
+  Unsupported Request [cite: PCIe Base Spec, rev 3.0, §2.3.1].
+- `bus_master_en` 0 or `d_state` not D0 stops `tl` taking requests on
+  `rq`; `cfg` already gates the interrupts it asks for.
+- Not on this interface: the MSI and MSI-X state (`cfg` resolves
+  interrupts), the error-reporting enables (`cfg` decides messages), and
+  the maximum payload and read request sizes (`tl` uses the fixed 128
+  bytes, decision F2; `cfg` drives the [status outputs](APP.md#status)).
+  The completion timeout is fixed in `tl`; `cfg` advertises it as not
+  programmable ([#285](https://github.com/amichai-bd/pcie-factory/issues/285)).
+
+### Error events
+
+One-cycle pulses from `tl`, one bit per kind; events of one kind in one
+cycle give one pulse. `cfg` turns them into status bits and messages
+([#285](https://github.com/amichai-bd/pcie-factory/issues/285)).
+
+| Bit of `tl_err` (tl→cfg, 9, `clk_i`) | Event |
+| --- | --- |
+| 0 | Unsupported Request, posted: a posted request or message `tl` does not serve; dropped, no completion. |
+| 1 | Unsupported Request, non-posted: `tl` answered it with an Unsupported Request completion. |
+| 2 | Malformed TLP: a received TLP failed a `tl` format check; dropped. |
+| 3 | Poisoned request: a received request with its poisoned bit set; dropped. |
+| 4 | Poisoned completion: a received completion for one of this function's reads with its poisoned bit set. |
+| 5 | Unexpected completion: a completion that matches no outstanding read. |
+| 6 | Completion timeout: a read's completions did not all arrive in time. |
+| 7 | Received Unsupported Request completion (the Status register's Received Master Abort). |
+| 8 | Received Completer Abort completion (the Status register's Received Target Abort). |
+
+Which checks raise each bit, and the order of the request and completion
+checks, are the `tl` HAS's ([#286](https://github.com/amichai-bd/pcie-factory/issues/286))
+[cite: PCIe Base Spec, rev 3.0, §2.3.1]
+[cite: PCIe Base Spec, rev 3.0, §2.3.2]
+[cite: PCIe Base Spec, rev 3.0, §2.8]. `core` never sends Completer Abort,
+so there is no Signaled Target Abort event.
+
+### Messages
+
+`cfg` asks `tl` to send an interrupt write or an error message.
+
+| Net | Dir | Width | Clock | Meaning |
+| --- | --- | --- | --- | --- |
+| `msg_valid` | cfg→tl | 1 | `clk_i` | A message is offered. |
+| `msg_ready` | tl→cfg | 1 | `clk_i` | `tl` takes it at this edge. |
+| `msg_kind` | cfg→tl | 2 | `clk_i` | 0 interrupt write, 1 ERR_COR, 2 ERR_NONFATAL, 3 ERR_FATAL. |
+| `msg_addr` | cfg→tl | 64 | `clk_i` | Interrupt write: the message address, bits `[1:0]` 0; `tl` uses a 3-DW header when bits `[63:32]` are 0. Don't care otherwise. |
+| `msg_data` | cfg→tl | 32 | `clk_i` | Interrupt write: the DW written with all four bytes enabled; under MSI, the Message Data in `[15:0]` and 0 in `[31:16]`. Don't care otherwise. |
+
+- An interrupt write is a 1-DW posted memory write
+  [cite: PCIe Base Spec, rev 3.0, §6.1.4]. `tl` sends it after every
+  posted request it took on `rq` before, so the interrupt never overtakes
+  the data it signals ([ordering](APP.md#ordering)).
+- An error message is a Message routed to the Root Complex with no data,
+  with the code of its kind [cite: PCIe Base Spec, rev 3.0, §2.2.8.3].
+- A message taken is sent unless the link goes down first.
+
+### Interrupt resolution
+
+The application's [interrupt port](APP.md#interrupts) belongs to `cfg`,
+which resolves each request and answers it:
+
+1. Neither MSI nor MSI-X enabled, `bus_master_en` 0, or `d_state` not
+   D0: dropped.
+2. MSI-X enabled (it wins if software also enabled MSI): an out-of-range
+   vector is dropped. Otherwise `cfg` reads the vector's table entry; if
+   the vector or the function is masked, it sets the vector's pending bit
+   (status pending). Otherwise it offers an interrupt write with the
+   entry's address and data.
+3. MSI enabled: an interrupt write with the MSI address and data. MSI has
+   one vector and no per-vector masking (decision F4).
+
+`irq_status_o` reports sent when `tl` takes the write. When software
+unmasks a vector, or clears the function mask, while its pending bit is
+set and step 1 does not drop it, `cfg` clears the bit and
+offers the write itself; the application sees no report for it
+[cite: PCIe Base Spec, rev 3.0, §6.1.4]. Pending bits are read through
+BAR2 like the table.
+
+## Link to cfg
+
+Inside `core`, `cfg` also takes the `link` error pulses, for its
+correctable and uncorrectable status bits and messages:
+
+| Net | Dir | Width | Clock | Meaning |
+| --- | --- | --- | --- | --- |
+| `dl_err` | link→cfg | 7 | `clk_i` | The `link` `dl_err_o` ([`dll` error bits](../dll/HAS.md#errors)). |
+| `rcv_err` | link→cfg | 1 | `clk_i` | The `link` `rcv_err_o`: a receiver error. |
+
+Both stay `core` output ports too. One event can pulse both (a TLP with a
+symbol error pulses `rcv_err`, then Bad TLP); `cfg` counts each as its own
+error, as the [`link` errors](../link/HAS.md#errors) state.

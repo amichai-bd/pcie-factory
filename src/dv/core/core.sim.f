@@ -1,0 +1,2 @@
+-F ../../rtl/core/core.rtl.f
+-F core.dv.f
