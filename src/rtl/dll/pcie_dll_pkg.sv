@@ -273,10 +273,12 @@ package pcie_dll_pkg;
     logic       done;      // FC_INIT2: an InitFC2, UpdateFC or good TLP arrived
   } t_ctrl_state;
 
-  // Transmit: the DLLP on the stream (MAS, Transmit).
+  // Transmit: the packet on the stream (MAS, Transmit). A DLLP is held
+  // here; a TLP's beats come from the TLP transmit block (t_tlp_src).
   typedef struct packed {
     logic        busy;   // a packet is on the stream, sop offered or accepted
-    logic [1:0]  beat;   // next beat to offer: 0, 1 or 2
+    logic        tlp;    // the packet is a TLP
+    logic [1:0]  beat;   // next beat to offer: 0, 1 or 2 (a TLP: 0 sop, 1 after it)
     logic [47:0] pkt;    // the 6 bytes, byte 0 in [7:0]
   } t_tx_state;
 
@@ -288,6 +290,95 @@ package pcie_dll_pkg;
     logic    inf_data;   // data credits infinite
     t_fc_val limit;      // CREDIT_LIMIT, header and data
   } t_fc_limit;
+
+  // ------------------------------------------------------ TLP transmit
+
+  // TLP transmit (MAS, TLP transmit; RETRY.md): the replay buffer is
+  // 1024 bytes of framed TLPs, held as 256 words of 32 bits; the timers are
+  // in clk_i cycles.
+  localparam int unsigned RBUF_BYTES     = 1024;
+  localparam int unsigned RBUF_ADDR_W    = 8;     // 256 words
+  localparam int unsigned RBUF_SLOT_W    = 6;     // end-address table: seq mod 64 (at most 56 TLPs)
+  localparam logic [8:0]  REPLAY_TIMEOUT = 9'd356;
+  localparam logic [9:0]  HOLD_LAST      = 10'd1023;  // rollover hold ends at 1024 cycles
+
+  // One beat of the upper transmit stream (valid and ready stay single
+  // wires).
+  typedef struct packed {
+    logic [31:0] data;   // one DW, [7:0] is the earlier byte
+    logic        sop;
+    logic        eop;
+  } t_tlp_beat;
+
+  // The TLP source of the transmit arbiter (priorities 5 and 6): a TLP may
+  // start, and the beat on the stream while the arbiter sends a TLP.
+  typedef struct packed {
+    logic        valid;  // a replayed or new TLP is ready to start
+    logic [15:0] data;   // the current beat, [7:0] the earlier byte
+    logic        eop;    // the current beat is the last
+  } t_tlp_src;
+
+  // TLP transmit: sequence numbers, replay buffer pointers, replay state,
+  // the replay timer and the rollover hold (MAS, TLP transmit).
+  typedef struct packed {
+    logic [11:0] seq_alloc;   // next sequence number to assign
+    logic [11:0] seq_done;    // next TLP whose LCRC is not yet stored
+    logic [11:0] nts;         // NEXT_TRANSMIT_SEQ
+    logic [11:0] ackd;        // ACKD_SEQ
+    logic [7:0]  wr_addr;     // next replay-buffer word to write
+    logic [7:0]  base;        // first word of the oldest TLP held
+    logic [7:0]  nts_addr;    // first word of TLP nts
+    logic        taking;      // an upper TLP is between its sop and eop
+    logic        lcrc_due;    // the LCRC word is written at the next edge
+    logic [31:0] crc;         // running LCRC register
+    logic        rp_active;   // a replay is running
+    logic        rp_pending;  // a replay was requested while one ran
+    logic [11:0] rp_seq;      // next TLP the replay sends
+    logic [11:0] rp_end;      // one past the last TLP the replay sends
+    logic [7:0]  rp_addr;     // first word of TLP rp_seq
+    logic [1:0]  replay_num;  // REPLAY_NUM
+    logic        rt_run;      // replay timer running
+    logic [8:0]  rt;          // REPLAY_TIMER
+    logic        hold;        // rollover hold: no TLP starts
+    logic        hold_left;   // the LTSSM has left L0 since the rollover
+    logic [9:0]  hold_cnt;    // cycles since the rollover
+  } t_retry_state;
+
+  // DL_Inactive values of t_retry_state: ACKD_SEQ 4095, the rest 0.
+  localparam t_retry_state RETRY_RESET = '{
+    seq_alloc:  12'd0,
+    seq_done:   12'd0,
+    nts:        12'd0,
+    ackd:       12'hFFF,
+    wr_addr:    8'd0,
+    base:       8'd0,
+    nts_addr:   8'd0,
+    taking:     1'b0,
+    lcrc_due:   1'b0,
+    crc:        32'd0,
+    rp_active:  1'b0,
+    rp_pending: 1'b0,
+    rp_seq:     12'd0,
+    rp_end:     12'd0,
+    rp_addr:    8'd0,
+    replay_num: 2'd0,
+    rt_run:     1'b0,
+    rt:         9'd0,
+    hold:       1'b0,
+    hold_left:  1'b0,
+    hold_cnt:   10'd0
+  };
+
+  // TLP transmit: the TLP on the phy stream, read from the replay buffer.
+  typedef struct packed {
+    logic        active;  // a TLP is being sent
+    logic        sop;     // the sequence-number beat is next
+    logic        half;    // 0 the low, 1 the high half of the word read
+    logic [11:0] seq;     // its sequence number
+    logic [7:0]  start;   // its first word
+    logic [7:0]  rd_addr; // next word to read
+    logic [5:0]  words;   // words still to send, the one read included
+  } t_tlp_stream;
 
   // ---------------------------------------------------------- helpers
 

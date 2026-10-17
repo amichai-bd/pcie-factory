@@ -1,18 +1,19 @@
 # pcie_dll MAS
 
-How `pcie_dll` implements its [HAS](../../arch/dll/HAS.md): six blocks
+How `pcie_dll` implements its [HAS](../../arch/dll/HAS.md): seven blocks
 of the one `dll` IP (decision record [0003](../../decisions/0003-m2-grill.md#decisions),
-Q4) joined by the top. Today they carry the DLLP path, the data link
-control states and the flow-control initialisation
-([#211](https://github.com/amichai-bd/pcie-factory/issues/211)), and the
+Q4) joined by the top. They carry the DLLP path, the data link control
+states and the flow-control initialisation
+([#211](https://github.com/amichai-bd/pcie-factory/issues/211)), the TLP
+transmit path: sequence numbers, LCRC, the replay buffer and timer,
+REPLAY_NUM and received Ack and Nak
+([#212](https://github.com/amichai-bd/pcie-factory/issues/212)), the
 TLP receive path: the receive checks, the receive buffer and Ack/Nak
 scheduling ([#213](https://github.com/amichai-bd/pcie-factory/issues/213)),
 and credit accounting on both sides with the transmit credit gate, the
 receive overflow check and UpdateFC on returned credits
-([#214](https://github.com/amichai-bd/pcie-factory/issues/214)). The
-transmit replay path ([#212](https://github.com/amichai-bd/pcie-factory/issues/212))
-joins as a block of its own at the slots named [below](#slots-for-the-tlp-paths)
-and uses the credit gate through the [credit interface](#credit-interface).
+([#214](https://github.com/amichai-bd/pcie-factory/issues/214)); the TLP
+transmit path uses the gate through the [credit interface](#credit-interface).
 The HAS and its sub-pages ([DLLPs](../../arch/dll/DLLP.md),
 [retry](../../arch/dll/RETRY.md), [flow control](../../arch/dll/FLOW_CONTROL.md))
 own the rules; this page owns how the blocks apply them.
@@ -43,6 +44,11 @@ flowchart LR
   fc -. "fc_tx_ok (#212 arbiter)" .-> rdy["tlp_tx_ready_o"]
   rb --> urx["tlp_rx_*"]
   trx -- "Bad TLP, Malformed" --> err
+  utx["tlp_tx_*"] --> tt["u_tlp_tx"]
+  rx -- "t_rx_dllp (Ack, Nak)" --> tt
+  tt -- "t_tlp_src, hold" --> tx
+  tx -- "take, beat, abort" --> tt
+  tt --> rr["retrain_req_o, err_o[4:2]"]
   tx -- "takes, busy" --> ctl
   tx -- "take" --> fc
   tx --> ptx["pkt_tx_*"]
@@ -54,9 +60,11 @@ flowchart LR
 **Ports.** The top ports are the HAS ports, flat: they mirror the `phy`
 packet stream and the HAS's single-meaning signals (M1 Q25 exception).
 Inside, the receive beat (`t_pkt_rx`), the transmit beat (`t_pkt_tx`), a
-received DLLP (`t_rx_dllp`), a DLLP request (`t_dllp_req`) and the
-per-class credit values (`t_fc_vals`), a receive-buffer word
-(`t_rx_word`) and a TLP's class and credits (`t_rx_credit`) are packed
+received DLLP (`t_rx_dllp`), a DLLP request (`t_dllp_req`), the
+per-class credit values (`t_fc_vals`), the upper transmit beat
+(`t_tlp_beat`), the TLP source of the arbiter (`t_tlp_src`), a
+receive-buffer word (`t_rx_word`) and a TLP's class and credits
+(`t_rx_credit`) are packed
 structs from the [package](#package). The credit parameters keep the HAS checks
 (`COMMON_ASSERT_PARAM`, one per parameter) and form the constant `ADV`,
 this side's advertisement, which `u_ctrl` puts in InitFC and `u_fc` in
@@ -71,26 +79,18 @@ timers clear. A DLLP whose `sop` the `phy` has taken is finished up to its
 
 ### Slots for the TLP paths
 
-Until the remaining TLP paths exist, the top ties the outputs and inputs
-they own:
-
-| Signal | Tied to | Owner |
-| --- | --- | --- |
-| `tlp_tx_ready_o`, `retrain_req_o`, `err_o` bits 2 to 4 | 0 | #212: sequence numbers, LCRC, replay buffer and timer, REPLAY_NUM, Ack/Nak received |
-| `fc_tx_ok` from `u_fc`, the credit gate ([credit interface](#credit-interface)) | read by no block (`tlp_tx_ready_o` is 0) | #212 (ANDs it into `tlp_tx_ready_o` on a `sop` beat) |
-| `tlp_tx_eop_i`, `ltssm_state_i` inputs (the other transmit upper-stream inputs reach only flow control) | read by no block (`COMMON_UNUSED_BITS`) | #212 |
-
-Credit accounting (#214) is wired: `err_o` bit 5, the overflow decision
-on `rx_fit` and the receive accounting on the
-[events](#receive-events-for-credit-accounting), and consumption from the
-transmit upper-stream handshake. The receive path (#213) is wired: `tlp_rx_*`, `err_o` bits 0 and 6, the
-Ack/Nak request into `u_tx` (priorities 1 and 2), the good TLP into
-`u_ctrl`, and the assertion `a_rx_never_stall` (the upper layer holds
+Every block is attached; the top ties nothing off. The transmit path (#212) is
+[`u_tlp_tx`](#tlp-transmit): `tlp_tx_*`, `retrain_req_o`, `err_o` bits 2
+to 4, priorities 5 and 6 of [`u_tx`](#transmit), Ack/Nak received on
+`t_rx_dllp`, and the credit gate on `tx_credit_ok`, tied to `u_fc`'s
+`fc_tx_ok`. The receive path (#213) is wired: `tlp_rx_*`, `err_o` bits 0
+and 6, the Ack/Nak request into `u_tx` (priorities 1 and 2), the good TLP
+into `u_ctrl`, and the assertion `a_rx_never_stall` (the upper layer holds
 `tlp_rx_ready_i` at 1 while `dl_up_o` is 1 when any `FC_*` is 0,
-[HAS, Receive](../../arch/dll/HAS.md#receive)). Each later block attaches
-where its tie is: a TLP source as priorities 5 and 6 of
-[`u_tx`](#transmit), Ack/Nak received on `t_rx_dllp` (`seq` already
-decoded), the credit gate on `fc_tx_ok`.
+[HAS, Receive](../../arch/dll/HAS.md#receive)). Credit accounting (#214)
+is wired: `err_o` bit 5, the overflow decision on `rx_fit`, the receive
+accounting on the [events](#receive-events-for-credit-accounting), and
+consumption from the transmit upper-stream handshake.
 
 ### Credit interface
 
@@ -100,7 +100,7 @@ the receive side is the [events](#receive-events-for-credit-accounting).
 
 | Signal (top) | Type | From, to | Contract |
 | --- | --- | --- | --- |
-| `fc_tx_ok` | `logic` | `u_fc` to #212 | 1 when in DL_Active the partner's credits cover the TLP whose first DW is on `tlp_tx_data_i` (class and credits by `tlp_credit`), by the gate rule for both its fields. Combinational from `tlp_tx_data_i` and registers. #212 makes `tlp_tx_ready_o` on a `sop` beat the AND of this and its own two conditions ([HAS, transmit](../../arch/dll/HAS.md#transmit)). |
+| `fc_tx_ok` | `logic` | `u_fc` to `u_tlp_tx` (as `tx_credit_ok`) | 1 when in DL_Active the partner's credits cover the TLP whose first DW is on `tlp_tx_data_i` (class and credits by `tlp_credit`), by the gate rule for both its fields. Combinational from `tlp_tx_data_i` and registers. `u_tlp_tx` makes `tlp_tx_ready_o` on a `sop` beat the AND of this and its own two conditions (rule 1 of the [HAS transmit rule](../../arch/dll/HAS.md#transmit)). |
 | `tx_sop_take` | `logic` | top to `u_fc` | `tlp_tx_valid_i && tlp_tx_ready_o && tlp_tx_sop_i`: CREDITS_CONSUMED adds that TLP's credits at this edge. `a_consume_without_credit` stops a take the gate did not cover. |
 
 ## Package
@@ -206,25 +206,115 @@ each class never above its receive space (a return without a store).
 ## Transmit
 
 [`pcie_dll_tx`](../../../../src/rtl/dll/pcie_dll_tx.sv) holds one packet
-(`t_tx_state`: busy, the next beat, 6 bytes). It is free when idle or as
-the stream takes the `eop` beat; then it takes the first valid request in
-[transmit priority](../../arch/dll/RETRY.md#transmit-priority) (Ack/Nak,
-InitFC, UpdateFC), loads the body with its `crc16`, and offers it from the
-next cycle. `pkt_tx_valid_o` is 1 from load to the accepted `eop`, so a
-request is never dropped while the `phy` holds ready low between packets,
-and a packet once started is finished. `flush_i` withdraws only a packet
-whose `sop` the `phy` has not taken; once taken (`started`: at an
-earlier edge, or at this one, including the edge that samples `link_up_i`
-0), the remaining beats, at most 2, go out up to `eop` with valid held, link down
-or not, and no request loads under `flush_i`, so DL_Inactive then offers
-nothing ([HAS, reset values](../../arch/dll/HAS.md#reset-values)). The tag
-is always DLLP; a TLP source (#212) adds the tag and priorities 5 and 6.
+(`t_tx_state`: busy, TLP or DLLP, the next beat, 6 bytes). It is free when
+idle or as the stream takes the `eop` beat; then it takes the first valid
+request in [transmit priority](../../arch/dll/RETRY.md#transmit-priority)
+(Ack/Nak, InitFC, UpdateFC, then the TLP source of
+[`u_tlp_tx`](#tlp-transmit), which puts a replay before a new TLP). A
+DLLP is loaded with its `crc16` and offered from the next cycle; a TLP's
+beats, its `eop` and the TLP tag come from the source (`t_tlp_src`), and
+`beat` only marks its `sop` taken. `pkt_tx_valid_o` is 1 from load to the
+accepted `eop`, so a request is never dropped while the `phy` holds ready
+low between packets, and a packet once started is finished. Two things
+withdraw a packet whose `sop` the `phy` has not taken: `flush_i`, and,
+for a TLP, `tlp_hold_i` (the rollover hold, or a rollover in this cycle),
+under which its `sop` is no longer offered (valid falls) and the source
+drops it (`tlp_abort_o`); the rollover replay resends it
+([REPLAY_NUM](../../arch/dll/RETRY.md#replay_num)). Valid falls already
+in the cycle whose ending edge rolls REPLAY_NUM over, so the `phy` cannot
+take that `sop` at the rollover edge, as at a link-down edge.
+Once the `sop` is taken (`started`: at an earlier edge, or at this one,
+including the edge that samples `link_up_i` 0), the remaining beats, at
+most 2 of a DLLP or 74 of a TLP, go out up to `eop` with valid held, link
+down or not, and no request loads under `flush_i`, so DL_Inactive then
+offers nothing ([HAS, reset values](../../arch/dll/HAS.md#reset-values)).
 Assertions: `a_ready_inside_packet` states the `phy` contract that ready
 stays 1 from an accepted `sop` to its `eop`; `open_q` tracks a packet open
 at the `phy` as the MAC does (set by an accepted `sop`, cleared only by an
 accepted `eop` or reset), and `a_sop_inside_packet` and
 `a_eop_follows_sop` check that no `sop` comes and valid never drops while
 it is open, across a link-down too.
+
+## TLP transmit
+
+[`pcie_dll_tlp_tx`](../../../../src/rtl/dll/pcie_dll_tlp_tx.sv) applies
+the [retry page](../../arch/dll/RETRY.md) on the transmit side. Its state
+is `t_retry_state` (sequence numbers, buffer pointers, replay, timer,
+hold), `t_tlp_stream` (the TLP on the `phy` stream) and an end-address
+table; all of it but the stream takes its DL_Inactive value under
+`flush_i`.
+
+**Replay buffer.** A [`common_sdp_ram`](../common/ram/common_sdp_ram.md)
+of 256 words of 32 bits (1024 bytes, Q6). A TLP is stored as its DWs, in
+upper-stream order, then its LCRC word; its sequence number is not stored
+(the stream sends it from `seq`). So a TLP of n bytes takes n + 4 bytes of
+words, always word aligned, and TLPs follow each other in the circular
+word space from `wr_addr`. `end_q`, a 64-entry flop table indexed by the
+sequence number's low 6 bits, holds the word after each stored TLP: at
+most 56 TLPs fit (`a_held_limit`), so slots never collide. `base` is the
+first word of the oldest TLP held, and `nts_addr` and `rp_addr` the first
+words of the next new and the next replayed TLP.
+
+**Room.** Space in use counts each held TLP as n + 6 bytes, as the HAS
+does: `4 * (wr_addr - base) + 2 * held`, with `held` the TLPs holding a
+sequence number and not acknowledged. When the TLP on the stream has been
+acknowledged (`lock`), it and every TLP after it count instead, from its
+first word, until its `eop` is taken ([replay buffer](../../arch/dll/RETRY.md#replay-buffer)):
+the next words written would otherwise reach the words it still reads.
+`tlp_tx_ready_o` is 1 on a `sop` beat in DL_Active when no TLP is being
+taken, the LCRC word of the last one is not being written, the space in
+use plus the TLP's bytes (its header size and `tlp_payload_dw` of the
+beat) plus 6 is at most 1024, and
+`credit_ok_i` (the [credit gate](#credit-interface)) is 1; then every cycle up to `eop`. The 2047-TLP rule
+of the HAS always holds (`a_held_limit`).
+
+**Writing.** Each beat taken is written at `wr_addr` and folded into the
+`crc` register with the receive path's `lcrc_step` (from all ones over the
+sequence-number beat of `seq_alloc` at the `sop`, then two steps per DW); the `sop` assigns `seq_alloc`. At the edge after the `eop` the
+LCRC bytes of the register (`lcrc_bytes`) are written as the LCRC word, `end_q` takes the word
+after it and `seq_done` advances: the TLP is complete and may be sent.
+
+**Source.** `src_o.valid` in DL_Active, outside the rollover hold, when a
+replay runs or a new TLP is complete (`nts` behind `seq_done`). At the
+arbiter's take the stream loads the TLP (`seq`, its first word, its word
+count from `end_q`), reads its first word, and either the replay advances
+(`rp_seq`, `rp_addr`; the last TLP of the replay ends it) or `nts` moves
+past it (NEXT_TRANSMIT_SEQ moves when a TLP is first taken).
+
+**Stream.** The `sop` beat is the sequence number; then each word, low
+half first, from the RAM's output register. A word is read at the take
+(the first) and as the high half of the one before it is taken, so the
+`phy` gets a beat every cycle with one RAM read every two. The `eop` is
+the high half of the LCRC word. A started TLP goes on to its `eop` under
+`flush_i` from its own registers; `abort_i` (a withdrawal) clears it.
+
+**Ack and Nak.** A received Ack or Nak (`t_rx_dllp`, one cycle after its
+`eop`) acts in DL_Active, in that cycle: the range check (DL protocol error
+on `err_o` bit 4), then forward progress (`ackd`, `base` from `end_q`,
+REPLAY_NUM 0, the timer restarted or stopped, a running replay moved past
+what it removed), then a Nak's replay request. A take in the same cycle
+uses the state before it: a TLP taken then is in the replay a Nak starts.
+
+**Replay.** A request (Nak or timer) while a replay runs sets
+`rp_pending`, which starts one replay when it ends (its last TLP taken).
+A replay starts only with sent TLPs unacknowledged: `rp_seq` from
+ACKD_SEQ + 1 at `base`, `rp_end` the NEXT_TRANSMIT_SEQ after this edge's
+take, the timer stopped, REPLAY_NUM (after this edge's Ack or Nak) plus 1,
+or, from 3, the rollover: 0, `err_o` bit 3 and `retrain_req_o` in the same
+cycle, and the hold. `hold_o` is the hold or `roll_now`: a rollover in this
+cycle from a Nak, the timer or a pending request, computed from the
+registers, the registered received DLLP and `ltssm_state_i` (the timer's
+L0 condition, its one direct input): the arbiter's take never feeds it
+back (a take that ends a replay and starts a pending one needs a free
+stream, so no `sop` waits then); `a_roll_now` checks it implies the
+rollover.
+
+**Timer and hold.** `rt` counts in L0 (`ltssm_state_i` bits 5:4 `10`, in
+the same cycle) while running, so it expires after exactly 356 L0
+cycles, never earlier; at the edge where it would reach 356 it stops, pulses `err_o`
+bit 2 and requests a replay; it starts at a TLP's `eop` taken when
+stopped. The hold counts cycles from the rollover; it ends at the first
+L0 code after a non-L0 one, or at 1024 cycles if the LTSSM never left L0.
 
 ## TLP receive
 
@@ -332,12 +422,18 @@ Nak), never stored with a hole.
 
 | Choice | Rationale | Rejected |
 | --- | --- | --- |
-| Six blocks now (the DLLP path, control, flow control, transmit, TLP receive, receive buffer), the TLP transmit path a block of its own at a tie | The TLP paths attach without reworking the control or the DLLP path. | One control block with everything (each later issue would rewrite it). |
+| A block per issue, each attached at a tie | The TLP paths attach without reworking the control or the DLLP path. | One control block with everything (each later issue would rewrite it). |
 | A group is complete when its last DLLP's `eop` has been taken by `phy` | The plain reading of "the group being sent is complete" ([HAS](../../arch/dll/HAS.md#data-link-control-states)). | When the last DLLP is chosen (the state could change with an InitFC still on the stream). |
 | A DLLP started before the link goes down is finished; one only offered is withdrawn | The [HAS decision](../../arch/dll/HAS.md#decisions): the MAC keeps a packet open until its `eop` whatever the link does, and a new `sop` before it breaks the contract. An offered `sop` the `phy` has not taken opened nothing. | Cutting at link-down (the next link-up's first DLLP would land inside the open packet); finishing an offered packet too (it would start in DL_Inactive). |
 | Received DLLPs act one cycle after their `eop` (registered decode) | Keeps the CRC-16 network off the control paths. | Acting in the `eop` cycle. |
 | The refresh count starts when the arbiter takes the class's UpdateFC | One count per class, cleared by its own take; the interval is 2048 cycles plus at most a packet's wait. | Counting from the `phy`'s acceptance. |
 | Group timer and refresh counts saturate | No wrap can send an early group or UpdateFC. | Free-running counters. |
+| Replay buffer of whole TLP and LCRC words, sequence number from a register | 32-bit words take a 32-bit upper beat per cycle and give two `phy` beats per read; every TLP stays word aligned, so 1024 bytes of words hold the HAS's 1024 framed bytes. | Storing the framed packet (2 bytes off a word, a carry register and a wasted half word per TLP); 16-bit words (two writes per upper beat). |
+| End-address table in flops, indexed by sequence number | One lookup frees any number of TLPs on an Ack and gives a TLP's length at its take; 64 entries of 8 bits. A deliberate exception to the RTL BKM's rule against memories built from the register-array forms: `COMMON_DFF_ARRAY_EN` with a whole-array next state, because its two combinational reads (an Ack's new base and a take's length) in the cycle they are needed would need a RAM per read port and a read cycle on both paths. | Per-TLP lengths summed over an Ack (one per cycle); a RAM (a read cycle on the Ack and take paths). |
+| One-cycle gap after an upper `eop` (the LCRC word) | The RAM has one write port; the upper stream at 4 bytes a cycle is far faster than the line. | A second write port or LCRC side storage. |
+| Space of an acknowledged TLP on the stream returns at its `eop` | Its words are still being read; the HAS states the rule. | A larger RAM (the same 1024 bytes of room plus a maximum TLP). |
+| A rollover withdraws an offered TLP whose `sop` the `phy` has not taken | Otherwise it starts ahead of the rollover replay after the retrain and the partner sees a TLP ahead (Bad TLP, Nak), as the rollover target forbids. | Letting it go out (an extra Nak and replay on every rollover). |
+| A replay ends when its last TLP is taken; a pending one starts then | The same as the architecture model; the replay pointer is free at once. | At its `eop` (the partner's reading, a HAS open item). |
 | Received TLP DWs written to the buffer as they arrive, then committed or rewound at the verdict | One copy of the data and no TLP-sized staging register; only committed TLPs are read. | A staging buffer per TLP, copied after the check (a second 144-byte store and a copy delay). |
 | A two-beat delay line before the LCRC and the DW packing | The LCRC is the last two beats, known only at the `eop`; the delay keeps it out of the sum and the buffer without knowing the length. | Summing everything and comparing against the CRC residue (needs a second constant for the nullified check, and stores the LCRC). |
 | One shared buffer sized by the sum of the per-class capacities, plus one TLP | Each class gets its space ([HAS decision](../../arch/dll/HAS.md#decisions)); the extra TLP covers the speculative writes. | Per-class memories (the arrival order is one stream). |
@@ -351,8 +447,8 @@ Nak), never stored with a hole.
 ## Timing
 
 - One clock (`clk_i`, 125 MHz), synchronous active-high reset; no
-  crossings. Every output is a register or a function of registers and
-  the parameters.
+  crossings. Every output but `tlp_tx_ready_o` and `pkt_tx_valid_o`
+  (below) is a register or a function of registers and the parameters.
 - A received DLLP's effect: decoded at the edge after its `eop` beat;
   credits recorded and `done` set at the next edge; a state change at the
   edge after that.
@@ -360,6 +456,19 @@ Nak), never stored with a hole.
   that wants it; back-to-back DLLPs follow with no gap of their own (the
   `phy` adds its framing cycle). DL_Inactive to FC_INIT1 to the first
   InitFC1 offered: two edges after `link_up_i` rises.
+- TLP transmit: a TLP's `eop` taken at edge E; its LCRC word written and
+  the TLP complete at E+1; taken by the arbiter at E+2 when nothing is
+  ahead; its `sop` offered from then, taken by a ready `phy` at E+3: 3
+  cycles, within the HAS's 4 ([Targets](../../arch/dll/HAS.md#targets)). A
+  received Ack or Nak acts at the edge after its decode, so two edges
+  after its `eop`. The replay timer reaches 356 exactly 356 cycles after
+  the `eop` that started it.
+- Two outputs depend on inputs. `tlp_tx_ready_o`: on a `sop` beat it reads
+  `tlp_tx_sop_i` and the first DW of `tlp_tx_data_i`
+  ([HAS, transmit](../../arch/dll/HAS.md#transmit)). `pkt_tx_valid_o`:
+  `ltssm_state_i` through `roll_now`, in the rollover cycle only (the
+  timer expires on the cycle's L0 state, so it is never early), dropping
+  valid for a waiting TLP `sop`.
 - Received TLP, from its `eop` beat from `phy` (cycle c): checked and
   registered at the edge ending c, judged in c+1 (Bad TLP and Malformed
   TLP pulse in c+2), committed at the edge ending c+1, read at the edge
@@ -369,8 +478,8 @@ Nak), never stored with a hole.
   reaches 32 in c+34, the arbiter takes the request at the edge ending
   c+34 and the Ack's `sop` is offered in c+35: 35 cycles after the `eop`
   on an idle stream. A due Nak, or the Ack after a duplicate, is offered
-  in c+3. Either waits behind at most one started packet (a DLLP today, a
-  TLP of up to 76 cycles once #212 adds them), so an Ack starts within
+  in c+3. Either waits behind at most one started packet (a DLLP, or a TLP
+  of up to 76 cycles), so an Ack starts within
   35 + 76 + 1 = 112 cycles, inside the HAS's 118.
 - Credits: `avail_o` changes in the cycle after a taken `sop` or a
   received UpdateFC's record; Receiver overflow pulses in c+2 like Bad
@@ -380,12 +489,23 @@ Nak), never stored with a hole.
 - Critical path: the 32-step CRC-16 XOR network from the receive byte
   register to the CRC compare, and from a request body to the transmit
   packet register; the 16-step LCRC network from the delay line and the
-  LCRC register to the compare against the received LCRC. Each CRC bit is
-  the parity of at most 32 (CRC-16) or 48 (LCRC) input bits, five or six
-  levels of two-input XOR. The gate is an 8-bit and a 12-bit add, subtract
-  and compare from `tlp_tx_data_i`, which #212 puts in front of
-  `tlp_tx_ready_o`; the overflow check a subtract and compare from
-  `u_tlp_rx`'s verdict register into its commit logic.
+  LCRC register to the compare against the received LCRC; on transmit,
+  the two chained 16-step LCRC steps from `tlp_tx_data_i` (and, at a
+  `sop`, the sequence number) into the `crc` register, and the room check
+  from `tlp_tx_data_i` to `tlp_tx_ready_o` (a 13-bit size, a 14-bit add
+  and compare); and `ltssm_state_i` to `pkt_tx_valid_o`: a 2-bit compare
+  (`in_l0`), an AND with the timer's 9-bit compare (`timer_at_end`), the
+  `roll_now` AND-OR, `hold_o` OR and the `withdraw` AND gating valid,
+  about five gate levels. In `link` it is safe: the mac's
+  `ltssm_state_o` is a decode of its LTSSM state register, so nothing that `pkt_tx_valid_o` drives
+  in the `phy` comes back to `ltssm_state_i` within the cycle, and the
+  path has no combinational loop; it adds these five levels to the mac's
+  register-to-input path into the `phy` transmit stream. Each CRC bit is the parity of at most 32 (CRC-16), 48
+  (receive LCRC) or 64 (transmit LCRC) input bits. The credit gate is an
+  8-bit and a 12-bit add, subtract and compare from `tlp_tx_data_i` into
+  `tx_credit_ok`, in parallel with the room check; the overflow check a
+  subtract and compare from `u_tlp_rx`'s verdict register into its commit
+  logic.
 
 ## Files
 
@@ -395,7 +515,8 @@ Nak), never stored with a hole.
 | [`pcie_dll_dllp_rx.sv`](../../../../src/rtl/dll/pcie_dll_dllp_rx.sv) | [DLLP receive](#dllp-receive). |
 | [`pcie_dll_ctrl.sv`](../../../../src/rtl/dll/pcie_dll_ctrl.sv) | [Control](#control): the control states and the InitFC groups. |
 | [`pcie_dll_fc.sv`](../../../../src/rtl/dll/pcie_dll_fc.sv) | [Flow control](#flow-control): limits, credit accounting and gate, credits available, overflow check, UpdateFC. |
-| [`pcie_dll_tx.sv`](../../../../src/rtl/dll/pcie_dll_tx.sv) | [Transmit](#transmit): arbiter and DLLP sender. |
+| [`pcie_dll_tlp_tx.sv`](../../../../src/rtl/dll/pcie_dll_tlp_tx.sv) | [TLP transmit](#tlp-transmit): sequence numbers, LCRC, replay buffer, replay timer, REPLAY_NUM, received Ack and Nak. |
+| [`pcie_dll_tx.sv`](../../../../src/rtl/dll/pcie_dll_tx.sv) | [Transmit](#transmit): arbiter, DLLP sender, TLP pass-through. |
 | [`pcie_dll_tlp_rx.sv`](../../../../src/rtl/dll/pcie_dll_tlp_rx.sv) | [TLP receive](#tlp-receive): collection, LCRC, checks, receiver state, Ack/Nak requests. |
 | [`pcie_dll_rx_buf.sv`](../../../../src/rtl/dll/pcie_dll_rx_buf.sv) | [Receive buffer](#receive-buffer) and the upper receive stream. |
 | [`pcie_dll.sv`](../../../../src/rtl/dll/pcie_dll.sv) | [Top](#top): parameter checks, the blocks, the ties. |

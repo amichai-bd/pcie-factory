@@ -2,11 +2,11 @@
 
 The transmit credit gate, CREDITS_CONSUMED and the credits available, the
 receive-side CREDITS_ALLOCATED, CREDITS_RECEIVED and overflow check, and
-UpdateFC on returned credits. Until the TLP paths attach (#212, #213) the
-testbench's slot drivers stand in for them (DV plan, slot drivers); the
-environment checks the gate and the overflow check every cycle against the
-flow-control rules and the architecture model's counters, and every
-UpdateFC's value, cause and round-robin order. Seeded tests take
+UpdateFC on returned credits, on the real TLP paths. The environment
+checks the gate (through the bind tap) every cycle against the
+flow-control rule and the architecture model, the overflow check through
+the receive reference, and every UpdateFC's value, cause and round-robin
+order. Seeded tests take
 cocotb.RANDOM_SEED, which the regression passes.
 """
 
@@ -15,6 +15,7 @@ from __future__ import annotations
 import random
 
 import cocotb
+from cocotb.triggers import Timer
 
 from tb.dll_env import (ACTIVE, CLASSES, INACTIVE, INIT1, INIT2, MODS, STATE_NAMES, Env,
                         arch_to_partner_traffic, ptn, raw_dllp)
@@ -41,6 +42,27 @@ KINDS = ("MWr", "MRd", "CfgWr", "Msg", "MsgD", "Cpl", "CplD")
 
 def fc_dllp(typ: int, hdr: int, data: int) -> bytes:
     return raw_dllp(ptn.dllp_body(typ, hdr, data))
+
+
+async def auto_ack(env: Env) -> None:
+    """A hand-driven far end that acknowledges every 32 cycles the newest
+    TLP the DUT has sent since it entered DL_Active, so the replay buffer
+    never holds the gate's TLPs back."""
+    last = None
+    while True:
+        await Timer(32 * 8, "ns")
+        sent = [p for c, p in env.tlp_packets if c >= env.active_since]
+        if env.state != ACTIVE or not sent:
+            last = None
+            continue
+        seq = ((sent[-1][0] & 0x0F) << 8) | sent[-1][1]
+        if seq != last:
+            env.inject(raw_dllp(ptn.dllp_body(ptn.ACK, seq)))
+            last = seq
+
+
+def tx_idle(env: Env) -> bool:
+    return not env.tlp_q and env.tlp_cur is None
 
 
 def random_tlp(rng: random.Random, tag: int, big: float = 0.2) -> bytes:
@@ -76,8 +98,9 @@ def stalled(env: Env, cycles: int = 30) -> bool:
 
 @cocotb.test()
 async def fc_tx_gate(dut):
-    """L0: the transmit credit gate against a hand-driven far end. A TLP
-    source offers random TLPs of every class; the gate is checked every
+    """L0: the transmit credit gate against a hand-driven far end that
+    acknowledges what the DUT sends. The upper layer offers random TLPs of
+    every class; the gate is checked every
     cycle (idle random headers included) against the rule and the
     architecture model, and the credits available every cycle. Each round
     consumes until the gate refuses, then an UpdateFC raises the limits:
@@ -87,8 +110,9 @@ async def fc_tx_gate(dut):
     mid-TLP clears the counters."""
     seed = cocotb.RANDOM_SEED
     rng = random.Random(seed)
-    env = Env(dut, seed, slot_tx=True, valid_p=0.7)
+    env = Env(dut, seed, tlp_valid_p=0.7)
     await env.start()
+    cocotb.start_soon(auto_ack(env))
     far = {"P": (6, 20), "NP": (3, 0), "Cpl": (0, 0)}   # NP data and Cpl infinite
     tag = 0
     for epoch in range(2):
@@ -96,11 +120,11 @@ async def fc_tx_gate(dut):
         sh = env.shadow
         for rnd in range(30):
             for _ in range(12):
-                env.tlp_q.append(random_tlp(rng, tag))
+                env.send(random_tlp(rng, tag))
                 tag += 1
-            await env.run_until(lambda: not env.tlp_q or stalled(env), 6000,
+            await env.run_until(lambda: tx_idle(env) or stalled(env), 6000,
                                 "the source drained or refused")
-            if not env.tlp_q:
+            if tx_idle(env):
                 continue
             for c, cls in enumerate(CLASSES):
                 hdr = (sh.cc[c][0] + rng.randint(1, 24)) % MODS[0]
@@ -115,7 +139,7 @@ async def fc_tx_gate(dut):
         for c, cls in enumerate(CLASSES):
             env.inject(fc_dllp(ptn.UPDATEFC[cls], (sh.cc[c][0] + 100) % MODS[0],
                                (sh.cc[c][1] + 1000) % MODS[1]))
-        await env.run_until(lambda: not env.tlp_q, 6000, "the source drained")
+        await env.run_until(lambda: tx_idle(env), 6000, "the source drained")
         if epoch == 0:
             # The gate's edges: a 128-byte write leaves exactly half the
             # range (taken), or one credit more than that (refused), in the
@@ -126,7 +150,7 @@ async def fc_tx_gate(dut):
                                    (sh.cc[0][1] + 8 + extra_d) % MODS[1]))
                 await env.run(20)
                 count = len(env.accepted)
-                env.tlp_q.append(ptn.make_tlp("MWr", 32, tag & 0xFFFF))
+                env.send(ptn.make_tlp("MWr", 32, tag & 0xFFFF))
                 tag += 1
                 await env.run(60)
                 assert (len(env.accepted) > count) == taken, (
@@ -135,21 +159,21 @@ async def fc_tx_gate(dut):
                 if not taken:
                     env.inject(fc_dllp(ptn.UPDATEFC["P"], (sh.cc[0][0] + 10) % MODS[0],
                                        (sh.cc[0][1] + 100) % MODS[1]))
-                    await env.run_until(lambda: not env.tlp_q, 300, "the write taken")
+                    await env.run_until(lambda: tx_idle(env), 300, "the write taken")
             # Bulk: enough 128-byte writes to wrap both P counters.
             for _ in range(4):
                 env.inject(fc_dllp(ptn.UPDATEFC["P"], (sh.cc[0][0] + 128) % MODS[0],
                                    (sh.cc[0][1] + 2048) % MODS[1]))
                 await env.run(20)
                 for _ in range(120):
-                    env.tlp_q.append(ptn.make_tlp("MWr", 32, tag & 0xFFFF))
+                    env.send(ptn.make_tlp("MWr", 32, tag & 0xFFFF))
                     tag += 1
-                await env.run_until(lambda: not env.tlp_q, 20000, "bulk writes taken")
+                await env.run_until(lambda: tx_idle(env), 20000, "bulk writes taken")
             # Link down in the middle of a TLP: everything clears.
-            env.tlp_q.append(ptn.make_tlp("CplD", 32, 1))
+            env.send(ptn.make_tlp("CplD", 32, 1))
             env.inject(fc_dllp(ptn.UPDATEFC["P"], (sh.cc[0][0] + 10) % MODS[0],
                                (sh.cc[0][1] + 10) % MODS[1]))
-            await env.run_until(lambda: env.tlp_cur is not None and env.tlp_idx > 3, 200,
+            await env.run_until(lambda: env.tlp_cur is not None and env.tlp_pos > 3, 200,
                                 "a TLP being taken")
             env.dut_link = False
             await wait_state(env, INACTIVE, 3)
@@ -272,14 +296,14 @@ async def fc_rx_accounting(dut):
 
 
 async def starve_run(dut, credits: dict[str, tuple[int, int]], schedule) -> Env:
-    """The TLP source against the independent partner: accepted TLPs are
-    forwarded, framed, to the partner, whose receive-side check judges every
-    one against its advertised credits. ``schedule`` is a list of
+    """The upper layer sends TLPs through the DUT to the independent
+    partner, whose receive-side check judges every one against its
+    advertised credits. ``schedule`` is a list of
     (cycles, upper-layer take probability) for the partner's upper layer."""
     seed = cocotb.RANDOM_SEED
     rng = random.Random(seed)
     partner = ptn.Partner("partner", credits=credits, seed=seed)
-    env = Env(dut, seed, partner=partner, slot_tx=True, fwd=True, valid_p=0.9)
+    env = Env(dut, seed, partner=partner, tlp_valid_p=0.9)
     await env.start()
     dut._log.info("seed %d, DUT credits %s, partner credits %s", seed, env.adv, credits)
     env.dut_link = env.partner_link = True
@@ -287,7 +311,7 @@ async def starve_run(dut, credits: dict[str, tuple[int, int]], schedule) -> Env:
                         "both ends in DL_Active")
     tag = 0
     for _ in range(3000):
-        env.tlp_q.append(random_tlp(rng, tag))
+        env.send(random_tlp(rng, tag))
         tag += 1
     refused = []
     for cycles, take in schedule:
@@ -298,11 +322,10 @@ async def starve_run(dut, credits: dict[str, tuple[int, int]], schedule) -> Env:
         refused.append(env.refused - before)
         dut._log.info("%d cycles, partner takes %.0f%%: %d TLPs accepted, gate refused %d "
                       "cycles", cycles, 100 * take, len(env.accepted), refused[-1])
-    while len(env.tlp_q) > (env.tlp_cur is not None):
-        env.tlp_q.pop()
+    env.tlp_q.clear()
     partner.upper_ready = True
-    await env.run_until(lambda: env.tlp_cur is None and not env.fwd_q and not env.fwd_cur,
-                        2000, "the last TLP forwarded")
+    await env.run_until(lambda: env.tlp_cur is None and len(partner.received) ==
+                        len(env.accepted), 20000, "every accepted TLP at the partner")
     await env.run(300)
     got = partner.received
     assert got == env.accepted, (f"partner received {len(got)} TLPs, the DUT accepted "

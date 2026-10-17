@@ -632,7 +632,10 @@ class Partner:
 
     def _start_replay(self) -> None:
         self.replay_pending = False
-        sent = [seq for seq, _, eop in self.rbuf if eop is not None]
+        # Sent: handed to the line, including a TLP still going out (its
+        # sequence number is behind NEXT_TRANSMIT_SEQ; RETRY.md, replay).
+        going = self.cur.seq if self.cur is not None and self.cur.kind == "tlp" else None
+        sent = [seq for seq, _, eop in self.rbuf if eop is not None or seq == going]
         if not sent:
             return
         self.replay_num += 1

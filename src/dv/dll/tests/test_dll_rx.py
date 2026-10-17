@@ -253,7 +253,7 @@ KINDS = {"P": ("MWr", "Msg", "MsgD"), "NP": ("MRd", "CfgWr"), "Cpl": ("Cpl", "Cp
 def traffic(rng: random.Random, adv: dict[str, tuple[int, int]], count: int,
             max_dw: int = 32) -> list[bytes]:
     """Up to ``count`` random TLPs that the DUT's advertised credits cover
-    with none returned (credit returns are #214's): a finite class gets at
+    with none returned (no UpdateFC needed): a finite class gets at
     most its advertisement in all, an infinite one any number."""
     left = {c: [h or None, d or None] for c, (h, d) in adv.items()}
     out: list[bytes] = []

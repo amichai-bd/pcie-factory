@@ -2,16 +2,9 @@
 // credit parameters, every port passed through by name, plus cfg_fc_o,
 // the parameters as the cocotb environment reads them ({FC_PH, FC_PD,
 // FC_NPH, FC_NPD, FC_CPLH, FC_CPLD}, FC_PH in the most significant bits).
-// The DUT is driven only through its ports, with one interim exception:
-// the slot driver below.
-//
-// Slot driver (wiki/src/dv/dll/DV_PLAN.md, slot driver): until the TLP
-// transmit path (#212) attaches at its MAS slot, no port reaches the
-// transmit credit gate. When a test sets slot_tx_i, tlp_tx_ready_o is
-// forced to a stand-in for #212's TLP arbiter (DL_Active, and on a sop
-// beat the credit gate fc_tx_ok). It drives only the signal the MAS slot
-// table names and is removed when #212 lands. probe_tx_ok_o shows the
-// MAS-named gate through the bind tap pcie_dll_fc_tap.
+// The DUT is driven only through its ports. probe_tx_ok_o shows the
+// MAS-named credit gate through the bind tap pcie_dll_fc_tap
+// (wiki/src/dv/dll/DV_PLAN.md, gate tap).
 `default_nettype none
 
 module pcie_dll_tb #(
@@ -60,8 +53,7 @@ module pcie_dll_tb #(
   input  logic [5:0]  ltssm_state_i,
   output logic        retrain_req_o,
   output logic [79:0] cfg_fc_o,
-  // Slot driver and probe (see above).
-  input  logic        slot_tx_i,
+  // The credit gate, from the bind tap (see above).
   output logic        probe_tx_ok_o
 );
 
@@ -116,15 +108,6 @@ module pcie_dll_tb #(
   );
 
   assign probe_tx_ok_o   = u_dut.u_fc_tap.tx_ok;   // the bind tap (pcie_dll_fc_tap.sv)
-
-  always @* begin
-    if (slot_tx_i) begin
-      force u_dut.tlp_tx_ready_o = u_dut.dl_state == pcie_dll_pkg::DL_ACTIVE
-                                   && (!tlp_tx_sop_i || u_dut.u_fc_tap.tx_ok);
-    end else begin
-      release u_dut.tlp_tx_ready_o;
-    end
-  end
 
 endmodule
 

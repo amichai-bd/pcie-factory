@@ -62,6 +62,34 @@ tests:
     seeds: 2
     timeout_s: 300
     params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
+  - name: tlp_partner
+    module: tests.test_dll_tlp_tx
+    testcase: tlp_partner
+    top: pcie_dll_tb
+    seeds: [0, 1]
+    timeout_s: 300
+  - name: tlp_partner_errors
+    module: tests.test_dll_tlp_tx
+    testcase: tlp_partner_errors
+    top: pcie_dll_tb
+    seeds: [0, 1, 2]
+    timeout_s: 300
+  - name: tlp_rollover
+    module: tests.test_dll_tlp_tx
+    testcase: tlp_rollover
+    top: pcie_dll_tb
+    seeds: [0, 1]
+    timeout_s: 300
+  - name: mwr_max
+    module: tests.test_dll_tlp_tx
+    testcase: mwr_max
+    top: pcie_dll_tb
+    timeout_s: 300
+  - name: ack_spec_max
+    module: tests.test_dll_tlp_tx
+    testcase: ack_spec_max
+    top: pcie_dll_tb
+    timeout_s: 300
   - name: rx_traffic
     module: tests.test_dll_rx
     testcase: rx_traffic
@@ -102,3 +130,9 @@ tests:
     seeds: 2
     timeout_s: 600
     params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
+  - name: tlp_bidir
+    module: tests.test_dll_tlp_tx
+    testcase: tlp_bidir
+    top: pcie_dll_tb
+    seeds: [0, 1]
+    timeout_s: 300
