@@ -32,9 +32,13 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64]
     timeout-minutes: 10
+    # Only the build is cancellable (wiki/tools/wiki_site/SPEC.md#publishing):
+    # a new PR head or push to main cancels the superseded build; a cancelled
+    # build skips its deploy. Dispatch (the nightly's republish) and schedule
+    # get a group of their own run, so a push never cancels them.
     concurrency:
-      group: pages-build-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+      group: pages-build-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref) || github.run_id }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -60,6 +64,9 @@ jobs:
     permissions:
       pages: write
       id-token: write
+    # One deploy at a time and never cancelled mid-run: deploy-pages cancels
+    # its own deployment if its job is cancelled, which would leave the site
+    # on the previous version until the next run.
     concurrency:
       group: pages
       cancel-in-progress: false

@@ -201,13 +201,46 @@ defense in depth only. Maintainers never approve a fork PR's workflow run;
 the BKM's Forks paragraph owns the rule, the accepted residual risk and the
 review-and-re-push route.
 
-Concurrency cancels a superseded run of the same PR; every push and
-dispatch has its own group. `permissions: contents: read` and
+Concurrency cancels superseded runs (below). `permissions: contents: read` and
 `pull-requests: read` (the guard's base lookup), actions pinned
 to exact versions, and a 20-minute hard timeout per work job (5 minutes for aggregation). The 10-minute `ci-gate`
 budget of the DevOps BKM is a target the job is expected to meet, not
 enforced by the workflow; the timeout leaves headroom for a cold
 dependency install.
+
+### Concurrency
+
+A workflow-level `concurrency` group cancels superseded runs, so runners
+work only on current heads:
+
+| Event | Group | `cancel-in-progress` |
+| --- | --- | --- |
+| `pull_request` | `ci-<PR number>` | yes: a new head cancels the older run |
+| `push` (only `main`) | `ci-refs/heads/main` | yes: a new push cancels the older run |
+| `workflow_dispatch` | `ci-<run id>`, one per run | no: nothing cancels it |
+
+A dispatch, which is how the nightly data PR's gate and `ci-gate-status`
+run, always has a group of its own, so no push or PR cancels it.
+GitHub keeps at most one pending run per group, so the newest head is never
+the one dropped. The merge gate is unchanged:
+
+- **No stale green.** A cancelled run's `ci-gate` still runs (`always()`)
+  and sees `cancelled` work jobs, so `./build ci gate` fails it. If it had
+  already passed before the cancel arrived, it really passed on that commit.
+  Either way the check binds to the old commit's SHA, never to the new head.
+- **No stuck check.** The new head's run is in the same group and is not
+  cancelled by the old one, so its `ci-gate` always completes.
+- **`main`.** A cancelled push run leaves that commit without a gate result.
+  The newer commit's run tests a tree that contains it. The metrics record
+  the commit's push run as `cancelled`, and pass rates skip cancelled runs
+  ([metrics spec](../metrics/SPEC.md)).
+
+`pages.yml` follows the same groups for its build job only; its deploy is
+never cancelled ([wiki site spec](../wiki_site/SPEC.md#publishing)). The
+manual `fpga.yml` and `asic.yml` and the nightly are dispatch or schedule
+only, so no push cancels them. `labels.yml` keeps one group without
+`cancel-in-progress`: a sync writes labels and takes seconds, so it runs
+to completion rather than stopping partway.
 
 **`ci-gate-status`** is a separate job, `needs: ci-gate` with `always()`,
 that runs only when the event is not `pull_request` and the ref is

@@ -17,10 +17,14 @@ permissions:
   pull-requests: read   # data guard: the base of a dispatched branch's open PR
 
 concurrency:
-  # One group per PR, so a new head cancels the superseded run. Pushes and
-  # dispatches get a group of their own run, so every push to main keeps its run.
-  group: ci-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Superseded runs are cancelled (wiki/tools/ci/SPEC.md#concurrency): one
+  # group per PR and one per pushed branch (main), so a new head cancels the
+  # older in-flight or queued run there. A dispatch (the nightly data PR's
+  # gate, ci-gate-status) gets a group of its own run, so a push never cancels
+  # it. A cancelled run's ci-gate still runs (always()) and fails, on the old
+  # SHA only; the new head always gets its own run.
+  group: ci-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 jobs:
   ci-tests:
