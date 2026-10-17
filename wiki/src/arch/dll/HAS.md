@@ -249,7 +249,7 @@ add the two together.
 
 | Bit | Name | Event |
 | --- | --- | --- |
-| 0 | Bad TLP | A received TLP flagged by `phy`, with a bad LCRC, a bad length, ended by EDB without the inverted LCRC, or with a sequence number ahead of the expected one ([receiving TLPs](RETRY.md#receiving-tlps)). |
+| 0 | Bad TLP | A received TLP flagged by `phy`, with a bad LCRC, too short to hold an LCRC (below 6 bytes), ended by EDB without the inverted LCRC, or with a sequence number ahead of the expected one ([receiving TLPs](RETRY.md#receiving-tlps)). |
 | 1 | Bad DLLP | A received DLLP flagged by `phy` or with a bad CRC-16 ([receiving DLLPs](DLLP.md#receiving-dllps)). |
 | 2 | Replay timeout | The [replay timer](RETRY.md#timers) expired. |
 | 3 | REPLAY_NUM rollover | A [rollover](RETRY.md#replay_num); `retrain_req_o` pulses in the same cycle. |
