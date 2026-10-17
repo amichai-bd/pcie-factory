@@ -28,3 +28,9 @@ waivers:
     rule: SYNCASYNCNET
     match: "'rst_i'"
     reason: rst_i resets the dll and the phy synchronously and reaches the pcs RX reset synchronizer (pcs crossing 2), as the link, phy and pcs HAS require.
+  # The link DE2-115 wrapper (#218) instantiates pcie_link as the FPGA top:
+  # the same rst_i net, seen from the wrapper.
+  - file: fpga/link/pcie_link_de2_115.sv
+    rule: SYNCASYNCNET
+    match: "'pcie_link_de2_115.rst_q'"
+    reason: rst_q drives pcie_link rst_i, which resets the dll and the phy synchronously and reaches the pcs RX reset synchronizer (pcs crossing 2), as the link, phy and pcs HAS require; it is a flop with no logic after it, as common_cdc_rst requires.
