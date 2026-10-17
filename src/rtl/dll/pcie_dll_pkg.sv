@@ -42,8 +42,8 @@ package pcie_dll_pkg;
     logic [11:0] data;
   } t_fc_val;
 
-  // One value per class; named fields, read and written through fc_get and
-  // fc_set.
+  // One value per class; named fields, read through fc_get and added to
+  // through fc_charge.
   typedef struct packed {
     t_fc_val cpl;
     t_fc_val np;
@@ -489,17 +489,106 @@ package pcie_dll_pkg;
   endfunction
 
   // Flow control: one class's credits available, shown in DL_Active (on):
-  // all ones for an infinite field, else the limit less what was consumed
-  // (nothing before #214); 0 otherwise.
+  // all ones for an infinite field, else CREDIT_LIMIT less
+  // CREDITS_CONSUMED modulo 2^w; 0 otherwise.
   function automatic t_fc_val fc_show(input logic inf_hdr, input logic inf_data,
-                                      input t_fc_val limit, input logic on);
+                                      input t_fc_val limit, input t_fc_val used,
+                                      input logic on);
     t_fc_val r;
     r = '0;
     if (on) begin
-      r.hdr  = inf_hdr ? 8'hFF : limit.hdr;
-      r.data = inf_data ? 12'hFFF : limit.data;
+      r.hdr  = inf_hdr ? 8'hFF : limit.hdr - used.hdr;
+      r.data = inf_data ? 12'hFFF : limit.data - used.data;
     end
     return r;
+  endfunction
+
+  // Add credits c of class cls to v when en (credit counters, modulo 2^w).
+  function automatic t_fc_vals fc_charge(input t_fc_vals v, input logic en,
+                                         input t_fc_class cls, input t_fc_val c);
+    t_fc_vals r;
+    r = v;
+    if (en) begin
+      case (cls)
+        FC_NP: begin
+          r.np.hdr  = v.np.hdr + c.hdr;
+          r.np.data = v.np.data + c.data;
+        end
+        FC_CPL: begin
+          r.cpl.hdr  = v.cpl.hdr + c.hdr;
+          r.cpl.data = v.cpl.data + c.data;
+        end
+        default: begin
+          r.p.hdr  = v.p.hdr + c.hdr;
+          r.p.data = v.p.data + c.data;
+        end
+      endcase
+    end
+    return r;
+  endfunction
+
+  // The transmit gate for one class: for each finite field,
+  // (CREDIT_LIMIT - (CREDITS_CONSUMED + need)) modulo 2^w is at most
+  // 2^(w-1); an infinite field always passes.
+  function automatic logic fc_gate(input logic inf_hdr, input logic inf_data,
+                                   input t_fc_val limit, input t_fc_val used,
+                                   input t_fc_val need);
+    logic [7:0]  left_hdr;
+    logic [11:0] left_data;
+    left_hdr  = limit.hdr - (used.hdr + need.hdr);
+    left_data = limit.data - (used.data + need.data);
+    return (inf_hdr || left_hdr <= 8'd128) && (inf_data || left_data <= 12'd2048);
+  endfunction
+
+  // The receive overflow check for one class: need is at most
+  // (CREDITS_ALLOCATED - CREDITS_RECEIVED) modulo 2^w for both fields. An
+  // infinite field's counters start from the reserve, so the same rule
+  // checks the reserve's free space.
+  function automatic logic fc_fits(input t_fc_val alloc, input t_fc_val rcvd,
+                                   input t_fc_val need);
+    logic [7:0]  free_hdr;
+    logic [11:0] free_data;
+    free_hdr  = alloc.hdr - rcvd.hdr;
+    free_data = alloc.data - rcvd.data;
+    return need.hdr <= free_hdr && need.data <= free_data;
+  endfunction
+
+  // CREDITS_ALLOCATED on entering DL_Inactive, from the advertised value:
+  // the advertisement for a finite field, the reserve for an infinite one.
+  function automatic t_fc_vals fc_rx_base(input t_fc_vals adv);
+    t_fc_vals r;
+    r.p.hdr    = adv.p.hdr == 8'd0 ? 8'(RX_INF_HDR) : adv.p.hdr;
+    r.p.data   = adv.p.data == 12'd0 ? 12'(RX_INF_DATA) : adv.p.data;
+    r.np.hdr   = adv.np.hdr == 8'd0 ? 8'(RX_INF_HDR) : adv.np.hdr;
+    r.np.data  = adv.np.data == 12'd0 ? 12'(RX_INF_DATA) : adv.np.data;
+    r.cpl.hdr  = adv.cpl.hdr == 8'd0 ? 8'(RX_INF_HDR) : adv.cpl.hdr;
+    r.cpl.data = adv.cpl.data == 12'd0 ? 12'(RX_INF_DATA) : adv.cpl.data;
+    return r;
+  endfunction
+
+  // What an UpdateFC carries: CREDITS_ALLOCATED, an infinite field
+  // (advertised as 0) sent as 0.
+  function automatic t_fc_vals fc_upd_vals(input t_fc_vals alloc, input t_fc_vals adv);
+    t_fc_vals r;
+    r.p.hdr    = adv.p.hdr == 8'd0 ? 8'd0 : alloc.p.hdr;
+    r.p.data   = adv.p.data == 12'd0 ? 12'd0 : alloc.p.data;
+    r.np.hdr   = adv.np.hdr == 8'd0 ? 8'd0 : alloc.np.hdr;
+    r.np.data  = adv.np.data == 12'd0 ? 12'd0 : alloc.np.data;
+    r.cpl.hdr  = adv.cpl.hdr == 8'd0 ? 8'd0 : alloc.cpl.hdr;
+    r.cpl.data = adv.cpl.data == 12'd0 ? 12'd0 : alloc.cpl.data;
+    return r;
+  endfunction
+
+  // Credits held in the receive buffer never exceed its space: free
+  // credits (CREDITS_ALLOCATED - CREDITS_RECEIVED) modulo 2^w stay at most
+  // the base (advertisement or reserve). Per field of one class.
+  function automatic logic fc_free_ok(input t_fc_val alloc, input t_fc_val rcvd,
+                                      input t_fc_val base);
+    logic [7:0]  free_hdr;
+    logic [11:0] free_data;
+    free_hdr  = alloc.hdr - rcvd.hdr;
+    free_data = alloc.data - rcvd.data;
+    return free_hdr <= base.hdr && free_data <= base.data;
   endfunction
 
   // UpdateFC refresh: cycles since a class's last UpdateFC, cleared when

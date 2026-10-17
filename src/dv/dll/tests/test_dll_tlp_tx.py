@@ -4,10 +4,9 @@ Ack and Nak (wiki/src/arch/dll/RETRY.md).
 
 Every test runs on tb/pcie_dll_tb.sv through tb/dll_env.py. The far end is
 hand-driven DLLPs (directed tests) or the independent partner with its
-fault hooks; the architecture-model shadow runs beside the DUT. Until the
-credit gate exists (#214) the partner advertises infinite credits, so no
-TLP the DUT sends can overflow it; until the receive path exists (#213)
-the partner sends no TLPs.
+fault hooks; the architecture-model shadow runs beside the DUT. These
+tests keep the partner's credits infinite, so the credit gate never holds
+a TLP back here; the gate is tested in tests/test_dll_fc.py.
 """
 
 from __future__ import annotations

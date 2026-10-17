@@ -7,11 +7,13 @@ states and the flow-control initialisation
 ([#211](https://github.com/amichai-bd/pcie-factory/issues/211)), the TLP
 transmit path: sequence numbers, LCRC, the replay buffer and timer,
 REPLAY_NUM and received Ack and Nak
-([#212](https://github.com/amichai-bd/pcie-factory/issues/212)), and the
+([#212](https://github.com/amichai-bd/pcie-factory/issues/212)), the
 TLP receive path: the receive checks, the receive buffer and Ack/Nak
-scheduling ([#213](https://github.com/amichai-bd/pcie-factory/issues/213)).
-Credit accounting ([#214](https://github.com/amichai-bd/pcie-factory/issues/214))
-join as blocks of their own at the slots named [below](#slots-for-the-tlp-paths).
+scheduling ([#213](https://github.com/amichai-bd/pcie-factory/issues/213)),
+and credit accounting on both sides with the transmit credit gate, the
+receive overflow check and UpdateFC on returned credits
+([#214](https://github.com/amichai-bd/pcie-factory/issues/214)); the TLP
+transmit path uses the gate through the [credit interface](#credit-interface).
 The HAS and its sub-pages ([DLLPs](../../arch/dll/DLLP.md),
 [retry](../../arch/dll/RETRY.md), [flow control](../../arch/dll/FLOW_CONTROL.md))
 own the rules; this page owns how the blocks apply them.
@@ -34,8 +36,12 @@ flowchart LR
   trx -- "Ack/Nak t_dllp_req" --> tx
   trx -- "good TLP" --> ctl
   ctl -- "state, flush" --> trx
-  trx -. "t_rx_credit events (#214)" .-> fc
-  rb -. "taken (#214)" .-> fc
+  trx -- "rx_chk, rx_stored, rx_malformed" --> fc
+  fc -- "rx_fit" --> trx
+  rb -- "rx_taken" --> fc
+  fc -- "Receiver overflow" --> err
+  up["tlp_tx_data_i, sop taken"] --> fc
+  fc -. "fc_tx_ok (#212 arbiter)" .-> rdy["tlp_tx_ready_o"]
   rb --> urx["tlp_rx_*"]
   trx -- "Bad TLP, Malformed" --> err
   utx["tlp_tx_*"] --> tt["u_tlp_tx"]
@@ -73,27 +79,29 @@ timers clear. A DLLP whose `sop` the `phy` has taken is finished up to its
 
 ### Slots for the TLP paths
 
-Until the remaining TLP paths exist, the top ties the outputs and inputs
-they own:
+Every block is attached; the top ties nothing off. The transmit path (#212) is
+[`u_tlp_tx`](#tlp-transmit): `tlp_tx_*`, `retrain_req_o`, `err_o` bits 2
+to 4, priorities 5 and 6 of [`u_tx`](#transmit), Ack/Nak received on
+`t_rx_dllp`, and the credit gate on `tx_credit_ok`, tied to `u_fc`'s
+`fc_tx_ok`. The receive path (#213) is wired: `tlp_rx_*`, `err_o` bits 0
+and 6, the Ack/Nak request into `u_tx` (priorities 1 and 2), the good TLP
+into `u_ctrl`, and the assertion `a_rx_never_stall` (the upper layer holds
+`tlp_rx_ready_i` at 1 while `dl_up_o` is 1 when any `FC_*` is 0,
+[HAS, Receive](../../arch/dll/HAS.md#receive)). Credit accounting (#214)
+is wired: `err_o` bit 5, the overflow decision on `rx_fit`, the receive
+accounting on the [events](#receive-events-for-credit-accounting), and
+consumption from the transmit upper-stream handshake.
 
-| Signal | Tied to | Owner |
-| --- | --- | --- |
-| `tx_credit_ok` into `u_tlp_tx` (the credit gate, rule 1 of the [HAS transmit rule](../../arch/dll/HAS.md#transmit)) | 1 | #214: computed from the sop beat's first DW (`tlp_tx_data_i`, read with `tlp_hdr` and `tlp_credit`); a TLP is consumed at the edge where `tlp_tx_valid_i`, `tlp_tx_ready_o` and `tlp_tx_sop_i` are all 1 |
-| `err_o` bit 5, credit consumption and returns in `u_fc` | 0, none | #214 |
-| `rx_fit` into `u_tlp_rx`: the overflow check ([receive buffer](../../arch/dll/FLOW_CONTROL.md#receive-buffer)) | 1 (every TLP fits) | #214 |
-| The receive events `rx_chk`, `rx_stored`, `rx_malformed`, `rx_taken` ([events](#receive-events-for-credit-accounting)) | read by no block (`COMMON_UNUSED_BITS`) | #214 |
+### Credit interface
 
-The transmit path (#212) is [`u_tlp_tx`](#tlp-transmit): `tlp_tx_*`,
-`retrain_req_o`, `err_o` bits 2 to 4, priorities 5 and 6 of
-[`u_tx`](#transmit), Ack/Nak received on `t_rx_dllp`. The receive path
-(#213) is wired: `tlp_rx_*`, `err_o` bits 0 and 6, the Ack/Nak request
-into `u_tx` (priorities 1 and 2), the good TLP into `u_ctrl`, and the
-assertion `a_rx_never_stall` (the upper layer holds `tlp_rx_ready_i` at 1
-while `dl_up_o` is 1 when any `FC_*` is 0,
-[HAS, Receive](../../arch/dll/HAS.md#receive)). Credit accounting
-attaches where its ties are: consumption and returned credits in `u_fc`
-beside the limits, the credit gate on `tx_credit_ok`, the overflow
-decision on `rx_fit` and the receive accounting on the events.
+How the TLP transmit path uses flow control
+([transmit accounting](../../arch/dll/FLOW_CONTROL.md#transmit-accounting));
+the receive side is the [events](#receive-events-for-credit-accounting).
+
+| Signal (top) | Type | From, to | Contract |
+| --- | --- | --- | --- |
+| `fc_tx_ok` | `logic` | `u_fc` to `u_tlp_tx` (as `tx_credit_ok`) | 1 when in DL_Active the partner's credits cover the TLP whose first DW is on `tlp_tx_data_i` (class and credits by `tlp_credit`), by the gate rule for both its fields. Combinational from `tlp_tx_data_i` and registers. `u_tlp_tx` makes `tlp_tx_ready_o` on a `sop` beat the AND of this and its own two conditions (rule 1 of the [HAS transmit rule](../../arch/dll/HAS.md#transmit)). |
+| `tx_sop_take` | `logic` | top to `u_fc` | `tlp_tx_valid_i && tlp_tx_ready_o && tlp_tx_sop_i`: CREDITS_CONSUMED adds that TLP's credits at this edge. `a_consume_without_credit` stops a take the gate did not cover. |
 
 ## Package
 
@@ -111,6 +119,7 @@ and each block's state struct, and the pure helpers:
 | `fc_record`, `fc_show`, `refresh_count`, `fc_get`, `fc_next` | The flow-control rules of [`u_fc`](#flow-control). |
 | `lcrc_step`, `lcrc_bytes` | The [LCRC](../../arch/dll/RETRY.md#lcrc): one 16-bit beat into the register (16 bit-serial steps, unrolled), and the 4 bytes the register gives (complemented, bit-reversed: byte 0 in `[7:0]`). |
 | `tlp_hdr`, `tlp_payload_dw`, `tlp_credit`, `tlp_malformed` | The header fields of DW 0 (`t_tlp_hdr`: Fmt bits 5 and 6, Type, Length); the payload DWs, class and credits they state ([classes](../../arch/dll/FLOW_CONTROL.md#classes-and-credits)); the malformed rule from the beat count and those fields. |
+| `fc_charge`, `fc_gate`, `fc_fits`, `fc_rx_base`, `fc_upd_vals`, `fc_free_ok` | Add credits to their class; the transmit gate; the overflow check; CREDITS_ALLOCATED in DL_Inactive; an UpdateFC's values; the receive-space invariant. |
 
 ## DLLP receive
 
@@ -162,18 +171,37 @@ and data) ([transmit accounting](../../arch/dll/FLOW_CONTROL.md#transmit-account
   `recorded_o` is 1 with all three recorded.
 - In FC_INIT2 and DL_Active an UpdateFC sets the limit of each finite
   field; an infinite field keeps its flag and shows all ones.
-- `avail_o` is 0 outside DL_Active; in it, all ones for an infinite field,
-  else the limit (CREDITS_CONSUMED is 0 until #214 accepts TLPs).
+- **Transmit.** `used_q` (`t_fc_vals`) is CREDITS_CONSUMED, adding the
+  taken TLP's `tlp_credit` at `tx_sop_take`. `tx_ok_o` is the gate on the
+  offered first DW, 0 outside DL_Active. `avail_o` is 0 outside DL_Active;
+  in it, all ones for an infinite field, else limit less `used_q`.
+- **Receive** ([events](#receive-events-for-credit-accounting)). `alloc_q`
+  and `rcvd_q` are CREDITS_ALLOCATED and CREDITS_RECEIVED for every field.
+  DL_Inactive loads `alloc_q` with the advertisement, or the reserve
+  (`RX_INF_HDR`, `RX_INF_DATA`) for an infinite field, and `rcvd_q` with
+  0, so one rule, `fc_fits`, is the overflow check for both kinds:
+  `rx_fit_o` answers `rx_chk` combinationally. `rx_stored` adds to
+  `rcvd_q`; `rx_malformed` with credits to both; `rx_taken` to `alloc_q`.
+  An `rx_chk` that does not fit registers `ovf_q`, `err_o` bit 5, for one
+  cycle. An `rx_malformed` with credits 0 counts nothing and its class is
+  not read.
 
 UpdateFC transmit ([UpdateFC](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling)):
-entering DL_Active makes all three due; per class an 11-bit count of
-cycles since that class's last UpdateFC was taken saturates at 2047,
-which makes it due again (the refresh). The request is the first due
-class from the round-robin pointer, with its `ADV` value
-(CREDITS_ALLOCATED before any credit returns; an infinite field is 0);
-a take clears that class's due flag and count and moves the pointer past
-it. Until #214 returns credits, classes fall due in turn, so the pointer
-always names the due class.
+`upd` is what each class's UpdateFC carries, `alloc_q` with infinite
+fields as 0 (`fc_upd_vals`); `sent_q` holds the values last taken
+(DL_Inactive: `ADV`). A class is due when entering DL_Active set its
+`due_q` bit, when `upd` differs from `sent_q` (credits returned), or when
+its 11-bit count of cycles since its last UpdateFC was taken has
+saturated at 2047 (the refresh). The request is the first due class from
+the round-robin pointer, with its `upd` value; a take clears that class's
+`due_q` bit and count, records `upd` in `sent_q` and moves the pointer past
+it. Returns while an UpdateFC waits coalesce into it; one made after the
+take makes the class due again.
+
+Assertions: `a_take_without_due`; `a_consume_without_credit` (a taken
+`sop` the gate did not cover); `a_rx_chk_outside_dl_up`;
+`a_stored_without_fit`; and `a_free_within_space`, the free credits of
+each class never above its receive space (a return without a store).
 
 ## Transmit
 
@@ -237,7 +265,7 @@ the next words written would otherwise reach the words it still reads.
 taken, the LCRC word of the last one is not being written, the space in
 use plus the TLP's bytes (its header size and `tlp_payload_dw` of the
 beat) plus 6 is at most 1024, and
-`credit_ok_i` (#214) is 1; then every cycle up to `eop`. The 2047-TLP rule
+`credit_ok_i` (the [credit gate](#credit-interface)) is 1; then every cycle up to `eop`. The 2047-TLP rule
 of the HAS always holds (`a_held_limit`).
 
 **Writing.** Each beat taken is written at `wr_addr` and folded into the
@@ -317,7 +345,7 @@ order, in FC_INIT2 and DL_Active only (else discarded silently):
 | Duplicate | good LCRC, D = 2048 to 4095 | Ack due at once |
 | Malformed | good LCRC, D = 0, `tlp_malformed` | Malformed TLP pulse; accept |
 | Store | good LCRC, D = 0, well formed, `fit_i` 1 and no `noroom` | commit; accept |
-| Overflow | good LCRC, D = 0, well formed, `fit_i` 0 | nothing (#214 pulses Receiver overflow) |
+| Overflow | good LCRC, D = 0, well formed, `fit_i` 0 | nothing (`u_fc` pulses Receiver overflow) |
 
 D is the sequence number minus NEXT_RCV_SEQ, modulo 4096. Every packet
 not stored is rewound out of the buffer. Any good-LCRC TLP drives
@@ -342,18 +370,20 @@ NEXT_RCV_SEQ to 0.
 
 The receive side owns no credit counter: it reports each TLP, with its
 class and the credits DW 0 states (`t_rx_credit`, from `tlp_credit`), for
-#214's accounting ([receive accounting](../../arch/dll/FLOW_CONTROL.md#receive-accounting)),
+`u_fc`'s accounting ([receive accounting](../../arch/dll/FLOW_CONTROL.md#receive-accounting)),
 each valid for one cycle:
 
-| Event | Valid when | #214 does |
+| Event | Valid when | `u_fc` does |
 | --- | --- | --- |
 | `chk_o` | in the verdict cycle, for an expected, good-LCRC, well-formed TLP | answers `fit_i` in the same cycle: 1 when its class's free credits (or an infinite field's reserve) cover it |
 | `stored_o` | the same TLP is stored (`fit_i` 1) | CREDITS_RECEIVED (or the reserve in use) adds its credits |
-| `malformed_o` | a malformed TLP is accepted; credits 0 below 5 beats (no whole DW 0) | CREDITS_RECEIVED and CREDITS_ALLOCATED both add them |
+| `malformed_o` | a malformed TLP is accepted; credits 0 below 5 beats (no whole DW 0), and then its `cls` is stale: never read `cls` when the credits are 0 | CREDITS_RECEIVED and CREDITS_ALLOCATED both add them; nothing with credits 0 |
 | `taken_o` (from `u_rx_buf`) | the upper layer takes a TLP's `eop` beat | CREDITS_ALLOCATED adds them (or the reserve frees them); an UpdateFC falls due |
 
 `fit_i` 0 makes the verdict Overflow: the TLP is rewound, not accepted,
-and neither Ack nor Nak is scheduled; #214 pulses Receiver overflow.
+and neither Ack nor Nak is scheduled; `u_fc` pulses Receiver overflow.
+`chk_o` is driven by a process of its own: `fit_i` answers it
+combinationally and `stored_o` depends on `fit_i`.
 
 ## Receive buffer
 
@@ -384,10 +414,9 @@ and rounds up to a power of two: 512 words (2 KiB plus marks) with the
 default credits. A header credit is at most a 4-DW header and a data
 credit 4 payload DWs, so the stored TLPs that the credits cover never
 exceed the sum, and the packet being collected has its 36 words on top;
-the buffer is never full for a TLP the overflow check accepts. Until #214
-lands nothing checks the credits, and a far end that ignores them could
-fill the buffer: the TLP that finds it full is then dropped like an
-overflowed one (no Ack or Nak), never stored with a hole.
+the buffer is never full for a TLP the overflow check accepts. Should it
+be full anyway, the TLP is dropped like an overflowed one (no Ack or
+Nak), never stored with a hole.
 
 ## Decisions
 
@@ -409,6 +438,10 @@ overflowed one (no Ack or Nak), never stored with a hole.
 | A two-beat delay line before the LCRC and the DW packing | The LCRC is the last two beats, known only at the `eop`; the delay keeps it out of the sum and the buffer without knowing the length. | Summing everything and comparing against the CRC residue (needs a second constant for the nullified check, and stores the LCRC). |
 | One shared buffer sized by the sum of the per-class capacities, plus one TLP | Each class gets its space ([HAS decision](../../arch/dll/HAS.md#decisions)); the extra TLP covers the speculative writes. | Per-class memories (the arrival order is one stream). |
 | The RAM read register is the stream's output register | One beat per cycle with no skid buffer: a read issues whenever the output is empty or taken. | A separate output stage (a cycle more latency). |
+| Consumption read from the transmit upper-stream handshake at the top | The HAS event is exactly a taken `sop`; #212 needs no extra wiring and cannot get it out of step with the ports. | A consume pulse from #212. |
+| The gate takes `tlp_tx_data_i` alone, separate from the take | `tlp_tx_ready_o` depends on the gate; a struct carrying both the data and the take would make a false combinational loop. | One upper-beat struct for both. |
+| An infinite field's receive counters start from the reserve | The reserve's free space is then `alloc_q − rcvd_q` like a finite field's, so one overflow rule and one return path serve both; the UpdateFC masks those fields to 0. | A separate occupancy counter per infinite field. |
+| Receiver overflow registered | Every output from a register; the pulse follows the verdict by one cycle. | A combinational pulse. |
 | The verdict a cycle after the `eop` | The 16-step LCRC network and the 32-bit compare end in a register, not in the commit and receiver-state logic. | Judging in the `eop` cycle. |
 
 ## Timing
@@ -448,6 +481,11 @@ overflowed one (no Ack or Nak), never stored with a hole.
   in c+3. Either waits behind at most one started packet (a DLLP, or a TLP
   of up to 76 cycles), so an Ack starts within
   35 + 76 + 1 = 112 cycles, inside the HAS's 118.
+- Credits: `avail_o` changes in the cycle after a taken `sop` or a
+  received UpdateFC's record; Receiver overflow pulses in c+2 like Bad
+  TLP; a returned credit makes its class's UpdateFC due in the cycle
+  after the `eop` is taken, so with a free stream it is offered one cycle
+  later.
 - Critical path: the 32-step CRC-16 XOR network from the receive byte
   register to the CRC compare, and from a request body to the transmit
   packet register; the 16-step LCRC network from the delay line and the
@@ -463,7 +501,11 @@ overflowed one (no Ack or Nak), never stored with a hole.
   in the `phy` comes back to `ltssm_state_i` within the cycle, and the
   path has no combinational loop; it adds these five levels to the mac's
   register-to-input path into the `phy` transmit stream. Each CRC bit is the parity of at most 32 (CRC-16), 48
-  (receive LCRC) or 64 (transmit LCRC) input bits.
+  (receive LCRC) or 64 (transmit LCRC) input bits. The credit gate is an
+  8-bit and a 12-bit add, subtract and compare from `tlp_tx_data_i` into
+  `tx_credit_ok`, in parallel with the room check; the overflow check a
+  subtract and compare from `u_tlp_rx`'s verdict register into its commit
+  logic.
 
 ## Files
 
@@ -472,7 +514,7 @@ overflowed one (no Ack or Nak), never stored with a hole.
 | [`pcie_dll_pkg.sv`](../../../../src/rtl/dll/pcie_dll_pkg.sv) | [Package](#package): types, constants, CRC-16 and flow-control helpers. |
 | [`pcie_dll_dllp_rx.sv`](../../../../src/rtl/dll/pcie_dll_dllp_rx.sv) | [DLLP receive](#dllp-receive). |
 | [`pcie_dll_ctrl.sv`](../../../../src/rtl/dll/pcie_dll_ctrl.sv) | [Control](#control): the control states and the InitFC groups. |
-| [`pcie_dll_fc.sv`](../../../../src/rtl/dll/pcie_dll_fc.sv) | [Flow control](#flow-control): limits, credits available, UpdateFC. |
+| [`pcie_dll_fc.sv`](../../../../src/rtl/dll/pcie_dll_fc.sv) | [Flow control](#flow-control): limits, credit accounting and gate, credits available, overflow check, UpdateFC. |
 | [`pcie_dll_tlp_tx.sv`](../../../../src/rtl/dll/pcie_dll_tlp_tx.sv) | [TLP transmit](#tlp-transmit): sequence numbers, LCRC, replay buffer, replay timer, REPLAY_NUM, received Ack and Nak. |
 | [`pcie_dll_tx.sv`](../../../../src/rtl/dll/pcie_dll_tx.sv) | [Transmit](#transmit): arbiter, DLLP sender, TLP pass-through. |
 | [`pcie_dll_tlp_rx.sv`](../../../../src/rtl/dll/pcie_dll_tlp_rx.sv) | [TLP receive](#tlp-receive): collection, LCRC, checks, receiver state, Ack/Nak requests. |

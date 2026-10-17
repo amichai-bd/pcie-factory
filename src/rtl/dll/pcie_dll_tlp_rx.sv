@@ -175,11 +175,16 @@ module pcie_dll_tlp_rx (
 
   // Events for the flow-control accounting: the class and credits DW 0
   // states; a malformed TLP shorter than one DW (below 5 beats) has none.
+  // chk_o has its own process: fit_i answers it combinationally and store
+  // depends on fit_i, so one process for all three would be a loop.
   always_comb begin
     chk_o       = pcie_dll_pkg::tlp_credit(chk_q.hdr.with_data, chk_q.hdr.typ, chk_q.hdr.len);
+    chk_o.valid = cand;
+  end
+
+  always_comb begin
     stored_o    = chk_o;
     malformed_o = chk_o;
-    chk_o.valid       = cand;
     stored_o.valid    = store;
     malformed_o.valid = malformed;
     if (chk_q.beats < 8'd5) begin
