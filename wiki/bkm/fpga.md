@@ -131,6 +131,7 @@ rule, so `./build check` rejects it before Quartus runs; the
 | Pattern key that is also a name in scope (`'{sym0: ...}` beside a net `sym0`) | 10734, "is not a constant" | Rename the local | `pattern-key-name` |
 | Assignment pattern as a `?:` or comparison operand | 10207 "can't resolve reference to object", 10901 | A package constant or a named signal | `pattern-context` |
 | `$countones` (and the other bit-vector functions) in logic | 10174, not supported for synthesis | A package function; the system functions stay in assertion arguments | `system-task` |
+| A member select named like a built-in method (`h.len`, `x.size`, ...) inside a function | 10049, value must not be assigned to nonvariable `len`; then 10903 and 12152 at the caller | Rename the struct member (`length`); the same select at module level is accepted | `method-member-name` |
 
 ## Known Quartus warnings
 
