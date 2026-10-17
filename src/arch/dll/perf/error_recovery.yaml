@@ -1,0 +1,18 @@
+# Corrupted, dropped and phy-flagged TLPs and DLLPs both ways: replay
+# delivers every TLP once, in order (wiki/src/arch/dll/HAS.md#targets).
+description: 3000 random TLPs each way with 2% corrupted, 1% dropped and 1% phy-flagged packets of each kind.
+seed: 3
+workload:
+  kind: traffic
+  tlps: 3000
+  mix: mixed
+  payload: -1
+  bidirectional: true
+  errors: {tlp_corrupt: 0.02, tlp_drop: 0.01, tlp_phy_err: 0.01, dllp_corrupt: 0.02, dllp_drop: 0.01, dllp_phy_err: 0.01}
+targets:
+  tlps_lost: {max: 0}
+  tlps_duplicated: {max: 0}
+  tlps_out_of_order: {max: 0}
+  err_rx_overflow: {max: 0}
+  err_dl_protocol: {max: 0}
+  replays: {min: 1}

@@ -1,0 +1,17 @@
+# Random reads, writes and completions both ways: Acks and UpdateFCs wait
+# behind TLPs, and still meet the Ack latency (wiki/src/arch/dll/HAS.md#targets).
+description: 2000 random TLPs each way, payloads 4 to 128 bytes, error-free.
+seed: 2
+workload:
+  kind: traffic
+  tlps: 2000
+  mix: mixed
+  payload: -1
+  bidirectional: true
+targets:
+  ack_latency_cycles_max: {max: 118}
+  tlps_lost: {max: 0}
+  tlps_duplicated: {max: 0}
+  tlps_out_of_order: {max: 0}
+  replays: {max: 0}
+  err_rx_overflow: {max: 0}

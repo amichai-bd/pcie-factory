@@ -1,0 +1,6 @@
+tests:
+  - name: smoke
+    module: tests.test_dll
+    testcase: smoke
+    top: pcie_dll
+    timeout_s: 60

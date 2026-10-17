@@ -1,0 +1,11 @@
+# Initialisation with 10% of DLLPs corrupted: resends recover it
+# (wiki/src/arch/dll/HAS.md#targets).
+description: 200 initialisations, skew up to 2000 cycles, 10% of DLLPs corrupted.
+seed: 1
+workload:
+  kind: init
+  trials: 200
+  skew: 2000
+  errors: {dllp_corrupt: 0.1}
+targets:
+  dl_active_cycles_max: {max: 4500}

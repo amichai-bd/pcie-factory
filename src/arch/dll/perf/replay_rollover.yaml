@@ -1,0 +1,17 @@
+# Every TLP one way is lost for 2500 cycles: four replay timeouts roll
+# REPLAY_NUM over, the dll requests a retrain, and traffic resumes
+# (wiki/src/arch/dll/HAS.md#targets).
+description: 300 MWr TLPs, all TLPs a to b dropped in cycles 5000 to 7500.
+seed: 1
+workload:
+  kind: traffic
+  tlps: 300
+  mix: mwr
+  payload: 128
+  errors: {drop_tlp_window: [5000, 7500]}
+targets:
+  err_replay_rollover: {min: 1, max: 1}
+  retrains: {min: 1, max: 1}
+  tlps_lost: {max: 0}
+  tlps_duplicated: {max: 0}
+  tlps_out_of_order: {max: 0}
