@@ -3,10 +3,10 @@
 // wiki/src/rtl/dll/MAS.md.
 //
 // The top: the DLLP path (receive, transmit arbiter), the data link
-// control states and the flow-control initialisation and UpdateFC. The
-// outputs that the TLP paths drive (#212 transmit, #213 receive) and the
-// error bits they own are tied to their reset values here
-// (MAS, Microarchitecture).
+// control states, the flow-control initialisation and UpdateFC, and the
+// TLP transmit path (sequence numbers, LCRC, replay). The outputs that the
+// TLP receive path (#213) drives and the error bits it and the credit
+// accounting (#214) own are tied to their reset values here (MAS, Top).
 `default_nettype none
 
 `include "common_macros.svh"
@@ -112,6 +112,14 @@ module pcie_dll #(
   logic                    acknak_take;
   logic                    initfc_take;
   logic                    updfc_take;
+  pcie_dll_pkg::t_tlp_beat tlp_tx;
+  pcie_dll_pkg::t_tlp_src  tlp_src;
+  logic                    tx_credit_ok;
+  logic                    tlp_take;
+  logic                    tlp_beat;
+  logic                    tlp_abort;
+  logic                    tlp_hold;
+  logic [2:0]              tlp_tx_err;
 
   assign pkt_rx = '{valid: pkt_rx_valid_i, data: pkt_rx_data_i, sop: pkt_rx_sop_i,
                     eop: pkt_rx_eop_i, dllp: pkt_rx_dllp_i, err: pkt_rx_err_i,
@@ -121,6 +129,11 @@ module pcie_dll #(
   // Nak is due and no good TLP ends FC_INIT2 yet.
   assign acknak_req  = '0;
   assign rx_tlp_good = 1'b0;
+
+  // The credit gate (#214): open until credit accounting exists.
+  assign tx_credit_ok = 1'b1;
+
+  assign tlp_tx = '{data: tlp_tx_data_i, sop: tlp_tx_sop_i, eop: tlp_tx_eop_i};
 
   pcie_dll_dllp_rx u_dllp_rx (
     .clk_i      (clk_i),
@@ -168,13 +181,38 @@ module pcie_dll #(
     .acknak_req_i   (acknak_req),
     .initfc_req_i   (initfc_req),
     .updfc_req_i    (updfc_req),
+    .tlp_src_i      (tlp_src),
+    .tlp_hold_i     (tlp_hold),
     .acknak_take_o  (acknak_take),
     .initfc_take_o  (initfc_take),
     .updfc_take_o   (updfc_take),
+    .tlp_take_o     (tlp_take),
+    .tlp_beat_o     (tlp_beat),
+    .tlp_abort_o    (tlp_abort),
     .busy_o         (tx_busy),
     .pkt_tx_valid_o (pkt_tx_valid_o),
     .pkt_tx_ready_i (pkt_tx_ready_i),
     .pkt_tx_o       (pkt_tx)
+  );
+
+  pcie_dll_tlp_tx u_tlp_tx (
+    .clk_i         (clk_i),
+    .rst_i         (rst_i),
+    .flush_i       (flush),
+    .state_i       (dl_state),
+    .ltssm_state_i (ltssm_state_i),
+    .tlp_valid_i   (tlp_tx_valid_i),
+    .tlp_i         (tlp_tx),
+    .tlp_ready_o   (tlp_tx_ready_o),
+    .credit_ok_i   (tx_credit_ok),
+    .rx_dllp_i     (rx_dllp),
+    .src_o         (tlp_src),
+    .take_i        (tlp_take),
+    .beat_i        (tlp_beat),
+    .abort_i       (tlp_abort),
+    .hold_o        (tlp_hold),
+    .err_o         (tlp_tx_err),
+    .retrain_req_o (retrain_req_o)
   );
 
   // ------------------------------------------------------------ outputs
@@ -194,22 +232,20 @@ module pcie_dll #(
   assign fc_cplh_avail_o = avail.cpl.hdr;
   assign fc_cpld_avail_o = avail.cpl.data;
 
-  // err_o bit 1 is Bad DLLP; the others belong to the TLP paths (#212,
-  // #213) and the receive credit check (#214).
-  assign err_o = {5'd0, bad_dllp, 1'b0};
+  // err_o bit 1 is Bad DLLP, bits 2 to 4 the TLP transmit path's (replay
+  // timeout, REPLAY_NUM rollover, DL protocol error); bits 0, 5 and 6
+  // belong to the TLP receive path (#213) and the receive credit check
+  // (#214).
+  assign err_o = {2'd0, tlp_tx_err, bad_dllp, 1'b0};
 
-  // Owned by the TLP transmit path (#212) and receive path (#213).
-  assign tlp_tx_ready_o = 1'b0;
+  // Owned by the TLP receive path (#213).
   assign tlp_rx_valid_o = 1'b0;
   assign tlp_rx_data_o  = 32'd0;
   assign tlp_rx_sop_o   = 1'b0;
   assign tlp_rx_eop_o   = 1'b0;
-  assign retrain_req_o  = 1'b0;
 
-  // Inputs the TLP paths (#212, #213) consume, and the Ack/Nak grant.
-  `COMMON_UNUSED_BITS(unused_inputs, {tlp_tx_valid_i, tlp_tx_data_i, tlp_tx_sop_i,
-                                      tlp_tx_eop_i, tlp_rx_ready_i, ltssm_state_i,
-                                      acknak_take})
+  // Inputs the TLP receive path (#213) consumes, and the Ack/Nak grant.
+  `COMMON_UNUSED_BITS(unused_inputs, {tlp_rx_ready_i, acknak_take})
 
   // Nothing starts in DL_Inactive (HAS, reset values): only the tail of a
   // DLLP whose sop the phy took before the link went down.

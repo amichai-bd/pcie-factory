@@ -199,6 +199,7 @@ class Dll:
         self.nts = 0                       # NEXT_TRANSMIT_SEQ: after the newest TLP sent
         self.ackd = SEQ_MOD - 1            # ACKD_SEQ
         self.rbuf: deque = deque()         # [seq, packet bytes, eligible time]
+        self.locked: list = []             # packets an Ack removed while one is on the stream
         self.send_idx = 0                  # next replay-buffer entry to send
         self.replay_end = 0                # entries a replay resends
         self.replay_active = False
@@ -273,7 +274,16 @@ class Dll:
         return (self.cl[cls][f] - self.cc[cls][f]) % MODS[f]
 
     def rbuf_bytes(self) -> int:
-        return sum(len(e[1]) for e in self.rbuf)
+        """Space in use: every TLP held, plus, while a TLP an Ack removed is
+        still on the phy stream, it and the TLPs after it (HAS, replay
+        buffer)."""
+        return sum(len(e[1]) for e in self.rbuf) + sum(len(d) for d in self.locked)
+
+    def _tx_seq(self) -> int | None:
+        """The sequence number of the TLP on the phy stream, if any."""
+        if self.tx_busy > 1 and self.tx_cur_tlp and self.tx_cur is not None:
+            return ((self.tx_cur.data[0] & 0x0F) << 8) | self.tx_cur.data[1]
+        return None
 
     def offer(self, tlp: bytes, now: int) -> bool:
         """The upper layer offers a TLP's sop beat; True when accepted."""
@@ -416,8 +426,15 @@ class Dll:
             return
         n = (seq - self.ackd) % SEQ_MOD
         if n:
-            for _ in range(n):
-                self.rbuf.popleft()
+            gone = [self.rbuf.popleft() for _ in range(n)]
+            cur = self._tx_seq()
+            if self.locked:
+                self.locked += [e[1] for e in gone]
+            elif cur is not None:
+                for i, e in enumerate(gone):
+                    if e[0] == cur:                     # removed while being sent
+                        self.locked = [x[1] for x in gone[i:]]
+                        break
             self.send_idx = max(0, self.send_idx - n)
             self.replay_end = max(0, self.replay_end - n)
             self.ackd = seq
@@ -495,6 +512,8 @@ class Dll:
         # transmit
         if self.tx_busy:
             self.tx_busy -= 1
+            if self.tx_busy <= 1:
+                self.locked = []                        # its last beat is sent
             if self.tx_busy == 0 and self.tx_cur_tlp and not self.rt_running:
                 self.rt_running, self.rt_count = True, 0
         if self.tx_busy or not can_send or self.state == INACTIVE:

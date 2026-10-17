@@ -161,8 +161,8 @@ While `rst_i` is high, and in DL_Inactive: `tlp_tx_ready_o`,
 are 0; data outputs are don't care while not qualified. One exception in
 DL_Inactive, not in reset: a packet whose `sop` the `phy` took at or
 before the edge that samples `link_up_i` 0 is finished, so
-`pkt_tx_valid_o` stays 1 for its remaining beats (at most 2, a DLLP's)
-up to and including its `eop`, then falls ([Decisions](#decisions)). Reset puts the
+`pkt_tx_valid_o` stays 1 for its remaining beats (at most 2 of a DLLP, 74
+of a TLP) up to and including its `eop`, then falls ([Decisions](#decisions)). Reset puts the
 `dll` in DL_Inactive with every counter, timer, buffer and flag at the
 value listed for DL_Inactive below.
 
@@ -191,12 +191,13 @@ stays 1 through Recovery, so a retrain does not leave DL_Active.
 - TLPs are taken and sent only in DL_Active, although `dl_up_o` is
   already 1 in FC_INIT2.
 - `tlp_tx_ready_o` is 1 on a `sop` beat only in DL_Active, when no TLP is
-  being taken, and when the TLP described by that beat (its first DW, so
+  being taken nor had its `eop` taken at the edge before (its LCRC is
+  stored then), and when the TLP described by that beat (its first DW, so
   ready may depend on `tlp_tx_data_i`) meets all three of:
   1. the partner's credits for its class cover it
      ([credit gate](FLOW_CONTROL.md#transmit-accounting));
   2. the replay buffer has room for it plus 6 bytes
-     ([replay buffer](RETRY.md#replay-buffer));
+     ([replay buffer](RETRY.md#replay-buffer), space in use);
   3. fewer than 2047 TLPs are unacknowledged.
 
   From an accepted `sop` to its `eop`, ready is 1 every cycle; valid may
@@ -277,7 +278,7 @@ neither ([`link` errors](../link/HAS.md#errors)).
 | The upper layer never stalls when any class is infinite | An exact, checkable rule. With one FIFO in arrival order, a stall on any TLP would let infinite-class TLPs behind it overrun the reserve even with a credit-correct partner. In M2 the receive side therefore never stalls whenever any class is infinite, which with the default (infinite completion credits) means always; M3's transaction layer must accept every TLP at line rate. | A cycle bound (hard to size and verify); per-class receive queues, rejected on ordering grounds (the bypass rules between classes belong to the transaction layer). |
 | An entry UpdateFC and the 2048-cycle refresh for every class, infinite fields sent as 0 | With all classes infinite and link-up skew, the side that leaves FC_INIT2 first would otherwise send nothing that ends the partner's FC_INIT2, so the partner never reaches DL_Active. | Allowing TLPs in FC_INIT2. |
 | After a REPLAY_NUM rollover, TLPs wait until the LTSSM has left L0 and returned | The replay then never starts into a retrain that would cut it; the `dll` enforces it without relying on `phy` ready timing. | Replaying at once (the first replayed TLP is lost and needs another Nak or timeout). |
-| A packet being sent when `link_up_i` falls is finished: once its `sop` was taken, at or before the edge that samples `link_up_i` 0, the remaining beats (at most 2 for a DLLP) go out up to `eop`, then DL_Inactive sends nothing (firstmate decision as the captain's delegate, [#211](https://github.com/amichai-bd/pcie-factory/issues/211)) | The [transmit priority](RETRY.md#transmit-priority) says a started packet is always finished, and the `phy` expects it: the MAC keeps the packet open from its `sop` until an accepted `eop` (its `up_open` clears only on `eop` or reset, whatever the link does), takes and discards the rest, and treats a new `sop` before that `eop` as a contract break (`a_tx_sop_inside_packet`); a cut packet would leave the next link-up's first DLLP inside the old packet. | Cutting the packet at link-down (the next `sop` lands inside the open packet). |
+| A packet being sent when `link_up_i` falls is finished: once its `sop` was taken, at or before the edge that samples `link_up_i` 0, the remaining beats (at most 2 for a DLLP, 74 for a TLP) go out up to `eop`, then DL_Inactive sends nothing (firstmate decision as the captain's delegate, [#211](https://github.com/amichai-bd/pcie-factory/issues/211)) | The [transmit priority](RETRY.md#transmit-priority) says a started packet is always finished, and the `phy` expects it: the MAC keeps the packet open from its `sop` until an accepted `eop` (its `up_open` clears only on `eop` or reset, whatever the link does), takes and discards the rest, and treats a new `sop` before that `eop` as a contract break (`a_tx_sop_inside_packet`); a cut packet would leave the next link-up's first DLLP inside the old packet. | Cutting the packet at link-down (the next `sop` lands inside the open packet). |
 | Malformed TLPs, bad lengths with a good LCRC included, acknowledged and dropped, credits returned | The data link layer accepted it; the receive buffer is sized from header credits, so it is not stored. The size limit is the 128-byte maximum payload (Q6). The transaction layer's own malformed checks come in M3. | Nak (the partner would replay it until REPLAY_NUM rolls over); a 144-byte packet limit (lets a 132-byte payload with a 3-DW header through). |
 
 ## Targets
@@ -346,5 +347,6 @@ corrects the rule and the model together.
 | DL_Up reported from FC_INIT2, TLP transmission only from DL_Active, and the "group being sent is complete" rule for leaving FC_INIT1 and FC_INIT2. | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
 | The timer values: replay timeout 711 symbol times (no L0s adjustment: `dll` makes no ASPM changes and `link` holds the `phy` out of L0s, [`link` power states](../link/HAS.md#power-states)), Ack limit 237 symbol times, InitFC resend at most every 34 µs, UpdateFC refresh at most every 30 µs ([timers](RETRY.md#timers)). | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
 | A Nak not resent while NAK_SCHEDULED is set (a lost Nak is recovered by the partner's replay timer), and a phy-flagged TLP treated as a bad TLP that schedules a Nak. | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
+| When a running replay "ends", for a replay requested during it: the RTL and the architecture model end it when its last TLP is taken for transmission (so the timer, stopped by the next replay, restarts at that TLP's last beat); the independent partner ends it when that TLP's last beat has gone (so its timer restarts with the next replay's first TLP). Both follow the [replay](RETRY.md#replay) and [timer](RETRY.md#timers) rules as written; the timer of one can expire one TLP's time before the other's in that case. | Captain; [#212](https://github.com/amichai-bd/pcie-factory/issues/212) |
 | The independent partner cuts its own packet when its link goes down, unlike the [decision](#decisions) to finish a started packet. In the `dll` testbench nothing sees it (the line drops a packet towards a side whose link is down), but a far end over a real `phy` would. Confirm the partner is changed, or that `link` never uses it so. | Firstmate; [#215](https://github.com/amichai-bd/pcie-factory/issues/215) |
 | The minimum advertised credits (`FC_PD` and `FC_CPLD` at least one maximum payload, `FC_NPD` at least 2, the headers at least 1). | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |

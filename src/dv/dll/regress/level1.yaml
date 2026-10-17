@@ -33,3 +33,31 @@ tests:
     top: pcie_dll_tb
     seeds: [0, 1]
     timeout_s: 300
+  - name: tlp_partner
+    module: tests.test_dll_tlp_tx
+    testcase: tlp_partner
+    top: pcie_dll_tb
+    seeds: [0, 1]
+    timeout_s: 300
+  - name: tlp_partner_errors
+    module: tests.test_dll_tlp_tx
+    testcase: tlp_partner_errors
+    top: pcie_dll_tb
+    seeds: [0, 1, 2]
+    timeout_s: 300
+  - name: tlp_rollover
+    module: tests.test_dll_tlp_tx
+    testcase: tlp_rollover
+    top: pcie_dll_tb
+    seeds: [0, 1]
+    timeout_s: 300
+  - name: mwr_max
+    module: tests.test_dll_tlp_tx
+    testcase: mwr_max
+    top: pcie_dll_tb
+    timeout_s: 300
+  - name: ack_spec_max
+    module: tests.test_dll_tlp_tx
+    testcase: ack_spec_max
+    top: pcie_dll_tb
+    timeout_s: 300

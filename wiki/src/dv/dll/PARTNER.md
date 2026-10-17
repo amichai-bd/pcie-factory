@@ -180,9 +180,14 @@ The `dll` testbench runs the partner, the architecture model and the RTL
 against each other for the features the RTL has (DLLPs, InitFC, the
 control states), as the [DV plan](DV_PLAN.md#cross-check-rtl-architecture-model-partner)
 describes ([#211](https://github.com/amichai-bd/pcie-factory/issues/211)).
-No disagreement was found there; the replay, Ack/Nak and credit features
-are cross-checked as #212 to #214 add them. Any disagreement goes to the
-HAS Open items, not into either model silently.
+Since [#212](https://github.com/amichai-bd/pcie-factory/issues/212) the
+partner is also the far end of the TLP transmit tests, with its fault
+hooks, and receives the architecture model's TLPs in the rollover
+scenario. One reading difference was found there, when a running replay
+ends, and is a [HAS open item](../../arch/dll/HAS.md#open-items); the
+Ack/Nak scheduling and credit features are cross-checked as #213 and #214
+add them. Any disagreement goes to the HAS Open items, not into either
+model silently.
 
 ## Possible disagreements
 

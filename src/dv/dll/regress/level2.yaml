@@ -12,3 +12,15 @@ tests:
     seeds: 4
     timeout_s: 600
     params: {FC_PH: 1, FC_PD: 8, FC_NPH: 1, FC_NPD: 2, FC_CPLH: 1, FC_CPLD: 8}
+  - name: tlp_partner_errors_sweep
+    module: tests.test_dll_tlp_tx
+    testcase: tlp_partner_errors
+    top: pcie_dll_tb
+    seeds: 8
+    timeout_s: 600
+  - name: seq_wrap
+    module: tests.test_dll_tlp_tx
+    testcase: seq_wrap
+    top: pcie_dll_tb
+    seeds: 2
+    timeout_s: 900

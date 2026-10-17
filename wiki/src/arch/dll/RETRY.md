@@ -66,6 +66,13 @@ as its framed packet (sequence number, TLP and LCRC, at most 150 bytes),
 oldest first. Capacity: 1024 bytes, fixed. A TLP is accepted only when it
 fits ([transmit](HAS.md#transmit)).
 
+**Space in use** is the framed size of every TLP held. One exception: when
+an Ack or Nak acknowledges the TLP that is on the `phy` stream at the time
+(a replay, or a far end acknowledging early), that TLP and every TLP after
+it keep counting, acknowledged or not, until its last beat is taken by
+`phy`. The buffer is filled in order, so the space behind a TLP still being
+read cannot be refilled before it is sent.
+
 **Sizing** (Q6, for the Gen1 x1 Ack latency): after a TLP's last beat
 leaves `dll`, its Ack can take 22 cycles through two `phy` stacks, 4 to be
 checked, up to 118 at the partner (the spec's limit, below), 4 for the Ack
@@ -110,6 +117,11 @@ Counts replays without forward progress
 - Each replay that starts (by Nak or timeout) first adds 1. From 3 it
   rolls over to 0: the `dll` pulses `retrain_req_o` and REPLAY_NUM
   rollover on `err_o` in that cycle, and the replay is held.
+- **Withdrawal.** A TLP offered to `phy` whose `sop` has not been taken
+  when the rollover happens is no longer offered: `pkt_tx_valid_o` falls
+  and the rollover replay resends it in its place. Otherwise it would
+  start ahead of the replay once the retrain is done, and the partner
+  would see a TLP ahead of the one it expects.
 - **Rollover hold.** From the rollover, no TLP (replayed or new) starts
   on the `phy` stream until `ltssm_state_i` has left L0 and then shown an
   L0 code again: the retrain has run. DLLPs are not held. If the LTSSM
