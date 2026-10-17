@@ -9,11 +9,14 @@ from pathlib import Path
 
 import yaml
 
+from .trends import KEYS as TREND_KEYS
+
 CONFIG = "metrics.yaml"
 _KEYS = {
     "data_dir", "branch_prefix", "exclude", "kinds", "line_comments", "block_c",
     "windows", "review_marker", "ci_workflow", "slowest", "fpga_fields", "asic_fields",
     "src_root", "data_author", "nightly_workflow", "stale_days", "health_ci_runs", "max_pr_details",
+    "drop_alerts",
 }
 _KIND_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _FIELD_RE = re.compile(r"^(\*|[A-Za-z0-9_]+)(\.(\*|[A-Za-z0-9_]+))*$")
@@ -43,6 +46,7 @@ class Config:
     slowest: int
     fpga_fields: tuple[str, ...]
     asic_fields: tuple[str, ...]
+    drop_alerts: dict[str, float]
 
 
 @lru_cache(maxsize=None)
@@ -131,6 +135,17 @@ def load(cfg_dir: Path) -> Config:
         bad = [f for f in fields[key] if not _FIELD_RE.match(f)]
         if bad:
             raise MetricsError(f"{where}: {key}: bad field path {bad[0]!r}")
+    alerts = raw["drop_alerts"]
+    if not isinstance(alerts, dict):
+        raise MetricsError(f"{where}: drop_alerts: must be a mapping of series to threshold")
+    missing, unknown = set(TREND_KEYS) - set(alerts), set(alerts) - set(TREND_KEYS)
+    if missing or unknown:
+        raise MetricsError(f"{where}: drop_alerts: needs exactly the series "
+                           f"{', '.join(TREND_KEYS)} (missing: {', '.join(sorted(missing)) or 'none'}; "
+                           f"unknown: {', '.join(sorted(map(str, unknown))) or 'none'})")
+    for key, v in alerts.items():
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v < float("inf"):
+            raise MetricsError(f"{where}: drop_alerts.{key}: must be a non-negative number")
     return Config(
         data_dir=_rel(f"{where}: data_dir", raw["data_dir"]).rstrip("/"),
         branch_prefix=raw["branch_prefix"],
@@ -151,4 +166,5 @@ def load(cfg_dir: Path) -> Config:
         slowest=raw["slowest"],
         fpga_fields=fields["fpga_fields"],
         asic_fields=fields["asic_fields"],
+        drop_alerts={k: alerts[k] for k in TREND_KEYS},
     )

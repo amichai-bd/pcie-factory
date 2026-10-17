@@ -3,7 +3,7 @@
 #
 # Three jobs, each with only the token permissions it needs:
 #   nightly  read-only: checks, unit suites (arch perf included), L0+L1+L2 with coverage,
-#            FPGA and ASIC flows, metrics files
+#            FPGA and ASIC flows, metrics files, trend drop alerts in the job summary
 #   publish  contents/pull-requests/actions write: commits ONLY the data files
 #            on nightly/<date>, opens the type:data PR, dispatches ci-gate on it
 #   report   issues write: opens/updates/closes the single nightly-red issue
@@ -147,6 +147,14 @@ jobs:
             --step "regress=${{ steps.regress.outputs.result || 'fail' }}" \
             --step "fpga=${{ steps.fpga.outputs.result || 'fail' }}" \
             --step "asic=${{ steps.asic.outputs.result || 'fail' }}"
+
+      # Per-IP drop alerts of tonight's record against the committed history
+      # (wiki/tools/metrics/SPEC.md#trends), in the job summary.
+      - name: Trend drop alerts
+        if: ${{ !cancelled() && steps.collect.outcome == 'success' }}
+        run: |
+          set -o pipefail
+          ./build metrics trends --dir wiki/tracker/data --dir workdir/nightly-data | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload data files
         if: ${{ !cancelled() && steps.collect.outcome == 'success' }}

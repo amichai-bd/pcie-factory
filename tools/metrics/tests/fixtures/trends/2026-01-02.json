@@ -1,0 +1,91 @@
+{
+ "asic": {
+  "ips": {
+   "alpha": {
+    "status": "ok",
+    "timing": {
+     "tns_ns": 0.0,
+     "wns_ns": 0.5
+    }
+   }
+  },
+  "status": "ok"
+ },
+ "coverage": {
+  "ips": {
+   "alpha": {
+    "floors": {},
+    "floors_passed": true,
+    "functional": {
+     "covered": 0,
+     "pct": 100.0,
+     "total": 0
+    },
+    "line": {
+     "covered": 0,
+     "pct": 90.0,
+     "total": 0
+    },
+    "toggle": {
+     "covered": 0,
+     "pct": 80.0,
+     "total": 0
+    }
+   },
+   "beta": {
+    "floors": {},
+    "floors_passed": true,
+    "functional": {
+     "covered": 0,
+     "pct": 50.0,
+     "total": 0
+    },
+    "line": {
+     "covered": 0,
+     "pct": 70.0,
+     "total": 0
+    },
+    "toggle": {
+     "covered": 0,
+     "pct": 60.0,
+     "total": 0
+    }
+   }
+  },
+  "passed": true,
+  "status": "ok"
+ },
+ "fpga": {
+  "ips": {
+   "alpha": {
+    "status": "ok",
+    "timing": {
+     "clocks": {
+      "clk_a": {
+       "fmax_mhz": 100.0
+      },
+      "clk_b": {
+       "fmax_mhz": 150.0
+      }
+     },
+     "met": true,
+     "worst_setup_slack_ns": 1.0
+    }
+   }
+  },
+  "status": "ok"
+ },
+ "meta": {
+  "commit": "0000000000000000000000000000000000000002",
+  "date": "2026-01-02"
+ },
+ "mutants": {
+  "ips": {
+   "alpha": {
+    "score_pct": 90.0
+   }
+  },
+  "status": "ok"
+ },
+ "schema_version": 1
+}
