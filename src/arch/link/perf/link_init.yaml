@@ -1,0 +1,10 @@
+# Data link initialisation over the line: both ends in DL_Active within 200
+# cycles of the later link-up (wiki/src/arch/link/HAS.md#targets).
+description: 200 initialisations with up to 300 cycles of link-up skew, default credits.
+seed: 5
+workload:
+  kind: init
+  trials: 200
+  skew: 300
+targets:
+  dl_active_cycles_max: {max: 200}

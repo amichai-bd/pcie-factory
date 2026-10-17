@@ -243,9 +243,8 @@ errors [cite: PCIe Base Spec, rev 3.0, §3.5.2.1]
 [cite: PCIe Base Spec, rev 3.0, §3.5.3.1]; the upper layer owns logging
 and severity. A TLP that `phy` flags with `pkt_rx_err_i` has already
 pulsed `rcv_err_o` at the `phy`, and pulses Bad TLP here too: one event,
-two reports. Link-level error counting (`link`,
-[#209](https://github.com/amichai-bd/pcie-factory/issues/209)) must not
-add the two together.
+two reports. The `link` keeps the two as separate ports and counts
+neither ([`link` errors](../link/HAS.md#errors)).
 
 | Bit | Name | Event |
 | --- | --- | --- |
@@ -339,7 +338,6 @@ corrects the rule and the model together.
 | Every section number cited on this page and its sub-pages, checked against rev 3.0. | Captain, with a local copy; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) cross-checks |
 | The bit and byte mapping of the CRC-16 and LCRC onto the line ([DLLP page](DLLP.md#crc-16), [retry page](RETRY.md#lcrc)): this design takes the standard CRC-32 convention for both. #210's partner, written from the [DLLP page](DLLP.md#crc-16) alone, gets the same CRC-16 bytes (`B3 94` and `7D 70` on its vectors). That shows the page is self-consistent, not that it matches the spec; the captain closes this item against the spec. | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
 | DL_Up reported from FC_INIT2, TLP transmission only from DL_Active, and the "group being sent is complete" rule for leaving FC_INIT1 and FC_INIT2. | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
-| The timer values: replay timeout 711 symbol times (no L0s adjustment, since `dll` makes no ASPM changes), Ack limit 237 symbol times, InitFC resend at most every 34 µs, UpdateFC refresh at most every 30 µs ([timers](RETRY.md#timers)). | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
+| The timer values: replay timeout 711 symbol times (no L0s adjustment: `dll` makes no ASPM changes and `link` holds the `phy` out of L0s, [`link` power states](../link/HAS.md#power-states)), Ack limit 237 symbol times, InitFC resend at most every 34 µs, UpdateFC refresh at most every 30 µs ([timers](RETRY.md#timers)). | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
 | A Nak not resent while NAK_SCHEDULED is set (a lost Nak is recovered by the partner's replay timer), and a phy-flagged TLP treated as a bad TLP that schedules a Nak. | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
-| L0s: the replay timeout has no L0s adjustment, so `link` must not enable L0s through the `phy` `pm_state_req_i` unless the timeout gains it. | [#209](https://github.com/amichai-bd/pcie-factory/issues/209) |
 | The minimum advertised credits (`FC_PD` and `FC_CPLD` at least one maximum payload, the others at least 1). | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
