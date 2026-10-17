@@ -95,12 +95,17 @@ parameter checks are the portable file's plus `g_lane_w_check`.
 target's fit does (`resources.rams` in its `metrics.json`). Expected per
 instance: `Simple Dual Port`, `Single Clock`, mixed-port RDW `Old data`,
 and the M9K count below (an M9K holds 256 words of up to 36 bits, or 512
-of up to 18, in this mode). Measured:
+of up to 18, in this mode). Measured on the first `link` fit
+([#276](https://github.com/amichai-bd/pcie-factory/pull/276) `ci-fpga`, run
+39074066731 at the temporary head `080031d` with this backend merged in, Quartus
+Prime Lite 25.1std, EP4CE115F29C7, with this backend's one-lane form; map,
+fit and timing passed). The fit's fourth M9K is not this block: Quartus
+infers the 64 x 8 `end_q` array of the dll TX path as a RAM.
 
 | Consumer (target) | Geometry | Expected M9K | Measured |
 | --- | --- | --- | --- |
-| dll receive buffer (`link`, DE2-115) | 512 x 34 | 2 (two x18 at 512 words) | Pending the first `link` fit ([#276](https://github.com/amichai-bd/pcie-factory/pull/276)). |
-| dll replay buffer (`link`, DE2-115) | 256 x 32 | 1 (x32 at 256 words) | Pending the first `link` fit ([#276](https://github.com/amichai-bd/pcie-factory/pull/276)). |
+| dll receive buffer (`link`, DE2-115) | 512 x 34 | 2 (two x18 at 512 words) | 2 M9K: Simple Dual Port, Single Clock, 512 x 34, 17408 bits, mixed RDW Old data (`altsyncram:g_one_lane.u_ram`). |
+| dll replay buffer (`link`, DE2-115) | 256 x 32 | 1 (x32 at 256 words) | 1 M9K: Simple Dual Port, Single Clock, 256 x 32, 8192 bits, mixed RDW Old data (`altsyncram:g_one_lane.u_ram`). |
 
 ## Decisions
 

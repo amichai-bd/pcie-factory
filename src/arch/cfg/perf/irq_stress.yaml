@@ -1,0 +1,13 @@
+# Interrupts under random masks, enables, D-state changes and error events,
+# then a drain with everything allowed: no request lost, no write while
+# blocked, no message outside D0 (wiki/src/arch/cfg/HAS.md#targets).
+description: 5000 random operations over 8 MSI-X vectors and MSI, with error events and offers left waiting.
+seed: 2
+workload:
+  kind: stress
+  ops: 5000
+  vectors: 8
+targets:
+  interrupts_lost: {max: 0}
+  writes_while_blocked: {max: 0}
+  messages_outside_d0: {max: 0}
