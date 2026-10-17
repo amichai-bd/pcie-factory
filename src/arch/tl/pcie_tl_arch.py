@@ -250,6 +250,7 @@ class Cfg:
         self.bus = self.dev = 0
         self.mem_en = self.bm_en = False
         self.d_state = D0
+        self.cpl_timeout_dis = False                 # Device Control 2 Completion Timeout Disable
         self.bar0 = self.bar2 = 0
         self.regs: dict[tuple[int, int], int] = {}
         self.accesses: list[tuple] = []
@@ -364,8 +365,14 @@ class Tracker:
         """A read times out between these many cycles after it was sent."""
         return CPL_TIMEOUT_STEPS * self.period, (CPL_TIMEOUT_STEPS + 1) * self.period
 
-    def tick(self, now: int) -> list[int]:
-        """Tags that time out this cycle."""
+    def tick(self, now: int, disabled: bool = False) -> list[int]:
+        """Tags that time out this cycle. While ``disabled`` (cpl_timeout_dis)
+        every count is held at 0, so a read gets a full timeout once it
+        clears."""
+        if disabled:
+            for r in self.reads.values():
+                r.pulses = 0
+            return []
         if now % self.period:
             return []
         out = []
@@ -536,7 +543,7 @@ class Tl:
     def step(self, now: int, app, tx) -> None:
         """One clk_i cycle: timers, then each stream moves at most one beat,
         then at most one TLP is offered to the dll."""
-        for tag in self.track.tick(now):
+        for tag in self.track.tick(now, self.cfg.cpl_timeout_dis):
             self.counts["timeout_cycles"].append(now - self.track.reads.pop(tag).sent)
             self.err(E_TIMEOUT)
             self.rcq.append([self.p_rx, {"tag": tag, "status": RC_FAILED, "data": b"\0" * 4,

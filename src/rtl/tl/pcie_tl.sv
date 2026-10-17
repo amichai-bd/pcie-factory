@@ -70,6 +70,7 @@ module pcie_tl #(
   input  logic [1:0]             d_state_i,         // 0 D0, 3 D3hot // cdc-domain: clk_i
   input  logic [31:0]            bar0_base_i,       // cdc-domain: clk_i
   input  logic [31:0]            bar2_base_i,       // cdc-domain: clk_i
+  input  logic                   cpl_timeout_dis_i, // 1: the completion timeout never fires // cdc-domain: clk_i
 
   // cfg: error events and messages
   output logic [8:0]             tl_err_o,          // one-cycle pulses, bit order in the TL_CFG page
@@ -134,7 +135,7 @@ module pcie_tl #(
                            fc_cplh_avail_i, fc_cpld_avail_i, dl_up_i,
                            reg_req_ready_i, reg_cpl_valid_i, reg_cpl_data_i,
                            bus_num_i, dev_num_i, mem_space_en_i, bus_master_en_i, d_state_i,
-                           bar0_base_i, bar2_base_i,
+                           bar0_base_i, bar2_base_i, cpl_timeout_dis_i,
                            msg_valid_i, msg_kind_i, msg_addr_i, msg_data_i,
                            cq_ready_i,
                            cc_valid_i, cc_sop_i, cc_eop_i, cc_data_i, cc_handle_i,

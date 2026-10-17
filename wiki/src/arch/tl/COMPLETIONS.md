@@ -170,13 +170,22 @@ at the 17th pulse after it was sent, so between 16P and 17P cycles:
 | 1 (FPGA, ASIC) | 2097152 to 2228224 cycles | 16.8 to 17.8 ms |
 | 1024 (DV) | 2048 to 2176 cycles | 16.4 to 17.4 µs |
 
-With the divider at 1 this is inside the range a function with no
-programmable timeout must use (50 µs to 50 ms) and above the 10 ms below
-which the spec recommends a timeout never expire
-[cite: PCIe Base Spec, rev 3.0, §2.8].
+With no programmable ranges, the fixed timeout must lie between 50 µs and
+50 ms; with the divider at 1 it does (16.8 to 17.8 ms), and it is also
+above the 10 ms below which the spec recommends a timeout never expire
+[cite: PCIe Base Spec, rev 3.0, §2.8]. With `CPL_TIMEOUT_DIV` above 1
+(simulation only) the bound does not apply.
+
+**Disable.** While `cpl_timeout_dis_i` (Device Control 2 Completion
+Timeout Disable, from `cfg`) is 1, no read times out: every outstanding
+read's pulse count is held at 0, so it waits for its completions
+indefinitely and `tl_np_pending_o` stays 1 while it does. When the input
+falls, each read still outstanding gets a full timeout from then
+[cite: PCIe Base Spec, rev 3.0, §7.8.16].
+
 On a timeout the read ends with one `rc` beat, `rc_status_o` 3 and
 `rc_done_o` 1 (data already delivered for it is void), bit 6 pulses once,
 and the tag is free; a completion for it that arrives later is
-unexpected. The timeout is fixed: `cfg` advertises no programmable range
-and no timeout disable
+unexpected. The timeout value is fixed: `cfg` advertises no programmable
+range and supports the disable
 ([#285](https://github.com/amichai-bd/pcie-factory/issues/285)).

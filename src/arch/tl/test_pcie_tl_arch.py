@@ -407,6 +407,20 @@ def test_timeout_reported_once_and_late_completion_unexpected():
     assert tl.errors[m.E_TIMEOUT] == 1 and tl.errors[m.E_UNEXPECTED] == 1
 
 
+def test_disabled_timeout_never_fires():
+    tl, app, wire = make_tl(cpl_timeout_div=1024)
+    tl.cfg.cpl_timeout_dis = True
+    rq_read(app, 4)
+    now = run(tl, app, wire, 20000)
+    assert not app.rc_got and tl.errors[m.E_TIMEOUT] == 0 and tl.np_pending
+    tl.cfg.cpl_timeout_dis = False              # a full timeout from the clear
+    lo, hi = tl.track.timeout_bounds()
+    run(tl, app, wire, lo - 64, now)
+    assert not app.rc_got
+    run(tl, app, wire, hi - lo + 128, now + lo - 64)
+    assert [p["status"] for p in app.rc_got] == [m.RC_FAILED] and not tl.np_pending
+
+
 def test_rc_completion_waits_for_earlier_posted_writes():
     tl, app, wire = make_tl()
     rq_read(app, 0, n=1)

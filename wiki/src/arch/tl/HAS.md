@@ -54,14 +54,14 @@ All ports are synchronous to `clk_i`. Port names follow the
 | Data link status | `dl_up_i` | The `link` `dl_up_o`; 0 holds `tl` in [reset](#reset). |
 | Credit release | `fc_rel_p_o`, `fc_rel_pd_o` (4), `fc_rel_np_o`, `fc_rel_npd_o` (4) | [Below](#credit-release); the `link` input arrives with [#303](https://github.com/amichai-bd/pcie-factory/issues/303). |
 | Register access | `reg_req_valid_o`, `reg_req_ready_i`, `reg_req_bar2_o`, `reg_req_write_o`, `reg_req_addr_o` (10), `reg_req_be_o` (4), `reg_req_data_o` (32), `reg_req_bus_o` (8), `reg_req_dev_o` (5), `reg_cpl_valid_i`, `reg_cpl_data_i` (32) | [tl-cfg register access](../core/TL_CFG.md#register-access). |
-| Register state | `bus_num_i` (8), `dev_num_i` (5), `mem_space_en_i`, `bus_master_en_i`, `d_state_i` (2), `bar0_base_i` (32), `bar2_base_i` (32) | [tl-cfg register state](../core/TL_CFG.md#register-state). |
+| Register state | `bus_num_i` (8), `dev_num_i` (5), `mem_space_en_i`, `bus_master_en_i`, `d_state_i` (2), `bar0_base_i` (32), `bar2_base_i` (32), `cpl_timeout_dis_i` | [tl-cfg register state](../core/TL_CFG.md#register-state); `cpl_timeout_dis_i` (Completion Timeout Disable): [completion timeout](COMPLETIONS.md#completion-timeout). |
 | Error events, pending | `tl_err_o` (9), `tl_np_pending_o` | [tl-cfg error events](../core/TL_CFG.md#error-events); [which checks raise each bit](#errors). `tl_np_pending_o`: [non-posted pending](COMPLETIONS.md#non-posted-pending). |
 | Messages | `msg_valid_i`, `msg_ready_o`, `msg_kind_i` (2), `msg_addr_i` (64), `msg_data_i` (32) | [tl-cfg messages](../core/TL_CFG.md#messages), formats on the [TLP page](TLP.md); [taking a message](ORDERING.md#messages-from-cfg). |
 | Application streams | `cq_*`, `cc_*`, `rq_*`, `rc_*` | The `core` ports of the same names, width and direction ([application interface](../core/APP.md)); `cq_addr_o` is `BAR0_ADDR_W` bits. |
 
 Each tl-cfg net `<x>` is `<x>_o` or `<x>_i` here as the
 [tl-cfg page](../core/TL_CFG.md#signals) gives its direction.
-`tl_np_pending` and the message-offer withdrawal below are being added to
+`tl_np_pending`, `cpl_timeout_dis` and the message-offer withdrawal below are being added to
 that page by the `cfg` HAS
 ([#305](https://github.com/amichai-bd/pcie-factory/pull/305)).
 

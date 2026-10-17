@@ -30,7 +30,7 @@ INPUTS = {
     "fc_cplh_avail_i": 8, "fc_cpld_avail_i": 12, "dl_up_i": 1,
     "reg_req_ready_i": 1, "reg_cpl_valid_i": 1, "reg_cpl_data_i": 32,
     "bus_num_i": 8, "dev_num_i": 5, "mem_space_en_i": 1, "bus_master_en_i": 1,
-    "d_state_i": 2, "bar0_base_i": 32, "bar2_base_i": 32,
+    "d_state_i": 2, "bar0_base_i": 32, "bar2_base_i": 32, "cpl_timeout_dis_i": 1,
     "msg_valid_i": 1, "msg_kind_i": 2, "msg_addr_i": 64, "msg_data_i": 32,
     "cq_ready_i": 1,
     "cc_valid_i": 1, "cc_sop_i": 1, "cc_eop_i": 1, "cc_data_i": 32, "cc_handle_i": 3,
