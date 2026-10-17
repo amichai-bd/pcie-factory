@@ -137,7 +137,11 @@ Counts replays without forward progress
 
 A replay resends, oldest first, every TLP in the replay buffer that had
 been sent when it started, with its original sequence number and LCRC
-[cite: PCIe Base Spec, rev 3.0, §3.5.2.1]. TLPs that an Ack removes before
+[cite: PCIe Base Spec, rev 3.0, §3.5.2.1]. Sent means handed to `phy`
+(behind NEXT_TRANSMIT_SEQ), so a TLP still going out when the replay
+starts is resent too, after the older ones: the far end discards it as
+ahead of the TLP its Nak named, and leaving it out would cost a second
+Nak. TLPs that an Ack removes before
 their turn are skipped. New TLPs follow after the replay. A replay
 requested while one is running (a Nak or a timeout) is held and starts
 when the running one ends, as one replay however many were requested. A

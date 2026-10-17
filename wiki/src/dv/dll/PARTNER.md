@@ -170,7 +170,7 @@ run with `python3 -m pytest src/dv/dll/models`, and in `ci-gate` through
 | --- | --- |
 | Formats | DLLP fields placed bit by bit from the field tables; TLP classes and credits. |
 | Wrap | Sequence numbers preloaded near 4095 crossing to 0 with expected TLPs, Ack, a duplicate, a Nak and a replay, and a range error behind ACKD_SEQ (`test_sequence_wrap`). A loopback of 520 maximum-payload MWr wraps the 8-bit header and 12-bit data counters on both sides (`test_credit_counters_wrap_loopback`). |
-| One partner, hand-driven | Initialisation and InitFC resend; entry UpdateFC, infinite classes included; receive rules: expected, ahead, NAK_SCHEDULED, duplicate, nullified, flagged, too short, LCRC, malformed lengths and payloads; Ack timing (32 cycles); DLLP checks; UpdateFC checks; Ack, Nak and replay; replay timeout at 356 cycles; rollover hold through a retrain and its 1024-cycle fallback; replay timer held outside L0; overflow; the credit gate; a received TLP prefix; the flag and nullify hooks; link-down reset. |
+| One partner, hand-driven | Initialisation and InitFC resend; entry UpdateFC, infinite classes included; receive rules: expected, ahead, NAK_SCHEDULED, duplicate, nullified, flagged, too short, LCRC, malformed lengths and payloads; Ack timing (32 cycles); DLLP checks; UpdateFC checks; Ack, Nak and replay, a TLP going out at a Nak included; replay timeout at 356 cycles; rollover hold through a retrain and its 1024-cycle fallback; replay timer held outside L0; overflow; the credit gate; a received TLP prefix; the flag and nullify hooks; link-down reset. |
 | Two partners back to back | Initialisation at three skews. Clean bidirectional traffic. Lossless, exactly once and in order, with every injection hook on, three seeds, finite and default credits, upper-layer stalls with finite credits. Delayed Acks and forced Naks. Withheld credits. Rollover and recovery. A sender that ignores credits is caught. Same seed, same run. |
 | Independence | No imports or paths outside the partner and the standard library. |
 
@@ -213,6 +213,12 @@ HAS now finishes a packet whose `sop` the `phy` took before the link went
 down ([decisions](../../arch/dll/HAS.md#decisions)), while the partner
 drops its packet on link-down. It is a [HAS open item](../../arch/dll/HAS.md#open-items);
 the partner is unchanged.
+
+Found by the `dll` cross-check and corrected in the partner
+([#212](https://github.com/amichai-bd/pcie-factory/issues/212)): a replay
+left out a TLP still going out when the replay started; it now resends
+every TLP handed to the line, as the [retry page](../../arch/dll/RETRY.md#replay)
+says (`test_nak_during_a_tlp_replays_it_too`).
 
 Found independently and already resolved in #259 (by `feb7ccb`):
 

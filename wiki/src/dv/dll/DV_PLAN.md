@@ -208,7 +208,7 @@ whatever the limit holds.
 ## Coverage holes
 
 No floors yet (the plan has gaps). Merged over levels 0 to 2: line 98.1%
-(257 of 262), toggle 66.9%, functional 100% (120 bins). Every line point
+(257 of 262), toggle 66.9%, functional 100% (121 bins). Every line point
 of the TLP transmit block is hit; every line point but these is hit:
 
 | Cause | Points |

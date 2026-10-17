@@ -310,6 +310,23 @@ def test_ack_nak_and_replay():
     assert b.p.violations == []
 
 
+def test_nak_during_a_tlp_replays_it_too():
+    # A Nak that arrives while a new TLP is still going out: that TLP was
+    # handed to the line, so the replay resends it after the older ones.
+    b = Bench(credits=FINITE)
+    b.init()
+    t = [m.make_tlp("MWr", 32, i) for i in range(3)]
+    for x in t:
+        b.p.send(x)
+    b.run(90)                                   # 0 sent, 1 going out
+    assert b.p.cur is not None and b.p.cur.seq == 1 and b.p.cur.kind == "tlp"
+    b.p._rx_acknak(True, 0)                     # Nak 0, as decoded now
+    b.run(400)
+    seqs = [(d[0] & 0x0F) << 8 | d[1] for d in b.tlps()]
+    assert seqs == [0, 1, 1, 2], seqs
+    assert b.p.violations == []
+
+
 def test_replay_timer_and_rollover():
     b = Bench(credits=FINITE)
     b.init()
