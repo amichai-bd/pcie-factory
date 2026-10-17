@@ -27,7 +27,7 @@ module pcie_dll_tlp_tx (
   input  logic                      take_i,         // the arbiter starts the offered TLP at this edge
   input  logic                      beat_i,         // the phy takes a TLP beat at this edge
   input  logic                      abort_i,        // the TLP offered is withdrawn before its sop was taken
-  output logic                      hold_o,         // rollover hold: no TLP starts
+  output logic                      hold_o,         // rollover hold, or a rollover now: no TLP starts
   // Errors (err_o bits 4:2 of the HAS) and the retrain request
   output logic [2:0]                err_o,          // {DL protocol error, rollover, replay timeout}
   output logic                      retrain_req_o
@@ -166,6 +166,8 @@ module pcie_dll_tlp_tx (
   logic [7:0]  cand_addr;
   logic [7:0]  cand_end;
   logic        tlp_eop_beat; // the phy takes a TLP's last beat at this edge
+  logic        timer_at_end; // the replay timer reaches 356 at this edge
+  logic        roll_now;     // a rollover at this edge, whatever the arbiter takes
 
   assign have      = st_q.rp_active || st_q.nts != st_q.seq_done;
   assign cand_seq  = st_q.rp_active ? st_q.rp_seq : st_q.nts;
@@ -173,7 +175,17 @@ module pcie_dll_tlp_tx (
   assign cand_end  = end_q[cand_seq[pcie_dll_pkg::RBUF_SLOT_W-1:0]];
 
   assign src_o.valid = active && have && !st_q.hold;
-  assign hold_o      = st_q.hold;
+  // A rollover in this cycle that no take can cause: a Nak or the timer
+  // starting a replay with REPLAY_NUM at 3, no forward progress, no replay
+  // running and sent TLPs unacknowledged. (A take that ends a replay and
+  // starts a pending one happens only with the stream free, so no sop is
+  // waiting then.) The arbiter then stops offering a waiting TLP sop at
+  // this very edge, so none starts ahead of the rollover replay.
+  assign timer_at_end = st_q.rt_run && in_l0 && st_q.rt == pcie_dll_pkg::REPLAY_TIMEOUT - 9'd1;
+  assign roll_now     = (nak || timer_at_end || st_q.rp_pending) && !progress
+                     && !st_q.rp_active && st_q.replay_num == 2'd3
+                     && st_q.nts != st_q.ackd + 12'd1;
+  assign hold_o       = st_q.hold || roll_now;
   assign src_o.data  = sm_q.sop ? {sm_q.seq[7:0], 4'h0, sm_q.seq[11:8]}
                      : (sm_q.half ? rd_data[31:16] : rd_data[15:0]);
   assign src_o.eop   = !sm_q.sop && sm_q.half && sm_q.words == 6'd1;
@@ -369,6 +381,7 @@ module pcie_dll_tlp_tx (
   // At most 56 TLPs fit the 1024-byte buffer, so the 2047-TLP limit of the
   // transmit rule (HAS, transmit) and the 64 end-address slots both hold.
   `COMMON_ASSERT_NEVER(a_held_limit, clk_i, rst_i, held > 12'd56)
+  `COMMON_ASSERT_NEVER(a_roll_now, clk_i, rst_i, roll_now && !flush_i && !rollover)
   `COMMON_ASSERT_NEVER(a_one_beat_tlp, clk_i, rst_i, sop_take && tlp_i.eop)
   `COMMON_ASSERT_NEVER(a_take_without_tlp, clk_i, rst_i, take_i && !src_o.valid)
   `COMMON_ASSERT_NEVER(a_beat_without_tlp, clk_i, rst_i, beat_i && !sm_q.active)

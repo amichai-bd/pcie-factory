@@ -189,9 +189,12 @@ beats, its `eop` and the TLP tag come from the source (`t_tlp_src`), and
 accepted `eop`, so a request is never dropped while the `phy` holds ready
 low between packets, and a packet once started is finished. Two things
 withdraw a packet whose `sop` the `phy` has not taken: `flush_i`, and,
-for a TLP, the rollover hold (`tlp_hold_i`), under which its `sop` is no
-longer offered (valid falls) and the source drops it (`tlp_abort_o`);
-the rollover replay resends it ([REPLAY_NUM](../../arch/dll/RETRY.md#replay_num)).
+for a TLP, `tlp_hold_i` (the rollover hold, or a rollover in this cycle),
+under which its `sop` is no longer offered (valid falls) and the source
+drops it (`tlp_abort_o`); the rollover replay resends it
+([REPLAY_NUM](../../arch/dll/RETRY.md#replay_num)). Valid falls already
+in the cycle whose ending edge rolls REPLAY_NUM over, so the `phy` cannot
+take that `sop` at the rollover edge, as at a link-down edge.
 Once the `sop` is taken (`started`: at an earlier edge, or at this one,
 including the edge that samples `link_up_i` 0), the remaining beats, at
 most 2 of a DLLP or 74 of a TLP, go out up to `eop` with valid held, link
@@ -270,7 +273,12 @@ A replay starts only with sent TLPs unacknowledged: `rp_seq` from
 ACKD_SEQ + 1 at `base`, `rp_end` the NEXT_TRANSMIT_SEQ after this edge's
 take, the timer stopped, REPLAY_NUM (after this edge's Ack or Nak) plus 1,
 or, from 3, the rollover: 0, `err_o` bit 3 and `retrain_req_o` in the same
-cycle, and the hold.
+cycle, and the hold. `hold_o` is the hold or `roll_now`: a rollover in this
+cycle from a Nak, the timer or a pending request, computed from the
+registers and the received DLLP alone, so the arbiter's take never feeds
+it back (a take that ends a replay and starts a pending one needs a free
+stream, so no `sop` waits then); `a_roll_now` checks it implies the
+rollover.
 
 **Timer and hold.** `rt` counts in L0 (`ltssm_state_i` bits 5:4 `10`) while
 running; at the edge where it would reach 356 it stops, pulses `err_o`
@@ -390,7 +398,7 @@ overflowed one (no Ack or Nak), never stored with a hole.
 | The refresh count starts when the arbiter takes the class's UpdateFC | One count per class, cleared by its own take; the interval is 2048 cycles plus at most a packet's wait. | Counting from the `phy`'s acceptance. |
 | Group timer and refresh counts saturate | No wrap can send an early group or UpdateFC. | Free-running counters. |
 | Replay buffer of whole TLP and LCRC words, sequence number from a register | 32-bit words take a 32-bit upper beat per cycle and give two `phy` beats per read; every TLP stays word aligned, so 1024 bytes of words hold the HAS's 1024 framed bytes. | Storing the framed packet (2 bytes off a word, a carry register and a wasted half word per TLP); 16-bit words (two writes per upper beat). |
-| End-address table in flops, indexed by sequence number | One lookup frees any number of TLPs on an Ack and gives a TLP's length at its take; 64 entries of 8 bits. | Per-TLP lengths summed over an Ack (one per cycle); a RAM (a read cycle on the Ack and take paths). |
+| End-address table in flops, indexed by sequence number | One lookup frees any number of TLPs on an Ack and gives a TLP's length at its take; 64 entries of 8 bits. A deliberate exception to the RTL BKM's rule against memories built from the register-array forms: `COMMON_DFF_ARRAY_EN` with a whole-array next state, because its two combinational reads (an Ack's new base and a take's length) in the cycle they are needed would need a RAM per read port and a read cycle on both paths. | Per-TLP lengths summed over an Ack (one per cycle); a RAM (a read cycle on the Ack and take paths). |
 | One-cycle gap after an upper `eop` (the LCRC word) | The RAM has one write port; the upper stream at 4 bytes a cycle is far faster than the line. | A second write port or LCRC side storage. |
 | Space of an acknowledged TLP on the stream returns at its `eop` | Its words are still being read; the HAS states the rule. | A larger RAM (the same 1024 bytes of room plus a maximum TLP). |
 | A rollover withdraws an offered TLP whose `sop` the `phy` has not taken | Otherwise it starts ahead of the rollover replay after the retrain and the partner sees a TLP ahead (Bad TLP, Nak), as the rollover target forbids. | Letting it go out (an extra Nak and replay on every rollover). |

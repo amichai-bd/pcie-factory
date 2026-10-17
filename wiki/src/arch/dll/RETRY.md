@@ -119,7 +119,9 @@ Counts replays without forward progress
   rollover on `err_o` in that cycle, and the replay is held.
 - **Withdrawal.** A TLP offered to `phy` whose `sop` has not been taken
   when the rollover happens is no longer offered: `pkt_tx_valid_o` falls
-  and the rollover replay resends it in its place. Otherwise it would
+  from the cycle whose ending edge rolls REPLAY_NUM over (so the `phy`
+  cannot take that `sop` at the rollover edge itself), and the rollover
+  replay resends it in its place. Otherwise it would
   start ahead of the replay once the retrain is done, and the partner
   would see a TLP ahead of the one it expects.
 - **Rollover hold.** From the rollover, no TLP (replayed or new) starts

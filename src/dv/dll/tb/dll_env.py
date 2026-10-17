@@ -424,6 +424,7 @@ class Env:
         self.recovery_left = 0
         self.l0 = True                         # ltssm_state_i is L0 (with dut_link)
         self.hold_tx_in_recovery = True        # the stand-in takes no new packet outside L0
+        self.ready_at: dict[int, int] = {}     # cycle -> ready between packets, set by a test
         self.retrains: list[int] = []
         self.drop_tx_tlps = False              # DUT TLPs that start now are lost
         self.tx_drop = False                   # the DUT packet on the line is lost
@@ -541,6 +542,8 @@ class Env:
             ready = 1
         elif self.framing or (not self.l0 and self.hold_tx_in_recovery):
             ready = 0
+        elif n in self.ready_at:
+            ready = self.ready_at[n]           # a test sets ready in this cycle
         else:
             ready = int(self.rng.random() < self.ready_p)
         self.framing = False

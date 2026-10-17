@@ -76,3 +76,27 @@ which satisfies Q9.
 - **2026-10-17:** Q10 (the M2 ASIC gate is the 100 MHz checkpoint, with
   125 MHz reported nightly) added and goal item 8 changed to match, both
   copied verbatim from the epic body above.
+- **2026-10-17, dll transmit path ([#212](https://github.com/amichai-bd/pcie-factory/issues/212)):**
+  firstmate decisions as the captain's delegate, which the captain may
+  override ([epic #203 comment](https://github.com/amichai-bd/pcie-factory/issues/203#issuecomment-6233941574)):
+  1. A TLP still going out when a replay starts is replayed too: a TLP is
+     sent once the arbiter hands it to the `phy` (it is behind
+     NEXT_TRANSMIT_SEQ and in the replay buffer). This closes the `dll` HAS
+     open item raised by #213 in favour of the architecture model's
+     reading; the independent partner is corrected to match (its
+     `_start_replay`, with `test_nak_during_a_tlp_replays_it_too`), still
+     with standard-library imports only.
+  2. Amendments to the `dll` HAS and retry page, accepted with the `dll`
+     HAS: (a) an acknowledged TLP still on the stream and every TLP after
+     it keep their replay-buffer space until its `eop` (a refinement of
+     the Q6 accounting); (b) at a REPLAY_NUM rollover a TLP taken but not
+     started is withdrawn and resent by the replay (from the hold rule);
+     (c) `tlp_tx_ready_o` is 0 on a `sop` in the cycle after an accepted
+     `eop` (upper stream, Q5); (d) NEXT_TRANSMIT_SEQ advances when the
+     arbiter takes a TLP.
+  3. A `sop` that would be taken at the rollover edge itself is withdrawn
+     too, as #211's link-down edge case: a rollover never lets a TLP go
+     out ahead of its replay.
+  4. The open item "when a running replay ends" (for a replay requested
+     during it) stays open for the captain, owned by epic #203; no effect
+     on the line was observed.

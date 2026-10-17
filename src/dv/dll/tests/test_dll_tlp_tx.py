@@ -692,3 +692,47 @@ async def tlp_bidir(dut):
     env.xcheck.clear()
     env.check_shadow_rx()
     env.check_clean()
+
+
+@cocotb.test()
+async def rollover_edge(dut):
+    """L0: a TLP sop waiting for the phy in the very cycle REPLAY_NUM rolls
+    over is not offered then, though the phy is ready in that cycle: no TLP
+    starts ahead of the rollover replay (RETRY.md, REPLAY_NUM; the same rule
+    as a link-down edge). After the 1024-cycle hold the replay sends the
+    oldest TLP and then the withdrawn one."""
+    env = Env(dut, cocotb.RANDOM_SEED)
+    await env.start()
+    await active_by_hand(env)
+    first = make_tlp("MRd", 0, 1)
+    env.send(first)
+    # Three timeouts and replays; the third replay's eop starts the timer
+    # whose expiry rolls REPLAY_NUM over.
+    await env.run_until(lambda: len(env.tlp_packets) == 4, 3 * 500, "the third replay sent")
+    await env.run_until(lambda: not env.in_pkt, 20, "its eop")
+    sop, data = env.tlp_packets[-1]
+    timer_start = sop + len(data) // 2        # the edge that took its eop
+    roll_cycle = timer_start + REPLAY_TIMEOUT - 1
+    env.ready_p = 0.0                          # the phy takes nothing between packets ...
+    env.ready_at[roll_cycle] = 1               # ... but in the rollover cycle
+    late = make_tlp("MRd", 0, 2)               # sequence 1, its sop left waiting
+    env.send(late)
+    await env.run_until(lambda: env.err_counts[ERR_ROLLOVER] == 1, REPLAY_TIMEOUT + 50,
+                        "the rollover")
+    assert env.err_cycles[ERR_ROLLOVER][0] == roll_cycle + 1, (
+        f"rollover pulse at {env.err_cycles[ERR_ROLLOVER][0]}, expected {roll_cycle + 1}")
+    takes = [t for t, s, r in env.tlp_sent if s == 1]
+    assert takes and takes[0] <= roll_cycle, "TLP 1 was not waiting at the rollover"
+    env.ready_p = 1.0
+    await env.run(5)
+    assert len(env.tlp_packets) == 4 and not env.in_pkt, (
+        "a TLP started at the rollover edge, ahead of the replay")
+    start = len(env.tlp_sent)
+    await env.run_until(lambda: len(env.tlp_packets) == 6, HOLD_FALLBACK + 200,
+                        "the rollover replay")
+    assert [(s, r) for _, s, r in env.tlp_sent[start:]] == [(0, True), (1, True)], (
+        f"after the hold: {env.tlp_sent[start:]}")
+    assert [d[2:-4] for _, d in env.tlp_packets[4:]] == [first, late]
+    env.inject(ack(1))
+    await settle(env)
+    env.check_clean()

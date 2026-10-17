@@ -4,9 +4,10 @@
 // (wiki/src/arch/dll/RETRY.md#transmit-priority), adds the CRC-16 and sends
 // the DLLP as three beats. A packet once started (its sop taken by the
 // phy) is always finished, also when the link goes down: the remaining
-// beats up to eop are sent, as the phy expects (MAS, Transmit). The requests are 1-2 Ack or Nak (#213, tied off),
-// 3 InitFC, 4 UpdateFC and 5-6 a replayed or new TLP from the TLP transmit
-// block, whose beats it passes through with the TLP tag.
+// beats up to eop are sent, as the phy expects (MAS, Transmit). The requests are 1-2 a due Nak or Ack
+// from the TLP receive path, 3 InitFC, 4 UpdateFC and 5-6 a replayed or new
+// TLP from the TLP transmit block, whose beats it passes through with the
+// TLP tag.
 `default_nettype none
 
 `include "common_macros.svh"
@@ -19,7 +20,7 @@ module pcie_dll_tx (
   input  pcie_dll_pkg::t_dllp_req initfc_req_i,   // priority 3
   input  pcie_dll_pkg::t_dllp_req updfc_req_i,    // priority 4
   input  pcie_dll_pkg::t_tlp_src  tlp_src_i,      // priorities 5 and 6: a TLP, and its beats
-  input  logic                    tlp_hold_i,     // rollover hold: a TLP not started is withdrawn
+  input  logic                    tlp_hold_i,     // rollover hold or rollover now: a TLP not started is withdrawn
   output logic                    acknak_take_o,  // the request is taken at this edge
   output logic                    initfc_take_o,
   output logic                    updfc_take_o,
