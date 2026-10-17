@@ -163,6 +163,7 @@ class Cfg:
         self.table = [[0, 0, 0, 1] for _ in range(self.p.msix_table_size)]
         self.pba = 0
         self.msi_pending = False
+        self.np_pending = False   # tl_np_pending_i
         self.err_due = {MSG_ERR_COR: False, MSG_ERR_NONFATAL: False, MSG_ERR_FATAL: False}
         self.app = None           # the application request offered, a Msg
         self.irq_busy = False     # irq_ready_o is 0
@@ -224,6 +225,8 @@ class Cfg:
         """Configuration read of the DW at byte ``addr``: the whole DW,
         unimplemented DWs 0. Reads have no side effects."""
         self._check_addr(addr, CFG_DWS * 4)
+        if addr == CAP_PCIE + 8:
+            return self.r[addr >> 2] | int(self.np_pending) << 21   # Transactions Pending
         return self.r[addr >> 2]
 
     def cfg_write(self, addr: int, data: int, be: int = 0xF, bus: int = 0, dev: int = 0) -> None:
@@ -332,7 +335,7 @@ class Cfg:
             if self.msi_pending or not self.allowed:
                 self.msi_pending = True
                 return self._done("pending")
-            self.app = Msg(MSG_IRQ, *self._msi_msg(), ("app", "msi", 0))
+            self.app = Msg(MSG_IRQ, *self._msi_msg(), ("app", "msi", vector))
         else:
             return self._done("dropped")
         self.irq_busy = True
@@ -366,19 +369,33 @@ class Cfg:
             return self._msix_open(m.src[2])
         return self._msi_open()
 
+    def _kept(self, m: Msg) -> bool:
+        """An offer stays up unless the withdrawal rule removes it: outside
+        D0, Bus Master Enable cleared, or its own mode's enable cleared
+        (TL_CFG, Withdrawal). A mask does not withdraw it."""
+        if self.d_state != D0:
+            return False
+        if m.src[0] == "err":
+            return True
+        return self.bus_master_en and (self.msix_en if m.src[1] == "msix" else self.msi_en)
+
     def _settle(self) -> None:
-        """Withdraw an offer that may no longer go out (HAS, Messages)."""
+        """Withdraw an offer that may no longer go out, and turn a waiting
+        application request pending when it may not go out (HAS, Messages)."""
         if self.d_state != D0:
             for k in self.err_due:
                 self.err_due[k] = False
-        if self._offer is not None and not self._sendable(self._offer):
+        if self._offer is not None and not self._kept(self._offer):
             self._offer = None
-        if self.app is not None and not self._sendable(self.app):
-            if self.app.src[1] == "msix":
-                self.pba |= 1 << self.app.src[2]
-                self._done("pending")
-            elif self.msi_en:
+        if self.app is not None and self._offer is not self.app and not self._sendable(self.app):
+            mode, vector = self.app.src[1], self.app.src[2]
+            if mode == "msi" and self.msi_en:
                 self.msi_pending = True
+                self._done("pending")
+            elif mode == "msix" or self.msix_en:
+                if not 0 <= vector < self.p.msix_table_size:
+                    raise ValueError("vector at or above MSIX_TABLE_SIZE")
+                self.pba |= 1 << vector
                 self._done("pending")
             else:
                 self._done("dropped")
@@ -581,7 +598,7 @@ def _perf_stress(w: dict, rng: random.Random) -> dict:
             stats["messages_outside_d0"] += 1
         if m.kind == MSG_IRQ:
             k = key_of(m)
-            blocked = not c.allowed or (k != "msi" and not c._msix_open(k))
+            blocked = not c.allowed or not (c.msi_en if k == "msi" else c.msix_en)
             stats["writes_while_blocked"] += int(blocked)
             stats["writes"] += 1
             owed[k] = 0

@@ -28,7 +28,7 @@ RESET_VALUES = {
 INPUTS = {
     "reg_req_valid_i": 1, "reg_req_bar2_i": 1, "reg_req_write_i": 1, "reg_req_addr_i": 10,
     "reg_req_be_i": 4, "reg_req_data_i": 32, "reg_req_bus_i": 8, "reg_req_dev_i": 5,
-    "tl_err_i": 9, "dl_err_i": 7, "rcv_err_i": 1, "msg_ready_i": 1,
+    "tl_np_pending_i": 1, "tl_err_i": 9, "dl_err_i": 7, "rcv_err_i": 1, "msg_ready_i": 1,
     "irq_valid_i": 1, "irq_vector_i": 6,
 }
 

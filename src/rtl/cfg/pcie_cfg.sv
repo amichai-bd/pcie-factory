@@ -44,6 +44,9 @@ module pcie_cfg #(
   output logic        bus_master_en_o,
   output logic [1:0]  d_state_o,        // 0 D0, 3 D3hot
 
+  // Requester state (from tl)
+  input  logic        tl_np_pending_i,  // an application non-posted request is outstanding // cdc-domain: clk_i
+
   // Error events
   input  logic [8:0]  tl_err_i,         // one-cycle pulses, bit order in TL_CFG // cdc-domain: clk_i
   input  logic [6:0]  dl_err_i,         // one-cycle pulses, bit order in the dll HAS // cdc-domain: clk_i
@@ -73,7 +76,7 @@ module pcie_cfg #(
   logic unused_inputs;
   assign unused_inputs = ^{clk_i, rst_i, reg_req_valid_i, reg_req_bar2_i, reg_req_write_i,
                            reg_req_addr_i, reg_req_be_i, reg_req_data_i, reg_req_bus_i,
-                           reg_req_dev_i, tl_err_i, dl_err_i, rcv_err_i, msg_ready_i,
+                           reg_req_dev_i, tl_np_pending_i, tl_err_i, dl_err_i, rcv_err_i, msg_ready_i,
                            irq_valid_i, irq_vector_i,
                            BAR0_ADDR_W[0], MSIX_TABLE_SIZE[0], VENDOR_ID, DEVICE_ID,
                            SUBSYS_VENDOR_ID, SUBSYS_ID, CLASS_CODE, REVISION_ID};

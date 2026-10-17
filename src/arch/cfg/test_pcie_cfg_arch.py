@@ -317,6 +317,62 @@ def test_offered_write_withdrawn_when_blocked():
     assert c.take().addr == ADDR + 24
 
 
+def test_mask_after_offer_does_not_withdraw():
+    c = Cfg()
+    ready(c, msix=True)
+    c.irq_request(1)
+    assert c.offer().addr == ADDR + 4                  # offered
+    c.bar2_write(16 * 1 + 12, 1)                       # masked after the offer
+    c.cfg_write(CAP_MSIX, 0xC000 << 16, be=0x8)        # function mask too
+    assert c.take().addr == ADDR + 4 and c.irq_status == "sent"
+    c.irq_request(1)
+    assert c.irq_status == "pending" and c.offer() is None
+
+
+def test_waiting_request_masked_before_its_offer():
+    """The application's write waits behind an error message; a mask before
+    its offer turns it pending."""
+    c = Cfg()
+    ready(c, msix=True)
+    c.cfg_write(DEVCTL, DC_CERE, be=0x1)
+    c.error(rcv=1)
+    assert c.offer().kind == MSG_ERR_COR
+    assert c.irq_request(2) is None and c.irq_busy
+    c.bar2_write(16 * 2 + 12, 1)
+    assert (c.irq_busy, c.irq_status) == (False, "pending")
+    assert c.take().kind == MSG_ERR_COR and c.offer() is None
+
+
+def test_msi_offer_withdrawal():
+    c = Cfg()
+    ready(c, msi=True)
+    for v in range(c.p.msix_table_size):
+        c.bar2_write(16 * v, ADDR + 4 * v)
+    c.irq_request(5)
+    assert c.offer().addr == ADDR
+    c.cfg_write(CAP_MSIX, 0x8000 << 16, be=0x8)        # not a withdrawal cause
+    assert c.offer().addr == ADDR
+    c.cfg_write(CAP_MSI, 0, be=0x4)                    # MSI Enable cleared: withdrawn
+    assert c.irq_status == "pending"                   # MSI-X on: its vector pends
+    assert c.bar2_read(PBA_OFFSET) == 1 << 5
+    c.cfg_write(CAP_MSIX, 0, be=0x8)
+    c.cfg_write(CAP_MSI, 1 << 16, be=0x4)
+    c.irq_request(0)
+    assert c.offer() is not None
+    c.cfg_write(CAP_MSI, 0, be=0x4)                    # neither mode left: dropped
+    assert c.irq_status == "dropped"
+
+
+def test_transactions_pending():
+    c = Cfg()
+    c.np_pending = True
+    assert c.cfg_read(DEVCTL) >> 21 & 1
+    c.cfg_write(DEVCTL, 0xFFFF << 16, be=0xC)          # RO: not cleared by a write
+    assert c.cfg_read(DEVCTL) >> 21 & 1
+    c.np_pending = False
+    assert not c.cfg_read(DEVCTL) >> 21 & 1
+
+
 def test_vector_out_of_range():
     c = Cfg(Params(msix_table_size=4))
     ready(c, msix=True)

@@ -51,6 +51,7 @@ of the same name; this table gives the `cfg` port, its direction and width.
 | `bus_num_o`, `dev_num_o` | out | 8, 5 | `clk_i` | [Register state](../core/TL_CFG.md#register-state): captured numbers. |
 | `bar0_base_o`, `bar2_base_o` | out | 32, 32 | `clk_i` | BAR0 and BAR2 addresses. |
 | `mem_space_en_o`, `bus_master_en_o`, `d_state_o` | out | 1, 1, 2 | `clk_i` | Command enables and Power State; to `tl` and to the `core` [status](../core/APP.md#status) ports. |
+| `tl_np_pending_i` | in | 1 | `clk_i` | [Requester state](../core/TL_CFG.md#requester-state): Device Status Transactions Pending. |
 | `tl_err_i` | in | 9 | `clk_i` | [Error events](../core/TL_CFG.md#error-events) from `tl`. |
 | `dl_err_i`, `rcv_err_i` | in | 7, 1 | `clk_i` | [Link errors](../core/TL_CFG.md#link-to-cfg). |
 | `msg_valid_o`, `msg_ready_i` | out, in | 1, 1 | `clk_i` | [Messages](../core/TL_CFG.md#messages) handshake. |
@@ -84,7 +85,8 @@ outputs are: `reg_req_ready_o`, `reg_cpl_valid_o`, `msg_valid_o`,
 `bar2_base_o`, `mem_space_en_o`, `bus_master_en_o`, `d_state_o` (D0) and
 `max_payload_o` 0, and `max_read_req_o` 2. Data outputs are don't care
 while not qualified. The MSI-X table address and data DWs are not reset
-(they sit in a RAM): software writes them before it unmasks a vector.
+(they sit in a RAM), as the `core` [link down](../core/HAS.md#link-down)
+rule states: software writes them again before it unmasks a vector.
 
 ### Register access
 
@@ -163,15 +165,24 @@ may go out. An offer holds its kind, address and data until `tl` takes it
 (`msg_ready_i` 1); taking clears what it came from (the due flag, the
 request, the MSI flag or the vector's pending bit).
 
-An offer is **withdrawn** (`msg_valid_o` falls without a take) at the
-edge where it may no longer go out: any offer when `d_state_o` leaves D0
-(an error message is then discarded); an interrupt write when bus
-mastering is cleared, or its mode is disabled (MSI Enable cleared or MSI-X
-Enable set for MSI; MSI-X Enable cleared for MSI-X), or its vector or the
-function is masked. A withdrawn interrupt write becomes pending: the
-vector's pending bit, or the MSI pending flag if MSI Enable is still 1
-(else the request is dropped). A withdrawn application request then
+An offer is **withdrawn** (`msg_valid_o` falls without a take) by the
+[withdrawal](../core/TL_CFG.md#withdrawal) rule only, at the edge of the
+write that causes it: any offer when `d_state_o` leaves D0 (an error
+message is then discarded); an interrupt write when Bus Master Enable is
+cleared, or when its own mode's enable is cleared (MSI Enable for an MSI
+write, MSI-X Enable for an MSI-X write). A withdrawn interrupt write
+becomes pending: an MSI-X write sets its vector's pending bit; an MSI
+write sets the MSI pending flag if MSI Enable is still 1, else the pending
+bit of the request's vector if MSI-X is enabled, else the request is
+dropped (neither mode is enabled). A withdrawn application request then
 reports `irq_done_o` with pending (or dropped).
+
+Masking a vector or the function, or setting MSI-X Enable under MSI,
+after a write is offered does not withdraw it: it goes out as if it had
+already been sent. Before its offer, the application's write is checked
+against every rule: a request that becomes masked, or loses its mode,
+while it waits behind an error message turns pending (or is dropped) at
+that edge, without having been offered.
 
 ### Interrupts
 
@@ -216,7 +227,7 @@ override; Q and F numbers are the [record](../../decisions/0004-m3-grill.md)'s.
 | RW fields with no effect where the standard allows either (Cache Line Size, Interrupt Line, Interrupt Disable, Enable Relaxed Ordering, Enable No Snoop, ASPM Control, Common Clock Configuration, Extended Synch, MSI Multiple Message Enable) | Software reads back what it wrote; nothing in `core` depends on them. | Hardwiring each to 0 (a constraint on what `tl` may send for two of them). |
 | Advisory handling for UR completions and unexpected completions only | The two cases the standard requires; a poisoned TLP and a completion timeout stay non-fatal, the simpler reading where advisory handling is optional. | Advisory for every allowed case (more rules, no M3 user). |
 | One due flag per error message kind | Bounds the state; the Root Complex learns of the error class, and the status bits keep the detail. | A queue of messages (unbounded under an error burst). |
-| Offers withdrawn when they may no longer go out | Keeps the no-wait rule and the outside-D0 rule without letting a stale offer through after D3hot, bus mastering off or a mask. | Holding an offer until taken (a message after leaving D0). |
+| A mask set after a write is offered does not withdraw it ([withdrawal](../core/TL_CFG.md#withdrawal) lists the only causes) | The write is in the same position as one `tl` has just taken; the standard's masking rule covers messages not yet committed. | Withdrawing on a mask too (a cause the tl-cfg page does not allow). |
 | MSI-X table address and data not reset | The table is a `common` RAM (F4); the standard leaves them to software before unmask. | Resetting 64 × 3 DWs (flops, not RAM). |
 
 ## Targets
@@ -253,6 +264,4 @@ The Base Spec is not in the local cache (`./build specs list`:
 | The cited sections on this page, [REGISTERS.md](REGISTERS.md) and [CAPS.md](CAPS.md), checked against rev 3.0. | Captain, with a local copy; [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
 | Advisory non-fatal handling without AER: ERR_COR for a UR completion gated by Unsupported Request Reporting Enable and Correctable Error Reporting Enable together; Device Status sets Correctable, not Non-Fatal, Error Detected. | [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
 | A posted UR sends ERR_NONFATAL only with Unsupported Request Reporting Enable 1, SERR# Enable alone does not. | [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
-| **Transactions Pending** (Device Status) reads 0: the tl-cfg interface carries no outstanding-request level from `tl`. A net from `tl` would make it exact. | [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
 | **D3hot without L1:** the standard has the link enter L1 when the function is in D3hot; `link` stays in L0 (F5, the `mac` link power states). | [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
-| **Withdrawing an offer** on the message channel: the tl-cfg page does not say whether `msg_valid` may fall without `msg_ready`; this page needs it. | [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |

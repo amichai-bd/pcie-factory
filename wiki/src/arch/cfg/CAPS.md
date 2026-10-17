@@ -93,7 +93,8 @@ optional feature [cite: PCIe Base Spec, rev 3.0, §7.8].
 | 0x78 | 8, 9, 10, 15 | Extended Tag, Phantom Functions, Aux Power PM Enable, Initiate FLR | RO | 0 | Not supported. |
 | 0x78 | 14:12 | Max_Read_Request_Size | RW | 2 | `max_read_req_o`, as written; `tl` uses 128 bytes. |
 | 0x78 | 16, 17, 18, 19 | Correctable, Non-Fatal, Fatal Error Detected, Unsupported Request Detected | RW1C | 0 | [Errors](HAS.md#errors), whatever the enables [cite: PCIe Base Spec, rev 3.0, §7.8.5]. |
-| 0x78 | 20, 21 | AUX Power Detected, Transactions Pending | RO | 0 | Transactions Pending: see the [open questions](HAS.md#open-questions). |
+| 0x78 | 20 | AUX Power Detected | RO | 0 | No auxiliary power. |
+| 0x78 | 21 | Transactions Pending | RO | 0 | `tl_np_pending_i`: an application non-posted request awaits its completion or timeout ([requester state](../core/TL_CFG.md#requester-state)). |
 | 0x7C | 3:0, 9:4 | Max Link Speed, Maximum Link Width | RO | 1, 1 | 2.5 GT/s (Supported Link Speeds Vector bit 0), x1 [cite: PCIe Base Spec, rev 3.0, §7.8.6]. |
 | 0x7C | 11:10, 17:12 | ASPM Support, L0s and L1 Exit Latency | RO | 0 | No ASPM. |
 | 0x7C | 21:18 | Clock PM, Surprise Down, DLL Link Active, Bandwidth Notification capable | RO | 0 | — |

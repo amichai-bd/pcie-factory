@@ -99,6 +99,15 @@ configuration write takes effect, or at reset.
   that disagrees with how `tl` splits completions
   [cite: PCIe Base Spec, rev 3.0, §7.8.7].
 
+### Requester state
+
+A level from `tl`, for the Device Status register (firstmate decision as
+the captain's delegate, which the captain may override).
+
+| Net | Dir | Width | Clock | Meaning |
+| --- | --- | --- | --- | --- |
+| `tl_np_pending` | tl→cfg | 1 | `clk_i` | 1 while any application non-posted request taken on `rq` still awaits its final completion or its timeout. `cfg` shows it as Device Status Transactions Pending [cite: PCIe Base Spec, rev 3.0, §7.8.5]. |
+
 ### Error events
 
 One-cycle pulses from `tl`, one bit per kind; events of one kind in one
@@ -143,6 +152,17 @@ so there is no Signaled Target Abort event.
 - An error message is a Message routed to the Root Complex with no data,
   with the code of its kind [cite: PCIe Base Spec, rev 3.0, §2.2.8.3].
 - A message taken is sent unless the link goes down first.
+- <a id="withdrawal"></a>**Withdrawal.** `msg_valid` falls without
+  `msg_ready` only when the offered message may no longer go out: the
+  function leaves D0, Bus Master Enable is cleared (interrupt writes), the
+  enable of the offer's interrupt mode is cleared (MSI Enable for an MSI
+  write, MSI-X Enable for an MSI-X write), or reset. `tl` takes a message
+  only in a cycle where it sees `msg_valid` and raises `msg_ready`, samples
+  the fields in that cycle, and never assumes an offer stays up. A
+  withdrawn interrupt write becomes pending
+  ([resolution](#interrupt-resolution)); a withdrawn error message is
+  discarded, its status bits already set (firstmate decision as the
+  captain's delegate, which the captain may override).
 - <a id="outside-d0"></a>**Outside D0.** A function outside D0 originates
   no requests other than PME, which `core` does not implement
   [cite: PCIe Base Spec, rev 3.0, §5.3.1.4]. So while `d_state` is not D0,
