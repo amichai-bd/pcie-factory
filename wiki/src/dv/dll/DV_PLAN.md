@@ -90,21 +90,22 @@ never into a model or the RTL silently.
 ## Mutation evidence
 
 Each mutant was applied to the RTL and run with levels 0 and 1; each is
-caught, and the unmutated RTL passes. Seeds are the entries' first.
+caught, and the unmutated RTL passes. The entry named is one that fails,
+at its first seed.
 
 | Block | Mutant | First failing entry | Result |
 | --- | --- | --- | --- |
 | Package | CRC-16 polynomial `100B`h to `100A`h | `crc16_kat` | InitFC1-P sent as `40020020288c`, the DLLP page's `40020020f534`. |
 | Package | CRC-16 bytes 4 and 5 swapped | `fc_init_directed` | FC_INIT2 never reached: every received DLLP is bad. |
 | DLLP receive | Length check removed | `crc16_kat` | 394 Bad DLLP pulses for 396 bad DLLPs: the long DLLPs ending in a good CRC pass. |
-| DLLP receive | `pkt_rx_err_i` ignored | `crc16_kat` | 393 pulses for 394. |
+| DLLP receive | `pkt_rx_err_i` ignored | `crc16_kat` | 395 pulses for 396. |
 | Package | VC of an FC DLLP not checked | `fc_init_directed` | P credits (5, 5) from a VC 1 InitFC1, expected (12, infinite). |
 | Package | A later InitFC overwrites the recorded credits | `fc_init_directed` | P credits (99, 99). |
 | Control | FC_INIT1 and FC_INIT2 left before the group's last DLLP ends | `fc_init_directed` | An InitFC1-Cpl sent in FC_INIT2. |
 | Control | An InitFC1 ends FC_INIT2 | `fc_init_directed` | DL_Active after an InitFC1. |
 | Control | InitFC resend every 64 cycles | `fc_init_directed` | Groups 64 cycles apart. |
-| Control | InitFC group sent Cpl first | `fc_init_directed` | InitFC1-Cpl out of group order. |
-| Control | Link down does not reset the state | `smoke` | Not DL_Inactive with `link_up_i` 0. |
+| Control | InitFC group sent Cpl first | `crc16_kat` | The first DLLP is InitFC1-Cpl (`60000000d892`), not the DLLP page's InitFC1-P. |
+| Control | Link down does not reset the state | `fc_init_directed` | DL_Inactive not reached within 3 cycles of the link going down. |
 | Flow control | No UpdateFC on entering DL_Active | `fc_init_directed` | No entry UpdateFC. |
 | Flow control | An UpdateFC does not move a finite data limit | `fc_init_directed` | NP data credits 40, expected 41. |
 | Flow control | The refresh never falls due | `updatefc_refresh` | One UpdateFC per class in two periods. |
