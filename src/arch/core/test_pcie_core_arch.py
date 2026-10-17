@@ -252,6 +252,25 @@ def test_link_down_resets_tl_and_cfg():
     assert h.reads_done == 1 and h.read_errors == 0
 
 
+def test_no_stale_error_pulse_after_link_down():
+    """Error events while dl_up is 0 reach a cfg held in reset and are
+    lost (Q10): none is pulsed into cfg when the link comes back."""
+    b = bench()
+    run(b, m.setup(b, BAR0, BAR2))
+    b.link_up = [False, False]
+    for _ in range(20):
+        b.step()
+    b.b.err(0)                                   # a Bad TLP counted while down
+    b.core.tl.err(tlm.E_MALFORMED)
+    b.link_up = [True, True]
+    while not b.b.dl_up:
+        b.step()
+    for _ in range(20):
+        b.step()
+    ds = b.core.cfg.cfg_read(cfgm.CAP_PCIE + 8)
+    assert ds & (cfgm.DS_CED | cfgm.DS_FED) == 0
+
+
 @pytest.mark.parametrize("w", [
     {"kind": "derived"},
     {"kind": "traffic"},
