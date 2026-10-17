@@ -76,6 +76,10 @@ shows where each of their checks went.
     DUT following Disabled is reached only through model injection (the
     partner's TS1 with Disable Link forced): a conforming upstream partner
     cannot direct Disabled.
+  - `mac_hr_dwell`: a following Hot Reset's dwell restarted by a TS1 in
+    the step whose timer is `limit - 3`, `limit - 2` and `limit - 1` (the
+    timeout step, where the restart wins): the boundary of the LTSSM's
+    registered timeout ([MAS, Timing](../../rtl/mac/MAS.md#timing)).
   - `mac_os_rx`: each received event (TS1, TS2, each inverted, SKP, EIOS,
     FTS) crossed with the COM lane, the reason a TS failed (cut, mismatch,
     K identifier, unknown), link and lane kind, link and N_FTS values (0,
@@ -91,7 +95,7 @@ shows where each of their checks went.
     ([HAS, Targets](../../arch/mac/HAS.md#targets)).
   - Floors: level 1 holds `mac_os_tx`, `mac_os_rx` and `mac_frame` at
     100% (reached by levels 0 and 1); level 2 holds functional coverage at
-    100% (all five covergroups, so all 64 arcs of the HAS list in each
+    100% (all six covergroups, so all 64 arcs of the HAS list in each
     role), line at 86% and toggle at 78.2%, per the
     [DV BKM](../../../bkm/dv.md#coverage) rule (the existing floor or the
     merged level 0 to 2 value less 0.5 points, the higher): the merged
@@ -125,6 +129,7 @@ shows where each of their checks went.
 | [`N_FTS`](../../arch/mac/HAS.md#parameters) 1 and 255 in every TS sent; then the `arcs_quick` and `control_quick` recipes in both roles (testcase `smoke_arcs`): in the power episode the partner sends that many FTS, and the `Rx_L0s.FTS` timeout is at its extremes (16 and 542 cycles). With the DUT downstream the partner advertises the same N_FTS, upstream the default 32, so the DUT sends 1 or 255 FTS, and 32, on its own L0s exits | `smoke_n_fts_1`, `smoke_n_fts_255` | 2 | 1 each |
 | [The link partner reaches every arc in each role](../../arch/mac/MODEL.md#arc-sweep) | `partner_arc_sweep` | 2 | 1; the model alone, the DUT is only clocked |
 | [Control states](../../arch/mac/ARCS.md#control-states) without a timeout, both roles: Hot Reset and Disabled directed by the downstream port (the DUT, or the partner with the DUT following), held then released; L0 to Recovery on `hot_reset_req_i`, `disable_req_i`, `loopback_req_i`; an upstream DUT ignoring the first two in L0 and through a retrain; several requests at once (row priority in Recovery.Idle and Linkwidth.Start); Loopback with the DUT master (pattern returned unbroken past a SKP) and slave, from L0 and from Configuration.Linkwidth.Start; Disabled from Linkwidth.Start; control bits and EIOS sent | `control_quick` | 1 | 1; 10 of 11 control arcs per role |
+| A following Hot Reset's dwell restarted at the timeout's boundary (the registered timeout, [MAS, Timing](../../rtl/mac/MAS.md#timing)), upstream: a line hook captures a TS1 with Hot Reset from the partner, sends idle data, and plays that TS1 so the restart falls in the step with timer `limit - 3`, `limit - 2` and `limit - 1`; a first restart measures the line-to-restart delay, and each restart must land on its step; then the dwell times out to Detect.Quiet (`mac_hr_dwell`) | `hr_dwell_boundary` | 1 | 1 |
 | Every control-state arc, downstream: the above, plus following Hot Reset and Disabled on partner TS1 with the bit (the dwell restarted while they arrive; Disabled's timeout with no EIOS) and the Loopback master's entry timeout | `control_full_downstream` | 2 | 1 |
 | The same, upstream | `control_full_upstream` | 2 | 1 |
 | [Disable Scrambling](../../arch/mac/SYMBOLS.md#scrambling): the partner's TS2 carry it; idle and packets unscrambled from Configuration.Idle, kept through Recovery, cleared in Detect.Quiet; both roles, 12- and 1-cycle lines; a crafted line where the first word in Configuration.Idle is already unscrambled idle (the test fails if no offset reaches that case) | `no_scramble` | 1 | 1 |
@@ -172,6 +177,8 @@ listed entry; each fails, and the unmutated RTL passes. Each entry runs its firs
 | Top | One extra register on the `pkt_rx_*` outputs | `smoke` | Fails at cycle 10298: `sop` 4 cycles after its STP in lane 0, the HAS allows 3. |
 | Top | The frame's idle marks registered (one cycle behind the events) | `smoke` | Fails at cycle 10272: `ltssm_state_o` 0x0D, the shadow already in L0 (0x20). |
 | LTSSM | A following Hot Reset never restarts its dwell | `control_full_downstream` | Fails at cycle 21267: `ltssm_state_o` 0x00 (Detect.Quiet), the shadow still in Hot Reset (0x19) while the partner's TS1 with the bit arrive. |
+| LTSSM | The registered timeout ignores a following Hot Reset's restart (`timeout_d` without `!timer_restart`) | `hr_dwell_boundary` | Stops on `a_timeout_matches` at 88,496 ns (seed 1096319065), at the `limit - 2` restart. `control_full_downstream` passes: its restarts never fall on that step. |
+| LTSSM | The registered timeout ignores the arc (`timeout_d` without `!go`) | `smoke` | Stops on `a_timeout_matches` at 12,184 ns (seed 1824675579). |
 | LTSSM | Disabled sends 8 TS1, not 16 | `control_quick` | Fails at cycle 21869: EIOS symbols (COM, IDL) sent where the shadow sends a TS1 (COM, link 0). |
 | LTSSM | Receive Disable Scrambling from the registered flag (one word late) | `no_scramble` | Fails at cycle 10334 on the crafted line: `ltssm_state_o` 0x0D, the shadow already in L0 (0x20). Without the crafted line no partner timing reaches the case. |
 | LTSSM | Recovery.Idle: Disabled requested wins over Hot Reset requested | `control_quick` | Fails at cycle 34377: `ltssm_state_o` 0x18 (Disabled), the shadow in Hot Reset (0x19). |

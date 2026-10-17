@@ -46,12 +46,35 @@ module pcie_pcs_enc8b10b (
     .rd_o   (rd_mid)
   );
 
-  pcie_pcs_enc8b10b_sym u_sym1 (
+  // Lane 1 is encoded at both running disparities in parallel with lane 0,
+  // and lane 0's RD picks one: the RD chain is a select, not a second table
+  // in series (MAS, Timing).
+  logic                 rd_lo1;    // RD after sym1 sent at RD-
+  logic                 rd_hi1;    // RD after sym1 sent at RD+
+  pcie_pcs_pkg::t_sym10 code_lo1;
+  pcie_pcs_pkg::t_sym10 code_hi1;
+  logic                 rd_neg;
+  logic                 rd_pos;
+
+  assign rd_neg = 1'b0;
+  assign rd_pos = 1'b1;
+
+  pcie_pcs_enc8b10b_sym u_sym1_lo (
     .sym_i  (sym1),
-    .rd_i   (rd_mid),
-    .code_o (code1),
-    .rd_o   (rd_next)
+    .rd_i   (rd_neg),
+    .code_o (code_lo1),
+    .rd_o   (rd_lo1)
   );
+
+  pcie_pcs_enc8b10b_sym u_sym1_hi (
+    .sym_i  (sym1),
+    .rd_i   (rd_pos),
+    .code_o (code_hi1),
+    .rd_o   (rd_hi1)
+  );
+
+  assign code1   = rd_mid ? code_hi1 : code_lo1;
+  assign rd_next = rd_mid ? rd_hi1 : rd_lo1;
 
   assign codes = {code1, code0};
 

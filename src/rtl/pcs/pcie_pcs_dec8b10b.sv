@@ -39,8 +39,16 @@ module pcie_pcs_dec8b10b (
                   && (in_i.sym0.gen == state_q.gen);
   assign known1 = in_i.sym0.lock && in_i.sym1.lock && (in_i.sym1.gen == in_i.sym0.gen);
 
-  assign dec0 = pcie_pcs_pkg::decode(code0, known0, state_q.rd_pos);
-  assign dec1 = pcie_pcs_pkg::decode(code1, known1, dec0.rd_pos);
+  // Lane 1 is decoded for both running disparities in parallel with lane 0,
+  // and lane 0's RD picks one: the RD chain is a select, not a second decode
+  // in series (MAS, Timing).
+  pcie_pcs_pkg::t_dec   dec1_neg;  // code1 decoded after an RD- symbol
+  pcie_pcs_pkg::t_dec   dec1_pos;  // code1 decoded after an RD+ symbol
+
+  assign dec0     = pcie_pcs_pkg::decode(code0, known0, state_q.rd_pos);
+  assign dec1_neg = pcie_pcs_pkg::decode(code1, known1, 1'b0);
+  assign dec1_pos = pcie_pcs_pkg::decode(code1, known1, 1'b1);
+  assign dec1     = dec0.rd_pos ? dec1_pos : dec1_neg;
 
   assign out_o = '{sym1: dec1.sym, sym0: dec0.sym};
 

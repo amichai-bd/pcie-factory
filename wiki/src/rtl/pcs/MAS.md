@@ -138,10 +138,10 @@ electrical idle. A reset drops the two words in flight.
    decoded word with both symbols locked, or an idle tail (`word_tail`:
    symbol 0 locked, symbol 1 unlocked with its idle flag; RECEIVE.md,
    Decode and RxStatus), whose symbol 1 leaves as EDB (K) and whose symbol
-   1 errors are not counted. An underflow word holds two
-   all-zero symbols, a code error in both lanes, so the decoder already
-   gives EDB, EDB (`common_pkg::SYM_EDB`) as K symbols; the top adds no
-   multiplexer and asserts it (`a_udf_edb`). RxStatus, first match wins: 4
+   1 errors are not counted. An underflow word leaves as EDB, EDB
+   (`common_pkg::SYM_EDB`) as K symbols: the register substitutes them,
+   since the elastic buffer's symbols are not forced in that cycle
+   (`a_udf_edb`). RxStatus, first match wins: 4
    (`word_lock` and a code error), 5 (overflow), 6 (underflow), 7
    (`word_lock` and a disparity error), 1 (SKP added), 2 (SKP removed), 0;
    0 in a cycle with no word.
@@ -245,11 +245,14 @@ PowerDown state are the top's.
   words in flight.
 
 **Structure.** Stage 1 registers `in_valid_q` (reset 0) and `in_word_q`
-(`t_tx_word`, not reset). Stage 2 chains two instances of the
-combinational leaf `pcie_pcs_enc8b10b_sym` (`u_sym0`, `u_sym1`, input
-`t_k_byte` and the RD in, code and RD out) through the RD: `u_sym0` takes
-`rd_q`, or negative under compliance. `rd_q` (reset negative) loads
-`u_sym1`'s RD out on a word; `out_valid_q` follows `in_valid_q`;
+(`t_tx_word`, not reset). Stage 2 encodes with instances of the
+combinational leaf `pcie_pcs_enc8b10b_sym` (input `t_k_byte` and the RD
+in, code and RD out): `u_sym0` takes `rd_q`, or negative under
+compliance; `sym1` is encoded at both RDs in parallel (`u_sym1_lo` at
+RD-, `u_sym1_hi` at RD+) and `u_sym0`'s RD out selects the code and the
+RD after it, so the second table is not in series with the first
+([Timing](#timing)). `rd_q` (reset negative) loads the selected RD on a
+word; `out_valid_q` follows `in_valid_q`;
 `out_data_q` loads both codes on a word. The leaf computes a symbol from
 the rules, not from a table: EDB for an unsupported K; the RD- 6b form
 (EDCBA with `i` for two ones, the fixed exception forms, `001111` for
@@ -308,14 +311,12 @@ relock also gives) and when RxPolarity changes.
 with no word the RD holds, but `rd_known` clears on a polarity change;
 `pol` is the previous cycle's `polarity_i`.
 
-**Substituted words.** The top presents an underflow word (two all-zero
-symbols) with `in_valid_i` 0: `out_o` still gives EDB, EDB as K with the
-code-error flags, since all-zero is a code error at any RD, but the RD
-state does not advance, so the next real word is decoded at the RD the
-last real word left (the buffer lost nothing). No other word is
-substituted after decode. The word is unlocked, so its code errors do not
-give RxStatus 4: it leaves as RxStatus 6 with RxValid 0
-([receive path](#receive-path), step 4).
+**Words not sent.** With `in_valid_i` 0 (no word, or an underflow word)
+`in_i` holds the symbols the elastic buffer would send, `out_o` is not
+used, and the RD state does not advance, so the next real word is decoded
+at the RD the last real word left (the buffer lost nothing). The top
+sends an underflow word as EDB, EDB (K) itself, with RxStatus 6 and
+RxValid 0 ([receive path](#receive-path), step 4).
 
 **One-bit generation.** The decoder tells two locked runs apart only by a
 generation change or an unlocked symbol between them. Two lock takes with
@@ -332,9 +333,10 @@ and the comma's unbalanced 6b block sets the RD, so the cost is at most
 one false disparity error (RxStatus 7): one errored word, which counts
 toward `ERR_LIMIT`.
 
-**Structure.** Two lanes, each a call of the package's pure `decode()`;
-`sym1` starts at `sym0`'s RD out, so the RD carries across the lanes
-combinationally. `decode()` matches the code against both columns with
+**Structure.** Two lanes, calls of the package's pure `decode()`; `sym1`
+is decoded at both RDs in parallel with `sym0` (`dec1_neg`, `dec1_pos`)
+and `sym0`'s RD out selects one, so the RD carries across the lanes
+through a select, not a second decode ([Timing](#timing)). `decode()` matches the code against both columns with
 `match_at()` (the K28 forms; the 6b block at the given RD, then the 4b
 block at the RD after it; the A7 rule; `Kx.7`), using only the RD- tables
 of [8B10B.md](../../arch/pcs/8B10B.md) in line order: a received RD+ block
@@ -430,7 +432,7 @@ decode and no polarity. It holds crossings 1 to 3.
 | `ser_rx_valid_i` | in | `logic` | `ser_rx_clk_i` | A word this cycle (the top ties it to 1). |
 | `ser_rx_i` | in | `t_rx_pair` | `ser_rx_clk_i` | The aligner's word; its two symbols carry the same tags (`a_word_one_lock`). |
 | `rx_valid_o` | out | `logic` | `clk_i` | A word is sent: two symbols, or an underflow word. |
-| `rx_o` | out | `t_rx_pair` | `clk_i` | Two raw symbols with per-symbol idle flag, lock and generation; 0 with no word or an underflow word. |
+| `rx_o` | out | `t_rx_pair` | `clk_i` | Two raw symbols with per-symbol idle flag, lock and generation. Meaningful only for a word sent that is not an underflow word; otherwise the symbols the read side would send, not forced to 0, so the decoder starts before the fill decides ([Timing](#timing)). |
 | `rx_status_o` | out | `t_eb_status` | `clk_i` | `skp_add` (a SKP added after a COM of this word), `skp_rem` (one removed), `ovf` (the first word after a lost one), `udf` (underflow word). |
 | `fill_o` | out | 6 | `clk_i` | The visible fill, 0 to 34 symbols; debug only. |
 | `ser_rx_rst_o` | out | `logic` | `ser_rx_clk_i` | The RX-domain reset: high asynchronously with `rst_i`, low at the second `ser_rx_clk_i` edge after `rst_i` falls. |
@@ -552,9 +554,17 @@ by `rst_i`), each cycle:
   asynchronously; the data registers are not reset), and leaves it at the second `ser_rx_clk_i` edge after
   `rst_i` falls (crossing 2).
 - Critical path (`clk_i`): the FIFO head through the elastic buffer's
-  read-side selection, the two chained decode lanes and the RxStatus
-  precedence into the PIPE register. On `ser_rx_clk_i`: the aligner's
-  comparators, priority scan and barrel select.
+  read-side selection, the decoder and the RxStatus precedence into the
+  PIPE register. On `ser_rx_clk_i`: the aligner's comparators, priority
+  scan and barrel select. For the `phy` ASIC flow
+  ([#235](https://github.com/amichai-bd/pcie-factory/issues/235)) three
+  changes shorten the `clk_i` paths without moving a cycle (an
+  equivalence check of the IP before and after proved every register's
+  next value unchanged): the elastic buffer's symbols are not forced to 0
+  when no word is sent, so the decoder works in parallel with the fill and
+  the send decision, and the PIPE register substitutes EDB, EDB for an
+  underflow word; the decoder decodes `sym1` at both RDs, and the encoder
+  encodes `sym1` at both RDs, each selected by `sym0`'s RD out.
 
 ## Files
 
