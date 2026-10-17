@@ -495,3 +495,15 @@ def test_npd_minimum_is_two(npd, ok):
     else:
         with pytest.raises(ValueError):
             m.Dll("x", {"npd": npd})
+
+
+def test_malformed_four_byte_non_posted_tlp_returns_its_credits():
+    p, a, b = up_pair()
+    b.receive(tlp_pkt(0, m.make_tlp("mrd", 0, 1)), p.now)    # two good TLPs first
+    b.receive(tlp_pkt(1, m.make_tlp("mrd", 0, 2)), p.now)
+    ca, cr = [list(x) for x in b.ca], [list(x) for x in b.cr]
+    b.receive(m.Packet(False, m.tlp_frame(2, bytes([0x44, 0, 0, 1]))), p.now)  # CfgWr DW0 only
+    assert b.errors[m.E_MALFORMED] == 1 and b.nrs == 3
+    assert b.ca[m.NP] == [ca[m.NP][0] + 1, ca[m.NP][1] + 1]
+    assert b.cr[m.NP] == [cr[m.NP][0] + 1, cr[m.NP][1] + 1]
+    assert b.ca[m.P] == ca[m.P] and b.cr[m.P] == cr[m.P]
