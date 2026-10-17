@@ -156,7 +156,7 @@ consuming flow's own reports prove a vendor mapping.
 | `dv/<ip>/<ip>.dv.f` | Simulation-only SystemVerilog (testbench tops, bind and assertion files, SV models). |
 | `dv/<ip>/<ip>.sim.f` | `-F ../../rtl/<ip>/<ip>.rtl.f` plus `-F <ip>.dv.f`. |
 | `dv/<ip>/regress/level{0,1,2}.yaml` | This IP's own tests per level. Levels are exclusive; sub-IP tests are not inherited. |
-| `fpga/<ip>/`, `asic/<ip>/` | Top-level IPs only. Constraints and flow config only; generated output goes to `workdir/`. |
+| `fpga/<ip>/`, `asic/<ip>/` | Top-level IPs only. Constraints and flow config only (for ASIC also files its `.mk` names through `$(ASIC_INPUT_DIR)`, such as a power-grid script); generated output goes to `workdir/`. |
 | `arch/<ip>/` | Top-level IPs only: `<prefix><ip>_arch.py` (Python architecture model, not verification), its self-tests and `perf/<scenario>.yaml`; required once the HAS defines targets ([arch BKM](../bkm/arch.md)). |
 
 `./build check` enforces the source layout (its `layout` check), the

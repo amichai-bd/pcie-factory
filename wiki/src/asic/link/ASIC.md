@@ -84,11 +84,14 @@ Liberty and GDS views from the image's `sky130ram` platform folder.
 **Power limitation:** the macros' `vdd` and `gnd` pins are only small met3
 pads spread over the array (no rings or straps), which the platform's
 met4/met5 grid does not reach and its pin patterns do not name, so the
-macros stay off the power grid, and the flow's power figures and IR-drop
-check cover the standard cells only. A first attempt with met4 straps over
-each macro shorted VDD vias onto `gnd` pads (`asic` run 39069113585, IR
-check); aligning straps to each net's pad columns, per macro orientation,
-is a follow-up. Timing and area are unaffected. The macro placer
+macros stay off the power grid:
+[`pdn.tcl`](../../../../src/asic/link/pdn.tcl) is the platform's
+standard-cell grid without its macro grids (which pdngen cannot build for
+macros on no power net), and the flow's power figures and IR-drop check
+cover the standard cells only. A first attempt with met4 straps over each
+macro shorted VDD vias onto `gnd` pads (`asic` run 39069113585, IR check);
+aligning straps to each net's pad columns, per macro orientation, is a
+follow-up. Timing and area are unaffected. The macro placer
 places the macros. No inferred memory remains above ORFS's default
 `SYNTH_MEMORY_MAX_BITS`, so the knob keeps its default.
 
@@ -119,3 +122,4 @@ Study results never replace the nightly 125 MHz measurements.
 | --- | --- |
 | [`pcie_link.sdc`](../../../../src/asic/link/pcie_link.sdc) | The two clocks, the study opt-in, uncertainty, I/O delays and the crossing exceptions. |
 | [`sky130hd.mk`](../../../../src/asic/link/sky130hd.mk) | ORFS design knobs and the SRAM macro views; never a source list. |
+| [`pdn.tcl`](../../../../src/asic/link/pdn.tcl) | The power grid: the platform's standard-cell grid. |

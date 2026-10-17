@@ -95,6 +95,7 @@ def test_nickname_and_output_follow_the_ip_id(ctx, tmp_path):
     ("export RESULTS_DIR = /tmp\n", "RESULTS_DIR"),
     ("DESIGN_CONFIG := x\n", "DESIGN_CONFIG"),
     ("NUM_CORES = 64\n", "NUM_CORES"),
+    ("export ASIC_INPUT_DIR = /tmp\n", "ASIC_INPUT_DIR"),
 ])
 def test_mk_must_not_set_tool_owned(ctx, bad, message):
     (ctx.src_root / "asic" / "counter" / "sky130hd.mk").write_text(MK + bad)
@@ -130,6 +131,13 @@ def test_unknown_platform(ctx):
     ip = find_ip(discover(ctx.src_root), "counter")
     with pytest.raises(flow.AsicError, match="unknown platform"):
         flow.make_plan(ctx, ip, "nope")
+
+
+def test_config_mk_exports_the_input_dir_before_the_knobs(ctx):
+    text = flow.render_config_mk(plan_for(ctx))
+    asic = ctx.src_root / "asic" / "counter"
+    assert f"export ASIC_INPUT_DIR = {asic}\n" in text
+    assert text.index("export ASIC_INPUT_DIR") < text.index(f"include {asic / 'sky130hd.mk'}")
 
 
 # --- source backends (cfg/backends.yaml: asic -> suffix sky130) ---

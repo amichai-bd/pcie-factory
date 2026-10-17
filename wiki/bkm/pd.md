@@ -28,6 +28,7 @@ resolver, plus only what is in `src/asic/<ip>/`:
 | File | Holds |
 | --- | --- |
 | `<prefix><ip>.sdc` (exactly one `.sdc`) | Clock period and uncertainty, input and output delays, each exception with a reason |
+| Other flow config (optional) | Files the `.mk` names through `$(ASIC_INPUT_DIR)`, such as a power-grid script |
 | `sky130hd.mk` | ORFS design config: `DESIGN_NAME` (the IP top), platform, utilization or die/core area, placement density and other knobs, macro views; never a source list |
 
 - `src/asic/<ip>/` exists only for a top-level IP that is a synthesis
@@ -105,7 +106,7 @@ Nightly collects these per IP into the tracker
 ## Review checklist
 
 - Inputs limited to `<ip>.rtl.f` (with the ASIC backends), one
-  `<prefix><ip>.sdc` and `sky130hd.mk`.
+  `<prefix><ip>.sdc`, `sky130hd.mk` and the files it names.
 - SDC clock matches the ASIC page; every exception has a reason.
 - Metrics reported with the toolchain versions; WNS gap explained.
 - No generated output committed.
