@@ -3,11 +3,10 @@
 // wiki/src/rtl/dll/MAS.md.
 //
 // The top: the DLLP path (receive, transmit arbiter), the data link
-// control states, the flow-control initialisation and UpdateFC, the TLP
-// transmit path (sequence numbers, LCRC, replay) and the TLP receive path
-// with its receive buffer and Ack/Nak scheduling. The outputs that credit
-// accounting (#214) drives and the error bit it owns are tied to their
-// reset values here (MAS, slots for the TLP paths).
+// control states, flow control (initialisation, credit accounting, the
+// credit gate, the receive overflow check, UpdateFC), the TLP transmit path
+// (sequence numbers, LCRC, replay) and the TLP receive path with its
+// receive buffer and Ack/Nak scheduling (MAS, top).
 `default_nettype none
 
 `include "common_macros.svh"
@@ -120,6 +119,9 @@ module pcie_dll #(
   pcie_dll_pkg::t_dllp_req updfc_req;
   pcie_dll_pkg::t_dl_state dl_state;
   pcie_dll_pkg::t_fc_vals  avail;
+  logic                    tx_sop_take;
+  logic                    fc_tx_ok;
+  logic                    rx_overflow;
   logic                    bad_dllp;
   logic                    flush;
   logic                    enter_active;
@@ -140,8 +142,8 @@ module pcie_dll #(
   // TLP receive path (#213)
   pcie_dll_pkg::t_rx_word   rx_wr_word;
   pcie_dll_pkg::t_rx_word   rx_word;
-  pcie_dll_pkg::t_rx_credit rx_chk;        // a TLP to store, for the overflow check (#214)
-  pcie_dll_pkg::t_rx_credit rx_stored;     // receive accounting events (#214)
+  pcie_dll_pkg::t_rx_credit rx_chk;        // a TLP to store, for the overflow check
+  pcie_dll_pkg::t_rx_credit rx_stored;     // receive accounting events
   pcie_dll_pkg::t_rx_credit rx_malformed;
   pcie_dll_pkg::t_rx_credit rx_taken;
   logic                     rx_fit;
@@ -156,11 +158,13 @@ module pcie_dll #(
                     eop: pkt_rx_eop_i, dllp: pkt_rx_dllp_i, err: pkt_rx_err_i,
                     nullify: pkt_rx_nullify_i};
 
-  // The receive overflow check is #214's: until it lands every TLP fits.
-  assign rx_fit = 1'b1;
+  // The transmit upper stream as flow control watches it (MAS, credit
+  // interface): a taken sop consumes credits.
+  assign tx_sop_take = tlp_tx_valid_i && tlp_tx_ready_o && tlp_tx_sop_i;
 
-  // The credit gate (#214): open until credit accounting exists.
-  assign tx_credit_ok = 1'b1;
+  // The credit gate (MAS, credit interface): the partner's credits cover
+  // the TLP whose first DW is offered.
+  assign tx_credit_ok = fc_tx_ok;
 
   assign tlp_tx = '{data: tlp_tx_data_i, sop: tlp_tx_sop_i, eop: tlp_tx_eop_i};
 
@@ -239,7 +243,16 @@ module pcie_dll #(
     .updfc_take_i   (updfc_take),
     .updfc_req_o    (updfc_req),
     .recorded_o     (fc_recorded),
-    .avail_o        (avail)
+    .avail_o        (avail),
+    .tx_data_i      (tlp_tx_data_i),
+    .tx_sop_take_i  (tx_sop_take),
+    .tx_ok_o        (fc_tx_ok),
+    .rx_chk_i       (rx_chk),
+    .rx_fit_o       (rx_fit),
+    .rx_stored_i    (rx_stored),
+    .rx_malformed_i (rx_malformed),
+    .rx_taken_i     (rx_taken),
+    .overflow_o     (rx_overflow)
   );
 
   pcie_dll_tx u_tx (
@@ -301,16 +314,14 @@ module pcie_dll #(
   assign fc_cpld_avail_o = avail.cpl.data;
 
   // err_o: bit 0 Bad TLP, 1 Bad DLLP, 2 to 4 the TLP transmit path's (replay
-  // timeout, REPLAY_NUM rollover, DL protocol error), 6 Malformed TLP; bit 5
-  // belongs to the receive credit check (#214).
-  assign err_o = {malformed_tlp, 1'b0, tlp_tx_err, bad_dllp, bad_tlp};
+  // timeout, REPLAY_NUM rollover, DL protocol error), 5 Receiver overflow,
+  // 6 Malformed TLP.
+  assign err_o = {malformed_tlp, rx_overflow, tlp_tx_err, bad_dllp, bad_tlp};
 
   assign tlp_rx_data_o = rx_word.data;
   assign tlp_rx_sop_o  = tlp_rx_valid_o && rx_word.sop;
   assign tlp_rx_eop_o  = tlp_rx_valid_o && rx_word.eop;
 
-  // Receive accounting events, for the credit accounting (#214).
-  `COMMON_UNUSED_BITS(unused_rx_credit, {rx_chk, rx_stored, rx_malformed, rx_taken})
 
   // The upper-layer obligation (HAS, receive): with any class infinite,
   // tlp_rx_ready_i is 1 in every cycle dl_up_o is 1.

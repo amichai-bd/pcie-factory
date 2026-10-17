@@ -272,9 +272,12 @@ Since [#212](https://github.com/amichai-bd/pcie-factory/issues/212) the
 partner is also the far end of the TLP transmit tests, with its fault
 hooks, and receives the architecture model's TLPs in the rollover
 scenario. A reading difference found there, when a running replay ends,
-is a [HAS open item](../../arch/dll/HAS.md#open-items); the credit
-features are cross-checked as #214 adds them. Any disagreement goes to the
-HAS Open items, not into either model silently.
+is a [HAS open item](../../arch/dll/HAS.md#open-items). Credit accounting
+is cross-checked in the flow-control entries
+([#214](https://github.com/amichai-bd/pcie-factory/issues/214)): the
+partner judges every TLP the DUT's credit gate lets through, and sends as
+the DUT's UpdateFCs allow. Any disagreement goes to the HAS Open items, not
+into either model silently.
 
 ## Possible disagreements
 

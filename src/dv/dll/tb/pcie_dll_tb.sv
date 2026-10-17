@@ -2,7 +2,9 @@
 // credit parameters, every port passed through by name, plus cfg_fc_o,
 // the parameters as the cocotb environment reads them ({FC_PH, FC_PD,
 // FC_NPH, FC_NPD, FC_CPLH, FC_CPLD}, FC_PH in the most significant bits).
-// The DUT is driven only through its ports.
+// The DUT is driven only through its ports. probe_tx_ok_o shows the
+// MAS-named credit gate through the bind tap pcie_dll_fc_tap
+// (wiki/src/dv/dll/DV_PLAN.md, gate tap).
 `default_nettype none
 
 module pcie_dll_tb #(
@@ -50,7 +52,9 @@ module pcie_dll_tb #(
   input  logic        link_up_i,
   input  logic [5:0]  ltssm_state_i,
   output logic        retrain_req_o,
-  output logic [79:0] cfg_fc_o
+  output logic [79:0] cfg_fc_o,
+  // The credit gate, from the bind tap (see above).
+  output logic        probe_tx_ok_o
 );
 
   assign cfg_fc_o = {8'(FC_PH), 12'(FC_PD), 8'(FC_NPH), 12'(FC_NPD), 8'(FC_CPLH), 12'(FC_CPLD),
@@ -102,6 +106,8 @@ module pcie_dll_tb #(
     .ltssm_state_i    (ltssm_state_i),
     .retrain_req_o    (retrain_req_o)
   );
+
+  assign probe_tx_ok_o   = u_dut.u_fc_tap.tx_ok;   // the bind tap (pcie_dll_fc_tap.sv)
 
 endmodule
 

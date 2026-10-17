@@ -23,15 +23,19 @@ One cycle, at the falling edge of clk_i after rising edge n:
 5. Every DLLP the DUT sends is checked as it ends (``_tx_packet``): 6
    bytes, its CRC-16 equal to both the architecture model's and the
    partner's, its type allowed in the DUT's state, its values the DUT's
-   parameters, and its bytes equal to what both models encode; an Ack or
-   Nak carries the sequence number the receive reference expects.
+   parameters (InitFC) or its CREDITS_ALLOCATED (UpdateFC), and its bytes
+   equal to what both models encode; an Ack or Nak carries the sequence
+   number the receive reference expects. Each UpdateFC must be due (entry,
+   credits returned, or the refresh) and be the first due class in round
+   robin.
 6. The **receive reference** (``RxRef``) judges every TLP packet the DUT
    receives by the HAS receive rules, with the partner's CRC and header
-   helpers: the TLPs the upper stream must deliver, the Bad TLP and
-   Malformed TLP pulses, NEXT_RCV_SEQ and each NAK_SCHEDULED setting. The
-   **upper layer** takes received beats (``tlp_rx_ready_i``, stalling with
-   ``rx_ready_p`` below 1 only when every class is finite) and checks
-   each delivered TLP against the reference.
+   helpers, and keeps the receive credit counters: the TLPs the upper
+   stream must deliver, the Bad TLP, Malformed TLP and Receiver overflow
+   pulses, NEXT_RCV_SEQ and each NAK_SCHEDULED setting. The **upper
+   layer** takes received beats (``tlp_rx_ready_i``, stalling with
+   ``rx_ready_p`` below 1 only when every class is finite), checks each
+   delivered TLP against the reference and returns its credits.
 7. The **upper transmit driver** offers queued TLPs on ``tlp_tx_*`` (valid
    may drop inside a TLP) and records each one the DUT takes; every TLP the
    DUT sends is checked (``_tx_tlp``): its sequence number, the TLP taken
@@ -40,6 +44,12 @@ One cycle, at the falling edge of clk_i after rising edge n:
    unacknowledged TLP, in order and complete, against the Acks and Naks the
    DUT received. A **retrain stand-in** answers ``retrain_req_o`` with a
    pass through Recovery (``ltssm_state_i`` out of L0, nothing on the line).
+8. The **credit gate** (``probe_tx_ok_o``, from the bind tap on the
+   MAS-named ``fc_tx_ok``) is checked every cycle on the offered first DW
+   (a TLP's sop, or a random header while idle) against the flow-control
+   rule and the architecture model, with the limits as the DUT's registers
+   hold them and CREDITS_CONSUMED counted here from the sops the DUT took;
+   a taken sop needs the gate open; the credits available match.
 """
 
 from __future__ import annotations
@@ -73,11 +83,19 @@ CLASSES = ("P", "NP", "Cpl")        # the partner's names; arch index 0, 1, 2
 ERR_BAD_TLP = 1 << 0                # err_o bit 0 (HAS, errors)
 ERR_BAD_DLLP = 1 << 1               # err_o bit 1
 ERR_MALFORMED = 1 << 6              # err_o bit 6
-ERR_ALLOWED = ERR_BAD_TLP | ERR_BAD_DLLP | ERR_MALFORMED   # the bits the DUT drives today
+ERR_ALLOWED = ERR_BAD_TLP | ERR_BAD_DLLP | ERR_MALFORMED | (1 << 5)   # with ERR_TX: all bits
+ERR_OVERFLOW = 1 << 5               # err_o bit 5, Receiver overflow
+# Receive verdicts as the reference names them, in the classes the shadow's
+# counters tell apart.
+OUTCOME_CLASS = {"bad_lcrc": "bad", "flagged": "bad", "too_short": "bad", "edb_bad": "bad",
+                 "ahead": "bad", "nullified": "none", "not_live": "none"}
+MODS = (256, 4096)                  # header and data credit counters
+RESERVE = (8, 24)                   # receive space of an infinite field
+REFRESH = 2048                      # UpdateFC refresh, cycles
 L0_CODE = 0x20                      # an L0 code of ltssm_state_i (mac LTSSM encoding)
 RECOVERY_CODE = 0x10                # Recovery.RcvrLock: not L0
 # err_o bits of the TLP transmit path (HAS, errors); bits 0, 5 and 6 are the
-# receive path's (#213, #214) and never pulse here.
+# receive path's and the receive credit check's.
 ERR_TIMEOUT, ERR_ROLLOVER, ERR_PROTOCOL = 2, 3, 4
 ERR_TX = (1 << ERR_TIMEOUT) | (1 << ERR_ROLLOVER) | (1 << ERR_PROTOCOL)
 SEQ_MOD = 4096
@@ -125,9 +143,33 @@ COV_TAIL = Covergroup("dll_tx_tail")
 COV_TAIL.coverpoint("beats_after_link_down", bins={"one": 1, "two": 2, "three": 3})
 
 COV_UPDFC = Covergroup("dll_updatefc_tx")
-COV_UPDFC.coverpoint("cause", bins=["entry", "refresh"])
+COV_UPDFC.coverpoint("cause", bins=["entry", "refresh", "returned"])
 COV_UPDFC.coverpoint("cls", bins=list(CLASSES))
 COV_UPDFC.cross("cause_x_cls", "cause", "cls")
+# The class sent, counted from the round-robin pointer: 0 the pointer's
+# class, 1 and 2 the next ones (reached only when the pointer's class is
+# not due while a later one is).
+COV_UPDFC.coverpoint("rr_skip", bins={"pointer": 0, "next": 1, "next_but_one": 2})
+
+# Transmit credit gate (FLOW_CONTROL.md, transmit accounting).
+COV_FC_TX = Covergroup("dll_fc_tx")
+COV_FC_TX.coverpoint("gate", bins=["open", "closed_hdr", "closed_data", "closed_both",
+                                   "infinite"])
+COV_FC_TX.coverpoint("cls", bins=list(CLASSES))
+COV_FC_TX.cross("gate_x_cls", "gate", "cls")
+COV_FC_TX.coverpoint("consumed_wrap", bins=["hdr", "data"])
+COV_FC_TX.coverpoint("starve", bins=["refused", "recovered"])
+
+# Receive accounting (FLOW_CONTROL.md, receive accounting and buffer).
+COV_FC_RX = Covergroup("dll_fc_rx")
+COV_FC_RX.coverpoint("decision", bins=["stored", "overflow", "malformed",
+                                       "malformed_no_hdr"])
+COV_FC_RX.coverpoint("cls", bins=list(CLASSES))
+# A malformed TLP under 4 bytes has no header, so no class.
+COV_FC_RX.cross("decision_x_cls", "decision", "cls",
+                unreachable=[("malformed_no_hdr", c) for c in CLASSES])
+COV_FC_RX.coverpoint("field", bins=["finite", "infinite"])
+COV_FC_RX.coverpoint("returned", bins=["P", "NP", "Cpl"])
 
 # TLP transmit (DV plan, coverage): TLPs sent, their shape and whether new
 # or replayed; replays and what ended them; the replay timer and rollover;
@@ -162,7 +204,7 @@ COV_RBUF.coverpoint("backpressure", bins=["full_max_tlps", "refused_by_bytes",
 COV_TLP_RX = Covergroup("dll_tlp_rx")
 COV_TLP_RX.coverpoint("outcome", bins=["stored", "duplicate", "ahead", "bad_lcrc", "flagged",
                                        "too_short", "nullified", "edb_bad", "malformed",
-                                       "not_live"])
+                                       "overflow", "not_live"])
 COV_TLP_RX.coverpoint("cls", bins=list(CLASSES))
 COV_TLP_RX.coverpoint("gap", bins=["no_gap", "gap_inside"])
 COV_TLP_RX.coverpoint("nak", bins=["scheduled", "already_scheduled"])
@@ -188,8 +230,11 @@ class RxRef:
     """The HAS receive rules for TLPs (RETRY.md, receiving TLPs) applied
     to every TLP packet the DUT receives, written with the partner's CRC
     and header helpers only: neither the RTL nor the architecture model.
-    The DUT's overflow check is #214's, so every expected, well-formed TLP
-    is stored here."""
+    With ``credits`` (the Env) it also keeps the receive credit counters
+    (FLOW_CONTROL.md, receive accounting): an expected, well-formed TLP its
+    class's free credits do not cover overflows (no Ack or Nak, NEXT_RCV_SEQ
+    stays), a stored one adds to CREDITS_RECEIVED, a malformed one to both
+    counters (nothing under 4 bytes)."""
 
     def __init__(self) -> None:
         self.expect: list[bytes] = []          # TLPs the upper stream must deliver, in order
@@ -204,6 +249,8 @@ class RxRef:
         self.hist: list[tuple[int, int]] = [(-1, 0)]     # (judging step, NEXT_RCV_SEQ after)
         self.nrs = 0
         self.nak_sched = False
+        self.credits = None                    # the Env's receive counters
+        self.overflow = 0                      # Receiver overflow pulses due
 
     def reset(self, step: int, delivered: int) -> None:
         """DL_Inactive: the receiver state clears, and stored TLPs not yet
@@ -250,6 +297,12 @@ class RxRef:
         if d == 0:
             if ptn.tlp_malformed(tlp):
                 self.malformed += 1
+                if self.credits is not None and len(tlp) >= 4:
+                    c, need = CLASSES.index(ptn.has_class(tlp)), ptn.tlp_credits(tlp)
+                    self.credits.rx_charge(c, need, alloc=True, rcvd=True)
+                    COV_FC_RX.sample(decision="malformed", cls=CLASSES[c])
+                elif self.credits is not None:
+                    COV_FC_RX.sample(decision="malformed_no_hdr")
                 if len(tlp) < 4:
                     cause = "no_header"
                 elif len(tlp) % 4:
@@ -263,6 +316,16 @@ class RxRef:
                 COV_MALFORMED.sample(cause=cause)
                 out = "malformed"
             else:
+                if self.credits is not None:
+                    c, need = CLASSES.index(ptn.has_class(tlp)), ptn.tlp_credits(tlp)
+                    adv = self.credits.adv[CLASSES[c]]
+                    COV_FC_RX.sample(field="infinite" if 0 in adv else "finite")
+                    if not self.credits.rx_fits(c, need):
+                        self.overflow += 1
+                        COV_FC_RX.sample(decision="overflow", cls=CLASSES[c])
+                        return "overflow"
+                    self.credits.rx_charge(c, need, alloc=False, rcvd=True)
+                    COV_FC_RX.sample(decision="stored", cls=CLASSES[c])
                 self.empty_at_store.append(delivered == len(self.expect))
                 self.expect.append(tlp)
                 self.store_cycle.append(eop)
@@ -285,6 +348,30 @@ def dllp_bytes(typ: int, hdr: int, data: int) -> bytes:
     """An FC DLLP with its CRC, as the architecture model encodes it."""
     kinds = next(k for k in (arch.INITFC1, arch.INITFC2, arch.UPDATEFC) if typ & 0xF8 in k)
     return arch.fc_dllp(kinds, kinds.index(typ & 0xF8), hdr, data, typ & 0x07)
+
+
+def tlp_dws(tlp: bytes) -> list[int]:
+    """A TLP as upper-stream beats: DW i holds bytes 4i (bits 7:0) to 4i+3."""
+    return [int.from_bytes(tlp[i:i + 4], "little") for i in range(0, len(tlp), 4)]
+
+
+def tlp_need(head: bytes) -> tuple[int, tuple[int, int]]:
+    """(class index, (header, data) credits) by the partner's reading of
+    the flow-control page, from at least the first 4 TLP bytes."""
+    return CLASSES.index(ptn.tlp_class(head)), ptn.tlp_credits(head)
+
+
+def gate_rule(limit: list[int], inf: list[bool], used: list[int],
+              need: tuple[int, int]) -> list[bool]:
+    """Per field, the transmit gate (FLOW_CONTROL.md, transmit accounting)."""
+    return [inf[f] or (limit[f] - (used[f] + need[f])) % MODS[f] <= MODS[f] // 2
+            for f in (0, 1)]
+
+
+def random_header(rng: random.Random) -> bytes:
+    """A random header DW0 with a class (Fmt 0xx) and any Length."""
+    b0 = rng.choice((rng.getrandbits(7), 0x40, 0x00, 0x4A, 0x0A, 0x70, 0x30, 0x44))
+    return bytes([b0 & 0x7F, rng.getrandbits(8), rng.getrandbits(8), rng.getrandbits(8)])
 
 
 def raw_dllp(body: bytes) -> bytes:
@@ -433,6 +520,36 @@ class Env:
         self.xcheck: list[str] = []            # RTL and arch shadow disagreements
         self.shadow_offers = 0
         self.shadow_pending: deque[tuple[int, int, bytes]] = deque()   # (cycle, index, TLP)
+        # Credit gate (#214): checks and transmit credits consumed here.
+        self.gate_checks = 0
+        self.refused = 0                       # cycles a sop waited on the closed gate
+        self.refusing = False
+        self.refuse_since = 0
+        self.tx_used = [[0, 0] for _ in CLASSES]   # CREDITS_CONSUMED, from taken sops
+        self.gate_rng = random.Random(seed ^ 0x214)   # idle headers; the stimulus rng is untouched
+        self.lim_snap: list = []               # (limits, infinite) at the start of the cycle
+        self.ovf_seen = 0                      # Receiver overflow pulses
+        # Per received TLP, in order: (cycle, verdict class, (class, credits),
+        # free credits of that class just before) by the reference (on the
+        # DUT's counters) and by the arch shadow (on its own).
+        self.ref_verdicts: list = []
+        self.sh_verdicts: list = []
+        self.epochs: list = []                 # (cycle, DUT and shadow deliveries) at each link-down
+        self.up_ready_now = 1                  # the upper layer's ready this cycle
+        # Receive counters by the flow-control page (FLOW_CONTROL.md),
+        # kept by the receive reference.
+        self.rx_alloc = [[0, 0] for _ in CLASSES]
+        self.rx_rcvd = [[0, 0] for _ in CLASSES]
+        # UpdateFC: CREDITS_ALLOCATED as sent, per class (cycle, value) as
+        # the DUT's registers show it; last sent; round-robin pointer.
+        self.upd_hist: list[list[tuple[int, tuple[int, int]]]] = [[], [], []]
+        self.upd_sent: list[tuple[int, int]] = [(0, 0)] * 3
+        self.upd_offer: dict[int, int] = {}    # class -> offer cycle of its last UpdateFC
+        self.upd_rr = 0
+        self.upd_pending: dict[int, int] = {}  # class -> cycle a return became visible
+        self.upd_lat_max = 0
+        self.upd_bound: int | None = None      # latency bound for a returned credit
+        self.active_since = 0
 
     # ------------------------------------------------------------ set-up
 
@@ -460,6 +577,53 @@ class Env:
         self.adv = {"P": (ph, pd), "NP": (nph, npd), "Cpl": (cplh, cpld)}
         self.shadow = arch.Dll("shadow", {"ph": ph, "pd": pd, "nph": nph, "npd": npd,
                                           "cplh": cplh, "cpld": cpld})
+        self._rx_reset()
+        self.ref.credits = self
+
+    def _rx_reset(self) -> None:
+        """The receive counters and UpdateFC record on entering DL_Inactive."""
+        for c, cls in enumerate(CLASSES):
+            self.rx_alloc[c] = [self.adv[cls][f] or RESERVE[f] for f in (0, 1)]
+            self.rx_rcvd[c] = [0, 0]
+            self.tx_used[c] = [0, 0]
+            self.upd_hist[c] = [(self.cycle, self.adv[cls])]
+            self.upd_sent[c] = self.adv[cls]
+        self.upd_offer = {}
+        self.upd_rr = 0
+        self.upd_pending = {}
+
+    def _tlp_need(self, data: bytes):
+        """(class, credits) of a framed TLP packet's header, or None."""
+        tlp = data[2:-4]
+        if len(tlp) < 4:
+            return None
+        return CLASSES.index(ptn.has_class(tlp)), ptn.tlp_credits(tlp)
+
+    def rx_fits(self, c: int, need: tuple[int, int]) -> bool:
+        """The overflow check (FLOW_CONTROL.md, receive buffer)."""
+        return all(need[f] <= (self.rx_alloc[c][f] - self.rx_rcvd[c][f]) % MODS[f]
+                   for f in (0, 1))
+
+    def rx_charge(self, c: int, need: tuple[int, int], *, alloc: bool, rcvd: bool) -> None:
+        for f in (0, 1):
+            if alloc:
+                self.rx_alloc[c][f] = (self.rx_alloc[c][f] + need[f]) % MODS[f]
+            if rcvd:
+                self.rx_rcvd[c][f] = (self.rx_rcvd[c][f] + need[f]) % MODS[f]
+
+    def upd_value(self, c: int) -> tuple[int, int]:
+        """What an UpdateFC of class c carries now: CREDITS_ALLOCATED, an
+        infinite field as 0."""
+        adv = self.adv[CLASSES[c]]
+        return tuple(self.rx_alloc[c][f] if adv[f] else 0 for f in (0, 1))
+
+    def upd_value_at(self, c: int, cycle: int) -> tuple[int, int]:
+        v = self.upd_hist[c][0][1]
+        for t, val in self.upd_hist[c]:
+            if t > cycle:
+                break
+            v = val
+        return v
 
     def inject(self, pkt: bytes, *, dllp: bool = True, err: bool = False,
                gaps: int = 0, nullify: bool = False) -> None:
@@ -498,7 +662,9 @@ class Env:
                 COV_REPLAY.sample(cause="timeout")
             if err & ~(ERR_ALLOWED | ERR_TX):
                 self.violations.append(f"cycle {n}: err_o {err:#04x}: a bit the DUT does not "
-                                       f"drive yet (#214)")
+                                       f"drive yet")
+            if err & ERR_OVERFLOW:
+                self.ovf_seen += 1
         self._retrain_check(n, err)
         if state != self.state and self.state == ACTIVE:
             self._tlp_link_reset()
@@ -507,7 +673,13 @@ class Env:
             self.states.append((n, state))
             if state == ACTIVE:
                 self.upd_entry = {0, 1, 2}
+                self.upd_rr = 0
+                self.active_since = n
+            if state == INACTIVE:
+                self._rx_reset()
+                self.epochs.append((n, len(self.delivered), len(self.shadow.delivered)))
             self.state = state
+        self._check_counters(n)
         if int(d.dl_up_o.value) != int(state in (INIT2, ACTIVE)):
             self.violations.append(f"cycle {n}: dl_up_o {int(d.dl_up_o.value)} in "
                                    f"{STATE_NAMES[state]}")
@@ -524,8 +696,13 @@ class Env:
         while self.ref_q and self.ref_q[0][0] <= n:
             _, eop, data, err_b, null_b, gap = self.ref_q.popleft()
             live = state in (INIT2, ACTIVE) and self.dut_link
+            cn = self._tlp_need(data) if len(data) >= 6 else None
+            free = (None if cn is None else
+                    tuple((self.rx_alloc[cn[0]][f] - self.rx_rcvd[cn[0]][f]) % MODS[f]
+                          for f in (0, 1)))
             out = self.ref.judge(n, eop, data, err_b, null_b, live, state == ACTIVE,
                                  len(self.delivered))
+            self.ref_verdicts.append((n, OUTCOME_CLASS.get(out, out), cn, free))
             self.rx_outcomes.append((eop, out))
             kinds = {"cls": tlp_cls(data[2:-4])} if out == "stored" else {}
             COV_TLP_RX.sample(outcome=out, gap="gap_inside" if gap else "no_gap", **kinds)
@@ -536,6 +713,10 @@ class Env:
                 self.up_sop.pop()
             self.ref.reset(n, len(self.delivered))
         self._upper(n)
+
+        # The credit limits as the DUT's registers hold them this cycle,
+        # before the shadow takes this cycle's received packets.
+        self.lim_snap = ([list(x) for x in self.shadow.cl], [list(x) for x in self.shadow.inf])
 
         # phy stand-in: transmit ready, the line towards the far end.
         if self.in_pkt:
@@ -608,20 +789,41 @@ class Env:
         sh = self.shadow
         sh.set_link_up(self.dut_link, n)
         while self.shadow_rx and self.shadow_rx[0][0] <= n:
-            sh.receive(self.shadow_rx.popleft()[1], n)
+            pkt = self.shadow_rx.popleft()[1]
+            if pkt.dllp:
+                sh.receive(pkt, n)
+                continue
+            # The shadow's verdict on a TLP, from its counters, with its free
+            # credits for the TLP's class just before (receive accounting).
+            cn = self._tlp_need(pkt.data) if len(pkt.data) >= 6 else None
+            free = None
+            if cn is not None:
+                c = cn[0]
+                free = tuple((sh.ca[c][f] - sh.cr[c][f]) % MODS[f] if self.adv[CLASSES[c]][f]
+                             else RESERVE[f] - sh.occ[c][f] for f in (0, 1))
+            before = (sh.errors[arch.E_BAD_TLP], sh.errors[arch.E_MALFORMED],
+                      sh.errors[arch.E_OVERFLOW], sh.counts["duplicates"], sh.nrs)
+            sh.receive(pkt, n)
+            after = (sh.errors[arch.E_BAD_TLP], sh.errors[arch.E_MALFORMED],
+                     sh.errors[arch.E_OVERFLOW], sh.counts["duplicates"], sh.nrs)
+            out = ("bad" if after[0] > before[0] else "malformed" if after[1] > before[1]
+                   else "overflow" if after[2] > before[2] else "duplicate"
+                   if after[3] > before[3] else "stored" if after[4] != before[4] else "none")
+            self.sh_verdicts.append((n, out, cn, free))
         if in_beat is not None:
             self._rx_collect(n, in_beat)
         elif self.rx_beats:
             self.rx_gap = True
         if self.shadow_pending:
             self._shadow_offer(n)
-        sh.tick(n, self.l0, True, True)
+        sh.tick(n, self.l0, True, bool(self.up_ready_now))
         if sh.state != self.shadow_states[-1][1]:
             self.shadow_states.append((n, sh.state))
 
+        # tlp_tx_ready_o and the credit gate depend on the beat just driven.
+        await Timer(1, "ns")
+        self._gate_check(n, state)
         if self.tlp_drive:
-            # tlp_tx_ready_o depends on the sop beat just driven.
-            await Timer(1, "ns")
             self._tlp_ready(n, state)
         await FallingEdge(d.clk_i)
         self.cycle += 1
@@ -636,7 +838,95 @@ class Env:
             if cond():
                 return i
             await self.step()
-        raise AssertionError(f"cycle {self.cycle}: {what} not reached within {limit} cycles")
+        first = f"; first violation: {self.violations[0]}" if self.violations else ""
+        raise AssertionError(f"cycle {self.cycle}: {what} not reached within {limit} cycles"
+                             f"{first}")
+
+    # ------------------------------------------------------------ slot drivers
+
+    def _gate_check(self, n: int, state: int) -> None:
+        """After the settle: the gate on the first DW driven now (the TLP's
+        sop, or the idle random header) against the rule and the arch
+        model, with the cycle's limits and CREDITS_CONSUMED counted here."""
+        d = self.dut
+        head = int(d.tlp_tx_data_i.value).to_bytes(4, "little")
+        if self.tlp_cur is not None and self.tlp_pos:
+            return                              # not a first DW
+        lim, inf = self.lim_snap
+        c, need = tlp_need(head)
+        fields = gate_rule(lim[c], inf[c], self.tx_used[c], need)
+        want = int(state == ACTIVE and self.dut_link and all(fields))
+        model = self.shadow.credits_ok
+        cc_save = self.shadow.cc[c]
+        self.shadow.cc[c] = list(self.tx_used[c])
+        cl_save, inf_save = self.shadow.cl[c], self.shadow.inf[c]
+        self.shadow.cl[c], self.shadow.inf[c] = lim[c], inf[c]
+        arch_ok = int(state == ACTIVE and self.dut_link and model(c, need))
+        self.shadow.cc[c], self.shadow.cl[c], self.shadow.inf[c] = cc_save, cl_save, inf_save
+        ok = int(d.probe_tx_ok_o.value)
+        self.gate_checks += 1
+        if state == ACTIVE and self.dut_link and (ok != want or arch_ok != want):
+            self.violations.append(
+                f"cycle {n}: gate {ok} for {CLASSES[c]} {need} ({head.hex()}), expected "
+                f"{want} (arch {arch_ok}); limit {lim[c]} infinite {inf[c]} consumed "
+                f"{self.tx_used[c]}")
+        if state == ACTIVE:
+            if all(inf[c]):
+                gate = "infinite"
+            elif all(fields):
+                gate = "open"
+            else:
+                gate = {(False, True): "closed_hdr", (True, False): "closed_data"}.get(
+                    tuple(fields), "closed_both")
+            COV_FC_TX.sample(gate=gate, cls=CLASSES[c])
+        if self.tlp_cur is None or not self.tlp_drive:
+            return
+        ready = int(d.tlp_tx_ready_o.value)
+        if ready and not ok:
+            self.violations.append(f"cycle {n}: a sop taken with the credit gate closed")
+        if not ready and not ok and state == ACTIVE:
+            self.refused += 1
+            if not self.refusing:
+                self.refuse_since = n
+            self.refusing = True
+            COV_FC_TX.sample(starve="refused")
+        elif ready:
+            if self.refusing:
+                COV_FC_TX.sample(starve="recovered")
+            self.refusing = False
+            for f in (0, 1):
+                old = self.tx_used[c][f]
+                self.tx_used[c][f] = (old + need[f]) % MODS[f]
+                if self.tx_used[c][f] < old:
+                    COV_FC_TX.sample(consumed_wrap=("hdr", "data")[f])
+
+    def _check_counters(self, n: int) -> None:
+        """At the start of a cycle: credits available equal the shadow's
+        limits less the consumed credits counted here; the UpdateFC value
+        record; a returned credit
+        is not left unsent."""
+        sh = self.shadow
+        if self.state == ACTIVE and sh.state == arch.ACTIVE:
+            # Limits from the arch shadow, consumed counted here.
+            got = self.dut_avail()
+            for c, cls in enumerate(CLASSES):
+                want = tuple(MODS[f] - 1 if sh.inf[c][f]
+                             else (sh.cl[c][f] - self.tx_used[c][f]) % MODS[f] for f in (0, 1))
+                if got[cls] != want:
+                    self.violations.append(f"cycle {n}: {cls} credits available {got[cls]}, "
+                                           f"expected {want}")
+        for c in range(3):
+            v = self.upd_value(c)
+            if v != self.upd_hist[c][-1][1]:
+                self.upd_hist[c].append((n, v))
+                if self.state == ACTIVE or self.state == INIT2:
+                    self.upd_pending.setdefault(c, n)
+            if self.state == ACTIVE and self.upd_bound is not None and c in self.upd_pending:
+                since = max(self.upd_pending[c], self.active_since)
+                if n - since > self.upd_bound:
+                    self.violations.append(f"cycle {n}: credits returned for {CLASSES[c]} at "
+                                           f"cycle {since} not sent within {self.upd_bound}")
+                    self.upd_pending.pop(c)
 
     # ------------------------------------------------------------ helpers
 
@@ -762,6 +1052,8 @@ class Env:
             self.violations.append(f"{where}: kind {kind} VC {vc}, expected {want} VC 0")
             return
         h, dd = self.adv[CLASSES[cls]]
+        if kind == "update":
+            h, dd = self._check_update(sop, cls)
         expect = arch.fc_dllp(ARCH_KINDS[kind], cls, h, dd)
         typ = {"init1": ptn.INITFC1, "init2": ptn.INITFC2, "update": ptn.UPDATEFC}[kind]
         if data != expect or data != ptn.make_dllp(typ[CLASSES[cls]], h, dd):
@@ -777,16 +1069,46 @@ class Env:
             elif prev is None or prev[1] != kind or prev[2] != cls - 1:
                 self.violations.append(f"{where}: {kind} class {cls} out of group order")
         else:
-            if cls in self.upd_entry:
-                cause = "entry"
-                self.upd_entry.discard(cls)
-            else:
-                cause = "refresh"
-            COV_UPDFC.sample(cause=cause, cls=CLASSES[cls])
             self.upd_last[cls] = sop
         COV_TX.sample(kind=kind, cls=CLASSES[cls])
         self.sent.append((sop, kind, cls, data))
         self.offers.append(self.tx_sop_offer)
+
+    def _check_update(self, sop: int, c: int) -> tuple[int, int]:
+        """An UpdateFC of class c whose request the arbiter took at the edge
+        before cycle ``o`` (its first offer): it carries CREDITS_ALLOCATED as
+        the registers showed it at o - 1, it was due then (entry, credits
+        returned, or 2048 cycles since the class's last), and it is the first
+        due class from the round-robin pointer. Returns the expected values."""
+        o = self.tx_sop_offer
+        t = o - 1
+        due = []
+        for k in range(3):
+            q = (self.upd_rr + k) % 3
+            entry = q in self.upd_entry
+            changed = self.upd_value_at(q, t) != self.upd_sent[q]
+            refresh = q in self.upd_offer and t - self.upd_offer[q] >= REFRESH - 1
+            if entry or changed or refresh:
+                due.append((q, "entry" if entry else "returned" if changed else "refresh"))
+        where = f"cycle {sop}: UpdateFC-{CLASSES[c]} offered at {o}"
+        if not due:
+            self.violations.append(f"{where}: no class due")
+        elif due[0][0] != c:
+            self.violations.append(f"{where}: due in round-robin order {due}")
+        cause = next((why for q, why in due if q == c), "refresh")
+        COV_UPDFC.sample(cause=cause, cls=CLASSES[c], rr_skip=(c - self.upd_rr) % 3)
+        value = self.upd_value_at(c, t)
+        self.upd_entry.discard(c)
+        self.upd_sent[c] = value
+        self.upd_offer[c] = o
+        self.upd_rr = (c + 1) % 3
+        if c in self.upd_pending and self.upd_pending[c] <= t:
+            since = max(self.upd_pending.pop(c), self.active_since)
+            self.upd_lat_max = max(self.upd_lat_max, o - since)
+            later = [tc for tc, _ in self.upd_hist[c] if tc > t]
+            if later:
+                self.upd_pending[c] = later[0]
+        return value
 
     # ------------------------------------------------------------ TLP transmit
 
@@ -836,6 +1158,8 @@ class Env:
             self.tlp_cur, self.tlp_pos, self.tlp_gap = self.tlp_q.popleft(), 0, False
         if self.tlp_cur is None:
             self.tlp_drive = False
+            # An idle random header: the credit gate is checked on it too.
+            d.tlp_tx_data_i.value = int.from_bytes(random_header(self.gate_rng), "little")
             d.tlp_tx_valid_i.value = 0
             d.tlp_tx_sop_i.value = 0
             d.tlp_tx_eop_i.value = 0
@@ -902,6 +1226,11 @@ class Env:
         eop, which the shadow reaches at its own pace)."""
         sh = self.shadow
         if sh is None or n - self.tlp_eop_cycle <= 1 or n - self.last_acknak <= 3:
+            return
+        # A refusal by the credit gate is judged by the gate check against
+        # the DUT's own limit timing (the shadow records an UpdateFC a cycle
+        # earlier); this cross-check covers the replay-buffer conditions.
+        if not int(self.dut.probe_tx_ok_o.value):
             return
         if self.shadow_pending:
             return
@@ -1093,6 +1422,7 @@ class Env:
             raise AssertionError("the upper layer may stall only with every class finite "
                                  "(HAS, receive)")
         ready = int(not stall)
+        self.up_ready_now = ready
         d.tlp_rx_ready_i.value = ready
         if not int(d.tlp_rx_valid_o.value):
             return
@@ -1118,6 +1448,10 @@ class Env:
             self.up_beats = []
             i = len(self.delivered)
             self.delivered.append(tlp)
+            # Its credits return as its eop is taken (FLOW_CONTROL.md).
+            c = CLASSES.index(ptn.has_class(tlp))
+            self.rx_charge(c, ptn.tlp_credits(tlp), alloc=True, rcvd=False)
+            COV_FC_RX.sample(returned=CLASSES[c])
             if i >= len(self.ref.expect):
                 self.violations.append(f"cycle {n}: TLP {tlp[:8].hex()} delivered, none expected")
             elif tlp != self.ref.expect[i]:
@@ -1141,6 +1475,8 @@ class Env:
             f"Bad TLP pulses {self.bad_tlp_seen}, expected {ref.bad}")
         assert self.malformed_seen == ref.malformed, (
             f"Malformed TLP pulses {self.malformed_seen}, expected {ref.malformed}")
+        assert self.ovf_seen == ref.overflow, (
+            f"Receiver overflow pulses {self.ovf_seen}, expected {ref.overflow}")
         naks = sum(1 for a in self.acknaks if a[2] == "nak")
         assert naks == ref.nak_sets, f"{naks} Naks sent, expected {ref.nak_sets}"
         worst_ack = 0
@@ -1198,26 +1534,57 @@ class Env:
             worst = max(worst, diff)
         return worst
 
-    def check_shadow_rx(self) -> None:
-        """The architecture-model shadow, given the same packets, delivers
-        the same TLPs and counts the same Bad TLP, Malformed TLP and Nak
-        events (HAS open items get any disagreement)."""
+    def check_shadow_rx(self) -> list[dict]:
+        """The architecture-model shadow, given the same packets, judges
+        every received TLP as the reference does on the DUT's counters
+        (stored, overflow, malformed, bad, duplicate, discarded; overflows
+        included), counts the same Bad TLP, Malformed TLP, Receiver
+        overflow, Nak and duplicate events, and delivers the same TLPs. At a
+        link-down the TLPs stored and not yet delivered are abandoned, and
+        which of them each side finished first is a matter of its delivery
+        latency: within a link-up epoch ended by a link-down the shorter
+        delivery list must be a prefix of the longer, at most one TLP
+        apart, and the final epoch must match exactly. Returns those
+        link-down differences, diagnosed. A verdict that differs on the same
+        free credits would be a rule difference (HAS open items)."""
         sh, ref = self.shadow, self.ref
-        diff = next((i for i, (x, y) in enumerate(zip(sh.delivered, self.delivered)) if x != y),
-                    min(len(sh.delivered), len(self.delivered)))
-        assert sh.delivered == self.delivered, (
-            f"shadow (arch) delivered {len(sh.delivered)} TLPs, DUT {len(self.delivered)}; "
-            f"first difference at TLP {diff}")
+        rv, sv = self.ref_verdicts, self.sh_verdicts
+        assert len(rv) == len(sv), f"{len(rv)} TLPs judged by the reference, {len(sv)} by the shadow"
+        i = next((k for k, (a, b) in enumerate(zip(rv, sv)) if a[1] != b[1]), None)
+        assert i is None, (f"TLP {i}: reference (DUT counters) {rv[i]}, shadow (arch) {sv[i]}; "
+                           f"verdict, credits and free credits before it")
+        diffs = []
+        cuts = [(c, d, a) for c, d, a in self.epochs] + [(None, len(self.delivered),
+                                                          len(sh.delivered))]
+        d0 = a0 = 0
+        for cyc, d1, a1 in cuts:
+            dseg, aseg = self.delivered[d0:d1], sh.delivered[a0:a1]
+            if cyc is None or len(dseg) == len(aseg):
+                assert dseg == aseg, (f"epoch from DUT TLP {d0}: shadow (arch) delivered "
+                                      f"{len(aseg)} TLPs, DUT {len(dseg)}")
+            else:
+                short, long_ = sorted((dseg, aseg), key=len)
+                assert long_[:len(short)] == short and len(long_) - len(short) == 1, (
+                    f"link-down at cycle {cyc}: shadow (arch) delivered {len(aseg)} TLPs in the "
+                    f"epoch, DUT {len(dseg)}")
+                k = d0 + len(short)
+                diffs.append({"link_down": cyc, "tlp": k,
+                              "delivered_by": "DUT" if len(dseg) > len(aseg) else "shadow",
+                              "dut_sop": self.up_sop[k] if len(dseg) > len(aseg) else None})
+            d0, a0 = d1, a1
         assert sh.errors[arch.E_BAD_TLP] == ref.bad, (
             f"shadow (arch) Bad TLP {sh.errors[arch.E_BAD_TLP]}, reference {ref.bad}")
         assert sh.errors[arch.E_MALFORMED] == ref.malformed, (
             f"shadow (arch) Malformed TLP {sh.errors[arch.E_MALFORMED]}, reference "
             f"{ref.malformed}")
-        assert sh.errors[arch.E_OVERFLOW] == 0, "shadow (arch) reports a receiver overflow"
+        assert sh.errors[arch.E_OVERFLOW] == ref.overflow, (
+            f"shadow (arch) Receiver overflow {sh.errors[arch.E_OVERFLOW]}, reference "
+            f"{ref.overflow}")
         assert sh.counts["naks"] == ref.nak_sets, (
             f"shadow (arch) sent {sh.counts['naks']} Naks, reference {ref.nak_sets}")
         assert sh.counts["duplicates"] == len(ref.dups), (
             f"shadow (arch) duplicates {sh.counts['duplicates']}, reference {len(ref.dups)}")
+        return diffs
 
     def check_clean(self) -> None:
         assert not self.violations, "DUT violations:\n" + "\n".join(self.violations[:20])
@@ -1251,6 +1618,7 @@ class ArchEnd:
         self.now = 0
         self.out: deque[ptn.Beat] = deque()
         self.rx: list[ptn.Beat] = []
+        self.queue: deque[bytes] = deque()     # TLPs its upper layer offers
 
     def clock(self, beat_in: ptn.Beat | None) -> ptn.Beat | None:
         d, n = self.dll, self.now
@@ -1297,6 +1665,39 @@ def arch_partner_init(adv: dict[str, tuple[int, int]], partner: ptn.Partner, *,
         if a.dll.state == arch.ACTIVE and partner.state == ptn.ACTIVE:
             return n, a.dll
     raise AssertionError(f"arch model and partner not both in DL_Active within {limit} cycles")
+
+
+def arch_to_partner_traffic(adv: dict[str, tuple[int, int]], partner: ptn.Partner,
+                         tlps: list[bytes], schedule, rng: random.Random, *,
+                         delay: int = 22, drain: int = 20000) -> arch.Dll:
+    """The architecture model (credits ``adv``) sends ``tlps`` to
+    ``partner``, whose upper layer follows ``schedule`` (cycles, take
+    probability), then takes everything until the model has sent them all.
+    Returns the model; the caller checks what the partner received."""
+    fc = {"ph": adv["P"][0], "pd": adv["P"][1], "nph": adv["NP"][0], "npd": adv["NP"][1],
+          "cplh": adv["Cpl"][0], "cpld": adv["Cpl"][1]}
+    a = ArchEnd(arch.Dll("arch", fc))
+    a.tlps.extend(tlps)
+    ab, ba = ptn.Line(delay), ptn.Line(delay)
+    a.link_up = partner.link_up = True
+    to_a = to_p = None
+
+    def cycle() -> None:
+        nonlocal to_a, to_p
+        out_a = a.clock(to_a)
+        out_p = partner.clock(to_p)
+        to_p, to_a = ab.push(out_a), ba.push(out_p)
+
+    for cycles, take in schedule:
+        for _ in range(cycles):
+            partner.upper_ready = rng.random() < take
+            cycle()
+    partner.upper_ready = True
+    for _ in range(drain):
+        if not a.tlps and not a.dll.rbuf and len(partner.received) == len(tlps):
+            break
+        cycle()
+    return a.dll
 
 
 def arch_partner_send(tlps: list[bytes], partner: ptn.Partner, *,
