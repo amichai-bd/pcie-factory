@@ -144,6 +144,14 @@ def tlp_size(tlp: bytes) -> int:
     return 4 * ((4 if tlp[0] & 0x20 else 3) + tlp_payload_dw(tlp))
 
 
+def tlp_malformed(tlp: bytes) -> bool:
+    """Malformed at this layer: not whole DWs, shorter than a 3-DW header,
+    a byte count other than the header's, or a payload above 128 bytes."""
+    if len(tlp) % 4 or len(tlp) < 12:
+        return True
+    return len(tlp) != tlp_size(tlp) or tlp_payload_dw(tlp) > 32
+
+
 def make_tlp(kind: str, payload_dw: int = 0, tag: int = 0) -> bytes:
     """A well-formed TLP for tests: ``kind`` one of MWr, MRd, CfgWr, Msg,
     MsgD, Cpl, CplD. ``tag`` (16 bits) goes in header bytes 4-5 and the
@@ -276,10 +284,10 @@ class Partner:
 
     def send(self, tlp: bytes, check: bool = True) -> None:
         """Queue a TLP. ``check=False`` lets a malformed one through (its
-        byte count disagrees with its header, or it is over 144 bytes), to
-        test the far end's malformed-TLP rule; it still needs a class."""
-        bad = len(tlp) % 4 or len(tlp) < 12 or len(tlp) != tlp_size(tlp) or len(tlp) > 144
-        if tlp_class(tlp) is None or (check and bad):
+        byte count disagrees with its header, it is not whole DWs or shorter
+        than a 3-DW header, or its payload is above 128 bytes), to test the
+        far end's malformed-TLP rule."""
+        if len(tlp) < 4 or tlp_class(tlp) is None or (check and tlp_malformed(tlp)):
             raise ValueError("send takes well-formed TLPs only")
         self.tx_queue.append(bytes(tlp))
 
@@ -477,19 +485,19 @@ class Partner:
         if self._take_rx_inject(self.inject.rx_tlp_drop, "rx_tlp_drop_next"):
             self._count("rx_tlp_dropped")
             return
-        ok_len = len(data) >= 18 and (len(data) - 2) % 4 == 0
-        good_crc = ok_len and lcrc_bytes(data[:-4]) == data[-4:]
+        # Receive order of RETRY.md#receiving-tlps: flagged, too short, EDB,
+        # LCRC; a bad length with a good LCRC is malformed, not bad.
         if err:
             return self._bad_tlp("flagged")
+        if len(data) < 6:
+            return self._bad_tlp(f"length {len(data)}")
+        crc = lcrc_bytes(data[:-4])
         if nullify:
-            inv = bytes(x ^ 0xFF for x in lcrc_bytes(data[:-4])) if ok_len else None
-            if ok_len and data[-4:] == inv:
+            if data[-4:] == bytes(x ^ 0xFF for x in crc):
                 self._count("rx_nullified")
                 return
             return self._bad_tlp("EDB without inverted LCRC")
-        if not ok_len:
-            return self._bad_tlp(f"length {len(data)}")
-        if not good_crc:
+        if data[-4:] != crc:
             return self._bad_tlp("LCRC")
         if self.state == FC_INIT2:
             self.init_done = True
@@ -499,19 +507,22 @@ class Partner:
         tlp = data[2:-4]
         d = (seq - self.next_rcv_seq) % SEQ_MOD
         if d == 0:
-            cls = tlp_class(tlp) or "NP"
-            if len(tlp) != tlp_size(tlp) or len(tlp) > 144:
-                # Malformed: accepted at this layer (acknowledged), not
-                # delivered, its header's credits returned at once.
+            if tlp_malformed(tlp):
+                # Accepted at this layer (acknowledged), not delivered; the
+                # credits its header claims are returned at once. With no
+                # whole first DW there is no header to read: nothing returns.
                 self._violate(f"malformed TLP {tlp[:4].hex()} length {len(tlp)}")
                 self._count("rx_malformed")
-                need, c = tlp_credits(tlp), self.cr[cls]
-                for f, w in ((0, HDR_W), (1, DATA_W)):
-                    if self.adv[cls][f]:
-                        c.received[f] = (c.received[f] + need[f]) % 2 ** w
-                        c.allocated[f] = (c.allocated[f] + need[f]) % 2 ** w
+                cls = tlp_class(tlp) if len(tlp) >= 4 else None
+                if cls is not None:
+                    need, c = tlp_credits(tlp), self.cr[cls]
+                    for f, w in ((0, HDR_W), (1, DATA_W)):
+                        if self.adv[cls][f]:
+                            c.received[f] = (c.received[f] + need[f]) % 2 ** w
+                            c.allocated[f] = (c.allocated[f] + need[f]) % 2 ** w
                 self._accept()
                 return
+            cls = tlp_class(tlp) or "NP"
             if self._take_rx_inject(self.inject.rx_tlp_nak, "rx_tlp_nak_next"):
                 self._count("rx_tlp_naked")
                 return self._bad_tlp("injected Nak")

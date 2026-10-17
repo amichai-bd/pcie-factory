@@ -16,7 +16,7 @@ on protocol behaviour beside the
 | Rule | How it holds |
 | --- | --- |
 | A different author from the architecture model | Written by a separate crewmate under [#210](https://github.com/amichai-bd/pcie-factory/issues/210); the PR records it. |
-| Written from the spec and the HAS | Sources: the [`dll` HAS](../../arch/dll/HAS.md) and its [DLLP](../../arch/dll/DLLP.md), [retry](../../arch/dll/RETRY.md) and [flow-control](../../arch/dll/FLOW_CONTROL.md) pages, at the [#259](https://github.com/amichai-bd/pcie-factory/pull/259) head `feb7ccb`, and the author's own reading of the rules they cite. |
+| Written from the spec and the HAS | Sources: the [`dll` HAS](../../arch/dll/HAS.md) and its [DLLP](../../arch/dll/DLLP.md), [retry](../../arch/dll/RETRY.md) and [flow-control](../../arch/dll/FLOW_CONTROL.md) pages, at the [#259](https://github.com/amichai-bd/pcie-factory/pull/259) head `e2fc2db`, and the author's own reading of the rules they cite. |
 | No shared code | Nothing under `src/arch/dll/`, the architecture model, its CRC code or its self-tests, was read or imported. The partner has its own CRCs, framing and state machines. |
 | Checked | `test_independence_no_shared_code` fails if a partner module imports anything but the standard library and its own modules, or names a path under `arch/` in code. |
 | Disagreements stay visible | Where the partner's reading may differ from the HAS, it is listed below as a [possible disagreement](#possible-disagreements) for the HAS Open items. It is never settled by looking at the model. |
@@ -70,8 +70,12 @@ unbounded, and the upper layer takes one TLP per cycle.
 - **TLPs.** Framed with a 12-bit sequence number and the LCRC
   ([TLP framing](../../arch/dll/RETRY.md#tlp-framing)). Receive applies
   the [receive rules](../../arch/dll/RETRY.md#receiving-tlps) in order:
-  flagged, nullified, length, LCRC, then sequence. Expected TLPs are
-  malformed, overflowed or stored. TLPs ahead are bad, with one Nak per
+  flagged, too short (below 6 bytes), nullified, LCRC, then sequence. A
+  good LCRC over a bad length is not a transmission error: an expected
+  TLP with a length that is not whole DWs, below a 3-DW header, other than
+  its header's, or with a payload above 128 bytes is malformed
+  (acknowledged, not delivered, the credits its header claims returned at
+  once). Other expected TLPs overflow or are stored. TLPs ahead are bad, with one Nak per
   NAK_SCHEDULED. Duplicates get an Ack at once.
 - **Ack and Nak.** The Ack timer (32 cycles from the TLP's `eop`) and the
   [transmit priority](../../arch/dll/RETRY.md#transmit-priority): Nak, Ack,
@@ -162,7 +166,7 @@ run with `python3 -m pytest src/dv/dll/models`, and in `ci-gate` through
 | Area | Tests |
 | --- | --- |
 | Formats | DLLP fields placed bit by bit from the field tables; TLP classes and credits. |
-| One partner, hand-driven | Initialisation and InitFC resend; entry UpdateFC, infinite classes included; receive rules: expected, ahead, NAK_SCHEDULED, duplicate, nullified, flagged, LCRC, length, malformed; Ack timing (32 cycles); DLLP checks; UpdateFC checks; Ack, Nak and replay; replay timeout at 356 cycles; rollover hold through a retrain and its 1024-cycle fallback; replay timer held outside L0; overflow; the credit gate; link-down reset. |
+| One partner, hand-driven | Initialisation and InitFC resend; entry UpdateFC, infinite classes included; receive rules: expected, ahead, NAK_SCHEDULED, duplicate, nullified, flagged, too short, LCRC, malformed lengths and payloads; Ack timing (32 cycles); DLLP checks; UpdateFC checks; Ack, Nak and replay; replay timeout at 356 cycles; rollover hold through a retrain and its 1024-cycle fallback; replay timer held outside L0; overflow; the credit gate; link-down reset. |
 | Two partners back to back | Initialisation at three skews. Clean bidirectional traffic. Lossless, exactly once and in order, with every injection hook on, three seeds, finite and default credits, upper-layer stalls with finite credits. Delayed Acks and forced Naks. Withheld credits. Rollover and recovery. A sender that ignores credits is caught. Same seed, same run. |
 | Independence | No imports or paths outside the partner and the standard library. |
 
@@ -175,19 +179,19 @@ not into either model silently.
 
 ## Possible disagreements
 
-Points where the partner's reading may differ from the HAS at `feb7ccb`,
+Points where the partner's reading may differ from the HAS at `e2fc2db`,
 for the [HAS Open items](../../arch/dll/HAS.md#open-items). None is settled
 by the architecture model.
 
 | # | HAS rule | Partner's reading | Partner does |
 | --- | --- | --- | --- |
-| 1 | A malformed TLP's "header's credits" are returned at once ([receiving TLPs](../../arch/dll/RETRY.md#receiving-tlps)). | All the credits its header claims: one header credit and the data credits its Length gives, which is what the sender consumed. If only the header credit came back, data credits would leak. | Returns both. |
+| 1 | A malformed TLP's "header's credits" are returned at once ([receiving TLPs](../../arch/dll/RETRY.md#receiving-tlps)). | All the credits its header claims: one header credit and the data credits its Length gives, which is what the sender consumed. If only the header credit came back, data credits would leak. A malformed TLP shorter than one DW has no Fmt, Type or Length to read, and the HAS does not say what it returns. | Returns both; nothing for a TLP under 4 bytes. |
 | 2 | An overflowed TLP is discarded without Ack or Nak, so it is replayed ([receive buffer](../../arch/dll/FLOW_CONTROL.md#receive-buffer)). | The Base Spec puts the overflow check in the transaction layer, after the data link layer has accepted and acknowledged the TLP, so a compliant receiver would acknowledge it and drop it. The HAS's choice never loses a TLP and is visible only with a credit-incorrect partner. | Follows the HAS, and flags any overflow as a far-end violation. |
 | 3 | `FC_NPD` may be 1 ([parameters](../../arch/dll/HAS.md#parameters)). | The non-posted class includes atomic operations. A compare-and-swap with 16-byte operands carries 32 bytes, which is 2 data credits. With 1 advertised, such a TLP could never be sent and the sender stalls for good. The minimum may need to be 2 while the upper stream is opaque. | Does not check. |
-| 4 | The CRC-16 and LCRC line mapping (open item). | Derived on its own from the page text, it gives the same bytes as every HAS example. Both readings come from the same sentences, so this agreement does not confirm the Base Spec mapping; the open item stays with the captain. | As the HAS. |
+| 4 | The CRC-16 and LCRC line mapping (open item). | Derived from the DLLP page text alone, it gives the same bytes as every HAS example, and the known answers `B3 94` and `7D 70` ([CRCs](#crcs)). Both readings come from the same sentences, so this agreement shows the page is self-consistent, not that it matches the Base Spec; the open item stays with the captain. | As the HAS. |
 | 5 | DL_Up from FC_INIT2, TLPs only from DL_Active, the "group being sent is complete" exit rule (open item). | Could not be confirmed without the spec. No observable difference: a far end that waits for its group is compliant either way. | The same rules. |
 
-Found independently and already resolved at `feb7ccb`:
+Found independently and already resolved in #259 (by `feb7ccb`):
 
 - With every class infinite, no UpdateFC was ever sent. The side that left
   FC_INIT2 first could then leave its partner in FC_INIT2 for good. The

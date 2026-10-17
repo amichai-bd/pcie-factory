@@ -610,3 +610,34 @@ def test_malformed_tlp_acknowledged_not_delivered():
     with pytest.raises(ValueError):
         b.p.send(short)
     b.p.send(short, check=False)
+
+
+def test_receive_order_and_malformed_lengths():
+    """RETRY.md receive order: under 6 bytes is bad; a good LCRC over a
+    wrong length is malformed (acknowledged), not bad; a payload above
+    128 bytes is malformed; an expected TLP only."""
+    b = Bench(credits=FINITE)
+    b.init()
+    b.put(bytes([0, 0, 1, 2]), False)                   # 4 bytes: too short
+    b.run(30)
+    assert b.p.stats["bad_tlp"] == 1 and len(b.dllps(m.NAK)) == 1
+    b2 = Bench(credits=FINITE)
+    b2.init()
+    odd = m.make_tlp("MRd", 0, 1)[:-2]                  # 10 bytes, good LCRC
+    big = m.make_tlp("MWr", 32, 2)
+    big = big[:2] + bytes([0, 33]) + big[4:] + bytes(4)  # 33 DW payload
+    b2.put(m.frame_tlp(5, odd), False)                  # ahead: Bad TLP, Nak
+    b2.put(m.frame_tlp(0, odd), False)                  # expected: malformed
+    b2.put(m.frame_tlp(1, big), False)
+    b2.run(200)
+    assert b2.p.stats["rx_malformed"] == 2 and b2.p.stats["bad_tlp"] == 1
+    assert b2.p.next_rcv_seq == 2 and b2.p.received == []
+    assert acknak_seq(b2.dllps(m.ACK)[-1]) == 1
+    # Credits its header claims come back at once: the odd one (an MRd
+    # header) 1 NP header credit, the big one 1 P header and 9 P data.
+    assert b2.p.cr["NP"].allocated == [9, 8]
+    assert b2.p.cr["P"].allocated == [9, 41]
+    with pytest.raises(ValueError):
+        b2.p.send(big)
+    with pytest.raises(ValueError):
+        b2.p.send(bytes([0x80]) + bytes(11), check=False)
