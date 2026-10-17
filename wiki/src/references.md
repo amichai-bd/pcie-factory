@@ -82,7 +82,7 @@ on the entry's **Verified** line and removes it here.
 | Publisher | Terasic Technologies |
 | Official link | [DE2-115 product page (manual under Resources)](https://www.terasic.com.tw/cgi-bin/page/archive.pl?Language=English&No=502) |
 | Access | Free download from the board vendor. |
-| Relied on by | The [`top` FPGA page](fpga/top/FPGA.md) and its [pin settings](../../src/fpga/top/de2_115.qsf.tcl); the [`phy` FPGA page](fpga/phy/FPGA.md) and its [pin settings](../../src/fpga/phy/de2_115.qsf.tcl). |
+| Relied on by | The [`phy` FPGA page](fpga/phy/FPGA.md) and its [pin settings](../../src/fpga/phy/de2_115.qsf.tcl). |
 | Verified | **Not verified:** the vendor site did not answer from the cloud session on 2026-10-15; a human confirms the link and the manual revision. |
 
 ## sky130
@@ -95,7 +95,7 @@ on the entry's **Verified** line and removes it here.
 | Publisher | SkyWater Technology and Google (open source) |
 | Official link | [SKY130 PDK documentation](https://skywater-pdk.readthedocs.io/en/main/) |
 | Access | Free, open source. |
-| Relied on by | [`top` ASIC page](asic/top/ASIC.md). |
+| Relied on by | [`phy` ASIC page](asic/phy/ASIC.md). |
 | Verified | The page loads with the PDK documentation title and links to the PDK's source repository. |
 
 ## orfs
@@ -108,5 +108,5 @@ on the entry's **Verified** line and removes it here.
 | Publisher | The OpenROAD Project (open source) |
 | Official link | [OpenROAD Flow Scripts documentation](https://openroad-flow-scripts.readthedocs.io/en/latest/) |
 | Access | Free, open source. |
-| Relied on by | [`top` ASIC page](asic/top/ASIC.md). |
+| Relied on by | [`phy` ASIC page](asic/phy/ASIC.md). |
 | Verified | The page loads with the ORFS documentation title and links to the project's source repositories. |

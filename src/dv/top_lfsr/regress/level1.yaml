@@ -1,7 +1,0 @@
-tests:
-  - name: random_vs_model
-    module: tests.test_top_lfsr
-    testcase: random_vs_model
-    top: pcie_top_lfsr
-    seeds: 3
-    timeout_s: 120
