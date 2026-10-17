@@ -239,10 +239,33 @@ first that fails in that run, at its first seed.
 | TLP receive | Every accepted TLP restarts the Ack timer | `rx_traffic` | An Ack 154 cycles after its TLP's eop, HAS bound 118 (seed 0). |
 | TLP receive | The last DW not marked eop | `rx_directed` | The TLP that ended FC_INIT2 not delivered. |
 | TLP receive | A 4-byte packet not too short | `rx_directed` | Bad TLP pulses 9, expected 10: four zero bytes pass as the LCRC of nothing. |
+| Package | Gate: half the range left counted as closed (`<` for `<=`, headers) | `fc_tx_gate` | The 128-byte write leaving exactly 128 header credits of headroom is refused. |
+| Package | Gate ignores the TLP's own data credits | `fc_tx_gate` | The write leaving exactly 2048 data credits is refused. |
+| Package | Gate ignores an infinite data field's flag | `fc_tx_gate` | Gate 0 for a completion, expected 1 (infinite Cpl, arch agrees). |
+| Flow control | A taken `sop` consumes nothing | `fc_tx_gate` | The boundary write refused: the DUT's headroom is not the consumed credits'. |
+| Package | Data credits rounded down (`tlp_credit`) | `fc_rx_accounting` | An UpdateFC-P carries one data credit fewer than CREDITS_ALLOCATED. |
+| Package | Messages counted as non-posted (`tlp_credit`) | `fc_rx_accounting` | 91 TLPs never accepted: NP credits run out. |
+| Package | Length 0 not read as 1024 DWs | `rx_directed` | UpdateFC-P carries data 70, expected CREDITS_ALLOCATED 326, after a malformed TLP with Length 0. |
+| Package | Overflow check: exactly filling the free credits overflows | `credit_starve_rx` | Receiver overflow with a compliant partner. |
+| Flow control | No Receiver overflow pulse | `fc_rx_accounting_finite` | 0 pulses, the reference 4. |
+| Flow control | A malformed TLP's credits not added to CREDITS_ALLOCATED | `fc_rx_accounting` | Credits returned for P not sent within 20 cycles; an UpdateFC out of round-robin order. |
+| Flow control | A malformed TLP not added to CREDITS_RECEIVED | `fc_rx_accounting` | Stops on `a_free_within_space`. |
+| Flow control | Credits of a TLP taken upward not returned | `fc_rx_accounting` | 94 TLPs never accepted: the far end runs out of credits. |
+| Flow control | No UpdateFC on returned credits | `fc_rx_accounting` | P credits returned at cycle 35 not sent within 20 cycles. |
+| Flow control | The P value sent not recorded (P stays due) | `fc_rx_accounting` | UpdateFC-P offered with no class due. |
+| Flow control | An infinite field's internal count sent instead of 0 | `fc_init_directed` | UpdateFC-Cpl `a0020018ef48`, expected `a00000001fd2`. |
+| Flow control | Round robin ignores the pointer (P first) | `fc_rx_accounting` | UpdateFC-P sent with Cpl first in round-robin order. |
+| Flow control | CREDITS_ALLOCATED cleared to 0 in DL_Inactive | `fc_init_directed` | Entry UpdateFC-P `80000000c91d`, expected the advertisement 8, 32. |
+| Flow control | CREDITS_CONSUMED not cleared in DL_Inactive | `fc_tx_gate` | P credits available (137, 3850) after the restart, arch (2, 8). |
+| Package | Credits available ignore CREDITS_CONSUMED (headers) | `fc_tx_gate` | P credits available (6, 12), arch (5, 12). |
+| Flow control | A stored TLP not added to CREDITS_RECEIVED | `fc_rx_accounting` | Stops on `a_free_within_space`. |
 
 An UpdateFC that writes an infinite field's stored limit is not a mutant
 that can be caught: an infinite field shows all ones from its flag,
-whatever the limit holds.
+whatever the limit holds. Neither is a larger infinite-field reserve
+(`RX_INF_DATA` 24 to 32, run through levels 0 and 1, none fails): the
+reserve fills only if the upper layer stalls with a class infinite, which
+`a_rx_never_stall` forbids, so legal stimulus never reaches it.
 
 ## Gaps
 
