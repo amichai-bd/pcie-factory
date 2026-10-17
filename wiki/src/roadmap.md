@@ -54,9 +54,30 @@ The `link` ASIC gate is the 100 MHz checkpoint, with 125 MHz reported
 nightly; 125 MHz closure (#235) does not block M2
 ([0003](decisions/0003-m2-grill.md) Q10).
 
+## M3: Endpoint transaction layer
+
+Turn the Gen1 x1 link into a minimal endpoint a host can enumerate and use:
+a transaction layer IP, `tl`, a configuration space IP, `cfg`, and an
+integration IP, `core` (`tl` and `cfg` over `link`), exposing a simple TLP
+stream to user logic and verified against an independently written host
+model, with FPGA and ASIC timing evidence. Tracked by the M3 epic
+([#282](https://github.com/amichai-bd/pcie-factory/issues/282)); the goal,
+the done criteria and the decisions are in
+[decision record 0004](decisions/0004-m3-grill.md). Specs and arch models
+run alongside M2's `link` wave; RTL starts after M2 closes (Q6).
+
+| Wave | Outcome | Issues |
+| --- | --- | --- |
+| 0, record | This roadmap and the decision record | #283 |
+| 1, specs and models | `core` HAS with the `tl`↔`cfg` interface; then the `tl` and `cfg` HAS with arch models (each signed off by the captain or the captain's delegate); then the `core` arch model; the independent host model | #284, then #285, #286; then #287; #288 |
+| 2, RTL (after M2) | `cfg` with its testbench; `tl` receive path, then transmit path with completions and MSI/MSI-X, then completion tracking and timeout | #289; #290, then #291, then #292 |
+| 3, `core` | `core` stack and back-to-back e2e enumeration and traffic; then coverage floors, FPGA and ASIC | #293, then #294, #295, #296 |
+
+M3 is done when the goal checklist in the decision record holds on `main`.
+
 ## Later
 
-The transaction layer (above the `dll` upper interface,
-[0003](decisions/0003-m2-grill.md) Q1 and Q5), then Gen2 and Gen3 rates
-([0002](decisions/0002-m1-grill.md) Q9). They are planned here once M2
-lands.
+In order ([0004](decisions/0004-m3-grill.md) Q7): an AXI bridge IP on top of
+the `core` TLP stream; then Gen2 and Gen3 rates
+([0002](decisions/0002-m1-grill.md) Q9) and wider links. They are planned
+here once M3 lands.
