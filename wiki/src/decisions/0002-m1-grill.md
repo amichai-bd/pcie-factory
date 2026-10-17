@@ -54,6 +54,7 @@ M1 is done when all of the following hold on `main`:
 | Q25 | **Structs at interfaces (captain decision, 2026-10-15; firstmate ruling on the epic).** Related signals that cross a module boundary inside an IP, and any multi-field state, are packed structs. They are declared in a package and referenced as `pkg::t_name`, with no import. Types shared between mac and pcs go in the shared package; IP-private types go in `pcie_mac_pkg` or `pcie_pcs_pkg`. Single-meaning signals, and IP top ports that mirror an external spec interface (the PIPE names in the HAS), stay flat `logic`. #146 adds the rule to the RTL BKM and applies it to mac; #145 applies it to pcs. |
 | Q26 | **FPGA timing target is 50 MHz (captain, 2026-10-15).** The DE2-115 (Quartus) evidence constrains `clk_i` and `ser_rx_clk_i` at **50 MHz**, not 125 MHz. The ASIC (sky130hd) target stays **125 MHz**, and the design's Gen1 rates (PIPE 16-bit at 125 MHz, Q7) are unchanged: on the FPGA the 50 MHz figure is a timing and resource target only, since no board bring-up runs at line rate (Q20). Applies to M2 (#203) as well. |
 | Q27 | **ASIC intermediate checkpoint is 100 MHz (captain, 2026-10-16).** Both `clk_i` and `ser_rx_clk_i` must meet 100 MHz (10 ns) in a full routed sky130hd study (#248). The default, nightly and final target remains **125 MHz** (#235), and the Gen1 functional rates (Q7) stay unchanged. Study constraints and measurements are explicitly separate from default target evidence. |
+| Q28 | **125 MHz ASIC closure is out of M1 (captain, 2026-10-17).** M1 closes without sky130 timing met at 125 MHz. FPGA 50 MHz (Q26) and the 100 MHz ASIC checkpoint (Q27) are the delivered physical evidence. 125 MHz closure (#235) continues as future timing optimization, outside this epic. |
 
 ## Updates
 
@@ -97,3 +98,8 @@ M1 is done when all of the following hold on `main`:
   verbatim from the epic body above
   ([#220](https://github.com/amichai-bd/pcie-factory/issues/220)). The
   [`phy` FPGA page](../fpga/phy/FPGA.md) records the clock pins.
+- **2026-10-17:** Q28 (125 MHz ASIC closure is out of M1) added, copied
+  verbatim from the epic body above. Done criterion 6 is unchanged: it asks
+  for ORFS sky130hd metrics for `phy`, not 125 MHz timing met, so
+  [#235](https://github.com/amichai-bd/pcie-factory/issues/235) is future
+  timing work outside M1.

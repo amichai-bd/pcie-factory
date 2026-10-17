@@ -307,7 +307,7 @@ a         100.0% (15/15)  95.6% (218/228)   73.7% (14/19)   none
 
 The `floors` column is `none` (no floor applies), `ok` or `FAIL`.
 
-**Cost.** On the seed IPs' L0+L1+L2 (24 runs, `--jobs 4`), coverage builds
+**Cost.** Measured on the since-retired M0 seed design's L0+L1+L2 (24 runs, `--jobs 4`), coverage builds
 added under 1% of CPU time and functional sampling about 8% (99.5 s to
 108 s of CPU, mean of three runs each); the designs are small, so the
 Python testbench dominates. Type-strict bins raised the cost of one sample

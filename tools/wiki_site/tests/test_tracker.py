@@ -765,3 +765,28 @@ def test_overview_reports_per_clock_gap_without_aggregate_wns(tmp_path):
     problems, out = build(tree(tmp_path, {'2026-09-01.json': rec}))
     assert problems == []
     assert 'ASIC timing gap · WNS −0.25 ns' in overview_html(out)
+
+
+def test_retired_ip_history_still_renders(tmp_path):
+    # An IP named only in older records (removed from src/ since) keeps its
+    # per-IP page and history; the latest snapshot alone drives attention.
+    loc = {"code": 40, "files": 2}
+
+    def old(date, n):
+        return nightly(date, n, "pass", code={"ips": {"gone": loc, "kept": loc}},
+                       tests={"ips": {"gone": {"level0": {"count": 3, "passed": 3}}}},
+                       fpga={"status": "ok", "ips": {"gone": {"status": "fail", "logic_elements": 12}}},
+                       asic={"status": "ok", "ips": {"gone": {"status": "pass", "timing": {"wns_ns": -1.0}}}})
+    data = {"2026-09-01.json": old("2026-09-01", 1), "2026-09-02.json": old("2026-09-02", 2),
+            "2026-09-03.json": nightly("2026-09-03", 3, "pass", code={"ips": {"kept": loc}})}
+    problems, out = build(tree(tmp_path, data))
+    assert problems == []
+    page = (out / "tracker/ip/gone/index.html").read_text()
+    assert "gone metrics" in page and "No data yet for this IP." not in page
+    charts = chart_data(page)["charts"]
+    assert [p[0] for p in charts["ip-loc"]["series"][0]["points"]] == [0, 1]
+    assert [p[0] for p in charts["ip-fpga-le"]["series"][0]["points"]] == [0, 1]
+    assert 'href="gone/index.html">gone</a>' in (out / "tracker/ip/index.html").read_text()
+    html = overview_html(out)
+    assert 'href="ip/gone/index.html">gone →</a>' in html
+    assert "gone:" not in html  # its old FPGA failure and ASIC gap are not current

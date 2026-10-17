@@ -151,7 +151,8 @@ transmit mode, Disable Scrambling and TS fields of `t_step_end`;
 `pcie_mac_scrambler` applies the [scrambling rules](../../arch/mac/SYMBOLS.md#scrambling)
 to a word of two symbols per cycle: `valid_i`, `word_i` (`t_word`),
 `scr_i[1:0]` in; `valid_o`, `word_o` one cycle later. Adapted from the seed
-`pcie_top_lfsr` (same repository, Apache-2.0; Q2).
+`pcie_top_lfsr` (same repository, Apache-2.0, last present at commit
+`07a9d2a`; retired in #91; Q2).
 
 In a cycle with `valid_i` 1, symbol 0 then symbol 1, each seeing the LFSR
 the previous one left:
