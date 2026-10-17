@@ -11,7 +11,9 @@
 // backends request: single-clock DUAL_PORT on a Cyclone IV E M9K, port B
 // read-only and as wide and deep as port A, both on CLOCK0, unregistered
 // outputs, mixed-port OLD_DATA, clock enables bypassed, no image, no power-up
-// randomization, full-word writes or 8- or 9-bit byte enables. A check at
+// randomization, and either no byte enables (width_byteena_a and byte_size
+// not given, as a one-lane backend leaves them) or 8- or 9-bit byte enables
+// with width_a = width_byteena_a * byte_size (Quartus Error 272006). A check at
 // every edge rejects a vendor input the backend must tie that is not tied
 // inactive. Its behavior is the contract's (a read samples the pre-edge
 // word; rden_b low holds q_b), never a claim about the vendor block: only
@@ -32,7 +34,8 @@ module altsyncram #(
   parameter int    widthad_a                          = 1,
   parameter int    numwords_a                         = 0,
   parameter int    width_byteena_a                    = 1,
-  parameter int    byte_size                          = 8,
+  // 0: not given (the vendor default applies only with byte enables).
+  parameter int    byte_size                          = 0,
   parameter string outdata_reg_a                      = "UNREGISTERED",
   parameter int    width_b                            = 1,
   parameter int    widthad_b                          = 1,
@@ -76,6 +79,7 @@ module altsyncram #(
 );
 
   localparam bit BYTE_ENABLES = width_byteena_a > 1;
+  localparam int BYTE_W       = (byte_size < 1) ? 1 : byte_size;
 
   // One generate block per rule; the message names the rule.
   if (operation_mode != "DUAL_PORT") begin : g_mode
@@ -96,9 +100,9 @@ module altsyncram #(
   if (width_b != width_a || widthad_b != widthad_a || numwords_b != numwords_a) begin : g_port_b
     $fatal(1, "altsyncram stub: port B must match port A (no mixed widths)");
   end
-  if (BYTE_ENABLES && !((byte_size == 8 || byte_size == 9)
-                        && width_a == width_byteena_a * byte_size)) begin : g_byteena_a
-    $fatal(1, "altsyncram stub: byte enables need byte_size 8 or 9 and width_a = width_byteena_a * byte_size");
+  if ((BYTE_ENABLES || byte_size != 0) && !((byte_size == 8 || byte_size == 9)
+                                           && width_a == width_byteena_a * byte_size)) begin : g_byteena_a
+    $fatal(1, "altsyncram stub: byte_size, when given, must be 8 or 9 and width_a = width_byteena_a * byte_size");
   end
   if (width_byteena_a < 1 || width_byteena_b != 1) begin : g_byteena_b
     $fatal(1, "altsyncram stub: width_byteena_a must be at least 1 and width_byteena_b 1");
@@ -140,7 +144,7 @@ module altsyncram #(
     end
     if (wren_a) begin
       for (int i = 0; i < width_a; i++) begin
-        if (!BYTE_ENABLES || byteena_a[i / byte_size]) begin
+        if (!BYTE_ENABLES || byteena_a[i / BYTE_W]) begin
           mem_q[address_a][i] <= data_a[i];
         end
       end
