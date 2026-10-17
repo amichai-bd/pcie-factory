@@ -370,7 +370,8 @@ def test_overflow_flagged_not_acknowledged():
     assert [acknak_seq(d) for d in b.dllps(m.NAK)] == [0]
 
 
-def test_credit_gate_and_withhold():
+def test_credit_gate_and_updatefc():
+    """The gate stops at the limit; an UpdateFC raises it."""
     b = Bench(credits=FINITE)
     b.init(credits={"P": (2, 8), "NP": (8, 8), "Cpl": (0, 0)})
     for i in range(4):
@@ -562,33 +563,43 @@ def test_lcrc_bytes_match_framing():
 
 
 def test_independence_no_shared_code():
-    """M2 Q3: the partner imports only the standard library and its own
-    modules, and names no path under src/arch/ (so it cannot load the dll
-    architecture model or its CRC code, directly or through sys.path)."""
+    """M2 Q3: the partner modules and their tests import only the standard
+    library, pytest and the partner's own modules; none uses a dynamic
+    import (importlib, runpy, __import__, exec, eval); and no partner
+    module names an arch/ path or the architecture model's module names
+    in code. Docstrings may name paths."""
     import ast
     import sys
     from pathlib import Path
     here = Path(m.__file__).resolve().parent
     own = {p.stem for p in here.glob("pcie_dll_partner*.py")}
-    for path in sorted(here.glob("*.py")):
+    files = sorted(here.glob("pcie_dll_partner*.py")) + sorted(here.glob("test_pcie_dll_partner*.py"))
+    assert len(files) == 4
+    banned_mods = {"importlib", "runpy"}
+    banned_calls = {"__import__", "exec", "eval"}
+    banned_text = ("pcie_dll_crc", "pcie_dll_arch")
+    for path in files:
         tree = ast.parse(path.read_text())
         docs = {id(n.value) for n in ast.walk(tree)
                 if isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant)}
         for node in ast.walk(tree):
+            names = []
             if isinstance(node, ast.Import):
                 names = [a.name for a in node.names]
             elif isinstance(node, ast.ImportFrom):
                 names = [node.module or ""]
-            else:
-                if path.stem in own and isinstance(node, ast.Constant) \
-                        and isinstance(node.value, str) and id(node) not in docs:
-                    assert "arch" not in node.value.replace("\\", "/").split("/"), \
-                        f"{path.name}: path {node.value!r}"
-                continue
             for name in names:
                 top = name.split(".")[0]
+                assert top not in banned_mods, f"{path.name}: imports {name}"
                 assert top in own or top in sys.stdlib_module_names or top == "pytest", \
                     f"{path.name}: imports {name}"
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                assert node.func.id not in banned_calls, f"{path.name}: calls {node.func.id}"
+            if path.stem in own and isinstance(node, ast.Constant) \
+                    and isinstance(node.value, str) and id(node) not in docs:
+                v = node.value
+                assert "arch" not in v.replace("\\", "/").split("/"), f"{path.name}: path {v!r}"
+                assert not any(t in v for t in banned_text), f"{path.name}: names {v!r}"
 
 
 def test_malformed_tlp_acknowledged_not_delivered():
@@ -650,3 +661,93 @@ def test_np_data_credit_minimum():
     for npd in (0, 2):
         p = m.Partner(credits={"P": (8, 32), "NP": (8, npd), "Cpl": (0, 0)})
         assert p.adv["NP"] == (8, npd)
+
+
+def test_sequence_wrap():
+    """Sequence numbers preloaded near 4095 cross to 0: expected TLPs,
+    Ack, a duplicate, an ahead TLP with its Nak, and a replay, on both the
+    receive and transmit sides."""
+    b = Bench(credits=FINITE)
+    b.init()
+    p = b.p
+    p.next_rcv_seq = 4094
+    t = [m.make_tlp("MWr", 2, i) for i in range(5)]
+    for k, seq in enumerate((4094, 4095, 0)):
+        b.put(m.frame_tlp(seq, t[k]), False)
+    b.run(120)
+    assert p.received == t[:3] and p.next_rcv_seq == 1
+    assert acknak_seq(b.dllps(m.ACK)[-1]) == 0
+    b.take()
+    b.put(m.frame_tlp(4095, t[1]), False)               # duplicate across the wrap
+    b.run(30)
+    assert [acknak_seq(d) for d in b.dllps(m.ACK)] == [0]
+    b.take()
+    b.put(m.frame_tlp(2, t[4]), False)                  # ahead: 1 is missing
+    b.run(40)
+    assert [acknak_seq(d) for d in b.dllps(m.NAK)] == [0]
+    b.take()
+    # Transmit side: 4094, 4095, 0, 1 go out; Nak 4095 replays 0 and 1.
+    p.next_tx_seq, p.ackd_seq = 4094, 4093
+    for x in t[:4]:
+        p.send(x)
+    b.run(150)
+    assert [((d[0] & 0xF) << 8) | d[1] for d in b.tlps()] == [4094, 4095, 0, 1]
+    b.take()
+    b.put(m.make_dllp(m.NAK, 4095), True)
+    b.run(80)
+    assert [((d[0] & 0xF) << 8) | d[1] for d in b.tlps()] == [0, 1]
+    assert p.ackd_seq == 4095 and [s for s, _, _ in p.rbuf] == [0, 1]
+    b.put(m.make_dllp(m.ACK, 4094), True)               # behind ACKD_SEQ: error
+    b.run(10)
+    assert any("DL protocol error" in v for v in p.violations)
+    p.violations.clear()
+    b.put(m.make_dllp(m.ACK, 1), True)
+    b.run(10)
+    assert p.rbuf == [] and p.ackd_seq == 1 and p.violations == []
+
+
+def test_credit_counters_wrap_loopback():
+    """520 maximum-payload MWr one way: 4160 posted data credits and 520
+    header credits, so both 12-bit and 8-bit counters wrap (several
+    times for headers) on both sides, with the receiver stalling now and
+    then; every TLP arrives once, in order, with no overflow."""
+    rng = random.Random(12)
+    sa = [m.make_tlp("MWr", 32, i) for i in range(520)]
+    p = make_pair(12, credits=FINITE)
+    run_until_delivered(p, sa, [], 200000, rng, stall=0.01)
+    check_exact(p, sa, [])
+    assert p.a.cr["P"].consumed == [520 % 256, 4160 % 4096]
+    assert p.b.cr["P"].received == [520 % 256, 4160 % 4096]
+    assert p.a.avail("P") == (8, 32)
+
+
+def test_prefix_tlp_flagged():
+    """A received TLP prefix (Fmt 100) is a far-end violation; it is
+    accounted by the HAS Type rule (here NP)."""
+    b = Bench(credits=FINITE)
+    b.init()
+    pre = bytes([0x80, 0, 0, 0]) + bytes(8)
+    b.put(m.frame_tlp(0, pre), False)
+    b.run(30)
+    assert any("TLP prefix" in v for v in b.p.violations)
+    assert b.p.cr["NP"].received == [1, 0]
+
+
+def test_tx_flag_and_nullify_next():
+    b = Bench(credits=FINITE)
+    b.init()
+    i = b.p.inject
+    i.tx_tlp_nullify_next, i.tx_tlp_flag_next, i.tx_dllp_flag_next = 1, 1, 1
+    raw = []
+    t = m.make_tlp("MWr", 2, 3)
+    b.p.send(t)
+    b.p.force_nak()                                     # a DLLP to flag
+    for _ in range(80):
+        x = b.p.clock(None)
+        if x is not None and x.eop:
+            raw.append(x)
+    tlp_eops = [x for x in raw if not x.dllp]
+    assert tlp_eops[0].nullify and not tlp_eops[0].err      # nullified copy
+    assert tlp_eops[1].err and not tlp_eops[1].nullify      # then flagged TLP
+    assert any(x.dllp and x.err for x in raw)
+    assert b.p.stats["tx_nullified"] == 1 and b.p.stats["tx_tlp_flagged"] == 1

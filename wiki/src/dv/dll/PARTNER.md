@@ -18,7 +18,7 @@ on protocol behaviour beside the
 | A different author from the architecture model | Written by a separate crewmate under [#210](https://github.com/amichai-bd/pcie-factory/issues/210); the PR records it. |
 | Written from the spec and the HAS | Sources: the [`dll` HAS](../../arch/dll/HAS.md) and its [DLLP](../../arch/dll/DLLP.md), [retry](../../arch/dll/RETRY.md) and [flow-control](../../arch/dll/FLOW_CONTROL.md) pages, at the [#259](https://github.com/amichai-bd/pcie-factory/pull/259) head `724c6e9`, merged to `main` as `69b4ac5`, and the author's own reading of the rules they cite. |
 | No shared code | Nothing under `src/arch/dll/`, the architecture model, its CRC code or its self-tests, was read or imported. The partner has its own CRCs, framing and state machines. |
-| Checked | `test_independence_no_shared_code` fails if a partner module imports anything but the standard library and its own modules, or names a path under `arch/` in code. |
+| Checked | `test_independence_no_shared_code` scans the partner modules and their tests. It fails on an import other than the standard library, pytest and the partner's own modules. It also fails on a dynamic import (`importlib`, `runpy`, `__import__`, `exec`, `eval`), and on code in a partner module that names an `arch/` path or the architecture model's module names. |
 | Disagreements stay visible | Where the partner's reading may differ from the HAS, it is listed below as a [possible disagreement](#possible-disagreements) for the HAS Open items. It is never settled by looking at the model. |
 
 The CRCs are checked only against values found without the spec or the
@@ -37,7 +37,7 @@ and `nullify`. None is an idle cycle.
 
 | Member | Kind | Meaning |
 | --- | --- | --- |
-| `link_up` | input | The physical layer's LinkUp. 0 resets the partner to DL_Inactive. |
+| `link_up` | input | The physical layer's LinkUp. 0 resets the partner to DL_Inactive: every counter, timer, flag and credit is cleared, and the replay buffer and the receive store are emptied. TLPs lost from the replay buffer are counted in `stats["lost_on_reset"]`. TLPs lost from the receive store (not yet taken by `upper_ready`) are not counted. The upper transmit queue (`send`) is kept and resent after the next initialisation. |
 | `tx_ready` | input | The stream takes the partner's beat this cycle (0 holds it, even inside a packet). |
 | `in_l0` | input | The LTSSM is in L0. 0 holds the replay timer; a replay held after a rollover waits for it to fall and rise again. |
 | `upper_ready` | input | The partner's upper layer takes stored TLPs, one per cycle. 0 stops credits being returned. The partner's store is unbounded, so it may stall even with an infinite class; the HAS's never-stall obligation binds the `dll`'s upper layer, not the partner. |
@@ -106,6 +106,8 @@ never sends any of them:
 - an Ack or Nak outside the range of unacknowledged TLPs (DL protocol error);
 - a TLP that the advertised credits do not cover (receiver overflow);
 - a malformed TLP;
+- a TLP prefix (Fmt `100`): this design has no prefixes, so a `dll` never
+  sends one. It is accounted by the HAS Type rule;
 - nonzero reserved bits in a DLLP or in a TLP's sequence-number bytes;
 - a DLLP type or virtual channel this design never sends;
 - InitFC values that change between resends;
@@ -124,7 +126,8 @@ other hooks are attributes or calls on the partner.
 | --- | --- |
 | `tx_tlp_drop`, `tx_tlp_drop_next` | One of the partner's TLPs (new or replayed) takes its line time but is driven as idle. |
 | `tx_tlp_corrupt`, `tx_tlp_corrupt_next` | One random bit of the framed TLP is inverted. |
-| `tx_tlp_nullify` | A nullified copy (inverted LCRC, `nullify` on `eop`) goes first, then the TLP itself. |
+| `tx_tlp_nullify`, `tx_tlp_nullify_next` | A nullified copy (inverted LCRC, `nullify` on `eop`) goes first, then the TLP itself. |
+| `tx_tlp_flag`, `tx_dllp_flag` (and `_next`) | A TLP or DLLP of the partner is sent intact with `err` on its `eop` beat, as if the `phy` had flagged it. |
 | `tx_dllp_drop`, `tx_dllp_corrupt` (and `_next`) | The same for the partner's DLLPs. |
 | `rx_tlp_drop`, `rx_dllp_drop` (and `_next`) | A received packet is lost as if on the line. |
 | `rx_tlp_nak` (and `_next`) | A good, expected TLP is treated as bad: discarded with a Nak. |
@@ -166,7 +169,8 @@ run with `python3 -m pytest src/dv/dll/models`, and in `ci-gate` through
 | Area | Tests |
 | --- | --- |
 | Formats | DLLP fields placed bit by bit from the field tables; TLP classes and credits. |
-| One partner, hand-driven | Initialisation and InitFC resend; entry UpdateFC, infinite classes included; receive rules: expected, ahead, NAK_SCHEDULED, duplicate, nullified, flagged, too short, LCRC, malformed lengths and payloads; Ack timing (32 cycles); DLLP checks; UpdateFC checks; Ack, Nak and replay; replay timeout at 356 cycles; rollover hold through a retrain and its 1024-cycle fallback; replay timer held outside L0; overflow; the credit gate; link-down reset. |
+| Wrap | Sequence numbers preloaded near 4095 crossing to 0 with expected TLPs, Ack, a duplicate, a Nak and a replay, and a range error behind ACKD_SEQ (`test_sequence_wrap`). A loopback of 520 maximum-payload MWr wraps the 8-bit header and 12-bit data counters on both sides (`test_credit_counters_wrap_loopback`). |
+| One partner, hand-driven | Initialisation and InitFC resend; entry UpdateFC, infinite classes included; receive rules: expected, ahead, NAK_SCHEDULED, duplicate, nullified, flagged, too short, LCRC, malformed lengths and payloads; Ack timing (32 cycles); DLLP checks; UpdateFC checks; Ack, Nak and replay; replay timeout at 356 cycles; rollover hold through a retrain and its 1024-cycle fallback; replay timer held outside L0; overflow; the credit gate; a received TLP prefix; the flag and nullify hooks; link-down reset. |
 | Two partners back to back | Initialisation at three skews. Clean bidirectional traffic. Lossless, exactly once and in order, with every injection hook on, three seeds, finite and default credits, upper-layer stalls with finite credits. Delayed Acks and forced Naks. Withheld credits. Rollover and recovery. A sender that ignores credits is caught. Same seed, same run. |
 | Independence | No imports or paths outside the partner and the standard library. |
 
@@ -181,15 +185,19 @@ not into either model silently.
 
 Points where the partner's reading may differ from the HAS at `724c6e9`,
 for the [HAS Open items](../../arch/dll/HAS.md#open-items). None is settled
-by the architecture model.
+by the architecture model. Rows 1 to 3 have firstmate rulings in
+[#261](https://github.com/amichai-bd/pcie-factory/issues/261). The Base Spec
+section numbers cited below are unverified: no local copy of the spec was
+available (`./build specs list`).
 
 | # | HAS rule | Partner's reading | Partner does |
 | --- | --- | --- | --- |
 | 1 | A malformed TLP's "header's credits" are returned at once ([receiving TLPs](../../arch/dll/RETRY.md#receiving-tlps)). | All the credits its header claims: one header credit and the data credits its Length gives, which is what the sender consumed. If only the header credit came back, data credits would leak. A malformed TLP shorter than one DW has no Fmt, Type or Length to read, and the HAS does not say what it returns. | Returns both; nothing for a TLP under 4 bytes. Adopted ([#261](https://github.com/amichai-bd/pcie-factory/issues/261)). |
-| 2 | An overflowed TLP is discarded without Ack or Nak, so it is replayed ([receive buffer](../../arch/dll/FLOW_CONTROL.md#receive-buffer)). | The Base Spec puts the overflow check in the transaction layer, after the data link layer has accepted and acknowledged the TLP, so a compliant receiver would acknowledge it and drop it. The HAS's choice never loses a TLP and is visible only with a credit-incorrect partner. | Follows the HAS, and flags any overflow as a far-end violation. The HAS keeps its rule and records this reading ([#261](https://github.com/amichai-bd/pcie-factory/issues/261)). |
-| 3 | `FC_NPD` may be 1 ([parameters](../../arch/dll/HAS.md#parameters)). | The non-posted class includes atomic operations. A compare-and-swap with 16-byte operands carries 32 bytes, which is 2 data credits. With 1 advertised, such a TLP could never be sent and the sender stalls for good. The minimum may need to be 2 while the upper stream is opaque. | Rejects a configuration with NP data credits of 1: the minimum is 2, or 0 for infinite ([#261](https://github.com/amichai-bd/pcie-factory/issues/261)). |
+| 2 | An overflowed TLP is discarded without Ack or Nak, so it is replayed ([receive buffer](../../arch/dll/FLOW_CONTROL.md#receive-buffer)). | The Base Spec puts the overflow check in the transaction layer, after the data link layer has accepted and acknowledged the TLP, so a compliant receiver would acknowledge it and drop it [cite: PCIe Base Spec, rev 3.0, §2.6.1.2]. The HAS's choice never loses a TLP and is visible only with a credit-incorrect partner. | Follows the HAS, and flags any overflow as a far-end violation. The HAS keeps its rule and records this reading ([#261](https://github.com/amichai-bd/pcie-factory/issues/261)). |
+| 3 | `FC_NPD` may be 1 ([parameters](../../arch/dll/HAS.md#parameters)). | The non-posted class includes atomic operations. A compare-and-swap with 16-byte operands carries 32 bytes, which is 2 data credits. With 1 advertised, such a TLP could never be sent and the sender stalls for good. The minimum may need to be 2 while the upper stream is opaque [cite: PCIe Base Spec, rev 3.0, §2.6.1] [cite: PCIe Base Spec, rev 3.0, §6.15]. | Rejects a configuration with NP data credits of 1: the minimum is 2, or 0 for infinite ([#261](https://github.com/amichai-bd/pcie-factory/issues/261)). |
 | 4 | The CRC-16 and LCRC line mapping (open item). | Derived from the DLLP page text alone, it gives the same bytes as every HAS example, and the known answers `B3 94` and `7D 70` ([CRCs](#crcs)). Both readings come from the same sentences, so this agreement shows the page is self-consistent, not that it matches the Base Spec; the open item stays with the captain. | As the HAS. |
 | 5 | DL_Up from FC_INIT2, TLPs only from DL_Active, the "group being sent is complete" exit rule (open item). | Could not be confirmed without the spec. No observable difference: a far end that waits for its group is compliant either way. | The same rules. |
+| 6 | Classes come from the Type field ([classes](../../arch/dll/FLOW_CONTROL.md#classes-and-credits)); the HAS has no TLP prefixes. | A received TLP whose byte 0 is a prefix (Fmt `100`) is not a TLP of this design: no `dll` sends one, so the HAS gives it no class of its own. | Flags it as a far-end violation; accounts it by the Type rule. |
 
 Found independently and already resolved in #259 (by `feb7ccb`):
 

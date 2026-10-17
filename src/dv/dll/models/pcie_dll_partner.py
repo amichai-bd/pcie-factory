@@ -96,6 +96,8 @@ class Inject:
     tx_tlp_nullify: float = 0.0     # send a nullified copy first, then the TLP
     tx_dllp_drop: float = 0.0
     tx_dllp_corrupt: float = 0.0
+    tx_tlp_flag: float = 0.0        # err (phy-flagged) on the TLP's eop beat
+    tx_dllp_flag: float = 0.0       # err on the DLLP's eop beat
     rx_tlp_drop: float = 0.0
     rx_tlp_nak: float = 0.0         # treat a good expected TLP as bad: discard, Nak
     rx_dllp_drop: float = 0.0
@@ -103,6 +105,9 @@ class Inject:
     tx_tlp_corrupt_next: int = 0
     tx_dllp_drop_next: int = 0
     tx_dllp_corrupt_next: int = 0
+    tx_tlp_nullify_next: int = 0
+    tx_tlp_flag_next: int = 0
+    tx_dllp_flag_next: int = 0
     rx_tlp_drop_next: int = 0
     rx_tlp_nak_next: int = 0
     rx_dllp_drop_next: int = 0
@@ -124,6 +129,12 @@ def tlp_class(tlp: bytes) -> str | None:
     if typ in (0b01010, 0b01011):
         return "Cpl"
     return "NP"
+
+
+def has_class(tlp: bytes) -> str:
+    """The class by the HAS Type rule alone, a prefix's byte 0 included."""
+    return tlp_class(bytes([tlp[0] & 0x7F]) + tlp[1:]) if tlp[0] >> 5 == 0b100 \
+        else tlp_class(tlp)
 
 
 def tlp_payload_dw(tlp: bytes) -> int:
@@ -517,7 +528,7 @@ class Partner:
                 # whole first DW there is no header to read: nothing returns.
                 self._violate(f"malformed TLP {tlp[:4].hex()} length {len(tlp)}")
                 self._count("rx_malformed")
-                cls = tlp_class(tlp) if len(tlp) >= 4 else None
+                cls = has_class(tlp) if len(tlp) >= 4 else None
                 if cls is not None:
                     need, c = tlp_credits(tlp), self.cr[cls]
                     for f, w in ((0, HDR_W), (1, DATA_W)):
@@ -526,7 +537,12 @@ class Partner:
                             c.allocated[f] = (c.allocated[f] + need[f]) % 2 ** w
                 self._accept()
                 return
-            cls = tlp_class(tlp) or "NP"
+            cls = tlp_class(tlp)
+            if cls is None:
+                # A TLP prefix (Fmt 100): this design has none and a dll
+                # never sends one. Accounted by the HAS Type rule.
+                self._violate(f"TLP prefix {tlp[:4].hex()} received")
+                cls = has_class(tlp)
             if self._take_rx_inject(self.inject.rx_tlp_nak, "rx_tlp_nak_next"):
                 self._count("rx_tlp_naked")
                 return self._bad_tlp("injected Nak")
@@ -702,7 +718,11 @@ class Partner:
             self._count("tx_dllp_corrupted")
         if drop:
             self._count("tx_dllp_dropped")
-        return _Tx(to_beats(pkt, True), "dllp", drop=drop)
+        beats = to_beats(pkt, True)
+        if not drop and self._take_tx(i.tx_dllp_flag, "tx_dllp_flag_next"):
+            beats[-1] = beats[-1]._replace(err=True)
+            self._count("tx_dllp_flagged")
+        return _Tx(beats, "dllp", drop=drop)
 
     def _take_tx(self, rate: float, nxt: str) -> bool:
         if getattr(self.inject, nxt) > 0:
@@ -744,7 +764,7 @@ class Partner:
         if self.replay_bytes is not None and \
                 sum(len(f) for _, f, _ in self.rbuf) + len(framed) > self.replay_bytes:
             return None
-        if self.inject.tx_tlp_nullify and self.rng.random() < self.inject.tx_tlp_nullify:
+        if self._take_tx(self.inject.tx_tlp_nullify, "tx_tlp_nullify_next"):
             # A nullified copy goes first; the TLP itself stays queued and
             # takes the same sequence number next time.
             self._count("tx_nullified")
@@ -767,7 +787,11 @@ class Partner:
         elif self._take_tx(i.tx_tlp_corrupt, "tx_tlp_corrupt_next"):
             framed = _flip(framed, self.rng)
             self._count("tx_tlp_corrupted")
-        return _Tx(to_beats(framed, False), kind, seq=seq, drop=drop)
+        beats = to_beats(framed, False)
+        if not drop and self._take_tx(i.tx_tlp_flag, "tx_tlp_flag_next"):
+            beats[-1] = beats[-1]._replace(err=True)
+            self._count("tx_tlp_flagged")
+        return _Tx(beats, kind, seq=seq, drop=drop)
 
 
 def _flip(pkt: bytes, rng: random.Random) -> bytes:

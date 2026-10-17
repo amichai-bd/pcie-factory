@@ -43,4 +43,5 @@ Levels 1 and 2 have no entries yet (`tests: []`).
 | [Sequence numbers, LCRC, replay buffer, replay timer, REPLAY_NUM](../../arch/dll/RETRY.md#replay) | [#212](https://github.com/amichai-bd/pcie-factory/issues/212) |
 | [Receive checks, duplicates, Ack and Nak scheduling](../../arch/dll/RETRY.md#receiving-tlps) | [#213](https://github.com/amichai-bd/pcie-factory/issues/213) |
 | [Flow-control initialisation, accounting, UpdateFC](../../arch/dll/FLOW_CONTROL.md) | [#214](https://github.com/amichai-bd/pcie-factory/issues/214) |
+| Partner vs architecture model cross-check; disagreements to HAS Open items | [#211](https://github.com/amichai-bd/pcie-factory/issues/211) |
 | [Targets](../../arch/dll/HAS.md#targets) end to end | [#215](https://github.com/amichai-bd/pcie-factory/issues/215), [#216](https://github.com/amichai-bd/pcie-factory/issues/216) |
