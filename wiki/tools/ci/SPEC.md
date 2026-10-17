@@ -239,8 +239,9 @@ the one dropped. The merge gate is unchanged:
 
 `pages.yml` follows the same groups for its build job only; its deploy is
 never cancelled ([wiki site spec](../wiki_site/SPEC.md#publishing)). The
-manual `fpga.yml` and `asic.yml` and the nightly are dispatch or schedule
-only, so no push cancels them. `labels.yml` keeps one group without
+manual `fpga.yml` and `asic.yml` and the nightly keep their own groups
+without `cancel-in-progress` (`fpga-<ref>`, `asic-<ref>`, `nightly`) and
+run only by dispatch or schedule, so no push reaches them. `labels.yml` keeps one group without
 `cancel-in-progress`: a sync writes labels and takes seconds, so it runs
 to completion rather than stopping partway.
 

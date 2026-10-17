@@ -345,7 +345,10 @@ inline JSON escapes `<`, `>`, `&` and `'`.
   its deployment and leaves the site on the old version until the next run.
   A newer queued deploy replaces an older queued one, which is GitHub's
   rule for one group
-  ([CI concurrency](../ci/SPEC.md#concurrency)).
+  ([CI concurrency](../ci/SPEC.md#concurrency)). One ordering case is
+  bounded: a dispatched build of an older `main` can finish after a newer
+  push build and deploy last. The next push or the daily backstop
+  corrects it.
 
 The repository and the published site are **public**; the
 [wiki BKM](../../bkm/wiki.md#publishability) owns what may be published. The
