@@ -126,3 +126,18 @@ asic_fields:
   - power_w
   - route_drc_errors
   - elapsed_s
+
+# Drop alerts on the per-IP nightly trends (wiki/tools/metrics/SPEC.md#trends).
+# A series alerts when its value in the latest nightly record is lower than
+# its previous recorded value by MORE than this amount, in the series' unit;
+# every series is higher-is-better and a record without the series is a gap.
+# Every series is required; 0 alerts on any drop.
+drop_alerts:
+  coverage_line: 1.0        # percentage points
+  coverage_toggle: 1.0      # percentage points
+  coverage_functional: 1.0  # percentage points
+  mutant_score: 1.0         # percentage points
+  fpga_fmax: 2.0            # MHz, worst clock
+  fpga_setup_slack: 0.5     # ns, worst setup slack
+  asic_wns: 0.2             # ns
+  asic_tns: 1.0             # ns

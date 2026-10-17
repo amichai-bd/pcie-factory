@@ -14,6 +14,7 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `tools/regress/` | Regression lists, selection and summary; see the [regress spec](../regress/SPEC.md). |
 | `tools/fpga/` | Quartus FPGA flow and report parsing; see the [fpga spec](../fpga/SPEC.md). |
 | `tools/labels/` | GitHub label standard, sync and check; see the [labels spec](../labels/SPEC.md). |
+| `tools/pr/` | Read-only pre-check of a PR's recorded evidence; see the [pr spec](../pr/SPEC.md). |
 | `tools/checks/` | `./build check`; see the [checks spec](../checks/SPEC.md). |
 | `tools/ci/` | `cfg/ci.yaml` rules and `./build ci`; see the [CI spec](../ci/SPEC.md). |
 | `tools/arch/` | Architecture-model perf scenarios; see the [arch spec](../arch/SPEC.md). |
@@ -31,6 +32,7 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `regress` | Run regression levels; see the [regress spec](../regress/SPEC.md). |
 | `clean [--ip ID]...` | Delete the whole workdir. With `--ip`, delete `workdir/<ip>/` for each given IP or the [shared unit](#shared-unit) (sub-IP output is a sibling, `workdir/<ip>_<sub>/`). |
 | `labels` | Sync and check GitHub labels; see the [labels spec](../labels/SPEC.md). |
+| `pr check NUMBER` | Read-only pre-check of a PR body's recorded evidence; see the [pr spec](../pr/SPEC.md). |
 | `ci unit\|summary\|status` | `ci-gate` helpers: unit-test suites, the job summary and the data-branch `ci-gate` status; see the [CI spec](../ci/SPEC.md). |
 | `metrics collect\|commits\|guard\|red` | Nightly metrics records, the per-commit series, the data guard and the `nightly-red` issue; see the [metrics spec](../metrics/SPEC.md). |
 | `wiki build\|serve` | Build the wiki site into `<workdir>/wiki-site`, or serve an existing build; see the [wiki site spec](../wiki_site/SPEC.md). |
