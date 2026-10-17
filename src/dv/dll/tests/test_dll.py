@@ -288,6 +288,51 @@ async def fc_init_directed(dut):
 
 
 @cocotb.test()
+async def link_down_mid_dllp(dut):
+    """L0: the link goes down inside a DLLP (MAS, Transmit; HAS decision on
+    a started packet): the DUT sends the remaining beats, two or one, up to
+    eop with valid held, enters DL_Inactive, offers nothing more, and after
+    the next link-up starts its InitFC1 group cleanly. A DLLP offered but
+    not yet taken when the link goes down is withdrawn."""
+    env = Env(dut, cocotb.RANDOM_SEED)
+    await env.start()
+    for taken in (1, 2):
+        env.dut_link = True
+        await wait_state(env, INIT1, 10)
+        # The second DLLP of the group waits a framing cycle; drop the link
+        # once `taken` of its beats have been taken by the phy.
+        await env.run_until(lambda: len(env.sent) >= 1 and len(env.tx_beats) == taken,
+                            100, f"{taken} beats of a DLLP taken")
+        env.dut_link = False
+        n_sent = len(env.sent)
+        await env.run_until(lambda: len(env.sent) > n_sent, 10, "the cut DLLP's eop")
+        assert env.tails and env.tails[-1][1] == 3 - taken, (
+            f"beats after link-down {env.tails}, expected {3 - taken}")
+        assert env.sent[-1][1] == "init1", f"tail of {env.sent[-1][1]}"
+        await wait_state(env, INACTIVE, 3)
+        for _ in range(30):
+            await env.step()
+            assert int(dut.pkt_tx_valid_o.value) == 0, "a packet offered in DL_Inactive"
+    # Withdrawn: the link drops while a sop waits in the framing cycle.
+    env.dut_link = True
+    await wait_state(env, INIT1, 10)
+    await env.run_until(lambda: env.framing and int(dut.pkt_tx_valid_o.value)
+                        and int(dut.pkt_tx_sop_o.value), 100, "a sop waiting for ready")
+    n_sent = len(env.sent)
+    env.dut_link = False
+    await wait_state(env, INACTIVE, 4)
+    await env.run(30)
+    assert len(env.sent) == n_sent and not env.in_pkt, "the waiting DLLP was sent"
+    # A clean restart: the InitFC1 group from P.
+    env.dut_link = True
+    start = len(env.sent)
+    await wait_sent(env, start + 3)
+    assert [(k, c) for _, k, c, _ in env.sent[start:start + 3]] == [
+        ("init1", 0), ("init1", 1), ("init1", 2)], "InitFC1 group after the restart"
+    env.check_clean()
+
+
+@cocotb.test()
 async def updatefc_refresh(dut):
     """L1, seeded: in DL_Active every class gets an UpdateFC again 2048
     cycles after its last one, with no credits returned, infinite classes

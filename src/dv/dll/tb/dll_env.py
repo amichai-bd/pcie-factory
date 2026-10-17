@@ -5,8 +5,10 @@ One cycle, at the falling edge of clk_i after rising edge n:
 
 1. Read the DUT's outputs (all registered).
 2. The **phy stand-in** decides ``pkt_tx_ready_i``: 1 from an accepted sop
-   to its eop (phy HAS, packet stream), 0 in the framing cycle after each
-   eop, otherwise 1 with probability ``ready_p``. An accepted beat goes
+   to its eop (phy HAS, packet stream), link up or down, 0 in the framing
+   cycle after each eop, otherwise 1 with probability ``ready_p``. Like the
+   MAC (``pcie_mac_frame.sv``), it keeps a packet open from its sop to its
+   eop, also across a link-down, and flags a bubble or a sop inside it. An accepted beat goes
    into the line towards the far end and into the DUT packet checker.
 3. The far end is either the **independent partner**
    (``models/pcie_dll_partner.py``) behind a fixed-delay ``Line`` each way,
@@ -88,6 +90,11 @@ COV_INIT.coverpoint("adv_data", bins=["finite", "infinite"])
 COV_INIT.coverpoint("partner_hdr", bins=["finite", "infinite"])
 COV_INIT.coverpoint("partner_data", bins=["finite", "infinite"])
 COV_INIT.coverpoint("first_up", bins=["dut", "partner", "same"])
+
+# A DLLP finished after the link went down (MAS, Transmit): the beats sent
+# after link_up_i fell.
+COV_TAIL = Covergroup("dll_tx_tail")
+COV_TAIL.coverpoint("beats_after_link_down", bins={"one": 1, "two": 2})
 
 COV_UPDFC = Covergroup("dll_updatefc_tx")
 COV_UPDFC.coverpoint("cause", bins=["entry", "refresh"])
@@ -172,6 +179,8 @@ class Env:
         self.bad_seen = 0                      # Bad DLLP pulses on err_o
         self.shadow_rx: deque[tuple[int, arch.Packet]] = deque()
         self.errs: list[tuple[int, int]] = []  # (cycle, err_o) when nonzero
+        self.tail_beats = 0                    # beats taken after link_up_i fell
+        self.tails: list[tuple[int, int]] = [] # (eop cycle, beats after link-down)
         self.violations: list[str] = []
 
     # ------------------------------------------------------------ set-up
@@ -239,10 +248,9 @@ class Env:
         if state == INACTIVE:
             self._check_quiet(n)
         if self.in_pkt and not valid:
-            if self.dut_link and state != INACTIVE:
-                self.violations.append(f"cycle {n}: pkt_tx_valid_o dropped inside a packet")
-            self.in_pkt = False                # cut by the link going down
-            self.tx_beats = []
+            # The MAC keeps the packet open until its eop whatever the link
+            # does (mac MAS, Frame): a bubble is a contract break.
+            self.violations.append(f"cycle {n}: pkt_tx_valid_o dropped inside a packet")
         if not valid:
             self.tx_offer = None
 
@@ -267,7 +275,14 @@ class Env:
                 self.tx_sop_wait += 1
             if ready:
                 to_far = beat
+                if not beat.sop and self.in_pkt and not self.dut_link:   # same edge samples link
+                    self.tail_beats += 1
                 self._tx_beat(n, beat)
+                if beat.eop:
+                    if self.tail_beats:
+                        COV_TAIL.sample(beats_after_link_down=self.tail_beats)
+                        self.tails.append((n, self.tail_beats))
+                    self.tail_beats = 0
         # far end
         if self.partner is not None:
             p = self.partner
@@ -376,9 +391,12 @@ class Env:
         COV_RX.sample(outcome=outcome, gap="gap_inside" if self.rx_gap else "no_gap", **kinds)
 
     def _check_quiet(self, n: int) -> None:
-        """In DL_Inactive every output holds its reset value (HAS)."""
+        """In DL_Inactive every output holds its reset value (HAS); only the
+        tail of a DLLP the phy took before the link went down may follow."""
         d = self.dut
-        for name in ("pkt_tx_valid_o", "tlp_tx_ready_o", "tlp_rx_valid_o", "tlp_rx_sop_o",
+        if int(d.pkt_tx_valid_o.value) and (int(d.pkt_tx_sop_o.value) or not self.in_pkt):
+            self.violations.append(f"cycle {n}: a packet offered in DL_Inactive")
+        for name in ("tlp_tx_ready_o", "tlp_rx_valid_o", "tlp_rx_sop_o",
                      "tlp_rx_eop_o", "fc_ph_avail_o", "fc_pd_avail_o", "fc_nph_avail_o",
                      "fc_npd_avail_o", "fc_cplh_avail_o", "fc_cpld_avail_o", "dl_up_o",
                      "err_o", "retrain_req_o"):

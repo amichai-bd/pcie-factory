@@ -158,7 +158,11 @@ the [timer values](RETRY.md#timers).
 While `rst_i` is high, and in DL_Inactive: `tlp_tx_ready_o`,
 `tlp_rx_valid_o`, `tlp_rx_sop_o`, `tlp_rx_eop_o`, every `fc_*_avail_o`,
 `dl_up_o`, `dl_state_o`, `err_o`, `pkt_tx_valid_o` and `retrain_req_o`
-are 0; data outputs are don't care while not qualified. Reset puts the
+are 0; data outputs are don't care while not qualified. One exception in
+DL_Inactive, not in reset: a packet whose `sop` the `phy` took before
+`link_up_i` fell is finished, so `pkt_tx_valid_o` stays 1 for its
+remaining beats (at most 2, a DLLP's) up to and including its `eop`, then
+falls ([Decisions](#decisions)). Reset puts the
 `dll` in DL_Inactive with every counter, timer, buffer and flag at the
 value listed for DL_Inactive below.
 
@@ -169,7 +173,7 @@ value listed for DL_Inactive below.
 
 | State | Entered | Does | Leaves |
 | --- | --- | --- | --- |
-| DL_Inactive | Reset, or `link_up_i` 0 in any state | Sends nothing; discards every received packet; holds the reset values. | To DL_Init when `link_up_i` is 1. |
+| DL_Inactive | Reset, or `link_up_i` 0 in any state | Starts nothing (only finishes a packet already started, [reset values](#reset-values)); discards every received packet; holds the reset values. | To DL_Init when `link_up_i` is 1. |
 | DL_Init, FC_INIT1 | From DL_Inactive | Sends InitFC1 groups, records the partner's credits ([initialisation](FLOW_CONTROL.md#initialisation)); discards received TLPs, Ack and Nak. | To FC_INIT2 when all three classes are recorded and the group being sent is complete. |
 | DL_Init, FC_INIT2 | From FC_INIT1 | Sends InitFC2 groups; receives TLPs; `dl_up_o` 1. | To DL_Active on the first received InitFC2, UpdateFC or good TLP, once the group being sent is complete. |
 | DL_Active | From FC_INIT2 | Normal operation: TLPs both ways, Ack and Nak, replay, UpdateFC. | To DL_Inactive when `link_up_i` is 0. |
@@ -273,6 +277,7 @@ neither ([`link` errors](../link/HAS.md#errors)).
 | The upper layer never stalls when any class is infinite | An exact, checkable rule. With one FIFO in arrival order, a stall on any TLP would let infinite-class TLPs behind it overrun the reserve even with a credit-correct partner. In M2 the receive side therefore never stalls whenever any class is infinite, which with the default (infinite completion credits) means always; M3's transaction layer must accept every TLP at line rate. | A cycle bound (hard to size and verify); per-class receive queues, rejected on ordering grounds (the bypass rules between classes belong to the transaction layer). |
 | An entry UpdateFC and the 2048-cycle refresh for every class, infinite fields sent as 0 | With all classes infinite and link-up skew, the side that leaves FC_INIT2 first would otherwise send nothing that ends the partner's FC_INIT2, so the partner never reaches DL_Active. | Allowing TLPs in FC_INIT2. |
 | After a REPLAY_NUM rollover, TLPs wait until the LTSSM has left L0 and returned | The replay then never starts into a retrain that would cut it; the `dll` enforces it without relying on `phy` ready timing. | Replaying at once (the first replayed TLP is lost and needs another Nak or timeout). |
+| A packet being sent when `link_up_i` falls is finished: after its `sop` was taken, the remaining beats (at most 2 for a DLLP) go out up to `eop`, then DL_Inactive sends nothing (firstmate decision as the captain's delegate, [#211](https://github.com/amichai-bd/pcie-factory/issues/211)) | The [transmit priority](RETRY.md#transmit-priority) says a started packet is always finished, and the `phy` expects it: the MAC keeps the packet open from its `sop` until an accepted `eop` (its `up_open` clears only on `eop` or reset, whatever the link does), takes and discards the rest, and treats a new `sop` before that `eop` as a contract break (`a_tx_sop_inside_packet`); a cut packet would leave the next link-up's first DLLP inside the old packet. | Cutting the packet at link-down (the next `sop` lands inside the open packet). |
 | Malformed TLPs, bad lengths with a good LCRC included, acknowledged and dropped, credits returned | The data link layer accepted it; the receive buffer is sized from header credits, so it is not stored. The size limit is the 128-byte maximum payload (Q6). The transaction layer's own malformed checks come in M3. | Nak (the partner would replay it until REPLAY_NUM rolls over); a 144-byte packet limit (lets a 132-byte payload with a 3-DW header through). |
 
 ## Targets
@@ -341,5 +346,5 @@ corrects the rule and the model together.
 | DL_Up reported from FC_INIT2, TLP transmission only from DL_Active, and the "group being sent is complete" rule for leaving FC_INIT1 and FC_INIT2. | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
 | The timer values: replay timeout 711 symbol times (no L0s adjustment: `dll` makes no ASPM changes and `link` holds the `phy` out of L0s, [`link` power states](../link/HAS.md#power-states)), Ack limit 237 symbol times, InitFC resend at most every 34 µs, UpdateFC refresh at most every 30 µs ([timers](RETRY.md#timers)). | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
 | A Nak not resent while NAK_SCHEDULED is set (a lost Nak is recovered by the partner's replay timer), and a phy-flagged TLP treated as a bad TLP that schedules a Nak. | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |
-| A DLLP or TLP being sent when `link_up_i` falls: the [transmit priority](RETRY.md#transmit-priority) says a started packet is always finished, while DL_Inactive requires `pkt_tx_valid_o` 0. The RTL cuts the packet (DL_Inactive wins; the `phy` ends it with EDB and its link is down), as the [MAS](../../rtl/dll/MAS.md#decisions) records; the models never send into a link that is down. | Captain; [#211](https://github.com/amichai-bd/pcie-factory/issues/211) |
+| The independent partner cuts its own packet when its link goes down, unlike the [decision](#decisions) to finish a started packet. In the `dll` testbench nothing sees it (the line drops a packet towards a side whose link is down), but a far end over a real `phy` would. Confirm the partner is changed, or that `link` never uses it so. | Firstmate; [#215](https://github.com/amichai-bd/pcie-factory/issues/215) |
 | The minimum advertised credits (`FC_PD` and `FC_CPLD` at least one maximum payload, `FC_NPD` at least 2, the headers at least 1). | Captain; [#210](https://github.com/amichai-bd/pcie-factory/issues/210) |

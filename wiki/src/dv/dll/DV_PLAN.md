@@ -9,8 +9,10 @@
 - **Environment:** [`tb/dll_env.py`](../../../../src/dv/dll/tb/dll_env.py),
   one step per `clk_i` cycle at the falling edge:
   - a **phy stand-in** on the transmit stream: ready 1 from an accepted
-    `sop` to its `eop`, 0 in the framing cycle after each `eop`, otherwise
-    1 with a set probability (stalls);
+    `sop` to its `eop`, link up or down, 0 in the framing cycle after each
+    `eop`, otherwise 1 with a set probability (stalls). Like the MAC
+    (`pcie_mac_frame.sv`), it keeps a packet open from its `sop` to its
+    `eop`, across a link-down too, and flags a bubble or a `sop` inside it;
   - the **far end**, either the [independent partner](PARTNER.md) behind a
     22-cycle line each way (the HAS's two `phy` stacks), whose transmit
     may pause inside and between packets (gaps), or DLLPs a test queues
@@ -27,8 +29,10 @@
   Cpl. Every Bad DLLP pulse matches a received DLLP the models judge bad
   (flagged, not 6 bytes, or a CRC mismatch) outside DL_Inactive, one for
   one; no other `err_o` bit pulses. `dl_up_o` matches the state; in
-  DL_Inactive every output holds its [reset value](../../arch/dll/HAS.md#reset-values);
-  `pkt_tx_valid_o` never drops inside a packet unless the link goes down.
+  DL_Inactive every output holds its [reset value](../../arch/dll/HAS.md#reset-values),
+  except the tail of a DLLP started before the link went down;
+  `pkt_tx_valid_o` never drops inside a packet and no `sop` comes inside
+  one, link up or down.
   With the partner, its `violations` list stays empty.
 - **Port roles:** the `dll` is role neutral
   ([HAS, parameters](../../arch/dll/HAS.md#parameters)); a role shows only
@@ -36,8 +40,9 @@
   the default (completions infinite: an Endpoint or a Root Port), finite
   completions (a role that may) and all infinite, each against partners
   advertising the default, finite completions, all infinite and the
-  smallest legal values; the DUT comes up first, the partner first, or
-  both together.
+  smallest legal values: the full 3 by 4 cross in level 1, all-infinite
+  against all-infinite included, and the DUT at the smallest values in
+  level 2. The DUT comes up first, the partner first, or both together.
 - **Parameter limits:** [`tests/test_dll_params.py`](../../../../src/dv/dll/tests/test_dll_params.py)
   lints `pcie_dll` from `dll.rtl.f` for one illegal value of each `FC_*`
   (and the upper bound of `FC_PD` and `FC_NPD`), which must stop
@@ -52,7 +57,8 @@
   VC; bad CRC, bad length, flagged; discarded in DL_Inactive; gaps inside),
   `dll_fc_init` (what ended FC_INIT2; finite and infinite fields on both
   sides; which side came up first), `dll_updatefc_tx` (entry and refresh
-  per class), `dll_reset` (reset and link-up, crossed).
+  per class), `dll_tx_tail` (a DLLP finished with one or two beats after
+  the link went down), `dll_reset` (reset and link-up, crossed).
 
 ## Cross-check: RTL, architecture model, partner
 
@@ -79,10 +85,11 @@ never into a model or the RTL silently.
 | [Credit parameter ranges](../../arch/dll/HAS.md#parameters) | `param_limits` | 0 | 1; 8 illegal and 3 legal lints, no simulation |
 | [CRC-16](../../arch/dll/DLLP.md#crc-16) known answers, transmit and receive; [receiving DLLPs](../../arch/dll/DLLP.md#receiving-dllps): bad CRC, flagged, wrong length, DL_Inactive | `crc16_kat` | 0 | 1; 5 known answers and every single-bit error of them, 150 random DLLPs and one-bit errors, gaps |
 | [Control states](../../arch/dll/HAS.md#data-link-control-states) and [initialisation](../../arch/dll/FLOW_CONTROL.md#initialisation) by hand: groups and 128-cycle resend, recording, ignored DLLPs, FC_INIT2 ends, entry UpdateFC, [credits available](../../arch/dll/HAS.md#credits-available), UpdateFC limits, link down from each state | `fc_init_directed` | 0 | 1 |
+| [A started DLLP finished across a link-down](../../arch/dll/HAS.md#reset-values), two and one beats left; an offered one withdrawn; clean restart | `link_down_mid_dllp` | 0 | 1 |
 | [UpdateFC refresh](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling), round robin, with ready stalls | `updatefc_refresh` | 1 | 2; two 2048-cycle periods |
 | Link-up against the partner, default DUT credits, [init target](../../arch/dll/HAS.md#targets) 200 cycles; cross-check | `link_up` | 1 | 0 to 3 (the four partner advertisements); 6 link-ups each |
-| The same, DUT completions finite | `link_up_cpl_finite` | 1 | 0, 2; `FC_CPLH` 16, `FC_CPLD` 64 |
-| The same, DUT all infinite | `link_up_infinite` | 1 | 1, 3; every `FC_*` 0 |
+| The same, DUT completions finite | `link_up_cpl_finite` | 1 | 0 to 3; `FC_CPLH` 16, `FC_CPLD` 64 |
+| The same, DUT all infinite | `link_up_infinite` | 1 | 0 to 3; every `FC_*` 0 |
 | Link-up with stalls, gaps and DLLP errors both ways (5% corrupted, 3% dropped, 2% flagged by the partner; 5% lost at it), target 4500 cycles | `link_up_stress` | 1 | 0, 1 |
 | The same, wide sweep | `link_up_stress_sweep` | 2 | 8 derived |
 | The same, DUT at the smallest legal credits | `link_up_stress_smallest` | 2 | 4 derived |
@@ -122,7 +129,7 @@ whatever the limit holds.
 | Feature | Owning issue |
 | --- | --- |
 | [Sequence numbers, LCRC, replay buffer, replay timer, REPLAY_NUM, received Ack and Nak](../../arch/dll/RETRY.md#replay) | [#212](https://github.com/amichai-bd/pcie-factory/issues/212) |
-| [Receive checks, duplicates, Ack and Nak scheduling](../../arch/dll/RETRY.md#receiving-tlps); a good TLP ending FC_INIT2 | [#213](https://github.com/amichai-bd/pcie-factory/issues/213) |
+| [Receive checks, duplicates, Ack and Nak scheduling](../../arch/dll/RETRY.md#receiving-tlps); a good TLP ending FC_INIT2; the assertion that the upper layer never stalls the receive stream when a class is infinite ([HAS, Receive](../../arch/dll/HAS.md#receive)) | [#213](https://github.com/amichai-bd/pcie-factory/issues/213) |
 | [Credit consumption, the credit gate, receive accounting, UpdateFC on returned credits](../../arch/dll/FLOW_CONTROL.md) | [#214](https://github.com/amichai-bd/pcie-factory/issues/214) |
 | [Targets](../../arch/dll/HAS.md#targets) end to end | [#215](https://github.com/amichai-bd/pcie-factory/issues/215), [#216](https://github.com/amichai-bd/pcie-factory/issues/216) |
 

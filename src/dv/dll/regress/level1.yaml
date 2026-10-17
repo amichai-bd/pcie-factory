@@ -17,14 +17,14 @@ tests:
     module: tests.test_dll
     testcase: link_up
     top: pcie_dll_tb
-    seeds: [0, 2]
+    seeds: [0, 1, 2, 3]
     timeout_s: 300
     params: {FC_CPLH: 16, FC_CPLD: 64}
   - name: link_up_infinite
     module: tests.test_dll
     testcase: link_up
     top: pcie_dll_tb
-    seeds: [1, 3]
+    seeds: [0, 1, 2, 3]
     timeout_s: 300
     params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
   - name: link_up_stress

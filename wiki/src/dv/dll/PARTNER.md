@@ -202,6 +202,13 @@ available (`./build specs list`).
 | 5 | DL_Up from FC_INIT2, TLPs only from DL_Active, the "group being sent is complete" exit rule (open item). | Could not be confirmed without the spec. No observable difference: a far end that waits for its group is compliant either way. | The same rules. |
 | 6 | Classes come from the Type field ([classes](../../arch/dll/FLOW_CONTROL.md#classes-and-credits)); the HAS has no TLP prefixes. | A received TLP whose byte 0 is a prefix (Fmt `100`) is not a TLP of this design: no `dll` sends one, so the HAS gives it no class of its own. | Flags it as a far-end violation; accounts it by the Type rule. |
 
+A seventh point was found by the `dll` RTL review
+([#211](https://github.com/amichai-bd/pcie-factory/issues/211)): the
+HAS now finishes a packet whose `sop` the `phy` took before the link went
+down ([decisions](../../arch/dll/HAS.md#decisions)), while the partner
+drops its packet on link-down. It is a [HAS open item](../../arch/dll/HAS.md#open-items);
+the partner is unchanged.
+
 Found independently and already resolved in #259 (by `feb7ccb`):
 
 - With every class infinite, no UpdateFC was ever sent. The side that left

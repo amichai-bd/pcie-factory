@@ -211,9 +211,10 @@ module pcie_dll #(
                                       tlp_tx_eop_i, tlp_rx_ready_i, ltssm_state_i,
                                       acknak_take})
 
-  // Nothing is sent in DL_Inactive (HAS, reset values).
+  // Nothing starts in DL_Inactive (HAS, reset values): only the tail of a
+  // DLLP whose sop the phy took before the link went down.
   `COMMON_ASSERT_NEVER(a_quiet_when_inactive, clk_i, rst_i,
-                       dl_state == pcie_dll_pkg::DL_INACTIVE && pkt_tx_valid_o)
+                       dl_state == pcie_dll_pkg::DL_INACTIVE && pkt_tx_valid_o && pkt_tx.sop)
 
 endmodule
 

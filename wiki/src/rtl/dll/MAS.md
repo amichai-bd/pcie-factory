@@ -47,8 +47,10 @@ UpdateFC.
 
 **Flush.** `u_ctrl`'s `flush_o` is 1 in DL_Inactive and in any cycle with
 `link_up_i` 0, so every block takes its DL_Inactive values at the same
-edge as the state does: a DLLP being collected is dropped, a DLLP being
-sent is cut (`pkt_tx_valid_o` falls), limits, flags and timers clear.
+edge as the state does: a DLLP being collected is dropped, a DLLP
+offered but not yet taken by the `phy` is withdrawn, limits, flags and
+timers clear. A DLLP whose `sop` the `phy` has taken is finished up to its
+`eop` ([transmit](#transmit)).
 
 ### Slots for the TLP paths
 
@@ -61,6 +63,7 @@ Until the TLP paths exist, the top ties the outputs and inputs they own:
 | `acknak_req` into `u_tx` (priorities 1 and 2) | `'0` | #213: Ack and Nak scheduling |
 | `rx_tlp_good` into `u_ctrl` (a good TLP ends FC_INIT2) | 0 | #213 |
 | `err_o` bit 5, credit consumption and returns in `u_fc` | 0, none | #214 |
+| The assertion that the upper layer never stalls `tlp_rx_ready_i` while `dl_up_o` is 1 and any `FC_*` is 0 ([HAS, Receive](../../arch/dll/HAS.md#receive)) | not yet written | #213 (the receive stream it guards) |
 | `tlp_tx_*`, `tlp_rx_ready_i`, `ltssm_state_i` inputs | read by no block (`COMMON_UNUSED_BITS`) | #212, #213 |
 
 Each later block attaches where its tie is: a TLP source as priorities 5
@@ -156,11 +159,18 @@ the stream takes the `eop` beat; then it takes the first valid request in
 InitFC, UpdateFC), loads the body with its `crc16`, and offers it from the
 next cycle. `pkt_tx_valid_o` is 1 from load to the accepted `eop`, so a
 request is never dropped while the `phy` holds ready low between packets,
-and a packet once started is finished, except that `flush_i` cuts it
-([decisions](#decisions)). The tag is always DLLP; a TLP source (#212)
-adds the tag and priorities 5 and 6. The assertion `a_ready_inside_packet`
-states the `phy` contract that ready stays 1 from an accepted `sop` to the
-`eop`.
+and a packet once started is finished. `flush_i` withdraws only a packet
+whose `sop` the `phy` has not taken; once taken (`started`), the
+remaining beats, at most 2, go out up to `eop` with valid held, link down
+or not, and no request loads under `flush_i`, so DL_Inactive then offers
+nothing ([HAS, reset values](../../arch/dll/HAS.md#reset-values)). The tag
+is always DLLP; a TLP source (#212) adds the tag and priorities 5 and 6.
+Assertions: `a_ready_inside_packet` states the `phy` contract that ready
+stays 1 from an accepted `sop` to its `eop`; `open_q` tracks a packet open
+at the `phy` as the MAC does (set by an accepted `sop`, cleared only by an
+accepted `eop` or reset), and `a_sop_inside_packet` and
+`a_eop_follows_sop` check that no `sop` comes and valid never drops while
+it is open, across a link-down too.
 
 ## Decisions
 
@@ -168,7 +178,7 @@ states the `phy` contract that ready stays 1 from an accepted `sop` to the
 | --- | --- | --- |
 | Four blocks now, each later issue a block of its own at a tie | The TLP paths attach without reworking the control or the DLLP path. | One control block with everything (each later issue would rewrite it). |
 | A group is complete when its last DLLP's `eop` has been taken by `phy` | The plain reading of "the group being sent is complete" ([HAS](../../arch/dll/HAS.md#data-link-control-states)). | When the last DLLP is chosen (the state could change with an InitFC still on the stream). |
-| The link going down cuts a DLLP being sent | The HAS requires `pkt_tx_valid_o` 0 in DL_Inactive; the `phy` ends the cut packet with EDB, and its link is down anyway. Recorded as a [HAS open item](../../arch/dll/HAS.md#open-items) against "a packet once started is always finished". | Finishing the packet into a link that is down. |
+| A DLLP started before the link goes down is finished; one only offered is withdrawn | The [HAS decision](../../arch/dll/HAS.md#decisions): the MAC keeps a packet open until its `eop` whatever the link does, and a new `sop` before it breaks the contract. An offered `sop` the `phy` has not taken opened nothing. | Cutting at link-down (the next link-up's first DLLP would land inside the open packet); finishing an offered packet too (it would start in DL_Inactive). |
 | Received DLLPs act one cycle after their `eop` (registered decode) | Keeps the CRC-16 network off the control paths. | Acting in the `eop` cycle. |
 | The refresh count starts when the arbiter takes the class's UpdateFC | One count per class, cleared by its own take; the interval is 2048 cycles plus at most a packet's wait. | Counting from the `phy`'s acceptance. |
 | Group timer and refresh counts saturate | No wrap can send an early group or UpdateFC. | Free-running counters. |
