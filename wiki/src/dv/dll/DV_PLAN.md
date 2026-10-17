@@ -248,7 +248,7 @@ cycle, timer on L0 registered late) were rerun on the final RTL.
 | TLP transmit | A started TLP's stream cleared when the link goes down | `link_down_mid_tlp` | Stops on `a_beat_without_tlp`. |
 | TLP transmit | New TLPs before a running replay | `rbuf_full` | At cycle 1972 TLP 15 taken before the replay sent TLP 10. |
 | TLP transmit | A waiting `sop` still offered in the rollover cycle (hold from the register only) | `rollover_edge` | A TLP started at the rollover edge, ahead of the replay. |
-| TLP transmit | Replay timer on L0 registered one edge late | `timer_edge` | RESULT_M25 |
+| TLP transmit | Replay timer on L0 registered one edge late | `timer_edge` | Timeout 356 cycles after the `eop`, counting a cycle out of L0; expected 361. |
 | Package | LCRC polynomial `04C11DB7`h to `04C11DB6`h | `rx_directed` | DL_Active not reached: the TLP that should end FC_INIT2 has a bad LCRC. |
 | Package | LCRC remainder not complemented | `rx_directed` | The same. |
 | TLP receive | The nullified check inverted (an inverted LCRC is bad, a plain one silent) | `rx_errors` | Bad TLP pulses 196, expected 188 (seed 0). |
@@ -292,7 +292,7 @@ whatever the limit holds.
 ## Coverage holes
 
 No floors yet (the plan has gaps). Merged over levels 0 to 2: line 98.0%
-(434 of 443 line and branch points), toggle 76.1%, functional 100% (152
+(431 of 440 line and branch points), toggle 76.1%, functional 100% (152
 bins). Every line and branch point of the TLP transmit block is hit;
 every one but these is hit:
 
@@ -304,7 +304,7 @@ every one but these is hit:
 
 Toggle holes are mostly the tied-off TLP receive ports, the upper data
 bits of the credit limits (no partner advertises them) and the
-testbench's pass-through ports. In the TLP transmit block 23 of 1822
+testbench's pass-through ports. In the TLP transmit block 23 of 1820
 toggle points are missed: `credit_ok_i` never falls (tied to 1 until
 #214); `hold_left` never falls, as only the next rollover or DL_Inactive
 clears it; bits that are constant by construction: bit 0 of the
