@@ -6,6 +6,10 @@ and prefix are declared in [`src/README.md`](../../src/README.md).
 
 ## M1: Gen1 x1 physical layer
 
+**Done:** the M1 epic ([#65](https://github.com/amichai-bd/pcie-factory/issues/65))
+closed on 2026-10-17, with ASIC timing closure at 125 MHz deferred
+([0002](decisions/0002-m1-grill.md) Q28).
+
 Deliver a Gen1 x1 physical layer as two top-level IPs, `mac` and `pcs`,
 joined by PIPE and stacked in a thin `phy` IP, verified to every Gen1 LTSSM
 state with FPGA and ASIC evidence. Tracked by the M1 epic
@@ -28,8 +32,30 @@ board and is tracked outside M1 ([0002](decisions/0002-m1-grill.md) Q20).
 ASIC timing closure at 125 MHz (#235) is also outside M1: the 100 MHz
 checkpoint is M1's ASIC timing evidence ([0002](decisions/0002-m1-grill.md) Q27, Q28).
 
+## M2: Data link layer
+
+Add a reliable data link layer as a new top-level IP, `dll`, stacked over
+`phy` in a new integration IP, `link`, verified against an independently
+written link partner for error recovery, credits and throughput, with FPGA
+and ASIC timing evidence. Tracked by the M2 epic
+([#203](https://github.com/amichai-bd/pcie-factory/issues/203)), which
+started after M1 closed (Q9); the goal, the done criteria and the decisions
+are in [decision record 0003](decisions/0003-m2-grill.md).
+
+| Wave | Outcome | Issues |
+| --- | --- | --- |
+| 0, factory and record | This roadmap and the decision record; CI cancels superseded runs; machine pre-check of PR evidence; nightly per-IP regression trends with drop alerts | #204; #205, #206, #207 |
+| 1, specs | `dll` HAS and arch model, then the `link` HAS (each signed off by the captain or the captain's delegate) and the independent DLL link partner | #208, then #209, #210 |
+| 2, `dll` RTL | `dll` top, DLLP path and data-link control with the `dll` testbench; then the TX replay path, the RX check and ACK/NAK path, and flow control | #211, then #212, #213, #214 |
+| 3, `link` | `link` stack and back-to-back e2e with error injection and credit tests; then throughput, coverage floors, FPGA and ASIC | #215, then #216, #217, #218, #219 |
+
+M2 is done when the goal checklist in the decision record holds on `main`.
+The `link` ASIC target is 125 MHz on sky130hd (goal item 8), so it needs the
+`phy` closure deferred from M1 (#235; [0003](decisions/0003-m2-grill.md#carried-over-from-m1) Q28).
+
 ## Later
 
-Data-link and transaction layers, then Gen2 and Gen3 rates
-([0002](decisions/0002-m1-grill.md) Q1 and Q9). They are planned here once
-M1 lands.
+The transaction layer (above the `dll` upper interface,
+[0003](decisions/0003-m2-grill.md) Q1 and Q5), then Gen2 and Gen3 rates
+([0002](decisions/0002-m1-grill.md) Q9). They are planned here once M2
+lands.
