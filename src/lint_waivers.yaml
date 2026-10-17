@@ -21,3 +21,10 @@ waivers:
     rule: SYNCASYNCNET
     match: "'pcie_phy_de2_115.rst_q'"
     reason: rst_q drives pcie_phy rst_i, which resets the stack synchronously and reaches the pcs RX reset synchronizer (pcs crossing 2), as the phy and pcs HAS require; it is a flop with no logic after it, as common_cdc_rst requires.
+  # pcie_link stacks pcie_dll over pcie_phy (#215): the same rst_i net,
+  # seen from the link top; the dll takes it synchronously like the phy's
+  # clk_i side.
+  - file: rtl/link/pcie_link.sv
+    rule: SYNCASYNCNET
+    match: "'rst_i'"
+    reason: rst_i resets the dll and the phy synchronously and reaches the pcs RX reset synchronizer (pcs crossing 2), as the link, phy and pcs HAS require.

@@ -287,7 +287,7 @@ whatever the limit holds.
 | --- | --- |
 | The receive overflow check and the overflowed-TLP verdict ([receive buffer](../../arch/dll/FLOW_CONTROL.md#receive-buffer)), driven through `rx_fit` | [#214](https://github.com/amichai-bd/pcie-factory/issues/214) |
 | [Credit consumption, the credit gate, receive accounting, UpdateFC on returned credits](../../arch/dll/FLOW_CONTROL.md) | [#214](https://github.com/amichai-bd/pcie-factory/issues/214) |
-| [Targets](../../arch/dll/HAS.md#targets) end to end (Lossless with errors both ways) | [#215](https://github.com/amichai-bd/pcie-factory/issues/215), [#216](https://github.com/amichai-bd/pcie-factory/issues/216) |
+| [Targets](../../arch/dll/HAS.md#targets) end to end: line use, through the `link` stack | [#216](https://github.com/amichai-bd/pcie-factory/issues/216); Lossless with errors both ways, Rollover and Credits run in the [`link` e2e](../link/DV_PLAN.md) ([#215](https://github.com/amichai-bd/pcie-factory/issues/215)) |
 
 ## Coverage holes
 
