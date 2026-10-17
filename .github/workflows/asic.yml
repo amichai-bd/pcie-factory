@@ -16,6 +16,10 @@ on:
         description: Clock study period in ns (empty = the SDC target; needs an opted-in SDC)
         required: false
         default: ""
+      timeout:
+        description: ORFS budget per IP in seconds (empty = the tool default, 3600)
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -26,13 +30,15 @@ jobs:
     # (kept even though only workflow_dispatch triggers this workflow today).
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 90
+    # Covers a raised per-IP budget (timeout input) plus setup.
+    timeout-minutes: 150
     concurrency:
       group: asic-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     env:
       IP: ${{ inputs.ip }}
       STUDY: ${{ inputs.study_clock_period }}
+      BUDGET: ${{ inputs.timeout }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -63,9 +69,16 @@ jobs:
             esac
             study=(--study-clock-period "$STUDY")
           fi
+          budget=()
+          if [ -n "$BUDGET" ]; then
+            case "$BUDGET" in
+              *[!0-9]*) echo "timeout must be a whole number of seconds"; exit 1 ;;
+            esac
+            budget=(--timeout "$BUDGET")
+          fi
           rc=0
           for ip in $ips; do
-            ./build asic --ip "$ip" "${study[@]}" || rc=1
+            ./build asic --ip "$ip" "${study[@]}" "${budget[@]}" || rc=1
           done
           exit $rc
       - name: Upload metrics and worst-path summary

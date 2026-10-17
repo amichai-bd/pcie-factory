@@ -236,7 +236,9 @@ folder, found with `find`, one `./build asic --ip <id>` each
 (the job fails if any fails). Input `study_clock_period`: empty (the
 default) runs the SDC target; a number of ns adds
 `--study-clock-period <ns>` to each run ([clock studies](#clock-studies));
-anything else fails the job before the flow. A discovery step prints only `ORFS_IMAGE`, the
+anything else fails the job before the flow. Input `timeout`: empty (the default)
+keeps the tool's 3600 s budget per IP; a whole number of seconds adds
+`--timeout <s>` (the job allows 150 minutes). A discovery step prints only `ORFS_IMAGE`, the
 docker version, the local ORFS images (name, tag, digest) and where
 `openroad`, `yosys` and `klayout` are on `PATH`. The `asic-metrics` artifact
 (14-day retention) holds only `metrics.json` and `worst_path.txt` per IP
