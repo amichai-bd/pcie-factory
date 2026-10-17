@@ -340,8 +340,9 @@ class LinkEnd:
                              bool(int(s["mon_pkt_tx_sop_o"].value)),
                              bool(int(s["mon_pkt_tx_eop_o"].value)),
                              bool(int(s["mon_pkt_tx_dllp_o"].value)))
-        # Upper receive: the beat offered in the cycle just ended was taken
-        # when ready was 1 at its rising edge.
+        # Upper receive: the beat offered in this cycle is taken at the next
+        # rising edge with the ready driven now.
+        self._ready = self._take(n)
         if int(s["tlp_rx_valid_o"].value) and self._ready:
             data = int(s["tlp_rx_data_o"].value)
             if int(s["tlp_rx_sop_o"].value):
@@ -355,7 +356,6 @@ class LinkEnd:
         self.rst = n < self.release
         s["rst_i"].value = int(self.rst)
         s["ser_tx_rxdet_i"].value = int(rxdet)
-        self._ready = self._take(n)
         s["tlp_rx_ready_i"].value = int(self._ready)
         self._drive_tx()
         return word, ei
