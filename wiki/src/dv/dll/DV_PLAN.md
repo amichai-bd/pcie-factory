@@ -247,7 +247,7 @@ were all run serially; the timer and rollover ones (replay timeout at
 rollover after 3 replays, no withdrawal, `sop` offered in the rollover
 cycle, timer on L0 registered late) were rerun on the final RTL.
 The flow-control mutants ([#214](https://github.com/amichai-bd/pcie-factory/issues/214))
-were run serially on head `1368863` (every block attached, the credit
+were run serially on head `a92239b` (every block attached, the credit
 gate in front of the real transmit path), each with `src/` clean.
 
 | Block | Mutant | First failing entry | Result |
@@ -343,13 +343,15 @@ gate in front of the real transmit path), each with `src/` clean.
 | Flow control | CREDITS_CONSUMED not cleared in DL_Inactive | `fc_tx_gate` | P credits available (137, 3850) after the restart, expected (2, 8). |
 | Package | Credits available ignore CREDITS_CONSUMED (headers) | `fc_tx_gate` | P credits available (6, 12), expected (5, 12). |
 | Flow control | A stored TLP not added to CREDITS_RECEIVED | `fc_rx_accounting` | Stops on `a_free_within_space`. |
+| Package | Infinite-field data reserve 8 credits, not 24 (too small) | `credits_infinite_rx` (L1, seed 55090061) | 27 Receiver overflows with a compliant partner. |
 
 An UpdateFC that writes an infinite field's stored limit is not a mutant
 that can be caught: an infinite field shows all ones from its flag,
 whatever the limit holds. Neither is a larger infinite-field reserve
 (`RX_INF_DATA` 24 to 32, run through levels 0 and 1, none fails): the
 reserve fills only if the upper layer stalls with a class infinite, which
-`a_rx_never_stall` forbids, so legal stimulus never reaches it.
+`a_rx_never_stall` forbids, so legal stimulus never reaches it. A reserve
+that is too small is caught (the last row above).
 
 ## Gaps
 
