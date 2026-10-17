@@ -1,10 +1,12 @@
 import re
+import shutil
 from pathlib import Path
 
 import pytest
 
 from build.ip import REPO_ROOT, SHARED_DIR, discover
 from ci.config import load_rules
+from build.backends import Backend
 from checks import style
 from checks.style import RULES, check_text, module_ports
 
@@ -429,6 +431,27 @@ def test_file_name(name, prefix, body, detail):
         assert found == []
     else:
         assert any(f.endswith(detail) for f in found), found
+
+
+def test_file_name_backend_unit():
+    # A backend file declares its portable file's module, not its own stem.
+    body = GOOD.replace("xy_a_m", "xy_a_q")
+    assert not [f for f in check_text("xy_a_q_alt.sv", body, "xy_a", vocab=VOCAB,
+                                      unit_name="xy_a_q") if ": file-name: " in f]
+    found = [f for f in check_text("xy_a_q_alt.sv", GOOD, "xy_a", vocab=VOCAB,
+                                   unit_name="xy_a_q") if ": file-name: " in f]
+    assert found and found[0].endswith("(a backend file declares xy_a_q)")
+
+
+def test_run_backend_file(tmp_path):
+    src = tmp_path / "src"
+    shutil.copytree(FIXTURES / "good/src", src)
+    flop = (src / "rtl/common/common_flop.sv").read_text()
+    (src / "rtl/common/common_flop_alt.sv").write_text(flop)
+    known = {"fpga": Backend("fpga", "alt", ())}
+    assert style.run(src, discover(src), None, known).passed
+    r = style.run(src, discover(src), None)  # unknown suffix: an ordinary file
+    assert any("module common_flop in file common_flop_alt.sv" in f for f in r.findings)
 
 
 def test_comments_and_strings_do_not_trigger():

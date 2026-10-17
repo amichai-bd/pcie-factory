@@ -32,6 +32,7 @@ tests:
     seeds: 2                  # optional, default 1; see Seeds
     timeout_s: 60             # required; per-run wall-clock limit (> 0)
     params: {W: 4}            # optional; toplevel parameters (int or string)
+    backend: fpga             # optional; build with that flow's source backends
 coverage_floors:              # optional; see Coverage floors
   line: 90
 ```
@@ -45,6 +46,7 @@ coverage_floors:              # optional; see Coverage floors
 | `testcase` | no | Python identifier. If absent, every `@cocotb.test()` in the module runs. |
 | `seeds` | no | Either a **count** `N >= 1` (default `1`) or an explicit **list** of distinct integers in `[0, 2**31)`. |
 | `params` | no | Mapping from identifier to int or string, passed as `-G` overrides. |
+| `backend` | no | A flow kind of `cfg/backends.yaml` (an identifier; checked when building). The build swaps each source that has that flow's [backend file](../../project/layout.md#source-backends) beside it for that file and appends the kind's `dv_models`, so the same tests run on the backend. An unknown kind is a build `error`. |
 
 These validation rules apply:
 
@@ -164,7 +166,7 @@ The seed is passed to cocotb as its random seed, which also seeds Python's
 
 ## Execution
 
-- **Builds:** every distinct (IP, top, params, waves) combination is built
+- **Builds:** every distinct (IP, top, params, waves, backend) combination is built
   once, before any test runs. A failed build marks all of its tests `error`
   and the run continues with the other builds. A `sim.f` that doesn't
   resolve counts as a failed build, with the `file:line` message as the

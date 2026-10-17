@@ -39,6 +39,34 @@ def test_fit_memory_blocks():
     assert blocks == {"type": "M9K", "used": 1, "total": 432}
 
 
+def test_fit_rams():
+    rams = reports.parse_fit_rams(FIX / "output_files" / f"{REV}.fit.rpt")
+    assert rams == [{
+        "name": "widget_core:u_core|widget_fifo:u_fifo|altsyncram:u_ram|"
+                "altsyncram_k1d1:auto_generated|ALTSYNCRAM",
+        "mode": "Simple Dual Port", "clock_mode": "Single Clock",
+        "port_a_depth": 256, "port_a_width": 32, "port_b_depth": 256, "port_b_width": 32,
+        "bits": 8192, "mixed_rdw": "Old data", "blocks": 1}]
+
+
+def test_fit_rams_absent_and_partial(tmp_path):
+    rpt = tmp_path / "x.fit.rpt"
+    rpt.write_text("; Total registers ; 4 ;\n")
+    assert reports.parse_fit_rams(rpt) == []
+    rpt.write_text("+--+\n; Fitter RAM Summary ;\n+--+\n; Name ; Mode ; M10Ks ;\n+--+\n"
+                   "; a|b ; Single Port ; 2 ;\n+--+\n")
+    (ram,) = reports.parse_fit_rams(rpt)
+    assert ram["name"] == "a|b" and ram["blocks"] == 2 and ram["port_a_depth"] is None
+
+
+def test_fit_rams_malformed_count(tmp_path):
+    rpt = tmp_path / "x.fit.rpt"
+    rpt.write_text("+--+\n; Fitter RAM Summary ;\n+--+\n; Name ; M9Ks ;\n+--+\n"
+                   "; a ; many ;\n+--+\n")
+    with pytest.raises(reports.ReportError, match="expected a count"):
+        reports.parse_fit_rams(rpt)
+
+
 def test_fit_memory_blocks_absent(tmp_path):
     rpt = tmp_path / "x.fit.rpt"
     rpt.write_text("; Total registers ; 4 ;\n")
@@ -135,6 +163,7 @@ def test_collect(project):
     m = reports.collect(project, REV)
     assert m["schema"] == reports.SCHEMA
     assert m["resources"]["memory_blocks"] == {"type": "M9K", "used": 1, "total": 432}
+    assert [r["blocks"] for r in m["resources"]["rams"]] == [1]
     t = m["timing"]
     assert t["worst_setup_slack_ns"] == 4.16
     assert t["worst_hold_slack_ns"] == 0.181

@@ -15,6 +15,7 @@ from arch import cli as arch_cli
 from arch.perf import ArchError
 from asic import cli as asic_cli
 from build import sim
+from build.backends import BackendError
 from build.filelist import FilelistError
 from build.ip import Context, DiscoveryError, discover, find_ip, make_context, units
 from checks.common import CheckConfigError
@@ -39,7 +40,7 @@ from specs.core import SpecsError
 WIKI_SITE = Path(__file__).resolve().parents[1] / "wiki_site"
 USER_ERRORS = (FilelistError, DiscoveryError, SchemaError, GitError, sim.SimError, CoverageError,
                fpga.FpgaError, labels.LabelsError, CheckConfigError, CiConfigError,
-               ArchError, SpecsError, pr_check.PrError)
+               ArchError, SpecsError, pr_check.PrError, BackendError)
 
 
 def cmd_sim(ctx: Context, args) -> int:
@@ -55,7 +56,7 @@ def cmd_sim(ctx: Context, args) -> int:
     verilator = sim.find_verilator()
     if verilator is None:
         raise sim.SimError(sim.not_found_message())
-    spec = sim.BuildSpec(ip, entry.top, dict(entry.params), args.waves)
+    spec = sim.BuildSpec(ip, entry.top, dict(entry.params), args.waves, backend=entry.backend)
     built = sim.build(spec, ctx.workdir, verilator)
     print(f"build {built.status} ({built.runtime_s:.1f}s): {built.log}")
     if built.status != "pass":
@@ -186,11 +187,14 @@ def cmd_fpga(ctx: Context, args) -> int:
     else:
         targets = [find_ip(ips, ip_id) for ip_id in args.ip]
     timeout = args.timeout if args.timeout is not None else cfg["step_timeout_s"]
-    plans = [fpga.plan(ip, ctx.workdir, cfg["board"], args.part, cfg["processors"]) for ip in targets]
+    plans = [fpga.plan(ip, ctx.workdir, cfg["board"], args.part, cfg["processors"],
+                       cfg["backends"]) for ip in targets]
     if args.dry_run:
         for p in plans:
             fpga.generate(p, clean=False)
             print(f"[{p.ip.id}] top {p.top}, board {p.board}, project {p.out_dir}")
+            for old, new in p.swapped:
+                print(f"[backend] {old.name} -> {new.name}")
             print(f"[lint] {' '.join(fpga.lint_command(p, 'verilator'))}")
             for name, cmd in p.steps:
                 print(f"[{name}] {' '.join(cmd)}")

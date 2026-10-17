@@ -2,7 +2,9 @@
 
 Inputs (``<ip>`` is the IP id, ``<board>`` from cfg/fpga.yaml):
 
-    src/rtl/<ip>/<ip>.rtl.f           flattened by build.filelist
+    src/rtl/<ip>/<ip>.rtl.f           flattened by build.filelist; each
+                                      source with an fpga backend file
+                                      (cfg/backends.yaml) is replaced by it
     src/fpga/<ip>/<board>.qsf.tcl     device, pins, I/O standards
     src/fpga/<ip>/*.sdc               exactly one timing constraints file
     src/fpga/<ip>/*.sv                exactly one board wrapper; its file
@@ -31,6 +33,7 @@ from pathlib import Path
 
 import yaml
 
+from build import backends
 from build.filelist import SYNTHESIS_DEFINE, resolve, synthesis_defines
 from build.ip import REPO_ROOT, Ip
 from build.logexcerpt import excerpt
@@ -39,6 +42,7 @@ from checks.common import CheckConfigError
 from fpga import reports
 
 QUARTUS_SH = "quartus_sh"
+FLOW_KIND = "fpga"  # this flow's key in cfg/backends.yaml
 SOURCE_TYPES = {".sv": "SYSTEMVERILOG_FILE", ".v": "VERILOG_FILE"}
 _PART_RE = re.compile(r"^[A-Za-z0-9]+$")
 
@@ -65,7 +69,12 @@ def load_config(cfg_dir: Path) -> dict:
         raise FpgaError(f"{path}: 'step_timeout_s' must be a positive number")
     if not isinstance(procs, int) or isinstance(procs, bool) or procs < 1:
         raise FpgaError(f"{path}: 'processors' must be a positive integer")
-    return {"board": board, "step_timeout_s": float(timeout), "processors": procs}
+    try:
+        known = backends.load(cfg_dir)
+    except backends.BackendError as exc:
+        raise FpgaError(str(exc)) from None
+    return {"board": board, "step_timeout_s": float(timeout), "processors": procs,
+            "backends": known}
 
 
 def host_quartus_root(cfg_dir: Path) -> Path | None:
@@ -122,7 +131,7 @@ class Plan:
     board: str
     part: str | None
     processors: int
-    sources: list[Path]
+    sources: list[Path]        # Quartus sources: backends selected, wrapper last
     incdirs: list[Path]
     defines: dict[str, str | None]
     sdc: Path
@@ -130,6 +139,8 @@ class Plan:
     wrapper: Path
     out_dir: Path
     steps: list[tuple[str, list[str]]] = field(default_factory=list)
+    lint_sources: list[Path] = field(default_factory=list)  # portable view, wrapper last
+    swapped: list[tuple[Path, Path]] = field(default_factory=list)  # (portable, backend)
 
 
 def _one(fpga_dir: Path, pattern: str, what: str) -> Path:
@@ -146,8 +157,10 @@ def fpga_ips(ips: list[Ip]) -> list[Ip]:
 
 
 def plan(ip: Ip, workdir: Path, board: str, part: str | None = None,
-         processors: int = 1) -> Plan:
-    """Validate an IP's FPGA inputs and resolve its sources."""
+         processors: int = 1, known: dict[str, backends.Backend] | None = None) -> Plan:
+    """Validate an IP's FPGA inputs and resolve its sources. ``known`` is
+    cfg/backends.yaml: Quartus gets this flow's backend files in place of
+    their portable files; lint keeps the portable (simulation) view."""
     fpga_dir = ip.dir("fpga")
     if not fpga_dir.is_dir():
         raise FpgaError(f"IP {ip.id} has no fpga/{ip.id}/ folder (not an FPGA target)")
@@ -163,9 +176,16 @@ def plan(ip: Ip, workdir: Path, board: str, part: str | None = None,
         raise FpgaError(f"{wrapper}: does not declare module {top} (the wrapper's "
                         "file stem names the top-level module)")
     resolved = resolve(ip.rtl_f)
-    sources = list(resolved.sources)
-    if wrapper.resolve() in sources:
+    portable = list(resolved.sources)
+    if wrapper.resolve() in portable:
         raise FpgaError(f"{wrapper}: the board wrapper must not be in {ip.rtl_f.name}")
+    known = known or {}
+    try:
+        sources = backends.select(portable, known.get(FLOW_KIND), known)
+    except backends.BackendError as exc:
+        raise FpgaError(str(exc)) from None
+    swapped = [(a, b) for a, b in zip(portable, sources) if a != b]
+    portable.append(wrapper.resolve())
     sources.append(wrapper.resolve())
     for src in sources:
         if src.suffix not in SOURCE_TYPES:
@@ -174,7 +194,7 @@ def plan(ip: Ip, workdir: Path, board: str, part: str | None = None,
     out_dir = ip.work_dir(workdir) / "fpga"
     p = Plan(ip, top, board, part, processors, sources, list(resolved.incdirs),
              synthesis_defines(resolved, ip.rtl_f), sdc.resolve(), qsf_tcl.resolve(),
-             wrapper.resolve(), out_dir)
+             wrapper.resolve(), out_dir, lint_sources=portable, swapped=swapped)
     p.steps = [
         ("project", [QUARTUS_SH, "-t", "project.tcl"]),
         ("map", ["quartus_map", top, "-c", top]),
@@ -194,7 +214,7 @@ def lint_command(p: Plan, verilator: Path | str) -> list[str]:
     cmd += [f"+incdir+{d}" for d in p.incdirs]
     cmd += [f"+define+{n}" if v is None else f"+define+{n}={v}" for n, v in p.defines.items()
             if n != SYNTHESIS_DEFINE]
-    cmd += [str(s) for s in p.sources]
+    cmd += [str(s) for s in p.lint_sources]
     return cmd
 
 
@@ -367,6 +387,8 @@ def run(p: Plan, bin_dir: Path, timeout_s: float, verilator: Path | None) -> int
     """Lint (when Verilator is available), compile, parse. Returns 0 when
     metrics were written and timing is met, 1 otherwise."""
     generate(p)
+    for old, new in p.swapped:
+        print(f"[backend] {old.name} -> {new.name}", flush=True)
     logs = p.out_dir / "logs"
     flow: dict = {"lint": "skipped", "steps": {}}
     steps = list(p.steps)
@@ -425,6 +447,13 @@ def print_summary(m: dict) -> None:
     le = r["logic_elements"]
     print(f"{m['ip']}: {m['device']} ({m['quartus_version']})")
     print(f"  logic elements {le['used']}/{le['total']}, registers {r['registers']}")
+    mb = r.get("memory_blocks")
+    if mb:
+        print(f"  {mb['type']} blocks {mb['used']}/{mb['total']}")
+    for ram in r.get("rams") or []:
+        print(f"  RAM {ram['name']}: {ram['mode']}, {ram['clock_mode']}, "
+              f"{ram['port_a_depth']}x{ram['port_a_width']}, {ram['blocks']} block(s), "
+              f"mixed RDW {ram['mixed_rdw']}")
     for name, c in t["clocks"].items():
         print(f"  clock {name}: fmax {c['fmax_mhz']} MHz (restricted "
               f"{c['restricted_fmax_mhz']}), setup {c['setup_slack_ns']} ns, "

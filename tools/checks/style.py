@@ -34,6 +34,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from build.backends import portable_of
 from build.filelist import FilelistError, Resolved, resolve
 from build.ip import SHARED_DIR, Ip, locate, owner_ip
 from checks import filelists
@@ -782,9 +783,11 @@ def include_findings(relpath: str, raw: str, text: str, vocab: Vocabulary) -> li
 
 def check_text(relpath: str, raw: str, expected_prefix: str | None,
                defined: frozenset[str] | set[str] = frozenset(),
-               vocab: Vocabulary = Vocabulary()) -> list[str]:
+               vocab: Vocabulary = Vocabulary(), unit_name: str | None = None) -> list[str]:
     """Apply every rule to one file; ``expected_prefix`` is the name prefix
     a unit in this file must start with (None: no prefix declared);
+    ``unit_name`` is the name its unit must have (default: the file stem; a
+    source backend file declares its portable file's module);
     ``defined`` holds the macros the rest of its RTL closure defines;
     ``vocab`` describes the vocabulary headers (``relpath`` is relative to
     the source root, so a header is recognized by its path)."""
@@ -849,8 +852,9 @@ def check_text(relpath: str, raw: str, expected_prefix: str | None,
             add("file-name", 0, f"expected exactly one module or package, found {len(units)}")
         for u in units:
             kind, name = u.group(1), u.group(2)
-            if name != path.stem:
-                add("file-name", u.start(), f"{kind} {name} in file {path.name}")
+            if name != (unit_name or path.stem):
+                add("file-name", u.start(), f"{kind} {name} in file {path.name}"
+                    + (f" (a backend file declares {unit_name})" if unit_name else ""))
             if kind == "package" and not name.endswith("_pkg"):
                 add("file-name", u.start(), f"package {name} must end in _pkg")
             if kind == "module" and name.endswith("_pkg"):
@@ -963,7 +967,9 @@ def _defined_for(path: Path, closures, by_fpga) -> set[str]:
     return out
 
 
-def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
+def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None,
+        known: dict | None = None) -> CheckResult:
+    """``known`` is cfg/backends.yaml (``build.backends.load``)."""
     prefix = read_prefix(src_root)
     files = [f for f in kind_files(src_root, ("rtl", "fpga")) if selected(f, ips, ip_ids)]
     extra = [f for f in include_scope(src_root, ips, ip_ids) if f not in set(files)]
@@ -973,8 +979,10 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
     vocab = vocabulary(src_root)
     for f in files:
         exp = expected_prefix(f, src_root, ips, prefix)
+        backend = portable_of(f, known or {})
         result.findings += check_text(rel(f, src_root), f.read_text(errors="replace"), exp,
-                                      _defined_for(f, closures, by_fpga), vocab)
+                                      _defined_for(f, closures, by_fpga), vocab,
+                                      backend[0].stem if backend else None)
     for f in extra:
         text = _text(f)
         if text is not None:  # binary files cannot carry directives

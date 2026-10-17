@@ -128,6 +128,26 @@ one testbench for every group. Each block has a MAS
 `wiki/src/dv/common/[<group>/]<block>.md`, in the same group folder as its
 filelist ([wiki BKM](../bkm/wiki.md#page-set)).
 
+### Source backends
+
+A shared block may have, beside its portable file `<block>.sv`, a
+**backend file** `<block>_<suffix>.sv` that declares the same module, with
+the same ports, parameters and cycle behavior, for one synthesis flow (for
+example a vendor RAM primitive). [`cfg/backends.yaml`](../../cfg/backends.yaml)
+maps each flow kind (`fpga`, `asic`) to its suffix and to the DV-only
+stand-ins (`dv_models`, under `dv/`) that let Verilator elaborate its
+backend files. Selection is by source list only, never by `` `ifdef``:
+
+| Rule | Enforced by |
+| --- | --- |
+| No filelist lists a backend file; the block's filelist lists only the portable file. So simulation, `./build check` lint and the other flows never read it, and no source list holds two implementations of one module. | `filelist` check; the flows' and the simulator's selection fails on a listed backend file |
+| A backend file is reached through its portable file (which must be listed) and declares exactly that file's module. | `filelist` check (orphans) and `style` check (`file-name`) |
+| A flow replaces each source that has its backend file beside it, in place, in the source list it hands its tool. | `build.backends.select`, used by `./build fpga` ([fpga spec](../tools/fpga/SPEC.md#inputs)) |
+| A regression entry with `backend: <kind>` builds the unit with that selection plus the kind's `dv_models`, so the block's contract tests run on the backend. | `./build sim`, `./build regress` ([regress spec](../tools/regress/SPEC.md#regression-lists)) |
+
+The block's MAS owns each backend's mapping and its evidence; only the
+consuming flow's own reports prove a vendor mapping.
+
 ## Per-IP files
 
 | File | Rule |

@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from build.backends import Backend
 from build.ip import discover
 from checks import filelists
 
@@ -16,8 +17,11 @@ def good(tmp_path) -> Path:
     return dst
 
 
-def run(src: Path, ip_ids=None):
-    return filelists.run(src, discover(src), ip_ids)
+KNOWN = {"fpga": Backend("fpga", "alt", ())}
+
+
+def run(src: Path, ip_ids=None, known=None):
+    return filelists.run(src, discover(src), ip_ids, known)
 
 
 def test_good_fixture_passes(good):
@@ -278,3 +282,40 @@ def test_cycle_between_top_level_ips_fails(tmp_path):
     b.write_text("-F ../sys/sys.rtl.f\n" + b.read_text())
     text = "\n".join(run(src).findings)
     assert "rtl/b/b.rtl.f: does not resolve" in text and "-F cycle" in text
+
+
+def test_backend_file_is_reached_through_its_portable_file(good):
+    flop = (good / "rtl/common/common_flop.sv").read_text()
+    (good / "rtl/common/common_flop_alt.sv").write_text(flop)
+    r = run(good, known=KNOWN)
+    assert r.passed, r.findings
+    assert r.checked.endswith("7 RTL file(s) for orphans (1 backend file(s))")
+    # Without the backend configuration it is an ordinary orphan.
+    assert run(good).findings == ["rtl/common/common_flop_alt.sv: orphan: not reached by a "
+                                  "filelist in rtl/common/"]
+
+
+def test_backend_file_must_declare_the_portable_module(good):
+    (good / "rtl/common/common_flop_alt.sv").write_text("module common_flop_alt; endmodule\n")
+    assert run(good, known=KNOWN).findings == [
+        "rtl/common/common_flop_alt.sv: a fpga backend of common_flop.sv must declare exactly "
+        "module common_flop, found common_flop_alt"]
+
+
+def test_backend_of_an_unlisted_portable_file_is_an_orphan(good):
+    (good / "rtl/common/common_gone.sv").write_text("module common_gone; endmodule\n")
+    (good / "rtl/common/common_gone_alt.sv").write_text("module common_gone; endmodule\n")
+    f = run(good, known=KNOWN).findings
+    assert f == ["rtl/common/common_gone.sv: orphan: not reached by a filelist in rtl/common/",
+                 "rtl/common/common_gone.sv: orphan: not reached by a filelist in rtl/common/"]
+
+
+def test_no_filelist_lists_a_backend_file(good):
+    flop = (good / "rtl/common/common_flop.sv").read_text()
+    (good / "rtl/common/common_flop_alt.sv").write_text(flop)
+    lib = good / "rtl/common/common_lib.rtl.f"
+    lib.write_text(lib.read_text() + "common_flop_alt.sv\n")
+    f = run(good, known=KNOWN).findings
+    assert "rtl/common/common_lib.rtl.f: lists backend file rtl/common/common_flop_alt.sv; only " \
+           "a flow selects a backend, in place of its portable file (cfg/backends.yaml)" in f
+    assert any(x.startswith("dv/common/common.sim.f: lists backend file") for x in f)
