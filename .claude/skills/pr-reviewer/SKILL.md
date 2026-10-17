@@ -23,8 +23,13 @@ one GitHub identity and cannot approve their own PRs).
 - Read the PR head SHA (`pull_request_read` method `get`). Do not create a
   worktree for the reviewer: it reads with `git show`/`git diff` on the
   fetched head or through the GitHub API, and runs nothing.
-- Hand off: repo, PR number, head SHA, issue number, this skill, and the
-  expected report (the verdict text and the reviewed SHA).
+- Before spawning, run `./build pr check <pr>` (read-only,
+  [pr tool spec](../../../wiki/tools/pr/SPEC.md)) on the current head. On
+  `evidence FAIL`, return the PR to its implementer instead of spawning a
+  reviewer ([pr-creation](../pr-creation/SKILL.md#4-read-back)).
+- Hand off: repo, PR number, head SHA, issue number, this skill, the
+  `./build pr check` output for that head, and the expected report (the
+  verdict text and the reviewed SHA).
 - After the implementer pushes fixes, re-engage a reviewer (the same one may
   continue) with the new head SHA. A re-review checks only the fixes and the
   merge delta.
@@ -71,9 +76,14 @@ Read: the issue (acceptance, scope, comments), `CLAUDE.md`, the diff
 
 **Evidence.** Trust CI: read the `ci-gate` result on the head SHA
 (`pull_request_read` method `get_check_runs`); red or missing is a finding.
-Also audit the local validation recorded in the PR body: it must name the head SHA, exact
-commands, results, seeds and versions, and cover the required levels for the
-affected IPs. Missing, stale or implausible evidence is a finding. Never
+The firstmate's hand-off carries the `./build pr check` output for the
+head: treat it as given and do not re-derive what it checks (head SHA,
+command table, versions, seeds, per-level results and CPU against budgets,
+mutation table, `### Not run`, keywords, labels). Cite it in the verdict
+(`pr check: evidence OK @<sha>`); a missing or stale output, or any `error:`
+line in it, is a blocking finding. Then audit what it cannot judge: that the
+recorded evidence is plausible, covers the required levels for the affected
+IPs, and that each mutant and result actually supports the claim. Missing, stale or implausible evidence is a finding. Never
 rerun anything to confirm a claim. When a claim lacks recorded proof (a test
 that can fail, a caught mutant, a timing bound), raise a blocking finding
 that asks the author to run it and record the result in the PR.
