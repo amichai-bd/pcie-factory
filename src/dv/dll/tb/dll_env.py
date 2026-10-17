@@ -85,6 +85,10 @@ ERR_BAD_DLLP = 1 << 1               # err_o bit 1
 ERR_MALFORMED = 1 << 6              # err_o bit 6
 ERR_ALLOWED = ERR_BAD_TLP | ERR_BAD_DLLP | ERR_MALFORMED | (1 << 5)   # with ERR_TX: all bits
 ERR_OVERFLOW = 1 << 5               # err_o bit 5, Receiver overflow
+# Receive verdicts as the reference names them, in the classes the shadow's
+# counters tell apart.
+OUTCOME_CLASS = {"bad_lcrc": "bad", "flagged": "bad", "too_short": "bad", "edb_bad": "bad",
+                 "ahead": "bad", "nullified": "none", "not_live": "none"}
 MODS = (256, 4096)                  # header and data credit counters
 RESERVE = (8, 24)                   # receive space of an infinite field
 REFRESH = 2048                      # UpdateFC refresh, cycles
@@ -525,6 +529,12 @@ class Env:
         self.gate_rng = random.Random(seed ^ 0x214)   # idle headers; the stimulus rng is untouched
         self.lim_snap: list = []               # (limits, infinite) at the start of the cycle
         self.ovf_seen = 0                      # Receiver overflow pulses
+        # Per received TLP, in order: (cycle, verdict class, (class, credits),
+        # free credits of that class just before) by the reference (on the
+        # DUT's counters) and by the arch shadow (on its own).
+        self.ref_verdicts: list = []
+        self.sh_verdicts: list = []
+        self.epochs: list = []                 # (cycle, DUT and shadow deliveries) at each link-down
         self.up_ready_now = 1                  # the upper layer's ready this cycle
         # Receive counters by the flow-control page (FLOW_CONTROL.md),
         # kept by the receive reference.
@@ -581,6 +591,13 @@ class Env:
         self.upd_offer = {}
         self.upd_rr = 0
         self.upd_pending = {}
+
+    def _tlp_need(self, data: bytes):
+        """(class, credits) of a framed TLP packet's header, or None."""
+        tlp = data[2:-4]
+        if len(tlp) < 4:
+            return None
+        return CLASSES.index(ptn.has_class(tlp)), ptn.tlp_credits(tlp)
 
     def rx_fits(self, c: int, need: tuple[int, int]) -> bool:
         """The overflow check (FLOW_CONTROL.md, receive buffer)."""
@@ -660,6 +677,7 @@ class Env:
                 self.active_since = n
             if state == INACTIVE:
                 self._rx_reset()
+                self.epochs.append((n, len(self.delivered), len(self.shadow.delivered)))
             self.state = state
         self._check_counters(n)
         if int(d.dl_up_o.value) != int(state in (INIT2, ACTIVE)):
@@ -678,8 +696,13 @@ class Env:
         while self.ref_q and self.ref_q[0][0] <= n:
             _, eop, data, err_b, null_b, gap = self.ref_q.popleft()
             live = state in (INIT2, ACTIVE) and self.dut_link
+            cn = self._tlp_need(data) if len(data) >= 6 else None
+            free = (None if cn is None else
+                    tuple((self.rx_alloc[cn[0]][f] - self.rx_rcvd[cn[0]][f]) % MODS[f]
+                          for f in (0, 1)))
             out = self.ref.judge(n, eop, data, err_b, null_b, live, state == ACTIVE,
                                  len(self.delivered))
+            self.ref_verdicts.append((n, OUTCOME_CLASS.get(out, out), cn, free))
             self.rx_outcomes.append((eop, out))
             kinds = {"cls": tlp_cls(data[2:-4])} if out == "stored" else {}
             COV_TLP_RX.sample(outcome=out, gap="gap_inside" if gap else "no_gap", **kinds)
@@ -766,7 +789,27 @@ class Env:
         sh = self.shadow
         sh.set_link_up(self.dut_link, n)
         while self.shadow_rx and self.shadow_rx[0][0] <= n:
-            sh.receive(self.shadow_rx.popleft()[1], n)
+            pkt = self.shadow_rx.popleft()[1]
+            if pkt.dllp:
+                sh.receive(pkt, n)
+                continue
+            # The shadow's verdict on a TLP, from its counters, with its free
+            # credits for the TLP's class just before (receive accounting).
+            cn = self._tlp_need(pkt.data) if len(pkt.data) >= 6 else None
+            free = None
+            if cn is not None:
+                c = cn[0]
+                free = tuple((sh.ca[c][f] - sh.cr[c][f]) % MODS[f] if self.adv[CLASSES[c]][f]
+                             else RESERVE[f] - sh.occ[c][f] for f in (0, 1))
+            before = (sh.errors[arch.E_BAD_TLP], sh.errors[arch.E_MALFORMED],
+                      sh.errors[arch.E_OVERFLOW], sh.counts["duplicates"], sh.nrs)
+            sh.receive(pkt, n)
+            after = (sh.errors[arch.E_BAD_TLP], sh.errors[arch.E_MALFORMED],
+                     sh.errors[arch.E_OVERFLOW], sh.counts["duplicates"], sh.nrs)
+            out = ("bad" if after[0] > before[0] else "malformed" if after[1] > before[1]
+                   else "overflow" if after[2] > before[2] else "duplicate"
+                   if after[3] > before[3] else "stored" if after[4] != before[4] else "none")
+            self.sh_verdicts.append((n, out, cn, free))
         if in_beat is not None:
             self._rx_collect(n, in_beat)
         elif self.rx_beats:
@@ -1491,16 +1534,44 @@ class Env:
             worst = max(worst, diff)
         return worst
 
-    def check_shadow_rx(self) -> None:
-        """The architecture-model shadow, given the same packets, delivers
-        the same TLPs and counts the same Bad TLP, Malformed TLP and Nak
-        events (HAS open items get any disagreement)."""
+    def check_shadow_rx(self) -> list[dict]:
+        """The architecture-model shadow, given the same packets, judges
+        every received TLP as the reference does on the DUT's counters
+        (stored, overflow, malformed, bad, duplicate, discarded; overflows
+        included), counts the same Bad TLP, Malformed TLP, Receiver
+        overflow, Nak and duplicate events, and delivers the same TLPs. At a
+        link-down the TLPs stored and not yet delivered are abandoned, and
+        which of them each side finished first is a matter of its delivery
+        latency: within a link-up epoch ended by a link-down the shorter
+        delivery list must be a prefix of the longer, at most one TLP
+        apart, and the final epoch must match exactly. Returns those
+        link-down differences, diagnosed. A verdict that differs on the same
+        free credits would be a rule difference (HAS open items)."""
         sh, ref = self.shadow, self.ref
-        diff = next((i for i, (x, y) in enumerate(zip(sh.delivered, self.delivered)) if x != y),
-                    min(len(sh.delivered), len(self.delivered)))
-        assert sh.delivered == self.delivered, (
-            f"shadow (arch) delivered {len(sh.delivered)} TLPs, DUT {len(self.delivered)}; "
-            f"first difference at TLP {diff}")
+        rv, sv = self.ref_verdicts, self.sh_verdicts
+        assert len(rv) == len(sv), f"{len(rv)} TLPs judged by the reference, {len(sv)} by the shadow"
+        i = next((k for k, (a, b) in enumerate(zip(rv, sv)) if a[1] != b[1]), None)
+        assert i is None, (f"TLP {i}: reference (DUT counters) {rv[i]}, shadow (arch) {sv[i]}; "
+                           f"verdict, credits and free credits before it")
+        diffs = []
+        cuts = [(c, d, a) for c, d, a in self.epochs] + [(None, len(self.delivered),
+                                                          len(sh.delivered))]
+        d0 = a0 = 0
+        for cyc, d1, a1 in cuts:
+            dseg, aseg = self.delivered[d0:d1], sh.delivered[a0:a1]
+            if cyc is None or len(dseg) == len(aseg):
+                assert dseg == aseg, (f"epoch from DUT TLP {d0}: shadow (arch) delivered "
+                                      f"{len(aseg)} TLPs, DUT {len(dseg)}")
+            else:
+                short, long_ = sorted((dseg, aseg), key=len)
+                assert long_[:len(short)] == short and len(long_) - len(short) == 1, (
+                    f"link-down at cycle {cyc}: shadow (arch) delivered {len(aseg)} TLPs in the "
+                    f"epoch, DUT {len(dseg)}")
+                k = d0 + len(short)
+                diffs.append({"link_down": cyc, "tlp": k,
+                              "delivered_by": "DUT" if len(dseg) > len(aseg) else "shadow",
+                              "dut_sop": self.up_sop[k] if len(dseg) > len(aseg) else None})
+            d0, a0 = d1, a1
         assert sh.errors[arch.E_BAD_TLP] == ref.bad, (
             f"shadow (arch) Bad TLP {sh.errors[arch.E_BAD_TLP]}, reference {ref.bad}")
         assert sh.errors[arch.E_MALFORMED] == ref.malformed, (
@@ -1513,6 +1584,7 @@ class Env:
             f"shadow (arch) sent {sh.counts['naks']} Naks, reference {ref.nak_sets}")
         assert sh.counts["duplicates"] == len(ref.dups), (
             f"shadow (arch) duplicates {sh.counts['duplicates']}, reference {len(ref.dups)}")
+        return diffs
 
     def check_clean(self) -> None:
         assert not self.violations, "DUT violations:\n" + "\n".join(self.violations[:20])

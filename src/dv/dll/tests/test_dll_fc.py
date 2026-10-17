@@ -281,11 +281,11 @@ async def fc_rx_accounting(dut):
             env.raw.clear()
             await env.run(30)
     stats = env.check_rx()
-    if env.ref.overflow == 0:
-        # With overflows the shadow's own delivery timing (packet level)
-        # can decide a borderline TLP the other way, and the replays then
-        # differ; the reference judges the rule on the DUT's own timing.
-        env.check_shadow_rx()
+    # The arch shadow judges every TLP as the reference does, overflows
+    # included; a link-down may leave it one TLP apart (env, check_shadow_rx).
+    link_down_diffs = env.check_shadow_rx()
+    dut._log.info("arch shadow: all %d TLP verdicts agree (%d overflow); link-down "
+                  "differences %s", len(env.ref_verdicts), env.ref.overflow, link_down_diffs)
     if finite:
         assert env.ref.overflow > 0, "no overflow with every class finite and a stalling layer"
     dut._log.info("seed %d, credits %s: %d TLPs delivered, %d malformed, %d overflow; "
