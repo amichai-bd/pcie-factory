@@ -141,7 +141,9 @@ infers the TX path's 64-entry `end_q` array as a RAM.
 **`dll` rollover path.** `ltssm_state_o` → `pkt_tx_valid` → `phy` is a
 `clk_core` path, so its slack is at least the clock's worst, +1.150 ns. The
 flow reports only the single worst path, which is a different one (above),
-so this path's exact slack is a bound, not a measurement.
+so this path's exact slack is a bound, not a measurement. The firstmate
+accepted the bound in place of a per-path report
+([#218 decision](https://github.com/amichai-bd/pcie-factory/issues/218#issuecomment-6243168833)).
 
 ## Files
 
