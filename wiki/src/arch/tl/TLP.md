@@ -46,7 +46,7 @@ Byte 0 to 3 of every TLP [cite: PCIe Base Spec, rev 3.0, §2.2.1]
 | TC | byte 1 `[6:4]` | 0 on requests and messages; on a completion, the request's TC. | Copied into the completion. Not 0 on a configuration or I/O request, or on a message whose code requires TC 0: malformed. |
 | Attr bit 2 (ID-based ordering) | byte 1 `[2]` | 0 | Ignored. |
 | TH (processing hints) | byte 1 `[0]` | 0 | Ignored, with the hint bits it would qualify. |
-| TD (digest present) | byte 2 `[7]` | 0: no ECRC. | Not read by `tl`: a TLP with a digest has 4 bytes more than its Length gives, which the `dll` drops as malformed ([open questions](HAS.md#open-questions)). |
+| TD (digest present) | byte 2 `[7]` | 0: no ECRC. | Not checked: no ECRC. A TLP with TD 1 arrives with one more DW after its data, the digest, which the `dll` has counted in its length check and delivers unchanged ([`dll` receive](../dll/HAS.md#receive)); `tl` ignores that DW and never stores it. |
 | EP (poisoned) | byte 2 `[6]` | 0 | [Poisoned requests](ROUTING.md#checks) (after the Unsupported Request check), [poisoned completions](COMPLETIONS.md#checks). |
 | Attr bits 1:0 (Relaxed Ordering, No Snoop) | byte 2 `[5:4]` | 0 on requests and messages; on a completion, the request's bits. | Copied into the completion; ordering ignores Relaxed Ordering. Not 0 on a configuration or I/O request: malformed. |
 | AT (address type) | byte 2 `[3:2]` | 0: untranslated. | Not 0 on a memory request: Unsupported Request (no address translation). |

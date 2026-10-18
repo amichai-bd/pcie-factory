@@ -64,8 +64,10 @@ earliest byte on the line.
 ### Upper TLP stream
 
 One valid/ready stream per direction (Q5). A beat is one DW (4 bytes); a
-TLP is its header and data, with no sequence number, LCRC or ECRC, always
-a whole number of DWs: 3 to 36 beats. Byte 0 of the TLP (Fmt and Type) is
+TLP is its header and data, with no sequence number or LCRC, always
+a whole number of DWs: 3 to 36 beats on transmit, 3 to 37 on receive,
+where a TLP with TD 1 also carries its digest (ECRC) DW after its data,
+which the `dll` neither checks nor removes ([Receive](#receive)). Byte 0 of the TLP (Fmt and Type) is
 `[7:0]` of the `sop` beat. A beat is taken at an edge where valid and
 ready are both 1.
 
@@ -243,7 +245,8 @@ stays 1 through Recovery, so a retrain does not leave DL_Active.
   From an accepted `sop` to its `eop`, ready is 1 every cycle; valid may
   drop between beats.
 - The upper layer offers only well-formed TLPs: the beat count matches the
-  header's Fmt and Length, the payload is at most 128 bytes, and there is
+  header's Fmt and Length, the payload is at most 128 bytes, TD is 0 (no
+  digest: this design generates no ECRC, Q6), and there is
   no TLP prefix. TLPs are otherwise opaque (Q5): the `dll` reads only
   Fmt, Type and Length from the first DW, for the class and credits
   ([classes](FLOW_CONTROL.md#classes-and-credits)) and the replay-buffer
@@ -275,12 +278,19 @@ stays 1 through Recovery, so a retrain does not leave DL_Active.
   ([receive buffer](FLOW_CONTROL.md#receive-buffer)).
 - A good-LCRC, expected TLP is malformed when its packet length is not
   2 more than a multiple of 4, it is shorter than a 3-DW header, its byte
-  count differs from what its header's Fmt and Length give, or its
+  count differs from what its header's Fmt, Length and TD give (TD, byte 2
+  bit 7, adds the 4-byte digest), or its
   payload is above 128 bytes (Q6). It is
   acknowledged (the sequence advances), not delivered, and the credits
   its header states (1 header credit plus the data credits its Length
   implies; none under 4 bytes) are returned at once; Malformed TLP pulses
   ([receiving TLPs](RETRY.md#receiving-tlps)).
+- **Digest.** A TLP with TD 1 that passes the checks is stored and
+  delivered with its digest, the last DW, unchanged. This design checks
+  no ECRC (Q6), so the digest is ignored: neither the `dll` nor the
+  layer above checks it, and it costs no credit
+  [cite: PCIe Base Spec, rev 3.0, §2.2.3]. A link partner appends one
+  only with ECRC generation enabled.
 
 ### Errors
 
@@ -302,7 +312,7 @@ neither ([`link` errors](../link/HAS.md#errors)).
 | 3 | REPLAY_NUM rollover | A [rollover](RETRY.md#replay_num); `retrain_req_o` pulses in the same cycle. |
 | 4 | DL protocol error | An Ack or Nak whose sequence number names no unacknowledged TLP ([Ack and Nak](RETRY.md#received-ack-and-nak)). |
 | 5 | Receiver overflow | A good TLP that its class's free credits do not cover ([receive buffer](FLOW_CONTROL.md#receive-buffer)). |
-| 6 | Malformed TLP | A good-LCRC, expected TLP with a bad length, a byte count that disagrees with its header, or a payload above 128 bytes ([Receive](#receive)). |
+| 6 | Malformed TLP | A good-LCRC, expected TLP with a bad length, a byte count that disagrees with its header (Fmt, Length and TD), or a payload above 128 bytes ([Receive](#receive)). |
 
 ## Decisions
 
@@ -323,6 +333,7 @@ neither ([`link` errors](../link/HAS.md#errors)).
 | A TLP still going out when a replay starts is replayed too ([replay](RETRY.md#replay)) (firstmate decision as the captain's delegate, [0003 Updates](../../decisions/0003-m2-grill.md#updates), [#203](https://github.com/amichai-bd/pcie-factory/issues/203#issuecomment-6233941574)) | It was handed to `phy`, so it holds a sequence number behind NEXT_TRANSMIT_SEQ; the far end, which Nak'd an older TLP, discards it as ahead. The RTL and the architecture model resend it; the independent partner, which left it out (one extra Nak per loss, still lossless), is corrected to match ([#212](https://github.com/amichai-bd/pcie-factory/issues/212), from the [#213](https://github.com/amichai-bd/pcie-factory/issues/213) cross-check). | Leaving it out (a second Nak and replay for it). |
 | After a REPLAY_NUM rollover, TLPs wait until the LTSSM has left L0 and returned | The replay then never starts into a retrain that would cut it; the `dll` enforces it without relying on `phy` ready timing. | Replaying at once (the first replayed TLP is lost and needs another Nak or timeout). |
 | A packet being sent when `link_up_i` falls is finished: once its `sop` was taken, at or before the edge that samples `link_up_i` 0, the remaining beats (at most 2 for a DLLP, 74 for a TLP) go out up to `eop`, then DL_Inactive sends nothing (firstmate decision as the captain's delegate, [#211](https://github.com/amichai-bd/pcie-factory/issues/211)) | The [transmit priority](RETRY.md#transmit-priority) says a started packet is always finished, and the `phy` expects it: the MAC keeps the packet open from its `sop` until an accepted `eop` (its `up_open` clears only on `eop` or reset, whatever the link does), takes and discards the rest, and treats a new `sop` before that `eop` as a contract break (`a_tx_sop_inside_packet`); a cut packet would leave the next link-up's first DLLP inside the old packet. The independent partner follows the same rule, as any far end over a real `phy` must ([#215](https://github.com/amichai-bd/pcie-factory/issues/215), [partner link-down](../../dv/dll/PARTNER.md#link-down)). | Cutting the packet at link-down (the next `sop` lands inside the open packet). |
+| A received digest (TD 1) counted in the length check and delivered with the TLP, not checked ([#308](https://github.com/amichai-bd/pcie-factory/issues/308)) | A receiver that checks no ECRC ignores the digest; the length check stays exact (TD 1 without a digest is malformed); the stream and its ports are unchanged, and the transaction layer ignores the extra DW ([`tl` TD](../tl/TLP.md#common-fields)). The receive buffer holds 5 DWs per header credit so the digest always fits. | Dropping it as malformed (every TLP from a partner with ECRC generation lost); removing the digest in the `dll` (the last DW is already written with the `eop` mark: a look-ahead or a rewrite in the receive buffer, for a DW the layer above can drop). |
 | Malformed TLPs, bad lengths with a good LCRC included, acknowledged and dropped, credits returned | The data link layer accepted it; the receive buffer is sized from header credits, so it is not stored. The size limit is the 128-byte maximum payload (Q6). The transaction layer's own malformed checks come in M3. | Nak (the partner would replay it until REPLAY_NUM rolls over); a 144-byte packet limit (lets a 132-byte payload with a 3-DW header through). |
 
 ## Targets
@@ -340,6 +351,7 @@ in the `dll` and `link` DV.
 | Line use | Back-to-back 128-byte memory writes one way with default credits: TLPs occupy at least 99% of the cycles from the first accepted TLP to the last delivered one. | `mwr_max` |
 | Replay buffer sizing | The same at 99% with the partner sending Acks at the spec's latest, 118 cycles: the replay buffer never stalls the line ([sizing](RETRY.md#replay-buffer)). | `ack_spec_max` |
 | Ack latency | Every good TLP is covered by an Ack or Nak that starts on the `phy` stream within 118 cycles (237 symbol times) of its `eop` from `phy`, error-free, both directions loaded [cite: PCIe Base Spec, rev 3.0, §3.5.3.1]. | `mwr_max`, `mixed_bidir` |
+| Digest | 2000 random TLPs each way, half with a digest (TD 1): every one delivered once, in order, with its digest, no Malformed TLP, Ack latency within 118 cycles. | `digest_rx` |
 | Lossless | With 2% of packets corrupted, 1% dropped and 1% flagged by `phy`, both ways and for TLPs and DLLPs: every TLP delivered exactly once and in order, no protocol error, no overflow. | `error_recovery` |
 | Rollover | TLPs lost one way from a set cycle until the retrain: exactly 4 replay timeouts, 1 rollover, 1 retrain, at most 4 replays, no Bad TLP at the partner, then every TLP delivered once, in order. | `replay_rollover` |
 | Credits | No receiver overflow when the upper layer stalls for 4000 and 10000 cycles and otherwise takes 30% of beats (every class finite), or never stalls (all classes infinite); with `FC_RELEASE` 1 and default credits, when it takes every beat but releases in 30% of cycles and not at all for 4000 and 10000 cycles, and then it holds no more credits than advertised. | `credit_starve`, `credits_infinite`, `credit_release` |
@@ -371,6 +383,7 @@ DV oracle: the independent link partner of Q3 is
 | [`mwr_max`](../../../../src/arch/dll/perf/mwr_max.yaml) | 500 128-byte MWr one way. |
 | [`ack_spec_max`](../../../../src/arch/dll/perf/ack_spec_max.yaml) | The same, partner Ack latency 118 cycles. |
 | [`mixed_bidir`](../../../../src/arch/dll/perf/mixed_bidir.yaml) | 2000 random TLPs each way. |
+| [`digest_rx`](../../../../src/arch/dll/perf/digest_rx.yaml) | The same, half of them with a digest. |
 | [`error_recovery`](../../../../src/arch/dll/perf/error_recovery.yaml) | 3000 random TLPs each way with injected errors. |
 | [`replay_rollover`](../../../../src/arch/dll/perf/replay_rollover.yaml) | All TLPs one way dropped from cycle 5000 to 7000, across the retrain. |
 | [`credit_starve`](../../../../src/arch/dll/perf/credit_starve.yaml) | A stalling, slow upper layer with finite credits. |

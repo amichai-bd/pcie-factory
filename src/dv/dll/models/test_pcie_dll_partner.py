@@ -727,6 +727,26 @@ def test_receive_order_and_malformed_lengths():
         b2.p.send(bytes([0x80]) + bytes(11), check=False)
 
 
+def test_tlp_digest_counts_in_the_length_and_is_delivered():
+    """TD 1: one digest DW after the payload counts in the length the
+    header gives, costs no credit and is delivered with the TLP; TD 1
+    without it, or TD 0 with an extra DW, is malformed."""
+    t = m.make_tlp("MWr", 32, 3, digest=True)
+    assert len(t) == 4 * (3 + 32 + 1) and m.tlp_size(t) == len(t)
+    assert not m.tlp_malformed(t) and m.tlp_credits(t) == (1, 8)
+    assert m.tlp_malformed(t[:-4]) and m.tlp_malformed(m.make_tlp("MWr", 4, 4) + bytes(4))
+    b = Bench(credits=FINITE)
+    b.init()
+    good = [t, m.make_tlp("MRd", 0, 5, digest=True)]
+    for i, x in enumerate(good):
+        b.put(m.frame_tlp(i, x), False)
+    b.put(m.frame_tlp(2, good[1][:-4]), False)          # TD 1, no digest
+    b.run(200)
+    assert b.p.received == good and b.p.next_rcv_seq == 3
+    assert b.p.stats["rx_malformed"] == 1
+    b.p.send(m.make_tlp("CplD", 2, 6, digest=True))     # the partner sends one too
+
+
 def test_np_data_credit_minimum():
     """FC_NPD is 0 (infinite) or at least 2 (#261): 1 is rejected."""
     with pytest.raises(ValueError):
