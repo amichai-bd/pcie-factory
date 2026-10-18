@@ -1,0 +1,13 @@
+# Host writes in (wiki/src/arch/core/HAS.md#targets): 128-byte MWr to BAR0, payload on cq,
+# >= 0.98 of the link one-way payload rate and >= 0.833 of the line.
+description: 2000 host MWr of 128 bytes to BAR0, after enumeration.
+seed: 1
+workload:
+  kind: traffic
+  host: write
+  tlps: 2000
+targets:
+  fraction_of_link: {min: 0.98}
+  payload_line_fraction: {min: 0.833}
+  posted_header_credits_held_max: {max: 8}
+  tl_errors: {max: 0}

@@ -2,3 +2,8 @@
 board: de2_115        # selects src/fpga/<ip>/<board>.qsf.tcl
 step_timeout_s: 3600  # wall-clock bound on each Quartus step (and lint)
 processors: 2         # Quartus NUM_PARALLEL_PROCESSORS; the CI host is shared
+# Quartus message IDs accepted as expected warnings; the summary counts every
+# other ID as unknown and prints it. Kept equal to the table in
+# wiki/bkm/fpga.md#known-quartus-warnings, which says why each is accepted
+# (a unit test compares them).
+known_warnings: [292013, 169177, 10036]
