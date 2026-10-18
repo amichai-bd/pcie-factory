@@ -69,7 +69,7 @@ views are design knobs in the IP's `.mk`.
 
 | Runner | Runs | Selected by |
 | --- | --- | --- |
-| `docker` | `docker run --rm` of the image with ORFS at `/OpenROAD-flow-scripts`, as the calling user (`--user uid:gid`, `HOME=/tmp`), hardened for a shared host: `--network=none`, `--cap-drop=ALL`, `--security-opt=no-new-privileges`, `--pids-limit=4096`, `--cpus=<cores>`, `--memory=3g --memory-swap=3g`. The repository and an outside source root are mounted read-only and the workdir read-write, each at its own path, so generated absolute paths work unchanged. | The host's `orfs_image` |
+| `docker` | `docker run --rm` of the image with ORFS at `/OpenROAD-flow-scripts`, as the calling user (`--user uid:gid`, `HOME=/tmp`), hardened for a shared host: `--network=none`, `--cap-drop=ALL`, `--security-opt=no-new-privileges`, `--pids-limit=4096`, `--cpus=<cores>`, `--memory=6g --memory-swap=6g` (6 GB, swap included, under the captain's decision of 2026-10-17 in the [M2 record](../../src/decisions/0003-m2-grill.md#updates)). The repository and an outside source root are mounted read-only and the workdir read-write, each at its own path, so generated absolute paths work unchanged. | The host's `orfs_image` |
 | `native` | `bash -c` on the host, after `source <root>/env.sh` when it exists. | `ORFS_ROOT`, else the host's `orfs_root` |
 
 Host values come from the one `hosts.<name>` entry in
@@ -234,7 +234,8 @@ also runs the full command directly), on `[self-hosted, linux, x64]` (every CI h
 `ip`: one IP id; empty (the default) runs every IP that has a `src/asic/<ip>/`
 folder, found with `find`, one `./build asic --ip <id>` each
 (the job fails if any fails). Input `study_clock_period`: empty (the
-default) runs the SDC target; a number of ns adds
+default) runs the SDC target; a positive decimal number of ns (digits with
+at most one point, not all zero) adds
 `--study-clock-period <ns>` to each run ([clock studies](#clock-studies));
 anything else fails the job before the flow. Input `timeout`: empty (the default)
 keeps the tool's 3600 s budget per IP; a whole number of seconds adds

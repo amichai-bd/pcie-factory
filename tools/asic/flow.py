@@ -52,7 +52,10 @@ ENV_ROOT = "ORFS_ROOT"
 IMAGE_ROOT = "/OpenROAD-flow-scripts"
 # Container limits on the shared host: memory (swap included, as on the
 # host's verified invocation) and process count. CPUs come from cfg.
-DOCKER_MEMORY = "3g"
+# Memory is 6 GB under captain decision 2 of 2026-10-17 (up from 3 GB; see
+# https://github.com/amichai-bd/pcie-factory/issues/203#issuecomment-6240731810
+# and the decision record wiki/src/decisions/0003-m2-grill.md, Updates).
+DOCKER_MEMORY = "6g"
 DOCKER_PIDS = 4096
 DEFAULT_CORES = 2
 DIGEST = "@sha256:"

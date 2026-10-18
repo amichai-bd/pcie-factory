@@ -64,9 +64,10 @@ jobs:
           # A study period runs an explicit clock study (isolated output).
           study=()
           if [ -n "$STUDY" ]; then
-            case "$STUDY" in
-              *[!0-9.]*|.|'') echo "study_clock_period must be a number of ns"; exit 1 ;;
-            esac
+            # A positive decimal: digits with at most one point, not all zero.
+            if ! [[ "$STUDY" =~ ^([0-9]+|[0-9]*\.[0-9]+)$ && "$STUDY" =~ [1-9] ]]; then
+              echo "study_clock_period must be a positive decimal number of ns"; exit 1
+            fi
             study=(--study-clock-period "$STUDY")
           fi
           budget=()
