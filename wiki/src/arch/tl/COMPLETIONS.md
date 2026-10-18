@@ -124,6 +124,11 @@ read in use and already sent to the `dll`, and it is not a locked
 completion. Anything else is an **unexpected completion**: dropped,
 bit 5, and no read changes [cite: PCIe Base Spec, rev 3.0, §2.3.2].
 
+A completion is matched and checked, and its read changes, in the cycle
+its third header DW arrives; a read that times out in that same cycle
+has already ended, so the completion is unexpected. Its error event, as
+every receive error, pulses in the cycle after its `eop`.
+
 ### Checks
 
 On a matching completion, in this order:
@@ -133,7 +138,7 @@ On a matching completion, in this order:
 | Status Configuration Request Retry | Malformed (bit 2): `tl` sends no configuration requests. Dropped; the read keeps waiting. |
 | Status Unsupported Request, Completer Abort or a reserved value | The read ends: one `rc` beat with `rc_status_o` 1 (reserved values too) or 2, `rc_done_o` 1; bit 7 or 8. The tag is free. |
 | Successful, with no data, with a Byte Count other than the read's remaining bytes, a Lower Address other than the read's next byte bits `[6:0]`, or data that ends past the read's last DW, or before it but not on a 64-byte boundary | Malformed (bit 2): dropped; the read keeps waiting. |
-| Successful, poisoned | Bit 4. Its data is dropped and the read is marked failed. |
+| Successful, poisoned | Bit 4. Its data is dropped and the read is marked failed; so is the data of the read's later completions. |
 | Successful | Its data goes to `rc` as one packet. The read's remaining bytes and next byte advance by the bytes it covers. |
 
 A read finishes when its remaining bytes reach 0. A finished read that
@@ -149,6 +154,10 @@ Each successful completion is one `rc` packet of its Length DWs, in
 arrival order; completions of different reads interleave packet by
 packet. `tl` buffers them so the application may stall: at most 8 reads
 of at most 128 bytes are outstanding, so the data held is at most 1 KiB.
+A status beat (an error status, a failed read) takes its place in the
+same order. A timeout's beat comes after every packet of its own read,
+and may come after packets of other reads that arrived about the same
+time.
 Ordering against received writes is on the
 [HAS](ORDERING.md#ordering).
 
@@ -156,9 +165,9 @@ Ordering against received writes is on the
 
 `tl_np_pending_o` is 1 while any read taken on `rq` is still waiting for
 its final completion or its timeout: from the edge its `sop` beat is
-taken until the tracker ends it (its last completion matched, an error
-status, or the timeout), whether or not the application has taken the
-`rc` beats yet. It is 0 in reset. `cfg` shows it as the Device Status
+taken until the edge at which the tracker ends it (its last completion
+matched, an error status, or the timeout), whether or not the
+application has taken the `rc` beats yet. It is 0 in reset. `cfg` shows it as the Device Status
 Transactions Pending bit
 ([tl-cfg requester state](../core/TL_CFG.md#requester-state))
 [cite: PCIe Base Spec, rev 3.0, §7.8.5].
@@ -186,11 +195,14 @@ Timeout Disable, from `cfg`) is 1, no read times out: every outstanding
 read's pulse count is held at 0, so it waits for its completions
 indefinitely and `tl_np_pending_o` stays 1 while it does. When the input
 falls, each read still outstanding gets a full timeout from then
-[cite: PCIe Base Spec, rev 3.0, §7.8.16].
+[cite: PCIe Base Spec, rev 3.0, §7.8.16]. `tl` registers the input, so
+both take effect one cycle after it changes: the count restarts from
+the cycle after the last in which the input was 1.
 
 On a timeout the read ends with one `rc` beat, `rc_status_o` 3 and
-`rc_done_o` 1 (data already delivered for it is void), bit 6 pulses once,
-and the tag is free; a completion for it that arrives later is
-unexpected. The timeout value is fixed: `cfg` advertises no programmable
+`rc_done_o` 1 (data already delivered for it is void), bit 6 pulses in
+the cycle it times out (one pulse for all reads timing out together),
+and the tag is free once that beat is taken; a completion for it that
+arrives after the timeout is unexpected. The timeout value is fixed: `cfg` advertises no programmable
 range and supports the disable
 ([#285](https://github.com/amichai-bd/pcie-factory/issues/285)).

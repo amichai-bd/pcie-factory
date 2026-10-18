@@ -1,12 +1,12 @@
 # pcie_tl DV plan
 
 The receive path
-([#290](https://github.com/amichai-bd/pcie-factory/issues/290)) and the
+([#290](https://github.com/amichai-bd/pcie-factory/issues/290)), the
 transmit path, completions and messages
-([#291](https://github.com/amichai-bd/pcie-factory/issues/291)) are
-verified; the tracker and timeout
-([#292](https://github.com/amichai-bd/pcie-factory/issues/292)) add their
-tests to this testbench and this page.
+([#291](https://github.com/amichai-bd/pcie-factory/issues/291)), and the
+completion tracker, timeout and `rc`
+([#292](https://github.com/amichai-bd/pcie-factory/issues/292)) are
+verified by this testbench.
 
 ## Strategy
 
@@ -16,10 +16,10 @@ tests to this testbench and this page.
   driven only through its ports.
 - **Slot tap:** [`tb/pcie_tl_slot_tap.sv`](../../../../src/dv/tl/tb/pcie_tl_slot_tap.sv),
   a bind module on `pcie_tl` listed in `tl.dv.f`, observes MAS-named
-  nets ([slots](../../rtl/tl/MAS.md#slots)): the completion records, the
-  reads taken on `cq` with their handle context and the PME_TO_Ack
-  requests between the receive and transmit blocks, and the nets for the
-  tracker (#292): the completion beats, the `rq` reads taken and sent.
+  nets ([tracker nets](../../rtl/tl/MAS.md#tracker-nets)): the completion
+  records, the reads taken on `cq` with their handle context and the
+  PME_TO_Ack requests between the receive and transmit blocks, and the
+  tracker's inputs: the completion beats, the `rq` reads taken and sent.
   The testbench top shows them as `probe_*_o`; the tap drives nothing.
 - **Environment:** [`tb/tl_env.py`](../../../../src/dv/tl/tb/tl_env.py),
   one step per `clk_i` cycle: inputs driven at the falling edge, outputs
@@ -67,10 +67,29 @@ tests to this testbench and this page.
     `rq` request, interrupt write, error message and PME_TO_Ack when it is
     taken, each read's completions (split, Byte Count, Lower Address,
     disabled bytes 0) when `cc` or `cfg` gives its data, each Unsupported
-    Request and configuration completion when it is formed.
+    Request and configuration completion when it is formed;
+  - the **host** answers each `rq` read the link takes with the
+    completions a correct completer may return, split at 64-byte
+    boundaries chosen at random (`host_split_p`), after a random latency;
+    a test may lose, poison, corrupt or add completions (`host_hook`);
+  - the **application** issues each `rq` read with a tag not in use and
+    waits while all eight are; it takes `rc` beats at random
+    (`rc_ready_p`) or not at all (`rc_hold`) and frees a tag at its
+    `rc_done` beat; the **cfg stand-in** drives `cpl_timeout_dis_i`;
+  - the **completion reference**
+    [`models/pcie_tl_cpl_ref.py`](../../../../src/dv/tl/models/pcie_tl_cpl_ref.py),
+    written from the [completions](../../arch/tl/COMPLETIONS.md) and
+    [APP](../../arch/core/APP.md#requester-completions) pages with no code
+    of the architecture model or the RTL, keeps every read taken and sent
+    with absolute addresses and judges each completion when its third
+    header DW arrives: unexpected, malformed, error status, poisoned, or
+    delivered, and the `rc` packet it makes; it gives the timeout window;
+  - the **shadow** for completions, the architecture model's
+    `Tracker.match` fed the same reads, judges the same completion; a
+    disagreement with the reference fails the test.
 - **Checks on every run:** every handshake output at its reset value in
-  every reset cycle (`rst_i` 1 or `dl_up_i` 0), the outputs of the blocks
-  not built always 0, and `tlp_rx_ready_o` 1 otherwise; each error pulse
+  every reset cycle (`rst_i` 1 or `dl_up_i` 0), and `tlp_rx_ready_o` 1
+  otherwise; each error pulse
   exactly one cycle after the TLP's `eop`, with the reference's bit; each
   slot power event exactly one cycle after the `eop` of a TLP the
   reference raises one for, with its value and scale, and none otherwise; each
@@ -110,8 +129,20 @@ tests to this testbench and this page.
   equal to what was received. **Order:** a BAR0 read, a cfg-line
   request, a BAR0 write, a BAR2 write and a PME_Turn_Off each go only
   after the releases of every earlier posted request were seen.
+  **Requester completions:** `tl_np_pending_o` in every cycle against the
+  reads outstanding; each completion's error bit exactly one cycle after
+  its `eop`; bit 6 only in a cycle where some read sent at S has
+  16P < T − S (P the prescaler period from `CPL_TIMEOUT_DIV`, S moved to
+  the cycle after a disable), every such read ending then, and no read
+  outstanding at T − S = 17P; every `rc` packet the next one due in
+  arrival order (a timeout's beat once its read has no other packet
+  due), its tag, status, `rc_done_o` with `eop` only, every data DW as
+  received, never offered before every posted request received ahead of
+  its completion was released; `rc` beats held until taken, the header
+  held from `sop` to `eop`.
 - **Drain:** a test ends by running until every expectation is met, every
-  expected TLP sent and every queued request and message taken; any left
+  expected TLP sent, every queued request and message taken, every read
+  ended (completed or timed out) and every `rc` packet taken; any left
   over fails it. A test that holds the application's `cc` answers names
   how many BAR0 reads wait for a handle.
 - **Functional coverage:** `tl_rx_outcome` (outcome, class, kind, error
@@ -127,12 +158,22 @@ tests to this testbench and this page.
   completions of two requests interleaving, each class waiting for
   credits, link and `cc` stalls, `cc` gaps, `rq` held, a message waiting
   and one withdrawn, two posted requests taken at one edge, a completion
-  sent right after the posted request it waited for).
+  sent right after the posted request it waited for) and `tl_cpl` (every
+  completion case of the reference: partial, last, each error status,
+  each malformed check, poisoned in the middle and last, later
+  completions of a failed read, each unexpected case; reads finished in
+  one, two and three completions; all tags in use, a timeout, a timeout
+  after part of the data, a timeout after a disable, a completion after
+  its read timed out, `rc` stalls, an `rc` packet waiting for a posted
+  request, `rc` packets of two reads interleaving, a digest, 1 KiB held
+  for `rc`).
 
 ## Cross-check: RTL, architecture model, reference
 
 The receive reference and the architecture model agree on every TLP of
-every test (the shadow check). The transmit side is judged by the
+every test (the shadow check), and so do the completion reference and
+the architecture model's tracker on every completion. The transmit side
+is judged by the
 transmit reference alone; the architecture model's transmit order (an
 `rq` write taken at its `sop` beat, completions behind the posted
 requests taken before them) and splitting follow the same pages, and its
@@ -156,14 +197,21 @@ self-tests check them.
 | Longer random traffic | `rx_random_long` | 2 | 4 |
 | Longer random traffic, `BAR0_ADDR_W` 20 and odd credit sizes | `rx_random_long_params` | 2 | 2 |
 | The random transmit traffic of `tx_random`, longer | `tx_random_long` | 2 | 4 |
-| [Receive](../../../../src/dv/tl/models/test_pcie_tl_rx_ref.py) and [transmit](../../../../src/dv/tl/models/test_pcie_tl_tx_ref.py) reference unit tests | pytest | `./build ci unit` | |
+| [Matching and checks](../../arch/tl/COMPLETIONS.md#checks): reads finished in one, two and three completions, byte-enable, zero-length and 64-bit reads; each check (Byte Count, Lower Address, boundary, past the end, no data, Configuration Request Retry) dropping a completion while its read waits; Unsupported Request, Completer Abort and a reserved status ending a read; poisoned completions; every unexpected case (Requester ID, Tag 8 or more, locked, after the read ended, before it was sent); a digest; [delivery](../../arch/tl/COMPLETIONS.md#delivery-on-rc) behind a posted write held on `cq`; interleaved reads with `rc` stalls | `cpl_matching` | 1 | 1; directed |
+| [Requester tags](../../arch/tl/COMPLETIONS.md#requester-tags): eight reads outstanding, more waiting for a tag; 1 KiB held while the application stalls `rc`; [Transactions Pending](../../arch/tl/COMPLETIONS.md#non-posted-pending) | `cpl_tags` | 1 | 1; directed |
+| [Completion timeout](../../arch/tl/COMPLETIONS.md#completion-timeout) at `CPL_TIMEOUT_DIV` 1024: lost reads time out once in 2048 to 2176 cycles, several at one pulse, one after part of its data; late completions unexpected; the disable holding a read past the window, then a full timeout | `cpl_timeout` | 1 | 1; directed |
+| Random `rq` traffic with the host's completions split at random and faulted (lost, poisoned, error status, malformed, unexpected, duplicated, digest), host traffic, `rc` stalls, the disable, segments across link-downs | `cpl_random` | 1 | 2 |
+| The same, longer | `cpl_random_long` | 2 | 3 |
+| [Receive](../../../../src/dv/tl/models/test_pcie_tl_rx_ref.py), [transmit](../../../../src/dv/tl/models/test_pcie_tl_tx_ref.py) and [completion](../../../../src/dv/tl/models/test_pcie_tl_cpl_ref.py) reference unit tests | pytest | `./build ci unit` | |
 
 **Level placement.** `rx_routing`, `rx_order` and `rx_link_down` are the
 receive path's acceptance entries and its fastest discriminating tests,
 as is `rx_np_collide`, the only entry that reaches the release carry,
 so they sit in L1; so do `tx_completions`, `tx_requests` and
 `tx_credits`, the transmit path's directed acceptance entries (splitting,
-ordering, credit gating, interrupt messages). The random entries are
+ordering, credit gating, interrupt messages), and `cpl_matching`,
+`cpl_tags` and `cpl_timeout`, the tracker's (the timeout at
+`CPL_TIMEOUT_DIV` 1024 takes about 2200 cycles). The random entries are
 short in L1 (about 3 s of CPU each) and long in L2.
 
 ## Mutation evidence
@@ -263,7 +311,6 @@ named, at its first regression seed:
 
 | Feature | Owning issue |
 | --- | --- |
-| [Requester completions](../../arch/tl/COMPLETIONS.md#requester-completions) (the completion beats, the rc line), the [timeout](../../arch/tl/COMPLETIONS.md#completion-timeout) | [#292](https://github.com/amichai-bd/pcie-factory/issues/292) |
 | The independent host model as the judge of `tl` and `core` | [#288](https://github.com/amichai-bd/pcie-factory/issues/288) |
 
 ## Coverage holes

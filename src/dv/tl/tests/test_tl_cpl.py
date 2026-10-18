@@ -79,6 +79,9 @@ FAULTS = [
     ("locked", _first(lambda x: mutate(x, locked=True)), "data"),
     ("digest", lambda c: [ref.with_digest(x, 0x0BADC0DE) for x in c], "data"),
     ("duplicate_after", lambda c: c + [c[-1]], "data"),
+    # Without data where the next byte is 64-byte aligned: only the data
+    # check refuses it.
+    ("no_data_aligned", lambda c: [c[0], no_data(c[1])] + c[1:], "data"),
 ]
 
 
@@ -148,6 +151,33 @@ async def cpl_matching(dut):
     await env.drain()
     if "unexpected_unsent" not in env.cpl_cases:
         raise TlError("a completion before its read was sent was not unexpected")
+    # Two packets queued for rc, a posted write between their completions
+    # held on cq: the first goes, the second waits for the write.
+    env.host_answer = False
+    env.request(False, 0x6400, 4, tag=1)
+    env.request(False, 0x6500, 4, tag=2)
+    await env.run(40)
+    if any(env.cpl.reads[t].sent is None for t in (1, 2)):
+        raise TlError("the reads were not sent")
+
+    def answer(tag):
+        r = env.read_req[tag]
+        p = cref.legal_completions(r["addr"], r["len"], r["fbe"], r["lbe"])[0]
+        return ref.completion(byte_count=p["bc"], rid=env.my_id, tag=tag, lower_addr=p["la"],
+                              data=list(range(p["n"])))
+
+    env.rc_hold = True
+    env.cq_stall_until = env.cycle + 300
+    env.send(answer(1))
+    env.send(ref.memory(True, env.regs.bar0_base + 0x80, 2))
+    env.send(answer(2))
+    await env.run(60)
+    env.rc_hold = False
+    await env.run(40)
+    if env.rq_tags != {2}:
+        raise TlError(f"tags in use {sorted(env.rq_tags)}: only tag 2 should wait for the write")
+    await env.drain()
+    env.host_answer = True
     # rc behind a posted write the application holds on cq.
     env.host_lat = (60, 60)
     env.request(False, 0x6000, 8, tag=1)
@@ -235,6 +265,18 @@ async def cpl_timeout(dut):
     await env.drain()
     if env.cpl_cases.count("unexpected_no_read") < 4:
         raise TlError("late completions not unexpected")
+    # Taken but held unsent (no non-posted credit) past the window: its
+    # timer starts when it is sent.
+    env.cr_avail["NP"] = [0, 0]
+    env.cr_hold.add("NP")
+    keep[4] = 0
+    env.request(False, 0x4000, 1, 0xF, 0, tag=4)
+    await env.run(hi + 300)
+    if 4 not in env.cpl.reads or env.cpl.reads[4].sent is not None:
+        raise TlError("the held read was sent or ended")
+    env.cr_hold.discard("NP")
+    env.cr_avail["NP"] = [8, 8]
+    await env.drain(limit=4000)
     # Disabled: a lost read waits past 17 periods; cleared, a full timeout.
     env.dis = True
     keep[6] = 0
