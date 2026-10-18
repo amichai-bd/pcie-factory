@@ -114,14 +114,14 @@ shows where each of their checks went.
 | [Reset values](../../arch/mac/HAS.md#reset-values) with every input toggling; training to L0; the scrambler's [known answer](../../arch/mac/SYMBOLS.md#scrambling) on the line after a SKP; a TLP, a DLLP and a nullified TLP each way; a retrain each way; reset with a packet half accepted (`pkt_tx_ready_o` falls at once), then a clean packet; both roles | `smoke` | 0 | 1 |
 | [Core arcs without an error-path timeout](../../arch/mac/ARCS.md), both roles: retrain by request, received TS and electrical idle; no receiver; Configuration walks to the PAD and renumbering exits; RcvrCfg's mismatching TS1; Recovery.Idle's lane PAD; Polling.Compliance in and out; an upstream port learning link 255. [Power states](../../arch/mac/ARCS.md#l0s-sub-machines) (`ep_power`): transmit and receive L0s left by a packet each way (EIOS, P0s, FTS, the closing SKP), a retrain in `Rx_L0s.Idle` and one in `Rx_L0s.Entry` (the exit latched until `.Idle`), the `Rx_L0s.FTS` timeout with the DUT's transmitter in `Tx_L0s.Idle` (the Recovery exit held while `Tx_L0s.FTS` sends its FTS; partner `fts_extra` 200 + 2 x N_FTS, so its SKP never ends `Rx_L0s.FTS` first), L1 requested after an EIOS already started receive L0s (the upstream port still sends its EIOS first), L1 and L2 entered by both requests and left by request 0, the upstream wait for L1 withdrawn | `arcs_quick` | 1 | 1; 43 of 53 arcs per role, every power arc |
 | [Polarity](../../arch/mac/ARCS.md#detect-and-polling): set once in Polling, cleared in Detect.Quiet, packets on an inverted wire | `polarity` | 1 | 1 |
-| [Transmit and receive streams](../../arch/mac/HAS.md#transmit): random TLPs (to 512 bytes, some past the SKP interval) and DLLPs both ways, nullified ones, gaps, lane shifts, DUT retrains inside packets (aborts); SKP deferral and back-to-back SKP | `traffic` | 1 | 3 |
-| The same, longer, the long TLPs up to the largest (4122 bytes), whose SKP deferral takes the SKP credit past 4096 | `traffic_long` | 2 | 4 |
+| [Transmit and receive streams](../../arch/mac/HAS.md#transmit): random TLPs (to 512 bytes, some past the SKP interval) and DLLPs both ways, nullified ones, gaps, lane shifts, DUT retrains inside packets (aborts); SKP deferral and back-to-back SKP | `traffic` | 1 | 3; coverage on the first 2 |
+| The same, longer, the long TLPs up to the largest (4122 bytes), whose SKP deferral takes the SKP credit past 4096 | `traffic_long` | 2 | 2: 1214372279 and 644855963 ([seeds](#seeds-and-coverage-runs)) |
 | [Abort by a bubble](../../arch/mac/HAS.md#transmit): EDB, the rest taken and discarded, later packets intact | `tx_bubble` | 1 | 1; symbol comparison stops at the bubble |
 | [Receive rules](../../arch/mac/SYMBOLS.md#receive): crafted streams in L0 with every malformed case, empty packets, RxValid drops (a framing error inside a packet), RxStatus errors, either lane; electrical idle, a retrain inside a packet and during a resync | `rx_errors` | 1 | 2 |
 | [Idle tail](../../arch/mac/HAS.md#receive) (#197), directed, both roles, outcomes from the HAS: a nullified TLP then idle data stays nullified with no error; the same symbols then electrical idle (idle mid-TLP, no EIOS) end bad with exactly one receiver error, as does the cut one symbol earlier; a received EDB in `[15:8]` outside a packet is one framing error, then resync, and without resync when a retrain 0 to 2 cycles later takes the receiver out of `Rx_L0` as the next word arrives (#90); a 3-byte DLLP from `[15:8]`, whose end is the second beat pushed in its word (the receive queue's second slot), is one bad DLLP with one receiver error (#90); an EIOS ending in an idle tail starts receive L0s with no error. Upstream: an EIOS with an idle tail in `Rx_L0` while L1 is requested and the DUT's own packet keeps its wait from starting gives no error (asserted still in L0 with `Rx_L0` and the packet open), then L1 | `rx_idle_tail` | 1 | 1; deterministic; fails on the pre-fix RTL and model |
 | The same, more seeds | `rx_errors_long` | 2 | 6 |
 | [Received TS fields and events](../../arch/mac/SYMBOLS.md#ts1-and-ts2): every link, lane and N_FTS byte, PAD, each control bit, TS2, both lanes; EIOS and FTS at both lanes; K link and lane fields, K, unknown and mismatched identifiers, a TS cut by COM; inverted TS1 and TS2 at both lanes | `ts_fields` | 1 | 2 |
-| Random partner resets, mutes, freezes, retrains, wrong TS fields and N_FTS, inverted wire, symbol errors, power requests on either side (L0s, L1, L2, mixed) with traffic, both roles | `random_soak` | 2 | 2 |
+| Random partner resets, mutes, freezes, retrains, wrong TS fields and N_FTS, inverted wire, symbol errors, power requests on either side (L0s, L1, L2, mixed) with traffic, both roles | `random_soak` | 2 | 2; coverage on both |
 | [Every core and power arc, timeouts included](../../arch/mac/ARCS.md), downstream, but the two only the `idle_to_rlock` loop reaches: the level-1 recipes and every error-path timeout in one run, all those arcs required in it | `arcs_timeouts_downstream` | 2 | 1 |
 | The same, upstream | `arcs_timeouts_upstream` | 2 | 1 |
 | The `idle_to_rlock` loop, downstream: Recovery.Idle times out to RcvrLock 255 times without L0 (the count checked) and the next timeout goes to Detect.Quiet, then Configuration.Idle's timeout goes to Detect.Quiet too, the count not cleared; those two arcs required | `arcs_idle_rlock_downstream` | 2 | 1 |
@@ -166,6 +166,19 @@ the loop already sits at the RTL's 16384-cycle floor
 ([HAS parameters](../../arch/mac/HAS.md#parameters)), so no faster divider
 exists without changing the RTL contract. The loop is 256 × 16384 cycles,
 about 4.2 million, and is the level's longest entry.
+
+### Seeds and coverage runs
+
+[#327](https://github.com/amichai-bd/pcie-factory/issues/327):
+`traffic_long` went from four derived seeds to two pinned ones: 644855963,
+the catch of the SKP-credit mutant below, and 1214372279 (derived seed 0).
+On the merged level 0 to 2 coverage of `005836f` the two cut seeds hit no
+point or bin the other runs miss. `--coverage` instruments each entry's
+first seed only, except `traffic` (its second seed reaches a point the
+first does not) and `random_soak` (its second seed, five points), so the
+merged coverage is unchanged point for point; a mac coverage build runs
+about 19% slower than a plain one (`arcs_quick`: 35.6 s against 30.0 s of
+CPU).
 
 ## Leaf checks, old to new
 

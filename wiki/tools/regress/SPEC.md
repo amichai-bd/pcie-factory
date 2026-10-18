@@ -522,6 +522,14 @@ The nightly runs on one host type with a persistent cache
 ([DevOps BKM](../../bkm/devops.md#build-cache)), so there such an entry runs
 in the first nightly after its models change.
 
+Tests: `tools/regress/tests/test_run.py`
+(`test_coverage_on_the_first_seeds_only`: only the first seed runs on the
+coverage build and is merged, the others on the plain build;
+`test_model_check_pass_is_reused_until_its_inputs_change`: a second run
+reuses both seeds and builds nothing, an RTL change still reuses, a
+testbench change and the cache off rerun) and `test_schema.py` (the
+`coverage_seeds` and `rerun_when` validation).
+
 ## Budgets
 
 `cfg/levels.yaml` defines `level0`, `level1` and `level2`. Each level has

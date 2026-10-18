@@ -66,7 +66,7 @@
 | --- | --- | --- | --- |
 | [Reset state, order](../../../rtl/common/cdc/common_cdc_fifo.md#behavior): one word, then a burst at a fixed 2:5 ratio | `fifo_smoke` | 0 | 1; `ADDR_W` 2 |
 | [Full, empty, wrap, flag latency](../../../rtl/common/cdc/common_cdc_fifo.md#behavior), source faster | `fifo_full_empty_src_fast` | 1 | 2; five fill/drain rounds |
-| [Full, empty, wrap, flag latency](../../../rtl/common/cdc/common_cdc_fifo.md#behavior), destination faster | `fifo_full_empty_dst_fast` | 1 | 2; five fill/drain rounds |
+| [Full, empty, wrap, flag latency](../../../rtl/common/cdc/common_cdc_fifo.md#behavior), destination faster | `fifo_full_empty_dst_fast` | 1 | 2; five fill/drain rounds; coverage on the first 2 (`coverage_seeds`) |
 | [Reset](../../../rtl/common/cdc/common_cdc_fifo.md#behavior) of both sides with words in flight, three times, then checked traffic | `fifo_reset_in_flight` | 1 | 2; ratio up to 8:1 |
 | [Asynchronous sides](../../../rtl/common/cdc/common_cdc_fifo.md#behavior): a full FIFO empty and not full in the time step both resets rise with the clocks stopped, at two pointer positions; pulse and held reset; checked traffic after | `fifo_arst` | 1 | 2; `SRC_ASYNC_RESET` 1, `DST_ASYNC_RESET` 1, ratio up to 8:1 |
 | [Order and capacity](../../../rtl/common/cdc/common_cdc_fifo.md#behavior) under random rates and ratios; read-side fill and look-ahead every cycle | `fifo_random` | 1 | 3; `ADDR_W` 2, 40 rounds, ratio up to 8:1 |
@@ -79,3 +79,5 @@ Mutation evidence ([#84](https://github.com/amichai-bd/pcie-factory/issues/84)),
 in a scratch copy: `dst_fill_o` off by one fails `fifo_random` ("dst_fill_o 1
 with dst_valid_o 0"); `dst_next_data_o` reading the oldest word fails it
 ("dst_next_data_o expected ... got ...").
+
+Coverage runs ([#327](https://github.com/amichai-bd/pcie-factory/issues/327)): `--coverage` instruments each entry's first seed only, except where the plan row names more: those entries' later seeds reach clock-ratio bins (the 4:1 ratios, a faster destination) the first does not, on the merged level 0 to 2 coverage of `005836f`, so the merged coverage is unchanged bin for bin ([regress SPEC](../../../../tools/regress/SPEC.md#coverage)).
