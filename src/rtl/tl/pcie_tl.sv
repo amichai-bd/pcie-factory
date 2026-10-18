@@ -75,9 +75,12 @@ module pcie_tl #(
   input  logic [31:0]            bar2_base_i,       // cdc-domain: clk_i
   input  logic                   cpl_timeout_dis_i, // 1: the completion timeout never fires // cdc-domain: clk_i
 
-  // cfg: error events and messages
+  // cfg: error events, slot power limit and messages
   output logic [8:0]             tl_err_o,          // one-cycle pulses, bit order in the TL_CFG page
   output logic                   tl_np_pending_o,   // an rq read awaits its final completion or timeout
+  output logic                   slot_pwr_valid_o,  // one-cycle pulse: a Set_Slot_Power_Limit to capture
+  output logic [7:0]             slot_pwr_value_o,  // with valid: Slot Power Limit Value
+  output logic [1:0]             slot_pwr_scale_o,  // with valid: Slot Power Limit Scale
   input  logic                   msg_valid_i,       // cdc-domain: clk_i
   output logic                   msg_ready_o,
   input  logic [1:0]             msg_kind_i,        // 0 interrupt write, 1 ERR_COR, 2 ERR_NONFATAL, 3 ERR_FATAL // cdc-domain: clk_i
@@ -167,6 +170,8 @@ module pcie_tl #(
   logic                    np_mal;
   logic [3:0]              np_mal_d;
   logic [3:0]              rx_err;
+  logic                    rx_spl_valid;
+  pcie_tl_pkg::t_slot_pwr  rx_spl;
   pcie_tl_pkg::t_rx_beat   cpl_beat;
 
   pcie_tl_rx #(
@@ -193,6 +198,8 @@ module pcie_tl #(
     .np_mal_o       (np_mal),
     .np_mal_d_o     (np_mal_d),
     .err_o          (rx_err),
+    .slot_pwr_valid_o (rx_spl_valid),
+    .slot_pwr_o     (rx_spl),
     .cpl_beat_o     (cpl_beat)
   );
 
@@ -512,6 +519,9 @@ module pcie_tl #(
   assign msg_ready_o     = msg_ready && !rst;
   assign cc_ready_o      = cc_ready && !rst;
   assign rq_ready_o      = rq_ready && !rst;
+  assign slot_pwr_valid_o = rx_spl_valid && !rst;
+  assign slot_pwr_value_o = rx_spl.value;
+  assign slot_pwr_scale_o = rx_spl.scale;
 
   // Tracker (#292) outputs at their reset values.
   assign tl_np_pending_o = 1'b0;

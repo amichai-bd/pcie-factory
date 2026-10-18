@@ -58,6 +58,7 @@ interrupt-status codes, and the types:
 | --- | --- |
 | `t_ctrl` | The register state the blocks use: Memory Space, Bus Master, Parity Error Response and SERR# enables, PowerState, MSI Enable, address and data, MSI-X Enable and Function Mask, the four Device Control reporting enables. |
 | `t_sts` | The RW1C bits set at one edge: the five Status bits and the four Device Status error bits. |
+| `t_slot_pwr` | The slot power event's payload and the captured fields: value and scale. |
 | `t_err_due` | One due flag per error message kind. |
 | `t_src`, `t_offer` | What an offer came from (error, the application's request, the MSI pending flag, an MSI-X pending bit) and the offer: kind, address, data, mode and vector. |
 | `t_app` | The application's request held from its take to its done: mode and vector. |
@@ -72,8 +73,11 @@ Helpers: `be_mask`, `wr_rw` (an RW write of the enabled bytes), `wr_w1c`
 32-bit register per DW that has RW bits (Command, Cache Line Size, BAR0,
 BAR2, Interrupt Line, PowerState, the four MSI DWs, MSI-X control, Device
 Control, Link Control, Device Control 2), each holding only its RW bits
-(reset 0, Device Control 0x2810), plus the nine RW1C status bits and the
-captured bus and device number.
+(reset 0, Device Control 0x2810), plus the nine RW1C status bits, the
+captured bus and device number, and the Captured Slot Power Limit
+(`spl_q`, a `t_slot_pwr`, reset 0, loaded from the top's
+`slot_pwr_value_i` and `slot_pwr_scale_i` at an edge with
+`slot_pwr_valid_i`; no configuration write reaches it).
 
 - **Write.** At a configuration write's take, each register's next value
   is `wr_rw` of its RW mask (BAR0's mask follows `BAR0_ADDR_W`); a
@@ -87,7 +91,8 @@ captured bus and device number.
 - **Read.** A combinational `case` on `reg_req_addr_i` gives the DW: the
   register's RW bits ORed with the DW's read-only value (IDs, Class Code
   and Table Size from the parameters, the status bits, Transactions
-  Pending from `tl_np_pending_i`); every other DW of the 1024 is 0. The
+  Pending from `tl_np_pending_i`, the Captured Slot Power Limit from
+  `spl_q`); every other DW of the 1024 is 0. The
   top registers it at the take.
 - **Checks.** The parameter ranges are `COMMON_ASSERT_PARAM`s;
   `a_rw_only` (Command, Device Control and BAR0 hold only RW bits) and

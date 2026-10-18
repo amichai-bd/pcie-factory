@@ -115,3 +115,4 @@ Type `[2:0]`.
 | Requester ID | bytes 4, 5 | `bus_num`, `dev_num`, function 0. | Ignored. |
 | Tag | byte 6 | 0 | Ignored. |
 | Message Code | byte 7 | ERR_COR `0x30`, ERR_NONFATAL `0x31`, ERR_FATAL `0x33` with routing `000` (to the Root Complex); PME_TO_Ack `0x1B` with routing `101` (gathered to the Root Complex). | Selects the [outcome](ROUTING.md#messages); INTx, power-management, error-signalling, Unlock and Set_Slot_Power_Limit codes require TC 0 ([checks](ROUTING.md#checks), step 6). The routing subfield and bytes 8 to 15 are not checked. |
+| Data | after the header | None. | Read only for Set_Slot_Power_Limit: data byte 0 is the value, byte 1 bits `[1:0]` the scale, the other bits ignored ([slot power limit](../core/TL_CFG.md#slot-power-limit)); every other message's data is ignored. |

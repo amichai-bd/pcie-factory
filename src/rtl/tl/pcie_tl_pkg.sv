@@ -180,8 +180,15 @@ package pcie_tl_pkg;
     logic        write;      // Fmt "with data"
     logic [7:0]  bus;
     logic [4:0]  dev;
-    logic [31:0] wdata;      // first data DW (a configuration write)
+    logic [31:0] wdata;      // first data DW (a configuration write, a Set_Slot_Power_Limit)
+    logic        spl;        // a Set_Slot_Power_Limit to capture: with data, no error
   } t_rx_cur;
+
+  // The slot power event's payload (TL_CFG slot power limit).
+  typedef struct packed {
+    logic [7:0]  value;      // Slot Power Limit Value, data byte 0
+    logic [1:0]  scale;      // Slot Power Limit Scale, data byte 1 bits 1:0
+  } t_slot_pwr;
 
   // Posted queue entry.
   typedef struct packed {

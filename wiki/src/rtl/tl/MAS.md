@@ -24,6 +24,7 @@ flowchart LR
   rx -- "t_cq_ent, t_cfg_ent" --> q
   rx -- "malformed non-posted" --> q
   rx -- "err 3:0" --> err["tl_err_o"]
+  rx -- "t_slot_pwr" --> spl["slot_pwr_*_o"]
   rx -. "cpl_beat (#292)" .-> trk["tracker slot"]
   q -- "posted head, data, cq line" --> cq["u_cq<br/>cq stream, handles"]
   q -- "posted head, data, cfg line" --> reg["u_reg<br/>register access"]
@@ -48,7 +49,7 @@ flowchart LR
 and every block takes it as its synchronous reset. Every handshake
 output (`tlp_rx_ready_o`, `tlp_tx_valid_o`, `cq_valid_o`, `cc_ready_o`,
 `rq_ready_o`, `msg_ready_o`, `reg_req_valid_o`, `fc_rel_p_o`,
-`fc_rel_np_o`, `tl_err_o`) is also gated by `rst` at the top, so it is 0
+`fc_rel_np_o`, `tl_err_o`, `slot_pwr_valid_o`) is also gated by `rst` at the top, so it is 0
 in the first cycle `dl_up_i` falls, before the registers clear. The ready
 and valid inputs reach the blocks gated the same way.
 
@@ -87,7 +88,8 @@ arbiter's choice), the structs (the decoded header `t_hdr`, the TLP being
 received `t_rx_cur`, the queue entries `t_pq_ent`, `t_cq_ent`,
 `t_cfg_ent`, `t_txp_ent`, `t_txnp_ent`, the queued completion
 `t_cpl_desc`, the former's read context `t_cpl_ctx`, the block nets
-`t_hd_ctx`, `t_cpl_rec`, the slot types `t_rx_beat`, `t_rq_ctx`, and each
+`t_hd_ctx`, `t_cpl_rec`, the slot types `t_rx_beat`, `t_rq_ctx`, the slot power payload
+`t_slot_pwr`, and each
 block's state), and the pure helpers:
 
 | Helper | Does |
@@ -118,7 +120,7 @@ from 31 down to the BAR's size (a mask from `BAR0_ADDR_W`, 12 for BAR2).
 
 Data beats are the Length DWs after the header of a TLP with data. Those
 of a BAR0 or BAR2 write go to the posted data queue as they arrive; the
-first of a configuration write is kept in `cur_q`. A digest DW after them
+first of a configuration write or a message is kept in `cur_q`. A digest DW after them
 (TD 1, [TLP formats](../../arch/tl/TLP.md#common-fields)) is never stored.
 Every other TLP's data is not stored.
 
@@ -129,6 +131,11 @@ request), a BAR0 read into the cq line, a configuration request, a BAR2
 read or a non-posted Unsupported Request into the cfg line, and a
 malformed non-posted TLP straight to the release (it leaves at once). Its
 error event pulses on `tl_err_o` bits 3 to 0 in the same cycle. A
+Set_Slot_Power_Limit with data that passed steps 1 to 6 and is not
+poisoned is judged with `cur_q.spl` set; it pulses `slot_pwr_valid_o` in
+that cycle too, with `t_slot_pwr` from the kept data DW (bits 7:0 the
+value, 9:8 the scale), and is a `PK_DISCARD` entry like any dropped
+message ([slot power limit](../../arch/core/TL_CFG.md#slot-power-limit)). A
 completion with a defined Fmt pushes nothing: its beats went to the
 tracker slot as they arrived. Assertions: `a_beat_outside_tlp`,
 `a_sop_inside_tlp`, `a_short_tlp` (the `dll`'s whole-TLP contract) and
@@ -377,8 +384,8 @@ at an rq read's `sop` take. Assertion: the line sent keeps its head.
 ## Timing
 
 - One clock, `clk_i`; reset synchronous (`rst`); no crossing.
-- A TLP whose `eop` is taken at edge E: its error event pulses and its
-  entry is pushed in the cycle after E; it reaches its queue head two
+- A TLP whose `eop` is taken at edge E: its error event and slot power
+  event pulse and its entry is pushed in the cycle after E; it reaches its queue head two
   edges later, so a request with nothing ahead of it is offered on `cq`,
   or handed on as an Unsupported Request, in the third cycle after E,
   and offered on `reg_req` in the fourth.

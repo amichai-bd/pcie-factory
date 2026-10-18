@@ -86,7 +86,7 @@ optional feature [cite: PCIe Base Spec, rev 3.0, §7.8].
 | 0x74 | 4:3, 5 | Phantom Functions, Extended Tag Field Supported | RO | 0 | Tags 0 to 7 only. |
 | 0x74 | 8:6, 11:9 | Endpoint L0s, L1 Acceptable Latency | RO | 0 | No ASPM; not used. |
 | 0x74 | 15 | Role-Based Error Reporting | RO | 1 | [Errors](HAS.md#errors) follow it. |
-| 0x74 | 25:18, 27:26 | Captured Slot Power Limit Value, Scale | RO | 0 | Read 0: a received Set_Slot_Power_Limit message is not captured (see the [open questions](HAS.md#open-questions)) [cite: PCIe Base Spec, rev 3.0, §7.8.3]. |
+| 0x74 | 25:18, 27:26 | Captured Slot Power Limit Value, Scale | RO | 0 | Loaded from the [slot power limit](HAS.md#slot-power-limit) event of a received Set_Slot_Power_Limit message [cite: PCIe Base Spec, rev 3.0, §7.8.3]. |
 | 0x74 | 28 | Function Level Reset Capability | RO | 0 | No FLR (Q10). |
 | 0x78 | 0, 1, 2, 3 | Correctable, Non-Fatal, Fatal, Unsupported Request Reporting Enable | RW | 0 | The [message decision](HAS.md#errors) [cite: PCIe Base Spec, rev 3.0, §7.8.4]. |
 | 0x78 | 4, 11 | Enable Relaxed Ordering, Enable No Snoop | RW | 1, 1 | No effect. |

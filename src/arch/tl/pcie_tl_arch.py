@@ -262,6 +262,8 @@ class Cfg:
         self.regs: dict[tuple[int, int], int] = {}
         self.accesses: list[tuple] = []
         self.msgs: deque = deque()                 # (kind, addr, data) offered on msg_*
+        self.slot_power_limit = (0, 0)             # the last slot power event (value, scale)
+        self.slot_power_events: list[tuple[int, int]] = []
 
     def access(self, bar2: bool, write: bool, addr: int, be: int, data: int,
                bus: int, dev: int) -> int:
@@ -280,6 +282,11 @@ class Cfg:
     def id(self) -> int:
         """Completer and requester ID: bus, device, function 0."""
         return (self.bus << 8) | (self.dev << 3)
+
+    def slot_power(self, value: int, scale: int) -> None:
+        """The slot power event (TL_CFG slot power limit): one pulse."""
+        self.slot_power_limit = (value, scale)
+        self.slot_power_events.append((value, scale))
 
 
 # ----------------------------------------------------------- classification
@@ -329,6 +336,18 @@ def classify(h: dict, cfg: Cfg, bar0_addr_w: int) -> tuple[str, int | None]:
     if h["ep"]:
         return ("drop" if posted else "ur"), E_POISONED_REQ
     return kind, bit
+
+
+def slot_power(h: dict, kind: str, bit: int | None) -> tuple[int, int] | None:
+    """(value, scale) of the slot power event a received TLP raises, or
+    None: a Set_Slot_Power_Limit with data that passed every check and is
+    not poisoned (dropped, no error); data byte 0 is the value, byte 1
+    bits 1:0 the scale (ROUTING.md, messages; TL_CFG slot power limit)
+    [cite: PCIe Base Spec, rev 3.0, §2.2.8.5]."""
+    if (kind != "drop" or bit is not None or h["type"] & 0x18 != 0x10
+            or h["code"] != MSG_SET_SLOT_POWER or not h["fmt"] & 2):
+        return None
+    return h["data"][0], h["data"][1] & 3
 
 
 def _route(h: dict, cfg: Cfg, bar0_addr_w: int, posted: bool) -> tuple[str, int | None]:
@@ -539,6 +558,9 @@ class Tl:
                 raise AssertionError(f"receive queue above the advertised credits: {self.occ}")
         kind, bit = classify(h, self.cfg, self.bar0_addr_w)
         self.err(bit)
+        spl = slot_power(h, kind, bit)
+        if spl is not None:                         # at receipt, with the error event
+            self.cfg.slot_power(*spl)
         if kind == "cpl":
             self._rx_cpl(h, now)
         elif cr[0] == CPL:                          # a malformed completion: dropped, no release

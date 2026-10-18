@@ -40,12 +40,14 @@ tests to this testbench and this page.
   - the **receive reference**
     [`models/pcie_tl_rx_ref.py`](../../../../src/dv/tl/models/pcie_tl_rx_ref.py),
     written from the [TLP](../../arch/tl/TLP.md) and
-    [routing](../../arch/tl/ROUTING.md) pages with no code of the
-    architecture model, judges each TLP as it is sent: outcome, error
-    bit, class and credits, and what each outcome must make;
+    [routing](../../arch/tl/ROUTING.md) pages and the
+    [slot power limit](../../arch/core/TL_CFG.md#slot-power-limit) with no
+    code of the architecture model, judges each TLP as it is sent:
+    outcome, error bit, slot power event, class and credits, and what each
+    outcome must make;
   - the **shadow**, the [architecture model](../../arch/tl/HAS.md#architecture-model)'s
-    `classify`, judges the same TLP; a disagreement with the reference
-    fails the test;
+    `classify` and `slot_power`, judges the same TLP; a disagreement with
+    the reference fails the test;
   - the **dll stand-in** takes `tlp_tx_*` beats at random (`tx_ready_p`)
     and keeps the partner's credits per class and field, finite or
     infinite, as the `dll` shows them on `fc_*_avail_i`: a TLP's credits
@@ -70,6 +72,8 @@ tests to this testbench and this page.
   every reset cycle (`rst_i` 1 or `dl_up_i` 0), the outputs of the blocks
   not built always 0, and `tlp_rx_ready_o` 1 otherwise; each error pulse
   exactly one cycle after the TLP's `eop`, with the reference's bit; each
+  slot power event exactly one cycle after the `eop` of a TLP the
+  reference raises one for, with its value and scale, and none otherwise; each
   `cq` packet against the next BAR0 write or read (address bits, length,
   byte enables, every data DW), each read with the lowest free handle and
   its context on `rd_take`; each register access against the next access
@@ -111,8 +115,9 @@ tests to this testbench and this page.
   over fails it. A test that holds the application's `cc` answers names
   how many BAR0 reads wait for a handle.
 - **Functional coverage:** `tl_rx_outcome` (outcome, class, kind, error
-  bit, outcome × class with the impossible pairs declared unreachable)
-  and `tl_rx_order` (a read waiting for a handle, a write passing it, a
+  bit, outcome × class with the impossible pairs declared unreachable),
+  `tl_rx_slot_power` (each Set_Slot_Power_Limit captured, without data,
+  poisoned or malformed; the scale of each captured one), and `tl_rx_order` (a read waiting for a handle, a write passing it, a
   non-posted request waiting for posted ones, a cfg-line request passing
   a waiting read, two and three non-posted requests leaving in one cycle,
   non-posted data owed above 8 (the carry), `cq` and
@@ -138,7 +143,7 @@ self-tests check them.
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Reset values](../../arch/tl/HAS.md#reset); a write to `cq`, a configuration read to `cfg` and its completion, an `rq` write and an interrupt write | `smoke` | 0 | 1 |
-| Every request type and error case of the [routing](../../arch/tl/ROUTING.md): served `cq`, BAR2 and configuration requests, every Unsupported Request, every message outcome, every malformed step, poisoned requests and the Unsupported Request first, completions to the tracker, TLPs with a digest; then the same with memory space off and in D3hot ([outside D0](../../arch/tl/ROUTING.md#outside-d0)) | `rx_routing` | 1 | 1; directed |
+| Every request type and error case of the [routing](../../arch/tl/ROUTING.md): served `cq`, BAR2 and configuration requests, every Unsupported Request, every message outcome, every malformed step, poisoned requests and the Unsupported Request first, completions to the tracker, TLPs with a digest; the [slot power event](../../arch/core/TL_CFG.md#slot-power-limit) of Set_Slot_Power_Limit (back to back, any routing, other bits ignored, two data DWs, a digest; none without data, poisoned or with TC not 0); then the same with memory space off and in D3hot ([outside D0](../../arch/tl/ROUTING.md#outside-d0)) | `rx_routing` | 1 | 1; directed |
 | [Ordering](../../arch/tl/ORDERING.md#ordering): reads waiting for handles and writes passing them, configuration passing waiting reads, nothing passing a held posted request, posted order across `cq` and `cfg`, a configuration request not waiting for a later write, one beat per cycle on `cq`, merged non-posted releases | `rx_order` | 1 | 1; directed |
 | [Reset](../../arch/tl/HAS.md#reset) by link-down mid-TLP and by `rst_i` with requests queued | `rx_link_down` | 1 | 1; directed |
 | Random TLPs of every kind with stalls and gaps, segments across link-downs | `rx_random` | 1 | 3 |
@@ -202,43 +207,57 @@ against the entry named, at its first regression seed
 | M31 a BAR0 read released at arrival | `rx_order` | a non-posted release with nothing owed |
 | M32 a non-posted release one cycle late | `rx_order` | no release with a header owed |
 
-The transmit path's mutants (#291), each run the same way:
+The slot power event ([#309](https://github.com/amichai-bd/pcie-factory/issues/309))
+was mutated against L0 and L1 one entry at a time (`--jobs 1`); the
+entry is the first that fails, in level then name order.
 
 | Mutant | Entry | Fails with |
 | --- | --- | --- |
-| M33 split at every 64-byte boundary | `tx_completions` | completion mismatch: a 60-byte completion |
-| M34 the first Lower Address without the first enabled byte | `tx_completions` | Lower Address 0x18, 0x1A due |
-| M35 later Byte Counts not corrected by the first enabled byte | `tx_completions` | completion mismatch (Byte Count) |
-| M36 the last DW not masked by L | `tx_completions` | disabled bytes sent |
-| M37 the first DW not masked by F | `tx_completions` | disabled bytes sent |
-| M38 the former's DW index not reset at a read's end | `tx_completions` | assertion `a_cc_eop` |
-| M39 no room check at a completion's start | `tx_completions` | assertion `a_push_when_full` |
-| M40 Unsupported Request of a memory read with Byte Count 4 | `tx_completions` | completion mismatch |
-| M41 Unsupported Request of a locked read not locked | `tx_completions` | a plain completion where the locked kind was due |
-| M42 a configuration read's Byte Count from its byte span | `tx_completions` | Byte Count 2, 4 due |
-| M43 a handle freed at the `cc` `sop` beat | `tx_completions` | a read offered with a handle in use |
-| M44 `cc` completions not ordered behind posted requests | `tx_requests` | a completion passed a posted request taken before it |
-| M45 an equal epoch counts as after for `rq` reads | `tx_requests` | a read passed a posted request taken before it |
-| M46 posted data credits not gated | `tx_credits` | a posted TLP offered needing 8 data credits with 1 |
-| M47 the posted header credit not gated | `tx_credits` | a posted TLP offered with no header credit |
-| M48 a 3-DW header for a 64-bit write | `tx_requests` | posted TLP mismatch |
-| M49 messages with routing 000 | `tx_requests` | PME_TO_Ack mismatch |
-| M50 completion TC and Attr not copied | `tx_completions` | completion mismatch |
-| M51 `rq` reads sent with Tag 0 | `tx_requests` | read mismatch |
-| M52 the ID not held from the `sop` offer | `tx_random` | an offered beat changed before it was taken |
-| M53 `rq_sent` at every `sop` | `smoke` | `rq_sent` at a posted TLP |
-| M54 messages taken without room | `tx_requests` | assertion `a_p_overflow` |
-| M55 `rq` takes requests with bus mastering off | `tx_requests` | a `sop` beat taken with bus mastering off |
-| M56 an interrupt write with no byte enabled | `smoke` | posted TLP mismatch |
-| M57 ERR_NONFATAL sent as ERR_COR | `tx_requests` | posted TLP mismatch |
-| M58 a message taken with an `rq` write overwrites it | `tx_random` | a completion passed a posted request |
-| M59 the `rq_rd_take` context with tag 0 | `tx_requests` | read context mismatch |
-| M60 PME_TO_Ack taken without room | `tx_credits` | assertion `a_p_overflow` |
-| M61 `cc` completions with the epoch before their `sop` beat's | `tx_requests` | a completion passed a posted request taken before it |
-| M62 BAR2 read completions from DW address 0 | `tx_completions` | completion mismatch (split, Lower Address) |
-| M63 a configuration write completed with Unsupported Request | `tx_completions` | completion mismatch |
-| M64 an interrupt write pops the posted data queue | `tx_requests` | assertion `a_pop_when_empty` |
-| M65 an `rq` write started before all its data is in | `tx_random` | `tlp_tx_valid_o` 0 inside a TLP |
+| M33 a poisoned Set_Slot_Power_Limit raises the event | `rx_routing` | slot power event (231, 1) with none due |
+| M34 one without data raises the event | `rx_random` | slot power event (0, 0) with none due |
+| M35 any message with data raises the event | `rx_random` | slot power event (92, 2) with none due |
+| M36 the event held, not pulsed | `rx_random` | slot power event (0, 0) with none due |
+| M37 the scale from data byte 3 | `rx_random` | slot power event (value, scale) expected (248, 1) got (248, 2) |
+| M38 one with a digest not captured | `rx_routing` | no slot power event, expected value 0xc3 scale 2 |
+
+The transmit path's mutants (#291), each run alone against the entry
+named, at its first regression seed:
+
+| Mutant | Entry | Fails with |
+| --- | --- | --- |
+| M39 split at every 64-byte boundary | `tx_completions` | completion mismatch: a 60-byte completion |
+| M40 the first Lower Address without the first enabled byte | `tx_completions` | Lower Address 0x18, 0x1A due |
+| M41 later Byte Counts not corrected by the first enabled byte | `tx_completions` | completion mismatch (Byte Count) |
+| M42 the last DW not masked by L | `tx_completions` | disabled bytes sent |
+| M43 the first DW not masked by F | `tx_completions` | disabled bytes sent |
+| M44 the former's DW index not reset at a read's end | `tx_completions` | assertion `a_cc_eop` |
+| M45 no room check at a completion's start | `tx_completions` | assertion `a_push_when_full` |
+| M46 Unsupported Request of a memory read with Byte Count 4 | `tx_completions` | completion mismatch |
+| M47 Unsupported Request of a locked read not locked | `tx_completions` | a plain completion where the locked kind was due |
+| M48 a configuration read's Byte Count from its byte span | `tx_completions` | Byte Count 2, 4 due |
+| M49 a handle freed at the `cc` `sop` beat | `tx_completions` | a read offered with a handle in use |
+| M50 `cc` completions not ordered behind posted requests | `tx_requests` | a completion passed a posted request taken before it |
+| M51 an equal epoch counts as after for `rq` reads | `tx_requests` | a read passed a posted request taken before it |
+| M52 posted data credits not gated | `tx_credits` | a posted TLP offered needing 8 data credits with 1 |
+| M53 the posted header credit not gated | `tx_credits` | a posted TLP offered with no header credit |
+| M54 a 3-DW header for a 64-bit write | `tx_requests` | posted TLP mismatch |
+| M55 messages with routing 000 | `tx_requests` | PME_TO_Ack mismatch |
+| M56 completion TC and Attr not copied | `tx_completions` | completion mismatch |
+| M57 `rq` reads sent with Tag 0 | `tx_requests` | read mismatch |
+| M58 the ID not held from the `sop` offer | `tx_random` | an offered beat changed before it was taken |
+| M59 `rq_sent` at every `sop` | `smoke` | `rq_sent` at a posted TLP |
+| M60 messages taken without room | `tx_requests` | assertion `a_p_overflow` |
+| M61 `rq` takes requests with bus mastering off | `tx_requests` | a `sop` beat taken with bus mastering off |
+| M62 an interrupt write with no byte enabled | `smoke` | posted TLP mismatch |
+| M63 ERR_NONFATAL sent as ERR_COR | `tx_requests` | posted TLP mismatch |
+| M64 a message taken with an `rq` write overwrites it | `tx_random` | a completion passed a posted request |
+| M65 the `rq_rd_take` context with tag 0 | `tx_requests` | read context mismatch |
+| M66 PME_TO_Ack taken without room | `tx_credits` | assertion `a_p_overflow` |
+| M67 `cc` completions with the epoch before their `sop` beat's | `tx_requests` | a completion passed a posted request taken before it |
+| M68 BAR2 read completions from DW address 0 | `tx_completions` | completion mismatch (split, Lower Address) |
+| M69 a configuration write completed with Unsupported Request | `tx_completions` | completion mismatch |
+| M70 an interrupt write pops the posted data queue | `tx_requests` | assertion `a_pop_when_empty` |
+| M71 an `rq` write started before all its data is in | `tx_random` | `tlp_tx_valid_o` 0 inside a TLP |
 
 ## Gaps
 

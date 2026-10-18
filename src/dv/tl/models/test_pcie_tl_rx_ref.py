@@ -55,6 +55,26 @@ def test_messages():
     assert j(ref.message(ref.VENDOR_TYPE1, data=[1, 2])) == ("drop", None)
 
 
+def test_slot_power_event():
+    """Set_Slot_Power_Limit (TL_CFG slot power limit): with data, dropped
+    with no error and the event carries data byte 0 and byte 1 bits 1:0,
+    the rest ignored, in any D-state and with a digest; without data,
+    poisoned or with TC not 0, no event; no other message raises it."""
+    spl = ref.SET_SLOT_POWER_LIMIT
+    v = ref.judge(ref.message(spl, data=[0xFFFF_FE5A]), R)
+    assert (v.outcome, v.err, v.slot_power) == ("drop", None, (0x5A, 2))
+    d3 = ref.Regs(d_state=3, mem_space_en=False)
+    assert ref.judge(ref.with_digest(ref.message(spl, data=[0x1C3])), d3).slot_power == (0xC3, 1)
+    assert ref.judge(ref.message(spl, data=[0x300, 7]), R).slot_power == (0, 3)
+    assert ref.judge(ref.message(spl), R).slot_power is None
+    v = ref.judge(ref.message(spl, data=[0x1FF], ep=1), R)
+    assert (v.outcome, v.err, v.slot_power) == ("drop", ref.POISONED_REQUEST, None)
+    v = ref.judge(ref.message(spl, data=[0x1FF], tc=2), R)
+    assert (v.outcome, v.err, v.slot_power) == ("malformed", ref.MALFORMED, None)
+    for code in (ref.VENDOR_TYPE1, ref.VENDOR_TYPE0, 0x51, 0x40):
+        assert ref.judge(ref.message(code, data=[0x1FF]), R).slot_power is None, hex(code)
+
+
 def test_malformed_kinds():
     assert j(ref.raw(0b100, 0))[0] == "malformed"                       # prefix
     assert j(ref.raw(0b011, ref.TYPE_MEM_LOCKED))[0] == "malformed"

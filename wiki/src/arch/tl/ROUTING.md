@@ -105,14 +105,14 @@ By Message Code; the routing subfield is not checked
 | Unlock | `0x00` | Dropped: an Endpoint with no locked access ignores it [cite: PCIe Base Spec, rev 3.0, §2.2.8.4]. |
 | PM_Active_State_Nak | `0x14` | Dropped: `tl` never requests a link power state, so there is nothing to refuse [cite: PCIe Base Spec, rev 3.0, §2.2.8.2]. |
 | PME_Turn_Off | `0x19` | Answered with PME_TO_Ack (`0x1B`, routed gathered to the Root Complex) from the transmit posted line, in any D-state; nothing else changes. `link` stays in L0 ([`link` power states](../link/HAS.md#power-states)) [cite: PCIe Base Spec, rev 3.0, §2.2.8.2] [cite: PCIe Base Spec, rev 3.0, §5.3.3.2.1]. |
-| Set_Slot_Power_Limit | `0x50` | Dropped; its value is not captured ([open questions](HAS.md#open-questions)) [cite: PCIe Base Spec, rev 3.0, §2.2.8.5]. |
+| Set_Slot_Power_Limit | `0x50` | Dropped. With data, it also pulses the [slot power event](../core/TL_CFG.md#slot-power-limit) with byte 0 of the data as the value and bits 1:0 of byte 1 as the scale; without data it captures nothing [cite: PCIe Base Spec, rev 3.0, §2.2.8.5] [cite: PCIe Base Spec, rev 3.0, §6.9]. |
 | Vendor_Defined Type 1 | `0x7F` | Dropped [cite: PCIe Base Spec, rev 3.0, §2.2.8.6]. |
 | Ignored messages (former hot-plug indicator and button messages) | `0x40`, `0x41`, `0x43`, `0x44`, `0x45`, `0x47`, `0x48` | Dropped [cite: PCIe Base Spec, rev 3.0, §2.2.8.7]. |
 | Every other code: Vendor_Defined Type 0 (`0x7E`), INTx, PM_PME, PME_TO_Ack, ERR_*, LTR, OBFF and undefined codes | | Unsupported Request, posted (bit 0) [cite: PCIe Base Spec, rev 3.0, §2.2.8.6]. |
 
 A poisoned message that is not an Unsupported Request is a poisoned
-request (step 8): dropped, bit 3, and a poisoned PME_Turn_Off is not
-answered. A message of the codes in step 6 with TC not 0 is malformed
+request (step 8): dropped, bit 3; a poisoned PME_Turn_Off is not
+answered and a poisoned Set_Slot_Power_Limit is not captured. A message of the codes in step 6 with TC not 0 is malformed
 before its code is looked at.
 
 ## Outside D0

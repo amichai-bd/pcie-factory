@@ -404,6 +404,28 @@ def test_transactions_pending():
     assert not c.cfg_read(DEVCTL) >> 21 & 1
 
 
+def test_slot_power_limit_capture():
+    """The slot power event loads Captured Slot Power Limit Value (25:18)
+    and Scale (27:26) of Device Capabilities in any D-state; software
+    writes leave them; the next event replaces them; reset clears them
+    (HAS, slot power limit)."""
+    devcap = CAP_PCIE + 4
+    c = Cfg()
+    assert c.cfg_read(devcap) == 1 << 15                       # role-based errors only
+    c.slot_power(0xA5, 3)
+    assert c.cfg_read(devcap) == 1 << 15 | 0xA5 << 18 | 3 << 26
+    c.cfg_write(devcap, 0)
+    assert c.cfg_read(devcap) >> 18 & 0x3FF == 0xA5 | 3 << 8
+    c.cfg_write(CAP_PM + 4, D3HOT, be=0x1)
+    c.slot_power(0x19, 1)
+    assert c.cfg_read(devcap) == 1 << 15 | 0x19 << 18 | 1 << 26
+    c.reset()
+    assert c.cfg_read(devcap) == 1 << 15
+    for value, scale in ((0x100, 0), (0, 4), (-1, 0)):
+        with pytest.raises(ValueError):
+            c.slot_power(value, scale)
+
+
 def test_vector_out_of_range():
     c = Cfg(Params(msix_table_size=4))
     ready(c, msix=True)

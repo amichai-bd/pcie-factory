@@ -12,8 +12,8 @@ One cycle, at the falling edge of clk_i after rising edge n:
    DUT's parameters, in the edge order of the MAS (Decisions): a read sees
    the state before the edge; an offer the DUT raised at n is chosen from
    the state before the edge (the model's ``offer`` is called first); then
-   the take, the register write, the error events and the interrupt
-   request. The model's own rules then withdraw an offer or turn a waiting
+   the take, the register write, the error events, the slot power event
+   and the interrupt request. The model's own rules then withdraw an offer or turn a waiting
    request pending.
 3. Compare: the offer (``msg_valid_o`` and, while it is up, its kind,
    address and data) with the model's; ``irq_done_o`` and ``irq_status_o``
@@ -24,7 +24,9 @@ One cycle, at the falling edge of clk_i after rising edge n:
    ``irq_ready_o`` are 1 exactly when no access or request is open.
 4. Drive the next inputs: the queued register accesses (one at a time,
    the next after the last one's ``reg_cpl_valid_o``), interrupt requests
-   (one at a time), error-event cycles, ``msg_ready_i`` (with probability
+   (one at a time), error-event cycles, slot power events (queued, or
+   random with probability ``spl_p``; a random value and scale while
+   ``slot_pwr_valid_i`` is 0), ``msg_ready_i`` (with probability
    ``msg_ready_p``) and ``tl_np_pending_i`` (with probability ``np_p``).
 
 Tests add their own checks written from the HAS on top (the register map in
@@ -57,7 +59,8 @@ LATENCY = 4          # HAS targets: reg_cpl_valid_o and irq_done_o within 4 cycl
 INPUTS = {
     "reg_req_valid_i": 1, "reg_req_bar2_i": 1, "reg_req_write_i": 1, "reg_req_addr_i": 10,
     "reg_req_be_i": 4, "reg_req_data_i": 32, "reg_req_bus_i": 8, "reg_req_dev_i": 5,
-    "tl_np_pending_i": 1, "tl_err_i": 9, "dl_err_i": 7, "rcv_err_i": 1, "msg_ready_i": 1,
+    "tl_np_pending_i": 1, "slot_pwr_valid_i": 1, "slot_pwr_value_i": 8, "slot_pwr_scale_i": 2,
+    "tl_err_i": 9, "dl_err_i": 7, "rcv_err_i": 1, "msg_ready_i": 1,
     "irq_valid_i": 1, "irq_vector_i": 6, "rst_i": 1,
 }
 OUTPUTS = ("reg_req_ready_o", "reg_cpl_valid_o", "reg_cpl_data_o", "bus_num_o", "dev_num_o",
@@ -102,6 +105,10 @@ COV_IRQ.coverpoint("when", bins={"at_request": "at_request", "waiting": "waiting
                                  "withdrawn": "withdrawn", "taken": "taken"})
 COV_IRQ.cross("mode_x_status", "mode", "status",
               unreachable=[("none", "sent"), ("none", "pending"), ("msix", "dropped")])
+
+COV_SPL = Covergroup("cfg_slot_power")
+COV_SPL.coverpoint("scale", (0, 1, 2, 3))
+COV_SPL.coverpoint("edge", ("alone", "cfg_read", "cfg_write", "d3hot"))
 
 COV_POWER = Covergroup("cfg_power")
 COV_POWER.coverpoint("write", bins={"d0_to_d3": (0, 3), "d3_to_d0": (3, 0), "d1_ignored": 1,
@@ -174,6 +181,9 @@ class Env:
         self.msg_ready_p = 1.0
         self.np_p = 0.0
         self.err_p = 0.0               # probability of a random error-event cycle
+        self.spl_p = 0.0               # probability of a random slot power event
+        self.spl: deque[tuple[int, int]] = deque()   # queued slot power events (value, scale)
+        self.spl_rng = random.Random(seed ^ 0x309)   # their own stream: other draws unchanged
         self.accesses: deque[Access] = deque()
         self.irqs: deque[Irq] = deque()
         self.events: deque[tuple[int, int, int]] = deque()
@@ -308,6 +318,13 @@ class Env:
         tl, dl, rcv = drv["tl_err_i"], drv["dl_err_i"], drv["rcv_err_i"]
         if tl or dl or rcv:
             m.error(tl=tl, dl=dl, rcv=rcv)
+        # (e') the slot power event: Captured Slot Power Limit, read-only to
+        # software, so its place among the writes does not matter.
+        if drv["slot_pwr_valid_i"]:
+            edge = ("d3hot" if m.d_state != 0 else "alone" if acc is None or acc.bar2
+                    else "cfg_write" if acc.write else "cfg_read")
+            m.slot_power(drv["slot_pwr_value_i"], drv["slot_pwr_scale_i"])
+            COV_SPL.sample(scale=drv["slot_pwr_scale_i"], edge=edge)
         if held is not None and m._offer is None and not msg_take:
             self.withdrawn += 1
             COV_MSG.sample(src=offer_src(held), end="withdrawn",
@@ -450,6 +467,15 @@ class Env:
         drv.update(tl_err_i=tl, dl_err_i=dl, rcv_err_i=rcv)
         drv["msg_ready_i"] = int(rng.random() < self.msg_ready_p)
         drv["tl_np_pending_i"] = int(rng.random() < self.np_p)
+        # Slot power event: queued, random, or idle with a random payload.
+        srng = self.spl_rng
+        value, scale = srng.getrandbits(8), srng.getrandbits(2)
+        valid = 0
+        if self.spl:
+            (value, scale), valid = self.spl.popleft(), 1
+        elif self.spl_p and srng.random() < self.spl_p:
+            valid = 1
+        drv.update(slot_pwr_valid_i=valid, slot_pwr_value_i=value, slot_pwr_scale_i=scale)
 
     # ------------------------------------------------------------ test API
 
@@ -495,6 +521,10 @@ class Env:
         await self.run_until(lambda: irq.status is not None, limit, f"irq {vector} resolution")
         return irq.status
 
+    def slot_power(self, value: int, scale: int) -> None:
+        """Queue a slot power event; it is driven for one cycle."""
+        self.spl.append((value, scale))
+
     def request(self, vector: int) -> Irq:
         """Queue an interrupt request without waiting."""
         irq = Irq(vector)
@@ -519,5 +549,5 @@ class Env:
         await self.run_until(lambda: (not self.accesses and self.offering is None
                                       and self.inflight is None and not self.irqs
                                       and self.irq_offering is None and self.irq_open is None
-                                      and not self.events),
+                                      and not self.events and not self.spl),
                              limit, "drain")

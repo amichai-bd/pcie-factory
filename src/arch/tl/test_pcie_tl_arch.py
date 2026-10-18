@@ -202,6 +202,29 @@ def test_classify(cfg, tlp, want):
     assert m.classify(m.parse(tlp), cfg, 12) == want
 
 
+def test_set_slot_power_limit_raises_the_slot_power_event():
+    """A Set_Slot_Power_Limit with data pulses the slot power event at
+    receipt with data byte 0 as the value and byte 1 bits 1:0 as the scale,
+    other bits ignored, in any D-state, a digest after the data changing
+    nothing; one without data, a poisoned one or one with TC not 0 raises
+    none (ROUTING.md, messages; TL_CFG slot power limit)."""
+    spl = m.MSG_SET_SLOT_POWER
+    tl, _, _ = make_tl()
+    tl.receive(m.msg_tlp(spl, m.R_LOCAL, 0, bytes([0x5A, 0xFE, 0xFF, 0xFF])), 0)
+    assert tl.cfg.slot_power_events == [(0x5A, 2)] and tl.errors == [0] * len(m.ERR_NAMES)
+    tl.cfg.d_state = m.D3HOT
+    digest = m.msg_tlp(spl, m.R_LOCAL, 0, bytes([0xC3, 0x01, 0, 0]))
+    digest = digest[:2] + bytes([digest[2] | 0x80]) + digest[3:] + bytes([0x77, 1, 2, 3])
+    tl.receive(digest, 1)
+    tl.receive(m.msg_tlp(spl, m.R_LOCAL, 0), 2)                              # no data
+    tl.receive(m.msg_tlp(spl, m.R_LOCAL, 0, bytes([1, 1, 0, 0]), ep=1), 3)   # poisoned
+    tl.receive(tc(m.msg_tlp(spl, m.R_LOCAL, 0, bytes([2, 2, 0, 0]))), 4)     # TC 1
+    tl.receive(m.msg_tlp(m.MSG_VDM1, m.R_LOCAL, 0, bytes([3, 3, 0, 0])), 5)  # another code
+    assert tl.cfg.slot_power_events == [(0x5A, 2), (0xC3, 1)]
+    assert tl.cfg.slot_power_limit == (0xC3, 1)
+    assert tl.errors[m.E_POISONED_REQ] == 1 and tl.errors[m.E_MALFORMED] == 1
+
+
 def test_bar_hit_needs_memory_space_and_d0(cfg):
     h = m.parse(mrd(0x8000_0000))
     assert m.classify(h, cfg, 12) == ("cq", None)

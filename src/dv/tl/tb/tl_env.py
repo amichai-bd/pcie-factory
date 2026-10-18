@@ -24,13 +24,15 @@ to this cycle.
   ROUTING and TLP pages) judges each TLP as it is sent; the expectations
   it makes are checked as the DUT acts: the cq packets, the register
   accesses and completion records of the cfg line and of BAR2 writes, the
-  PME_TO_Ack requests, the error pulses (exactly one cycle after the eop),
+  PME_TO_Ack requests, the error pulses and the slot power events
+  (exactly one cycle after the eop, the event with its value and scale),
   the completion beats to the tracker slot, the posted releases in arrival
   order with their data credits, and the non-posted release totals.
   Ordering is checked at every leave: nothing that must wait for earlier
   posted requests goes before their releases were seen.
-- The **shadow**, the architecture model's ``classify``, judges the same
-  TLP; any disagreement with the reference fails the test.
+- The **shadow**, the architecture model's ``classify`` and
+  ``slot_power``, judges the same TLP; any disagreement with the reference
+  fails the test.
 
 Transmit (#291):
 
@@ -89,8 +91,8 @@ CR_UR, CR_CFG_WR, CR_CFG_RD, CR_BAR2_RD = range(4)
 
 # Outputs with a reset value (HAS, reset), checked in every reset cycle.
 RESET_ZERO = ("tlp_tx_valid_o", "tlp_rx_ready_o", "fc_rel_p_o", "fc_rel_np_o", "reg_req_valid_o",
-              "tl_err_o", "tl_np_pending_o", "msg_ready_o", "cq_valid_o", "cc_ready_o",
-              "rq_ready_o", "rc_valid_o")
+              "tl_err_o", "tl_np_pending_o", "slot_pwr_valid_o", "msg_ready_o", "cq_valid_o",
+              "cc_ready_o", "rq_ready_o", "rc_valid_o")
 # Outputs of the block not built yet (#292): 0 in every cycle.
 UNBUILT_ZERO = ("tl_np_pending_o", "rc_valid_o")
 # Credit field widths (dll credits available): all ones is infinite.
@@ -110,6 +112,9 @@ COV_RX.coverpoint("err", {"none": None, "ur_posted": 0, "ur_nonposted": 1, "malf
 COV_RX.cross("outcome_x_cls", "outcome", "cls", unreachable=(
     ("cq", "CPL"), ("bar2", "CPL"), ("cfg", "P"), ("cfg", "CPL"), ("ur", "CPL"), ("drop", "NP"),
     ("drop", "CPL"), ("pme", "NP"), ("pme", "CPL"), ("cpl", "P"), ("cpl", "NP")))
+COV_SPL = Covergroup("tl_rx_slot_power")
+COV_SPL.coverpoint("case", ("captured", "no_data", "poisoned", "malformed"))
+COV_SPL.coverpoint("scale", (0, 1, 2, 3))
 COV_ORDER = Covergroup("tl_rx_order")
 COV_ORDER.coverpoint("event", ("read_waits_handle", "write_passes_read", "np_waits_posted",
                                "cfg_passes_cq_read", "two_np_leave", "three_np_leave",
@@ -177,6 +182,7 @@ class TlEnv:
         self.records: list = []               # (cycle, kind) of every completion record
         self.tx_kinds: list = []              # kind of every TLP sent
         self.splits: list = []                # completions per read answered
+        self.spl_seen = 0                     # slot power events checked
 
     # ------------------------------------------------------------ state
     def _clear(self) -> None:
@@ -193,6 +199,7 @@ class TlEnv:
         self.bar2_writes: deque = deque()     # posted BAR2 writes, in arrival order
         self.pme: deque = deque()
         self.err_at: dict[int, int] = {}
+        self.spl_at: dict[int, tuple] = {}    # cycle -> (value, scale) of a slot power event
         self.cpl_beats: deque = deque()
         self.np_rx = [0, 0]                   # non-posted headers, data credits received
         self.np_rel = [0, 0]                  # released
@@ -242,6 +249,7 @@ class TlEnv:
         return bool(self.txq or self.beats or self.cq_writes or self.cq_reads or self.cfg_jobs
                     or self.bar2_writes or self.posted or self.access or self.pme
                     or self.cpl_beats or self.np_rel != self.np_rx or self.err_at
+                    or self.spl_at
                     or not self._tx_idle(False))
 
     def _tx_idle(self, hold_ok: bool) -> bool:
@@ -328,7 +336,7 @@ class TlEnv:
     def _drained(self, stuck: int) -> bool:
         if (self.txq or self.beats or self.cq_writes or self.cfg_jobs or self.bar2_writes
                 or self.posted or self.access or self.pme or self.cpl_beats or self.err_at
-                or self.cq_pkt or not self._tx_idle(True)):
+                or self.spl_at or self.cq_pkt or not self._tx_idle(True)):
             return False
         if len(self.cq_reads) != stuck:
             return False
@@ -535,6 +543,14 @@ class TlEnv:
             if err_cycle in self.err_at:
                 raise TlError(f"two error pulses expected in cycle {err_cycle}")
             self.err_at[err_cycle] = 1 << v.err
+        if v.slot_power is not None:
+            self.spl_at[err_cycle] = v.slot_power
+        if v.kind == "msg" and h["code"] == ref.SET_SLOT_POWER_LIMIT:
+            case = ("captured" if v.slot_power else "malformed" if v.outcome == "malformed"
+                    else "poisoned" if v.err is not None else "no_data")
+            COV_SPL.sample(case=case)
+            if v.slot_power:
+                COV_SPL.sample(scale=v.slot_power[1])
         if v.cls == "CPL":
             if v.outcome == "cpl":
                 self.cpl_beats.extend(ref.to_beats(tlp))
@@ -578,7 +594,8 @@ class TlEnv:
         c = arch.Cfg()
         c.mem_en, c.d_state = self.regs.mem_space_en, self.regs.d_state
         c.bar0, c.bar2 = self.regs.bar0_base, self.regs.bar2_base
-        kind, bit = arch.classify(arch.parse(tlp), c, self.regs.bar0_addr_w)
+        h = arch.parse(tlp)
+        kind, bit = arch.classify(h, c, self.regs.bar0_addr_w)
         names = {"pme_ack": "pme", "malformed": "malformed"}
         got = names.get(kind, kind)
         if kind == "drop" and bit == arch.E_UR_P:
@@ -586,6 +603,10 @@ class TlEnv:
         if (got, bit) != (v.outcome, v.err):
             raise TlError(f"shadow disagrees on {tlp.hex()}: reference {v.outcome}/{v.err}, "
                           f"architecture model {kind}/{bit}")
+        spl = arch.slot_power(h, kind, bit)
+        if spl != v.slot_power:
+            raise TlError(f"shadow disagrees on {tlp.hex()}: reference slot power "
+                          f"{v.slot_power}, architecture model {spl}")
 
     # ----------------------------------------------------------- observe
     def _val(self, name: str) -> int:
@@ -605,6 +626,7 @@ class TlEnv:
             raise TlError(f"cycle {t}: tlp_rx_ready_o 0 with the data link up")
         self.p_taken_prev = self.p_taken
         self._check_err(t)
+        self._check_slot_power(t)
         self._check_release(t)
         self._check_cpl_beats(t)
         cq_read_take = self._check_cq(t)
@@ -646,6 +668,23 @@ class TlEnv:
         want = self.err_at.pop(t, 0)
         if got != want:
             raise TlError(f"cycle {t}: tl_err_o expected {want:#05x} got {got:#05x}")
+
+    def _check_slot_power(self, t: int) -> None:
+        """The slot power event (TL_CFG slot power limit): a pulse exactly
+        when the reference raised one for the TLP whose eop was the cycle
+        before, with its value and scale."""
+        want = self.spl_at.pop(t, None)
+        if not self._val("slot_pwr_valid_o"):
+            if want is not None:
+                raise TlError(f"cycle {t}: no slot power event, expected value {want[0]:#04x} "
+                              f"scale {want[1]}")
+            return
+        got = (self._val("slot_pwr_value_o"), self._val("slot_pwr_scale_o"))
+        if want is None:
+            raise TlError(f"cycle {t}: slot power event {got} with none due")
+        if got != want:
+            raise TlError(f"cycle {t}: slot power event (value, scale) expected {want} got {got}")
+        self.spl_seen += 1
 
     def _check_release(self, t: int) -> None:
         """Releases by the HAS rule: a request that left at the edge ending
