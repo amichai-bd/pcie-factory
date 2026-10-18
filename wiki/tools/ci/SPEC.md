@@ -156,7 +156,7 @@ is posted, so the PR stays blocked).
 
 ## The workflow
 
-`ci.yml` runs `ci-tests` and the vendor/aggregate jobs below on `[self-hosted, linux, x64]` for pull
+`ci.yml` runs `ci-tests` and the vendor/aggregate jobs below on `[self-hosted, linux, x64, wsl]` (the WSL host's runners) for pull
 requests to `main`, pushes to `main` and manual dispatch:
 
 1. Toolchain discovery (prints `python3`, the Verilator found on `PATH` or

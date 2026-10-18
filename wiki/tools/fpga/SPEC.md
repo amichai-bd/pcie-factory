@@ -96,7 +96,8 @@ from the same directory:
 1. `PATH`.
 2. `$QUARTUS_ROOTDIR/bin`.
 3. `<quartus_root>/bin`, with `hosts.omarchy.quartus_root` from
-   `cfg/host.yaml` ([host spec](../host/SPEC.md#hosts)).
+   `cfg/host.yaml` ([host spec](../host/SPEC.md#hosts)); a fallback kept
+   from the now unsupported Omarchy host.
 
 If none has it, the command fails with exit 2 and names the places it
 looked. `--dry-run` never looks.
@@ -187,8 +188,8 @@ Because `fpga/` lives in `workdir/<ip>/`, no test may be named `fpga`
 
 ## CI
 
-`.github/workflows/fpga.yml` runs on `[self-hosted, linux, x64]` (every
-CI host has Quartus) with `contents: read` and a 90-minute job timeout. It has
+`.github/workflows/fpga.yml` runs on `[self-hosted, linux, x64, wsl]`, the
+WSL host's runners, which have Quartus on `PATH`, with `contents: read` and a 90-minute job timeout. It has
 **manual dispatch only**; required CI separately runs full Quartus on
 affected targets ([CI selection](../ci/SPEC.md#build-ci-vendor)).
 Input `ip` runs `./build fpga --ip <ip>`,

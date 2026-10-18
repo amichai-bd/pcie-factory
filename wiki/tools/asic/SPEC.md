@@ -230,7 +230,7 @@ liberty time is ns, area µm².
 ## Workflow
 
 `asic.yml` runs the full flow only on `workflow_dispatch` (nightly L2
-also runs the full command directly), on `[self-hosted, linux, x64]` (every CI host runs the ORFS image). Input
+also runs the full command directly), on `[self-hosted, linux, x64, wsl]`, the WSL host's runners only ([DevOps BKM](../../bkm/devops.md#continuous-integration)). Input
 `ip`: one IP id; empty (the default) runs every IP that has a `src/asic/<ip>/`
 folder, found with `find`, one `./build asic --ip <id>` each
 (the job fails if any fails). Input `study_clock_period`: empty (the

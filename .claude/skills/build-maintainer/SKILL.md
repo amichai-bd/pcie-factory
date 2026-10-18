@@ -50,9 +50,9 @@ issue worktree per [agent-flow](../agent-flow/SKILL.md).
 
 ## 3. Workflows (`.github/`)
 
-- [ ] `runs-on: [self-hosted, linux, x64]`, plus a host label only where the
-      [DevOps BKM](../../../wiki/bkm/devops.md#continuous-integration) pins
-      a workflow to one host (the nightly's `wsl`); no hosted runners, no
+- [ ] `runs-on: [self-hosted, linux, x64, wsl]`, the one supported host
+      ([DevOps BKM](../../../wiki/bkm/devops.md#continuous-integration));
+      no hosted runners, no
       design names in job names, paths or labels.
 - [ ] Every job a `pull_request` can trigger carries
       `if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository`
