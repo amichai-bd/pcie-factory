@@ -20,6 +20,10 @@ together with the fpga backend's dv_models from cfg/backends.yaml:
   rejects one parameter at a time outside it, each with exactly one
   elaboration failure, carrying that rule's message.
 
+The sky130 (asic) backend is linted the same way against its DV-only macro
+model (sky130_lint), and sky130_select proves which geometries take the
+macros: linted without the model, only those fail, on the missing macro.
+
 The backend's cycle behavior runs through the shared contract tests
 (tests.test_ram) in the regression entries with `backend: fpga`. The
 simulated top only hosts this test.
@@ -173,15 +177,30 @@ SKY130_BLOCKS = tuple(sorted(p.stem for p in RTL.glob("common_*.sv")
 SKY130_LEGAL = (
     {"WIDTH": 34, "ADDR_W": 9, "LANES": 1},   # dll receive buffer: two macro rows
     {"WIDTH": 32, "ADDR_W": 8, "LANES": 1},   # dll replay buffer: one macro
-    {"WIDTH": 16, "ADDR_W": 3, "LANES": 1},   # the regression shape: low words only
+    {"WIDTH": 72, "ADDR_W": 7, "LANES": 1},   # the macro regression shape: two across, low words
     {"WIDTH": 70, "ADDR_W": 10, "LANES": 1},  # two macros across, four rows
-    {"WIDTH": 1, "ADDR_W": 1, "LANES": 1},    # the smallest RAM
+    {"WIDTH": 16, "ADDR_W": 3, "LANES": 2},   # the flop regression shape
+    {"WIDTH": 96, "ADDR_W": 3, "LANES": 12},  # a lane-enabled table: flops
+    {"WIDTH": 1, "ADDR_W": 1, "LANES": 1},    # the smallest RAM: flops
 )
 SKY130_ILLEGAL = (
     ({"WIDTH": 0}, "WIDTH must be at least 1"),
     ({"ADDR_W": 0}, "ADDR_W must be at least 1"),
-    ({"WIDTH": 16, "LANES": 2}, "the sky130 backend supports LANES == 1 only"),
+    ({"LANES": 0}, "LANES must be at least 1 and divide WIDTH"),
+    ({"WIDTH": 8, "LANES": 3}, "LANES must be at least 1 and divide WIDTH"),
 )
+# Macro selection: a one-lane RAM of at least 8192 bits uses macros, every
+# other RAM the portable array. Each shape: (params, uses macros).
+SKY130_SELECT = (
+    ({"WIDTH": 32, "ADDR_W": 8, "LANES": 1}, True),    # exactly 8192 bits
+    ({"WIDTH": 72, "ADDR_W": 7, "LANES": 1}, True),    # 9216 bits
+    ({"WIDTH": 34, "ADDR_W": 9, "LANES": 1}, True),
+    ({"WIDTH": 63, "ADDR_W": 7, "LANES": 1}, False),   # 8064 bits, just below
+    ({"WIDTH": 32, "ADDR_W": 7, "LANES": 1}, False),   # 4096 bits
+    ({"WIDTH": 64, "ADDR_W": 8, "LANES": 2}, False),   # large, but two lanes
+    ({"WIDTH": 16, "ADDR_W": 3, "LANES": 1}, False),
+)
+_MODMISSING_RE = re.compile(r"Cannot find file containing module: 'sky130_sram_1rw1r_64x256_8'")
 
 
 @cocotb.test()
@@ -207,3 +226,20 @@ async def sky130_lint(dut):
                 f"{code}:\n{text}")
             checked += 1
     assert checked == len(SKY130_BLOCKS) * (len(SKY130_LEGAL) + len(SKY130_ILLEGAL))
+
+
+@cocotb.test()
+async def sky130_select(dut):
+    """Macros only where the selection rule says: without the macro model,
+    a macro shape fails elaboration naming the missing macro, and every
+    other shape lints with only DECLFILENAME."""
+    del dut
+    for params, macros in SKY130_SELECT:
+        src = backends.backend_file(RTL / "common_sdp_ram.sv", SKY130)
+        code, msgs, text = lint("common_sdp_ram", [src], params)
+        missing = any(r == "MODMISSING" and _MODMISSING_RE.search(t) for r, t in msgs)
+        if macros:
+            assert code != 0 and missing, f"{params}: expected macros, got exit {code}:\n{text}"
+        else:
+            assert code == 0 and [r for r, _ in msgs] == ["DECLFILENAME"], (
+                f"{params}: expected the portable array, got exit {code}:\n{text}")
