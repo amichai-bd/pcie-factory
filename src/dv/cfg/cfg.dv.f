@@ -1,1 +1,2 @@
-// Simulation-only sources: none (cocotb drives pcie_cfg directly).
+// Simulation-only sources: the testbench top.
+tb/pcie_cfg_tb.sv

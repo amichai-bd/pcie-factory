@@ -1,1 +1,80 @@
-tests: []
+tests:
+  - name: regmap
+    module: tests.test_cfg
+    testcase: regmap
+    top: pcie_cfg_tb
+    timeout_s: 300
+  - name: power_states
+    module: tests.test_cfg
+    testcase: power_states
+    top: pcie_cfg_tb
+    timeout_s: 300
+  - name: bar2_map
+    module: tests.test_cfg
+    testcase: bar2_map
+    top: pcie_cfg_tb
+    timeout_s: 300
+  - name: enumeration
+    module: tests.test_cfg
+    testcase: enumeration
+    top: pcie_cfg_tb
+    timeout_s: 300
+  - name: error_table
+    module: tests.test_cfg_err
+    testcase: error_table
+    top: pcie_cfg_tb
+    timeout_s: 300
+  - name: error_messages
+    module: tests.test_cfg_err
+    testcase: error_messages
+    top: pcie_cfg_tb
+    timeout_s: 300
+  - name: irq_msi
+    module: tests.test_cfg_irq
+    testcase: irq_msi
+    top: pcie_cfg_tb
+    timeout_s: 300
+  - name: irq_msix
+    module: tests.test_cfg_irq
+    testcase: irq_msix
+    top: pcie_cfg_tb
+    timeout_s: 300
+  - name: irq_withdraw
+    module: tests.test_cfg_irq
+    testcase: irq_withdraw
+    top: pcie_cfg_tb
+    timeout_s: 300
+  - name: random_ops
+    module: tests.test_cfg_random
+    testcase: random_ops
+    top: pcie_cfg_tb
+    seeds: 3
+    timeout_s: 300
+  # Every parameter at a boundary: the largest BAR0 and table, IDs set.
+  - name: regmap_params
+    module: tests.test_cfg
+    testcase: regmap
+    top: pcie_cfg_tb
+    timeout_s: 300
+    params: {BAR0_ADDR_W: 28, MSIX_TABLE_SIZE: 64, VENDOR_ID: 0x1234, DEVICE_ID: 0xABCD,
+             SUBSYS_VENDOR_ID: 0x5678, SUBSYS_ID: 0x9ABC, CLASS_CODE: 0x020000,
+             REVISION_ID: 0x5A}
+  - name: bar2_map_64
+    module: tests.test_cfg
+    testcase: bar2_map
+    top: pcie_cfg_tb
+    timeout_s: 300
+    params: {MSIX_TABLE_SIZE: 64}
+  - name: enumeration_params
+    module: tests.test_cfg
+    testcase: enumeration
+    top: pcie_cfg_tb
+    seeds: 2
+    timeout_s: 300
+    params: {BAR0_ADDR_W: 20, MSIX_TABLE_SIZE: 1, VENDOR_ID: 0x1AF4, DEVICE_ID: 0x0001,
+             CLASS_CODE: 0x058000, REVISION_ID: 0x01}
+  - name: param_limits
+    module: tests.test_cfg_params
+    testcase: param_limits
+    top: pcie_cfg_tb
+    timeout_s: 300
