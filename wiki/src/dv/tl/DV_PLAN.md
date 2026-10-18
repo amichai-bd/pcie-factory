@@ -271,4 +271,6 @@ named, at its first regression seed:
 No floors yet (the gaps above remain). With L0 to L2 and `--coverage`,
 functional coverage is 100%; the uncovered lines are the tracker's slot
 ties and outputs (#292), constant until it lands, and one unreachable
-`case` default.
+`case` default: [`pcie_tl_reg.sv`](../../../../src/rtl/tl/pcie_tl_reg.sv)
+line 141, the `default` arm of the register engine's state, which only
+the unused fourth code of the 2-bit `t_reg_st` would reach.

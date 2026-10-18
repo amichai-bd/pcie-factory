@@ -38,9 +38,13 @@ link does not show available is skipped, so a TLP waiting for credits
 never holds back one of another line. A TLP starts only once all its data
 is in `tl`; once its `sop` beat is offered, each beat stays offered,
 unchanged, until the link takes it, and the next follows in the next
-cycle, so a TLP goes out with no gap. The application's
-obligation never to make taking a `cq` write depend on an `rc` beat
-([APP](../core/APP.md#ordering)) keeps these rules free of deadlock.
+cycle, so a TLP goes out with no gap. Two application obligations keep
+these rules free of deadlock: never to make taking a `cq` write depend on
+an `rc` beat ([APP](../core/APP.md#ordering)), which covers the receive
+side; and, since an `rq` write holds back every later completion and
+posted request from its `sop` beat until its last beat, to finish a write
+once its `sop` beat is taken without waiting on `cc`, the interrupt port
+or `cq` ([APP](../core/APP.md#write-completion), [#291](https://github.com/amichai-bd/pcie-factory/issues/291#issuecomment-6250061556)).
 
 **Requests already taken.** When `bus_master_en_i` falls or `d_state_i`
 leaves D0, `rq` takes no new request, but requests and messages already

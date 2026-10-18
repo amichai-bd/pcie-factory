@@ -114,6 +114,8 @@ module pcie_tl_rx_q #(
   logic cq_full;
   logic cfg_empty;
   logic cfg_full;
+  // The queue's RAM fill output serves the transmit queues' room checks;
+  // the receive queues are sized by the credits and do not read it.
   logic [PQ_AW:0] pq_used;
   logic [PD_AW:0] pd_used;
   logic [NQ_AW:0] cq_used;

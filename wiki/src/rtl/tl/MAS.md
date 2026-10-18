@@ -378,7 +378,7 @@ at an rq read's `sop` take. Assertion: the line sent keeps its head.
 | Two completion formers, one queue each, alternating in the completion turn | `cc` and cfg records arrive independently; one data queue would interleave their DWs. Completions of different requests have no order between them. | One former with a merge buffer in front. |
 | Room for the longest completion at a completion's first DW | `cc_ready_o` and `cpl_room` then need no input combinationally; a 64-DW queue still holds two completions. | Room for the completion's own length (a path from `cc_handle_i` to `cc_ready_o`). |
 | Transmit posted line in flops, up to three entries at one edge | An rq write, a message and a PME_TO_Ack can be taken together; none waits on another, and the head is visible at the next edge for the epoch rule. | A RAM queue with a holding register per source (a held message would be taken before an rq write but enter after it). |
-| An rq write enters the posted line at its `sop` beat and goes out whole | The order taken is the `sop` order (APP); a write never stalls the link mid-TLP waiting for the application. | Entering at its `eop` (a message taken during the write's data would pass it); cut-through. |
+| An rq write enters the posted line at its `sop` beat and goes out whole | The order taken is the `sop` order (APP); a write never stalls the link mid-TLP waiting for the application. It relies on the application finishing a started write without waiting on `cc`, the interrupt port or `cq` ([APP](../../arch/core/APP.md#write-completion), [#291](https://github.com/amichai-bd/pcie-factory/issues/291#issuecomment-6250061556)). | Entering at its `eop` (a message taken during the write's data would pass it); cut-through. |
 | The ID held from the `sop` offer | A configuration write may change `bus_num_i` while a TLP waits for the link; an offered beat must not change. | Forming DW 1 when it is taken. |
 
 ## Timing
@@ -401,7 +401,12 @@ at an rq read's `sop` take. Assertion: the line sent keeps its head.
   sent and it is its turn; a configuration read's completion therefore
   starts two cycles after the cycle of its `reg_cpl_valid`. An rq request taken at
   edge E is offered from the next cycle (posted, once all its data is
-  queued) or the second (non-posted). A TLP goes out one beat per cycle
+  queued) or the second (non-posted). Back-to-back 32-DW `rq` writes
+  keep the link busy: the next write is taken while the posted count is
+  at most 1 and the posted data RAM holds at most 32 DWs, so it fills
+  while the one before is sent; the application waits about 3 cycles per
+  write (35 beats sent against 32 taken), and the store-and-forward cost
+  is one TLP of latency. A TLP goes out one beat per cycle
   while the link takes them, with no gap, and the next starts in the
   cycle after its `eop` is taken.
 - Outputs that depend on inputs combinationally: the gating by `rst`
