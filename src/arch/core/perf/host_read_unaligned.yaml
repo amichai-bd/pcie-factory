@@ -1,0 +1,15 @@
+# Split reads (wiki/src/arch/core/HAS.md#targets): a 128-byte read at
+# offset 4 crosses a 64-byte boundary but fits in 128 bytes, so it comes
+# back in one completion; the host stand-in rejects an unneeded split.
+description: 300 host MRd of 128 bytes from BAR0 offset 4.
+seed: 1
+workload:
+  kind: traffic
+  host: read
+  tlps: 300
+  offset: 4
+targets:
+  completions_per_read: {min: 1, max: 1}
+  completion_errors: {max: 0}
+  host_reads_done: {min: 300}
+  tl_errors: {max: 0}

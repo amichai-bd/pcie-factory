@@ -21,11 +21,13 @@ Output, all under ``workdir/<ip>/fpga/`` (cleared first):
 
 from __future__ import annotations
 
+import getpass
 import json
 import os
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -69,12 +71,19 @@ def load_config(cfg_dir: Path) -> dict:
         raise FpgaError(f"{path}: 'step_timeout_s' must be a positive number")
     if not isinstance(procs, int) or isinstance(procs, bool) or procs < 1:
         raise FpgaError(f"{path}: 'processors' must be a positive integer")
+    known_ids = data.get("known_warnings", [])
+    if (not isinstance(known_ids, list)
+            or not all(isinstance(i, int) and not isinstance(i, bool) and i > 0
+                       for i in known_ids)
+            or len(set(known_ids)) != len(known_ids)):
+        raise FpgaError(f"{path}: 'known_warnings' must be a list of distinct "
+                        "positive Quartus message IDs")
     try:
         known = backends.load(cfg_dir)
     except backends.BackendError as exc:
         raise FpgaError(str(exc)) from None
     return {"board": board, "step_timeout_s": float(timeout), "processors": procs,
-            "backends": known}
+            "known_warnings": frozenset(known_ids), "backends": known}
 
 
 def host_quartus_root(cfg_dir: Path) -> Path | None:
@@ -383,14 +392,17 @@ def quartus_cmd(cmd: list[str], bin_dir: Path) -> list[str]:
     return [str(bin_dir / cmd[0])] + cmd[1:]
 
 
-def run(p: Plan, bin_dir: Path, timeout_s: float, verilator: Path | None) -> int:
+def run(p: Plan, bin_dir: Path, timeout_s: float, verilator: Path | None,
+        known_warnings: frozenset[int] = frozenset()) -> int:
     """Lint (when Verilator is available), compile, parse. Returns 0 when
-    metrics were written and timing is met, 1 otherwise."""
+    metrics were written and timing is met, 1 otherwise. ``known_warnings``
+    (cfg/fpga.yaml) classifies the Quartus warning IDs in the summary."""
     generate(p)
     for old, new in p.swapped:
         print(f"[backend] {old.name} -> {new.name}", flush=True)
     logs = p.out_dir / "logs"
     flow: dict = {"lint": "skipped", "steps": {}}
+    messages: dict[str, dict[int, str]] = {}  # step -> ID -> first message
     steps = list(p.steps)
     if verilator is not None:
         steps.insert(0, ("lint", lint_command(p, verilator)))
@@ -409,8 +421,10 @@ def run(p: Plan, bin_dir: Path, timeout_s: float, verilator: Path | None) -> int
         if name == "lint":
             flow["lint"] = res.status
         else:
+            ids, messages[name] = warning_ids(res.log)
             flow["steps"][name] = {"status": res.status, "runtime_s": round(res.runtime_s, 1),
-                                   "warnings": quartus_warnings(res.log)}
+                                   "warnings": quartus_warnings(res.log),
+                                   "warning_ids": ids}
         if res.status != "pass":
             print_failure(res.log)
             return 1
@@ -422,7 +436,7 @@ def run(p: Plan, bin_dir: Path, timeout_s: float, verilator: Path | None) -> int
     metrics = {"ip": p.ip.id, "board": p.board, **metrics, "flow": flow}
     path = p.out_dir / "metrics.json"
     path.write_text(json.dumps(metrics, indent=2) + "\n")
-    print_summary(metrics)
+    print_summary(metrics, known_warnings, messages, REPO_ROOT)
     print(f"metrics: {path}")
     if not metrics["timing"]["met"]:
         print("timing: NOT MET (negative slack, or unconstrained paths)")
@@ -442,7 +456,91 @@ def quartus_warnings(log: Path) -> int | None:
     return int(m[-1]) if m else None
 
 
-def print_summary(m: dict) -> None:
+# "Warning (<id>): <message>" and "Critical Warning (<id>): ...", including
+# sub-messages indented under another message.
+WARNING_RE = re.compile(r"^\s*(?:Critical )?Warning \((\d+)\): ?(.*)$", re.M)
+MESSAGE_CHARS = 160  # an unknown warning's published message is cut to this
+
+
+def warning_ids(log: Path) -> tuple[dict[str, int], dict[int, str]]:
+    """Per Quartus message ID in a step log: its count (keys are the IDs as
+    strings, in numeric order, for ``metrics.json``) and its first message."""
+    try:
+        text = log.read_text(errors="replace")
+    except OSError:
+        return {}, {}
+    counts: dict[int, int] = {}
+    first: dict[int, str] = {}
+    for m in WARNING_RE.finditer(text):
+        i = int(m.group(1))
+        counts[i] = counts.get(i, 0) + 1
+        first.setdefault(i, m.group(2).strip())
+    return {str(i): counts[i] for i in sorted(counts)}, first
+
+
+_ABS_PATH_RE = re.compile(r"(?<![\w.~/-])/[^\s\"'()<>,;]+")
+_EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")
+_IPV4_RE = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
+
+
+def host_names() -> list[str]:
+    """This machine's user and host names, which must not leave it."""
+    names = set()
+    try:
+        names.add(getpass.getuser())
+    except (KeyError, OSError):
+        pass
+    host = socket.gethostname()
+    names.update({host, host.split(".")[0]})
+    return sorted((n for n in names if len(n) > 1), key=len, reverse=True)
+
+
+def sanitize(message: str, repo_root: Path, names: list[str],
+             limit: int = MESSAGE_CHARS) -> str:
+    """A warning message fit to publish: paths under ``repo_root`` made
+    relative to it, any other absolute path cut to ``.../<file name>``,
+    ``names`` (user and host names), e-mail and IPv4 addresses replaced,
+    then cut to ``limit`` characters."""
+    root = str(Path(repo_root).resolve()).rstrip("/") + "/"
+
+    def path(m: re.Match) -> str:
+        p = m.group(0)
+        if p.startswith(root):
+            return p[len(root):]
+        return ".../" + p.rstrip("/").rsplit("/", 1)[-1]
+
+    text = _ABS_PATH_RE.sub(path, message.replace(root, ""))
+    text = _EMAIL_RE.sub("<email>", text)
+    text = _IPV4_RE.sub("<ip>", text)
+    for n in names:
+        text = re.sub(rf"(?<![\w-]){re.escape(n)}(?![\w-])", "<name>", text)
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[:limit - 3] + "..."
+
+
+def warning_lines(steps: dict, known: frozenset[int], messages: dict[str, dict[int, str]],
+                  repo_root: Path, names: list[str] | None = None) -> list[str]:
+    """Summary lines: per step with warnings, its known and unknown counts,
+    then one sanitized line per unknown ID. Nothing else from the logs."""
+    names = host_names() if names is None else names
+    out = []
+    for step, s in steps.items():
+        ids = s.get("warning_ids") or {}
+        if not ids and not s.get("warnings"):
+            continue
+        k = sum(n for i, n in ids.items() if int(i) in known)
+        u = sum(n for i, n in ids.items() if int(i) not in known)
+        out.append(f"  warnings {step}: known {k}, unknown {u} (closing line: {s.get('warnings')})")
+        for i, n in ids.items():
+            if int(i) not in known:
+                msg = sanitize(messages.get(step, {}).get(int(i), ""), repo_root, names)
+                out.append(f"    unknown {i} (x{n}): {msg}")
+    return out
+
+
+def print_summary(m: dict, known: frozenset[int] = frozenset(),
+                  messages: dict[str, dict[int, str]] | None = None,
+                  repo_root: Path = REPO_ROOT) -> None:
     r, t = m["resources"], m["timing"]
     le = r["logic_elements"]
     print(f"{m['ip']}: {m['device']} ({m['quartus_version']})")
@@ -460,9 +558,8 @@ def print_summary(m: dict) -> None:
               f"hold {c['hold_slack_ns']} ns")
     print(f"  unconstrained paths: {t['unconstrained_total']}")
     cp = t["critical_path"]
-    warned = {n: s["warnings"] for n, s in m["flow"]["steps"].items() if s["warnings"]}
-    if warned:
-        print(f"  quartus warnings (review in logs/): {warned}")
+    for line in warning_lines(m["flow"]["steps"], known, messages or {}, repo_root):
+        print(line)
     if cp:
         print(f"  critical path {cp['from']} -> {cp['to']} (slack {cp['slack_ns']} ns)")
 

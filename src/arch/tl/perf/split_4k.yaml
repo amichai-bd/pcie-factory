@@ -1,0 +1,13 @@
+# The largest read a host sends, 4 KiB, aligned: 32 completions of 128 bytes
+# (wiki/src/arch/tl/COMPLETIONS.md#splitting).
+description: 40 host MRd of 4096 bytes from BAR0 offset 0, every completion checked by the host.
+seed: 1
+workload:
+  kind: completer
+  op: read
+  tlps: 40
+  bytes: 4096
+targets:
+  completions_per_read: {min: 32, max: 32}
+  completion_errors: {max: 0}
+  requests_done: {min: 40}

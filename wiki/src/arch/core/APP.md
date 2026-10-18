@@ -52,9 +52,9 @@ read is one beat whose data is don't care (`sop` and `eop` both 1).
 - A read of length 1 with `cq_first_be_o` 0 is a zero-length read: the
   application answers it with one DW of any value. A write with all byte
   enables 0 writes nothing.
-- A request that would run past the end of BAR0 is never offered; the
-  `tl` HAS states its outcome
-  ([#286](https://github.com/amichai-bd/pcie-factory/issues/286)).
+- A request that would run past the end of BAR0 is never offered: it
+  crosses a 4 KiB boundary, which `tl` drops as malformed
+  ([`tl` routing](../tl/ROUTING.md#routing)).
 
 ## Completer completions
 
@@ -107,8 +107,10 @@ Memory reads and writes the application issues as bus master. A write is
   request then [cite: PCIe Base Spec, rev 3.0, §7.5.1.1]
   [cite: PCIe Base Spec, rev 3.0, §5.3.1.4]. An offered
   request then waits.
-- `tl` sends requests in the order taken; posted writes keep that order
-  with the interrupt writes `cfg` asks for ([ordering](TL_CFG.md#messages)).
+- `tl` keeps the order taken within posted writes, with the interrupt
+  writes `cfg` asks for among them ([ordering](TL_CFG.md#messages)), and
+  within reads; a posted write may pass a read that waits for credits
+  [cite: PCIe Base Spec, rev 3.0, §2.4.1] ([decisions](HAS.md#decisions)).
 
 ## Requester completions
 
@@ -121,7 +123,7 @@ The data and status for each of the application's reads.
 | `rc_sop_o`, `rc_eop_o` | out | 1, 1 | `clk_i` | First and last beat of one completion. |
 | `rc_data_o` | out | 32 | `clk_i` | Read data; don't care unless `rc_status_o` is 0. |
 | `rc_tag_o` | out | 3 | `clk_i` | The read this completion belongs to. |
-| `rc_status_o` | out | 2 | `clk_i` | 0 success, 1 Unsupported Request, 2 Completer Abort, 3 failed (completion timeout, or another error `tl` detects; [#286](https://github.com/amichai-bd/pcie-factory/issues/286)). |
+| `rc_status_o` | out | 2 | `clk_i` | 0 success, 1 Unsupported Request, 2 Completer Abort, 3 failed (completion timeout or a poisoned completion; [`tl` completion checks](../tl/COMPLETIONS.md#checks)). |
 | `rc_done_o` | out | 1 | `clk_i` | With `eop`: the read is finished and its tag is free. |
 
 - A read's data may arrive as several completions, each a packet, in

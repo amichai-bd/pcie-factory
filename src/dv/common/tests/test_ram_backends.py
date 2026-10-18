@@ -10,7 +10,11 @@ together with the fpga backend's dv_models from cfg/backends.yaml:
   the expected messages and no other: DECLFILENAME (the backend file holds
   its portable file's module) and PINCONNECTEMPTY for the three altsyncram
   pins that do not exist in DUAL_PORT mode (data_b, q_a, eccstatus), left
-  explicitly unconnected as Intel-generated wrappers leave them. Every illegal geometry
+  explicitly unconnected as Intel-generated wrappers leave them, plus
+  byteena_a in the one-lane instance, which uses no byte enables. Verilator
+  reports empty connections of both generate branches (one lane, several
+  lanes) whatever LANES is, so the expected count is the same for every
+  geometry. Every illegal geometry
   stops elaboration with the block's own COMMON_ASSERT_PARAM message.
 - stub_rejects: the stub alone, as top, accepts the backend's shape and
   rejects one parameter at a time outside it, each with exactly one
@@ -29,6 +33,7 @@ files, reduced to the DUAL_PORT shape.
 
 import re
 import subprocess
+from collections import Counter
 
 import cocotb
 
@@ -60,8 +65,11 @@ ILLEGAL = (
     ({"WIDTH": 16, "LANES": 4}, "the Intel backend needs one lane or 8- or 9-bit lanes"),
 )
 # The only messages a legal backend lint may print: (rule, detail).
-EXPECTED = {("DECLFILENAME", None), ("PINCONNECTEMPTY", "data_b"),
-            ("PINCONNECTEMPTY", "q_a"), ("PINCONNECTEMPTY", "eccstatus")}
+# Counted: data_b, q_a and eccstatus in both instances, byteena_a in the
+# one-lane instance only.
+EXPECTED = Counter({("DECLFILENAME", None): 1, ("PINCONNECTEMPTY", "byteena_a"): 1,
+                    ("PINCONNECTEMPTY", "data_b"): 2, ("PINCONNECTEMPTY", "q_a"): 2,
+                    ("PINCONNECTEMPTY", "eccstatus"): 2})
 
 # The stub as top: the shape the backends request, then one rule broken at
 # a time with the message that rule must give.
@@ -82,7 +90,11 @@ STUB_REJECTS = (
      "numwords_a must be 2**widthad_a and width_a at least 1"),
     ({"width_b": 4}, "port B must match port A (no mixed widths)"),
     ({"width_byteena_a": 2, "byte_size": 4},
-     "byte enables need byte_size 8 or 9 and width_a = width_byteena_a * byte_size"),
+     "byte_size, when given, must be 8 or 9 and width_a = width_byteena_a * byte_size"),
+    # The one-lane setting Quartus rejects (Error 272006): one byte enable
+    # with a byte_size that is not the width.
+    ({"width_a": 34, "width_b": 34, "width_byteena_a": 1, "byte_size": 8},
+     "byte_size, when given, must be 8 or 9 and width_a = width_byteena_a * byte_size"),
     ({"width_byteena_b": 2}, "width_byteena_a must be at least 1 and width_byteena_b 1"),
     ({"outdata_reg_b": '"CLOCK0"'}, "outputs must be UNREGISTERED (one-edge read latency)"),
     ({"rdcontrol_reg_b": '"CLOCK1"'}, "port B must register on CLOCK0 (single clock)"),
@@ -125,9 +137,9 @@ async def intel_lint(dut):
         sources = [backends.backend_file(RTL / f"{block}.sv", BACKEND), *MODELS]
         for params in LEGAL:
             code, msgs, text = lint(block, sources, params)
-            got = {key(r, t) for r, t in msgs}
-            assert code == 0 and got == EXPECTED and len(msgs) == len(EXPECTED), (
-                f"{block} {params}: expected exactly {sorted(EXPECTED, key=str)}, got exit "
+            got = Counter(key(r, t) for r, t in msgs)
+            assert code == 0 and got == EXPECTED, (
+                f"{block} {params}: expected exactly {dict(EXPECTED)}, got exit "
                 f"{code}:\n{text}")
             checked += 1
         for params, message in ILLEGAL:

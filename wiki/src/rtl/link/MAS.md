@@ -59,10 +59,14 @@ latency is the sum of the two IPs' ([HAS targets](../../arch/link/HAS.md#targets
   `ltssm_state_o` → `pkt_tx_valid` → `phy` is a path that ends at the
   `mac`'s registers, and no loop exists: `./build check` (Verilator
   `--lint-only -Wall`, which reports a circular path as `UNOPTFLAT`)
-  passes on `link` with no waiver for it. Its length on silicon is the
-  FPGA and ASIC flows' to report
-  ([#218](https://github.com/amichai-bd/pcie-factory/issues/218),
-  [#219](https://github.com/amichai-bd/pcie-factory/issues/219)).
+  passes on `link` with no waiver for it. On silicon it is an ordinary
+  `clk_i` path with no exception, so it meets timing whenever `clk_i`
+  does. On the FPGA its slack is bounded by the clock's worst setup
+  slack ([`link` FPGA, Results](../../fpga/link/FPGA.md#results)), which
+  the firstmate accepted in place of a per-path report
+  ([#218 decision](https://github.com/amichai-bd/pcie-factory/issues/218#issuecomment-6243168833)).
+  The ASIC flow gives the same coverage at its clock gate
+  ([#219](https://github.com/amichai-bd/pcie-factory/issues/219)).
 - **Ack latency.** The largest values the e2e measured over every L0 to
   L2 run ([DV plan](../../dv/link/DV_PLAN.md#strategy)), against the
   [HAS targets](../../arch/link/HAS.md#targets):
