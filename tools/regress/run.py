@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 import zlib
@@ -12,6 +13,7 @@ from pathlib import Path
 
 from build import cache as build_cache
 from build import sim
+from build.logexcerpt import excerpt
 from build.filelist import resolve
 from build.ip import Context, Ip, find_ip, shared_blocks, units
 from ci.config import load_rules
@@ -19,6 +21,12 @@ from regress import coverage as cov
 from regress.affected import changed_files, select_affected_levels
 from regress.deps import ARCH, Imports
 from regress.schema import LevelBudget, TestEntry, load_budgets, load_floors, load_ip
+
+
+# Lines of a failed build's log printed in the run output: compiler, make,
+# kernel and disk errors, then the tail.
+BUILD_ERROR = re.compile(r"error|Error|ERROR|Killed|killed|fatal|No space left|Cannot allocate")
+BUILD_TAIL = 20
 
 
 def default_seed(entry: TestEntry, index: int) -> int:
@@ -191,8 +199,13 @@ def run(
 
     def do_build(spec: sim.BuildSpec):
         res = sim.build(spec, ctx.workdir, verilator)
-        print(f"[build] {spec.ip.id}:{spec.key} {res.status}{' cached' if res.cached else ''} "
-              f"({res.runtime_s:.1f}s)", file=out, flush=True)
+        lines = [f"[build] {spec.ip.id}:{spec.key} {res.status}{' cached' if res.cached else ''} "
+                 f"({res.runtime_s:.1f}s)"]
+        if res.status != "pass" and res.log.is_file():
+            # The compiler's own message (wiki/tools/build/SPEC.md, Failure excerpt).
+            lines += excerpt(res.log.read_text(errors="replace"), BUILD_ERROR,
+                             f"{spec.ip.id}:{spec.key} build.log", tail=BUILD_TAIL)
+        print("\n".join(lines), file=out, flush=True)
         return res
 
     built = dict(zip(specs, pmap(do_build, list(specs.values()), jobs)))
