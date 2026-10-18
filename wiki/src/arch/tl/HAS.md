@@ -52,7 +52,7 @@ All ports are synchronous to `clk_i`. Port names follow the
 | Upper TLP stream | `tlp_tx_valid_o`, `tlp_tx_ready_i`, `tlp_tx_data_o` (32), `tlp_tx_sop_o`, `tlp_tx_eop_o`; `tlp_rx_valid_i`, `tlp_rx_ready_o`, `tlp_rx_data_i` (32), `tlp_rx_sop_i`, `tlp_rx_eop_i` | The `link` ports of the same names with `_i` and `_o` swapped ([`dll` upper TLP stream](../dll/HAS.md#upper-tlp-stream)). `tlp_rx_ready_o` is 1 in every cycle `dl_up_i` is 1 and `rst_i` is 0 (the [upper-layer obligation](../dll/HAS.md#receive)). |
 | Credits available | `fc_ph_avail_i` (8), `fc_pd_avail_i` (12), `fc_nph_avail_i` (8), `fc_npd_avail_i` (12), `fc_cplh_avail_i` (8), `fc_cpld_avail_i` (12) | The `link` `fc_*_avail_o` ([`dll` credits available](../dll/HAS.md#credits-available)); [transmit credits](ORDERING.md#credits). |
 | Data link status | `dl_up_i` | The `link` `dl_up_o`; 0 holds `tl` in [reset](#reset). |
-| Credit release | `fc_rel_p_o`, `fc_rel_pd_o` (4), `fc_rel_np_o`, `fc_rel_npd_o` (4) | [Below](#credit-release); the `link` input arrives with [#303](https://github.com/amichai-bd/pcie-factory/issues/303). |
+| Credit release | `fc_rel_p_o`, `fc_rel_pd_o` (4), `fc_rel_np_o`, `fc_rel_npd_o` (4) | [Below](#credit-release); to the `link` [credit-release](../dll/HAS.md#credit-release) inputs, with `FC_RELEASE` 1. |
 | Register access | `reg_req_valid_o`, `reg_req_ready_i`, `reg_req_bar2_o`, `reg_req_write_o`, `reg_req_addr_o` (10), `reg_req_be_o` (4), `reg_req_data_o` (32), `reg_req_bus_o` (8), `reg_req_dev_o` (5), `reg_cpl_valid_i`, `reg_cpl_data_i` (32) | [tl-cfg register access](../core/TL_CFG.md#register-access). |
 | Register state | `bus_num_i` (8), `dev_num_i` (5), `mem_space_en_i`, `bus_master_en_i`, `d_state_i` (2), `bar0_base_i` (32), `bar2_base_i` (32), `cpl_timeout_dis_i` | [tl-cfg register state](../core/TL_CFG.md#register-state); `cpl_timeout_dis_i` (Completion Timeout Disable): [completion timeout](COMPLETIONS.md#completion-timeout). |
 | Error events, pending | `tl_err_o` (9), `tl_np_pending_o` | [tl-cfg error events](../core/TL_CFG.md#error-events); [which checks raise each bit](#errors). `tl_np_pending_o`: [non-posted pending](COMPLETIONS.md#non-posted-pending). |
@@ -202,10 +202,10 @@ timeout, and the transmit arbiter. Its TLPs are the `dll` model's, and
 `perf` runs `tl` over the `link` model's `LinkPair` against a host and an
 application stand-in, both loaded unchanged from
 [`src/arch/dll/`](../../../../src/arch/dll/pcie_dll_arch.py) and
-[`src/arch/link/`](../../../../src/arch/link/pcie_link_arch.py). Until
-#303 the `dll` model returns credits at delivery, so the host stand-in
-counts the release rule's credits itself and its credit return reaches it
-32 cycles after a release. The
+[`src/arch/link/`](../../../../src/arch/link/pcie_link_arch.py). The host
+stand-in still counts the release rule's credits itself, its credit return
+reaching it 32 cycles after a release, instead of using the `dll` model's
+release port ([#337](https://github.com/amichai-bd/pcie-factory/issues/337)). The
 [self-tests](../../../../src/arch/tl/test_pcie_tl_arch.py) check every
 page's examples; `./build arch --ip tl` writes `workdir/tl/arch/perf.json`.
 It is written from these pages and is not the DV oracle: the independent
@@ -229,6 +229,5 @@ design's reading.
 | Item | Owner |
 | --- | --- |
 | Every cited section, checked against rev 3.0; in particular which receive checks the spec requires and which it only permits (byte enables, configuration and I/O TC and Attr), the message codes that require TC 0, the message outcomes (Ignored messages dropped; OBFF, LTR and INTx received as Unsupported Request; PM_Active_State_Nak dropped), CRS and a successful completion without data as malformed, the locked completion for a refused locked read, Byte Count 4 for Unsupported Request completions of atomic operations, and AT not 0 as Unsupported Request. | Captain, with a local copy; [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
-| The credit-release port: names, widths and timing follow this page until #303 specifies the `dll` and `link` side; `tl` follows #303 if they differ. | [#303](https://github.com/amichai-bd/pcie-factory/issues/303) |
 | A received TLP with a digest (TD 1) is dropped as malformed by the `dll`'s length check, where a receiver without ECRC checking should ignore the digest. Hosts send one only with ECRC generation enabled, which needs AER. | [#308](https://github.com/amichai-bd/pcie-factory/issues/308) |
 | Set_Slot_Power_Limit: an upstream port captures its value into the Device Capabilities slot power fields; the tl-cfg interface has no net for it, so `cfg` reads them as 0. | [#309](https://github.com/amichai-bd/pcie-factory/issues/309) |

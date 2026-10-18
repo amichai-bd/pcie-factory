@@ -121,10 +121,11 @@ header credit and the data credits given.
   that edge; the class's UpdateFC is due in the next cycle and offered
   then when the DLLP arbiter is free, as for a return at delivery
   ([UpdateFC](FLOW_CONTROL.md#updatefc-scheduling)).
-- **Link down.** A release is taken only while DL_Up holds; one in a
-  cycle that clears the `dll` (DL_Inactive, or `link_up_i` 0) is ignored.
-  The upper layer drops what it holds when `dl_up_o` falls: every
-  credit restarts from the advertisement.
+- **Link down.** The upper layer releases only while `dl_up_o` is 1,
+  and drops what it holds when `dl_up_o` falls: every credit restarts
+  from the advertisement. The `dll` ignores a release in a cycle that
+  clears it (DL_Inactive, or `link_up_i` 0); it does not check releases
+  in FC_INIT1, where the upper layer holds nothing to release.
 - **Tied.** With `FC_RELEASE` 0 (the default) every TLP's credits return
   when its `eop` is taken upward, and the four inputs are tied to 0; the
   RTL checks this with an assertion.

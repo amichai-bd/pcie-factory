@@ -180,6 +180,7 @@ COV_FC_RX.coverpoint("returned", bins=["P", "NP", "Cpl"])
 COV_FC_RX.coverpoint("released", bins=["P", "NP"])
 COV_FC_RX.coverpoint("release_data", bins={"zero": 0, "some": range(1, 8), "max": 8})
 COV_FC_RX.coverpoint("held_all", bins=["P", "NP"])
+COV_FC_RX.coverpoint("release_state", bins=["fc_init2", "dl_active"])
 
 # TLP transmit (DV plan, coverage): TLPs sent, their shape and whether new
 # or replayed; replays and what ended them; the replay timer and rollover;
@@ -571,6 +572,7 @@ class Env:
         self.rel_p = 0.5                       # release probability per class and cycle
         self.rel_stall_until = 0               # no release before this cycle
         self.released = [0, 0]                 # releases driven, per class
+        self.released_init2 = 0                # of them, in FC_INIT2
         self.rel_shadow: list[tuple[int, int]] = []
         self.rel_rng = random.Random(seed ^ 0x303)   # the stimulus rng is untouched
 
@@ -1540,8 +1542,10 @@ class Env:
                 if adv[f]:
                     self.held[c][f] -= x
             self.released[c] += 1
+            self.released_init2 += state == INIT2
             self.rel_shadow.append((c, v))
-            COV_FC_RX.sample(released=CLASSES[c], release_data=v)
+            COV_FC_RX.sample(released=CLASSES[c], release_data=v,
+                             release_state="fc_init2" if state == INIT2 else "dl_active")
 
     # ------------------------------------------------------------ checks
 

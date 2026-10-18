@@ -248,8 +248,17 @@ async def fc_rx_accounting(dut):
     tag = 0
 
     async def init2(e: Env) -> None:
+        if e.rel:
+            # The phy takes nothing, so the InitFC2 group never completes and
+            # the DUT stays in FC_INIT2 while it delivers and the upper layer
+            # releases: those releases are in the entry UpdateFC.
+            e.ready_p = 0.0
         await rx_deliver(e, [ptn.make_tlp(k, 2, 7) for k in ("MWr", "MRd", "CplD")]
                          + [ptn.make_tlp("MWr", 4, 8)[:-4]])
+        if e.rel:
+            await e.run_until(lambda: e.released_init2 >= 2, 400, "releases in FC_INIT2")
+            assert e.state == INIT2, "left FC_INIT2 with the phy stalled"
+            e.ready_p = 1.0
 
     for epoch in range(2):
         await bring_up(env, far, in_init2=init2)
@@ -297,6 +306,9 @@ async def fc_rx_accounting(dut):
                   "differences %s", len(env.ref_verdicts), env.ref.overflow, link_down_diffs)
     if finite:
         assert env.ref.overflow > 0, "no overflow with every class finite and a stalling layer"
+    if env.rel:
+        dut._log.info("releases %s (P, NP), %d of them in FC_INIT2", env.released,
+                      env.released_init2)
     dut._log.info("seed %d, credits %s: %d TLPs delivered, %d malformed, %d overflow; "
                   "UpdateFC latency after a return at most %d cycles; %s", seed, env.adv,
                   len(env.delivered), env.ref.malformed, env.ref.overflow, env.upd_lat_max,
