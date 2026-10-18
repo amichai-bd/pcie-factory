@@ -77,7 +77,7 @@ tests:
 # less 0.5 points rounded down to a tenth (DV BKM, floor margin): measured
 # 98.95% line (472/477), 80.53% toggle (13566/16846); every point not hit
 # has a reason in the DV plan (Coverage holes). Functional 100 must hold
-# every bin of dll_acknak_rx, dll_acknak_tx, dll_dl_states, dll_dllp_rx,
+# every bin of dll_acknak_rx, dll_acknak_tx, dll_digest, dll_dl_states, dll_dllp_rx,
 # dll_dllp_tx, dll_fc_init, dll_fc_rx, dll_fc_tx, dll_malformed, dll_rbuf,
 # dll_replay, dll_reset, dll_rx_stream, dll_tlp_rx, dll_tlp_tx, dll_tx_tail
 # and dll_updatefc_tx; a renamed or undeclared covergroup leaves the total,

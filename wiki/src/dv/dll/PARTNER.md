@@ -54,7 +54,7 @@ and `nullify`. None is an idle cycle.
 `Pair` joins two partners through a `Line` of fixed delay each way (22
 cycles by default, the two `phy` stacks of the
 [HAS targets](../../arch/dll/HAS.md#targets)). Helpers build test TLPs
-(`make_tlp`), DLLPs (`make_dllp`) and framed TLPs (`frame_tlp`).
+(`make_tlp`, with a digest on request), DLLPs (`make_dllp`) and framed TLPs (`frame_tlp`).
 
 ## Behaviour
 
@@ -75,9 +75,11 @@ unbounded, and the upper layer takes one TLP per cycle.
   flagged, too short (below 6 bytes), nullified, LCRC, then sequence. A
   good LCRC over a bad length is not a transmission error: an expected
   TLP with a length that is not whole DWs, below a 3-DW header, other than
-  its header's, or with a payload above 128 bytes is malformed
+  its header's (Fmt and Length, plus a digest DW when TD is 1), or with a
+  payload above 128 bytes is malformed
   (acknowledged, not delivered, the credits its header claims returned at
-  once). Other expected TLPs overflow or are stored. TLPs ahead are bad, with one Nak per
+  once). Other expected TLPs overflow or are stored; a digest is
+  stored and delivered with its TLP, never checked (no ECRC). TLPs ahead are bad, with one Nak per
   NAK_SCHEDULED. Duplicates get an Ack at once.
 - **Ack and Nak.** The Ack timer (32 cycles from the TLP's `eop`) and the
   [transmit priority](../../arch/dll/RETRY.md#transmit-priority): Nak, Ack,
