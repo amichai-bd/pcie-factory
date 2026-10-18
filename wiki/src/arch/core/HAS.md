@@ -41,7 +41,7 @@ flowchart TB
 `tl`, `cfg` and `link` are top-level IPs that `pcie_core` integrates, not
 sub-IPs: each keeps its own HAS, arch model and unit DV (Q2), as `link`
 integrates `dll` and `phy`. `core.rtl.f` reaches their filelists with `-F`
-once the stack is integrated ([MAS](../../rtl/core/MAS.md#files)).
+([MAS](../../rtl/core/MAS.md#files)).
 
 ## Interfaces
 
@@ -243,7 +243,7 @@ read ([`link` throughput](../link/HAS.md#throughput)).
 | MSI | Four 128-byte `rq` writes, then an interrupt raised as soon as the last is taken: each MSI write reaches the host after that data; none lost. | 50 of 50 | [`msi`](../../../../src/arch/core/perf/msi.yaml) |
 | MSI-X | `MSIX_TABLE_SIZE` 64: masked vectors pend, the host reads the pending bits set through BAR2, each unmask sends one write and clears its bit; unmasked requests are sent at once. | 64 vectors, 128 writes | [`msix_pending`](../../../../src/arch/core/perf/msix_pending.yaml) |
 | Unsupported Request | An I/O read, a memory read just past BAR0, a memory write hitting no BAR, a configuration read to function 1: Unsupported Request completions for the non-posted ones, Unsupported Request Detected, ERR_COR (advisory) and ERR_NONFATAL with reporting enabled, BAR0 still served. | 3 completions, 1 drop per round; no error | [`unsupported_request`](../../../../src/arch/core/perf/unsupported_request.yaml) |
-| Enumeration and traffic | Goal items 4 to 6 of the [M3 record](../../decisions/0004-m3-grill.md#goal), end to end against the host model. | | [#293](https://github.com/amichai-bd/pcie-factory/issues/293) |
+| Enumeration and traffic | Goal items 4 to 6 of the [M3 record](../../decisions/0004-m3-grill.md#goal), end to end against the host model; the throughput rows above measured on the RTL too. | pass; RTL throughput 0.998 to 1.02 of the link rate ([DV plan](../../dv/core/DV_PLAN.md#measured)) | [#293](https://github.com/amichai-bd/pcie-factory/issues/293) e2e entries |
 | FPGA clock | `clk_i` and `ser_rx_clk_i` at 50 MHz on the DE2-115 (Quartus): timing and resources only (M1 Q26). | | [#295](https://github.com/amichai-bd/pcie-factory/issues/295) |
 | ASIC clock | sky130hd (ORFS): the gate is the 100 MHz checkpoint in study mode (M1 Q27); 125 MHz reported nightly, its closure future work ([#235](https://github.com/amichai-bd/pcie-factory/issues/235)). | | [#296](https://github.com/amichai-bd/pcie-factory/issues/296) |
 
@@ -284,4 +284,5 @@ The Base Spec is not in the local cache (`./build specs list`:
 
 | Item | Owner |
 | --- | --- |
+| Completer ID of the Unsupported Request completion to a Type 0 configuration request for function 1 to 7: `tl` sends this function's ID, function 0 ([`tl` TLP fields](../tl/TLP.md)); the independent host model expects the addressed function ([HOST](../../dv/core/HOST.md#memory-reads-and-completion-checks)), so the e2e sends that request raw and checks only its status. Found by #293. | Captain, with a local copy; [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
 | The cited sections on this page and its sub-pages, checked against rev 3.0; on [TL_CFG](TL_CFG.md#error-events), the poisoned non-posted request answered with Unsupported Request [cite: PCIe Base Spec, rev 3.0, §2.7.2.2]; outside D0, memory requests answered with Unsupported Request [cite: PCIe Base Spec, rev 3.0, §5.3.1.4]. | Captain, with a local copy; [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |

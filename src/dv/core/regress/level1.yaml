@@ -1,1 +1,60 @@
-tests: []
+# The core back-to-back e2e against the independent host model, default
+# parameters (wiki/src/dv/core/DV_PLAN.md): the issue's acceptance tests,
+# the link-to-cfg wiring, link down (the core's own reset gate) and a
+# throughput screen.
+tests:
+  - name: e2e_enumeration
+    module: tests.test_core_e2e
+    testcase: e2e_enumeration
+    top: pcie_core_e2e_tb
+    timeout_s: 600
+  - name: e2e_bar_traffic
+    module: tests.test_core_e2e
+    testcase: e2e_bar_traffic
+    top: pcie_core_e2e_tb
+    timeout_s: 600
+  - name: e2e_bus_master
+    module: tests.test_core_e2e
+    testcase: e2e_bus_master
+    top: pcie_core_e2e_tb
+    timeout_s: 600
+  - name: e2e_msi
+    module: tests.test_core_e2e
+    testcase: e2e_msi
+    top: pcie_core_e2e_tb
+    timeout_s: 600
+  - name: e2e_msix
+    module: tests.test_core_e2e
+    testcase: e2e_msix
+    top: pcie_core_e2e_tb
+    timeout_s: 600
+  - name: e2e_unsupported
+    module: tests.test_core_e2e
+    testcase: e2e_unsupported
+    top: pcie_core_e2e_tb
+    timeout_s: 600
+  - name: e2e_cpl_timeout
+    module: tests.test_core_e2e
+    testcase: e2e_cpl_timeout
+    top: pcie_core_e2e_tb
+    timeout_s: 600
+  - name: e2e_errors
+    module: tests.test_core_e2e
+    testcase: e2e_errors
+    top: pcie_core_e2e_tb
+    timeout_s: 600
+  - name: e2e_throughput_short
+    module: tests.test_core_e2e
+    testcase: e2e_throughput_short
+    top: pcie_core_e2e_tb
+    timeout_s: 600
+  - name: e2e_link_errors
+    module: tests.test_core_e2e
+    testcase: e2e_link_errors
+    top: pcie_core_e2e_tb
+    timeout_s: 600
+  - name: e2e_link_down
+    module: tests.test_core_e2e
+    testcase: e2e_link_down
+    top: pcie_core_e2e_tb
+    timeout_s: 600

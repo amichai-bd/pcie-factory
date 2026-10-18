@@ -2,8 +2,16 @@
 // Interfaces and behavior: wiki/src/arch/core/HAS.md, APP.md and
 // TL_CFG.md; structure: wiki/src/rtl/core/MAS.md.
 //
-// Wave-1 shell: the ports of the HAS with every output tied to its reset
-// value. The stack integration arrives in wave 3.
+// Thin integration (HAS, stack wiring): no logic of its own but the cfg
+// reset, the OR of rst_i and data link down, and the gate that holds the
+// cfg outputs to the application at their reset values in every cycle of
+// that reset (cfg resets at the next edge). pcie_link carries the upper
+// TLP stream, the credits and the credit release to pcie_tl port for
+// port; pcie_tl and pcie_cfg meet on the tl-cfg interface (TL_CFG.md);
+// the application streams go to pcie_tl, the interrupt port and the
+// function status to pcie_cfg. The link control inputs are tied off for an
+// upstream port that never requests Hot Reset, Disabled, Loopback or a
+// retrain.
 `default_nettype none
 
 module pcie_core #(
@@ -106,57 +114,286 @@ module pcie_core #(
   input  logic                   ser_rx_elec_idle_i // the line is in electrical idle // cdc-domain: ser_rx_clk_i
 );
 
-  // Inputs and parameters the shell does not use yet; the wave-3
-  // integration consumes them.
-  logic unused_inputs;
-  assign unused_inputs = ^{clk_i, rst_i, cq_ready_i,
-                           cc_valid_i, cc_sop_i, cc_eop_i, cc_data_i, cc_handle_i,
-                           rq_valid_i, rq_sop_i, rq_eop_i, rq_data_i, rq_write_i, rq_addr_i,
-                           rq_len_i, rq_first_be_i, rq_last_be_i, rq_tag_i,
-                           rc_ready_i, irq_valid_i, irq_vector_i, ser_tx_rxdet_i,
-                           FC_PH[0], FC_PD[0], FC_NPH[0], FC_NPD[0], TIMEOUT_DIV[0],
-                           ERR_TIMEOUT_DIV[0], CPL_TIMEOUT_DIV[0], MSIX_TABLE_SIZE[0],
-                           VENDOR_ID, DEVICE_ID, SUBSYS_VENDOR_ID, SUBSYS_ID, CLASS_CODE,
-                           REVISION_ID};
-  logic unused_rx_inputs;
-  assign unused_rx_inputs = ^{ser_rx_clk_i, ser_rx_data_i, ser_rx_elec_idle_i};
+  // The tl-cfg interface (TL_CFG.md): flat nets, as both IPs name these
+  // ports (core HAS, decisions).
+  logic        reg_req_valid;
+  logic        reg_req_ready;
+  logic        reg_req_bar2;
+  logic        reg_req_write;
+  logic [9:0]  reg_req_addr;
+  logic [3:0]  reg_req_be;
+  logic [31:0] reg_req_data;
+  logic [7:0]  reg_req_bus;
+  logic [4:0]  reg_req_dev;
+  logic        reg_cpl_valid;
+  logic [31:0] reg_cpl_data;
+  logic [7:0]  bus_num;
+  logic [4:0]  dev_num;
+  logic [31:0] bar0_base;
+  logic [31:0] bar2_base;
+  logic        cpl_timeout_dis;
+  logic        mem_space_en;
+  logic        bus_master_en;
+  logic [1:0]  d_state;
+  logic        tl_np_pending;
+  logic        slot_pwr_valid;
+  logic [7:0]  slot_pwr_value;
+  logic [1:0]  slot_pwr_scale;
+  logic [8:0]  tl_err;
+  logic        msg_valid;
+  logic        msg_ready;
+  logic [1:0]  msg_kind;
+  logic [63:0] msg_addr;
+  logic [31:0] msg_data;
 
-  // Reset values from the HAS: link down, function in reset.
-  assign cq_valid_o         = 1'b0;
-  assign cq_sop_o           = 1'b0;
-  assign cq_eop_o           = 1'b0;
-  assign cq_data_o          = 32'd0;
-  assign cq_write_o         = 1'b0;
-  assign cq_addr_o          = '0;
-  assign cq_len_o           = 11'd0;
-  assign cq_first_be_o      = 4'd0;
-  assign cq_last_be_o       = 4'd0;
-  assign cq_handle_o        = 3'd0;
-  assign cc_ready_o         = 1'b0;
-  assign rq_ready_o         = 1'b0;
-  assign rc_valid_o         = 1'b0;
-  assign rc_sop_o           = 1'b0;
-  assign rc_eop_o           = 1'b0;
-  assign rc_data_o          = 32'd0;
-  assign rc_tag_o           = 3'd0;
-  assign rc_status_o        = 2'd0;
-  assign rc_done_o          = 1'b0;
-  assign irq_ready_o        = 1'b0;
-  assign irq_done_o         = 1'b0;
-  assign irq_status_o       = 2'd0;
-  assign bus_master_en_o    = 1'b0;
-  assign mem_space_en_o     = 1'b0;
-  assign d_state_o          = 2'd0;
-  assign max_payload_o      = 3'd0;
-  assign max_read_req_o     = 3'd2;
-  assign dl_up_o            = 1'b0;
-  assign dl_state_o         = 2'd0;
-  assign dl_err_o           = 7'd0;
-  assign link_up_o          = 1'b0;
-  assign ltssm_state_o      = 6'd0;
-  assign rcv_err_o          = 1'b0;
-  assign ser_tx_data_o      = 20'd0;
-  assign ser_tx_elec_idle_o = 1'b1;
+  // link to tl: the upper TLP stream, the credits available, the credit
+  // release and the data link status (HAS, stack wiring).
+  logic        tlp_tx_valid;
+  logic        tlp_tx_ready;
+  logic [31:0] tlp_tx_data;
+  logic        tlp_tx_sop;
+  logic        tlp_tx_eop;
+  logic        tlp_rx_valid;
+  logic        tlp_rx_ready;
+  logic [31:0] tlp_rx_data;
+  logic        tlp_rx_sop;
+  logic        tlp_rx_eop;
+  logic [7:0]  fc_ph_avail;
+  logic [11:0] fc_pd_avail;
+  logic [7:0]  fc_nph_avail;
+  logic [11:0] fc_npd_avail;
+  logic [7:0]  fc_cplh_avail;
+  logic [11:0] fc_cpld_avail;
+  logic        fc_rel_p;
+  logic [3:0]  fc_rel_pd;
+  logic        fc_rel_np;
+  logic [3:0]  fc_rel_npd;
+
+  // cfg is held in reset while rst_i is 1 or the data link is down (HAS,
+  // reset; Q10); tl takes dl_up_o itself (tl HAS) and has the same rule.
+  logic        cfg_rst;
+  assign cfg_rst = rst_i | ~dl_up_o;
+
+  // The cfg outputs to the application: the interrupt port and the
+  // function status (APP). cfg's reset is synchronous, so in the first
+  // cycle of cfg_rst its registers still hold their old values; the HAS
+  // reset values hold in every cycle where rst_i is 1 or dl_up_o is 0, so
+  // each registered output is forced to its reset value while cfg_rst is 1
+  // (irq_ready_o needs no gate: cfg already holds it at 0 in reset). tl
+  // gates its own outputs the same way; the tl-cfg nets need no gate, tl
+  // being in reset in those cycles.
+  logic       cfg_irq_done;
+  logic [2:0] cfg_max_payload;
+  logic [2:0] cfg_max_read_req;
+
+  assign bus_master_en_o = bus_master_en & ~cfg_rst;
+  assign mem_space_en_o  = mem_space_en & ~cfg_rst;
+  assign d_state_o       = cfg_rst ? 2'd0 : d_state;                 // D0
+  assign irq_done_o      = cfg_irq_done & ~cfg_rst;
+  assign max_payload_o   = cfg_rst ? 3'd0 : cfg_max_payload;         // 128 bytes
+  assign max_read_req_o  = cfg_rst ? 3'd2 : cfg_max_read_req;        // 512 bytes
+
+  pcie_link #(
+    .FC_PH           (FC_PH),
+    .FC_PD           (FC_PD),
+    .FC_NPH          (FC_NPH),
+    .FC_NPD          (FC_NPD),
+    .FC_CPLH         (0),               // infinite: an Endpoint advertises infinite completion credits
+    .FC_CPLD         (0),
+    .FC_RELEASE      (1),               // P and NP credits return when a request leaves tl
+    .TIMEOUT_DIV     (TIMEOUT_DIV),
+    .ERR_TIMEOUT_DIV (ERR_TIMEOUT_DIV)
+  ) u_link (
+    .clk_i              (clk_i),
+    .rst_i              (rst_i),
+    .port_role_i        (1'b1),         // upstream port (Q1)
+    .tlp_tx_valid_i     (tlp_tx_valid),
+    .tlp_tx_ready_o     (tlp_tx_ready),
+    .tlp_tx_data_i      (tlp_tx_data),
+    .tlp_tx_sop_i       (tlp_tx_sop),
+    .tlp_tx_eop_i       (tlp_tx_eop),
+    .tlp_rx_valid_o     (tlp_rx_valid),
+    .tlp_rx_ready_i     (tlp_rx_ready),
+    .tlp_rx_data_o      (tlp_rx_data),
+    .tlp_rx_sop_o       (tlp_rx_sop),
+    .tlp_rx_eop_o       (tlp_rx_eop),
+    .fc_ph_avail_o      (fc_ph_avail),
+    .fc_pd_avail_o      (fc_pd_avail),
+    .fc_nph_avail_o     (fc_nph_avail),
+    .fc_npd_avail_o     (fc_npd_avail),
+    .fc_cplh_avail_o    (fc_cplh_avail),
+    .fc_cpld_avail_o    (fc_cpld_avail),
+    .fc_rel_p_i         (fc_rel_p),
+    .fc_rel_pd_i        (fc_rel_pd),
+    .fc_rel_np_i        (fc_rel_np),
+    .fc_rel_npd_i       (fc_rel_npd),
+    .dl_up_o            (dl_up_o),
+    .dl_state_o         (dl_state_o),
+    .dl_err_o           (dl_err_o),
+    .link_up_o          (link_up_o),
+    .ltssm_state_o      (ltssm_state_o),
+    .rcv_err_o          (rcv_err_o),
+    .retrain_req_i      (1'b0),         // a downstream port's request (Link Control)
+    .hot_reset_req_i    (1'b0),         // downstream role only
+    .disable_req_i      (1'b0),         // downstream role only
+    .loopback_req_i     (1'b0),         // Loopback master is not used
+    .ser_tx_data_o      (ser_tx_data_o),
+    .ser_tx_elec_idle_o (ser_tx_elec_idle_o),
+    .ser_tx_rxdet_i     (ser_tx_rxdet_i),
+    .ser_rx_clk_i       (ser_rx_clk_i),
+    .ser_rx_data_i      (ser_rx_data_i),
+    .ser_rx_elec_idle_i (ser_rx_elec_idle_i)
+  );
+
+  pcie_tl #(
+    .FC_PH           (FC_PH),
+    .FC_PD           (FC_PD),
+    .FC_NPH          (FC_NPH),
+    .FC_NPD          (FC_NPD),
+    .CPL_TIMEOUT_DIV (CPL_TIMEOUT_DIV),
+    .BAR0_ADDR_W     (BAR0_ADDR_W)
+  ) u_tl (
+    .clk_i             (clk_i),
+    .rst_i             (rst_i),
+    .tlp_tx_valid_o    (tlp_tx_valid),
+    .tlp_tx_ready_i    (tlp_tx_ready),
+    .tlp_tx_data_o     (tlp_tx_data),
+    .tlp_tx_sop_o      (tlp_tx_sop),
+    .tlp_tx_eop_o      (tlp_tx_eop),
+    .tlp_rx_valid_i    (tlp_rx_valid),
+    .tlp_rx_ready_o    (tlp_rx_ready),
+    .tlp_rx_data_i     (tlp_rx_data),
+    .tlp_rx_sop_i      (tlp_rx_sop),
+    .tlp_rx_eop_i      (tlp_rx_eop),
+    .fc_ph_avail_i     (fc_ph_avail),
+    .fc_pd_avail_i     (fc_pd_avail),
+    .fc_nph_avail_i    (fc_nph_avail),
+    .fc_npd_avail_i    (fc_npd_avail),
+    .fc_cplh_avail_i   (fc_cplh_avail),
+    .fc_cpld_avail_i   (fc_cpld_avail),
+    .dl_up_i           (dl_up_o),
+    .fc_rel_p_o        (fc_rel_p),
+    .fc_rel_pd_o       (fc_rel_pd),
+    .fc_rel_np_o       (fc_rel_np),
+    .fc_rel_npd_o      (fc_rel_npd),
+    .reg_req_valid_o   (reg_req_valid),
+    .reg_req_ready_i   (reg_req_ready),
+    .reg_req_bar2_o    (reg_req_bar2),
+    .reg_req_write_o   (reg_req_write),
+    .reg_req_addr_o    (reg_req_addr),
+    .reg_req_be_o      (reg_req_be),
+    .reg_req_data_o    (reg_req_data),
+    .reg_req_bus_o     (reg_req_bus),
+    .reg_req_dev_o     (reg_req_dev),
+    .reg_cpl_valid_i   (reg_cpl_valid),
+    .reg_cpl_data_i    (reg_cpl_data),
+    .bus_num_i         (bus_num),
+    .dev_num_i         (dev_num),
+    .mem_space_en_i    (mem_space_en),
+    .bus_master_en_i   (bus_master_en),
+    .d_state_i         (d_state),
+    .bar0_base_i       (bar0_base),
+    .bar2_base_i       (bar2_base),
+    .cpl_timeout_dis_i (cpl_timeout_dis),
+    .tl_err_o          (tl_err),
+    .tl_np_pending_o   (tl_np_pending),
+    .slot_pwr_valid_o  (slot_pwr_valid),
+    .slot_pwr_value_o  (slot_pwr_value),
+    .slot_pwr_scale_o  (slot_pwr_scale),
+    .msg_valid_i       (msg_valid),
+    .msg_ready_o       (msg_ready),
+    .msg_kind_i        (msg_kind),
+    .msg_addr_i        (msg_addr),
+    .msg_data_i        (msg_data),
+    .cq_valid_o        (cq_valid_o),
+    .cq_ready_i        (cq_ready_i),
+    .cq_sop_o          (cq_sop_o),
+    .cq_eop_o          (cq_eop_o),
+    .cq_data_o         (cq_data_o),
+    .cq_write_o        (cq_write_o),
+    .cq_addr_o         (cq_addr_o),
+    .cq_len_o          (cq_len_o),
+    .cq_first_be_o     (cq_first_be_o),
+    .cq_last_be_o      (cq_last_be_o),
+    .cq_handle_o       (cq_handle_o),
+    .cc_valid_i        (cc_valid_i),
+    .cc_ready_o        (cc_ready_o),
+    .cc_sop_i          (cc_sop_i),
+    .cc_eop_i          (cc_eop_i),
+    .cc_data_i         (cc_data_i),
+    .cc_handle_i       (cc_handle_i),
+    .rq_valid_i        (rq_valid_i),
+    .rq_ready_o        (rq_ready_o),
+    .rq_sop_i          (rq_sop_i),
+    .rq_eop_i          (rq_eop_i),
+    .rq_data_i         (rq_data_i),
+    .rq_write_i        (rq_write_i),
+    .rq_addr_i         (rq_addr_i),
+    .rq_len_i          (rq_len_i),
+    .rq_first_be_i     (rq_first_be_i),
+    .rq_last_be_i      (rq_last_be_i),
+    .rq_tag_i          (rq_tag_i),
+    .rc_valid_o        (rc_valid_o),
+    .rc_ready_i        (rc_ready_i),
+    .rc_sop_o          (rc_sop_o),
+    .rc_eop_o          (rc_eop_o),
+    .rc_data_o         (rc_data_o),
+    .rc_tag_o          (rc_tag_o),
+    .rc_status_o       (rc_status_o),
+    .rc_done_o         (rc_done_o)
+  );
+
+  pcie_cfg #(
+    .BAR0_ADDR_W      (BAR0_ADDR_W),
+    .MSIX_TABLE_SIZE  (MSIX_TABLE_SIZE),
+    .VENDOR_ID        (VENDOR_ID),
+    .DEVICE_ID        (DEVICE_ID),
+    .SUBSYS_VENDOR_ID (SUBSYS_VENDOR_ID),
+    .SUBSYS_ID        (SUBSYS_ID),
+    .CLASS_CODE       (CLASS_CODE),
+    .REVISION_ID      (REVISION_ID)
+  ) u_cfg (
+    .clk_i             (clk_i),
+    .rst_i             (cfg_rst),
+    .reg_req_valid_i   (reg_req_valid),
+    .reg_req_ready_o   (reg_req_ready),
+    .reg_req_bar2_i    (reg_req_bar2),
+    .reg_req_write_i   (reg_req_write),
+    .reg_req_addr_i    (reg_req_addr),
+    .reg_req_be_i      (reg_req_be),
+    .reg_req_data_i    (reg_req_data),
+    .reg_req_bus_i     (reg_req_bus),
+    .reg_req_dev_i     (reg_req_dev),
+    .reg_cpl_valid_o   (reg_cpl_valid),
+    .reg_cpl_data_o    (reg_cpl_data),
+    .bus_num_o         (bus_num),
+    .dev_num_o         (dev_num),
+    .bar0_base_o       (bar0_base),
+    .bar2_base_o       (bar2_base),
+    .cpl_timeout_dis_o (cpl_timeout_dis),
+    .mem_space_en_o    (mem_space_en),
+    .bus_master_en_o   (bus_master_en),
+    .d_state_o         (d_state),
+    .tl_np_pending_i   (tl_np_pending),
+    .slot_pwr_valid_i  (slot_pwr_valid),
+    .slot_pwr_value_i  (slot_pwr_value),
+    .slot_pwr_scale_i  (slot_pwr_scale),
+    .tl_err_i          (tl_err),
+    .dl_err_i          (dl_err_o),
+    .rcv_err_i         (rcv_err_o),
+    .msg_valid_o       (msg_valid),
+    .msg_ready_i       (msg_ready),
+    .msg_kind_o        (msg_kind),
+    .msg_addr_o        (msg_addr),
+    .msg_data_o        (msg_data),
+    .irq_valid_i       (irq_valid_i),
+    .irq_ready_o       (irq_ready_o),
+    .irq_vector_i      (irq_vector_i),
+    .irq_done_o        (cfg_irq_done),
+    .irq_status_o      (irq_status_o),
+    .max_payload_o     (cfg_max_payload),
+    .max_read_req_o    (cfg_max_read_req)
+  );
 
 endmodule
 
