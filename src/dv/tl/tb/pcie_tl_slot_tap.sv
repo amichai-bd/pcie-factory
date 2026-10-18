@@ -1,8 +1,8 @@
-// Bind tap on pcie_tl's slot and block nets (wiki/src/dv/tl/DV_PLAN.md,
-// slot tap): observes MAS-named nets (wiki/src/rtl/tl/MAS.md#slots): the
-// completion records, the reads taken on cq with their handle context, the
-// PME_TO_Ack requests, and the nets for the tracker not yet built (#292):
-// the completion beats, the rq reads taken and sent. The testbench top
+// Bind tap on pcie_tl's tracker and block nets (wiki/src/dv/tl/DV_PLAN.md,
+// slot tap): observes MAS-named nets (wiki/src/rtl/tl/MAS.md#tracker-nets):
+// the completion records, the reads taken on cq with their handle context,
+// the PME_TO_Ack requests, and the tracker's inputs: the completion beats,
+// the rq reads taken and sent. The testbench top
 // shows them as probe_*_o. It drives nothing in the DUT. Bound below,
 // listed in tl.dv.f.
 `default_nettype none

@@ -46,7 +46,7 @@ module pcie_tl_rx_q #(
   // PME_TO_Ack, to the transmit posted line (pcie_tl_txq)
   input  logic                    pme_room_i,     // the transmit posted line has room for it
   output logic                    pme_ack_o,      // one PME_Turn_Off left: send PME_TO_Ack
-  // Slot of the tracker (#292): the rc line's epoch and the oldest posted
+  // The rc line (tracker, rc stream): its epoch and the oldest posted
   input  logic                    rc_arrive_i,    // a completion arrives: arms the rc line
   output pcie_tl_pkg::t_ep        rc_ep_o,        // its epoch, with rc_arrive_i
   output logic                    p_none_o,       // no posted request held

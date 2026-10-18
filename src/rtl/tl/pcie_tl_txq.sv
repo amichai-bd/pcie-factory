@@ -51,7 +51,7 @@ module pcie_tl_txq (
   output logic                        np_valid_o,
   output pcie_tl_pkg::t_txnp_ent      np_head_o,
   input  logic                        np_pop_i,
-  // An rq read taken (to the tracker, #292)
+  // An rq read taken (to the tracker)
   output logic                        rq_rd_take_o,
   output pcie_tl_pkg::t_rq_ctx        rq_rd_ctx_o
 );

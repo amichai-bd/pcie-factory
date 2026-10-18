@@ -19,3 +19,9 @@ tests:
     top: pcie_tl_tb
     seeds: 4
     timeout_s: 900
+  - name: cpl_random_long
+    module: tests.test_tl_cpl
+    testcase: cpl_random_long
+    top: pcie_tl_tb
+    seeds: 3
+    timeout_s: 900

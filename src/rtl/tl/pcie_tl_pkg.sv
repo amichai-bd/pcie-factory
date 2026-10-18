@@ -14,10 +14,18 @@ package pcie_tl_pkg;
   localparam int unsigned NLINE    = 3;
   localparam int unsigned LINE_CQ  = 0;   // non-posted, cq line (BAR0 reads)
   localparam int unsigned LINE_CFG = 1;   // non-posted, cfg line
-  localparam int unsigned LINE_RC  = 2;   // received completions (#292)
+  localparam int unsigned LINE_RC  = 2;   // received completions, to rc
   localparam int unsigned EP_W     = 9;   // epoch counter: 2**(EP_W-1) above FC_PH and FC_NPH + 1
 
   localparam int unsigned HANDLES  = 8;   // completer read handles (COMPLETIONS.md)
+  localparam int unsigned TAGS     = 8;   // requester tags 0..7 (COMPLETIONS.md, requester tags)
+
+  // Completion tracker (MAS, completion tracker): the timeout is the 17th
+  // prescaler pulse after a read was sent; the rc buffer holds what 8
+  // reads of 32 DWs can bring (1 KiB) and up to 3 completions per read.
+  localparam int unsigned TMO_STEPS = 16;  // pulses that a read survives
+  localparam int unsigned RC_DQ_AW  = 8;   // rc data queue: 2**8 DWs plus the head
+  localparam int unsigned RC_HQ_AW  = 5;   // rc packet queue: 2**5 entries plus the head
 
   // Transmit ordering lines (MAS, transmit lines): an entry of a line may
   // go once every posted request taken into the transmit posted line
@@ -57,8 +65,16 @@ package pcie_tl_pkg;
   localparam logic [2:0] R_GATHER = 3'b101;
 
   // Completion Status (TLP.md, completions)
-  localparam logic [2:0] CS_SC = 3'b000;
-  localparam logic [2:0] CS_UR = 3'b001;
+  localparam logic [2:0] CS_SC  = 3'b000;
+  localparam logic [2:0] CS_UR  = 3'b001;
+  localparam logic [2:0] CS_CRS = 3'b010;
+  localparam logic [2:0] CS_CA  = 3'b100;
+
+  // rc_status_o (APP, requester completions)
+  localparam logic [1:0] RC_OK     = 2'd0;
+  localparam logic [1:0] RC_UR     = 2'd1;
+  localparam logic [1:0] RC_CA     = 2'd2;
+  localparam logic [1:0] RC_FAILED = 2'd3;
 
   localparam logic [1:0] D0 = 2'd0;
 
@@ -67,6 +83,11 @@ package pcie_tl_pkg;
   localparam int unsigned E_UR_NP    = 1;
   localparam int unsigned E_MAL      = 2;
   localparam int unsigned E_POIS_REQ = 3;
+  localparam int unsigned E_POIS_CPL = 4;
+  localparam int unsigned E_UNEXP    = 5;
+  localparam int unsigned E_TIMEOUT  = 6;
+  localparam int unsigned E_RX_UR    = 7;
+  localparam int unsigned E_RX_CA    = 8;
 
   // ---------------------------------------------------------------- types
 
@@ -324,7 +345,7 @@ package pcie_tl_pkg;
     logic [5:0]  dw_len;     // its length
   } t_rq_state;
 
-  // An rq read taken (to the tracker, #292).
+  // An rq read taken (to the tracker).
   typedef struct packed {
     logic [2:0]  tag;
     logic [9:0]  addr;       // address bits 11:2
@@ -343,13 +364,58 @@ package pcie_tl_pkg;
     logic [15:0] id;         // this function's ID as the TLP was first offered
   } t_tx_state;
 
-  // A beat of the receive stream (to the tracker, #292).
+  // A beat of a received completion (to the tracker).
   typedef struct packed {
     logic        valid;
     logic [31:0] data;
     logic        sop;
     logic        eop;
   } t_rx_beat;
+
+  // One packet queued for rc (MAS, rc stream): a completion's data or one
+  // status beat.
+  typedef struct packed {
+    logic [2:0]  tag;
+    logic [1:0]  status;     // rc_status_o
+    logic        done;       // rc_done_o with its eop: the read is finished
+    logic [5:0]  dlen;       // data DWs, 1 to 32; 0: one status beat
+    t_ep         ep;         // the rc line epoch when it was queued
+  } t_rc_desc;
+
+  // An outstanding requester read, per tag (MAS, completion tracker).
+  typedef struct packed {
+    logic        act;        // taken on rq and not ended by the tracker
+    logic        snt;        // its sop beat taken by the link: completions may match
+    logic        held;       // taken on rq and its rc_done beat not yet taken
+    logic        failed;     // a poisoned completion arrived
+    logic [4:0]  cnt;        // prescaler pulses since it was sent
+    logic [7:0]  left;       // bytes still due, 1 to 128
+    logic [6:0]  nxt;        // address bits 6:0 of the next byte due
+  } t_trk_tag;
+
+  // The completion being received (tracker): its first two header DWs.
+  typedef struct packed {
+    logic [5:0]  beat;       // beats of it taken, saturating at 63
+    logic [31:0] dw0;
+    logic [31:0] dw1;
+  } t_trk_rx;
+
+  // What the tracker decided at the completion's third header DW, applied
+  // in the cycle after its eop.
+  typedef struct packed {
+    logic        pend;       // decided, not yet applied
+    logic [8:0]  err;        // tl_err_o bits to pulse
+    logic        push;       // a packet to queue for rc
+    logic        deliver;    // its data DWs go to the rc data queue
+    logic [5:0]  wr;         // data DWs written so far
+    t_rc_desc    desc;
+  } t_trk_cur;
+
+  // rc stream state.
+  typedef struct packed {
+    logic [5:0]  beat;       // beats of the head packet taken
+    logic        ok;         // the head packet has seen every earlier posted request leave
+  } t_rc_state;
 
   // Receive parser state.
   typedef struct packed {
