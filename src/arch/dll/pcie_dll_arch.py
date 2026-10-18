@@ -41,7 +41,6 @@ DATA_MOD = 4096             # 12-bit data credit fields [cite: PCIe Base Spec, r
 MODS = (HDR_MOD, DATA_MOD)
 CREDIT_BYTES = 16           # one data credit [cite: PCIe Base Spec, rev 3.0, §2.6.1]
 MAX_PAYLOAD = 128           # HAS Parameters (decision Q6)
-MAX_TLP = 16 + MAX_PAYLOAD  # 4-DW header, no ECRC
 SEQ_BYTES = 2
 LCRC_BYTES = 4
 DLLP_BYTES = 6
@@ -108,9 +107,23 @@ def decode_dllp(d: bytes) -> tuple:
     return ("other", None, None, None, None)
 
 
+def tlp_digest(tlp: bytes) -> bool:
+    """TD, header byte 2 bit 7: a 4-byte digest (ECRC) follows the data.
+    This design checks no ECRC; the digest only adds to the length (HAS,
+    receive) [cite: PCIe Base Spec, rev 3.0, §2.2.1]."""
+    return bool(tlp[2] & 0x80)
+
+
+def tlp_payload(tlp: bytes) -> int:
+    """Payload bytes of a well-formed TLP: its length without header and
+    digest."""
+    return tlp_info(tlp)[3] - (16 if tlp[0] & 0x20 else 12) - (4 if tlp_digest(tlp) else 0)
+
+
 def tlp_info(tlp: bytes) -> tuple:
     """(class, header credits, data credits, byte length) from header DW0
-    [cite: PCIe Base Spec, rev 3.0, §2.2.1]."""
+    [cite: PCIe Base Spec, rev 3.0, §2.2.1]; the length counts the digest
+    when TD is 1."""
     fmt, typ = tlp[0] >> 5, tlp[0] & 0x1F
     has_data, hdr4 = bool(fmt & 0x2), bool(fmt & 0x1)
     length = ((tlp[2] & 0x3) << 8) | tlp[3] or 1024
@@ -121,13 +134,16 @@ def tlp_info(tlp: bytes) -> tuple:
     else:
         cls = NP
     data = -(-length // 4) if has_data else 0
-    return cls, 1, data, (16 if hdr4 else 12) + (4 * length if has_data else 0)
+    return cls, 1, data, ((16 if hdr4 else 12) + (4 * length if has_data else 0)
+                          + (4 if tlp_digest(tlp) else 0))
 
 
-def make_tlp(kind: str, payload: int, ident: int) -> bytes:
+def make_tlp(kind: str, payload: int, ident: int, digest: bool = False) -> bytes:
     """A TLP for the model's traffic: ``kind`` 'mwr' (posted), 'mrd'
     (non-posted) or 'cpld' (completion), ``payload`` bytes (a multiple of
-    4), and ``ident`` in DW2 so each TLP is unique."""
+    4), and ``ident`` in DW2 so each TLP is unique. ``digest`` sets TD and
+    appends 4 digest bytes, as a far end with ECRC generation would; this
+    design never sends one (HAS, transmit), and no receiver checks it."""
     if payload % 4 or not 0 <= payload <= MAX_PAYLOAD:
         raise ValueError(f"payload {payload}")
     dw = payload // 4
@@ -141,8 +157,10 @@ def make_tlp(kind: str, payload: int, ident: int) -> bytes:
         body = bytes((ident ^ i) & 0xFF for i in range(4 * length))
     else:
         raise ValueError(kind)
-    hdr = bytes([b0, 0, (length >> 8) & 0x3, length & 0xFF, 0, 1, 0, 0x0F])
-    return hdr + ident.to_bytes(4, "big") + body
+    hdr = bytes([b0, 0, (0x80 if digest else 0) | ((length >> 8) & 0x3), length & 0xFF,
+                 0, 1, 0, 0x0F])
+    tail = (ident ^ 0x5A5A5A5A).to_bytes(4, "big") if digest else b""
+    return hdr + ident.to_bytes(4, "big") + body + tail
 
 
 def tlp_frame(seq: int, tlp: bytes) -> bytes:
@@ -357,9 +375,10 @@ class Dll:
             tlp = d[SEQ_BYTES:-LCRC_BYTES]
             # A malformed TLP returns 1 header credit plus the data credits
             # its Length implies; with under 4 bytes there is no header and
-            # it returns none.
+            # it returns none. n, the size the header gives, counts the
+            # digest when TD is 1; the digest itself is not checked.
             cls, h, dc, n = tlp_info(tlp) if len(tlp) >= 4 else (P, 0, 0, -1)
-            payload = n - (16 if tlp[0] & 0x20 else 12) if n > 0 else 0
+            payload = tlp_payload(tlp) if n > 0 else 0
             if len(d) % 4 != 2 or len(tlp) < 12 or n != len(tlp) or payload > MAX_PAYLOAD:
                 # Malformed: acknowledged, not delivered, its credits returned.
                 self.err(E_MALFORMED)
@@ -721,13 +740,17 @@ class Pair:
 
 # ---------------------------------------------------------------- perf
 
-def make_traffic(rng: random.Random, count: int, mix: str, payload: int) -> list[bytes]:
+def make_traffic(rng: random.Random, count: int, mix: str, payload: int,
+                 digest: float = 0.0) -> list[bytes]:
+    """``count`` TLPs of ``mix``; a fraction ``digest`` of them carry a
+    digest (TD 1)."""
     kinds = {"mwr": ["mwr"], "cpld": ["cpld"], "mixed": ["mwr", "mrd", "cpld"]}[mix]
     out = []
     for i in range(count):
         k = rng.choice(kinds)
         p = payload if payload >= 0 else 4 * rng.randint(1, MAX_PAYLOAD // 4)
-        out.append(make_tlp(k, 0 if k == "mrd" else p, i))
+        td = digest > 0.0 and rng.random() < digest
+        out.append(make_tlp(k, 0 if k == "mrd" else p, i, td))
     return out
 
 
@@ -743,6 +766,9 @@ def run_traffic(w: dict, seed: int) -> dict[str, float]:
     count = _int(w, "tlps", 500, 1, 100000)
     payload = _int(w, "payload", MAX_PAYLOAD, -1, MAX_PAYLOAD)
     mix = w.get("mix", "mwr")
+    digest = float(w.get("digest", 0.0))
+    if not 0.0 <= digest <= 1.0:
+        raise ValueError(f"workload digest={digest!r} outside 0..1")
     both = bool(w.get("bidirectional", False))
     fc = w.get("fc", {})
     rel = w.get("release")
@@ -760,11 +786,11 @@ def run_traffic(w: dict, seed: int) -> dict[str, float]:
         raise ValueError("an infinite class needs a sink that never stalls (HAS, receive)")
     skew = _int(w, "link_skew", 0, 0, 100000)    # b's link-up delay
     sender = w.get("sender", "a")                # 'a', or 'b' for b to a only
-    sent = {0: make_traffic(rng, count, mix, payload), 1: []}
+    sent = {0: make_traffic(rng, count, mix, payload, digest), 1: []}
     if sender == "b":
         sent = {0: [], 1: sent[0]}
     elif both:
-        sent[1] = make_traffic(rng, count, mix, payload)
+        sent[1] = make_traffic(rng, count, mix, payload, digest)
     idx, first, last = [0, 0], None, 0
     busy_a = 0
     limit = _int(w, "max_cycles", 2_000_000, 1000, 50_000_000)
@@ -788,8 +814,7 @@ def run_traffic(w: dict, seed: int) -> dict[str, float]:
     m = _score(sent[0], b.delivered)
     m2 = _score(sent[1], a.delivered)
     span = max(1, last - (first or 0))
-    payload_bytes = sum(tlp_info(t)[3] - (16 if t[0] & 0x20 else 12)
-                        for t in (b.delivered if sent[0] else a.delivered))
+    payload_bytes = sum(tlp_payload(t) for t in (b.delivered if sent[0] else a.delivered))
     met = {
         "tlps_lost": m[0] + m2[0], "tlps_duplicated": m[1] + m2[1],
         "tlps_out_of_order": m[2] + m2[2],

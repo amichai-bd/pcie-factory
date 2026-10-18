@@ -121,7 +121,7 @@ and each block's state struct, and the pure helpers:
 | `dllp_decode` | Byte 0 to a kind; HdrFC, DataFC and AckNak_Seq_Num from their bits; reserved bits are not read. An FC type needs bit 3 and VC 0 and a class code other than 3, else the kind is "other". |
 | `fc_record`, `fc_show`, `refresh_count`, `fc_get`, `fc_next` | The flow-control rules of [`u_fc`](#flow-control). |
 | `lcrc_step`, `lcrc_bytes` | The [LCRC](../../arch/dll/RETRY.md#lcrc): one 16-bit beat into the register (16 bit-serial steps, unrolled), and the 4 bytes the register gives (complemented, bit-reversed: byte 0 in `[7:0]`). |
-| `tlp_hdr`, `tlp_payload_dw`, `tlp_credit`, `tlp_malformed` | The header fields of DW 0 (`t_tlp_hdr`: Fmt bits 5 and 6, Type, Length); the payload DWs, class and credits they state ([classes](../../arch/dll/FLOW_CONTROL.md#classes-and-credits)); the malformed rule from the beat count and those fields. |
+| `tlp_hdr`, `tlp_payload_dw`, `tlp_credit`, `tlp_malformed` | The header fields of DW 0 (`t_tlp_hdr`: Fmt bits 5 and 6, Type, TD, Length); the payload DWs, class and credits they state ([classes](../../arch/dll/FLOW_CONTROL.md#classes-and-credits)); the malformed rule from the beat count and those fields, TD adding the digest DW ([receive](../../arch/dll/HAS.md#receive)). |
 | `fc_charge`, `fc_gate`, `fc_fits`, `fc_rx_base`, `fc_upd_vals`, `fc_free_ok`, `fc_keep` | Add credits to their class; the transmit gate; the overflow check; CREDITS_ALLOCATED in DL_Inactive; an UpdateFC's values; the receive-space invariant; the finite or the infinite fields of a credit value (the release split). |
 
 ## DLLP receive
@@ -338,9 +338,10 @@ paired into a DW (`lo`, then the beat that completes it). So at the `eop`
 the two beats still in the line are the received LCRC, and nothing of it
 was summed or stored. Each completed DW is written into the
 [receive buffer](#receive-buffer) at once, marked `sop` if it is DW 0 and
-`eop` if it completes in the `eop` cycle, up to 36 DWs per packet (a
-longer packet is malformed anyway); DW 0's header fields are kept for the
-checks. A DW that finds the buffer full is not written, nor is any later
+`eop` if it completes in the `eop` cycle, up to 37 DWs per packet (a
+4-DW header, 128 bytes and a digest; a longer packet is malformed anyway).
+A digest is written like any DW and delivered with the TLP. DW 0's header
+fields are kept for the checks. A DW that finds the buffer full is not written, nor is any later
 DW of that packet (`noroom`), so a TLP is stored whole or not at all.
 
 At the `eop` the packet is registered as `t_tlp_chk` (beat count,
@@ -419,13 +420,13 @@ are taken from its `sop` word, for `taken_o` at its `eop`. Flush empties
 the buffer and the output register, abandoning a TLP mid-delivery.
 
 **Sizing** ([receive buffer](../../arch/dll/FLOW_CONTROL.md#receive-buffer)):
-the top computes `RX_BUF_DW`, the sum over the three classes of 4 DWs per
+the top computes `RX_BUF_DW`, the sum over the three classes of 5 DWs per
 header credit and 4 per data credit advertised (8 headers and 24 data
-credits for an infinite field), plus 36 DWs for the TLP being collected,
+credits for an infinite field), plus 37 DWs for the TLP being collected,
 and rounds up to a power of two: 512 words (2 KiB plus marks) with the
-default credits. A header credit is at most a 4-DW header and a data
-credit 4 payload DWs, so the stored TLPs that the credits cover never
-exceed the sum, and the packet being collected has its 36 words on top;
+default credits. A header credit is at most a 4-DW header and a digest,
+and a data credit 4 payload DWs, so the stored TLPs that the credits cover never
+exceed the sum, and the packet being collected has its 37 words on top;
 the buffer is never full for a TLP the overflow check accepts. Should it
 be full anyway, the TLP is dropped like an overflowed one (no Ack or
 Nak), never stored with a hole.

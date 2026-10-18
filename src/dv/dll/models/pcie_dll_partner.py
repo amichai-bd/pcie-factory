@@ -150,23 +150,31 @@ def tlp_credits(tlp: bytes) -> tuple[int, int]:
     return 1, (tlp_payload_dw(tlp) + 3) // 4
 
 
+def tlp_digest(tlp: bytes) -> bool:
+    """TD (header byte 2 bit 7): one digest DW follows the payload."""
+    return bool(tlp[2] & 0x80)
+
+
 def tlp_size(tlp: bytes) -> int:
-    """Bytes the header says the TLP has: 3 or 4 header DWs plus payload."""
-    return 4 * ((4 if tlp[0] & 0x20 else 3) + tlp_payload_dw(tlp))
+    """Bytes the header says the TLP has: 3 or 4 header DWs plus payload,
+    plus the digest DW when TD is 1."""
+    return 4 * ((4 if tlp[0] & 0x20 else 3) + tlp_payload_dw(tlp) + tlp_digest(tlp))
 
 
 def tlp_malformed(tlp: bytes) -> bool:
     """Malformed at this layer: not whole DWs, shorter than a 3-DW header,
-    a byte count other than the header's, or a payload above 128 bytes."""
+    a byte count other than the header's (the digest counted when TD is 1;
+    its value is never checked: no ECRC), or a payload above 128 bytes."""
     if len(tlp) % 4 or len(tlp) < 12:
         return True
     return len(tlp) != tlp_size(tlp) or tlp_payload_dw(tlp) > 32
 
 
-def make_tlp(kind: str, payload_dw: int = 0, tag: int = 0) -> bytes:
+def make_tlp(kind: str, payload_dw: int = 0, tag: int = 0, digest: bool = False) -> bytes:
     """A well-formed TLP for tests: ``kind`` one of MWr, MRd, CfgWr, Msg,
     MsgD, Cpl, CplD. ``tag`` (16 bits) goes in header bytes 4-5 and the
-    first payload bytes so each TLP is recognisable."""
+    first payload bytes so each TLP is recognisable. ``digest`` sets TD and
+    appends a digest DW (any value: the far end checks no ECRC)."""
     fmt_type = {"MWr": 0x40, "MRd": 0x00, "CfgWr": 0x44, "Msg": 0x30,
                 "MsgD": 0x70, "Cpl": 0x0A, "CplD": 0x4A}[kind]
     data = bool(fmt_type & 0x40)
@@ -180,11 +188,12 @@ def make_tlp(kind: str, payload_dw: int = 0, tag: int = 0) -> bytes:
     hdr_dw = 4 if fmt_type & 0x20 else 3
     hdr = bytearray(4 * hdr_dw)
     hdr[0] = fmt_type
-    hdr[2] = (length >> 8) & 0x03
+    hdr[2] = (0x80 if digest else 0) | ((length >> 8) & 0x03)
     hdr[3] = length & 0xFF
     hdr[4], hdr[5] = (tag >> 8) & 0xFF, tag & 0xFF
     payload = bytes(((tag + i) * 37 + (tag >> 8)) & 0xFF for i in range(4 * payload_dw))
-    return bytes(hdr) + payload
+    tail = bytes([0xD1, tag & 0xFF, (tag >> 8) & 0xFF, 0x9E]) if digest else b""
+    return bytes(hdr) + payload + tail
 
 
 # ---------------------------------------------------------------------------

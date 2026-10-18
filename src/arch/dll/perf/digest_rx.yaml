@@ -1,0 +1,20 @@
+# TLPs with a digest (TD 1) from a far end with ECRC generation: the
+# receiver checks the length with the digest, delivers it with the TLP and
+# checks no ECRC (wiki/src/arch/dll/HAS.md#receive).
+description: 2000 random TLPs each way, payloads 4 to 128 bytes, half with a digest, error-free.
+seed: 5
+workload:
+  kind: traffic
+  tlps: 2000
+  mix: mixed
+  payload: -1
+  bidirectional: true
+  digest: 0.5
+targets:
+  ack_latency_cycles_max: {max: 118}
+  tlps_lost: {max: 0}
+  tlps_duplicated: {max: 0}
+  tlps_out_of_order: {max: 0}
+  err_malformed_tlp: {max: 0}
+  replays: {max: 0}
+  err_rx_overflow: {max: 0}

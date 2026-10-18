@@ -161,7 +161,8 @@
   outside FC_INIT2 and DL_Active; class of each stored TLP; gaps inside;
   a Nak scheduled or already scheduled), `dll_malformed` (not whole DWs,
   shorter than a header, Length disagreeing, payload above 128 bytes, no
-  header), `dll_acknak_tx` (Ack and Nak; Ack by the timer or after a
+  header), `dll_digest` (a TLP with a digest stored or malformed; 3- and
+  4-DW headers), `dll_acknak_tx` (Ack and Nak; Ack by the timer or after a
   duplicate), `dll_rx_stream` (a beat taken or stalled; a `sop` back to
   back or after idle).
 
@@ -209,7 +210,7 @@ into a model or the RTL silently.
 | [CRC-16](../../arch/dll/DLLP.md#crc-16) known answers, transmit and receive; [receiving DLLPs](../../arch/dll/DLLP.md#receiving-dllps): bad CRC, flagged, wrong length, DL_Inactive | `crc16_kat` | 0 | 1; 5 known answers and every single-bit error of them, 150 random DLLPs and one-bit errors, gaps |
 | [Control states](../../arch/dll/HAS.md#data-link-control-states) and [initialisation](../../arch/dll/FLOW_CONTROL.md#initialisation) by hand: groups and 128-cycle resend, recording, ignored DLLPs, FC_INIT2 ends, entry UpdateFC, [credits available](../../arch/dll/HAS.md#credits-available), UpdateFC limits, link down from each state | `fc_init_directed` | 0 | 1 |
 | [A started DLLP finished across a link-down](../../arch/dll/HAS.md#reset-values), two and one beats left, and all three when the `sop` is taken at the edge that samples `link_up_i` 0; an offered one withdrawn; clean restart | `link_down_mid_dllp` | 0 | 1 |
-| [Receiving TLPs](../../arch/dll/RETRY.md#receiving-tlps) by hand: discarded in DL_Inactive and FC_INIT1; a bad TLP's Nak held in FC_INIT2; a good TLP ends FC_INIT2; every class and size, 3- and 4-DW headers, gaps and back to back; duplicates with an Ack at once (D = 2048 too); ahead (D = 1, 2047) with one Nak per NAK_SCHEDULED; bad LCRC, flagged, too short, nullified, EDB without the inverse; each malformed kind, packets beyond the beat counter; link down while a TLP arrives and while one is delivered. [Ack timer](../../arch/dll/RETRY.md#ack-and-nak-scheduling): 35 cycles on an idle stream ([MAS, timing](../../rtl/dll/MAS.md#timing)); Nak and duplicate Ack within 7; [receive latency](../../arch/dll/HAS.md#targets) within 4 | `rx_directed` | 0 | 1 |
+| [Receiving TLPs](../../arch/dll/RETRY.md#receiving-tlps) by hand: discarded in DL_Inactive and FC_INIT1; a bad TLP's Nak held in FC_INIT2; a good TLP ends FC_INIT2; every class and size, 3- and 4-DW headers, gaps and back to back; duplicates with an Ack at once (D = 2048 too); ahead (D = 1, 2047) with one Nak per NAK_SCHEDULED; bad LCRC, flagged, too short, nullified, EDB without the inverse; each malformed kind, packets beyond the beat counter; [digests](../../arch/dll/HAS.md#receive) (TD 1) delivered with the TLP, 3- and 4-DW headers, the largest TLP of 37 DWs, and malformed without the digest, with a 132-byte payload, or a DW too many with TD 0; link down while a TLP arrives and while one is delivered. [Ack timer](../../arch/dll/RETRY.md#ack-and-nak-scheduling): 35 cycles on an idle stream ([MAS, timing](../../rtl/dll/MAS.md#timing)); Nak and duplicate Ack within 7; [receive latency](../../arch/dll/HAS.md#targets) within 4 | `rx_directed` | 0 | 1 |
 | [Transmit accounting](../../arch/dll/FLOW_CONTROL.md#transmit-accounting): the gate for every class and field, at exactly half the range and one past it, after limits beyond half the range, with infinite fields; CREDITS_CONSUMED wrapping; credits available; cleared by link-down mid-TLP | `fc_tx_gate` | 1 | 1; hand-driven far end that acknowledges every TLP |
 | [Receive accounting](../../arch/dll/FLOW_CONTROL.md#receive-accounting) on real TLPs from a hand-driven far end that replays: stored, malformed (credits returned at once, none under 4 bytes), returns at the delivered `eop`; [UpdateFC](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling) on returns, in FC_INIT2 (entry value) and DL_Active, its value, cause, round robin and latency; refreshes; link down; default credits | `fc_rx_accounting` | 0 | 1 |
 | The same, every class finite, the upper layer slow and stalling: the [overflow check](../../arch/dll/FLOW_CONTROL.md#receive-buffer), Receiver overflow, no Ack or Nak, the TLPs behind arriving ahead | `fc_rx_accounting_finite` | 1 | 2 derived; coverage on the first 2 (`coverage_seeds`) |
@@ -226,13 +227,14 @@ into a model or the RTL silently.
 | The same, DUT completions finite | `link_up_cpl_finite` | 1 | 0 to 3; `FC_CPLH` 16, `FC_CPLD` 64; coverage on the first 4 (`coverage_seeds`) |
 | The same, DUT all infinite | `link_up_infinite` | 1 | 0 to 3; every `FC_*` 0; coverage on the first 4 (`coverage_seeds`) |
 | Link-up with stalls, gaps and DLLP errors both ways (5% corrupted, 3% dropped, 2% flagged by the partner; 5% lost at it), target 4500 cycles | `link_up_stress` | 1 | 0, 1 |
-| 300 random TLPs from the partner within the DUT's credits, error-free: delivered once and in order; [Ack latency](../../arch/dll/HAS.md#targets) within 118 cycles, receive latency within 4; cross-checks | `rx_traffic` | 1 | 0, 1 |
+| 300 random TLPs from the partner within the DUT's credits, a quarter with a digest (in every partner entry of `test_dll_rx`), error-free: delivered once and in order, digests included; [Ack latency](../../arch/dll/HAS.md#targets) within 118 cycles, receive latency within 4; cross-checks | `rx_traffic` | 1 | 0, 1 |
 | The same with the partner's TLPs dropped 2%, corrupted 3%, nullified 2%, flagged 2%, its DLLPs corrupted 3%, and 15% of the DUT's Acks and Naks lost (replays, duplicates): no bad TLP delivered | `rx_errors` | 1 | 0 to 2 |
 | The same, DUT all infinite | `rx_errors_infinite` | 1 | 0; every `FC_*` 0 |
 | The same, wide sweep | `rx_errors_sweep` | 2 | 8 derived; coverage on the first 6 (`coverage_seeds`) |
 | The same injection with 300 TLPs beyond the advertisement, the partner sending as the UpdateFCs allow, DUT at the smallest legal credits: bad and duplicate TLPs discarded in the smallest receive buffer (its rewind) | `rx_errors_smallest` | 2 | 2 derived; every `FC_*` at its smallest |
-| [Receive buffer](../../arch/dll/FLOW_CONTROL.md#receive-buffer) sizing: every class finite, the upper layer stalls while the partner sends TLPs that use every advertised credit, then takes 30% of beats | `rx_stall` | 1 | 0, 1; `FC_CPLH` 16, `FC_CPLD` 64; coverage on the first 2 (`coverage_seeds`) |
+| [Receive buffer](../../arch/dll/FLOW_CONTROL.md#receive-buffer) sizing: every class finite, the upper layer stalls while the partner sends TLPs that use every advertised credit (a quarter with a digest, which takes buffer space but no credit), then takes 30% of beats | `rx_stall` | 1 | 0, 1; `FC_CPLH` 16, `FC_CPLD` 64; coverage on the first 2 (`coverage_seeds`) |
 | The same at the smallest legal credits | `rx_stall_smallest` | 2 | 4 derived |
+| Receive buffer sizing for [digests](../../arch/dll/HAS.md#receive) ([MAS sizing](../../rtl/dll/MAS.md#receive-buffer), 5 DWs per header credit): the upper layer stalls while the partner sends 62 TLPs, every one with a digest, 4-DW headers (3-DW completions) and full data credits, 533 DWs; at these credits (118 in all) 4 DWs per header credit would round to 512 words, 5 give 1024 | `rx_stall_digest` | 2 | 1 derived; `FC_PH` 60, `FC_PD` 46, `FC_NPH` 1, `FC_NPD` 2, `FC_CPLH` 1, `FC_CPLD` 8 |
 | NEXT_RCV_SEQ wrapping past 4095: 4200 short TLPs with light errors (Naks and duplicates around the wrap) | `rx_seq_wrap` | 2 | 1 derived |
 | The same, wide sweep | `link_up_stress_sweep` | 2 | 8 derived |
 | The same, DUT at the smallest legal credits | `link_up_stress_smallest` | 2 | 4 derived; coverage on the first 2 (`coverage_seeds`) |
@@ -423,6 +425,25 @@ the first failing entry named. Every level-0 entry passes each of them.
 releaser driving a data count of 9 stops on it at the first release (a
 regression entry cannot expect a fatal stop, as for `a_rx_never_stall`).
 `a_rel_tied` is shown live by the `link` mutant that drops `FC_RELEASE`.
+
+### Digest mutants
+
+The mutants of [#308](https://github.com/amichai-bd/pcie-factory/issues/308)'s
+code (a received TLP digest), run serially, one entry at a time: the
+first three through level 0 at its seeds, the sizing one on its targeted
+level-2 entry.
+
+| Block | Mutant | First failing entry | Result |
+| --- | --- | --- | --- |
+| TLP receive | TD not counted in the malformed rule (`tlp_malformed` given 0) | `rx_directed` | 20 TLPs delivered, 23 expected: the four with a digest dropped as malformed, the one without its digest stored. |
+| Package | 36 DWs per packet (`RX_MAX_TLP_DW`), the digest of a 37-DW TLP not written | `rx_directed` | 22 TLPs delivered, 23 expected. |
+| TLP receive | TD read from byte 2 bit 6 (EP) | `rx_directed` | 20 TLPs delivered, 23 expected. |
+| Top | `RX_BUF_DW` at 4 DWs per header credit (512 words, not 1024) | `rx_stall_digest` (L2) | Bad TLP pulses 8, expected 0: TLPs that found the buffer full dropped, those behind them ahead. |
+
+The sizing differs only where rounding up to a power of two separates the
+two sums: every other parameter set in the regression lists gets the same
+size either way (512 words by default, 128 at the smallest credits), so
+only `rx_stall_digest` can catch it.
 
 ## Gaps
 

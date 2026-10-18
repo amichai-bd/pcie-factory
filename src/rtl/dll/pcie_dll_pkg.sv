@@ -102,7 +102,7 @@ package pcie_dll_pkg;
 
   // The TLP receive path and Ack/Nak scheduling (MAS, TLP receive; RETRY.md).
   localparam logic [31:0] LCRC_POLY     = 32'h04C1_1DB7;
-  localparam logic [5:0]  RX_MAX_TLP_DW = 6'd36;   // 4-DW header and a 128-byte payload
+  localparam logic [5:0]  RX_MAX_TLP_DW = 6'd37;   // 4-DW header, a 128-byte payload and a digest
   localparam logic [5:0]  ACK_LATENCY   = 6'd32;   // Ack timer limit, cycles
   // The receive-buffer reserve of an infinite field (FLOW_CONTROL.md,
   // receive buffer): 8 headers, 24 data credits.
@@ -110,11 +110,12 @@ package pcie_dll_pkg;
   localparam int unsigned RX_INF_DATA   = 24;
 
   // The header fields of a TLP's DW 0 the dll reads (FLOW_CONTROL.md,
-  // classes and credits): Fmt bits 5 and 6 of byte 0, Type, Length.
+  // classes and credits): Fmt bits 5 and 6 of byte 0, Type, TD, Length.
   typedef struct packed {
     logic       hdr4;       // Fmt bit 5: a 4-DW header
     logic       with_data;  // Fmt bit 6: a payload follows
     logic [4:0] typ;        // Type, byte 0 bits 4:0
+    logic       td;         // TD, byte 2 bit 7: a digest DW follows the payload
     logic [9:0] length;     // Length in DWs, byte 2 bits 1:0 and byte 3; 0 is 1024
   } t_tlp_hdr;
 
@@ -197,13 +198,14 @@ package pcie_dll_pkg;
   endfunction
 
   // The fields of a TLP header DW 0: byte 0 bits 6:0 (Fmt bits 6 and 5,
-  // Type), byte 2 bits 1:0 and byte 3 (Length).
-  function automatic t_tlp_hdr tlp_hdr(input logic [6:0] b0, input logic [1:0] b2,
-                                       input logic [7:0] b3);
+  // Type), byte 2 bit 7 (TD), byte 2 bits 1:0 and byte 3 (Length).
+  function automatic t_tlp_hdr tlp_hdr(input logic [6:0] b0, input logic td,
+                                       input logic [1:0] b2, input logic [7:0] b3);
     t_tlp_hdr h;
     h.hdr4      = b0[5];
     h.with_data = b0[6];
     h.typ       = b0[4:0];
+    h.td        = td;
     h.length    = {b2, b3};
     return h;
   endfunction
@@ -244,13 +246,14 @@ package pcie_dll_pkg;
   // A good-LCRC packet of `beats` beats is malformed (RETRY.md, receiving
   // TLPs): its length is not 2 more than a multiple of 4 (an even beat
   // count), the TLP is shorter than a 3-DW header (below 9 beats), its DWs
-  // differ from what its header's Fmt and Length give, or its payload is
-  // above 128 bytes.
+  // differ from what its header's Fmt, Length and TD give (TD 1 adds the
+  // digest DW, which is not checked), or its payload is above 128 bytes.
   function automatic logic tlp_malformed(input logic [7:0] beats, input logic hdr4,
-                                         input logic with_data, input logic [9:0] len);
+                                         input logic with_data, input logic td,
+                                         input logic [9:0] len);
     logic [10:0] want_dw;
     logic [10:0] got_dw;
-    want_dw = (hdr4 ? 11'd4 : 11'd3) + tlp_payload_dw(with_data, len);
+    want_dw = (hdr4 ? 11'd4 : 11'd3) + tlp_payload_dw(with_data, len) + {10'd0, td};
     got_dw  = {4'd0, beats[7:1]} - 11'd1;   // (beats - 3) / 2 for an odd count
     return !beats[0] || beats < 8'd9 || got_dw != want_dw || tlp_payload_dw(with_data, len) > 11'd32;
   endfunction

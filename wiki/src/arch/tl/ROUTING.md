@@ -7,9 +7,10 @@ are on the [TLP page](TLP.md), the queues a request waits in on the
 
 `tl` takes every TLP at once ([credits](ORDERING.md#credits)). Before it sees
 one, the `dll` has already dropped every TLP with a bad LCRC, a length
-that disagrees with its Fmt and Length, or more than 128 bytes of data
+that disagrees with its Fmt, Length and TD, or more than 128 bytes of data
 ([`dll` receive](../dll/HAS.md#receive)), so `tl` never checks those
-again.
+again. A TLP with TD 1 still carries its digest DW after the data, which
+`tl` drops ([TD](TLP.md#common-fields)).
 
 ## Outcomes
 

@@ -48,6 +48,16 @@ tests:
     seeds: 2
     timeout_s: 600
     params: {FC_PH: 1, FC_PD: 8, FC_NPH: 1, FC_NPD: 2, FC_CPLH: 1, FC_CPLD: 8}
+  # Receive buffer sizing for digests (#308): H + D = 118 credits, so 4
+  # DWs per header credit gives 512 words and 5 gives 1024; the fill stores
+  # 533 DWs while the upper layer stalls.
+  - name: rx_stall_digest
+    module: tests.test_dll_rx
+    testcase: rx_stall_digest
+    top: pcie_dll_tb
+    seeds: 1
+    timeout_s: 300
+    params: {FC_PH: 60, FC_PD: 46, FC_NPH: 1, FC_NPD: 2, FC_CPLH: 1, FC_CPLD: 8}
   - name: rx_seq_wrap
     module: tests.test_dll_rx
     testcase: rx_seq_wrap
@@ -77,7 +87,7 @@ tests:
 # less 0.5 points rounded down to a tenth (DV BKM, floor margin): measured
 # 98.95% line (472/477), 80.53% toggle (13566/16846); every point not hit
 # has a reason in the DV plan (Coverage holes). Functional 100 must hold
-# every bin of dll_acknak_rx, dll_acknak_tx, dll_dl_states, dll_dllp_rx,
+# every bin of dll_acknak_rx, dll_acknak_tx, dll_digest, dll_dl_states, dll_dllp_rx,
 # dll_dllp_tx, dll_fc_init, dll_fc_rx, dll_fc_tx, dll_malformed, dll_rbuf,
 # dll_replay, dll_reset, dll_rx_stream, dll_tlp_rx, dll_tlp_tx, dll_tx_tail
 # and dll_updatefc_tx; a renamed or undeclared covergroup leaves the total,

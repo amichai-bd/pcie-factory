@@ -197,7 +197,8 @@ states it is discarded silently) [cite: PCIe Base Spec, rev 3.0, §3.5.3.1]:
    - **D = 0, expected, malformed:** the packet is malformed when any of these holds: its length is not 2 more
      than a multiple of 4; the TLP is shorter than a 3-DW header (packet
      below 18 bytes); its byte count differs from the size the header's
-     Fmt and Length give; or its payload is above 128 bytes, the maximum
+     Fmt and Length give, plus 4 bytes for the digest when TD (byte 2
+     bit 7) is 1; or its payload is above 128 bytes, the maximum
      payload (Q6). Accept it at
      this layer (add 1 to NEXT_RCV_SEQ, clear NAK_SCHEDULED, start the
      Ack timer if stopped) but do not store or deliver it; Malformed TLP.
