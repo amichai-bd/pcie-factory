@@ -144,8 +144,8 @@
   refused and then taken), `dll_fc_rx` (stored, overflow, malformed,
   malformed under 4 bytes, per class; finite and infinite classes;
   returns per class; with `FC_RELEASE` 1, releases per class, a release's
-  data count 0, 1 to 7 or 8, and the upper layer holding all of a class's
-  header credits), `dll_tx_tail` (a DLLP finished with one, two or three beats
+  data count 0, 1 to 7 or 8, a release in FC_INIT2 or DL_Active, and the
+  upper layer holding all of a class's header credits), `dll_tx_tail` (a DLLP finished with one, two or three beats
   taken at or after the edge that sampled the link down), `dll_reset` (reset and link-up, crossed),
   `dll_tlp_tx` (header 3 or 4 DW; payload none, one DW, some, maximum;
   new or replayed, crossed with payload; upper gaps inside a TLP; a new TLP
@@ -220,7 +220,7 @@ into a model or the RTL silently.
 | The same, every DUT class infinite, the upper layer never stalling | `credits_infinite_rx` | 1 | 2 derived |
 | [Credit release](../../arch/dll/HAS.md#credit-release), [Credits target](../../arch/dll/HAS.md#targets) with `FC_RELEASE` 1: default credits, the upper layer taking every beat but releasing in 30% of cycles, none for 4000, 30%, none for 10000 cycles, then all; the partner sending 600 TLPs as the UpdateFCs allow: no Receiver overflow, never more held than advertised and all of a class held, every TLP once and in order, every release's UpdateFC within 20 cycles; reference and arch shadow | `credit_release` | 1 | 0, 1; `FC_RELEASE` 1 |
 | The same at the smallest legal credits, every class finite: the stream stalls on the same schedule as the releases | `credit_release_smallest` | 2 | 2 derived |
-| [Receive accounting](../../arch/dll/FLOW_CONTROL.md#credit-release) with releases: P and NP returns on release, completions and malformed TLPs at once, an infinite NP data field freed at delivery, releases in FC_INIT2 in the entry UpdateFC, link down dropping what is held | `fc_rx_accounting_release` | 1 | 1 derived; NP data infinite, `FC_RELEASE` 1 |
+| [Receive accounting](../../arch/dll/FLOW_CONTROL.md#credit-release) with releases: P and NP returns on release, completions and malformed TLPs at once, an infinite NP data field freed at delivery (40 configuration writes past the reserve), releases in FC_INIT2 (the `phy` stand-in stalled so the InitFC2 group cannot complete; at least 2 per link-up) in the entry UpdateFC, link down dropping what is held | `fc_rx_accounting_release` | 1 | 1 derived; NP data infinite, `FC_RELEASE` 1 |
 | [UpdateFC refresh](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling), round robin, with ready stalls | `updatefc_refresh` | 1 | 2; two 2048-cycle periods |
 | Link-up against the partner, default DUT credits, [init target](../../arch/dll/HAS.md#targets) 200 cycles; cross-check | `link_up` | 1 | 0 to 3 (the four partner advertisements); 6 link-ups each |
 | The same, DUT completions finite | `link_up_cpl_finite` | 1 | 0 to 3; `FC_CPLH` 16, `FC_CPLD` 64 |
@@ -409,6 +409,12 @@ the first failing entry named. Every level-0 entry passes each of them.
 | Flow control | A delivered P or NP TLP frees no reserve (infinite fields held back too) | `fc_rx_accounting_release` (L1) | 28 TLPs never accepted: the NP data reserve fills (the 40-write burst). |
 | Flow control | Completions also wait for a release (`taken_rel` ignores the class) | `fc_rx_accounting_release` (L1) | 61 TLPs never accepted: completion credits never return. |
 | Top | A release's data count dropped (data 0) | `credit_release` (L1) | UpdateFC-P carries data 32, expected 36 (cycle 190). |
+| Top | A non-posted release's data count dropped (data 0) | `credit_release` (L1) | UpdateFC-NP carries data 8, expected 9 (cycle 113). |
+
+`a_rel_data_max` is live: a one-off run of `credit_release` with the
+releaser driving a data count of 9 stops on it at the first release (a
+regression entry cannot expect a fatal stop, as for `a_rx_never_stall`).
+`a_rel_tied` is shown live by the `link` mutant that drops `FC_RELEASE`.
 
 ## Gaps
 
