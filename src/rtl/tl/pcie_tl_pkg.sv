@@ -361,8 +361,27 @@ package pcie_tl_pkg;
     logic [5:0]  beat;       // beats of it taken
     logic [1:0]  rr;         // round robin: 0 posted, 1 non-posted, 2 completions first
     logic        cf_turn;    // between the two completion queues: cfg first
-    logic [15:0] id;         // this function's ID as the TLP was first offered
   } t_tx_state;
+
+  // A beat in the transmit output stage (MAS, transmit arbiter).
+  typedef struct packed {
+    logic        valid;
+    logic [31:0] data;       // DW 1's ID bits 15:0 are 0 here; the stage fills them
+    logic        sop;
+    logic        eop;
+    logic        idw;        // DW 1 of a TLP: the ID goes in bits 15:0
+    logic        rq;         // the sop beat of an rq read
+    logic [2:0]  tag;        // that read's tag
+  } t_tx_beat;
+
+  // Transmit output stage state: the offered beat, the skid slot, and the
+  // ID captured as a sop beat is first offered.
+  typedef struct packed {
+    t_tx_beat    out;        // offered on tlp_tx_*
+    t_tx_beat    skid;       // taken while out was held; out next
+    logic        held;       // out was offered and not taken last cycle
+    logic [15:0] id;         // this function's ID as the TLP's sop was first offered
+  } t_tx_out;
 
   // A beat of a received completion (to the tracker).
   typedef struct packed {
