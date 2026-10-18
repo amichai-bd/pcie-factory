@@ -99,15 +99,18 @@ anywhere with `./build fpga --ip core --dry-run`. Nightly runs
 `./build fpga --all`, which selects every IP with a `src/fpga/<ip>/` folder,
 so it compiles `core` with no further setting. Resource and timing results
 are not recorded here but in `metrics.json` and, from the nightly run, on
-the tracker's `core` page; the wrapper's own logic (352 flops and the
-parity tree) is included in the resource counts.
+the tracker's `core` page; the wrapper's own logic (364 flops: 186
+stimulus, 166 registered outputs, the parity flop, `rst_q`, the 4-bit
+power-on counter and three 2-flop synchronizers; and the parity tree) is
+included in the resource counts.
 
 ## Results
 
 The nightly tracker owns the live figures. This is the acceptance fit:
 `fpga` workflow run 39142366219 at `7fb17ff`, Quartus Prime Lite
-25.1std.0, slow and fast models; the PR's final head has the same FPGA
-inputs and its own `ci-fpga` run.
+25.1std.0, slow and fast models. The PR's head has the same FPGA inputs;
+`ci-gate` run 39144100875 (job `ci-fpga`, at `97bfae4`) reproduces every figure
+below.
 
 | Item | Result |
 | --- | --- |
@@ -139,7 +142,7 @@ matching check).
 
 | ID | What | Why |
 | --- | --- | --- |
-| 14320 ×36, under 14284 and 14285 | RAM bits synthesized away, the first in the `cfg` MSI-X table (`pcie_cfg_bar2` `u_table`). | The memory bits used (48848) are 288 below the RAMs' declared sizes, so the 36 nodes are 36 one-bit columns of the 8-entry RAMs, columns no logic reads with these parameters: the table's Message Address bits 1:0 (2), which the read forces to 0 ([`cfg` MAS, BAR2](../../rtl/cfg/MAS.md#bar2)); and in `tl`'s posted queue and cq line, address bits 27:12 of each entry (16 each), above `BAR0_ADDR_W` 12, sized for its maximum of 28. Expected; another `BAR0_ADDR_W` keeps more columns. The flow publishes only the first message per ID, so the last two columns are not named; they are in the same 8-entry RAMs. |
+| 14320 ×36, under 14284 and 14285 | RAM bits synthesized away, the first in the `cfg` MSI-X table (`pcie_cfg_bar2` `u_table`). | The memory bits used (48848) are 288 below the RAMs' declared sizes, so the 36 nodes are 36 one-bit columns of the 8-entry RAMs, columns no logic reads with these parameters: the table's Message Address bits 1:0 (2), which the read forces to 0 ([`cfg` MAS, BAR2](../../rtl/cfg/MAS.md#bar2)); in `tl`'s posted queue (`u_pq`, `t_pq_ent`) and cq line (`u_npq_cq`, `t_cq_ent`), address bits 27:12 of each entry (16 each), above `BAR0_ADDR_W` 12, sized for its maximum of 28 (the consumers read bits 11:2); and in the cfg line (`u_npq_cfg`, `t_cfg_ent`), `addr_lo` bits 1:0 (2), which reach only `cpl_rec.addr[1:0]`, a field `pcie_tl_cpl` never reads (the Lower Address comes from bits 6:2 and the first byte enables). Each was found by comparing the fields written into each 8-entry RAM with those read at the default parameters; 2 + 16 + 16 + 2 is the 36. Expected; another `BAR0_ADDR_W` keeps more columns. |
 | 10037 ×1 | `pcie_tl_trk.sv` line 250: a conditional expression evaluates to a constant. | The tag array is a `COMMON_DFF_ARRAY_RST_EN` with its enable tied to 1 (the vocabulary has no reset array without an enable), so the macro's enable test is constant. No logic is lost. |
 
 ## Files

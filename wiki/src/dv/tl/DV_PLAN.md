@@ -366,6 +366,7 @@ first that fails, at its first regression seed.
 | M109 `rq_sent` at the arbiter's take, not the link's | `cpl_matching` | cycle 13: `rq_sent` with no sop beat taken |
 | M110 the ID not filled into DW 1 | `cpl_random` | cycle 58: rq read mismatch (Requester ID 0) |
 | M111 the ID filled into DW 2 | `smoke` | cycle 22: posted TLP mismatch |
+| M112 the output stage not reset (`so_q` a `COMMON_DFF`), so a beat survives `rst` | `rx_random` | cycle 202: `tlp_tx` beat outside a TLP |
 
 ## Gaps
 
