@@ -25,12 +25,11 @@ The TLP stream is the dll model's: a TLP is its bytes, and its class and
 credits come from ``dll.tlp_info``, loaded unchanged from src/arch/dll (as
 the link model does) so the credit rules have one model. ``perf`` runs
 ``tl`` over the link model's ``LinkPair`` (two dll models over the line)
-against a host stand-in. Until the dll and link gain the credit-release
-input (#303), the dll model returns credits at delivery; the host
-stand-in therefore also keeps the release rule's credit count itself and
-sends only what that count allows, which is the gate the release input
-gives a real host. Python standard library only (plus the sibling dll and
-link models).
+against a host stand-in. tl's dll has the credit-release port (#303):
+``tl``'s release pulses drive ``Dll.release``, so posted and non-posted
+credits return to the host over the line's UpdateFC only when ``tl``
+releases them, and the host's dll gates what it sends by them. Python
+standard library only (plus the sibling dll and link models).
 """
 
 from __future__ import annotations
@@ -63,7 +62,6 @@ CPL_TIMEOUT_STEPS = 16             # prescaler pulses per timeout
 RX_CPL_BYTES = TAGS * MAX_READ_REQ # rc data buffer (APP: 1 KiB)
 TX_CPL_BYTES = 2 * (MAX_PAYLOAD + 12)   # model's cc completion buffer (MAS sizes the RTL)
 TX_REQ_BYTES = 2 * (MAX_PAYLOAD + 16)   # model's rq/message buffer
-RELEASE_LOOP = 32                  # cycles: a release to the host's credit gate (UpdateFC, line)
 
 # Fmt (byte 0 bits 7:5) and Type (bits 4:0) [cite: PCIe Base Spec, rev 3.0, §2.2.1]
 F_3DW, F_4DW, F_3DW_D, F_4DW_D, F_PREFIX = 0, 1, 2, 3, 4
@@ -953,16 +951,14 @@ class App:
 
 
 class Host:
-    """The host stand-in over its dll: sends the requests ``gen`` yields,
-    keeps the release rule's credit count for P and NP (the gate a host
-    gets from the credit-release input, #303), answers tl's reads with
+    """The host stand-in over its dll: sends the requests ``gen`` yields
+    as its dll's credits allow (tl returns them through the release
+    port), answers tl's reads with
     completions split on a 64-byte boundary after ``latency`` cycles
     (dropping those ``drop`` selects), and checks every completion tl
     sends against the read it answers."""
 
-    def __init__(self, fc: dict, latency: int = 100, drop=None):
-        self.cr = {P: [fc["ph"], fc["pd"]], NP: [fc["nph"], fc["npd"]]}
-        self.returns: deque = deque()
+    def __init__(self, latency: int = 100, drop=None):
         self.latency, self.drop = latency, drop or (lambda tag, n: False)
         self.out: deque = deque()                    # [ready time, tlp]
         self.reads: dict[int, dict] = {}             # host tag -> expected read
@@ -972,25 +968,6 @@ class Host:
         self.cpl_errors = 0
         self.msgs: list[int] = []
         self.n_reads = 0
-
-    def release(self, now: int, cls: int, d: int) -> None:
-        self.returns.append((now + RELEASE_LOOP, cls, d))
-
-    def gate(self, tlp: bytes, now: int) -> bool:
-        while self.returns and self.returns[0][0] <= now:
-            _, cls, d = self.returns.popleft()
-            self.cr[cls][0] += 1
-            self.cr[cls][1] += d
-        cls, h, d = credits(tlp)
-        if cls == CPL:
-            return True
-        return self.cr[cls][0] >= h and self.cr[cls][1] >= d
-
-    def consume(self, tlp: bytes) -> None:
-        cls, h, d = credits(tlp)
-        if cls != CPL:
-            self.cr[cls][0] -= h
-            self.cr[cls][1] -= d
 
     def expect_read(self, tag: int, addr: int, length: int) -> None:
         self.reads[tag] = {"parts": split_read(addr, length, 0xF, 0xF if length > 1 else 0),
@@ -1029,21 +1006,22 @@ class Host:
 
 
 class Bench:
-    """tl over one link of the link model, a host stand-in over the other."""
+    """tl over one link of the link model, a host stand-in over the other;
+    tl's dll has the credit-release port, driven by tl's release pulses."""
 
     def __init__(self, rng: random.Random, fc: dict | None = None, app: App | None = None,
                  host_latency: int = 100, drop=None, cpl_timeout_div: int = 1):
         fcd = {"ph": 8, "pd": 32, "nph": 8, "npd": 8, **(fc or {})}
         dfc = dict(dll.DEFAULT_FC, **fcd)
-        self.a, self.b = dll.Dll("host", dfc), dll.Dll("tl", dfc)
+        self.a, self.b = dll.Dll("host", dfc), dll.Dll("tl", dfc, release_port=True)
         self.pair = link.LinkPair(self.a, self.b, link.Line(rng))
-        self.host = Host(fcd, host_latency, drop)
+        self.host = Host(host_latency, drop)
         self.cfg = Cfg()
         self.cfg.bus, self.cfg.dev = 1, 0
         self.cfg.mem_en = self.cfg.bm_en = True
         self.cfg.bar0, self.cfg.bar2 = 0x8000_0000, 0x9000_0000
         self.tl = Tl(self.cfg, fcd, cpl_timeout_div=cpl_timeout_div,
-                     on_release=self.host.release)
+                     on_release=lambda now, cls, d: self.b.release(cls, d))
         self.app = app or App(rng)
         self.gen = iter(())
         self.pending: bytes | None = None
@@ -1057,9 +1035,7 @@ class Bench:
                 self.pending = host.out.popleft()[1]
             else:
                 self.pending = next(self.gen, None)
-        if (self.pending is not None and host.gate(self.pending, now)
-                and self.a.offer(self.pending, now)):
-            host.consume(self.pending)
+        if self.pending is not None and self.a.offer(self.pending, now):
             self.pending = None
         for d, sink, i in ((self.a, host.receive, 0), (self.b, self.tl.receive, 1)):
             while self.seen[i] < len(d.delivered):
