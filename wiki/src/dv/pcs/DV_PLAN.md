@@ -292,8 +292,9 @@ Every mutant is caught; none survives the L1 list. #182 made the lock
 end before electrical idle a valid word on purpose (an idle tail), which
 was where **RxValid from symbol 0's lock alone** used to be caught; it is
 now caught at a relock end inside a word by the directed
-`rx_relock_mid_word` and by `ValidRule` in every receive test. Each entry named runs
-in L0 or L1 at the seed shown (the first regression seed otherwise).
+`rx_relock_mid_word` and by `ValidRule` in every receive test. Each mutant
+is caught by at least one entry that runs in L0 or L1 at the seed shown (the
+first regression seed otherwise); entries named `_sweep` run in L2.
 
 The #162 re-review corrected the old top's row for the lock-start drop:
 each single-side mutant was caught only by its own leaf `lock_start_*`

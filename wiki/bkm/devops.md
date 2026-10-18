@@ -88,7 +88,7 @@ them with repeated `--level`.
 | Level | Contents | Budget | Runs |
 | --- | --- | --- | --- |
 | L0 | Smoke and fastest directed tests | 120 s of CPU for all IPs | Locally while developing; in `ci-gate` |
-| L1 | Full directed set, a few seeds | 1200 s of CPU for all IPs; `ci-gate` (L0+L1 of affected IPs plus checks) targets 10 min | `ci-gate` |
+| L1 | Each IP's RTL acceptance entries and fastest discriminating tests, a few seeds ([placement](dv.md#regression-lists)) | 1200 s of CPU for all IPs; `ci-gate` (L0+L1 of affected IPs plus checks) targets 10 min | `ci-gate` |
 | L2 | Long tests, seed sweeps, FPGA and ASIC flows, metrics | 9600 s of CPU; nightly window | Nightly |
 
 Budgets live in `cfg/levels.yaml` and are **CPU time**: the sum, over a
@@ -108,9 +108,11 @@ Measured for #166 with all IPs: L1 356.7 s of CPU against 600 s
 The L1 and L2 budgets were raised on 2026-10-18 (captain decision on
 [#272](https://github.com/amichai-bd/pcie-factory/issues/272#issuecomment-6242089772))
 after speed-ups and rebalancing: measured with all IPs and coverage at
-#272's head, L0 112.5 s, L1 1006.3 s and L2 7958.2 s of CPU. L1 rose from
+`697d896`, L0 112.5 s, L1 1006.3 s and L2 7958.2 s of CPU. L1 rose from
 600 s to 1200 s and L2 from 7200 s to 9600 s, the need plus about 20%.
-A single-IP change's affected L1 stays at or under about 580 s.
+A change to one of dll, link, mac, pcs or phy selects an affected L1 of
+123 s to 577 s; a change to a widely shared block selects nearly every IP,
+about 1006 s, which the raised 1200 s budget covers.
 
 ## Local evidence
 

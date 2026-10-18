@@ -96,8 +96,12 @@ validation.
   plan refer to.
 
 Level placement follows budgets in the [DevOps BKM](devops.md#levels-and-budgets):
-L0 holds smoke and the fastest directed tests, L1 the full directed set and a
-few random seeds, L2 long tests and wide seed sweeps.
+L0 holds smoke and the fastest directed tests, L1 each IP's RTL acceptance
+entries and its fastest discriminating tests with a few random seeds, L2
+long tests and wide seed sweeps. A directed entry may sit in L2 only when it
+is a re-check that another IP's L1 covers, a model-only reference, a soak or
+a performance target, and the IP's DV plan then names it in a "Level
+placement" note with its reason.
 
 ## DV plan alignment
 
