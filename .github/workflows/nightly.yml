@@ -8,7 +8,8 @@
 #            (commits.jsonl and this run's <date>T<HHMMSS>Z.json record) on
 #            nightly/<date>, opens the type:data PR, dispatches ci-gate on it
 #   report   issues write, actions read: opens/updates/closes the single nightly-red issue,
-#            naming the failed steps and the commits since the last green nightly
+#            naming the failed steps, the commits since the last green nightly and
+#            each failed regression run with its exact seed (rotated extra seeds marked)
 # No pull_request trigger, so fork code never reaches this workflow.
 name: nightly
 
@@ -109,12 +110,17 @@ jobs:
           . workdir/nightly/lib.sh
           run_step unit ./build ci unit
 
-      - name: Regression L0+L1+L2 with coverage (all IPs)
+      # --rotate: extra seeds per L2 entry derived from tonight's date, on
+      # plain builds within the rotation CPU budget of cfg/levels.yaml
+      # (wiki/tools/regress/SPEC.md#seed-rotation); a failing one fails regress.
+      - name: Regression L0+L1+L2 with coverage (all IPs) and rotated extra seeds
         id: regress
         if: ${{ !cancelled() }}
+        env:
+          ROTATE: ${{ steps.prep.outputs.date }}
         run: |
           . workdir/nightly/lib.sh
-          run_step regress ./build regress --level 0 --level 1 --level 2 --jobs "$(nproc)" --coverage
+          run_step regress ./build regress --level 0 --level 1 --level 2 --jobs "$(nproc)" --coverage --rotate "$ROTATE"
 
       - name: FPGA flow (IPs with src/fpga/<ip>/)
         id: fpga
@@ -311,6 +317,13 @@ jobs:
         run: |
           python3 -m venv workdir/venv
           workdir/venv/bin/pip install --quiet "$(grep '^PyYAML==' tools/requirements.txt)"
+      # The failed runs, each with its exact seed, come from this summary;
+      # it is missing when regress never ran (red then says so).
+      - uses: actions/download-artifact@v8.0.1
+        continue-on-error: true
+        with:
+          name: regress-summary
+          path: workdir/regress
       - name: Open, update or close the nightly-red issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -323,10 +336,10 @@ jobs:
             regress=${{ needs.nightly.outputs.regress || 'fail' }}
             fpga=${{ needs.nightly.outputs.fpga || 'fail' }}
             asic=${{ needs.nightly.outputs.asic || 'fail' }}
-        # A failure names the failed steps and the commits since the last green
-        # nightly (wiki/tools/metrics/SPEC.md#red).
+        # A failure names the failed steps, the commits since the last green
+        # nightly and each failed run with its exact seed (wiki/tools/metrics/SPEC.md#red).
         run: |
-          args=()
+          args=(--summary workdir/regress/summary.json)
           for s in $STEPS; do args+=(--step "$s"); done
           workdir/venv/bin/python -B ./build metrics red --outcome "$OUTCOME" --run-url "$RUN_URL" \
             --head "$HEAD_SHA" "${args[@]}"

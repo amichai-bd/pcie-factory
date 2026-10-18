@@ -124,6 +124,10 @@ change can fail it) carries `rerun_when: models_change` and
 `coverage_seeds: 0`: it reruns when its models, testbench or tools change
 and otherwise reuses its last pass on the host
 ([regress SPEC](../tools/regress/SPEC.md#reuse-of-unchanged-model-checks)).
+Trimming costs no stimulus diversity for good: the nightly adds rotated
+extra seeds to every L2 entry, new each night and derived from the date
+([seed rotation](devops.md#seed-rotation)), so pinned seeds are chosen for
+coverage and recorded mutants, not for breadth.
 
 PR evidence is the affected L0+L1, which `ci-gate` runs and which may be
 cited; targeted L2 entries only when the change targets L2 behaviour or a
@@ -150,7 +154,12 @@ the same PR, and vice versa.
 - Directed tests are deterministic. Random tests take the seed that the
   regression tool passes to cocotb for each run (see its SPEC), print it at
   start, and draw all randomness from it. A failure is reproducible from
-  `name` and seed (`./build sim --ip <ip> --test <name> --seed <seed>`).
+  `name` and seed (`./build sim --ip <ip> --test <name> --seed <seed>`),
+  including a nightly [rotated extra seed](devops.md#seed-rotation), whose
+  seed the `nightly-red` issue prints. So a test's stimulus depends on the
+  seed alone, never on the date, the host or the run order. When an extra
+  seed finds a bug, pin that seed in the entry (or add a directed test) in
+  the fix's PR if its stimulus needs a permanent guard.
 - Every test bounds simulated cycles and wall time and fails nonzero.
 - Mismatch messages report operation, expected value, observed value and the
   cycle or transaction index.

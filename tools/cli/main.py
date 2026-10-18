@@ -35,7 +35,7 @@ from build import slots as host_slots
 from regress import run as regress
 from regress.affected import GitError
 from regress.coverage import CoverageError
-from regress.schema import LEVELS, SchemaError, load_ip
+from regress.schema import LEVELS, SchemaError, load_ip, load_rotation
 from specs import cli as specs_cli
 from specs.core import SpecsError
 
@@ -100,14 +100,24 @@ def cmd_regress(ctx: Context, args) -> int:
     levels = sorted(set(args.level))
     if not args.dry_run:
         regress.remove_summary(ctx.workdir)
-    selection = regress.select(ctx, levels, args.ip, args.affected, args.seed)
+    if args.extra_seeds is not None and args.rotate is None:
+        raise SchemaError("--extra-seeds needs --rotate KEY")
+    rotation = None if args.rotate is None else load_rotation(ctx.cfg_dir, args.rotate,
+                                                              args.extra_seeds)
+    selection = regress.select(ctx, levels, args.ip, args.affected, args.seed, rotation)
     for ip in selection.ips:
         print(f"[select] {ip.id}: {selection.reasons[ip.id]}")
     if not selection.ips:
         print("no IPs selected")
+    if rotation is not None:
+        print(f"[rotate] key {rotation.key}: {rotation.extra_seeds} extra seed(s) per "
+              f"level{rotation.level} entry, {len(selection.extra)} run(s), plain builds, "
+              f"budget {rotation.budget_s:.0f}s of CPU")
     if args.dry_run:
         for entry, seed in selection.runs:
             print(f"L{entry.level} {entry.ip}:{entry.name} seed={seed}")
+        for entry, seed in selection.extra:
+            print(f"L{entry.level} {entry.ip}:{entry.name} seed={seed} (extra)")
         return 0
     _use_slots(args)
     _use_cache(ctx, args)
@@ -276,6 +286,12 @@ def _regress_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--coverage", action="store_true",
                    help="coverage builds; merge line, toggle and functional coverage per IP "
                         "and check the floors")
+    p.add_argument("--rotate", metavar="KEY",
+                   help="also run extra seeds derived from KEY (a date or run id) on each "
+                        "entry of the rotation level (cfg/levels.yaml rotation), within its "
+                        "CPU budget and without coverage")
+    p.add_argument("--extra-seeds", type=int, metavar="N",
+                   help="extra seeds per entry with --rotate (default: cfg/levels.yaml)")
     p.add_argument("--dry-run", action="store_true", help="print the selection only")
     p.add_argument("--slots", metavar="DIR",
                    help="host CPU slot directory shared with other runs: each build and test "
