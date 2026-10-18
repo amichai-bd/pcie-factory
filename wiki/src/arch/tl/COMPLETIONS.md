@@ -109,9 +109,10 @@ the RTL, not checks with an outcome.
 
 ### Requester tags
 
-Tags 0 to 7 (extended tags off, F2). A tag is in use from its read's
-`sop` beat on `rq` until the `rc` beat with `rc_done_o` 1; the
-application chooses it and never reuses a tag in use. With all eight in
+Tags 0 to 7 (extended tags off, F2). A tag is in use from the edge that
+takes its read's `sop` beat on `rq` until the edge that takes the `rc`
+beat with `rc_done_o` 1; a new read may take the tag at that same edge.
+The application chooses it and never reuses a tag in use. With all eight in
 use, the application holds further reads.
 
 ## Requester completions

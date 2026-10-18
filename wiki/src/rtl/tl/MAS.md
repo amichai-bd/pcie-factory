@@ -141,7 +141,7 @@ that cycle too, with `t_slot_pwr` from the kept data DW (bits 7:0 the
 value, 9:8 the scale), and is a `PK_DISCARD` entry like any dropped
 message ([slot power limit](../../arch/core/TL_CFG.md#slot-power-limit)). A
 completion with a defined Fmt pushes nothing: its beats went to the
-tracker slot as they arrived. Assertions: `a_beat_outside_tlp`,
+tracker as they arrived. Assertions: `a_beat_outside_tlp`,
 `a_sop_inside_tlp`, `a_short_tlp` (the `dll`'s whole-TLP contract) and
 `a_rel_data_max`.
 
@@ -409,8 +409,9 @@ application's reads and judges every received completion
   the lowest pending tag whose completion is not between its decision
   and its packet, so a read's data packets always go before its failed
   beat.
-- Assertions: `a_tag_in_use` (the application reuses no tag before its
-  `rc_done` beat), `a_sent_unknown`, `a_cpl_len` (a completion that
+- Assertions: `a_tag_in_use` (the application reuses no tag before the
+  edge that takes its `rc_done` beat; at that edge the take of the new
+  read wins over the free), `a_sent_unknown`, `a_cpl_len` (a completion that
   passes the checks has at most 32 DWs).
 
 ## rc stream

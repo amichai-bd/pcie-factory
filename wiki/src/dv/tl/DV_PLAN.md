@@ -166,7 +166,10 @@ verified by this testbench.
   after part of the data, a timeout after a disable, a completion after
   its read timed out, `rc` stalls, an `rc` packet waiting for a posted
   request, `rc` packets of two reads interleaving, a digest, 1 KiB held
-  for `rc`).
+  for `rc`, a completion whose third header DW arrives in the cycle its
+  read expires, a read expiring while one of its completions is between
+  its decision and its packet, a failed beat first due in the cycle
+  another packet is queued).
 
 ## Cross-check: RTL, architecture model, reference
 
@@ -199,7 +202,7 @@ self-tests check them.
 | The random transmit traffic of `tx_random`, longer | `tx_random_long` | 2 | 4 |
 | [Matching and checks](../../arch/tl/COMPLETIONS.md#checks): reads finished in one, two and three completions, byte-enable, zero-length and 64-bit reads; each check (Byte Count, Lower Address, boundary, past the end, no data, Configuration Request Retry) dropping a completion while its read waits; Unsupported Request, Completer Abort and a reserved status ending a read; poisoned completions; every unexpected case (Requester ID, Tag 8 or more, locked, after the read ended, before it was sent); a digest; [delivery](../../arch/tl/COMPLETIONS.md#delivery-on-rc) behind a posted write held on `cq`; interleaved reads with `rc` stalls | `cpl_matching` | 1 | 1; directed |
 | [Requester tags](../../arch/tl/COMPLETIONS.md#requester-tags): eight reads outstanding, more waiting for a tag; 1 KiB held while the application stalls `rc`; [Transactions Pending](../../arch/tl/COMPLETIONS.md#non-posted-pending) | `cpl_tags` | 1 | 1; directed |
-| [Completion timeout](../../arch/tl/COMPLETIONS.md#completion-timeout) at `CPL_TIMEOUT_DIV` 1024: lost reads time out once in 2048 to 2176 cycles, several at one pulse, one after part of its data; late completions unexpected; the disable holding a read past the window, then a full timeout | `cpl_timeout` | 1 | 1; directed |
+| [Completion timeout](../../arch/tl/COMPLETIONS.md#completion-timeout) at `CPL_TIMEOUT_DIV` 1024: lost reads time out once in 2048 to 2176 cycles, several at one pulse, one after part of its data; late completions unexpected; a read held unsent past the window; the disable holding a read past the window, then a full timeout; against an expiry placed from the prescaler phase the timeouts show: a completion's third header DW in the expiry cycle (unexpected), a non-last completion decided 3 cycles before the expiry and queued 14 after (the failed beat after it), another read's completion with its `eop` in the expiry cycle (both packets queued) | `cpl_timeout` | 1 | 1; directed |
 | Random `rq` traffic with the host's completions split at random and faulted (lost, poisoned, error status, malformed, unexpected, duplicated, digest), host traffic, `rc` stalls, the disable, segments across link-downs | `cpl_random` | 1 | 2 |
 | The same, longer | `cpl_random_long` | 2 | 3 |
 | [Receive](../../../../src/dv/tl/models/test_pcie_tl_rx_ref.py), [transmit](../../../../src/dv/tl/models/test_pcie_tl_tx_ref.py) and [completion](../../../../src/dv/tl/models/test_pcie_tl_cpl_ref.py) reference unit tests | pytest | `./build ci unit` | |
@@ -346,6 +349,9 @@ cleared when the read is sent), so M89 also drops that clear.
 | M100 rc_eop one beat early | `cpl_matching` | `rc_eop_o` at beat 13 of 14 |
 | M101 a tag never freed at rc_done | `cpl_matching` | assertion `a_tag_in_use` |
 | M102 a reserved status read as Completer Abort | `cpl_matching` | error pulse 0x100 where 0x080 was due |
+| M103 a completion matches a read expiring at that edge | `cpl_timeout` | error pulse 0x000 where unexpected 0x020 was due (third header DW in the expiry cycle) |
+| M104 a timeout beat not held behind its read's completion in flight | `cpl_timeout` | the failed beat (status 3) before the read's own data packet |
+| M105 a timeout beat pushed in a cycle a completion packet is queued | `cpl_timeout` | not drained: the failed beat is lost |
 
 ## Gaps
 

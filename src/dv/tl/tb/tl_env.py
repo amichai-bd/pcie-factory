@@ -160,7 +160,8 @@ COV_CPL.coverpoint("case", CPL_CASES)
 COV_CPL.coverpoint("split", {"one": 1, "two": 2, "three": 3})
 COV_CPL.coverpoint("event", ("tags_exhausted", "timeout", "timeout_after_data",
                              "timeout_disabled", "late_completion", "rc_stall",
-                             "rc_waits_posted", "rc_interleave", "digest", "rc_full_reads"))
+                             "rc_waits_posted", "rc_interleave", "digest", "rc_full_reads",
+                             "cpl_at_expiry", "timeout_cpl_in_flight", "timeout_beat_collides"))
 TIMEOUT_BIT = cref.TIMEOUT
 
 
@@ -210,6 +211,7 @@ class TlEnv:
         self.dis_last = -(1 << 40)            # last cycle it was driven 1
         self.div = 1024                       # CPL_TIMEOUT_DIV, from cfg_o
         self.tmo_cycles: list = []            # cycles from sent to timeout, per read timed out
+        self.tmo_at: list = []                # cycles in which bit 6 pulsed
         self.cpl_cases: list = []             # every completion's case
         self.rc_ready = False                 # this cycle's rc_ready_i
         self.rc_ends: list = []               # (tag, rc_status_o) of every rc_done beat
@@ -300,6 +302,8 @@ class TlEnv:
         self.host_due: list = []              # (cycle, completion) the host will send
         self.parts_ok: dict[int, int] = {}    # tag -> successful completions delivered
         self.timed_out: set[int] = set()      # tags whose last read timed out (late completions)
+        self.tmo_cycle: dict[int, int] = {}   # tag -> the cycle its read timed out
+        self.push_at: list = []               # (cycle its rc packet is queued, tag), judged
 
     def set_regs(self, **kw) -> None:
         """Change the register state; only while nothing is in flight, so
@@ -783,7 +787,9 @@ class TlEnv:
         """Bit 6 (COMPLETIONS.md, completion timeout): only when a read is
         beyond 16 prescaler periods; every such read ends now with one
         failed beat; none is still outstanding at 17 periods."""
+        self.push_at = [x for x in self.push_at if x[0] > t]
         if self._val("tl_err_o") >> TIMEOUT_BIT & 1:
+            self.tmo_at.append(t)
             due = self.cpl.due(t, self.dis_last)
             if not due:
                 raise TlError(f"cycle {t}: completion timeout with no read beyond "
@@ -799,7 +805,15 @@ class TlEnv:
                 self.rc_tmo[tag] = self.cpl.timeout(tag)
                 self.arch_trk.reads.pop(tag, None)
                 self.timed_out.add(tag)
+                self.tmo_cycle[tag] = t
                 COV_CPL.sample(event="timeout")
+                if any(g == tag for _, g in self.push_at):
+                    # A completion of this read is between its decision and
+                    # its packet: the failed beat must follow that packet.
+                    COV_CPL.sample(event="timeout_cpl_in_flight")
+            if any(c == t + 1 for c, _ in self.push_at):
+                # The failed beat is first due in the cycle a packet is queued.
+                COV_CPL.sample(event="timeout_beat_collides")
         over = self.cpl.overdue(t, self.dis_last)
         if over:
             raise TlError(f"cycle {t}: reads {over} not timed out {self.cpl.window()[1]} cycles "
@@ -820,12 +834,15 @@ class TlEnv:
             f = cref.fields(tlp)
             if v.case.startswith("unexpected") and f["tag"] in self.timed_out:
                 COV_CPL.sample(event="late_completion")
+                if self.tmo_cycle.get(f["tag"]) == t:
+                    COV_CPL.sample(event="cpl_at_expiry")
             if v.err is not None:
                 self.err_at[c["err_cycle"]] = self.err_at.get(c["err_cycle"], 0) | 1 << v.err
             if v.packet is not None:
                 if self.p_rel < c["p_before"]:
                     COV_CPL.sample(event="rc_waits_posted")
                 self.rc_exp.append({"pkt": v.packet, "p_before": c["p_before"]})
+                self.push_at.append((c["err_cycle"], v.packet.tag))
                 held = sum(len(e["pkt"].data) for e in self.rc_exp)
                 if held + (len(self.rc_cur["pkt"].data) if self.rc_cur else 0) >= 8 * 32:
                     COV_CPL.sample(event="rc_full_reads")

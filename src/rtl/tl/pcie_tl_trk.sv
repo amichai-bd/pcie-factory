@@ -224,7 +224,7 @@ module pcie_tl_trk #(
       if (rq_rd_take_i && rq_rd_ctx_i.tag == 3'(t)) begin
         tg_d[t].act    = 1'b1;
         tg_d[t].snt    = 1'b0;
-        tg_d[t].held    = 1'b1;
+        tg_d[t].held   = 1'b1;
         tg_d[t].failed = 1'b0;
         tg_d[t].cnt    = 5'd0;
         tg_d[t].left   = 8'(pcie_tl_pkg::byte_total({5'd0, rq_rd_ctx_i.dw_len},
@@ -304,8 +304,11 @@ module pcie_tl_trk #(
     err_o[pcie_tl_pkg::E_TIMEOUT] = |expire;
   end
 
-  // The application never reuses a tag in use (APP, requester requests).
-  `COMMON_ASSERT_NEVER(a_tag_in_use, clk_i, rst_i, rq_rd_take_i && tg_q[rq_rd_ctx_i.tag].held)
+  // The application never reuses a tag in use (APP, requester requests); a
+  // tag whose rc_done beat is taken at an edge may be taken again at it.
+  `COMMON_ASSERT_NEVER(a_tag_in_use, clk_i, rst_i,
+                       rq_rd_take_i && tg_q[rq_rd_ctx_i.tag].held
+                       && !(rc_free_i && rc_free_tag_i == rq_rd_ctx_i.tag))
   // A read is sent once, after it is taken.
   `COMMON_ASSERT_NEVER(a_sent_unknown, clk_i, rst_i,
                        rq_sent_i && !(tg_q[rq_sent_tag_i].act && !tg_q[rq_sent_tag_i].snt))

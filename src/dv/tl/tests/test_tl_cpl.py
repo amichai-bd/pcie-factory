@@ -289,9 +289,95 @@ async def cpl_timeout(dut):
     await env.drain(limit=4000)
     if len(env.tmo_cycles) != n + 1:
         raise TlError("the read did not time out once the disable cleared")
+    # Completions placed against an expiry. The prescaler pulses every P
+    # cycles (COMPLETIONS.md), so the timeouts seen give its phase, and a
+    # read sent at S expires at the pulse T with 16P < T - S <= 17P.
+    await expiry_cases(env, keep)
     if not all(lo < c <= hi for c in env.tmo_cycles):
         raise TlError(f"timeouts outside ({lo}, {hi}]: {env.tmo_cycles}")
     env.log.info("timeout cycles from sent: %s", env.tmo_cycles)
+
+
+async def at(env: tl_env.TlEnv, cycle: int) -> None:
+    """Run until the cycle just observed is ``cycle``."""
+    if env.cycle > cycle:
+        raise TlError(f"cycle {cycle} already passed ({env.cycle})")
+    while env.cycle < cycle:
+        await env.step()
+
+
+def cpl_for(env: tl_env.TlEnv, tag: int, part: int = 0, cuts=()) -> bytes:
+    """Part ``part`` of the legal completions of the read on ``tag``."""
+    r = env.read_req[tag]
+    p = cref.legal_completions(r["addr"], r["len"], r["fbe"], r["lbe"], cuts)[part]
+    return ref.completion(byte_count=p["bc"], rid=env.my_id, tag=tag, lower_addr=p["la"],
+                          data=[0xE0000000 + 4 * p["first"] + i for i in range(p["n"])])
+
+
+async def place(env: tl_env.TlEnv, tlp: bytes, start: int) -> None:
+    """Send ``tlp`` so that its sop beat is driven in cycle ``start``."""
+    await at(env, start - 1)
+    if env.beats or env.txq or env.host_due:
+        raise TlError("the link is busy: the completion cannot be placed")
+    env.send(tlp)
+    await env.step()
+    if env.last_start[0] != start:
+        raise TlError(f"completion started in cycle {env.last_start[0]}, {start} wanted")
+
+
+async def expiry_cases(env: tl_env.TlEnv, keep: dict) -> None:
+    """The tracker against a timeout in the same cycles (COMPLETIONS.md,
+    matching; delivery on rc): a completion whose third header DW arrives
+    in the cycle its read expires is unexpected; a read expiring while one
+    of its own completions is between its decision and its packet sends
+    its failed beat after that packet; a failed beat first due in the
+    cycle another read's packet is queued still goes."""
+    lo, _ = env.cpl.window()
+    period = lo // 16
+    if not env.tmo_at:
+        raise TlError("no timeout seen yet: the prescaler phase is unknown")
+    phase = env.tmo_at[0] % period
+
+    def expiry(sent: int) -> int:
+        t = sent + lo + 1
+        return t + (phase - t) % period
+
+    async def issue(*reads) -> None:
+        for tag, addr, n in reads:
+            keep[tag] = 0                        # the host sends nothing; the test does
+            env.request(False, addr, n, tag=tag)
+        for _ in range(200):
+            await env.step()
+            if all(t in env.cpl.reads and env.cpl.reads[t].sent is not None
+                   for t, _, _ in reads):
+                return
+        raise TlError("reads not sent")
+
+    cuts = (0x2040, 0x2080)
+    # 1. The third header DW (sop + 2) in the expiry cycle: unexpected.
+    await issue((0, 0x1000, 4))
+    e = expiry(env.cpl.reads[0].sent)
+    await place(env, cpl_for(env, 0), e - 2)
+    await env.drain(limit=4000)
+    if env.tmo_cycle.get(0) != e or env.cpl_cases[-1] != "unexpected_no_read":
+        raise TlError(f"completion at the expiry cycle {e}: {env.cpl_cases[-1]}, timeout "
+                      f"{env.tmo_cycle.get(0)}")
+    # 2. A non-last 15-DW completion decided 3 cycles before the expiry,
+    # its packet queued 14 cycles after: the failed beat waits for it.
+    await issue((1, 0x2004, 32))
+    e = expiry(env.cpl.reads[1].sent)
+    await place(env, cpl_for(env, 1, 0, cuts), e - 5)
+    await env.drain(limit=4000)
+    if env.tmo_cycle.get(1) != e or env.rc_ends[-1] != (1, cref.RC_FAILED):
+        raise TlError("a read expiring during its own completion did not end failed after it")
+    # 3. Another read's last completion with its eop in the expiry cycle:
+    # its packet is queued in the cycle the failed beat is first due.
+    await issue((2, 0x3000, 2), (3, 0x3100, 1))
+    e = expiry(env.cpl.reads[2].sent)
+    await place(env, cpl_for(env, 3), e - 3)        # 4 beats: eop in cycle e
+    await env.drain(limit=4000)
+    if env.tmo_cycle.get(2) != e or (2, cref.RC_FAILED) not in env.rc_ends[-2:]:
+        raise TlError("the failed beat colliding with a packet was lost")
 
 
 async def random_cpl(dut, *, segments: int, per_segment: int) -> tl_env.TlEnv:
