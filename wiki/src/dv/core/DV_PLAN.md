@@ -107,7 +107,7 @@ stated; each brings the link up and enumerates first.
 | Throughput targets: host writes, application writes (2000 of 128 bytes), host reads, application reads, both ways (1000) | `e2e_throughput_host_write`, `e2e_throughput_app_write`, `e2e_throughput_host_read`, `e2e_throughput_app_read`, `e2e_throughput_bidir` | 2 | 1 each |
 | [Outside D0](../../arch/core/HAS.md#decisions): UR for BAR0, no `rq` request, interrupt pending, no message; back in D0 all resume, configuration kept | `e2e_d3hot` | 2 | 1 |
 | [Link down](../../arch/core/HAS.md#link-down): Hot Reset with traffic in flight and Max_Payload_Size and Max_Read_Request_Size written to other values first (the status outputs follow them), outputs and configuration space at reset values, enumerated again and working; again from D3hot with interrupts resolving back to back (every gated output at its reset value from the first cycle `dl_up_o` is 0) | `e2e_link_down` | 1 | 1 |
-| Random mix: BAR0 writes and reads, `rq` writes and reads, MSI-X interrupts, random stalls | `e2e_soak`, `e2e_soak_max`, `e2e_soak_min_credits` | 2 | 3; 2; 2 (`CPL_TIMEOUT_DIV` 16: with minimum credits the host's completions wait behind its blocked writes, up to 2752 cycles for an rq read on the first seed, more than the 2048-cycle default timeout) |
+| Random mix: BAR0 writes and reads, `rq` writes and reads, MSI-X interrupts, random stalls | `e2e_soak`, `e2e_soak_max`, `e2e_soak_min_credits` | 2 | 3; 2; 2 (`CPL_TIMEOUT_DIV` 16: with minimum credits the host's completions wait behind its blocked writes, up to 2752 and 2866 cycles for an rq read on its two seeds, more than the 2048-cycle default timeout) |
 
 ## Measured
 
