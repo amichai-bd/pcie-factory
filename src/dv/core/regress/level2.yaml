@@ -44,7 +44,8 @@ tests:
   # release (FC_RELEASE 1) gate every host request. With minimum credits the
   # host's completions wait behind its credit-blocked writes (posted first),
   # longer than the bench's default 2048-cycle completion timeout
-  # (CPL_TIMEOUT_DIV 1024); those entries use CPL_TIMEOUT_DIV 16.
+  # (CPL_TIMEOUT_DIV 1024); the soak, which issues rq reads, uses
+  # CPL_TIMEOUT_DIV 16 (e2e_bar_traffic issues none).
   - name: e2e_enumeration_max
     module: tests.test_core_e2e
     testcase: e2e_enumeration
@@ -71,7 +72,7 @@ tests:
     module: tests.test_core_e2e
     testcase: e2e_bar_traffic
     top: pcie_core_e2e_tb
-    params: {FC_PH: 1, FC_PD: 8, FC_NPH: 1, FC_NPD: 2, CPL_TIMEOUT_DIV: 16}
+    params: {FC_PH: 1, FC_PD: 8, FC_NPH: 1, FC_NPD: 2}
     timeout_s: 600
   - name: e2e_soak_min_credits
     module: tests.test_core_e2e
