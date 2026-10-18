@@ -15,3 +15,4 @@ the parser together.
 | `output_files/widget_board.sta.rpt` | Timing analyzer report: Fmax (slow models only, as Quartus prints), setup and hold summaries for three corners, recovery and removal summaries (one empty), the unconstrained paths summary, plus unrelated panels including one with blank rows |
 | `worst_path.txt` | Output of the generated `worst_path.tcl` |
 | `map_fail.log` | A failed `quartus_map` log: one `Critical Warning (…)` and three `Error (…)` messages more than 30 lines before the end, then the closing `Error:` summary block |
+| `map_warnings.log` | A passing `quartus_map` log with warnings: two known IDs (one twice), an indented sub-message, a `Critical Warning (…)`, and an unknown warning that names a user, a host, a path outside the checkout and one inside it (checkout `/var/lib/ci/work/checkout`), longer than the published message length |

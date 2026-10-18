@@ -207,7 +207,8 @@ def cmd_fpga(ctx: Context, args) -> int:
     code = 0
     for p in plans:
         print(f"[{p.ip.id}] top {p.top}, board {p.board}, project {p.out_dir}")
-        code = max(code, fpga.run(p, bin_dir, timeout, verilator))
+        code = max(code, fpga.run(p, bin_dir, timeout, verilator,
+                                  cfg["known_warnings"]))
     return code
 
 

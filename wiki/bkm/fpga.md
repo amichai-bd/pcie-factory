@@ -140,6 +140,7 @@ least:
 | Unconstrained paths | Timing analyzer "Unconstrained Paths Summary" |
 | Critical path | Timing analyzer, worst setup path (from, to, clocks, slack) |
 | Warning count per step | Each Quartus step's closing message |
+| Warning IDs per step, with counts | Each step log's `Warning (<id>):` messages |
 
 Nightly collects these per IP into the tracker
 ([DevOps BKM](devops.md#metrics)).
@@ -164,13 +165,25 @@ rule, so `./build check` rejects it before Quartus runs; the
 ## Known Quartus warnings
 
 Warnings are reviewed, not ignored. These are expected with Quartus Lite on
-this board and need no action; any other warning is a finding:
+this board and need no action; any other warning is a finding. The IDs are
+mirrored in `known_warnings` in `cfg/fpga.yaml`, and a unit test keeps that
+list equal to this table, so add or remove a row and its ID together:
 
 | ID | Warning | Why it is accepted |
 | --- | --- | --- |
 | 292013 | LogicLock is only available with a subscription license | Lite edition; the flow uses no LogicLock regions. |
 | 169177 | Pins must meet requirements for 3.3, 3.0 and 2.5 V interfaces | Reported for 3.3-V LVTTL clock inputs that the board wires that way (`CLOCK_50`, `SMA_CLKIN`, `HSMC_CLKIN0` with JP6 at its default) (AN 447). |
 | 10036 | Object assigned a value but never read | A signal read only inside `COMMON_ASSERT*` arguments, which `SYNTHESIS` compiles out ([assertions](rtl.md#assertions)); Verilator lint, which sees the assertions, still reports a signal that nothing reads. |
+
+`./build fpga` records each step's warning IDs with their counts in
+`metrics.json` and, after a passing run, prints per step how many warnings
+are known and how many are unknown, then one line per unknown ID
+([fpga tool spec](../tools/fpga/SPEC.md#warnings)). That line is the only log
+content published besides a failure excerpt: the ID and its first message,
+with paths made relative to the checkout (other absolute paths cut to the
+file name), user and host names, e-mail and IP addresses replaced, and the
+text cut to 160 characters. The logs themselves stay on the host
+([publishability](wiki.md#publishability)).
 
 ## Review checklist
 
@@ -180,5 +193,6 @@ this board and need no action; any other warning is a finding:
   M9K count, as the block's MAS records.
 - Every SDC exception has a reason.
 - Timing met on every clock, or the PR states the gap and the owning issue.
-- Quartus warnings are the known ones above, or the PR explains each new one.
+- Quartus warnings are the known ones above, or the PR explains each new one
+  (each unknown ID is printed in the `ci-fpga` job log).
 - No generated output committed.
