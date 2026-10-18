@@ -102,6 +102,46 @@ are not recorded here but in `metrics.json` and, from the nightly run, on
 the tracker's `core` page; the wrapper's own logic (352 flops and the
 parity tree) is included in the resource counts.
 
+## Results
+
+The nightly tracker owns the live figures. This is the acceptance fit:
+`fpga` workflow run 39142366219 at `7fb17ff`, Quartus Prime Lite
+25.1std.0, slow and fast models; the PR's final head has the same FPGA
+inputs and its own `ci-fpga` run.
+
+| Item | Result |
+| --- | --- |
+| `clk_core` (50 MHz target) | Met: setup slack +1.065 ns, hold +0.102 ns, Fmax 52.81 MHz. |
+| `clk_rx` (50 MHz target) | Met: setup slack +4.005 ns, hold +0.181 ns, Fmax 62.52 MHz. |
+| Unconstrained paths | 0. |
+| Logic elements | 13300 / 114480. |
+| Registers | 5467. |
+| Memory | 28 / 432 M9K, 48848 memory bits, 16 RAMs, each simple dual port, single clock, old data on a mixed-port read during write. |
+| Worst setup path | `clk_core`, inside `tl`: the `cfg` completion former's descriptor queue head (`u_cf` `u_desc`, its RAM read register) to the `cc` former's descriptor read pointer (`u_cc` `u_desc` `rd_q`), through the transmit arbiter's eligibility and round robin; slack +1.065 ns. |
+
+**Closing 50 MHz.** The first fit (run 39141831879, at `9d9edbc`)
+reached 36.12 MHz on `clk_core` (setup slack -7.684 ns; `clk_rx`
+59.17 MHz): its worst path ran from the same descriptor queue head
+through the transmit arbiter and `tlp_tx_data` into the `dll` transmit
+CRC (`u_dll` `u_tlp_tx` `st_q.crc`) in one cycle, 27.7 ns of data delay.
+`tl`'s registered transmit output stage
+([`tl` MAS, transmit arbiter](../../rtl/tl/MAS.md#transmit-arbiter)) cut
+that path at `tl`'s edge, which closed both clocks in one round. Before
+that fit, Quartus rejected a package-constant index inside a port
+connection in `pcie_tl` (error 10162); the select is now a named net
+([#347](https://github.com/amichai-bd/pcie-factory/issues/347) adds the
+matching check).
+
+**Quartus warnings.** Fit: 169177 and 292013, both
+[known](../../../bkm/fpga.md#known-quartus-warnings). Map: 10036 ×7 and
+276020 ×1, known (276020 is the `dll` `end_q` array, as in the
+[`link` fit](../link/FPGA.md#results)), and three not on the known list:
+
+| ID | What | Why |
+| --- | --- | --- |
+| 14320 ×36, under 14284 and 14285 | RAM bits synthesized away, the first in the `cfg` MSI-X table (`pcie_cfg_bar2` `u_table`). | The memory bits used (48848) are 288 below the RAMs' declared sizes, so the 36 nodes are 36 one-bit columns of the 8-entry RAMs, columns no logic reads with these parameters: the table's Message Address bits 1:0 (2), which the read forces to 0 ([`cfg` MAS, BAR2](../../rtl/cfg/MAS.md#bar2)); and in `tl`'s posted queue and cq line, address bits 27:12 of each entry (16 each), above `BAR0_ADDR_W` 12, sized for its maximum of 28. Expected; another `BAR0_ADDR_W` keeps more columns. The flow publishes only the first message per ID, so the last two columns are not named; they are in the same 8-entry RAMs. |
+| 10037 ×1 | `pcie_tl_trk.sv` line 250: a conditional expression evaluates to a constant. | The tag array is a `COMMON_DFF_ARRAY_RST_EN` with its enable tied to 1 (the vocabulary has no reset array without an enable), so the macro's enable test is constant. No logic is lost. |
+
 ## Files
 
 | File | Holds |

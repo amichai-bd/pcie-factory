@@ -90,7 +90,8 @@ kind, `t_reg_st`, `t_pxkind` transmit posted entry kind, `t_txsel` the
 arbiter's choice), the structs (the decoded header `t_hdr`, the TLP being
 received `t_rx_cur`, the queue entries `t_pq_ent`, `t_cq_ent`,
 `t_cfg_ent`, `t_txp_ent`, `t_txnp_ent`, the queued completion
-`t_cpl_desc`, the former's read context `t_cpl_ctx`, the block nets
+`t_cpl_desc`, the former's read context `t_cpl_ctx`, the transmit
+output stage `t_tx_out` and its beats `t_tx_beat`, the block nets
 `t_hd_ctx`, `t_cpl_rec`, the tracker nets `t_rx_beat`, `t_rq_ctx`, the
 rc packet `t_rc_desc`, a tracked read `t_trk_tag`, the slot power payload
 `t_slot_pwr`, and each
@@ -357,16 +358,29 @@ eligible when its order allows it (the epoch rule) and the link shows 1
 header credit and its data credits for its class (`>=` passes all ones).
 Round robin over the posted line, the non-posted line and the completion
 queue picks one; the completion queue is the two completion formers'
-queues, which alternate when both are eligible (`cf_turn`). The choice,
-and this function's ID (`bus_num_i`, `dev_num_i`), are held in
-`t_tx_state` from the `sop` offer to the `eop` take, so an offered beat
-never changes. Header DWs are formed from the head entry
+queues, which alternate when both are eligible (`cf_turn`). The choice
+is held in `t_tx_state` from the `sop` beat to the `eop` beat, so a beat
+offered to the output stage never changes. Header DWs are formed from the head entry
 ([TLP formats](../../arch/tl/TLP.md)): a 3-DW memory request header when
 address bits 63:32 are 0, a 4-DW one otherwise; a message's 4-DW header;
 a completion's 3-DW header with the request's TC and Attr bits 1:0. Data
 DWs come from the line's data queue (an interrupt write's from its
-entry). The head and its data leave at the `eop` take; `rq_sent` pulses
-at an rq read's `sop` take. Assertion: the line sent keeps its head.
+entry). The head and its data leave when the output stage takes the
+`eop` beat. Assertion: the line sent keeps its head.
+
+**Output stage.** `tlp_tx_*` come from flops (`t_tx_out`, beats
+`t_tx_beat`), so no path runs from a queue head through the arbiter into
+the `link` ([#295](https://github.com/amichai-bd/pcie-factory/issues/295)):
+`out` is the beat offered on `tlp_tx_*`, and `skid` takes the arbiter's
+beat in a cycle where `out` is held. The arbiter is ready while `skid` is
+empty, a register, so `tlp_tx_ready_i` reaches only the stage. While the
+link takes every beat `skid` stays empty and a TLP still goes out with no
+gap; an offered beat stays unchanged until taken. The ID (`bus_num_i`,
+`dev_num_i`) is captured in the cycle a `sop` beat is first offered on
+`tlp_tx_*` and fills bits 15:0 of DW 1, which the arbiter leaves 0 and
+the stage offers only after the `sop` is taken; `rq_sent` pulses when the
+link takes an rq read's `sop` beat. Assertions: a held beat is stable,
+`skid` holds a beat only behind `out`.
 
 ## Completion tracker
 
@@ -462,7 +476,8 @@ beat frees its tag (`rc_free`).
 | Room for the longest completion at a completion's first DW | `cc_ready_o` and `cpl_room` then need no input combinationally; a 64-DW queue still holds two completions. | Room for the completion's own length (a path from `cc_handle_i` to `cc_ready_o`). |
 | Transmit posted line in flops, up to three entries at one edge | An rq write, a message and a PME_TO_Ack can be taken together; none waits on another, and the head is visible at the next edge for the epoch rule. | A RAM queue with a holding register per source (a held message would be taken before an rq write but enter after it). |
 | An rq write enters the posted line at its `sop` beat and goes out whole | The order taken is the `sop` order (APP); a write never stalls the link mid-TLP waiting for the application. It relies on the application finishing a started write without waiting on `cc`, the interrupt port or `cq` ([APP](../../arch/core/APP.md#write-completion), [#291](https://github.com/amichai-bd/pcie-factory/issues/291#issuecomment-6250061556)). | Entering at its `eop` (a message taken during the write's data would pass it); cut-through. |
-| The ID held from the `sop` offer | A configuration write may change `bus_num_i` while a TLP waits for the link; an offered beat must not change. | Forming DW 1 when it is taken. |
+| The ID captured as the `sop` is first offered on `tlp_tx_*`, filled into DW 1 at the output stage | A configuration write may change `bus_num_i` while a TLP waits for the link; an offered beat must not change, and the [TLP formats](../../arch/tl/TLP.md) give the ID as the `sop` is first offered. | Forming DW 1 when it is taken; capturing the ID at the arbiter (a cycle before the offer). |
+| A registered transmit output stage with a skid slot ([#295](https://github.com/amichai-bd/pcie-factory/issues/295)) | The first DE2-115 fit ran from a completion descriptor RAM through the arbiter and `tlp_tx_data` into the `dll` CRC in one cycle (36 MHz); the stage cuts it at `tl`'s edge for one cycle of latency and no throughput. | A plain register with `tlp_tx_ready_i` passed through to the arbiter (a combinational ready path); registering inside the `dll` (a signed interface's other side). |
 
 ## Timing
 
@@ -479,19 +494,21 @@ beat frees its tag (`rc_free`).
   request and after each `reg_cpl_valid` of a multi-DW BAR2 request.
 - A request that leaves at edge E is released in the cycle after E, a
   non-posted one later when another is released then.
-- A completion queued at edge E is offered on `tlp_tx_*` from the second
-  cycle after E (its descriptor queue head), when nothing else is being
-  sent and it is its turn; a configuration read's completion therefore
-  starts two cycles after the cycle of its `reg_cpl_valid`. An rq request taken at
-  edge E is offered from the next cycle (posted, once all its data is
-  queued) or the second (non-posted). Back-to-back 32-DW `rq` writes
+- A completion queued at edge E is offered on `tlp_tx_*` from the third
+  cycle after E (its descriptor queue head, then the output stage), when
+  nothing else is being sent and it is its turn; a configuration read's
+  completion therefore starts three cycles after the cycle of its
+  `reg_cpl_valid`. An rq request taken at edge E is offered from the
+  second cycle (posted, once all its data is queued) or the third
+  (non-posted). Back-to-back 32-DW `rq` writes
   keep the link busy: the next write is taken while the posted count is
   at most 1 and the posted data RAM holds at most 32 DWs, so it fills
   while the one before is sent; the application waits about 3 cycles per
   write (35 beats sent against 32 taken), and the store-and-forward cost
   is one TLP of latency. A TLP goes out one beat per cycle
   while the link takes them, with no gap, and the next starts in the
-  cycle after its `eop` is taken.
+  cycle after its `eop` is taken; the output stage adds one cycle to
+  every TLP's latency and none to throughput.
 - A completion whose third header DW arrives in cycle C is matched and
   its read updated at the edge ending C; its error event pulses, and its
   rc packet is queued, in the cycle after its `eop`; the packet reaches
@@ -503,13 +520,13 @@ beat frees its tag (`rc_free`).
   cycle T with 16P < T − S ≤ 17P, its bit 6 pulsing in T.
 - Outputs that depend on inputs combinationally: the gating by `rst`
   (`rst_i`, `dl_up_i`); `rq_ready_o` on a `sop` beat, from `rq_write_i`
-  (which line's room), `bus_master_en_i` and `d_state_i`; and, while no
-  TLP is offered, `tlp_tx_*` from `fc_*_avail_i` (which head may start)
-  and `bus_num_i`, `dev_num_i` (its DW 1). The critical path is the
-  receive judgment, from
-  `tlp_rx_data_i` through `hdr_decode`, the BAR compares (32-bit masked
-  equality), the 4 KiB check (a 13-bit add) and the outcome mux into
-  `cur_q`.
+  (which line's room), `bus_master_en_i` and `d_state_i`. `tlp_tx_*` come
+  from the output stage's flops. On the DE2-115 at 50 MHz
+  ([`core` FPGA](../../fpga/core/FPGA.md#results)) the worst path is in
+  the transmit side: from a completion former's descriptor queue head
+  (its RAM read register) through the eligibility and round robin into
+  the other former's descriptor read pointer (the pop), with +1.065 ns
+  of slack.
 
 ## Files
 
