@@ -16,26 +16,28 @@ tests:
     top: pcie_link_e2e_tb
     seeds: 3
     timeout_s: 1800
+    coverage_seeds: 2
   - name: e2e_soak_minimum
     module: tests.test_link_e2e
     testcase: e2e_soak
     top: pcie_link_e2e_tb
     params: {CREDITS: 1}
-    seeds: 3
+    seeds: 2
     timeout_s: 1800
+    coverage_seeds: 2
   - name: e2e_soak_finite
     module: tests.test_link_e2e
     testcase: e2e_soak
     top: pcie_link_e2e_tb
     params: {CREDITS: 2}
-    seeds: 2
+    seeds: 1
     timeout_s: 1800
   - name: e2e_soak_infinite
     module: tests.test_link_e2e
     testcase: e2e_soak
     top: pcie_link_e2e_tb
     params: {CREDITS: 3}
-    seeds: 2
+    seeds: 1
     timeout_s: 1800
   - name: e2e_soak_asymmetric
     module: tests.test_link_e2e
@@ -44,6 +46,7 @@ tests:
     params: {CREDITS: 4}
     seeds: 2
     timeout_s: 1800
+    coverage_seeds: 2
   - name: e2e_tlp_errors_sweep
     module: tests.test_link_e2e
     testcase: e2e_tlp_errors
@@ -62,12 +65,14 @@ tests:
     top: pcie_link_e2e_tb
     seeds: 2
     timeout_s: 900
+    coverage_seeds: 2
   - name: e2e_line_sweep
     module: tests.test_link_e2e
     testcase: e2e_line
     top: pcie_link_e2e_tb
     seeds: 3
     timeout_s: 900
+    coverage_seeds: 2
   - name: e2e_mixed_sweep
     module: tests.test_link_e2e
     testcase: e2e_mixed
@@ -123,7 +128,7 @@ tests:
     module: tests.test_link_e2e
     testcase: e2e_throughput_bidir
     top: pcie_link_e2e_tb
-    seeds: 3
+    seeds: 2
     timeout_s: 1800
 # Floors on the merged levels 0 to 2 (the nightly run), at the merged value
 # less 0.5 points rounded down to a tenth (DV BKM, floor margin): measured

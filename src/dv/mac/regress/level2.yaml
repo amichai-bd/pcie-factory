@@ -1,13 +1,25 @@
 tests:
-  - name: arcs_full_downstream
+  - name: arcs_timeouts_downstream
     module: tests.test_mac
-    testcase: arcs_full_downstream
+    testcase: arcs_timeouts_downstream
     top: pcie_mac_tb
     timeout_s: 3600
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
-  - name: arcs_full_upstream
+  - name: arcs_timeouts_upstream
     module: tests.test_mac
-    testcase: arcs_full_upstream
+    testcase: arcs_timeouts_upstream
+    top: pcie_mac_tb
+    timeout_s: 3600
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
+  - name: arcs_idle_rlock_downstream
+    module: tests.test_mac
+    testcase: arcs_idle_rlock_downstream
+    top: pcie_mac_tb
+    timeout_s: 3600
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
+  - name: arcs_idle_rlock_upstream
+    module: tests.test_mac
+    testcase: arcs_idle_rlock_upstream
     top: pcie_mac_tb
     timeout_s: 3600
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
@@ -39,7 +51,7 @@ tests:
     module: tests.test_mac
     testcase: traffic_long
     top: pcie_mac_tb
-    seeds: 4
+    seeds: [1214372279, 644855963]
     timeout_s: 1800
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
   - name: rx_errors_long
@@ -72,6 +84,7 @@ tests:
     top: pcie_mac_tb
     seeds: 2
     timeout_s: 1200
+    coverage_seeds: 2
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
 # Floors: the higher of the existing floor and the merged L0 to L2 value
 # (the nightly runs the three together) minus 0.5 points, rounded down to

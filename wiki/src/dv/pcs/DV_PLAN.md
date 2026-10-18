@@ -145,22 +145,22 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
 | One-word electrical-idle pulses at the eight phases of the TS1 COM period (the window holding the idle word never locks), `rst_i` with traffic in flight (lock and data return at the next comma) | `rx_lock_controls` | 0 | [1] |
 | [PowerDown](../../arch/pcs/PIPE_CONTROL.md#powerdown): every arc acknowledged after 4 cycles, transmitter idle outside P0, no beacon in P2 | `pipe_power` | 1 | 2 |
 | PIPE control and the transmit path under random legal MAC sequences | `pipe_random` / `pipe_random_long` | 1 / 2 | 3; 60 operations / 6; 400 |
-| [RxElecIdle](../../arch/pcs/PIPE_CONTROL.md#receive-status-signals) with the received words: every change, in order, 1 to 12 `clk_i` edges (the RX latency target) after the RX edge that registered it (measured: at most 10) | `rx_elec_idle` | 1 | [1, 2]: fast, slow |
+| [RxElecIdle](../../arch/pcs/PIPE_CONTROL.md#receive-status-signals) with the received words: every change, in order, 1 to 12 `clk_i` edges (the RX latency target) after the RX edge that registered it (measured: at most 10) | `rx_elec_idle` | 1 | [1, 2]: fast, slow; coverage on both |
 | Every data byte and K-flagged byte at RD- and RD+ in both lanes through PIPE TX, back to back and with TxElecIdle between words; fails on a hole in `pcs_tx_codes` or the EDB and RD-hold bins | `tx_table` | 1 | 1; 5120 words twice |
-| Random transmit traffic with TxCompliance, idle gaps, unsupported K and resets of both kinds with words in flight, every word against the model | `tx_random` / `tx_random_long` | 1 / 2 | 3; 5000 cycles / 8; 100000 |
+| Random transmit traffic with TxCompliance, idle gaps, unsupported K and resets of both kinds with words in flight, every word against the model | `tx_random` / `tx_random_long` | 1 / 2 | 3; 5000 cycles / 4; 100000 |
 | Every symbol at both RDs in both lanes through PIPE TX, the line and PIPE RX, intact, no error; fails on a hole in `pcs_rx_codes` | `table_round_trip` | 1 | [1] |
 | All 1024 codes through the ports: each lane at RD- and RD+, lane 0 at an unknown RD (polarity change), the RD each leaves (probe); both lanes unlocked (line in idle, data and K); class counts 268, 196, 560 at a known RD and 464, 560 at an unknown one; no error on the first locked word after the unlocked run although its COM would be a disparity error at the RD the unlocked symbols left | `rx_decode_table` | 1 | 1; about 100000 words, exact timing |
-| Random encoded traffic with bit errors, random codes, partner RD slips, RxPolarity changes (single-word pulses among them) and `pipe_reset_ni` pulses, every PIPE word against the decoder model | `rx_decode_random` / `rx_decode_random_long` | 1 / 2 | 3; 20000 words / 4; 200000 |
+| Random encoded traffic with bit errors, random codes, partner RD slips, RxPolarity changes (single-word pulses among them) and `pipe_reset_ni` pulses, every PIPE word against the decoder model | `rx_decode_random` / `rx_decode_random_long` | 1 / 2 | 3; 20000 words / 2; 200000 |
 | Bit slips in numbered TS1 and in FTS traffic, on SKP sets, slip pairs 2 to 90 symbols apart; isolated flips keep lock; every slip answered (no errored word later than 48 cycles after it), the data intact once lock is retaken in the same cycle or at the next comma | `rx_slips_training` / `rx_slips_training_sweep` | 1 / 2 | [1] / [2..6]; up to 300 ppm |
 | Bit slips in packet traffic and on its SKP sets; flips in packets keep lock | `rx_slips_packets` | 1 | [1, 2] |
 | No false lock: encoded data at every bit offset and idle noise never give RxValid; unflagged noise may lock falsely and the true boundary follows | `rx_no_false_lock` | 1 | [1, 2] |
-| Long mixed traffic (training, packets) with slips, flips and idle gaps at up to ±600 ppm, every check | `rx_align_long` | 2 | 8; 40 segments |
+| Long mixed traffic (training, packets) with slips, flips and idle gaps at up to ±600 ppm, every check | `rx_align_long` | 2 | 4; 40 segments |
 | [Elastic buffer](../../arch/pcs/RECEIVE.md#elastic-buffer) at 300 to 600 ppm, random packets, SKP every 1180: lossless, one lock, SKP sets within the rules, RX latency at most 12 | `rx_ppm` / `rx_ppm_sweep` | 1 / 2 | [1] / [2..8]; odd seeds fast |
 | The same with back-to-back DLLPs | `rx_dllp` | 1 | [1, 2] |
 | The same with maximum TLPs (4122 bytes), SKP every 1538, 550 to 600 ppm | `rx_max_tlp` | 2 | [1..4] |
 | SKP addition at -600 ppm, maximum TLPs, SKP every 1538; removal at +600 ppm | `eb_tlp_m600`, `eb_tlp_p600` | 1 | [1] each |
 | Random sizes, SKP sets of one to five SKPs, random interval, at -300 and +300 ppm | `eb_random_m300`, `eb_random_p300` | 1 | [1] each |
-| The same at a seeded offset within ±600 ppm | `eb_random_offset` / `eb_random_offset_sweep` | 1 / 2 | [1, 2] / [3..6] |
+| The same at a seeded offset within ±600 ppm | `eb_random_offset` / `eb_random_offset_sweep` | 1 / 2 | [1, 2], coverage on both / [3..6] |
 | A burst one SKP set short, then a maximum TLP, at -600 ppm (#73 sign-off case) | `eb_short_burst` / `eb_short_burst_sweep` | 1 / 2 | [1] / [2, 3] |
 | Sizes that strand corrections at ±600 ppm | `eb_stress_sizes` | 1 | [1, 2]: fast, slow |
 | Dense SKP sets (one to five SKPs every 48 to 96 symbols) at ±600 ppm: additions after a COM in either half of a word, removals leaving a bare COM, sets back to back | `eb_dense` / `eb_dense_sweep` | 1 / 2 | [1] / [2..8] |
@@ -173,14 +173,14 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
 | Underflow at -2% with no SKP: RxStatus 6, EDB EDB as K, RxValid 0, nothing lost, no error after an underflow word (the decoder's RD held across it) | `eb_underflow` | 1 | [1] |
 | Outside the targets at ±4000 ppm with long packets: overflow (RxStatus 5) or underflow (RxStatus 6, EDB EDB, RxValid 0) | `eb_stress` | 1 | [1, 2] |
 | Reset with traffic in flight: `rst_i` (lock returns at a comma within the lock target, intact) and `pipe_reset_ni` (RxValid low, the stream resumes with the RD unknown, nothing out of order) | `rx_reset_traffic` / `rx_reset_traffic_sweep` | 1 / 2 | [1] / [2..6] |
-| Long runs: forty maximum TLPs, 1200 random packets, 60 packets of stranding sizes or short bursts, three 20000-symbol idle gaps in 300 packets (recentring required as in `eb_idle_*`) | `eb_long_tlp`, `eb_long_random`, `eb_long_stress`, `eb_long_idle` | 2 | [1..6] (three per sign; odd seeds fast), 6, [1..6] (three per sign), [1..4] |
+| Long runs: forty maximum TLPs, 1200 random packets, 60 packets of stranding sizes or short bursts, three 20000-symbol idle gaps in 300 packets (recentring required as in `eb_idle_*`) | `eb_long_tlp`, `eb_long_random`, `eb_long_stress`, `eb_long_idle` | 2 | [1..4] (two per sign; odd seeds fast), 3, [1..4] (two per sign), [1..4] |
 | [Polarity](../../arch/pcs/RECEIVE.md#decode-and-rxstatus): an inverted lane with RxPolarity 1 is intact | `rx_polarity` | 1 | [1] |
 | RxPolarity applies from the next word: wrong data before, every word after correct with no error | `rx_polarity_toggle` | 1 | [2] |
 | Isolated bit errors: each reported (4 or 7), no relock, data intact around them | `rx_errors` / `rx_errors_sweep` | 1 / 2 | [1] / [2..6] |
 | Two close bit errors relock by design; RxValid low until the next comma; data resumes from that COM within the lock target | `rx_close_errors` / `rx_close_errors_sweep` | 1 / 2 | [1] / [2..6] |
 | [Relock rule](../../arch/pcs/RECEIVE.md#comma-alignment-and-symbol-lock) (limit, decay, one request per lock, crossing 4) against error bursts | `rx_error_bursts` / `rx_error_bursts_sweep` | 1 / 2 | [1] / [2..8] |
 | Bit slips in packet traffic at up to 300 ppm: lock dropped within 48 cycles of each slip in lock, regained at the next COM within the lock target | `rx_slips` / `rx_slips_sweep` | 1 / 2 | [1] / [2..6] |
-| Electrical-idle gaps: RxValid low, no buffer status, lock start and the lock target after each gap, data intact | `rx_elec_idle_gaps` / `rx_elec_idle_gaps_sweep` | 1 / 2 | [1, 2] / [3, 4, 5, 6, 12, 14, 22, 24, 28, 30, 34, 36]; 12, 14, 24, 28 and 34 lock once on noise |
+| Electrical-idle gaps: RxValid low, no buffer status, lock start and the lock target after each gap, data intact | `rx_elec_idle_gaps` / `rx_elec_idle_gaps_sweep` | 1 / 2 | [1, 2] / [3, 4, 5, 6, 12, 14, 22, 24, 28, 30, 34, 36], coverage on the first five; 12, 14, 24, 28 and 34 lock once on noise |
 | [Loopback](../../arch/pcs/PIPE_CONTROL.md#loopback): received words re-encoded two cycles after they are on PIPE, errors as EDB | `loopback` | 1 | [1] |
 | Round trip: TxData through the encoder, line, aligner, buffer and decoder back to RxData, intact | `round_trip` | 1 | [1] |
 
@@ -195,6 +195,19 @@ level 1: `eb_lock_start`, `rx_elec_idle_gaps` and `rx_eios_idle` (the
 read-side lock-start drop and the recentring hold), and `eb_random_offset`
 (the `pcs_elastic` floor of level 1, whose random addition bin only seed 2
 reaches on levels 0 and 1).
+
+**Seeds and coverage runs** ([#327](https://github.com/amichai-bd/pcie-factory/issues/327)).
+The long random entries `rx_align_long` (8 to 4 seeds), `tx_random_long`
+(8 to 4), `rx_decode_random_long` (4 to 2), `eb_long_random` (6 to 3),
+`eb_long_tlp` and `eb_long_stress` ([1..6] to [1..4], two per sign) lost
+seeds that, on the merged level 0 to 2 coverage of `005836f`, hit no point
+or bin the rest of the levels miss, and none is the catch of a mutant
+below (`eb_long_idle`, which is, keeps its four seeds). `--coverage`
+instruments each entry's first seed only, except where a later seed
+reaches a bin the first does not: `rx_elec_idle` and `eb_random_offset`
+(both seeds; the slow-clock and random-addition bins) and
+`rx_elec_idle_gaps_sweep` (the first five seeds), so the merged coverage
+is unchanged bin for bin.
 
 The model unit tests (`python3 -m pytest src/dv/pcs/models`) check the
 encoder model against published codes (among them the A7 rule, D17.7 at

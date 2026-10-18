@@ -11,6 +11,7 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `tools/build/ip.py` | Repository context (source root, workdir) and IP discovery. |
 | `tools/build/sim.py` | Verilator + cocotb build and test driver. |
 | `tools/build/slots.py` | Host [CPU slots](#cpu-slots) shared by every `sim` and `regress` run. |
+| `tools/build/cache.py` | The host [build cache](#build-cache): content-keyed builds and pass records. |
 | `tools/build/logexcerpt.py` | The [failure excerpt](#failure-excerpt) the vendor flows print for a failed step. |
 | `tools/regress/` | Regression lists, selection and summary; see the [regress spec](../regress/SPEC.md). |
 | `tools/fpga/` | Quartus FPGA flow and report parsing; see the [fpga spec](../fpga/SPEC.md). |
@@ -163,7 +164,7 @@ synthesis view.
 ## Simulation: `./build sim`
 
 ```
-./build sim --ip <id> --test <name> [--seed N] [--waves] [--slots DIR]
+./build sim --ip <id> --test <name> [--seed N] [--waves] [--slots DIR] [--no-cache]
 ```
 
 The command looks `<name>` up across the IP's level lists (test names are
@@ -219,7 +220,7 @@ flat sibling):
 
 | Path | Content |
 | --- | --- |
-| `workdir/<ip>/build/<top>[-<hash>]/` | Verilator build and `build.log`. `<hash>` (8 hex digits) is added when the test has `params` or a `backend`, waves are on or it is a coverage build, so different elaborations never share a directory. |
+| `workdir/<ip>/build/<top>[-<hash>]/` | Verilator build and `build.log`. `<hash>` (8 hex digits) is added when the test has `params` or a `backend`, waves are on or it is a coverage build, so different elaborations never share a directory. With the [build cache](#build-cache) on, only `build.log` stays here (it names the cache entry); the executable runs from the entry. |
 | `workdir/<ip>/<test>/<seed>/` | `results.xml`, `sim.log` (the full simulator output), waves (`dump.vcd`) with `--waves`, and `coverage.dat` and `funcov.json` in a coverage run ([regress coverage](../regress/SPEC.md#coverage)). This directory is cleared before each run. |
 
 Because test directories share `workdir/<ip>/` with the tools' own output,
@@ -272,6 +273,102 @@ The [DevOps BKM](../../bkm/devops.md#local-evidence) owns the policy (one
 directory per host for every agent). Tests: `tools/build/tests/test_slots.py`
 (exclusive and released slots, waiting, a slot held by another process, Ctrl-C
 while waiting, `$BUILD_SLOTS` and `--slots`, an unusable directory).
+
+## Build cache
+
+Every Verilator build is keyed by its content and kept in one cache per
+host, outside every checkout, so a later run, another worktree or another
+CI job on the same host reuses it instead of compiling again (#327).
+
+- **Location:** `$BUILD_CACHE`, else
+  `${XDG_CACHE_HOME:-~/.cache}/<repo>/build`, where `<repo>` is the name of
+  the main worktree's folder (as the [specs cache](../specs/SPEC.md) does),
+  so every worktree of a clone shares it. A directory inside the
+  repository is refused (exit 2): a job checkout's clean would delete it.
+  `$BUILD_CACHE=off` or `--no-cache` on `sim` and `regress` turns it off
+  (and ccache with it, below): every build compiles afresh in `workdir/`,
+  as before the cache.
+- **Key:** sha256 of the build settings (top, `params`, waves, coverage,
+  the Verilator options of `sim.py`, the filelist's defines), the build
+  driver (every `tools/build/*.py`, so a change to how the build is invoked,
+  such as a new runner argument in the build child, is a new key), the
+  tools (`verilator --version`, its path and `$VERILATOR_ROOT`, the C++
+  compiler's `--version` (`$CXX`, default `g++`), the cocotb version and
+  install, whose library path is linked into the executable, and the
+  Python), every source in filelist order and every file under every
+  include directory.
+  Files are named by their path relative to the worktree (the source root's
+  parent), so the same tree in another worktree has the same key. The key
+  is content only, never a time: a changed byte in any input is a new
+  entry, and nothing stale is ever reused.
+- **Entry:** `<cache>/builds/<top>-<key>/` holds the simulation executable
+  (the only file a test needs), the build's `build.log` and `meta.json`
+  (key, IP, settings and the worktree it was compiled from), written last.
+  After a build the object files are deleted from `workdir/` (hundreds of
+  MB per build); the log stays and names the entry. A hit writes a
+  `build.log` that names the entry and takes no slot and no time.
+- **Concurrent writers:** a build is copied into a private temporary
+  directory in the cache and renamed into place, so a reader never sees a
+  partial entry; when two runs build the same key at once, the first rename
+  wins and the other run keeps its copy aside and uses the winner's. A
+  failure to store (a full disk) is a warning in `build.log`, never a
+  failed build.
+- **Paths of a reused build:** Verilator records each source by the path it
+  was compiled from, which may be another worktree with the same content.
+  A coverage run's `coverage.dat` is rewritten to this worktree's paths
+  after the run, so merging, the DV-only exclusion and annotation see this
+  tree; an assertion message still names the compiling worktree's path
+  (the content is identical). When the file names no source under the
+  compiling tree (for example a checkout reached through a symlink), it is
+  left as it is and the run's `sim.log` gets a `warning: coverage:` line.
+- **Pruning:** at the end of every `regress` run, entries and
+  [pass records](../regress/SPEC.md#reuse-of-unchanged-model-checks)
+  unused for 14 days (`MAX_AGE_DAYS`), and temporary directories older
+  than a day (a killed writer's), are removed; then, while the entries
+  exceed 20 GiB (`MAX_BYTES`), the least recently used ones go. A hit marks
+  its entry used. An entry is renamed out of its key's place before it is
+  deleted, so a concurrent lookup never finds a half-deleted one.
+- **ccache:** with the cache on and `ccache` on `PATH`, the build child
+  sets `OBJCACHE=ccache` for Verilator's generated makefile, with
+  `CCACHE_BASEDIR` the build directory, `CCACHE_NOHASHDIR` and
+  `CCACHE_SLOPPINESS` for the generated headers' fresh timestamps and
+  precompiled headers; so a build whose key changed (a one-line RTL
+  change) recompiles only the C++ files whose content changed. Without
+  ccache, or with the cache off, `OBJCACHE` is empty. The objects go to
+  ccache's own directory (its configuration or `$CCACHE_DIR`, by default
+  `~/.cache/ccache`): one per user and host, outside every checkout and
+  shared by every run, so a host keeps its warm compiler cache.
+- **Cold builds are bounded:** each build compiles with cocotb's `make -j`
+  (at most `COMPILE_JOBS` = 4 compilers), and a compiler of the generated
+  C++ may need up to 2 GiB (`COMPILE_MEM_BYTES`). At most
+  `compile_slots()` builds compile at once: the compilers that the host's
+  CPUs and `MemAvailable` (read once, at the run's first build) allow,
+  divided by 4, at least one. A cache hit takes no compile slot. Without
+  this bound a cold run (an empty ccache: a new host, a Verilator upgrade,
+  eviction) started `--jobs $(nproc)` builds of four compilers each, and
+  on a CI host 16 of 37 builds failed with
+  `g++: fatal error: Killed signal terminated program cc1plus` (#327).
+- **Output:** `sim` prints `build cache: <dir>` (the home directory as
+  `~`, since CI logs are public) and `build pass (cached)` on a hit;
+  `regress` prints `[build] <ip>:<key> pass cached (0.0s)` per hit, a
+  final `build cache: <hits>/<builds> builds reused (<dir>)`, and records
+  `build_cache` and each build's `cached` in the summary
+  ([regress SPEC](../regress/SPEC.md#summary)).
+
+**Trust.** The cache is content-keyed, so a reused entry is what a fresh
+build of the same inputs makes. Only trusted runs write it: on the CI hosts
+the [fork guard and the fork rules](../../bkm/devops.md#continuous-integration)
+keep fork code off the runners, so every writer runs reviewed or same-repository
+code, and locally only the host's own agents write it. The
+[DevOps BKM](../../bkm/devops.md#build-cache) owns the CI policy.
+
+Tests: `tools/build/tests/test_cache.py` (location default, override,
+`off` and refusal inside the repository; key equality across worktrees and
+change on every input; atomic store, a concurrent writer and partial
+entries; pruning; a second build is a hit and runs; the coverage path
+rewrite; ccache settings in the build child; the cold-build bound; the
+driver in the key; pruning by size). Every tools test runs with a
+private `$BUILD_CACHE` (`tools/conftest.py`).
 
 ## Failure excerpt
 

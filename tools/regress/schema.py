@@ -19,7 +19,10 @@ _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _MODULE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
 
 _REQUIRED = {"name", "module", "top", "timeout_s"}
-_OPTIONAL = {"testcase", "seeds", "params", "backend"}
+_OPTIONAL = {"testcase", "seeds", "params", "backend", "coverage_seeds", "rerun_when"}
+# Values of `rerun_when` (wiki/tools/regress/SPEC.md, "Reuse of unchanged
+# model checks"): run again only when the models the entry checks change.
+RERUN_WHEN = ("models_change",)
 
 
 class SchemaError(Exception):
@@ -38,6 +41,8 @@ class TestEntry:
     seeds: int | tuple[int, ...] = 1  # count (derived seeds) or explicit seeds
     params: dict = field(default_factory=dict)
     backend: str | None = None  # a cfg/backends.yaml flow kind (build.backends)
+    coverage_seeds: int = 1  # with --coverage, how many of its runs are coverage runs
+    rerun_when: str | None = None  # reuse a pass until this changes (RERUN_WHEN)
 
     @property
     def runs(self) -> int:
@@ -111,8 +116,20 @@ def parse_entry(raw, ip: str, level: int, where: str) -> TestEntry:
     backend = raw.get("backend")
     if backend is not None and (not isinstance(backend, str) or not _IDENT_RE.match(backend)):
         raise SchemaError(f"{where}: 'backend' must be a flow kind from cfg/backends.yaml")
+    runs = seeds if isinstance(seeds, int) else len(seeds)
+    cov = raw.get("coverage_seeds", 1)
+    if isinstance(cov, bool) or not isinstance(cov, int) or not 0 <= cov <= runs:
+        raise SchemaError(f"{where}: 'coverage_seeds' must be a count from 0 to the "
+                          f"entry's {runs} run(s)")
+    rerun = raw.get("rerun_when")
+    if rerun is not None:
+        if rerun not in RERUN_WHEN:
+            raise SchemaError(f"{where}: 'rerun_when' must be one of {', '.join(RERUN_WHEN)}")
+        if cov != 0:
+            raise SchemaError(f"{where}: 'rerun_when' needs 'coverage_seeds: 0' (a reused "
+                              "pass carries no coverage)")
     return TestEntry(ip, level, name, module, top, float(timeout), testcase, seeds, dict(params),
-                     backend)
+                     backend, cov, rerun)
 
 
 FLOOR_KEY = "coverage_floors"

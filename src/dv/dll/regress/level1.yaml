@@ -19,6 +19,7 @@ tests:
     top: pcie_dll_tb
     seeds: [0, 1, 2, 3]
     timeout_s: 300
+    coverage_seeds: 4
     params: {FC_CPLH: 16, FC_CPLD: 64}
   - name: link_up_infinite
     module: tests.test_dll
@@ -26,6 +27,7 @@ tests:
     top: pcie_dll_tb
     seeds: [0, 1, 2, 3]
     timeout_s: 300
+    coverage_seeds: 4
     params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
   - name: link_up_stress
     module: tests.test_dll
@@ -46,6 +48,7 @@ tests:
     top: pcie_dll_tb
     seeds: 2
     timeout_s: 300
+    coverage_seeds: 2
     params: {FC_PH: 6, FC_PD: 40, FC_NPH: 4, FC_NPD: 2, FC_CPLH: 16, FC_CPLD: 64}
   - name: fc_rx_accounting_infinite
     module: tests.test_dll_fc
@@ -62,6 +65,7 @@ tests:
     top: pcie_dll_tb
     seeds: [0, 1, 2, 3]
     timeout_s: 600
+    coverage_seeds: 3
   - name: credits_infinite
     module: tests.test_dll_fc
     testcase: credits_infinite
@@ -112,6 +116,7 @@ tests:
     top: pcie_dll_tb
     seeds: [0, 1]
     timeout_s: 300
+    coverage_seeds: 2
     params: {FC_CPLH: 16, FC_CPLD: 64}
   - name: credit_starve_rx
     module: tests.test_dll_fc
@@ -119,6 +124,7 @@ tests:
     top: pcie_dll_tb
     seeds: 2
     timeout_s: 600
+    coverage_seeds: 2
     params: {FC_PH: 8, FC_PD: 32, FC_NPH: 8, FC_NPD: 8, FC_CPLH: 8, FC_CPLD: 32}
   - name: credits_infinite_rx
     module: tests.test_dll_fc
@@ -126,6 +132,7 @@ tests:
     top: pcie_dll_tb
     seeds: 2
     timeout_s: 600
+    coverage_seeds: 2
     params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
   - name: tlp_bidir
     module: tests.test_dll_tlp_tx
@@ -133,3 +140,4 @@ tests:
     top: pcie_dll_tb
     seeds: [0, 1]
     timeout_s: 300
+    coverage_seeds: 2
