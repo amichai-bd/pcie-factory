@@ -44,5 +44,8 @@ For the sky130 backend ([#279](https://github.com/amichai-bd/pcie-factory/issues
 a backend that ignores the lane enable failed `sdp_ram_sky130_contract`
 during development, and in scratch copies the hold register removed, the
 bypass removed and the collision suppression removed each fail the
-contract entry (the last with the macro model's fatal collision message);
-the PR records them.
+contract entry (the last with the macro model's fatal collision message).
+The two-row tiling is shown at the receive buffer shape: the read row select
+fixed to row 0, and the write row decode dropped (every row written), each
+fail `sdp_ram_sky130_rx_buf_shape`, which the one-row contract entry cannot
+see. The PR records them.

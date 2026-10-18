@@ -19,7 +19,12 @@ after M1 Q27 and Q28): `link` contains `phy`, which does not yet meet
 125 MHz ([`phy` timing status](../phy/ASIC.md#timing-status)). 125 MHz
 closure is future timing work,
 [#235](https://github.com/amichai-bd/pcie-factory/issues/235), and does not
-block M2.
+block M2. Captain decision 3 of 2026-10-17 amends Q10 for the case where
+`link` still misses 100 MHz with the SRAM macros: the achieved frequency is
+recorded, M2 closes, and 100 MHz closure is a follow-up,
+[#319](https://github.com/amichai-bd/pcie-factory/issues/319)
+([M2 record, Updates](../../decisions/0003-m2-grill.md#updates);
+[Timing status](#timing-status)).
 
 | SDC clock | Port | Period | Runs |
 | --- | --- | --- | --- |
@@ -90,8 +95,8 @@ standard-cell grid without its macro grids (which pdngen cannot build for
 macros on no power net), and the flow's power figures and IR-drop check
 cover the standard cells only. A first attempt with met4 straps over each
 macro shorted VDD vias onto `gnd` pads (`asic` run 39069113585, IR check);
-aligning straps to each net's pad columns, per macro orientation, is a
-follow-up. Timing and area are unaffected. The macro placer
+aligning straps to each net's pad columns, per macro orientation, is
+[#320](https://github.com/amichai-bd/pcie-factory/issues/320). Timing and area are unaffected. The macro placer
 places the macros. No inferred memory remains above ORFS's default
 `SYNTH_MEMORY_MAX_BITS`, so the knob keeps its default.
 
@@ -111,10 +116,65 @@ tracker's `link` page.
 The M2 gate runs with `./build asic --ip link --study-clock-period 10`. Its
 results are isolated in `workdir/link/asic-study/10ns/`, with both clocks
 at 10 ns, I/O delays at 2 ns and crossing max delays at 10 ns; uncertainty
-stays 0.25 ns and the hold exceptions are unchanged. The gate requires
-nonnegative setup slack on both clocks, nonnegative hold slack and zero
-route DRCs. Inspect the final `6_final.sdc` as well as `metrics.json`.
-Study results never replace the nightly 125 MHz measurements.
+stays 0.25 ns and the hold exceptions are unchanged. The gate requires the
+flow to complete with nonnegative hold slack and zero route DRCs, and
+records the setup slack of both clocks. Nonnegative setup slack on both
+clocks meets 100 MHz; otherwise, under captain decision 3 (which amends
+Q10), the achieved frequency is recorded and the gap is owned by
+[#319](https://github.com/amichai-bd/pcie-factory/issues/319). Inspect the
+final `6_final.sdc` as well as `metrics.json`. Study results never replace
+the nightly 125 MHz measurements.
+
+## Timing status
+
+Measured with the SRAM macros
+([#279](https://github.com/amichai-bd/pcie-factory/issues/279)) by manual
+`asic` workflow runs, both through route with 0 route DRCs and nonnegative
+hold slack. `link` does **not** meet 100 MHz: the achieved frequency is
+about 87 MHz (10 ns minus the worst `clk` slack). Under captain decision 3
+this is recorded and M2 is not blocked; 100 MHz closure is
+[#319](https://github.com/amichai-bd/pcie-factory/issues/319) and 125 MHz
+closure stays with [#235](https://github.com/amichai-bd/pcie-factory/issues/235).
+
+| Run | `clk` WS / TNS | `rx_clk` WS | Hold WS | Std-cell area | Cells (synthesis) | Logic depth | Peak memory |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 10 ns study (run 39080937561, at `1e4f647`) | −1.428 / −30.76 ns | +3.799 ns | +0.079 ns | 0.260 mm² | 66094 (17467) | 55 | 3010 MB, detailed route |
+| 8 ns, the SDC target (run 39099181940, at `87c0f04`) | −1.864 / −199.70 ns | +1.362 ns | +0.031 ns | 0.269 mm² | 66679 (17467) | 59 | 2381 MB, detailed route |
+
+The core is 4.75 mm² (utilization 0.32) in both; the macros add about
+1.26 mm². Power, 0.101 W at 10 ns and 0.128 W at 8 ns, covers the standard
+cells only (macros unpowered,
+[#320](https://github.com/amichai-bd/pcie-factory/issues/320)). The 10 ns
+run had the earlier 3 GB container limit (2% margin); the 8 ns run had the
+6 GB limit of captain decision 2.
+
+**Worst `clk` paths** (`timing.clocks.clk.worst_paths`, five per clock):
+
+- **10 ns:** all five start at a receive-buffer macro's read data
+  (`u_dll.u_rx_buf` row 0 `dout1`) and end at `tlp_rx_*_o` output ports,
+  −1.428 to −1.304 ns (worst `dout1[60]` → `tlp_rx_data_o[1]`, 10 cells).
+  The macro drives its data after the falling edge (arrival 6.85 ns), so
+  the row and hold muxes and output buffers have about half a period
+  minus the 20% output delay.
+- **8 ns:** all five start at the `dll` transmit state register
+  `u_dll.u_tlp_tx.sm_q[26]` and end at `u_dll.u_tlp_tx.st_q` bits or the
+  `tlp_tx_ready_o` port, −1.864 to −1.832 ns (worst → `st_q[65]`, 47
+  cells; logic depth 59 at `st_q[63]`).
+
+`rx_clk` meets both periods; its worst paths are inside the PCS aligner
+(`u_phy.u_pcs.u_align`, to `eios_q`).
+
+**The rollover path** (`ltssm_state_o` → `pkt_tx_valid` → `mac`, see
+[Constraints](#constraints)) ends at the `mac` packet-stream registers.
+The flattened netlist keeps no `dll` port pins, so it is not reported by
+itself, and no `mac` register is among the five worst `clk` endpoints in
+either run; its slack is therefore above the fifth-worst `clk` slack:
+above −1.30 ns at 10 ns and above −1.83 ns at 8 ns.
+
+Detailed routing stalled on the omarchy runners at 8 ns (no progress past
+20%, runs 39080942132 and 39074381425) while every wsl runner finished in
+34 to 44 minutes; that is
+[#321](https://github.com/amichai-bd/pcie-factory/issues/321).
 
 ## Files
 

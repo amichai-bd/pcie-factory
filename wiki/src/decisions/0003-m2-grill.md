@@ -112,3 +112,6 @@ which satisfies Q9.
      the macros, the achieved frequency and worst paths are recorded, M2
      closes, and 100 MHz closure becomes a follow-up issue, as #235 is for
      125 MHz. This **amends Q10** (and goal item 8) for that case.
+     With the macros, `link` reaches about 87 MHz at the 10 ns study
+     ([`link` ASIC, Timing status](../asic/link/ASIC.md#timing-status));
+     100 MHz closure is [#319](https://github.com/amichai-bd/pcie-factory/issues/319).
