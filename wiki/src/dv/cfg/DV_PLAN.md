@@ -40,8 +40,9 @@
   [targets](../../arch/cfg/HAS.md#targets), the `LATENCY` check); the
   [reset](../../arch/cfg/HAS.md#reset) timing: in every cycle where `rst_i`
   is 1 the two readys are 0 once the inputs settle (the cycle it rises
-  included), and from the cycle after each edge that samples it every
-  qualified output has its reset value. The
+  included), from the cycle after each edge that samples it every
+  qualified output has its reset value, and in the first cycle where
+  `rst_i` is 0 again both readys are 1 once the inputs settle. The
   RTL assertions ([MAS](../../rtl/cfg/MAS.md)) hold in every run.
 - **Oracles written from the HAS, not the model:**
   [`tb/cfg_regmap.py`](../../../../src/dv/cfg/tb/cfg_regmap.py) lists
@@ -88,7 +89,7 @@ reads them at the offer, with a self-test. No other disagreement is open.
 
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
-| [Reset values](../../arch/cfg/HAS.md#reset) and when each output reaches them (the readys in the cycle `rst_i` rises, the rest the cycle after its edge), the handshake, IDs | `smoke` | 0 | 1 |
+| [Reset values](../../arch/cfg/HAS.md#reset) and when each output reaches them (the readys 0 from the cycle `rst_i` rises and 1 in the first cycle it is 0, the rest the cycle after its edge), the handshake, IDs | `smoke` | 0 | 1 |
 | Every [header](../../arch/cfg/REGISTERS.md#type-0-header) and [capability](../../arch/cfg/CAPS.md) field: reset value, RW by byte enable, RO and HwInit ignore writes, RW1C not set by a write; unlisted DWs and the extended space read 0; reads whole DWs whatever the byte enables; bus and device capture on every write; [BAR sizing](../../arch/cfg/REGISTERS.md#bar-sizing); Max_Payload_Size, Max_Read_Request_Size and Completion Timeout Disable on their outputs (shadow) | `regmap` | 1 | 1 |
 | The same at the parameter boundaries (BAR0 256 MiB, 64 vectors, set IDs) | `regmap_params` | 1 | 1 |
 | [Power states](../../arch/cfg/HAS.md#power-states): D3hot and D0 at the write's edge, D1 and D2 discarded, No_Soft_Reset; Transactions Pending | `power_states` | 1 | 1 |

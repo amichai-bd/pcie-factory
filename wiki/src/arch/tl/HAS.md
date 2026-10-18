@@ -112,7 +112,9 @@ packet partly taken or offered on any stream; no completion, release,
 error event or timeout is sent for them. `tlp_tx_valid_o`,
 `tlp_rx_ready_o`, `fc_rel_p_o`, `fc_rel_np_o`, `reg_req_valid_o`,
 `tl_err_o`, `tl_np_pending_o`, `slot_pwr_valid_o`, `msg_ready_o`, `cq_valid_o`, `cc_ready_o`, `rq_ready_o` and
-`rc_valid_o` are 0; data outputs are don't care. The `dll` has already
+`rc_valid_o` are 0 in every such cycle, the first included: each takes
+the reset condition combinationally, so none lags the reset edge; data
+outputs are don't care. The `dll` has already
 abandoned every TLP it held when `dl_up_i` falls
 ([`core` link down](../core/HAS.md#link-down)), so the credits `tl` would
 have released need no release.
