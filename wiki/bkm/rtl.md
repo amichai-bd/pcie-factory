@@ -229,6 +229,10 @@ and simulation.
   selects them: Quartus Lite takes `h.len` inside a function for the `len()`
   method and rejects the assignment (`Error (10049)`), which Verilator accepts
   (style rule `method-member-name`). Rename the member.
+- **Port connections** never select with a package constant: Quartus Lite
+  rejects `.p_i (s.f[pkg::C])` with `Error (10162)` (implicit net), which
+  Verilator accepts (style rule `port-index-constant`). Assign the select to a
+  named net and connect the net.
 - **Macros** are only the vocabulary's: a design file defines none.
 - **No functions with side effects, no tasks** in RTL. Pure helper functions
   live in the owning package.

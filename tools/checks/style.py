@@ -134,6 +134,10 @@ RULES = {
     "method-member-name": ("systemverilog-rules",
                            "no member select inside a function names a built-in method "
                            "(x.len, x.size, ...); Quartus Lite takes it for the method"),
+    "port-index-constant": ("systemverilog-rules",
+                            "no package constant (pkg::NAME) inside a [...] select of a port "
+                            "connection expression (.p_i(s[pkg::C])); Quartus Lite reports an "
+                            "implicit net. Assign the select to a named net and connect that"),
 }
 
 # A tool directive comment: a tool keyword followed by a directive word.
@@ -689,6 +693,54 @@ def method_member_selects(text: str) -> list[tuple[int, str]]:
     return out
 
 
+_PORT_CONNECTION_RE = re.compile(r"\.\s*[A-Za-z_][\w$]*\s*\(")
+_PKG_ITEM_RE = re.compile(r"(?<![\w$:])[A-Za-z_][\w$]*\s*::\s*[A-Za-z_][\w$]*")
+
+
+def port_index_constants(text: str) -> list[tuple[int, str]]:
+    """(index, item) for each package item (``pkg::NAME``) inside a
+    ``[...]`` select of a named port connection (``.p(expr)``) in
+    comment-stripped ``text``: a ``.`` not straight after an identifier,
+    ``]`` or ``)`` (so not a member select), opening a connection whose
+    enclosing group is not a parameter list (``#(``)."""
+    out = []
+    for m in _PORT_CONNECTION_RE.finditer(text):
+        k = m.start() - 1
+        while k >= 0 and text[k].isspace():
+            k -= 1
+        if k >= 0 and (text[k].isalnum() or text[k] in "_$])"):
+            continue  # a member select or a method call
+        depth = 0
+        for i in range(m.start() - 1, -1, -1):  # the enclosing group's opening
+            c = text[i]
+            if c in ")]}":
+                depth += 1
+            elif c in "([{":
+                if depth == 0:
+                    break
+                depth -= 1
+        else:
+            continue
+        k = i - 1
+        while k >= 0 and text[k].isspace():
+            k -= 1
+        if text[i] != "(" or text[k:k + 1] == "#":
+            continue  # not a group, or a parameter list
+        start = m.end() - 1
+        end = _balanced(text, start)
+        depth = 0
+        for j in range(start, end):
+            if text[j] == "[":
+                depth += 1
+            elif text[j] == "]":
+                depth -= 1
+            elif depth > 0:
+                p = _PKG_ITEM_RE.match(text, j)
+                if p:
+                    out.append((j, re.sub(r"\s+", "", p.group())))
+    return out
+
+
 def assert_argument_spans(text: str, vocab: Vocabulary) -> list[tuple[int, int]]:
     """Spans of the parenthesized argument lists of `` `COMMON_ASSERT*``
     calls in comment-stripped ``text``, for function-like macros a
@@ -833,6 +885,9 @@ def check_text(relpath: str, raw: str, expected_prefix: str | None,
     for index, name in method_member_selects(body):
         add("method-member-name", index, f"member select .{name} in a function names a "
             "built-in method")
+    for index, item in port_index_constants(body):
+        add("port-index-constant", index, f"package constant {item} in a select of a port "
+            "connection; assign the select to a named net and connect that")
     for index in pattern_contexts(body):
         add("pattern-context", index, "assignment pattern outside an assignment context")
     for index in bare_generate(body):
