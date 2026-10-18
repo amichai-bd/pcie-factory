@@ -110,9 +110,10 @@ The L1 and L2 budgets were raised on 2026-10-18 (captain decision on
 after speed-ups and rebalancing: measured with all IPs and coverage at
 `697d896`, L0 112.5 s, L1 1006.3 s and L2 7958.2 s of CPU. L1 rose from
 600 s to 1200 s and L2 from 7200 s to 9600 s, the need plus about 20%.
+Restoring mac `no_scramble` to L1 then added 48.2 s, for an L1 of 1054.5 s.
 A change to one of dll, link, mac, pcs or phy selects an affected L1 of
 123 s to 577 s; a change to a widely shared block selects nearly every IP,
-about 1006 s, which the raised 1200 s budget covers.
+about 1054 s, which the raised 1200 s budget covers.
 
 ## Local evidence
 

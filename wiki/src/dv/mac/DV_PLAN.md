@@ -137,10 +137,10 @@ shows where each of their checks went.
 **Level placement** ([#272](https://github.com/amichai-bd/pcie-factory/issues/272)):
 `random_soak` runs in level 2. Level 1 is what `ci-gate` runs for every
 change that reaches `mac`, `phy` or `link`, and `random_soak` was about
-80 s of its CPU. It is a soak by design (random impairments and power
+45 s of its CPU. It is a soak by design (random impairments and power
 requests over two seeds), and the arcs, control states and streams it
 mixes keep their directed level 1 entries (`arcs_quick`, `control_quick`,
-`traffic`, `ts_fields`, `rx_errors`). `no_scramble` stays in level 1: it
+`traffic`, `ts_fields`, `rx_errors`). `no_scramble` stays in level 1 (48.2 s of CPU): it
 is the one discriminating entry for Disable Scrambling and the only catch
 of its mutant below, so that kill stays in the merge gate. The merged
 level 0 to 2 coverage is unchanged, and the level 1 covergroup floors
