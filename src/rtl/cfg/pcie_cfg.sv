@@ -76,7 +76,6 @@ module pcie_cfg #(
   output logic [2:0]  max_read_req_o    // Device Control encoding, reset 2 (512 bytes)
 );
 
-  logic                     reg_ready_q, reg_ready_d;
   logic                     reg_take;
   logic                     cfg_wr;
   logic                     cfg_rd;
@@ -102,15 +101,16 @@ module pcie_cfg #(
   logic [MSIX_TABLE_SIZE-1:0] mask_d;
   logic [MSIX_TABLE_SIZE-1:0] pba;
 
-  // ---- register access: one at a time, completed one cycle after its take
+  // ---- register access: one at a time, completed one cycle after its take;
+  // ready whenever out of reset and no access is open (cpl_q marks the one
+  // open access, in the cycle after its take)
   always_comb begin
-    reg_take    = reg_req_valid_i && reg_ready_q;
+    reg_take    = reg_req_valid_i && reg_req_ready_o;
     cfg_wr      = reg_take && !reg_req_bar2_i && reg_req_write_i;
     cfg_rd      = reg_take && !reg_req_bar2_i && !reg_req_write_i;
     bar2_wr     = reg_take && reg_req_bar2_i && reg_req_write_i;
     bar2_rd     = reg_take && reg_req_bar2_i && !reg_req_write_i;
     bar2_take   = reg_take && reg_req_bar2_i;
-    reg_ready_d = !reg_take;
   end
 
   // The status bits set at this edge: the error events and Signaled
@@ -120,12 +120,11 @@ module pcie_cfg #(
     sts_set.sse = sse_set;
   end
 
-  `COMMON_DFF_RST(reg_ready_q, reg_ready_d, clk_i, rst_i)
   `COMMON_DFF_RST(cpl_q, reg_take, clk_i, rst_i)
   `COMMON_DFF_EN(cpl_bar2_q, reg_req_bar2_i, clk_i, reg_take)
   `COMMON_DFF_EN(cfg_rd_q, cfg_rd_data, clk_i, cfg_rd)
 
-  assign reg_req_ready_o = reg_ready_q;
+  assign reg_req_ready_o = !rst_i && !cpl_q;
   assign reg_cpl_valid_o = cpl_q;
   assign reg_cpl_data_o  = cpl_bar2_q ? bar2_rd_data : cfg_rd_q;
 
@@ -226,8 +225,9 @@ module pcie_cfg #(
   assign bus_master_en_o = ctrl_q.bme;
   assign d_state_o       = ctrl_q.d_state;
 
-  // tl offers one access at a time and holds it until reg_cpl_valid_o.
-  `COMMON_ASSERT_NEVER(a_one_access, clk_i, rst_i, reg_req_valid_i && cpl_q && reg_take)
+  // cfg takes no access while its last one is completing (holds by
+  // construction of reg_req_ready_o; guards changes to it).
+  `COMMON_ASSERT_NEVER(a_one_access, clk_i, rst_i, cpl_q && reg_take)
 
 endmodule
 

@@ -27,8 +27,9 @@ flowchart LR
   regs --> state["register state"]
 ```
 
-- **Handshake.** `reg_req_ready_o` is a register, 1 out of reset except
-  in the cycle after a take. A take at edge E completes with
+- **Handshake.** `reg_req_ready_o` is `!rst_i && !cpl_q`: 1 in every
+  cycle out of reset (the first one included) except the cycle after a
+  take, when `cpl_q` marks the open access. A take at edge E completes with
   `reg_cpl_valid_o` in the cycle after E, a read with
   `reg_cpl_data_o` in that cycle: a configuration read's DW is registered
   at E from `u_regs`; a BAR2 read's DW comes from `u_bar2` (its RAM output
@@ -171,11 +172,13 @@ bits, the held offer (`t_offer`) and the lookup state.
   sendable, turns pending at that edge (MSI-X: its bit; MSI: the flag
   under MSI Enable, else its vector's bit under MSI-X, else dropped).
 - **Outputs.** `irq_done_o` and `irq_status_o` are registers set at the
-  edge that resolves the request; `irq_ready_o` is a register, 0 from the
-  take to the cycle after `irq_done_o`. The MSI pending flag is ANDed with
+  edge that resolves the request; `irq_ready_o` is
+  `!rst_i && !app_valid_q && !irq_done_o`: 1 in every cycle out of reset
+  (the first one included) with no request open, 0 from the take through
+  the cycle of `irq_done_o`. The MSI pending flag is ANDed with
   MSI Enable after the edge, so clearing MSI Enable clears it.
 - **Checks.** `a_irq_vector` (a request's vector is below
-  `MSIX_TABLE_SIZE`), `a_no_offer_outside_d0`, `a_ready_idle`,
+  `MSIX_TABLE_SIZE`), `a_no_offer_outside_d0`,
   `a_app_sendable` (a request not offered may go out), `a_offer_stable`
   (an offer holds its fields until taken or withdrawn) and `a_msi_pend_en`.
 
@@ -189,21 +192,24 @@ bits, the held offer (`t_offer`) and the lookup state.
 | A lookup never shares an edge with a BAR2 access | One read port; a same-edge table write would make the looked-up word stale. The next free edge serves it: `tl` leaves a cycle between accesses. | A second read port, or forwarding the write into the offer. |
 | One RAM word per entry, 12 byte lanes, mask bits in flops | One read gives the whole write (address and data); byte enables map to lanes; the mask bits reset to 1, which a RAM cannot. | Three words per entry (three reads per offer). |
 | `common_sdp_ram` | The shared simple dual-port RAM the `dll` uses, with its FPGA and ASIC backends; a write and a read at one edge need two ports. | `common_sync_ram` (one port for both). |
+| Ready outputs `!rst_i && !busy` (busy: `cpl_q`, or an open request) | The HAS has them 1 whenever out of reset and idle, the first cycle after reset included; a register reset to 0 would hold them 0 for that cycle. | Ready registers (0 in the first cycle out of reset). |
 | Registers hold only their RW bits; read-only bits added at the read | No reset value to keep for constant bits; the read `case` is the map. | Whole-DW registers with masks on every write. |
-| Completion one cycle after the take, reads registered | Every output a register; the HAS allows 1 to 4 cycles. | A combinational read data path to `tl`. |
+| Completion one cycle after the take, reads registered | Every data output a register; the HAS allows 1 to 4 cycles. | A combinational read data path to `tl`. |
 | The take, the RW1C bits and the status merge each in their own `always_comb` | They feed and read the other blocks; one block per concern keeps Verilator from seeing a false combinational loop. | One `always_comb` per module. |
 
 ## Timing
 
 - One clock (`clk_i`, 125 MHz), synchronous active-high reset; no
   crossings. Every output is a register or a function of registers and
-  the parameters.
+  the parameters, except the two ready outputs (below).
 - Register access: taken at edge E, completed in the cycle after E (1
   cycle, within the HAS's 4); `reg_req_ready_o` is 0 in that cycle, so one
   access per 2 cycles. A write's effect on every output is at E.
 - Interrupt request: taken at E; a dropped or pending one is done in the
   cycle after E (1 cycle, within 4); `irq_ready_o` returns the cycle after
-  the done. A sent one: the edge at which `tl` takes its write sets
+  the done.
+- `reg_req_ready_o` and `irq_ready_o` are the only outputs that depend on
+  an input: `rst_i`, so both are 0 in the cycles `rst_i` is 1. A sent one: the edge at which `tl` takes its write sets
   `irq_done_o`, so the done is in the cycle that edge starts.
 - Messages: a candidate made at edge E (an error decided, a request
   held, a vector unmasked) loads at E+1 and is offered in the cycle after

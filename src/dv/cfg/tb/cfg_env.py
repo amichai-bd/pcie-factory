@@ -20,7 +20,8 @@ One cycle, at the falling edge of clk_i after rising edge n:
    with the request the model resolved at n; every register-state output
    with the model's; each read's ``reg_cpl_data_o`` with the model's read.
    ``reg_cpl_valid_o`` and ``irq_done_o`` must come within the HAS
-   latency target (4 cycles).
+   latency target (4 cycles, ``LATENCY``); ``reg_req_ready_o`` and
+   ``irq_ready_o`` are 1 exactly when no access or request is open.
 4. Drive the next inputs: the queued register accesses (one at a time,
    the next after the last one's ``reg_cpl_valid_o``), interrupt requests
    (one at a time), error-event cycles, ``msg_ready_i`` (with probability
@@ -363,8 +364,16 @@ class Env:
         elif now["irq_done_o"]:
             self.fail(f"irq_done_o with status {now['irq_status_o']}, the model resolved "
                       "nothing")
-        if now["irq_ready_o"] and m.irq_busy:
-            self.fail("irq_ready_o is 1 while a request is open")
+        # Ready exactly when idle (HAS, Register access and Interrupts): a
+        # request is open from its take to its done, an access in the cycle
+        # after its take.
+        want = int(not m.irq_busy and m.irq_status is None)
+        if now["irq_ready_o"] != want:
+            self.fail(f"irq_ready_o expected {want} got {now['irq_ready_o']} (request "
+                      f"{'open' if m.irq_busy else 'done now' if m.irq_status else 'none'})")
+        if now["reg_req_ready_o"] != int(not reg_take):
+            self.fail(f"reg_req_ready_o expected {int(not reg_take)} got "
+                      f"{now['reg_req_ready_o']}")
         if self.irq_open is not None and self.cycle - self.irq_open.taken_at > LATENCY:
             if m.irq_status is None and not m.irq_busy:
                 self.fail("request not resolved within the latency target")

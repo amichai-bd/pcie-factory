@@ -134,10 +134,11 @@ async def error_table(dut):
 
 @cocotb.test()
 async def error_messages(dut):
-    """Message priority (fatal, non-fatal, correctable), merging of a kind
-    still due, no message outside D0 (status still set, nothing sent on the
-    return) and an offered message withdrawn when the function leaves
-    D0."""
+    """Message priority among events of one cycle (fatal, non-fatal,
+    correctable); an event merging into a message of its kind still due
+    (offered and held) or due in the same cycle; no message outside D0
+    (status still set, nothing sent on the return); an offered message
+    withdrawn when the function leaves D0."""
     env = Env(dut, seed())
     await env.start()
     await env.cfg_write(DEVCTL, CERE | NFERE | FERE | URRE, be=0x1)
@@ -148,6 +149,16 @@ async def error_messages(dut):
     env.msg_ready_p = 1.0
     await env.run(10)
     assert [t.kind for t in env.taken] == [3, 2, 1], [t.kind for t in env.taken]
+    # Later events merge into an ERR_COR still due (offered, held).
+    env.msg_ready_p = 0.0
+    env.events.append((0, 1, 0))
+    await env.run(4)
+    assert int(dut.msg_valid_o.value) == 1 and int(dut.msg_kind_o.value) == 1
+    env.events.extend([(0, 0, 1), (0, 0, 0), (1 << 5, 0, 0)])
+    await env.run(6)
+    env.msg_ready_p = 1.0
+    await env.run(8)
+    assert [t.kind for t in env.taken[3:]] == [1], [t.kind for t in env.taken[3:]]
     # Outside D0: every event sets its status bits and sends no message,
     # then or on the return to D0.
     await clear_status(env)

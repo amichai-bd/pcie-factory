@@ -55,7 +55,7 @@ module pcie_cfg_msg #(
   logic [N-1:0]         pba_q, pba_d;
   logic                 look_valid_q, look_valid_d;
   logic [5:0]           look_vec_q, look_vec_d;
-  logic                 irq_ready_q, irq_ready_d;
+  logic                 irq_ready;
   logic                 done_q, done_d;
   logic [1:0]           status_q, status_d;
 
@@ -198,7 +198,7 @@ module pcie_cfg_msg #(
     app_bit     = N'(64'd1 << app_q.vector);
 
     // ---- a new request (irq_ready_o 1 means no request is open)
-    irq_take   = irq_valid_i && irq_ready_q;
+    irq_take   = irq_valid_i && irq_ready;
     pba_t      = pba_q & ~clr_take;
     pba_t64    = 64'(pba_t);
     msi_pend_t = msi_pend_q && !take_pmsi;
@@ -255,7 +255,6 @@ module pcie_cfg_msg #(
     app_d       = irq_to_app ? app_new : app_q;
     pba_d       = pba_t | set_pba;
     msi_pend_d  = (msi_pend_t || set_msi) && ctrl_d_i.msi_en;
-    irq_ready_d = !(app_valid_d || irq_take || done_d);
   end
 
   `COMMON_DFF_EN(offer_q, offer_d, clk_i, load)
@@ -266,7 +265,6 @@ module pcie_cfg_msg #(
   `COMMON_DFF_RST(pba_q, pba_d, clk_i, rst_i)
   `COMMON_DFF_RST(look_valid_q, look_valid_d, clk_i, rst_i)
   `COMMON_DFF_EN(look_vec_q, look_vec_d, clk_i, look_o)
-  `COMMON_DFF_RST(irq_ready_q, irq_ready_d, clk_i, rst_i)
   `COMMON_DFF_RST(done_q, done_d, clk_i, rst_i)
   `COMMON_DFF_EN(status_q, status_d, clk_i, done_d)
 
@@ -274,7 +272,10 @@ module pcie_cfg_msg #(
   assign msg_kind_o   = offer_q.kind;
   assign msg_addr_o   = offer_q.addr;
   assign msg_data_o   = offer_q.data;
-  assign irq_ready_o  = irq_ready_q;
+  // Ready whenever out of reset and no request is open: a request is open
+  // from its take (held in app_q, or answered by done_q) to its done.
+  assign irq_ready    = !rst_i && !app_valid_q && !done_q;
+  assign irq_ready_o  = irq_ready;
   assign irq_done_o   = done_q;
   assign irq_status_o = status_q;
   assign pba_o        = pba_q;
@@ -287,9 +288,8 @@ module pcie_cfg_msg #(
   // The application obligation (APP, Interrupts): a vector in the table.
   `COMMON_ASSERT_NEVER(a_irq_vector, clk_i, rst_i,
                        irq_take && ({2'd0, irq_vector_i} >= 8'(MSIX_TABLE_SIZE)))
-  // No message outside D0; a request is open only while irq_ready_o is 0.
+  // No message outside D0.
   `COMMON_ASSERT_NEVER(a_no_offer_outside_d0, clk_i, rst_i, offer_valid_q && !d0_q)
-  `COMMON_ASSERT_NEVER(a_ready_idle, clk_i, rst_i, irq_ready_q && (app_valid_q || done_q))
   // A waiting request may go out (the edge it could not, it turned pending).
   `COMMON_ASSERT_NEVER(a_app_sendable, clk_i, rst_i,
                        app_valid_q && !(offer_valid_q && offer_q.src == pcie_cfg_pkg::SRC_APP) &&

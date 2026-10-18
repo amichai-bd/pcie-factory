@@ -45,6 +45,7 @@ module pcie_cfg_bar2 #(
   logic [ADDR_W-1:0]       ram_raddr;
   logic [5:0]              rd_entry;
   logic [95:0]             ram_q;
+  pcie_cfg_pkg::t_entry    ram_word;
   logic [MSIX_TABLE_SIZE-1:0] mask_q, mask_d;
   logic [63:0]             mask64;
   logic [63:0]             pba64;
@@ -91,6 +92,13 @@ module pcie_cfg_bar2 #(
   assign rd_entry  = look_i ? look_vec_i : entry;
   assign ram_raddr = rd_entry[ADDR_W-1:0];
 
+  // The vector bits above the RAM address (fewer than 64 vectors).
+  generate
+    if (ADDR_W < 6) begin : g_unused_rd_entry
+      `COMMON_UNUSED_BITS(unused_rd_entry, rd_entry[5:ADDR_W])
+    end
+  endgenerate
+
   common_sdp_ram #(
     .WIDTH (96),
     .ADDR_W(ADDR_W),
@@ -115,8 +123,9 @@ module pcie_cfg_bar2 #(
   // read-only 0, so the RAM stores them as written and the read clears them
   // (for a word never written as well).
   always_comb begin
-    entry_o         = ram_q;
-    entry_o.addr_lo = {ram_q[31:2], 2'b00};
+    ram_word        = ram_q;
+    entry_o         = ram_word;
+    entry_o.addr_lo = {ram_word.addr_lo[31:2], 2'b00};
     case (rd_field_q)
       2'd0:    rd_data_o = rd_ram_q ? entry_o.addr_lo : rd_q;
       2'd1:    rd_data_o = rd_ram_q ? entry_o.addr_hi : rd_q;
@@ -126,7 +135,6 @@ module pcie_cfg_bar2 #(
   end
 
   assign mask_q_o = mask_q;
-  `COMMON_UNUSED_BITS(unused_rd_entry, rd_entry)
   assign mask_d_o = mask_d;
 
   // The lookup never shares an edge with a BAR2 access (MAS, BAR2).

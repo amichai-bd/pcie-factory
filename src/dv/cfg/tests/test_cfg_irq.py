@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import cocotb
 
-from tb.cfg_env import Env
+from tb.cfg_env import Access, Env
 
 CMD, PM_CSR, DEVCTL = 0x04 // 4, 0x44 // 4, 0x78 // 4
 MSI_CTL, MSI_LO, MSI_HI, MSI_DAT, MSIX = 0x50 // 4, 0x54 // 4, 0x58 // 4, 0x5C // 4, 0x60 // 4
@@ -104,7 +104,8 @@ async def irq_msix(dut):
     goes on the unmask, lowest vector first, its bit clearing on the take;
     a request merges into a set bit; MSI-X wins over MSI; disabling MSI-X
     keeps the bits; an entry change after the offer reaches the next write
-    only."""
+    only; a table entry looked up for a write that then may not go out is
+    looked up again after a BAR2 write."""
     env = Env(dut, seed())
     await env.start()
     await msix_on(env)
@@ -162,6 +163,33 @@ async def irq_msix(dut):
     assert env.taken[-1].data == 0x100 + v
     assert await env.irq(v) == "sent"
     assert env.taken[-1].data == 0x5555
+    # A stale lookup (MAS, Messages and interrupts): vectors u < w pend
+    # under the Function Mask; u is offered and taken at edge E, w's entry
+    # is looked up at E+1 while a write at E+1 sets the Function Mask, so
+    # nothing loads. A BAR2 write then changes w's data: once unmasked, w's
+    # write must carry the new data, not the looked-up word.
+    if nvec >= 2:
+        u, w = sorted(rng.sample(range(nvec), 2))
+        env.msg_ready_p = 0.0
+        await env.cfg_write(MSIX, 0xC0 << 24, be=0x8)
+        assert await env.irq(u) == "pending"
+        assert await env.irq(w) == "pending"
+        await env.cfg_write(MSIX, 0x80 << 24, be=0x8)
+        await env.run_until(lambda: int(dut.msg_valid_o.value) == 1, 20, "offer of u")
+        n = len(env.taken)
+        env.msg_ready_p = 1.0
+        await env.run(1)                      # msg_ready_i 1: u taken at the next edge
+        env.msg_ready_p = 0.0
+        env.accesses.append(Access(False, True, MSIX, 0x8, 0xC0 << 24))
+        await env.run(6)
+        assert last(env, n) == [(0, entry_addr(u), 0x100 + u)]
+        assert int(dut.msg_valid_o.value) == 0, "w offered under the Function Mask"
+        await env.bar2_write(4 * w + 2, 0xD00D)
+        env.msg_ready_p = 1.0
+        await env.cfg_write(MSIX, 0x80 << 24, be=0x8)
+        await env.run(10)
+        assert last(env, n) == [(0, entry_addr(u), 0x100 + u), (0, entry_addr(w), 0xD00D)], (
+            last(env, n))
     await env.drain()
 
 
