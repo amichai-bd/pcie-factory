@@ -15,7 +15,7 @@ Owns the pinned host toolchain and how each host gets it. Code:
 | Verilator | 5.052, built from tag `v5.052` (commit `ea338be98e1e838d3518809ce8899f85a009963c`, verified after clone) into `/opt/verilator/5.052` | `cfg/host.yaml` `verilator` |
 | Verilator build deps | apt packages listed in `verilator.build_deps` | `cfg/host.yaml` |
 | Python | `python3` >= 3.11 | `cfg/host.yaml` `python.minimum` |
-| ORFS (self-hosted CI hosts) | `openroad/orfs` Docker image pinned by tag and digest, with its ORFS commit | `cfg/host.yaml` `hosts.omarchy.orfs_image`, `orfs_commit`; read by the [asic tool](../asic/SPEC.md#orfs-runners) |
+| ORFS (WSL CI host) | `openroad/orfs` Docker image pinned by tag and digest, with its ORFS commit | `cfg/host.yaml` `hosts.wsl.orfs_image`, `orfs_commit`; read by the [asic tool](../asic/SPEC.md#orfs-runners) |
 | cocotb, pytest, PyYAML, markdown-it-py, Pygments | exact `name==version` | `tools/requirements.txt` |
 | `pdftotext` (reference text, best effort) | Cloud: the `specs.text_package` apt package, unversioned; Omarchy: 26.08.0, recorded in `hosts.omarchy.pdftotext`; WSL: 24.02.0, in `hosts.wsl.pdftotext` | `cfg/host.yaml` `specs` |
 
@@ -37,17 +37,17 @@ inline `[a, b]` lists and `#` comments.
 | Host | Role | Provisioned by |
 | --- | --- | --- |
 | Cloud | Claude Code cloud sessions (Ubuntu container) | `.claude/hooks/session-start.sh` |
-| Omarchy | Self-hosted CI runners, FPGA and ASIC flows (Arch Linux) | By hand; versions recorded under `hosts.omarchy` in `cfg/host.yaml` |
-| WSL | Self-hosted CI runners with the extra label `wsl`, FPGA and ASIC flows; the only host the nightly runs on (Ubuntu 24.04 under WSL2) | By hand; versions recorded under `hosts.wsl` in `cfg/host.yaml` |
+| WSL | Self-hosted CI runners with the extra label `wsl`, FPGA and ASIC flows; the only supported CI host, selected by every workflow job (Ubuntu 24.04 under WSL2) | By hand; versions recorded under `hosts.wsl` in `cfg/host.yaml` |
+| Omarchy | **Unsupported** (captain decision, #321): its runners lack the `wsl` label, so no job lands there (Arch Linux) | By hand; last report kept under `hosts.omarchy` in `cfg/host.yaml` |
 
-The Omarchy entries in `cfg/host.yaml` record what the host agent reported
-and must match the pins above; an entry not yet reported stays empty.
+The Omarchy entries in `cfg/host.yaml` keep what the host agent last
+reported, as a record only (the host is unsupported); an entry not yet reported stays empty.
 `venv: runner` means the runner service's own virtual environment (its
 `$VIRTUAL_ENV`, first on `PATH`); its path is not recorded. Quartus Lite and
 ORFS run on the self-hosted hosts only; Omarchy's are recorded here:
 Quartus Prime Lite `25.1std.0 Build 1129` at `/opt/intelFPGA_lite/25.1/quartus`
 (`quartus_root`, `quartus_version`), as printed by the fpga workflow's
-discovery step. `ci-gate` runs `./build specs fetch` there best effort, with
+discovery step. `ci-gate` ran `./build specs fetch` there best effort, with
 `pdftotext` 26.08.0 (`hosts.omarchy.pdftotext`, as the fetch step's log
 prints it). The [fpga tool](../fpga/SPEC.md#finding-quartus) falls back to
 `<quartus_root>/bin`.
@@ -56,7 +56,7 @@ The WSL entries record versions only: its install paths are private to the
 host, so it puts Verilator 5.052 (built from the pinned tag) and Quartus
 Prime Lite `25.1std.0 Build 1129` on the runner `PATH` and needs no
 `quartus_root`. Its runner service runs in the `docker` group and has pulled
-the one `orfs_image` pin, which stays under `hosts.omarchy` because the
+the one `orfs_image` pin, recorded under `hosts.wsl` because the
 [asic tool](../asic/SPEC.md#orfs-runners) reads a single ORFS host entry.
 
 ### Cloud session-start hook
@@ -118,7 +118,7 @@ cached after the hook completes, so later sessions take this fast path.
 
 ### Local hosts
 
-Local hosts (including Omarchy) install the same pins by hand: Verilator from
-the tag into the pinned prefix with the listed build deps (Arch package names
-differ), `python3` >= 3.11, and `python3 -m pip install -r
+Local hosts install the same pins by hand: Verilator from
+the tag into the pinned prefix with the listed build deps (package names
+differ by distribution), `python3` >= 3.11, and `python3 -m pip install -r
 tools/requirements.txt` in whatever environment `./build` will run.
