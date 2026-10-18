@@ -40,8 +40,8 @@ and belongs to this cycle.
 - The **shadow** is the ``cfg`` architecture model (``src/arch/cfg``) with
   the DUT's parameters: every configuration request and BAR2 table write
   the host sends is applied to it when the host link takes it, the
-  Set_Slot_Power_Limit data likewise, and the ``tl_err`` events (tapped) as
-  they pulse; each configuration read completion and BAR2 table read the
+  Set_Slot_Power_Limit data likewise, and the ``tl_err`` events (tapped)
+  and the ep link's ``dl_err_o`` and ``rcv_err_o`` as they pulse; each configuration read completion and BAR2 table read the
   host receives must equal the shadow's value when the request went out
   (Device Status Transactions Pending, which follows ``tl_np_pending``,
   excepted), and each error message the host receives must be one the
@@ -65,7 +65,9 @@ from regress.funcov import Covergroup
 _DV = Path(__file__).resolve().parents[1]
 sys.path.append(str(_DV / "models"))
 sys.path.append(str(_DV.parents[1] / "arch" / "cfg"))
+sys.path.append(str(_DV.parents[1] / "arch" / "pcs"))
 import pcie_cfg_arch as cfga  # noqa: E402  (the shadow; DV may import arch)
+import pcie_pcs_8b10b as code8b10b  # noqa: E402  (the 8b/10b code, for the line test)
 import pcie_core_host_model as hm  # noqa: E402
 import pcie_core_host_tlp as ht  # noqa: E402
 
@@ -107,20 +109,22 @@ COV_ENUM.coverpoint("step", bins={s: s for s in (
     "msi", "msix")})
 
 COV_TRAFFIC = Covergroup("core_e2e_traffic")
-COV_TRAFFIC.coverpoint("kind", bins={k: k for k in (
-    "host_write", "host_read", "app_write", "app_read")})
-COV_TRAFFIC.coverpoint("size", bins={"zero": 0, "dw1": 4, "small": range(5, 64),
-                                     "mid": range(64, 129), "large": range(129, 4097)})
-COV_TRAFFIC.cross("kind_x_size", "kind", "size")
-COV_TRAFFIC.coverpoint("split", bins={"one": 1, "two_to_four": range(2, 5),
-                                      "many": range(5, 100)})
+# Sizes in bytes each kind can carry: host reads 0 to 4096 (a zero-length
+# read included), writes and application reads 1 to 128 (APP, F2).
+_SIZES = {"dw1": range(1, 5), "small": range(5, 64), "mid": range(64, 129)}
+COV_TRAFFIC.coverpoint("host_read", bins={"zero": 0, **_SIZES, "large": range(129, 4097)})
+COV_TRAFFIC.coverpoint("host_write", bins=_SIZES)
+COV_TRAFFIC.coverpoint("app_write", bins=_SIZES)
+COV_TRAFFIC.coverpoint("app_read", bins=_SIZES)
+# Completions per application read: at most 128 bytes, so one, or two or
+# three when the host splits on 64-byte boundaries.
+COV_TRAFFIC.coverpoint("split", bins={"one": 1, "two": 2, "three": 3})
 COV_TRAFFIC.coverpoint("header", bins={"dw3": 3, "dw4": 4})
 
 COV_IRQ = Covergroup("core_e2e_irq")
-COV_IRQ.coverpoint("mode", bins={"msi": "msi", "msix": "msix", "none": "none"})
-COV_IRQ.coverpoint("status", bins={"sent": IRQ_SENT, "pending": IRQ_PENDING,
-                                   "dropped": IRQ_DROPPED})
-COV_IRQ.cross("mode_x_status", "mode", "status")
+# The interrupt mode and irq_status_o outcomes the TL_CFG resolution allows.
+COV_IRQ.coverpoint("outcome", bins={o: o for o in (
+    "none_dropped", "msi_sent", "msi_pending", "msix_sent", "msix_pending")})
 COV_IRQ.coverpoint("pending_sent", bins={"msi": "msi", "msix": "msix"})
 
 COV_ERR = Covergroup("core_e2e_err")
@@ -216,6 +220,7 @@ class CfgShadow:
         elif t.kind == "Msg" and t.msg_code in ERR_MSG:
             kind = ERR_MSG[t.msg_code]
             self.received_msgs[kind] += 1
+            COV_ERR.sample(msg=kind)
             if self.received_msgs[kind] > self.decided[kind]:
                 raise CheckError(f"shadow: error message {t.msg_code:#04x} number "
                                  f"{self.received_msgs[kind]} received at cycle {self.env.cycle}; "
@@ -233,13 +238,14 @@ class CfgShadow:
                 raise CheckError(f"shadow: the cfg architecture model decided {n} error "
                                  f"message(s) of kind {kind}, none received")
 
-    def tl_err(self, bits: int) -> None:
-        """One cycle of tl_err pulses: status bits, and the messages this
-        cycle's events decide (counted apart from those still due)."""
+    def events(self, tl: int = 0, dl: int = 0, rcv: int = 0) -> None:
+        """One cycle of tl_err, dl_err and rcv_err pulses: status bits, and
+        the messages this cycle's events decide (counted apart from those
+        still due)."""
         m = self.model
         due = dict(m.err_due)
         m.err_due = {k: False for k in due}
-        m.error(tl=bits)
+        m.error(tl=tl, dl=dl, rcv=rcv)
         for k, want in m.err_due.items():
             self.decided[k] += int(want)
         m.err_due = {k: due[k] or m.err_due[k] for k in due}
@@ -549,9 +555,11 @@ class App:
         n = e.cycle
         # -- cq
         if rd["cq_valid_o"]():
-            beat = (rd["cq_sop_o"](), rd["cq_eop_o"](), rd["cq_data_o"](), rd["cq_write_o"](),
-                    rd["cq_addr_o"](), rd["cq_len_o"](), rd["cq_first_be_o"](),
-                    rd["cq_last_be_o"](), rd["cq_handle_o"]())
+            write = rd["cq_write_o"]()
+            # A read's data and a write's handle are don't care (APP).
+            beat = (rd["cq_sop_o"](), rd["cq_eop_o"](), rd["cq_data_o"]() if write else 0,
+                    write, rd["cq_addr_o"](), rd["cq_len_o"](), rd["cq_first_be_o"](),
+                    rd["cq_last_be_o"](), 0 if write else rd["cq_handle_o"]())
             if self.cq_prev is not None and beat != self.cq_prev:
                 e.fail(f"cq: the beat offered at cycle {n - 1} changed before it was taken: "
                        f"{self.cq_prev} then {beat}")
@@ -582,11 +590,9 @@ class App:
                     rd_ = r["read"]
                     rd_.issued_at = n
                     self.tags_busy[r["tag"]] = rd_
-                    COV_TRAFFIC.sample(kind="app_read", size=rd_.nbytes,
-                                       header=4 if r["addr"] >> 32 else 3)
+                    COV_TRAFFIC.sample(app_read=rd_.nbytes, header=4 if r["addr"] >> 32 else 3)
                 else:
-                    COV_TRAFFIC.sample(kind="app_write", size=r["bytes"],
-                                       header=4 if r["addr"] >> 32 else 3)
+                    COV_TRAFFIC.sample(app_write=r["bytes"], header=4 if r["addr"] >> 32 else 3)
             elif not ready and self.rq_pos and r["write"]:
                 pass                       # tl may stall inside a packet
             if ready:
@@ -624,7 +630,7 @@ class App:
                 req = self.irq_open
                 req["done"], req["status"] = n, rd["irq_status_o"]()
                 self.irq_log.append(req)
-                COV_IRQ.sample(mode=e.irq_mode, status=req["status"])
+                COV_IRQ.sample(outcome=f"{e.irq_mode}_{IRQ_NAMES.get(req['status'])}")
                 self.irq_open = None
         if self.irq_valid and ready and self.irq_open is None:
             req = self.irq_q.popleft()
@@ -648,13 +654,13 @@ class App:
                 e.fail(f"cq: length 1 with last byte enables {lbe:04b} at cycle {n}")
             if addr + 4 * ln > len(self.bar0):
                 e.fail(f"cq: request at {addr:#x}, {ln} DWs runs past BAR0 at cycle {n}")
-            self.cq_hdr = (write, addr, ln, fbe, lbe, handle if not write else None)
+            self.cq_hdr = (write, addr, ln, fbe, lbe, None)
             self.cq_pkt = {"write": write, "addr": addr, "len": ln, "fbe": fbe, "lbe": lbe,
                            "handle": handle, "data": [], "sop": n}
         elif self.cq_pkt is None:
             e.fail(f"cq: beat without sop at cycle {n}")
             return
-        elif (write, addr, ln, fbe, lbe, handle if not write else None) != self.cq_hdr:
+        elif (write, addr, ln, fbe, lbe, None) != self.cq_hdr:
             e.fail(f"cq: header changed inside the packet at cycle {n}")
         p = self.cq_pkt
         if p["write"]:
@@ -677,7 +683,7 @@ class App:
             self.handles[handle] = {"data": beats, "pkt": p}
             lat = self.rng.randint(*self.cc_latency)
             self.cc_due.append((n + lat, handle))
-            COV_TRAFFIC.sample(kind="host_read", size=self._bytes(p))
+            COV_TRAFFIC.sample(host_read=self._bytes(p))
         self.cq_log.append(p)
         self.cq_last = n
         self.cq_pkt = None
@@ -699,7 +705,7 @@ class App:
                     self.bar0[p["addr"] + 4 * k + b] = d >> (8 * b) & 0xFF
         nbytes = self._bytes(p)
         self.cq_bytes += nbytes
-        COV_TRAFFIC.sample(kind="host_write", size=nbytes)
+        COV_TRAFFIC.sample(host_write=nbytes)
         for f in self.on_cq_write:
             f(p["addr"], 4 * n)
 
@@ -772,6 +778,8 @@ class Env:
         self.bar0_addr_w = p["bar0_addr_w"]
         self.msix_n = p["msix_table_size"]
         self.cpl_timeout = (1 << 21) // p["cpl_timeout_div"]
+        # A test may wait out two completion timeouts on purpose.
+        self.liveness = max(LIVENESS, 3 * self.cpl_timeout)
         self.log.info("core e2e: COCOTB_RANDOM_SEED %s, test seed %d, parameters %s",
                       os.environ.get("COCOTB_RANDOM_SEED", "-"), seed, p)
         self.params = cfga.Params(bar0_addr_w=p["bar0_addr_w"],
@@ -798,6 +806,7 @@ class Env:
         self.host.on_sent.append(lambda c, raw: self.shadow.sent(raw))
         self.host.on_rx.append(lambda c, raw: self.shadow.received(raw))
         self.tl_err_log: list[tuple[int, int]] = []
+        self.link_err_log: list[tuple[int, int, int]] = []   # (cycle, dl_err_o, rcv_err_o)
         self.tl_err_count = [0] * 9
         self.np_pending = 0
         self.allow_link_errors = False
@@ -807,7 +816,8 @@ class Env:
                      "rq_write_i", "rq_addr_i", "rq_len_i", "rq_first_be_i", "rq_last_be_i",
                      "rq_tag_i", "rc_ready_i", "irq_valid_i", "irq_vector_i",
                      "host_tlp_tx_valid_i", "host_tlp_tx_data_i", "host_tlp_tx_sop_i",
-                     "host_tlp_tx_eop_i", "host_hot_reset_req_i"):
+                     "host_tlp_tx_eop_i", "host_hot_reset_req_i", "line_flip_i", "line_sub_i",
+                     "line_sub_data_i"):
             self.wr(name, 0)
         self.wr("ser_tx_rxdet_i", 1)
         self.wr("rst_i", 1)
@@ -868,6 +878,10 @@ class Env:
         self.bus_master_en = bool(rd["bus_master_en_o"]())
         self.mem_space_en = bool(rd["mem_space_en_o"]())
         self.d_state = rd["d_state_o"]()
+        dl_err, rcv_err = rd["dl_err_o"](), rd["rcv_err_o"]()
+        if dl_err or rcv_err:
+            self.link_err_log.append((n, dl_err, rcv_err))
+            self.shadow.events(dl=dl_err, rcv=rcv_err)
         if not self.allow_link_errors:
             for e, (de, re) in (("ep", ("dl_err_o", "rcv_err_o")),
                                 ("host", ("host_dl_err_o", "host_rcv_err_o"))):
@@ -880,16 +894,16 @@ class Env:
                 if err >> b & 1:
                     self.tl_err_count[b] += 1
                     COV_ERR.sample(event=TL_ERR_NAMES[b])
-            self.shadow.tl_err(err)
+            self.shadow.events(tl=err)
         self.np_pending = rd["mon_tl_np_pending_o"]()
         self.host.sample()
         self.app.sample()
         if (rd["host_tlp_tx_valid_i"]() or rd["host_tlp_rx_valid_o"]() or rd["cq_valid_o"]()
                 or rd["rc_valid_o"]() or rd["rq_valid_i"]() or rd["cc_valid_i"]()):
             self.last_activity = n
-        if dl_up and n - max(self.last_activity, self._live_from) > LIVENESS \
+        if dl_up and n - max(self.last_activity, self._live_from) > self.liveness \
                 and not (self.host.model.idle and self.app.idle()) and not self.quiet_ok:
-            self.fail(f"liveness: nothing moved for {LIVENESS} cycles with work outstanding "
+            self.fail(f"liveness: nothing moved for {self.liveness} cycles with work outstanding "
                       f"({self.state()})")
             self._live_from = n
 
@@ -902,6 +916,41 @@ class Env:
             got = self.rd[name]()
             if got != want:
                 self.fail(f"{when}: {name} expected {want}, observed {got}")
+
+    def line_symbols(self, word: int) -> list[tuple[int, bool] | None]:
+        """The two symbols of a line word as (byte, is K), None for a code
+        that is not valid."""
+        out = []
+        for c in (word & 0x3FF, word >> 10):
+            e = code8b10b.DECODE.get(c)
+            out.append((e[0][0], e[0][1]) if e else None)
+        return out
+
+    def substitute_symbol(self, word: int) -> int | None:
+        """``word`` (two 10-bit codes, the first in bits 9:0) with its first
+        code, a data symbol, replaced by the code of another data byte that
+        is valid at the same running disparity and leaves the same
+        disparity after it: one byte changed on a valid line, so the
+        receiver sees no receiver error. None when either code is not a
+        data symbol."""
+        codes = (word & 0x3FF, word >> 10)
+        ents = [code8b10b.DECODE.get(c, []) for c in codes]
+        if not all(e and not any(k for _, k, _ in e) for e in ents):
+            return None
+        # The code may be valid at both disparities (a balanced code): the
+        # replacement must then be one code valid at both, with the same
+        # disparity after it as the original at each.
+        byte = ents[0][0][0]
+        rds = {rd for _, _, rd in ents[0]}
+        for b in range(256):
+            if b == byte:
+                continue
+            outs = {rd: code8b10b.encode(b, False, rd) for rd in rds}
+            c2s = {c for c, _ in outs.values()}
+            if len(c2s) == 1 and all(r2 == code8b10b.rd_after(codes[0], rd)
+                                     for rd, (_, r2) in outs.items()):
+                return (word & ~0x3FF) | c2s.pop()
+        return None
 
     def state(self) -> str:
         """A one-line summary of what is outstanding, for failure messages."""

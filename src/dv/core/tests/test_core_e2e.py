@@ -15,8 +15,9 @@ import sys
 from pathlib import Path
 
 import cocotb
+from cocotb.triggers import FallingEdge
 
-from tb.core_e2e_env import (COV_ENUM, COV_ERR, COV_IRQ, EP_BDF, HIGH_MEM, HOST_MEM, HOST_RID,
+from tb.core_e2e_env import (COV_ENUM, COV_IRQ, EP_BDF, HIGH_MEM, HOST_MEM, HOST_RID,
                              IRQ_DROPPED, IRQ_PENDING, IRQ_SENT, MSI_ADDR, RC_CA, RC_FAILED,
                              RC_SC, RC_UR, Env, hm, ht)
 
@@ -379,7 +380,8 @@ async def e2e_unsupported(dut):
     the BARs, a memory write hitting no BAR, Type 0 configuration reads to
     function 1 and a Type 1 read: UR completions for the non-posted ones,
     Unsupported Request Detected, ERR_COR (advisory) and ERR_NONFATAL with
-    reporting on, nothing with it off, and BAR0 still served."""
+    reporting on, nothing with it off, and BAR0 still served; a BAR0 read
+    with Memory Space Enable 0 is an Unsupported Request too."""
     env = await up(dut)
     dev = await enumerate_ep(env)
     h = env.host.model
@@ -416,8 +418,6 @@ async def e2e_unsupported(dut):
                 ht.MSG_ERR_FATAL not in got, f"messages {[hex(c) for c in got]}"
             ds = await cfg_rd(env, CFG_COMMAND)
             assert ds & STS_SSE, "Signaled System Error 0 after ERR_NONFATAL with SERR# on"
-            for c in got:
-                COV_ERR.sample(msg={0x30: 1, 0x31: 2, 0x33: 3}[c])
         else:
             assert not got, f"messages {[hex(c) for c in got]} with reporting off"
         # Clear the Device Status bits for the next round (RW1C).
@@ -428,6 +428,13 @@ async def e2e_unsupported(dut):
         r = await host_mem_read(env, base + 0x80, 64)
         assert r.ok and bytes(r.data) == data, "BAR0 not served after Unsupported Requests"
     assert ep == dev.id
+    # Memory Space Enable off: BAR0 no longer decodes (tl-cfg BAR hit).
+    await cfg_wr(env, CFG_COMMAND, CMD_BME | CMD_SERR, 0b0011)
+    r = await host_mem_read(env, base, 4)
+    assert r.status == "UR", f"BAR0 read with Memory Space Enable 0: status {r.status}"
+    await cfg_wr(env, CFG_COMMAND, CMD_MSE | CMD_BME | CMD_SERR, 0b0011)
+    r = await host_mem_read(env, base, 4)
+    assert r.ok, f"BAR0 read with Memory Space Enable 1 again: status {r.status}"
     await env.drain()
     env.finish()
 
@@ -455,11 +462,14 @@ async def e2e_cpl_timeout(dut):
     assert all(x.status == RC_SC for x in ok)
     ds = await cfg_rd(env, DEVCTL)
     assert ds & DS_TP, f"Device Status {ds >> 16:#06x}: Transactions Pending 0 with a read out"
-    await env.until(lambda: r.done, tmo + 2000, "completion timeout")
+    await env.until(lambda: r.done, tmo + tmo // 16 + 2000, "completion timeout")
     waited = r.done_at - r.issued_at
     assert r.status == RC_FAILED, f"timed-out read: rc status {r.status}"
-    assert tmo <= waited <= tmo + 600, (
-        f"timeout after {waited} cycles; the tl timeout is {tmo} (2^21 / CPL_TIMEOUT_DIV)")
+    # tl COMPLETIONS: a read times out between 16P and 17P cycles after the
+    # link takes it, P = 2^21 / (16 CPL_TIMEOUT_DIV); rc adds a few cycles.
+    assert tmo <= waited <= tmo + tmo // 16 + 200, (
+        f"timeout after {waited} cycles; tl times out between {tmo} and {tmo + tmo // 16} "
+        "cycles (16P to 17P)")
     assert tl_errs(env, 6) == 1
     await env.cycles(300)
     assert ht.MSG_ERR_NONFATAL in msgs(env, m0), [hex(c) for c in msgs(env, m0)]
@@ -480,7 +490,7 @@ async def e2e_cpl_timeout(dut):
     assert not r2.done, "a read timed out with Completion Timeout Disable set"
     t_clear = env.cycle
     await cfg_wr(env, DEVCTL2, 0, 0b0001)
-    await env.until(lambda: r2.done, tmo + 2000, "timeout after the disable cleared")
+    await env.until(lambda: r2.done, tmo + tmo // 16 + 2000, "timeout after the disable cleared")
     assert r2.status == RC_FAILED and r2.done_at - t_clear >= tmo - 200, (
         f"read ended {r2.done_at - t_clear} cycles after the disable cleared, status {r2.status}")
     env.host.drop_rd = None
@@ -565,6 +575,104 @@ async def e2e_errors(dut):
     h.errors.clear()
     await env.drain()
     env.log.info("host flags on the raw TLPs: %s", errs)
+    env.finish()
+
+
+@cocotb.test()
+async def e2e_link_errors(dut):
+    """Link errors into cfg (TL_CFG, link to cfg): bit flips on the host to
+    ep line make the ep link pulse rcv_err_o and dl_err_o (Bad TLP or Bad
+    DLLP), correctable errors: Correctable Error Detected and ERR_COR with
+    reporting on, no other message; traffic across the flips stays
+    lossless (the link replays). Then each wire alone: a flip on the idle
+    line (rcv_err_o only) and a data symbol replaced by another valid one
+    inside a packet (dl_err_o Bad TLP or Bad DLLP only), each correctable."""
+    env = await up(dut)
+    dev = await enumerate_ep(env)
+    await enable_reporting(env)
+    h, rng = env.host.model, env.rng
+    base = dev.bars[0].base
+    env.allow_link_errors = True
+    m0 = len(h.messages)
+    data = bytes(rng.getrandbits(8) for _ in range(1024))
+    h.mem_write(base, data)
+    for k in range(4):
+        await env.cycles(rng.randint(20, 120))
+        env.wr("line_flip_i", 1 << rng.randrange(20))
+        await env.cycles(1)
+        env.wr("line_flip_i", 0)
+    await env.until(lambda: env.link_err_log, 2000, "a link error pulse")
+    await env.drain()
+    env.allow_link_errors = False
+    r = await host_mem_read(env, base, 1024)
+    assert r.ok and bytes(r.data) == data, "BAR0 data lost or corrupted across the line errors"
+    ds = await cfg_rd(env, DEVCTL)
+    assert ds & DS_CED, f"Device Status {ds >> 16:#06x}: Correctable Error Detected 0"
+    got = msgs(env, m0)
+    assert ht.MSG_ERR_COR in got and set(got) == {ht.MSG_ERR_COR}, (
+        f"messages {[hex(c) for c in got]} for correctable link errors "
+        f"{env.link_err_log[:4]}")
+    # rcv_err alone: a flip on the idle line (no packet to hit) is a
+    # receiver error only, correctable.
+    await cfg_wr(env, DEVCTL, 0xF << 16, 0b1100)
+    env.allow_link_errors = True
+    m0, n0 = len(h.messages), len(env.link_err_log)
+    env.wr("line_flip_i", 1 << rng.randrange(20))
+    await env.cycles(1)
+    env.wr("line_flip_i", 0)
+    await env.until(lambda: len(env.link_err_log) > n0, 2000, "a receiver error")
+    await env.drain()
+    env.allow_link_errors = False
+    ev = env.link_err_log[n0:]
+    assert all(dl == 0 for _, dl, _ in ev) and any(rcv for _, _, rcv in ev), (
+        f"a flip on the idle line: pulses (cycle, dl_err_o, rcv_err_o) {ev}; expected "
+        "rcv_err_o only")
+    ds = await cfg_rd(env, DEVCTL)
+    assert ds & DS_CED and not ds & (DS_NFED | DS_FED), (
+        f"Device Status {ds >> 16:#06x} after a receiver error alone")
+    assert set(msgs(env, m0)) == {ht.MSG_ERR_COR}, [hex(c) for c in msgs(env, m0)]
+    # dl_err alone: one data symbol inside a TLP on the line (between STP
+    # and END, as the tapped line shows them) replaced by another valid
+    # data symbol of the same disparity: its LCRC fails (Bad TLP), no
+    # receiver error; correctable, and the TLP is replayed.
+    await cfg_wr(env, DEVCTL, 0xF << 16, 0b1100)
+    env.allow_link_errors = True
+    m0, n0 = len(h.messages), len(env.link_err_log)
+    for _ in range(4):
+        h.mem_write(base, bytes(rng.getrandbits(8) for _ in range(1024)))
+    subs, in_tlp, seen, pos = 0, False, 0, 0
+    while len(env.link_err_log) == n0 and subs < 20 and seen < 20_000:
+        await FallingEdge(dut.clk_i)
+        seen += 1
+        word = env.rd["mon_line_o"]()
+        syms = env.line_symbols(word)
+        if syms[0] == (0xFB, True) or syms[1] == (0xFB, True):     # STP
+            in_tlp, pos = True, 0
+            continue
+        if any(x is not None and x[1] for x in syms):              # END, SKP, ...
+            in_tlp = False
+            continue
+        pos += 1
+        new = env.substitute_symbol(word) if in_tlp and pos == 8 else None
+        if new is None:
+            continue
+        env.wr("line_sub_data_i", new)
+        env.wr("line_sub_i", 1)
+        await FallingEdge(dut.clk_i)
+        env.wr("line_sub_i", 0)
+        in_tlp = False
+        subs += 1
+        await env.cycles(300)
+    await env.drain()
+    env.allow_link_errors = False
+    ev = env.link_err_log[n0:]
+    assert ev and all(dl and dl & ~3 == 0 and rcv == 0 for _, dl, rcv in ev), (
+        f"{subs} symbol substitutions: pulses (cycle, dl_err_o, rcv_err_o) {ev}; expected "
+        "Bad TLP or Bad DLLP only")
+    ds = await cfg_rd(env, DEVCTL)
+    assert ds & DS_CED and not ds & (DS_NFED | DS_FED), f"Device Status {ds >> 16:#06x} after it"
+    assert set(msgs(env, m0)) == {ht.MSG_ERR_COR}, [hex(c) for c in msgs(env, m0)]
+    await env.drain()
     env.finish()
 
 
@@ -729,7 +837,8 @@ async def e2e_link_down(dut):
     """Link down (core HAS): the host's Hot Reset takes the link down with
     application and host traffic in flight; tl and cfg reset (the status
     outputs at reset values, the configuration space at reset values on
-    the next enumeration); the function is enumerated again and works."""
+    the next enumeration); the function is enumerated again and works; a
+    second link down from D3hot with interrupts resolving back to back."""
     env = await up(dut)
     dev = await enumerate_ep(env)
     h, app, rng = env.host.model, env.app, env.rng
@@ -772,6 +881,36 @@ async def e2e_link_down(dut):
     rr = app.read(HOST_MEM + 0x2000, 64)
     await app_wait(env, [rr])
     assert rr.status == RC_SC and app.read_bytes(rr) == data
+    # Second round in D3hot, the application raising interrupts back to
+    # back (each pending under MSI): every gated output, d_state_o and
+    # irq_done_o included, at its reset value from the first cycle dl_up_o
+    # is 0 (the environment checks every cycle).
+    await env.run(h.setup_msi(dev, MSI_ADDR, 0x42), what="MSI set-up")
+    env.irq_mode = "msi"
+    await cfg_wr(env, CAP_PM + 4, 3, 0b0001)
+    await env.cycles(4)
+    assert env.d_state == 3
+    storm = True
+
+    async def irqs():
+        while storm:
+            if not app.irq_q and env.dl_up:
+                app.irq(0)
+            await env.cycles(1)
+
+    cocotb.start_soon(irqs())
+    env.quiet_ok = True
+    await env.cycles(rng.randint(20, 200))
+    env.wr("host_hot_reset_req_i", 1)
+    await env.until(lambda: not env.dl_up, 20_000, "ep dl_up_o falls in D3hot")
+    storm = False
+    await env.cycles(200)
+    env.wr("host_hot_reset_req_i", 0)
+    app.irq_q.clear()
+    await env.link_up(limit=60_000)
+    env.quiet_ok = False
+    assert env.link_downs == 2 and env.d_state == 0
+    dev = await enumerate_ep(env)
     env.allow_link_errors = False
     await env.drain()
     env.finish()
@@ -799,6 +938,11 @@ async def e2e_soak(dut):
         if op == 0:
             off = rng.randrange(size - 1)
             n = min(rng.randint(1, 256), ((off | 0xFFF) + 1) - off)
+            # The host lets a posted write pass a read its credits hold back
+            # (HOST, credits and ordering), so a write overlapping a read
+            # still pending waits for it: the read's expected bytes stay put.
+            if any(o < off + n and off < o + m for o, m, _, _ in host_pend):
+                await env.until(lambda: all(p[3].done for p in host_pend), 50_000, "host reads")
             data = bytes(rng.getrandbits(8) for _ in range(n))
             h.mem_write(base + off, data)
             mirror[off:off + n] = data

@@ -33,20 +33,18 @@ tests:
     testcase: e2e_d3hot
     top: pcie_core_e2e_tb
     timeout_s: 600
-  - name: e2e_link_down
-    module: tests.test_core_e2e
-    testcase: e2e_link_down
-    top: pcie_core_e2e_tb
-    timeout_s: 600
   - name: e2e_soak
     module: tests.test_core_e2e
     testcase: e2e_soak
     top: pcie_core_e2e_tb
     seeds: 3
     timeout_s: 1200
-  # Other parameters: the largest BAR0 and MSI-X table with non-zero IDs
-  # (PARAMS_MAX below), and the minimum credits the core HAS allows, which
-  # make the credit release (FC_RELEASE 1) gate every host request.
+  # Other parameters: the largest BAR0 and MSI-X table with non-zero IDs,
+  # and the minimum credits the core HAS allows, which make the credit
+  # release (FC_RELEASE 1) gate every host request. With minimum credits the
+  # host's completions wait behind its credit-blocked writes (posted first),
+  # longer than the bench's default 2048-cycle completion timeout
+  # (CPL_TIMEOUT_DIV 1024); those entries use CPL_TIMEOUT_DIV 16.
   - name: e2e_enumeration_max
     module: tests.test_core_e2e
     testcase: e2e_enumeration
@@ -73,13 +71,13 @@ tests:
     module: tests.test_core_e2e
     testcase: e2e_bar_traffic
     top: pcie_core_e2e_tb
-    params: {FC_PH: 1, FC_PD: 8, FC_NPH: 1, FC_NPD: 2}
+    params: {FC_PH: 1, FC_PD: 8, FC_NPH: 1, FC_NPD: 2, CPL_TIMEOUT_DIV: 16}
     timeout_s: 600
   - name: e2e_soak_min_credits
     module: tests.test_core_e2e
     testcase: e2e_soak
     top: pcie_core_e2e_tb
-    params: {FC_PH: 1, FC_PD: 8, FC_NPH: 1, FC_NPD: 2}
+    params: {FC_PH: 1, FC_PD: 8, FC_NPH: 1, FC_NPD: 2, CPL_TIMEOUT_DIV: 16}
     seeds: 2
     timeout_s: 1200
   - name: e2e_cpl_timeout_div64

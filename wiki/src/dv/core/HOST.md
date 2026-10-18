@@ -219,8 +219,15 @@ choosing the side with a seed.
 
 ## Possible disagreements
 
-None found: on every point the host checks, its reading of the Base Spec
-agrees with the HAS pages listed above. The Base Spec is not in the local
+One, found by the core e2e ([#293](https://github.com/amichai-bd/pcie-factory/issues/293)):
+the Completer ID of an Unsupported Request completion to a Type 0
+configuration request for a function other than 0. The host expects the
+addressed function; `tl` sends this function's ID, function 0
+([`tl` TLP fields](../../arch/tl/TLP.md)). The e2e sends that request with
+`send_request` and checks only its status; the point is an open question
+on the [`core` HAS](../../arch/core/HAS.md#open-questions). On every other
+point the host checks, its reading of the Base Spec agrees with the HAS
+pages listed above. The Base Spec is not in the local
 cache (`./build specs list`), so the cited sections here, like those of the
 [`core` HAS](../../arch/core/HAS.md#open-questions), still await a check
 against rev 3.0 by the captain with a local copy.

@@ -178,10 +178,10 @@ module pcie_core #(
   // function status (APP). cfg's reset is synchronous, so in the first
   // cycle of cfg_rst its registers still hold their old values; the HAS
   // reset values hold in every cycle where rst_i is 1 or dl_up_o is 0, so
-  // each output is forced to its reset value while cfg_rst is 1. tl gates
-  // its own outputs the same way; the tl-cfg nets need no gate, tl being in
-  // reset in those cycles.
-  logic       cfg_irq_ready;
+  // each registered output is forced to its reset value while cfg_rst is 1
+  // (irq_ready_o needs no gate: cfg already holds it at 0 in reset). tl
+  // gates its own outputs the same way; the tl-cfg nets need no gate, tl
+  // being in reset in those cycles.
   logic       cfg_irq_done;
   logic [2:0] cfg_max_payload;
   logic [2:0] cfg_max_read_req;
@@ -189,7 +189,6 @@ module pcie_core #(
   assign bus_master_en_o = bus_master_en & ~cfg_rst;
   assign mem_space_en_o  = mem_space_en & ~cfg_rst;
   assign d_state_o       = cfg_rst ? 2'd0 : d_state;                 // D0
-  assign irq_ready_o     = cfg_irq_ready & ~cfg_rst;
   assign irq_done_o      = cfg_irq_done & ~cfg_rst;
   assign max_payload_o   = cfg_rst ? 3'd0 : cfg_max_payload;         // 128 bytes
   assign max_read_req_o  = cfg_rst ? 3'd2 : cfg_max_read_req;        // 512 bytes
@@ -388,7 +387,7 @@ module pcie_core #(
     .msg_addr_o        (msg_addr),
     .msg_data_o        (msg_data),
     .irq_valid_i       (irq_valid_i),
-    .irq_ready_o       (cfg_irq_ready),
+    .irq_ready_o       (irq_ready_o),
     .irq_vector_i      (irq_vector_i),
     .irq_done_o        (cfg_irq_done),
     .irq_status_o      (irq_status_o),

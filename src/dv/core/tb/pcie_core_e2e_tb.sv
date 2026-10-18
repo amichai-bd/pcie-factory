@@ -5,7 +5,11 @@
 // The endpoint pcie_core (u_ep) faces the host's pcie_link (u_host,
 // downstream, port_role_i 0), both on clk_i; each one's serial transmit
 // drives the other's receive directly and each ser_rx_clk_i is clk_i (an
-// error-free line: line impairments are the link e2e's). The ep ports are
+// error-free line, unless the link error test impairs it; line impairments
+// are the link e2e's). The host-to-ep word goes through one register,
+// tapped on mon_line_o, so the environment sees each word for a cycle
+// before the ep samples it: line_sub_i replaces it with line_sub_data_i,
+// and line_flip_i flips chosen bits of it. The ep ports are
 // ports of this top with no prefix; the host link's upper stream, credits,
 // status and Hot Reset request are ports prefixed host_. The cocotb
 // environment (tb/core_e2e_env.py) puts the independent host model on the
@@ -17,7 +21,9 @@
 //
 // Taps (core MAS, tl-cfg nets): u_ep.tl_err and u_ep.tl_np_pending on
 // mon_*_o, for the architecture-model shadow of cfg. Every parameter is
-// echoed on a cfg_*_o output for the environment.
+// echoed on a cfg_*_o output for the environment; the ID parameters are
+// int unsigned here (a regression entry sets them as integers) and sized at
+// the core instance.
 module pcie_core_e2e_tb #(
   parameter int unsigned  FC_PH            = 8,
   parameter int unsigned  FC_PD            = 32,
@@ -27,12 +33,12 @@ module pcie_core_e2e_tb #(
   parameter int unsigned  CPL_TIMEOUT_DIV  = 1024,
   parameter int unsigned  BAR0_ADDR_W      = 12,
   parameter int unsigned  MSIX_TABLE_SIZE  = 8,
-  parameter logic [15:0]  VENDOR_ID        = 16'h0000,
-  parameter logic [15:0]  DEVICE_ID        = 16'h0000,
-  parameter logic [15:0]  SUBSYS_VENDOR_ID = 16'h0000,
-  parameter logic [15:0]  SUBSYS_ID        = 16'h0000,
-  parameter logic [23:0]  CLASS_CODE       = 24'hFF0000,
-  parameter logic [7:0]   REVISION_ID      = 8'h00
+  parameter int unsigned  VENDOR_ID        = 'h0000,
+  parameter int unsigned  DEVICE_ID        = 'h0000,
+  parameter int unsigned  SUBSYS_VENDOR_ID = 'h0000,
+  parameter int unsigned  SUBSYS_ID        = 'h0000,
+  parameter int unsigned  CLASS_CODE       = 'hFF0000,
+  parameter int unsigned  REVISION_ID      = 'h00
 ) (
   input  logic                   clk_i,
   input  logic                   rst_i,
@@ -115,6 +121,10 @@ module pcie_core_e2e_tb #(
   output logic                   host_link_up_o,
   output logic                   host_rcv_err_o,
   input  logic                   host_hot_reset_req_i,
+  input  logic [19:0]            line_flip_i,       // XORed onto the host-to-ep serial word
+  input  logic                   line_sub_i,        // replace the host-to-ep word
+  input  logic [19:0]            line_sub_data_i,   // with this one
+  output logic [19:0]            mon_line_o,        // the host-to-ep word the ep samples next
 
   // Taps of the ep's tl-cfg nets (core MAS)
   output logic [8:0]             mon_tl_err_o,
@@ -140,13 +150,23 @@ module pcie_core_e2e_tb #(
   logic        ep_tx_ei;
   logic [19:0] host_tx_data;
   logic        host_tx_ei;
+  logic [19:0] line_q;          // one word of channel delay, host to ep
+  logic        line_ei_q;
+  logic [19:0] ep_rx_data;
+
+  always_ff @(posedge clk_i) begin
+    line_q    <= host_tx_data;
+    line_ei_q <= host_tx_ei;
+  end
+  assign ep_rx_data = line_sub_i ? line_sub_data_i : (line_q ^ line_flip_i);
+  assign mon_line_o = line_q;
 
   pcie_core #(
     .FC_PH(FC_PH), .FC_PD(FC_PD), .FC_NPH(FC_NPH), .FC_NPD(FC_NPD),
     .TIMEOUT_DIV(TIMEOUT_DIV), .ERR_TIMEOUT_DIV(1), .CPL_TIMEOUT_DIV(CPL_TIMEOUT_DIV),
     .BAR0_ADDR_W(BAR0_ADDR_W), .MSIX_TABLE_SIZE(MSIX_TABLE_SIZE),
-    .VENDOR_ID(VENDOR_ID), .DEVICE_ID(DEVICE_ID), .SUBSYS_VENDOR_ID(SUBSYS_VENDOR_ID),
-    .SUBSYS_ID(SUBSYS_ID), .CLASS_CODE(CLASS_CODE), .REVISION_ID(REVISION_ID)
+    .VENDOR_ID(16'(VENDOR_ID)), .DEVICE_ID(16'(DEVICE_ID)), .SUBSYS_VENDOR_ID(16'(SUBSYS_VENDOR_ID)),
+    .SUBSYS_ID(16'(SUBSYS_ID)), .CLASS_CODE(24'(CLASS_CODE)), .REVISION_ID(8'(REVISION_ID))
   ) u_ep (
     .clk_i(clk_i), .rst_i(rst_i),
     .cq_valid_o(cq_valid_o), .cq_ready_i(cq_ready_i), .cq_sop_o(cq_sop_o),
@@ -170,7 +190,8 @@ module pcie_core_e2e_tb #(
     .link_up_o(link_up_o), .ltssm_state_o(ltssm_state_o), .rcv_err_o(rcv_err_o),
     .ser_tx_data_o(ep_tx_data), .ser_tx_elec_idle_o(ep_tx_ei),
     .ser_tx_rxdet_i(ser_tx_rxdet_i),
-    .ser_rx_clk_i(clk_i), .ser_rx_data_i(host_tx_data), .ser_rx_elec_idle_i(host_tx_ei)
+    .ser_rx_clk_i(clk_i), .ser_rx_data_i(ep_rx_data),
+    .ser_rx_elec_idle_i(line_ei_q)
   );
   assign ser_tx_elec_idle_o = ep_tx_ei;
 
@@ -211,12 +232,12 @@ module pcie_core_e2e_tb #(
   assign cfg_cpl_timeout_div_o  = 11'(CPL_TIMEOUT_DIV);
   assign cfg_bar0_addr_w_o      = 5'(BAR0_ADDR_W);
   assign cfg_msix_table_size_o  = 7'(MSIX_TABLE_SIZE);
-  assign cfg_vendor_id_o        = VENDOR_ID;
-  assign cfg_device_id_o        = DEVICE_ID;
-  assign cfg_subsys_vendor_id_o = SUBSYS_VENDOR_ID;
-  assign cfg_subsys_id_o        = SUBSYS_ID;
-  assign cfg_class_code_o       = CLASS_CODE;
-  assign cfg_revision_id_o      = REVISION_ID;
+  assign cfg_vendor_id_o        = 16'(VENDOR_ID);
+  assign cfg_device_id_o        = 16'(DEVICE_ID);
+  assign cfg_subsys_vendor_id_o = 16'(SUBSYS_VENDOR_ID);
+  assign cfg_subsys_id_o        = 16'(SUBSYS_ID);
+  assign cfg_class_code_o       = 24'(CLASS_CODE);
+  assign cfg_revision_id_o      = 8'(REVISION_ID);
 
 endmodule
 
