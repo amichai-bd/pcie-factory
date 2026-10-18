@@ -1,4 +1,5 @@
 // PCI Express transaction layer of the Endpoint: TLP parsing and routing,
+// throwaway one-IP change for the #327 cache hit-rate measurement
 // completions, requester tags and completion timeout, TLP transmit.
 // Interfaces and behavior: wiki/src/arch/tl/HAS.md and its pages;
 // structure: wiki/src/rtl/tl/MAS.md.
