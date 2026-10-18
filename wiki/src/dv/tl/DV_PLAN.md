@@ -193,10 +193,11 @@ self-tests check them.
 | Random TLPs of every kind with stalls and gaps, segments across link-downs | `rx_random` | 1 | 3 |
 | The same with the smallest queues (`FC_PH` 1, `FC_PD` 8, `FC_NPH` 1, `FC_NPD` 2) | `rx_random_min_credits` | 1 | 2 |
 | [Release](../../arch/tl/ORDERING.md#credits) of three non-posted requests leaving at one edge (a malformed I/O write with 8 data credits, a configuration write, a BAR0 read), the data carried above 8 (`FC_NPD` 16) | `rx_np_collide` | 1 | 1; directed, three times |
+| [Epochs](../../rtl/tl/MAS.md#receive-queues) past their wrap (the comparison modulo 2^9): 520 rounds of a BAR2 write cfg holds, a configuration read behind it and a BAR0 write the application holds, the read leaving while the later write is held; a BAR0 read and an `rq` read's completion arm the cq and rc lines, their completions and the `rq` read the [transmit lines](../../rtl/tl/MAS.md#transmit-lines) cc, cf and np, which an `rq` write steps, so all six counters wrap | `rx_epoch_wrap` | 1 | 1; directed |
 | [Completer completions](../../arch/tl/COMPLETIONS.md#completer-completions): every read of the splitting table and the byte-enable cases through BAR0 and BAR2, configuration completions with the captured ID, every [Unsupported Request completion](../../arch/tl/COMPLETIONS.md#unsupported-request-completions) (locked, Byte Count 4096 as 0); then with the link and application stalling | `tx_completions` | 1 | 1; directed |
 | [Requester requests](../../arch/tl/COMPLETIONS.md#requester-requests), [interrupt writes and error messages](../../arch/core/TL_CFG.md#messages) (one withdrawn), PME_TO_Ack; `rq` held without bus mastering and in D3hot; [transmit ordering](../../arch/tl/ORDERING.md#ordering): posted order across sources, reads and completions behind posted requests held for credits, posted requests passing reads held for credits | `tx_requests` | 1 | 1; directed |
 | [Transmit credits](../../arch/tl/ORDERING.md#credits) per class and field (header, data), the other classes passing; the transmit posted line full, a message and a PME_Turn_Off waiting | `tx_credits` | 1 | 1; directed |
-| Random host traffic, `rq` requests and messages, random finite or infinite credits, link and application stalls, segments across link-downs | `tx_random` | 1 | 3 |
+| Random host traffic, `rq` requests (in a random 64 KiB block below or above 4 GiB, so every address bit takes both values) and messages, random finite or infinite credits, link and application stalls, segments across link-downs | `tx_random` | 1 | 3 |
 | Longer random traffic | `rx_random_long` | 2 | 4 |
 | Longer random traffic, `BAR0_ADDR_W` 20 and odd credit sizes | `rx_random_long_params` | 2 | 2 |
 | The random transmit traffic of `tx_random`, longer | `tx_random_long` | 2 | 4 |
@@ -209,7 +210,8 @@ self-tests check them.
 
 **Level placement.** `rx_routing`, `rx_order` and `rx_link_down` are the
 receive path's acceptance entries and its fastest discriminating tests,
-as is `rx_np_collide`, the only entry that reaches the release carry,
+as are `rx_np_collide`, the only entry that reaches the release carry,
+and `rx_epoch_wrap`, the only one that wraps the epochs (about 30 s of CPU),
 so they sit in L1; so do `tx_completions`, `tx_requests` and
 `tx_credits`, the transmit path's directed acceptance entries (splitting,
 ordering, credit gating, interrupt messages), and `cpl_matching`,
@@ -352,25 +354,61 @@ cleared when the read is sent), so M89 also drops that clear.
 | M103 a completion matches a read expiring at that edge | `cpl_timeout` | error pulse 0x000 where unexpected 0x020 was due (third header DW in the expiry cycle) |
 | M104 a timeout beat not held behind its read's completion in flight | `cpl_timeout` | the failed beat (status 3) before the read's own data packet |
 | M105 a timeout beat pushed in a cycle a completion packet is queued | `cpl_timeout` | not drained: the failed beat is lost |
+| M112 the epoch comparison not modulo 2^9 (`oldest > e`) | `rx_epoch_wrap` | round 511: the configuration read waited for a later BAR0 write; every other level 0 and level 1 entry passes |
 
 ## Gaps
 
-| Feature | Owning issue |
-| --- | --- |
-| The independent host model as the judge of `tl` and `core` | [#288](https://github.com/amichai-bd/pcie-factory/issues/288) |
+None. The independent host model judges `tl` and `cfg` in the
+[`core` e2e](../core/DV_PLAN.md) ([#288](https://github.com/amichai-bd/pcie-factory/issues/288),
+[#293](https://github.com/amichai-bd/pcie-factory/issues/293)); the
+coverage floors are set ([#294](https://github.com/amichai-bd/pcie-factory/issues/294)).
 
 ## Coverage holes
 
-No floors yet (the gap above remains). With L0 and L1 and `--coverage`,
-functional coverage is 100% and line coverage 97.7%; the uncovered lines are nets that never
-change in a credit-correct run: the receive queues' full flags
-([`pcie_tl_rx_q.sv`](../../../../src/rtl/tl/pcie_tl_rx_q.sv)), the
-posted data queue's full flag in
-[`pcie_tl_txq.sv`](../../../../src/rtl/tl/pcie_tl_txq.sv), the rc
-queues' full flags ([`pcie_tl_rc.sv`](../../../../src/rtl/tl/pcie_tl_rc.sv),
-bounded by the 8 reads), the constant empty descriptor in
-[`pcie_tl_cpl.sv`](../../../../src/rtl/tl/pcie_tl_cpl.sv); and one
-unreachable `case` default:
-[`pcie_tl_reg.sv`](../../../../src/rtl/tl/pcie_tl_reg.sv) line 141, the
-`default` arm of the register engine's state, which only the unused
-fourth code of the 2-bit `t_reg_st` would reach.
+Floors in [`level2.yaml`](../../../../src/dv/tl/regress/level2.yaml),
+checked by every `--coverage` run that selects level 2 (the nightly runs
+levels 0 to 2): line 97.1, toggle 77.7, functional 100. Merged over levels
+0 to 2 ([#294](https://github.com/amichai-bd/pcie-factory/issues/294)):
+line 97.70% (1019 of 1043 points), toggle 78.27% (41815 of 53424),
+functional 100% (124 of 124 bins in the five covergroups the level file
+names). The line and toggle floors are the merged values less 0.5 points,
+rounded down to a tenth ([floor margin](../../../bkm/dv.md#coverage)).
+Before #294 the same run gave 75.57% toggle (40371 points): widening
+`tx_random`'s `rq` addresses added 276 points, and `rx_epoch_wrap` 1168
+(the six epoch counters had never wrapped).
+
+Verilator keeps one copy of each block per parameter set (four sets:
+default, `rx_random_min_credits`, `rx_np_collide`, `rx_random_long_params`).
+The 24 line points not hit, by cause:
+
+| Cause | Points | Where |
+| --- | ---: | --- |
+| Unreachable by construction | 16 | The lane-disable branch of each `common_sdp_ram` copy (14: one lane, always enabled, [`common_sdp_ram.sv`](../../../../src/rtl/common/ram/common_sdp_ram.sv) line 45); the `default` arm of the register engine's state ([`pcie_tl_reg.sv`](../../../../src/rtl/tl/pcie_tl_reg.sv) line 141), which only the unused fourth code of the 2-bit `t_reg_st` would reach; the hold arm of the tag array's flop, whose enable is the constant 1 ([`pcie_tl_trk.sv`](../../../../src/rtl/tl/pcie_tl_trk.sv) line 250). |
+| Outside the input contract | 4 | The `dll` drops every TLP with more than 128 bytes of data ([ROUTING.md](../../arch/tl/ROUTING.md)), so no TLP reaches `tl` with 64 or more beats or with Length 0 and data (1024 DWs): the receive beat counter's saturation ([`pcie_tl_rx.sv`](../../../../src/rtl/tl/pcie_tl_rx.sv) line 79, two copies), the tracker's Length 0 decode and its beat counter's saturation (`pcie_tl_trk.sv` lines 110 and 129). |
+| Not reached in that parameter set | 4 | In the copies of `rx_random_min_credits` and `rx_random_long_params`, which send no completions, the rc line's arm on a completion ([`pcie_tl_rx_q.sv`](../../../../src/rtl/tl/pcie_tl_rx_q.sv) line 93, hit in the default copy), and the release of owed non-posted data above 8 (line 249), unreachable with `FC_NPD` 2 and 3 (`rx_np_collide` reaches it). |
+
+The 11609 toggle points not hit, by cause:
+
+| Cause | Points | Signals |
+| --- | ---: | --- |
+| Hit in another parameter set | 8160 | The same bit and direction toggles in another parameter set's copy (for example, the queue sizes, credit counters and BAR0 offset bits of the other credit configurations). |
+| Constant by construction | 2060 | The `'0` templates and their unset fields (`judged`, `pw`, `e_pme`, `e_msg`, `e_rq`, `nd_none`, `cf_nd_desc`); fields filled later in the path (the epoch field of the receive entries before `u_rx_q` sets it, the descriptor epoch before `u_rc` sets it); fields the request kinds fix (locked, TC, Attr and kind on the cfg line, the routing rule); encodings never produced (completion status bits of the cc and cfg completions, message code bits, the tracker's error bits 0, 1 and 3, completion Type bits); `COMMON_UNUSED_BITS` sinks. |
+| Address and header patterns | 642 | BAR0 offset bits above the BAR0 sizes the entries use (the queue field holds the largest, 256 MiB), DW-alignment bits 1:0, and header DW bits fixed by the TLP kinds sent and received (reserved, TH, TD, EP, AT; the Requester ID's function bits). |
+| Queue fill and owed credits | 302 | The full flags and the fill counters' top bits of the receive queues, the transmit posted data queue and the rc queues, and the owed-credit counters' top bits: a credit-correct host never fills a queue ([MAS, receive queues](../../rtl/tl/MAS.md#receive-queues)). |
+| Length and count top bits | 275 | Length, beat, index, Byte Count and split-count fields above what the 128-byte maximum payload and the 4 KiB read limit reach. |
+| RAM storage | 170 | Words and lanes of the queue RAMs no entry reaches (the write lanes are constant), and the matching flat queue heads. |
+
+How the toggle points were sorted, so a re-measurement reproduces the
+counts: a point is "hit in another parameter set" when the same file,
+hierarchy, signal bit and direction is hit in any copy. The rest go by
+signal name, in this order: `common_sdp_ram.sv` and a `pcie_tl_fifo.sv`
+`head_o` or `push_data_i` to the RAM row; the templates above, the fields
+`locked`, `tc`, `attr`, `rrr`, `mem`, `fixed4` and `kind`, the `ep` field
+of `pq_ent`, `cq_ent`, `cfg_ent`, `cqe_ent`, `cfge_ent` and of the
+descriptors before `u_rc`, `unused`, `status`, `code`, `typ`, `err` and
+`failed` to the constant row; other epoch signals (`ep`, `ep_*`, `*_ep`)
+would form an epoch row, now empty; `addr`, `my_id`, `bus`, `dev`, `rid`,
+`id`, `tag`, `dw0` to `dw3`, `la`, `data` and `wdata` to the address row;
+`full`, `used`, `in_ram`, `owe_*`, `rel_npd` and `add_d` to the fill row;
+`len`, `idx`, `beat`, `bc`, `k`, `left`, `n`, `lfield`, `hdr_end`,
+`total`, `m_last`, `reg_num` and `rel_d` to the length row.

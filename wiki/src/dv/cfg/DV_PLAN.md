@@ -154,19 +154,46 @@ unchanged since); M24 to M27 are the slot power capture of
 
 ## Gaps
 
-| Feature | Owning issue |
-| --- | --- |
-| Enumeration end to end against the independent host model | [#293](https://github.com/amichai-bd/pcie-factory/issues/293) |
-| Coverage floors | [#282](https://github.com/amichai-bd/pcie-factory/issues/282) (wave 3) |
+None. Enumeration end to end against the independent host model is the
+[`core` plan's](../core/DV_PLAN.md) `e2e_enumeration` and
+`e2e_enumeration_max` ([#293](https://github.com/amichai-bd/pcie-factory/issues/293));
+the coverage floors are set ([#294](https://github.com/amichai-bd/pcie-factory/issues/294)).
 
 ## Coverage holes
 
-Merged over levels 0 to 2 (`--ip cfg --coverage`): line 98.1%, functional 100%,
-toggle 64.5%.
+Floors in [`level2.yaml`](../../../../src/dv/cfg/regress/level2.yaml),
+checked by every `--coverage` run that selects level 2 (the nightly runs
+levels 0 to 2): line 97.4, toggle 64.4, functional 100. Merged over levels
+0 to 2 ([#294](https://github.com/amichai-bd/pcie-factory/issues/294)):
+line 97.92% (1038 of 1060 points), toggle 64.94% (25020 of 38528),
+functional 100% (148 of 148 bins in the six covergroups the level file
+names). The line and toggle floors are the merged values less 0.5 points,
+rounded down to a tenth ([floor margin](../../../bkm/dv.md#coverage)).
 
-- **Line**, a tool artefact: the `COMMON_UNUSED_BITS` lint sink in
-  `pcie_cfg_regs.sv` has no simulated activity.
-- **Toggle**, by construction: the high bits of 64-bit addresses and
-  32-bit table data the tests write with few patterns, constant parameter
-  outputs of the testbench (`cfg_params_o`), unused RAM words above
-  `MSIX_TABLE_SIZE` and the RAM's storage array.
+Verilator keeps one copy of each block per parameter set, so the six
+parameter sets of the entries count each block up to six times. The 22
+line points not hit, by cause:
+
+| Cause | Points | Where |
+| --- | ---: | --- |
+| Hit in another parameter set | 22 | `bar2_map_64` is the only entry of its parameter set (`MSIX_TABLE_SIZE` 64 alone) and makes BAR2 accesses only: no configuration write reaches the write arm of any register ([`pcie_cfg_regs.sv`](../../../../src/rtl/cfg/pcie_cfg_regs.sv) lines 83 to 109, the bus and device capture at 112 and 113, the RW1C clears at 122 and 124), no slot power event (line 155), and no configuration read (the read register's enable, [`pcie_cfg.sv`](../../../../src/rtl/cfg/pcie_cfg.sv) line 134): 20 points. `regmap_params` and `enumeration_params`, which share a copy, write no PowerState (line 93) and send no slot power event (line 155): 2 points. Each arm is hit in the default copy and does not depend on the parameters. |
+
+The 13508 toggle points not hit, by cause:
+
+| Cause | Points | Signals |
+| --- | ---: | --- |
+| Hit in another parameter set | 5522 | The same bit and direction toggles in another parameter set's copy (for example, the registers of `bar2_map_64`'s copy, which no configuration write reaches, and the table address bits above a smaller table). |
+| Constant by construction: bits outside a register's writable mask | 7770 | Each header and capability register is held in a 32-bit flop whose bits outside its writable mask (`RW_*` in [`pcie_cfg_pkg.sv`](../../../../src/rtl/cfg/pcie_cfg_pkg.sv)) never change ([REGISTERS.md](../../arch/cfg/REGISTERS.md), [CAPS.md](../../arch/cfg/CAPS.md)): the `*_q` and `*_d` registers, the write masks and RW1C clears, BAR0 and BAR2 bits 11:0 (`bar*_base_o`), MSI and MSI-X address bits 1:0 and their copies in the offer path (`msi_addr`, `addr_lo`, `msg_addr_o`). Checked bit by bit against the masks. |
+| The MSI-X table RAM | 192 | Word 1 of the one-vector build's two-word RAM (`MSIX_TABLE_SIZE` 1), above the table, never written ([HAS, Reset](../../arch/cfg/HAS.md#reset)). |
+| Constant nets | 22 | `err_sts.sse` and `sts_set_o.sse` (Signaled System Error is set from `sse_set`, not from the error block) and the `COMMON_UNUSED_BITS` sink `unused_clr`. |
+| Not reached | 2 | `app_bit[61]` in the 64-vector copy of `pcie_cfg_msg`: no 64-vector entry's coverage run requests vector 61 (random vectors). One bit of the request decode: the `cfg_irq` bins hold and the 64-vector entries request other vectors, so another coverage seed is not worth its cost. |
+
+How the toggle points were sorted, so a re-measurement reproduces the
+counts: a point is "hit in another parameter set" when the same file,
+hierarchy, signal bit and direction is hit in any copy. The rest go by
+signal name: the RAM row for `common_sdp_ram.sv`; the mask row for the
+register flops (`cmd`, `cls`, `bar0`, `bar2`, `intline`, `pmcsr`, `msictl`,
+`msilo`, `msihi`, `msidat`, `msix`, `devctl`, `lnkctl`, `devctl2`, each
+`_q` and `_d`), `pm_rw`, `clr_*`, `sts_hdr`, `sts_dev`, `bar*_base`,
+`msi_addr`, `addr_lo`, `msg_addr_o` and `.addr`; the constant row for
+`.sse` and `unused`.
