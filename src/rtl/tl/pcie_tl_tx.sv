@@ -51,7 +51,7 @@ module pcie_tl_tx (
   output logic [31:0]                 tlp_tx_data_o,
   output logic                        tlp_tx_sop_o,
   output logic                        tlp_tx_eop_o,
-  // An rq read's sop beat taken by the link (to the tracker, #292)
+  // An rq read's sop beat taken by the link (to the tracker)
   output logic                        rq_sent_o,
   output logic [2:0]                  rq_sent_tag_o
 );

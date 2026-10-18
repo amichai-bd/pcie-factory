@@ -114,7 +114,8 @@ def parse(tlp: bytes) -> dict:
          "length": (((b[2] & 3) << 8) | b[3]) or 1024}
     hdr = 16 if fmt & 1 else 12
     h["hdr_bytes"] = hdr
-    h["data"] = tlp[hdr:] if fmt & 2 else b""
+    # Length DWs of data; a digest DW after them (TD 1) is not data (TLP.md, TD).
+    h["data"] = tlp[hdr:hdr + 4 * h["length"]] if fmt & 2 else b""
     if typ in (T_CPL, T_CPLLK):
         h.update(cid=(b[4] << 8) | b[5], status=b[6] >> 5, bcm=(b[6] >> 4) & 1,
                  bc=(((b[6] & 0xF) << 8) | b[7]) or 4096, rid=(b[8] << 8) | b[9],

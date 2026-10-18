@@ -57,6 +57,29 @@ Transmit (#291):
   then: posted requests in the order taken, rq reads in the order taken,
   each read's completions in order; and no non-posted request or
   completion before every posted request taken before it.
+
+Requester completions (#292):
+
+- The **host** answers each rq read the link takes with the completions a
+  correct completer may return (``legal_completions``), split at 64-byte
+  boundaries chosen at random, after a random latency; a test may change
+  them (``host_hook``: lose, poison, corrupt, add) or not answer at all.
+- The **application** issues each read with a tag not in use (it waits
+  while all eight are), takes ``rc`` beats with probability
+  ``rc_ready_p`` (none while ``rc_hold``), checks the stream contract and
+  frees the tag at the ``rc_done`` beat.
+- The **completion reference** (``models/pcie_tl_cpl_ref.py``, written
+  from the COMPLETIONS and APP pages) keeps each read taken on rq and
+  sent, judges each received completion when its third header DW arrives
+  (error bit exactly one cycle after its eop, the rc packet it makes),
+  checks ``tl_np_pending_o`` in every cycle and the timeout: bit 6 only
+  when a read is beyond 16 prescaler periods, every such read ending
+  then with one failed beat, and none outstanding at 17 periods. rc
+  packets come in arrival order, each never before the posted requests
+  received before its completion have left; a timeout's beat after its
+  read's other packets.
+- The **shadow** for completions is the architecture model's
+  ``Tracker.match``, fed the same reads; a disagreement fails the test.
 """
 
 from __future__ import annotations
@@ -76,6 +99,7 @@ _DV = Path(__file__).resolve().parents[1]
 sys.path.append(str(_DV / "models"))
 sys.path.append(str(_DV.parents[1] / "arch" / "tl"))
 import pcie_tl_arch as arch  # noqa: E402
+import pcie_tl_cpl_ref as cref  # noqa: E402
 import pcie_tl_rx_ref as ref  # noqa: E402
 import pcie_tl_tx_ref as txr  # noqa: E402
 
@@ -93,8 +117,6 @@ CR_UR, CR_CFG_WR, CR_CFG_RD, CR_BAR2_RD = range(4)
 RESET_ZERO = ("tlp_tx_valid_o", "tlp_rx_ready_o", "fc_rel_p_o", "fc_rel_np_o", "reg_req_valid_o",
               "tl_err_o", "tl_np_pending_o", "slot_pwr_valid_o", "msg_ready_o", "cq_valid_o",
               "cc_ready_o", "rq_ready_o", "rc_valid_o")
-# Outputs of the block not built yet (#292): 0 in every cycle.
-UNBUILT_ZERO = ("tl_np_pending_o", "rc_valid_o")
 # Credit field widths (dll credits available): all ones is infinite.
 CR_MAX = {"h": 0xFF, "d": 0xFFF}
 
@@ -129,6 +151,17 @@ COV_TX.coverpoint("event", ("posted_passes_np", "cpl_interleave", "credit_wait_p
                             "credit_wait_np", "credit_wait_cpl", "tx_stall", "cc_wait",
                             "cc_gap", "rq_blocked", "msg_withdrawn", "msg_wait",
                             "two_posted_one_edge", "completion_after_posted"))
+CPL_CASES = ("partial", "last", "ur", "ca", "reserved", "crs", "mal_no_data", "mal_byte_count",
+             "mal_lower_address", "mal_past_end", "mal_boundary", "poisoned", "poisoned_last",
+             "failed_more", "failed_last", "unexpected_locked", "unexpected_rid",
+             "unexpected_tag_high", "unexpected_no_read", "unexpected_unsent")
+COV_CPL = Covergroup("tl_cpl")
+COV_CPL.coverpoint("case", CPL_CASES)
+COV_CPL.coverpoint("split", {"one": 1, "two": 2, "three": 3})
+COV_CPL.coverpoint("event", ("tags_exhausted", "timeout", "timeout_after_data",
+                             "timeout_disabled", "late_completion", "rc_stall",
+                             "rc_waits_posted", "rc_interleave", "digest", "rc_full_reads"))
+TIMEOUT_BIT = cref.TIMEOUT
 
 
 def unpack(value: int, fields) -> dict:
@@ -147,7 +180,9 @@ class TlEnv:
     def __init__(self, dut, seed: int, *, regs: ref.Regs | None = None, cq_ready_p: float = 1.0,
                  reg_ready_p: float = 1.0, reg_lat: int = 2, gap_p: float = 0.0,
                  tx_ready_p: float = 1.0, cc_lat: int = 8, cc_gap_p: float = 0.0,
-                 rq_gap_p: float = 0.0, credits: dict | None = None, cr_lat: int = 20):
+                 rq_gap_p: float = 0.0, credits: dict | None = None, cr_lat: int = 20,
+                 rc_ready_p: float = 1.0, host_lat: tuple[int, int] = (4, 40),
+                 host_split_p: float = 0.5):
         self.dut = dut
         self.log = dut._log
         self.rng = random.Random(seed)
@@ -164,6 +199,21 @@ class TlEnv:
         self.credits = {"P": (16, 64), "NP": (8, 8), "CPL": None, **(credits or {})}
         self.cr_lat = cr_lat
         self.cr_hold: set[str] = set()
+        # Requester completions: the application's rc side and the host.
+        self.rc_ready_p = rc_ready_p
+        self.rc_hold = False                  # the application takes no rc beat
+        self.host_lat = host_lat              # cycles from a read sent to its first completion
+        self.host_split_p = host_split_p      # chance of a cut at each 64-byte boundary
+        self.host_answer = True               # the host answers reads
+        self.host_hook = None                 # (env, tag, read, [tlp]) -> [tlp]: a test's changes
+        self.dis = False                      # cpl_timeout_dis_i
+        self.dis_last = -(1 << 40)            # last cycle it was driven 1
+        self.div = 1024                       # CPL_TIMEOUT_DIV, from cfg_o
+        self.tmo_cycles: list = []            # cycles from sent to timeout, per read timed out
+        self.cpl_cases: list = []             # every completion's case
+        self.rc_ready = False                 # this cycle's rc_ready_i
+        self.rc_ends: list = []               # (tag, rc_status_o) of every rc_done beat
+        self.cpl_splits: list = []            # successful completions per read finished
         self.cc_hold = False                  # the application answers no cq read
         self.bm_en = True                     # Bus Master Enable
         self.bus, self.dev = 0, 0             # captured by configuration writes
@@ -236,6 +286,20 @@ class TlEnv:
         self.msg_q: deque = deque()           # at reset), messages cfg will offer
         self.msg_drv = None                   # this cycle's msg offer
         self.last_cpl_req = None
+        # Requester completions.
+        self.cpl = cref.Reads(self.div)       # the completion reference
+        self.arch_trk = arch.Tracker(self.div)   # the shadow
+        self.cpl_judge: dict[int, list] = {}  # cycle of the third header DW -> completions
+        self.rc_exp: deque = deque()          # rc packets due, in arrival order
+        self.rc_tmo: dict[int, cref.Packet] = {}  # tag -> its timeout beat due
+        self.rc_cur = None                    # the rc packet being taken
+        self.rc_prev = None                   # last cycle's rc offer, not taken
+        self.rc_last_tag = None
+        self.rq_tags: set[int] = set()        # tags in use (rq sop to rc_done)
+        self.read_req: dict[int, dict] = {}   # tag -> the read issued
+        self.host_due: list = []              # (cycle, completion) the host will send
+        self.parts_ok: dict[int, int] = {}    # tag -> successful completions delivered
+        self.timed_out: set[int] = set()      # tags whose last read timed out (late completions)
 
     def set_regs(self, **kw) -> None:
         """Change the register state; only while nothing is in flight, so
@@ -288,13 +352,17 @@ class TlEnv:
                    "npd": (cfg >> 16) & 0xFFF}
         self.bar0_w = cfg & 0x1F
         self.regs.bar0_addr_w = self.bar0_w
+        self.div = (cfg >> 5) & 0x7FF
+        self.cpl = cref.Reads(self.div)
+        self.arch_trk = arch.Tracker(self.div)
 
     def send(self, tlp: bytes) -> None:
         self.txq.append(tlp)
 
     def request(self, write: bool, addr: int, length: int, fbe: int = 0xF, lbe: int | None = None,
-                tag: int = 0, data=None) -> None:
-        """Queue an rq request (APP requester requests)."""
+                tag: int | None = 0, data=None) -> None:
+        """Queue an rq request (APP requester requests). A read waits while
+        its tag is in use; ``tag`` None takes a free one."""
         if lbe is None:
             lbe = 0 if length == 1 else 0xF
         if write and data is None:
@@ -336,11 +404,18 @@ class TlEnv:
     def _drained(self, stuck: int) -> bool:
         if (self.txq or self.beats or self.cq_writes or self.cfg_jobs or self.bar2_writes
                 or self.posted or self.access or self.pme or self.cpl_beats or self.err_at
-                or self.spl_at or self.cq_pkt or not self._tx_idle(True)):
+                or self.spl_at or self.cq_pkt or not self._tx_idle(True)
+                or not self._rc_idle()):
             return False
         if len(self.cq_reads) != stuck:
             return False
         return self.np_rel == [self.np_rx[0] - stuck, self.np_rx[1]]
+
+    def _rc_idle(self) -> bool:
+        """No read outstanding, no completion due or arriving, nothing left
+        to deliver on rc."""
+        return not (self.cpl.pending() or self.cpl_judge or self.rc_exp or self.rc_tmo
+                    or self.rc_cur or self.host_due or self.rq_tags)
 
     async def link_down(self, cycles: int = 4) -> None:
         """dl_up_i low: tl drops everything (HAS, reset); so do the host, the
@@ -412,6 +487,16 @@ class TlEnv:
         self.id_driven = self.my_id
         d.bus_master_en_i.value = int(self.bm_en)
         d.tlp_tx_ready_i.value = int(self.rng.random() < self.tx_ready_p)
+        # Requester completions: the disable, the application's rc side, the host.
+        d.cpl_timeout_dis_i.value = int(self.dis)
+        if self.dis:
+            self.dis_last = self.cycle
+        self.rc_ready = not self.rc_hold and self.rng.random() < self.rc_ready_p
+        d.rc_ready_i.value = int(self.rc_ready)
+        if not self._in_reset():
+            for due, tlp in [x for x in self.host_due if x[0] <= self.cycle]:
+                self.host_due.remove((due, tlp))
+                self.txq.append(tlp)
         for c, h, dd in [x for x in self.cr_back if x[0] <= self.cycle and x[1] not in self.cr_hold]:
             self.cr_back.remove((c, h, dd))
             if self.cr_avail[h] is not None:          # a test may have made it infinite
@@ -462,7 +547,18 @@ class TlEnv:
     def _drive_rq(self) -> None:
         d = self.dut
         if self.rq_cur is None and self.rq_q and not self._in_reset():
-            self.rq_cur = {"req": self.rq_q.popleft(), "k": 0}
+            req = self.rq_q[0]
+            if not req["write"]:
+                # A read takes a tag not in use (APP); it waits while none is.
+                free = [t for t in range(8) if t not in self.rq_tags]
+                if len(free) == 0:
+                    COV_CPL.sample(event="tags_exhausted")
+                if req["tag"] is None and free:
+                    req["tag"] = self.rng.choice(free)
+                if req["tag"] is None or req["tag"] in self.rq_tags:
+                    free = None
+            if req["write"] or free is not None:
+                self.rq_cur = {"req": self.rq_q.popleft(), "k": 0}
         self.rq_drv = None
         if self.rq_cur is not None and not self._in_reset():
             c, req = self.rq_cur, self.rq_cur["req"]
@@ -483,7 +579,7 @@ class TlEnv:
         d.rq_len_i.value = req["len"]
         d.rq_first_be_i.value = req["fbe"]
         d.rq_last_be_i.value = req["lbe"]
-        d.rq_tag_i.value = req["tag"]
+        d.rq_tag_i.value = req["tag"] or 0
 
     def _drive_msg(self) -> None:
         d = self.dut
@@ -531,6 +627,10 @@ class TlEnv:
         self.beats.extend((b, int(i == 0), int(i == n - 1)) for i, b in enumerate(beats))
         # The eop is driven n - 1 cycles from now; its error pulse one after.
         self._expect(tlp, self.cycle + n)
+        if cls == "CPL" and ref.judge(tlp, self.regs).outcome == "cpl":
+            # The tracker judges it when its third header DW arrives.
+            self.cpl_judge.setdefault(self.cycle + 2, []).append(
+                {"tlp": tlp, "err_cycle": self.cycle + n, "p_before": self.p_rx})
 
     def _expect(self, tlp: bytes, err_cycle: int) -> None:
         v = ref.judge(tlp, self.regs)
@@ -619,15 +719,16 @@ class TlEnv:
                 if self._val(name):
                     raise TlError(f"cycle {t}: {name} is {self._val(name)} in reset")
             return
-        for name in UNBUILT_ZERO:
-            if self._val(name):
-                raise TlError(f"cycle {t}: {name} is {self._val(name)}; its block is not built")
         if not self._val("tlp_rx_ready_o"):
             raise TlError(f"cycle {t}: tlp_rx_ready_o 0 with the data link up")
         self.p_taken_prev = self.p_taken
+        self._check_pending(t)
+        self._check_timeout(t)
         self._check_err(t)
+        self._judge_cpls(t)
         self._check_slot_power(t)
         self._check_release(t)
+        self._check_rc(t)
         self._check_cpl_beats(t)
         cq_read_take = self._check_cq(t)
         np_leave = self._check_reg(t)
@@ -664,10 +765,173 @@ class TlEnv:
         self._check_tx(t)
 
     def _check_err(self, t: int) -> None:
-        got = self._val("tl_err_o")
+        got = self._val("tl_err_o") & ~(1 << TIMEOUT_BIT)     # bit 6: _check_timeout
         want = self.err_at.pop(t, 0)
         if got != want:
             raise TlError(f"cycle {t}: tl_err_o expected {want:#05x} got {got:#05x}")
+
+    # ------------------------------------------------ requester completions
+    def _check_pending(self, t: int) -> None:
+        """tl_np_pending_o: 1 while a read taken on rq awaits its final
+        completion or its timeout (COMPLETIONS.md, non-posted pending)."""
+        want = self.cpl.pending()
+        if bool(self._val("tl_np_pending_o")) != want:
+            raise TlError(f"cycle {t}: tl_np_pending_o {self._val('tl_np_pending_o')}, reads "
+                          f"outstanding {sorted(self.cpl.reads)}")
+
+    def _check_timeout(self, t: int) -> None:
+        """Bit 6 (COMPLETIONS.md, completion timeout): only when a read is
+        beyond 16 prescaler periods; every such read ends now with one
+        failed beat; none is still outstanding at 17 periods."""
+        if self._val("tl_err_o") >> TIMEOUT_BIT & 1:
+            due = self.cpl.due(t, self.dis_last)
+            if not due:
+                raise TlError(f"cycle {t}: completion timeout with no read beyond "
+                              f"{self.cpl.window()[0]} cycles; outstanding "
+                              f"{ {k: r.sent for k, r in self.cpl.reads.items()} }")
+            for tag in due:
+                r = self.cpl.reads[tag]
+                self.tmo_cycles.append(t - self.cpl.start(r, self.dis_last))
+                if r.left < cref.read_bytes(r.length, r.fbe, r.lbe):
+                    COV_CPL.sample(event="timeout_after_data")
+                if self.dis_last > r.sent:
+                    COV_CPL.sample(event="timeout_disabled")
+                self.rc_tmo[tag] = self.cpl.timeout(tag)
+                self.arch_trk.reads.pop(tag, None)
+                self.timed_out.add(tag)
+                COV_CPL.sample(event="timeout")
+        over = self.cpl.overdue(t, self.dis_last)
+        if over:
+            raise TlError(f"cycle {t}: reads {over} not timed out {self.cpl.window()[1]} cycles "
+                          f"after they were sent (sent {[self.cpl.reads[k].sent for k in over]})")
+
+    def _judge_cpls(self, t: int) -> None:
+        """Completions whose third header DW arrives now: the reference's
+        verdict (its error one cycle after the eop, its rc packet), and the
+        architecture model's for the same reads."""
+        for c in self.cpl_judge.pop(t, []):
+            tlp = c["tlp"]
+            v = self.cpl.judge(tlp, self.id_driven)
+            self._cpl_shadow(tlp, v)
+            self.cpl_cases.append(v.case)
+            COV_CPL.sample(case=v.case)
+            if tlp[2] >> 7:
+                COV_CPL.sample(event="digest")
+            f = cref.fields(tlp)
+            if v.case.startswith("unexpected") and f["tag"] in self.timed_out:
+                COV_CPL.sample(event="late_completion")
+            if v.err is not None:
+                self.err_at[c["err_cycle"]] = self.err_at.get(c["err_cycle"], 0) | 1 << v.err
+            if v.packet is not None:
+                if self.p_rel < c["p_before"]:
+                    COV_CPL.sample(event="rc_waits_posted")
+                self.rc_exp.append({"pkt": v.packet, "p_before": c["p_before"]})
+                held = sum(len(e["pkt"].data) for e in self.rc_exp)
+                if held + (len(self.rc_cur["pkt"].data) if self.rc_cur else 0) >= 8 * 32:
+                    COV_CPL.sample(event="rc_full_reads")
+
+    def _cpl_shadow(self, tlp: bytes, v: cref.Verdict) -> None:
+        h = arch.parse(tlp)
+        res, bit = self.arch_trk.match(h, self.id_driven)
+        if isinstance(res, tuple):
+            got = (res[1], True)
+        else:
+            got = {"deliver": (cref.RC_OK, False), "done": (cref.RC_OK, True),
+                   "fail": (cref.RC_FAILED, True), "drop": None}[res]
+        want = None if v.packet is None else (v.packet.status, v.packet.done)
+        if (got, bit) != (want, v.err):
+            raise TlError(f"shadow disagrees on completion {tlp.hex()}: reference {want}/{v.err} "
+                          f"({v.case}), architecture model {res}/{bit}")
+
+    def _check_rc(self, t: int) -> None:
+        """The application's rc side (APP, requester completions): valid and
+        the beat held until taken, the header held from sop to eop; each
+        packet the next one due (a timeout's beat once its read has no
+        other packet due); never before the posted requests received before
+        its completion have left; the tag freed at rc_done."""
+        if not self._val("rc_valid_o"):
+            if self.rc_prev is not None:
+                raise TlError(f"cycle {t}: rc_valid_o dropped before its beat was taken")
+            return
+        f = {n: self._val(n) for n in ("rc_sop_o", "rc_eop_o", "rc_data_o", "rc_tag_o",
+                                       "rc_status_o", "rc_done_o")}
+        if self.rc_prev is not None and self.rc_prev != f:
+            raise TlError(f"cycle {t}: rc beat changed before it was taken: {self.rc_prev} to {f}")
+        if f["rc_sop_o"]:
+            if self.rc_cur is not None and self.rc_cur["k"]:
+                raise TlError(f"cycle {t}: rc sop inside a packet")
+            if self.rc_cur is None:
+                self.rc_cur = {"pkt": self._rc_next(t, f), "k": 0}
+        elif self.rc_cur is None:
+            raise TlError(f"cycle {t}: rc beat outside a packet")
+        pkt, k = self.rc_cur["pkt"], self.rc_cur["k"]
+        last = k == pkt.beats - 1
+        want = {"rc_sop_o": int(k == 0), "rc_eop_o": int(last), "rc_tag_o": pkt.tag,
+                "rc_status_o": pkt.status, "rc_done_o": int(last and pkt.done)}
+        got = {n: f[n] for n in want}
+        if got != want:
+            raise TlError(f"cycle {t}: rc beat {k} expected {want} got {got}")
+        if pkt.status == cref.RC_OK and f["rc_data_o"] != pkt.data[k]:
+            raise TlError(f"cycle {t}: rc tag {pkt.tag} beat {k} data expected "
+                          f"{pkt.data[k]:#010x} got {f['rc_data_o']:#010x}")
+        if not self.rc_ready:
+            self.rc_prev = f
+            COV_CPL.sample(event="rc_stall")
+            return
+        self.rc_prev = None
+        self.rc_cur["k"] += 1
+        if last:
+            self.rc_cur = None
+            if self.rc_last_tag is not None and self.rc_last_tag != pkt.tag and any(
+                    e["pkt"].tag == self.rc_last_tag for e in self.rc_exp):
+                COV_CPL.sample(event="rc_interleave")
+            self.rc_last_tag = pkt.tag
+            if pkt.status == cref.RC_OK:
+                self.parts_ok[pkt.tag] = self.parts_ok.get(pkt.tag, 0) + 1
+            if pkt.done:
+                parts = self.parts_ok.pop(pkt.tag, 0)
+                self.rc_ends.append((pkt.tag, pkt.status))
+                if pkt.status == cref.RC_OK:
+                    self.cpl_splits.append(parts)
+                    COV_CPL.sample(split=parts)
+                self.rq_tags.discard(pkt.tag)
+
+    def _rc_next(self, t: int, f: dict) -> cref.Packet:
+        """The packet an rc sop starts: the next one due in arrival order,
+        or a timeout's beat for a read with no other packet due."""
+        tag = f["rc_tag_o"]
+        if (f["rc_status_o"] == cref.RC_FAILED and tag in self.rc_tmo
+                and not any(e["pkt"].tag == tag for e in self.rc_exp)):
+            return self.rc_tmo.pop(tag)
+        if not self.rc_exp:
+            raise TlError(f"cycle {t}: rc packet {f} with none due")
+        e = self.rc_exp.popleft()
+        if self.p_rel < e["p_before"]:
+            raise TlError(f"cycle {t}: rc packet of tag {e['pkt'].tag} before posted request "
+                          f"{e['p_before'] - 1} received ahead of its completion left")
+        return e["pkt"]
+
+    def _host_answer(self, t: int, tag: int, my_id: int) -> None:
+        """The host's completions for a read the link took (COMPLETIONS.md:
+        what a correct completer may return), after its latency."""
+        req = self.read_req[tag]
+        if not self.host_answer:
+            return
+        lo = req["addr"] & ~63
+        cuts = [b for b in range(lo + 64, req["addr"] + 4 * req["len"], 64)
+                if self.rng.random() < self.host_split_p]
+        tlps = []
+        for p in cref.legal_completions(req["addr"], req["len"], req["fbe"], req["lbe"], cuts):
+            data = [self.rng.getrandbits(32) for _ in range(p["n"])]
+            tlps.append(ref.completion(byte_count=p["bc"], rid=my_id, tag=tag,
+                                       lower_addr=p["la"], data=data,
+                                       cid=self.rng.getrandbits(16)))
+        if self.host_hook is not None:
+            tlps = self.host_hook(self, tag, req, tlps)
+        due = t + self.rng.randint(*self.host_lat)
+        for x in tlps:
+            self.host_due.append((due, x))
+            due += self.rng.randint(0, 6)
 
     def _check_slot_power(self, t: int) -> None:
         """The slot power event (TL_CFG slot power limit): a pulse exactly
@@ -1044,6 +1308,12 @@ class TlEnv:
                         "dw_len": req["len"], "fbe": req["fbe"], "lbe": req["lbe"]}
                 if ctx != want:
                     raise TlError(f"cycle {t}: rq read context expected {want} got {ctx}")
+                self.rq_tags.add(req["tag"])
+                self.timed_out.discard(req["tag"])
+                self.read_req[req["tag"]] = req
+                self.cpl.take(req["tag"], req["addr"], req["len"], req["fbe"], req["lbe"])
+                self.arch_trk.reads[req["tag"]] = arch.Read(req["addr"], req["len"], req["fbe"],
+                                                            req["lbe"])
                 self.tx_np.append({"tlp": txr.mem_read(0, req["addr"], req["len"], req["fbe"],
                                                        req["lbe"], req["tag"]),
                                    "p_before": self.p_taken_prev, "tag": req["tag"], "t": t})
@@ -1158,6 +1428,11 @@ class TlEnv:
             if rq_sent and self.tx_np and self._val("probe_rq_sent_tag_o") != self.tx_np[0]["tag"]:
                 raise TlError(f"cycle {t}: rq_sent tag {self._val('probe_rq_sent_tag_o')}, "
                               f"expected {self.tx_np[0]['tag']}")
+            if rq_sent:
+                # Its timer starts and its completions may match from now.
+                tag = self._val("probe_rq_sent_tag_o")
+                self.cpl.sent(tag, t)
+                self.arch_trk.reads[tag].sent = t
         self.tx_cur["beats"].append(data)
         if eop:
             cur, self.tx_cur = self.tx_cur, None
@@ -1187,6 +1462,7 @@ class TlEnv:
             e = self.tx_np.popleft()
             if cur["p_sent"] < e["p_before"]:
                 raise TlError(f"cycle {t}: rq read passed a posted request taken before it")
+            self._host_answer(t, e["tag"], my)
             kind = "mrd64" if x[0] >> 5 & 1 else "mrd32"
         else:
             hit = None
