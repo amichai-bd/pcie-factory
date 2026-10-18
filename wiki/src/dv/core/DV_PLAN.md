@@ -120,15 +120,15 @@ payload over 2 bytes per cycle of line, against the `link` closed form
 | --- | --- | --- | --- |
 | Host writes in, 2000 | 0.8563 | 0.9993 | ≥ 0.98, ≥ 0.833 |
 | Application writes out, 2000 | 0.8563 | 0.9994 | ≥ 0.98, ≥ 0.833 |
-| Host reads, 1000, application answering in 16 cycles | 0.7929 | 1.0234 | ≥ 0.98, ≥ 0.745 |
-| Application reads, 1000 | 0.7739 | 0.9988 | ≥ 0.98, ≥ 0.745 |
-| Both ways, 1000 each | 0.7745 | 0.9996 | ≥ 0.98, ≥ 0.745 |
+| Host reads, 1000, application answering in 16 cycles | 0.7935 | 1.0241 | ≥ 0.98, ≥ 0.745 |
+| Application reads, 1000 | 0.7738 | 0.9988 | ≥ 0.98, ≥ 0.745 |
+| Both ways, 1000 each | 0.7752 | 1.0005 | ≥ 0.98, ≥ 0.745 |
 
 Host reads beat the both-ways closed form: their reverse direction
 carries only small read requests, not 128-byte writes. The architecture
 model's figures are in the [HAS targets](../../arch/core/HAS.md#targets):
 the RTL agrees with them within 0.002 but for host reads, which measure
-0.793 of the line against the model's 0.774 (both above the target; the
+0.794 of the line against the model's 0.774 (both above the target; the
 two hosts pace their reads differently). Link-up takes about 10300 cycles
 (`TIMEOUT_DIV` 1024) and the host model's enumeration about 3000.
 
