@@ -88,8 +88,8 @@ them with repeated `--level`.
 | Level | Contents | Budget | Runs |
 | --- | --- | --- | --- |
 | L0 | Smoke and fastest directed tests | 120 s of CPU for all IPs | Locally while developing; in `ci-gate` |
-| L1 | Full directed set, a few seeds | 600 s of CPU for all IPs; `ci-gate` (L0+L1 of affected IPs plus checks) targets 10 min | `ci-gate` |
-| L2 | Long tests, seed sweeps, FPGA and ASIC flows, metrics | 7200 s of CPU; nightly window | Nightly |
+| L1 | Each IP's RTL acceptance entries and fastest discriminating tests, a few seeds ([placement](dv.md#regression-lists)) | 1200 s of CPU for all IPs; `ci-gate` (L0+L1 of affected IPs plus checks) targets 10 min | `ci-gate` |
+| L2 | Long tests, seed sweeps, FPGA and ASIC flows, metrics | 9600 s of CPU; nightly window | Nightly |
 
 Budgets live in `cfg/levels.yaml` and are **CPU time**: the sum, over a
 level's tests, of each test's user plus system CPU time (its process tree,
@@ -104,6 +104,16 @@ changes; the warning is in the job summary, and the fix is to move or
 speed up tests, never to raise the budget silently.
 Measured for #166 with all IPs: L1 356.7 s of CPU against 600 s
 (134 tests at `32bb298`); L0 41.8 s against 120 s.
+
+The L1 and L2 budgets were raised on 2026-10-18 (captain decision on
+[#272](https://github.com/amichai-bd/pcie-factory/issues/272#issuecomment-6242089772))
+after speed-ups and rebalancing: measured with all IPs and coverage at
+`697d896`, L0 112.5 s, L1 1006.3 s and L2 7958.2 s of CPU. L1 rose from
+600 s to 1200 s and L2 from 7200 s to 9600 s, the need plus about 20%.
+Restoring one directed entry to L1 then added 48.2 s, for an L1 of
+1054.5 s. A change to a single IP selects an affected L1 of 123 s to 577 s;
+a change to a widely shared block selects nearly every IP, about 1054 s,
+which the raised 1200 s budget covers.
 
 ## Local evidence
 
@@ -273,7 +283,8 @@ permissions and data PR mechanics:
    leave the host: the logs themselves stay in `workdir/` and are never
    uploaded as artifacts (publishability).
 3. Metrics: the per-commit series `wiki/tracker/data/commits.jsonl` and the
-   nightly record `wiki/tracker/data/<date>.json` (versioned schemas), and
+   run's own record `wiki/tracker/data/<date>T<HHMMSS>Z.json`, named by its
+   UTC start so a same-day rerun never overwrites one (versioned schemas), and
    the per-IP trend drop alerts (thresholds in `cfg/metrics.yaml`) in the
    job summary and on the tracker ([trends](../tools/metrics/SPEC.md#trends)).
 4. A data PR from branch `nightly/<date>`, labelled `type:data`, under the
@@ -287,12 +298,13 @@ permissions and data PR mechanics:
 
 ## Metrics
 
-Every trend is plotted against commits on `main`, in order. The data:
+Per-commit trends are plotted against commits on `main`, in order; nightly
+trends against every nightly run, in run order. The data:
 
 | File | Holds |
 | --- | --- |
 | `commits.jsonl` | One line per main commit: code stats of its tree and its push `ci-gate` result and duration. Appended nightly; the first run backfills history. |
-| `<date>.json` | One record per night, keyed by the main SHA it ran on. |
+| `<date>T<HHMMSS>Z.json` | One record per nightly run, named by its UTC start, naming the main SHA it ran on. |
 
 | Group | Metrics |
 | --- | --- |

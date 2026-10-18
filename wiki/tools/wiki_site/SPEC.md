@@ -205,7 +205,7 @@ the site reads it.
 | File | Holds |
 | --- | --- |
 | `data/commits.jsonl` | One JSON object per line, one line per commit on `main`, in commit order: `sha`, ISO `date`, `code` stats of that commit's tree (`total`, `kinds`, `ips`, `by_ext`, `by_dir`), and its push `ci-gate` run (`ci.conclusion`, `ci.duration_s`). |
-| `data/<date>.json` | One nightly record: `meta` (`date`, else the file stem; `commit`, the `main` SHA it ran on; `nightly.result`, `nightly.duration_s`), and the `code`, `github`, `health`, `tests`, `coverage`, `fpga`, `asic`, `arch` and `distributions` groups. |
+| `data/<date>T<HHMMSS>Z.json` | One nightly run's record (older ones `data/<date>.json`; any `*.json` but `commits.jsonl` is read as a record): `meta` (`started_at` and `generated_at`, the run time; `date`, else the file stem; `commit`, the `main` SHA it ran on; `nightly.result`, `nightly.duration_s`), and the `code`, `github`, `health`, `tests`, `coverage`, `fpga`, `asic`, `arch` and `distributions` groups. |
 
 Lines of code are a bucket's `code` count (non-blank, non-comment lines),
 else its `lines`. The nightly duration is `meta.nightly.duration_s` only; a
@@ -218,22 +218,30 @@ leaves its chart or table out, and unknown fields are ignored. Field paths
 live in one block at the top of `tracker.py`, so a schema change edits only
 that block. Problems, reported like link problems (fatal with `--strict`):
 unreadable JSON, a non-object record, an unsupported `schema_version`, a bad
-date or SHA, a repeated commit or date (the later date file wins), an IP id that is not a safe
+date or SHA, a repeated commit, two files of one nightly run (same
+`meta.generated_at`; the later file wins), an IP id that is not a safe
 relative path (letters, digits, `_`, `.`, `-`, `/`-separated, no `..`), a
 record value containing a blank line (an empty or whitespace-only line under
 LF, CRLF or CR endings: it would end the page's HTML block, so it is rendered
 with its line breaks folded to spaces and reported once per page), and a source file at a
 generated page's path.
 
-**X axis.** Every trend plots against the commits of `commits.jsonl`, in
-`index` order when every line has one, else in file order, labelled by the
-first 7 hex digits of `sha` (the metrics SPEC's
-[consumer rule](../metrics/SPEC.md#consumers)), with SHA and date in the
-tooltip. All trends on a page share one x range, from the first to the last
-commit any of them plots, so they line up vertically. A nightly record sits at the commit it
-ran on (`meta.commit`); a record whose commit is not in the series is
-ignored. Without `commits.jsonl`, the nightly records' SHAs, in date order,
-form the axis.
+**X axes.** A trend sits on one of two axes. Commit-series trends (code
+and CI from `commits.jsonl`) plot against its commits, in `index` order when
+every line has one, else in file order, labelled by the first 7 hex digits
+of `sha` (the metrics SPEC's [consumer rule](../metrics/SPEC.md#consumers)),
+with SHA and date in the tooltip. Nightly trends plot against the **run
+axis**: one slot per nightly run, every record, in the metrics tool's
+[run order](../metrics/SPEC.md#trends), labelled by the run's UTC start
+(`YYYY-MM-DD HH:MM`, else its date), with the commit it ran on in the
+tooltip. So two runs on one day, or on one commit, are two points, and a
+run on a commit older than any window still shows. The trends of a page on
+one axis share one x range, from the first to the last commit or run any of
+them plots, so they line up vertically. A record whose commit
+(`meta.commit`) is not in `commits.jsonl` is ignored (a test run on another
+branch); without `commits.jsonl` every record is kept. The page data
+carries `axis` and `xrange` for commits, `runs` and `run_xrange` for runs,
+and each trend names its `axis` (`commit` or `run`).
 
 **`/tracker/`** is the compact status overview. It begins with links to the
 full detailed metrics and per-IP pages, then the nightly snapshot's own date
@@ -255,9 +263,10 @@ its own date/commit label, separate from the nightly snapshot.
 failures first, then coverage failures, physical timing gaps and
 [drop alerts](#drop-alerts), then missing summary evidence. Negative ASIC WNS remains visible even when its flow
 passed; attention items link to the relevant evidence. At most five items
-appear, with a count and link to the full attention list on Detailed stats. Two compact runtime charts show CI and nightly on the latest 30
-main commits, with at most four x-axis tick labels and accessible data
-tables. Per-IP links complete the view.
+appear, with a count and link to the full attention list on Detailed stats. Two compact runtime charts show CI on the latest 30
+main commits and nightly over every nightly run (the run axis, so no
+nightly drops out of a commit window), with at most four x-axis tick labels
+and accessible data tables. Per-IP links complete the view.
 
 **`/tracker/details/`** preserves the full catalogue below, plus cadence and
 data interpretation links. Existing per-IP pages retain their content.
@@ -268,11 +277,11 @@ data interpretation links. Existing per-IP pages retain their content.
 | Latest vs 7 and 30 days ago | Each metric's latest value against the last point dated at least 7 and 30 days earlier, with the difference. |
 | Code | LOC and files by kind, LOC per IP, lines-per-file and file-size histograms, and tables of the file-type distribution by extension and top-level directory with share bars. |
 | CI | `ci-gate` duration per commit, marked by result; duration histogram. |
-| Nightly and tests | Nightly duration marked by result; tests, failing tests and runtime per level; test runtime histogram; slowest tests table. |
+| Nightly and tests | Nightly duration marked by result, a point per run; tests, failing tests and runtime per level; test runtime histogram; slowest tests table (newest run). |
 | Coverage | Line, toggle and functional coverage (`coverage.ips.<ip>.<metric>.pct`), one chart per metric with a series per IP; the mutant score, a series per IP, where records carry it ([metrics spec](../metrics/SPEC.md#trends)). |
 | Issues and pull requests | Open issues and PRs, issues opened and closed and PRs merged in the trailing 7 days; histograms of issue time to close and to first response or claim, PR lead time, PR size and review rounds; open issues by label. |
 | FPGA, ASIC | One chart per metric with a series per IP: LEs, registers, M9K blocks, worst-clock Fmax and setup slack; WNS, TNS, std-cell area, cells, max fanout and logic depth. |
-| Drop alerts | The thresholds, then every drop beyond its threshold over the nightly records, newest first, with IP, series, previous value and date, value, change and threshold; the latest record's drops are marked as alerts ([Drop alerts](#drop-alerts)). |
+| Drop alerts | The thresholds, then every drop beyond its threshold over the nightly runs, newest first, with the run, IP, series, previous value and its run, value, change and threshold; the latest run's drops are marked as alerts ([Drop alerts](#drop-alerts)). |
 | Architecture model | From `arch.ips.<ip>.scenarios`: a table of each IP and perf scenario's latest status and target-metric values; perf scenarios not passing, a series per IP, on a y axis from 0; and one chart per target metric with a series per IP and scenario (`<ip> / <scenario>`). A chart's unit is the one its metric name carries: the words after the first, less a trailing statistic (`latency_cycles_max` is in cycles). |
 
 The detailed page's legacy Nightly card takes `meta.nightly.result` (legacy
@@ -301,15 +310,15 @@ retired IP keeps its page.
 the thresholds are the metrics tool's
 ([`trends`](../metrics/SPEC.md#trends)); the site reads `drop_alerts` from
 `cfg/metrics.yaml` beside `wiki/` and applies the rule to the nightly
-records in axis order. Each alert (a drop at the latest record) is a warning
+records in run order, so consecutive runs are compared, not dates. Each alert (a drop at the latest record) is a warning
 in “Needs attention”, written as `<ip>: <series> dropped <previous> →
 <value> (<change>; threshold <t>)` and linking to the IP page's drop alerts.
 Without `cfg/metrics.yaml` alerts are off and the drop sections say so; a
 file that does not load is a problem and alerts are off.
 
 **Charts.** Each chart is a `<canvas>` with a caption naming the quantity and
-unit, an axis title on both axes, and a data table (the latest 30 points, or
-every bin) in a `<details>` below it, so values never depend on colour or
+unit, an axis title on both axes, and a data table (the latest 30 commits,
+every nightly run, or every bin) in a `<details>` below it, so values never depend on colour or
 JavaScript. A page's chart data is one inline JSON block; `wiki.js` loads the
 vendored Chart.js and `tracker.js` only on pages that have one, and redraws on
 a theme change. Colours are CSS custom properties: eight categorical slots
@@ -378,5 +387,5 @@ every change.
 | [`tools/cli/main.py`](../../../tools/cli/main.py) | `./build wiki` entry in `COMMANDS`. |
 | [`tools/wiki_site/tracker.py`](../../../tools/wiki_site/tracker.py) | Tracker rendering. |
 | [`tools/wiki_site/theme/`](../../../tools/wiki_site/theme/) | CSS, JS (`wiki.js`, `tracker.js`), vendored Mermaid and Chart.js, provenance. |
-| [`tools/wiki_site/tests/`](../../../tools/wiki_site/tests/) | Unit tests (pytest); synthetic tracker records in `fixtures/tracker/`; the drop-alert tests reuse the metrics trend history (`tools/metrics/tests/fixtures/trends/`): alerts on the landing, details and IP pages, an earlier drop kept as history, a flat history, retired and coverage-only IPs, and a missing or invalid configuration. |
+| [`tools/wiki_site/tests/`](../../../tools/wiki_site/tests/) | Unit tests (pytest); synthetic tracker records in `fixtures/tracker/`; the drop-alert tests reuse the metrics trend history (`tools/metrics/tests/fixtures/trends/`): alerts on the landing, details and IP pages, an earlier drop kept as history, a flat history, retired and coverage-only IPs, and a missing or invalid configuration; the run axis: a date-named record on a commit outside the landing window plus three runs on one day (two on one commit), every run a point on the details, landing and IP pages and a row in the data table, the newest run as the snapshot, drops between consecutive same-day runs, more runs than table rows, and one run in two files reported. |
 | [`.github/workflows/pages.yml`](../../../.github/workflows/pages.yml) | Build and deploy workflow. |

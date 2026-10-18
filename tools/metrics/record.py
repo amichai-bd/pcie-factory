@@ -324,8 +324,14 @@ def tool_versions() -> dict:
     return {k: (x if x and _VERSION.fullmatch(x) else None) for k, x in out.items()}
 
 
+def file_name(start: datetime) -> str:
+    """A run's record file name, `<date>T<HHMMSS>Z.json` of its start (UTC):
+    one file per run, sorting in run order."""
+    return f"{start.astimezone(timezone.utc):%Y-%m-%dT%H%M%SZ}.json"
+
+
 def meta_section(repo: Path, now: datetime, steps: dict[str, str], versions: dict,
-                 started: datetime | None = None) -> dict:
+                 started: datetime | None = None, run: tuple = (None, None)) -> dict:
     sha = git(repo, "rev-parse", "HEAD").decode().strip()
     cdate = git(repo, "show", "-s", "--format=%cI", "HEAD").decode().strip()
     result = None
@@ -334,6 +340,9 @@ def meta_section(repo: Path, now: datetime, steps: dict[str, str], versions: dic
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": iso(now),
+        "started_at": iso(started) if started else None,
+        "run_id": run[0],
+        "run_attempt": run[1],
         "date": now.strftime("%Y-%m-%d"),
         "commit": sha,
         "commit_short": sha[:12],
@@ -365,7 +374,8 @@ def file_distributions(files: list[FileStat]) -> dict:
 
 def build_record(*, repo: Path, workdir: Path, ip_ids: list[str], cfg: Config, now: datetime,
                  raw: dict | None, steps: dict[str, str], versions: dict,
-                 started: datetime | None = None, reader: TreeReader | None = None) -> dict:
+                 started: datetime | None = None, reader: TreeReader | None = None,
+                 run: tuple = (None, None)) -> dict:
     """Assemble the record; ``raw`` is None when GitHub collection is off."""
     reader = reader or TreeReader(repo, cfg)
     stats, files = reader.stats("HEAD")
@@ -384,7 +394,7 @@ def build_record(*, repo: Path, workdir: Path, ip_ids: list[str], cfg: Config, n
             if tests["status"] == "ok" else None}
     return {
         "schema_version": SCHEMA_VERSION,
-        "meta": meta_section(repo, now, steps, versions, started),
+        "meta": meta_section(repo, now, steps, versions, started, run),
         "code": code_section(stats, repo_counts(repo), raw),
         "github": gh_sections,
         "health": health,

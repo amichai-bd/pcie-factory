@@ -66,7 +66,7 @@ MUTANTS = [
     ("seeds", "Seeds: per the crc32 seed rule.", "", "no line states the seeds"),
     ("levels", "L1 10/10 passed", "L1 passed", "no 'L1 <passed>/<total>' result"),
     ("levels", "CPU 20.5 s, ", "", "no 'CPU <s> s' after L0"),
-    ("budget", "CPU 300.0 s", "CPU 700.0 s", "L1 CPU 700.0 s is over its 600 s budget"),
+    ("budget", "CPU 300.0 s", "CPU 1300.0 s", "L1 CPU 1300.0 s is over its 1200 s budget"),
     ("mutants", "| Mutant |", "| Change |", "no mutation table"),
     ("mutants", "| --- | --- | --- | --- | --- |\n", "", "mutation table has no separator row"),
     ("mutants", "| M1 | wrap at 14, not 15 | `wrap` | 7 | FAIL at cycle 42: count 14, "
@@ -104,13 +104,13 @@ def test_head_mismatch(rules, standard):
 
 
 def test_budget_overrun_with_explanation_passes(rules, standard):
-    body = GOOD.replace("CPU 300.0 s", "CPU 700.0 s").replace(
+    body = GOOD.replace("CPU 300.0 s", "CPU 1300.0 s").replace(
         "### Not run", "L1 budget: the new sweep adds 40 seeds (#20).\n\n### Not run")
     assert run(rules, standard, body) == ([], [])
 
 
 def test_budget_comes_from_cfg_levels(rules):
-    assert rules.budgets[1] == 600 and rules.budgets[0] == 120
+    assert rules.budgets[1] == 1200 and rules.budgets[0] == 120
 
 
 def test_mutants_only_for_mutation_paths(rules, standard):

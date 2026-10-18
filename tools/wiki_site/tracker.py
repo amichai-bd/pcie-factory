@@ -1,11 +1,14 @@
 """Render the metrics tracker from the records in `wiki/tracker/data/`.
 
 `wiki_site.py` calls `render()` when `wiki/tracker/index.md` exists. It reads
-`commits.jsonl` (one line per commit on main) and the nightly `<date>.json`
-records, and returns Markdown (headings plus raw HTML blocks) appended to
-that landing page, plus detailed stats and one generated page per IP. Every trend shares one
-x axis, main commits in order labelled by the first 7 hex digits of the SHA,
-and the trends of a page share one x range. Charts are `<canvas>`
+`commits.jsonl` (one line per commit on main) and the nightly records (one
+`<date>T<HHMMSS>Z.json` per run, older ones `<date>.json`), and returns
+Markdown (headings plus raw HTML blocks) appended to that landing page, plus
+detailed stats and one generated page per IP. Two x axes: commit-series
+trends plot against main commits in order, labelled by the first 7 hex
+digits of the SHA; nightly trends plot against every nightly run in run
+order, labelled by its UTC start. The trends of a page on one axis share one
+x range. Charts are `<canvas>`
 placeholders whose data travels in one inline JSON block per page;
 `assets/tracker.js` draws them with the vendored Chart.js. Every chart has a
 data table, so the page reads without JavaScript. Records are keyed on
@@ -41,7 +44,7 @@ LIST_ROWS = 20  # rows in open-PR / open-issue / slowest-test tables
 BLANK_LINE = re.compile(r"\n[ \t]*\n")  # ends a Markdown HTML block (line endings normalised to \n first)
 STALE_DAYS = 7  # an open issue with no activity for longer is stale
 CI_WINDOW = 20  # ci-gate pass rate window, in runs on main
-RECENT_COMMITS = 30  # landing trends only; full history stays in details
+RECENT_COMMITS = 30  # landing commit trends only; nightly runs are never windowed
 
 # Code kinds (cfg/metrics.yaml keys) in their fixed colour order: the first
 # SLOTS own their slot; later and unknown kinds (sorted) take a slot left free
@@ -126,16 +129,22 @@ def quantile(vals, q):
 # ------------------------------------------------------------------ records
 @dataclass
 class Point:
-    """One commit on the x axis, or one nightly record placed on it."""
-    idx: int  # position on the commit axis
+    """One commit on the commit axis, or one nightly run on the run axis."""
+    idx: int  # position on its axis
     sha: str
     date: str  # YYYY-MM-DD
     data: dict
+    run: str | None = None  # a nightly run's label, `YYYY-MM-DD HH:MM` (UTC); None for a commit
+
+    @property
+    def when(self) -> str:
+        return self.run or self.date
 
 
 @dataclass
 class Data:
-    axis: list[tuple[str, str]] = field(default_factory=list)  # (short sha, date)
+    axis: list[tuple[str, str]] = field(default_factory=list)  # commits: (short sha, date)
+    runs: list[tuple[str, str]] = field(default_factory=list)  # nightly runs: (label, short sha)
     commits: list[Point] = field(default_factory=list)
     nightly: list[Point] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
@@ -173,7 +182,7 @@ def _sha(data) -> str | None:
 
 
 def load(data_dir: Path) -> Data:
-    """Read commits.jsonl and every <date>.json under `data_dir`."""
+    """Read commits.jsonl and every nightly `*.json` record under `data_dir`."""
     d = Data()
     base = f"wiki/tracker/{DATA_DIR}"
     seen: dict[str, int] = {}
@@ -211,7 +220,9 @@ def load(data_dir: Path) -> Data:
     for i, p in enumerate(d.commits):
         p.idx = i
         d.axis.append((p.sha[:7], p.date))
-    nightly: dict[str, tuple[str, dict]] = {}
+    # One record per nightly run, in run order (the metrics `trends` rule):
+    # two files of one run are one record, the later file wins.
+    runs: dict[str, tuple[tuple, str, str, dict]] = {}
     for f in sorted(data_dir.glob("*.json")) if data_dir.is_dir() else []:
         rel = f"{base}/{f.name}"
         try:
@@ -221,33 +232,27 @@ def load(data_dir: Path) -> Data:
             continue
         if not _check(rel, data, d.problems):
             continue
-        raw = nightly_date(data) or f.stem
-        date = _date(raw)
+        date = trends.run_date(data, f.stem)
         if not date:
-            d.problems.append(f"{rel}: date {raw!r} is not YYYY-MM-DD")
+            d.problems.append(f"{rel}: date {nightly_date(data) or f.stem!r} is not YYYY-MM-DD")
             continue
-        if date in nightly:
-            d.problems.append(f"{rel}: a second record for {date}; the later file wins")
-        nightly[date] = (rel, data)
+        key = trends.run_identity(data, f.stem)
+        if key in runs:
+            d.problems.append(f"{rel}: a second record of the run in {runs[key][1]}; the later file wins")
+        runs[key] = (trends.run_order(data, f.stem), f.name, date, data)
     by_sha = {p.sha: p for p in d.commits}
-    extra = []
-    for date in sorted(nightly):
-        rel, data = nightly[date]
+    for _, name, date, data in sorted(runs.values(), key=lambda r: r[0]):
         sha = _sha(data)
         if not sha:
-            d.problems.append(f"{rel}: no main `sha`; left off the commit axis")
+            d.problems.append(f"{base}/{name}: no main `sha`; skipped")
             continue
         hit = by_sha.get(sha) or next((p for s, p in by_sha.items() if s.startswith(sha) or sha.startswith(s)), None)
-        if hit:
-            d.nightly.append(Point(hit.idx, hit.sha, date, data))
-        elif d.commits:
+        if d.commits and not hit:
             continue  # not a main commit in the series (e.g. a test run on another branch): ignored
-        else:
-            extra.append((date, sha, data))  # no commit history yet: nightly SHAs form the axis
-    for date, sha, data in extra:
-        d.nightly.append(Point(len(d.axis), sha, date, data))
-        d.axis.append((sha[:7], date))
-    d.nightly.sort(key=lambda p: (p.idx, p.date))
+        sha = hit.sha if hit else sha
+        label = trends.run_label(data, Path(name).stem)
+        d.nightly.append(Point(len(d.runs), sha, date, data, label))
+        d.runs.append((label, sha[:7]))
     return d
 
 
@@ -465,8 +470,9 @@ def bins(values: list[float], integer: bool) -> tuple[list[str], list[int]]:
 class Page:
     """Accumulates one page's Markdown and chart data."""
 
-    def __init__(self, axis: list[tuple[str, str]], where: str = "index.md"):
-        self.axis = axis
+    def __init__(self, d: "Data", where: str = "index.md"):
+        self.axis = d.axis
+        self.runs = d.runs
         self.where = f"wiki/tracker/{where}"
         self.charts: dict = {}
         self.parts: list[str] = []
@@ -498,9 +504,11 @@ class Page:
     def trend(self, cid: str, title: str, unit: str, series: list[dict], note: str = "",
               ymin: float | None = None) -> bool:
         """series: {label, color: 1..8 | status | None, points: [Point], get: data -> value,
-        line: bool, shape}. The first SLOTS series with a colour are drawn; any
-        other series with values is named in the note and kept in the data
-        table. Draws nothing and returns False without values."""
+        line: bool, shape}. The points are all commits (the commit axis) or all
+        nightly runs (the run axis). The first SLOTS series with a colour are
+        drawn; any other series with values is named in the note and kept in
+        the data table: the latest TABLE_ROWS commits, or every nightly run.
+        Draws nothing and returns False without values."""
         cols, extra = [], []
         for i, s in enumerate(series):
             pts = [(p, s["get"](p.data)) for p in s["points"]]
@@ -513,20 +521,31 @@ class Page:
             note = (note + " " if note else "") + (
                 f"{len(extra)} more series not drawn (no colour slot left): "
                 f"{', '.join(s['label'] for s, _ in extra)}; the data table has their values.")
+        on_runs = [p.run is not None for _, pts in cols + extra for p, _ in pts]
+        if any(on_runs) and not all(on_runs):
+            raise ValueError(f"chart {cid} mixes commits and nightly runs")
+        on_runs = on_runs[0]
         whole = all(float(v).is_integer() for _, pts in cols for _, v in pts)
-        self.charts[cid] = {"kind": "trend", "unit": unit, "integer": whole, "series": [
+        self.charts[cid] = {"kind": "trend", "axis": "run" if on_runs else "commit", "unit": unit,
+                            "integer": whole, "series": [
             {"label": s["label"], "color": str(s["color"]), "line": s.get("line", True),
              "shape": s.get("shape", "circle"), "points": [[p.idx, v] for p, v in pts]}
             for s, pts in cols]}
         if ymin is not None:
             self.charts[cid]["ymin"] = ymin
-        idxs = sorted({p.idx for _, pts in cols + extra for p, _ in pts})[-TABLE_ROWS:]
+        idxs = sorted({p.idx for _, pts in cols + extra for p, _ in pts})
         look = [{p.idx: v for p, v in pts} for _, pts in cols + extra]
-        rows = [[f"<code>{escape(self.axis[i][0])}</code>", escape(self.axis[i][1])]
-                + [escape(fmt(m.get(i))) for m in look] for i in reversed(idxs)]
-        head = ["Commit", "Date"] + [escape(s["label"]) for s, _ in cols] \
-            + [escape(s["label"]) + " (not drawn)" for s, _ in extra]
-        self._figure(cid, title, unit, note, table(head, rows), f"Data table (latest {len(idxs)} commits)")
+        if on_runs:
+            first_cells = [[escape(self.runs[i][0]), f"<code>{escape(self.runs[i][1])}</code>"] for i in idxs]
+            head, summary = ["Run (UTC)", "Commit"], f"Data table (every nightly run, {len(idxs)})"
+        else:
+            idxs = idxs[-TABLE_ROWS:]
+            first_cells = [[f"<code>{escape(self.axis[i][0])}</code>", escape(self.axis[i][1])] for i in idxs]
+            head, summary = ["Commit", "Date"], f"Data table (latest {len(idxs)} commits)"
+        rows = [cells + [escape(fmt(m.get(i))) for m in look]
+                for i, cells in reversed(list(zip(idxs, first_cells)))]
+        head += [escape(s["label"]) for s, _ in cols] + [escape(s["label"]) + " (not drawn)" for s, _ in extra]
+        self._figure(cid, title, unit, note, table(head, rows), summary)
         return True
 
     def histogram(self, cid: str, title: str, unit: str, values, factor: float, integer: bool,
@@ -546,11 +565,13 @@ class Page:
     def text(self) -> str:
         body = "\n\n".join(self.parts)
         if self.charts:
-            data = {"axis": [list(a) for a in self.axis], "charts": self.charts}
-            xs = [pt[0] for c in self.charts.values() if c["kind"] == "trend"
-                  for ser in c["series"] for pt in ser["points"]]
-            if xs:
-                data["xrange"] = [min(xs), max(xs)]  # every trend on the page shares it
+            data = {"axis": [list(a) for a in self.axis], "runs": [list(a) for a in self.runs],
+                    "charts": self.charts}
+            for axis, key in (("commit", "xrange"), ("run", "run_xrange")):
+                xs = [pt[0] for c in self.charts.values() if c["kind"] == "trend" and c["axis"] == axis
+                      for ser in c["series"] for pt in ser["points"]]
+                if xs:
+                    data[key] = [min(xs), max(xs)]  # every trend on the page on this axis shares it
             body += '\n\n<script type="application/json" id="tracker-data">' + script_json(data) + "</script>"
         return body + "\n"
 
@@ -575,7 +596,7 @@ def compare(rows: list[tuple[str, str, list[Point], object]]) -> str:
         now = get(latest.data)
         if now is None:
             continue
-        cells = [escape(label), escape(fmt(now, unit)) + f' <span class="tracker-when">{escape(latest.date)}</span>']
+        cells = [escape(label), escape(fmt(now, unit)) + f' <span class="tracker-when">{escape(latest.when)}</span>']
         for days in (7, 30):
             day = (dt.date.fromisoformat(latest.date) - dt.timedelta(days=days)).isoformat()
             then = at_or_before(points, day)
@@ -687,7 +708,7 @@ def duration_label(seconds) -> str:
 def snapshot(point: Point | None, label: str) -> str:
     if point is None:
         return f"{escape(label)}: no record yet"
-    return f"{escape(label)}: {escape(point.date)} · <code>{escape(point.sha[:7])}</code>"
+    return f"{escape(label)}: {escape(point.when)} · <code>{escape(point.sha[:7])}</code>"
 
 
 def flow_failed(m) -> bool:
@@ -796,16 +817,15 @@ def overview_section(p: Page, d: Data, ips: list[str], details: Page, alerts) ->
                '<a href="details/index.md">Inspect the full evidence →</a></p>')
     p.md("## Recent runtimes")
     p.html('<p class="tracker-asof">' + snapshot(d.commits[-1] if d.commits else None, "Commit data through")
-           + f" · latest {RECENT_COMMITS} main commits</p>")
+           + f" · CI: latest {RECENT_COMMITS} main commits · Nightly: every run ({len(d.nightly)})</p>")
     start = max(0, len(d.axis) - RECENT_COMMITS)
     p.html('<div class="tracker-runtime-grid">')
     for cid, label, points, duration, result in (
-        ("ci-duration", "CI", d.commits, ci_duration, ci_result),
+        ("ci-duration", "CI", [pt for pt in d.commits if pt.idx >= start], ci_duration, ci_result),
         ("nightly-duration", "Nightly", d.nightly, nightly_duration, nightly_result),
     ):
         if not p.trend(cid, f"{label} runtime", "minutes", status_series(
-                [pt for pt in points if pt.idx >= start], lambda r, duration=duration: scaled(duration(r), 1 / 60),
-                result, label)):
+                points, lambda r, duration=duration: scaled(duration(r), 1 / 60), result, label)):
             p.html(empty(f"No recent {label} runtime recorded."))
     p.html('</div>')
     for chart in p.charts.values():
@@ -884,7 +904,7 @@ def health_section(p: Page, d: Data) -> None:
     if issue_ages:
         p.md("### Open issues")
         p.histogram("hist-open-issue-age", "Open issue age", "days", issue_ages, 1, False,
-                    f"from the {d.nightly[-1].date} nightly")
+                    f"from the {d.nightly[-1].when} nightly")
 
 
 def _ages_days(group) -> list[float]:
@@ -920,7 +940,7 @@ def histograms(p: Page, d: Data, group: str) -> bool:
         point = src
         if point is None:
             continue
-        where = f"from the {point.date} record at {d.axis[point.idx][0]}"
+        where = f"from the {point.when} record at {point.sha[:7]}"
         drew |= p.histogram(f"hist-{key}", title, unit, dist(point.data, key), factor, integer, where)
     return drew
 
@@ -951,7 +971,7 @@ def code_section(p: Page, d: Data, ips: list[str]) -> None:
         shown = True
         total = sum(r[1] for r in rows) or 1
         rows.sort(key=lambda r: (-r[1], r[0]))
-        p.html(f'<p class="tracker-subhead">{escape(title)}, commit <code>{escape(d.axis[latest.idx][0])}</code></p>')
+        p.html(f'<p class="tracker-subhead">{escape(title)}, commit <code>{escape(latest.sha[:7])}</code></p>')
         p.html(table(["Name", "Files", "Share of files", "Lines"], [
             [f"<code>{escape(k)}</code>", escape(fmt(f)),
              f'<span class="tracker-share"><span class="tracker-share-bar" style="width:{f / total * 100:.1f}%">'
@@ -986,7 +1006,7 @@ def nightly_section(p: Page, d: Data) -> None:
         if isinstance(slow, list) else []
     good.sort(key=lambda t: -num(t.get("runtime_s")))
     if good:
-        p.html(f'<p class="tracker-subhead">From the {escape(n[-1].date)} nightly</p>')
+        p.html(f'<p class="tracker-subhead">From the {escape(n[-1].when)} nightly</p>')
         p.html(table(["IP", "Test", "Level", "Seed", "Runtime"], [
             [escape(str(t.get("ip", "–"))), f"<code>{escape(str(t.get('name', t.get('test', '–'))))}</code>",
              escape(level_label(str(t.get("level", "–")))), escape(str(t.get("seed", "–"))),
@@ -1021,7 +1041,7 @@ def flow_section(p: Page, d: Data) -> None:
     drew |= histograms(p, d, "prs")
     labels = issues_by_label(n[-1].data) if n else {}
     if labels:
-        p.html(f'<p class="tracker-subhead">Open issues by label ({escape(n[-1].date)})</p>')
+        p.html(f'<p class="tracker-subhead">Open issues by label ({escape(n[-1].when)})</p>')
         p.html(table(["Label", "Open"], [[f"<code>{escape(k)}</code>", escape(fmt(num(v)))]
                                          for k, v in sorted(labels.items())]))
         drew = True
@@ -1120,7 +1140,7 @@ def arch_section(p: Page, d: Data, ips: list[str]) -> None:
     n = d.nightly
     latest, rows = arch_table(n, ips, with_ip=True)
     if rows:
-        p.html(f'<p class="tracker-subhead">Perf scenarios, from the {escape(latest.date)} nightly</p>')
+        p.html(f'<p class="tracker-subhead">Perf scenarios, from the {escape(latest.when)} nightly</p>')
         p.html(table(["IP", "Scenario", "Status", "Target metrics"], rows))
     with_data = [ip for ip in ips if any(arch_scenarios(r.data, ip) for r in n)]
     drew = p.trend("arch-failing", "Perf scenarios not passing", "scenarios", [
@@ -1182,10 +1202,10 @@ def drops_section(p: Page, d: Data, alerts: Alerts, ip: str | None = None) -> No
         u = x.series.unit
         du = "pts" if u == "%" else u
         prev, at = d.nightly[x.before], d.nightly[x.at]
-        rows.append([escape(at.date) + (" " + badge("warning", "alert") if x.at == alerts.last else "")]
+        rows.append([escape(at.when) + (" " + badge("warning", "alert") if x.at == alerts.last else "")]
                     + ([] if ip else [f'<a href="../{IP_DIR}/{quote(x.ip)}/index.md">{escape(x.ip)}</a>'])
                     + [escape(x.series.label),
-                       escape(trends.fmt(x.previous, u)) + f' <span class="tracker-when">{escape(prev.date)}</span>',
+                       escape(trends.fmt(x.previous, u)) + f' <span class="tracker-when">{escape(prev.when)}</span>',
                        escape(trends.fmt(x.value, u)), escape(trends.fmt(x.change, du)),
                        escape(trends.fmt(x.threshold, du))])
     if not rows:
@@ -1195,7 +1215,7 @@ def drops_section(p: Page, d: Data, alerts: Alerts, ip: str | None = None) -> No
 
 
 def ip_page(ip: str, d: Data, alerts: Alerts) -> Page:
-    p = Page(d.axis, f"{IP_DIR}/{ip}/index.md")
+    p = Page(d, f"{IP_DIR}/{ip}/index.md")
     up = "../" * (ip.count("/") + 1)
     p.md(f"# {md_escape(ip)} metrics")
     p.html(f'<p>Per-IP view of the <a href="{up}../index.md">metrics tracker</a>; '
@@ -1270,7 +1290,7 @@ def ip_arch(p: Page, n: list[Point], ip: str) -> None:
     p.md("## Architecture model")
     latest, rows = arch_table(n, [ip], with_ip=False)
     if rows:
-        p.html(f'<p class="tracker-subhead">Perf scenarios, from the {escape(latest.date)} nightly</p>')
+        p.html(f'<p class="tracker-subhead">Perf scenarios, from the {escape(latest.when)} nightly</p>')
         p.html(table(["Scenario", "Status", "Target metrics"], rows))
     if not arch_trends(p, n, [ip], "ip-arch", per_ip=True) and not rows:
         p.html(empty("No architecture-model metrics yet for this IP."))
@@ -1292,7 +1312,7 @@ def ip_coverage(p: Page, n: list[Point], ip: str) -> None:
 
 
 def ip_index(ips: list[str], d: Data) -> Page:
-    p = Page(d.axis, f"{IP_DIR}/index.md")
+    p = Page(d, f"{IP_DIR}/index.md")
     p.md("# Per-IP metrics")
     p.html('<p>One page per IP named in the nightly records; back to the '
            '<a href="../index.md">metrics tracker</a>.</p>')
@@ -1326,18 +1346,19 @@ def render(data_dir: Path, cfg_dir: Path | None = None) -> tuple[str, dict[str, 
     thresholds, cfg_problems = drop_thresholds(cfg_dir)
     problems = d.problems + bad + cfg_problems
     alerts = Alerts.of(d, ips, thresholds)
-    p = Page(d.axis, "details/index.md")
+    p = Page(d, "details/index.md")
     p.md("# Detailed stats")
     p.html('<p><a href="../index.md">← Status overview</a> · '
            '<a href="../ip/index.md">Per-IP metrics</a></p>')
-    p.html('<p>Full history, comparisons and distributions. Trends share the main-commit axis; '
-           'each chart includes a data table. Code and CI are recorded per commit; tests, coverage, '
-           'physical results and repository health are nightly snapshots.</p>')
+    p.html('<p>Full history, comparisons and distributions. Code and CI are recorded per commit and '
+           'plotted against main commits; tests, coverage, physical results and repository health are '
+           'nightly snapshots, one per run, plotted against every nightly run in run order. '
+           'Each chart includes a data table.</p>')
     p.html('<p>The nightly adds records through a data-only pull request, and the site rebuilds '
            'after it merges. Updates can lag by a day. Records contain public counts and durations; '
            'only the nightly bot writes them. '
            '<a href="../../tools/wiki_site/SPEC.md#tracker">Data fields and interpretation</a>.</p>')
-    overview = Page(d.axis)
+    overview = Page(d)
     generated = {"details/index.md": p, f"{IP_DIR}/index.md": ip_index(ips, d)}
 
     def done():

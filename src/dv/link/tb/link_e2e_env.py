@@ -241,6 +241,13 @@ class LinkEnd:
         self.env, self.name, self.role = env, prefix.rstrip("_"), role
         self.dir = "ab" if self.name == "a" else "ba"           # what this end sends
         self.s = {n[len(prefix):]: getattr(dut, n) for n in dir(dut) if n.startswith(prefix)}
+        # Per-edge port access, the bulk of the bench's CPU time: read each
+        # output as an int straight from its binary string (the simulator is
+        # two-state, so every bit is 0 or 1), and write an input only when
+        # its value changes (the bench is the only writer of these ports).
+        self.rd = {n: (lambda f=h._handle.get_signal_val_binstr: int(f(), 2))
+                   for n, h in self.s.items()}
+        self._last: dict[str, int] = {}
         self.fc = fc                     # this end's FC_*, as advertised (0 infinite)
         self.any_inf = 0 in fc
         self.rng = random.Random(env.rng.getrandbits(32))
@@ -287,21 +294,21 @@ class LinkEnd:
     # -- one falling edge ----------------------------------------------------
 
     def edge(self, rxdet: bool, t: int) -> tuple[int, bool]:
-        s = self.s
+        rd = self.rd
         self.cycle += 1
         n = self.cycle
         rst_q = self.rst                  # rst_i as sampled at the rising edge just passed
         # Sample.
-        link_up = bool(int(s["link_up_o"].value))
+        link_up = bool(rd["link_up_o"]())
         if rst_q and n > 2:
             self._check_values(RESET_DLL, "in reset")
             self._check_values(RESET_PHY, "in reset")
         elif not link_up and not self.link_up and not rst_q:
             # The dll leaves DL_Active at the edge after it samples link_up_i 0.
             self._check_values(RESET_DLL, "while link_up_o is 0")
-        ltssm = int(s["ltssm_state_o"].value)
-        dl_state = int(s["dl_state_o"].value)
-        err = int(s["dl_err_o"].value)
+        ltssm = rd["ltssm_state_o"]()
+        dl_state = rd["dl_state_o"]()
+        err = rd["dl_err_o"]()
         if err:
             self.err_log.append((t, err))
             for b in range(7):
@@ -312,7 +319,7 @@ class LinkEnd:
                     if b in NEVER:
                         self.violations.append(f"end {self.name} cycle {n}: "
                                                f"{ERR_NAMES[b]} pulsed on dl_err_o")
-        self.rcv_err += int(s["rcv_err_o"].value)
+        self.rcv_err += rd["rcv_err_o"]()
         if self.live and (not link_up or dl_state != ACTIVE):
             if self.env.expect_down and not link_up:
                 self.live = False
@@ -339,42 +346,47 @@ class LinkEnd:
             self.env.on_active(self)
         self.link_up, self.ltssm, self.dl_state = link_up, ltssm, dl_state
         # The dll-to-phy packet stream (top taps).
-        if int(s["mon_pkt_rx_valid_o"].value):
-            self.ack.rx_beat(n, int(s["mon_pkt_rx_data_o"].value),
-                             bool(int(s["mon_pkt_rx_sop_o"].value)),
-                             bool(int(s["mon_pkt_rx_eop_o"].value)),
-                             bool(int(s["mon_pkt_rx_dllp_o"].value)),
-                             bool(int(s["mon_pkt_rx_err_o"].value)))
-        if int(s["mon_pkt_tx_valid_o"].value) and int(s["mon_pkt_tx_ready_o"].value):
-            self.ack.tx_beat(n, int(s["mon_pkt_tx_data_o"].value),
-                             bool(int(s["mon_pkt_tx_sop_o"].value)),
-                             bool(int(s["mon_pkt_tx_eop_o"].value)),
-                             bool(int(s["mon_pkt_tx_dllp_o"].value)))
+        if rd["mon_pkt_rx_valid_o"]():
+            self.ack.rx_beat(n, rd["mon_pkt_rx_data_o"](),
+                             bool(rd["mon_pkt_rx_sop_o"]()),
+                             bool(rd["mon_pkt_rx_eop_o"]()),
+                             bool(rd["mon_pkt_rx_dllp_o"]()),
+                             bool(rd["mon_pkt_rx_err_o"]()))
+        if rd["mon_pkt_tx_valid_o"]() and rd["mon_pkt_tx_ready_o"]():
+            self.ack.tx_beat(n, rd["mon_pkt_tx_data_o"](),
+                             bool(rd["mon_pkt_tx_sop_o"]()),
+                             bool(rd["mon_pkt_tx_eop_o"]()),
+                             bool(rd["mon_pkt_tx_dllp_o"]()))
         # Upper receive: the beat offered in this cycle is taken at the next
         # rising edge with the ready driven now.
         self._ready = self._take(n)
-        if int(s["tlp_rx_valid_o"].value) and self._ready:
-            data = int(s["tlp_rx_data_o"].value)
-            if int(s["tlp_rx_sop_o"].value):
+        if rd["tlp_rx_valid_o"]() and self._ready:
+            data = rd["tlp_rx_data_o"]()
+            if rd["tlp_rx_sop_o"]():
                 self.rx_beats = []
             self.rx_beats += list(data.to_bytes(4, "little"))
-            if int(s["tlp_rx_eop_o"].value):
+            if rd["tlp_rx_eop_o"]():
                 self.env.delivered(self, bytes(self.rx_beats), n)
-        word = int(s["ser_tx_data_o"].value)
-        ei = bool(int(s["ser_tx_elec_idle_o"].value))
+        word = rd["ser_tx_data_o"]()
+        ei = bool(rd["ser_tx_elec_idle_o"]())
         # Drive.
         self.rst = n < self.release
-        s["rst_i"].value = int(self.rst)
-        s["ser_tx_rxdet_i"].value = int(rxdet)
-        s["tlp_rx_ready_i"].value = int(self._ready)
+        self.wr("rst_i", int(self.rst))
+        self.wr("ser_tx_rxdet_i", int(rxdet))
+        self.wr("tlp_rx_ready_i", int(self._ready))
         self._drive_tx()
         return word, ei
 
     _ready = True
 
+    def wr(self, name: str, value: int) -> None:
+        if self._last.get(name) != value:
+            self._last[name] = value
+            self.s[name].value = value
+
     def _check_values(self, table: dict, when: str) -> None:
         for name, want in table.items():
-            got = int(self.s[name].value)
+            got = self.rd[name]()
             if got != want:
                 self.violations.append(f"end {self.name} cycle {self.cycle} {when}: {name} "
                                        f"expected {want}, observed {got}")
@@ -384,7 +396,7 @@ class LinkEnd:
         infinite field shows all ones."""
         far = self.env.ends[1 - self.env.ends.index(self)].fc
         for i, port in enumerate(FC_PORTS):
-            v = int(self.s[port].value)
+            v = self.rd[port]()
             self.avail[i] = v
             top = (1 << FC_WIDTH[i]) - 1
             if far[i] == 0:
@@ -403,30 +415,29 @@ class LinkEnd:
         return self.take_p >= 1.0 or self.rng.random() < self.take_p
 
     def _drive_tx(self) -> None:
-        s = self.s
         if self.rst or not self.live:
             self.drove_valid = False
-            s["tlp_tx_valid_i"].value = 0
+            self.wr("tlp_tx_valid_i", 0)
             return
         if self.cur is None and self.tx_q:
             self.cur, self.pos = self.tx_q.popleft(), 0
         if self.cur is None:
             self.drove_valid = False
-            s["tlp_tx_valid_i"].value = 0
+            self.wr("tlp_tx_valid_i", 0)
             return
         i, beats = self.pos, len(self.cur) // 4
         valid = i == 0 or self.rng.random() < self.valid_p
-        s["tlp_tx_valid_i"].value = int(valid)
-        s["tlp_tx_data_i"].value = int.from_bytes(self.cur[4 * i:4 * i + 4], "little")
-        s["tlp_tx_sop_i"].value = int(i == 0)
-        s["tlp_tx_eop_i"].value = int(i == beats - 1)
+        self.wr("tlp_tx_valid_i", int(valid))
+        self.wr("tlp_tx_data_i", int.from_bytes(self.cur[4 * i:4 * i + 4], "little"))
+        self.wr("tlp_tx_sop_i", int(i == 0))
+        self.wr("tlp_tx_eop_i", int(i == beats - 1))
         self.drove_valid = valid
 
     def after_drive(self) -> None:
         """Read tlp_tx_ready_o for the beat just driven (it depends on it)."""
         if not self.drove_valid:
             return
-        ready = int(self.s["tlp_tx_ready_o"].value)
+        ready = self.rd["tlp_tx_ready_o"]()
         if self.pos and not ready:
             self.violations.append(f"end {self.name} cycle {self.cycle}: tlp_tx_ready_o 0 "
                                    "inside a TLP")
@@ -585,8 +596,8 @@ class Env:
             word, ei = ch.step(word, ei)
             if far.rst:
                 word, ei = far.rng.getrandbits(20), bool(far.rng.getrandbits(1))
-            far.s["ser_rx_data_i"].value = word
-            far.s["ser_rx_elec_idle_i"].value = int(ei)
+            far.wr("ser_rx_data_i", word)
+            far.wr("ser_rx_elec_idle_i", int(ei))
             if end.drove_valid:
                 await Timer(1, "ns")
                 end.after_drive()
