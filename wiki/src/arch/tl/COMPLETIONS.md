@@ -17,8 +17,9 @@ ID `bus_num`, `dev_num`, function 0; BCM 0
 ### Read handles
 
 A BAR0 read is offered on `cq` with a free handle 0 to 7 (the lowest
-free one); `tl` keeps its Requester ID, Tag, TC, Attr, address bits
-`[6:0]`, Length and byte enables under that handle. The handle is free
+free one when the read is first offered, which it keeps until taken);
+`tl` keeps its Requester ID, Tag, TC, Attr, address bits `[6:0]`, Length
+and byte enables under that handle. The handle is free
 again once the `eop` beat of its `cc` packet is taken. A read waits in
 the [non-posted queue](ORDERING.md#receive-queues) while all eight are in
 use.

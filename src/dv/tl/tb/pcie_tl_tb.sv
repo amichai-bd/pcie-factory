@@ -109,7 +109,11 @@ module pcie_tl_tb #(
   output logic                        probe_rd_take_o,
   output logic [$bits(pcie_tl_pkg::t_hd_ctx)-1:0]  probe_rd_ctx_o,
   output logic                        probe_pme_ack_o,
-  output logic [$bits(pcie_tl_pkg::t_rx_beat)-1:0] probe_cpl_beat_o
+  output logic [$bits(pcie_tl_pkg::t_rx_beat)-1:0] probe_cpl_beat_o,
+  output logic                        probe_rq_take_o,
+  output logic [$bits(pcie_tl_pkg::t_rq_ctx)-1:0]  probe_rq_ctx_o,
+  output logic                        probe_rq_sent_o,
+  output logic [2:0]                  probe_rq_sent_tag_o
 );
 
   assign cfg_o = {8'(FC_PH), 12'(FC_PD), 8'(FC_NPH), 12'(FC_NPD), 11'(CPL_TIMEOUT_DIV),
@@ -220,6 +224,10 @@ module pcie_tl_tb #(
   assign probe_rd_ctx_o    = u_dut.u_slot_tap.ctx;
   assign probe_pme_ack_o   = u_dut.u_slot_tap.pme;
   assign probe_cpl_beat_o  = u_dut.u_slot_tap.beat;
+  assign probe_rq_take_o   = u_dut.u_slot_tap.rq_take;
+  assign probe_rq_ctx_o    = u_dut.u_slot_tap.rq_ctx;
+  assign probe_rq_sent_o   = u_dut.u_slot_tap.rq_sent;
+  assign probe_rq_sent_tag_o = u_dut.u_slot_tap.rq_sent_tag;
 
 endmodule
 

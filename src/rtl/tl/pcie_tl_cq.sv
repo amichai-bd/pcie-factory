@@ -25,7 +25,7 @@ module pcie_tl_cq #(
   input  pcie_tl_pkg::t_cq_ent         rd_head_i,
   input  logic                         rd_ok_i,
   output logic                         rd_pop_o,
-  // Handles: a read taken, and a handle freed by the completion former (#291)
+  // Handles: a read taken, and a handle freed by pcie_tl_cpl at its cc eop
   output logic                         rd_take_o,
   output pcie_tl_pkg::t_hd_ctx         rd_ctx_o,
   input  logic                         hd_free_i,

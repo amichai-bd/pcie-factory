@@ -13,3 +13,9 @@ tests:
     seeds: 2
     timeout_s: 900
     params: {FC_PH: 3, FC_PD: 20, FC_NPH: 5, FC_NPD: 3, BAR0_ADDR_W: 20}
+  - name: tx_random_long
+    module: tests.test_tl_tx
+    testcase: tx_random_long
+    top: pcie_tl_tb
+    seeds: 4
+    timeout_s: 900

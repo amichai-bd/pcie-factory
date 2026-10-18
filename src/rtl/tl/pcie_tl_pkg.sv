@@ -19,6 +19,16 @@ package pcie_tl_pkg;
 
   localparam int unsigned HANDLES  = 8;   // completer read handles (COMPLETIONS.md)
 
+  // Transmit ordering lines (MAS, transmit lines): an entry of a line may
+  // go once every posted request taken into the transmit posted line
+  // before it has gone; the posted entries carry one epoch per line.
+  localparam int unsigned NTX      = 3;
+  localparam int unsigned TX_NP    = 0;   // non-posted line (rq reads)
+  localparam int unsigned TX_CC    = 1;   // completions from cc
+  localparam int unsigned TX_CF    = 2;   // completions from cfg records
+  localparam int unsigned TXP_D    = 4;   // transmit posted line entries (flop queue)
+  localparam int unsigned CPL_MAX  = 32;  // DWs of the longest completion (128 bytes)
+
   // Fmt (byte 0 bits 7:5) and Type (bits 4:0) (TLP.md, kinds)
   localparam logic [4:0] T_MEM      = 5'h00;
   localparam logic [4:0] T_MEMLK    = 5'h01;
@@ -37,6 +47,18 @@ package pcie_tl_pkg;
   localparam logic [7:0] MSG_PME_TURN_OFF = 8'h19;
   localparam logic [7:0] MSG_SET_SLOT_PWR = 8'h50;
   localparam logic [7:0] MSG_VDM1         = 8'h7F;
+  localparam logic [7:0] MSG_PME_TO_ACK   = 8'h1B;
+  localparam logic [7:0] MSG_ERR_COR      = 8'h30;
+  localparam logic [7:0] MSG_ERR_NONFATAL = 8'h31;
+  localparam logic [7:0] MSG_ERR_FATAL    = 8'h33;
+
+  // Message routing subfield, Type bits 2:0 (TLP.md, messages)
+  localparam logic [2:0] R_TO_RC  = 3'b000;
+  localparam logic [2:0] R_GATHER = 3'b101;
+
+  // Completion Status (TLP.md, completions)
+  localparam logic [2:0] CS_SC = 3'b000;
+  localparam logic [2:0] CS_UR = 3'b001;
 
   localparam logic [1:0] D0 = 2'd0;
 
@@ -83,7 +105,7 @@ package pcie_tl_pkg;
     CK_UR      = 2'd3    // answered with an Unsupported Request completion, no access
   } t_ckind;
 
-  // Completion record to the completion former (#291).
+  // Completion record kind, to pcie_tl_cpl.
   typedef enum logic [1:0] {
     CR_UR      = 2'd0,
     CR_CFG_WR  = 2'd1,
@@ -93,6 +115,22 @@ package pcie_tl_pkg;
 
   typedef logic [EP_W-1:0] t_ep;
   typedef t_ep [NLINE-1:0] t_eps;
+  typedef t_ep [NTX-1:0]   t_txeps;
+
+  // Transmit posted line entry kind.
+  typedef enum logic [1:0] {
+    PX_RQ  = 2'd0,   // rq write: its data in the posted data queue
+    PX_IRQ = 2'd1,   // interrupt write: its one DW in the entry
+    PX_MSG = 2'd2    // message without data: an error message or PME_TO_Ack
+  } t_pxkind;
+
+  // The transmit arbiter's choice.
+  typedef enum logic [1:0] {
+    TS_P  = 2'd0,
+    TS_NP = 2'd1,
+    TS_CC = 2'd2,
+    TS_CF = 2'd3
+  } t_txsel;
 
   // Requester context a completion needs (COMPLETIONS.md): Requester ID,
   // all 8 Tag bits, TC, Attr bits 1:0.
@@ -191,7 +229,7 @@ package pcie_tl_pkg;
     logic [3:0]  rel_d;
   } t_cfg_ent;
 
-  // A BAR0 read taken on cq: what the completion former (#291) keeps under
+  // A BAR0 read taken on cq: what pcie_tl_cpl keeps under
   // its handle.
   typedef struct packed {
     logic [2:0]  handle;
@@ -202,7 +240,7 @@ package pcie_tl_pkg;
     logic [3:0]  lbe;
   } t_hd_ctx;
 
-  // One completion record to the completion former (#291).
+  // One completion record, to pcie_tl_cpl.
   typedef struct packed {
     t_crkind     kind;
     t_req_id     id;
@@ -216,6 +254,94 @@ package pcie_tl_pkg;
     logic        dw_last;    // BAR2 read: the read's last DW
     logic [31:0] data;       // CFG_RD, BAR2_RD: the DW from cfg
   } t_cpl_rec;
+
+  // Transmit posted line entry (MAS, transmit lines).
+  typedef struct packed {
+    t_pxkind     kind;
+    logic [61:0] addr;       // writes: address bits 63:2
+    logic [5:0]  dw_len;     // writes: 1 to 32 DWs
+    logic [3:0]  fbe;
+    logic [3:0]  lbe;
+    logic [7:0]  code;       // PX_MSG: Message Code
+    logic [2:0]  rrr;        // PX_MSG: routing subfield
+    logic [31:0] data;       // PX_IRQ: the DW written
+    t_txeps      ep;         // its epoch on each transmit line
+  } t_txp_ent;
+
+  // Transmit non-posted line entry: an rq read.
+  typedef struct packed {
+    logic [61:0] addr;       // address bits 63:2
+    logic [5:0]  dw_len;     // 1 to 32
+    logic [3:0]  fbe;
+    logic [3:0]  lbe;
+    logic [2:0]  tag;
+    t_ep         ep;
+  } t_txnp_ent;
+
+  // A completion formed and queued (COMPLETIONS.md): its header fields
+  // but the Completer ID, which goes in when it is sent.
+  typedef struct packed {
+    logic [2:0]  status;
+    logic        locked;     // the locked completion of a refused locked read
+    logic [11:0] bc;         // Byte Count, 4096 as 0
+    logic [6:0]  la;         // Lower Address
+    t_req_id     id;
+    logic [5:0]  dlen;       // data DWs, 0 to 32
+    t_ep         ep;
+  } t_cpl_desc;
+
+  // What the completion former needs of a read whose DWs it splits.
+  typedef struct packed {
+    t_req_id     id;
+    logic        fixed4;     // a configuration read: Byte Count 4, Lower Address 0
+    logic [4:0]  alo;        // address bits 6:2
+    logic [10:0] dw_len;
+    logic [3:0]  fbe;
+    logic [3:0]  lbe;
+  } t_cpl_ctx;
+
+  // Completion former state (MAS, completion former).
+  typedef struct packed {
+    logic [10:0] k;          // DW index of the next beat within its read
+    logic [5:0]  left;       // DWs still due in the open completion, 0: none open
+    logic [12:0] rb;         // bytes from the next completion's first byte to the read's end
+    logic [11:0] bc;         // the open completion's Byte Count
+    logic [6:0]  la;         // its Lower Address
+    logic [5:0]  n;          // its DWs
+  } t_cplf_state;
+
+  // cc stream state.
+  typedef struct packed {
+    logic        busy;       // inside a cc packet
+    logic [2:0]  hd;         // its handle
+    t_ep         ep;         // the cc line epoch at its sop beat
+  } t_cc_state;
+
+  // rq stream state.
+  typedef struct packed {
+    logic        busy;       // inside a write, after its sop beat
+    logic [5:0]  beat;       // beats taken
+    logic [5:0]  dw_len;     // its length
+  } t_rq_state;
+
+  // An rq read taken (to the tracker, #292).
+  typedef struct packed {
+    logic [2:0]  tag;
+    logic [9:0]  addr;       // address bits 11:2
+    logic [5:0]  dw_len;
+    logic [3:0]  fbe;
+    logic [3:0]  lbe;
+  } t_rq_ctx;
+
+  // Transmit engine state (MAS, transmit arbiter).
+  typedef struct packed {
+    logic        busy;       // a TLP offered and its eop not yet taken
+    t_txsel      sel;        // its line
+    logic [5:0]  beat;       // beats of it taken
+    logic [1:0]  rr;         // round robin: 0 posted, 1 non-posted, 2 completions first
+    logic        cf_turn;    // between the two completion queues: cfg first
+    logic [15:0] id;         // this function's ID as the TLP was first offered
+  } t_tx_state;
 
   // A beat of the receive stream (to the tracker, #292).
   typedef struct packed {
@@ -396,6 +522,64 @@ package pcie_tl_pkg;
       end
     end
     return h;
+  endfunction
+
+  // Index of the lowest enabled byte, 0 when none (COMPLETIONS.md, B).
+  function automatic logic [1:0] be_lo(input logic [3:0] be);
+    logic [1:0] i;
+    if (be[0]) begin
+      i = 2'd0;
+    end else if (be[1]) begin
+      i = 2'd1;
+    end else if (be[2]) begin
+      i = 2'd2;
+    end else begin
+      i = (be[3]) ? 2'd3 : 2'd0;
+    end
+    return i;
+  endfunction
+
+  // Index of the highest enabled byte (callers pass a nonzero nibble).
+  function automatic logic [1:0] be_hi(input logic [3:0] be);
+    return 2'd3 - be_lo({be[0], be[1], be[2], be[3]});
+  endfunction
+
+  // A read's total bytes T (COMPLETIONS.md, byte count and lower address):
+  // 1 DW: the span of the enabled bytes of F, 1 when F is 0; more: 4n less
+  // the disabled bytes below F's first and above L's last enabled byte.
+  function automatic logic [12:0] byte_total(input logic [10:0] dw_len, input logic [3:0] fbe,
+                                             input logic [3:0] lbe);
+    logic [12:0] t;
+    if (dw_len == 11'd1) begin
+      t = (fbe == 4'd0) ? 13'd1 : 13'(be_hi(fbe)) - 13'(be_lo(fbe)) + 13'd1;
+    end else begin
+      t = {dw_len, 2'b00} - 13'(be_lo(fbe)) - 13'd3 + 13'(be_hi(lbe));
+    end
+    return t;
+  endfunction
+
+  // A byte-enable nibble as a DW mask.
+  function automatic logic [31:0] be_mask(input logic [3:0] be);
+    return {{8{be[3]}}, {8{be[2]}}, {8{be[1]}}, {8{be[0]}}};
+  endfunction
+
+  // Data credits of a TLP of n data DWs (1 to 32): n / 4 rounded up.
+  function automatic logic [3:0] dw_credits(input logic [5:0] n);
+    return 4'(({1'b0, n} + 7'd3) >> 2);
+  endfunction
+
+  // DW 0 of a TLP as it sits on the stream (TLP.md, common fields): TD,
+  // EP, AT and Attr bit 2 are 0 on every TLP tl sends.
+  function automatic logic [31:0] tx_dw0(input logic [2:0] fmt, input logic [4:0] typ,
+                                         input logic [2:0] tc, input logic [1:0] attr,
+                                         input logic [9:0] lfield);
+    return {lfield[7:0], 2'b00, attr, 2'b00, lfield[9:8], 1'b0, tc, 4'b0000, fmt, typ};
+  endfunction
+
+  // DW 1 of a request: Requester ID, Tag, byte enables (TLP.md).
+  function automatic logic [31:0] tx_dw1_req(input logic [15:0] rid, input logic [7:0] tag,
+                                             input logic [3:0] lbe, input logic [3:0] fbe);
+    return {lbe, fbe, tag, rid[7:0], rid[15:8]};
   endfunction
 
   // An entry of epoch e waits no more: the oldest posted entry still held

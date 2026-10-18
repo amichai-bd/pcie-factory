@@ -9,7 +9,9 @@ position, what `tl` sends and how it reads it on receive. Part of the
 Positions count header bytes from 0, the byte in bits `[7:0]` of the
 `sop` beat on the `dll` stream ([upper TLP stream](../dll/HAS.md#upper-tlp-stream));
 bit 7 is a byte's most significant bit. Every TLP `tl` sends is whole DWs,
-with no prefix and no digest, and at most 128 bytes of data. A reserved
+with no prefix and no digest, and at most 128 bytes of data. Its ID
+(Requester ID of a request or message, Completer ID of a completion) is
+`bus_num` and `dev_num` as its `sop` beat is first offered to the link. A reserved
 field is sent as 0 and ignored on receive
 [cite: PCIe Base Spec, rev 3.0, §2.2.1].
 

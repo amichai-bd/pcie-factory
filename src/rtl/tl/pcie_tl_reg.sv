@@ -22,7 +22,7 @@ module pcie_tl_reg (
   input  logic                        pd_valid_i,
   input  logic [31:0]                 pd_head_i,
   output logic                        pd_pop_o,
-  // Completion former slot (#291)
+  // Completions (pcie_tl_cpl): records and room
   input  logic                        cpl_room_i,     // room for one more record
   output logic                        cpl_rec_valid_o,
   output pcie_tl_pkg::t_cpl_rec       cpl_rec_o,

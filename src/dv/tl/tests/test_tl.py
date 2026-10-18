@@ -1,6 +1,7 @@
 """pcie_tl smoke test (wiki/src/dv/tl/DV_PLAN.md): the reset values with
 the inputs toggling in reset, then one BAR0 write and one configuration
-read through the receive path.
+read through the receive path, the read's completion, and one rq write
+and one interrupt write on the transmit path.
 """
 
 import random
@@ -33,8 +34,9 @@ INPUTS = {
 @cocotb.test()
 async def smoke(dut):
     """L0: every handshake output holds its reset value while rst_i is 1 or
-    dl_up_i is 0, with every input toggling; then a BAR0 write reaches cq
-    and a configuration read reaches cfg."""
+    dl_up_i is 0, with every input toggling; then a BAR0 write reaches cq,
+    a configuration read reaches cfg and is completed, and an rq write and
+    an interrupt write are sent."""
     rng = random.Random(cocotb.RANDOM_SEED)
     cocotb.start_soon(Clock(dut.clk_i, 8, unit="ns").start())
     for cycle in range(96):
@@ -52,5 +54,8 @@ async def smoke(dut):
     await env.start(clock=False)
     env.send(ref.memory(True, env.regs.bar0_base + 0x40, 4))
     env.send(ref.config(False, 0x01, rid=0x0200, tag=5))
+    env.request(True, 0x1000, 2)
+    env.offer_msg(0, 0x0FEE_0000, 0x41)
     await env.drain(limit=500)
     assert env.outcomes == ["cq", "cfg"], env.outcomes
+    assert sorted(env.tx_kinds) == ["cpl_data", "irq32", "mwr32"], env.tx_kinds

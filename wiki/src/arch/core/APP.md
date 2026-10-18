@@ -102,6 +102,14 @@ Memory reads and writes the application issues as bus master. A write is
   tag is in use from its read's `sop` until the `rc` beat that frees it.
   Both 128-byte limits hold under any value software programs, which is
   never below 128 bytes.
+- <a id="write-completion"></a>Once `tl` takes a write's `sop` beat, the
+  application offers the write's remaining beats without waiting on
+  `cc_ready_o`, `irq_ready_o` or `irq_done_o`, or any `cq` beat: a write
+  started is finished independently of the other streams. `tl` orders
+  later completions and posted requests behind it from its `sop` beat
+  ([`tl` ordering](../tl/ORDERING.md#ordering)), so a write left waiting
+  on them would deadlock (firstmate decision as the captain's delegate,
+  which the captain may override, [#291](https://github.com/amichai-bd/pcie-factory/issues/291#issuecomment-6250061556)).
 - `rq_ready_o` is 0 on a `sop` beat while `bus_master_en_o` is 0,
   `d_state_o` is not D0, or `dl_up_o` is 0: a function issues no memory
   request then [cite: PCIe Base Spec, rev 3.0, §7.5.1.1]

@@ -3,12 +3,10 @@
 // Interfaces and behavior: wiki/src/arch/tl/HAS.md and its pages;
 // structure: wiki/src/rtl/tl/MAS.md.
 //
-// The receive path (#290) is built: the parser and checks, the receive
-// queues, the cq stream, the register-access engine and the credit
-// release. The transmit path, completions and messages (#291) and the
-// completion tracker (#292) attach at the slots of the MAS
-// (wiki/src/rtl/tl/MAS.md#slots); until then their outputs hold their
-// reset values and their slot inputs are tied as the MAS states.
+// The receive path (#290) and the transmit path with completions and
+// messages (#291) are built. The completion tracker (#292) attaches at the
+// slots of the MAS (wiki/src/rtl/tl/MAS.md#slots); until then its outputs
+// hold their reset values and its slot inputs are tied as the MAS states.
 `default_nettype none
 
 `include "common_macros.svh"
@@ -150,22 +148,10 @@ module pcie_tl #(
   assign rst = rst_i || !dl_up_i;
 
   // ---------------------------------------------------------------- slots
-  // The transmit path, completions and messages (#291): the completion
-  // former takes cpl_rec, rd_take/rd_ctx and pme_ack, and frees handles;
-  // until it lands every record is taken at once and no handle is freed.
-  logic       cpl_room;
-  logic       pme_room;
-  logic       hd_free;
-  logic [2:0] hd_free_idx;
-
-  assign cpl_room    = 1'b1;
-  assign pme_room    = 1'b1;
-  assign hd_free     = 1'b0;
-  assign hd_free_idx = 3'd0;
-
-  // The completion tracker (#292): it takes cpl_beat, orders rc with
-  // rc_arrive/rc_ep against p_none, p_known and the posted head's epochs,
-  // and raises tl_err_o bits 2 and 4 to 8.
+  // The completion tracker (#292): it takes cpl_beat, the rq reads taken
+  // (rq_rd_take, rq_rd_ctx) and sent (rq_sent, rq_sent_tag), orders rc
+  // with rc_arrive/rc_ep against p_none, p_known and the posted head's
+  // epochs, and raises tl_err_o bits 2 and 4 to 8.
   logic       rc_arrive;
   logic [8:0] trk_err;
 
@@ -358,6 +344,167 @@ module pcie_tl #(
     .reg_cpl_data_i  (reg_cpl_data_i)
   );
 
+  // ---------------------------------------------------- completions
+  logic                    cpl_room;
+  logic                    hd_free;
+  logic [2:0]              hd_free_idx;
+  logic                    cc_ready;
+  pcie_tl_pkg::t_ep        ep_cc;
+  pcie_tl_pkg::t_ep        ep_cf;
+  logic                    arm_cc;
+  logic                    arm_cf;
+  logic                    ccq_valid;
+  pcie_tl_pkg::t_cpl_desc  ccq_head;
+  logic                    ccq_pop;
+  logic                    ccd_valid;
+  logic [31:0]             ccd_head;
+  logic                    ccd_pop;
+  logic                    cfq_valid;
+  pcie_tl_pkg::t_cpl_desc  cfq_head;
+  logic                    cfq_pop;
+  logic                    cfd_valid;
+  logic [31:0]             cfd_head;
+  logic                    cfd_pop;
+
+  pcie_tl_cpl u_cpl (
+    .clk_i           (clk_i),
+    .rst_i           (rst),
+    .rd_take_i       (rd_take),
+    .rd_ctx_i        (rd_ctx),
+    .hd_free_o       (hd_free),
+    .hd_free_idx_o   (hd_free_idx),
+    .cc_valid_i      (cc_valid_i && !rst),
+    .cc_ready_o      (cc_ready),
+    .cc_sop_i        (cc_sop_i),
+    .cc_eop_i        (cc_eop_i),
+    .cc_data_i       (cc_data_i),
+    .cc_handle_i     (cc_handle_i),
+    .cpl_rec_valid_i (cpl_rec_valid),
+    .cpl_rec_i       (cpl_rec),
+    .cpl_room_o      (cpl_room),
+    .ep_cc_i         (ep_cc),
+    .ep_cf_i         (ep_cf),
+    .arm_cc_o        (arm_cc),
+    .arm_cf_o        (arm_cf),
+    .cc_desc_valid_o (ccq_valid),
+    .cc_desc_o       (ccq_head),
+    .cc_desc_pop_i   (ccq_pop),
+    .cc_data_valid_o (ccd_valid),
+    .cc_data_o       (ccd_head),
+    .cc_data_pop_i   (ccd_pop),
+    .cf_desc_valid_o (cfq_valid),
+    .cf_desc_o       (cfq_head),
+    .cf_desc_pop_i   (cfq_pop),
+    .cf_data_valid_o (cfd_valid),
+    .cf_data_o       (cfd_head),
+    .cf_data_pop_i   (cfd_pop)
+  );
+
+  // ------------------------------------------------ transmit lines
+  logic                    rq_ready;
+  logic                    msg_ready;
+  logic                    pme_room;
+  logic                    txp_valid;
+  logic                    txp_ready;
+  pcie_tl_pkg::t_txp_ent   txp_head;
+  logic                    txp_pop;
+  logic                    txpd_valid;
+  logic [31:0]             txpd_head;
+  logic                    txpd_pop;
+  logic                    txnp_valid;
+  pcie_tl_pkg::t_txnp_ent  txnp_head;
+  logic                    txnp_pop;
+  logic                    rq_rd_take;
+  pcie_tl_pkg::t_rq_ctx    rq_rd_ctx;
+
+  pcie_tl_txq u_txq (
+    .clk_i           (clk_i),
+    .rst_i           (rst),
+    .bus_master_en_i (bus_master_en_i),
+    .d_state_i       (d_state_i),
+    .rq_valid_i      (rq_valid_i && !rst),
+    .rq_ready_o      (rq_ready),
+    .rq_sop_i        (rq_sop_i),
+    .rq_eop_i        (rq_eop_i),
+    .rq_data_i       (rq_data_i),
+    .rq_write_i      (rq_write_i),
+    .rq_addr_i       (rq_addr_i),
+    .rq_len_i        (rq_len_i),
+    .rq_first_be_i   (rq_first_be_i),
+    .rq_last_be_i    (rq_last_be_i),
+    .rq_tag_i        (rq_tag_i),
+    .msg_valid_i     (msg_valid_i && !rst),
+    .msg_ready_o     (msg_ready),
+    .msg_kind_i      (msg_kind_i),
+    .msg_addr_i      (msg_addr_i),
+    .msg_data_i      (msg_data_i),
+    .pme_ack_i       (pme_ack),
+    .pme_room_o      (pme_room),
+    .arm_cc_i        (arm_cc),
+    .arm_cf_i        (arm_cf),
+    .ep_cc_o         (ep_cc),
+    .ep_cf_o         (ep_cf),
+    .p_valid_o       (txp_valid),
+    .p_ready_o       (txp_ready),
+    .p_head_o        (txp_head),
+    .p_pop_i         (txp_pop),
+    .pd_valid_o      (txpd_valid),
+    .pd_head_o       (txpd_head),
+    .pd_pop_i        (txpd_pop),
+    .np_valid_o      (txnp_valid),
+    .np_head_o       (txnp_head),
+    .np_pop_i        (txnp_pop),
+    .rq_rd_take_o    (rq_rd_take),
+    .rq_rd_ctx_o     (rq_rd_ctx)
+  );
+
+  // ------------------------------------------------- transmit arbiter
+  logic                    tx_valid;
+  logic                    rq_sent;
+  logic [2:0]              rq_sent_tag;
+
+  pcie_tl_tx u_tx (
+    .clk_i           (clk_i),
+    .rst_i           (rst),
+    .bus_num_i       (bus_num_i),
+    .dev_num_i       (dev_num_i),
+    .fc_ph_avail_i   (fc_ph_avail_i),
+    .fc_pd_avail_i   (fc_pd_avail_i),
+    .fc_nph_avail_i  (fc_nph_avail_i),
+    .fc_npd_avail_i  (fc_npd_avail_i),
+    .fc_cplh_avail_i (fc_cplh_avail_i),
+    .fc_cpld_avail_i (fc_cpld_avail_i),
+    .p_valid_i       (txp_valid),
+    .p_ready_i       (txp_ready),
+    .p_head_i        (txp_head),
+    .p_pop_o         (txp_pop),
+    .pd_valid_i      (txpd_valid),
+    .pd_head_i       (txpd_head),
+    .pd_pop_o        (txpd_pop),
+    .np_valid_i      (txnp_valid),
+    .np_head_i       (txnp_head),
+    .np_pop_o        (txnp_pop),
+    .cc_valid_i      (ccq_valid),
+    .cc_head_i       (ccq_head),
+    .cc_pop_o        (ccq_pop),
+    .ccd_valid_i     (ccd_valid),
+    .ccd_head_i      (ccd_head),
+    .ccd_pop_o       (ccd_pop),
+    .cf_valid_i      (cfq_valid),
+    .cf_head_i       (cfq_head),
+    .cf_pop_o        (cfq_pop),
+    .cfd_valid_i     (cfd_valid),
+    .cfd_head_i      (cfd_head),
+    .cfd_pop_o       (cfd_pop),
+    .tlp_tx_valid_o  (tx_valid),
+    .tlp_tx_ready_i  (tlp_tx_ready_i && !rst),
+    .tlp_tx_data_o   (tlp_tx_data_o),
+    .tlp_tx_sop_o    (tlp_tx_sop_o),
+    .tlp_tx_eop_o    (tlp_tx_eop_o),
+    .rq_sent_o       (rq_sent),
+    .rq_sent_tag_o   (rq_sent_tag)
+  );
+
   // ------------------------------------------------------------- outputs
   // Every handshake output is 0 in reset (HAS, reset).
   assign tlp_rx_ready_o  = !rst;
@@ -368,19 +515,16 @@ module pcie_tl #(
   assign fc_rel_np_o     = rel_np && !rst;
   assign fc_rel_npd_o    = rel_npd;
   assign tl_err_o        = rst ? 9'd0 : ({5'd0, rx_err} | trk_err);
+  assign tlp_tx_valid_o  = tx_valid && !rst;
+  assign msg_ready_o     = msg_ready && !rst;
+  assign cc_ready_o      = cc_ready && !rst;
+  assign rq_ready_o      = rq_ready && !rst;
   assign slot_pwr_valid_o = rx_spl_valid && !rst;
   assign slot_pwr_value_o = rx_spl.value;
   assign slot_pwr_scale_o = rx_spl.scale;
 
-  // Transmit (#291) and tracker (#292) outputs at their reset values.
-  assign tlp_tx_valid_o  = 1'b0;
-  assign tlp_tx_data_o   = 32'd0;
-  assign tlp_tx_sop_o    = 1'b0;
-  assign tlp_tx_eop_o    = 1'b0;
+  // Tracker (#292) outputs at their reset values.
   assign tl_np_pending_o = 1'b0;
-  assign msg_ready_o     = 1'b0;
-  assign cc_ready_o      = 1'b0;
-  assign rq_ready_o      = 1'b0;
   assign rc_valid_o      = 1'b0;
   assign rc_sop_o        = 1'b0;
   assign rc_eop_o        = 1'b0;
@@ -389,19 +533,9 @@ module pcie_tl #(
   assign rc_status_o     = 2'd0;
   assign rc_done_o       = 1'b0;
 
-  // Inputs and slot nets the receive path does not use; #291 and #292
-  // consume them.
-  `COMMON_UNUSED_BITS(unused_slots, {cpl_rec_valid, cpl_rec, rd_take, rd_ctx, pme_ack, cpl_beat,
-                                     rc_ep, p_none, p_known,
-                                     tlp_tx_ready_i,
-                                     fc_ph_avail_i, fc_pd_avail_i, fc_nph_avail_i, fc_npd_avail_i,
-                                     fc_cplh_avail_i, fc_cpld_avail_i,
-                                     bus_num_i, dev_num_i, bus_master_en_i, cpl_timeout_dis_i,
-                                     msg_valid_i, msg_kind_i, msg_addr_i, msg_data_i,
-                                     cc_valid_i, cc_sop_i, cc_eop_i, cc_data_i, cc_handle_i,
-                                     rq_valid_i, rq_sop_i, rq_eop_i, rq_data_i, rq_write_i,
-                                     rq_addr_i, rq_len_i, rq_first_be_i, rq_last_be_i, rq_tag_i,
-                                     rc_ready_i})
+  // Inputs and slot nets only the tracker (#292) consumes.
+  `COMMON_UNUSED_BITS(unused_slots, {cpl_beat, rc_ep, p_none, p_known, rq_rd_take, rq_rd_ctx,
+                                     rq_sent, rq_sent_tag, cpl_timeout_dis_i, rc_ready_i})
 
 endmodule
 
