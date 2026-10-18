@@ -161,6 +161,7 @@ rule, so `./build check` rejects it before Quartus runs; the
 | Assignment pattern as a `?:` or comparison operand | 10207 "can't resolve reference to object", 10901 | A package constant or a named signal | `pattern-context` |
 | `$countones` (and the other bit-vector functions) in logic | 10174, not supported for synthesis | A package function; the system functions stay in assertion arguments | `system-task` |
 | A member select named like a built-in method (`h.len`, `x.size`, ...) inside a function | 10049, value must not be assigned to nonvariable `len`; then 10903 and 12152 at the caller | Rename the struct member (`length`); the same select at module level is accepted | `method-member-name` |
+| A package constant as an index inside a port connection (`.p_i (s.f[pkg::C])`) under `` `default_nettype none`` | 10162, can't declare implicit net | A named net plus `assign` (`assign f_c = s.f[pkg::C];`, then `.p_i (f_c)`) | `port-index-constant` |
 
 ## Known Quartus warnings
 

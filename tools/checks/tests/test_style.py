@@ -188,6 +188,7 @@ DFF = "`COMMON_DFF_RST(q_q, q_d, clk_i, rst)"
                                "q_q != '{lo: 1'b1, default: '0};"), None),
     ("pattern-context", mutate("  assign q_o = q_q;", "  assign q_o = xy_a_pkg::t_w'{default: '0};"),
      None),
+    ("port-index-constant", mutate(".a_i(q_q)", ".a_i(q_q[xy_a_pkg::LSB])"), None),
     ("bare-generate", mutate(DFF, "if (W > 1) begin : g_w\n    " + DFF + "\n  end"), None),
     ("bare-generate", mutate(DFF, "case (W)\n    1: begin : g_one\n      " + DFF
                              + "\n    end\n    default: begin : g_many\n      " + DFF
@@ -206,7 +207,7 @@ def test_every_rule_is_tested_and_documented():
               "vocabulary-include", "cdc-cell-macro", "system-task", "local-define",
               "sampled-value", "clocking-block", "object-macro", "assert-label",
               "bare-generate", "inline-genvar", "pattern-key-name", "pattern-context",
-              "method-member-name"}
+              "method-member-name", "port-index-constant"}
     assert tested == set(RULES)
     spec = (Path(__file__).resolve().parents[3] / "wiki/tools/checks/SPEC.md").read_text()
     for rule, (anchor, _) in RULES.items():
@@ -761,6 +762,39 @@ def test_method_member_name_in_functions_only():
     ok = mutate("  assign q_o = q_q;", "  assign q_o = q_q;\n  assign busy_no = q_d.len;")
     assert check(ok) == []
     assert check(pkg.replace("s.len = a;", "s.n   = a.size();"), "xy_a_pkg.sv") == []
+
+
+@pytest.mark.parametrize("text, items", [
+    # Quartus Lite: a package constant in a select of a port connection.
+    ("u (.a_i (s.f[xy_a_pkg::C]), .b_o ());", ["xy_a_pkg::C"]),
+    ("u (\n  .a_i (m[i][xy_a_pkg :: C]),\n  .b_o (y));", ["xy_a_pkg::C"]),
+    ("u (.a_i (d[xy_a_pkg::W-1:0]), .b_o (e[xy_a_pkg::A +: xy_b_pkg::B]));",
+     ["xy_a_pkg::W", "xy_a_pkg::A", "xy_b_pkg::B"]),
+    ("u #(.P (2)) i (.a_i ({x, d[xy_a_pkg::C]}));", ["xy_a_pkg::C"]),
+    # Not a select of a port connection: these pass.
+    ("u (.a_i (d[3]), .b_o (d[N-1:0]), .c_i (xy_a_pkg::C), .d_i (f(xy_a_pkg::C)));", []),
+    ("u (.a_i (net_c));\n  assign net_c = s.f[xy_a_pkg::C];", []),
+    ("u #(.P (t[xy_a_pkg::C])) i (.a_i (d));", []),
+    ("assign y = s.f[xy_a_pkg::C] & h.g(xy_a_pkg::C);", []),
+    # A method call inside a group is not a connection: only the
+    # member-select skip keeps these from firing or doubling.
+    ("assign y = f(h.g(d[xy_a_pkg::C]));", []),
+    ("u (.a_i (h.g(d[xy_a_pkg::C])));", ["xy_a_pkg::C"]),
+])
+def test_port_index_constant(text, items):
+    assert [item for _, item in style.port_index_constants(text)] == items
+
+
+def test_port_index_constant_line_and_workaround():
+    # The finding names the line; the named-net workaround passes.
+    bad = mutate("  sub u_sub (.a_i(q_q), .y_o());",
+                 "  sub u_sub (\n    .a_i (q_q[xy_a_pkg::LSB]),\n    .y_o ());")
+    assert check(bad) == ["xy_a_m.sv:24: port-index-constant: package constant xy_a_pkg::LSB "
+                          "in a select of a port connection; assign the select to a named net "
+                          "and connect that"], check(bad)
+    ok = mutate("  sub u_sub (.a_i(q_q), .y_o());",
+                "  logic q_lsb;\n  assign q_lsb = q_q[xy_a_pkg::LSB];\n  sub u_sub (.a_i(q_lsb), .y_o());")
+    assert check(ok) == []
 
 
 def test_pattern_context_accepts_assignment_contexts():

@@ -115,7 +115,7 @@ def test_host_checks_splitting(start, size, parts, ok):
     """The host stand-in checks each BAR0 read completion by rule: a split
     only where needed (more than 128 bytes left), ending at the highest
     64-byte boundary within 128 bytes (tl COMPLETIONS.md)."""
-    h = m.Host(m.FC, 0, 12, 1, 0)
+    h = m.Host(0, 12, 1, 0)
     h.bar0[7] = {"next": start, "left": size, "size": size}
     left = size
     for addr, n in parts:
@@ -130,7 +130,7 @@ def test_host_checks_splitting(start, size, parts, ok):
 
 @pytest.mark.parametrize("field", ["bc", "la", "data", "status"])
 def test_host_checks_completion_fields(field):
-    h = m.Host(m.FC, 0, 12, 1, 0)
+    h = m.Host(0, 12, 1, 0)
     h.bar0[1] = {"next": 0, "left": 8, "size": 8}
     data = b"".join(tlm.App.pattern(4 * i).to_bytes(4, "little") for i in range(2))
     kw = {"bc": 8, "la": 0, "data": data, "status": tlm.SC}
@@ -264,8 +264,6 @@ def test_link_down_resets_tl_and_cfg():
     assert not b.core.tl.pq and not b.core.tl.handles
     assert c.table[0][:3] == [m.MSI_ADDR, 0, 0x77]
     b.link_up = [True, True]
-    h.returns.clear()
-    h.cr = {tlm.P: [m.FC["ph"], m.FC["pd"]], tlm.NP: [m.FC["nph"], m.FC["npd"]]}
 
     def again():
         yield from m.setup(b, BAR0, BAR2)

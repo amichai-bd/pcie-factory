@@ -19,3 +19,12 @@ tests:
     seeds: 2
     timeout_s: 600
     params: {MSIX_TABLE_SIZE: 1, BAR0_ADDR_W: 20}
+# Floors on the merged levels 0 to 2 (the nightly run), at the merged value
+# less 0.5 points rounded down to a tenth (DV BKM, floor margin): measured
+# 97.92% line (1038/1060), 64.94% toggle (25020/38528); every point not hit
+# has a reason in the DV plan (Coverage holes). An entry with a new
+# parameter set re-measures these floors in the same PR.
+# Functional 100 must hold every bin of cfg_access, cfg_err, cfg_irq,
+# cfg_msg, cfg_power and cfg_slot_power; a renamed or undeclared covergroup
+# leaves the total, so keep this list.
+coverage_floors: {line: 97.4, toggle: 64.4, functional: 100}

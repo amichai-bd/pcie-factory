@@ -397,3 +397,38 @@ async def rx_np_collide(dut):
         await env.drain()
     if env.three_np != 3:
         raise TlError(f"{env.three_np} cycles with three non-posted leaves, 3 expected")
+
+
+@cocotb.test()
+async def rx_epoch_wrap(dut):
+    """L1: the line epochs wrap (MAS, receive queues: the comparison is
+    modulo 2^9). Each round: a BAR2 write cfg holds, a configuration read
+    behind it on the cfg line, then a BAR0 write the application holds on
+    cq, which steps the cfg epoch. Once cfg takes the BAR2 write, the read
+    must leave while the BAR0 write, received after it, is still held. A
+    BAR0 read and an rq read's completion then arm the cq and rc lines, and
+    their completions and the rq read the transmit cc, cf and np lines,
+    which an rq write steps (MAS, transmit lines): all six epoch counters
+    pass their wrap in 520 rounds. The environment checks the order and
+    every release in every cycle."""
+    env = await tl_env.started(dut, cocotb.RANDOM_SEED)
+    b0, b2 = env.regs.bar0_base, env.regs.bar2_base
+    rounds = 520
+    for i in range(rounds):
+        env.reg_stall_until = env.cycle + 20
+        env.cq_stall_until = env.cycle + 200
+        env.send(ref.memory(True, b2 + 4 * (i % 16), 1, 0xF, 0))
+        env.send(ref.config(False, 0x10 + (i % 4), tag=i & 0xFF))
+        env.send(ref.memory(True, b0 + 0x100 + 4 * (i % 32), 1, 0xF, 0))
+        await env.run(120)
+        if env.cfg_jobs or not env.cq_writes:
+            raise TlError(f"round {i}: the configuration read waited for a later BAR0 write")
+        await env.drain()
+        env.send(ref.memory(False, b0 + 4 * (i % 64), 1, 0xF, 0, tag=i & 0xFF))
+        env.request(False, 0x1000 * (1 + i % 15), 1, tag=None)
+        await env.drain()
+        env.request(True, 0x20000 + 4 * (i % 64), 1)
+        await env.drain()
+    got = {o: env.outcomes.count(o) for o in ("cq", "bar2", "cfg", "cpl")}
+    if got != {"cq": 2 * rounds, "bar2": rounds, "cfg": rounds, "cpl": rounds}:
+        raise TlError(f"outcomes {got}, expected cq {2 * rounds} and bar2, cfg, cpl {rounds}")

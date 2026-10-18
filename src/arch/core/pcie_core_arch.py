@@ -22,9 +22,10 @@ requests, sends BAR0 traffic, answers the application's reads, receives
 interrupt writes and error messages, and checks every BAR0 read
 completion against the splitting rules (COMPLETIONS.md). It is not the
 independent host model DV uses, which is #288's; the application stand-in
-is the tl model's ``App`` with an interrupt queue. Until the dll and link
-gain the credit-release input (#303), the host stand-in keeps the release
-rule's credit count itself, as the tl model's host does. Error-free: the
+is the tl model's ``App`` with an interrupt queue. The endpoint's dll has
+the credit-release port (#303) and ``tl``'s release pulses drive it, as the
+core HAS stack wiring joins them, so the host's dll sends only what the
+released credits allow. Error-free: the
 receiver-error input (``rcv_err``) is not driven. Python standard library
 only (plus the sibling dll, link, tl and cfg models).
 """
@@ -140,12 +141,14 @@ class Core:
     """pcie_core over its end of the link: ``tl`` and ``cfg`` wired as the
     core HAS stack wiring and the tl-cfg page say."""
 
-    def __init__(self, d: dll.Dll, params: cfgm.Params, fc: dict, on_release=None,
-                 cpl_timeout_div: int = 1):
+    def __init__(self, d: dll.Dll, params: cfgm.Params, fc: dict, cpl_timeout_div: int = 1):
+        if not d.release_port:
+            raise ValueError("core's dll needs the credit-release port (FC_RELEASE 1)")
         self.dll = d
         self.cfg = cfgm.Cfg(params)
         self.port = TlCfg(self.cfg)
-        self.tl = tlm.Tl(self.port, fc, params.bar0_addr_w, cpl_timeout_div, on_release)
+        self.tl = tlm.Tl(self.port, fc, params.bar0_addr_w, cpl_timeout_div,
+                         lambda now, cls, data: d.release(cls, data))
         self.up = False
         self.seen = 0
         self.tl_err = [0] * len(tlm.ERR_NAMES)
@@ -199,13 +202,13 @@ class Core:
 
 class Host(tlm.Host):
     """The host stand-in (scenarios only; #288 owns the independent host
-    model). Over the tl model's host (credit gate, answers to the
+    model). Over the tl model's host (answers to the
     application's reads, MWr and message counts) it adds configuration and
     BAR2 requests, BAR0 reads checked by the splitting rules, and the
     interrupt window."""
 
-    def __init__(self, fc: dict, latency: int, bar0_addr_w: int, bus: int, dev: int):
-        super().__init__(fc, latency)
+    def __init__(self, latency: int, bar0_addr_w: int, bus: int, dev: int):
+        super().__init__(latency)
         self.bus, self.dev = bus, dev
         self.bar0_mask = (1 << bar0_addr_w) - 1
         self.np: dict[int, dict | None] = {}       # tag -> completion header, None while waiting
@@ -309,11 +312,11 @@ class Bench:
                  host_latency: int = 100, app_latency: int = 16, bus: int = 1, dev: int = 0):
         self.params = params or cfgm.Params()
         dfc = dict(dll.DEFAULT_FC, **FC)            # completion credits infinite
-        self.a, self.b = dll.Dll("host", dfc), dll.Dll("core", dfc)
+        self.a, self.b = dll.Dll("host", dfc), dll.Dll("core", dfc, release_port=True)
         self.pair = link.LinkPair(self.a, self.b, link.Line(rng))
-        self.host = Host(FC, host_latency, self.params.bar0_addr_w, bus, dev)
+        self.host = Host(host_latency, self.params.bar0_addr_w, bus, dev)
         self.app = App(rng, latency=app_latency)
-        self.core = Core(self.b, self.params, FC, on_release=self.host.release)
+        self.core = Core(self.b, self.params, FC)
         self.prog = iter(())                        # the host program
         self.app_prog = iter(())                    # the application program
         self.pending = None
@@ -335,9 +338,7 @@ class Bench:
                     self.pending = next(self.prog)
                 except StopIteration:
                     self.done = True
-        if (self.pending is not None and host.gate(self.pending, now)
-                and self.a.offer(self.pending, now)):
-            host.consume(self.pending)
+        if self.pending is not None and self.a.offer(self.pending, now):
             self.pending = None
         while self.seen < len(self.a.delivered):
             host.receive(self.a.delivered[self.seen], now)

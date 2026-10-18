@@ -79,13 +79,31 @@ passed unchanged.
 
 ### Reset
 
-While `rst_i` is 1 every register, the MSI-X mask and pending bits, the
-MSI pending flag, every error message due and every offer return to their
-reset values ([REGISTERS.md](REGISTERS.md), [CAPS.md](CAPS.md)), and the
+The reset is synchronous ([RTL BKM](../../../bkm/rtl.md#reset-and-clocks)).
+Each `clk_i` edge at which `rst_i` is sampled 1 returns every register,
+the MSI-X mask and pending bits, the MSI pending flag, every error
+message due and every offer to its reset value
+([REGISTERS.md](REGISTERS.md), [CAPS.md](CAPS.md)) and takes nothing from
+the other inputs: no access, request, error event or slot power event,
+and no message, so an offer still up in the cycle `rst_i` rises is
+discarded even if `msg_ready_i` is 1 (in `core` the taker is reset with
+`cfg`). The reset values of the
 outputs are: `reg_req_ready_o`, `reg_cpl_valid_o`, `msg_valid_o`,
 `irq_ready_o`, `irq_done_o`, `bus_num_o`, `dev_num_o`, `bar0_base_o`,
 `bar2_base_o`, `cpl_timeout_dis_o`, `mem_space_en_o`, `bus_master_en_o`, `d_state_o` (D0) and
-`max_payload_o` 0, and `max_read_req_o` 2. Data outputs are don't care
+`max_payload_o` 0, and `max_read_req_o` 2. They hold:
+
+| Outputs | Reset value from | Until |
+| --- | --- | --- |
+| `reg_req_ready_o`, `irq_ready_o` | The first cycle in which `rst_i` is 1: both are 0 in every cycle `rst_i` is 1. | The first cycle in which `rst_i` is 0, when both are 1 ([register access](#register-access), [interrupts](#interrupts)). |
+| Every other output listed | The cycle after the first edge at which `rst_i` is sampled 1. In the cycle in which `rst_i` rises they still show the state before that edge. | An edge at which `rst_i` is sampled 0 changes them. |
+
+So a reset of N cycles holds the readys at 0 in exactly those N cycles,
+and the other outputs at their reset values for at least N cycles, from
+one cycle later. A consumer that needs every
+output at its reset value in the cycle its own reset condition rises
+gates them itself, as `core` does ([`core` MAS](../../rtl/core/MAS.md#reset)).
+Data outputs are don't care
 while not qualified. The MSI-X table address and data DWs are not reset
 (they sit in a RAM), as the `core` [link down](../core/HAS.md#link-down)
 rule states: software writes them again before it unmasks a vector.
@@ -248,6 +266,7 @@ override; Q and F numbers are the [record](../../decisions/0004-m3-grill.md)'s.
 | Advisory handling for UR completions and unexpected completions only | The two cases the standard requires; a poisoned TLP and a completion timeout stay non-fatal, the simpler reading where advisory handling is optional. | Advisory for every allowed case (more rules, no M3 user). |
 | One due flag per error message kind | Bounds the state; the Root Complex learns of the error class, and the status bits keep the detail. | A queue of messages (unbounded under an error burst). |
 | A mask set after a write is offered does not withdraw it ([withdrawal](../core/TL_CFG.md#withdrawal) lists the only causes) | The write is in the same position as one `tl` has just taken; the standard's masking rule covers messages not yet committed. | Withdrawing on a mask too (a cause the tl-cfg page does not allow). |
+| Registered outputs reach their reset values the cycle after the first edge at which `rst_i` is sampled 1; only the two readys are 0 from the cycle `rst_i` rises ([reset](#reset)) | The synchronous reset of the [RTL BKM](../../../bkm/rtl.md#reset-and-clocks), with every output but the readys a register; the readys take `rst_i` combinationally so they are 1 in the first cycle out of reset. A consumer that needs the values one cycle earlier gates with its own reset (`core` does). | An asynchronous reset (a second reset style the BKM reserves for a `COMMON_RESET_SYNC` domain); gating every output with `rst_i` inside `cfg` (logic on each output for a need only `core` has, and already meets). |
 | MSI-X table address and data not reset | The table is a `common` RAM (F4); the standard leaves them to software before unmask. | Resetting 64 × 3 DWs (flops, not RAM). |
 
 ## Targets

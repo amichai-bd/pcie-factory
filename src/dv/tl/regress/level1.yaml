@@ -36,6 +36,12 @@ tests:
     top: pcie_tl_tb
     timeout_s: 300
     params: {FC_NPD: 16}
+  # The epoch counters past their wrap: the only entry that reaches it.
+  - name: rx_epoch_wrap
+    module: tests.test_tl_rx
+    testcase: rx_epoch_wrap
+    top: pcie_tl_tb
+    timeout_s: 300
   - name: tx_completions
     module: tests.test_tl_tx
     testcase: tx_completions
