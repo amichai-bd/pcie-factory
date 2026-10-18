@@ -165,10 +165,10 @@ entry is the first that fails, in level then name order.
 
 | Mutant | Entry | Fails with |
 | --- | --- | --- |
-| M33 a poisoned Set_Slot_Power_Limit raises the event | `rx_routing` | slot power event with none due |
+| M33 a poisoned Set_Slot_Power_Limit raises the event | `rx_routing` | slot power event (231, 1) with none due |
 | M34 one without data raises the event | `rx_random` | slot power event (0, 0) with none due |
-| M35 any message with data raises the event | `rx_random` | slot power event with none due |
-| M36 the event held, not pulsed | `rx_random` | slot power event with none due, the cycle after a due one |
+| M35 any message with data raises the event | `rx_random` | slot power event (92, 2) with none due |
+| M36 the event held, not pulsed | `rx_random` | slot power event (0, 0) with none due |
 | M37 the scale from data byte 3 | `rx_random` | slot power event (value, scale) expected (248, 1) got (248, 2) |
 | M38 one with a digest not captured | `rx_routing` | no slot power event, expected value 0xc3 scale 2 |
 
