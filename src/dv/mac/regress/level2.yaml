@@ -1,13 +1,25 @@
 tests:
-  - name: arcs_full_downstream
+  - name: arcs_timeouts_downstream
     module: tests.test_mac
-    testcase: arcs_full_downstream
+    testcase: arcs_timeouts_downstream
     top: pcie_mac_tb
     timeout_s: 3600
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
-  - name: arcs_full_upstream
+  - name: arcs_timeouts_upstream
     module: tests.test_mac
-    testcase: arcs_full_upstream
+    testcase: arcs_timeouts_upstream
+    top: pcie_mac_tb
+    timeout_s: 3600
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
+  - name: arcs_idle_rlock_downstream
+    module: tests.test_mac
+    testcase: arcs_idle_rlock_downstream
+    top: pcie_mac_tb
+    timeout_s: 3600
+    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
+  - name: arcs_idle_rlock_upstream
+    module: tests.test_mac
+    testcase: arcs_idle_rlock_upstream
     top: pcie_mac_tb
     timeout_s: 3600
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}

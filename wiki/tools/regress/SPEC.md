@@ -9,7 +9,7 @@ and `funcov.py` for [coverage](#coverage)).
 ```
 ./build regress --level N [--level M]... [--ip ID]... [--affected BASE]
                 [--jobs N] [--seed S] [--waves] [--coverage] [--dry-run]
-                [--slots DIR]
+                [--slots DIR] [--no-cache]
                 [--src-root DIR] [--workdir DIR]
 ```
 
@@ -34,6 +34,8 @@ tests:
     timeout_s: 60             # required; per-run wall-clock limit (> 0)
     params: {W: 4}            # optional; toplevel parameters (int or string)
     backend: fpga             # optional; build with that flow's source backends
+    coverage_seeds: 1         # optional, default 1; see Coverage
+    rerun_when: models_change # optional; see Reuse of unchanged model checks
 coverage_floors:              # optional; see Coverage floors
   line: 90
 ```
@@ -47,6 +49,8 @@ coverage_floors:              # optional; see Coverage floors
 | `testcase` | no | Python identifier. If absent, every `@cocotb.test()` in the module runs. |
 | `seeds` | no | Either a **count** `N >= 1` (default `1`) or an explicit **list** of distinct integers in `[0, 2**31)`. |
 | `params` | no | Mapping from identifier to int or string, passed as `-G` overrides. |
+| `coverage_seeds` | no | Count from `0` to the entry's number of runs, default `1`: with `--coverage`, the first that many of its seeds (in the entry's own order: list order, or derived seeds 0, 1, ...) run on the coverage build and the rest on the plain build ([coverage](#coverage)). `0`: never a coverage run. |
+| `rerun_when` | no | `models_change`: a passing run is reused until the models it checks change ([reuse](#reuse-of-unchanged-model-checks)). Requires `coverage_seeds: 0`. |
 | `backend` | no | A flow kind of `cfg/backends.yaml` (an identifier; checked when building). The build swaps each source that has that flow's [backend file](../../project/layout.md#source-backends) beside it for that file and appends the kind's `dv_models`, so the same tests run on the backend. An unknown kind is a build `error`. |
 
 These validation rules apply:
@@ -167,13 +171,17 @@ The seed is passed to cocotb as its random seed, which also seeds Python's
 
 ## Execution
 
-- **Builds:** every distinct (IP, top, params, waves, backend) combination is built
+- **Builds:** every distinct (IP, top, params, waves, coverage, backend) combination is built
   once, before any test runs. A failed build marks all of its tests `error`
   and the run continues with the other builds. A `sim.f` that doesn't
   resolve counts as a failed build, with the `file:line` message as the
   detail.
 - **Tests:** builds and tests run on up to `--jobs N` workers (default 1).
   Each test runs with its own `timeout_s`.
+- **Build cache:** builds are reused from the host's
+  [build cache](../build/SPEC.md#build-cache) when their content key
+  matches, and stored there otherwise; `--no-cache` (or
+  `$BUILD_CACHE=off`) builds everything afresh and reuses no pass.
 - **Slots:** with `--slots DIR` (or `$BUILD_SLOTS`), each build and test also
   holds one of the host's [CPU slots](../build/SPEC.md#cpu-slots) while it
   runs, shared with every other run naming `DIR`.
@@ -201,15 +209,18 @@ when it finishes, even if it selected no tests:
   "ips": {"a": "changed: src/rtl/a/a.sv"},
   "selected_ips": 1,
   "selected_tests": 1,
-  "builds": [{"ip": "a", "build": "a_top", "status": "pass",
-              "runtime_s": 2.1, "log": "a/build/a_top/build.log"}],
+  "builds": [{"ip": "a", "build": "a_top", "status": "pass", "cached": false,
+              "runtime_s": 2.1, "cpu_s": 3.9, "log": "a/build/a_top/build.log"}],
   "tests": [{"ip": "a", "level": 0, "name": "smoke", "seed": 123,
              "status": "pass", "runtime_s": 0.9, "cpu_s": 0.8,
-             "log": "a/smoke/123/sim.log", "detail": "1 case(s) passed"}],
-  "totals": {"level0": {"tests": 1, "passed": 1, "failed": 0,
+             "log": "a/smoke/123/sim.log", "detail": "1 case(s) passed",
+             "coverage": false, "reused": false}],
+  "totals": {"level0": {"tests": 1, "passed": 1, "reused": 0, "failed": 0,
                         "runtime_s": 0.9, "cpu_s": 0.8, "budget_s": 120,
                         "over_budget": false}},
   "wall_s": 3.4,
+  "build_cache": {"dir": "~/.cache/repo/build", "builds": 1, "hits": 0,
+                  "reused_runs": 0},
   "coverage": {"ips": {"a": {
       "runs": 1, "dat_files": 1, "funcov_files": 1, "dir": "a/coverage",
       "line": {"covered": 15, "total": 15, "pct": 100.0},
@@ -236,6 +247,14 @@ The fields mean the following:
   tree (the cocotb runner and the simulator under it, from `wait4`); 0 for a
   test killed on its timeout. `cpu_s` in `totals` is the level's sum, the
   number the [budget](#budgets) is compared with.
+- A build's `cached` is true when it came from the build cache (then its
+  `runtime_s` and `cpu_s` are 0); its `cpu_s` is the build child's CPU
+  time, not counted in any level budget. A test's `coverage` says whether
+  it ran on a coverage build; `reused` whether it was a
+  [reused pass](#reuse-of-unchanged-model-checks) (0 runtime and CPU), and
+  `totals.<level>.reused` counts those. `build_cache` is `null` with the
+  cache off; otherwise its directory (home as `~`), the run's builds, how
+  many were hits, and the reused runs.
 - `coverage` is `null` without `--coverage`. Otherwise it holds, per
   selected IP, the passing runs merged (`runs`) and the files found, each
   metric's `covered`, `total` and `pct` (2 decimals; `null` with no
@@ -250,9 +269,14 @@ The fields mean the following:
 
 ## Coverage
 
-`--coverage` turns every build of the run into a coverage build and, after
-the tests, merges each selected IP's coverage, prints a table and checks the
-IP's floors. The [shared unit](../build/SPEC.md#shared-unit) is a unit like
+`--coverage` runs each entry's first `coverage_seeds` seeds (default 1) on
+a coverage build and the rest on the plain build and, after the tests,
+merges each selected IP's coverage runs, prints a table and checks the
+IP's floors. Every seed still runs and must pass; only the instrumentation
+is limited, since a sweep's further seeds mostly repeat the first's points
+(#327). An entry whose further seeds reach points the first does not sets
+`coverage_seeds` higher, with the reason in its DV plan; the floors on the
+merged levels are the guard. The [shared unit](../build/SPEC.md#shared-unit) is a unit like
 an IP here: `common` gets its own row, `workdir/common/coverage/` and
 floors from `dv/common/regress/`. Without it, nothing below happens and the summary's `coverage`
 is `null`.
@@ -268,7 +292,7 @@ it), so coverage and plain builds never share one. Each test run writes
 `coverage.dat` (via `+verilator+coverage+file+`) and, when its test samples a
 covergroup, `funcov.json` into its test directory.
 
-**Merge.** Only runs that passed are merged: a failing run may have
+**Merge.** Only coverage runs that passed are merged: a failing run may have
 reached code or bins without its checks holding, so its coverage would
 credit behaviour that was not verified. A passing run that left no
 `coverage.dat` prints `warning: coverage: <ip>: <n> passing run(s) left no
@@ -463,6 +487,40 @@ coverage_floors: {functional: {a_fsm_arcs: 100}}
 A missed arc fails the run with
 `error: coverage floor: a: functional covergroup a_fsm_arcs 75.00% (3/4) is below its floor of 100% (level2.yaml)`,
 and `functional.json` lists it as `a_fsm_arcs.arc.<arc>`.
+
+## Reuse of unchanged model checks
+
+An entry with `rerun_when: models_change` checks a reference model, not the
+RTL (for example a copy of an RTL scenario with every layer replaced by its
+model). Rerunning it can only find something when the models or the
+testbench change, so its run (one per seed) is reused from an earlier pass
+on the same host while none of its inputs changed (#327):
+
+- **Key:** sha256 of the entry (name, module, testcase, top, `params`,
+  `backend`, `timeout_s`) and seed, the tools (as the
+  [build cache key](../build/SPEC.md#build-cache)), and the content and
+  path (relative to the worktree) of every file under the IP's
+  `dv/<ip>/` and `arch/<ip>/` folders (tests, testbench, regression lists,
+  models), every file their Python imports (the
+  [import scan](#selection) of `--affected`: the import root and other
+  IPs' arch and models modules), the `shared_dv` folders of
+  `cfg/ci.yaml`, and the simulation driver `tools/build/*.py`. RTL is not
+  in the key: the rule is only for entries that run no RTL.
+- **Record:** a passing run writes `<cache>/passes/<key>.json` in the
+  [build cache](../build/SPEC.md#build-cache) (atomically; IP, test, seed
+  and UTC time). A later run with the same key prints
+  `[L<n>] <ip>:<test> seed=<s> PASS (reused: models unchanged since <time>)`,
+  builds nothing for it, writes a one-line `sim.log`, and counts as a pass
+  with 0 runtime and CPU (`reused` in the summary). Any input change, the
+  cache off (`--no-cache`), an unused record pruned after 14 days or a new
+  host runs it again. A failing run writes no record.
+- **Coverage:** such an entry needs `coverage_seeds: 0`: a reused pass has
+  no coverage to merge, and a model-only run exercises no RTL, so the IP's
+  coverage never depends on whether it ran.
+
+The nightly runs on one host type with a persistent cache
+([DevOps BKM](../../bkm/devops.md#build-cache)), so there such an entry runs
+in the first nightly after its models change.
 
 ## Budgets
 

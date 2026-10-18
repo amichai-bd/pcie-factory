@@ -111,10 +111,10 @@ def test_summary_and_budget_warning(fixture_src, tmp_path):
     assert summary["tests"][0] == {
         "ip": "counter", "level": 0, "name": "counts", "seed": sel.runs[0][1],
         "status": "pass", "runtime_s": 1.5, "cpu_s": 1.25, "log": "counter/counts/1/sim.log",
-        "detail": "",
+        "detail": "", "coverage": False, "reused": False,
     }
     assert summary["totals"]["level0"] == {
-        "tests": 2, "passed": 2, "failed": 0, "runtime_s": 2.0, "cpu_s": 1.5,
+        "tests": 2, "passed": 2, "reused": 0, "failed": 0, "runtime_s": 2.0, "cpu_s": 1.5,
         "budget_s": 1.0, "over_budget": True}
     assert summary["totals"]["level2"]["failed"] == 2
     assert "level1" not in summary["totals"]
@@ -172,3 +172,79 @@ def test_filelist_error_is_a_per_ip_build_error(fixture_src, tmp_path, monkeypat
     assert json.loads(regress.summary_path(ctx.workdir).read_text())["passed"] is False
     build_log = ctx.workdir / "counter/build/counter/build.log"
     assert "source not found" in build_log.read_text()
+
+
+def _fake_children(monkeypatch, ran):
+    monkeypatch.setattr(sim, "find_verilator", lambda: Path("/fake/verilator"))
+    monkeypatch.setattr(sim, "tool_ident", lambda v: {"verilator": "fake"})
+    monkeypatch.setattr(sim, "_run_child", lambda phase, job, log, timeout_s: (0, 0.1, 0.05))
+
+    def run_test(spec, workdir, verilator, test, module, testcase, seed, timeout_s, built=None):
+        ran.append((test, seed, spec.coverage))
+        d = sim.test_dir(workdir, spec.ip, test, seed)
+        d.mkdir(parents=True, exist_ok=True)
+        return sim.Result("pass", 0.2, d / "sim.log", "1 case(s) passed", 0.1)
+
+    monkeypatch.setattr(sim, "run_test", run_test)
+
+
+def test_coverage_on_the_first_seeds_only(fixture_src, tmp_path, monkeypatch):
+    """--coverage instruments each entry's first coverage_seeds seeds; the
+    other seeds run on the plain build and are not merged."""
+    lv2 = fixture_src / "dv/counter/regress/level2.yaml"
+    lv2.write_text(lv2.read_text().replace("seeds: 2", "seeds: 3"))
+    ran = []
+    _fake_children(monkeypatch, ran)
+    monkeypatch.setattr(regress, "collect_coverage",
+                        lambda ctx, sel, lv, res, fl, tool, cov_of: {
+                            "ips": {}, "passed": True,
+                            "merged": sorted(s for (e, s), c in cov_of.items() if c)})
+    monkeypatch.setattr(regress.cov, "find_tool", lambda v: Path("/fake/verilator_coverage"))
+    ctx = ctx_for(fixture_src, tmp_path)
+    sel = regress.select(ctx, [2], ["counter"])
+    summary = regress.run(ctx, sel, [2], out=io.StringIO(), coverage=True)
+    first = regress.seeds_for(sel.runs[0][0], None)[0]
+    assert sorted((s, c) for _, s, c in ran) == sorted(
+        (s, s == first) for s in regress.seeds_for(sel.runs[0][0], None))
+    assert summary["coverage"]["merged"] == [first]
+    assert {b["build"].split("-")[0] for b in summary["builds"]} == {"counter"}
+    assert len(summary["builds"]) == 2  # the coverage build and the plain one
+    assert [t["coverage"] for t in summary["tests"]].count(True) == 1
+
+
+def test_model_check_pass_is_reused_until_its_inputs_change(fixture_src, tmp_path, monkeypatch):
+    from build import cache as build_cache
+
+    lv2 = fixture_src / "dv/counter/regress/level2.yaml"
+    lv2.write_text(lv2.read_text().replace(
+        "seeds: 2", "seeds: 2\n    coverage_seeds: 0\n    rerun_when: models_change"))
+    ran = []
+    _fake_children(monkeypatch, ran)
+    sim.set_cache(build_cache.Cache(tmp_path / "cache"))
+    ctx = ctx_for(fixture_src, tmp_path)
+
+    def once():
+        ran.clear()
+        out = io.StringIO()
+        summary = regress.run(ctx, regress.select(ctx, [2], ["counter"]), [2], out=out)
+        return summary, out.getvalue()
+
+    summary, _ = once()
+    assert len(ran) == 2 and summary["totals"]["level2"]["reused"] == 0
+    summary, text = once()  # nothing changed: both seeds reused, nothing built
+    assert ran == [] and summary["totals"]["level2"]["reused"] == 2
+    assert summary["passed"] and summary["builds"] == []
+    assert "PASS (reused: models unchanged since" in text
+    assert all(t["reused"] and t["cpu_s"] == 0 for t in summary["tests"])
+    # An RTL change is not a model change ...
+    rtl = next((fixture_src / "rtl/counter").glob("*.sv"))
+    rtl.write_text(rtl.read_text() + "\n// rtl only\n")
+    assert once()[0]["totals"]["level2"]["reused"] == 2
+    # ... a testbench or model change is.
+    tb = next((fixture_src / "dv/counter/tests").glob("test_*.py"))
+    tb.write_text(tb.read_text() + "\n# changed\n")
+    summary, _ = once()
+    assert len(ran) == 2 and summary["totals"]["level2"]["reused"] == 0
+    sim.set_cache(None)  # cache off: always run
+    summary, _ = once()
+    assert len(ran) == 2 and summary["build_cache"] is None

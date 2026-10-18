@@ -733,16 +733,37 @@ async def arcs_quick(dut):
     await run_arcs(dut, arch.ROLES, QUICK, False)
 
 
-@cocotb.test()
-async def arcs_full_downstream(dut):
-    """L2: every core arc, downstream role, the idle_to_rlock loop included."""
-    await run_arcs(dut, ("downstream",), QUICK + TIMEOUTS + (ep_idle_to_rlock,), True)
+# The arcs only the idle_to_rlock loop reaches: the 255th Idle timeout
+# (Recovery.Idle) and the next Configuration.Idle timeout go to Detect.Quiet.
+LOOP_ARCS = {n: arc for n, arc in CORE_ARCS.items()
+             if arc in ((arch.RI, arch.DQ), (arch.CI, arch.DQ))}
+TIMEOUT_ARCS = {n: arc for n, arc in CORE_ARCS.items() if n not in LOOP_ARCS}
 
 
 @cocotb.test()
-async def arcs_full_upstream(dut):
-    """L2: every core arc, upstream role, the idle_to_rlock loop included."""
-    await run_arcs(dut, ("upstream",), QUICK + TIMEOUTS + (ep_idle_to_rlock,), True)
+async def arcs_timeouts_downstream(dut):
+    """L2: every core arc but the loop's, downstream role: the level-1
+    recipes and the error-path timeouts, all required."""
+    await run_arcs(dut, ("downstream",), QUICK + TIMEOUTS, True, TIMEOUT_ARCS)
+
+
+@cocotb.test()
+async def arcs_timeouts_upstream(dut):
+    """L2: the same, upstream."""
+    await run_arcs(dut, ("upstream",), QUICK + TIMEOUTS, True, TIMEOUT_ARCS)
+
+
+@cocotb.test()
+async def arcs_idle_rlock_downstream(dut):
+    """L2: the 255-timeout idle_to_rlock loop, downstream; its two arcs to
+    Detect.Quiet required."""
+    await run_arcs(dut, ("downstream",), (ep_idle_to_rlock,), True, LOOP_ARCS)
+
+
+@cocotb.test()
+async def arcs_idle_rlock_upstream(dut):
+    """L2: the same, upstream."""
+    await run_arcs(dut, ("upstream",), (ep_idle_to_rlock,), True, LOOP_ARCS)
 
 
 @cocotb.test()
