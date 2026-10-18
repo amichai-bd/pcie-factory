@@ -102,16 +102,17 @@ module pcie_dll #(
     cpl: '{hdr: 8'(FC_CPLH), data: 12'(FC_CPLD)}
   };
 
-  // Receive buffer size (MAS, receive buffer): for each class, 4 DWs per
-  // header credit and 4 per data credit advertised (the reserve for an
-  // infinite field), plus one maximum TLP being collected.
+  // Receive buffer size (MAS, receive buffer): for each class, 5 DWs per
+  // header credit (a 4-DW header and a digest) and 4 per data credit
+  // advertised (the reserve for an infinite field), plus one maximum TLP
+  // being collected.
   localparam int unsigned RX_HDR_CAP  = (FC_PH == 0 ? pcie_dll_pkg::RX_INF_HDR : FC_PH)
                                       + (FC_NPH == 0 ? pcie_dll_pkg::RX_INF_HDR : FC_NPH)
                                       + (FC_CPLH == 0 ? pcie_dll_pkg::RX_INF_HDR : FC_CPLH);
   localparam int unsigned RX_DATA_CAP = (FC_PD == 0 ? pcie_dll_pkg::RX_INF_DATA : FC_PD)
                                       + (FC_NPD == 0 ? pcie_dll_pkg::RX_INF_DATA : FC_NPD)
                                       + (FC_CPLD == 0 ? pcie_dll_pkg::RX_INF_DATA : FC_CPLD);
-  localparam int unsigned RX_BUF_DW   = 4 * (RX_HDR_CAP + RX_DATA_CAP)
+  localparam int unsigned RX_BUF_DW   = 5 * RX_HDR_CAP + 4 * RX_DATA_CAP
                                       + int'(pcie_dll_pkg::RX_MAX_TLP_DW);
   localparam int unsigned RX_ADDR_W   = $clog2(RX_BUF_DW);
   // Any class advertised infinite: the upper layer never stalls (HAS, receive).

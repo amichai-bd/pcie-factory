@@ -32,11 +32,11 @@ def fc_dllp(typ: int, hdr: int, data: int) -> bytes:
     return raw_dllp(ptn.dllp_body(typ, hdr, data))
 
 
-def hdr(fmt_type: int, length: int, tag: int, hdr_dw: int = 3) -> bytes:
-    """A TLP header: byte 0, Length in bytes 2-3, a tag in bytes 4-5."""
+def hdr(fmt_type: int, length: int, tag: int, hdr_dw: int = 3, td: bool = False) -> bytes:
+    """A TLP header: byte 0, TD and Length in bytes 2-3, a tag in bytes 4-5."""
     h = bytearray(4 * hdr_dw)
     h[0] = fmt_type
-    h[2], h[3] = (length >> 8) & 0x03, length & 0xFF
+    h[2], h[3] = (0x80 if td else 0) | ((length >> 8) & 0x03), length & 0xFF
     h[4], h[5] = (tag >> 8) & 0xFF, tag & 0xFF
     return bytes(h)
 
@@ -88,7 +88,8 @@ async def rx_directed(dut):
     duplicates (Ack at once, D = 2048 included); ahead TLPs (Bad TLP, one
     Nak per NAK_SCHEDULED, D = 1 and 2047); bad LCRC, phy-flagged, too
     short, nullified and EDB without the inverse; each malformed kind
-    acknowledged and not delivered; long packets beyond the beat counter;
+    acknowledged and not delivered; TLPs with a digest (TD 1) delivered
+    with it, the largest 37 DWs, and malformed without it; long packets beyond the beat counter;
     the link going down while a TLP arrives and while one is delivered."""
     rng = random.Random(cocotb.RANDOM_SEED)
     env = Env(dut, cocotb.RANDOM_SEED)
@@ -133,6 +134,12 @@ async def rx_directed(dut):
     tlps += [ptn.make_tlp(k, tag=20 + i) for i, k in enumerate(("MRd", "Msg", "Cpl"))]
     tlps += [hdr(0x60, 32, 30, 4) + payload(32, 30), hdr(0x20, 1, 31, 4),
              hdr(0x4B, 1, 32) + payload(1, 32), hdr(0x74, 8, 33, 4) + payload(8, 33)]
+    # A digest (TD 1): checked in the length, delivered with the TLP. The
+    # largest TLP is 37 DWs: a 4-DW header, 128 bytes and the digest.
+    tlps += [hdr(0x60, 32, 34, 4, td=True) + payload(33, 34),
+             ptn.make_tlp("MRd", tag=35, digest=True),
+             ptn.make_tlp("CplD", 5, 36, digest=True),
+             hdr(0x20, 1, 37, 4, td=True) + payload(1, 37)]
     for t in tlps:
         env.inject(frame(seq, t), dllp=False, gaps=rng.choice((0, 0, 1, 3)))
         seq += 1
@@ -194,6 +201,9 @@ async def rx_directed(dut):
         b"",                                     # no header: 6-byte packet
         b"\x40\x00",                             # 2 bytes
         hdr(0x40, 0, 53) + payload(144, 53),     # 588 bytes: beyond the beat counter
+        hdr(0x40, 4, 55, td=True) + payload(4, 55),           # TD 1, no digest
+        hdr(0x60, 33, 56, 4, td=True) + payload(34, 56),      # TD 1, 132-byte payload
+        hdr(0x00, 1, 57) + payload(1, 57),                    # TD 0, a DW too many
     ]
     for t in bad_tlps:
         env.inject(frame(seq, t), dllp=False, gaps=rng.choice((0, 1)))
@@ -250,18 +260,24 @@ LIGHT_ERRORS = {"tx_tlp_drop": 0.002, "tx_tlp_corrupt": 0.002, "rx_dllp_drop": 0
 KINDS = {"P": ("MWr", "Msg", "MsgD"), "NP": ("MRd", "CfgWr"), "Cpl": ("Cpl", "CplD")}
 
 
+# The share of the partner's random TLPs that carry a digest (TD 1).
+DIGEST = 0.25
+
+
 def traffic(rng: random.Random, adv: dict[str, tuple[int, int]], count: int,
             max_dw: int = 32) -> list[bytes]:
     """Up to ``count`` random TLPs that the DUT's advertised credits cover
     with none returned (no UpdateFC needed): a finite class gets at
-    most its advertisement in all, an infinite one any number."""
+    most its advertisement in all, an infinite one any number. A quarter
+    carry a digest."""
     left = {c: [h or None, d or None] for c, (h, d) in adv.items()}
     out: list[bytes] = []
     for i in range(count * 4):
         if len(out) == count:
             break
         cls = rng.choice(CLASSES)
-        t = ptn.make_tlp(rng.choice(KINDS[cls]), rng.randint(1, max_dw), i)
+        t = ptn.make_tlp(rng.choice(KINDS[cls]), rng.randint(1, max_dw), i,
+                         digest=rng.random() < DIGEST)
         need = ptn.tlp_credits(t)
         if any(left[cls][f] is not None and left[cls][f] < need[f] for f in (0, 1)):
             continue
@@ -275,7 +291,8 @@ def traffic(rng: random.Random, adv: dict[str, tuple[int, int]], count: int,
 def fill(rng: random.Random, adv: dict[str, tuple[int, int]]) -> list[bytes]:
     """TLPs that use every advertised credit of every (finite) class: the
     header count and the data credits split among them, each with-data
-    TLP 1 to 8 credits."""
+    TLP 1 to 8 credits; a quarter carry a digest, which costs buffer
+    space but no credit."""
     out: list[bytes] = []
     for cls, (h, d) in adv.items():
         kind = {"P": "MWr", "NP": "CfgWr", "Cpl": "CplD"}[cls]
@@ -283,8 +300,10 @@ def fill(rng: random.Random, adv: dict[str, tuple[int, int]]) -> list[bytes]:
         if cls == "NP":
             # CfgWr carries 1 DW: one data credit each.
             withd = min(h, d)
-            out += [ptn.make_tlp(kind, 1, len(out) + i) for i in range(withd)]
-            out += [ptn.make_tlp(nodata, tag=len(out) + i) for i in range(h - withd)]
+            out += [ptn.make_tlp(kind, 1, len(out) + i, digest=rng.random() < DIGEST)
+                    for i in range(withd)]
+            out += [ptn.make_tlp(nodata, tag=len(out) + i, digest=rng.random() < DIGEST)
+                    for i in range(h - withd)]
             continue
         withd = min(h, d)
         credits = [1] * withd
@@ -294,8 +313,10 @@ def fill(rng: random.Random, adv: dict[str, tuple[int, int]]) -> list[bytes]:
                 break
             credits[j] += 1
         for c in credits:
-            out.append(ptn.make_tlp(kind, rng.randint(4 * c - 3, 4 * c), len(out)))
-        out += [ptn.make_tlp(nodata, tag=len(out) + i) for i in range(h - withd)]
+            out.append(ptn.make_tlp(kind, rng.randint(4 * c - 3, 4 * c), len(out),
+                                    digest=rng.random() < DIGEST))
+        out += [ptn.make_tlp(nodata, tag=len(out) + i, digest=rng.random() < DIGEST)
+                for i in range(h - withd)]
     rng.shuffle(out)
     return out
 

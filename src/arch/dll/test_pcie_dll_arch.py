@@ -115,6 +115,10 @@ def test_tlp_classes_and_credits():
     assert m.tlp_info(bytes([0x44, 0, 0, 1]))[:3] == (m.NP, 1, 1)  # configuration write
     assert m.tlp_info(bytes([0x0A, 0, 0, 0]))[0] == m.CPL          # completion, no data
     assert m.tlp_info(bytes([0x60, 0, 0, 0]))[2:] == (256, 16 + 4096)  # length 0 is 1024 DW
+    # TD 1: the digest adds 4 bytes and no credit.
+    assert m.tlp_info(m.make_tlp("mwr", 128, 0, digest=True)) == (m.P, 1, 8, 144)
+    assert m.tlp_info(m.make_tlp("mrd", 0, 0, digest=True)) == (m.NP, 1, 0, 16)
+    assert m.tlp_payload(m.make_tlp("cpld", 36, 0, digest=True)) == 36
 
 
 def test_tlp_frame_layout():
@@ -345,6 +349,40 @@ def test_malformed_tlp_is_acknowledged_not_delivered_and_credits_return():
     assert b.errors[m.E_BAD_TLP] == 0
     b.receive(m.Packet(False, bytes([0, 4, 1])), p.now)    # too short to hold an LCRC
     assert b.errors[m.E_BAD_TLP] == 1 and b.nak_due
+
+
+def test_tlp_with_digest_is_delivered_with_it_and_checked_with_it():
+    p, a, b = up_pair()
+    good = [m.make_tlp("mwr", 128, 1, digest=True),       # 4 + 32 + 1 DWs with the header below
+            m.make_tlp("mrd", 0, 2, digest=True),
+            m.make_tlp("cpld", 4, 3, digest=True)]
+    good[0] = bytes([0x60]) + good[0][1:8] + bytes(4) + good[0][8:]   # a 4-DW header
+    assert len(good[0]) == 148 and m.tlp_info(good[0])[3] == 148
+    for i, t in enumerate(good):
+        b.receive(tlp_pkt(i, t), p.now)
+    assert b.errors[m.E_MALFORMED] == 0 and b.nrs == 3
+    run(p, 200)
+    assert b.delivered == good                          # the digest goes up with the TLP
+    cr = [list(x) for x in b.cr]
+    nodigest = m.make_tlp("mwr", 8, 4, digest=True)[:-4]       # TD 1, no digest
+    extra = m.make_tlp("mwr", 8, 5) + bytes(4)                 # TD 0, one DW too many
+    over = bytes([0x40, 0, 0x80, 33]) + bytes(8 + 132 + 4)     # TD 1, 132-byte payload
+    for i, t in enumerate((nodigest, extra, over)):
+        b.receive(tlp_pkt(3 + i, t), p.now)
+    assert b.errors[m.E_MALFORMED] == 3 and b.nrs == 6
+    run(p, 200)
+    assert b.delivered == good
+    assert b.cr[m.P] == [cr[m.P][0] + 3, cr[m.P][1] + 1 + 1 + 9]   # Length only, no digest
+
+
+def test_perf_digest_traffic_is_lossless():
+    w = {"kind": "traffic", "tlps": 200, "mix": "mixed", "payload": -1, "bidirectional": True,
+         "digest": 0.5}
+    r = m.perf(w, 3)
+    assert r["tlps_lost"] == r["tlps_duplicated"] == r["tlps_out_of_order"] == 0
+    assert r["err_malformed_tlp"] == 0
+    with pytest.raises(ValueError):
+        m.perf(dict(w, digest=2.0), 3)
 
 
 def test_default_completion_credits_are_infinite():

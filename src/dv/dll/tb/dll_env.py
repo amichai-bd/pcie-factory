@@ -224,6 +224,12 @@ COV_MALFORMED = Covergroup("dll_malformed")
 COV_MALFORMED.coverpoint("cause", bins=["not_whole_dw", "short", "length", "payload",
                                         "no_header"])
 
+# TLPs with a digest (TD 1, HAS receive): stored with it, or malformed
+# (no digest, or a payload above 128 bytes); 3- and 4-DW headers.
+COV_DIGEST = Covergroup("dll_digest")
+COV_DIGEST.coverpoint("outcome", bins=["stored", "malformed"])
+COV_DIGEST.coverpoint("hdr", bins=["3dw", "4dw"])
+
 COV_ACKNAK = Covergroup("dll_acknak_tx")
 COV_ACKNAK.coverpoint("kind", bins=["ack", "nak"])
 COV_ACKNAK.coverpoint("cause", bins=["timer", "duplicate", "nak"])
@@ -306,6 +312,9 @@ class RxRef:
         tlp = data[2:-4]
         d = (seq - self.nrs) % 4096
         if d == 0:
+            if len(tlp) >= 4 and ptn.tlp_digest(tlp):
+                COV_DIGEST.sample(outcome="malformed" if ptn.tlp_malformed(tlp) else "stored",
+                                  hdr="4dw" if tlp[0] & 0x20 else "3dw")
             if ptn.tlp_malformed(tlp):
                 self.malformed += 1
                 if self.credits is not None and len(tlp) >= 4:

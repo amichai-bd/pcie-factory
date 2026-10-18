@@ -118,7 +118,8 @@ module pcie_dll_tlp_rx (
         if (wr_want) begin
           asm_d.dws = asm_q.dws + 6'd1;
           if (asm_q.dws == 6'd0) begin
-            asm_d.hdr = pcie_dll_pkg::tlp_hdr(asm_q.lo[6:0], dw_hi[1:0], dw_hi[15:8]);
+            asm_d.hdr = pcie_dll_pkg::tlp_hdr(asm_q.lo[6:0], dw_hi[7], dw_hi[1:0],
+                                             dw_hi[15:8]);
           end
           if (buf_full_i) begin
             asm_d.noroom = 1'b1;
@@ -163,7 +164,8 @@ module pcie_dll_tlp_rx (
   assign ahead     = good && seq_dist != 12'd0 && !seq_dist[11];
   assign dup       = good && seq_dist[11];
   assign malformed = expected && pcie_dll_pkg::tlp_malformed(chk_q.beats, chk_q.hdr.hdr4,
-                                                             chk_q.hdr.with_data, chk_q.hdr.length);
+                                                             chk_q.hdr.with_data, chk_q.hdr.td,
+                                                             chk_q.hdr.length);
   assign cand      = expected && !malformed;
   assign store     = cand && fit_i && !chk_q.noroom;
   assign accept    = malformed || store;
