@@ -9,7 +9,7 @@ schemas, the publishability rules and the workflows. Code: `tools/metrics/`
 `guard.py`, `red.py`, `trends.py`, `cli.py`); configuration: `cfg/metrics.yaml`.
 
 ```
-./build metrics collect [--out FILE] [--no-github] [--step NAME=pass|fail|skipped]... [--started TIME] [--repo OWNER/NAME]
+./build metrics collect [--out FILE | --out-dir DIR] [--no-github] [--step NAME=pass|fail|skipped]... [--started TIME] [--run-id ID] [--run-attempt N] [--repo OWNER/NAME]
 ./build metrics commits [--file FILE] [--ref REV] [--no-ci] [--limit N] [--repo OWNER/NAME]
 ./build metrics guard   --branch NAME --base REV [--head REV]
 ./build metrics trends  [--dir DIR]...
@@ -76,16 +76,24 @@ site ([publishability](../../bkm/wiki.md#publishability)). So:
 
 ## `collect`: the nightly record
 
-Writes `--out` (default `<workdir>/metrics/<date>.json`; the nightly passes
-`wiki/tracker/data/<date>.json`), JSON with sorted keys and one-space
+Writes one record per run: `--out`, else `<run name>` in `--out-dir`
+(default `<workdir>/metrics/`); the nightly passes `--out-dir` with its data
+directory. The **run name** is `<date>T<HHMMSS>Z.json`, the UTC time of
+`--started` (else of the collection), so every run, including a same-day
+rerun or a re-run attempt, gets its own file and the names sort in run order.
+Records written before #322 were named `<date>.json`, one per UTC date, so a
+same-day rerun overwrote the earlier run; they still load
+([trends](#trends)), and the merged ones are restored per run
+([restored records](#restored-records)). JSON with sorted keys and one-space
 indent. Code statistics come from the **committed tree at `HEAD`** (`git
 ls-tree` and `git cat-file`), never from the working tree. A section whose
 producer is absent is `{"status": "unavailable", "reason": R}` with `R` one
 of `missing` (no input file), `invalid` (unreadable input), `disabled`
 (`--no-github`), `forbidden` (HTTP 401/403), `not-found` (404), `gh-error`;
 present sections carry `"status": "ok"`. Missing producers never fail the
-command. `--step` records the nightly's step outcomes and `--started` its
-start time.
+command. `--step` records the nightly's step outcomes, `--started` its
+start time, and `--run-id` and `--run-attempt` (positive integers) the
+workflow run (`$GITHUB_RUN_ID`, `$GITHUB_RUN_ATTEMPT`).
 
 Top level: `schema_version` (integer, `1`; bumped on any incompatible
 change), then the sections below.
@@ -95,8 +103,11 @@ change), then the sections below.
 | Field | Value |
 | --- | --- |
 | `schema_version` | Same as the top level. |
-| `generated_at` | UTC time of the run, `YYYY-MM-DDTHH:MM:SSZ`. |
-| `date` | UTC date of the run; the file name. |
+| `generated_at` | UTC time of the collection, `YYYY-MM-DDTHH:MM:SSZ`; one per run, so it identifies the run. |
+| `started_at` | `--started` in UTC, same form (the nightly job's start; the run name's time); `null` without it. |
+| `run_id`, `run_attempt` | `--run-id` and `--run-attempt`: the workflow run and its attempt (a re-run attempt is another run, with its own start and record); `null` without them. |
+| `date` | UTC date of `generated_at`. |
+| `restored_from` | Only on a [restored record](#restored-records): `{commit, pr, file}`, the merge commit and data PR it came from and its file name there. |
 | `commit`, `commit_short`, `commit_date` | `HEAD` SHA (40 and 12 hex) and its committer date (UTC); on the scheduled run, the main commit the night ran on: the x-axis key shared with the series. |
 | `tools` | `python`, `git`, `gh`, `verilator`, `cocotb`, `pytest`, `pyyaml`: version strings only, `null` when absent. |
 | `nightly.steps` | `{name: pass\|fail\|skipped}` from `--step` (the nightly passes `check`, `unit`, `regress`, `fpga`, `asic`; arch perf runs inside `unit`). |
@@ -249,6 +260,39 @@ source is unavailable:
 | `test_runtime_s` | Runtime of every test run in the summary. |
 | `file_bytes`, `file_lines` | Size and non-blank lines of every counted file. |
 
+<a id="restored-records"></a>
+### Restored records
+
+Before per-run names, a same-day rerun overwrote the day's `<date>.json`, so
+the tree kept only each day's last run. Every merged version of those files
+is in git history, one per data PR; each was restored once (#322) as its own
+per-run file, its measured content unchanged, with `meta` gaining:
+`started_at`, `generated_at` less `meta.nightly.duration_s` (the collector
+computed that duration from `--started`, so this is the job start it was
+given); `run_id` and `run_attempt`, of the run whose `publish` job pushed
+the merged head; and `restored_from`. That run is the `nightly.yml` run
+(Actions API) whose `head_sha` is the record's `meta.commit`, and whose
+`publish` job, in that attempt, succeeded around the data PR's head commit;
+the `ci.yml` run dispatched on that head confirms it. The run link in the
+data PR's body is not used: it names the run that first opened the PR, and
+a later run that force-pushes onto the open PR keeps that link (#52 names an
+earlier run than the one whose push merged). The `<date>.json` files were
+then removed: each was the latest version of its date, restored like the
+others. Runs whose data PR closed unmerged left no record and cannot be
+restored.
+
+| File | `restored_from` (merge commit, data PR, file) | Run, attempt |
+| --- | --- | --- |
+| `2026-10-14T200319Z.json` | `6b84433`, #52, `2026-10-14.json` | 38628703968, 1 |
+| `2026-10-14T211537Z.json` | `bb52576`, #97, `2026-10-14.json` | 38638803579, 1 |
+| `2026-10-15T081643Z.json` | `7f08df0`, #155, `2026-10-15.json` | 38704349529, 1 |
+| `2026-10-15T085635Z.json` | `52cc15b`, #161, `2026-10-15.json` | 38708338857, 2 |
+| `2026-10-15T183026Z.json` | `2658e30`, #224, `2026-10-15.json` | 38786155881, 1 |
+| `2026-10-16T062658Z.json` | `eb5f0ae`, #239, `2026-10-16.json` | 38861246114, 1 |
+| `2026-10-16T072045Z.json` | `ed166e7`, #242, `2026-10-16.json` | 38866601042, 1 |
+| `2026-10-16T080752Z.json` | `79df5ff`, #247, `2026-10-16.json` | 38871634746, 1 |
+| `2026-10-17T074525Z.json` | `8000066`, #266, `2026-10-17.json` | 39014812287, 1 |
+
 ## `commits`: the per-commit series
 
 `--file` (default `<data_dir>/commits.jsonl`) holds one compact JSON object
@@ -270,7 +314,8 @@ Each run appends missing commits (the first run, on an empty file, is the
 one-time backfill), refreshes `ci` on lines that were `none` or
 `unavailable` and now have a run, and leaves every other existing line
 unchanged (`n/a` is final). Line counts are cached per blob, so a backfill reads each blob
-once. Existing lines and nightly records are never rewritten: IPs are keyed
+once. Existing lines and nightly records are never rewritten (the one-time
+restoration only added `meta` keys, [restored records](#restored-records)): IPs are keyed
 by the id that was current when the line or record was written, so when an
 IP id changes (a layout move or a rename) its history before the change
 stays under the old id and the new id starts at the change. A fresh backfill
@@ -305,14 +350,27 @@ drops at the latest record are the **alerts**; earlier drops are history.
 An IP absent from the latest record (retired) therefore never alerts, but
 its history stays.
 
+**Run order.** The history is one record per nightly run, in run order: by
+the run time, `meta.started_at`, else `meta.generated_at` (a record with
+neither sorts at the start of its date, `meta.date` else the file stem's
+`YYYY-MM-DD`), then by file name. So two runs on one day are two
+consecutive records, and "previous" is the previous run, not the previous
+date. A run is identified by its `meta.generated_at` (else its file name):
+two files of one run (a restored record beside its old date file, or
+tonight's file passed again by a later `--dir`) are one record. A run's
+label is its run time as `YYYY-MM-DD HH:MM` (UTC), else its date.
+`trends.py` owns these rules (`run_order`, `run_identity`, `run_label`) and
+the tracker uses them.
+
 **`./build metrics trends`** reads every `*.json` record in each `--dir`
-(default `data_dir`), keyed by `meta.date` (else the file stem); a later
-`--dir` wins on the same date, and an unreadable file, a schema other than
-`1` or a record without a date is skipped with a note on stderr. It prints
-Markdown to stdout: a `## Trend drop alerts` heading, the latest record's
-date and commit, and a table of the alerts (IP, series, previous value and
-its date, latest value, change, threshold), or a line saying no series
-dropped or no records were found. Alerts never fail the command; it exits 2
+(default `data_dir`), old `<date>.json` and per-run names alike, one per run
+in run order; a later `--dir` wins on the same run, and an unreadable file,
+a schema other than `1` or a record without a date is skipped with a note
+on stderr. It prints Markdown to stdout: a `## Trend drop alerts` heading,
+the latest run's label and commit and the number of runs, and a table of
+the alerts (IP, series, previous value and its run's label, latest value,
+change, threshold), or a line saying no series dropped or no records were
+found. Alerts never fail the command; it exits 2
 only on a configuration error.
 
 ## `guard`
@@ -346,12 +404,18 @@ WSL host's runners only
 workflow and skips auto-merge and the `nightly-red` issue. The data branch
 is `nightly/<date>` for `main` and `nightly/<date>-<base>` (slashes in the
 base become `-`) for any other base, so a test dispatch never force-pushes
-over the day's real data PR.
+over the day's real data PR. Two runs on one day share the branch. Each adds
+its own record file, so once the earlier run's data PR has merged (auto-merge
+takes minutes) the later one adds a second record beside it; while that PR is
+still open, the later run force-pushes the branch from the base tip and the
+earlier record is lost, like that of any data PR closed unmerged (and of an
+older day's open data PR, which `publish` closes). #324 owns removing that
+loss.
 
 | Job | Permissions | Does |
 | --- | --- | --- |
-| `nightly` (480 min) | read: contents, issues, pull-requests, actions | `./build check`; `./build ci unit` (every suite, including `./build arch --ip <ip>` for each IP with `src/arch/<ip>/perf/`, the only arch perf run); `./build regress --level 0 --level 1 --level 2 --coverage` (all IPs); `./build fpga --all` and the ASIC flow for IPs with `src/fpga/<ip>/` or `src/asic/<ip>/` (`--all`, else one `--ip` per IP); `./build metrics commits --ref origin/main` continuing the base branch's series, then `./build metrics collect` with the step outcomes; `./build metrics trends --dir wiki/tracker/data --dir <tonight's data>` into the job summary (the nightly summary); uploads both files. Every step runs even after a failure; a step whose subcommand is still a stub, or has no IP inputs, is `skipped`. |
-| `publish` (15 min) | write: contents, pull-requests, actions | Checks out without persisted credentials and installs PyYAML; commits only the two data files, as `github-actions[bot]`, on the data branch from the base tip; runs `./build metrics guard` from this trusted checkout; force-pushes the branch with the token passed for that one command; closes, with a comment, any other open `nightly/*` PR into the same base (they would conflict on `commits.jsonl`); opens (or reuses) the PR labelled `type:data` and `area:wiki`; dispatches `ci.yml` (`ci-gate`, with the data guard) on the branch; on `main`, enables squash auto-merge and dispatches `pages.yml` on `main`. |
+| `nightly` (480 min) | read: contents, issues, pull-requests, actions | `./build check`; `./build ci unit` (every suite, including `./build arch --ip <ip>` for each IP with `src/arch/<ip>/perf/`, the only arch perf run); `./build regress --level 0 --level 1 --level 2 --coverage` (all IPs); `./build fpga --all` and the ASIC flow for IPs with `src/fpga/<ip>/` or `src/asic/<ip>/` (`--all`, else one `--ip` per IP); `./build metrics commits --ref origin/main` continuing the base branch's series, then `./build metrics collect --out-dir` with the step outcomes, the start time and the run id and attempt (this run's own `<date>T<HHMMSS>Z.json`); `./build metrics trends --dir wiki/tracker/data --dir <tonight's data>` into the job summary (the nightly summary); uploads both files. Every step runs even after a failure; a step whose subcommand is still a stub, or has no IP inputs, is `skipped`. |
+| `publish` (15 min) | write: contents, pull-requests, actions | Checks out without persisted credentials and installs PyYAML; commits only the two data files (`commits.jsonl` and this run's record, a new file beside the earlier runs'), as `github-actions[bot]`, on the data branch from the base tip; runs `./build metrics guard` from this trusted checkout; force-pushes the branch with the token passed for that one command; closes, with a comment, any other open `nightly/*` PR into the same base (they would conflict on `commits.jsonl`); opens (or reuses) the PR labelled `type:data` and `area:wiki`; dispatches `ci.yml` (`ci-gate`, with the data guard) on the branch; on `main`, enables squash auto-merge and dispatches `pages.yml` on `main`. |
 | `report` (5 min) | read contents, write issues | `./build metrics red` with `success` only when `nightly` and `publish` both succeeded. |
 
 Pushes and PRs made with `GITHUB_TOKEN` start no runnable workflows (a
@@ -428,9 +492,11 @@ push to `main`).
 ## Consumers
 
 The tracker pages (`wiki/tracker/`, rendered by `tools/wiki_site/tracker.py`)
-read only `commits.jsonl` and the `<date>.json` records, keyed by
-`schema_version`. They plot every trend against `commits.jsonl` order
-(`index`) and place nightly records on that axis by `meta.commit`. The
+read only `commits.jsonl` and the nightly records (`<date>T<HHMMSS>Z.json`,
+and older `<date>.json`), keyed by `schema_version`. They plot the
+commit-series trends against `commits.jsonl` order (`index`) and the nightly
+trends against every nightly run in [run order](#trends), each run naming
+its commit by `meta.commit`. The
 commit label on charts and tables is the first 7 hex digits of `sha` (git's
 default abbreviation); the 12-hex `short` and `commit_short` are for
 unambiguous references in tables and links; a record whose commit is not in the series (a test run on
@@ -457,6 +523,12 @@ and a moving base (`test_metrics_guard.py`); and the red-issue rule
 history (`fixtures/trends/`) with a drop that alerts across a gap, a flat
 series, a drop equal to its threshold, a rise, a gap at the latest record,
 retired and new IPs, malformed and missing values, and the `trends`
-summary, its `--dir` precedence and skipped files
-(`test_metrics_trends.py`). Each rule is pinned by a mutant the suite
+summary, its `--dir` precedence and skipped files; run order: three runs on
+one day after a date-named record, consecutive and alerting between the
+day's last two runs, order by start time over file names with the
+`generated_at` and date fallbacks, and one run in two files read once
+(`test_metrics_trends.py`); one record per run from `collect`, two same-day
+runs in two files with their start, run id and attempt, and the `--run-id`,
+`--run-attempt` and `--out`/`--out-dir` arguments
+(`test_metrics_record.py`). Each rule is pinned by a mutant the suite
 catches (recorded in the delivering PR).

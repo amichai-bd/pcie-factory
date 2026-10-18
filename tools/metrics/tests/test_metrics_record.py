@@ -224,6 +224,42 @@ def test_collect_without_github_or_producers(repo, tmp_path, cfg, monkeypatch):
     assert rec["github"]["ci"] == {"status": "unavailable", "reason": "disabled"}
     assert rec["meta"]["nightly"]["result"] is None
     assert rec["meta"]["nightly"]["duration_s"] is None
+    assert rec["meta"]["started_at"] is rec["meta"]["run_id"] is rec["meta"]["run_attempt"] is None
+
+
+def test_each_run_writes_its_own_record(repo, tmp_path, monkeypatch):
+    # Two runs on one day: two files named by each run's start, never one
+    # overwriting the other; meta carries the start, run id and attempt.
+    monkeypatch.setattr(record, "tool_versions", lambda: dict(VERSIONS))
+    (repo / "cfg").mkdir()
+    shutil.copy(FIXTURES.parents[3] / "cfg" / "metrics.yaml", repo / "cfg" / "metrics.yaml")
+    out = tmp_path / "data"
+    for started, now, run in (("2026-03-31T03:17:05Z", "2026-03-31T05:00:00Z", 11),
+                              ("2026-03-31T14:02:09Z", "2026-03-31T15:30:00Z", 12)):
+        args = Namespace(out=None, out_dir=str(out), no_github=True, step=[], now=now, started=started,
+                         repo=None, run_id=run, run_attempt=1)
+        assert cli.collect(_ctx(repo, tmp_path / "empty"), args) == 0
+    names = sorted(f.name for f in out.iterdir())
+    assert names == ["2026-03-31T031705Z.json", "2026-03-31T140209Z.json"]
+    first, second = (json.loads((out / n).read_text())["meta"] for n in names)
+    assert (first["started_at"], first["run_id"], first["run_attempt"]) == ("2026-03-31T03:17:05Z", 11, 1)
+    assert (second["generated_at"], second["run_id"], second["date"]) == ("2026-03-31T15:30:00Z", 12, "2026-03-31")
+    # without --started the name comes from the collection time; default dir under the workdir
+    args = Namespace(out=None, out_dir=None, no_github=True, step=[], now="2026-04-01T00:00:07Z",
+                     started=None, repo=None, run_id=None, run_attempt=None)
+    assert cli.collect(_ctx(repo, tmp_path / "wd"), args) == 0
+    assert (tmp_path / "wd" / "metrics" / "2026-04-01T000007Z.json").is_file()
+
+
+def test_collect_run_arguments():
+    import argparse
+    p = argparse.ArgumentParser()
+    cli.add_args(p)
+    args = p.parse_args(["collect", "--out-dir", "d", "--run-id", "38623254395", "--run-attempt", "2"])
+    assert (args.out_dir, args.run_id, args.run_attempt) == ("d", 38623254395, 2)
+    for bad in (["--run-id", "0"], ["--run-id", "x1"], ["--run-attempt", "-1"], ["--out", "a", "--out-dir", "b"]):
+        with pytest.raises(SystemExit):
+            p.parse_args(["collect", *bad])
 
 
 def test_write_refuses_leaks(tmp_path):
