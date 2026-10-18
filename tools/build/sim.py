@@ -52,6 +52,13 @@ FUNCOV_JSON = "funcov.json"  # functional coverage of one run (regress.funcov)
 # the build directory hashed relative to it, generated headers' fresh
 # timestamps and precompiled-header defines accepted.
 CCACHE_SLOPPINESS = "pch_defines,time_macros,include_file_mtime,include_file_ctime"
+# Cold-build bound (wiki/tools/build/SPEC.md, "Build cache"): each build runs
+# cocotb's `make -j` (at most COMPILE_JOBS compilers), and a compiler of the
+# generated C++ may take up to COMPILE_MEM_BYTES; at most compile_slots()
+# builds compile at once, so all compilers together fit the host's CPUs and
+# available memory. A CI host ran out of memory without it (#327).
+COMPILE_JOBS = 4
+COMPILE_MEM_BYTES = 2 * 2**30
 
 
 class SimError(Exception):
@@ -149,6 +156,37 @@ _SLOTS: Slots | None = None
 # The shared build cache (None: off); set by `--no-cache`/$BUILD_CACHE
 # (wiki/tools/build/SPEC.md, "Build cache").
 _CACHE: build_cache.Cache | None = None
+
+
+_COMPILE_SEM: threading.BoundedSemaphore | None = None
+
+
+def mem_available() -> int | None:
+    """MemAvailable from /proc/meminfo, in bytes; None when unknown."""
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def compile_slots(cpus: int | None = None, mem: int | None = None) -> int:
+    """How many builds may compile at once: the compilers the host's CPUs
+    and available memory allow, divided by each build's ``make -j``."""
+    from build.slots import cpu_count
+    cpus = cpu_count() if cpus is None else cpus
+    procs = cpus if mem is None else min(cpus, mem // COMPILE_MEM_BYTES)
+    return max(1, procs // min(COMPILE_JOBS, cpus))
+
+
+def _compile_sem() -> threading.BoundedSemaphore:
+    global _COMPILE_SEM
+    with _LOCK:
+        if _COMPILE_SEM is None:
+            _COMPILE_SEM = threading.BoundedSemaphore(compile_slots(mem=mem_available()))
+        return _COMPILE_SEM
 
 
 def set_slots(slots: Slots | None) -> None:
@@ -393,7 +431,8 @@ def build(spec: BuildSpec, workdir: Path, verilator: Path,
     )
     if cache is not None:
         job["ccache"] = True
-    code, runtime, cpu = _run_child("build", job, log, timeout_s=BUILD_TIMEOUT_S)
+    with _compile_sem():
+        code, runtime, cpu = _run_child("build", job, log, timeout_s=BUILD_TIMEOUT_S)
     if code is None:
         return Result("error", runtime, log, f"build timed out after {BUILD_TIMEOUT_S}s")
     if code != 0:

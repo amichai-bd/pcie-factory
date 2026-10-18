@@ -337,10 +337,17 @@ CI job on the same host reuses it instead of compiling again (#327).
   ccache, or with the cache off, `OBJCACHE` is empty. The objects go to
   ccache's own directory (its configuration or `$CCACHE_DIR`, by default
   `~/.cache/ccache`): one per user and host, outside every checkout and
-  shared by every run, so a host keeps its warm compiler cache. A fresh
-  ccache directory per run or per cache would make the first job on a host
-  compile every build at once (each `make -j` the host's CPUs, one build
-  per CPU), which failed builds on a CI host in this PR's first run.
+  shared by every run, so a host keeps its warm compiler cache.
+- **Cold builds are bounded:** each build compiles with cocotb's `make -j`
+  (at most `COMPILE_JOBS` = 4 compilers), and a compiler of the generated
+  C++ may need up to 2 GiB (`COMPILE_MEM_BYTES`). At most
+  `compile_slots()` builds compile at once: the compilers that the host's
+  CPUs and `MemAvailable` (read once, at the run's first build) allow,
+  divided by 4, at least one. A cache hit takes no compile slot. Without
+  this bound a cold run (an empty ccache: a new host, a Verilator upgrade,
+  eviction) started `--jobs $(nproc)` builds of four compilers each, and
+  on a CI host 16 of 37 builds failed with
+  `g++: fatal error: Killed signal terminated program cc1plus` (#327).
 - **Output:** `sim` prints `build cache: <dir>` (the home directory as
   `~`, since CI logs are public) and `build pass (cached)` on a hit;
   `regress` prints `[build] <ip>:<key> pass cached (0.0s)` per hit, a
@@ -359,7 +366,8 @@ Tests: `tools/build/tests/test_cache.py` (location default, override,
 `off` and refusal inside the repository; key equality across worktrees and
 change on every input; atomic store, a concurrent writer and partial
 entries; pruning; a second build is a hit and runs; the coverage path
-rewrite; ccache settings in the build child). Every tools test runs with a
+rewrite; ccache settings in the build child; the cold-build bound; the
+driver in the key; pruning by size). Every tools test runs with a
 private `$BUILD_CACHE` (`tools/conftest.py`).
 
 ## Failure excerpt

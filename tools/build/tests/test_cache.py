@@ -160,6 +160,18 @@ def test_rebase_coverage_rewrites_the_compiling_tree(tmp_path):
     assert not sim.rebase_coverage(dat, "/elsewhere", "/w3")  # nothing matched: reported
 
 
+# ---------------------------------------------------------- cold builds
+
+def test_compile_slots_fit_cpus_and_memory():
+    gib = 2**30
+    assert sim.compile_slots(cpus=16, mem=None) == 4        # 16 CPUs / make -j4
+    assert sim.compile_slots(cpus=16, mem=14 * gib) == 1    # 7 compilers fit: one build
+    assert sim.compile_slots(cpus=32, mem=64 * gib) == 8
+    assert sim.compile_slots(cpus=4, mem=1 * gib) == 1      # never below one
+    assert sim.compile_slots(cpus=2, mem=None) == 1         # make -j2 on two CPUs
+    assert isinstance(sim.mem_available(), (int, type(None)))
+
+
 # --------------------------------------------------------------- ccache
 
 def test_ccache_env(tmp_path, monkeypatch):
