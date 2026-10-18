@@ -297,7 +297,10 @@ async def random_tx(dut, *, segments: int, per_segment: int) -> tl_env.TlEnv:
                 if env.regs.d_state:
                     continue                  # outside D0 the application issues nothing
                 n = rng.randint(1, 32)
-                base = rng.choice([0, (rng.getrandbits(20) | 1) << 32])
+                # Every address bit takes both values: a random 64 KiB block
+                # below 4 GiB (3-DW header) or above it (4-DW header).
+                base = rng.choice([rng.getrandbits(16) << 16,
+                                   ((rng.getrandbits(32) | 1) << 32) | (rng.getrandbits(16) << 16)])
                 a = base + 4 * rng.randrange(1024 - n + 1) + 0x1000 * rng.randrange(16)
                 f = rng.choice([0xF, 0xE, 0xC, 0x8]) if n > 1 else rng.choice([0xF, 0x1, 0x6, 0x0])
                 l = rng.choice([0xF, 0x7, 0x3, 0x1]) if n > 1 else 0
