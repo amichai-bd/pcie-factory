@@ -88,9 +88,10 @@ async def rx_directed(dut):
     duplicates (Ack at once, D = 2048 included); ahead TLPs (Bad TLP, one
     Nak per NAK_SCHEDULED, D = 1 and 2047); bad LCRC, phy-flagged, too
     short, nullified and EDB without the inverse; each malformed kind
-    acknowledged and not delivered; TLPs with a digest (TD 1) delivered
-    with it, the largest 37 DWs, and malformed without it; long packets beyond the beat counter;
-    the link going down while a TLP arrives and while one is delivered."""
+    acknowledged and not delivered (one with a Length of 508 DWs, every
+    Length bit 8:2 set); TLPs with a digest (TD 1) delivered with it, the
+    largest 37 DWs, and malformed without it; long packets beyond the beat
+    counter; the link going down while a TLP arrives and while one is delivered."""
     rng = random.Random(cocotb.RANDOM_SEED)
     env = Env(dut, cocotb.RANDOM_SEED)
     await env.start()
@@ -204,6 +205,7 @@ async def rx_directed(dut):
         hdr(0x40, 4, 55, td=True) + payload(4, 55),           # TD 1, no digest
         hdr(0x60, 33, 56, 4, td=True) + payload(34, 56),      # TD 1, 132-byte payload
         hdr(0x00, 1, 57) + payload(1, 57),                    # TD 0, a DW too many
+        hdr(0x40, 0x1FC, 58) + payload(4, 58),   # Length 508 (127 credits), 4 DWs sent
     ]
     for t in bad_tlps:
         env.inject(frame(seq, t), dllp=False, gaps=rng.choice((0, 1)))

@@ -73,6 +73,26 @@ tests:
     seeds: 2
     timeout_s: 900
     params: {FC_PH: 1, FC_PD: 8, FC_NPH: 1, FC_NPD: 2, FC_CPLH: 1, FC_CPLD: 8, FC_RELEASE: 1}
+  # The FC_RELEASE 1 build's transmit gate (its own credit block
+  # specialization): the gate directed cases with releases running.
+  - name: fc_tx_gate_release
+    module: tests.test_dll_fc
+    testcase: fc_tx_gate
+    top: pcie_dll_tb
+    seeds: [0]
+    timeout_s: 300
+    params: {FC_RELEASE: 1}
+  # Error injection with FC_RELEASE 1: bad, duplicate and nullified TLPs
+  # are never delivered, so never released; the delivered ones are. Seed 1
+  # alone reaches Length bit 9 (DV plan), so coverage on both.
+  - name: rx_errors_release
+    module: tests.test_dll_rx
+    testcase: rx_errors
+    top: pcie_dll_tb
+    seeds: [0, 1]
+    timeout_s: 600
+    coverage_seeds: 2
+    params: {FC_RELEASE: 1}
   - name: mwr_max
     module: tests.test_dll_tlp_tx
     testcase: mwr_max
@@ -84,12 +104,14 @@ tests:
     top: pcie_dll_tb
     timeout_s: 300
 # Floors on the merged levels 0 to 2 (the nightly run), at the merged value
-# less 0.5 points rounded down to a tenth (DV BKM, floor margin): measured
-# 98.95% line (472/477), 80.53% toggle (13566/16846); every point not hit
-# has a reason in the DV plan (Coverage holes). Functional 100 must hold
-# every bin of dll_acknak_rx, dll_acknak_tx, dll_digest, dll_dl_states, dll_dllp_rx,
-# dll_dllp_tx, dll_fc_init, dll_fc_rx, dll_fc_tx, dll_malformed, dll_rbuf,
-# dll_replay, dll_reset, dll_rx_stream, dll_tlp_rx, dll_tlp_tx, dll_tx_tail
-# and dll_updatefc_tx; a renamed or undeclared covergroup leaves the total,
-# so keep this list.
-coverage_floors: {line: 98.4, toggle: 80.0, functional: 100}
+# less 0.5 points rounded down to a tenth (DV BKM, floor margin): line 98.4
+# from 98.95% (472/477, #217; now 98.91%, 543/549); toggle 76.4 from 76.94%
+# (17296/22480, #354), lowered from 80.0 by captain decision on #354 for the
+# FC_RELEASE parameter copies and tie-off (DV plan, Coverage holes); every
+# point not hit has a reason in the DV plan (Coverage holes). Functional
+# 100 must hold every bin of dll_acknak_rx, dll_acknak_tx, dll_digest,
+# dll_dl_states, dll_dllp_rx, dll_dllp_tx, dll_fc_init, dll_fc_rx,
+# dll_fc_tx, dll_malformed, dll_rbuf, dll_replay, dll_reset, dll_rx_stream,
+# dll_tlp_rx, dll_tlp_tx, dll_tx_tail and dll_updatefc_tx; a renamed or
+# undeclared covergroup leaves the total, so keep this list.
+coverage_floors: {line: 98.4, toggle: 76.4, functional: 100}
