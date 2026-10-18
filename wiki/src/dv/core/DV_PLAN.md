@@ -177,7 +177,6 @@ Removed after the first run: a gate on `irq_ready_o`, which survived because `cf
 
 | Feature | Owning issue |
 | --- | --- |
-| The `dll` points of the [Coverage holes](#coverage-holes) "not hit either" rows (line 2, toggle 4978) that the `dll` plan does not explain: the `dll` coverage is below its floors since #217; refresh this classification when it closes | [#354](https://github.com/amichai-bd/pcie-factory/issues/354) |
 | FPGA and ASIC timing of `core` | [#295](https://github.com/amichai-bd/pcie-factory/issues/295), [#296](https://github.com/amichai-bd/pcie-factory/issues/296) |
 
 ## Coverage holes
@@ -199,15 +198,17 @@ with two compliant ends on an error-free line, so most of what it leaves
 uncovered is behaviour the stacked IPs' own DV reaches (their
 [granularity](../../../bkm/rtl.md#granularity)). Each point not hit was
 looked up in the merged coverage of those IPs' own regressions: `tl` and
-`cfg` at levels 0 to 2 on the same tree as the `core` run; `dll`, `mac`,
-`pcs` and `phy` at levels 0 to 2 and `link` at levels 0 and 1 at
-`738939f`, before [#295](https://github.com/amichai-bd/pcie-factory/issues/295),
-which changes only `tl`. The `dll` run is below its own floors (72.53%
-toggle, 16304 of 22480; line 543 of 549), and the [`dll`
-holes](../dll/DV_PLAN.md#coverage-holes) still account for the #217
-measurement only, so the `dll` points in the "not hit either" rows that the
-`dll` plan does not explain are owned by [#354](https://github.com/amichai-bd/pcie-factory/issues/354) (Gaps); this
-classification is refreshed when #354 closes.
+`cfg` at levels 0 to 2 on the same tree as the `core` run; `mac`, `pcs`
+and `phy` at levels 0 to 2 and `link` at levels 0 and 1 at `738939f`,
+before [#295](https://github.com/amichai-bd/pcie-factory/issues/295),
+which changes only `tl`; `dll` at levels 0 to 2 after
+[#354](https://github.com/amichai-bd/pcie-factory/issues/354) (76.94%
+toggle, 17296 of 22480; line 543 of 549), whose floors now hold: its
+toggle floor was lowered to 76.4 by
+[captain decision](https://github.com/amichai-bd/pcie-factory/issues/354#issuecomment-6253919165)
+for the `FC_RELEASE` parameter copies and the tied-off release port, and
+its [holes](../dll/DV_PLAN.md#coverage-holes) explain every point it does
+not hit.
 
 A PR in a stacked IP (`link`, `dll`, `mac`, `pcs`, `phy`, `tl`, `cfg`)
 that adds state, or an entry here with a new parameter set, dilutes these
@@ -219,15 +220,15 @@ says. The 1325 line points not hit, by cause:
 | --- | ---: | --- |
 | Hit in another parameter set or at the host's end | 829 | The same point is hit in another copy of its block (the entries' five parameter sets, and the host's downstream `pcie_link`): `tl` 303, `mac` 158, `cfg` 129, `dll` 128, the common RAMs 71, `pcs` 37, `pcie_core.sv` 3 (lines 191 to 194). |
 | Reached by the stacked IP's own DV | 429 | `mac` 243, `pcs` 64, `tl` 45, `cfg` 39, `dll` 38: behaviour two compliant stacks on this line do not produce, or that the host model does not send: the LTSSM's error, timeout and compliance exits, the power states the `link` ties off, elastic-buffer and decoder extremes ([`link` holes](../link/DV_PLAN.md#coverage-holes)); in `tl` and `cfg`, the malformed and error cases and the queue and parameter extremes of their plans. |
-| Not hit by the stacked IP's own DV either | 67 | The holes of the unit plans, counted in each copy: `mac` 44 (elaboration-only functions, [`mac` holes](../mac/DV_PLAN.md#coverage-holes)), `tl` 17 ([`tl` holes](../tl/DV_PLAN.md#coverage-holes): the state `default`, the constant enable and the input-contract cases), `pcs` 4, `dll` 2 (not in the [`dll` holes](../dll/DV_PLAN.md#coverage-holes), which predate them: owned by [#354](https://github.com/amichai-bd/pcie-factory/issues/354)). |
+| Not hit by the stacked IP's own DV either | 67 | The holes of the unit plans, counted in each copy: `mac` 44 (elaboration-only functions, [`mac` holes](../mac/DV_PLAN.md#coverage-holes)), `tl` 17 ([`tl` holes](../tl/DV_PLAN.md#coverage-holes): the state `default`, the constant enable and the input-contract cases), `pcs` 4, `dll` 2 (the `noroom` branch of `u_tlp_rx` in both copies, unreachable by construction, [`dll` holes](../dll/DV_PLAN.md#coverage-holes)). |
 
 The 96495 toggle points not hit, by cause:
 
 | Cause | Points | Signals |
 | --- | ---: | --- |
 | Hit in another parameter set or at the host's end | 46003 | The same file, signal bit and direction toggles in another copy: `tl` 23381, `dll` 7913, `cfg` 5392, the common RAMs 3750, `mac` 2286, `pcie_core.sv` 1914, `pcs` 734, `pcie_link.sv` 456, `phy` 177. |
-| Reached by the stacked IP's own DV | 32855 | `tl` 17913, `cfg` 8667, `dll` 2876, `mac` 2640, `pcs` 570, the common RAMs 121, `phy` 36, `pcie_link.sv` 32: data and address patterns, error and malformed paths, credit and queue extremes and parameter values that the host model and the e2e's parameter sets do not produce. |
-| Not hit by the stacked IP's own DV either | 16333 | `tl` 5647, `dll` 4978, `cfg` 4722, `mac` 580, `pcie_link.sv` 260, `pcs` 130, the common RAMs 10, `phy` 6: the causes of each IP's plan ([`tl`](../tl/DV_PLAN.md#coverage-holes), [`cfg`](../cfg/DV_PLAN.md#coverage-holes), [`dll`](../dll/DV_PLAN.md#coverage-holes), [`link`](../link/DV_PLAN.md#coverage-holes)): bits outside the registers' writable masks, constant templates and fields, credit counters' top bits, power states tied off. The `dll` 4978 include points the `dll` plan does not explain (its holes count 3280 at the #217 measurement): owned by [#354](https://github.com/amichai-bd/pcie-factory/issues/354). |
+| Reached by the stacked IP's own DV | 33051 | `tl` 17913, `cfg` 8667, `dll` 3072, `mac` 2640, `pcs` 570, the common RAMs 121, `phy` 36, `pcie_link.sv` 32: data and address patterns, error and malformed paths, credit and queue extremes and parameter values that the host model and the e2e's parameter sets do not produce. |
+| Not hit by the stacked IP's own DV either | 16137 | `tl` 5647, `dll` 4782, `cfg` 4722, `mac` 580, `pcie_link.sv` 260, `pcs` 130, the common RAMs 10, `phy` 6: the causes of each IP's plan ([`tl`](../tl/DV_PLAN.md#coverage-holes), [`cfg`](../cfg/DV_PLAN.md#coverage-holes), [`dll`](../dll/DV_PLAN.md#coverage-holes), [`link`](../link/DV_PLAN.md#coverage-holes)): bits outside the registers' writable masks, constant templates and fields, credit counters' top bits, power states tied off. The `dll` 4782 by the causes of its holes: constant per build 1284, one TLP's credits 1128, release events 952, the DLLP format 590, counter top bits 492, large data credits 260, the transmit block and hold release 40, receive buffer full 36. |
 | The stack's own nets | 1304 | `pcie_core.sv` 1288: the values the host model fixes (its BAR0, BAR2 and MSI addresses and data, one bus and device number, Max_Payload_Size and Max_Read_Request_Size), credits available above the advertisement (`fc_*_avail`, `fc_rel_npd`), and the error-event bits that do not pulse on this line (`dl_err_o`); `tl` 16: the completion timeout prescaler's top bits in a parameter set only `core` builds. |
 
 How the points were sorted, so a re-measurement reproduces the counts: a
