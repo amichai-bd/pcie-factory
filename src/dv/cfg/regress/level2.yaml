@@ -1,1 +1,21 @@
-tests: []
+tests:
+  - name: random_long
+    module: tests.test_cfg_random
+    testcase: random_long
+    top: pcie_cfg_tb
+    seeds: 4
+    timeout_s: 600
+  - name: random_long_64
+    module: tests.test_cfg_random
+    testcase: random_long
+    top: pcie_cfg_tb
+    seeds: 2
+    timeout_s: 600
+    params: {MSIX_TABLE_SIZE: 64, BAR0_ADDR_W: 28}
+  - name: random_long_1
+    module: tests.test_cfg_random
+    testcase: random_long
+    top: pcie_cfg_tb
+    seeds: 2
+    timeout_s: 600
+    params: {MSIX_TABLE_SIZE: 1, BAR0_ADDR_W: 20}

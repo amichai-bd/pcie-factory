@@ -1,45 +1,163 @@
 # pcie_cfg DV plan
 
-> **Draft for wave 2:** only the shell smoke test exists; the register-file
-> tests arrive with the RTL
-> ([#289](https://github.com/amichai-bd/pcie-factory/issues/289)).
-
 ## Strategy
 
-- **Shell test:** [`tests/test_cfg.py`](../../../../src/dv/cfg/tests/test_cfg.py)
-  drives `pcie_cfg` directly (no SV testbench; `cfg.dv.f` is empty). With
-  `clk_i` running, `rst_i` pulsed twice and every other input toggled at
-  random, it checks each qualified and state output against its
-  [reset value](../../arch/cfg/HAS.md#reset) at every falling `clk_i` edge.
-- **Functional coverage:** the `cfg_shell` covergroup bins `rst` (low,
-  high) and `tl` offering a register access, the application an
-  interrupt, both or neither, crossed.
-- **Planned (wave 2):** `pcie_cfg` alone, driven on the
-  [tl-cfg interface](../../arch/core/TL_CFG.md) and the
-  [interrupt port](../../arch/core/APP.md#interrupts), checked against a
-  reference model written from the HAS: every field of
-  [REGISTERS.md](../../arch/cfg/REGISTERS.md) and
-  [CAPS.md](../../arch/cfg/CAPS.md) with its access type and byte enables,
-  BAR sizing, bus and device capture, the [error](../../arch/cfg/HAS.md#errors)
-  table and message decision, the [message](../../arch/cfg/HAS.md#messages)
-  priority and withdrawal, the [interrupt](../../arch/cfg/HAS.md#interrupts)
-  resolution with masks and pending bits, the
-  [power states](../../arch/cfg/HAS.md#power-states), and the latency
-  [targets](../../arch/cfg/HAS.md#targets). The arch model may serve as a
-  second reference ([arch BKM](../../../bkm/arch.md#dv-and-arch)).
+- **Testbench:** [`tb/pcie_cfg_tb.sv`](../../../../src/dv/cfg/tb/pcie_cfg_tb.sv)
+  holds one `pcie_cfg` with its parameters and passes every port through
+  by name, plus `cfg_params_o`, the parameters for the environment (the
+  IDs are `int` parameters there so a regression entry can set them; the
+  DUT gets them at their HAS widths). The DUT is driven only through its
+  ports.
+- **Environment:** [`tb/cfg_env.py`](../../../../src/dv/cfg/tb/cfg_env.py),
+  one step per `clk_i` cycle at the falling edge:
+  - a **tl stand-in** on the [register access](../../arch/core/TL_CFG.md#register-access)
+    handshake: one access at a time, held until taken, the next offered
+    after `reg_cpl_valid_o`, random bus and device numbers on writes; a
+    **message taker** raising `msg_ready_i` with a set probability, so
+    offers are taken at once or held; random `tl_np_pending_i`;
+  - an **application stand-in** on the [interrupt port](../../arch/core/APP.md#interrupts):
+    one request at a time, held until taken, vectors below
+    `MSIX_TABLE_SIZE`; and queued or random error-event cycles on
+    `tl_err_i`, `dl_err_i` and `rcv_err_i`;
+  - the **shadow**, the [architecture model](../../arch/cfg/HAS.md#architecture-model)
+    `Cfg` with the DUT's parameters, given every edge in the
+    [MAS edge order](../../rtl/cfg/MAS.md#top): a read sees the state
+    before the edge; an offer the DUT raises at an edge is the model's
+    `offer` taken before the edge's operations; then the take, the write,
+    the events and the request.
+- **Checks on every run, every cycle:** the offer (`msg_valid_o`, and
+  while it is up its kind, and for an interrupt write its address and
+  data) equals the model's, so an offer the model withdraws must fall and
+  one it keeps must stay; `irq_done_o` pulses exactly when the model
+  resolves a request, with its status; `irq_ready_o` is 1 exactly when no
+  request is open and `reg_req_ready_o` exactly when no access is (the
+  first cycle out of reset included); every register-state output equals the model's; each
+  read's `reg_cpl_data_o` equals the model's read; `reg_cpl_valid_o` comes
+  within 4 cycles of its take and never without an access, and a request
+  is resolved within 4 cycles unless it is held (the latency
+  [targets](../../arch/cfg/HAS.md#targets), the `LATENCY` check); in and
+  after reset every
+  qualified output has its [reset value](../../arch/cfg/HAS.md#reset). The
+  RTL assertions ([MAS](../../rtl/cfg/MAS.md)) hold in every run.
+- **Oracles written from the HAS, not the model:**
+  [`tb/cfg_regmap.py`](../../../../src/dv/cfg/tb/cfg_regmap.py) lists
+  every field of [REGISTERS.md](../../arch/cfg/REGISTERS.md) and
+  [CAPS.md](../../arch/cfg/CAPS.md) with its access type and reset value;
+  [`tests/test_cfg_err.py`](../../../../src/dv/cfg/tests/test_cfg_err.py)
+  writes out the [error table](../../arch/cfg/HAS.md#errors) and the
+  message decision; the interrupt tests state each rule's expected writes
+  and statuses, and the enumeration test is a host walk with the
+  parameters as the reference.
+- **Parameter limits:** [`tests/test_cfg_params.py`](../../../../src/dv/cfg/tests/test_cfg_params.py)
+  lints `pcie_cfg` from `cfg.rtl.f` for each illegal value (both ends of
+  `BAR0_ADDR_W` and `MSIX_TABLE_SIZE`, each ID at 16'hFFFF), which must
+  stop elaboration with its `COMMON_ASSERT_PARAM` message, and for the
+  legal boundaries, which must lint clean.
+- **The MSI-X table** is a RAM that is not reset: tests that use it write
+  every entry first (`Env.init_table`), as software must
+  ([HAS, Reset](../../arch/cfg/HAS.md#reset)).
+- **Functional coverage** (sampled where driven or observed):
+  `cfg_access` (space, direction and byte enables crossed; the region:
+  header, capability, gap, extended space, table, mask, pending bits,
+  other BAR2), `cfg_err` (each event crossed with its outcome: message,
+  gated by the enables, outside D0, no class; the impossible pairs
+  declared unreachable: events 7 and 8 have no class, every other event
+  has one), `cfg_msg` (each offer source crossed with taken or withdrawn;
+  taken at once or held), `cfg_irq` (mode at the request crossed with
+  status; when it resolved: at the request, waiting, withdrawn, taken;
+  unreachable: no mode is only dropped, an MSI-X request is never
+  dropped), `cfg_power` (D0 to D3hot, D3hot to D0, D1 and D2 discarded).
+
+## Cross-check: RTL, architecture model, HAS
+
+The shadow runs in every entry. One disagreement was found and fixed in
+the model ([#289](https://github.com/amichai-bd/pcie-factory/issues/289)):
+the model built the application's interrupt write from the table entry
+(or the MSI registers) at the request, while the HAS reads the entry when
+the write is offered ([CAPS.md, BAR2](../../arch/cfg/CAPS.md#bar2)); a
+write that waits behind an error message saw the difference. The model now
+reads them at the offer, with a self-test. No other disagreement is open.
 
 ## Plan
 
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
-| [Reset values of the shell](../../arch/cfg/HAS.md#reset) | `smoke` | 0 | 1; 128 cycles with random inputs |
+| [Reset values](../../arch/cfg/HAS.md#reset), the handshake, IDs | `smoke` | 0 | 1 |
+| Every [header](../../arch/cfg/REGISTERS.md#type-0-header) and [capability](../../arch/cfg/CAPS.md) field: reset value, RW by byte enable, RO and HwInit ignore writes, RW1C not set by a write; unlisted DWs and the extended space read 0; reads whole DWs whatever the byte enables; bus and device capture on every write; [BAR sizing](../../arch/cfg/REGISTERS.md#bar-sizing); Max_Payload_Size, Max_Read_Request_Size and Completion Timeout Disable on their outputs (shadow) | `regmap` | 1 | 1 |
+| The same at the parameter boundaries (BAR0 256 MiB, 64 vectors, set IDs) | `regmap_params` | 1 | 1 |
+| [Power states](../../arch/cfg/HAS.md#power-states): D3hot and D0 at the write's edge, D1 and D2 discarded, No_Soft_Reset; Transactions Pending | `power_states` | 1 | 1 |
+| [BAR2](../../arch/cfg/CAPS.md#bar2): table fields by byte enable, address bits 1:0, mask reset 1, pending bits read-only, other offsets 0, table kept and masks reset by a reset | `bar2_map` | 1 | 1 |
+| The same with 64 vectors (both pending-bit DWs) | `bar2_map_64` | 1 | 1 |
+| [Targets](../../arch/cfg/HAS.md#targets) enumeration: IDs, capability walk, BAR sizing and assignment, enables, an MSI and an MSI-X interrupt (pending first) | `enumeration` | 1 | 1 |
+| The same with other parameters (BAR0 1 MiB, one vector, set IDs) | `enumeration_params` | 1 | 2 |
+| [Errors](../../arch/cfg/HAS.md#errors): every event under 11 enable sets, status bits, message decision, UR gate, Signaled System Error, RW1C by byte | `error_table` | 1 | 1 |
+| [Messages](../../arch/cfg/HAS.md#messages): priority, merging (same cycle and into a held offer), no message outside D0 (each event), an offered error withdrawn by D3hot | `error_messages` | 1 | 1 |
+| [Interrupts](../../arch/cfg/HAS.md#interrupts) under MSI: dropped with no mode, 32- and 64-bit writes, pending while not allowed and merged, MSI Enable clears the flag, D3hot | `irq_msi` | 1 | 1 |
+| Interrupts under MSI-X: each vector's entry, vector and function masks, pending bits and their clearing on the take, lowest vector first, merging, MSI-X over MSI, pending kept while disabled, the entry read at the offer, a stale looked-up entry read again after a BAR2 write | `irq_msix` | 1 | 1 |
+| [Withdrawal](../../arch/core/TL_CFG.md#withdrawal): by Bus Master Enable, D3hot, MSI Enable (to the flag, to the vector's bit, dropped); a mask after the offer does not withdraw; a waiting request turned pending | `irq_withdraw` | 1 | 1 |
+| Everything at once under the shadow: random accesses, masks, enables, power states, events, requests, link-down resets, a stalling taker; nothing pending after the drain | `random_ops` | 1 | 3; 1500 operations |
+| [Parameter](../../arch/cfg/HAS.md#parameters) limits | `param_limits` | 1 | 1 |
+| The random test, longer | `random_long` | 2 | 4; 12000 operations |
+| The random test with 64 vectors and BAR0 256 MiB | `random_long_64` | 2 | 2 |
+| The random test with one vector | `random_long_1` | 2 | 2 |
 
-Levels 1 and 2 have no entries yet (`tests: []`).
+**Level placement.** Level 0 holds the smoke test only. The `random_long`
+entries are level 2 as soaks (longer runs of `random_ops`, which level 1
+holds with three seeds).
+
+## Mutation evidence
+
+Each mutant is a deliberate bug in the RTL of
+[#289](https://github.com/amichai-bd/pcie-factory/issues/289), run against
+level 0 and level 1 one entry at a time (`--jobs 1`); the table gives the
+first entry that fails. M19 to M23 and the current M15 and M17 ran at
+`2626b81`, the others at `cb6b529` and `151aab1` (their mutated lines are
+unchanged since). Entries run in level, then name order, so
+`param_limits`, which lints the RTL, comes before `power_states`,
+`random_ops` and `regmap`.
+
+| Mutant | Block | First failing entry | How |
+| --- | --- | --- | --- |
+| M1: SERR# Enable read-only | `regs` | `error_messages` (L1, seed 1683172248) | cycle 36: cfg read of DW 0x1 expected 0x00100140 got 0x00100040 |
+| M2: bus number captured only below 0x100 | `regs` | `regmap` (L1, seed 66002683) | cycle 2700: bus_num_o expected 0xa0 got 0x8b |
+| M3: PowerState takes a D2 write | `regs` | `power_states` (L1, seed 272654647) | cycle 16: d_state_o expected 0x3 got 0x2 |
+| M4: Device Status RW1C ignores byte enables | `regs` | `error_table` (L1, seed 673424925) | cycle 3048: cfg read of DW 0x1e expected 0x00032800 got 0x00002800 |
+| M5: posted UR not gated by UR Reporting Enable | `err` | `error_table` (L1, seed 673424925) | cycle 835: DUT offers a message the model does not have |
+| M6: advisory UR sets no Correctable Error Detected | `err` | `error_messages` (L1, seed 1683172248) | cycle 50: cfg read of DW 0x1e expected 0x0009280f got 0x0008280f |
+| M7: due messages kept on leaving D0 | `err` | `error_messages` (L1, seed 1683172248) | cycle 259: DUT offers a message the model does not have |
+| M8: ERR_COR ahead of ERR_FATAL | `msg` | `error_messages` (L1, seed 1683172248) | cycle 5: offer kind expected 3 (err_fatal) got 2 |
+| M9: Bus Master Enable cleared does not withdraw | `msg` | `irq_withdraw` (L1, seed 1210582240) | cycle 74: DUT offers kind 0, the model withdrew or has no offer |
+| M10: a mask after the offer withdraws it | `msg` | `irq_withdraw` (L1, seed 1210582240) | cycle 112: irq_done_o with status 1, the model resolved nothing |
+| M11: highest pending vector first | `msg` | `irq_msix` (L1, seed 1249535295) | cycle 154: interrupt write (pend_msix) expected addr 0xfee00000 data 0x100 got addr 0xfee00070 data 0x107 |
+| M12: request not merged into a set pending bit | `msg` | `random_ops` (L1, seed 179094473) | cycle 404: request resolved pending by the model, irq_done_o is 0 |
+| M13: MSI Enable cleared keeps the MSI pending flag | `msg` | `irq_msi` (L1, seed 137415403) | assertion a_msi_pend_en failed |
+| M14: lookup at an edge with a BAR2 access | `msg` | `random_ops` (L1, seed 179094473) | assertion a_one_reader failed |
+| M15: address bits 1:0 not cleared on the read | `bar2` | `bar2_map` (L1, seed 519847080) | cycle 66: BAR2 read of DW 0x0 expected 0xa26c88d4 got 0xa26c88d5 |
+| M16: mask bits reset to 0 | `bar2` | `bar2_map` (L1, seed 519847080) | cycle 2: BAR2 read of DW 0x3 expected 0x00000001 got 0x00000000 |
+| M17: reg_req_ready_o not dropped while an access is open | `top` | `smoke` (L0, seed 25442184) | cycle 4: reg_req_ready_o expected 0 got 1 |
+| M18: Signaled System Error not set for ERR_NONFATAL | `msg` | `error_table` (L1, seed 673424925) | cycle 290: cfg read of DW 0x1 expected 0x40100140 got 0x00100140 |
+| M19: looked-up word kept across a BAR2 access | `msg` | `irq_msix` (L1, seed 1249535295) | cycle 250: interrupt write (pend_msix) expected data 0xd00d got 0x102 (the stale-lookup case) |
+| M20: lookup hit ignores the vector | `msg` | `random_ops` (L1, seed 329618035) | cycle 467: interrupt write (app_msix) expected addr 0xfee00050 data 0x105 got addr 0xfeea3610 data 0x4287ec01 |
+| M21: reg_req_ready_o 1 in reset | `top` | `smoke` (L0, seed 25442184) | cycle 0 in reset: reg_req_ready_o expected 0 got 1 |
+| M22: irq_ready_o 1 while a request is held | `msg` | `enumeration` (L1, seed 702597822) | cycle 60: irq_ready_o expected 0 got 1 (request open) |
+| M23: irq_ready_o 0 while any message is offered | `msg` | `enumeration` (L1, seed 702597822) | cycle 84: irq_ready_o expected 1 got 0 (no request open) |
 
 ## Gaps
 
 | Feature | Owning issue |
 | --- | --- |
-| [Register access](../../arch/cfg/HAS.md#register-access), [registers](../../arch/cfg/REGISTERS.md), [capabilities](../../arch/cfg/CAPS.md) | [#289](https://github.com/amichai-bd/pcie-factory/issues/289) |
-| [Errors](../../arch/cfg/HAS.md#errors), [messages](../../arch/cfg/HAS.md#messages), [interrupts](../../arch/cfg/HAS.md#interrupts), [power states](../../arch/cfg/HAS.md#power-states) | [#289](https://github.com/amichai-bd/pcie-factory/issues/289) |
+| Captured Slot Power Limit capture from a Set_Slot_Power_Limit message | [#309](https://github.com/amichai-bd/pcie-factory/issues/309) |
 | Enumeration end to end against the independent host model | [#293](https://github.com/amichai-bd/pcie-factory/issues/293) |
+| Coverage floors | [#282](https://github.com/amichai-bd/pcie-factory/issues/282) (wave 3) |
+
+## Coverage holes
+
+Merged over levels 0 to 2 (`--ip cfg --coverage`): line 98.1%, functional 100%,
+toggle 64.5%.
+
+- **Line**, a tool artefact: the `COMMON_UNUSED_BITS` lint sink in
+  `pcie_cfg_regs.sv` has no simulated activity.
+- **Toggle**, by construction: the high bits of 64-bit addresses and
+  32-bit table data the tests write with few patterns, constant parameter
+  outputs of the testbench (`cfg_params_o`), unused RAM words above
+  `MSIX_TABLE_SIZE` and the RAM's storage array.
