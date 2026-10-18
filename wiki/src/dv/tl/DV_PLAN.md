@@ -1,12 +1,12 @@
 # pcie_tl DV plan
 
 The receive path
-([#290](https://github.com/amichai-bd/pcie-factory/issues/290)) and the
+([#290](https://github.com/amichai-bd/pcie-factory/issues/290)), the
 transmit path, completions and messages
-([#291](https://github.com/amichai-bd/pcie-factory/issues/291)) are
-verified; the tracker and timeout
-([#292](https://github.com/amichai-bd/pcie-factory/issues/292)) add their
-tests to this testbench and this page.
+([#291](https://github.com/amichai-bd/pcie-factory/issues/291)), and the
+completion tracker, timeout and `rc`
+([#292](https://github.com/amichai-bd/pcie-factory/issues/292)) are
+verified by this testbench.
 
 ## Strategy
 
@@ -16,10 +16,10 @@ tests to this testbench and this page.
   driven only through its ports.
 - **Slot tap:** [`tb/pcie_tl_slot_tap.sv`](../../../../src/dv/tl/tb/pcie_tl_slot_tap.sv),
   a bind module on `pcie_tl` listed in `tl.dv.f`, observes MAS-named
-  nets ([slots](../../rtl/tl/MAS.md#slots)): the completion records, the
-  reads taken on `cq` with their handle context and the PME_TO_Ack
-  requests between the receive and transmit blocks, and the nets for the
-  tracker (#292): the completion beats, the `rq` reads taken and sent.
+  nets ([tracker nets](../../rtl/tl/MAS.md#tracker-nets)): the completion
+  records, the reads taken on `cq` with their handle context and the
+  PME_TO_Ack requests between the receive and transmit blocks, and the
+  tracker's inputs: the completion beats, the `rq` reads taken and sent.
   The testbench top shows them as `probe_*_o`; the tap drives nothing.
 - **Environment:** [`tb/tl_env.py`](../../../../src/dv/tl/tb/tl_env.py),
   one step per `clk_i` cycle: inputs driven at the falling edge, outputs
@@ -67,10 +67,29 @@ tests to this testbench and this page.
     `rq` request, interrupt write, error message and PME_TO_Ack when it is
     taken, each read's completions (split, Byte Count, Lower Address,
     disabled bytes 0) when `cc` or `cfg` gives its data, each Unsupported
-    Request and configuration completion when it is formed.
+    Request and configuration completion when it is formed;
+  - the **host** answers each `rq` read the link takes with the
+    completions a correct completer may return, split at 64-byte
+    boundaries chosen at random (`host_split_p`), after a random latency;
+    a test may lose, poison, corrupt or add completions (`host_hook`);
+  - the **application** issues each `rq` read with a tag not in use and
+    waits while all eight are; it takes `rc` beats at random
+    (`rc_ready_p`) or not at all (`rc_hold`) and frees a tag at its
+    `rc_done` beat; the **cfg stand-in** drives `cpl_timeout_dis_i`;
+  - the **completion reference**
+    [`models/pcie_tl_cpl_ref.py`](../../../../src/dv/tl/models/pcie_tl_cpl_ref.py),
+    written from the [completions](../../arch/tl/COMPLETIONS.md) and
+    [APP](../../arch/core/APP.md#requester-completions) pages with no code
+    of the architecture model or the RTL, keeps every read taken and sent
+    with absolute addresses and judges each completion when its third
+    header DW arrives: unexpected, malformed, error status, poisoned, or
+    delivered, and the `rc` packet it makes; it gives the timeout window;
+  - the **shadow** for completions, the architecture model's
+    `Tracker.match` fed the same reads, judges the same completion; a
+    disagreement with the reference fails the test.
 - **Checks on every run:** every handshake output at its reset value in
-  every reset cycle (`rst_i` 1 or `dl_up_i` 0), the outputs of the blocks
-  not built always 0, and `tlp_rx_ready_o` 1 otherwise; each error pulse
+  every reset cycle (`rst_i` 1 or `dl_up_i` 0), and `tlp_rx_ready_o` 1
+  otherwise; each error pulse
   exactly one cycle after the TLP's `eop`, with the reference's bit; each
   slot power event exactly one cycle after the `eop` of a TLP the
   reference raises one for, with its value and scale, and none otherwise; each
@@ -110,8 +129,20 @@ tests to this testbench and this page.
   equal to what was received. **Order:** a BAR0 read, a cfg-line
   request, a BAR0 write, a BAR2 write and a PME_Turn_Off each go only
   after the releases of every earlier posted request were seen.
+  **Requester completions:** `tl_np_pending_o` in every cycle against the
+  reads outstanding; each completion's error bit exactly one cycle after
+  its `eop`; bit 6 only in a cycle where some read sent at S has
+  16P < T − S (P the prescaler period from `CPL_TIMEOUT_DIV`, S moved to
+  the cycle after a disable), every such read ending then, and no read
+  outstanding at T − S = 17P; every `rc` packet the next one due in
+  arrival order (a timeout's beat once its read has no other packet
+  due), its tag, status, `rc_done_o` with `eop` only, every data DW as
+  received, never offered before every posted request received ahead of
+  its completion was released; `rc` beats held until taken, the header
+  held from `sop` to `eop`.
 - **Drain:** a test ends by running until every expectation is met, every
-  expected TLP sent and every queued request and message taken; any left
+  expected TLP sent, every queued request and message taken, every read
+  ended (completed or timed out) and every `rc` packet taken; any left
   over fails it. A test that holds the application's `cc` answers names
   how many BAR0 reads wait for a handle.
 - **Functional coverage:** `tl_rx_outcome` (outcome, class, kind, error
@@ -127,12 +158,25 @@ tests to this testbench and this page.
   completions of two requests interleaving, each class waiting for
   credits, link and `cc` stalls, `cc` gaps, `rq` held, a message waiting
   and one withdrawn, two posted requests taken at one edge, a completion
-  sent right after the posted request it waited for).
+  sent right after the posted request it waited for) and `tl_cpl` (every
+  completion case of the reference: partial, last, each error status,
+  each malformed check, poisoned in the middle and last, later
+  completions of a failed read, each unexpected case; reads finished in
+  one, two and three completions; all tags in use, a timeout, a timeout
+  after part of the data, a timeout after a disable, a completion after
+  its read timed out, `rc` stalls, an `rc` packet waiting for a posted
+  request, `rc` packets of two reads interleaving, a digest, 1 KiB held
+  for `rc`, a completion whose third header DW arrives in the cycle its
+  read expires, a read expiring while one of its completions is between
+  its decision and its packet, a failed beat first due in the cycle
+  another packet is queued).
 
 ## Cross-check: RTL, architecture model, reference
 
 The receive reference and the architecture model agree on every TLP of
-every test (the shadow check). The transmit side is judged by the
+every test (the shadow check), and so do the completion reference and
+the architecture model's tracker on every completion. The transmit side
+is judged by the
 transmit reference alone; the architecture model's transmit order (an
 `rq` write taken at its `sop` beat, completions behind the posted
 requests taken before them) and splitting follow the same pages, and its
@@ -156,14 +200,21 @@ self-tests check them.
 | Longer random traffic | `rx_random_long` | 2 | 4 |
 | Longer random traffic, `BAR0_ADDR_W` 20 and odd credit sizes | `rx_random_long_params` | 2 | 2 |
 | The random transmit traffic of `tx_random`, longer | `tx_random_long` | 2 | 4 |
-| [Receive](../../../../src/dv/tl/models/test_pcie_tl_rx_ref.py) and [transmit](../../../../src/dv/tl/models/test_pcie_tl_tx_ref.py) reference unit tests | pytest | `./build ci unit` | |
+| [Matching and checks](../../arch/tl/COMPLETIONS.md#checks): reads finished in one, two and three completions, byte-enable, zero-length and 64-bit reads; each check (Byte Count, Lower Address, boundary, past the end, no data, Configuration Request Retry) dropping a completion while its read waits; Unsupported Request, Completer Abort and a reserved status ending a read; poisoned completions; every unexpected case (Requester ID, Tag 8 or more, locked, after the read ended, before it was sent); a digest; [delivery](../../arch/tl/COMPLETIONS.md#delivery-on-rc) behind a posted write held on `cq`; interleaved reads with `rc` stalls | `cpl_matching` | 1 | 1; directed |
+| [Requester tags](../../arch/tl/COMPLETIONS.md#requester-tags): eight reads outstanding, more waiting for a tag; 1 KiB held while the application stalls `rc`; [Transactions Pending](../../arch/tl/COMPLETIONS.md#non-posted-pending) | `cpl_tags` | 1 | 1; directed |
+| [Completion timeout](../../arch/tl/COMPLETIONS.md#completion-timeout) at `CPL_TIMEOUT_DIV` 1024: lost reads time out once in 2048 to 2176 cycles, several at one pulse, one after part of its data; late completions unexpected; a read held unsent past the window; the disable holding a read past the window, then a full timeout; against an expiry placed from the prescaler phase the timeouts show: a completion's third header DW in the expiry cycle (unexpected), a non-last completion decided 3 cycles before the expiry and queued 14 after (the failed beat after it), another read's completion with its `eop` in the expiry cycle (both packets queued) | `cpl_timeout` | 1 | 1; directed |
+| Random `rq` traffic with the host's completions split at random and faulted (lost, poisoned, error status, malformed, unexpected, duplicated, digest), host traffic, `rc` stalls, the disable, segments across link-downs | `cpl_random` | 1 | 2 |
+| The same, longer | `cpl_random_long` | 2 | 3 |
+| [Receive](../../../../src/dv/tl/models/test_pcie_tl_rx_ref.py), [transmit](../../../../src/dv/tl/models/test_pcie_tl_tx_ref.py) and [completion](../../../../src/dv/tl/models/test_pcie_tl_cpl_ref.py) reference unit tests | pytest | `./build ci unit` | |
 
 **Level placement.** `rx_routing`, `rx_order` and `rx_link_down` are the
 receive path's acceptance entries and its fastest discriminating tests,
 as is `rx_np_collide`, the only entry that reaches the release carry,
 so they sit in L1; so do `tx_completions`, `tx_requests` and
 `tx_credits`, the transmit path's directed acceptance entries (splitting,
-ordering, credit gating, interrupt messages). The random entries are
+ordering, credit gating, interrupt messages), and `cpl_matching`,
+`cpl_tags` and `cpl_timeout`, the tracker's (the timeout at
+`CPL_TIMEOUT_DIV` 1024 takes about 2200 cycles). The random entries are
 short in L1 (about 3 s of CPU each) and long in L2.
 
 ## Mutation evidence
@@ -259,18 +310,67 @@ named, at its first regression seed:
 | M70 an interrupt write pops the posted data queue | `tx_requests` | assertion `a_pop_when_empty` |
 | M71 an `rq` write started before all its data is in | `tx_random` | `tlp_tx_valid_o` 0 inside a TLP |
 
+The tracker and `rc` mutants (#292), each run alone at its first
+regression seed against L0 and L1 one entry at a time (`--jobs 1`); the
+entry is the first that fails, in level then name order. Dropping only
+the sent condition from the pulse count is equivalent (the count is
+cleared when the read is sent), so M89 also drops that clear.
+
+| Mutant | Entry | Fails with |
+| --- | --- | --- |
+| M72 the Requester ID not compared | `cpl_matching` | error pulse 0x000 where unexpected 0x020 was due |
+| M73 a completion matches a read not yet sent | `cpl_matching` | Transactions Pending 0 with a read outstanding (a completion before its read was sent matched) |
+| M74 Tag bits 7:3 not checked | `cpl_matching` | error pulse 0x000 where unexpected 0x020 was due |
+| M75 a locked completion matches | `cpl_matching` | error pulse 0x000 where unexpected 0x020 was due |
+| M76 Configuration Request Retry read as Unsupported Request | `cpl_matching` | error pulse 0x080 where malformed 0x004 was due |
+| M77 Completer Abort reported as Unsupported Request | `cpl_matching` | error pulse 0x080 where 0x100 was due |
+| M78 Byte Count not checked | `cpl_matching` | error pulse 0x000 where malformed 0x004 was due |
+| M79 Lower Address not checked | `cpl_matching` | error pulse 0x000 where malformed 0x004 was due |
+| M80 no 64-byte boundary check before the end | `cpl_matching` | error pulse 0x000 where malformed 0x004 was due |
+| M81 data past the read's last DW accepted | `cpl_matching` | Transactions Pending 0 with the read still due |
+| M82 a Successful completion without data accepted | `cpl_matching` | error pulse 0x000 where malformed 0x004 was due |
+| M83 a poisoned completion's data delivered | `cpl_matching` | an rc packet with none due |
+| M84 no poisoned-completion error | `cpl_matching` | error pulse 0x000 where 0x010 was due |
+| M85 the bytes due not advanced | `cpl_matching` | malformed pulse on a valid second completion |
+| M86 the next byte not advanced | `cpl_matching` | malformed pulse on a valid second completion |
+| M87 the timeout at the 16th pulse | `cpl_random` | completion timeout with no read beyond 2048 cycles |
+| M88 the timeout at the 18th pulse | `cpl_random` | a read not timed out 2176 cycles after it was sent |
+| M89 the timer starts when the read is taken, not sent | `cpl_timeout` | a read held unsent not timed out 2176 cycles after it was sent |
+| M90 the disable ignored | `cpl_timeout` | a read not timed out 2176 cycles after the disable cleared |
+| M91 Transactions Pending only once sent | `cpl_matching` | Transactions Pending 0 with a read taken, not yet sent |
+| M92 an error status does not end the read | `cpl_matching` | Transactions Pending 1 with no read outstanding |
+| M93 no timeout error | `cpl_random` | a read not timed out 2176 cycles after it was sent |
+| M94 a timeout queues no failed beat | `cpl_random` | not drained: the failed beat never comes |
+| M95 the error held until the next decision | `cpl_matching` | error pulse 0x004 in a cycle with none due |
+| M96 a digest DW written as data | `cpl_matching` | rc data DW 0x0badc0de (the digest) where the next completion's DW was due |
+| M97 rc not ordered behind posted requests | `cpl_matching` | an rc packet before the posted write received ahead of its completion left |
+| M98 the rc eligibility kept past its pop | `cpl_matching` | an rc packet before the posted write received ahead of its completion left |
+| M99 rc_done on every beat | `cpl_matching` | `rc_done_o` 1 on a packet's first beat |
+| M100 rc_eop one beat early | `cpl_matching` | `rc_eop_o` at beat 13 of 14 |
+| M101 a tag never freed at rc_done | `cpl_matching` | assertion `a_tag_in_use` |
+| M102 a reserved status read as Completer Abort | `cpl_matching` | error pulse 0x100 where 0x080 was due |
+| M103 a completion matches a read expiring at that edge | `cpl_timeout` | error pulse 0x000 where unexpected 0x020 was due (third header DW in the expiry cycle) |
+| M104 a timeout beat not held behind its read's completion in flight | `cpl_timeout` | the failed beat (status 3) before the read's own data packet |
+| M105 a timeout beat pushed in a cycle a completion packet is queued | `cpl_timeout` | not drained: the failed beat is lost |
+
 ## Gaps
 
 | Feature | Owning issue |
 | --- | --- |
-| [Requester completions](../../arch/tl/COMPLETIONS.md#requester-completions) (the completion beats, the rc line), the [timeout](../../arch/tl/COMPLETIONS.md#completion-timeout) | [#292](https://github.com/amichai-bd/pcie-factory/issues/292) |
 | The independent host model as the judge of `tl` and `core` | [#288](https://github.com/amichai-bd/pcie-factory/issues/288) |
 
 ## Coverage holes
 
-No floors yet (the gaps above remain). With L0 to L2 and `--coverage`,
-functional coverage is 100%; the uncovered lines are the tracker's slot
-ties and outputs (#292), constant until it lands, and one unreachable
-`case` default: [`pcie_tl_reg.sv`](../../../../src/rtl/tl/pcie_tl_reg.sv)
-line 141, the `default` arm of the register engine's state, which only
-the unused fourth code of the 2-bit `t_reg_st` would reach.
+No floors yet (the gap above remains). With L0 and L1 and `--coverage`,
+functional coverage is 100% and line coverage 97.7%; the uncovered lines are nets that never
+change in a credit-correct run: the receive queues' full flags
+([`pcie_tl_rx_q.sv`](../../../../src/rtl/tl/pcie_tl_rx_q.sv)), the
+posted data queue's full flag in
+[`pcie_tl_txq.sv`](../../../../src/rtl/tl/pcie_tl_txq.sv), the rc
+queues' full flags ([`pcie_tl_rc.sv`](../../../../src/rtl/tl/pcie_tl_rc.sv),
+bounded by the 8 reads), the constant empty descriptor in
+[`pcie_tl_cpl.sv`](../../../../src/rtl/tl/pcie_tl_cpl.sv); and one
+unreachable `case` default:
+[`pcie_tl_reg.sv`](../../../../src/rtl/tl/pcie_tl_reg.sv) line 141, the
+`default` arm of the register engine's state, which only the unused
+fourth code of the 2-bit `t_reg_st` would reach.

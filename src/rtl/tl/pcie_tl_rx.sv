@@ -4,7 +4,7 @@
 // of BAR0 and BAR2 writes, and in the cycle after the TLP's eop pushes its
 // entry into the posted queue or a non-posted line and pulses its error
 // event and, for a Set_Slot_Power_Limit to capture, the slot power event.
-// Completions go beat by beat to the tracker slot, a digest DW
+// Completions go beat by beat to the tracker, a digest DW
 // included (the tracker reads Length DWs of data).
 `default_nettype none
 
@@ -36,7 +36,7 @@ module pcie_tl_rx #(
   output logic [3:0]              err_o,          // tl_err_o bits 3:0
   output logic                    slot_pwr_valid_o, // a Set_Slot_Power_Limit to capture
   output pcie_tl_pkg::t_slot_pwr  slot_pwr_o,
-  output pcie_tl_pkg::t_rx_beat   cpl_beat_o      // completion beats, to the tracker (#292)
+  output pcie_tl_pkg::t_rx_beat   cpl_beat_o      // completion beats, to the tracker
 );
 
   pcie_tl_pkg::t_rx_state st_q, st_d;

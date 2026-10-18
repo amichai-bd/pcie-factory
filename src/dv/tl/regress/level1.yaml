@@ -57,3 +57,25 @@ tests:
     testcase: tx_credits
     top: pcie_tl_tb
     timeout_s: 300
+  - name: cpl_matching
+    module: tests.test_tl_cpl
+    testcase: cpl_matching
+    top: pcie_tl_tb
+    timeout_s: 300
+  - name: cpl_tags
+    module: tests.test_tl_cpl
+    testcase: cpl_tags
+    top: pcie_tl_tb
+    timeout_s: 300
+  # CPL_TIMEOUT_DIV 1024 (the testbench default): timeouts after 2048 to 2176 cycles.
+  - name: cpl_timeout
+    module: tests.test_tl_cpl
+    testcase: cpl_timeout
+    top: pcie_tl_tb
+    timeout_s: 300
+  - name: cpl_random
+    module: tests.test_tl_cpl
+    testcase: cpl_random
+    top: pcie_tl_tb
+    seeds: 2
+    timeout_s: 300

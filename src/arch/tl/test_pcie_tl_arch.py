@@ -85,6 +85,13 @@ def test_completion_and_config_fields():
     assert (h["bus"], h["dev"], h["fn"], h["reg"]) == (2, 3, 0, 0x3FF)
 
 
+def test_digest_is_not_data():
+    # TLP.md, TD: a digest DW after the data is ignored; data is Length DWs.
+    t = m.cpl_tlp(0x0308, m.SC, 8, RID, 5, 0x40, bytes(range(8)))
+    t = t[:2] + bytes([t[2] | 0x80]) + t[3:] + b"\xde\xad\xbe\xef"
+    assert m.parse(t)["data"] == bytes(range(8))
+
+
 def test_credits_follow_the_dll():
     """tl releases exactly what the dll counted: class, 1 header, data
     credits from Length."""

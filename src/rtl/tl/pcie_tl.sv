@@ -2,11 +2,6 @@
 // completions, requester tags and completion timeout, TLP transmit.
 // Interfaces and behavior: wiki/src/arch/tl/HAS.md and its pages;
 // structure: wiki/src/rtl/tl/MAS.md.
-//
-// The receive path (#290) and the transmit path with completions and
-// messages (#291) are built. The completion tracker (#292) attaches at the
-// slots of the MAS (wiki/src/rtl/tl/MAS.md#slots); until then its outputs
-// hold their reset values and its slot inputs are tied as the MAS states.
 `default_nettype none
 
 `include "common_macros.svh"
@@ -146,17 +141,6 @@ module pcie_tl #(
   // tl is in reset while rst_i is 1 or the data link is down (HAS, reset).
   logic rst;
   assign rst = rst_i || !dl_up_i;
-
-  // ---------------------------------------------------------------- slots
-  // The completion tracker (#292): it takes cpl_beat, the rq reads taken
-  // (rq_rd_take, rq_rd_ctx) and sent (rq_sent, rq_sent_tag), orders rc
-  // with rc_arrive/rc_ep against p_none, p_known and the posted head's
-  // epochs, and raises tl_err_o bits 2 and 4 to 8.
-  logic       rc_arrive;
-  logic [8:0] trk_err;
-
-  assign rc_arrive = 1'b0;
-  assign trk_err   = 9'd0;
 
   // ------------------------------------------------------- receive path
   logic                    pq_push;
@@ -505,6 +489,66 @@ module pcie_tl #(
     .rq_sent_tag_o   (rq_sent_tag)
   );
 
+  // ------------------------------------------- completion tracker, rc
+  // The tracker takes the completion beats, the rq reads taken and sent;
+  // its packets for rc take the rc line's epoch (rc_arrive) and wait for
+  // the posted requests received before them (MAS, completion tracker).
+  logic                    rc_arrive;
+  logic [8:0]              trk_err;
+  logic                    np_pending;
+  pcie_tl_pkg::t_rc_desc   rc_desc;
+  logic                    rc_dpush;
+  logic [31:0]             rc_dword;
+  logic                    rc_free;
+  logic [2:0]              rc_free_tag;
+  logic                    rc_valid;
+
+  pcie_tl_trk #(
+    .CPL_TIMEOUT_DIV (CPL_TIMEOUT_DIV)
+  ) u_trk (
+    .clk_i             (clk_i),
+    .rst_i             (rst),
+    .cpl_beat_i        (cpl_beat),
+    .bus_num_i         (bus_num_i),
+    .dev_num_i         (dev_num_i),
+    .rq_rd_take_i      (rq_rd_take),
+    .rq_rd_ctx_i       (rq_rd_ctx),
+    .rq_sent_i         (rq_sent),
+    .rq_sent_tag_i     (rq_sent_tag),
+    .cpl_timeout_dis_i (cpl_timeout_dis_i),
+    .rc_free_i         (rc_free),
+    .rc_free_tag_i     (rc_free_tag),
+    .err_o             (trk_err),
+    .np_pending_o      (np_pending),
+    .desc_push_o       (rc_arrive),
+    .desc_o            (rc_desc),
+    .data_push_o       (rc_dpush),
+    .data_o            (rc_dword)
+  );
+
+  pcie_tl_rc u_rc (
+    .clk_i       (clk_i),
+    .rst_i       (rst),
+    .desc_push_i (rc_arrive),
+    .desc_i      (rc_desc),
+    .data_push_i (rc_dpush),
+    .data_i      (rc_dword),
+    .rc_ep_i     (rc_ep),
+    .p_none_i    (p_none),
+    .p_known_i   (p_known),
+    .p_head_ep_i (pq_head.ep[pcie_tl_pkg::LINE_RC]),
+    .rc_valid_o  (rc_valid),
+    .rc_ready_i  (rc_ready_i && !rst),
+    .rc_sop_o    (rc_sop_o),
+    .rc_eop_o    (rc_eop_o),
+    .rc_data_o   (rc_data_o),
+    .rc_tag_o    (rc_tag_o),
+    .rc_status_o (rc_status_o),
+    .rc_done_o   (rc_done_o),
+    .free_o      (rc_free),
+    .free_tag_o  (rc_free_tag)
+  );
+
   // ------------------------------------------------------------- outputs
   // Every handshake output is 0 in reset (HAS, reset).
   assign tlp_rx_ready_o  = !rst;
@@ -523,19 +567,8 @@ module pcie_tl #(
   assign slot_pwr_value_o = rx_spl.value;
   assign slot_pwr_scale_o = rx_spl.scale;
 
-  // Tracker (#292) outputs at their reset values.
-  assign tl_np_pending_o = 1'b0;
-  assign rc_valid_o      = 1'b0;
-  assign rc_sop_o        = 1'b0;
-  assign rc_eop_o        = 1'b0;
-  assign rc_data_o       = 32'd0;
-  assign rc_tag_o        = 3'd0;
-  assign rc_status_o     = 2'd0;
-  assign rc_done_o       = 1'b0;
-
-  // Inputs and slot nets only the tracker (#292) consumes.
-  `COMMON_UNUSED_BITS(unused_slots, {cpl_beat, rc_ep, p_none, p_known, rq_rd_take, rq_rd_ctx,
-                                     rq_sent, rq_sent_tag, cpl_timeout_dis_i, rc_ready_i})
+  assign tl_np_pending_o = np_pending && !rst;
+  assign rc_valid_o      = rc_valid && !rst;
 
 endmodule
 

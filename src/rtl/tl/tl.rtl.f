@@ -12,4 +12,6 @@ pcie_tl_cplf.sv
 pcie_tl_cpl.sv
 pcie_tl_txq.sv
 pcie_tl_tx.sv
+pcie_tl_trk.sv
+pcie_tl_rc.sv
 pcie_tl.sv
