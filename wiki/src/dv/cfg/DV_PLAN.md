@@ -29,12 +29,14 @@
   while it is up its kind, and for an interrupt write its address and
   data) equals the model's, so an offer the model withdraws must fall and
   one it keeps must stay; `irq_done_o` pulses exactly when the model
-  resolves a request, with its status; `irq_ready_o` is never 1 while a
-  request is open; every register-state output equals the model's; each
+  resolves a request, with its status; `irq_ready_o` is 1 exactly when no
+  request is open and `reg_req_ready_o` exactly when no access is (the
+  first cycle out of reset included); every register-state output equals the model's; each
   read's `reg_cpl_data_o` equals the model's read; `reg_cpl_valid_o` comes
   within 4 cycles of its take and never without an access, and a request
   is resolved within 4 cycles unless it is held (the latency
-  [targets](../../arch/cfg/HAS.md#targets)); in and after reset every
+  [targets](../../arch/cfg/HAS.md#targets), the `LATENCY` check); in and
+  after reset every
   qualified output has its [reset value](../../arch/cfg/HAS.md#reset). The
   RTL assertions ([MAS](../../rtl/cfg/MAS.md)) hold in every run.
 - **Oracles written from the HAS, not the model:**
@@ -89,9 +91,9 @@ reads them at the offer, with a self-test. No other disagreement is open.
 | [Targets](../../arch/cfg/HAS.md#targets) enumeration: IDs, capability walk, BAR sizing and assignment, enables, an MSI and an MSI-X interrupt (pending first) | `enumeration` | 1 | 1 |
 | The same with other parameters (BAR0 1 MiB, one vector, set IDs) | `enumeration_params` | 1 | 2 |
 | [Errors](../../arch/cfg/HAS.md#errors): every event under 11 enable sets, status bits, message decision, UR gate, Signaled System Error, RW1C by byte | `error_table` | 1 | 1 |
-| [Messages](../../arch/cfg/HAS.md#messages): priority, merging, no message outside D0 (each event), an offered error withdrawn by D3hot | `error_messages` | 1 | 1 |
+| [Messages](../../arch/cfg/HAS.md#messages): priority, merging (same cycle and into a held offer), no message outside D0 (each event), an offered error withdrawn by D3hot | `error_messages` | 1 | 1 |
 | [Interrupts](../../arch/cfg/HAS.md#interrupts) under MSI: dropped with no mode, 32- and 64-bit writes, pending while not allowed and merged, MSI Enable clears the flag, D3hot | `irq_msi` | 1 | 1 |
-| Interrupts under MSI-X: each vector's entry, vector and function masks, pending bits and their clearing on the take, lowest vector first, merging, MSI-X over MSI, pending kept while disabled, the entry read at the offer | `irq_msix` | 1 | 1 |
+| Interrupts under MSI-X: each vector's entry, vector and function masks, pending bits and their clearing on the take, lowest vector first, merging, MSI-X over MSI, pending kept while disabled, the entry read at the offer, a stale looked-up entry read again after a BAR2 write | `irq_msix` | 1 | 1 |
 | [Withdrawal](../../arch/core/TL_CFG.md#withdrawal): by Bus Master Enable, D3hot, MSI Enable (to the flag, to the vector's bit, dropped); a mask after the offer does not withdraw; a waiting request turned pending | `irq_withdraw` | 1 | 1 |
 | Everything at once under the shadow: random accesses, masks, enables, power states, events, requests, link-down resets, a stalling taker; nothing pending after the drain | `random_ops` | 1 | 3; 1500 operations |
 | [Parameter](../../arch/cfg/HAS.md#parameters) limits | `param_limits` | 1 | 1 |
@@ -108,9 +110,11 @@ holds with three seeds).
 Each mutant is a deliberate bug in the RTL of
 [#289](https://github.com/amichai-bd/pcie-factory/issues/289), run against
 level 0 and level 1 one entry at a time (`--jobs 1`); the table gives the
-first entry that fails (entries run in level, then name order, so
+first entry that fails. M19 to M23 and the current M15 and M17 ran at
+`2626b81`, the others at `cb6b529` and `151aab1` (their mutated lines are
+unchanged since). Entries run in level, then name order, so
 `param_limits`, which lints the RTL, comes before `power_states`,
-`random_ops` and `regmap`).
+`random_ops` and `regmap`.
 
 | Mutant | Block | First failing entry | How |
 | --- | --- | --- | --- |
@@ -128,10 +132,15 @@ first entry that fails (entries run in level, then name order, so
 | M12: request not merged into a set pending bit | `msg` | `random_ops` (L1, seed 179094473) | cycle 404: request resolved pending by the model, irq_done_o is 0 |
 | M13: MSI Enable cleared keeps the MSI pending flag | `msg` | `irq_msi` (L1, seed 137415403) | assertion a_msi_pend_en failed |
 | M14: lookup at an edge with a BAR2 access | `msg` | `random_ops` (L1, seed 179094473) | assertion a_one_reader failed |
-| M15: address bits 1:0 not cleared | `bar2` | `bar2_map` (L1, seed 519847080) | cycle 66: BAR2 read of DW 0x0 expected 0xa26c88d4 got 0xa26c88d5 |
+| M15: address bits 1:0 not cleared on the read | `bar2` | `bar2_map` (L1, seed 519847080) | cycle 66: BAR2 read of DW 0x0 expected 0xa26c88d4 got 0xa26c88d5 |
 | M16: mask bits reset to 0 | `bar2` | `bar2_map` (L1, seed 519847080) | cycle 2: BAR2 read of DW 0x3 expected 0x00000001 got 0x00000000 |
-| M17: reg_req_ready_o not dropped while an access is open | `top` | `random_ops` (L1, seed 179094473) | assertion a_one_access failed |
+| M17: reg_req_ready_o not dropped while an access is open | `top` | `smoke` (L0, seed 25442184) | cycle 4: reg_req_ready_o expected 0 got 1 |
 | M18: Signaled System Error not set for ERR_NONFATAL | `msg` | `error_table` (L1, seed 673424925) | cycle 290: cfg read of DW 0x1 expected 0x40100140 got 0x00100140 |
+| M19: looked-up word kept across a BAR2 access | `msg` | `irq_msix` (L1, seed 1249535295) | cycle 250: interrupt write (pend_msix) expected data 0xd00d got 0x102 (the stale-lookup case) |
+| M20: lookup hit ignores the vector | `msg` | `random_ops` (L1, seed 329618035) | cycle 467: interrupt write (app_msix) expected addr 0xfee00050 data 0x105 got addr 0xfeea3610 data 0x4287ec01 |
+| M21: reg_req_ready_o 1 in reset | `top` | `smoke` (L0, seed 25442184) | cycle 0 in reset: reg_req_ready_o expected 0 got 1 |
+| M22: irq_ready_o 1 while a request is held | `msg` | `enumeration` (L1, seed 702597822) | cycle 60: irq_ready_o expected 0 got 1 (request open) |
+| M23: irq_ready_o 0 while any message is offered | `msg` | `enumeration` (L1, seed 702597822) | cycle 84: irq_ready_o expected 1 got 0 (no request open) |
 
 ## Gaps
 
