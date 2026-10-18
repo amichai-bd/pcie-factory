@@ -4,9 +4,13 @@
 // capability pages; the tl side: wiki/src/arch/core/TL_CFG.md; structure:
 // wiki/src/rtl/cfg/MAS.md.
 //
-// Wave-1 shell: the ports of the HAS with every output tied to its reset
-// value. The register file arrives in wave 2.
+// The access handshake and completion live here; the blocks are the
+// configuration space (pcie_cfg_regs), the errors (pcie_cfg_err), BAR2 with
+// the MSI-X table RAM (pcie_cfg_bar2) and the messages and interrupts
+// (pcie_cfg_msg).
 `default_nettype none
+
+`include "common_macros.svh"
 
 module pcie_cfg #(
   parameter int unsigned BAR0_ADDR_W      = 12,        // 12..28: BAR0 is 2**BAR0_ADDR_W bytes
@@ -72,37 +76,158 @@ module pcie_cfg #(
   output logic [2:0]  max_read_req_o    // Device Control encoding, reset 2 (512 bytes)
 );
 
-  // Inputs and parameters the shell does not use yet; the wave-2 register
-  // file consumes them.
-  logic unused_inputs;
-  assign unused_inputs = ^{clk_i, rst_i, reg_req_valid_i, reg_req_bar2_i, reg_req_write_i,
-                           reg_req_addr_i, reg_req_be_i, reg_req_data_i, reg_req_bus_i,
-                           reg_req_dev_i, tl_np_pending_i, tl_err_i, dl_err_i, rcv_err_i, msg_ready_i,
-                           irq_valid_i, irq_vector_i,
-                           BAR0_ADDR_W[0], MSIX_TABLE_SIZE[0], VENDOR_ID, DEVICE_ID,
-                           SUBSYS_VENDOR_ID, SUBSYS_ID, CLASS_CODE, REVISION_ID};
+  logic                     reg_take;
+  logic                     cfg_wr;
+  logic                     cfg_rd;
+  logic                     bar2_wr;
+  logic                     bar2_rd;
+  logic                     bar2_take;
+  logic                     cpl_q;
+  logic                     cpl_bar2_q;
+  logic [31:0]              cfg_rd_data;
+  logic [31:0]              cfg_rd_q;
+  logic [31:0]              bar2_rd_data;
+  pcie_cfg_pkg::t_ctrl      ctrl_q;
+  pcie_cfg_pkg::t_ctrl      ctrl_d;
+  pcie_cfg_pkg::t_sts       err_sts;
+  pcie_cfg_pkg::t_sts       sts_set;
+  pcie_cfg_pkg::t_err_due   due;
+  pcie_cfg_pkg::t_err_due   take_err;
+  pcie_cfg_pkg::t_entry     entry;
+  logic                     sse_set;
+  logic                     look;
+  logic [5:0]               look_vec;
+  logic [MSIX_TABLE_SIZE-1:0] mask_q;
+  logic [MSIX_TABLE_SIZE-1:0] mask_d;
+  logic [MSIX_TABLE_SIZE-1:0] pba;
 
-  // Reset values from the HAS.
-  assign reg_req_ready_o = 1'b0;
-  assign reg_cpl_valid_o = 1'b0;
-  assign reg_cpl_data_o  = 32'd0;
-  assign bus_num_o       = 8'd0;
-  assign dev_num_o       = 5'd0;
-  assign bar0_base_o     = 32'd0;
-  assign bar2_base_o     = 32'd0;
-  assign cpl_timeout_dis_o = 1'b0;
-  assign mem_space_en_o  = 1'b0;
-  assign bus_master_en_o = 1'b0;
-  assign d_state_o       = 2'd0;
-  assign msg_valid_o     = 1'b0;
-  assign msg_kind_o      = 2'd0;
-  assign msg_addr_o      = 64'd0;
-  assign msg_data_o      = 32'd0;
-  assign irq_ready_o     = 1'b0;
-  assign irq_done_o      = 1'b0;
-  assign irq_status_o    = 2'd0;
-  assign max_payload_o   = 3'd0;
-  assign max_read_req_o  = 3'd2;
+  // ---- register access: one at a time, completed one cycle after its take;
+  // ready whenever out of reset and no access is open (cpl_q marks the one
+  // open access, in the cycle after its take)
+  always_comb begin
+    reg_take    = reg_req_valid_i && reg_req_ready_o;
+    cfg_wr      = reg_take && !reg_req_bar2_i && reg_req_write_i;
+    cfg_rd      = reg_take && !reg_req_bar2_i && !reg_req_write_i;
+    bar2_wr     = reg_take && reg_req_bar2_i && reg_req_write_i;
+    bar2_rd     = reg_take && reg_req_bar2_i && !reg_req_write_i;
+    bar2_take   = reg_take && reg_req_bar2_i;
+  end
+
+  // The status bits set at this edge: the error events and Signaled
+  // System Error (kept out of the block above, which feeds them).
+  always_comb begin
+    sts_set     = err_sts;
+    sts_set.sse = sse_set;
+  end
+
+  `COMMON_DFF_RST(cpl_q, reg_take, clk_i, rst_i)
+  `COMMON_DFF_EN(cpl_bar2_q, reg_req_bar2_i, clk_i, reg_take)
+  `COMMON_DFF_EN(cfg_rd_q, cfg_rd_data, clk_i, cfg_rd)
+
+  assign reg_req_ready_o = !rst_i && !cpl_q;
+  assign reg_cpl_valid_o = cpl_q;
+  assign reg_cpl_data_o  = cpl_bar2_q ? bar2_rd_data : cfg_rd_q;
+
+  pcie_cfg_regs #(
+    .BAR0_ADDR_W     (BAR0_ADDR_W),
+    .MSIX_TABLE_SIZE (MSIX_TABLE_SIZE),
+    .VENDOR_ID       (VENDOR_ID),
+    .DEVICE_ID       (DEVICE_ID),
+    .SUBSYS_VENDOR_ID(SUBSYS_VENDOR_ID),
+    .SUBSYS_ID       (SUBSYS_ID),
+    .CLASS_CODE      (CLASS_CODE),
+    .REVISION_ID     (REVISION_ID)
+  ) u_regs (
+    .clk_i            (clk_i),
+    .rst_i            (rst_i),
+    .wr_i             (cfg_wr),
+    .addr_i           (reg_req_addr_i),
+    .be_i             (reg_req_be_i),
+    .data_i           (reg_req_data_i),
+    .bus_i            (reg_req_bus_i),
+    .dev_i            (reg_req_dev_i),
+    .sts_set_i        (sts_set),
+    .np_pending_i     (tl_np_pending_i),
+    .rd_data_o        (cfg_rd_data),
+    .ctrl_q_o         (ctrl_q),
+    .ctrl_d_o         (ctrl_d),
+    .bus_num_o        (bus_num_o),
+    .dev_num_o        (dev_num_o),
+    .bar0_base_o      (bar0_base_o),
+    .bar2_base_o      (bar2_base_o),
+    .cpl_timeout_dis_o(cpl_timeout_dis_o),
+    .max_payload_o    (max_payload_o),
+    .max_read_req_o   (max_read_req_o)
+  );
+
+  pcie_cfg_err u_err (
+    .clk_i    (clk_i),
+    .rst_i    (rst_i),
+    .tl_err_i (tl_err_i),
+    .dl_err_i (dl_err_i),
+    .rcv_err_i(rcv_err_i),
+    .ctrl_d_i (ctrl_d),
+    .take_i   (take_err),
+    .sts_set_o(err_sts),
+    .due_o    (due)
+  );
+
+  pcie_cfg_bar2 #(
+    .MSIX_TABLE_SIZE(MSIX_TABLE_SIZE)
+  ) u_bar2 (
+    .clk_i     (clk_i),
+    .rst_i     (rst_i),
+    .wr_i      (bar2_wr),
+    .rd_i      (bar2_rd),
+    .addr_i    (reg_req_addr_i),
+    .be_i      (reg_req_be_i),
+    .data_i    (reg_req_data_i),
+    .look_i    (look),
+    .look_vec_i(look_vec),
+    .pba_i     (pba),
+    .mask_q_o  (mask_q),
+    .mask_d_o  (mask_d),
+    .entry_o   (entry),
+    .rd_data_o (bar2_rd_data)
+  );
+
+  pcie_cfg_msg #(
+    .MSIX_TABLE_SIZE(MSIX_TABLE_SIZE)
+  ) u_msg (
+    .clk_i       (clk_i),
+    .rst_i       (rst_i),
+    .ctrl_q_i    (ctrl_q),
+    .ctrl_d_i    (ctrl_d),
+    .mask_q_i    (mask_q),
+    .mask_d_i    (mask_d),
+    .due_i       (due),
+    .entry_i     (entry),
+    .bar2_take_i (bar2_take),
+    .msg_valid_o (msg_valid_o),
+    .msg_ready_i (msg_ready_i),
+    .msg_kind_o  (msg_kind_o),
+    .msg_addr_o  (msg_addr_o),
+    .msg_data_o  (msg_data_o),
+    .irq_valid_i (irq_valid_i),
+    .irq_ready_o (irq_ready_o),
+    .irq_vector_i(irq_vector_i),
+    .irq_done_o  (irq_done_o),
+    .irq_status_o(irq_status_o),
+    .pba_o       (pba),
+    .look_o      (look),
+    .look_vec_o  (look_vec),
+    .take_err_o  (take_err),
+    .sse_set_o   (sse_set)
+  );
+
+  // Register-state outputs (TL_CFG, Register state).
+  assign mem_space_en_o  = ctrl_q.mse;
+  assign bus_master_en_o = ctrl_q.bme;
+  assign d_state_o       = ctrl_q.d_state;
+
+  // cfg takes no access while its last one is completing (holds by
+  // construction of reg_req_ready_o; guards changes to it).
+  `COMMON_ASSERT_NEVER(a_one_access, clk_i, rst_i, cpl_q && reg_take)
 
 endmodule
 

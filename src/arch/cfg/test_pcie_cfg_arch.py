@@ -347,6 +347,33 @@ def test_waiting_request_masked_before_its_offer():
     assert c.take().kind == MSG_ERR_COR and c.offer() is None
 
 
+def test_waiting_write_reads_its_entry_when_offered():
+    """The application's write waiting behind an error message reads its
+    table entry (or the MSI registers) when it is offered: a change while
+    it waits reaches it, a change after the offer does not (CAPS.md, BAR2)."""
+    c = Cfg()
+    ready(c, msix=True)
+    c.cfg_write(DEVCTL, DC_CERE, be=0x1)
+    c.error(rcv=1)
+    assert c.offer().kind == MSG_ERR_COR
+    assert c.irq_request(3) is None
+    c.bar2_write(16 * 3 + 8, 0xCAFE)
+    c.take()
+    m1 = c.offer()
+    assert (m1.addr, m1.data) == (ADDR + 12, 0xCAFE)
+    c.bar2_write(16 * 3 + 8, 0xBEEF)
+    assert c.take().data == 0xCAFE
+    c2 = Cfg()
+    ready(c2, msi=True)
+    c2.cfg_write(DEVCTL, DC_CERE, be=0x1)
+    c2.error(rcv=1)
+    c2.offer()
+    assert c2.irq_request(0) is None
+    c2.cfg_write(CAP_MSI + 12, 0x5678)
+    c2.take()
+    assert c2.take().data == 0x5678
+
+
 def test_msi_offer_withdrawal():
     c = Cfg()
     ready(c, msi=True)
