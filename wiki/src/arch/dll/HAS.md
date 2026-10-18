@@ -6,7 +6,9 @@ Gen1 x1 link on virtual channel 0 (decision record
 flow-controlled exchange with the link partner: sequence numbers and LCRC,
 Ack and Nak, a replay buffer with its timer, credit-based flow control and
 the data link control states. Above it sits the transaction layer (a
-testbench in M2, the M3 transaction layer later, unchanged); below it, the
+testbench in M2, the M3 transaction layer later, which adds only the
+[credit release](#credit-release); decision record
+[0004](../../decisions/0004-m3-grill.md#updates), Q9, amending M2 Q5); below it, the
 upper packet stream of [`pcie_phy`](../phy/HAS.md). The `link` IP stacks
 `dll` over `phy` (Q4). It is not a transaction layer: it never builds,
 orders or checks the contents of a TLP beyond the header fields that flow
@@ -30,7 +32,7 @@ cross-checking only; they are paraphrased, never copied
 
 ```mermaid
 flowchart TB
-  tl["transaction layer (DV: testbench)"] <-- "TLP stream, credits available, status" --> top
+  tl["transaction layer (DV: testbench)"] <-- "TLP stream, credits available,<br/>credit release, status" --> top
   subgraph dll["pcie_dll"]
     top["TX: sequence numbers, LCRC,<br/>replay buffer, credit gate"]
     rx["RX: LCRC and sequence check,<br/>receive buffer"]
@@ -91,6 +93,43 @@ DL_Active.
 | `fc_nph_avail_o`, `fc_npd_avail_o` | out | 8, 12 | `clk_i` | Non-posted header and data credits. |
 | `fc_cplh_avail_o`, `fc_cpld_avail_o` | out | 8, 12 | `clk_i` | Completion header and data credits. |
 
+### Credit release
+
+With `FC_RELEASE` 1, the upper layer returns the posted and non-posted
+credits of a delivered TLP when the TLP leaves it, not when the `dll`
+delivers it, so it may hold delivered requests in queues bounded by the
+advertised credits (Q9). Completions always return at delivery. At most
+one release per class per cycle, each a one-cycle pulse for one TLP: 1
+header credit and the data credits given.
+
+| Port | Dir | Width | Clock | Description |
+| --- | --- | --- | --- | --- |
+| `fc_rel_p_i` | in | 1 | `clk_i` | One posted TLP left the upper layer: release 1 posted header credit. |
+| `fc_rel_pd_i` | in | 4 | `clk_i` | With `fc_rel_p_i`: its posted data credits, 0 to 8. |
+| `fc_rel_np_i` | in | 1 | `clk_i` | One non-posted TLP left the upper layer: release 1 non-posted header credit. |
+| `fc_rel_npd_i` | in | 4 | `clk_i` | With `fc_rel_np_i`: its non-posted data credits, 0 to 8. |
+
+- **Credits.** A release names a TLP the `dll` delivered (its `eop` taken
+  at an earlier edge) since the last DL_Inactive and not yet released,
+  with the credits the `dll` counted for it: 1 header credit and Length
+  divided by 4, rounded up, as data credits when Fmt says it has data
+  ([classes](FLOW_CONTROL.md#classes-and-credits)). The `dll` delivers no
+  payload above 128 bytes, so at most 8. The upper layer may release a
+  class's TLPs in any order; only the totals count. The RTL checks the
+  data count (at most 8) with an assertion.
+- **Timing.** The release taken at an edge adds to CREDITS_ALLOCATED at
+  that edge; the class's UpdateFC is due in the next cycle and offered
+  then when the DLLP arbiter is free, as for a return at delivery
+  ([UpdateFC](FLOW_CONTROL.md#updatefc-scheduling)).
+- **Link down.** The upper layer releases only while `dl_up_o` is 1,
+  and drops what it holds when `dl_up_o` falls: every credit restarts
+  from the advertisement. The `dll` ignores a release in a cycle that
+  clears it (DL_Inactive, or `link_up_i` 0); it does not check releases
+  in FC_INIT1, where the upper layer holds nothing to release.
+- **Tied.** With `FC_RELEASE` 0 (the default) every TLP's credits return
+  when its `eop` is taken upward, and the four inputs are tied to 0; the
+  RTL checks this with an assertion.
+
 ### Status
 
 | Port | Dir | Width | Clock | Description |
@@ -138,6 +177,7 @@ one TLP header; one data credit is 16 bytes of payload
 | `FC_NPD` | `int unsigned` | 8 | 0, 2 to 2047 | Non-posted data credits (2 is one compare-and-swap with 16-byte operands, 32 bytes of data; the `dll` cannot tell TLPs apart, so it must take the largest non-posted payload). |
 | `FC_CPLH` | `int unsigned` | 0 (infinite) | 0, 1 to 127 | Completion header credits. |
 | `FC_CPLD` | `int unsigned` | 0 (infinite) | 0, 8 to 2047 | Completion data credits. |
+| `FC_RELEASE` | `int unsigned` | 0 | 0, 1 | 1: finite posted and non-posted credits return on the [credit release](#credit-release) port; 0: at delivery, the port tied to 0. |
 
 The upper bounds keep every advertisement within half the counter range,
 as the accounting requires [cite: PCIe Base Spec, rev 3.0, §2.6.1]. The
@@ -224,7 +264,9 @@ stays 1 through Recovery, so a retrain does not leave DL_Active.
 - `tlp_rx_valid_o` may drop between beats inside a TLP; `sop` and `eop`
   mark its ends. When the upper layer takes a TLP's `eop` beat, the TLP's
   credits return to the partner
-  ([UpdateFC](FLOW_CONTROL.md#updatefc-scheduling)).
+  ([UpdateFC](FLOW_CONTROL.md#updatefc-scheduling)); with `FC_RELEASE` 1
+  a posted or non-posted TLP's finite credits return on its
+  [release](#credit-release) instead.
 - **Upper-layer obligation.** If any `FC_*` parameter is 0 (by default
   the completion credits are), the upper layer holds `tlp_rx_ready_i` at 1
   in every cycle that `dl_up_o` is 1: it never stalls. The RTL checks this
@@ -270,6 +312,7 @@ neither ([`link` errors](../link/HAS.md#errors)).
 | Store and forward both ways | The `phy` takes no bubbles inside a packet and a TLP's LCRC is known only at its end; the upper layer only ever sees good TLPs. Costs one TLP time of latency. | Cut-through transmit (needs nullify on an upper-layer bubble); cut-through receive (the upper layer would need a late discard). |
 | The `dll` gates TLPs on credits | One credit rule in one place; the upper layer may also use `fc_*_avail_o` to choose what to send. | Credits as advice only (a faulty upper layer could overflow the partner). |
 | One receive buffer in arrival order, sized by the advertised credits | Simplest structure that never overflows a credit-correct partner. Ordering between classes is the transaction layer's (M3). | Per-class queues (bypass rules belong to the transaction layer). |
+| A credit-release input, per class a pulse and a 4-bit data count, behind `FC_RELEASE` (decision record [0004](../../decisions/0004-m3-grill.md#updates), Q9; [#303](https://github.com/amichai-bd/pcie-factory/issues/303)) | The transaction layer queues requests sized by the advertised credits, so the partner can never send more than it holds; the ports are the `tl` release outputs ([`tl` credit release](../tl/HAS.md#credit-release)). Completions keep returning at delivery (the transaction layer reserves room for its own reads). The parameter keeps the M2 behaviour, and every M2 user, unchanged. | Returning credits at delivery with the transaction layer unbounded (the `core` HAS decision); a header count per pulse (one TLP leaves per class per cycle); a release for completions (no user). |
 | Credit-available as six flat count ports | Mirrors the six counters the spec names; one meaning per port (M1 Q25 keeps single-meaning top ports flat). | One packed struct port (no package shared with M3 exists yet). |
 | `dl_up_o` from FC_INIT2 | DL_Up is reported once the partner's credits are recorded [cite: PCIe Base Spec, rev 3.0, §3.2.1]. | DL_Active only. |
 | A Nak or timeout during a replay replays again after it | One replay at a time keeps the replay buffer read path simple; the second request is not lost. | Restarting the replay at once. |
@@ -299,7 +342,7 @@ in the `dll` and `link` DV.
 | Ack latency | Every good TLP is covered by an Ack or Nak that starts on the `phy` stream within 118 cycles (237 symbol times) of its `eop` from `phy`, error-free, both directions loaded [cite: PCIe Base Spec, rev 3.0, §3.5.3.1]. | `mwr_max`, `mixed_bidir` |
 | Lossless | With 2% of packets corrupted, 1% dropped and 1% flagged by `phy`, both ways and for TLPs and DLLPs: every TLP delivered exactly once and in order, no protocol error, no overflow. | `error_recovery` |
 | Rollover | TLPs lost one way from a set cycle until the retrain: exactly 4 replay timeouts, 1 rollover, 1 retrain, at most 4 replays, no Bad TLP at the partner, then every TLP delivered once, in order. | `replay_rollover` |
-| Credits | No receiver overflow when the upper layer stalls for 4000 and 10000 cycles and otherwise takes 30% of beats (every class finite), or never stalls (all classes infinite). | `credit_starve`, `credits_infinite` |
+| Credits | No receiver overflow when the upper layer stalls for 4000 and 10000 cycles and otherwise takes 30% of beats (every class finite), or never stalls (all classes infinite); with `FC_RELEASE` 1 and default credits, when it takes every beat but releases in 30% of cycles and not at all for 4000 and 10000 cycles, and then it holds no more credits than advertised. | `credit_starve`, `credits_infinite`, `credit_release` |
 | Initialisation | Both ends in DL_Active within 200 cycles of the later `link_up_i`, any skew, finite or all-infinite credits; within 4500 cycles with 10% of DLLPs corrupted. With all credits infinite and 300 cycles of skew, the side that reaches DL_Active last delivers all its TLPs. | `fc_init`, `fc_init_infinite`, `fc_init_errors`, `infinite_skew` |
 | TX latency | At most 4 cycles from a TLP's accepted `eop` to its `sop` on the `phy` stream, when nothing else is queued. | budget, `TX_STORE` |
 | RX latency | At most 4 cycles from a good TLP's `eop` from `phy` to its `sop` on the upper stream, when the receive buffer is empty. | budget, `RX_CHECK` |
@@ -309,7 +352,8 @@ in the `dll` and `link` DV.
 
 [`pcie_dll_arch.py`](../../../../src/arch/dll/pcie_dll_arch.py) runs every
 rule of this HAS at packet level, one step per cycle: the control states,
-flow-control initialisation and accounting, sequence numbers, Ack and Nak,
+flow-control initialisation and accounting (the credit release included,
+with `Releaser` as an upper layer that holds and releases), sequence numbers, Ack and Nak,
 replay, the timers and the receive checks. The CRCs are in
 [`pcie_dll_crc.py`](../../../../src/arch/dll/pcie_dll_crc.py), computed
 bit-serially from the polynomials; the
@@ -331,6 +375,7 @@ DV oracle: the independent link partner of Q3 is
 | [`replay_rollover`](../../../../src/arch/dll/perf/replay_rollover.yaml) | All TLPs one way dropped from cycle 5000 to 7000, across the retrain. |
 | [`credit_starve`](../../../../src/arch/dll/perf/credit_starve.yaml) | A stalling, slow upper layer with finite credits. |
 | [`credits_infinite`](../../../../src/arch/dll/perf/credits_infinite.yaml) | All credits infinite. |
+| [`credit_release`](../../../../src/arch/dll/perf/credit_release.yaml) | `FC_RELEASE` 1, default credits: the receiver releases 40 cycles after delivery at the earliest, in 30% of cycles, none in two windows. |
 | [`fc_init`](../../../../src/arch/dll/perf/fc_init.yaml), [`fc_init_errors`](../../../../src/arch/dll/perf/fc_init_errors.yaml), [`fc_init_infinite`](../../../../src/arch/dll/perf/fc_init_infinite.yaml) | 200 initialisations with skew: default credits, DLLP errors, all credits infinite. |
 | [`infinite_skew`](../../../../src/arch/dll/perf/infinite_skew.yaml) | All credits infinite, 300 cycles of skew, TLPs only from the later side. |
 

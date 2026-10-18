@@ -17,7 +17,8 @@ module pcie_dll #(
   parameter int unsigned FC_NPH  = 8,   // non-posted header credits; 0 infinite, else 1..127
   parameter int unsigned FC_NPD  = 8,   // non-posted data credits; 0 infinite, else 2..2047
   parameter int unsigned FC_CPLH = 0,   // completion header credits; 0 infinite (default), else 1..127
-  parameter int unsigned FC_CPLD = 0    // completion data credits; 0 infinite (default), else 8..2047
+  parameter int unsigned FC_CPLD = 0,   // completion data credits; 0 infinite (default), else 8..2047
+  parameter int unsigned FC_RELEASE = 0 // 0: credits return at delivery; 1: P and NP on fc_rel_*_i
 ) (
   // Clock and reset
   input  logic        clk_i,            // core clock, 125 MHz
@@ -44,6 +45,13 @@ module pcie_dll #(
   output logic [11:0] fc_npd_avail_o,
   output logic [7:0]  fc_cplh_avail_o,
   output logic [11:0] fc_cpld_avail_o,
+
+  // Credit release (FC_RELEASE 1): one-cycle pulses, 1 header credit each
+  // with its data credits; tied to 0 when FC_RELEASE is 0
+  input  logic        fc_rel_p_i,       // a posted TLP left the upper layer // cdc-domain: clk_i
+  input  logic [3:0]  fc_rel_pd_i,      // its data credits, 0..8 // cdc-domain: clk_i
+  input  logic        fc_rel_np_i,      // a non-posted TLP left the upper layer // cdc-domain: clk_i
+  input  logic [3:0]  fc_rel_npd_i,     // its data credits, 0..8 // cdc-domain: clk_i
 
   // Status
   output logic        dl_up_o,
@@ -85,6 +93,7 @@ module pcie_dll #(
   `COMMON_ASSERT_PARAM(g_bad_fc_cplh, FC_CPLH <= 127, "FC_CPLH must be 0 or 1..127")
   `COMMON_ASSERT_PARAM(g_bad_fc_cpld, FC_CPLD == 0 || (FC_CPLD >= 8 && FC_CPLD <= 2047),
                        "FC_CPLD must be 0 or 8..2047")
+  `COMMON_ASSERT_PARAM(g_bad_fc_release, FC_RELEASE <= 1, "FC_RELEASE must be 0 or 1")
 
   // The credits this side advertises, per class (0 is infinite).
   localparam pcie_dll_pkg::t_fc_vals ADV = '{
@@ -153,6 +162,9 @@ module pcie_dll #(
   logic                     rx_full;
   logic                     bad_tlp;
   logic                     malformed_tlp;
+  // Credit release (FLOW_CONTROL.md, credit release)
+  pcie_dll_pkg::t_rx_credit rel_p;
+  pcie_dll_pkg::t_rx_credit rel_np;
 
   assign pkt_rx = '{valid: pkt_rx_valid_i, data: pkt_rx_data_i, sop: pkt_rx_sop_i,
                     eop: pkt_rx_eop_i, dllp: pkt_rx_dllp_i, err: pkt_rx_err_i,
@@ -167,6 +179,13 @@ module pcie_dll #(
   assign tx_credit_ok = fc_tx_ok;
 
   assign tlp_tx = '{data: tlp_tx_data_i, sop: tlp_tx_sop_i, eop: tlp_tx_eop_i};
+
+  // The release port as receive events of their class (MAS, credit
+  // interface): 1 header credit and the data credits given.
+  assign rel_p  = '{valid: fc_rel_p_i, cls: pcie_dll_pkg::FC_P,
+                    cred: '{hdr: 8'd1, data: {8'd0, fc_rel_pd_i}}};
+  assign rel_np = '{valid: fc_rel_np_i, cls: pcie_dll_pkg::FC_NP,
+                    cred: '{hdr: 8'd1, data: {8'd0, fc_rel_npd_i}}};
 
   pcie_dll_dllp_rx u_dllp_rx (
     .clk_i      (clk_i),
@@ -232,7 +251,9 @@ module pcie_dll #(
     .enter_active_o (enter_active)
   );
 
-  pcie_dll_fc u_fc (
+  pcie_dll_fc #(
+    .RELEASE (FC_RELEASE == 1)
+  ) u_fc (
     .clk_i          (clk_i),
     .rst_i          (rst_i),
     .flush_i        (flush),
@@ -252,6 +273,8 @@ module pcie_dll #(
     .rx_stored_i    (rx_stored),
     .rx_malformed_i (rx_malformed),
     .rx_taken_i     (rx_taken),
+    .rel_p_i        (rel_p),
+    .rel_np_i       (rel_np),
     .overflow_o     (rx_overflow)
   );
 
@@ -326,6 +349,12 @@ module pcie_dll #(
   // The upper-layer obligation (HAS, receive): with any class infinite,
   // tlp_rx_ready_i is 1 in every cycle dl_up_o is 1.
   `COMMON_ASSERT_NEVER(a_rx_never_stall, clk_i, rst_i, RX_ANY_INF && dl_up_o && !tlp_rx_ready_i)
+
+  // The release port (HAS, credit release): tied to 0 unless FC_RELEASE is
+  // 1, and never more than one maximum payload's data credits.
+  `COMMON_ASSERT_NEVER(a_rel_tied, clk_i, rst_i, FC_RELEASE == 0 && (fc_rel_p_i || fc_rel_np_i))
+  `COMMON_ASSERT_NEVER(a_rel_data_max, clk_i, rst_i,
+                       (fc_rel_p_i && fc_rel_pd_i > 4'd8) || (fc_rel_np_i && fc_rel_npd_i > 4'd8))
 
   // Nothing starts in DL_Inactive (HAS, reset values): only the tail of a
   // DLLP whose sop the phy took before the link went down.

@@ -54,6 +54,15 @@ tests:
     top: pcie_dll_tb
     seeds: 1
     timeout_s: 1200
+  # Late releases at the smallest credits, every class finite: the
+  # receive stream stalls too, and the release port sets the pace.
+  - name: credit_release_smallest
+    module: tests.test_dll_fc
+    testcase: credit_release
+    top: pcie_dll_tb
+    seeds: 2
+    timeout_s: 900
+    params: {FC_PH: 1, FC_PD: 8, FC_NPH: 1, FC_NPD: 2, FC_CPLH: 1, FC_CPLD: 8, FC_RELEASE: 1}
   - name: mwr_max
     module: tests.test_dll_tlp_tx
     testcase: mwr_max

@@ -12,7 +12,10 @@ per clk_i cycle:
   REPLAY_NUM and its rollover to a retrain request, Ack and Nak handling;
 - the receive side: LCRC and sequence checks, duplicates and lost TLPs,
   Ack and Nak scheduling, the receive buffer and its overflow check;
-- credit gating, credit accounting and UpdateFC scheduling.
+- credit gating, credit accounting and UpdateFC scheduling, with the
+  credit-release port (``release_port``): finite posted and non-posted
+  credits return when the upper layer releases them, not at delivery;
+  ``Releaser`` is an upper layer that holds and releases them.
 
 ``Pair`` joins two ``Dll`` models through a ``Channel`` that stands in for
 two ``phy`` stacks and the line: a fixed latency, one framing cycle per
@@ -164,9 +167,11 @@ class Packet:
 
 class Dll:
     """One pcie_dll at packet level. ``fc`` maps the six credit parameters
-    (0 is infinite); ``ack_latency`` lets a scenario model a slower partner."""
+    (0 is infinite); ``ack_latency`` lets a scenario model a slower partner;
+    ``release_port`` is FC_RELEASE 1 (HAS, credit release)."""
 
-    def __init__(self, name: str, fc: dict | None = None, ack_latency: int = ACK_LATENCY):
+    def __init__(self, name: str, fc: dict | None = None, ack_latency: int = ACK_LATENCY,
+                 release_port: bool = False):
         fc = dict(DEFAULT_FC, **(fc or {}))
         if set(fc) != set(DEFAULT_FC):
             raise ValueError(f"credit parameters {sorted(fc)}")
@@ -182,6 +187,7 @@ class Dll:
         if self.adv[NP][1] == 1:
             raise ValueError("npd below one 16-byte-operand CAS (2 credits)")
         self.ack_latency = ack_latency
+        self.release_port = release_port
         self.errors = [0] * len(ERR_NAMES)
         self.counts = {"replays": 0, "retrains": 0, "acks": 0, "naks": 0, "updatefc": 0,
                        "duplicates": 0, "tx_tlps": 0, "credit_blocked": 0}
@@ -227,6 +233,7 @@ class Dll:
         self.ca = [list(a) for a in self.adv]        # CREDITS_ALLOCATED
         self.cr = [[0, 0] for _ in CLASSES]          # CREDITS_RECEIVED
         self.occ = [[0, 0] for _ in CLASSES]         # infinite classes: space in use
+        self.held = [[0, 0] for _ in CLASSES]        # finite credits delivered, not released
         self.last_adv = [list(a) for a in self.adv]
         self.upd_time = [0, 0, 0]
         self.upd_rr = 0
@@ -475,6 +482,24 @@ class Dll:
             self.replay_pending = False
             self._start_replay()
 
+    def release(self, cls: int, data: int) -> None:
+        """The release port (HAS, credit release): the upper layer releases
+        one posted or non-posted TLP it was delivered, 1 header credit and
+        ``data`` data credits. Finite fields return to CREDITS_ALLOCATED (an
+        UpdateFC falls due); an infinite field's reserve freed at delivery."""
+        if not self.release_port or cls not in (P, NP):
+            raise ValueError(f"release of class {cls} without the release port")
+        if not self.dl_up or not 0 <= data <= MAX_PAYLOAD // CREDIT_BYTES:
+            raise ValueError(f"release of {data} data credits in state {self.state}")
+        for f, v in ((0, 1), (1, data)):
+            if not self.adv[cls][f]:
+                continue
+            if v > self.held[cls][f]:
+                raise ValueError(f"{CLASSES[cls]} release of {v} credits, {self.held[cls][f]} "
+                                 "delivered and not released")
+            self.held[cls][f] -= v
+            self.ca[cls][f] = (self.ca[cls][f] + v) % MODS[f]
+
     # ------------------------------------------------------- one clock
     def tick(self, now: int, in_l0: bool, can_send: bool, sink_ready: bool) -> Packet | None:
         """Timers, the upper receive stream and the transmit arbiter for one
@@ -503,10 +528,12 @@ class Dll:
                 self.delivered.append(head[1])
                 cls, h, d = head[2]
                 for f, v in ((0, h), (1, d)):
-                    if self.adv[cls][f]:
-                        self.ca[cls][f] = (self.ca[cls][f] + v) % MODS[f]
-                    else:
+                    if not self.adv[cls][f]:
                         self.occ[cls][f] -= v
+                    elif self.release_port and cls != CPL:
+                        self.held[cls][f] += v            # returns on release
+                    else:
+                        self.ca[cls][f] = (self.ca[cls][f] + v) % MODS[f]
         if self.src_busy:
             self.src_busy -= 1
         # transmit
@@ -578,6 +605,47 @@ class Dll:
         # one UpdateFC per class at once: a partner still in FC_INIT2
         # needs one to finish its initialisation
         self.upd_time = [now - UPDATEFC_PERIOD] * 3
+
+
+class Releaser:
+    """An upper layer on a ``Dll`` with the release port: it takes every
+    delivered TLP at once and holds each posted and non-posted one, then
+    releases them per class in delivery order, at most one per class per
+    cycle, at least ``delay`` cycles after delivery, in a cycle drawn with
+    probability ``duty`` and outside the ``starve`` windows. Everything held
+    is dropped when DL_Up falls, as the transaction layer is reset then.
+    ``step`` runs after the cycle's ``tick``."""
+
+    def __init__(self, d: Dll, rng: random.Random, delay: int = 1, duty: float = 1.0,
+                 starve=()):
+        if not d.release_port or delay < 1:
+            raise ValueError("a releaser needs the release port and a delay of at least 1")
+        self.d, self.rng, self.delay, self.duty = d, rng, delay, duty
+        self.starve = [tuple(w) for w in starve]
+        self.q = {P: deque(), NP: deque()}             # (delivery cycle, data credits)
+        self.seen = 0
+        self.held_max = {P: [0, 0], NP: [0, 0]}        # credits held, header and data
+
+    def step(self, now: int) -> None:
+        d = self.d
+        new, self.seen = d.delivered[self.seen:], len(d.delivered)
+        if not d.dl_up:
+            for q in self.q.values():
+                q.clear()
+            return
+        for t in new:
+            cls, _, data, _ = tlp_info(t)
+            if cls in self.q:
+                self.q[cls].append((now, data))
+        for cls, q in self.q.items():
+            m = self.held_max[cls]
+            m[0], m[1] = max(m[0], len(q)), max(m[1], sum(v for _, v in q))
+        if any(s <= now < e for s, e in self.starve):
+            return
+        for cls, q in self.q.items():
+            if q and q[0][0] + self.delay <= now and (self.duty >= 1.0
+                                                      or self.rng.random() < self.duty):
+                d.release(cls, q.popleft()[1])
 
 
 # --------------------------------------------------------- channel, pair
@@ -677,8 +745,11 @@ def run_traffic(w: dict, seed: int) -> dict[str, float]:
     mix = w.get("mix", "mwr")
     both = bool(w.get("bidirectional", False))
     fc = w.get("fc", {})
-    a = Dll("a", fc)
-    b = Dll("b", fc, ack_latency=_int(w, "partner_ack_latency", ACK_LATENCY, 1, 1000))
+    rel = w.get("release")
+    a = Dll("a", fc, release_port=rel is not None)
+    b = Dll("b", fc, ack_latency=_int(w, "partner_ack_latency", ACK_LATENCY, 1, 1000),
+            release_port=rel is not None)
+    rels = make_releasers((a, b), rel, rng)
     ch = Channel(rng, latency=_int(w, "latency", 22, 0, 1000),
                  retrain_cycles=_int(w, "retrain_cycles", 500, 1, 100000),
                  errors=w.get("errors", {}))
@@ -705,6 +776,8 @@ def run_traffic(w: dict, seed: int) -> dict[str, float]:
                 idx[i] += 1
         sink_b = (not any(s <= now < e for s, e in starve)) and (duty >= 1.0 or rng.random() < duty)
         pair.step(sinks=(True, sink_b), link=(True, now >= skew))
+        for r in rels:
+            r.step(now)
         if a.tx_busy and a.tx_cur is not None and not a.tx_cur.dllp:
             busy_a += 1
         if len(b.delivered) >= len(sent[0]) and len(a.delivered) >= len(sent[1]):
@@ -732,6 +805,32 @@ def run_traffic(w: dict, seed: int) -> dict[str, float]:
     }
     for i, n in enumerate(ERR_NAMES):
         met["err_" + n] = float(a.errors[i] + b.errors[i])
+    met.update(releaser_metrics(rels))
+    return met
+
+
+def make_releasers(dlls, rel: dict | None, rng: random.Random) -> list[Releaser]:
+    """The workload's ``release`` (delay, duty, starve windows) as one
+    ``Releaser`` per end, or none without it."""
+    if rel is None:
+        return []
+    delay = _int(rel, "delay", 1, 1, 100000)
+    duty = float(rel.get("duty", 1.0))
+    if not 0.0 < duty <= 1.0:
+        raise ValueError(f"release duty {duty} outside (0, 1]")
+    return [Releaser(d, random.Random(rng.getrandbits(32)), delay, duty,
+                     rel.get("starve", [])) for d in dlls]
+
+
+def releaser_metrics(rels: list[Releaser]) -> dict[str, float]:
+    """The most credits any end's upper layer held unreleased, per class
+    and field: never above what that end advertises."""
+    met = {}
+    if rels:
+        for cls in (P, NP):
+            for f, field in ((0, "hdr"), (1, "data")):
+                met[f"held_{CLASSES[cls]}_{field}_max"] = float(
+                    max(r.held_max[cls][f] for r in rels))
     return met
 
 

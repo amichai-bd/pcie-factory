@@ -1,0 +1,25 @@
+# The both-ways throughput target with the dll credit-release port, as the
+# transaction layer uses it (wiki/src/arch/dll/HAS.md#credit-release): each
+# upper layer releases a write's credits 40 cycles after delivery, so the
+# credit loop is longer, and the line rate must hold
+# (wiki/src/arch/link/HAS.md#throughput).
+description: 2000 MWr TLPs with 128-byte payloads each way, default credits, release port at both ends with a 40-cycle release delay, SKP every 1180 symbols, error-free.
+seed: 1
+workload:
+  kind: traffic
+  tlps: 2000
+  mix: mwr
+  payload: 128
+  bidirectional: true
+  release:
+    delay: 40
+targets:
+  tlp_line_fraction: {min: 0.88}
+  payload_line_fraction: {min: 0.76}
+  ack_latency_dll_cycles_max: {max: 118}   # at the dll-to-phy boundary
+  tlps_lost: {max: 0}
+  tlps_duplicated: {max: 0}
+  tlps_out_of_order: {max: 0}
+  replays: {max: 0}
+  held_p_hdr_max: {max: 8}
+  held_p_data_max: {max: 32}

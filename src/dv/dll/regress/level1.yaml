@@ -134,6 +134,24 @@ tests:
     timeout_s: 600
     coverage_seeds: 2
     params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
+  # FC_RELEASE 1 (HAS, credit release): default credits (completions
+  # infinite, so the stream never stalls) with late releases; receive
+  # accounting with releases, NP data infinite (an infinite field in a
+  # released class).
+  - name: credit_release
+    module: tests.test_dll_fc
+    testcase: credit_release
+    top: pcie_dll_tb
+    seeds: [0, 1]
+    timeout_s: 600
+    params: {FC_RELEASE: 1}
+  - name: fc_rx_accounting_release
+    module: tests.test_dll_fc
+    testcase: fc_rx_accounting
+    top: pcie_dll_tb
+    seeds: 1
+    timeout_s: 300
+    params: {FC_PH: 6, FC_PD: 40, FC_NPH: 4, FC_NPD: 0, FC_CPLH: 16, FC_CPLD: 64, FC_RELEASE: 1}
   - name: tlp_bidir
     module: tests.test_dll_tlp_tx
     testcase: tlp_bidir

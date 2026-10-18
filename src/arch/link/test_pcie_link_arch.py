@@ -124,3 +124,15 @@ def test_bad_workload():
         m.perf({"kind": "nope"}, 0)
     with pytest.raises(ValueError):
         m.perf({"kind": "traffic", "tlps": 0}, 0)
+
+
+def test_release_port_keeps_the_both_ways_rate():
+    """With the dll release port and a 40-cycle release, the both-ways rate
+    stays within 0.2% of the line of the plain run (the credit loop fits in
+    the advertised credits)."""
+    w = {"kind": "traffic", "tlps": 400, "mix": "mwr", "payload": 128, "bidirectional": True}
+    plain = m.perf(w, 2)
+    rel = m.perf(dict(w, release={"delay": 40}), 2)
+    assert rel["tlps_lost"] == rel["tlps_out_of_order"] == rel["err_rx_overflow"] == 0
+    assert rel["payload_line_fraction"] == pytest.approx(plain["payload_line_fraction"], abs=2e-3)
+    assert rel["held_p_hdr_max"] <= 8

@@ -9,7 +9,8 @@ one's ``ser_rx_clk_i`` the far clock. One coroutine per clock runs
 1. ``LinkEnd.edge`` samples end i's outputs (registered at the rising edge
    just passed), checks them, and drives its inputs: reset, the upper
    transmit driver (``tlp_tx_*``, valid may drop inside a TLP), the upper
-   receive taker (``tlp_rx_ready_i``) and receiver detection.
+   receive taker (``tlp_rx_ready_i``), the releaser (``fc_rel_*_i``, in the
+   release configuration only) and receiver detection.
 2. End i's serial word goes through its direction's line ``Injector``
    (``models/``), which records the sent and delivered packet views and
    the injection log for the partner's passive checker, then through the
@@ -21,7 +22,9 @@ TLP accepted on one end's upper stream is the next delivered on the other,
 byte for byte; drained at the end); the error pulses (DL protocol error,
 Malformed TLP and Receiver overflow never); the link (``link_up_o`` 1 and
 DL_Active once reached); credits available never above the far end's
-advertisement, and back at it when drained; liveness (no TLP delivered
+advertisement, and back at it when drained; in the release configuration,
+an upper layer that never holds more unreleased credits than its own end
+advertises (the dll credit-release port); liveness (no TLP delivered
 for 20000 cycles while any is outstanding fails); reset values while
 ``rst_i`` is high and the dll outputs at theirs until ``link_up_o``; the
 Ack latency at each end's dll-to-phy boundary (118 cycles, on the
@@ -72,7 +75,7 @@ ACK_DLL_BOUND = 118                  # HAS targets: at the dll-to-phy boundary
 ACK_LINE_BOUND = 140                 # HAS targets: derived bound on the line
 LIVENESS = 20_000
 
-CREDIT_CONFIGS = ("default", "minimum", "finite", "infinite", "asymmetric")
+CREDIT_CONFIGS = ("default", "minimum", "finite", "infinite", "asymmetric", "release")
 CLASS_FIELDS = ("P", "NP", "Cpl")
 FC_PORTS = ("fc_ph_avail_o", "fc_pd_avail_o", "fc_nph_avail_o", "fc_npd_avail_o",
             "fc_cplh_avail_o", "fc_cpld_avail_o")
@@ -120,6 +123,9 @@ COV_LINK.coverpoint("request", bins={r: r for r in ("hot_reset", "disable", "loo
 COV_CREDIT = Covergroup("link_e2e_credit")
 COV_CREDIT.coverpoint("starved", bins={c: c for c in CLASS_FIELDS})
 COV_CREDIT.coverpoint("stall", bins={"stall_4000": 4000, "stall_10000": 10000})
+# Release configuration: an upper layer holding every advertised header
+# credit of a class unreleased.
+COV_CREDIT.coverpoint("held_all", bins=["P", "NP"])
 
 
 def tlp_kind(tlp: bytes) -> str:
@@ -266,6 +272,17 @@ class LinkEnd:
         self.rx_beats: list[int] = []
         self.take_p = 1.0                # probability of taking a beat (finite credits only)
         self.stall_until = 0
+        # releaser (release configuration): per class P, NP the delivered
+        # TLPs (cycle, data credits) not yet released, the finite credits
+        # held, and the release pace
+        self.rel = env.credits == "release"
+        self.rel_q = (deque(), deque())
+        self.held = [[0, 0], [0, 0]]
+        self.held_max = [[0, 0], [0, 0]]
+        self.rel_delay = 2
+        self.rel_p = 1.0
+        self.rel_stall_until = 0
+        self.released = [0, 0]
         # status
         self.link_up = False
         self.ltssm = 0
@@ -281,7 +298,8 @@ class LinkEnd:
         self.violations: list[str] = []
         for name in ("tlp_tx_valid_i", "tlp_tx_data_i", "tlp_tx_sop_i", "tlp_tx_eop_i",
                      "retrain_req_i", "hot_reset_req_i", "disable_req_i", "loopback_req_i",
-                     "ser_tx_rxdet_i", "ser_rx_data_i"):
+                     "ser_tx_rxdet_i", "ser_rx_data_i", "fc_rel_p_i", "fc_rel_pd_i",
+                     "fc_rel_np_i", "fc_rel_npd_i"):
             self.s[name].value = 0
         self.s["tlp_rx_ready_i"].value = 1
         self.s["ser_rx_elec_idle_i"].value = 1
@@ -367,6 +385,7 @@ class LinkEnd:
             self.rx_beats += list(data.to_bytes(4, "little"))
             if rd["tlp_rx_eop_o"]():
                 self.env.delivered(self, bytes(self.rx_beats), n)
+                self._hold(n, bytes(self.rx_beats))
         word = rd["ser_tx_data_o"]()
         ei = bool(rd["ser_tx_elec_idle_o"]())
         # Drive.
@@ -374,6 +393,7 @@ class LinkEnd:
         self.wr("rst_i", int(self.rst))
         self.wr("ser_tx_rxdet_i", int(rxdet))
         self.wr("tlp_rx_ready_i", int(self._ready))
+        self._release(n, link_up and dl_state in (2, ACTIVE))
         self._drive_tx()
         return word, ei
 
@@ -406,6 +426,56 @@ class LinkEnd:
             elif v > far[i]:
                 self.violations.append(f"end {self.name} cycle {self.cycle}: {port} {v} above "
                                        f"the {far[i]} the far end advertises")
+
+    def _hold(self, n: int, tlp: bytes) -> None:
+        """Release configuration: a delivered posted or non-posted TLP is
+        held until released; the finite credits held never exceed this
+        end's advertisement (the dll credit-release port)."""
+        if not self.rel:
+            return
+        cls = ptn.tlp_class(tlp)
+        if cls == "Cpl":
+            return
+        c = CLASS_FIELDS.index(cls)
+        need = ptn.tlp_credits(tlp)
+        self.rel_q[c].append((n, need[1]))
+        for f in (0, 1):
+            adv = self.fc[2 * c + f]
+            if adv:
+                self.held[c][f] += need[f]
+                self.held_max[c][f] = max(self.held_max[c][f], self.held[c][f])
+                if self.held[c][f] > adv:
+                    self.violations.append(f"end {self.name} cycle {n}: the upper layer holds "
+                                           f"{self.held[c][f]} {cls} credits ({'hd'[f]}), above "
+                                           f"the {adv} advertised")
+        if self.fc[2 * c] and self.held[c][0] == self.fc[2 * c]:
+            COV_CREDIT.sample(held_all=cls)
+
+    def _release(self, n: int, dl_up: bool) -> None:
+        """Release configuration: drive ``fc_rel_*_i`` for the next edge, at
+        most one release per class, the oldest TLP held ``rel_delay`` cycles,
+        with probability ``rel_p`` and none before ``rel_stall_until``. With
+        DL_Up down the upper layer is reset: everything held is dropped."""
+        if not self.rel:
+            return
+        if not dl_up:
+            for q in self.rel_q:
+                q.clear()
+            self.held = [[0, 0], [0, 0]]
+        for c, (v_port, d_port) in enumerate((("fc_rel_p_i", "fc_rel_pd_i"),
+                                              ("fc_rel_np_i", "fc_rel_npd_i"))):
+            q = self.rel_q[c]
+            go = (dl_up and q and q[0][0] + self.rel_delay <= n and n >= self.rel_stall_until
+                  and (self.rel_p >= 1.0 or self.rng.random() < self.rel_p))
+            self.wr(v_port, int(bool(go)))
+            if not go:
+                continue
+            data = q.popleft()[1]
+            self.wr(d_port, data)
+            for f, x in enumerate((1, data)):
+                if self.fc[2 * c + f]:
+                    self.held[c][f] -= x
+            self.released[c] += 1
 
     def _take(self, n: int) -> bool:
         if self.any_inf:
@@ -565,6 +635,9 @@ class Env:
         end.ack.reset()
         end.cur = None
         end.rx_beats = []
+        for q in end.rel_q:
+            q.clear()
+        end.held = [[0, 0], [0, 0]]
         if self.down_since is None:
             self.down_since = t
         if not any(e.live for e in self.ends):

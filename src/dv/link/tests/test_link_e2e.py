@@ -283,24 +283,33 @@ async def credit_run(dut, n=120, stalls=(4000, 10000)):
     """The mix both ways; each end whose classes are all finite takes 30%
     of the beats and stalls for 4000 and then 10000 cycles (starvation,
     then recovery through UpdateFC); an end with an infinite class never
-    stalls. Drained, every finite credit is back at the advertisement."""
+    stalls. In the release configuration each end takes every beat but
+    releases in 30% of cycles and, in those windows, not at all. Drained,
+    every finite credit is back at the advertisement."""
     env = await up(dut)
     stallers = [e for e in env.ends if not e.any_inf]
+    releasers = [e for e in env.ends if e.rel]
     for e in stallers:
         e.take_p = 0.3
+    for e in releasers:
+        e.rel_p = 0.3
     env.send(0, n)
     env.send(1, n)
     for length in stalls:
         await env.cycles(1500)
         for e in stallers:
             e.stall_until = e.cycle + length
-        if stallers:
+        for e in releasers:
+            e.rel_stall_until = e.cycle + length
+        if stallers or releasers:
             COV_CREDIT.sample(stall=length)
         await env.cycles(length + 500)
         env.send(0, n // 3)
         env.send(1, n // 3)
     for e in stallers:
         e.take_p = 1.0
+    for e in releasers:
+        e.rel_p = 1.0
     await env.drain()
     await env.cycles(2500)          # the last UpdateFCs arrive
     stats = env.finish()
@@ -324,6 +333,15 @@ async def e2e_credits(dut):
     elif env.credits == "asymmetric":
         # b sends into a's minimum credits.
         assert env.ends[1].starved, "end b: never waited on a's minimum credits (asymmetric)"
+    elif env.credits == "release":
+        # Each end held all of a class's header credits unreleased, and the
+        # far end waited on them: the release port, through link, set the pace.
+        for e in env.ends:
+            full = [c for c in (0, 1) if e.held_max[c][0] == e.fc[2 * c]]
+            assert full and all(e.released), (f"end {e.name}: held at most {e.held_max}, "
+                                              f"released {e.released}")
+            assert e.starved, f"end {e.name}: never waited on the far end's held credits"
+            env.log.info("end %s: held at most %s, released %s", e.name, e.held_max, e.released)
 
 
 # ------------------------------------------------------------------- L2

@@ -25,7 +25,13 @@ flowchart LR
   `link` port is a top port prefixed `a_` or `b_`. The parameter `CREDITS`
   picks the [credit configuration](../../arch/link/HAS.md#credit-configurations)
   (0 default, 1 finite minimum, 2 finite default sizes, 3 all infinite,
-  4 asymmetric: a minimum, b default), echoed per end on `<e>_cfg_fc_o`.
+  4 asymmetric: a minimum, b default, 5 release: default credits with
+  `FC_RELEASE` 1 at both ends), echoed per end on `<e>_cfg_fc_o`. Outside
+  configuration 5 the environment holds `<e>_fc_rel_*_i` at 0; in it each
+  end's releaser holds every delivered posted and non-posted TLP and
+  releases it on `fc_rel_*_i`, and fails if the end's upper layer ever
+  holds more finite credits than that end advertises
+  ([`dll` credit release](../../arch/dll/HAS.md#credit-release)).
   `TIMEOUT_DIV` is 1024 (link-up in about 10000 cycles) and
   `ERR_TIMEOUT_DIV` 1, as the HAS bench sets. The top taps the
   packet-stream nets between each instance's `dll` and `phy`, which the
@@ -129,7 +135,8 @@ flowchart LR
   (Bad TLP, Bad DLLP, replay timeout, rollover, retrain, `rcv_err_o`, a
   Nak sent, a duplicate acknowledged), `link_e2e_traffic` (each TLP kind
   each way, payload sizes), `link_e2e_credit` (each class starved on
-  credits; the 4000- and 10000-cycle stalls) and `link_e2e_control` (Hot
+  credits; the 4000- and 10000-cycle stalls; an upper layer holding all of
+  a class's header credits unreleased) and `link_e2e_control` (Hot
   Reset, Disabled, Loopback).
 - **Model unit tests:** [`test_pcie_link_injector_model.py`](../../../../src/dv/link/models/test_pcie_link_injector_model.py)
   checks the injector against a reference transmitter and a strict
@@ -156,6 +163,7 @@ All entries run on `pcie_link_e2e_tb`; credits are the default
 | Hot Reset passed through ([stack wiring](../../arch/link/HAS.md#stack-wiring)): link down at both ends, `dll` outputs at reset values, link-up again, lossless after | `e2e_hot_reset` | 2 | 1 |
 | [Credits](../../arch/link/HAS.md#credit-configurations): starvation (30% of beats taken, stalls of 4000 and 10000 cycles) and recovery, no overflow, credits back when drained, error-free; both ends starve (b only, into a's minimum, when asymmetric) | `e2e_credits_minimum` (level 1), `e2e_credits_finite`, `e2e_credits_asymmetric` (level 2) | 1, 2 | 1 each; `CREDITS` 1, 2, 4 |
 | The same with every class infinite (no stall) | `e2e_credits_infinite` | 2 | 1; `CREDITS` 3 |
+| [Credit release](../../arch/dll/HAS.md#credit-release) through `link`: default credits, `FC_RELEASE` 1, each end taking every beat but releasing in 30% of cycles and none for 4000 and 10000 cycles; no overflow, never more held than advertised, all of a class held and the far end starved, credits back when drained | `e2e_credits_release` | 1 | 1; `CREDITS` 5 |
 | Disabled and Loopback passed through | `e2e_disable`, `e2e_loopback` | 2 | 1 each |
 | Soak: random classes, line flips and credit stalls together, 1000 TLPs each way, ppm from the seed, in every credit configuration | `e2e_soak_default`, `e2e_soak_minimum`, `e2e_soak_finite`, `e2e_soak_infinite`, `e2e_soak_asymmetric` | 2 | 3, 2, 1, 1, 2; `CREDITS` 0 to 4; coverage on the first 2, 2, 1, 1, 2 ([seeds](#seeds-and-coverage-runs)) |
 | [Throughput](../../arch/link/HAS.md#throughput), one way, screen: 400 128-byte memory writes a to b against the 0.85 target (more start and drain in the window than 2000 TLPs, so stricter), every line symbol attributed | `e2e_throughput_short` | 1 | 1 |
@@ -206,6 +214,17 @@ first two seeds, so the merged coverage is the same point for point. A
 coverage build runs the link's soaks about 2.5 times slower than a plain
 one (`e2e_soak_default`: 24.4 s against 9.7 s of CPU), so most seeds run
 plain.
+
+**Release mutants** ([#303](https://github.com/amichai-bd/pcie-factory/issues/303)):
+the `link` pass-through of the credit release, run serially on the final
+RTL, level 0 then level 1, one entry at a time at its first seed; every
+level-0 entry passes each of them.
+
+| Mutant in `pcie_link` | First failing entry | Result |
+| --- | --- | --- |
+| `fc_rel_p_i` and `fc_rel_np_i` swapped into the `dll` | `e2e_credits_release` (L1) | Stops on `a_free_within_space` in the `dll`. |
+| `fc_rel_pd_i` not connected (data 0) | `e2e_credits_release` (L1) | Data credits never return: the drain does not end within 200000 cycles. |
+| `FC_RELEASE` not passed to the `dll` (0) | `e2e_credits_release` (L1) | Stops on `a_rel_tied` in the `dll`: a release with `FC_RELEASE` 0. |
 
 ## Gaps
 

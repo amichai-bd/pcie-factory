@@ -1,4 +1,4 @@
-"""Credit-parameter limits of pcie_dll (wiki/src/arch/dll/HAS.md#parameters).
+"""Credit-parameter limits of pcie_dll, FC_RELEASE included (wiki/src/arch/dll/HAS.md#parameters).
 
 A rejected parameter set cannot be simulated, so this test lints the dll
 with Verilator, as `./build check` lint does, from its .rtl.f: every
@@ -27,11 +27,17 @@ ILLEGAL = (
     ({"FC_NPD": 2048}, "FC_NPD must be 0 or 2..2047"),
     ({"FC_CPLH": 128}, "FC_CPLH must be 0 or 1..127"),
     ({"FC_CPLD": 7}, "FC_CPLD must be 0 or 8..2047"),
+    ({"FC_RELEASE": 2}, "FC_RELEASE must be 0 or 1"),
 )
-# Legal boundaries: the smallest finite values, all infinite, the largest.
+# Legal boundaries: the smallest finite values, all infinite, the largest;
+# the release port with the smallest and with all-infinite credits.
 LEGAL = (
     {"FC_PH": 1, "FC_PD": 8, "FC_NPH": 1, "FC_NPD": 2, "FC_CPLH": 1, "FC_CPLD": 8},
     {"FC_PH": 0, "FC_PD": 0, "FC_NPH": 0, "FC_NPD": 0, "FC_CPLH": 0, "FC_CPLD": 0},
+    {"FC_PH": 1, "FC_PD": 8, "FC_NPH": 1, "FC_NPD": 2, "FC_CPLH": 1, "FC_CPLD": 8,
+     "FC_RELEASE": 1},
+    {"FC_PH": 0, "FC_PD": 0, "FC_NPH": 0, "FC_NPD": 0, "FC_CPLH": 0, "FC_CPLD": 0,
+     "FC_RELEASE": 1},
     {"FC_PH": 127, "FC_PD": 2047, "FC_NPH": 127, "FC_NPD": 2047, "FC_CPLH": 127,
      "FC_CPLD": 2047},
 )
