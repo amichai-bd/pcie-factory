@@ -1,0 +1,14 @@
+# Application reads (wiki/src/arch/core/HAS.md#targets): 128-byte MRd on rq, host latency 100 cycles,
+# eight tags; completions on rc >= 0.98 of the link both-ways payload rate
+# and >= 0.745 of the line.
+description: 1000 application MRd of 128 bytes on rq, after enumeration.
+seed: 1
+workload:
+  kind: traffic
+  app: read
+  tlps: 1000
+targets:
+  fraction_of_link: {min: 0.98}
+  payload_line_fraction: {min: 0.745}
+  app_reads_done: {min: 1000}
+  tl_errors: {max: 0}

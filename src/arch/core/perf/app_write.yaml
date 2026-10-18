@@ -1,0 +1,12 @@
+# Application writes out (wiki/src/arch/core/HAS.md#targets): 128-byte MWr on rq to host memory,
+# >= 0.98 of the link one-way payload rate and >= 0.833 of the line.
+description: 2000 application MWr of 128 bytes on rq, after enumeration.
+seed: 1
+workload:
+  kind: traffic
+  app: write
+  tlps: 2000
+targets:
+  fraction_of_link: {min: 0.98}
+  payload_line_fraction: {min: 0.833}
+  tl_errors: {max: 0}
