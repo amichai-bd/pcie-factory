@@ -27,11 +27,11 @@ tests:
     timeout_s: 900
 # Floors on the merged levels 0 to 2 (the nightly run), at the merged value
 # less 0.5 points rounded down to a tenth (DV BKM, floor margin): measured
-# 97.70% line (1019/1043), 78.27% toggle (41815/53424); every point not hit
+# 97.73% line (1031/1055), 78.34% toggle (42260/53946); every point not hit
 # has a reason in the DV plan (Coverage holes). An entry with a new
 # parameter set, or an RTL change that adds state, re-measures these floors
 # in the same PR.
 # Functional 100 must hold every bin of tl_cpl, tl_rx_order, tl_rx_outcome,
 # tl_rx_slot_power and tl_tx; a renamed or undeclared covergroup leaves the
 # total, so keep this list.
-coverage_floors: {line: 97.1, toggle: 77.7, functional: 100}
+coverage_floors: {line: 97.2, toggle: 77.8, functional: 100}

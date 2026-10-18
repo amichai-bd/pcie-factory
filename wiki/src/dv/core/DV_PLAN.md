@@ -186,9 +186,10 @@ checked by every `--coverage` run that selects level 2 (the nightly runs
 levels 0 to 2): line 75.3, toggle 44.1, functional 100. Merged over levels
 0 to 2 ([#294](https://github.com/amichai-bd/pcie-factory/issues/294)),
 over the whole stack that `core.rtl.f` reaches (the endpoint `pcie_core`
-and the bench's host `pcie_link`): line 75.85% (4148 of 5469 points),
-toggle 44.67% (77403 of 173270), functional 100% (62 of 62 bins in the
-five covergroups the level file names). The line and toggle floors are
+and the bench's host `pcie_link`): line 75.88% (4168 of 5493 points),
+toggle 44.63% (77783 of 174278), functional 100% (62 of 62 bins in the
+five covergroups the level file names), with `tl`'s transmit output stage
+([#295](https://github.com/amichai-bd/pcie-factory/issues/295)). The line and toggle floors are
 the merged values less 0.5 points, rounded down to a tenth
 ([floor margin](../../../bkm/dv.md#coverage)).
 
@@ -198,21 +199,21 @@ uncovered is behaviour the stacked IPs' own DV reaches (their
 [granularity](../../../bkm/rtl.md#granularity)). Each point not hit was
 looked up in the merged coverage of those IPs' own regressions at the same
 base: `tl`, `cfg`, `dll`, `mac`, `pcs` and `phy` at levels 0 to 2, `link`
-at levels 0 and 1. The 1321 line points not hit, by cause:
+at levels 0 and 1. The 1325 line points not hit, by cause:
 
 | Cause | Points | Where |
 | --- | ---: | --- |
-| Hit in another parameter set or at the host's end | 823 | The same point is hit in another copy of its block (the entries' five parameter sets, and the host's downstream `pcie_link`): `tl` 298, `mac` 157, `cfg` 129, `dll` 128, the common RAMs 71, `pcs` 37, `pcie_core.sv` 3 (lines 191 to 194). |
-| Reached by the stacked IP's own DV | 431 | `mac` 245, `pcs` 64, `tl` 45, `cfg` 39, `dll` 38: behaviour two compliant stacks on this line do not produce, or that the host model does not send: the LTSSM's error, timeout and compliance exits, the power states the `link` ties off, elastic-buffer and decoder extremes ([`link` holes](../link/DV_PLAN.md#coverage-holes)); in `tl` and `cfg`, the malformed and error cases and the queue and parameter extremes of their plans. |
+| Hit in another parameter set or at the host's end | 829 | The same point is hit in another copy of its block (the entries' five parameter sets, and the host's downstream `pcie_link`): `tl` 303, `mac` 158, `cfg` 129, `dll` 128, the common RAMs 71, `pcs` 37, `pcie_core.sv` 3 (lines 191 to 194). |
+| Reached by the stacked IP's own DV | 429 | `mac` 243, `pcs` 64, `tl` 45, `cfg` 39, `dll` 38: behaviour two compliant stacks on this line do not produce, or that the host model does not send: the LTSSM's error, timeout and compliance exits, the power states the `link` ties off, elastic-buffer and decoder extremes ([`link` holes](../link/DV_PLAN.md#coverage-holes)); in `tl` and `cfg`, the malformed and error cases and the queue and parameter extremes of their plans. |
 | Not hit by the stacked IP's own DV either | 67 | The holes of the unit plans, counted in each copy: `mac` 44 (elaboration-only functions, [`mac` holes](../mac/DV_PLAN.md#coverage-holes)), `tl` 17 ([`tl` holes](../tl/DV_PLAN.md#coverage-holes): the state `default`, the constant enable and the input-contract cases), `pcs` 4, `dll` 2 ([`dll` holes](../dll/DV_PLAN.md#coverage-holes)). |
 
-The 95867 toggle points not hit, by cause:
+The 96495 toggle points not hit, by cause:
 
 | Cause | Points | Signals |
 | --- | ---: | --- |
-| Hit in another parameter set or at the host's end | 45549 | The same file, signal bit and direction toggles in another copy: `tl` 22970, `dll` 7874, `cfg` 5392, the common RAMs 3748, `mac` 2286, `pcie_core.sv` 1911, `pcs` 734, `pcie_link.sv` 457, `phy` 177. |
-| Reached by the stacked IP's own DV | 32705 | `tl` 17763, `cfg` 8667, `dll` 2876, `mac` 2640, `pcs` 570, the common RAMs 121, `phy` 36, `pcie_link.sv` 32: data and address patterns, error and malformed paths, credit and queue extremes and parameter values that the host model and the e2e's parameter sets do not produce. |
-| Not hit by the stacked IP's own DV either | 16309 | `tl` 5623, `dll` 4978, `cfg` 4722, `mac` 580, `pcie_link.sv` 260, `pcs` 130, the common RAMs 10, `phy` 6: the causes of each IP's plan ([`tl`](../tl/DV_PLAN.md#coverage-holes), [`cfg`](../cfg/DV_PLAN.md#coverage-holes), [`dll`](../dll/DV_PLAN.md#coverage-holes), [`link`](../link/DV_PLAN.md#coverage-holes)): bits outside the registers' writable masks, constant templates and fields, credit counters' top bits, power states tied off. |
+| Hit in another parameter set or at the host's end | 46003 | The same file, signal bit and direction toggles in another copy: `tl` 23381, `dll` 7913, `cfg` 5392, the common RAMs 3750, `mac` 2286, `pcie_core.sv` 1914, `pcs` 734, `pcie_link.sv` 456, `phy` 177. |
+| Reached by the stacked IP's own DV | 32855 | `tl` 17913, `cfg` 8667, `dll` 2876, `mac` 2640, `pcs` 570, the common RAMs 121, `phy` 36, `pcie_link.sv` 32: data and address patterns, error and malformed paths, credit and queue extremes and parameter values that the host model and the e2e's parameter sets do not produce. |
+| Not hit by the stacked IP's own DV either | 16333 | `tl` 5647, `dll` 4978, `cfg` 4722, `mac` 580, `pcie_link.sv` 260, `pcs` 130, the common RAMs 10, `phy` 6: the causes of each IP's plan ([`tl`](../tl/DV_PLAN.md#coverage-holes), [`cfg`](../cfg/DV_PLAN.md#coverage-holes), [`dll`](../dll/DV_PLAN.md#coverage-holes), [`link`](../link/DV_PLAN.md#coverage-holes)): bits outside the registers' writable masks, constant templates and fields, credit counters' top bits, power states tied off. |
 | The stack's own nets | 1304 | `pcie_core.sv` 1288: the values the host model fixes (its BAR0, BAR2 and MSI addresses and data, one bus and device number, Max_Payload_Size and Max_Read_Request_Size), credits available above the advertisement (`fc_*_avail`, `fc_rel_npd`), and the error-event bits that do not pulse on this line (`dl_err_o`); `tl` 16: the completion timeout prescaler's top bits in a parameter set only `core` builds. |
 
 How the points were sorted, so a re-measurement reproduces the counts: a

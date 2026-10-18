@@ -354,7 +354,6 @@ cleared when the read is sent), so M89 also drops that clear.
 | M103 a completion matches a read expiring at that edge | `cpl_timeout` | error pulse 0x000 where unexpected 0x020 was due (third header DW in the expiry cycle) |
 | M104 a timeout beat not held behind its read's completion in flight | `cpl_timeout` | the failed beat (status 3) before the read's own data packet |
 | M105 a timeout beat pushed in a cycle a completion packet is queued | `cpl_timeout` | not drained: the failed beat is lost |
-| M112 the epoch comparison not modulo 2^9 (`oldest > e`) | `rx_epoch_wrap` | round 511: the configuration read waited for a later BAR0 write; every other level 0 and level 1 entry passes |
 
 The transmit output stage's mutants
 ([#295](https://github.com/amichai-bd/pcie-factory/issues/295)), each run
@@ -371,6 +370,15 @@ first that fails, at its first regression seed.
 | M111 the ID filled into DW 2 | `smoke` | cycle 22: posted TLP mismatch |
 | M112 the output stage not reset (`so_q` a `COMMON_DFF`), so a beat survives `rst` | `rx_random` | cycle 202: `tlp_tx` beat outside a TLP |
 
+The epoch wrap's mutant
+([#294](https://github.com/amichai-bd/pcie-factory/issues/294)), run
+against L0 and L1 one entry at a time (`--jobs 1`): only `rx_epoch_wrap`
+fails; every other entry passes.
+
+| Mutant | Entry | Fails with |
+| --- | --- | --- |
+| M113 the epoch comparison not modulo 2^9 (`oldest > e`) | `rx_epoch_wrap` | round 511: the configuration read waited for a later BAR0 write |
+
 ## Gaps
 
 None. The independent host model judges `tl` and `cfg` in the
@@ -382,15 +390,18 @@ coverage floors are set ([#294](https://github.com/amichai-bd/pcie-factory/issue
 
 Floors in [`level2.yaml`](../../../../src/dv/tl/regress/level2.yaml),
 checked by every `--coverage` run that selects level 2 (the nightly runs
-levels 0 to 2): line 97.1, toggle 77.7, functional 100. Merged over levels
+levels 0 to 2): line 97.2, toggle 77.8, functional 100. Merged over levels
 0 to 2 ([#294](https://github.com/amichai-bd/pcie-factory/issues/294)):
-line 97.70% (1019 of 1043 points), toggle 78.27% (41815 of 53424),
+line 97.73% (1031 of 1055 points), toggle 78.34% (42260 of 53946),
 functional 100% (124 of 124 bins in the five covergroups the level file
 names). The line and toggle floors are the merged values less 0.5 points,
 rounded down to a tenth ([floor margin](../../../bkm/dv.md#coverage)).
-Before #294 the same run gave 75.57% toggle (40371 points): widening
-`tx_random`'s `rq` addresses added 276 points, and `rx_epoch_wrap` 1168
-(the six epoch counters had never wrapped).
+Measured with the transmit output stage of
+[#295](https://github.com/amichai-bd/pcie-factory/issues/295) (12 line
+points, 522 toggle points, all its line points hit). Before it and #294 the
+same run gave 75.57% toggle (40371 of 53424): widening `tx_random`'s `rq`
+addresses added 276 points, and `rx_epoch_wrap` 1168 (the six epoch
+counters had never wrapped).
 
 Verilator keeps one copy of each block per parameter set (four sets:
 default, `rx_random_min_credits`, `rx_np_collide`, `rx_random_long_params`).
@@ -402,13 +413,13 @@ The 24 line points not hit, by cause:
 | Outside the input contract | 4 | The `dll` drops every TLP with more than 128 bytes of data ([ROUTING.md](../../arch/tl/ROUTING.md)), so no TLP reaches `tl` with 64 or more beats or with Length 0 and data (1024 DWs): the receive beat counter's saturation ([`pcie_tl_rx.sv`](../../../../src/rtl/tl/pcie_tl_rx.sv) line 79, two copies), the tracker's Length 0 decode and its beat counter's saturation (`pcie_tl_trk.sv` lines 110 and 129). |
 | Not reached in that parameter set | 4 | In the copies of `rx_random_min_credits` and `rx_random_long_params`, which send no completions, the rc line's arm on a completion ([`pcie_tl_rx_q.sv`](../../../../src/rtl/tl/pcie_tl_rx_q.sv) line 93, hit in the default copy), and the release of owed non-posted data above 8 (line 249), unreachable with `FC_NPD` 2 and 3 (`rx_np_collide` reaches it). |
 
-The 11609 toggle points not hit, by cause:
+The 11686 toggle points not hit, by cause:
 
 | Cause | Points | Signals |
 | --- | ---: | --- |
-| Hit in another parameter set | 8160 | The same bit and direction toggles in another parameter set's copy (for example, the queue sizes, credit counters and BAR0 offset bits of the other credit configurations). |
-| Constant by construction | 2060 | The `'0` templates and their unset fields (`judged`, `pw`, `e_pme`, `e_msg`, `e_rq`, `nd_none`, `cf_nd_desc`); fields filled later in the path (the epoch field of the receive entries before `u_rx_q` sets it, the descriptor epoch before `u_rc` sets it); fields the request kinds fix (locked, TC, Attr and kind on the cfg line, the routing rule); encodings never produced (completion status bits of the cc and cfg completions, message code bits, the tracker's error bits 0, 1 and 3, completion Type bits); `COMMON_UNUSED_BITS` sinks. |
-| Address and header patterns | 642 | BAR0 offset bits above the BAR0 sizes the entries use (the queue field holds the largest, 256 MiB), DW-alignment bits 1:0, and header DW bits fixed by the TLP kinds sent and received (reserved, TH, TD, EP, AT; the Requester ID's function bits). |
+| Hit in another parameter set | 8221 | The same bit and direction toggles in another parameter set's copy (for example, the queue sizes, credit counters and BAR0 offset bits of the other credit configurations). |
+| Constant by construction | 2056 | The `'0` templates and their unset fields (`judged`, `pw`, `e_pme`, `e_msg`, `e_rq`, `nd_none`, `cf_nd_desc`); fields filled later in the path (the epoch field of the receive entries before `u_rx_q` sets it, the descriptor epoch before `u_rc` sets it); fields the request kinds fix (locked, TC, Attr and kind on the cfg line, the routing rule); encodings never produced (completion status bits of the cc and cfg completions, message code bits, the tracker's error bits 0, 1 and 3, completion Type bits); `COMMON_UNUSED_BITS` sinks. |
+| Address and header patterns | 662 | BAR0 offset bits above the BAR0 sizes the entries use (the queue field holds the largest, 256 MiB), DW-alignment bits 1:0, and header DW bits fixed by the TLP kinds sent and received (reserved, TH, TD, EP, AT; the Requester ID's function bits). |
 | Queue fill and owed credits | 302 | The full flags and the fill counters' top bits of the receive queues, the transmit posted data queue and the rc queues, and the owed-credit counters' top bits: a credit-correct host never fills a queue ([MAS, receive queues](../../rtl/tl/MAS.md#receive-queues)). |
 | Length and count top bits | 275 | Length, beat, index, Byte Count and split-count fields above what the 128-byte maximum payload and the 4 KiB read limit reach. |
 | RAM storage | 170 | Words and lanes of the queue RAMs no entry reaches (the write lanes are constant), and the matching flat queue heads. |
