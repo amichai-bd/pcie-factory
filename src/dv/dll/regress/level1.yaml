@@ -144,6 +144,7 @@ tests:
     top: pcie_dll_tb
     seeds: [0, 1]
     timeout_s: 600
+    coverage_seeds: 2
     params: {FC_RELEASE: 1}
   - name: fc_rx_accounting_release
     module: tests.test_dll_fc

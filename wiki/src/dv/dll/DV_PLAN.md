@@ -219,8 +219,9 @@ into a model or the RTL silently.
 | The same, partner and DUT all infinite: the gate never refuses | `credits_infinite` | 1 | 2 derived; the partner's upper layer stalls although it advertises infinite credits, outside the HAS upper-layer obligation: the partner's store is unbounded ([partner page](PARTNER.md#interface)) and only the DUT's gate is under test |
 | Credits target, receive side: every DUT class finite, its upper layer taking 30%, stalling 4000, taking 30%, stalling 10000 cycles, the partner sending 1500 TLPs as the UpdateFCs allow: no Receiver overflow, all delivered once and in order | `credit_starve_rx` | 1 | 2 derived; every `FC_*` finite; coverage on the first 2 (`coverage_seeds`) |
 | The same, every DUT class infinite, the upper layer never stalling | `credits_infinite_rx` | 1 | 2 derived; coverage on the first 2 (`coverage_seeds`) |
-| [Credit release](../../arch/dll/HAS.md#credit-release), [Credits target](../../arch/dll/HAS.md#targets) with `FC_RELEASE` 1: default credits, the upper layer taking every beat but releasing in 30% of cycles, none for 4000, 30%, none for 10000 cycles, then all; the partner sending 600 TLPs as the UpdateFCs allow: no Receiver overflow, never more held than advertised and all of a class held, every TLP once and in order, every release's UpdateFC within 20 cycles; reference and arch shadow | `credit_release` | 1 | 0, 1; `FC_RELEASE` 1 |
+| [Credit release](../../arch/dll/HAS.md#credit-release), [Credits target](../../arch/dll/HAS.md#targets) with `FC_RELEASE` 1: default credits, the upper layer taking every beat but releasing in 30% of cycles, none for 4000, 30%, none for 10000 cycles, then all; the partner sending 600 TLPs as the UpdateFCs allow: no Receiver overflow, never more held than advertised and all of a class held, every TLP once and in order, every release's UpdateFC within 20 cycles; reference and arch shadow | `credit_release` | 1 | 0, 1; `FC_RELEASE` 1; coverage on both (`coverage_seeds`): seed 1 toggles release bits seed 0 does not ([#354](https://github.com/amichai-bd/pcie-factory/issues/354)) |
 | The same at the smallest legal credits, every class finite: the stream stalls on the same schedule as the releases | `credit_release_smallest` | 2 | 2 derived |
+| The transmit accounting of `fc_tx_gate` in the `FC_RELEASE` 1 build, whose credit block is its own specialization, with the releaser running ([#354](https://github.com/amichai-bd/pcie-factory/issues/354)) | `fc_tx_gate_release` | 2 | 0; `FC_RELEASE` 1 |
 | [Receive accounting](../../arch/dll/FLOW_CONTROL.md#credit-release) with releases: P and NP returns on release, completions and malformed TLPs at once, an infinite NP data field freed at delivery (40 configuration writes past the reserve), releases in FC_INIT2 (the `phy` stand-in stalled so the InitFC2 group cannot complete; at least 2 per link-up) in the entry UpdateFC, link down dropping what is held | `fc_rx_accounting_release` | 1 | 1 derived; NP data infinite, `FC_RELEASE` 1 |
 | [UpdateFC refresh](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling), round robin, with ready stalls | `updatefc_refresh` | 1 | 2; two 2048-cycle periods |
 | Link-up against the partner, default DUT credits, [init target](../../arch/dll/HAS.md#targets) 200 cycles; cross-check | `link_up` | 1 | 0 to 3 (the four partner advertisements); 6 link-ups each |
@@ -231,6 +232,7 @@ into a model or the RTL silently.
 | The same with the partner's TLPs dropped 2%, corrupted 3%, nullified 2%, flagged 2%, its DLLPs corrupted 3%, and 15% of the DUT's Acks and Naks lost (replays, duplicates): no bad TLP delivered | `rx_errors` | 1 | 0 to 2 |
 | The same, DUT all infinite | `rx_errors_infinite` | 1 | 0; every `FC_*` 0 |
 | The same, wide sweep | `rx_errors_sweep` | 2 | 8 derived; coverage on the first 6 (`coverage_seeds`) |
+| The same with `FC_RELEASE` 1: bad, duplicate and nullified TLPs never delivered, so never released; the delivered ones released late, reference and arch shadow ([#354](https://github.com/amichai-bd/pcie-factory/issues/354)) | `rx_errors_release` | 2 | 0, 1; `FC_RELEASE` 1; coverage on both (`coverage_seeds`) |
 | The same injection with 300 TLPs beyond the advertisement, the partner sending as the UpdateFCs allow, DUT at the smallest legal credits: bad and duplicate TLPs discarded in the smallest receive buffer (its rewind) | `rx_errors_smallest` | 2 | 2 derived; every `FC_*` at its smallest |
 | [Receive buffer](../../arch/dll/FLOW_CONTROL.md#receive-buffer) sizing: every class finite, the upper layer stalls while the partner sends TLPs that use every advertised credit (a quarter with a digest, which takes buffer space but no credit), then takes 30% of beats | `rx_stall` | 1 | 0, 1; `FC_CPLH` 16, `FC_CPLD` 64; coverage on the first 2 (`coverage_seeds`) |
 | The same at the smallest legal credits | `rx_stall_smallest` | 2 | 4 derived |
@@ -462,55 +464,91 @@ its entries are on the `link` bench and add nothing to this one.
 
 Floors in [`level2.yaml`](../../../../src/dv/dll/regress/level2.yaml),
 checked by every `--coverage` run that selects level 2 (the nightly runs
-levels 0 to 2): line 98.4, toggle 80.0, functional 100. Merged over levels
-0 to 2 ([#217](https://github.com/amichai-bd/pcie-factory/issues/217)):
-line 98.95% (472 of 477 line and branch points), toggle 80.53% (13566 of
-16846), functional 100% (208 of 208 bins in the 17 covergroups the level file
-names). The
-line and toggle floors are the merged values less 0.5 points, rounded
-down to a tenth ([floor margin](../../../bkm/dv.md#coverage)).
+levels 0 to 2): line 98.4, toggle 76.4, functional 100. Merged over levels
+0 to 2 ([#354](https://github.com/amichai-bd/pcie-factory/issues/354)):
+line 98.91% (543 of 549 line and branch points), toggle 76.94% (17296 of
+22480), functional 100% (221 of 221 bins in the 18 covergroups the level
+file names). The line floor is the merged value of
+[#217](https://github.com/amichai-bd/pcie-factory/issues/217) less 0.5
+points, kept ([floor margin](../../../bkm/dv.md#coverage)); the toggle
+floor is the merged value less 0.5 points, rounded down to a tenth.
+
+**Toggle floor lowered from 80.0 to 76.4**
+([captain decision on #354](https://github.com/amichai-bd/pcie-factory/issues/354#issuecomment-6253919165)).
+The 80.0 floor of #217 was set on 80.53% (13566 of 16846); the credit
+release of [#335](https://github.com/amichai-bd/pcie-factory/issues/335)
+then added toggle points that no test can reach, and the merged value fell
+to 72.53% (16304 of 22480). The causes, all structural:
+
+- `FC_RELEASE` is a parameter, so its builds are two more parameter-set
+  copies: `pcie_dll` with `FC_RELEASE` 1 and `pcie_dll_fc` with `RELEASE`
+  1, 4612 toggle points between them. They repeat the whole transmit side
+  and the credit counters, which the release entries share with every
+  other copy but stress less.
+- With `FC_RELEASE` 0 the release port is tied to 0 (`a_rel_tied` asserts
+  it), so its ports and the release events built from it never toggle in
+  the six copies without release: 709 points, plus 18 top bits of the new
+  intermediate allocation sums (`alloc_dlv`, `alloc_rel`) that the table
+  below counts with the counter top bits.
+
+The [TD digest](https://github.com/amichai-bd/pcie-factory/issues/338)
+cost 60 points: Length bits 8:6 and data credit bits 5:4 that a
+mid-Length malformed TLP had toggled. `rx_directed` now sends one
+explicitly (Length 508 with 4 DWs). The other entries added for this
+(`fc_tx_gate_release` and `rx_errors_release`, and coverage on both
+`credit_release` seeds) bring the merged value to 76.94%. Running
+`link_up`, `link_up_stress`, `credit_starve`, `tlp_partner_errors` or
+more `fc_rx_accounting_release` and `credit_release_smallest` seeds with
+`FC_RELEASE` 1 adds under 50 points beyond those. Reaching 80 would take
+runs that only toggle duplicate copies, which was rejected as low test
+value. `coverage_seeds`
+([#327](https://github.com/amichai-bd/pcie-factory/issues/327)) loses no
+point: the coverage of `ade46ce`, before it, is #217's point for point.
 
 Verilator counts each parameter set of a block apart
 ([regress SPEC](../../../tools/regress/SPEC.md#coverage)): `pcie_dll` and
 `pcie_dll_rx_buf` are built with the credit sets of the entries (default,
-completions finite, all infinite, every class finite, smallest), so a
-point is missed once per set that does not reach it. The 5 line points
-not hit:
+completions finite, all infinite, every class finite, smallest, and
+`FC_RELEASE` 1), and `pcie_dll_fc` with and without `RELEASE`, so a point
+is missed once per set that does not reach it. The 6 line points not hit:
 
 | Points | Where | Cause |
 | --- | --- | --- |
 | 4 | The lane-disable `else` branch of `COMMON_MEM_WRITE_LANES` in `common_sdp_ram`, once per RAM specialization: the replay buffer (`u_tlp_tx.u_rbuf`) and the receive buffer at its three sizes (`u_rx_buf.u_ram`, 7-, 9- and 10-bit addresses) | Unreachable by construction: `LANES` is 1 and the lane enable is tied to 1. |
 | 1 | `u_tlp_rx`: the `buf_full_i` branch that sets `noroom` | Unreachable by construction: the receive buffer holds every TLP the advertised credits cover plus the one being collected ([MAS, receive buffer](../../rtl/dll/MAS.md#receive-buffer)), and the overflow check admits nothing more. |
+| 1 | `u_fc` without `RELEASE`: the release arm of `taken_ret` | Unreachable by construction: `RELEASE` is 0 in that specialization; the `RELEASE` 1 copy takes it. |
 
-The rewind arm of `u_rx_buf` in the 7-bit specialization (the smallest
-credits), a hole until now, is closed by `rx_errors_smallest`, which
-discards bad and duplicate TLPs at the smallest credits.
-
-The 3280 toggle points not hit, by cause:
+The 5184 toggle points not hit, by cause:
 
 | Cause | Points | Signals |
 | --- | ---: | --- |
-| Hit in another parameter set | 1028 | The same bit and direction toggles in another credit set's copy of the block: for example, the infinite-field flags and the upper limit bits toggle only in the sets with finite classes, the receive buffer's upper address bits only in its larger sizes. |
-| Constant per build | 599 | The credit parameters (`adv_i` in `u_ctrl` and `u_fc`, `rx_base`, `grp_base`) and the InitFC bodies built from them (`initfc_req` in the top, `u_ctrl` and `u_tx`, with their fixed type and reserved bits): a parameter does not change during a run, so its bits rise at most once after reset. |
-| Constant by the DLLP format | 447 | Ack and Nak bodies (`acknak_req` in the top, `u_tlp_rx` and `u_tx`): the type bits other than the Ack-to-Nak bit, the reserved byte and the reserved nibble above the sequence number; the UpdateFC bodies (`updfc_req`): the type code's low bits and the reserved bits between the fields; the same bits of the transmit block's chosen body and packet register (`body`, `tx_q.pkt`). |
-| Constant by construction: one TLP's credits | 771 | The credit fields of a single TLP (`rx_chk`, `rx_stored`, `rx_malformed`, `rx_taken`, their `u_fc` and `u_tlp_rx` ports, `u_rx_buf` `cur_q` and `taken_o`, and `u_fc` `tx_cost`): the header field is always 1 (bits 7:1 never set, bit 0 never falls once the field holds a TLP), the data field is at most 256 (1024 DWs, bits 11:9 never set), and the `valid` flag that `tlp_credit` sets to 1. |
-| Not reached: large data credits | 242 | Bits 8:4 of a delivered TLP's data credits (`rx_taken`, `u_rx_buf` `cur_q` and `taken_o`): a TLP that is delivered carries at most 128 bytes, 8 credits. Bits 7:6 of the credit fields of `rx_chk`, `rx_stored` and `rx_malformed` and their ports, which carry every judged TLP's credits whatever its verdict (64 to 255 credits, a Length of 253 to 1020 DWs), and `hdr.length` bit 9 in `u_tlp_rx`. Only malformed TLPs exceed 8 credits; `rx_directed`'s malformed cases toggle bits 5:4 and 8 (Length 0 is 1024 DWs), and a Length in between would add no check. |
-| Unreachable by construction: receive buffer full | 32 | `rx_full`, `u_rx_buf` `full_o` and its fill's top bit (`used`), `u_tlp_rx` `buf_full_i` and `noroom`: the line hole above. |
-| Not reached: counter top bits | 137 | The top bits of the NP and Cpl credit counters and recorded limits in `u_fc` (`alloc`, `rcvd`, `sent`, `upd`, `used`, `lim_np`, `lim_cpl`) and bit 7 of the completion header in use: only the P class wraps its counters (`fc_tx_gate`), and the NP data counter grows by one credit per CfgWr, so a wrap would take over 2048 non-posted writes in one link-up. The wrap arithmetic is shared by every class (`fc_charge`, `fc_record`), and the P wrap checks it. |
+| Constant by construction: release port tied off | 709 | With `FC_RELEASE` 0 (six `pcie_dll` copies and `pcie_dll_fc` without `RELEASE`): `fc_rel_*_i` and the release events `rel_p`, `rel_np` in the top; `rel_p_i`, `rel_np_i`, `rel_p_ret`, `rel_np_ret`, `taken_ret` and `taken_rel` in `u_fc`, tied to 0 or a copy of the delivery return (`a_rel_tied`). |
+| Hit in another parameter set | 1385 | The same bit and direction toggles in another credit set's copy of the block: for example, the infinite-field flags and the upper limit bits toggle only in the sets with finite classes, the receive buffer's upper address bits only in its larger sizes, and the `FC_RELEASE` 1 copies' transmit side and counters only in the copies without release. |
+| Constant per build | 782 | The credit parameters (`adv_i` in `u_ctrl` and `u_fc`, `rx_base`, `grp_base`) and the InitFC bodies built from them (`initfc_req` in the top, `u_ctrl` and `u_tx`, with their fixed type and reserved bits): a parameter does not change during a run, so its bits rise at most once after reset. |
+| Constant by the DLLP format | 523 | Ack and Nak bodies (`acknak_req` in the top, `u_tlp_rx` and `u_tx`): the type bits other than the Ack-to-Nak bit, the reserved byte and the reserved nibble above the sequence number; the UpdateFC bodies (`updfc_req`): the type code's low bits and the reserved bits between the fields; the same bits of the transmit block's chosen body and packet register (`body`, `tx_q.pkt`, `tx_d.pkt`). |
+| Constant by construction: one TLP's credits | 959 | The credit fields of a single TLP (`rx_chk`, `rx_stored`, `rx_malformed`, `rx_taken`, their `u_fc` and `u_tlp_rx` ports, `u_rx_buf` `cur_q`, `cur_d` and `taken_o`, and `u_fc` `tx_cost`): the header field is always 1 (bits 7:1 never set, bit 0 never falls once the field holds a TLP), the data field is at most 256 (1024 DWs, bits 11:9 never set), and the `valid` flag that `tlp_credit` sets to 1. |
+| Not reached: large data credits | 224 | Bits 8:4 of a delivered TLP's data credits (`rx_taken`, `u_rx_buf` `cur_q`, `cur_d` and `taken_o`): a TLP that is delivered carries at most 128 bytes, 8 credits. Bit 7 of the credit fields of `rx_chk`, `rx_stored` and `rx_malformed` and their ports, which carry every judged TLP's credits whatever its verdict (128 to 255 credits, a Length of 509 to 1020 DWs). Only malformed TLPs exceed 8 credits; `rx_directed`'s malformed cases toggle bits 6:4 (Length 508) and 8 (Length 0 is 1024 DWs), and another Length would add no check. |
+| Constant by construction: release events | 238 | In the `FC_RELEASE` 1 copies, the release events (`rel_p`, `rel_np` in the top; `rel_p_i`, `rel_np_i`, `rel_p_ret`, `rel_np_ret` and `taken_ret` in `u_fc`): a fixed class, a header field that is always 1, data bits 11:4 (a release carries at most 8 credits, `a_rel_data_max`), and `fc_rel_npd_i` bit 3 with its event bits (no non-posted release of 8 credits: the non-posted requests the tests send carry fewer). |
+| Unreachable by construction: receive buffer full | 30 | `rx_full`, `u_rx_buf` `full_o` and its fill's top bit (`used`), `u_tlp_rx` `buf_full_i` and `noroom`: the line hole above. |
+| Not reached: counter top bits | 310 | The top bits of the NP and Cpl credit counters and recorded limits in `u_fc` (`alloc`, `alloc_mal`, `alloc_dlv`, `alloc_rel`, `rcvd`, `sent`, `upd`, `used`, `lim_np`, `lim_cpl`) and bit 7 of the completion header in use: only the P class wraps its counters (`fc_tx_gate`), and the NP data counter grows by one credit per CfgWr, so a wrap would take over 2048 non-posted writes in one link-up. The wrap arithmetic is shared by every class (`fc_charge`, `fc_record`), and the P wrap checks it. |
 | Constant by construction: transmit block | 18 | In `u_tlp_tx`: bit 0 of the space-in-use sums (`need_bytes`, `used_bytes`: whole words plus 2 bytes per TLP), bits 1:0 of a TLP's size (`sop_bytes`: whole DWs), bits 7:4 of the sequence-number beat (reserved, 0) and bit 13 of the space in use, which stays below 8192. |
 | Constant by construction: RAM lanes | 4 | `wr_lanes_i` of each `common_sdp_ram` (tied to 1). |
 | Not reached: hold release | 2 | `u_tlp_tx` `hold_left` never falls: only a second rollover or DL_Inactive clears it after a hold that a retrain ended, and no test rolls over twice in one link-up; its rise and the hold's end are checked in `rollover_directed`. Cost: a second rollover there, about 2500 more cycles (four replay timeouts and the hold) for a flag whose clearing line is already hit at DL_Inactive; not worth an L0 entry, so no owning issue. |
 
 How the toggle points were sorted, so a re-measurement reproduces the
-counts: a point is "hit in another parameter set" when the same file,
+counts: first, the release-port signals (`fc_rel_*`, `rel_p*`, `rel_np*`,
+`taken_ret`, `taken_rel`) in a copy without release (release port tied
+off). Then a point is "hit in another parameter set" when the same
 hierarchy, signal bit and direction is hit in any copy. The rest go by
 signal name, in this order: `adv_i`, `rx_base`, `grp_base` and the
 `initfc_req` bodies (constant per build); the `acknak_req` and `updfc_req`
-bodies and `u_tx` `body` and `tx_q.pkt` (DLLP format); the `.cred` fields
-of `rx_chk`, `rx_stored`, `rx_malformed`, `rx_taken`, `chk_o`, `stored_o`,
-`malformed_o`, `cur_q`, `taken_o` and `tx_cost`, header bits 7:1, data bits
-11:9, header bit 0 falling and the `valid` flags (one TLP's credits), data
-bits 8:4 and `hdr.length` bit 9 (large credits); `rx_full`, `full_o`,
-`buf_full_i`, `noroom` and the fill's top bits (buffer full); the `u_fc`
-`alloc`, `rcvd`, `sent`, `upd`, `used` and `lim_*` fields (counter top
-bits); then the named transmit-block bits, `wr_lanes_i` and `hold_left`.
+bodies and `u_tx` `body`, `tx_q.pkt` and `tx_d.pkt` (DLLP format); the
+`.cred` fields of `rx_chk`, `rx_stored`, `rx_malformed`, `rx_taken`,
+`chk_o`, `stored_o`, `malformed_o`, `cur_q`, `cur_d`, `taken_o` and
+`tx_cost`, header bits 7:1, data bits 11:9, header bit 0 falling and the
+`valid` flags (one TLP's credits), data bits 8:4 and `hdr.length` bit 9
+(large credits); the release-port signals of the `FC_RELEASE` 1 copies
+(release events); `rx_full`, `full_o`, `buf_full_i`, `noroom` and the
+fill's top bits (buffer full); the `u_fc` `alloc*`, `rcvd*`, `sent`,
+`upd`, `used` and `lim_*` fields (counter top bits); then the named
+transmit-block bits, `wr_lanes_i` and `hold_left`.
