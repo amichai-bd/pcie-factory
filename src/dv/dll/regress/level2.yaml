@@ -52,6 +52,16 @@ tests:
     top: pcie_dll_tb
     seeds: 1
     timeout_s: 1200
+  - name: mwr_max
+    module: tests.test_dll_tlp_tx
+    testcase: mwr_max
+    top: pcie_dll_tb
+    timeout_s: 300
+  - name: ack_spec_max
+    module: tests.test_dll_tlp_tx
+    testcase: ack_spec_max
+    top: pcie_dll_tb
+    timeout_s: 300
 # Floors on the merged levels 0 to 2 (the nightly run), at the merged value
 # less 0.5 points rounded down to a tenth (DV BKM, floor margin): measured
 # 98.95% line (472/477), 80.53% toggle (13566/16846); every point not hit

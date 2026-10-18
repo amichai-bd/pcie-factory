@@ -345,6 +345,13 @@ class RtlPort:
         self.edges = 0
         self.reset_checks = 0              # sampled edges checked against RESET_VALUES
         self.s = {n[len(prefix):]: getattr(dut, n) for n in dir(dut) if n.startswith(prefix)}
+        # Per-edge port access, the bulk of the bench's CPU time: read each
+        # output as an int straight from its binary string (the simulator is
+        # two-state, so every bit is 0 or 1), and write an input only when
+        # its value changes (the bench is the only writer of these ports).
+        self.rd = {n: (lambda f=h._handle.get_signal_val_binstr: int(f(), 2))
+                   for n, h in self.s.items()}
+        self._last: dict[str, int] = {}
         self.rst = True
         self.tx: deque = deque()           # beats: (data16, sop, eop, dllp, nullify)
         self.offer = None
@@ -373,14 +380,19 @@ class RtlPort:
     def present(self) -> bool:
         return not self.rst
 
+    def wr(self, name: str, value: int) -> None:
+        if self._last.get(name) != value:
+            self._last[name] = value
+            self.s[name].value = value
+
     def core_edge(self, rxdet: bool) -> tuple[int, bool]:
-        s = self.s
+        rd = self.rd
         self.edges += 1
         # Sample (outputs registered at the last rising edge). After a rising
         # edge with rst_i high, every output holds its reset value.
         if self._rst_q:
             for name, want in RESET_VALUES.items():
-                got = int(s[name].value)
+                got = rd[name]()
                 assert got == want, (
                     f"port {self.name} ({self.role}) in reset, edge {self.edges}: {name} "
                     f"expected {want}, observed {got}")
@@ -391,23 +403,23 @@ class RtlPort:
             if self.trace:
                 self.tx_log.append((self.edges, self.offer[1], self.offer[2], t_rise))
             self.offer = None              # taken at the rising edge just passed
-        ready = int(s["pkt_tx_ready_o"].value)   # holds through the next rising edge
-        if int(s["pkt_rx_valid_o"].value):
-            beat = int(s["pkt_rx_data_o"].value)
-            if int(s["pkt_rx_sop_o"].value):
+        ready = rd["pkt_tx_ready_o"]()   # holds through the next rising edge
+        if rd["pkt_rx_valid_o"]():
+            beat = rd["pkt_rx_data_o"]()
+            if rd["pkt_rx_sop_o"]():
                 if self.trace:
                     self.rx_sops.append((self.edges, t_rise))
                 self.rx_beats = []
-                self.rx_dllp = bool(int(s["pkt_rx_dllp_o"].value))
+                self.rx_dllp = bool(rd["pkt_rx_dllp_o"]())
             self.rx_beats += [beat & 0xFF, beat >> 8]
-            if int(s["pkt_rx_eop_o"].value):
+            if rd["pkt_rx_eop_o"]():
                 self.rx_new.append((self.rx_dllp, bytes(self.rx_beats),
-                                    bool(int(s["pkt_rx_nullify_o"].value)),
-                                    bool(int(s["pkt_rx_err_o"].value))))
-        self._code = int(s["ltssm_state_o"].value)
-        self._up = bool(int(s["link_up_o"].value))
-        self._rcv += int(s["rcv_err_o"].value)
-        word, ei = int(s["ser_tx_data_o"].value), bool(int(s["ser_tx_elec_idle_o"].value))
+                                    bool(rd["pkt_rx_nullify_o"]()),
+                                    bool(rd["pkt_rx_err_o"]())))
+        self._code = rd["ltssm_state_o"]()
+        self._up = bool(rd["link_up_o"]())
+        self._rcv += rd["rcv_err_o"]()
+        word, ei = rd["ser_tx_data_o"](), bool(rd["ser_tx_elec_idle_o"]())
         if self.trace and not ei and (word & 0x3FF) in FRAME_START_CODES:
             self.tx_starts.append((self.edges, t_rise))
         if self.trace and not ei and (word & 0x3FF) in COM_CODES and (word >> 10) in SKP_CODES:
@@ -415,12 +427,12 @@ class RtlPort:
         if self.line is not None:
             self.line.tx.append((self.edges, word, ei))
         # Drive.
-        s["rst_i"].value = int(self.rst)
+        self.wr("rst_i", int(self.rst))
         # In reset the lower inputs are random too: ser_tx_rxdet_i here, the
         # receive lines in rx_edge (channel model; with CHAN_RTL the top
         # drives them).
-        s["ser_tx_rxdet_i"].value = (self.rng.getrandbits(1) if self.rst and self.rng
-                                     else int(rxdet))
+        self.wr("ser_tx_rxdet_i", (self.rng.getrandbits(1) if self.rst and self.rng
+                                   else int(rxdet)))
         self._rst_q = self.rst
         self._take = False
         if self.rst:
@@ -430,25 +442,25 @@ class RtlPort:
             while self.tx and not self.tx[0][1]:
                 self.tx.popleft()
             for name, width in RESET_NOISE.items():
-                s[name].value = self.rng.getrandbits(width) if self.rng else 0
+                self.wr(name, self.rng.getrandbits(width) if self.rng else 0)
             return word, ei
         for name, v in self.req.items():
-            s[name].value = v
-        s["retrain_req_i"].value = int(self._retrain)
+            self.wr(name, v)
+        self.wr("retrain_req_i", int(self._retrain))
         self._retrain = False
         if self.offer is None and self.tx:
             self.offer = self.tx.popleft()
         if self.offer is None:
-            s["pkt_tx_valid_i"].value = 0
+            self.wr("pkt_tx_valid_i", 0)
         else:
             data, sop, eop, dllp, nullify = self.offer
             self._take = bool(ready)
-            s["pkt_tx_valid_i"].value = 1
-            s["pkt_tx_data_i"].value = data
-            s["pkt_tx_sop_i"].value = sop
-            s["pkt_tx_eop_i"].value = eop
-            s["pkt_tx_dllp_i"].value = dllp
-            s["pkt_tx_nullify_i"].value = nullify
+            self.wr("pkt_tx_valid_i", 1)
+            self.wr("pkt_tx_data_i", data)
+            self.wr("pkt_tx_sop_i", sop)
+            self.wr("pkt_tx_eop_i", eop)
+            self.wr("pkt_tx_dllp_i", dllp)
+            self.wr("pkt_tx_nullify_i", nullify)
         return word, ei
 
     def rx_edge(self, word: int, ei: bool) -> None:
@@ -458,8 +470,8 @@ class RtlPort:
             word, ei = self.rng.getrandbits(20), bool(self.rng.getrandbits(1))
         if self.line is not None:
             self.line.rx.append((self.edges, self._code, word, ei))
-        self.s["ser_rx_data_i"].value = word
-        self.s["ser_rx_elec_idle_i"].value = int(ei)
+        self.wr("ser_rx_data_i", word)
+        self.wr("ser_rx_elec_idle_i", int(ei))
 
     def send(self, dllp: bool, data: bytes, nullify: bool = False) -> None:
         n = len(data) // 2

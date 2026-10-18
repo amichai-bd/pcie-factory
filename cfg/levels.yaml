@@ -7,7 +7,7 @@ level0:
   budget_s: 120
 level1:
   description: Merge gate for affected IPs, run by ci-gate after level 0.
-  budget_s: 600
+  budget_s: 1200
 level2:
   description: Nightly full regression with more seeds.
-  budget_s: 7200
+  budget_s: 9600

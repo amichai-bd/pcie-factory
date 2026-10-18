@@ -44,13 +44,6 @@ tests:
     seeds: 2
     timeout_s: 600
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
-  - name: random_soak
-    module: tests.test_mac
-    testcase: random_soak
-    top: pcie_mac_tb
-    seeds: 2
-    timeout_s: 1200
-    params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
   - name: control_quick
     module: tests.test_mac
     testcase: control_quick

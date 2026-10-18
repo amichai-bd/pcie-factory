@@ -151,16 +151,33 @@ All entries run on `pcie_link_e2e_tb`; credits are the default
 | [Error injection](../../arch/link/HAS.md#error-injection): LCRC error, corrupted TLP, dropped TLP (with a TLP behind it, and as the last), each way, with their pulses | `e2e_tlp_errors` | 1 | 1 |
 | Corrupted and dropped DLLP, the Nak class and the duplicate class, each way, with their pulses | `e2e_dllp_errors` | 1 | 1 |
 | [REPLAY_NUM rollover](../../arch/link/HAS.md#error-injection), each way: 4 timeouts, 1 rollover, the retrain through the `retrain_req` OR, traffic resumes | `e2e_rollover` | 1 | 1 |
-| Line impairments each way: flips, a slip, an electrical-idle dropout of 200 to 1000 cycles | `e2e_line` | 1 | 1 |
-| Every per-packet class at random both ways, ±600 ppm; Bad TLP and Bad DLLP at least the corruptions | `e2e_mixed` | 1 | 1 |
-| Hot Reset passed through ([stack wiring](../../arch/link/HAS.md#stack-wiring)): link down at both ends, `dll` outputs at reset values, link-up again, lossless after | `e2e_hot_reset` | 1 | 1 |
-| [Credits](../../arch/link/HAS.md#credit-configurations): starvation (30% of beats taken, stalls of 4000 and 10000 cycles) and recovery, no overflow, credits back when drained, error-free; both ends starve (b only, into a's minimum, when asymmetric) | `e2e_credits_minimum`, `e2e_credits_finite`, `e2e_credits_asymmetric` | 1 | 1 each; `CREDITS` 1, 2, 4 |
-| The same with every class infinite (no stall) | `e2e_credits_infinite` | 1 | 1; `CREDITS` 3 |
+| Line impairments each way: flips, a slip, an electrical-idle dropout of 200 to 1000 cycles | `e2e_line` | 2 | 1 |
+| Every per-packet class at random both ways, ±600 ppm; Bad TLP and Bad DLLP at least the corruptions | `e2e_mixed` | 2 | 1 |
+| Hot Reset passed through ([stack wiring](../../arch/link/HAS.md#stack-wiring)): link down at both ends, `dll` outputs at reset values, link-up again, lossless after | `e2e_hot_reset` | 2 | 1 |
+| [Credits](../../arch/link/HAS.md#credit-configurations): starvation (30% of beats taken, stalls of 4000 and 10000 cycles) and recovery, no overflow, credits back when drained, error-free; both ends starve (b only, into a's minimum, when asymmetric) | `e2e_credits_minimum` (level 1), `e2e_credits_finite`, `e2e_credits_asymmetric` (level 2) | 1, 2 | 1 each; `CREDITS` 1, 2, 4 |
+| The same with every class infinite (no stall) | `e2e_credits_infinite` | 2 | 1; `CREDITS` 3 |
 | Disabled and Loopback passed through | `e2e_disable`, `e2e_loopback` | 2 | 1 each |
 | Soak: random classes, line flips and credit stalls together, 1000 TLPs each way, ppm from the seed, in every credit configuration | `e2e_soak_default`, `e2e_soak_minimum`, `e2e_soak_finite`, `e2e_soak_infinite`, `e2e_soak_asymmetric` | 2 | 3, 3, 2, 2, 2; `CREDITS` 0 to 4 |
 | [Throughput](../../arch/link/HAS.md#throughput), one way, screen: 400 128-byte memory writes a to b against the 0.85 target (more start and drain in the window than 2000 TLPs, so stricter), every line symbol attributed | `e2e_throughput_short` | 1 | 1 |
-| [Throughput targets](../../arch/link/HAS.md#targets): 2000 128-byte memory writes one way (0.85) and each way (0.76 per direction), every line symbol attributed; each seed draws the start against the SKP schedule (within one SKP interval) and, both ways, b's start against a's (within one TLP time) | `e2e_throughput_oneway`, `e2e_throughput_bidir` | 2 | 3 each |
+| [Throughput targets](../../arch/link/HAS.md#targets): 2000 128-byte memory writes one way (0.85) and each way (0.76 per direction), every line symbol attributed; each seed draws the start against the SKP schedule (within one SKP interval) and, both ways, b's start against a's (within one TLP time) | `e2e_throughput_oneway`, `e2e_throughput_bidir` | 2 | 1 and 3 |
 | Seed sweeps of the directed and mixed tests | `e2e_tlp_errors_sweep`, `e2e_dllp_errors_sweep`, `e2e_rollover_sweep`, `e2e_line_sweep`, `e2e_mixed_sweep` | 2 | 2, 2, 2, 3, 4 |
+
+**Level placement** ([#272](https://github.com/amichai-bd/pcie-factory/issues/272)).
+Level 1 is what `ci-gate` runs for every change that reaches `link`
+(`dll`, `phy`, `mac`, `pcs` and some shared blocks), so it keeps the
+fastest entries that discriminate the stack wiring: the TLP and DLLP
+error classes, the rollover and its retrain, the minimum credits (the
+configuration that starves both ends hardest) and the throughput screen.
+`e2e_line`, `e2e_mixed`, `e2e_hot_reset` and the other three credit
+configurations moved to level 2: each re-checks a path that a unit DV
+already covers at its own level 1 (line impairments and control requests
+in [`phy`](../phy/DV_PLAN.md), random error classes and credit
+configurations in [`dll`](../dll/DV_PLAN.md)), and their entries and
+seeds are unchanged, so the merged level 0 to 2 coverage and the floors
+are the same. `e2e_throughput_oneway` runs one seed: the three seeds of
+[#299](https://github.com/amichai-bd/pcie-factory/pull/299) all measured
+0.85645 (the start against the SKP schedule moved nothing measurable);
+both ways keeps three seeds, which also move b's start against a's.
 
 ## Gaps
 

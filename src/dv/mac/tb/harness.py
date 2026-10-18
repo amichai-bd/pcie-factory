@@ -417,6 +417,8 @@ class Harness:
         self.timeout_div = timeout_div
         self.err_timeout_div = err_timeout_div
         self.n_fts = int(dut.cfg_n_fts_o.value)
+        self._bus_get: dict = {}
+        self._fall = FallingEdge(dut.clk_i)
         self.a = Dut()
         self.now = 0
         self.log = dut._log
@@ -506,7 +508,12 @@ class Harness:
     # ---------------------------------------------------------------- step
 
     def _read(self, fields=LAYOUT_OUT, bus="out_o") -> dict:
-        v = int(getattr(self.dut, bus).value)
+        # Each bus as an int straight from its binary string, read every
+        # cycle (the simulator is two-state, so every bit is 0 or 1).
+        get = self._bus_get.get(bus)
+        if get is None:
+            get = self._bus_get[bus] = getattr(self.dut, bus)._handle.get_signal_val_binstr
+        v = int(get(), 2)
         return {n: (v >> pos) & mask for n, pos, mask in fields}
 
     def _write(self) -> None:
@@ -707,7 +714,7 @@ class Harness:
         self.drive_req["retrain_req_i"] = 0
         self.rx_prev, self.rx_dut, self.rx_partner = self.rx_dut, rx_d, rx_p
         self.now += 1
-        await FallingEdge(self.dut.clk_i)
+        await self._fall
 
     def _observe(self, o: dict) -> None:
         main, tx, rx = decode(o["ltssm_state_o"])

@@ -100,3 +100,10 @@ which satisfies Q9.
   4. The open item "when a running replay ends" (for a replay requested
      during it) stays open for the captain, owned by epic #203; no effect
      on the line was observed.
+- **2026-10-18 (captain):** the regression CPU budgets may be raised as
+  needed, after speed-ups and rebalancing
+  ([#272](https://github.com/amichai-bd/pcie-factory/issues/272#issuecomment-6242089772)).
+  Applied by #272: L1 600 s to 1200 s, L2 7200 s to 9600 s (measured need
+  plus about 20%); L0 stays 120 s. The DevOps BKM owns the values.
+  Per-IP affected L1 at #272: dll 332 s, link 123 s, mac 540 s (with
+  `no_scramble` restored to L1, 48.2 s), pcs 577 s, phy 330 s.
