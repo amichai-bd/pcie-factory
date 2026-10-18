@@ -261,7 +261,8 @@ def random_tlp(rng: random.Random, r: ref.Regs, reads_left: list[int]) -> bytes:
     # Malformed of every step.
     k = rng.randrange(4)
     if k == 0:
-        return ref.raw(rng.choice([0b100, 0b101, 0b110, 0b111]), rng.randrange(32))
+        fmt = rng.choice([0b100, 0b101, 0b110, 0b111])
+        return ref.raw(fmt, rng.randrange(32), data_dws=1 if fmt & 2 else 0)   # Length 1
     if k == 1:
         return ref.memory(False, b0, 3, 0x5, 0xF)
     if k == 2:
@@ -350,3 +351,35 @@ async def rx_link_down(dut):
     env.rst = 0
     env.send(ref.memory(False, b0, 1, 0xF, 0))
     await env.drain()
+
+
+@cocotb.test()
+async def rx_np_collide(dut):
+    """L1, FC_NPD 16 or more: three non-posted requests leave at one edge, a
+    malformed I/O write with 8 data credits (Length 32, step 5), a
+    configuration write (1) and a BAR0 read (0). Their releases go one per
+    cycle from the next, the data credits merged up to 8 per pulse and the
+    rest carried (HAS, credit release; the environment checks every
+    pulse)."""
+    env = await tl_env.started(dut, cocotb.RANDOM_SEED)
+    if env.fc["npd"] < 16:
+        raise TlError(f"rx_np_collide needs FC_NPD of 16 or more, has {env.fc['npd']}")
+    b0 = env.regs.bar0_base
+    io_wr = ref.raw(0b010, ref.TYPE_IO, length=32, data_dws=32)
+    for k in range(3):
+        env.cq_stall_until = env.reg_stall_until = env.cycle + 10_000
+        env.send(ref.config(True, 0x30 + k, data=k))
+        env.send(ref.memory(False, b0 + 0x40 * k, 1, 0xF, 0))
+        await env.run(30)                      # both offered, held by the stalls
+        if not (env.cfg_jobs and env.cq_reads):
+            raise TlError("the configuration write and the read are not waiting")
+        env.send(io_wr)
+        while not env.beats:
+            await env.step()
+        start, n = env.last_start
+        # The malformed TLP leaves at the edge ending its push cycle, the
+        # cycle after its eop: release both stalls for exactly that edge.
+        env.cq_stall_until = env.reg_stall_until = start + n
+        await env.drain()
+    if env.three_np != 3:
+        raise TlError(f"{env.three_np} cycles with three non-posted leaves, 3 expected")

@@ -273,6 +273,35 @@ def test_config_and_bar2_pass_reads_waiting_for_a_handle():
     assert got[2]["bc"] == 8 and len(got[2]["data"]) == 8
 
 
+def test_malformed_completion_class_needs_no_release():
+    """#340: a completion Type with an undefined Fmt is malformed (bit 2)
+    and, being of the completion class, releases nothing; the occupancy
+    never goes below 0 (the model used to release it as non-posted)."""
+    tl, app, wire = make_tl()
+    tl.receive(m._dw0(m.F_4DW, m.T_CPL, 0) + bytes(12), 0)
+    run(tl, app, wire, 10)
+    assert tl.errors[m.E_MALFORMED] == 1
+    assert tl.released == [] and tl.occ == [0, 0, 0, 0]
+
+
+def test_release_in_the_cycle_after_the_leave():
+    """HAS, credit release: a request is released in the cycle after it
+    leaves; non-posted requests that leave together go one per cycle, the
+    data credits owed merged up to 8 per pulse, the totals exact."""
+    tl, app, wire = make_tl(fc={"npd": 32})
+    io_wr = m._dw0(m.F_3DW_D, m.T_IO, 32) + bytes(8) + bytes(128)    # malformed, 8 data credits
+    tl.receive(io_wr, 5)
+    tl.receive(io_wr, 5)
+    tl.receive(io_wr, 5)
+    run(tl, app, wire, 2, start=5)
+    tl.receive(mwr(0xA000_0000), 7)                                   # posted UR, leaves at the head
+    run(tl, app, wire, 8, start=7)
+    np = [r for r in tl.released if r[1] == m.NP]
+    p = [r for r in tl.released if r[1] == m.P]
+    assert np == [(6, m.NP, 8), (7, m.NP, 8), (8, m.NP, 8)]
+    assert p == [(8, m.P, 1)]
+
+
 def test_unsupported_request_completions():
     tl, app, wire = make_tl()
     tl.receive(mrd(0xA000_0104, 2, tag=3, fbe=0xC, lbe=0x1), 0)

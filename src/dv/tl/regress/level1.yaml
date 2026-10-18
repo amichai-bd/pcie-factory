@@ -29,3 +29,10 @@ tests:
     seeds: 2
     timeout_s: 300
     params: {FC_PH: 1, FC_PD: 8, FC_NPH: 1, FC_NPD: 2}
+  # Non-posted data credits above 8, so the release carries owed data.
+  - name: rx_np_collide
+    module: tests.test_tl_rx
+    testcase: rx_np_collide
+    top: pcie_tl_tb
+    timeout_s: 300
+    params: {FC_NPD: 16}

@@ -109,7 +109,7 @@ package pcie_tl_pkg;
     logic [4:0]  typ;
     logic [2:0]  tc;
     logic [4:0]  b1_other;   // byte 1 bits 7 and 3:0 (Attr bit 2, TH): ignored
-    logic        td;         // not read: the dll drops a TLP with a digest
+    logic        td;         // not read: the digest DW after the data is dropped (TLP.md, TD)
     logic        ep;
     logic [1:0]  attr;       // Attr bits 1:0
     logic [1:0]  at;

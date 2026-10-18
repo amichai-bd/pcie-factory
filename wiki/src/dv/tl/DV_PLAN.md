@@ -58,10 +58,19 @@ tests to this testbench and this page.
   index, byte enables, data, Bus and Device Number), and each completion
   record (configuration and BAR2 read DWs with the data cfg returned,
   Unsupported Request with Byte Count and Lower Address fields); each
-  PME_TO_Ack request; each completion beat to the tracker in order; each
-  posted release in arrival order with that request's data credits, never
-  before it left; the non-posted releases never above what was received
-  and, after draining, equal to it. **Order:** a BAR0 read, a cfg-line
+  PME_TO_Ack request; each completion beat to the tracker in order.
+  **Release** by the [HAS rule](../../arch/tl/ORDERING.md#credits): each
+  posted release in arrival order with that request's data credits, in
+  exactly the cycle after its leave wherever the leave is seen (a write's
+  `eop` on `cq`, a BAR2 write's last access, a PME_TO_Ack request), never
+  before it left; the environment counts every non-posted leave as it
+  happens (a read taken on `cq`, a cfg-line request's last access or
+  Unsupported Request record, a malformed TLP at the edge after its
+  `eop`), keeps the headers and data credits owed, and checks every
+  cycle's `fc_rel_np_o` and `fc_rel_npd_o` against it: a pulse exactly
+  when a header is owed from an earlier edge, with the smaller of 8 and
+  the data owed; releases never above the leaves, and after draining
+  equal to what was received. **Order:** a BAR0 read, a cfg-line
   request, a BAR0 write, a BAR2 write and a PME_Turn_Off each go only
   after the releases of every earlier posted request were seen.
 - **Drain:** a test ends by running until every expectation is met; any
@@ -71,7 +80,8 @@ tests to this testbench and this page.
   bit, outcome × class with the impossible pairs declared unreachable)
   and `tl_rx_order` (a read waiting for a handle, a write passing it, a
   non-posted request waiting for posted ones, a cfg-line request passing
-  a waiting read, two non-posted requests leaving in one cycle, `cq` and
+  a waiting read, two and three non-posted requests leaving in one cycle,
+  non-posted data owed above 8 (the carry), `cq` and
   `cfg` stalls, the host waiting for posted and non-posted credits).
 
 ## Cross-check: RTL, architecture model, reference
@@ -92,12 +102,14 @@ classification.
 | [Reset](../../arch/tl/HAS.md#reset) by link-down mid-TLP and by `rst_i` with requests queued | `rx_link_down` | 1 | 1; directed |
 | Random TLPs of every kind with stalls and gaps, segments across link-downs | `rx_random` | 1 | 3 |
 | The same with the smallest queues (`FC_PH` 1, `FC_PD` 8, `FC_NPH` 1, `FC_NPD` 2) | `rx_random_min_credits` | 1 | 2 |
+| [Release](../../arch/tl/ORDERING.md#credits) of three non-posted requests leaving at one edge (a malformed I/O write with 8 data credits, a configuration write, a BAR0 read), the data carried above 8 (`FC_NPD` 16) | `rx_np_collide` | 1 | 1; directed, three times |
 | Longer random traffic | `rx_random_long` | 2 | 4 |
 | Longer random traffic, `BAR0_ADDR_W` 20 and odd credit sizes | `rx_random_long_params` | 2 | 2 |
 | [Reference](../../../../src/dv/tl/models/test_pcie_tl_rx_ref.py) unit tests | pytest | `./build ci unit` | |
 
 **Level placement.** `rx_routing`, `rx_order` and `rx_link_down` are the
 receive path's acceptance entries and its fastest discriminating tests,
+as is `rx_np_collide`, the only entry that reaches the release carry,
 so they sit in L1. The random entries are short in L1 (about 3 s of CPU
 each) and long in L2.
 
@@ -136,6 +148,11 @@ against the entry named, at its first regression seed
 | M25 a queue head not refilled at a pop | `rx_order` | a 32-beat write over 63 cycles |
 | M26 a head's eligibility kept past its pop | `rx_order` | a cfg-line request passes a held posted request |
 | M27 a BAR2 read leaves at every access | `rx_routing` | the cfg line skips ahead: an access starts no request |
+| M28 the non-posted data clamp at 8 removed | `rx_np_collide` | release data 9, the rule wants 8 |
+| M29 the owed data carry dropped | `rx_np_collide` | release data 0, the rule wants 1 |
+| M30 a posted release one cycle late | `smoke` | the write that left is not released in the next cycle |
+| M31 a BAR0 read released at arrival | `rx_order` | a non-posted release with nothing owed |
+| M32 a non-posted release one cycle late | `rx_order` | no release with a header owed |
 
 ## Gaps
 

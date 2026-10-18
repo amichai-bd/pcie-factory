@@ -85,7 +85,8 @@ COV_RX.cross("outcome_x_cls", "outcome", "cls", unreachable=(
     ("drop", "CPL"), ("pme", "NP"), ("pme", "CPL"), ("cpl", "P"), ("cpl", "NP")))
 COV_ORDER = Covergroup("tl_rx_order")
 COV_ORDER.coverpoint("event", ("read_waits_handle", "write_passes_read", "np_waits_posted",
-                               "cfg_passes_cq_read", "two_np_leave", "cq_stall", "reg_stall",
+                               "cfg_passes_cq_read", "two_np_leave", "three_np_leave",
+                               "np_data_carry", "cq_stall", "reg_stall",
                                "posted_queue_full", "np_queue_full"))
 
 
@@ -122,6 +123,8 @@ class TlEnv:
         self._clear()
         self.sent = 0
         self.two_np = 0                       # cycles where a cq read and a cfg-line request left
+        self.three_np = 0                     # cycles where three non-posted requests left
+        self.last_start = (0, 0)              # (cycle, beats) of the last TLP started
         self.cq_spans: list = []              # (first beat cycle, last beat cycle, beats) per cq write
         self.records: list = []               # (cycle, kind) of every completion record
 
@@ -143,6 +146,11 @@ class TlEnv:
         self.cpl_beats: deque = deque()
         self.np_rx = [0, 0]                   # non-posted headers, data credits received
         self.np_rel = [0, 0]                  # released
+        self.np_left = [0, 0]                 # left tl: headers, data credits
+        self.np_owe = [0, 0]                  # owed by the HAS release rule
+        self.np_leaves: list = []             # this cycle's non-posted leaves (data credits)
+        self.np_mal_at: dict[int, list] = {}  # cycle -> malformed non-posted leaves then
+        self.p_rel_due: dict[int, dict] = {}  # cycle -> the posted request released then
         self.handles: set[int] = set()
         self.job = None                       # the register job being served
         self.access = None                    # the access cfg took, not yet finished
@@ -313,6 +321,7 @@ class TlEnv:
             self.held["npd"] += d
         beats = ref.to_beats(tlp)
         n = len(beats)
+        self.last_start = (self.cycle, n)
         self.beats.extend((b, int(i == 0), int(i == n - 1)) for i, b in enumerate(beats))
         # The eop is driven n - 1 cycles from now; its error pulse one after.
         self._expect(tlp, self.cycle + n)
@@ -346,7 +355,7 @@ class TlEnv:
             return
         self.np_rx[0] += 1
         self.np_rx[1] += v.data_credits
-        item = {"p_before": self.p_rx, "h": h, "outcome": v.outcome}
+        item = {"p_before": self.p_rx, "h": h, "outcome": v.outcome, "d": v.data_credits}
         if v.outcome == "cq":
             self.cq_reads.append(item)
         elif v.outcome == "cfg":
@@ -362,7 +371,9 @@ class TlEnv:
             item["job"] = CR_UR
             item["acc"] = deque()
             self.cfg_jobs.append(item)
-        # malformed: leaves at once; only its release is seen.
+        else:
+            # Malformed: leaves at once, at the edge ending its push cycle.
+            self.np_mal_at.setdefault(err_cycle, []).append(v.data_credits)
 
     def _shadow(self, tlp: bytes, v: ref.Verdict) -> None:
         """The architecture model's classification of the same TLP."""
@@ -399,13 +410,27 @@ class TlEnv:
         self._check_cpl_beats(t)
         cq_read_take = self._check_cq(t)
         np_leave = self._check_reg(t)
+        if cq_read_take:
+            self.np_leaves.append(0)
         if cq_read_take and np_leave:
             COV_ORDER.sample(event="two_np_leave")
             self.two_np += 1
+        self.np_leaves.extend(self.np_mal_at.pop(t, []))
+        if len(self.np_leaves) >= 3:
+            COV_ORDER.sample(event="three_np_leave")
+            self.three_np += 1
+        # This cycle's leaves are owed from the next cycle (HAS, credit release).
+        for d in self.np_leaves:
+            self.np_left[0] += 1
+            self.np_left[1] += d
+            self.np_owe[0] += 1
+            self.np_owe[1] += d
+        self.np_leaves = []
         if self._val("probe_pme_ack_o"):
             if not self.pme:
                 raise TlError(f"cycle {t}: PME_TO_Ack requested with no PME_Turn_Off held")
             item = self.pme.popleft()
+            self.p_rel_due[t + 1] = item
             if self.p_rel < item["idx"]:
                 raise TlError(f"cycle {t}: PME_Turn_Off left before an earlier posted request")
 
@@ -416,6 +441,27 @@ class TlEnv:
             raise TlError(f"cycle {t}: tl_err_o expected {want:#05x} got {got:#05x}")
 
     def _check_release(self, t: int) -> None:
+        """Releases by the HAS rule: a request that left at the edge ending
+        cycle t - 1 or earlier; a posted one whose leave is seen exactly in
+        the next cycle; non-posted ones one header per cycle while any is
+        owed, with the smaller of 8 and the data credits owed."""
+        due = self.p_rel_due.pop(t, None)
+        if due is not None:
+            if not self._val("fc_rel_p_o") or not self.posted or self.posted[0] is not due:
+                raise TlError(f"cycle {t}: posted request {due['idx']} ({due['outcome']}) left "
+                              "in the last cycle but is not released now")
+        want_np = self.np_owe[0] > 0
+        want_npd = min(8, self.np_owe[1])
+        got_np = bool(self._val("fc_rel_np_o"))
+        if got_np != want_np or (got_np and self._val("fc_rel_npd_o") != want_npd):
+            raise TlError(f"cycle {t}: fc_rel_np_o {int(got_np)} data {self._val('fc_rel_npd_o')}, "
+                          f"the release rule wants {int(want_np)} data {want_npd} (owed "
+                          f"{self.np_owe})")
+        if want_np:
+            if self.np_owe[1] > 8:
+                COV_ORDER.sample(event="np_data_carry")
+            self.np_owe[0] -= 1
+            self.np_owe[1] -= want_npd
         if self._val("fc_rel_p_o"):
             d = self._val("fc_rel_pd_o")
             if not self.posted:
@@ -438,9 +484,9 @@ class TlEnv:
             self.np_rel[1] += d
             self.held["nph"] -= 1
             self.held["npd"] -= d
-            if self.np_rel[0] > self.np_rx[0] or self.np_rel[1] > self.np_rx[1]:
-                raise TlError(f"cycle {t}: released {self.np_rel} non-posted credits, received "
-                              f"{self.np_rx}")
+            if self.np_rel[0] > self.np_left[0] or self.np_rel[1] > self.np_left[1]:
+                raise TlError(f"cycle {t}: released {self.np_rel} non-posted credits, only "
+                              f"{self.np_left} left tl")
 
     def _check_cpl_beats(self, t: int) -> None:
         b = unpack(self._val("probe_cpl_beat_o"), RX_BEAT)
@@ -508,6 +554,7 @@ class TlEnv:
             pkt["k"] += 1
             if last:
                 self.cq_writes.popleft()
+                self.p_rel_due[t + 1] = pkt["item"]
                 self.cq_spans.append((pkt["t0"], t, pkt["item"]["h"]["length"]))
                 self.cq_pkt = None
             if self._val("probe_rd_take_o"):
@@ -589,6 +636,7 @@ class TlEnv:
             if rec["kind"] != CR_UR or not self.cfg_jobs or self.cfg_jobs[0]["job"] != CR_UR:
                 raise TlError(f"cycle {t}: unexpected completion record {rec}")
             job = self.cfg_jobs.popleft()
+            self.np_leaves.append(job["d"])
             self._order(t, job, "Unsupported Request")
             h = job["h"]
             mem = int(h["type"] in (ref.TYPE_MEM, ref.TYPE_MEM_LOCKED))
@@ -659,8 +707,10 @@ class TlEnv:
         if last:
             if job.get("posted"):
                 self.bar2_writes.popleft()
+                self.p_rel_due[t + 1] = job
             else:
                 self.cfg_jobs.popleft()
+                self.np_leaves.append(job["d"])
                 return True
         return False
 

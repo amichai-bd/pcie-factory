@@ -70,9 +70,9 @@ group, `cpl_timeout_dis` in its register state, and the message-offer
 One posted and one non-posted release per cycle at most, each a pulse
 with its data credits. The header count is 1 per pulse. A release comes
 in the cycle after its request leaves; non-posted requests that leave
-together are released in successive cycles
-([release](ORDERING.md#credits)), so a pulse's data credits are a sum
-over the requests owed, never above 8.
+together are released in successive cycles, the data credits owed merged
+into the pulses, at most 8 each ([release](ORDERING.md#credits)), as the
+[`dll` credit release](../dll/HAS.md#credit-release) allows.
 
 | Port | Dir | Width | Clock | Description |
 | --- | --- | --- | --- | --- |
@@ -154,7 +154,7 @@ override; Q-rows are the captain's.
 
 | Choice | Rationale | Rejected |
 | --- | --- | --- |
-| Release port: a pulse per class with a 4-bit data count, header count 1 per pulse (Q9) | One request leaves per class per cycle; the widths cover the largest TLP the `dll` delivers. #303 owns the `link` side. | A count per field per cycle (wider, no user). |
+| Release port: a pulse per class with a 4-bit data count, header count 1 per pulse, registered in the cycle after the request leaves (Q9; release timing, firstmate decision on [#290](https://github.com/amichai-bd/pcie-factory/issues/290#issuecomment-6249200269)) | One posted request leaves per cycle; up to three non-posted requests can leave at one edge on handshakes `tl` does not control (a `cq` read, a cfg-line request, a malformed TLP), so their releases are owed and go one per cycle, their data credits merged up to 8 per pulse, as the [`dll` credit release](../dll/HAS.md#credit-release) allows (exact totals, never before the requests left). #303 owns the `link` side. | A count per field per cycle (wider, no user); holding a handshake back so only one request leaves per cycle (`cfg` would wait on the application). |
 | Dropped posted requests leave the posted queue in order | One in-order posted queue; a non-posted request counts the posted ones before it with no exceptions. | Releasing them at once (a second path past the queue). |
 | Transmit: separate posted and non-posted lines (firstmate decision) | Posted requests must be able to pass non-posted ones that wait for credits, or a host that holds non-posted credits until it sees a posted write deadlocks [cite: PCIe Base Spec, rev 3.0, §2.4.1]; each line keeps its own order. | One queue in the order taken (an `rq` write blocked behind a credit-blocked read). |
 | Two non-posted lines | Configuration and BAR2 never wait on the application (`core` HAS); BAR0 reads keep their own order. | One line with a bypass (more state to order). |
@@ -234,4 +234,3 @@ design's reading.
 | --- | --- |
 | Every cited section, checked against rev 3.0; in particular which receive checks the spec requires and which it only permits (byte enables, configuration and I/O TC and Attr), the message codes that require TC 0, the message outcomes (Ignored messages dropped; OBFF, LTR and INTx received as Unsupported Request; PM_Active_State_Nak dropped), CRS and a successful completion without data as malformed, the locked completion for a refused locked read, Byte Count 4 for Unsupported Request completions of atomic operations, and AT not 0 as Unsupported Request. | Captain, with a local copy; [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
 | Set_Slot_Power_Limit: an upstream port captures its value into the Device Capabilities slot power fields; the tl-cfg interface has no net for it, so `cfg` reads them as 0. | [#309](https://github.com/amichai-bd/pcie-factory/issues/309) |
-| The architecture model releases a credit for a malformed TLP of the completion class (an undefined Fmt with a completion Type), counting it against the non-posted occupancy. Completions need no release, and the RTL releases none; the model's `receive` should release only posted and non-posted malformed TLPs. The DV shadow compares classification only, so it is unaffected. | [#282](https://github.com/amichai-bd/pcie-factory/issues/282) (found by [#290](https://github.com/amichai-bd/pcie-factory/issues/290)) |

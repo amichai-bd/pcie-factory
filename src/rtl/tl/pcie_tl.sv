@@ -146,6 +146,29 @@ module pcie_tl #(
   logic rst;
   assign rst = rst_i || !dl_up_i;
 
+  // ---------------------------------------------------------------- slots
+  // The transmit path, completions and messages (#291): the completion
+  // former takes cpl_rec, rd_take/rd_ctx and pme_ack, and frees handles;
+  // until it lands every record is taken at once and no handle is freed.
+  logic       cpl_room;
+  logic       pme_room;
+  logic       hd_free;
+  logic [2:0] hd_free_idx;
+
+  assign cpl_room    = 1'b1;
+  assign pme_room    = 1'b1;
+  assign hd_free     = 1'b0;
+  assign hd_free_idx = 3'd0;
+
+  // The completion tracker (#292): it takes cpl_beat, orders rc with
+  // rc_arrive/rc_ep against p_none, p_known and the posted head's epochs,
+  // and raises tl_err_o bits 2 and 4 to 8.
+  logic       rc_arrive;
+  logic [8:0] trk_err;
+
+  assign rc_arrive = 1'b0;
+  assign trk_err   = 9'd0;
+
   // ------------------------------------------------------- receive path
   logic                    pq_push;
   pcie_tl_pkg::t_pq_ent    pq_ent;
@@ -327,29 +350,6 @@ module pcie_tl #(
     .reg_cpl_valid_i (reg_cpl_valid_i && !rst),
     .reg_cpl_data_i  (reg_cpl_data_i)
   );
-
-  // ---------------------------------------------------------------- slots
-  // The transmit path, completions and messages (#291): the completion
-  // former takes cpl_rec, rd_take/rd_ctx and pme_ack, and frees handles;
-  // until it lands every record is taken at once and no handle is freed.
-  logic       cpl_room;
-  logic       pme_room;
-  logic       hd_free;
-  logic [2:0] hd_free_idx;
-
-  assign cpl_room    = 1'b1;
-  assign pme_room    = 1'b1;
-  assign hd_free     = 1'b0;
-  assign hd_free_idx = 3'd0;
-
-  // The completion tracker (#292): it takes cpl_beat, orders rc with
-  // rc_arrive/rc_ep against p_none, p_known and the posted head's epochs,
-  // and raises tl_err_o bits 2 and 4 to 8.
-  logic       rc_arrive;
-  logic [8:0] trk_err;
-
-  assign rc_arrive = 1'b0;
-  assign trk_err   = 9'd0;
 
   // ------------------------------------------------------------- outputs
   // Every handshake output is 0 in reset (HAS, reset).
