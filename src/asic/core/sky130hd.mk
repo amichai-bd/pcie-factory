@@ -29,7 +29,12 @@ export ADDITIONAL_GDS = $(SKY130_SRAM).gds
 export PDN_TCL = $(ASIC_INPUT_DIR)/pdn.tcl
 
 # Size the core from the instance area (macros included), with room for
-# two clock trees and resizing buffers, as for pcie_link.
-export CORE_UTILIZATION = 30
+# two clock trees and resizing buffers. 40% rather than pcie_link's 30%: the
+# first 8 ns run (30%, 8.5 mm2 core) ran out of the 6 GB container in
+# detailed route.
+export CORE_UTILIZATION = 40
 export PLACE_DENSITY_LB_ADDON = 0.20
-export TNS_END_PERCENT = 100
+# Timing repair works on ORFS's default share of the failing endpoints,
+# not all of them (pcie_link's TNS_END_PERCENT 100): with every endpoint
+# repaired, the first 8 ns run grew from 55k cells after synthesis to 157k
+# after global route, which detailed route could not hold in 6 GB.
