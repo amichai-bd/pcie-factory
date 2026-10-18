@@ -212,30 +212,30 @@ into a model or the RTL silently.
 | [Receiving TLPs](../../arch/dll/RETRY.md#receiving-tlps) by hand: discarded in DL_Inactive and FC_INIT1; a bad TLP's Nak held in FC_INIT2; a good TLP ends FC_INIT2; every class and size, 3- and 4-DW headers, gaps and back to back; duplicates with an Ack at once (D = 2048 too); ahead (D = 1, 2047) with one Nak per NAK_SCHEDULED; bad LCRC, flagged, too short, nullified, EDB without the inverse; each malformed kind, packets beyond the beat counter; link down while a TLP arrives and while one is delivered. [Ack timer](../../arch/dll/RETRY.md#ack-and-nak-scheduling): 35 cycles on an idle stream ([MAS, timing](../../rtl/dll/MAS.md#timing)); Nak and duplicate Ack within 7; [receive latency](../../arch/dll/HAS.md#targets) within 4 | `rx_directed` | 0 | 1 |
 | [Transmit accounting](../../arch/dll/FLOW_CONTROL.md#transmit-accounting): the gate for every class and field, at exactly half the range and one past it, after limits beyond half the range, with infinite fields; CREDITS_CONSUMED wrapping; credits available; cleared by link-down mid-TLP | `fc_tx_gate` | 1 | 1; hand-driven far end that acknowledges every TLP |
 | [Receive accounting](../../arch/dll/FLOW_CONTROL.md#receive-accounting) on real TLPs from a hand-driven far end that replays: stored, malformed (credits returned at once, none under 4 bytes), returns at the delivered `eop`; [UpdateFC](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling) on returns, in FC_INIT2 (entry value) and DL_Active, its value, cause, round robin and latency; refreshes; link down; default credits | `fc_rx_accounting` | 0 | 1 |
-| The same, every class finite, the upper layer slow and stalling: the [overflow check](../../arch/dll/FLOW_CONTROL.md#receive-buffer), Receiver overflow, no Ack or Nak, the TLPs behind arriving ahead | `fc_rx_accounting_finite` | 1 | 2 derived |
+| The same, every class finite, the upper layer slow and stalling: the [overflow check](../../arch/dll/FLOW_CONTROL.md#receive-buffer), Receiver overflow, no Ack or Nak, the TLPs behind arriving ahead | `fc_rx_accounting_finite` | 1 | 2 derived; coverage on the first 2 (`coverage_seeds`) |
 | The same, every class infinite (the reserve; UpdateFC all 0) | `fc_rx_accounting_infinite` | 1 | 2 derived |
-| [Credits target](../../arch/dll/HAS.md#targets), transmit side: starvation and recovery with the partner's upper layer taking 30%, stalling 4000 cycles, taking 30%, stalling 10000 cycles, then taking all; no overflow at the partner's receive-side check; arch model against a fresh partner | `credit_starve` | 1 | 0 to 3 (partner credits: three all finite, one default; with the default, seed 2, the partner stalls with completions infinite, outside the HAS obligation and the Credits target's every-class-finite wording, which binds the `dll`'s upper layer; the partner's store is unbounded and only the DUT's gate is under test) |
+| [Credits target](../../arch/dll/HAS.md#targets), transmit side: starvation and recovery with the partner's upper layer taking 30%, stalling 4000 cycles, taking 30%, stalling 10000 cycles, then taking all; no overflow at the partner's receive-side check; arch model against a fresh partner | `credit_starve` | 1 | 0 to 3 (partner credits: three all finite, one default; with the default, seed 2, the partner stalls with completions infinite, outside the HAS obligation and the Credits target's every-class-finite wording, which binds the `dll`'s upper layer; the partner's store is unbounded and only the DUT's gate is under test); coverage on the first 3 (`coverage_seeds`) |
 | The same, partner and DUT all infinite: the gate never refuses | `credits_infinite` | 1 | 2 derived; the partner's upper layer stalls although it advertises infinite credits, outside the HAS upper-layer obligation: the partner's store is unbounded ([partner page](PARTNER.md#interface)) and only the DUT's gate is under test |
-| Credits target, receive side: every DUT class finite, its upper layer taking 30%, stalling 4000, taking 30%, stalling 10000 cycles, the partner sending 1500 TLPs as the UpdateFCs allow: no Receiver overflow, all delivered once and in order | `credit_starve_rx` | 1 | 2 derived; every `FC_*` finite |
-| The same, every DUT class infinite, the upper layer never stalling | `credits_infinite_rx` | 1 | 2 derived |
+| Credits target, receive side: every DUT class finite, its upper layer taking 30%, stalling 4000, taking 30%, stalling 10000 cycles, the partner sending 1500 TLPs as the UpdateFCs allow: no Receiver overflow, all delivered once and in order | `credit_starve_rx` | 1 | 2 derived; every `FC_*` finite; coverage on the first 2 (`coverage_seeds`) |
+| The same, every DUT class infinite, the upper layer never stalling | `credits_infinite_rx` | 1 | 2 derived; coverage on the first 2 (`coverage_seeds`) |
 | [Credit release](../../arch/dll/HAS.md#credit-release), [Credits target](../../arch/dll/HAS.md#targets) with `FC_RELEASE` 1: default credits, the upper layer taking every beat but releasing in 30% of cycles, none for 4000, 30%, none for 10000 cycles, then all; the partner sending 600 TLPs as the UpdateFCs allow: no Receiver overflow, never more held than advertised and all of a class held, every TLP once and in order, every release's UpdateFC within 20 cycles; reference and arch shadow | `credit_release` | 1 | 0, 1; `FC_RELEASE` 1 |
 | The same at the smallest legal credits, every class finite: the stream stalls on the same schedule as the releases | `credit_release_smallest` | 2 | 2 derived |
 | [Receive accounting](../../arch/dll/FLOW_CONTROL.md#credit-release) with releases: P and NP returns on release, completions and malformed TLPs at once, an infinite NP data field freed at delivery (40 configuration writes past the reserve), releases in FC_INIT2 (the `phy` stand-in stalled so the InitFC2 group cannot complete; at least 2 per link-up) in the entry UpdateFC, link down dropping what is held | `fc_rx_accounting_release` | 1 | 1 derived; NP data infinite, `FC_RELEASE` 1 |
 | [UpdateFC refresh](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling), round robin, with ready stalls | `updatefc_refresh` | 1 | 2; two 2048-cycle periods |
 | Link-up against the partner, default DUT credits, [init target](../../arch/dll/HAS.md#targets) 200 cycles; cross-check | `link_up` | 1 | 0 to 3 (the four partner advertisements); 6 link-ups each |
-| The same, DUT completions finite | `link_up_cpl_finite` | 1 | 0 to 3; `FC_CPLH` 16, `FC_CPLD` 64 |
-| The same, DUT all infinite | `link_up_infinite` | 1 | 0 to 3; every `FC_*` 0 |
+| The same, DUT completions finite | `link_up_cpl_finite` | 1 | 0 to 3; `FC_CPLH` 16, `FC_CPLD` 64; coverage on the first 4 (`coverage_seeds`) |
+| The same, DUT all infinite | `link_up_infinite` | 1 | 0 to 3; every `FC_*` 0; coverage on the first 4 (`coverage_seeds`) |
 | Link-up with stalls, gaps and DLLP errors both ways (5% corrupted, 3% dropped, 2% flagged by the partner; 5% lost at it), target 4500 cycles | `link_up_stress` | 1 | 0, 1 |
 | 300 random TLPs from the partner within the DUT's credits, error-free: delivered once and in order; [Ack latency](../../arch/dll/HAS.md#targets) within 118 cycles, receive latency within 4; cross-checks | `rx_traffic` | 1 | 0, 1 |
 | The same with the partner's TLPs dropped 2%, corrupted 3%, nullified 2%, flagged 2%, its DLLPs corrupted 3%, and 15% of the DUT's Acks and Naks lost (replays, duplicates): no bad TLP delivered | `rx_errors` | 1 | 0 to 2 |
 | The same, DUT all infinite | `rx_errors_infinite` | 1 | 0; every `FC_*` 0 |
-| The same, wide sweep | `rx_errors_sweep` | 2 | 8 derived |
+| The same, wide sweep | `rx_errors_sweep` | 2 | 8 derived; coverage on the first 6 (`coverage_seeds`) |
 | The same injection with 300 TLPs beyond the advertisement, the partner sending as the UpdateFCs allow, DUT at the smallest legal credits: bad and duplicate TLPs discarded in the smallest receive buffer (its rewind) | `rx_errors_smallest` | 2 | 2 derived; every `FC_*` at its smallest |
-| [Receive buffer](../../arch/dll/FLOW_CONTROL.md#receive-buffer) sizing: every class finite, the upper layer stalls while the partner sends TLPs that use every advertised credit, then takes 30% of beats | `rx_stall` | 1 | 0, 1; `FC_CPLH` 16, `FC_CPLD` 64 |
+| [Receive buffer](../../arch/dll/FLOW_CONTROL.md#receive-buffer) sizing: every class finite, the upper layer stalls while the partner sends TLPs that use every advertised credit, then takes 30% of beats | `rx_stall` | 1 | 0, 1; `FC_CPLH` 16, `FC_CPLD` 64; coverage on the first 2 (`coverage_seeds`) |
 | The same at the smallest legal credits | `rx_stall_smallest` | 2 | 4 derived |
 | NEXT_RCV_SEQ wrapping past 4095: 4200 short TLPs with light errors (Naks and duplicates around the wrap) | `rx_seq_wrap` | 2 | 1 derived |
 | The same, wide sweep | `link_up_stress_sweep` | 2 | 8 derived |
-| The same, DUT at the smallest legal credits | `link_up_stress_smallest` | 2 | 4 derived |
+| The same, DUT at the smallest legal credits | `link_up_stress_smallest` | 2 | 4 derived; coverage on the first 2 (`coverage_seeds`) |
 | [Sequence numbers](../../arch/dll/RETRY.md#transmitter-state) from 0 and the [LCRC](../../arch/dll/RETRY.md#lcrc): the retry page's example (`E1 F1 E7 E2`), 86 random TLPs of every shape with upper gaps and `phy` stalls; [TX latency target](../../arch/dll/HAS.md#targets) | `lcrc_kat` | 0 | 1; latency 3 cycles, target 4 |
 | [Received Ack and Nak](../../arch/dll/RETRY.md#received-ack-and-nak) and the [replay](../../arch/dll/RETRY.md#replay) by hand: Ack, Nak with and without progress, out of range, everything acknowledged; [replay timer](../../arch/dll/RETRY.md#timers) at 356 cycles, held outside L0, restarted by progress; Ack during a replay, Nak during a replay | `replay_directed` | 0 | 1 |
 | [REPLAY_NUM](../../arch/dll/RETRY.md#replay_num) rollover, `retrain_req_o`, the hold with and without a retrain, progress setting REPLAY_NUM to 0 | `rollover_directed` | 0 | 1; hold 1025 cycles without, 302 with a 300-cycle Recovery |
@@ -249,7 +249,7 @@ into a model or the RTL silently.
 | [Rollover target](../../arch/dll/HAS.md#targets): TLPs lost from a set cycle until the retrain; architecture model against the partner in the same scenario | `tlp_rollover` | 1 | 0, 1 |
 | [Line use and replay-buffer sizing targets](../../arch/dll/HAS.md#targets) (`mwr_max`, `ack_spec_max`): 500 128-byte writes, partner Acks at 32 and 118 cycles, at least 99% | `mwr_max`, `ack_spec_max` | 2 | 1 each; 99.30% both (architecture model 99.20%) |
 | Sequence numbers across the 4095-to-0 wrap with Naks, lost TLPs and lost Acks around it | `seq_wrap` | 2 | 2 derived |
-| Both directions loaded: 300 TLPs each way, the DUT's Acks waiting behind its own TLPs; [Ack latency target](../../arch/dll/HAS.md#targets) 118 cycles | `tlp_bidir` | 1 | 0, 1; worst Ack 107 and 108 cycles |
+| Both directions loaded: 300 TLPs each way, the DUT's Acks waiting behind its own TLPs; [Ack latency target](../../arch/dll/HAS.md#targets) 118 cycles | `tlp_bidir` | 1 | 0, 1; worst Ack 107 and 108 cycles; coverage on the first 2 (`coverage_seeds`) |
 
 **Level placement** ([#272](https://github.com/amichai-bd/pcie-factory/issues/272)):
 `mwr_max` and `ack_spec_max` run in level 2. They measure the line-use and
@@ -274,6 +274,14 @@ functional test was the heaviest level-0 entry of every IP (the next took
 under 6 s). The mutants below that name it were measured while it ran in
 level 0; it is the same test and still catches them, but an earlier level-1
 entry may now be the first to fail.
+
+**Coverage runs** ([#327](https://github.com/amichai-bd/pcie-factory/issues/327)):
+`--coverage` instruments each entry's first seed only (`coverage_seeds`,
+[regress SPEC](../../../tools/regress/SPEC.md#coverage)); every seed still
+runs. The entries whose later seeds reach points or bins their first does
+not, on the merged level 0 to 2 coverage of `005836f` (121 points and two
+`dll_fc_tx` gate bins in all), keep coverage on the seeds the plan rows
+name, so the merged coverage is unchanged point for point. No seed was cut.
 
 ## Mutation evidence
 

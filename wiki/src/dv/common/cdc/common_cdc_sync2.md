@@ -62,11 +62,13 @@
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Reset](../../../rtl/common/cdc/common_cdc_sync2.md#behavior): zero output in reset with all-ones input; transfer at a fixed 3:5 ratio | `sync2_smoke` | 0 | 1; `WIDTH` 1, 16 updates |
-| [Transfer](../../../rtl/common/cdc/common_cdc_sync2.md#behavior): Gray sequence and latency at random ratios | `sync2_random` | 1 | 3; `WIDTH` 4, 200 updates, ratio up to 8:1 |
-| [Transfer](../../../rtl/common/cdc/common_cdc_sync2.md#behavior), long and wide | `sync2_long` | 2 | 8; `WIDTH` 8, 2000 updates, ratio up to 16:1 |
+| [Transfer](../../../rtl/common/cdc/common_cdc_sync2.md#behavior): Gray sequence and latency at random ratios | `sync2_random` | 1 | 3; `WIDTH` 4, 200 updates, ratio up to 8:1; coverage on the first 3 (`coverage_seeds`) |
+| [Transfer](../../../rtl/common/cdc/common_cdc_sync2.md#behavior), long and wide | `sync2_long` | 2 | 8; `WIDTH` 8, 2000 updates, ratio up to 16:1; coverage on the first 8 (`coverage_seeds`) |
 | [Asynchronous reset](../../../rtl/common/cdc/common_cdc_sync2.md#behavior): assertion with no edge (time zero, running clock, stopped clock), a pulse inside a stop, synchronous release two edges before the source value | `sync2_arst` | 1 | 2; `WIDTH` 4, `RESET_VALUE` 9, `ASYNC_RESET` 1, ratio up to 8:1 |
 
 Every [interface](../../../rtl/common/cdc/common_cdc_sync2.md#interfaces) port is exercised by all three entries.
 A nonzero `RESET_VALUE`, and the `COMMON_METAFLOP`, `COMMON_METAFLOP_VAL`
 and `COMMON_METAFLOP_ARST` wrappers, are covered by the
 [macro plan](../common_macros.md) (`macros_contract`, `macros_random`).
+
+Coverage runs ([#327](https://github.com/amichai-bd/pcie-factory/issues/327)): `--coverage` instruments each entry's first seed only, except where the plan row names more: those entries' later seeds reach clock-ratio bins (the 4:1 ratios, a faster destination) the first does not, on the merged level 0 to 2 coverage of `005836f`, so the merged coverage is unchanged bin for bin ([regress SPEC](../../../../tools/regress/SPEC.md#coverage)).

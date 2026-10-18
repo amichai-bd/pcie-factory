@@ -165,10 +165,10 @@ All entries run on `pcie_link_e2e_tb`; credits are the default
 | The same with every class infinite (no stall) | `e2e_credits_infinite` | 2 | 1; `CREDITS` 3 |
 | [Credit release](../../arch/dll/HAS.md#credit-release) through `link`: default credits, `FC_RELEASE` 1, each end taking every beat but releasing in 30% of cycles and none for 4000 and 10000 cycles; no overflow, never more held than advertised, all of a class held and the far end starved, credits back when drained | `e2e_credits_release` | 1 | 1; `CREDITS` 5 |
 | Disabled and Loopback passed through | `e2e_disable`, `e2e_loopback` | 2 | 1 each |
-| Soak: random classes, line flips and credit stalls together, 1000 TLPs each way, ppm from the seed, in every credit configuration | `e2e_soak_default`, `e2e_soak_minimum`, `e2e_soak_finite`, `e2e_soak_infinite`, `e2e_soak_asymmetric` | 2 | 3, 3, 2, 2, 2; `CREDITS` 0 to 4 |
+| Soak: random classes, line flips and credit stalls together, 1000 TLPs each way, ppm from the seed, in every credit configuration | `e2e_soak_default`, `e2e_soak_minimum`, `e2e_soak_finite`, `e2e_soak_infinite`, `e2e_soak_asymmetric` | 2 | 3, 2, 1, 1, 2; `CREDITS` 0 to 4; coverage on the first 2, 2, 1, 1, 2 ([seeds](#seeds-and-coverage-runs)) |
 | [Throughput](../../arch/link/HAS.md#throughput), one way, screen: 400 128-byte memory writes a to b against the 0.85 target (more start and drain in the window than 2000 TLPs, so stricter), every line symbol attributed | `e2e_throughput_short` | 1 | 1 |
-| [Throughput targets](../../arch/link/HAS.md#targets): 2000 128-byte memory writes one way (0.85) and each way (0.76 per direction), every line symbol attributed; each seed draws the start against the SKP schedule (within one SKP interval) and, both ways, b's start against a's (within one TLP time) | `e2e_throughput_oneway`, `e2e_throughput_bidir` | 2 | 1 and 3 |
-| Seed sweeps of the directed and mixed tests | `e2e_tlp_errors_sweep`, `e2e_dllp_errors_sweep`, `e2e_rollover_sweep`, `e2e_line_sweep`, `e2e_mixed_sweep` | 2 | 2, 2, 2, 3, 4 |
+| [Throughput targets](../../arch/link/HAS.md#targets): 2000 128-byte memory writes one way (0.85) and each way (0.76 per direction), every line symbol attributed; each seed draws the start against the SKP schedule (within one SKP interval) and, both ways, b's start against a's (within one TLP time) | `e2e_throughput_oneway`, `e2e_throughput_bidir` | 2 | 1 and 2 |
+| Seed sweeps of the directed and mixed tests | `e2e_tlp_errors_sweep`, `e2e_dllp_errors_sweep`, `e2e_rollover_sweep`, `e2e_line_sweep`, `e2e_mixed_sweep` | 2 | 2, 2, 2, 3, 4; coverage on the first 1, 1, 2, 2, 1 |
 
 **Level placement** ([#272](https://github.com/amichai-bd/pcie-factory/issues/272)).
 Level 1 is what `ci-gate` runs for every change that reaches `link`
@@ -185,7 +185,35 @@ seeds are unchanged, so the merged level 0 to 2 coverage and the floors
 are the same. `e2e_throughput_oneway` runs one seed: the three seeds of
 [#299](https://github.com/amichai-bd/pcie-factory/pull/299) all measured
 0.85645 (the start against the SKP schedule moved nothing measurable);
-both ways keeps three seeds, which also move b's start against a's.
+both ways keeps two seeds, which also move b's start against a's
+([seeds](#seeds-and-coverage-runs)).
+
+### Seeds and coverage runs
+
+[#327](https://github.com/amichai-bd/pcie-factory/issues/327) cut the
+seeds that reach nothing the others do not, measured on the merged level 0
+to 2 coverage of `005836f` (every line, branch and toggle point and every
+functional bin each run hit); the link has no mutation table, so no
+recorded kill depends on them:
+
+- `e2e_throughput_bidir`, 3 to 2 seeds. Its seeds fall into two patterns:
+  776403264 coalesces ACKs (one per two TLPs, efficiency 0.7938 each way),
+  1497483734 and 1078499436 send one ACK per TLP and measured 0.77449 and
+  0.77465, the same case within 0.0002. The derived seeds 0 and 1 keep
+  one of each, the worst case (0.77449 against the 0.76 target) included;
+  the cut seed hit no point or bin the others miss.
+- `e2e_soak_minimum` 3 to 2, `e2e_soak_finite` and `e2e_soak_infinite` 2
+  to 1: each cut seed hit no point or bin that the rest of the levels miss.
+
+`--coverage` instruments only the first seeds named in the plan rows (the
+entries' `coverage_seeds`); every seed still runs and must pass. Where a
+later seed reaches points the first does not (`e2e_soak_default`,
+`e2e_soak_minimum`, `e2e_soak_asymmetric`, `e2e_rollover_sweep`,
+`e2e_line_sweep`: 52 points in all), that entry keeps coverage on its
+first two seeds, so the merged coverage is the same point for point. A
+coverage build runs the link's soaks about 2.5 times slower than a plain
+one (`e2e_soak_default`: 24.4 s against 9.7 s of CPU), so most seeds run
+plain.
 
 **Release mutants** ([#303](https://github.com/amichai-bd/pcie-factory/issues/303)):
 the `link` pass-through of the credit release, run serially on the final

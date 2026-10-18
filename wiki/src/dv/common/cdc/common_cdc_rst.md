@@ -90,9 +90,11 @@
 | --- | --- | --- | --- |
 | [Assertion and hold](../../../rtl/common/cdc/common_cdc_rst.md#behavior) with no clock; [release](../../../rtl/common/cdc/common_cdc_rst.md#behavior) within the 3-cycle contract | `rst_smoke` | 0 | 1; clock stopped, then 8004:8000 ps |
 | [Assertion](../../../rtl/common/cdc/common_cdc_rst.md#behavior) by pulses shorter than a destination period; [re-assertion during release](../../../rtl/common/cdc/common_cdc_rst.md#behavior) | `rst_glitch` | 0 | 1; 60 pulses, 2 ps up to one period |
-| [Release](../../../rtl/common/cdc/common_cdc_rst.md#behavior) latency and re-assertion at random ratios | `rst_random` | 1 | 3; 100 pulses, ratio up to 8:1 |
-| Same, [`STAGES`](../../../rtl/common/cdc/common_cdc_rst.md#parameters) 3 | `rst_random_stages3` | 1 | 2; 100 pulses, ratio up to 8:1 |
-| Long random pulses | `rst_long` | 2 | 8; 1000 pulses, ratio up to 16:1 |
+| [Release](../../../rtl/common/cdc/common_cdc_rst.md#behavior) latency and re-assertion at random ratios | `rst_random` | 1 | 3; 100 pulses, ratio up to 8:1; coverage on the first 2 (`coverage_seeds`) |
+| Same, [`STAGES`](../../../rtl/common/cdc/common_cdc_rst.md#parameters) 3 | `rst_random_stages3` | 1 | 2; 100 pulses, ratio up to 8:1; coverage on the first 2 (`coverage_seeds`) |
+| Long random pulses | `rst_long` | 2 | 8; 1000 pulses, ratio up to 16:1; coverage on the first 4 (`coverage_seeds`) |
 | Same, [`STAGES`](../../../rtl/common/cdc/common_cdc_rst.md#parameters) 4 | `rst_long_stages4` | 2 | 4; 1000 pulses, ratio up to 16:1 |
 
 Every [interface](../../../rtl/common/cdc/common_cdc_rst.md#interfaces) port is exercised by every entry.
+
+Coverage runs ([#327](https://github.com/amichai-bd/pcie-factory/issues/327)): `--coverage` instruments each entry's first seed only, except where the plan row names more: those entries' later seeds reach clock-ratio bins (the 4:1 ratios, a faster destination) the first does not, on the merged level 0 to 2 coverage of `005836f`, so the merged coverage is unchanged bin for bin ([regress SPEC](../../../../tools/regress/SPEC.md#coverage)).

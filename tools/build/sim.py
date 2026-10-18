@@ -7,7 +7,9 @@ tests can run in parallel.
 
 Output layout (``<ip>`` is the IP id, e.g. ``a`` or ``a_b``):
 
-    workdir/<ip>/build/<top>[-<hash>]/   Verilator build, build.log
+    workdir/<ip>/build/<top>[-<hash>]/   Verilator build, build.log (with the
+                                         build cache only build.log: the
+                                         executable is in the cache entry)
     workdir/<ip>/<test>/<seed>/          results.xml, sim.log, waves,
                                          coverage.dat and funcov.json (coverage)
 """
@@ -33,6 +35,7 @@ if __package__ in (None, ""):  # executed as a script by the parent process
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from build import backends  # noqa: E402
+from build import cache as build_cache  # noqa: E402
 from build.slots import Slots  # noqa: E402
 from build.filelist import FilelistError, resolve  # noqa: E402
 from build.ip import REPO_ROOT, Ip  # noqa: E402
@@ -45,6 +48,17 @@ BUILD_ARGS = ["--assert"]
 COVERAGE_ARGS = ["--coverage-line", "--coverage-toggle"]
 COVERAGE_DAT = "coverage.dat"  # code coverage of one run, in its test directory
 FUNCOV_JSON = "funcov.json"  # functional coverage of one run (regress.funcov)
+# ccache settings for the generated C++ (Verilator's OBJCACHE): paths under
+# the build directory hashed relative to it, generated headers' fresh
+# timestamps and precompiled-header defines accepted.
+CCACHE_SLOPPINESS = "pch_defines,time_macros,include_file_mtime,include_file_ctime"
+# Cold-build bound (wiki/tools/build/SPEC.md, "Build cache"): each build runs
+# cocotb's `make -j` (at most COMPILE_JOBS compilers), and a compiler of the
+# generated C++ may take up to COMPILE_MEM_BYTES; at most compile_slots()
+# builds compile at once, so all compilers together fit the host's CPUs and
+# available memory. A CI host ran out of memory without it (#327).
+COMPILE_JOBS = 4
+COMPILE_MEM_BYTES = 2 * 2**30
 
 
 class SimError(Exception):
@@ -100,6 +114,8 @@ class BuildSpec:
 
     @property
     def key(self) -> str:
+        """The workdir name of this build (not the cache key, which also
+        hashes the content: :func:`content_key`)."""
         extra = {"params": self.params, "waves": self.waves}
         if self.coverage:
             extra["coverage"] = True
@@ -121,6 +137,9 @@ class Result:
     log: Path
     detail: str = ""
     cpu_s: float = 0.0  # user + system CPU time of the child process tree
+    build_dir: Path | None = None  # a build: where its executable is
+    cached: bool = False  # a build reused from the build cache
+    root: str | None = None  # a build: the source tree root it was compiled from
 
 
 def test_dir(workdir: Path, ip: Ip, test: str, seed: int) -> Path:
@@ -134,11 +153,54 @@ _STOPPING = threading.Event()
 # Host CPU slots each child holds while it runs (None: no slot pool);
 # set by `--slots`/$BUILD_SLOTS (wiki/tools/build/SPEC.md, "CPU slots").
 _SLOTS: Slots | None = None
+# The shared build cache (None: off); set by `--no-cache`/$BUILD_CACHE
+# (wiki/tools/build/SPEC.md, "Build cache").
+_CACHE: build_cache.Cache | None = None
+
+
+_COMPILE_SEM: threading.BoundedSemaphore | None = None
+
+
+def mem_available() -> int | None:
+    """MemAvailable from /proc/meminfo, in bytes; None when unknown."""
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def compile_slots(cpus: int | None = None, mem: int | None = None) -> int:
+    """How many builds may compile at once: the compilers the host's CPUs
+    and available memory allow, divided by each build's ``make -j``."""
+    from build.slots import cpu_count
+    cpus = cpu_count() if cpus is None else cpus
+    procs = cpus if mem is None else min(cpus, mem // COMPILE_MEM_BYTES)
+    return max(1, procs // min(COMPILE_JOBS, cpus))
+
+
+def _compile_sem() -> threading.BoundedSemaphore:
+    global _COMPILE_SEM
+    with _LOCK:
+        if _COMPILE_SEM is None:
+            _COMPILE_SEM = threading.BoundedSemaphore(compile_slots(mem=mem_available()))
+        return _COMPILE_SEM
 
 
 def set_slots(slots: Slots | None) -> None:
     global _SLOTS
     _SLOTS = slots
+
+
+def set_cache(cache: build_cache.Cache | None) -> None:
+    global _CACHE
+    _CACHE = cache
+
+
+def get_cache() -> build_cache.Cache | None:
+    return _CACHE
 
 
 def kill_all() -> None:
@@ -231,16 +293,93 @@ def _run_child_now(phase: str, job: dict, log: Path,
     return code, time.monotonic() - start, cpu
 
 
-def _job(spec: BuildSpec, workdir: Path, verilator: Path) -> dict:
+def _job(spec: BuildSpec, workdir: Path, verilator: Path, build_dir: Path | None = None) -> dict:
     return {
         "verilator": str(verilator),
         "top": spec.top,
         "params": spec.params,
         "waves": spec.waves,
         "coverage": spec.coverage,
-        "build_dir": str(spec.build_dir(workdir)),
+        "build_dir": str(build_dir or spec.build_dir(workdir)),
         "dv_dir": str(spec.ip.dv_dir),
     }
+
+
+_TOOL_IDENT: dict[str, dict] = {}
+
+
+def tool_ident(verilator: Path) -> dict:
+    """What a build depends on besides its sources: the Verilator version
+    and install (``$VERILATOR_ROOT``), the C++ compiler, the cocotb version
+    and install (its library path is linked into the executable) and the
+    Python that runs it."""
+    key = str(verilator)
+    if key not in _TOOL_IDENT:
+        try:
+            out = subprocess.run([str(verilator), "--version"], capture_output=True,
+                                 text=True, timeout=60).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            out = ""
+        import importlib.metadata
+        import importlib.util
+        try:
+            cocotb_version = importlib.metadata.version("cocotb")
+        except importlib.metadata.PackageNotFoundError:
+            cocotb_version = None
+        spec = importlib.util.find_spec("cocotb")
+        cxx = os.environ.get("CXX") or "g++"
+        try:
+            cxx_out = subprocess.run([cxx, "--version"], capture_output=True, text=True,
+                                     timeout=60).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            cxx_out = ""
+        _TOOL_IDENT[key] = {
+            "verilator": out, "verilator_path": key,
+            "verilator_root": os.environ.get("VERILATOR_ROOT"),
+            "cxx": cxx, "cxx_version": cxx_out,
+            "cocotb": cocotb_version, "cocotb_path": spec.origin if spec else None,
+            "python": sys.version, "python_path": sys.executable,
+        }
+    return _TOOL_IDENT[key]
+
+
+def driver_files() -> list[Path]:
+    """The build driver: every module of ``tools/build/`` (this file, the
+    filelist resolver, the backends, the cache), which decides how a build is
+    made beyond its settings."""
+    return sorted(Path(__file__).resolve().parent.glob("*.py"))
+
+
+def tree_root(ip) -> Path:
+    """The root that cache keys and coverage paths are relative to: the
+    parent of the source root (the worktree)."""
+    return Path(ip.src_root).resolve().parent
+
+
+def content_key(spec: BuildSpec, sources: list[Path], incdirs: list[Path],
+                defines: dict, verilator: Path) -> str:
+    """The build cache key: sha256 of the build settings, the tool versions,
+    the build driver (``tools/build/*.py``: how the build is invoked),
+    every source in order and every file under every include directory, by
+    content and by path relative to the worktree (so another worktree with
+    the same content shares the entry)."""
+    h = build_cache.Hasher(tree_root(spec.ip))
+    for f in driver_files():
+        h.file("driver", f)
+    h.value("settings", {
+        "schema": build_cache.SCHEMA, "top": spec.top, "params": spec.params,
+        "waves": spec.waves, "coverage": spec.coverage,
+        "args": BUILD_ARGS + (COVERAGE_ARGS if spec.coverage else []),
+        "defines": {k: ("" if v is None else v) for k, v in defines.items()},
+    })
+    h.value("tools", tool_ident(verilator))
+    for src in sources:
+        h.file("source", src)
+    for inc in incdirs:
+        h.value("incdir", h.name(inc))
+        for f in build_cache.tree_files(inc):
+            h.file("include", f)
+    return h.hexdigest()
 
 
 def sources_for(spec: BuildSpec, sources: list[Path], cfg_dir: Path) -> list[Path]:
@@ -271,18 +410,55 @@ def build(spec: BuildSpec, workdir: Path, verilator: Path,
         log.parent.mkdir(parents=True, exist_ok=True)
         log.write_text(f"error: {exc}\n")
         return Result("error", 0.0, log, str(exc))
+    cache = _CACHE
+    root = str(tree_root(spec.ip))
+    key = None
+    if cache is not None:
+        key = content_key(spec, sources, flat.incdirs, flat.defines, verilator)
+        hit = cache.lookup(spec.top, key)
+        if hit is not None:
+            entry = cache.entry(spec.top, key)
+            log.parent.mkdir(parents=True, exist_ok=True)
+            log.write_text(f"build cache hit: {build_cache.show(entry)}\n"
+                           f"key {key}\nbuilt from {hit.get('root')}\n")
+            return Result("pass", 0.0, log, "cached", build_dir=entry, cached=True,
+                          root=hit.get("root"))
     job = _job(spec, workdir, verilator)
     job.update(
         sources=[str(p) for p in sources],
         incdirs=[str(p) for p in flat.incdirs],
         defines=flat.defines,
     )
-    code, runtime, cpu = _run_child("build", job, log, timeout_s=BUILD_TIMEOUT_S)
+    if cache is not None:
+        job["ccache"] = True
+    with _compile_sem():
+        code, runtime, cpu = _run_child("build", job, log, timeout_s=BUILD_TIMEOUT_S)
     if code is None:
         return Result("error", runtime, log, f"build timed out after {BUILD_TIMEOUT_S}s")
     if code != 0:
         return Result("error", runtime, log, f"build failed, see {log}", cpu)
-    return Result("pass", runtime, log, cpu_s=cpu)
+    bdir = spec.build_dir(workdir)
+    if cache is None or key is None:
+        return Result("pass", runtime, log, cpu_s=cpu, build_dir=bdir, root=root)
+    exe = bdir / spec.top
+    try:
+        entry = cache.store(spec.top, key, [exe, log],
+                            {"root": root, "ip": spec.ip.id, "top": spec.top,
+                             "params": spec.params, "coverage": spec.coverage,
+                             "waves": spec.waves, "backend": spec.backend})
+    except OSError as exc:  # a full or broken cache never fails the build
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with open(log, "a") as fh:
+            fh.write(f"warning: not stored in the build cache: {exc}\n")
+        return Result("pass", runtime, log, cpu_s=cpu, build_dir=bdir, root=root)
+    # The executable now lives in the cache entry; drop the object files
+    # (hundreds of MB per build) and keep the log.
+    for p in bdir.iterdir():
+        if p.name != log.name:
+            shutil.rmtree(p) if p.is_dir() and not p.is_symlink() else p.unlink()
+    with open(log, "a") as fh:
+        fh.write(f"stored in the build cache: {build_cache.show(entry)}\nkey {key}\n")
+    return Result("pass", runtime, log, cpu_s=cpu, build_dir=entry, root=root)
 
 
 def run_test(
@@ -294,12 +470,14 @@ def run_test(
     testcase: str | None,
     seed: int,
     timeout_s: float | None,
+    built: Result | None = None,
 ) -> Result:
-    """Run one already-built test with one seed."""
+    """Run one already-built test with one seed; ``built`` is its build's
+    result (where the executable is, and the tree it was compiled from)."""
     tdir = test_dir(workdir, spec.ip, test, seed)
     if tdir.exists():
         shutil.rmtree(tdir)
-    job = _job(spec, workdir, verilator)
+    job = _job(spec, workdir, verilator, built.build_dir if built else None)
     job.update(
         module=module,
         testcase=testcase,
@@ -314,7 +492,28 @@ def run_test(
     status, detail = parse_results(tdir / "results.xml")
     if code != 0 and status == "pass":
         status, detail = "error", f"simulator exited with {code}"
+    if spec.coverage and built is not None and built.root:
+        if not rebase_coverage(tdir / COVERAGE_DAT, built.root, str(tree_root(spec.ip))):
+            with open(log, "a") as fh:
+                fh.write(f"warning: coverage: {COVERAGE_DAT} names no source under {built.root}, "
+                         "the tree the reused build was compiled from; its paths were not "
+                         "rewritten to this tree\n")
     return Result(status, runtime, log, detail, cpu)
+
+
+def rebase_coverage(dat: Path, old_root: str, new_root: str) -> bool:
+    """Point a reused build's coverage at this tree: Verilator records each
+    source by the path it was compiled from, and a cached build may come
+    from another worktree with the same content. Returns False when the
+    file names no source under ``old_root`` (nothing could be rewritten)."""
+    if old_root == new_root or not dat.is_file():
+        return True
+    old, new = "\x02" + old_root.rstrip("/") + "/", "\x02" + new_root.rstrip("/") + "/"
+    text = dat.read_text(errors="surrogateescape")
+    if old not in text:
+        return False
+    dat.write_text(text.replace(old, new), errors="surrogateescape")
+    return True
 
 
 def parse_results(results_xml: Path) -> tuple[str, str]:
@@ -351,6 +550,21 @@ def _coverage_test_args(job: dict) -> dict:
 # Child process: the only code that imports cocotb.
 
 
+def _ccache_env(job: dict) -> None:
+    """Compile the generated C++ through ccache when it is installed and the
+    build cache is on: OBJCACHE for Verilator's makefile, into ccache's own
+    directory (its configuration, by default ~/.cache/ccache: one per user
+    and host, shared by every run; wiki/tools/build/SPEC.md, "Build
+    cache"). Otherwise compile directly (OBJCACHE empty)."""
+    if not job.get("ccache") or shutil.which("ccache") is None:
+        os.environ["OBJCACHE"] = ""
+        return
+    os.environ["OBJCACHE"] = "ccache"
+    os.environ["CCACHE_BASEDIR"] = job["build_dir"]
+    os.environ["CCACHE_NOHASHDIR"] = "true"
+    os.environ.setdefault("CCACHE_SLOPPINESS", CCACHE_SLOPPINESS)
+
+
 def _child(phase: str, job_file: str) -> int:
     job = json.loads(Path(job_file).read_text())
     from cocotb_tools.runner import get_runner
@@ -360,6 +574,7 @@ def _child(phase: str, job_file: str) -> int:
     sys.path.insert(0, job["dv_dir"])
     runner = get_runner("verilator")
     if phase == "build":
+        _ccache_env(job)
         runner.build(
             sources=job["sources"],
             includes=job["incdirs"],

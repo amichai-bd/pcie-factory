@@ -17,6 +17,7 @@ tests:
     top: pcie_mac_tb
     seeds: 3
     timeout_s: 600
+    coverage_seeds: 2
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
   - name: tx_bubble
     module: tests.test_mac
