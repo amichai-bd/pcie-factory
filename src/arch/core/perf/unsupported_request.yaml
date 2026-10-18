@@ -1,0 +1,23 @@
+# Unsupported Request (wiki/src/arch/core/HAS.md#targets): per round an
+# I/O read, a memory read just past BAR0, a memory write hitting no BAR and
+# a configuration read to function 1, reporting enables on. Three UR
+# completions and one dropped write per round, Unsupported Request Detected
+# (cleared by the host each round), ERR_COR for each non-posted one
+# (advisory), ERR_NONFATAL for the posted one, and a BAR0 read still served.
+description: 3 rounds of four unsupported requests, then a BAR0 read each.
+seed: 1
+workload:
+  kind: unsupported
+  rounds: 3
+targets:
+  ur_completions: {min: 9, max: 9}
+  ur_completion_errors: {max: 0}
+  ur_posted_events: {min: 3, max: 3}
+  ur_nonposted_events: {min: 9, max: 9}
+  ur_detected: {min: 3, max: 3}
+  err_cor_messages: {min: 9, max: 9}
+  err_nonfatal_messages: {min: 3, max: 3}
+  err_fatal_messages: {max: 0}
+  bar0_reads_after: {min: 3, max: 3}
+  completion_errors: {max: 0}
+  other_tl_errors: {max: 0}

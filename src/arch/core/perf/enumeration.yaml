@@ -1,0 +1,11 @@
+# Enumeration over the link (wiki/src/arch/core/HAS.md#targets): IDs, capability walk, BAR sizing and
+# assignment, enables, MSI and MSI-X set-up, one MSI, one MSI-X pending
+# under the function mask then sent on the unmask, one MSI-X sent at once.
+description: 8 host enumerations from link-up, default then random parameters, bus and device.
+seed: 1
+workload:
+  kind: enumeration
+  trials: 8
+targets:
+  enumeration_errors: {max: 0}
+  interrupts_received: {min: 24, max: 24}

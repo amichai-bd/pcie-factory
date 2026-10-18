@@ -1,0 +1,12 @@
+$ quartus_map widget_board -c widget_board
+Info: *******************************************************************
+Info: Running Quartus Prime Analysis & Synthesis
+Warning (292013): The LogicLock feature needs a subscription license
+Info (12021): Found 1 design units, including 1 entities, in source file /var/lib/ci/work/checkout/src/rtl/widget/widget.sv
+Warning (10036): Verilog HDL or VHDL warning at widget.sv(12): object "dbg_q" assigned a value but never read
+Warning (10036): Verilog HDL or VHDL warning at widget.sv(13): object "dbg_r" assigned a value but never read
+Warning (21074): Design contains 1 input pin(s) that do not drive logic
+    Warning (15610): No output dependent on input pin "key_i" File: /var/lib/ci/work/checkout/src/fpga/widget/widget_board.sv Line: 4
+Critical Warning (332012): Constraint file /var/lib/ci/work/checkout/workdir/widget/fpga/extra.sdc was not found
+Warning (99999): Settings written by ci-user on build-host-07 to /opt/vendor/quartus/settings/widget_board.ini and copied to /var/lib/ci/work/checkout/workdir/widget/fpga/db/widget_board.ini for the later fitter, timing analysis and assembler steps of the same compilation run
+Info: Quartus Prime Analysis & Synthesis was successful. 0 errors, 7 warnings
