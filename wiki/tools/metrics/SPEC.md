@@ -13,7 +13,8 @@ schemas, the publishability rules and the workflows. Code: `tools/metrics/`
 ./build metrics commits [--file FILE] [--ref REV] [--no-ci] [--limit N] [--repo OWNER/NAME]
 ./build metrics guard   --branch NAME --base REV [--head REV]
 ./build metrics trends  [--dir DIR]...
-./build metrics red     --outcome success|failure --run-url URL [--repo OWNER/NAME]
+./build metrics red     --outcome success|failure --run-url URL [--head SHA] [--branch NAME]
+                        [--step NAME=pass|fail|skipped]... [--repo OWNER/NAME]
 ```
 
 The shared `--src-root` and `--workdir` options work as in the
@@ -38,7 +39,7 @@ GitHub (for `red`) or publishability error.
 | `line_comments`, `block_c` | Per extension, line-comment prefixes, and the extensions with `/* */` blocks, for code lines. |
 | `windows` | Trailing windows in days (`[1, 7, 30]`). |
 | `review_marker` | The review-verdict comment marker (`REVIEW-VERDICT`). |
-| `ci_workflow`, `nightly_workflow` | Workflow files whose runs feed `ci`, the series and the nightly duration. |
+| `ci_workflow`, `nightly_workflow` | Workflow files whose runs feed `ci`, the series and the nightly duration; `red` finds the last green nightly among `nightly_workflow`'s runs. |
 | `stale_days`, `health_ci_runs` | Health: stale-issue age, and how many latest main runs the pass rate covers. |
 | `max_pr_details` | How many most recently merged PRs are fetched one by one for their size. |
 | `slowest` | Number of slowest test runs kept. |
@@ -388,11 +389,31 @@ Keeps one open issue labelled `nightly-red`. `--run-url` must be
 
 | Outcome | Open `nightly-red` issues | Action |
 | --- | --- | --- |
-| `failure` | none | Open "Nightly run is red" with the run link, labelled `nightly-red`, `type:bug`, `area:ci`. |
-| `failure` | one or more | Comment the run link on the lowest-numbered one. |
+| `failure` | none | Open "Nightly run is red" with the run link and the failure details, labelled `nightly-red`, `type:bug`, `area:ci`. |
+| `failure` | one or more | Comment the run link and the failure details on the lowest-numbered one. |
 | `success` | any | Comment "green again" with the run link on each and close it (completed). |
 
 PRs carrying the label are ignored.
+
+**Failure details.** A full-L2 failure or a coverage-floor miss fails the
+nightly's `regress` step (the floors are checked in that run), so the issue
+names what changed since the nightly last held:
+
+- with `--step` (the nightly passes every step's outcome): `Failed steps:`
+  the steps whose outcome is `fail`;
+- with `--head` (the commit the nightly ran on, a full 40-character SHA):
+  the newest successful run of `nightly_workflow` on `--branch` (default
+  `main`; `GET repos/{repo}/actions/workflows/{file}/runs?branch=&status=success&per_page=1`)
+  is the last green nightly, and `GET repos/{repo}/compare/{green}...{head}`
+  lists the commits since it, oldest first: the count, each commit's
+  12-character SHA and subject line (the last 50 when there are more, then
+  `... <n> more`) and a compare link. With no green run on record, or none
+  newer than the last green commit, the issue says so (the second points to
+  a flaky test, host or tool). A failed lookup becomes a line saying the
+  commits could not be listed: the issue still opens or updates.
+
+`--head` must be a full lower-case SHA and `--branch` a plain branch name;
+otherwise `red` exits 2 before any write.
 
 ## Workflows
 
@@ -416,7 +437,7 @@ loss.
 | --- | --- | --- |
 | `nightly` (480 min) | read: contents, issues, pull-requests, actions | `./build check`; `./build ci unit` (every suite, including `./build arch --ip <ip>` for each IP with `src/arch/<ip>/perf/`, the only arch perf run); `./build regress --level 0 --level 1 --level 2 --coverage` (all IPs); `./build fpga --all` and the ASIC flow for IPs with `src/fpga/<ip>/` or `src/asic/<ip>/` (`--all`, else one `--ip` per IP); `./build metrics commits --ref origin/main` continuing the base branch's series, then `./build metrics collect --out-dir` with the step outcomes, the start time and the run id and attempt (this run's own `<date>T<HHMMSS>Z.json`); `./build metrics trends --dir wiki/tracker/data --dir <tonight's data>` into the job summary (the nightly summary); uploads both files. Every step runs even after a failure; a step whose subcommand is still a stub, or has no IP inputs, is `skipped`. |
 | `publish` (15 min) | write: contents, pull-requests, actions | Checks out without persisted credentials and installs PyYAML; commits only the two data files (`commits.jsonl` and this run's record, a new file beside the earlier runs'), as `github-actions[bot]`, on the data branch from the base tip; runs `./build metrics guard` from this trusted checkout; force-pushes the branch with the token passed for that one command; closes, with a comment, any other open `nightly/*` PR into the same base (they would conflict on `commits.jsonl`); opens (or reuses) the PR labelled `type:data` and `area:wiki`; dispatches `ci.yml` (`ci-gate`, with the data guard) on the branch; on `main`, enables squash auto-merge and dispatches `pages.yml` on `main`. |
-| `report` (5 min) | read contents, write issues | `./build metrics red` with `success` only when `nightly` and `publish` both succeeded. |
+| `report` (5 min) | read contents and actions, write issues | `./build metrics red` with `success` only when `nightly` and `publish` both succeeded, `--head` the run's commit and `--step` each nightly step's outcome (the `nightly` job's outputs; a missing one is `fail`). |
 
 Pushes and PRs made with `GITHUB_TOKEN` start no runnable workflows (a
 push starts none; the PR's `pull_request` runs are created as
@@ -519,7 +540,10 @@ invalid files), the `arch_py` kind, the forbidden-pattern scan, and an end-to-en
 inputs plant paths, emails and names that must not appear in the output
 (`test_metrics_record.py`); the guard on real branches including renames
 and a moving base (`test_metrics_guard.py`); and the red-issue rule
-(`test_metrics_red.py`); the trend series and drop rule on a fixture
+(`test_metrics_red.py`: open, update and close, and on failure the failed
+steps, the commits since the last green nightly, the cap on long ranges,
+no green run, no new commits, a failed lookup, and bad `--head` or
+`--branch`); the trend series and drop rule on a fixture
 history (`fixtures/trends/`) with a drop that alerts across a gap, a flat
 series, a drop equal to its threshold, a rise, a gap at the latest record,
 retired and new IPs, malformed and missing values, and the `trends`

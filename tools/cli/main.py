@@ -30,6 +30,7 @@ from fpga import flow as fpga
 from labels import core as labels
 from metrics import cli as metrics
 from pr import check as pr_check
+from build import slots as host_slots
 from regress import run as regress
 from regress.affected import GitError
 from regress.coverage import CoverageError
@@ -40,7 +41,18 @@ from specs.core import SpecsError
 WIKI_SITE = Path(__file__).resolve().parents[1] / "wiki_site"
 USER_ERRORS = (FilelistError, DiscoveryError, SchemaError, GitError, sim.SimError, CoverageError,
                fpga.FpgaError, labels.LabelsError, CheckConfigError, CiConfigError,
-               ArchError, SpecsError, pr_check.PrError, BackendError)
+               ArchError, SpecsError, pr_check.PrError, BackendError,
+               host_slots.SlotError)
+
+
+def _use_slots(args) -> None:
+    """Hold a host CPU slot per build and test (`--slots DIR`, else
+    $BUILD_SLOTS); wiki/tools/build/SPEC.md, "CPU slots"."""
+    pool = host_slots.from_option(args.slots)
+    sim.set_slots(pool)
+    if pool is not None:
+        print(f"slots: {pool.directory} ({pool.count} CPU slots shared by every run "
+              "that names it)", flush=True)
 
 
 def cmd_sim(ctx: Context, args) -> int:
@@ -56,6 +68,7 @@ def cmd_sim(ctx: Context, args) -> int:
     verilator = sim.find_verilator()
     if verilator is None:
         raise sim.SimError(sim.not_found_message())
+    _use_slots(args)
     spec = sim.BuildSpec(ip, entry.top, dict(entry.params), args.waves, backend=entry.backend)
     built = sim.build(spec, ctx.workdir, verilator)
     print(f"build {built.status} ({built.runtime_s:.1f}s): {built.log}")
@@ -82,6 +95,7 @@ def cmd_regress(ctx: Context, args) -> int:
         for entry, seed in selection.runs:
             print(f"L{entry.level} {entry.ip}:{entry.name} seed={seed}")
         return 0
+    _use_slots(args)
     if not selection.runs:
         print("no tests selected")
     summary = regress.run(ctx, selection, levels, jobs=args.jobs, waves=args.waves,
@@ -132,13 +146,15 @@ def cmd_pr(ctx: Context, args) -> int:
             raise pr_check.PrError("--body-file needs --head SHA")
         pr = pr_check.from_file(args.number, Path(args.body_file), args.head, args.files,
                                 None if args.labels is None else
-                                [x for x in args.labels.split(",") if x])
+                                [x for x in args.labels.split(",") if x],
+                                None if args.diff is None else Path(args.diff))
     else:
-        if args.head or args.files is not None or args.labels is not None:
-            raise pr_check.PrError("--head, --files and --labels need --body-file")
+        if args.head or args.files is not None or args.labels is not None or args.diff:
+            raise pr_check.PrError("--head, --files, --labels and --diff need --body-file")
         gh = labels.Gh(labels.resolve_repo(args.repo, ctx.repo_root))
         pr = pr_check.fetch(gh, args.number)
-    findings, notes = pr_check.check(pr, rules, standard)
+    neutral = pr_check.load_neutral(ctx.repo_root, ctx.src_root)
+    findings, notes = pr_check.check(pr, rules, standard, neutral)
     return pr_check.report(pr, findings, notes, sys.stdout)
 
 
@@ -224,6 +240,9 @@ def _sim_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--test", required=True, help="test name from the IP's level lists")
     p.add_argument("--seed", type=int, help="seed (default: the test's first regress seed)")
     p.add_argument("--waves", action="store_true", help="dump waves into the test directory")
+    p.add_argument("--slots", metavar="DIR",
+                   help="host CPU slot directory shared with other runs: each build and test "
+                        f"holds one of nproc slots (default: ${host_slots.ENV})")
 
 
 def _regress_args(p: argparse.ArgumentParser) -> None:
@@ -240,6 +259,9 @@ def _regress_args(p: argparse.ArgumentParser) -> None:
                    help="coverage builds; merge line, toggle and functional coverage per IP "
                         "and check the floors")
     p.add_argument("--dry-run", action="store_true", help="print the selection only")
+    p.add_argument("--slots", metavar="DIR",
+                   help="host CPU slot directory shared with other runs: each build and test "
+                        f"holds one of nproc slots (default: ${host_slots.ENV})")
 
 
 def _clean_args(p: argparse.ArgumentParser) -> None:
@@ -287,6 +309,9 @@ def _pr_args(p: argparse.ArgumentParser) -> None:
                         "the mutation rule is skipped)")
     c.add_argument("--labels", metavar="A,B",
                    help="with --body-file: the PR labels (default: unknown, skipped)")
+    c.add_argument("--diff", metavar="FILE",
+                   help="with --body-file: the PR's unified diff (git diff output), for the "
+                        "neutrality rule; also gives --files when that is absent")
 
 
 def _ci_args(p: argparse.ArgumentParser) -> None:

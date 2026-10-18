@@ -56,6 +56,15 @@ def add_args(p: argparse.ArgumentParser) -> None:
     r = act.add_parser("red", parents=[repo], help="open, update or close the nightly-red issue")
     r.add_argument("--outcome", required=True, choices=red.OUTCOMES)
     r.add_argument("--run-url", required=True, help="the nightly run's URL")
+    r.add_argument("--head", metavar="SHA",
+                   help="the commit the nightly ran on: a failure lists the commits since "
+                        "the last green nightly")
+    r.add_argument("--branch", default="main",
+                   help="branch of the nightly runs searched for the last green one "
+                        "(default: main)")
+    r.add_argument("--step", action="append", default=[], metavar="NAME=OUTCOME",
+                   help="nightly step outcome (pass|fail|skipped); a failure names the "
+                        "failed steps; repeatable")
 
 
 def _positive(value: str) -> int:
@@ -221,7 +230,9 @@ def run(ctx: Context, args) -> int:
             print("\n".join(lines))
             return 0 if passed else 1
         gh = Gh(resolve_repo(args.repo, ctx.repo_root))
-        action, numbers = red.sync(gh, args.outcome, args.run_url)
+        steps = _steps(args.step) if args.step else None
+        action, numbers = red.sync(gh, args.outcome, args.run_url, args.head, steps,
+                                   load(ctx.cfg_dir).nightly_workflow, args.branch)
         print(f"[metrics] nightly-red: {action}" + "".join(f" #{n}" for n in numbers))
         return 0
     except MetricsError as exc:

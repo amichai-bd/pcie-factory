@@ -23,7 +23,7 @@ issue -> claim -> branch + worktree -> code + wiki -> validate -> draft PR
 | 2 | Claim: `in-progress` label and a claim comment | firstmate | [1](#1-issue-and-claim-firstmate) |
 | 3 | Branch `<n>-<slug>` from `origin/main`, worktree `worktrees/<n>-<slug>/` | firstmate | [2](#2-branch-and-worktree), [3](#3-delegate-firstmate) |
 | 4 | Code and its owning wiki pages together, inside issue scope | implementer | [4](#4-implement-and-validate-implementer) |
-| 5 | Focused checks, then the required levels once on the review commit | implementer | [4](#4-implement-and-validate-implementer) |
+| 5 | Focused checks, then the affected L0+L1 once on the review commit | implementer | [4](#4-implement-and-validate-implementer) |
 | 6 | Push and open a draft PR that closes the issue | implementer | [5](#5-commit-push-draft-pr-implementer) |
 | 7 | Independent reviewer writes one `REVIEW-VERDICT` for the exact head; the firstmate posts it verbatim | reviewer, firstmate | [6](#6-review-loop) |
 | 8 | Fix every accepted finding, re-review the new head; repeat | implementer | [6](#6-review-loop) |
@@ -101,10 +101,17 @@ The firstmate may implement itself, but then a different crewmate reviews.
    matching area skill from the [`CLAUDE.md` table](../../../CLAUDE.md#skills).
 3. Loop on the cheapest focused check that can reject the edit. Fix causes;
    never mute a warning, weaken a check or skip a test.
-4. On the commit intended for review, run the required levels once
-   ([local evidence](../../../wiki/bkm/devops.md#local-evidence)). Record
-   exact commands, seeds, versions and results. Output stays under the
-   worktree's `workdir/`.
+4. On the commit intended for review, run the required set once
+   ([local evidence](../../../wiki/bkm/devops.md#local-evidence)): the
+   affected L0+L1 (or cite `ci-gate`'s run of it on the head), targeted L2
+   entries only when the change targets L2 behaviour or a reviewer asks, and
+   mutants only of the changed code. Full L2, coverage floors and broad
+   mutant campaigns are the nightly's. Record exact commands, seeds,
+   versions and results. Output stays under the worktree's `workdir/`.
+5. On a shared host, pass every `./build sim` and `./build regress` the
+   host's CPU slot directory (`--slots <dir>` or `$BUILD_SLOTS`), never a
+   global lock; mutants run serially with `--jobs 1`
+   ([CPU slots](../../../wiki/bkm/devops.md#local-evidence)).
 
 ## 5. Commit, push, draft PR (implementer)
 

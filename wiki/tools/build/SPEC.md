@@ -10,6 +10,7 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `tools/build/filelist.py` | The `.f` filelist resolver. |
 | `tools/build/ip.py` | Repository context (source root, workdir) and IP discovery. |
 | `tools/build/sim.py` | Verilator + cocotb build and test driver. |
+| `tools/build/slots.py` | Host [CPU slots](#cpu-slots) shared by every `sim` and `regress` run. |
 | `tools/build/logexcerpt.py` | The [failure excerpt](#failure-excerpt) the vendor flows print for a failed step. |
 | `tools/regress/` | Regression lists, selection and summary; see the [regress spec](../regress/SPEC.md). |
 | `tools/fpga/` | Quartus FPGA flow and report parsing; see the [fpga spec](../fpga/SPEC.md). |
@@ -162,7 +163,7 @@ synthesis view.
 ## Simulation: `./build sim`
 
 ```
-./build sim --ip <id> --test <name> [--seed N] [--waves]
+./build sim --ip <id> --test <name> [--seed N] [--waves] [--slots DIR]
 ```
 
 The command looks `<name>` up across the IP's level lists (test names are
@@ -209,6 +210,7 @@ the IP's `src/dv/<ip>/` and `tools/`, so a test can import the
 - A build has a fixed wall-clock bound, `BUILD_TIMEOUT_S` (1800 s) in
   `sim.py`. Exceeding it is a build `error`.
 - On Ctrl-C, every active group is killed and the command exits 130.
+- With [CPU slots](#cpu-slots), a child starts only once it holds a slot.
 
 The filelist is resolved before the build child starts. A resolve failure
 is a build `error`, with the `file:line` message as the detail and in
@@ -234,6 +236,42 @@ A test's status comes from `results.xml`:
 | `fail` | At least one test case has a failure or error. |
 | `timeout` | The run exceeded `timeout_s` and was killed. |
 | `error` | The build failed, `results.xml` is missing, empty or unreadable (for example truncated), or the simulator exited nonzero without a recorded failure. |
+
+## CPU slots
+
+Several agents share one host. `--slots DIR` on `./build sim` and
+`./build regress` (default `$BUILD_SLOTS`; neither: no slots) names a slot
+directory holding one lock file per CPU, `slot-<i>.lock` for `i` in
+`0 .. N-1`, where `N` is the number of CPUs the process may run on (its
+affinity mask). The directory is created when missing; one that cannot be
+created or written is a usage error (exit 2).
+
+- Each build and each test child holds one slot, an exclusive `flock` on its
+  file, for as long as it runs: it scans the files for a free one and, when
+  all are taken, retries every 0.2 s. Its wall time and timeout start once
+  the slot is held, so waiting never counts as test time or a timeout.
+- Every run that names the same directory shares the `N` slots, so together
+  they never run more children than the host has CPUs, whatever `--jobs`
+  each asked for; a small run waits only for a free CPU, not for another
+  run to finish.
+- The kernel releases a lock when its holder exits, so a killed run never
+  leaves a slot taken. Ctrl-C while waiting starts nothing and exits 130.
+- A slot is checked against the stop flag after it is taken, and a child
+  starts under the lock that the Ctrl-C handler snapshots: a child is either
+  killed by Ctrl-C or never started.
+- A run prints `slots: DIR (N CPU slots ...)` before its first child.
+
+Limits. Slots bound child processes, not busy CPUs: a Verilator build may
+use more than one CPU. Each run derives `N` from its own affinity mask, so
+runs with different masks see different counts. Waiters poll from slot 0
+with no queue, so there is no fairness between runs. A run killed with
+SIGKILL frees its slots while its children, in their own sessions, keep
+running.
+
+The [DevOps BKM](../../bkm/devops.md#local-evidence) owns the policy (one
+directory per host for every agent). Tests: `tools/build/tests/test_slots.py`
+(exclusive and released slots, waiting, a slot held by another process, Ctrl-C
+while waiting, `$BUILD_SLOTS` and `--slots`, an unusable directory).
 
 ## Failure excerpt
 

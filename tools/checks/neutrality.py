@@ -154,3 +154,61 @@ def run(repo_root: Path, config_path: str = CONFIG) -> CheckResult:
                       f"{', '.join(EXEMPT)}; {len(cfg.words)} word(s); "
                       f"slug exempt in URLs: {slug or 'none'}")
     return result
+
+
+# --- IP names used as identifiers (#311, #325) --------------------------------
+#
+# IP ids are discovered from src/ and many are ordinary words, so a bare
+# substring match would flag plain English. An id counts only where it is
+# used as an identifier:
+#   - a whole code span or quoted string: `<id>`, '<id>', "<id>";
+#   - a directory path segment: <id>/... or .../<id>/... (a file stem such as
+#     <id>.py, or a last segment such as "die/<id>", is not one);
+#   - an IP selector: --ip <id>, --ip=<id>, or a `<id>:<test>` reference;
+#   - the id followed by "IP" or "sub-IP" ("<id> IP").
+# Ids equal to a top-level entry of the repository (such as its configuration
+# folder) are skipped: as path segments they name that entry, not the IP.
+
+
+def ip_ids(src_root: Path, repo_root: Path | None = None) -> tuple[str, ...]:
+    """Discovered IP ids, less those that equal a top-level repository entry."""
+    from build.ip import DiscoveryError, discover
+    try:
+        ids = [ip.id for ip in discover(src_root)]
+    except DiscoveryError as exc:
+        raise CheckConfigError(str(exc)) from None
+    top = set()
+    if repo_root is not None and Path(repo_root).is_dir():
+        top = {p.name for p in Path(repo_root).iterdir()}
+    return tuple(i for i in ids if i not in top)
+
+
+def ip_pattern(ids: tuple[str, ...]) -> re.Pattern | None:
+    """Matches an IP id used as an identifier; group ``id`` holds the id."""
+    if not ids:
+        return None
+    alt = "|".join(re.escape(i) for i in sorted(ids, key=len, reverse=True))
+    forms = [
+        rf"(?P<q>[`'\"])(?P<id>{alt})(?P=q)",                      # whole span / string
+        rf"(?<![\w.-])(?P<id2>{alt})/",                             # leading segment
+        rf"(?<=/)(?P<id3>{alt})/",                                  # inner segment
+        rf"--ip[ =](?P<id4>{alt})\b",                               # selector
+        rf"`(?P<id5>{alt}):\w",                                     # <id>:<test>
+        rf"(?<![\w.-])(?P<id6>{alt})\s+(?:sub-)?IPs?\b",            # "<id> IP"
+    ]
+    return re.compile("|".join(f"(?:{f})" for f in forms))
+
+
+def scan_ip_text(text: str, pattern: re.Pattern | None,
+                 slug: re.Pattern | None = None) -> list[tuple[int, str]]:
+    """(line number, IP id) for every identifier use outside an exempt slug."""
+    if pattern is None:
+        return []
+    hits = []
+    for n, line in enumerate(text.splitlines(), start=1):
+        if slug is not None:
+            line = slug.sub(lambda m: " " * len(m.group()), line)
+        for m in pattern.finditer(line):
+            ip = next(v for k, v in m.groupdict().items() if k.startswith("id") and v)
+            hits.append((n, ip))
+    return hits
