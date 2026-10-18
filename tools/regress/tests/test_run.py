@@ -2,6 +2,7 @@
 
 import io
 import json
+import zlib
 from pathlib import Path
 
 import pytest
@@ -9,7 +10,7 @@ import pytest
 from build import sim
 from build.ip import Context, REPO_ROOT, DiscoveryError
 from regress import run as regress
-from regress.schema import LevelBudget, SchemaError
+from regress.schema import LevelBudget, Rotation, SchemaError, load_rotation
 
 
 def ctx_for(src: Path, tmp_path: Path) -> Context:
@@ -111,7 +112,7 @@ def test_summary_and_budget_warning(fixture_src, tmp_path):
     assert summary["tests"][0] == {
         "ip": "counter", "level": 0, "name": "counts", "seed": sel.runs[0][1],
         "status": "pass", "runtime_s": 1.5, "cpu_s": 1.25, "log": "counter/counts/1/sim.log",
-        "detail": "", "coverage": False, "reused": False,
+        "detail": "", "coverage": False, "reused": False, "extra": False,
     }
     assert summary["totals"]["level0"] == {
         "tests": 2, "passed": 2, "reused": 0, "failed": 0, "runtime_s": 2.0, "cpu_s": 1.5,
@@ -248,3 +249,175 @@ def test_model_check_pass_is_reused_until_its_inputs_change(fixture_src, tmp_pat
     sim.set_cache(None)  # cache off: always run
     summary, _ = once()
     assert len(ran) == 2 and summary["build_cache"] is None
+
+
+# --- seed rotation (wiki/tools/regress/SPEC.md, "Seed rotation") -------------
+
+def rot(key="2026-10-18", n=2, budget=1e9, level=2):
+    return Rotation(key, level, n, budget)
+
+
+def test_rotated_seeds_are_derived_from_the_key(fixture_src, tmp_path):
+    ctx = ctx_for(fixture_src, tmp_path)
+    entry = regress.select(ctx, [2]).runs[0][0]
+    a = regress.rotated_seeds(entry, "2026-10-18", 3, [])
+    assert a == regress.rotated_seeds(entry, "2026-10-18", 3, [])  # deterministic
+    assert a[0] == zlib.crc32(f"rotate:2026-10-18:{entry.ip}:{entry.name}:0".encode()) & 0x7FFFFFFF
+    assert len(set(a)) == 3 and all(0 <= s < 2**31 for s in a)
+    assert regress.rotated_seeds(entry, "2026-10-19", 3, []) != a  # the next night rotates
+    assert regress.rotated_seeds(entry, "run-12345", 3, []) != a   # a run id works too
+    assert regress.rotated_seeds(entry, "2026-10-18", 2, []) == a[:2]  # N is a prefix
+    assert regress.rotated_seeds(entry, "2026-10-18", 0, []) == []
+
+
+def test_rotated_seeds_skip_pinned_seeds(fixture_src, tmp_path):
+    ctx = ctx_for(fixture_src, tmp_path)
+    entry = regress.select(ctx, [2]).runs[0][0]
+    a = regress.rotated_seeds(entry, "k", 3, [])
+    b = regress.rotated_seeds(entry, "k", 3, [a[0]])
+    assert a[0] not in b and b[:2] == a[1:]
+
+
+def test_rotation_adds_extra_runs_on_the_rotation_level_only(fixture_src, tmp_path):
+    ctx = ctx_for(fixture_src, tmp_path)
+    plain = regress.select(ctx, [0, 1, 2])
+    sel = regress.select(ctx, [0, 1, 2], rotation=rot(n=2))
+    assert sel.runs == plain.runs and plain.extra == []  # pinned runs unchanged
+    l2 = [e for e, _ in plain.runs if e.level == 2]
+    assert len(sel.extra) == 2 * len(set(l2)) and {e.level for e, _ in sel.extra} == {2}
+    pinned = {s for _, s in plain.runs}
+    assert not pinned & {s for _, s in sel.extra}
+    assert sel.extra == regress.select(ctx, [0, 1, 2], rotation=rot(n=2)).extra
+    assert regress.select(ctx, [0, 1], rotation=rot(n=2)).extra == []  # level not selected
+    assert regress.select(ctx, [2], ["counter_inc"], rotation=rot()).extra == []
+
+
+def test_load_rotation(tmp_path):
+    from build.ip import REPO_ROOT as root
+    r = load_rotation(root / "cfg", "2026-10-18")
+    assert r.key == "2026-10-18" and r.level == 2 and r.extra_seeds >= 1 and r.budget_s > 0
+    assert load_rotation(root / "cfg", "123", extra_seeds=0).extra_seeds == 0
+    for bad in ["", "a b", "x" * 65, "../x", "-x"]:
+        with pytest.raises(SchemaError, match="--rotate"):
+            load_rotation(root / "cfg", bad)
+    with pytest.raises(SchemaError, match="extra_seeds"):
+        load_rotation(root / "cfg", "k", extra_seeds=-1)
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    (cfg / "levels.yaml").write_text("rotation: {level: 2, extra_seeds: 1}\n")
+    with pytest.raises(SchemaError, match="must have exactly"):
+        load_rotation(cfg, "k")
+    (cfg / "levels.yaml").write_text("rotation: {level: 5, extra_seeds: 1, budget_s: 9}\n")
+    with pytest.raises(SchemaError, match="level must be"):
+        load_rotation(cfg, "k")
+    (cfg / "levels.yaml").write_text("rotation: {level: 2, extra_seeds: 1, budget_s: 0}\n")
+    with pytest.raises(SchemaError, match="budget_s"):
+        load_rotation(cfg, "k")
+
+
+def test_extra_runs_are_plain_marked_and_outside_the_level_totals(fixture_src, tmp_path,
+                                                                  monkeypatch):
+    ran = []
+    _fake_children(monkeypatch, ran)
+    monkeypatch.setattr(regress, "collect_coverage",
+                        lambda ctx, sel, lv, res, fl, tool, cov_of: {"ips": {}, "passed": True})
+    monkeypatch.setattr(regress.cov, "find_tool", lambda v: Path("/fake/verilator_coverage"))
+    ctx = ctx_for(fixture_src, tmp_path)
+    sel = regress.select(ctx, [2], ["counter"], rotation=rot(n=1))
+    summary = regress.run(ctx, sel, [2], out=io.StringIO(), coverage=True)
+    (extra_entry, extra_seed), = sel.extra
+    assert (extra_entry.name, extra_seed, False) in ran  # never a coverage run
+    rows = [t for t in summary["tests"] if t["extra"]]
+    assert [(t["seed"], t["coverage"]) for t in rows] == [(extra_seed, False)]
+    assert summary["totals"]["level2"]["tests"] == len(sel.runs)
+    assert summary["rotation"] == {
+        "key": "2026-10-18", "level": 2, "extra_seeds": 1, "budget_s": 1e9, "runs": 1,
+        "passed": 1, "failed": 0, "cpu_s": 0.1, "skipped": []}
+    out = io.StringIO()
+    regress.report(summary, out, io.StringIO())
+    assert "rotation 2026-10-18: 1/1 extra runs passed" in out.getvalue()
+    no_rot = regress.run(ctx, regress.select(ctx, [2], ["counter"]), [2], out=io.StringIO())
+    assert no_rot["rotation"] is None
+
+
+def test_rotation_budget_stops_starting_extra_runs(fixture_src, tmp_path, monkeypatch):
+    ran = []
+    _fake_children(monkeypatch, ran)  # each run takes 0.1 s of CPU
+    ctx = ctx_for(fixture_src, tmp_path)
+    sel = regress.select(ctx, [2], ["counter"], rotation=rot(n=3, budget=0.15))
+    summary = regress.run(ctx, sel, [2], jobs=1, out=io.StringIO())
+    r = summary["rotation"]
+    assert r["runs"] == 2 and len(r["skipped"]) == 1  # the 2nd starts at 0.1 < 0.15
+    assert r["skipped"] == [{"ip": "counter", "name": sel.extra[2][0].name,
+                             "seed": sel.extra[2][1]}]
+    assert len([t for t in summary["tests"] if not t["extra"]]) == len(sel.runs)
+    assert summary["passed"] is True  # a run not started is not a failure
+
+
+def test_failing_extra_seed_fails_the_run_with_its_repro(fixture_src, tmp_path, monkeypatch):
+    ran = []
+    _fake_children(monkeypatch, ran)
+    ctx = ctx_for(fixture_src, tmp_path)
+    sel = regress.select(ctx, [2], ["counter"], rotation=rot(n=1))
+    (entry, bad), = sel.extra
+    good = sim.run_test
+
+    def run_test(spec, workdir, verilator, test, module, testcase, seed, *a, **k):
+        res = good(spec, workdir, verilator, test, module, testcase, seed, *a, **k)
+        return sim.Result("fail", 0.2, res.log, "failed: x", 0.1) if seed == bad else res
+
+    monkeypatch.setattr(sim, "run_test", run_test)
+    summary = regress.run(ctx, sel, [2], out=io.StringIO())
+    assert summary["passed"] is False and summary["rotation"]["failed"] == 1
+    assert summary["totals"]["level2"]["failed"] == 0  # pinned seeds all passed
+    err = io.StringIO()
+    assert regress.report(summary, io.StringIO(), err) == 1
+    assert (f"error: extra seed fail: counter:{entry.name} seed={bad}; reproduce: "
+            f"./build sim --ip counter --test {entry.name} --seed {bad}") in err.getvalue()
+
+
+def test_pinned_runs_start_first_then_extras_in_key_order(fixture_src, tmp_path, monkeypatch):
+    lv2 = fixture_src / "dv/counter/regress/level2.yaml"
+    lv2.write_text(lv2.read_text() + "  - {name: second, module: tests.test_counter, top: counter,"
+                   " seeds: 1, timeout_s: 60}\n")
+    ran = []
+    _fake_children(monkeypatch, ran)
+    got = {}
+
+    def collect(ctx, sel, lv, results, fl, tool, cov_of):
+        got["seeds"] = [int(r.log.parent.name) for r in results]
+        return {"ips": {}, "passed": True}
+
+    monkeypatch.setattr(regress, "collect_coverage", collect)
+    monkeypatch.setattr(regress.cov, "find_tool", lambda v: Path("/fake/verilator_coverage"))
+    ctx = ctx_for(fixture_src, tmp_path)
+    sel = regress.select(ctx, [2], ["counter"], rotation=rot(n=3))
+    regress.run(ctx, sel, [2], jobs=1, out=io.StringIO(), coverage=True)
+    started = [(t, s) for t, s, _ in ran]
+    pinned = [(e.name, s) for e, s in sel.runs]
+    assert started[:len(pinned)] == pinned  # every pinned run starts before any extra
+    extras = started[len(pinned):]
+    assert len(extras) == 6
+    by_key = sorted(sel.extra, key=lambda r: regress.rotation_order("2026-10-18", r))
+    assert extras == [(e.name, s) for e, s in by_key]
+    assert extras != sorted(extras, key=lambda r: (r[0], r[1]))  # shuffled, not sorted
+    other = sorted(sel.extra, key=lambda r: regress.rotation_order("2026-10-19", r))
+    assert other != by_key  # another key, another order
+    assert got["seeds"] == [s for _, s in sel.runs]  # coverage sees pinned results only
+
+
+def test_extra_only_builds_are_marked(fixture_src, tmp_path, monkeypatch):
+    ran = []
+    _fake_children(monkeypatch, ran)
+    monkeypatch.setattr(regress, "collect_coverage",
+                        lambda ctx, sel, lv, res, fl, tool, cov_of: {"ips": {}, "passed": True})
+    monkeypatch.setattr(regress.cov, "find_tool", lambda v: Path("/fake/verilator_coverage"))
+    lv2 = fixture_src / "dv/counter/regress/level2.yaml"
+    lv2.write_text(lv2.read_text().replace("seeds: 2", "seeds: 1"))
+    ctx = ctx_for(fixture_src, tmp_path)
+    sel = regress.select(ctx, [2], ["counter"], rotation=rot(n=1))
+    summary = regress.run(ctx, sel, [2], out=io.StringIO(), coverage=True)
+    # The single pinned seed uses the coverage build; the plain one exists for the extra.
+    assert sorted(b["extra"] for b in summary["builds"]) == [False, True]
+    plain = regress.run(ctx, regress.select(ctx, [2], ["counter"]), [2], out=io.StringIO())
+    assert [b["extra"] for b in plain["builds"]] == [False]

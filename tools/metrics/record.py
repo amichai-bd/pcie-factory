@@ -167,6 +167,8 @@ def tests_section(summary_path: Path, cfg: Config) -> dict:
         s = json.loads(summary_path.read_text())
         runs = []
         for t in s["tests"]:
+            if t.get("extra") is True:
+                continue  # extra rotated seeds: outside the series (regress SPEC, Seed rotation)
             if not (isinstance(t["ip"], str) and _NAME.match(t["ip"])
                     and isinstance(t["name"], str) and _NAME.match(t["name"])):
                 raise ValueError("bad test identity")
@@ -179,7 +181,8 @@ def tests_section(summary_path: Path, cfg: Config) -> dict:
                 raise ValueError("bad level key")
             totals[key] = {k: t[k] for k in ("tests", "passed", "failed", "runtime_s",
                                              "budget_s", "over_budget")}
-        builds = s.get("builds", [])
+        # Builds only extra rotated runs need are left out like those runs.
+        builds = [b for b in s.get("builds", []) if b.get("extra") is not True]
         levels = [int(x) for x in s["levels"]]
         passed = bool(s["passed"])
         wall = float(s["wall_s"])

@@ -246,7 +246,49 @@ def load_budgets(cfg_dir: Path) -> dict[int, LevelBudget]:
         if isinstance(b, bool) or not isinstance(b, (int, float)) or b <= 0:
             raise SchemaError(f"{path}: {key}.budget_s must be a positive number")
         budgets[level] = LevelBudget(level, str(raw["description"]), float(b))
-    extra = set(data) - {f"level{lv}" for lv in LEVELS}
+    extra = set(data) - {f"level{lv}" for lv in LEVELS} - {ROTATION_KEY}
     if extra:
         raise SchemaError(f"{path}: unknown key(s): {', '.join(sorted(extra))}")
     return budgets
+
+
+ROTATION_KEY = "rotation"
+_ROTATION_FIELDS = {"level", "extra_seeds", "budget_s"}
+_ROTATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+@dataclass(frozen=True)
+class Rotation:
+    """Extra rotated seeds (wiki/tools/regress/SPEC.md, "Seed rotation"):
+    ``extra_seeds`` more seeds per entry of ``level``, derived from ``key``,
+    started while their CPU time stays under ``budget_s``."""
+    key: str
+    level: int
+    extra_seeds: int
+    budget_s: float
+
+
+def load_rotation(cfg_dir: Path, key: str, extra_seeds: int | None = None) -> Rotation:
+    """The ``rotation`` section of ``cfg/levels.yaml`` for rotation ``key``;
+    ``extra_seeds`` overrides its count."""
+    path = cfg_dir / "levels.yaml"
+    if not isinstance(key, str) or not _ROTATION_ID.match(key):
+        raise SchemaError(f"--rotate: the key must match {_ROTATION_ID.pattern} "
+                          f"(a date or a run id), got {key!r}")
+    data = _load_yaml(path) if path.is_file() else None
+    raw = data.get(ROTATION_KEY) if isinstance(data, dict) else None
+    if not isinstance(raw, dict) or set(raw) != _ROTATION_FIELDS:
+        raise SchemaError(f"{path}: '{ROTATION_KEY}' must have exactly "
+                          f"{', '.join(sorted(_ROTATION_FIELDS))}")
+    level = raw["level"]
+    if isinstance(level, bool) or level not in LEVELS:
+        raise SchemaError(f"{path}: {ROTATION_KEY}.level must be one of "
+                          f"{', '.join(map(str, LEVELS))}")
+    count = raw["extra_seeds"] if extra_seeds is None else extra_seeds
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        raise SchemaError(f"{path}: {ROTATION_KEY}.extra_seeds (or --extra-seeds) must be "
+                          f"a count >= 0")
+    b = raw["budget_s"]
+    if isinstance(b, bool) or not isinstance(b, (int, float)) or b <= 0:
+        raise SchemaError(f"{path}: {ROTATION_KEY}.budget_s must be a positive number")
+    return Rotation(key, level, count, float(b))

@@ -14,7 +14,7 @@ schemas, the publishability rules and the workflows. Code: `tools/metrics/`
 ./build metrics guard   --branch NAME --base REV [--head REV]
 ./build metrics trends  [--dir DIR]...
 ./build metrics red     --outcome success|failure --run-url URL [--head SHA] [--branch NAME]
-                        [--step NAME=pass|fail|skipped]... [--repo OWNER/NAME]
+                        [--step NAME=pass|fail|skipped]... [--summary FILE] [--repo OWNER/NAME]
 ```
 
 The shared `--src-root` and `--workdir` options work as in the
@@ -182,6 +182,14 @@ unavailable.
 ### `tests`
 
 From `<workdir>/regress/summary.json` (the [regress spec](../regress/SPEC.md)).
+Extra rotated seeds (rows with `extra` true,
+[seed rotation](../regress/SPEC.md#seed-rotation)) are left out of
+`totals`, `ips`, `slowest` and `runs`, and the builds only they need (summary
+builds with `extra` true) out of `builds`, so the series compare the pinned
+seeds night to night. Two fields still include them: `passed`, which a
+failing extra run or extra-only build makes false (`red` then lists the
+failed runs, an extra-only build failure as its runs' `error`), and
+`wall_s`, the wall time of the whole regress run, extra runs included.
 
 | Field | Value |
 | --- | --- |
@@ -395,9 +403,10 @@ Keeps one open issue labelled `nightly-red`. `--run-url` must be
 
 PRs carrying the label are ignored.
 
-**Failure details.** A full-L2 failure or a coverage-floor miss fails the
-nightly's `regress` step (the floors are checked in that run), so the issue
-names what changed since the nightly last held:
+**Failure details.** A full-L2 failure, a coverage-floor miss or a failing
+[rotated extra seed](../regress/SPEC.md#seed-rotation) fails the nightly's
+`regress` step (the floors are checked in that run), so the issue names
+what changed since the nightly last held and what failed:
 
 - with `--step` (the nightly passes every step's outcome): `Failed steps:`
   the steps whose outcome is `fail`;
@@ -411,6 +420,16 @@ names what changed since the nightly last held:
   newer than the last green commit, the issue says so (the second points to
   a flaky test, host or tool). A failed lookup becomes a line saying the
   commits could not be listed: the issue still opens or updates.
+- with `--summary` (the run's `./build regress` `summary.json`):
+  `Failed regression runs: <n>`, then one line per run whose status is not
+  `pass` (the first 30, then `... <n> more`), each with its level, IP, test,
+  exact seed and status, `extra seed of rotation <key>` for an extra
+  rotated seed, and the command that reproduces it,
+  `./build sim --ip <ip> --test <name> --seed <seed>`. Only those names,
+  seeds and statuses are copied (names must match the regression-list name
+  rule), never a log, path or detail message. A missing summary (regress
+  never ran) or an unreadable one becomes a line saying the runs are not
+  listed; a summary with no failed run adds nothing.
 
 `--head` must be a full lower-case SHA and `--branch` a plain branch name;
 otherwise `red` exits 2 before any write.
@@ -435,9 +454,9 @@ loss.
 
 | Job | Permissions | Does |
 | --- | --- | --- |
-| `nightly` (480 min) | read: contents, issues, pull-requests, actions | `./build check`; `./build ci unit` (every suite, including `./build arch --ip <ip>` for each IP with `src/arch/<ip>/perf/`, the only arch perf run); `./build regress --level 0 --level 1 --level 2 --coverage` (all IPs); `./build fpga --all` and the ASIC flow for IPs with `src/fpga/<ip>/` or `src/asic/<ip>/` (`--all`, else one `--ip` per IP); `./build metrics commits --ref origin/main` continuing the base branch's series, then `./build metrics collect --out-dir` with the step outcomes, the start time and the run id and attempt (this run's own `<date>T<HHMMSS>Z.json`); `./build metrics trends --dir wiki/tracker/data --dir <tonight's data>` into the job summary (the nightly summary); uploads both files. Every step runs even after a failure; a step whose subcommand is still a stub, or has no IP inputs, is `skipped`. |
+| `nightly` (480 min) | read: contents, issues, pull-requests, actions | `./build check`; `./build ci unit` (every suite, including `./build arch --ip <ip>` for each IP with `src/arch/<ip>/perf/`, the only arch perf run); `./build regress --level 0 --level 1 --level 2 --coverage --rotate <date>` (all IPs, with the date's [rotated extra seeds](../regress/SPEC.md#seed-rotation)); `./build fpga --all` and the ASIC flow for IPs with `src/fpga/<ip>/` or `src/asic/<ip>/` (`--all`, else one `--ip` per IP); `./build metrics commits --ref origin/main` continuing the base branch's series, then `./build metrics collect --out-dir` with the step outcomes, the start time and the run id and attempt (this run's own `<date>T<HHMMSS>Z.json`); `./build metrics trends --dir wiki/tracker/data --dir <tonight's data>` into the job summary (the nightly summary); uploads both files. Every step runs even after a failure; a step whose subcommand is still a stub, or has no IP inputs, is `skipped`. |
 | `publish` (15 min) | write: contents, pull-requests, actions | Checks out without persisted credentials and installs PyYAML; commits only the two data files (`commits.jsonl` and this run's record, a new file beside the earlier runs'), as `github-actions[bot]`, on the data branch from the base tip; runs `./build metrics guard` from this trusted checkout; force-pushes the branch with the token passed for that one command; closes, with a comment, any other open `nightly/*` PR into the same base (they would conflict on `commits.jsonl`); opens (or reuses) the PR labelled `type:data` and `area:wiki`; dispatches `ci.yml` (`ci-gate`, with the data guard) on the branch; on `main`, enables squash auto-merge and dispatches `pages.yml` on `main`. |
-| `report` (5 min) | read contents and actions, write issues | `./build metrics red` with `success` only when `nightly` and `publish` both succeeded, `--head` the run's commit and `--step` each nightly step's outcome (the `nightly` job's outputs; a missing one is `fail`). |
+| `report` (5 min) | read contents and actions, write issues | Downloads the run's `regress-summary` artifact (a missing one is not an error); `./build metrics red` with `success` only when `nightly` and `publish` both succeeded, `--head` the run's commit, `--step` each nightly step's outcome (the `nightly` job's outputs; a missing one is `fail`) and `--summary` that summary. |
 
 Pushes and PRs made with `GITHUB_TOKEN` start no runnable workflows (a
 push starts none; the PR's `pull_request` runs are created as
@@ -542,8 +561,11 @@ inputs plant paths, emails and names that must not appear in the output
 and a moving base (`test_metrics_guard.py`); and the red-issue rule
 (`test_metrics_red.py`: open, update and close, and on failure the failed
 steps, the commits since the last green nightly, the cap on long ranges,
-no green run, no new commits, a failed lookup, and bad `--head` or
-`--branch`); the trend series and drop rule on a fixture
+no green run, no new commits, a failed lookup, bad `--head` or
+`--branch`, and the failed runs of `--summary` with their exact seeds and
+`./build sim` commands, extra rotated seeds marked, capped, no log or path
+copied, and a missing or unreadable summary); extra rotated seeds left out
+of the `tests` section (`test_metrics_record.py`); the trend series and drop rule on a fixture
 history (`fixtures/trends/`) with a drop that alerts across a gap, a flat
 series, a drop equal to its threshold, a rise, a gap at the latest record,
 retired and new IPs, malformed and missing values, and the `trends`

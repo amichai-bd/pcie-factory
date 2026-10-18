@@ -9,7 +9,7 @@ and `funcov.py` for [coverage](#coverage)).
 ```
 ./build regress --level N [--level M]... [--ip ID]... [--affected BASE]
                 [--jobs N] [--seed S] [--waves] [--coverage] [--dry-run]
-                [--slots DIR] [--no-cache]
+                [--rotate KEY [--extra-seeds N]] [--slots DIR] [--no-cache]
                 [--src-root DIR] [--workdir DIR]
 ```
 
@@ -144,7 +144,8 @@ so `--affected` selects nothing. CI must not pass `--affected` there; it runs
 every IP, as the DevOps BKM requires. The `summary.json` fields
 `selected_ips` and `selected_tests` make an empty selection visible.
 
-Use `--dry-run` to print the selection (IPs, tests and seeds) without
+Use `--dry-run` to print the selection (IPs, tests and seeds, and any
+[extra rotated seeds](#seed-rotation) marked `(extra)`) without
 building or running anything. A dry run neither writes nor removes
 `summary.json`.
 
@@ -168,6 +169,68 @@ places:
 
 The seed is passed to cocotb as its random seed, which also seeds Python's
 `random`. It's printed in the sim log and recorded in the summary.
+
+## Seed rotation
+
+Pinned seeds give the same stimulus every run, so seeds trimmed from an
+entry (#327) are gone for good. `--rotate KEY` adds **extra seeds** that
+change with `KEY`, so a run per key (the nightly passes its UTC date,
+`YYYY-MM-DD`) explores new stimulus at no cost to the pinned runs (#333):
+
+- **Which entries:** every selected entry of the rotation `level`
+  (`cfg/levels.yaml`, below; `2`, the full test) when that level is
+  selected. Other levels get none; the pinned runs are unchanged.
+- **How many:** `extra_seeds` per entry (`cfg/levels.yaml`), or
+  `--extra-seeds N` (a count `>= 0`, only with `--rotate`).
+- **Derivation:** extra seed `j` of an entry is
+  `crc32("rotate:<KEY>:<ip>:<name>:<j>") & 0x7fffffff` for j = 0, 1, ...,
+  skipping any value equal to one of the entry's pinned seeds (after
+  `--seed`) or to an earlier extra seed. The same key always gives the same
+  seeds, a new key new ones, and a smaller N a prefix. `KEY` matches
+  `[A-Za-z0-9][A-Za-z0-9._-]{0,63}` (a date or a run id); anything else
+  exits 2.
+- **No coverage:** extra runs run on the plain build, never the coverage
+  build, and are never merged, so `--coverage` and the floors see exactly
+  the pinned runs ([coverage](#coverage)). An entry whose pinned runs all
+  use the coverage build (such as a single seed with `coverage_seeds: 1`)
+  therefore needs a plain build for its extra runs alone; such
+  **extra-only builds** are built (or taken from the build cache) up front
+  with the others, even when the budget later stops their runs, carry
+  `extra` true in the summary's `builds`, and are charged to no budget. An
+  extra run of a `rerun_when` entry follows the
+  [reuse](#reuse-of-unchanged-model-checks) rule with its own seed in the
+  key; a new key gives new seeds, so it is never reused across nights.
+- **Budget:** extra runs start after every pinned run has started, in an
+  order shuffled by `crc32("<KEY>:<ip>:<name>:<seed>")`, so a different
+  set waits each night when the budget is short. An extra run starts only
+  while the CPU time of the extra runs finished so far (a run killed on its
+  timeout counts its wall time) is below `budget_s`; runs already started
+  finish, so the extra runs' CPU time is at most `budget_s` plus the runs
+  in flight when it was reached (at most `--jobs` of them). Each one not started prints `[L<n>] <ip>:<test> seed=<s> not
+  started (rotation budget spent)` and is listed in the summary; it is not
+  a failure.
+- **Failure:** an extra run that does not pass fails the run like any
+  other (exit 1) and prints
+  `error: extra seed <status>: <ip>:<test> seed=<s>; reproduce: ./build sim --ip <ip> --test <test> --seed <s>`
+  to stderr. That command reruns it exactly: the seed alone determines the
+  stimulus.
+
+After the level totals the run prints
+`rotation <KEY>: <p>/<n> extra runs passed (<N> per level<L> entry), CPU <x>s (budget <b>s), <k> not started`.
+
+`cfg/levels.yaml` holds the rotation settings beside the level budgets;
+all three keys are required, and a missing or malformed section is an
+error (exit 2) only when `--rotate` is given:
+
+```yaml
+rotation:
+  level: 2          # the level whose entries get extra seeds
+  extra_seeds: 1    # per entry, a count >= 0
+  budget_s: 3600    # CPU seconds of extra runs, > 0
+```
+
+The [DevOps BKM](../../bkm/devops.md#nightly) owns the values and how they
+fit the nightly window.
 
 ## Execution
 
@@ -210,17 +273,19 @@ when it finishes, even if it selected no tests:
   "selected_ips": 1,
   "selected_tests": 1,
   "builds": [{"ip": "a", "build": "a_top", "status": "pass", "cached": false,
-              "runtime_s": 2.1, "cpu_s": 3.9, "log": "a/build/a_top/build.log"}],
+              "runtime_s": 2.1, "cpu_s": 3.9, "log": "a/build/a_top/build.log",
+              "extra": false}],
   "tests": [{"ip": "a", "level": 0, "name": "smoke", "seed": 123,
              "status": "pass", "runtime_s": 0.9, "cpu_s": 0.8,
              "log": "a/smoke/123/sim.log", "detail": "1 case(s) passed",
-             "coverage": false, "reused": false}],
+             "coverage": false, "reused": false, "extra": false}],
   "totals": {"level0": {"tests": 1, "passed": 1, "reused": 0, "failed": 0,
                         "runtime_s": 0.9, "cpu_s": 0.8, "budget_s": 120,
                         "over_budget": false}},
   "wall_s": 3.4,
   "build_cache": {"dir": "~/.cache/repo/build", "builds": 1, "hits": 0,
                   "reused_runs": 0},
+  "rotation": null,
   "coverage": {"ips": {"a": {
       "runs": 1, "dat_files": 1, "funcov_files": 1, "dir": "a/coverage",
       "line": {"covered": 15, "total": 15, "pct": 100.0},
@@ -255,6 +320,13 @@ The fields mean the following:
   `totals.<level>.reused` counts those. `build_cache` is `null` with the
   cache off; otherwise its directory (home as `~`), the run's builds, how
   many were hits, and the reused runs.
+- A test's `extra` is true for an [extra rotated seed](#seed-rotation), a
+  build's `extra` for an extra-only build (one only extra runs need).
+  Extra runs are left out of `totals`, whose budgets cover the pinned
+  seeds. `rotation` is `null` without `--rotate`; otherwise
+  `{key, level, extra_seeds, budget_s, runs, passed, failed, cpu_s,
+  skipped}`: the extra runs that ran, how many passed and failed, their CPU
+  time, and each one not started as `{ip, name, seed}`.
 - `coverage` is `null` without `--coverage`. Otherwise it holds, per
   selected IP, the passing runs merged (`runs`) and the files found, each
   metric's `covered`, `total` and `pct` (2 decimals; `null` with no
@@ -527,14 +599,27 @@ Tests: `tools/regress/tests/test_run.py`
 coverage build and is merged, the others on the plain build;
 `test_model_check_pass_is_reused_until_its_inputs_change`: a second run
 reuses both seeds and builds nothing, an RTL change still reuses, a
-testbench change and the cache off rerun) and `test_schema.py` (the
-`coverage_seeds` and `rerun_when` validation).
+testbench change and the cache off rerun;
+`test_rotated_seeds_are_derived_from_the_key`: the derivation formula,
+determinism, a new key rotates, N gives a prefix;
+`test_rotated_seeds_skip_pinned_seeds`;
+`test_rotation_adds_extra_runs_on_the_rotation_level_only`;
+`test_load_rotation`: the `cfg/levels.yaml` section and every malformed
+case; `test_extra_runs_are_plain_marked_and_outside_the_level_totals`;
+`test_rotation_budget_stops_starting_extra_runs`;
+`test_pinned_runs_start_first_then_extras_in_key_order`: with `--jobs 1`
+every pinned run starts before any extra, the extras in `rotation_order`
+of the key (another key, another order), and coverage gets the pinned
+results only; `test_extra_only_builds_are_marked`;
+`test_failing_extra_seed_fails_the_run_with_its_repro`), `test_schema.py`
+(the `coverage_seeds` and `rerun_when` validation) and
+`tools/cli/tests/test_cli.py` (`test_regress_rotation_dry_run`).
 
 ## Budgets
 
 `cfg/levels.yaml` defines `level0`, `level1` and `level2`. Each level has
-exactly two keys, `description` and a positive `budget_s`, and no other keys
-are allowed. The DevOps BKM owns the values.
+exactly two keys, `description` and a positive `budget_s`; the only other
+key allowed is `rotation` ([seed rotation](#seed-rotation)). The DevOps BKM owns the values.
 
 A budget is CPU time: when a level's total `cpu_s` exceeds its budget, the
 run prints `warning: levelN CPU time Xs (the sum of its tests' CPU time)
