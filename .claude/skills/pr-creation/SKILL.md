@@ -51,9 +51,9 @@ Seeds: <the seeds, or "per the crc32 seed rule">.
 | Command | Result |
 | --- | --- |
 | `<exact command>` | <pass/fail counts, warnings> |
-| `./build regress --level 0 --level 1 ...` | L0 24/24 passed, CPU 59.1 s, wall 27 s; L1 110/110 passed, CPU 504.1 s, wall 542.0 s |
+| `./build regress --level 0 --level 1 --affected origin/main --jobs 4 --slots <slots>` | L0 24/24 passed, CPU 59.1 s, wall 27 s; L1 110/110 passed, CPU 504.1 s, wall 542.0 s |
 
-| Mutant | Entry | Seed | Result |
+| Mutant (changed code only) | Entry | Seed | Result |
 | --- | --- | --- | --- |
 | M1: <what was changed> | <test entry> | <seed> | FAIL at cycle <c>: <message> |
 
@@ -68,7 +68,15 @@ Independent reviewer: assigned by the firstmate. Verdict: pending.
 
 Rules. `./build pr check <pr>` ([pr tool spec](../../../wiki/tools/pr/SPEC.md))
 checks each item marked **(checked)** mechanically; the rest is the
-reviewer's. All checked items sit in the `## Validation` section.
+reviewer's. The evidence items sit in the `## Validation` section.
+
+- **Scope** ([local evidence](../../../wiki/bkm/devops.md#local-evidence)):
+  the affected L0+L1 (`ci-gate` runs it on the head; you may cite that run
+  instead of rerunning it locally: link it and give its per-level counts and
+  CPU), plus targeted L2 entries only when the change targets L2 behaviour or
+  a reviewer asks, plus mutants only of the code you changed. Never run all
+  of L2, all-IP coverage or a broad mutant campaign as PR evidence: those
+  are the nightly's.
 
 - **(checked)** Keywords: `Closes #<n>` names exactly one issue. A partial PR
   writes only `Part of #<n>`. No closing keyword (close, closes, closed, fix,
@@ -83,7 +91,8 @@ reviewer's. All checked items sit in the `## Validation` section.
 - **(checked)** Commands: a `| Command | Result |` table (with its
   separator row), one row per command actually run at the head, the exact
   command in backticks in the first cell and a non-empty result. You may
-  elide a host-specific path (such as a lock file) as `<lock>`; say so.
+  elide a host-specific path (such as the CPU slot directory) as `<slots>`;
+  say so.
 - **(checked)** Versions: `<Tool> <x.y>` for each tool the commands used:
   Python and pytest for `pytest`; Verilator, cocotb and Python for
   `./build regress` and `./build sim` (`cfg/pr.yaml`).
@@ -95,11 +104,23 @@ reviewer's. All checked items sit in the `## Validation` section.
   that level (wall time too). A level's CPU above its `budget_s` in
   `cfg/levels.yaml` needs a line `L<N> budget: <why>` in the body.
 - **(checked)** Mutants: a PR that adds or changes files under `src/rtl/` or
-  `src/dv/` (`cfg/pr.yaml`) has a table whose header names a `Mutant`
-  column, with its separator row and one row per mutant: what was changed,
-  the entry and seed, and where and how it failed (cycle and message).
+  `src/dv/` (`cfg/pr.yaml`; moving entries between regression lists alone
+  is exempt) has a table whose header names a `Mutant` column, with its
+  separator row and one row per mutant of the changed code: what was
+  changed, the entry and seed, and where and how it failed (cycle and
+  message).
 - **(checked)** Not run: a `### Not run` subsection listing anything cut or
   not rerun with the reason, or `None.`.
+- **(checked)** Stale SHA: no result in the section is labelled with
+  another full SHA (`at <sha>`, `@<sha>`), such as a previous round's head.
+- **(checked)** Rescope: a body that closes an issue does not say any of
+  its work moved, was deferred or left to another issue ("moved to #m").
+  Either write `Part of #<n>`, or record the rescope on the closed issue
+  first and add a line `Acceptance moved: #m <link to that issue comment>`.
+- **(checked)** Neutrality: no design-target word and no IP id used as an
+  identifier (a whole code span or quoted string, a directory path segment,
+  `--ip <id>`, `` `<id>:<test>` ``, "<id> IP") in the paths or added lines
+  of changed files outside `src/`, `wiki/src/` and `wiki/tracker/data/`.
 - **(checked)** Labels: `./build labels check <pr>` rules.
 - Treat warnings as failures unless a reviewed waiver covers them.
 - Local evidence complements `ci-gate`, which is the required merge check;

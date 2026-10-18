@@ -1,13 +1,14 @@
 # Regression level budgets, read by ./build regress (see wiki/tools/regress/SPEC.md).
 # budget_s is CPU time: it is compared with the sum of the level's per-test
 # CPU time (user + system of each test's process tree), which host load barely
-# changes; exceeding it prints a warning. The DevOps BKM owns these values.
+# changes; exceeding it prints a warning. The DevOps BKM owns these values and
+# each level's purpose (Levels and budgets).
 level0:
-  description: Fast local confidence; run while developing and in ci-gate.
+  description: Did we break the build - elaboration, lint and the fastest smoke checks; run while developing and first in ci-gate.
   budget_s: 120
 level1:
-  description: Merge gate for affected IPs, run by ci-gate after level 0.
+  description: The PR gate - functional checks of the affected IPs, run by ci-gate after level 0.
   budget_s: 1200
 level2:
-  description: Nightly full regression with more seeds.
+  description: The full test, nightly - long tests, sweeps, soaks and coverage floors; for a PR only targeted entries.
   budget_s: 9600

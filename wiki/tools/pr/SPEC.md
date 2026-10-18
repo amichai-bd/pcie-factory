@@ -4,9 +4,18 @@
 request body records. It reports what the
 [pr-creation skill](../../../.claude/skills/pr-creation/SKILL.md#2-compose-the-body)
 requires that is missing or malformed, so the gap is fixed before a reviewer
-is spawned and the reviewer spends the round on substance. It never judges
-whether the evidence is good enough (the reviewer's job), never runs a test
-and never writes to GitHub. The code lives in `tools/pr/check.py`; the rules'
+is spawned and the reviewer spends the round on substance. It also catches
+the mechanical slips that cost review rounds: results labelled with a stale
+SHA, `Closes` while the body says acceptance moved elsewhere, and design or
+IP names added outside `src/` and `wiki/src/`. It never judges whether the
+evidence is good enough (the reviewer's job), never runs a test and never
+writes to GitHub.
+
+It requires no full-L2, coverage or broad mutant evidence: PR evidence is
+the affected L0+L1, which `ci-gate` runs and which may be cited, plus
+targeted L2 entries and mutants of the changed code
+([local evidence](../../bkm/devops.md#local-evidence)). Its level rules
+apply only to the `./build regress` rows a body records. The code lives in `tools/pr/check.py`; the rules'
 facts live in `cfg/pr.yaml` and `cfg/levels.yaml`.
 
 The rules below and the skill's **(checked)** items are the same rules.
@@ -17,6 +26,7 @@ Change the skill, this page, `cfg/pr.yaml` and the tool together.
 ```
 ./build pr check NUMBER [--repo OWNER/NAME]
 ./build pr check NUMBER --body-file FILE --head SHA [--files PATH...] [--labels A,B]
+                  [--diff FILE]
 ```
 
 - **GitHub mode** (default) reads PR `NUMBER` from the repository given by
@@ -25,8 +35,11 @@ Change the skill, this page, `cfg/pr.yaml` and the tool together.
 - **File mode** (`--body-file`) reads the body from `FILE` and needs the
   full 40-character `--head` SHA. `--files` gives the changed paths and
   `--labels` the PR labels; when one is left out its rule is skipped with a
-  `note:` line. It makes no network call; the unit tests use it. `--head`,
-  `--files` and `--labels` without `--body-file` are a usage error.
+  `note:` line. `--diff` gives the PR's unified diff (`git diff
+  origin/main...HEAD`) for the neutrality rule, and the changed paths when
+  `--files` is absent. It makes no network call; the unit tests use it.
+  `--head`, `--files`, `--labels` and `--diff` without `--body-file` are a
+  usage error.
 
 Exit codes: `0` every rule passes (`#N: evidence OK`), `1` at least one
 finding (`#N: evidence FAIL`), `2` a usage, configuration, file or GitHub
@@ -39,23 +52,26 @@ Only `GET` calls, through `gh api` (REST, the labels tool's client):
 | Data | REST call |
 | --- | --- |
 | Body, head SHA, labels | `GET repos/{repo}/pulls/{number}` |
-| Changed files | `GET repos/{repo}/pulls/{number}/files?per_page=100&page=N` until a short page |
+| Changed files and their patches | `GET repos/{repo}/pulls/{number}/files?per_page=100&page=N` until a short page |
 
 Files with status `removed` are left out: a deleted file has nothing to
-mutate. A failing `gh` call exits 2 with its last error line.
+mutate or scan. The added lines of each file come from its `patch`; a file
+GitHub gives no patch for (binary or too large) gets a `note:` line and only
+its path is scanned. A failing `gh` call exits 2 with its last error line.
 
 ## Configuration: `cfg/pr.yaml`
 
 ```yaml
 mutation_paths: [src/rtl/, src/dv/]          # changed files that need a mutation table
+mutation_exempt: ["src/dv/*/regress/level*.yaml"]   # ...except these (fnmatch; may be [])
 seeded_commands: ["./build regress", "./build sim"]
 versions:                                     # command substring -> tools whose version is required
   - {when: "pytest", need: [Python, pytest]}
   - {when: "./build regress", need: [Verilator, cocotb, Python]}
 ```
 
-The keys are exactly these three; each list is non-empty, and each
-`versions` item has exactly `when` and `need`. Anything else exits 2. Level
+The keys are exactly these four; each list but `mutation_exempt` is
+non-empty, and each `versions` item has exactly `when` and `need`. Anything else exits 2. Level
 CPU budgets are `budget_s` in `cfg/levels.yaml` (the
 [regress spec](../regress/SPEC.md) validates that file).
 
@@ -81,14 +97,17 @@ Each finding prints as `error: #N: [<rule>] <message>`.
 | Rule | Finding when |
 | --- | --- |
 | `head-sha` | No `At head <sha>` line; the SHA is not the full 40 characters; or it differs from the PR head. |
+| `stale-sha` | A full 40-character SHA labels a result (`at <sha>`, `at head <sha>` or `@<sha>`) in the section and is not the PR head: a previous round's result left in place. |
 | `commands` | No command table; it has no separator row or no rows; a row's first cell has no backtick-quoted command; a row's result is empty. |
 | `versions` | A command contains a `versions[].when` substring and a tool in its `need` has no `<Tool> <x.y>` in the section (case-insensitive, `v` prefix allowed). |
 | `seeds` | A command contains a `seeded_commands` substring and no line holds the word `seed`/`seeds` together with a digit, `crc32` or `#seeds`. |
 | `levels` | A `./build regress` row runs `--level N` and its result lacks `L<N> <passed>/<total>` (or `level<N>:`), or has no `CPU <s> s` between that level's result and the next level's. |
 | `budget` | That CPU is above level N's `budget_s` and the body has no `L<N> budget:` line explaining it. |
-| `mutants` | A changed, non-removed file starts with a `mutation_paths` entry and the section has no table with a header cell containing `Mutant`, or that table has no separator row or no rows. |
+| `mutants` | A changed, non-removed file starts with a `mutation_paths` entry and matches no `mutation_exempt` glob, and the section has no table with a header cell containing `Mutant`, or that table has no separator row or no rows. |
 | `not-run` | No `### Not run` subsection, or nothing under it before the next heading (`None.` is enough). |
 | `keywords` | Over the whole body, outside code spans and code blocks: an issue is both `Part of #N` (also `Part of epic #N`) and next to a closing keyword (`close`, `closes`, `closed`, `fix`, `fixes`, `fixed`, `resolve`, `resolves`, `resolved`, optional `:`); closing keywords name more than one issue; or the body has neither a closing keyword nor `Part of`. |
+| `rescope` | Over the whole body, outside code: the body closes an issue and says work moved to another issue (`moved`, `deferred`, `postponed`, `punted`, `split out`, `handed off`/`over`, `carried over`, `left` or `rescoped`, then `to #M` within the sentence), and no line `Acceptance moved: ... #M ... <issue-comment URL>` declares it with a link to the comment recording the rescope. |
+| `neutrality` | A changed path outside `src/`, `wiki/src/` and `wiki/tracker/data/`, or an added line of it, holds a word of the [neutrality word list](../checks/SPEC.md#neutrality-check) or a discovered IP id used as an identifier: a whole code span or quoted string, a directory path segment (`<id>/`), `--ip <id>`, `` `<id>:<test>` `` or "<id> IP" / "<id> sub-IP" (the matcher in `tools/checks/neutrality.py`). The repository slug in a GitHub URL is exempt, and in `cfg/checks.yaml` the `words` list and `repo_slug` value; an id equal to a top-level repository entry is skipped; minified `*.min.js`/`*.min.css` lines are not scanned. IPs come from the `--src-root` tree. |
 | `labels` | The [labels check](../labels/SPEC.md#check) errors on the PR's labels. |
 
 Output is a header line, `note:` lines for skipped rules, the findings in
@@ -118,13 +137,23 @@ including a fenced log holding a closing keyword and a `## Validation` line;
 `partial.md`, a `Part of`-only docs PR) and never touches the network:
 
 - each rule is pinned by at least one mutation of `good.md` that must raise
-  exactly that rule with its message (21 cases), plus a head mismatch and a
+  exactly that rule with its message (25 cases), plus a head mismatch and a
   `Part of`-only PR that also closes its parent;
+- stale SHA: the head cited twice passes; rescope: a declared
+  `Acceptance moved:` line with the comment link passes, without it fails,
+  and a `Part of` PR is never checked;
+- neutrality: each identifier form and a word-list hit flagged, plain
+  English, module imports, file stems, last path segments, the exempt trees,
+  the slug, minified files and the `cfg/checks.yaml` word list passing; a
+  path hit; the notes for unknown files, unknown added lines and missing
+  patches; `parse_diff`; IP discovery skipping top-level names;
+- a regression-list-only change needs no mutation table;
 - the passing cases: a budget overrun with its `L<N> budget:` line, a
   mutation table not needed outside `mutation_paths` or with unknown files,
   closing keywords inside code spans, versions required only for tools run;
 - the labels rule and its skip note, table and cell parsing, the report
   format;
 - malformed and missing `cfg/pr.yaml`;
-- GitHub mode with a fake client: pagination, removed files left out, and
-  only `GET` calls; CLI exit codes 0, 1 and 2 in both modes.
+- GitHub mode with a fake client: pagination, removed files left out, added
+  lines from patches, and only `GET` calls; CLI exit codes 0, 1 and 2 in
+  both modes, and `--diff` in file mode.

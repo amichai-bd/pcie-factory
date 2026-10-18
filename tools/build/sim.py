@@ -33,6 +33,7 @@ if __package__ in (None, ""):  # executed as a script by the parent process
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from build import backends  # noqa: E402
+from build.slots import Slots  # noqa: E402
 from build.filelist import FilelistError, resolve  # noqa: E402
 from build.ip import REPO_ROOT, Ip  # noqa: E402
 
@@ -130,6 +131,14 @@ def test_dir(workdir: Path, ip: Ip, test: str, seed: int) -> Path:
 _ACTIVE: set[subprocess.Popen] = set()
 _LOCK = threading.Lock()
 _STOPPING = threading.Event()
+# Host CPU slots each child holds while it runs (None: no slot pool);
+# set by `--slots`/$BUILD_SLOTS (wiki/tools/build/SPEC.md, "CPU slots").
+_SLOTS: Slots | None = None
+
+
+def set_slots(slots: Slots | None) -> None:
+    global _SLOTS
+    _SLOTS = slots
 
 
 def kill_all() -> None:
@@ -177,6 +186,15 @@ def _run_child(phase: str, job: dict, log: Path,
     runtime, CPU time of the child process tree; 0.0 when it was killed)."""
     if _STOPPING.is_set():
         raise KeyboardInterrupt
+    if _SLOTS is None:
+        return _run_child_now(phase, job, log, timeout_s)
+    # Wait for a host CPU slot first; runtime and timeout start once it is held.
+    with _SLOTS.hold(_STOPPING):
+        return _run_child_now(phase, job, log, timeout_s)
+
+
+def _run_child_now(phase: str, job: dict, log: Path,
+                   timeout_s: float | None) -> tuple[int | None, float, float]:
     log.parent.mkdir(parents=True, exist_ok=True)
     job_file = log.with_suffix(".job.json")
     job_file.write_text(json.dumps(job, indent=2, sort_keys=True))

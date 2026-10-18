@@ -9,6 +9,7 @@ and `funcov.py` for [coverage](#coverage)).
 ```
 ./build regress --level N [--level M]... [--ip ID]... [--affected BASE]
                 [--jobs N] [--seed S] [--waves] [--coverage] [--dry-run]
+                [--slots DIR]
                 [--src-root DIR] [--workdir DIR]
 ```
 
@@ -173,6 +174,9 @@ The seed is passed to cocotb as its random seed, which also seeds Python's
   detail.
 - **Tests:** builds and tests run on up to `--jobs N` workers (default 1).
   Each test runs with its own `timeout_s`.
+- **Slots:** with `--slots DIR` (or `$BUILD_SLOTS`), each build and test also
+  holds one of the host's [CPU slots](../build/SPEC.md#cpu-slots) while it
+  runs, shared with every other run naming `DIR`.
 - **Waves:** `--waves` dumps waves for every test.
 - **Verilator:** a missing Verilator is an error (exit code 2), unless no
   tests are selected.

@@ -119,9 +119,19 @@ Follow the [fast test ladder](../../../wiki/bkm/dv.md#fast-test-ladder):
 python3 -m pytest src/dv/<ip>/models               # model unit tests
 ./build sim --ip <id> --test <name> [--seed N] [--waves]   # focused test
 ./build regress --level 0 --level 1 --affected origin/main --dry-run   # what runs
-./build regress --level 0 --level 1 --affected origin/main   # before review
-./build regress --level 0 --level 1 --ip <id> --coverage     # merged coverage table
+./build regress --level 0 --level 1 --affected origin/main --jobs 4 --slots <dir>  # before review
+./build sim --ip <id> --test <l2-entry> --seed N          # targeted L2, only when needed
 ```
+
+PR evidence is the affected L0+L1 (`ci-gate` runs it and may be cited),
+targeted L2 entries only when the change targets L2 behaviour or a reviewer
+asks, and mutants only of the code you changed. Never run all of L2 or
+all-IP coverage for a PR: the nightly does, and opens an issue on a floor
+miss or L2 failure ([local evidence](../../../wiki/bkm/devops.md#local-evidence)).
+On a shared host pass the host's CPU slot directory (`--slots <dir>` or
+`$BUILD_SLOTS`) to every `sim` and `regress`; run mutants serially
+(`--jobs 1`). Measure coverage (`--coverage` on the IP's level holding the
+floor) only to set or raise a floor.
 
 The [build SPEC](../../../wiki/tools/build/SPEC.md#simulation-build-sim)
 and [regress SPEC](../../../wiki/tools/regress/SPEC.md)
@@ -135,7 +145,9 @@ reproduces before and after the fix. Outputs stay under `workdir/`.
 - [ ] Every new test passes on all its seeds, and fails when the checked
       behavior is broken (try a one-line local break, then revert).
 - [ ] Warnings fail unless a reviewed waiver explains them.
-- [ ] PR evidence: commands, seeds, pass/fail counts, runtime and every
-      non-pass entry with diagnosis, at the head SHA
+- [ ] PR evidence: the affected L0+L1 (or the cited `ci-gate` run), any
+      targeted L2 entries, and mutants of the changed code: commands, seeds,
+      pass/fail counts, runtime and every non-pass entry with diagnosis, at
+      the head SHA
       ([output and evidence](../../../wiki/bkm/dv.md#output-and-evidence)),
       then [pr-creation](../pr-creation/SKILL.md).

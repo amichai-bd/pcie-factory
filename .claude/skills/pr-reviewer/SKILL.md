@@ -77,13 +77,22 @@ Read: the issue (acceptance, scope, comments), `CLAUDE.md`, the diff
 **Evidence.** Trust CI: read the `ci-gate` result on the head SHA
 (`pull_request_read` method `get_check_runs`); red or missing is a finding.
 The firstmate's hand-off carries the `./build pr check` output for the
-head: treat it as given and do not re-derive what it checks (head SHA,
-command table, versions, seeds, per-level results and CPU against budgets,
-mutation table, `### Not run`, keywords, labels). Cite it in the verdict
+head: treat it as given and do not re-derive what it checks (head SHA and
+stale SHAs, command table, versions, seeds, per-level results and CPU
+against budgets, mutation table, `### Not run`, keywords and rescoped
+`Closes`, neutrality of the diff, labels). Cite it in the verdict
 (`pr check: evidence OK @<sha>`); a missing or stale output, or any `error:`
 line in it, is a blocking finding. Then audit what it cannot judge: that the
 recorded evidence is plausible, covers the required levels for the affected
-IPs, and that each mutant and result actually supports the claim. Missing, stale or implausible evidence is a finding. Never
+IPs, and that each mutant and result actually supports the claim.
+
+The required levels are the affected L0+L1
+([local evidence](../../../wiki/bkm/devops.md#local-evidence)); a cited green
+`ci-gate` run on the head satisfies them. Mutants cover the changed code
+only. Do not ask for full L2, all-IP coverage or a broad mutant campaign:
+the nightly runs those. Ask for targeted L2 entries (named tests or seeds)
+only when the change targets L2 behaviour or a specific doubt needs them, and
+say which. Missing, stale or implausible evidence is a finding. Never
 rerun anything to confirm a claim. When a claim lacks recorded proof (a test
 that can fail, a caught mutant, a timing bound), raise a blocking finding
 that asks the author to run it and record the result in the PR.
