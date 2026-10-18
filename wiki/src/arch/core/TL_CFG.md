@@ -116,6 +116,44 @@ the captain's delegate, which the captain may override).
 | --- | --- | --- | --- | --- |
 | `tl_np_pending` | tl→cfg | 1 | `clk_i` | 1 while any application non-posted request taken on `rq` still awaits its final completion or its timeout. `cfg` shows it as Device Status Transactions Pending [cite: PCIe Base Spec, rev 3.0, §7.8.5]. |
 
+### Slot power limit
+
+An event from `tl` that carries a received Set_Slot_Power_Limit message
+to the Device Capabilities slot power fields
+([#309](https://github.com/amichai-bd/pcie-factory/issues/309)).
+
+| Net | Dir | Width | Clock | Meaning |
+| --- | --- | --- | --- | --- |
+| `slot_pwr_valid` | tl→cfg | 1 | `clk_i` | One-cycle pulse: a Set_Slot_Power_Limit message to capture was received. |
+| `slot_pwr_value` | tl→cfg | 8 | `clk_i` | With `slot_pwr_valid`: byte 0 of the message's data, the Slot Power Limit Value. Don't care otherwise. |
+| `slot_pwr_scale` | tl→cfg | 2 | `clk_i` | With `slot_pwr_valid`: bits 1:0 of byte 1 of the data, the Slot Power Limit Scale. Don't care otherwise. |
+
+- **The message.** The Downstream Port above sends Set_Slot_Power_Limit
+  (code `0x50`) with one DW of data copied from its Slot Capabilities,
+  and when its link comes up; the upstream port copies the value and
+  scale into Device Capabilities Captured Slot Power Limit Value and
+  Scale. The other bits of the data are 0 when sent and ignored on
+  receive [cite: PCIe Base Spec, rev 3.0, §2.2.8.5]
+  [cite: PCIe Base Spec, rev 3.0, §6.9]
+  [cite: PCIe Base Spec, rev 3.0, §7.8.3].
+- **When `tl` pulses.** In the cycle after the message's `eop`, the
+  cycle its error event would pulse, in any D-state, for a message with
+  data that passes every [receive check](../tl/ROUTING.md#checks) and is
+  not poisoned. A message with TC not 0 is malformed and a poisoned one
+  is a poisoned request (bit 3): neither is captured. A message without
+  data is dropped and captures nothing (firstmate decision as the
+  captain's delegate, which the captain may override).
+- **Capture.** `cfg` loads both fields at the edge ending the pulse
+  cycle; they keep that value until the next pulse or reset, and
+  software writes never change them. Reset, link down included, returns
+  them to 0; the Downstream Port sends the message again when the link
+  comes back up.
+- **Order.** The pulse comes at receipt, ahead of posted requests still
+  queued in `tl`: none of them reaches the two fields, every later
+  request sees the new value, and a non-posted request still queued may
+  see it too, which a posted message passing a non-posted request allows
+  [cite: PCIe Base Spec, rev 3.0, §2.4.1].
+
 ### Error events
 
 One-cycle pulses from `tl`, one bit per kind; events of one kind in one

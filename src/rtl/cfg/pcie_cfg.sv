@@ -52,6 +52,11 @@ module pcie_cfg #(
   // Requester state (from tl)
   input  logic        tl_np_pending_i,  // an application non-posted request is outstanding // cdc-domain: clk_i
 
+  // Slot power limit (from tl): a received Set_Slot_Power_Limit to capture
+  input  logic        slot_pwr_valid_i, // one-cycle pulse // cdc-domain: clk_i
+  input  logic [7:0]  slot_pwr_value_i, // Captured Slot Power Limit Value // cdc-domain: clk_i
+  input  logic [1:0]  slot_pwr_scale_i, // Captured Slot Power Limit Scale // cdc-domain: clk_i
+
   // Error events
   input  logic [8:0]  tl_err_i,         // one-cycle pulses, bit order in TL_CFG // cdc-domain: clk_i
   input  logic [6:0]  dl_err_i,         // one-cycle pulses, bit order in the dll HAS // cdc-domain: clk_i
@@ -91,6 +96,7 @@ module pcie_cfg #(
   pcie_cfg_pkg::t_ctrl      ctrl_d;
   pcie_cfg_pkg::t_sts       err_sts;
   pcie_cfg_pkg::t_sts       sts_set;
+  pcie_cfg_pkg::t_slot_pwr  slot_pwr;
   pcie_cfg_pkg::t_err_due   due;
   pcie_cfg_pkg::t_err_due   take_err;
   pcie_cfg_pkg::t_entry     entry;
@@ -120,6 +126,9 @@ module pcie_cfg #(
     sts_set.sse = sse_set;
   end
 
+  assign slot_pwr.value = slot_pwr_value_i;
+  assign slot_pwr.scale = slot_pwr_scale_i;
+
   `COMMON_DFF_RST(cpl_q, reg_take, clk_i, rst_i)
   `COMMON_DFF_EN(cpl_bar2_q, reg_req_bar2_i, clk_i, reg_take)
   `COMMON_DFF_EN(cfg_rd_q, cfg_rd_data, clk_i, cfg_rd)
@@ -148,6 +157,8 @@ module pcie_cfg #(
     .dev_i            (reg_req_dev_i),
     .sts_set_i        (sts_set),
     .np_pending_i     (tl_np_pending_i),
+    .slot_pwr_valid_i (slot_pwr_valid_i),
+    .slot_pwr_i       (slot_pwr),
     .rd_data_o        (cfg_rd_data),
     .ctrl_q_o         (ctrl_q),
     .ctrl_d_o         (ctrl_d),

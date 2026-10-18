@@ -217,6 +217,30 @@ def test_transactions_pending():
     assert seen == [0, 1, 0]
 
 
+def test_slot_power_limit_reaches_device_capabilities():
+    """A Set_Slot_Power_Limit from the host reaches Device Capabilities
+    through the slot power event: Captured Slot Power Limit Value and Scale
+    read back over the link; a link down clears them (TL_CFG slot power
+    limit)."""
+    b = bench()
+    h = b.host
+    seen = []
+
+    def prog():
+        yield from m.setup(b, BAR0, BAR2)
+        seen.append((yield from h.cfg_rd(cfgm.CAP_PCIE + 4)))
+        yield tlm.msg_tlp(tlm.MSG_SET_SLOT_POWER, tlm.R_LOCAL, m.HOST_RID,
+                          bytes([0x4B, 0x02, 0, 0]))
+        seen.append((yield from h.cfg_rd(cfgm.CAP_PCIE + 4)))
+
+    run(b, prog())
+    assert seen == [1 << 15, 1 << 15 | 0x4B << 18 | 2 << 26]
+    b.link_up = [False, False]
+    for _ in range(50):
+        b.step()
+    assert b.core.cfg.cfg_read(cfgm.CAP_PCIE + 4) == 1 << 15
+
+
 def test_link_down_resets_tl_and_cfg():
     """dl_up falling resets tl and cfg: BARs, enables and bus number back
     to reset, queues empty; the MSI-X table address and data are kept

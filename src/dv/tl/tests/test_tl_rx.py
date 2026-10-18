@@ -44,6 +44,15 @@ def routing_tlps(r: ref.Regs) -> list[bytes]:
         *[T.message(c) for c in (T.VENDOR_TYPE0, 0x20, 0x27, 0x18, T.PME_TO_ACK, 0x30, 0x31,
                                  0x33, 0x10, 0x12, 0x99)],
         T.message(T.VENDOR_TYPE0, data=[9] * 32),
+        # Set_Slot_Power_Limit with data: the slot power event, back to back,
+        # any routing subfield, bits other than value and scale ignored, more
+        # than one DW of data, poisoned (no event); without data it is in
+        # the dropped messages above (no event), with TC not 0 at step 6.
+        T.message(T.SET_SLOT_POWER_LIMIT, data=[0x0000_015A]),
+        T.message(T.SET_SLOT_POWER_LIMIT, 0b000, data=[0xFFFF_FEA5]),
+        T.message(T.SET_SLOT_POWER_LIMIT, data=[0x0000_03FF, 0x1234_5678]),
+        T.message(T.SET_SLOT_POWER_LIMIT, data=[0x0000_0000]),
+        T.message(T.SET_SLOT_POWER_LIMIT, data=[0x0000_01E7], ep=1),
         # Malformed: step 1 (kind), every undefined Fmt of a Type, prefixes.
         T.raw(0b100, 0), T.raw(0b101, 0x10), T.raw(0b110, 0, data_dws=1), T.raw(0b111, 0x0A),
         T.raw(0b010, T.TYPE_MEM_LOCKED, data_dws=1), T.raw(0b001, T.TYPE_IO),
@@ -79,7 +88,8 @@ def routing_tlps(r: ref.Regs) -> list[bytes]:
     out += [D(T.memory(True, b0 + 0x80, 32)), D(T.memory(True, b2 + 4, 2)),
             D(T.memory(False, b0 + 0x10, 2)), D(T.config(True, 7, data=0xCAFE)),
             D(T.config(False, 7)), D(T.message(T.VENDOR_TYPE1, data=[4] * 3)),
-            D(T.message(T.PME_TURN_OFF)), D(T.memory(True, 0x4000, 1, 0xF, 0)),
+            D(T.message(T.PME_TURN_OFF)), D(T.message(T.SET_SLOT_POWER_LIMIT, data=[0x2C3])),
+            D(T.memory(True, 0x4000, 1, 0xF, 0)),
             D(T.completion(data=[1, 2, 3])), D(T.raw(0b100, 0))]
     return out
 
@@ -88,7 +98,8 @@ def routing_tlps(r: ref.Regs) -> list[bytes]:
 async def rx_routing(dut):
     """L1: every request type and error case of ROUTING.md, one TLP each,
     in D0 with memory space on, then the same requests with memory space
-    off and in D3hot (BAR decode off, configuration served)."""
+    off and in D3hot (BAR decode off, configuration served, the slot power
+    events still raised)."""
     env = await tl_env.started(dut, cocotb.RANDOM_SEED, cq_ready_p=0.7, reg_ready_p=0.7,
                                reg_lat=3)
     tlps = routing_tlps(env.regs)
@@ -103,6 +114,8 @@ async def rx_routing(dut):
     await env.drain(stuck_reads=max(0, reads - 8))
     seen = set(env.outcomes)
     assert seen == set(tl_env.OUTCOMES), f"outcomes reached {seen}"
+    spl = sum(1 for tlp in tlps if ref.judge(tlp, env.regs).slot_power)
+    assert spl == 5 and env.spl_seen == spl, f"slot power events {env.spl_seen} of {spl}"
     for regs in ({"mem_space_en": False}, {"mem_space_en": True, "d_state": 3}):
         await env.link_down()
         env.set_regs(**regs)
@@ -112,6 +125,7 @@ async def rx_routing(dut):
         await env.drain()
         new = env.outcomes[before:]
         assert "cq" not in new and "bar2" not in new and "cfg" in new, regs
+    assert env.spl_seen == 3 * spl, f"slot power events {env.spl_seen}, {3 * spl} due"
 
 
 @cocotb.test()

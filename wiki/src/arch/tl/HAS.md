@@ -56,6 +56,7 @@ All ports are synchronous to `clk_i`. Port names follow the
 | Register access | `reg_req_valid_o`, `reg_req_ready_i`, `reg_req_bar2_o`, `reg_req_write_o`, `reg_req_addr_o` (10), `reg_req_be_o` (4), `reg_req_data_o` (32), `reg_req_bus_o` (8), `reg_req_dev_o` (5), `reg_cpl_valid_i`, `reg_cpl_data_i` (32) | [tl-cfg register access](../core/TL_CFG.md#register-access). |
 | Register state | `bus_num_i` (8), `dev_num_i` (5), `mem_space_en_i`, `bus_master_en_i`, `d_state_i` (2), `bar0_base_i` (32), `bar2_base_i` (32), `cpl_timeout_dis_i` | [tl-cfg register state](../core/TL_CFG.md#register-state); `cpl_timeout_dis_i` (Completion Timeout Disable): [completion timeout](COMPLETIONS.md#completion-timeout). |
 | Error events, pending | `tl_err_o` (9), `tl_np_pending_o` | [tl-cfg error events](../core/TL_CFG.md#error-events); [which checks raise each bit](#errors). `tl_np_pending_o`: [non-posted pending](COMPLETIONS.md#non-posted-pending). |
+| Slot power limit | `slot_pwr_valid_o`, `slot_pwr_value_o` (8), `slot_pwr_scale_o` (2) | [tl-cfg slot power limit](../core/TL_CFG.md#slot-power-limit); which messages raise it: [messages](ROUTING.md#messages). |
 | Messages | `msg_valid_i`, `msg_ready_o`, `msg_kind_i` (2), `msg_addr_i` (64), `msg_data_i` (32) | [tl-cfg messages](../core/TL_CFG.md#messages), formats on the [TLP page](TLP.md); [taking a message](ORDERING.md#messages-from-cfg). |
 | Application streams | `cq_*`, `cc_*`, `rq_*`, `rc_*` | The `core` ports of the same names, width and direction ([application interface](../core/APP.md)); `cq_addr_o` is `BAR0_ADDR_W` bits. |
 
@@ -110,7 +111,7 @@ every queued request, read handle, outstanding tag and timer and every
 packet partly taken or offered on any stream; no completion, release,
 error event or timeout is sent for them. `tlp_tx_valid_o`,
 `tlp_rx_ready_o`, `fc_rel_p_o`, `fc_rel_np_o`, `reg_req_valid_o`,
-`tl_err_o`, `tl_np_pending_o`, `msg_ready_o`, `cq_valid_o`, `cc_ready_o`, `rq_ready_o` and
+`tl_err_o`, `tl_np_pending_o`, `slot_pwr_valid_o`, `msg_ready_o`, `cq_valid_o`, `cc_ready_o`, `rq_ready_o` and
 `rc_valid_o` are 0; data outputs are don't care. The `dll` has already
 abandoned every TLP it held when `dl_up_i` falls
 ([`core` link down](../core/HAS.md#link-down)), so the credits `tl` would
@@ -163,7 +164,7 @@ override; Q-rows are the captain's.
 | Besides the required checks (message TC among them), the checks the spec may leave optional are made: byte-enable rules, configuration and I/O TC, Attr, Length | A malformed request never reaches `cq` or `cfg`. | Ignoring them. |
 | Unsupported Request is checked before poisoned: a poisoned request that is otherwise an Unsupported Request reports only the Unsupported Request (firstmate decision) | One error per TLP, the higher-ranked one, as the spec recommends [cite: PCIe Base Spec, rev 3.0, §6.2.3.2.3]. | Poisoned first (a poisoned write to no BAR would report bit 3). |
 | `tl` answers PME_Turn_Off itself with PME_TO_Ack, in any D-state | The host waits for the acknowledgment before removing power; `cfg` has nothing to decide. | Through the `cfg` message channel (a `msg_kind` with no `cfg` rule); not answering. |
-| Set_Slot_Power_Limit dropped | The tl-cfg interface has no net for its value. | A new net (a `core` interface change, [open questions](#open-questions), [#309](https://github.com/amichai-bd/pcie-factory/issues/309)). |
+| Set_Slot_Power_Limit raises the [slot power event](../core/TL_CFG.md#slot-power-limit) at receipt, in the cycle after its `eop`, with its error event ([#309](https://github.com/amichai-bd/pcie-factory/issues/309)) | An upstream port must capture the value; at receipt it needs no place in the posted queue, and no later request can see the old value. | Dropping it (`cfg` reads the fields as 0); raising it when it leaves the posted queue (a queue entry kind for a value no posted request can observe). |
 | A poisoned completion keeps its tag until the read's last byte or its timeout, then fails once | Later completions of the read are not unexpected; the application sees one status. | Failing at once and freeing the tag (later completions would match a reused tag). |
 | A completion that disagrees with its read is malformed and dropped; the read waits | One rule for byte count, lower address and boundary errors; the timeout bounds the wait. | Ending the read at once (a corrupt completion would finish a read). |
 | Requests already taken are sent after bus mastering or D0 ends | Holding them would hold every later completion, the one that restores D0 included. | Discarding them (data the application issued is lost). |
@@ -233,4 +234,4 @@ design's reading.
 | Item | Owner |
 | --- | --- |
 | Every cited section, checked against rev 3.0; in particular which receive checks the spec requires and which it only permits (byte enables, configuration and I/O TC and Attr), the message codes that require TC 0, the message outcomes (Ignored messages dropped; OBFF, LTR and INTx received as Unsupported Request; PM_Active_State_Nak dropped), CRS and a successful completion without data as malformed, the locked completion for a refused locked read, Byte Count 4 for Unsupported Request completions of atomic operations, and AT not 0 as Unsupported Request. | Captain, with a local copy; [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
-| Set_Slot_Power_Limit: an upstream port captures its value into the Device Capabilities slot power fields; the tl-cfg interface has no net for it, so `cfg` reads them as 0. | [#309](https://github.com/amichai-bd/pcie-factory/issues/309) |
+| Set_Slot_Power_Limit: a message without data, or with Length above 1, is not treated as malformed (one without data captures nothing, one with more data captures from its first DW). | Captain, with a local copy; [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |

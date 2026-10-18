@@ -1,7 +1,7 @@
 // pcie_cfg configuration space: the Type 0 header and the capability
 // registers of wiki/src/arch/cfg/REGISTERS.md and CAPS.md, their writes
 // with byte enables, the RW1C status bits, the bus and device number
-// capture and the read of any configuration DW
+// capture, the captured slot power limit and the read of any configuration DW
 // (wiki/src/rtl/cfg/MAS.md#configuration-space).
 `default_nettype none
 
@@ -29,6 +29,9 @@ module pcie_cfg_regs #(
   // Status bits set at this edge (errors, Signaled System Error).
   input  pcie_cfg_pkg::t_sts  sts_set_i,
   input  logic                np_pending_i,
+  // The slot power event: Captured Slot Power Limit loaded at this edge.
+  input  logic                slot_pwr_valid_i,
+  input  pcie_cfg_pkg::t_slot_pwr slot_pwr_i,
   // The configuration DW at addr_i, as the registers hold it.
   output logic [31:0]         rd_data_o,
   output pcie_cfg_pkg::t_ctrl ctrl_q_o,
@@ -68,6 +71,7 @@ module pcie_cfg_regs #(
   pcie_cfg_pkg::t_sts sts_q, sts_d;
   logic [7:0]  bus_q, bus_d;
   logic [4:0]  dev_q, dev_d;
+  pcie_cfg_pkg::t_slot_pwr spl_q;
 
   logic [31:0] pm_rw;       // PowerState is not written by a D1 or D2 value
   logic [31:0] clr_hdr;     // Status bits written 1
@@ -147,6 +151,8 @@ module pcie_cfg_regs #(
   `COMMON_DFF_RST(sts_q, sts_d, clk_i, rst_i)
   `COMMON_DFF_RST(bus_q, bus_d, clk_i, rst_i)
   `COMMON_DFF_RST(dev_q, dev_d, clk_i, rst_i)
+  // Captured Slot Power Limit: read-only to software, loaded by the event.
+  `COMMON_DFF_RST_EN(spl_q, slot_pwr_i, clk_i, slot_pwr_valid_i, rst_i, '0)
 
   // The register state, before and after this edge's write.
   always_comb begin
@@ -218,7 +224,8 @@ module pcie_cfg_regs #(
       pcie_cfg_pkg::DW_MSIX_TB: rd_data_o = pcie_cfg_pkg::VAL_MSIX_TB;
       pcie_cfg_pkg::DW_MSIX_PB: rd_data_o = pcie_cfg_pkg::VAL_MSIX_PB;
       pcie_cfg_pkg::DW_PCIE:    rd_data_o = pcie_cfg_pkg::VAL_PCIE;
-      pcie_cfg_pkg::DW_DEVCAP:  rd_data_o = pcie_cfg_pkg::VAL_DEVCAP;
+      pcie_cfg_pkg::DW_DEVCAP:  rd_data_o = pcie_cfg_pkg::VAL_DEVCAP
+                                          | {4'd0, spl_q.scale, spl_q.value, 18'd0};
       pcie_cfg_pkg::DW_DEVCTL:  rd_data_o = devctl_q | sts_dev;
       pcie_cfg_pkg::DW_LNKCAP:  rd_data_o = pcie_cfg_pkg::VAL_LNKCAP;
       pcie_cfg_pkg::DW_LNKCTL:  rd_data_o = lnkctl_q | pcie_cfg_pkg::VAL_LNKSTS;

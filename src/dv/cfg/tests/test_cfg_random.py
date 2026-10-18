@@ -1,6 +1,7 @@
 """pcie_cfg random test (wiki/src/dv/cfg/DV_PLAN.md): random register
 accesses, table and mask writes, interrupt requests, error events, power
-state changes, link-down resets and a stalling message taker, all judged
+state changes, slot power events, link-down resets and a stalling message
+taker, all judged
 every cycle by the architecture-model shadow of tb/cfg_env.py; then a drain
 with every interrupt allowed, after which nothing may stay pending.
 Seeded by cocotb.RANDOM_SEED; random_ops runs 1500 operations (level 1),
@@ -13,7 +14,7 @@ import cocotb
 
 from tb.cfg_env import Access, Env
 
-CMD, PM_CSR, DEVCTL = 0x04 // 4, 0x44 // 4, 0x78 // 4
+CMD, PM_CSR, DEVCAP, DEVCTL = 0x04 // 4, 0x44 // 4, 0x74 // 4, 0x78 // 4
 MSI_CTL, MSI_LO, MSI_HI, MSI_DAT, MSIX = 0x50 // 4, 0x54 // 4, 0x58 // 4, 0x5C // 4, 0x60 // 4
 PBA = 0x200
 
@@ -45,6 +46,7 @@ async def run_random(dut, ops: int) -> None:
     await env.cfg_write(CMD, 0x6, be=0x3)
     env.err_p = 0.02
     env.np_p = 0.5
+    env.spl_p = 0.01
 
     def write(dw, data, be=0xF, bar2=False):
         env.accesses.append(Access(bar2, True, dw, be, data & 0xFFFFFFFF,
@@ -81,7 +83,7 @@ async def run_random(dut, ops: int) -> None:
         elif op < 0.74:
             write(rng.randrange(0x40), rng.getrandbits(32), be=rng.getrandbits(4))
         elif op < 0.84:
-            read(rng.randrange(0x40))
+            read(rng.randrange(0x40) if rng.random() < 0.9 else DEVCAP)
         elif op < 0.92:
             dw = rng.choice((PBA, PBA + 1, 4 * rng.randrange(n) + rng.randrange(4),
                              rng.randrange(0x400)))

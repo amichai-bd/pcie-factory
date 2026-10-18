@@ -124,6 +124,13 @@ package pcie_cfg_pkg;
     logic ced;                 // Device Status Correctable Error Detected
   } t_sts;
 
+  // The slot power event's payload (TL_CFG slot power limit): Device
+  // Capabilities Captured Slot Power Limit Value (25:18) and Scale (27:26).
+  typedef struct packed {
+    logic [7:0] value;
+    logic [1:0] scale;
+  } t_slot_pwr;
+
   // One due flag per error message kind (HAS, Messages).
   typedef struct packed {
     logic fatal;

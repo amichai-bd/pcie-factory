@@ -42,6 +42,10 @@ DC_CERE, DC_NFERE, DC_FERE, DC_URRE = 1, 2, 4, 8
 # Device Status bits, as bits of DW 0x78 [cite: PCIe Base Spec, rev 3.0, §7.8.5]
 DS_CED, DS_NFED, DS_FED, DS_URD = 1 << 16, 1 << 17, 1 << 18, 1 << 19
 
+# Device Capabilities, DW 0x74: Captured Slot Power Limit Value 25:18, Scale
+# 27:26 [cite: PCIe Base Spec, rev 3.0, §7.8.3]
+DEVCAP, DEVCAP_SLOT_POWER = CAP_PCIE + 0x04, 0xFFC << 16
+
 MSG_IRQ, MSG_ERR_COR, MSG_ERR_NONFATAL, MSG_ERR_FATAL = 0, 1, 2, 3
 D0, D3HOT = 0, 3
 
@@ -285,6 +289,16 @@ class Cfg:
     def _check_addr(addr: int, size: int) -> None:
         if addr % 4 or not 0 <= addr < size:
             raise ValueError(f"DW address 0x{addr:x} out of range")
+
+    def slot_power(self, value: int, scale: int) -> None:
+        """The slot power event from tl (TL_CFG slot power limit): Device
+        Capabilities Captured Slot Power Limit Value (bits 25:18) and Scale
+        (bits 27:26) take it; read-only to software, 0 after reset (HAS,
+        slot power limit) [cite: PCIe Base Spec, rev 3.0, §7.8.3]."""
+        if not (0 <= value <= 0xFF and 0 <= scale <= 3):
+            raise ValueError(f"slot power value {value} scale {scale}")
+        dw = DEVCAP >> 2
+        self.r[dw] = (self.r[dw] & ~DEVCAP_SLOT_POWER) | value << 18 | scale << 26
 
     # ------------------------------------------------------------ errors
 

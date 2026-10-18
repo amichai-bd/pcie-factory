@@ -41,16 +41,20 @@ tests to this testbench and this page.
   - the **receive reference**
     [`models/pcie_tl_rx_ref.py`](../../../../src/dv/tl/models/pcie_tl_rx_ref.py),
     written from the [TLP](../../arch/tl/TLP.md) and
-    [routing](../../arch/tl/ROUTING.md) pages with no code of the
-    architecture model, judges each TLP as it is sent: outcome, error
-    bit, class and credits, and what each outcome must make;
+    [routing](../../arch/tl/ROUTING.md) pages and the
+    [slot power limit](../../arch/core/TL_CFG.md#slot-power-limit) with no
+    code of the architecture model, judges each TLP as it is sent:
+    outcome, error bit, slot power event, class and credits, and what each
+    outcome must make;
   - the **shadow**, the [architecture model](../../arch/tl/HAS.md#architecture-model)'s
-    `classify`, judges the same TLP; a disagreement with the reference
-    fails the test.
+    `classify` and `slot_power`, judges the same TLP; a disagreement with
+    the reference fails the test.
 - **Checks on every run:** every handshake output at its reset value in
   every reset cycle (`rst_i` 1 or `dl_up_i` 0), the outputs of the blocks
   not built always 0, and `tlp_rx_ready_o` 1 otherwise; each error pulse
   exactly one cycle after the TLP's `eop`, with the reference's bit; each
+  slot power event exactly one cycle after the `eop` of a TLP the
+  reference raises one for, with its value and scale, and none otherwise; each
   `cq` packet against the next BAR0 write or read (address bits, length,
   byte enables, every data DW), each read with the lowest free handle and
   its context on `rd_take`; each register access against the next access
@@ -77,8 +81,9 @@ tests to this testbench and this page.
   left over fails it. Until #291 frees handles, BAR0 reads beyond eight
   per link-up wait, and a test names how many.
 - **Functional coverage:** `tl_rx_outcome` (outcome, class, kind, error
-  bit, outcome × class with the impossible pairs declared unreachable)
-  and `tl_rx_order` (a read waiting for a handle, a write passing it, a
+  bit, outcome × class with the impossible pairs declared unreachable),
+  `tl_rx_slot_power` (each Set_Slot_Power_Limit captured, without data,
+  poisoned or malformed; the scale of each captured one), and `tl_rx_order` (a read waiting for a handle, a write passing it, a
   non-posted request waiting for posted ones, a cfg-line request passing
   a waiting read, two and three non-posted requests leaving in one cycle,
   non-posted data owed above 8 (the carry), `cq` and
@@ -97,7 +102,7 @@ classification.
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Reset values](../../arch/tl/HAS.md#reset); a write to `cq` and a configuration read to `cfg` | `smoke` | 0 | 1 |
-| Every request type and error case of the [routing](../../arch/tl/ROUTING.md): served `cq`, BAR2 and configuration requests, every Unsupported Request, every message outcome, every malformed step, poisoned requests and the Unsupported Request first, completions to the tracker, TLPs with a digest; then the same with memory space off and in D3hot ([outside D0](../../arch/tl/ROUTING.md#outside-d0)) | `rx_routing` | 1 | 1; directed |
+| Every request type and error case of the [routing](../../arch/tl/ROUTING.md): served `cq`, BAR2 and configuration requests, every Unsupported Request, every message outcome, every malformed step, poisoned requests and the Unsupported Request first, completions to the tracker, TLPs with a digest; the [slot power event](../../arch/core/TL_CFG.md#slot-power-limit) of Set_Slot_Power_Limit (back to back, any routing, other bits ignored, two data DWs, a digest; none without data, poisoned or with TC not 0); then the same with memory space off and in D3hot ([outside D0](../../arch/tl/ROUTING.md#outside-d0)) | `rx_routing` | 1 | 1; directed |
 | [Ordering](../../arch/tl/ORDERING.md#ordering): reads waiting for handles and writes passing them, configuration passing waiting reads, nothing passing a held posted request, posted order across `cq` and `cfg`, a configuration request not waiting for a later write, one beat per cycle on `cq`, merged non-posted releases | `rx_order` | 1 | 1; directed |
 | [Reset](../../arch/tl/HAS.md#reset) by link-down mid-TLP and by `rst_i` with requests queued | `rx_link_down` | 1 | 1; directed |
 | Random TLPs of every kind with stalls and gaps, segments across link-downs | `rx_random` | 1 | 3 |
@@ -153,6 +158,19 @@ against the entry named, at its first regression seed
 | M30 a posted release one cycle late | `smoke` | the write that left is not released in the next cycle |
 | M31 a BAR0 read released at arrival | `rx_order` | a non-posted release with nothing owed |
 | M32 a non-posted release one cycle late | `rx_order` | no release with a header owed |
+
+The slot power event ([#309](https://github.com/amichai-bd/pcie-factory/issues/309))
+was mutated against L0 and L1 one entry at a time (`--jobs 1`); the
+entry is the first that fails, in level then name order.
+
+| Mutant | Entry | Fails with |
+| --- | --- | --- |
+| M33 a poisoned Set_Slot_Power_Limit raises the event | `rx_routing` | slot power event (231, 1) with none due |
+| M34 one without data raises the event | `rx_random` | slot power event (0, 0) with none due |
+| M35 any message with data raises the event | `rx_random` | slot power event (92, 2) with none due |
+| M36 the event held, not pulsed | `rx_random` | slot power event (0, 0) with none due |
+| M37 the scale from data byte 3 | `rx_random` | slot power event (value, scale) expected (248, 1) got (248, 2) |
+| M38 one with a digest not captured | `rx_routing` | no slot power event, expected value 0xc3 scale 2 |
 
 ## Gaps
 
