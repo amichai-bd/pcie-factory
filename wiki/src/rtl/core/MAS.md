@@ -55,8 +55,10 @@ port they carry without its `_o`/`_i` suffix (`tlp_tx_*`, `tlp_rx_*`,
 | `rst_i` | The `core` reset | `u_link` and `u_tl`; `tl` adds `dl_up_i` 0 itself ([`tl` MAS](../tl/MAS.md#top)). |
 | `cfg_rst` | `rst_i \| ~dl_up_o` | `u_cfg` `rst_i`, and the output gate. |
 
-`cfg` resets synchronously, so in the first cycle of `cfg_rst` its
-registers still hold their old values. The HAS reset values hold in every
+`cfg` resets synchronously: its registered outputs reach their reset
+values only the cycle after the first edge at which its `rst_i` is
+sampled 1, and in the first cycle of `cfg_rst` still show their old values
+([`cfg` reset](../../arch/cfg/HAS.md#reset)). The HAS reset values hold in every
 cycle where `rst_i` is 1 or `dl_up_o` is 0
 ([reset](../../arch/core/HAS.md#reset)), so `core` forces each gated
 output to its reset value while `cfg_rst` is 1: `irq_done_o`,
@@ -71,7 +73,7 @@ own outputs the same way.
 
 | Choice | Rationale | Rejected |
 | --- | --- | --- |
-| Gate the `cfg` outputs to the application with `cfg_rst` in `core` | The core HAS requires the reset values in every cycle where `rst_i` is 1 or `dl_up_o` is 0, and `dl_up_o` falls with no warning, so a synchronous reset alone leaves one stale cycle; one AND per output closes it from the first cycle without changing `cfg`. Whether the `cfg` HAS reset values hold from the reset edge itself is a `cfg` question left to a follow-up. | Gating inside `cfg` in this issue (a `cfg` contract change, outside #293); letting the outputs lag a cycle (breaks the core HAS reset rule; the link-down e2e caught it). |
+| Gate the `cfg` outputs to the application with `cfg_rst` in `core` | The core HAS requires the reset values in every cycle where `rst_i` is 1 or `dl_up_o` is 0, and `dl_up_o` falls with no warning, so a synchronous reset alone leaves one stale cycle; one AND per output closes it from the first cycle without changing `cfg`. The `cfg` HAS settles that lag as its contract: registered outputs at their reset values from the cycle after the first edge at which `rst_i` is sampled 1, the two readys 0 in every cycle `rst_i` is 1 ([`cfg` reset](../../arch/cfg/HAS.md#reset), [#348](https://github.com/amichai-bd/pcie-factory/issues/348)), so `core`, the one consumer that needs the values a cycle earlier, gates them. | Gating inside `cfg` (logic on every output for a need only `core` has; the `cfg` HAS rejects it); letting the outputs lag a cycle (breaks the core HAS reset rule; the link-down e2e caught it). |
 | `cfg_rst` built in `core`, `dl_up_o` into `tl` | The `tl` port set takes `dl_up_i`; the `cfg` ports take one reset, which its HAS defines as `rst_i` or data link down inside `core`. | A shared reset block (one OR). |
 | Same `FC_*` into `link` and `tl` | `tl` queues are sized by what `link` advertises; one parameter set cannot disagree. | Separate parameters. |
 | The `rst_i` lint waiver for `core` | The `link` stack takes `rst_i` both into the pcs receive reset synchronizer and synchronously, as the `link` top does ([lint waivers](../../../../src/lint_waivers.yaml)). | Re-synchronizing `rst_i` in `core` (a crossing the `link` HAS does not call for). |
