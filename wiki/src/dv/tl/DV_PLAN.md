@@ -401,7 +401,18 @@ Measured with the transmit output stage of
 points, 522 toggle points, all its line points hit). Before it and #294 the
 same run gave 75.57% toggle (40371 of 53424): widening `tx_random`'s `rq`
 addresses added 276 points, and `rx_epoch_wrap` 1168 (the six epoch
-counters had never wrapped).
+counters had never wrapped). The wrap is confirmed by the top bit of
+each counter toggling 1 to 0 (511 to 0) in that entry's coverage run:
+`u_rx_q.ep_q[l][8]` for the cq, cfg and rc lines and `u_txq.ep_q[l][8]`
+for the np, cc and cf lines, each once each way; M113 shows the cfg
+line's ordering is checked across it.
+
+The earlier L0 and L1 measurement listed the queue full flags as line
+holes. They are not line points: each is a continuous assignment
+(`pcie_tl_fifo.sv` line 40, the flags in `pcie_tl_rx_q.sv`,
+`pcie_tl_txq.sv` and `pcie_tl_rc.sv`), which Verilator's line coverage
+does not count, read only by the overflow assertions and the transmit
+room. They appear in the toggle table's queue fill row.
 
 Verilator keeps one copy of each block per parameter set (four sets:
 default, `rx_random_min_credits`, `rx_np_collide`, `rx_random_long_params`).
