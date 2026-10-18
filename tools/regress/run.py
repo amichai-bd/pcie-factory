@@ -231,11 +231,18 @@ def run(
                     reused[(entry, seed)] = rec
 
     specs: dict[tuple[str, str], sim.BuildSpec] = {}
-    for entry, seed in all_runs:
+    pinned_builds: set[tuple[str, str]] = set()
+    n_pinned = len(selection.runs)
+    for i, (entry, seed) in enumerate(all_runs):
         if (entry, seed) in reused:
             continue
         spec = _spec(ips, entry, waves, cov_of[(entry, seed)])
         specs.setdefault((entry.ip, spec.key), spec)
+        if i < n_pinned:
+            pinned_builds.add((entry.ip, spec.key))
+    # Builds that only extra rotated runs need (plain builds of entries whose
+    # pinned runs all use the coverage build): marked `extra` in the summary.
+    extra_builds = set(specs) - pinned_builds
 
     def do_build(spec: sim.BuildSpec):
         res = sim.build(spec, ctx.workdir, verilator)
@@ -321,7 +328,7 @@ def run(
     summary = make_summary(
         ctx, selection, levels, budgets, list(built.items()), [r for _, r in ran],
         time.monotonic() - wall_start, coverage_doc, cov_of, set(reused),
-        runs=[item for item, _ in ran],
+        runs=[item for item, _ in ran], extra_builds=extra_builds,
     )
     summary["rotation"] = rotation_doc(selection, summary["tests"], skipped)
     summary["build_cache"] = None if cache is None else {
@@ -412,6 +419,7 @@ def make_summary(
     cov_of: dict | None = None,
     reused: set | None = None,
     runs: list | None = None,
+    extra_builds: set | None = None,
 ) -> dict:
     """``runs`` (default ``selection.runs``) are the runs ``results`` belong
     to; an extra rotated run among them is marked ``extra`` and left out of
@@ -468,7 +476,7 @@ def make_summary(
         "builds": [
             {"ip": ip_id, "build": key, "status": r.status, "cached": r.cached,
              "runtime_s": round(r.runtime_s, 3), "cpu_s": round(r.cpu_s, 3),
-             "log": rel(r.log)}
+             "log": rel(r.log), "extra": bool(extra_builds and (ip_id, key) in extra_builds)}
             for (ip_id, key), r in builds
         ],
         "tests": tests,

@@ -35,10 +35,12 @@ def test_tests_section_whitelists(cfg):
 def test_tests_section_leaves_out_extra_rotated_seeds(tmp_path, cfg):
     data = json.loads((FIXTURES / "workdir" / "regress" / "summary.json").read_text())
     data["tests"].append(dict(data["tests"][0], seed=999, status="fail", extra=True))
+    data["builds"].append(dict(data["builds"][0], build="x-plain", status="fail", extra=True))
     s = tmp_path / "summary.json"
     s.write_text(json.dumps(data))
     t = record.tests_section(s, cfg)
     assert t["status"] == "ok" and 999 not in [r["seed"] for r in t["runs"]]
+    assert t["builds"] == {"total": 2, "failed": 0}  # the failed extra-only build left out
     assert t == record.tests_section(FIXTURES / "workdir" / "regress" / "summary.json", cfg)
 
 

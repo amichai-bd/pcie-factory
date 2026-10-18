@@ -374,3 +374,50 @@ def test_failing_extra_seed_fails_the_run_with_its_repro(fixture_src, tmp_path, 
     assert regress.report(summary, io.StringIO(), err) == 1
     assert (f"error: extra seed fail: counter:{entry.name} seed={bad}; reproduce: "
             f"./build sim --ip counter --test {entry.name} --seed {bad}") in err.getvalue()
+
+
+def test_pinned_runs_start_first_then_extras_in_key_order(fixture_src, tmp_path, monkeypatch):
+    lv2 = fixture_src / "dv/counter/regress/level2.yaml"
+    lv2.write_text(lv2.read_text() + "  - {name: second, module: tests.test_counter, top: counter,"
+                   " seeds: 1, timeout_s: 60}\n")
+    ran = []
+    _fake_children(monkeypatch, ran)
+    got = {}
+
+    def collect(ctx, sel, lv, results, fl, tool, cov_of):
+        got["seeds"] = [int(r.log.parent.name) for r in results]
+        return {"ips": {}, "passed": True}
+
+    monkeypatch.setattr(regress, "collect_coverage", collect)
+    monkeypatch.setattr(regress.cov, "find_tool", lambda v: Path("/fake/verilator_coverage"))
+    ctx = ctx_for(fixture_src, tmp_path)
+    sel = regress.select(ctx, [2], ["counter"], rotation=rot(n=3))
+    regress.run(ctx, sel, [2], jobs=1, out=io.StringIO(), coverage=True)
+    started = [(t, s) for t, s, _ in ran]
+    pinned = [(e.name, s) for e, s in sel.runs]
+    assert started[:len(pinned)] == pinned  # every pinned run starts before any extra
+    extras = started[len(pinned):]
+    assert len(extras) == 6
+    by_key = sorted(sel.extra, key=lambda r: regress.rotation_order("2026-10-18", r))
+    assert extras == [(e.name, s) for e, s in by_key]
+    assert extras != sorted(extras, key=lambda r: (r[0], r[1]))  # shuffled, not sorted
+    other = sorted(sel.extra, key=lambda r: regress.rotation_order("2026-10-19", r))
+    assert other != by_key  # another key, another order
+    assert got["seeds"] == [s for _, s in sel.runs]  # coverage sees pinned results only
+
+
+def test_extra_only_builds_are_marked(fixture_src, tmp_path, monkeypatch):
+    ran = []
+    _fake_children(monkeypatch, ran)
+    monkeypatch.setattr(regress, "collect_coverage",
+                        lambda ctx, sel, lv, res, fl, tool, cov_of: {"ips": {}, "passed": True})
+    monkeypatch.setattr(regress.cov, "find_tool", lambda v: Path("/fake/verilator_coverage"))
+    lv2 = fixture_src / "dv/counter/regress/level2.yaml"
+    lv2.write_text(lv2.read_text().replace("seeds: 2", "seeds: 1"))
+    ctx = ctx_for(fixture_src, tmp_path)
+    sel = regress.select(ctx, [2], ["counter"], rotation=rot(n=1))
+    summary = regress.run(ctx, sel, [2], out=io.StringIO(), coverage=True)
+    # The single pinned seed uses the coverage build; the plain one exists for the extra.
+    assert sorted(b["extra"] for b in summary["builds"]) == [False, True]
+    plain = regress.run(ctx, regress.select(ctx, [2], ["counter"]), [2], out=io.StringIO())
+    assert [b["extra"] for b in plain["builds"]] == [False]

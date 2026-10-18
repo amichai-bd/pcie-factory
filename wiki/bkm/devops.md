@@ -412,8 +412,14 @@ explores new stimulus while PRs and `ci-gate` stay unchanged (#333):
 - **Budget:** `cfg/levels.yaml` `rotation` sets `extra_seeds: 1` and
   `budget_s: 3600` of CPU; no extra run starts once the extra runs have
   used it, and those not started are listed in the summary, not failed.
-  With the pinned L2 at 3394.6 s of CPU (#327), L2 with its extra runs stays
-  near 7000 s, inside the 9600 s level-2 budget and the nightly window.
+  The extra runs can pass the budget by the runs in flight when it is
+  reached, at most `--jobs` (the nightly's `nproc`) of them; the plain
+  builds only extra runs need (an entry whose pinned seeds all run on the
+  coverage build) are built up front and charged to no budget, most from
+  the build cache. With the pinned L2 at 3394.6 s of CPU (#327), L2 with its
+  extra runs stays near 7000 s, inside the 9600 s level-2 budget and the
+  nightly window. Record the first rotated nightly's measured rotation CPU
+  and build time against these figures.
   Raise `extra_seeds` or the budget only with a measured nightly that
   still fits.
 - **A failing extra seed is a real failure:** it fails `regress` and the

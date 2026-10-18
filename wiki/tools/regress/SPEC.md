@@ -191,15 +191,22 @@ change with `KEY`, so a run per key (the nightly passes its UTC date,
   exits 2.
 - **No coverage:** extra runs run on the plain build, never the coverage
   build, and are never merged, so `--coverage` and the floors see exactly
-  the pinned runs ([coverage](#coverage)). An extra run of a
-  `rerun_when` entry follows the [reuse](#reuse-of-unchanged-model-checks)
-  rule, its own seed in the key.
+  the pinned runs ([coverage](#coverage)). An entry whose pinned runs all
+  use the coverage build (such as a single seed with `coverage_seeds: 1`)
+  therefore needs a plain build for its extra runs alone; such
+  **extra-only builds** are built (or taken from the build cache) up front
+  with the others, even when the budget later stops their runs, carry
+  `extra` true in the summary's `builds`, and are charged to no budget. An
+  extra run of a `rerun_when` entry follows the
+  [reuse](#reuse-of-unchanged-model-checks) rule with its own seed in the
+  key; a new key gives new seeds, so it is never reused across nights.
 - **Budget:** extra runs start after every pinned run has started, in an
   order shuffled by `crc32("<KEY>:<ip>:<name>:<seed>")`, so a different
   set waits each night when the budget is short. An extra run starts only
   while the CPU time of the extra runs finished so far (a run killed on its
   timeout counts its wall time) is below `budget_s`; runs already started
-  finish. Each one not started prints `[L<n>] <ip>:<test> seed=<s> not
+  finish, so the extra runs' CPU time is at most `budget_s` plus the runs
+  in flight when it was reached (at most `--jobs` of them). Each one not started prints `[L<n>] <ip>:<test> seed=<s> not
   started (rotation budget spent)` and is listed in the summary; it is not
   a failure.
 - **Failure:** an extra run that does not pass fails the run like any
@@ -266,7 +273,8 @@ when it finishes, even if it selected no tests:
   "selected_ips": 1,
   "selected_tests": 1,
   "builds": [{"ip": "a", "build": "a_top", "status": "pass", "cached": false,
-              "runtime_s": 2.1, "cpu_s": 3.9, "log": "a/build/a_top/build.log"}],
+              "runtime_s": 2.1, "cpu_s": 3.9, "log": "a/build/a_top/build.log",
+              "extra": false}],
   "tests": [{"ip": "a", "level": 0, "name": "smoke", "seed": 123,
              "status": "pass", "runtime_s": 0.9, "cpu_s": 0.8,
              "log": "a/smoke/123/sim.log", "detail": "1 case(s) passed",
@@ -312,7 +320,8 @@ The fields mean the following:
   `totals.<level>.reused` counts those. `build_cache` is `null` with the
   cache off; otherwise its directory (home as `~`), the run's builds, how
   many were hits, and the reused runs.
-- A test's `extra` is true for an [extra rotated seed](#seed-rotation).
+- A test's `extra` is true for an [extra rotated seed](#seed-rotation), a
+  build's `extra` for an extra-only build (one only extra runs need).
   Extra runs are left out of `totals`, whose budgets cover the pinned
   seeds. `rotation` is `null` without `--rotate`; otherwise
   `{key, level, extra_seeds, budget_s, runs, passed, failed, cpu_s,
@@ -598,6 +607,10 @@ determinism, a new key rotates, N gives a prefix;
 `test_load_rotation`: the `cfg/levels.yaml` section and every malformed
 case; `test_extra_runs_are_plain_marked_and_outside_the_level_totals`;
 `test_rotation_budget_stops_starting_extra_runs`;
+`test_pinned_runs_start_first_then_extras_in_key_order`: with `--jobs 1`
+every pinned run starts before any extra, the extras in `rotation_order`
+of the key (another key, another order), and coverage gets the pinned
+results only; `test_extra_only_builds_are_marked`;
 `test_failing_extra_seed_fails_the_run_with_its_repro`), `test_schema.py`
 (the `coverage_seeds` and `rerun_when` validation) and
 `tools/cli/tests/test_cli.py` (`test_regress_rotation_dry_run`).

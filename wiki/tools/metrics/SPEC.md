@@ -183,10 +183,13 @@ unavailable.
 
 From `<workdir>/regress/summary.json` (the [regress spec](../regress/SPEC.md)).
 Extra rotated seeds (rows with `extra` true,
-[seed rotation](../regress/SPEC.md#seed-rotation)) are left out of every
-field, like the summary's level totals, so the series compare the pinned
-seeds night to night; a failing one still makes `passed` false, and `red`
-lists it.
+[seed rotation](../regress/SPEC.md#seed-rotation)) are left out of
+`totals`, `ips`, `slowest` and `runs`, and the builds only they need (summary
+builds with `extra` true) out of `builds`, so the series compare the pinned
+seeds night to night. Two fields still include them: `passed`, which a
+failing extra run or extra-only build makes false (`red` then lists the
+failed runs, an extra-only build failure as its runs' `error`), and
+`wall_s`, the wall time of the whole regress run, extra runs included.
 
 | Field | Value |
 | --- | --- |
