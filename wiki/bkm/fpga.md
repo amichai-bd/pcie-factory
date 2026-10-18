@@ -174,6 +174,7 @@ list equal to this table, so add or remove a row and its ID together:
 | 292013 | LogicLock is only available with a subscription license | Lite edition; the flow uses no LogicLock regions. |
 | 169177 | Pins must meet requirements for 3.3, 3.0 and 2.5 V interfaces | Reported for 3.3-V LVTTL clock inputs that the board wires that way (`CLOCK_50`, `SMA_CLKIN`, `HSMC_CLKIN0` with JP6 at its default) (AN 447). |
 | 10036 | Object assigned a value but never read | A signal read only inside `COMMON_ASSERT*` arguments, which `SYNTHESIS` compiles out ([assertions](rtl.md#assertions)); Verilator lint, which sees the assertions, still reports a signal that nothing reads. |
+| 276020 | Inferred RAM node from synchronous design logic; pass-through logic added to match the read-during-write behavior | Quartus maps a register array to block RAM and adds bypass logic so that a read of the word being written returns what the RTL returns: behavior is preserved, and the added logic is inside the timing and resource results. A memory that must be block RAM with a defined collision uses the explicit backend instead ([layout, source backends](../project/layout.md#source-backends)). |
 
 `./build fpga` records each step's warning IDs with their counts in
 `metrics.json` and, after a passing run, prints per step how many warnings

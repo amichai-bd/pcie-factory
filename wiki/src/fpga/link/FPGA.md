@@ -124,7 +124,7 @@ to the PR's final head, whose own `ci-fpga` run reproduces it (PR #276).
 | Registers | 2836. |
 | Memory | 4 / 432 M9K, 26112 memory bits. |
 | Worst setup path | `clk_core`, inside the receive descrambler (`data_q[1]` to `data_q[15]`), slack +1.150 ns. |
-| Quartus warnings | Map 6, fit 2. |
+| Quartus warnings | Map 6: 10036 ×5, 276020 ×1; fit 2: 169177, 292013. All are [known warnings](../../../bkm/fpga.md#known-quartus-warnings). 276020 is the `end_q` array below, which Quartus maps to block RAM with read-during-write pass-through logic. |
 
 **Block RAM** (`resources.rams`, one row per RAM in the fitter report):
 
