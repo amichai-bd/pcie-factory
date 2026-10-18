@@ -642,3 +642,24 @@ def test_bad_workload():
         m.perf({"kind": "nope"}, 1)
     with pytest.raises(ValueError):
         m.perf({"kind": "completer", "tlps": 0}, 1)
+
+
+def test_bench_credits_return_through_the_release_port():
+    """HAS, credit release (#303): in ``perf`` the posted credits reach the
+    host only when tl releases them through its dll's release port. With
+    cq stalled, tl's posted queue fills to the advertised 8 headers, the
+    host's dll is credit-blocked, and the tl dll holds exactly what tl
+    received and has not released; after the stall every write drains."""
+    rng = random.Random(1)
+    b = m.Bench(rng, app=m.App(rng, stall=((0, 4000),)))
+    b.gen = iter([m.mem_tlp(True, b.cfg.bar0 + 16 * i, 4, 0xF, 0xF, 0, 0, bytes(16))
+                  for i in range(20)])
+    while b.now < 3000:
+        b.step()
+    held = b.b.held[m.P]
+    assert b.tl.occ[:2] == [8, 8] and held == [8, 8]
+    assert b.a.counts["credit_blocked"] > 0 and len(b.app.cq_got) == 0
+    while b.now < 8000:
+        b.step()
+    assert len(b.app.cq_got) == 20 and b.tl.occ == [0, 0, 0, 0] and b.b.held[m.P] == [0, 0]
+    assert sum(1 for r in b.tl.released if r[1] == m.P) == 20
