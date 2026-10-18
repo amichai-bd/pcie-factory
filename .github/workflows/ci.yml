@@ -35,7 +35,7 @@ jobs:
     # required check counts as passing). Never use pull_request_target with a
     # PR checkout.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, linux, x64]
+    runs-on: [self-hosted, linux, x64, wsl]
     # Target (not enforced): checks plus L0+L1 of the affected IPs within
     # 10 minutes; the hard timeout leaves headroom for a cold dependency install.
     timeout-minutes: 20
@@ -177,7 +177,7 @@ jobs:
 
   ci-fpga:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, linux, x64]
+    runs-on: [self-hosted, linux, x64, wsl]
     timeout-minutes: 20
     env:
       AFFECTED: ${{ github.event_name == 'pull_request' && '--affected HEAD^1' || '' }}
@@ -217,7 +217,7 @@ jobs:
 
   ci-asic-synth:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, linux, x64]
+    runs-on: [self-hosted, linux, x64, wsl]
     timeout-minutes: 20
     env:
       AFFECTED: ${{ github.event_name == 'pull_request' && '--affected HEAD^1' || '' }}
@@ -260,7 +260,7 @@ jobs:
     # always() makes failures, cancellations and unexpected skips reach the
     # aggregate. The helper accepts only explicit success from every job.
     if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-    runs-on: [self-hosted, linux, x64]
+    runs-on: [self-hosted, linux, x64, wsl]
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7.0.1
@@ -301,7 +301,7 @@ jobs:
   ci-gate-status:
     needs: ci-gate
     if: ${{ always() && github.event_name != 'pull_request' && startsWith(github.ref, 'refs/heads/nightly/') }}
-    runs-on: [self-hosted, linux, x64]
+    runs-on: [self-hosted, linux, x64, wsl]
     timeout-minutes: 5
     permissions:
       contents: read

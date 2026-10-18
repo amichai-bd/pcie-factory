@@ -348,7 +348,7 @@ inline JSON escapes `<`, `>`, `&` and `'`.
 ## Publishing
 
 `.github/workflows/pages.yml` runs on the self-hosted runners
-(`[self-hosted, linux, x64]`). It installs the pinned dependencies into a venv under
+of the WSL host (`[self-hosted, linux, x64, wsl]`). It installs the pinned dependencies into a venv under
 `workdir/` with `pip install -r tools/requirements.txt`, and runs
 `build --strict --sha $GITHUB_SHA`.
 

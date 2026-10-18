@@ -8,6 +8,8 @@ import yaml
 from build.ip import REPO_ROOT
 from cli.main import main
 
+WSL_RUNNER = ["self-hosted", "linux", "x64", "wsl"]
+
 
 @pytest.mark.parametrize("results", list(itertools.product(
     ("success", "failure", "cancelled", "skipped"), repeat=3)))
@@ -37,7 +39,7 @@ def test_workflow_wires_required_results_and_preserves_guards():
     for name in gate["needs"] + ["ci-gate"]:
         job = jobs[name]
         assert "github.event.pull_request.head.repo.full_name == github.repository" in job["if"]
-        assert job["runs-on"] == ["self-hosted", "linux", "x64"]
+        assert job["runs-on"] == WSL_RUNNER
     for name, kind in (("ci-fpga", "fpga"), ("ci-asic-synth", "asic")):
         job = jobs[name]
         assert "needs" not in job  # parallel to simulation
@@ -47,9 +49,14 @@ def test_workflow_wires_required_results_and_preserves_guards():
     assert "github.event_name != 'pull_request'" in jobs["ci-gate-status"]["if"]
 
 
-def test_nightly_runs_only_on_the_wsl_host():
-    """Every nightly job selects the WSL host's label (wiki/bkm/devops.md, Nightly)."""
-    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/nightly.yml").read_text())
-    assert workflow["jobs"]
-    for name, job in workflow["jobs"].items():
-        assert job["runs-on"] == ["self-hosted", "linux", "x64", "wsl"], name
+def test_every_workflow_job_runs_only_on_the_wsl_host():
+    """Every job of every workflow selects the WSL host's label, the only
+    supported self-hosted runner (wiki/bkm/devops.md, Continuous integration)."""
+    workflows = REPO_ROOT / ".github/workflows"
+    paths = sorted([*workflows.glob("*.yml"), *workflows.glob("*.yaml")])
+    assert paths
+    for path in paths:
+        jobs = yaml.safe_load(path.read_text())["jobs"]
+        assert jobs, path.name
+        for name, job in jobs.items():
+            assert job["runs-on"] == WSL_RUNNER, f"{path.name}: {name}"

@@ -28,28 +28,28 @@ hosts:
     description: Claude Code cloud session (Ubuntu); provisioned by .claude/hooks/session-start.sh
     python: system python3, packages installed into it from tools/requirements.txt
   omarchy:
-    description: self-hosted CI host (Arch Linux); provisioned by hand, not by the hook
-    # Recorded from the host agent's report; fields still empty are not
-    # reported yet. Do not guess.
+    description: UNSUPPORTED former self-hosted CI host (Arch Linux); no workflow selects it (#321)
+    # Kept as a historical record of what the host agent reported, and for the
+    # fpga tool's quartus_root fallback. Its runners carry no wsl label, so no
+    # job lands there; taking them offline is a host action for the captain.
     verilator_prefix: /usr          # /usr/bin/verilator, found on PATH
     verilator_version: "5.052"
     python: "3.14.7"                # base interpreter of the runner venv
     venv: runner                    # the runner service's own venv ($VIRTUAL_ENV), first on PATH; holds the cocotb, pytest and PyYAML pins
     quartus_root: /opt/intelFPGA_lite/25.1/quartus   # seen by the fpga workflow (also $QUARTUS_ROOTDIR and on PATH)
     quartus_version: "25.1std.0 Build 1129"         # `quartus_sh --version`; Lite Edition
-    orfs_root:
-    orfs_image: "openroad/orfs:26Q4-142-gd4b96380b@sha256:f00e7890ebca6af80a973c2e7a5ccf7ff992c1a65903ac8bee39dfd4a458c811"   # ./build asic pin; the runners also export it as ORFS_IMAGE
-    orfs_commit: d4b96380b10e          # ORFS revision in that image
-    orfs_cores: 4                     # NUM_CORES and docker --cpus for ./build asic
     pdftotext: "26.08.0"              # from the ci-gate "Reference documents" step log (text extractor line); extracts reference text
   wsl:
-    description: self-hosted CI host (Ubuntu 24.04 under WSL2); provisioned by hand; the only host the nightly runs on (runner label wsl)
+    description: self-hosted CI host (Ubuntu 24.04 under WSL2); provisioned by hand; the only supported CI host, every workflow job selects its runner label wsl
     # Versions only; install paths are private to the host and not recorded.
-    # Quartus is on the runner PATH; ./build asic uses the one orfs_image pin
-    # above (the asic tool reads a single ORFS host entry), pulled here too.
+    # Quartus is on the runner PATH. The ORFS pin lives here because the asic
+    # tool reads a single ORFS host entry.
     verilator_version: "5.052"      # built from the pinned tag into a user prefix, on the runner PATH
     python: "3.12.3"                # base interpreter of the runner venv
     venv: runner                    # the runner service's own venv ($VIRTUAL_ENV), first on PATH; holds the tools/requirements.txt pins
     quartus_version: "25.1std.0 Build 1129"         # `quartus_sh --version`; Lite Edition
     docker_version: "29.4.0"        # runner service runs in the docker group
     pdftotext: "24.02.0"            # Ubuntu poppler-utils
+    orfs_image: "openroad/orfs:26Q4-142-gd4b96380b@sha256:f00e7890ebca6af80a973c2e7a5ccf7ff992c1a65903ac8bee39dfd4a458c811"   # ./build asic pin, pulled on the wsl runners
+    orfs_commit: d4b96380b10e          # ORFS revision in that image
+    orfs_cores: 4                     # NUM_CORES and docker --cpus for ./build asic
