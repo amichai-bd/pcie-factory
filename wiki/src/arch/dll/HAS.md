@@ -65,9 +65,9 @@ earliest byte on the line.
 
 One valid/ready stream per direction (Q5). A beat is one DW (4 bytes); a
 TLP is its header and data, with no sequence number or LCRC, always
-a whole number of DWs: 3 to 36 beats. A received TLP with TD 1 also
-carries its digest (ECRC) DW after its data, which the `dll` neither
-checks nor removes ([Receive](#receive)): up to 37 beats. Byte 0 of the TLP (Fmt and Type) is
+a whole number of DWs: 3 to 36 beats on transmit, 3 to 37 on receive,
+where a TLP with TD 1 also carries its digest (ECRC) DW after its data,
+which the `dll` neither checks nor removes ([Receive](#receive)). Byte 0 of the TLP (Fmt and Type) is
 `[7:0]` of the `sop` beat. A beat is taken at an edge where valid and
 ready are both 1.
 

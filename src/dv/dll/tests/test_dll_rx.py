@@ -321,9 +321,39 @@ def fill(rng: random.Random, adv: dict[str, tuple[int, int]]) -> list[bytes]:
     return out
 
 
+def fill_wide(rng: random.Random, adv: dict[str, tuple[int, int]]) -> list[bytes]:
+    """TLPs that fill the receive buffer as far as credits allow: every one
+    with a digest, 4-DW headers (completions have only 3-DW ones), every
+    data credit used and each with-data TLP's payload filling its credits
+    (1 to 8). Stored, they take 5 DWs per header credit (4 for a
+    completion) plus 4 per data credit."""
+    wide = {"P": (0x60, 0x30, 0), "NP": (0x6E, 0x20, 1), "Cpl": (0x4A, 0x0A, 0)}
+    out: list[bytes] = []
+    for cls, (h, d) in adv.items():
+        withd, nodata, nlen = wide[cls]
+        hdr_dw = 4 if withd & 0x20 else 3
+        n = min(h, d)
+        credits = [1] * n
+        for _ in range(d - n):
+            j = rng.choice([j for j, c in enumerate(credits) if c < 8] or [None])
+            if j is None:
+                break
+            credits[j] += 1
+        for c in credits:
+            t = len(out)
+            out.append(hdr(withd, 4 * c, t, hdr_dw, td=True) + payload(4 * c, t)
+                       + bytes([0xD1, t & 0xFF, 0, 0x9E]))
+        for _ in range(h - n):
+            t = len(out)
+            out.append(hdr(nodata, nlen, t, 4 if nodata & 0x20 else 3, td=True)
+                       + bytes([0xD1, t & 0xFF, 0, 0x9E]))
+    rng.shuffle(out)
+    return out
+
+
 async def partner_run(dut, *, errors: dict[str, float], count: int = 300,
                       stall: bool = False, max_dw: int = 32, limit: int = 200000,
-                      gated: bool = False) -> None:
+                      gated: bool = False, wide: bool = False) -> None:
     seed = cocotb.RANDOM_SEED
     rng = random.Random(seed)
     partner = ptn.Partner("partner", inject=ptn.Inject(**errors), seed=seed)
@@ -333,7 +363,7 @@ async def partner_run(dut, *, errors: dict[str, float], count: int = 300,
     await env.run_until(lambda: env.state == ACTIVE and partner.state == ptn.ACTIVE
                         and env.shadow.state == arch.ACTIVE, 5000, "all in DL_Active")
     if stall:
-        tlps = fill(rng, env.adv)
+        tlps = fill_wide(rng, env.adv) if wide else fill(rng, env.adv)
     elif gated:
         # Beyond the advertisement: the partner sends as the DUT's UpdateFCs
         # allow (no class is limited here).
@@ -345,8 +375,8 @@ async def partner_run(dut, *, errors: dict[str, float], count: int = 300,
         env.rx_stall_until = env.cycle + 3000
     for t in tlps:
         partner.send(t)
-    dut._log.info("seed %d, DUT credits %s, %d TLPs, injection %s", seed, env.adv,
-                  len(tlps), errors)
+    dut._log.info("seed %d, DUT credits %s, %d TLPs (%d DWs), injection %s", seed, env.adv,
+                  len(tlps), sum(len(t) for t in tlps) // 4, errors)
     if stall:
         await env.run_until(lambda: env.cycle >= env.rx_stall_until, 4000, "the stall's end")
         assert not env.delivered and len(env.ref.expect) == len(tlps), (
@@ -401,6 +431,16 @@ async def rx_stall(dut):
     partner sends TLPs that use every advertised credit, then takes 30% of
     beats: the receive buffer holds them all and delivers them in order."""
     await partner_run(dut, errors={}, stall=True)
+
+
+@cocotb.test()
+async def rx_stall_digest(dut):
+    """L2, seeded, every class finite at a credit set whose old sizing (4
+    DWs per header credit) rounds to a smaller buffer than the 5 a digest
+    needs: the upper layer stalls while the partner sends TLPs that all
+    carry a digest, with 4-DW headers and full data credits, more DWs than
+    that smaller buffer holds; all are stored and delivered in order."""
+    await partner_run(dut, errors={}, stall=True, wide=True)
 
 
 @cocotb.test()

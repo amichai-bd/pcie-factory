@@ -234,6 +234,7 @@ into a model or the RTL silently.
 | The same injection with 300 TLPs beyond the advertisement, the partner sending as the UpdateFCs allow, DUT at the smallest legal credits: bad and duplicate TLPs discarded in the smallest receive buffer (its rewind) | `rx_errors_smallest` | 2 | 2 derived; every `FC_*` at its smallest |
 | [Receive buffer](../../arch/dll/FLOW_CONTROL.md#receive-buffer) sizing: every class finite, the upper layer stalls while the partner sends TLPs that use every advertised credit (a quarter with a digest, which takes buffer space but no credit), then takes 30% of beats | `rx_stall` | 1 | 0, 1; `FC_CPLH` 16, `FC_CPLD` 64; coverage on the first 2 (`coverage_seeds`) |
 | The same at the smallest legal credits | `rx_stall_smallest` | 2 | 4 derived |
+| Receive buffer sizing for [digests](../../arch/dll/HAS.md#receive) ([MAS sizing](../../rtl/dll/MAS.md#receive-buffer), 5 DWs per header credit): the upper layer stalls while the partner sends 62 TLPs, every one with a digest, 4-DW headers (3-DW completions) and full data credits, 533 DWs; at these credits (118 in all) 4 DWs per header credit would round to 512 words, 5 give 1024 | `rx_stall_digest` | 2 | 1 derived; `FC_PH` 60, `FC_PD` 46, `FC_NPH` 1, `FC_NPD` 2, `FC_CPLH` 1, `FC_CPLD` 8 |
 | NEXT_RCV_SEQ wrapping past 4095: 4200 short TLPs with light errors (Naks and duplicates around the wrap) | `rx_seq_wrap` | 2 | 1 derived |
 | The same, wide sweep | `link_up_stress_sweep` | 2 | 8 derived |
 | The same, DUT at the smallest legal credits | `link_up_stress_smallest` | 2 | 4 derived; coverage on the first 2 (`coverage_seeds`) |
@@ -428,21 +429,21 @@ regression entry cannot expect a fatal stop, as for `a_rx_never_stall`).
 ### Digest mutants
 
 The mutants of [#308](https://github.com/amichai-bd/pcie-factory/issues/308)'s
-code (a received TLP digest), run serially through level 0 at its seeds,
-one entry at a time; the end-of-test delivery check fails.
+code (a received TLP digest), run serially, one entry at a time: the
+first three through level 0 at its seeds, the sizing one on its targeted
+level-2 entry.
 
 | Block | Mutant | First failing entry | Result |
 | --- | --- | --- | --- |
 | TLP receive | TD not counted in the malformed rule (`tlp_malformed` given 0) | `rx_directed` | 20 TLPs delivered, 23 expected: the four with a digest dropped as malformed, the one without its digest stored. |
 | Package | 36 DWs per packet (`RX_MAX_TLP_DW`), the digest of a 37-DW TLP not written | `rx_directed` | 22 TLPs delivered, 23 expected. |
 | TLP receive | TD read from byte 2 bit 6 (EP) | `rx_directed` | 20 TLPs delivered, 23 expected. |
+| Top | `RX_BUF_DW` at 4 DWs per header credit (512 words, not 1024) | `rx_stall_digest` (L2) | Bad TLP pulses 8, expected 0: TLPs that found the buffer full dropped, those behind them ahead. |
 
-The receive buffer's 5 DWs per header credit (4 before) is not a mutant
-that can be caught: rounded up to a power of two, it gives the same size
-for every parameter set in the regression lists (512 words by default,
-128 at the smallest credits), and what a credit-correct partner can have
-stored (at most 5 DWs per header credit and 4 per data credit) fits in
-that size either way.
+The sizing differs only where rounding up to a power of two separates the
+two sums: every other parameter set in the regression lists gets the same
+size either way (512 words by default, 128 at the smallest credits), so
+only `rx_stall_digest` can catch it.
 
 ## Gaps
 

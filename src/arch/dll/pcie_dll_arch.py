@@ -41,7 +41,6 @@ DATA_MOD = 4096             # 12-bit data credit fields [cite: PCIe Base Spec, r
 MODS = (HDR_MOD, DATA_MOD)
 CREDIT_BYTES = 16           # one data credit [cite: PCIe Base Spec, rev 3.0, §2.6.1]
 MAX_PAYLOAD = 128           # HAS Parameters (decision Q6)
-MAX_TLP = 16 + MAX_PAYLOAD + 4  # 4-DW header and a received digest (HAS, receive)
 SEQ_BYTES = 2
 LCRC_BYTES = 4
 DLLP_BYTES = 6
