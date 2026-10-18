@@ -776,6 +776,10 @@ def test_method_member_name_in_functions_only():
     ("u (.a_i (net_c));\n  assign net_c = s.f[xy_a_pkg::C];", []),
     ("u #(.P (t[xy_a_pkg::C])) i (.a_i (d));", []),
     ("assign y = s.f[xy_a_pkg::C] & h.g(xy_a_pkg::C);", []),
+    # A method call inside a group is not a connection: only the
+    # member-select skip keeps these from firing or doubling.
+    ("assign y = f(h.g(d[xy_a_pkg::C]));", []),
+    ("u (.a_i (h.g(d[xy_a_pkg::C])));", ["xy_a_pkg::C"]),
 ])
 def test_port_index_constant(text, items):
     assert [item for _, item in style.port_index_constants(text)] == items

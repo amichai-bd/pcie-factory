@@ -724,8 +724,11 @@ def port_index_constants(text: str) -> list[tuple[int, str]]:
         k = i - 1
         while k >= 0 and text[k].isspace():
             k -= 1
+        # A connection sits in an instance's port list, so its opener is a
+        # "("; a "[" or "{" opener cannot occur in legal RTL and is skipped
+        # defensively. A "(" after "#" is a parameter list.
         if text[i] != "(" or text[k:k + 1] == "#":
-            continue  # not a group, or a parameter list
+            continue
         start = m.end() - 1
         end = _balanced(text, start)
         depth = 0
