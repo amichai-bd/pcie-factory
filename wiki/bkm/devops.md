@@ -363,8 +363,9 @@ permissions and data PR mechanics:
    Verilator-built vocabulary header tests and the `perf:<ip>` suites, which
    run `./build arch` for every IP with `src/arch/<ip>/perf/`; the nightly
    runs the perf scenarios only there), then `./build regress --level 0
-   --level 1 --level 2 --coverage` across all IPs (merged line, toggle and functional coverage
-   per IP, with any floors checked; [regress SPEC](../tools/regress/SPEC.md#coverage)).
+   --level 1 --level 2 --coverage --rotate <date>` across all IPs (merged line, toggle and functional coverage
+   per IP, with any floors checked; [regress SPEC](../tools/regress/SPEC.md#coverage)),
+   plus the night's [rotated extra seeds](#seed-rotation).
 2. `./build fpga` and `./build asic` for every IP with `src/fpga/<ip>/` or
    `src/asic/<ip>/` inputs. A failed step prints every error line of its
    log before the tail ([failure excerpt](../tools/build/SPEC.md#failure-excerpt))
@@ -385,10 +386,40 @@ permissions and data PR mechanics:
    dispatched gate's result, posted as the `ci-gate` commit status). Each
    night's data PR closes any older open one.
 5. On failure, open or update the single `nightly-red` issue, naming the
-   failed steps (a full-L2 failure or a coverage-floor miss fails
-   `regress`) and the commits since the last green nightly, with a compare
-   link; close it when the nightly is green again
+   failed steps (a full-L2 failure, a coverage-floor miss or a failing
+   extra seed fails `regress`), the commits since the last green nightly,
+   with a compare link, and each failed regression run with its exact seed
+   and the `./build sim --ip <ip> --test <name> --seed <seed>` command that
+   reproduces it; close it when the nightly is green again
    ([metrics spec](../tools/metrics/SPEC.md#red)).
+
+### Seed rotation
+
+Pinned seeds repeat the same stimulus every night, and coverage cannot
+fully measure the stimulus diversity lost when #327 trimmed L2 seeds. The
+nightly therefore runs, besides every pinned seed, `extra_seeds` more seeds
+per L2 entry derived from its UTC date (`--rotate <date>`; the rule is in
+the [regress SPEC](../tools/regress/SPEC.md#seed-rotation)), so each night
+explores new stimulus while PRs and `ci-gate` stay unchanged (#333):
+
+- **Reproducible:** a seed is a pure function of the date, the IP and the
+  test name, and the seed alone fixes the stimulus; a failing one is rerun
+  with `./build sim --seed <seed>` as the `nightly-red` issue prints it, or
+  the whole night's set with `./build regress --level 2 --rotate <date>`.
+- **Coverage unchanged:** extra runs use plain builds and are never merged,
+  so the coverage floors and the metrics series measure the pinned seeds
+  only.
+- **Budget:** `cfg/levels.yaml` `rotation` sets `extra_seeds: 1` and
+  `budget_s: 3600` of CPU; no extra run starts once the extra runs have
+  used it, and those not started are listed in the summary, not failed.
+  With the pinned L2 at 3394.6 s of CPU (#327), L2 with its extra runs stays
+  near 7000 s, inside the 9600 s level-2 budget and the nightly window.
+  Raise `extra_seeds` or the budget only with a measured nightly that
+  still fits.
+- **A failing extra seed is a real failure:** it fails `regress` and the
+  nightly. Fix the bug it shows; when its stimulus deserves a permanent
+  guard, pin the seed in the entry's list (or add a directed test) in the
+  fix's PR.
 
 ## Metrics
 

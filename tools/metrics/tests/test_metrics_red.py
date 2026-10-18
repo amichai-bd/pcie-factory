@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from metrics import red
@@ -154,9 +156,68 @@ def test_cli_passes_head_steps_and_the_configured_workflow(monkeypatch, capsys):
     monkeypatch.setattr(cli, "Gh", lambda repo: gh)
     ctx = SimpleNamespace(cfg_dir=REPO_ROOT / "cfg", repo_root=REPO_ROOT)
     args = Namespace(action="red", repo="own/repo", outcome="failure", run_url=URL,
-                     head=HEAD, branch="main", step=["regress=fail", "check=pass"])
+                     head=HEAD, branch="main", step=["regress=fail", "check=pass"],
+                     summary=None)
     assert cli.run(ctx, args) == 0
     assert "nightly-red: opened #101" in capsys.readouterr().out
     assert "Failed steps: `regress`." in body_of(gh)
     args.step = ["regress=maybe"]
     assert cli.run(ctx, args) == 2
+
+
+# --- failed runs from the regression summary (extra rotated seeds marked) -----
+
+def summary_file(tmp_path, tests, rotation=None):
+    p = tmp_path / "summary.json"
+    p.write_text(json.dumps({"tests": tests, "rotation": rotation, "src_root": "/private/x"}))
+    return p
+
+
+def row(name, seed, status, extra=False, level=2):
+    return {"ip": "ipa", "level": level, "name": name, "seed": seed, "status": status,
+            "extra": extra, "log": "/private/log", "detail": "secret detail"}
+
+
+def test_failed_runs_name_the_exact_seed_and_repro(tmp_path):
+    p = summary_file(tmp_path, [row("soak", 11, "pass"), row("soak", 1234567, "fail", True),
+                                row("rand", 5, "timeout")],
+                     {"key": "2026-10-18", "skipped": []})
+    gh = gh_with([])
+    assert red.sync(gh, "failure", URL, summary=p) == ("opened", [101])
+    body = body_of(gh)
+    assert "Failed regression runs: 2." in body
+    assert ("- L2 `ipa:soak` seed `1234567` fail, extra seed of rotation `2026-10-18`: "
+            "`./build sim --ip ipa --test soak --seed 1234567`") in body
+    assert "- L2 `ipa:rand` seed `5` timeout: `./build sim --ip ipa --test rand --seed 5`" in body
+    assert "seed `11`" not in body  # passing runs are not listed
+    assert "/private" not in body and "secret" not in body  # no paths, logs or details
+
+
+def test_failed_runs_are_capped(tmp_path):
+    p = summary_file(tmp_path, [row("t", i, "fail") for i in range(red.MAX_RUNS + 4)])
+    gh = gh_with([5])
+    red.sync(gh, "failure", URL, summary=p)
+    body = body_of(gh)
+    assert body.count("`./build sim") == red.MAX_RUNS and "- ... 4 more" in body
+
+
+@pytest.mark.parametrize("content, text", [
+    (None, "No regression summary was found"),
+    ("{not json", "could not be read"),
+    (json.dumps({"tests": [row("bad name`", 1, "fail")]}), "could not be read"),
+    (json.dumps({"tests": [row("t", 1, "fail")], "rotation": {"key": "`x`"}}), "could not be read"),
+])
+def test_unreadable_summary_still_opens_the_issue(tmp_path, content, text):
+    p = tmp_path / "summary.json"
+    if content is not None:
+        p.write_text(content)
+    gh = gh_with([])
+    assert red.sync(gh, "failure", URL, summary=p)[0] == "opened"
+    assert text in body_of(gh)
+
+
+def test_all_passing_summary_adds_nothing(tmp_path):
+    p = summary_file(tmp_path, [row("t", 1, "pass")])
+    gh = gh_with([])
+    red.sync(gh, "failure", URL, summary=p)
+    assert "Failed regression runs" not in body_of(gh)

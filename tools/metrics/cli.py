@@ -65,6 +65,9 @@ def add_args(p: argparse.ArgumentParser) -> None:
     r.add_argument("--step", action="append", default=[], metavar="NAME=OUTCOME",
                    help="nightly step outcome (pass|fail|skipped); a failure names the "
                         "failed steps; repeatable")
+    r.add_argument("--summary", metavar="FILE",
+                   help="the run's ./build regress summary.json: a failure lists each failed "
+                        "run with its exact seed and ./build sim command")
 
 
 def _positive(value: str) -> int:
@@ -232,7 +235,8 @@ def run(ctx: Context, args) -> int:
         gh = Gh(resolve_repo(args.repo, ctx.repo_root))
         steps = _steps(args.step) if args.step else None
         action, numbers = red.sync(gh, args.outcome, args.run_url, args.head, steps,
-                                   load(ctx.cfg_dir).nightly_workflow, args.branch)
+                                   load(ctx.cfg_dir).nightly_workflow, args.branch,
+                                   Path(args.summary) if args.summary else None)
         print(f"[metrics] nightly-red: {action}" + "".join(f" #{n}" for n in numbers))
         return 0
     except MetricsError as exc:

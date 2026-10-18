@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import re
 import sys
+import threading
 import time
 import zlib
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from build import cache as build_cache
@@ -20,7 +21,8 @@ from ci.config import load_rules
 from regress import coverage as cov
 from regress.affected import changed_files, select_affected_levels
 from regress.deps import ARCH, Imports
-from regress.schema import LevelBudget, TestEntry, load_budgets, load_floors, load_ip
+from regress.schema import (LevelBudget, Rotation, TestEntry, load_budgets, load_floors,
+                            load_ip)
 
 
 # Lines of a failed build's log printed in the run output: compiler, make,
@@ -42,6 +44,30 @@ def seeds_for(entry: TestEntry, base_seed: int | None) -> list[int]:
     if isinstance(entry.seeds, tuple):
         return list(entry.seeds)
     return [default_seed(entry, i) for i in range(entry.seeds)]
+
+
+def rotated_seeds(entry: TestEntry, key: str, count: int, pinned) -> list[int]:
+    """``count`` extra seeds of ``entry`` for rotation ``key`` (a date or a
+    run id): ``crc32("rotate:<key>:<ip>:<name>:<j>") & 0x7fffffff`` for
+    j = 0, 1, ..., skipping any seed in ``pinned`` or already taken."""
+    out: list[int] = []
+    taken = set(pinned)
+    j = 0
+    while len(out) < count:
+        s = zlib.crc32(f"rotate:{key}:{entry.ip}:{entry.name}:{j}".encode()) & 0x7FFFFFFF
+        j += 1
+        if s not in taken:
+            taken.add(s)
+            out.append(s)
+    return out
+
+
+def rotation_order(key: str, run_item: tuple[TestEntry, int]) -> tuple[int, str, str, int]:
+    """Start order of the extra runs: shuffled by the key, so that when the
+    budget runs out, a different set of entries waits each night."""
+    entry, seed = run_item
+    return (zlib.crc32(f"{key}:{entry.ip}:{entry.name}:{seed}".encode()), entry.ip,
+            entry.name, seed)
 
 
 def coverage_seeds(entry: TestEntry, base_seed: int | None) -> set[int]:
@@ -74,6 +100,9 @@ class Selection:
     reasons: dict[str, str]
     runs: list[tuple[TestEntry, int]]  # (test, seed)
     base_seed: int | None = None
+    # Extra rotated runs (--rotate), in start order; never coverage runs.
+    extra: list[tuple[TestEntry, int]] = field(default_factory=list)
+    rotation: Rotation | None = None
 
 
 def select(
@@ -82,6 +111,7 @@ def select(
     ip_ids: list[str] | None = None,
     affected_base: str | None = None,
     base_seed: int | None = None,
+    rotation: Rotation | None = None,
 ) -> Selection:
     all_ips = units(ctx.src_root)  # every IP and the shared unit
     tests = load_all(all_ips)  # validate everything, not only the selection
@@ -102,14 +132,20 @@ def select(
     else:
         caps = {}
     chosen.sort(key=lambda ip: ip.id)
-    runs = []
+    runs, extra = [], []
     for ip in chosen:
         cap = caps.get(ip.id)
         for entry in tests[ip.id]:
             if entry.level in levels and (cap is None or entry.level in cap):
-                runs.extend((entry, s) for s in seeds_for(entry, base_seed))
+                pinned = seeds_for(entry, base_seed)
+                runs.extend((entry, s) for s in pinned)
+                if rotation is not None and entry.level == rotation.level:
+                    extra.extend((entry, s) for s in rotated_seeds(
+                        entry, rotation.key, rotation.extra_seeds, pinned))
     runs.sort(key=lambda r: (r[0].level, r[0].ip, r[0].name, r[1]))
-    return Selection(chosen, reasons, runs, base_seed)
+    if rotation is not None:
+        extra.sort(key=lambda r: rotation_order(rotation.key, r))
+    return Selection(chosen, reasons, runs, base_seed, extra, rotation)
 
 
 def _spec(ips: dict[str, Ip], entry: TestEntry, waves: bool, coverage: bool = False) -> sim.BuildSpec:
@@ -169,20 +205,24 @@ def run(
     cache = sim.get_cache()
 
     # With --coverage only each entry's first `coverage_seeds` seeds run on
-    # the coverage build; the rest run on the plain build.
+    # the coverage build; the rest, and every extra rotated seed, run on the
+    # plain build.
+    all_runs = selection.runs + selection.extra
     cov_of = {}
     for entry, seed in selection.runs:
         cov_of[(entry, seed)] = coverage and seed in coverage_seeds(entry, selection.base_seed)
+    for item in selection.extra:
+        cov_of[item] = False
 
     # A `rerun_when: models_change` run whose models are unchanged since a
     # pass on this host is reused, not rerun.
     keys: dict[tuple[TestEntry, int], str] = {}
     reused: dict[tuple[TestEntry, int], dict] = {}
-    if cache is not None and verilator is not None and any(e.rerun_when for e, _ in selection.runs):
+    if cache is not None and verilator is not None and any(e.rerun_when for e, _ in all_runs):
         rules = load_rules(ctx.cfg_dir)
         graph = Imports(units(ctx.src_root), (ctx.repo_root / rules.import_root).resolve(),
                         rules.models)
-        for entry, seed in selection.runs:
+        for entry, seed in all_runs:
             if entry.rerun_when:
                 k = model_key(ctx, ips[entry.ip], entry, seed, verilator, graph, rules.shared_dv)
                 keys[(entry, seed)] = k
@@ -191,7 +231,7 @@ def run(
                     reused[(entry, seed)] = rec
 
     specs: dict[tuple[str, str], sim.BuildSpec] = {}
-    for entry, seed in selection.runs:
+    for entry, seed in all_runs:
         if (entry, seed) in reused:
             continue
         spec = _spec(ips, entry, waves, cov_of[(entry, seed)])
@@ -243,7 +283,31 @@ def run(
         )
         return res
 
-    results = pmap(do_test, selection.runs, jobs)
+    # An extra rotated run starts only while the extra runs' CPU time so
+    # far is under the rotation budget; runs already started finish.
+    extra = set(selection.extra)
+    spent = [0.0]
+    lock = threading.Lock()
+
+    def do_any(run_item):
+        if run_item not in extra:
+            return do_test(run_item)
+        with lock:
+            if spent[0] >= selection.rotation.budget_s:
+                return None
+        res = do_test(run_item)
+        with lock:
+            # A run killed on its timeout has no CPU measure: charge its wall time.
+            spent[0] += res.cpu_s or res.runtime_s
+        return res
+
+    every = pmap(do_any, all_runs, jobs)
+    results = every[:len(selection.runs)]
+    ran = [(item, res) for item, res in zip(all_runs, every) if res is not None]
+    skipped = [item for item, res in zip(all_runs, every) if res is None]
+    for entry, seed in skipped:
+        print(f"[L{entry.level}] {entry.ip}:{entry.name} seed={seed} not started "
+              "(rotation budget spent)", file=out, flush=True)
 
     coverage_doc = None
     if coverage:
@@ -255,9 +319,11 @@ def run(
         except cov.CoverageError as exc:
             coverage_doc = {"error": str(exc)}
     summary = make_summary(
-        ctx, selection, levels, budgets, list(built.items()), results,
+        ctx, selection, levels, budgets, list(built.items()), [r for _, r in ran],
         time.monotonic() - wall_start, coverage_doc, cov_of, set(reused),
+        runs=[item for item, _ in ran],
     )
+    summary["rotation"] = rotation_doc(selection, summary["tests"], skipped)
     summary["build_cache"] = None if cache is None else {
         "dir": build_cache.show(cache.root),
         "builds": len(built),
@@ -268,6 +334,32 @@ def run(
         cache.prune()
     write_summary(ctx.workdir, summary)
     return summary
+
+
+def rotation_doc(selection: Selection, tests: list[dict], skipped: list) -> dict | None:
+    """The summary's ``rotation``: its key, count and budget, and how the
+    extra runs went; None without ``--rotate``."""
+    rot = selection.rotation
+    if rot is None:
+        return None
+    rows = [t for t in tests if t["extra"]]
+    cpu = round(sum(t["cpu_s"] or t["runtime_s"] for t in rows), 3)
+    return {
+        "key": rot.key,
+        "level": rot.level,
+        "extra_seeds": rot.extra_seeds,
+        "budget_s": rot.budget_s,
+        "runs": len(rows),
+        "passed": sum(t["status"] == "pass" for t in rows),
+        "failed": sum(t["status"] != "pass" for t in rows),
+        "cpu_s": cpu,
+        "skipped": [{"ip": e.ip, "name": e.name, "seed": s} for e, s in skipped],
+    }
+
+
+def repro(t: dict) -> str:
+    """The command that reruns one summary test row."""
+    return f"./build sim --ip {t['ip']} --test {t['name']} --seed {t['seed']}"
 
 
 def dv_only_sources(ip: Ip) -> frozenset[Path]:
@@ -319,7 +411,14 @@ def make_summary(
     coverage: dict | None = None,
     cov_of: dict | None = None,
     reused: set | None = None,
+    runs: list | None = None,
 ) -> dict:
+    """``runs`` (default ``selection.runs``) are the runs ``results`` belong
+    to; an extra rotated run among them is marked ``extra`` and left out of
+    the level totals, whose budgets cover the pinned seeds."""
+    runs = selection.runs if runs is None else runs
+    extra = set(selection.extra)
+
     def rel(p: Path) -> str:
         try:
             return str(Path(p).relative_to(ctx.workdir))
@@ -327,7 +426,7 @@ def make_summary(
             return str(p)
 
     tests = []
-    for (entry, seed), res in zip(selection.runs, results):
+    for (entry, seed), res in zip(runs, results):
         tests.append({
             "ip": entry.ip,
             "level": entry.level,
@@ -340,10 +439,11 @@ def make_summary(
             "detail": res.detail,
             "coverage": bool(cov_of and cov_of[(entry, seed)]),
             "reused": bool(reused and (entry, seed) in reused),
+            "extra": (entry, seed) in extra,
         })
     totals = {}
     for level in sorted(levels):
-        rows = [t for t in tests if t["level"] == level]
+        rows = [t for t in tests if t["level"] == level and not t["extra"]]
         runtime = round(sum(t["runtime_s"] for t in rows), 3)
         cpu = round(sum(t["cpu_s"] for t in rows), 3)
         budget = budgets[level].budget_s
@@ -416,6 +516,15 @@ def report(summary: dict, out=None, err=None) -> int:
                 f"CPU time) exceeds its budget of {t['budget_s']:.0f}s",
                 file=err,
             )
+    rot = summary.get("rotation")
+    if rot:
+        print(f"rotation {rot['key']}: {rot['passed']}/{rot['runs']} extra runs passed "
+              f"({rot['extra_seeds']} per level{rot['level']} entry), CPU {rot['cpu_s']:.1f}s "
+              f"(budget {rot['budget_s']:.0f}s), {len(rot['skipped'])} not started", file=out)
+        for t in summary["tests"]:
+            if t.get("extra") and t["status"] != "pass":
+                print(f"error: extra seed {t['status']}: {t['ip']}:{t['name']} seed={t['seed']}; "
+                      f"reproduce: {repro(t)}", file=err)
     bc = summary.get("build_cache")
     if bc:
         print(f"build cache: {bc['hits']}/{bc['builds']} builds reused ({bc['dir']})", file=out)

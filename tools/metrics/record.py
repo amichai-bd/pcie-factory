@@ -167,6 +167,8 @@ def tests_section(summary_path: Path, cfg: Config) -> dict:
         s = json.loads(summary_path.read_text())
         runs = []
         for t in s["tests"]:
+            if t.get("extra") is True:
+                continue  # extra rotated seeds: outside the series (regress SPEC, Seed rotation)
             if not (isinstance(t["ip"], str) and _NAME.match(t["ip"])
                     and isinstance(t["name"], str) and _NAME.match(t["name"])):
                 raise ValueError("bad test identity")

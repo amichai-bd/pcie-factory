@@ -12,3 +12,13 @@ level1:
 level2:
   description: The full test, nightly - long tests, sweeps, soaks and coverage floors; for a PR only targeted entries.
   budget_s: 9600
+# Seed rotation (./build regress --rotate KEY; the nightly passes the date):
+# extra_seeds more seeds per entry of `level`, derived from KEY, run on plain
+# builds (no coverage) and started only while their CPU time is under
+# budget_s. Sized so the nightly's L2 stays inside level2.budget_s: the pinned
+# L2 measured 3394.6 s of CPU for #327, plus at most this budget and the runs
+# already started. The DevOps BKM owns these values (Nightly).
+rotation:
+  level: 2
+  extra_seeds: 1
+  budget_s: 3600

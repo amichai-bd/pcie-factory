@@ -1,11 +1,15 @@
 """The single ``nightly-red`` issue: open or update it on failure, close it on
-the next green run. A failure names the failed steps (a full-L2 failure or a
-coverage-floor miss fails ``regress``) and the commits since the last green
-nightly, so the change that broke it can be found without rerunning."""
+the next green run. A failure names the failed steps (a full-L2 failure, a
+coverage-floor miss or a failing rotated extra seed fails ``regress``), the
+commits since the last green nightly, so the change that broke it can be
+found without rerunning, and each failed regression run with its exact seed
+and ``./build sim`` command."""
 
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 
 from .config import MetricsError
 
@@ -17,6 +21,9 @@ OUTCOMES = ("success", "failure")
 _RUN_URL = re.compile(r"^https://github\.com/[\w.-]+/[\w.-]+/actions/runs/\d+(/attempts/\d+)?\Z")
 _SHA = re.compile(r"^[0-9a-f]{40}\Z")
 MAX_COMMITS = 50  # commits listed in full; the compare link covers the rest
+MAX_RUNS = 30  # failed regression runs listed in full
+_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*\Z")
+_STATUS = ("fail", "timeout", "error")
 
 
 def open_red(gh) -> list[dict]:
@@ -40,6 +47,43 @@ def commits_since(gh, base: str, head: str) -> tuple[int, list[tuple[str, str]]]
     return int(data.get("total_commits", len(commits))), commits
 
 
+def failed_runs(summary: Path) -> str:
+    """The failed runs of a ``./build regress`` summary, each with its exact
+    seed and the ``./build sim`` command that reproduces it; extra rotated
+    seeds (``--rotate``) are marked. Only names, seeds and statuses are
+    copied, never logs or paths. An unreadable summary becomes a line."""
+    try:
+        data = json.loads(Path(summary).read_text())
+        rows = []
+        for t in data["tests"]:
+            if t["status"] == "pass":
+                continue
+            ip, name, seed, status = t["ip"], t["name"], t["seed"], t["status"]
+            if not (isinstance(ip, str) and _NAME.match(ip) and isinstance(name, str)
+                    and _NAME.match(name) and isinstance(seed, int) and not isinstance(seed, bool)
+                    and status in _STATUS):
+                raise ValueError("bad test row")
+            rows.append((ip, name, seed, status, t.get("extra") is True, int(t["level"])))
+        rot = data.get("rotation")
+        key = rot.get("key") if isinstance(rot, dict) else None
+        if key is not None and not (isinstance(key, str) and _NAME.match(key)):
+            raise ValueError("bad rotation key")
+    except FileNotFoundError:
+        return "No regression summary was found, so the failed runs are not listed."
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return "The regression summary could not be read, so the failed runs are not listed."
+    if not rows:
+        return ""
+    out = [f"Failed regression runs: {len(rows)}. Reproduce each with its exact seed:"]
+    for ip, name, seed, status, extra, level in rows[:MAX_RUNS]:
+        tag = f", extra seed of rotation `{key}`" if extra else ""
+        out.append(f"- L{level} `{ip}:{name}` seed `{seed}` {status}{tag}: "
+                   f"`./build sim --ip {ip} --test {name} --seed {seed}`")
+    if len(rows) > MAX_RUNS:
+        out.append(f"- ... {len(rows) - MAX_RUNS} more in the run's regression summary")
+    return "\n".join(out)
+
+
 def details(gh, head: str | None, steps: dict[str, str] | None,
             workflow: str | None, branch: str) -> str:
     """The failed steps and the commits since the last green nightly, as
@@ -48,7 +92,8 @@ def details(gh, head: str | None, steps: dict[str, str] | None,
     failed = [name for name, result in (steps or {}).items() if result == "fail"]
     if steps is not None:
         out.append("Failed steps: " + (", ".join(f"`{n}`" for n in failed) or "none recorded")
-                   + ". `regress` covers the full L0+L1+L2 regression and the coverage floors.")
+                   + ". `regress` covers the full L0+L1+L2 regression, the coverage floors "
+                   "and the rotated extra seeds.")
     if head is None or workflow is None:
         return "\n".join(out)
     try:
@@ -76,7 +121,7 @@ def details(gh, head: str | None, steps: dict[str, str] | None,
 
 def sync(gh, outcome: str, run_url: str, head: str | None = None,
          steps: dict[str, str] | None = None, workflow: str | None = None,
-         branch: str = "main") -> tuple[str, list[int]]:
+         branch: str = "main", summary: Path | None = None) -> tuple[str, list[int]]:
     """Apply the red-issue rule; return (action, issue numbers touched)."""
     if outcome not in OUTCOMES:
         raise MetricsError(f"--outcome must be one of {', '.join(OUTCOMES)}, got {outcome!r}")
@@ -89,7 +134,9 @@ def sync(gh, outcome: str, run_url: str, head: str | None = None,
     r = gh.repo
     issues = open_red(gh)
     if outcome == "failure":
-        extra = details(gh, head, steps, workflow, branch)
+        parts = [details(gh, head, steps, workflow, branch),
+                 failed_runs(summary) if summary is not None else ""]
+        extra = "\n\n".join(p for p in parts if p)
         extra = f"\n\n{extra}" if extra else ""
         if issues:
             n = issues[0]["number"]

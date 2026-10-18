@@ -32,6 +32,16 @@ def test_tests_section_whitelists(cfg):
     assert "/home/" not in json.dumps(t)
 
 
+def test_tests_section_leaves_out_extra_rotated_seeds(tmp_path, cfg):
+    data = json.loads((FIXTURES / "workdir" / "regress" / "summary.json").read_text())
+    data["tests"].append(dict(data["tests"][0], seed=999, status="fail", extra=True))
+    s = tmp_path / "summary.json"
+    s.write_text(json.dumps(data))
+    t = record.tests_section(s, cfg)
+    assert t["status"] == "ok" and 999 not in [r["seed"] for r in t["runs"]]
+    assert t == record.tests_section(FIXTURES / "workdir" / "regress" / "summary.json", cfg)
+
+
 def test_tests_section_missing_and_invalid(tmp_path, cfg):
     assert record.tests_section(tmp_path / "none.json", cfg) == {
         "status": "unavailable", "reason": "missing"}
