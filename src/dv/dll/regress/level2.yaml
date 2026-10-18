@@ -83,7 +83,8 @@ tests:
     timeout_s: 300
     params: {FC_RELEASE: 1}
   # Error injection with FC_RELEASE 1: bad, duplicate and nullified TLPs
-  # are never delivered, so never released; the delivered ones are.
+  # are never delivered, so never released; the delivered ones are. Seed 1
+  # alone reaches Length bit 9 (DV plan), so coverage on both.
   - name: rx_errors_release
     module: tests.test_dll_rx
     testcase: rx_errors
@@ -107,10 +108,10 @@ tests:
 # from 98.95% (472/477, #217; now 98.91%, 543/549); toggle 76.4 from 76.94%
 # (17296/22480, #354), lowered from 80.0 by captain decision on #354 for the
 # FC_RELEASE parameter copies and tie-off (DV plan, Coverage holes); every
-# point not hit has a reason in the DV plan (Coverage holes). Functional 100 must hold
-# every bin of dll_acknak_rx, dll_acknak_tx, dll_digest, dll_dl_states, dll_dllp_rx,
-# dll_dllp_tx, dll_fc_init, dll_fc_rx, dll_fc_tx, dll_malformed, dll_rbuf,
-# dll_replay, dll_reset, dll_rx_stream, dll_tlp_rx, dll_tlp_tx, dll_tx_tail
-# and dll_updatefc_tx; a renamed or undeclared covergroup leaves the total,
-# so keep this list.
+# point not hit has a reason in the DV plan (Coverage holes). Functional
+# 100 must hold every bin of dll_acknak_rx, dll_acknak_tx, dll_digest,
+# dll_dl_states, dll_dllp_rx, dll_dllp_tx, dll_fc_init, dll_fc_rx,
+# dll_fc_tx, dll_malformed, dll_rbuf, dll_replay, dll_reset, dll_rx_stream,
+# dll_tlp_rx, dll_tlp_tx, dll_tx_tail and dll_updatefc_tx; a renamed or
+# undeclared covergroup leaves the total, so keep this list.
 coverage_floors: {line: 98.4, toggle: 76.4, functional: 100}
