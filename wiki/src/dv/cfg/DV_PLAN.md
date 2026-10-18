@@ -153,7 +153,7 @@ unchanged since). Entries run in level, then name order, so
 ## Coverage holes
 
 Merged over levels 0 to 2 (`--ip cfg --coverage`): line 98.1%, functional 100%,
-toggle 64.6%.
+toggle 64.5%.
 
 - **Line**, a tool artefact: the `COMMON_UNUSED_BITS` lint sink in
   `pcie_cfg_regs.sv` has no simulated activity.
