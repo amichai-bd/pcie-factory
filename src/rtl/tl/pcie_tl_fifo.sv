@@ -19,7 +19,8 @@ module pcie_tl_fifo #(
   output logic             head_valid_o,
   output logic [WIDTH-1:0] head_o,
   output logic             empty_o,       // no entry at all, head or RAM
-  output logic             full_o         // no room for a push
+  output logic             full_o,        // no room for a push
+  output logic [ADDR_W:0]  ram_used_o     // entries in the RAM, the head not counted
 );
 
   localparam int unsigned PTR_W = ADDR_W + 1;
@@ -73,6 +74,7 @@ module pcie_tl_fifo #(
   );
 
   assign head_valid_o = hv_q;
+  assign ram_used_o   = in_ram;
 
   `COMMON_ASSERT_NEVER(a_push_when_full, clk_i, rst_i, push_i && full_o)
   `COMMON_ASSERT_NEVER(a_pop_when_empty, clk_i, rst_i, pop_i && !hv_q)

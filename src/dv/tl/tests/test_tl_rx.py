@@ -92,15 +92,11 @@ async def rx_routing(dut):
     env = await tl_env.started(dut, cocotb.RANDOM_SEED, cq_ready_p=0.7, reg_ready_p=0.7,
                                reg_lat=3)
     tlps = routing_tlps(env.regs)
-    reads = 0
     for tlp in tlps:
-        v = ref.judge(tlp, env.regs)
-        if v.outcome == "cq" and v.cls == "NP":
-            reads += 1
         env.send(tlp)
-    # The completer handles are never freed until the completion former
-    # (#291) lands: eight reads are taken, the rest wait.
-    await env.drain(stuck_reads=max(0, reads - 8))
+    # The application answers every BAR0 read on cc; each answer frees its
+    # handle, so every read is taken and completed.
+    await env.drain()
     seen = set(env.outcomes)
     assert seen == set(tl_env.OUTCOMES), f"outcomes reached {seen}"
     for regs in ({"mem_space_en": False}, {"mem_space_en": True, "d_state": 3}):
@@ -122,8 +118,10 @@ async def rx_order(dut):
     or cfg holds; posted requests leave in order across cq and cfg."""
     env = await tl_env.started(dut, cocotb.RANDOM_SEED)
     b0, b2 = env.regs.bar0_base, env.regs.bar2_base
-    # Ten reads: eight take a handle, two wait; a write and a configuration
-    # read pass them.
+    # Ten reads the application holds unanswered: eight take a handle, two
+    # wait; a write and a configuration read pass them. Once it answers,
+    # the freed handles take the two.
+    env.cc_hold = True
     for i in range(10):
         env.send(ref.memory(False, b0 + 4 * i, 1, 0xF, 0, tag=i))
     env.send(ref.memory(True, b0 + 0x200, 4))
@@ -131,6 +129,8 @@ async def rx_order(dut):
     await env.drain(stuck_reads=2)
     if len(env.handles) != 8:
         raise TlError(f"{len(env.handles)} handles in use, expected 8")
+    env.cc_hold = False
+    await env.drain()
     # The application stalls cq: a configuration read and a BAR2 write
     # behind a BAR0 write wait for it; a later BAR0 read too.
     await env.link_down()

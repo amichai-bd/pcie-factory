@@ -36,3 +36,24 @@ tests:
     top: pcie_tl_tb
     timeout_s: 300
     params: {FC_NPD: 16}
+  - name: tx_completions
+    module: tests.test_tl_tx
+    testcase: tx_completions
+    top: pcie_tl_tb
+    timeout_s: 300
+  - name: tx_requests
+    module: tests.test_tl_tx
+    testcase: tx_requests
+    top: pcie_tl_tb
+    timeout_s: 300
+  - name: tx_random
+    module: tests.test_tl_tx
+    testcase: tx_random
+    top: pcie_tl_tb
+    seeds: 3
+    timeout_s: 300
+  - name: tx_credits
+    module: tests.test_tl_tx
+    testcase: tx_credits
+    top: pcie_tl_tb
+    timeout_s: 300

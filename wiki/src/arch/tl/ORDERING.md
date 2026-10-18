@@ -26,7 +26,7 @@ A malformed non-posted TLP leaves at once.
 | A posted request passes a non-posted one that waits. | A BAR0 write goes to `cq` while a BAR0 read waits for a handle ([APP ordering](../core/APP.md#ordering)). |
 | Non-posted requests pass one another across the two lines. | Configuration, BAR2 and Unsupported Requests never wait for BAR0 reads, nor BAR0 reads for them ([`core` credits](../core/HAS.md#credits)). |
 | A received completion never passes an earlier received posted request. | It is offered on `rc` only once every posted request that arrived before it has left `tl`. It never waits for a non-posted one. |
-| Sent posted requests stay in order. | One transmit posted line, in the order taken: `rq` writes, interrupt writes and error messages from `cfg`, PME_TO_Ack. An interrupt write therefore follows every `rq` write taken before it. |
+| Sent posted requests stay in order. | One transmit posted line, in the order taken: `rq` writes (each taken at its `sop` beat), interrupt writes and error messages from `cfg`, PME_TO_Ack. An interrupt write therefore follows every `rq` write whose `sop` beat was taken before it. |
 | Sent non-posted requests stay in order, and never pass an earlier sent posted request. | One transmit non-posted line: `rq` reads in the order taken, each leaving only after every posted request taken before it. |
 | A sent posted request passes a non-posted one that waits [cite: PCIe Base Spec, rev 3.0, §2.4.1]. | The posted line never waits for the non-posted line: a write goes while an earlier read waits for non-posted credits, which avoids the deadlock the spec rule exists for. |
 | A sent completion never passes an earlier sent posted request. | A completion leaves only after every posted request taken into the posted line before it: before its `cc` `sop` beat for a BAR0 read, before it is formed for the others ([APP ordering](../core/APP.md#ordering)). |
@@ -35,7 +35,10 @@ A malformed non-posted TLP leaves at once.
 posted line, the non-posted line and the completion queue (each when the
 rules above let it go) take turns, round robin; a head whose credits the
 link does not show available is skipped, so a TLP waiting for credits
-never holds back one of another line. The application's
+never holds back one of another line. A TLP starts only once all its data
+is in `tl`; once its `sop` beat is offered, each beat stays offered,
+unchanged, until the link takes it, and the next follows in the next
+cycle, so a TLP goes out with no gap. The application's
 obligation never to make taking a `cq` write depend on an `rc` beat
 ([APP](../core/APP.md#ordering)) keeps these rules free of deadlock.
 

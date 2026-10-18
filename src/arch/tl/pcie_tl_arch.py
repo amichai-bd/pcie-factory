@@ -471,7 +471,7 @@ class Tl:
         self.cc_cur = None
         self.rq_cur = None
         self.rc_cur = None
-        self.reqp: deque = deque()                  # posted line: [tlp, posted seq]
+        self.reqp: deque = deque()                  # posted line: [tlp, posted seq, bytes]
         self.reqnp: deque = deque()                 # non-posted line: [tlp, stamp]
         self.cplq: deque = deque()                  # [tlp, stamp]
         self.p_taken = self.p_sent = 0              # posted taken on rq/msg, sent to dll
@@ -564,7 +564,8 @@ class Tl:
             _, kind, h, cr = self.pq.popleft()
             self.p_left += 1
             if kind == "pme_ack":
-                self.reqp.append([msg_tlp(MSG_PME_TO_ACK, R_GATHER, self.cfg.id), self.p_taken])
+                ack = msg_tlp(MSG_PME_TO_ACK, R_GATHER, self.cfg.id)
+                self.reqp.append([ack, self.p_taken, len(ack)])
                 self.p_taken += 1
             self._release(now, cr)
 
@@ -769,8 +770,9 @@ class Tl:
             if req is None:
                 return
             n = 12 + (4 if req["addr"] >> 32 else 0) + (4 * req["len"] if req["write"] else 0)
-            line = self.reqp if req["write"] else self.reqnp
-            if sum(len(t) for t, _ in line) + n > TX_REQ_BYTES:
+            used = (sum(e[2] for e in self.reqp) if req["write"]
+                    else sum(len(t) for t, _ in self.reqnp))
+            if used + n > TX_REQ_BYTES:
                 return
             if req["len"] * 4 > MAX_PAYLOAD or (req["addr"] & 0xFFF) + 4 * req["len"] > 4096:
                 raise AssertionError("rq request breaks an application obligation")
@@ -779,17 +781,23 @@ class Tl:
                     raise AssertionError(f"rq tag {req['tag']} in use")
                 self.track.reads[req["tag"]] = Read(req["addr"], req["len"], req["fbe"],
                                                     req["lbe"])
-            self.rq_cur = [req, req["len"] if req["write"] else 1]
+            # A write is taken into the posted line at its sop beat, in the
+            # order taken (ORDERING.md); it goes out once all its data is in.
+            entry = None
+            if req["write"]:
+                entry = [None, self.p_taken, n]
+                self.reqp.append(entry)
+                self.p_taken += 1
+            self.rq_cur = [req, req["len"] if req["write"] else 1, entry]
         self.rq_cur[1] -= 1                          # one beat taken (rq_valid_i held)
         if self.rq_cur[1] == 0:
-            req = self.rq_cur[0]
+            req, _, entry = self.rq_cur
             self.rq_cur = None
             data = b"".join(x.to_bytes(4, "little") for x in req.get("data", []))
             tlp = mem_tlp(req["write"], req["addr"], req["len"], req["fbe"], req["lbe"],
                           cfg.id, 0 if req["write"] else req["tag"], data)
             if req["write"]:
-                self.reqp.append([tlp, self.p_taken])
-                self.p_taken += 1
+                entry[0] = tlp
             else:                                    # waits for the posted taken before it
                 self.reqnp.append([tlp, self.p_taken])
             app.rq_done(req, now)
@@ -803,13 +811,13 @@ class Tl:
         """msg_valid from cfg in this cycle: True when taken (msg_ready).
         The fields are sampled now; an offer not taken leaves no state, so
         cfg may withdraw it."""
-        if sum(len(t) for t, _ in self.reqp) + 16 + 4 > TX_REQ_BYTES:
+        if sum(e[2] for e in self.reqp) + 16 + 4 > TX_REQ_BYTES:
             return False
         if kind == 0:
             tlp = mem_tlp(True, addr, 1, 0xF, 0, self.cfg.id, 0, data.to_bytes(4, "little"))
         else:
             tlp = msg_tlp(MSG_ERR[kind], R_TO_RC, self.cfg.id)
-        self.reqp.append([tlp, self.p_taken])
+        self.reqp.append([tlp, self.p_taken, len(tlp)])
         self.p_taken += 1
         return True
 
@@ -838,7 +846,7 @@ class Tl:
     # posted request passes a non-posted one waiting for credits.
     def _tx(self, now: int, tx) -> None:
         heads = []
-        if self.reqp:
+        if self.reqp and self.reqp[0][0] is not None:
             heads.append(("p", self.reqp[0][0]))
         if self.reqnp and self.p_sent >= self.reqnp[0][1]:
             heads.append(("np", self.reqnp[0][0]))

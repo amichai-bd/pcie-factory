@@ -4,11 +4,11 @@ How `pcie_tl` implements its [HAS](../../arch/tl/HAS.md). Wave 2 builds it
 in three issues: the receive path
 ([#290](https://github.com/amichai-bd/pcie-factory/issues/290), built),
 the transmit path with completions and MSI/MSI-X writes
-([#291](https://github.com/amichai-bd/pcie-factory/issues/291)), and
+([#291](https://github.com/amichai-bd/pcie-factory/issues/291), built), and
 completion tracking and timeout
 ([#292](https://github.com/amichai-bd/pcie-factory/issues/292)). Each
-block is a file of the one `tl` IP; the blocks not built yet attach at the
-[slots](#slots) without reworking the receive path. The HAS and its pages
+block is a file of the one `tl` IP; the tracker attaches at the
+[slots](#slots) without reworking the built blocks. The HAS and its pages
 ([TLP formats](../../arch/tl/TLP.md), [routing](../../arch/tl/ROUTING.md),
 [completions](../../arch/tl/COMPLETIONS.md),
 [ordering](../../arch/tl/ORDERING.md)) own the rules; this page owns how
@@ -28,17 +28,26 @@ flowchart LR
   q -- "posted head, data, cq line" --> cq["u_cq<br/>cq stream, handles"]
   q -- "posted head, data, cfg line" --> reg["u_reg<br/>register access"]
   cq --> cq_out["cq_*"]
-  cq -. "rd_take, rd_ctx (#291)" .-> cpl["completion former slot"]
+  cq -- "rd_take, rd_ctx" --> cpl["u_cpl<br/>handles, cc, records,<br/>two completion formers"]
+  cpl -- "hd_free" --> cq
+  cc_in["cc_*"] --> cpl
   reg --> reg_out["reg_req_*"]
-  reg -. "cpl_rec (#291)" .-> cpl
-  q -. "pme_ack (#291)" .-> cpl
+  reg -- "cpl_rec" --> cpl
+  q -- "pme_ack" --> txq["u_txq<br/>rq, messages, PME_TO_Ack;<br/>posted and non-posted lines"]
+  rq_in["rq_*, msg_*"] --> txq
+  txq -. "rq_rd_take (#292)" .-> trk
+  cpl -- "completion queues" --> tx["u_tx<br/>arbiter, headers"]
+  txq -- "posted, non-posted lines" --> tx
+  tx --> tx_out["tlp_tx_*"]
+  tx -. "rq_sent (#292)" .-> trk
   q --> rel["fc_rel_*_o"]
 ```
 
 **Reset.** `tl` is in reset while `rst_i` is 1 or `dl_up_i` is 0
 ([HAS, reset](../../arch/tl/HAS.md#reset)): the top forms `rst` from both
 and every block takes it as its synchronous reset. Every handshake
-output (`tlp_rx_ready_o`, `cq_valid_o`, `reg_req_valid_o`, `fc_rel_p_o`,
+output (`tlp_rx_ready_o`, `tlp_tx_valid_o`, `cq_valid_o`, `cc_ready_o`,
+`rq_ready_o`, `msg_ready_o`, `reg_req_valid_o`, `fc_rel_p_o`,
 `fc_rel_np_o`, `tl_err_o`) is also gated by `rst` at the top, so it is 0
 in the first cycle `dl_up_i` falls, before the registers clear. The ready
 and valid inputs reach the blocks gated the same way.
@@ -50,31 +59,36 @@ keep the HAS ranges (`COMMON_ASSERT_PARAM`, one per parameter).
 
 ### Slots
 
-What the blocks not built yet connect to, and the tie each slot carries
-until then. Every slot net is MAS-named; the testbench's bind tap reads
-the outgoing ones ([DV plan](../../dv/tl/DV_PLAN.md)).
+What the tracker (#292), not built yet, connects to, and the tie each
+slot carries until then. Every slot net is MAS-named; the testbench's
+bind tap reads the outgoing ones, and also the block nets `cpl_rec`,
+`rd_take`, `rd_ctx` and `pme_ack` ([DV plan](../../dv/tl/DV_PLAN.md)).
+The completion former, `cc`, `rq`, the messages and the transmit path
+(#291) are built: `cpl_room`, `hd_free` and `pme_room` are driven by
+[`u_cpl`](#completions) and [`u_txq`](#transmit-lines).
 
 | Slot net (top) | Type | Direction | Owner | Tie until then | Contract |
 | --- | --- | --- | --- | --- | --- |
-| `cpl_rec_valid`, `cpl_rec` | `logic`, `t_cpl_rec` | `u_reg` to completion former | #291 | unread | One record per completion to form: an Unsupported Request (at once), a configuration write or read (when `reg_cpl_valid` pulses, with the DW), each BAR2 read DW (with its index and last flag). Records come in the order the completions must be formed per request; `cpl_rec.mem`, `locked`, `addr`, `dw_len`, `fbe`, `lbe` give Byte Count and Lower Address ([COMPLETIONS](../../arch/tl/COMPLETIONS.md#byte-count-and-lower-address)). |
-| `cpl_room` | `logic` | completion former to `u_reg` | #291 | 1 | Room for one more record: `u_reg` hands an Unsupported Request, or offers an access whose result makes a record, only while it is 1, and the former must take every record that follows. |
-| `rd_take`, `rd_ctx` | `logic`, `t_hd_ctx` | `u_cq` to completion former | #291 | unread | A BAR0 read taken on `cq`: its handle and the context its completions need ([read handles](../../arch/tl/COMPLETIONS.md#read-handles)). |
-| `hd_free`, `hd_free_idx` | `logic`, 3 bits | completion former to `u_cq` | #291 | 0 | Frees a handle when the `eop` of its `cc` packet is taken. Until #291 no handle is freed, so at most eight BAR0 reads are offered per link-up. |
-| `pme_ack`, `pme_room` | `logic`, `logic` | `u_rx_q` to and from completion former | #291 | unread, 1 | A PME_Turn_Off left the posted queue: send PME_TO_Ack on the transmit posted line. It leaves only while `pme_room` is 1. |
 | `cpl_beat` | `t_rx_beat` | `u_rx` to tracker | #292 | unread | Every beat of a received completion with a defined Fmt, `sop` to `eop`, in the cycle it arrives, a digest DW included (the tracker reads Length data DWs). `tl` never stalls them. |
 | `rc_arrive`, `rc_ep`, `p_none`, `p_known`, the posted head's `ep[LINE_RC]` | | tracker and `u_rx_q` | #292 | `rc_arrive` 0 | The rc line's ordering: a completion that arrives takes `rc_ep` and arms the line; it may be offered on `rc` once `p_none`, or `p_known` and the posted head's rc epoch is after it ([receive queues](#receive-queues)). `rc_arrive` in the same cycle as a posted push counts as after that posted request. While a later posted request loads into an empty posted queue, `p_none` and `p_known` are both 0 for a cycle, so the tracker latches a completion's eligibility once earned, as the cq and cfg lines do (`ok_q`), and an `rc` offer once up stays up until taken (APP). |
+| `rq_rd_take`, `rq_rd_ctx` | `logic`, `t_rq_ctx` | `u_txq` to tracker | #292 | unread | A read taken on `rq` (its `sop` beat): its tag, address bits 11:2, length and byte enables. The tag is in use from then ([requester tags](../../arch/tl/COMPLETIONS.md#requester-tags)). |
+| `rq_sent`, `rq_sent_tag` | `logic`, 3 bits | `u_tx` to tracker | #292 | unread | The link took the `sop` beat of that read's TLP: its timer starts ([completion timeout](../../arch/tl/COMPLETIONS.md#completion-timeout)) and completions for it may match. |
 | `trk_err` | 9 bits | tracker to the top | #292 | 0 | ORed into `tl_err_o` (bits 2 and 4 to 8). |
-| Transmit and requester outputs | | | #291, #292 | reset values | `tlp_tx_*`, `msg_ready_o`, `cc_ready_o`, `rq_ready_o`, `rc_*`, `tl_np_pending_o`. |
+| Tracker outputs | | | #292 | reset values | `rc_*`, `tl_np_pending_o`. |
 
 ## Package
 
 [`pcie_tl_pkg`](../../../../src/rtl/tl/pcie_tl_pkg.sv) holds the Fmt,
-Type and message codes, the `tl_err_o` bit numbers, the enums (`t_cls`
-credit class, `t_out` receive outcome, `t_pkind` posted entry kind,
-`t_ckind` cfg line kind, `t_crkind` record kind, `t_reg_st`), the structs
-(the decoded header `t_hdr`, the TLP being received `t_rx_cur`, the queue
-entries `t_pq_ent`, `t_cq_ent`, `t_cfg_ent`, the slot types `t_hd_ctx`,
-`t_cpl_rec`, `t_rx_beat`, and each block's state), and the pure helpers:
+Type, message, routing and completion status codes, the `tl_err_o` bit
+numbers, the enums (`t_cls` credit class, `t_out` receive outcome,
+`t_pkind` posted entry kind, `t_ckind` cfg line kind, `t_crkind` record
+kind, `t_reg_st`, `t_pxkind` transmit posted entry kind, `t_txsel` the
+arbiter's choice), the structs (the decoded header `t_hdr`, the TLP being
+received `t_rx_cur`, the queue entries `t_pq_ent`, `t_cq_ent`,
+`t_cfg_ent`, `t_txp_ent`, `t_txnp_ent`, the queued completion
+`t_cpl_desc`, the former's read context `t_cpl_ctx`, the block nets
+`t_hd_ctx`, `t_cpl_rec`, the slot types `t_rx_beat`, `t_rq_ctx`, and each
+block's state), and the pure helpers:
 
 | Helper | Does |
 | --- | --- |
@@ -83,7 +97,10 @@ entries `t_pq_ent`, `t_cq_ent`, `t_cfg_ent`, the slot types `t_hd_ctx`,
 | `kind_known`, `is_cpl` | Step 1 of the [checks](../../arch/tl/ROUTING.md#checks); a completion with a defined Fmt. |
 | `be_ok`, `cross_4k`, `msg_tc0`, `msg_silent` | Steps 3, 4 and 6; the messages dropped without an error. |
 | `lowest_free` | The lowest free read handle. |
-| `ep_after` | The [epoch](#receive-queues) comparison. |
+| `ep_after` | The [epoch](#receive-queues) comparison (also the [transmit epochs](#transmit-lines)). |
+| `be_lo`, `be_hi`, `byte_total`, `be_mask` | The lowest and highest enabled byte, a read's total bytes T, a byte-enable mask ([byte count](../../arch/tl/COMPLETIONS.md#byte-count-and-lower-address)). |
+| `dw_credits` | Data credits of a TLP sent. |
+| `tx_dw0`, `tx_dw1_req` | Header DW 0 and a request's DW 1 as they sit on the stream ([TLP formats](../../arch/tl/TLP.md)). |
 
 ## Receive parser
 
@@ -219,6 +236,127 @@ takes its last access; each `reg_cpl_valid` of a configuration access or
 a BAR2 read DW makes a record with the DW. `a_cpl_without_access` checks
 cfg's side of the one-access rule.
 
+## Completions
+
+[`pcie_tl_cpl`](../../../../src/rtl/tl/pcie_tl_cpl.sv) turns the
+[completer completions](../../arch/tl/COMPLETIONS.md#completer-completions)
+into queued completions through two [completion formers](#completion-former):
+`u_cc` for `cc`, `u_cf` for the register engine's records.
+
+- **Handles.** Each `rd_take` writes the read's context (`t_cpl_ctx`:
+  Requester ID, Tag, TC, Attr, address bits 6:2, Length, byte enables)
+  into an 8-entry memory at its handle; `cc` reads it combinationally at
+  the handle of the packet's `sop` beat, then at the handle kept in
+  `t_cc_state` until the `eop`. The `eop` take pulses `hd_free` with the
+  handle, which `u_cq` frees at that edge.
+- **cc.** `cc_ready_o` is the former's room: 1 inside a completion, and at
+  a beat that starts one only with room for the longest completion. Each
+  beat taken goes to `u_cc` with the read's context. The packet's epoch
+  is the cc line's at its `sop` beat (`t_cc_state.ep`), and the `sop`
+  arms that line, so every completion of the packet waits for the posted
+  requests taken before the `sop` and for none after
+  ([APP ordering](../../arch/core/APP.md#ordering)).
+- **Records.** A configuration write or an Unsupported Request is one
+  completion without data, Byte Count and Lower Address formed here (T
+  and B[6:0] for an Unsupported Request of a memory read, else 4 and 0;
+  the locked kind for a locked read); a configuration read is one DW
+  with Byte Count 4 and Lower Address 0 (`fixed4`); a BAR2 read's DWs go
+  through the same split as a BAR0 read's. Each completion takes the cfg
+  line epoch when it is queued and arms that line. `cpl_room` is
+  `u_cf`'s room.
+- Assertions: `a_cc_handle_idle` (a packet answers a handle taken and not
+  yet answered), `a_cc_sop`, `a_cc_eop` (exactly the read's DWs),
+  `a_rec_order` (BAR2 read records in DW order).
+
+### Completion former
+
+[`pcie_tl_cplf`](../../../../src/rtl/tl/pcie_tl_cplf.sv) takes a read's
+DWs in address order, with its context, and queues its completions; or
+takes a completion without data formed outside. Its state
+(`t_cplf_state`) holds the next DW's index k in the read, the DWs still
+due in the open completion, the bytes from the next completion's first
+byte to the read's end (rb), and the open completion's Byte Count, Lower
+Address and length.
+
+At a DW that opens a completion (none open), the completion's length n
+is the rest of the read when it is at most 32 DWs, else 32 less the DW
+address bits 5:2 of that DW, which ends it on the highest 64-byte
+boundary within 128 bytes ([splitting](../../arch/tl/COMPLETIONS.md#splitting)).
+Its Byte Count is T for the read's first completion and rb for a later
+one, its Lower Address the first enabled byte's address bits 6:0 for
+the first and the DW's for a later one; rb then drops by 4n, less the
+disabled bytes before the first enabled one for the first completion.
+Every DW goes to a 64-DW data queue with the bytes the request did not
+enable as 0 (the first DW by F, the last of a longer read by L); the
+descriptor (`t_cpl_desc`) goes to a 4-entry queue with the completion's
+last DW, so a queued descriptor always has all its data. Both queues are
+[queues](#queue).
+
+`room_o` is 1 while a completion is open, else while the data queue's
+RAM holds at most 64 − 32 DWs and the descriptor queue is not full: a
+completion that opens always fits whole, and the queue holds two of the
+longest. Assertions: a DW only with room, a completion without data only
+with none open, and a read never ending inside a completion.
+
+## Transmit lines
+
+[`pcie_tl_txq`](../../../../src/rtl/tl/pcie_tl_txq.sv) holds the
+transmit posted line, its data, and the non-posted line
+([ordering](../../arch/tl/ORDERING.md#ordering)).
+
+| Line | Holds | Storage |
+| --- | --- | --- |
+| Posted | `t_txp_ent`: rq writes (`PX_RQ`), interrupt writes with their DW (`PX_IRQ`), error messages and PME_TO_Ack (`PX_MSG`) | 4 entries of flops; up to three go in at one edge, the head shows at the next |
+| Posted data | rq write DWs | a 64-DW [queue](#queue) |
+| Non-posted | `t_txnp_ent`: rq reads | a 4-entry [queue](#queue) |
+
+- **rq.** On a `sop` beat, `rq_ready_o` is 1 when Bus Master Enable is 1,
+  the function is in D0, and its line has room: a write needs a posted
+  count of at most 1 and room for 32 data DWs, a read a free non-posted
+  entry. A write's entry goes in at its `sop` beat, in the order taken,
+  and its DWs into the posted data queue as they come; its later beats
+  are always taken (`t_rq_state` counts them). A read is one beat; it
+  goes into the non-posted line with the non-posted epoch, arms that
+  line, and pulses `rq_rd_take`.
+- **Messages.** `msg_ready_o` is 1 while the posted count is at most 2;
+  `pme_room` while it is at most 3. Each source checks room for itself
+  and the sources that may go in with it (rq, then messages, then
+  PME_TO_Ack, in that order at one edge), so the line never overflows
+  (`a_p_overflow`). Neither depends on any other handshake
+  ([no-wait rule](../../arch/core/TL_CFG.md#messages)).
+- **Epochs.** As in the [receive queues](#receive-queues): the
+  non-posted line and the two completion queues each have an epoch and
+  an arm flag; a posted entry steps every armed line's epoch and records
+  them all. An entry of a line may go when the posted line is empty or
+  the posted head's epoch for its line is after its own. The posted head
+  is a flop, so there is no loading cycle; the comparison is exact since
+  a line's epoch steps at most once per entry of that line still held.
+- **Ready.** The posted head may go once all its data is queued: an rq
+  write when the posted data queue holds at least its length (its data
+  is first there, since earlier writes have gone).
+- Assertions: the rq obligations of [APP](../../arch/core/APP.md#requester-requests)
+  (length 1 to 32, one 4 KiB block, a read one beat, `sop` and `eop` in
+  place); room as checked.
+
+## Transmit arbiter
+
+[`pcie_tl_tx`](../../../../src/rtl/tl/pcie_tl_tx.sv) sends one TLP at a
+time ([transmit arbiter](../../arch/tl/ORDERING.md#ordering)). A head is
+eligible when its order allows it (the epoch rule) and the link shows 1
+header credit and its data credits for its class (`>=` passes all ones).
+Round robin over the posted line, the non-posted line and the completion
+queue picks one; the completion queue is the two completion formers'
+queues, which alternate when both are eligible (`cf_turn`). The choice,
+and this function's ID (`bus_num_i`, `dev_num_i`), are held in
+`t_tx_state` from the `sop` offer to the `eop` take, so an offered beat
+never changes. Header DWs are formed from the head entry
+([TLP formats](../../arch/tl/TLP.md)): a 3-DW memory request header when
+address bits 63:32 are 0, a 4-DW one otherwise; a message's 4-DW header;
+a completion's 3-DW header with the request's TC and Attr bits 1:0. Data
+DWs come from the line's data queue (an interrupt write's from its
+entry). The head and its data leave at the `eop` take; `rq_sent` pulses
+at an rq read's `sop` take. Assertion: the line sent keeps its head.
+
 ## Decisions
 
 | Choice | Rationale | Rejected |
@@ -229,7 +367,12 @@ cfg's side of the one-access rule.
 | Release registered, non-posted releases owed and merged | A request leaves on handshakes `tl` does not control (`cq_ready_i`, `reg_req_ready_i`), so three can leave in one cycle; the `dll` only adds the credits, so merging them is exact. | Holding one handshake back (`cfg` would wait on the application). |
 | Queues sized by the advertised credits, in RAM | The HAS sizing; up to 127 headers and 8188 data DWs. | Flop arrays. |
 | Completion beats passed raw to the tracker slot | #292 owns the completion checks and buffer; the receive path keeps no completion state. | Parsing completion headers here. |
-| Read handles: busy flags here, context to #291 | The take is here; the context is the completion former's to keep. | A handle table read by #291 through this block. |
+| Read handles: busy flags in `u_cq`, context in `u_cpl` | The take is in `u_cq`; the context is what the completions need. | A handle table in `u_cq` read by `u_cpl`. |
+| Two completion formers, one queue each, alternating in the completion turn | `cc` and cfg records arrive independently; one data queue would interleave their DWs. Completions of different requests have no order between them. | One former with a merge buffer in front. |
+| Room for the longest completion at a completion's first DW | `cc_ready_o` and `cpl_room` then need no input combinationally; a 64-DW queue still holds two completions. | Room for the completion's own length (a path from `cc_handle_i` to `cc_ready_o`). |
+| Transmit posted line in flops, up to three entries at one edge | An rq write, a message and a PME_TO_Ack can be taken together; none waits on another, and the head is visible at the next edge for the epoch rule. | A RAM queue with a holding register per source (a held message would be taken before an rq write but enter after it). |
+| An rq write enters the posted line at its `sop` beat and goes out whole | The order taken is the `sop` order (APP); a write never stalls the link mid-TLP waiting for the application. | Entering at its `eop` (a message taken during the write's data would pass it); cut-through. |
+| The ID held from the `sop` offer | A configuration write may change `bus_num_i` while a TLP waits for the link; an offered beat must not change. | Forming DW 1 when it is taken. |
 
 ## Timing
 
@@ -246,8 +389,20 @@ cfg's side of the one-access rule.
   request and after each `reg_cpl_valid` of a multi-DW BAR2 request.
 - A request that leaves at edge E is released in the cycle after E, a
   non-posted one later when another is released then.
-- Outputs that depend on inputs combinationally: only the gating by `rst`
-  (`rst_i`, `dl_up_i`). The critical path is the receive judgment, from
+- A completion queued at edge E is offered on `tlp_tx_*` from the second
+  cycle after E (its descriptor queue head), when nothing else is being
+  sent and it is its turn; a configuration read's completion therefore
+  starts two cycles after the cycle of its `reg_cpl_valid`. An rq request taken at
+  edge E is offered from the next cycle (posted, once all its data is
+  queued) or the second (non-posted). A TLP goes out one beat per cycle
+  while the link takes them, with no gap, and the next starts in the
+  cycle after its `eop` is taken.
+- Outputs that depend on inputs combinationally: the gating by `rst`
+  (`rst_i`, `dl_up_i`); `rq_ready_o` on a `sop` beat, from `rq_write_i`
+  (which line's room), `bus_master_en_i` and `d_state_i`; and, while no
+  TLP is offered, `tlp_tx_*` from `fc_*_avail_i` (which head may start)
+  and `bus_num_i`, `dev_num_i` (its DW 1). The critical path is the
+  receive judgment, from
   `tlp_rx_data_i` through `hdr_decode`, the BAR compares (32-bit masked
   equality), the 4 KiB check (a 13-bit add) and the outcome mux into
   `cur_q`.
@@ -262,5 +417,9 @@ cfg's side of the one-access rule.
 | [`pcie_tl_rx_q.sv`](../../../../src/rtl/tl/pcie_tl_rx_q.sv) | [Receive queues](#receive-queues), epochs, [credit release](#credit-release). |
 | [`pcie_tl_cq.sv`](../../../../src/rtl/tl/pcie_tl_cq.sv) | [cq stream](#cq-stream). |
 | [`pcie_tl_reg.sv`](../../../../src/rtl/tl/pcie_tl_reg.sv) | [Register access](#register-access). |
+| [`pcie_tl_cplf.sv`](../../../../src/rtl/tl/pcie_tl_cplf.sv) | [Completion former](#completion-former). |
+| [`pcie_tl_cpl.sv`](../../../../src/rtl/tl/pcie_tl_cpl.sv) | [Completions](#completions): handles, `cc`, records. |
+| [`pcie_tl_txq.sv`](../../../../src/rtl/tl/pcie_tl_txq.sv) | [Transmit lines](#transmit-lines), `rq`, messages, transmit epochs. |
+| [`pcie_tl_tx.sv`](../../../../src/rtl/tl/pcie_tl_tx.sv) | [Transmit arbiter](#transmit-arbiter), headers. |
 | [`pcie_tl.sv`](../../../../src/rtl/tl/pcie_tl.sv) | [Top](#top): parameter checks, reset, the blocks, the [slots](#slots). |
 | [`tl.rtl.f`](../../../../src/rtl/tl/tl.rtl.f) | The shared vocabulary, the shared RAM, the package, the blocks, the top. |

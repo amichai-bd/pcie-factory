@@ -8,4 +8,8 @@ pcie_tl_rx.sv
 pcie_tl_rx_q.sv
 pcie_tl_cq.sv
 pcie_tl_reg.sv
+pcie_tl_cplf.sv
+pcie_tl_cpl.sv
+pcie_tl_txq.sv
+pcie_tl_tx.sv
 pcie_tl.sv

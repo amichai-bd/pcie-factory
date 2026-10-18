@@ -541,6 +541,21 @@ def test_interrupt_write_follows_earlier_rq_writes():
     assert [m.parse(t)["addr"] for t in wire.sent] == [0x5000, 0xFEE0_0000]
 
 
+def test_rq_write_is_taken_at_its_sop_beat():
+    """An rq write enters the posted line at its sop beat (ORDERING.md): an
+    interrupt write taken while its data beats still arrive follows it,
+    and the write goes out only once all its data is in."""
+    tl, app, wire = make_tl()
+    app.rq.append({"write": True, "addr": 0x5000, "len": 8, "fbe": 0xF, "lbe": 0xF,
+                   "data": list(range(8))})
+    run(tl, app, wire, 2)
+    assert tl.message(0, 0xFEE0_0000, 1)
+    run(tl, app, wire, 3, 2)
+    assert not wire.sent                         # the write's data is not all in yet
+    run(tl, app, wire, 40, 5)
+    assert [m.parse(t)["addr"] for t in wire.sent] == [0x5000, 0xFEE0_0000]
+
+
 def test_interrupt_and_error_messages():
     tl, app, wire = make_tl()
     assert tl.message(0, 0xFEE0_0000, 0x41)

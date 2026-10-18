@@ -43,7 +43,7 @@ module pcie_tl_rx_q #(
   output pcie_tl_pkg::t_cfg_ent   cfg_head_o,
   output logic                    cfg_ok_o,
   input  logic                    cfg_pop_i,      // the request left (access taken or UR handed on)
-  // Slot of the completion former (#291): PME_TO_Ack
+  // PME_TO_Ack, to the transmit posted line (pcie_tl_txq)
   input  logic                    pme_room_i,     // the transmit posted line has room for it
   output logic                    pme_ack_o,      // one PME_Turn_Off left: send PME_TO_Ack
   // Slot of the tracker (#292): the rc line's epoch and the oldest posted
@@ -114,6 +114,10 @@ module pcie_tl_rx_q #(
   logic cq_full;
   logic cfg_empty;
   logic cfg_full;
+  logic [PQ_AW:0] pq_used;
+  logic [PD_AW:0] pd_used;
+  logic [NQ_AW:0] cq_used;
+  logic [NQ_AW:0] cfg_used;
 
   pcie_tl_fifo #(
     .WIDTH  ($bits(pcie_tl_pkg::t_pq_ent)),
@@ -127,7 +131,8 @@ module pcie_tl_rx_q #(
     .head_valid_o (pq_valid_o),
     .head_o       (pq_head_o),
     .empty_o      (pq_empty),
-    .full_o       (pq_full)
+    .full_o       (pq_full),
+    .ram_used_o   (pq_used)
   );
 
   pcie_tl_fifo #(
@@ -142,7 +147,8 @@ module pcie_tl_rx_q #(
     .head_valid_o (pd_valid_o),
     .head_o       (pd_head_o),
     .empty_o      (pd_empty),
-    .full_o       (pd_full)
+    .full_o       (pd_full),
+    .ram_used_o   (pd_used)
   );
 
   pcie_tl_fifo #(
@@ -157,7 +163,8 @@ module pcie_tl_rx_q #(
     .head_valid_o (cq_valid_o),
     .head_o       (cq_head_o),
     .empty_o      (cq_empty),
-    .full_o       (cq_full)
+    .full_o       (cq_full),
+    .ram_used_o   (cq_used)
   );
 
   pcie_tl_fifo #(
@@ -172,7 +179,8 @@ module pcie_tl_rx_q #(
     .head_valid_o (cfg_valid_o),
     .head_o       (cfg_head_o),
     .empty_o      (cfg_empty),
-    .full_o       (cfg_full)
+    .full_o       (cfg_full),
+    .ram_used_o   (cfg_used)
   );
 
   // ------------------------------------------------ posted head, order
@@ -252,7 +260,7 @@ module pcie_tl_rx_q #(
   assign fc_rel_npd_o = rel_npd;
 
   `COMMON_UNUSED_BITS(unused_full, {pq_full, pd_full, pd_empty, cq_full, cq_empty, cfg_full,
-                                    cfg_empty})
+                                    cfg_empty, pq_used, pd_used, cq_used, cfg_used})
 
   // A credit-correct host never fills a queue (ORDERING.md, credits).
   `COMMON_ASSERT_NEVER(a_pq_overflow, clk_i, rst_i, pq_push_i && pq_full)
