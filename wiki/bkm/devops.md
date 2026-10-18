@@ -117,6 +117,17 @@ Restoring one directed entry to L1 then added 48.2 s, for an L1 of
 a change to a widely shared block selects nearly every IP, about 1054 s,
 which the raised 1200 s budget covers.
 
+Measured for [#327](https://github.com/amichai-bd/pcie-factory/issues/327)
+on one 4-CPU host (`--jobs 4`), all IPs, at `005836f` and after it. L0 to L2
+with `--coverage` (the nightly): L2 fell from 4642.7 s to 3394.6 s of CPU
+with a cold cache and 3257.7 s warm (the reused model-only runs), the run
+from 27.2 to 22.5 minutes cold and 17.4 minutes warm, with the merged
+coverage of every IP identical point for point. L0+L1 without coverage
+(`ci-gate`'s selection for a global change): the 37 builds took 150 s
+before and none warm, the run 186 s before and 152 s warm; test CPU is
+unchanged (each L1 entry above about 10 s is an IP's RTL acceptance entry
+or the only catch of a recorded mutant, so it stays in L1).
+
 ## Local evidence
 
 PR evidence is the **affected L0+L1**, the levels `ci-gate` runs for the
