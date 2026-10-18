@@ -120,12 +120,13 @@ captured bus and device number.
 - **RAM.** The three address and data DWs of every entry are one 96-bit
   word of a `common_sdp_ram` (`2^ceil(log2(MSIX_TABLE_SIZE))` words, at
   least 2, 12 byte lanes): a BAR2 write of DW `4n + f` (f 0 to 2) writes
-  word n's lanes `4f` to `4f + 3` under the byte enables, with address
-  bits 1:0 forced 0; the RAM is not reset. Its read port reads a BAR2
+  word n's lanes `4f` to `4f + 3` under the byte enables; the RAM is not
+  reset. Its read port reads a BAR2
   read's word at the take, or the word `u_msg` looks up for an MSI-X
   write; `u_msg` never looks up at an edge with a BAR2 access
   (`a_one_reader`). `entry_o` is the RAM output with address bits 1:0
-  forced 0 again (a word never written reads unknown).
+  forced 0 (read-only 0: stored as written, cleared on every read, a word
+  never written included).
 - **Mask bits.** One flop per vector, reset 1, written by bit 0 of DW
   `4n + 3` under byte enable 0; `u_bar2` gives `u_msg` both the value
   before the edge and after it.

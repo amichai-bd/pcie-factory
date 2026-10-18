@@ -40,7 +40,6 @@ module pcie_cfg_bar2 #(
   logic                    ram_wr;
   logic [11:0]             ram_lanes;
   logic [95:0]             ram_wdata;
-  logic [31:0]             wdata;
   logic                    ram_rd;
   logic [ADDR_W-1:0]       ram_waddr;
   logic [ADDR_W-1:0]       ram_raddr;
@@ -59,9 +58,7 @@ module pcie_cfg_bar2 #(
     in_table  = (addr_i[9:8] == 2'd0) && ({2'd0, entry} < ENTRIES);
     ram_field = in_table && (field != 2'd3);
     ram_wr    = wr_i && ram_field;
-    // Message Address bits 1:0 are read-only 0.
-    wdata     = (field == 2'd0) ? {data_i[31:2], 2'b00} : data_i;
-    ram_wdata = {wdata, wdata, wdata};
+    ram_wdata = {data_i, data_i, data_i};
     ram_lanes = 12'({8'd0, be_i} << {field, 2'b00});
     ram_waddr = entry[ADDR_W-1:0];
 
@@ -114,8 +111,9 @@ module pcie_cfg_bar2 #(
   `COMMON_DFF_EN(rd_ram_q, rd_ram_d, clk_i, rd_i)
   `COMMON_DFF_EN(rd_field_q, field, clk_i, rd_i)
 
-  // The table word with Message Address bits 1:0 forced 0 (the RAM is not
-  // initialized, so a word never written reads them as written: unknown).
+  // The table word with Message Address bits 1:0 forced 0: they are
+  // read-only 0, so the RAM stores them as written and the read clears them
+  // (for a word never written as well).
   always_comb begin
     entry_o         = ram_q;
     entry_o.addr_lo = {ram_q[31:2], 2'b00};
