@@ -142,7 +142,26 @@ Each mutant is one deliberate change to `pcie_core.sv`, the only RTL this
 plan owns; the entries ran in level order and the first failing one is
 named.
 
-MUTANT_TABLE
+| Mutant | Entry | Seed | Fails at cycle, with |
+| --- | --- | --- | --- |
+| M1: `link` `FC_RELEASE` 0: credits return at delivery | `e2e_enumeration` | 914163979 | 10366: `u_dll` assertion `a_rel_tied`: a release pulse with `FC_RELEASE` 0 |
+| M2: `cfg` reset without data link down (`cfg_rst = rst_i`) | `smoke` | 1152607520 | 8: `u_cfg` assertion `a_irq_vector`: `cfg` out of reset takes the random interrupt request while the link is down |
+| M3: `bus_master_en_o` not gated by `cfg_rst` | `e2e_link_down` | 189935525 | 13831: `bus_master_en_o` 1 with `dl_up_o` 0 |
+| M4: `link` `port_role_i` 0 (downstream) | `e2e_link_down` | 189935525 | 73980: no link-up again in 60000 cycles after the Hot Reset (a downstream port does not follow it) |
+| M5: Slot power event not wired to `cfg` | `e2e_enumeration` | 914163979 | 13434: shadow: Device Capabilities 0x8000, the `cfg` model 0x8c88000 |
+| M6: `tl_err` not wired to `cfg` | `e2e_unsupported` | 116918796 | 13580: shadow: Device Status without Unsupported Request Detected |
+| M7: `dl_err` not wired to `cfg` | `e2e_link_errors` | 830112853 | 19956: shadow: Correctable Error Detected 0 after a Bad TLP alone |
+| M8: `rcv_err` not wired to `cfg` | `e2e_link_errors` | 830112853 | 16662: shadow: Correctable Error Detected 0 after a receiver error alone |
+| M9: `cpl_timeout_dis` not wired to `tl` | `e2e_cpl_timeout` | 2115626119 | 20603: a read timed out with Completion Timeout Disable set |
+| M10: `tl_np_pending` not wired to `cfg` | `e2e_cpl_timeout` | 2115626119 | 13931: Transactions Pending 0 with a read outstanding |
+| M11: `tl` sees bus number 0 | `e2e_enumeration` | 914163979 | 10402: host model: completer ID 0x0000, expected 0x0100 |
+| M12: `max_read_req_o` 0 instead of 2 under `cfg_rst` | `smoke` | 1152607520 | 0: `max_read_req_o` expected 2 in reset, got 0 |
+| M13: `irq_done_o` not gated by `cfg_rst` | `e2e_link_down` | 189935525 | 28121: `irq_done_o` 1 with `dl_up_o` 0 (link down from D3hot during the interrupt storm) |
+| M14: Slot power scale not wired to `cfg` | `e2e_enumeration` | 914163979 | 13434: shadow: Device Capabilities 0xc88000, the `cfg` model 0x8c88000 |
+| M15: `tl` sees Memory Space Enable always 1 | `e2e_unsupported` | 116918796 | 15715: a BAR0 read with Memory Space Enable 0 completed successfully |
+| M16: `d_state_o` not gated by `cfg_rst` | `e2e_link_down` | 189935525 | 28121: `d_state_o` 3 with `dl_up_o` 0 |
+
+Removed after the first run: a gate on `irq_ready_o`, which survived because `cfg` already drives it 0 from its reset input (an equivalent mutant); the gate went, the MAS says why. M7, M8, M13, M15 and M16 survived that first run and led to the isolated link events of `e2e_link_errors`, the Memory Space Enable check of `e2e_unsupported` and the D3hot round of `e2e_link_down`.
 
 ## Gaps
 
