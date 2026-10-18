@@ -108,10 +108,30 @@ holds with three seeds).
 Each mutant is a deliberate bug in the RTL of
 [#289](https://github.com/amichai-bd/pcie-factory/issues/289), run against
 level 0 and level 1 one entry at a time (`--jobs 1`); the table gives the
-first entry that fails.
+first entry that fails (entries run in level, then name order, so
+`param_limits`, which lints the RTL, comes before `power_states`,
+`random_ops` and `regmap`).
 
 | Mutant | Block | First failing entry | How |
 | --- | --- | --- | --- |
+| M1: SERR# Enable read-only | `regs` | `error_messages` (L1, seed 1683172248) | cycle 36: cfg read of DW 0x1 expected 0x00100140 got 0x00100040 |
+| M2: bus number captured only below 0x100 | `regs` | `regmap` (L1, seed 66002683) | cycle 2700: bus_num_o expected 0xa0 got 0x8b |
+| M3: PowerState takes a D2 write | `regs` | `power_states` (L1, seed 272654647) | cycle 16: d_state_o expected 0x3 got 0x2 |
+| M4: Device Status RW1C ignores byte enables | `regs` | `error_table` (L1, seed 673424925) | cycle 3048: cfg read of DW 0x1e expected 0x00032800 got 0x00002800 |
+| M5: posted UR not gated by UR Reporting Enable | `err` | `error_table` (L1, seed 673424925) | cycle 835: DUT offers a message the model does not have |
+| M6: advisory UR sets no Correctable Error Detected | `err` | `error_messages` (L1, seed 1683172248) | cycle 50: cfg read of DW 0x1e expected 0x0009280f got 0x0008280f |
+| M7: due messages kept on leaving D0 | `err` | `error_messages` (L1, seed 1683172248) | cycle 259: DUT offers a message the model does not have |
+| M8: ERR_COR ahead of ERR_FATAL | `msg` | `error_messages` (L1, seed 1683172248) | cycle 5: offer kind expected 3 (err_fatal) got 2 |
+| M9: Bus Master Enable cleared does not withdraw | `msg` | `irq_withdraw` (L1, seed 1210582240) | cycle 74: DUT offers kind 0, the model withdrew or has no offer |
+| M10: a mask after the offer withdraws it | `msg` | `irq_withdraw` (L1, seed 1210582240) | cycle 112: irq_done_o with status 1, the model resolved nothing |
+| M11: highest pending vector first | `msg` | `irq_msix` (L1, seed 1249535295) | cycle 154: interrupt write (pend_msix) expected addr 0xfee00000 data 0x100 got addr 0xfee00070 data 0x107 |
+| M12: request not merged into a set pending bit | `msg` | `random_ops` (L1, seed 179094473) | cycle 404: request resolved pending by the model, irq_done_o is 0 |
+| M13: MSI Enable cleared keeps the MSI pending flag | `msg` | `irq_msi` (L1, seed 137415403) | assertion a_msi_pend_en failed |
+| M14: lookup at an edge with a BAR2 access | `msg` | `random_ops` (L1, seed 179094473) | assertion a_one_reader failed |
+| M15: address bits 1:0 not cleared | `bar2` | `bar2_map` (L1, seed 519847080) | cycle 66: BAR2 read of DW 0x0 expected 0xa26c88d4 got 0xa26c88d5 |
+| M16: mask bits reset to 0 | `bar2` | `bar2_map` (L1, seed 519847080) | cycle 2: BAR2 read of DW 0x3 expected 0x00000001 got 0x00000000 |
+| M17: reg_req_ready_o not dropped while an access is open | `top` | `random_ops` (L1, seed 179094473) | assertion a_one_access failed |
+| M18: Signaled System Error not set for ERR_NONFATAL | `msg` | `error_table` (L1, seed 673424925) | cycle 290: cfg read of DW 0x1 expected 0x40100140 got 0x00100140 |
 
 ## Gaps
 
@@ -123,8 +143,8 @@ first entry that fails.
 
 ## Coverage holes
 
-Merged over levels 0 to 2 at the PR head: line 98.1%, functional 100%,
-toggle 64.7%.
+Merged over levels 0 to 2 (`--ip cfg --coverage`): line 98.1%, functional 100%,
+toggle 64.6%.
 
 - **Line**, a tool artefact: the `COMMON_UNUSED_BITS` lint sink in
   `pcie_cfg_regs.sv` has no simulated activity.
