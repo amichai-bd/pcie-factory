@@ -5,7 +5,9 @@ sides, the receive buffer and UpdateFC. Part of the
 [`dll` HAS](HAS.md). The spec places credit accounting in the transaction
 layer; in this design `pcie_dll` owns it (decision record
 [0003](../../decisions/0003-m2-grill.md#decisions), Q1, Q5), so the upper
-layer only sees the [credits available](HAS.md#credits-available).
+layer only sees the [credits available](HAS.md#credits-available) and,
+with `FC_RELEASE` 1, says when it is done with a received TLP
+([credit release](#credit-release)).
 
 ## Classes and credits
 
@@ -74,7 +76,7 @@ Per class and field, for finite fields only
 
 | Counter | Reset | Rule |
 | --- | --- | --- |
-| CREDITS_ALLOCATED | the `FC_*` parameter | Adds a TLP's credits when the upper layer takes its `eop` beat, or at once for a malformed TLP. |
+| CREDITS_ALLOCATED | the `FC_*` parameter | Adds a TLP's credits when the upper layer takes its `eop` beat, or at once for a malformed TLP; with `FC_RELEASE` 1, a posted or non-posted TLP's when it is [released](#credit-release) instead. |
 | CREDITS_RECEIVED | 0 | Adds a TLP's credits when it is stored (good, expected, and covered), or accepted as malformed. Duplicates, bad and overflowed TLPs add nothing. |
 
 A malformed TLP's credits are those its header states, as the
@@ -82,6 +84,25 @@ transmitter counted them: 1 header credit plus the data credits its
 Length implies, in the class of its Fmt and Type, whatever bytes actually
 arrived. A malformed TLP of fewer than 4 bytes has no header and counts no
 credits ([receiving TLPs](RETRY.md#receiving-tlps)).
+
+## Credit release
+
+With `FC_RELEASE` 1 ([port](HAS.md#credit-release), decision record
+[0004](../../decisions/0004-m3-grill.md#updates), Q9):
+
+| Event | Finite field of P or NP | Infinite field of P or NP | Completion |
+| --- | --- | --- | --- |
+| The upper layer takes the TLP's `eop` | nothing | the reserve frees its credits | CREDITS_ALLOCATED adds its credits |
+| `fc_rel_p_i` or `fc_rel_np_i` | CREDITS_ALLOCATED adds 1 header and the given data credits | nothing | (no release) |
+
+- A malformed TLP still returns its credits at once: it is never delivered.
+- The receive buffer frees a TLP's space at delivery, before its credits
+  return, so the credits the partner may use never exceed the free space:
+  the overflow check and the sizing below hold unchanged.
+- Until released, delivered TLPs count against the advertisement: the
+  upper layer holds at most the advertised credits of each finite field,
+  and a credit-correct partner never makes it hold more.
+- A release in DL_Inactive is ignored; every counter restarts there.
 
 ## Receive buffer
 
@@ -118,7 +139,7 @@ In DL_Active, for every class
   cycles have passed since the class's last UpdateFC (the periodic
   refresh, which recovers a lost one); and, for a class with a finite
   field, when CREDITS_ALLOCATED differs from the values last sent (credits
-  were returned). An infinite class's credits never change, so it gets
+  were returned, at delivery or on a [release](#credit-release)). An infinite class's credits never change, so it gets
   only the entry UpdateFC and the refresh.
 - **Content:** HdrFC and DataFC are CREDITS_ALLOCATED modulo 256 and 4096;
   an infinite field is sent as 0.

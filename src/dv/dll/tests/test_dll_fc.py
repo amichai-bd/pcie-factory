@@ -2,7 +2,8 @@
 
 The transmit credit gate, CREDITS_CONSUMED and the credits available, the
 receive-side CREDITS_ALLOCATED, CREDITS_RECEIVED and overflow check, and
-UpdateFC on returned credits, on the real TLP paths. The environment
+UpdateFC on returned credits, on the real TLP paths, and the
+credit-release port (FC_RELEASE 1). The environment
 checks the gate (through the bind tap) every cycle against the
 flow-control rule and the architecture model, the overflow check through
 the receive reference, and every UpdateFC's value, cause and round-robin
@@ -233,7 +234,9 @@ async def fc_rx_accounting(dut):
     again); credits returned at each delivered eop. Every UpdateFC carries
     CREDITS_ALLOCATED, is due, goes in round robin, and a return is sent
     within the bound; returns in FC_INIT2 are in the entry UpdateFC;
-    refreshes; link down clears the counters. The reference and the
+    refreshes; link down clears the counters. With FC_RELEASE 1, posted and
+    non-posted credits return on release, and 40 configuration writes pass
+    an infinite non-posted data field's reserve. The reference and the
     architecture-model shadow judge every TLP."""
     seed = cocotb.RANDOM_SEED
     rng = random.Random(seed)
@@ -267,6 +270,12 @@ async def fc_rx_accounting(dut):
         for kind in ("MWr", "MRd", "CplD", "Msg"):
             await rx_deliver(env, [ptn.make_tlp(kind, 8, tag + i) for i in range(12)])
             tag += 12
+        if env.rel:
+            # More non-posted data than an infinite field's reserve (24
+            # credits) holds: it must free at delivery, not wait for a
+            # release (FLOW_CONTROL.md, credit release).
+            await rx_deliver(env, [ptn.make_tlp("CfgWr", 1, tag + i) for i in range(40)])
+            tag += 40
         await env.run(2 * 2048 + 100)     # refreshes after the returns
         if epoch == 0:
             # Link down while TLPs are stored and one is being delivered.
@@ -377,20 +386,28 @@ async def credits_infinite(dut):
     assert env.refused == 0, f"the gate refused {env.refused} cycles with infinite credits"
 
 
-async def starve_rx_run(dut, schedule) -> Env:
+async def starve_rx_run(dut, schedule, *, release=None, count: int = 1500,
+                        drain: int = 60000) -> Env:
     """The independent partner sends TLPs to the DUT, gated by the DUT's
     UpdateFCs; the DUT's upper layer follows ``schedule`` (cycles, take
-    probability; below 1 only with every class finite), then takes all."""
+    probability; below 1 only with every class finite), then takes all.
+    With FC_RELEASE 1, ``release`` is the releaser's schedule (cycles,
+    release probability; 0 releases nothing), in parallel, then all."""
     seed = cocotb.RANDOM_SEED
     rng = random.Random(seed)
     partner = ptn.Partner("partner", seed=seed)
     env = Env(dut, seed, partner=partner)
     await env.start()
+    if callable(schedule):
+        schedule = schedule(env)
+    if release is not None:
+        assert env.rel, "a release schedule needs FC_RELEASE 1"
+        cocotb.start_soon(release_schedule(env, release))
     env.upd_bound = UPD_BOUND
     env.dut_link = env.partner_link = True
     await env.run_until(lambda: env.state == ACTIVE and partner.state == ptn.ACTIVE, 400,
                         "both ends in DL_Active")
-    tlps = [random_tlp(rng, i) for i in range(1500)]
+    tlps = [random_tlp(rng, i) for i in range(count)]
     for t in tlps:
         partner.send(t)
     for cycles, take in schedule:
@@ -403,9 +420,11 @@ async def starve_rx_run(dut, schedule) -> Env:
         dut._log.info("%d cycles, upper layer takes %.0f%%: %d TLPs delivered", cycles,
                       100 * take, len(env.delivered) - start)
     env.rx_ready_p = 1.0
-    await env.run_until(lambda: len(env.delivered) == len(tlps) and not partner.rbuf, 60000,
+    await env.run_until(lambda: len(env.delivered) == len(tlps) and not partner.rbuf, drain,
                         "every TLP delivered and acknowledged")
     await env.run(200)
+    if env.rel:
+        assert not env.rel_q[0] and not env.rel_q[1], "TLPs left unreleased after the drain"
     assert env.delivered == tlps, "the DUT did not deliver the partner's TLPs once, in order"
     assert env.ovf_seen == 0 and env.ref.overflow == 0, "Receiver overflow with a compliant partner"
     stats = env.check_rx()
@@ -425,6 +444,44 @@ async def credit_starve_rx(dut):
     overflow, every TLP delivered once and in order, every UpdateFC
     checked, cross-checked with the reference and the architecture model."""
     await starve_rx_run(dut, [(2000, 0.3), (4000, 0.0), (2000, 0.3), (10000, 0.0)])
+
+
+async def release_schedule(env: Env, schedule) -> None:
+    """Steer the releaser: (cycles, release probability) phases, 0 holding
+    every release; then release at once."""
+    for cycles, p in schedule:
+        env.rel_p = p if p > 0 else 1.0
+        env.rel_stall_until = env.cycle + cycles if p == 0 else 0
+        await Timer(cycles * 8, "ns")
+    env.rel_p, env.rel_stall_until = 1.0, 0
+
+
+@cocotb.test()
+async def credit_release(dut):
+    """L1/L2, seeded, FC_RELEASE 1: credit starvation with delayed release.
+    The partner sends as fast as the DUT's UpdateFCs allow; the DUT's upper
+    layer takes every beat (and, with every class finite, also stalls the
+    stream) but releases posted and non-posted credits late: in 30% of
+    cycles, none for 4000 cycles, 30%, none for 10000, then all. The
+    receiver never overflows, the upper layer never holds more than the
+    DUT advertises and does hold all of a class's credits (the partner
+    starved), every TLP is delivered once and in order, and each release
+    is in an UpdateFC within the bound, cross-checked with the reference
+    and the architecture model."""
+    phases = [(2000, 0.3), (4000, 0.0), (2000, 0.3), (10000, 0.0)]
+
+    def rx(env: Env):
+        # The receive stream stalls too only with every class finite.
+        finite = all(v for cls in CLASSES for v in env.adv[cls])
+        return phases if finite else [(sum(c for c, _ in phases), 1.0)]
+
+    env = await starve_rx_run(dut, rx, release=phases, count=600, drain=200000)
+    held_all = [CLASSES[c] for c in (0, 1) if env.adv[CLASSES[c]][0]
+                and env.held_max[c][0] == env.adv[CLASSES[c]][0]]
+    assert held_all, f"the upper layer never held all of a class's header credits {env.held_max}"
+    assert all(env.released), f"releases per class {env.released}"
+    dut._log.info("held at most %s (P, NP; header, data) of %s; %s releases; credits held "
+                  "in full: %s", env.held_max, env.adv, env.released, held_all)
 
 
 @cocotb.test()

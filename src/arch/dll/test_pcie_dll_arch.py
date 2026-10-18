@@ -528,3 +528,103 @@ def test_tlp_acknowledged_while_replayed_keeps_its_space_until_sent():
     while a._tx_seq() == 0:
         p.step()
     assert a.rbuf_bytes() == len(m.tlp_frame(2, tlps[2]))      # released at its last beat
+
+
+# ------------------------------------------------------- credit release
+
+def release_pair(fc=None, seed=1):
+    a = m.Dll("a", fc, release_port=True)
+    b = m.Dll("b", fc, release_port=True)
+    p = m.Pair(a, b, m.Channel(random.Random(seed)))
+    run(p, 400)
+    assert a.state == b.state == m.ACTIVE
+    return p, a, b
+
+
+def offer(p, a, tlp, limit=400):
+    """Offer ``tlp`` until ``a`` takes it, stepping the pair."""
+    for _ in range(limit):
+        if a.offer(tlp, p.now):
+            return True
+        p.step()
+    return False
+
+
+def test_release_port_returns_posted_credits_on_release_not_delivery():
+    """HAS, credit release: a delivered write keeps its credits until the
+    upper layer releases them; then an UpdateFC returns them."""
+    p, a, b = release_pair(fc={"ph": 2, "pd": 16})
+    for i in range(2):
+        assert offer(p, a, m.make_tlp("mwr", 128, i))
+    run(p, 300)
+    assert not offer(p, a, m.make_tlp("mwr", 128, 2), limit=300)
+    assert len(b.delivered) == 2 and a.avail(m.P, 0) == 0 and a.avail(m.P, 1) == 0
+    assert b.held[m.P] == [2, 16]
+    b.release(m.P, 8)
+    run(p, 200)
+    assert b.held[m.P] == [1, 8] and a.avail(m.P, 0) == 1 and a.avail(m.P, 1) == 8
+    assert offer(p, a, m.make_tlp("mwr", 128, 2))
+    run(p, 200)
+    assert len(b.delivered) == 3 and b.errors[m.E_OVERFLOW] == 0
+
+
+def test_release_port_completions_and_infinite_fields_return_at_delivery():
+    """Completions, and an infinite field's reserve, never wait for a
+    release; a release returns nothing for an infinite field."""
+    p, a, b = release_pair(fc={"cplh": 2, "cpld": 16, "npd": 0})
+    for i in range(4):
+        assert offer(p, a, m.make_tlp("cpld", 128, i))
+    run(p, 300)
+    assert len(b.delivered) == 4 and b.held[m.CPL] == [0, 0]
+    assert offer(p, a, m.make_tlp("mrd", 0, 9))
+    run(p, 200)
+    assert b.held[m.NP] == [1, 0] and b.occ[m.NP] == [0, 0]
+    b.release(m.NP, 0)
+    assert b.held[m.NP] == [0, 0]
+
+
+def test_release_contract_violations_raise():
+    p, a, b = release_pair()
+    with pytest.raises(ValueError):
+        b.release(m.P, 0)                      # nothing delivered
+    with pytest.raises(ValueError):
+        b.release(m.CPL, 0)                    # completions have no release
+    assert offer(p, a, m.make_tlp("mwr", 8, 1))
+    run(p, 200)
+    with pytest.raises(ValueError):
+        b.release(m.P, 9)                      # above one maximum payload
+    with pytest.raises(ValueError):
+        b.release(m.P, 3)                      # more data than delivered
+    plain = m.Dll("c")
+    with pytest.raises(ValueError):
+        plain.release(m.P, 0)                  # FC_RELEASE 0
+    with pytest.raises(ValueError):
+        m.Releaser(plain, random.Random(1))
+
+
+def test_link_down_clears_held_credits_and_the_releaser_queue():
+    p, a, b = release_pair()
+    r = m.Releaser(b, random.Random(1), delay=1, starve=[(0, 10**9)])
+    for i in range(3):
+        assert offer(p, a, m.make_tlp("mwr", 128, i))
+    for _ in range(300):
+        p.step()
+        r.step(p.now)
+    assert len(r.q[m.P]) == 3 and b.held[m.P] == [3, 24]
+    p.step(link=(True, False))
+    r.step(p.now)
+    assert not r.q[m.P] and b.held[m.P] == [0, 0]
+    with pytest.raises(ValueError):
+        b.release(m.P, 8)                      # outside DL_Up
+
+
+def test_perf_credit_release_starves_without_overflow():
+    w = {"kind": "traffic", "tlps": 400, "mix": "mixed", "payload": -1,
+         "release": {"delay": 20, "duty": 0.3, "starve": [[1000, 4000]]}}
+    r = m.perf(w, 3)
+    assert r["tlps_lost"] == r["tlps_duplicated"] == r["tlps_out_of_order"] == 0
+    assert r["err_rx_overflow"] == 0 and r["credit_blocked_cycles"] > 1000
+    assert r["held_p_hdr_max"] <= 8 and r["held_p_data_max"] <= 32
+    assert r["held_np_hdr_max"] <= 8
+    with pytest.raises(ValueError):
+        m.perf(dict(w, release={"delay": 0}), 3)

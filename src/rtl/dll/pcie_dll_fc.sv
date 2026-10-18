@@ -5,11 +5,15 @@
 // CREDITS_ALLOCATED and CREDITS_RECEIVED with the overflow check, and the
 // UpdateFC this side sends in DL_Active: at once on entry, when credits
 // were returned and on the 2048-cycle refresh, classes in round robin.
+// With RELEASE, finite posted and non-posted credits return on the release
+// port instead of at delivery (FLOW_CONTROL.md, credit release).
 `default_nettype none
 
 `include "common_macros.svh"
 
-module pcie_dll_fc (
+module pcie_dll_fc #(
+  parameter logic RELEASE = 1'b0  // 1: P and NP finite credits return on rel_*_i
+) (
   input  logic                     clk_i,
   input  logic                     rst_i,
   input  logic                     flush_i,         // DL_Inactive: clear everything
@@ -33,6 +37,8 @@ module pcie_dll_fc (
   input  pcie_dll_pkg::t_rx_credit rx_stored_i,     // stored: CREDITS_RECEIVED
   input  pcie_dll_pkg::t_rx_credit rx_malformed_i,  // malformed: both counters
   input  pcie_dll_pkg::t_rx_credit rx_taken_i,      // eop taken upward: CREDITS_ALLOCATED
+  input  pcie_dll_pkg::t_rx_credit rel_p_i,         // release port, posted (with RELEASE)
+  input  pcie_dll_pkg::t_rx_credit rel_np_i,        // release port, non-posted (with RELEASE)
   output logic                     overflow_o       // Receiver overflow pulse
 );
 
@@ -69,7 +75,13 @@ module pcie_dll_fc (
   logic                    rx_ovf;     // a TLP to store does not fit: Receiver overflow
   logic                    rx_mal;     // malformed with credits (a stale class has none)
   pcie_dll_pkg::t_fc_vals  alloc_mal;
+  pcie_dll_pkg::t_fc_vals  alloc_dlv;
+  pcie_dll_pkg::t_fc_vals  alloc_rel;
   pcie_dll_pkg::t_fc_vals  rcvd_mal;
+  logic                    taken_rel;  // a delivered P or NP TLP whose finite credits wait
+  pcie_dll_pkg::t_fc_val   taken_ret;  // what a delivery returns now
+  pcie_dll_pkg::t_fc_val   rel_p_ret;  // what a release returns: its finite fields
+  pcie_dll_pkg::t_fc_val   rel_np_ret;
 
   assign active  = state_i == pcie_dll_pkg::DL_ACTIVE;
   assign rx_base = pcie_dll_pkg::fc_rx_base(adv_i);
@@ -102,6 +114,18 @@ module pcie_dll_fc (
                                           rx_chk_i.cred);
   assign rx_ovf   = rx_chk_i.valid && !rx_fit_o;
   assign rx_mal   = rx_malformed_i.valid && rx_malformed_i.cred != '0;
+
+  // Credit release (FLOW_CONTROL.md, credit release): with RELEASE, a
+  // delivered posted or non-posted TLP returns only its infinite fields
+  // (the reserve frees at delivery); its finite credits return when the
+  // upper layer releases them. Completions always return at delivery.
+  assign taken_rel  = RELEASE && rx_taken_i.cls != pcie_dll_pkg::FC_CPL;
+  assign taken_ret  = taken_rel
+                    ? pcie_dll_pkg::fc_keep(rx_taken_i.cred,
+                                            pcie_dll_pkg::fc_get(adv_i, rx_taken_i.cls), 1'b0)
+                    : rx_taken_i.cred;
+  assign rel_p_ret  = pcie_dll_pkg::fc_keep(rel_p_i.cred, adv_i.p, 1'b1);
+  assign rel_np_ret = pcie_dll_pkg::fc_keep(rel_np_i.cred, adv_i.np, 1'b1);
 
   // ------------------------------------------------------------ UpdateFC
 
@@ -152,8 +176,12 @@ module pcie_dll_fc (
                                         rx_stored_i.cred);
     alloc_mal = pcie_dll_pkg::fc_charge(alloc_q, rx_mal, rx_malformed_i.cls,
                                         rx_malformed_i.cred);
-    alloc_d   = pcie_dll_pkg::fc_charge(alloc_mal, rx_taken_i.valid, rx_taken_i.cls,
-                                        rx_taken_i.cred);
+    alloc_dlv = pcie_dll_pkg::fc_charge(alloc_mal, rx_taken_i.valid, rx_taken_i.cls,
+                                        taken_ret);
+    alloc_rel = pcie_dll_pkg::fc_charge(alloc_dlv, RELEASE && rel_p_i.valid,
+                                        pcie_dll_pkg::FC_P, rel_p_ret);
+    alloc_d   = pcie_dll_pkg::fc_charge(alloc_rel, RELEASE && rel_np_i.valid,
+                                        pcie_dll_pkg::FC_NP, rel_np_ret);
     sent_d    = sent_q;
     if (take_p) begin
       sent_d.p = upd_pick;
@@ -221,8 +249,10 @@ module pcie_dll_fc (
   // Header bits other than Fmt bit 6, Type and Length do not set the
   // credits; the gate does not read the limit's record flag, nor the
   // offered TLP's valid flag (always 1 from tlp_credit).
+  // The release events' class is fixed by their port.
   `COMMON_UNUSED_BITS(unused_bits, {rx_dllp_i.seq, tx_lim.recorded, tx_cost.valid,
-                                    tx_data_i[23:18], tx_data_i[15:7], tx_data_i[5]})
+                                    tx_data_i[23:18], tx_data_i[15:7], tx_data_i[5],
+                                    rel_p_i.cls, rel_np_i.cls})
 
   `COMMON_ASSERT_NEVER(a_take_without_due, clk_i, rst_i, updfc_take_i && !updfc_req_o.valid)
   // The TLP source accepts only TLPs the gate covers (HAS, transmit).

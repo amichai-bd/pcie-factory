@@ -35,7 +35,12 @@ One cycle, at the falling edge of clk_i after rising edge n:
    pulses, NEXT_RCV_SEQ and each NAK_SCHEDULED setting. The **upper
    layer** takes received beats (``tlp_rx_ready_i``, stalling with
    ``rx_ready_p`` below 1 only when every class is finite), checks each
-   delivered TLP against the reference and returns its credits.
+   delivered TLP against the reference and returns its credits. With
+   FC_RELEASE 1 (HAS, credit release) it returns a posted or non-posted
+   TLP's finite credits later, on ``fc_rel_*_i``: the **releaser** holds
+   each one at least ``rel_delay`` cycles, releases per class in delivery
+   order with probability ``rel_p``, none before ``rel_stall_until``, and
+   checks it never holds more than the DUT advertises.
 7. The **upper transmit driver** offers queued TLPs on ``tlp_tx_*`` (valid
    may drop inside a TLP) and records each one the DUT takes; every TLP the
    DUT sends is checked (``_tx_tlp``): its sequence number, the TLP taken
@@ -170,6 +175,11 @@ COV_FC_RX.cross("decision_x_cls", "decision", "cls",
                 unreachable=[("malformed_no_hdr", c) for c in CLASSES])
 COV_FC_RX.coverpoint("field", bins=["finite", "infinite"])
 COV_FC_RX.coverpoint("returned", bins=["P", "NP", "Cpl"])
+# Credit release (FC_RELEASE 1): released per class, data credits released,
+# and the upper layer holding every advertised header credit of a class.
+COV_FC_RX.coverpoint("released", bins=["P", "NP"])
+COV_FC_RX.coverpoint("release_data", bins={"zero": 0, "some": range(1, 8), "max": 8})
+COV_FC_RX.coverpoint("held_all", bins=["P", "NP"])
 
 # TLP transmit (DV plan, coverage): TLPs sent, their shape and whether new
 # or replayed; replays and what ended them; the replay timer and rollover;
@@ -550,6 +560,19 @@ class Env:
         self.upd_lat_max = 0
         self.upd_bound: int | None = None      # latency bound for a returned credit
         self.active_since = 0
+        # Credit release (FC_RELEASE 1): the releaser's queues per class
+        # (delivery cycle, data credits), the finite credits held, and the
+        # releases the arch shadow takes this cycle.
+        self.rel = False
+        self.rel_q: dict[int, deque[tuple[int, int]]] = {0: deque(), 1: deque()}
+        self.held = [[0, 0], [0, 0]]
+        self.held_max = [[0, 0], [0, 0]]
+        self.rel_delay = 2                     # cycles after delivery, at least 2
+        self.rel_p = 0.5                       # release probability per class and cycle
+        self.rel_stall_until = 0               # no release before this cycle
+        self.released = [0, 0]                 # releases driven, per class
+        self.rel_shadow: list[tuple[int, int]] = []
+        self.rel_rng = random.Random(seed ^ 0x303)   # the stimulus rng is untouched
 
     # ------------------------------------------------------------ set-up
 
@@ -559,7 +582,8 @@ class Env:
         for name in ("tlp_tx_valid_i", "tlp_tx_data_i", "tlp_tx_sop_i", "tlp_tx_eop_i",
                      "pkt_tx_ready_i", "pkt_rx_valid_i", "pkt_rx_data_i", "pkt_rx_sop_i",
                      "pkt_rx_eop_i", "pkt_rx_dllp_i", "pkt_rx_err_i", "pkt_rx_nullify_i",
-                     "link_up_i", "ltssm_state_i"):
+                     "link_up_i", "ltssm_state_i", "fc_rel_p_i", "fc_rel_pd_i", "fc_rel_np_i",
+                     "fc_rel_npd_i"):
             getattr(d, name).value = 0
         # The DUT's upper receive stream never stalls (HAS, receive).
         d.tlp_rx_ready_i.value = 1
@@ -568,6 +592,7 @@ class Env:
             await FallingEdge(d.clk_i)
         d.rst_i.value = 0
         # The DUT's credit parameters, from the testbench's cfg_fc_o.
+        self.rel = bool(int(d.cfg_fc_o.value) & 1)
         cfg = int(d.cfg_fc_o.value) >> 20
         fields = []
         for w in (12, 8, 12, 8, 12, 8):         # FC_CPLD up to FC_PH
@@ -576,7 +601,7 @@ class Env:
         cpld, cplh, npd, nph, pd, ph = fields
         self.adv = {"P": (ph, pd), "NP": (nph, npd), "Cpl": (cplh, cpld)}
         self.shadow = arch.Dll("shadow", {"ph": ph, "pd": pd, "nph": nph, "npd": npd,
-                                          "cplh": cplh, "cpld": cpld})
+                                          "cplh": cplh, "cpld": cpld}, release_port=self.rel)
         self._rx_reset()
         self.ref.credits = self
 
@@ -591,6 +616,10 @@ class Env:
         self.upd_offer = {}
         self.upd_rr = 0
         self.upd_pending = {}
+        # The upper layer is reset with DL_Up: it releases nothing it held.
+        for q in self.rel_q.values():
+            q.clear()
+        self.held = [[0, 0], [0, 0]]
 
     def _tlp_need(self, data: bytes):
         """(class, credits) of a framed TLP packet's header, or None."""
@@ -713,6 +742,7 @@ class Env:
                 self.up_sop.pop()
             self.ref.reset(n, len(self.delivered))
         self._upper(n)
+        self._release(n, state)
 
         # The credit limits as the DUT's registers hold them this cycle,
         # before the shadow takes this cycle's received packets.
@@ -816,6 +846,9 @@ class Env:
             self.rx_gap = True
         if self.shadow_pending:
             self._shadow_offer(n)
+        for c, data in self.rel_shadow:
+            sh.release(c, data)                 # sampled at the edge, as the DUT does
+        self.rel_shadow = []
         sh.tick(n, self.l0, True, bool(self.up_ready_now))
         if sh.state != self.shadow_states[-1][1]:
             self.shadow_states.append((n, sh.state))
@@ -1448,15 +1481,67 @@ class Env:
             self.up_beats = []
             i = len(self.delivered)
             self.delivered.append(tlp)
-            # Its credits return as its eop is taken (FLOW_CONTROL.md).
+            # Its credits return as its eop is taken (FLOW_CONTROL.md); with
+            # FC_RELEASE 1 a posted or non-posted TLP returns only its
+            # infinite fields (the reserve) now, its finite ones on release.
             c = CLASSES.index(ptn.has_class(tlp))
-            self.rx_charge(c, ptn.tlp_credits(tlp), alloc=True, rcvd=False)
-            COV_FC_RX.sample(returned=CLASSES[c])
+            need = ptn.tlp_credits(tlp)
+            if self.rel and c < 2:
+                adv = self.adv[CLASSES[c]]
+                self.rx_charge(c, tuple(0 if adv[f] else need[f] for f in (0, 1)),
+                               alloc=True, rcvd=False)
+                self.rel_q[c].append((n, need[1]))
+                for f in (0, 1):
+                    if adv[f]:
+                        self.held[c][f] += need[f]
+                        self.held_max[c][f] = max(self.held_max[c][f], self.held[c][f])
+                        if self.held[c][f] > adv[f]:
+                            self.violations.append(
+                                f"cycle {n}: the upper layer holds {self.held[c][f]} "
+                                f"{CLASSES[c]} {('header', 'data')[f]} credits, above the "
+                                f"{adv[f]} advertised")
+                if adv[0] and self.held[c][0] == adv[0]:
+                    COV_FC_RX.sample(held_all=CLASSES[c])
+            else:
+                self.rx_charge(c, need, alloc=True, rcvd=False)
+                COV_FC_RX.sample(returned=CLASSES[c])
             if i >= len(self.ref.expect):
                 self.violations.append(f"cycle {n}: TLP {tlp[:8].hex()} delivered, none expected")
             elif tlp != self.ref.expect[i]:
                 self.violations.append(f"cycle {n}: TLP {i} delivered {tlp[:16].hex()}..., "
                                        f"expected {self.ref.expect[i][:16].hex()}...")
+
+    def _release(self, n: int, state: int) -> None:
+        """The releaser (FC_RELEASE 1): drive fc_rel_*_i for the next edge,
+        at most one posted and one non-posted release, each for the oldest
+        TLP of its class held at least ``rel_delay`` cycles; its finite
+        credits return to CREDITS_ALLOCATED at that edge. Only while DL_Up
+        holds at that edge (a release in a flushed cycle is lost, and the
+        upper layer is reset then)."""
+        if not self.rel:
+            return
+        d = self.dut
+        live = state in (INIT2, ACTIVE) and self.dut_link
+        for c, (valid, data) in enumerate(((d.fc_rel_p_i, d.fc_rel_pd_i),
+                                           (d.fc_rel_np_i, d.fc_rel_npd_i))):
+            q = self.rel_q[c]
+            go = (live and q and q[0][0] + self.rel_delay <= n and n >= self.rel_stall_until
+                  and self.rel_rng.random() < self.rel_p)
+            valid.value = int(bool(go))
+            if not go:
+                data.value = self.rel_rng.getrandbits(4) & 7     # don't care without valid
+                continue
+            v = q.popleft()[1]
+            data.value = v
+            adv = self.adv[CLASSES[c]]
+            self.rx_charge(c, tuple(x if adv[f] else 0 for f, x in enumerate((1, v))),
+                           alloc=True, rcvd=False)
+            for f, x in enumerate((1, v)):
+                if adv[f]:
+                    self.held[c][f] -= x
+            self.released[c] += 1
+            self.rel_shadow.append((c, v))
+            COV_FC_RX.sample(released=CLASSES[c], release_data=v)
 
     # ------------------------------------------------------------ checks
 

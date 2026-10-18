@@ -1,0 +1,27 @@
+# The credit-release port (wiki/src/arch/dll/HAS.md#credit-release): the
+# receiving upper layer takes every beat (completions are infinite) but
+# holds the posted and non-posted TLPs and releases them slowly, not at all
+# in two long windows: the sender starves on credits, the receiver never
+# overflows and holds no more than it advertised.
+description: 1500 random TLPs one way, default credits, both ends with the release port; b releases 40 cycles after delivery at the earliest, in 30% of cycles, none in two windows.
+seed: 6
+workload:
+  kind: traffic
+  tlps: 1500
+  mix: mixed
+  payload: -1
+  release:
+    delay: 40
+    duty: 0.3
+    starve: [[2000, 6000], [10000, 20000]]
+targets:
+  err_rx_overflow: {max: 0}
+  tlps_lost: {max: 0}
+  tlps_duplicated: {max: 0}
+  tlps_out_of_order: {max: 0}
+  replays: {max: 0}
+  credit_blocked_cycles: {min: 1000}
+  held_p_hdr_max: {max: 8}
+  held_p_data_max: {max: 32}
+  held_np_hdr_max: {max: 8}
+  held_np_data_max: {max: 8}

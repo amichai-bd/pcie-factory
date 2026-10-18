@@ -579,6 +579,15 @@ package pcie_dll_pkg;
     return r;
   endfunction
 
+  // Credit release (FLOW_CONTROL.md, credit release): the fields of c whose
+  // advertisement adv is finite (fin 1) or infinite (fin 0); others 0.
+  function automatic t_fc_val fc_keep(input t_fc_val c, input t_fc_val adv, input logic fin);
+    t_fc_val r;
+    r.hdr  = ((adv.hdr != 8'd0) == fin) ? c.hdr : 8'd0;
+    r.data = ((adv.data != 12'd0) == fin) ? c.data : 12'd0;
+    return r;
+  endfunction
+
   // Credits held in the receive buffer never exceed its space: free
   // credits (CREDITS_ALLOCATED - CREDITS_RECEIVED) modulo 2^w stay at most
   // the base (advertisement or reserve). Per field of one class.

@@ -19,6 +19,10 @@
 //   2 finite default  P 8, 32; NP 8, 8; Cpl 8, 32, both ends
 //   3 all infinite    every class infinite, both ends
 //   4 asymmetric      a finite minimum, b default
+//   5 release         default credits, FC_RELEASE 1 both ends (the
+//                     dll credit-release port, <e>_fc_rel_*_i, live)
+// With any other CREDITS, FC_RELEASE is 0 and the environment holds the
+// release inputs at 0.
 module pcie_link_e2e_tb #(
   parameter int unsigned CREDITS         = 0,
   parameter int unsigned TIMEOUT_DIV     = 1024,
@@ -33,6 +37,10 @@ module pcie_link_e2e_tb #(
   input  logic        a_tlp_tx_sop_i,
   input  logic        a_tlp_tx_eop_i,
   input  logic        a_tlp_rx_ready_i,
+  input  logic        a_fc_rel_p_i,
+  input  logic [3:0]  a_fc_rel_pd_i,
+  input  logic        a_fc_rel_np_i,
+  input  logic [3:0]  a_fc_rel_npd_i,
   input  logic        a_retrain_req_i,
   input  logic        a_hot_reset_req_i,
   input  logic        a_disable_req_i,
@@ -79,6 +87,10 @@ module pcie_link_e2e_tb #(
   input  logic        b_tlp_tx_sop_i,
   input  logic        b_tlp_tx_eop_i,
   input  logic        b_tlp_rx_ready_i,
+  input  logic        b_fc_rel_p_i,
+  input  logic [3:0]  b_fc_rel_pd_i,
+  input  logic        b_fc_rel_np_i,
+  input  logic [3:0]  b_fc_rel_npd_i,
   input  logic        b_retrain_req_i,
   input  logic        b_hot_reset_req_i,
   input  logic        b_disable_req_i,
@@ -132,6 +144,7 @@ module pcie_link_e2e_tb #(
                        : CREDITS == 2 ? FC_FINITE : CREDITS == 3 ? FC_INF : FC_DEFAULT;
   localparam t_fc B_FC = CREDITS == 1 ? FC_MINIMUM
                        : CREDITS == 2 ? FC_FINITE : CREDITS == 3 ? FC_INF : FC_DEFAULT;
+  localparam int unsigned REL = CREDITS == 5 ? 1 : 0;
 
   assign cfg_credits_o         = 3'(CREDITS);
   assign cfg_timeout_div_o     = 11'(TIMEOUT_DIV);
@@ -139,7 +152,7 @@ module pcie_link_e2e_tb #(
 
   pcie_link #(
     .FC_PH(A_FC[0]), .FC_PD(A_FC[1]), .FC_NPH(A_FC[2]),
-    .FC_NPD(A_FC[3]), .FC_CPLH(A_FC[4]), .FC_CPLD(A_FC[5]),
+    .FC_NPD(A_FC[3]), .FC_CPLH(A_FC[4]), .FC_CPLD(A_FC[5]), .FC_RELEASE(REL),
     .TIMEOUT_DIV(TIMEOUT_DIV), .ERR_TIMEOUT_DIV(ERR_TIMEOUT_DIV)
   ) u_a (
     .clk_i(a_clk_i),
@@ -151,6 +164,10 @@ module pcie_link_e2e_tb #(
     .tlp_tx_sop_i(a_tlp_tx_sop_i),
     .tlp_tx_eop_i(a_tlp_tx_eop_i),
     .tlp_rx_ready_i(a_tlp_rx_ready_i),
+    .fc_rel_p_i(a_fc_rel_p_i),
+    .fc_rel_pd_i(a_fc_rel_pd_i),
+    .fc_rel_np_i(a_fc_rel_np_i),
+    .fc_rel_npd_i(a_fc_rel_npd_i),
     .retrain_req_i(a_retrain_req_i),
     .hot_reset_req_i(a_hot_reset_req_i),
     .disable_req_i(a_disable_req_i),
@@ -195,7 +212,7 @@ module pcie_link_e2e_tb #(
 
   pcie_link #(
     .FC_PH(B_FC[0]), .FC_PD(B_FC[1]), .FC_NPH(B_FC[2]),
-    .FC_NPD(B_FC[3]), .FC_CPLH(B_FC[4]), .FC_CPLD(B_FC[5]),
+    .FC_NPD(B_FC[3]), .FC_CPLH(B_FC[4]), .FC_CPLD(B_FC[5]), .FC_RELEASE(REL),
     .TIMEOUT_DIV(TIMEOUT_DIV), .ERR_TIMEOUT_DIV(ERR_TIMEOUT_DIV)
   ) u_b (
     .clk_i(b_clk_i),
@@ -207,6 +224,10 @@ module pcie_link_e2e_tb #(
     .tlp_tx_sop_i(b_tlp_tx_sop_i),
     .tlp_tx_eop_i(b_tlp_tx_eop_i),
     .tlp_rx_ready_i(b_tlp_rx_ready_i),
+    .fc_rel_p_i(b_fc_rel_p_i),
+    .fc_rel_pd_i(b_fc_rel_pd_i),
+    .fc_rel_np_i(b_fc_rel_np_i),
+    .fc_rel_npd_i(b_fc_rel_npd_i),
     .retrain_req_i(b_retrain_req_i),
     .hot_reset_req_i(b_hot_reset_req_i),
     .disable_req_i(b_disable_req_i),
