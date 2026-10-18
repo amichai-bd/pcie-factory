@@ -138,17 +138,14 @@ def test_ccache_env(tmp_path, monkeypatch):
               "CCACHE_SLOPPINESS"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setattr(sim.shutil, "which", lambda name: "/usr/bin/ccache")
-    sim._ccache_env({"ccache_dir": str(tmp_path / "cc"), "build_dir": str(tmp_path / "b")})
+    sim._ccache_env({"ccache": True, "build_dir": str(tmp_path / "b")})
     assert os.environ["OBJCACHE"] == "ccache"
-    assert os.environ["CCACHE_DIR"] == str(tmp_path / "cc")
     assert os.environ["CCACHE_BASEDIR"] == str(tmp_path / "b")
-    monkeypatch.setenv("CCACHE_DIR", "/mine")
-    sim._ccache_env({"ccache_dir": str(tmp_path / "cc"), "build_dir": str(tmp_path / "b")})
-    assert os.environ["CCACHE_DIR"] == "/mine"  # the environment's own wins
+    assert "CCACHE_DIR" not in os.environ  # ccache's own directory
     sim._ccache_env({"build_dir": str(tmp_path / "b")})  # cache off
     assert os.environ["OBJCACHE"] == ""
     monkeypatch.setattr(sim.shutil, "which", lambda name: None)
-    sim._ccache_env({"ccache_dir": str(tmp_path / "cc"), "build_dir": str(tmp_path / "b")})
+    sim._ccache_env({"ccache": True, "build_dir": str(tmp_path / "b")})
     assert os.environ["OBJCACHE"] == ""  # no ccache installed
 
 

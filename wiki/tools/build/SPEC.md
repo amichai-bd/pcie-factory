@@ -11,7 +11,7 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `tools/build/ip.py` | Repository context (source root, workdir) and IP discovery. |
 | `tools/build/sim.py` | Verilator + cocotb build and test driver. |
 | `tools/build/slots.py` | Host [CPU slots](#cpu-slots) shared by every `sim` and `regress` run. |
-| `tools/build/cache.py` | The host [build cache](#build-cache): content-keyed builds, pass records and the ccache directory. |
+| `tools/build/cache.py` | The host [build cache](#build-cache): content-keyed builds and pass records. |
 | `tools/build/logexcerpt.py` | The [failure excerpt](#failure-excerpt) the vendor flows print for a failed step. |
 | `tools/regress/` | Regression lists, selection and summary; see the [regress spec](../regress/SPEC.md). |
 | `tools/fpga/` | Quartus FPGA flow and report parsing; see the [fpga spec](../fpga/SPEC.md). |
@@ -320,13 +320,18 @@ CI job on the same host reuses it instead of compiling again (#327).
   unused for 14 days (`MAX_AGE_DAYS`), and temporary directories older
   than a day (a killed writer's), are removed. A hit marks its entry used.
 - **ccache:** with the cache on and `ccache` on `PATH`, the build child
-  sets `OBJCACHE=ccache` for Verilator's generated makefile and
-  `CCACHE_DIR` to `<cache>/ccache` unless the environment names one, with
+  sets `OBJCACHE=ccache` for Verilator's generated makefile, with
   `CCACHE_BASEDIR` the build directory, `CCACHE_NOHASHDIR` and
   `CCACHE_SLOPPINESS` for the generated headers' fresh timestamps and
   precompiled headers; so a build whose key changed (a one-line RTL
   change) recompiles only the C++ files whose content changed. Without
-  ccache, or with the cache off, `OBJCACHE` is empty.
+  ccache, or with the cache off, `OBJCACHE` is empty. The objects go to
+  ccache's own directory (its configuration or `$CCACHE_DIR`, by default
+  `~/.cache/ccache`): one per user and host, outside every checkout and
+  shared by every run, so a host keeps its warm compiler cache. A fresh
+  ccache directory per run or per cache would make the first job on a host
+  compile every build at once (each `make -j` the host's CPUs, one build
+  per CPU), which failed builds on a CI host in this PR's first run.
 - **Output:** `sim` prints `build cache: <dir>` (the home directory as
   `~`, since CI logs are public) and `build pass (cached)` on a hit;
   `regress` prints `[build] <ip>:<key> pass cached (0.0s)` per hit, a

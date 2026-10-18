@@ -9,7 +9,6 @@ worktree of the repository:
     <cache>/passes/<key>.json     a passing run of a reuse-on-unchanged
                                   entry (wiki/tools/regress/SPEC.md,
                                   "Reuse of unchanged model checks")
-    <cache>/ccache/               compiler cache (Verilator's OBJCACHE)
 
 Every key is a sha256 of content (sources, settings, tool versions), never
 a time, so a reused entry is exactly what a fresh build would make. Entries
@@ -33,7 +32,7 @@ ENV = "BUILD_CACHE"         # cache directory, or "off" to disable it
 OFF = "off"
 SCHEMA = 1                   # bump to invalidate every entry
 MAX_AGE_DAYS = 14            # an entry unused this long is pruned
-BUILDS, PASSES, CCACHE = "builds", "passes", "ccache"
+BUILDS, PASSES = "builds", "passes"
 META = "meta.json"
 
 
@@ -135,16 +134,12 @@ class Cache:
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
         try:
-            for sub in (BUILDS, PASSES, CCACHE):
+            for sub in (BUILDS, PASSES):
                 (self.root / sub).mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             raise CacheError(f"cannot create build cache {self.root}: {exc.strerror}") from None
         if not os.access(self.root, os.W_OK):
             raise CacheError(f"build cache {self.root} is not writable")
-
-    @property
-    def ccache_dir(self) -> Path:
-        return self.root / CCACHE
 
     # ------------------------------------------------------------- builds
 

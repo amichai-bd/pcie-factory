@@ -175,9 +175,9 @@ content-keyed cache per host, outside every checkout
 `~/.cache/<repo>/build`. A build whose sources, include files, settings and
 tool versions are byte-identical to an earlier one, in any run or worktree,
 takes no compile; a changed input is a new key, so nothing stale is reused.
-Generated C++ goes through ccache (Verilator's `OBJCACHE`) in
-`<cache>/ccache`, so a build after a small RTL change recompiles only what
-changed. Entries are written to a temporary directory and renamed into
+Generated C++ goes through ccache (Verilator's `OBJCACHE`), in ccache's
+own per-user directory (`~/.cache/ccache` by default), so a build after a
+small RTL change recompiles only what changed. Entries are written to a temporary directory and renamed into
 place, so concurrent runs never read a partial build. Entries unused for 14
 days are pruned. `--no-cache` (or `$BUILD_CACHE=off`) builds afresh, for a
 cold measurement or to rule the cache out.

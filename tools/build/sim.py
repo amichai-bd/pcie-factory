@@ -373,7 +373,7 @@ def build(spec: BuildSpec, workdir: Path, verilator: Path,
         defines=flat.defines,
     )
     if cache is not None:
-        job["ccache_dir"] = str(cache.ccache_dir)
+        job["ccache"] = True
     code, runtime, cpu = _run_child("build", job, log, timeout_s=BUILD_TIMEOUT_S)
     if code is None:
         return Result("error", runtime, log, f"build timed out after {BUILD_TIMEOUT_S}s")
@@ -487,14 +487,14 @@ def _coverage_test_args(job: dict) -> dict:
 
 def _ccache_env(job: dict) -> None:
     """Compile the generated C++ through ccache when it is installed and the
-    build cache is on: OBJCACHE for Verilator's makefile, the cache's
-    ccache directory unless $CCACHE_DIR names one (wiki/tools/build/SPEC.md,
-    "Build cache"). Otherwise compile directly (OBJCACHE empty)."""
-    if not job.get("ccache_dir") or shutil.which("ccache") is None:
+    build cache is on: OBJCACHE for Verilator's makefile, into ccache's own
+    directory (its configuration, by default ~/.cache/ccache: one per user
+    and host, shared by every run; wiki/tools/build/SPEC.md, "Build
+    cache"). Otherwise compile directly (OBJCACHE empty)."""
+    if not job.get("ccache") or shutil.which("ccache") is None:
         os.environ["OBJCACHE"] = ""
         return
     os.environ["OBJCACHE"] = "ccache"
-    os.environ.setdefault("CCACHE_DIR", job["ccache_dir"])
     os.environ["CCACHE_BASEDIR"] = job["build_dir"]
     os.environ["CCACHE_NOHASHDIR"] = "true"
     os.environ.setdefault("CCACHE_SLOPPINESS", CCACHE_SLOPPINESS)
