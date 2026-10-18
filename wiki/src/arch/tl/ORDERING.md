@@ -72,9 +72,14 @@ completion credits ([`core` credits](../core/HAS.md#credits)).
   receive check stops a host that is not. Completions need no release:
   `tl` holds received completion data only for its at most 8 outstanding
   reads of at most 128 bytes, and drops anything else at once.
-- **Release.** In the cycle a request [leaves `tl`](#receive-queues),
-  `tl` pulses `fc_rel_p_o` or `fc_rel_np_o` with its data credits
-  ([credit release](HAS.md#credit-release)); the `link`
+- **Release.** In the cycle after the edge at which a request
+  [leaves `tl`](#receive-queues), `tl` pulses `fc_rel_p_o` or
+  `fc_rel_np_o` with its data credits
+  ([credit release](HAS.md#credit-release)). Up to three non-posted
+  requests can leave at one edge (a BAR0 read taken on `cq`, a cfg-line
+  request, a malformed TLP), on handshakes `tl` does not control; their
+  releases then follow one per cycle, the data credits of the ones still
+  owed merged into the pulses, up to 8 per pulse. The `link`
   [credit-release](../dll/HAS.md#credit-release) inputs, with
   `FC_RELEASE` 1, return those credits to the host then, not at delivery.
 - **Transmit.** `tl` offers a TLP's `sop` beat only when the matching

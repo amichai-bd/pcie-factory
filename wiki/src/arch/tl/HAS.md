@@ -68,13 +68,17 @@ group, `cpl_timeout_dis` in its register state, and the message-offer
 ### Credit release
 
 One posted and one non-posted release per cycle at most, each a pulse
-with its data credits. The header count is 1 per pulse.
+with its data credits. The header count is 1 per pulse. A release comes
+in the cycle after its request leaves; non-posted requests that leave
+together are released in successive cycles
+([release](ORDERING.md#credits)), so a pulse's data credits are a sum
+over the requests owed, never above 8.
 
 | Port | Dir | Width | Clock | Description |
 | --- | --- | --- | --- | --- |
 | `fc_rel_p_o` | out | 1 | `clk_i` | One-cycle pulse: one posted request left `tl`; release 1 posted header credit. |
-| `fc_rel_pd_o` | out | 4 | `clk_i` | With `fc_rel_p_o`: posted data credits to release, 0 to 8. |
-| `fc_rel_np_o` | out | 1 | `clk_i` | One-cycle pulse: one non-posted request left `tl`; release 1 non-posted header credit. |
+| `fc_rel_pd_o` | out | 4 | `clk_i` | With `fc_rel_p_o`: the posted request's data credits, 0 to 8. |
+| `fc_rel_np_o` | out | 1 | `clk_i` | One-cycle pulse: release 1 non-posted header credit of a request that left `tl`. |
 | `fc_rel_npd_o` | out | 4 | `clk_i` | With `fc_rel_np_o`: non-posted data credits to release, 0 to 8. |
 
 The credits are those the `dll` counted for the TLP: its class from Fmt
@@ -231,3 +235,4 @@ design's reading.
 | Every cited section, checked against rev 3.0; in particular which receive checks the spec requires and which it only permits (byte enables, configuration and I/O TC and Attr), the message codes that require TC 0, the message outcomes (Ignored messages dropped; OBFF, LTR and INTx received as Unsupported Request; PM_Active_State_Nak dropped), CRS and a successful completion without data as malformed, the locked completion for a refused locked read, Byte Count 4 for Unsupported Request completions of atomic operations, and AT not 0 as Unsupported Request. | Captain, with a local copy; [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
 | A received TLP with a digest (TD 1) is dropped as malformed by the `dll`'s length check, where a receiver without ECRC checking should ignore the digest. Hosts send one only with ECRC generation enabled, which needs AER. | [#308](https://github.com/amichai-bd/pcie-factory/issues/308) |
 | Set_Slot_Power_Limit: an upstream port captures its value into the Device Capabilities slot power fields; the tl-cfg interface has no net for it, so `cfg` reads them as 0. | [#309](https://github.com/amichai-bd/pcie-factory/issues/309) |
+| The architecture model releases a credit for a malformed TLP of the completion class (an undefined Fmt with a completion Type), counting it against the non-posted occupancy. Completions need no release, and the RTL releases none; the model's `receive` should release only posted and non-posted malformed TLPs. The DV shadow compares classification only, so it is unaffected. | [#282](https://github.com/amichai-bd/pcie-factory/issues/282) (found by [#290](https://github.com/amichai-bd/pcie-factory/issues/290)) |

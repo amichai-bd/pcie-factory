@@ -2,5 +2,5 @@ tests:
   - name: smoke
     module: tests.test_tl
     testcase: smoke
-    top: pcie_tl
+    top: pcie_tl_tb
     timeout_s: 60
