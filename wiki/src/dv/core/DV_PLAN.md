@@ -132,7 +132,7 @@ the RTL agrees with them within 0.002 but for host reads, which measure
 two hosts pace their reads differently). Link-up takes about 10300 cycles
 (`TIMEOUT_DIV` 1024) and the host model's enumeration about 3000.
 
-Coverage at levels 0 and 1 (#293): line 71.6%, toggle 37.7% over the whole
+Coverage at levels 0 and 1 (#293): line 72.8%, toggle 38.7% over the whole
 stack, functional 100% (62 of 62 bins). Floors:
 [#294](https://github.com/amichai-bd/pcie-factory/issues/294).
 
