@@ -21,8 +21,14 @@ Repeat until the merge gate holds for the current head:
 1. Read the PR: head SHA, mergeable state, check runs, the latest
    `REVIEW-VERDICT` comment and any unresolved review threads.
 2. Handle what is red, in this order: conflicts, CI, findings.
-3. Rerun the affected checks locally, then the required levels on the new
-   commit; update the PR body's validation section for the new head SHA.
+3. Rerun only what the fixes affect locally (the focused test, the changed
+   tool's unit tests, a mutant of newly changed code); the affected L0+L1
+   rerun in `ci-gate` on every push, and its green run on the new head may be
+   cited instead of a local rerun
+   ([local evidence](../../../wiki/bkm/devops.md#local-evidence)). Never
+   rerun all of L2, all-IP coverage or a mutant campaign for a review round.
+   Update the PR body's validation section for the new head SHA, dropping or
+   rerunning every result labelled with the old one.
 4. Push, then ask the firstmate for re-review of the new SHA (a PR comment
    naming it is enough when the firstmate is watching).
 

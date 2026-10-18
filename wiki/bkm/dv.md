@@ -95,13 +95,30 @@ validation.
   configuration, and its `name` is what reports, output paths and the DV
   plan refer to.
 
-Level placement follows budgets in the [DevOps BKM](devops.md#levels-and-budgets):
-L0 holds smoke and the fastest directed tests, L1 each IP's RTL acceptance
-entries and its fastest discriminating tests with a few random seeds, L2
-long tests and wide seed sweeps. A directed entry may sit in L2 only when it
-is a long test, a re-check that another IP's L1 covers, a model-only
-reference, a soak or a performance target, and the IP's DV plan then names it in a "Level
-placement" note with its reason.
+Level placement follows each level's purpose and budget in the
+[DevOps BKM](devops.md#levels-and-budgets):
+
+- **L0, did we break the build:** elaboration and lint entries, and smoke
+  and the fastest directed tests (a few seconds of CPU each at most); a
+  heavier functional test belongs in L1. A fast directed test may stay in L0
+  when it is the IP's quickest catch of a broken block, with the reason in
+  the DV plan's "Level placement" note.
+- **L1, the PR gate:** each IP's RTL acceptance entries and its fastest
+  discriminating tests with a few random seeds: high confidence, not the
+  full test.
+- **L2, the full test, nightly:** long tests, wide seed sweeps, soaks and
+  performance targets; the nightly also checks the coverage floors there.
+
+A directed entry may sit in L2 only when it is a long test, a re-check that
+another IP's L1 covers, a model-only reference, a soak or a performance
+target, and the IP's DV plan then names it in a "Level placement" note with
+its reason; so does a heavy functional entry kept in L0 or moved out of it.
+
+PR evidence is the affected L0+L1, which `ci-gate` runs and which may be
+cited; targeted L2 entries only when the change targets L2 behaviour or a
+reviewer asks; mutants only for the changed code. Full L2, coverage floors
+and broad mutant campaigns are the nightly's
+([local evidence](devops.md#local-evidence)).
 
 ## DV plan alignment
 
@@ -190,7 +207,8 @@ helper's API, outputs and floor rules).
   file's comment, since a combined floor does not notice a covergroup that
   is renamed or no longer declared (its bins just leave the total).
 - Nightly runs L0+L1+L2 with `--coverage`; the tracker charts each IP's
-  coverage over time ([DevOps BKM](devops.md#nightly)).
+  coverage over time, and a floor miss opens the `nightly-red` issue naming
+  the commits since the last green nightly ([DevOps BKM](devops.md#nightly)).
 
 ## Output and evidence
 
@@ -198,8 +216,13 @@ helper's API, outputs and floor rules).
   `workdir/<ip>/<test>/<seed>/` (the sim tool SPEC owns the exact path).
   Waves are opt-in debug output.
 - PR evidence records the exact command, seeds, pass/fail counts, runtime
-  and any non-pass entry with its diagnosis, at the reviewed head. A PR that
-  adds tests or covergroups, or sets a floor, also records the merged
-  coverage table of a `--coverage` run. Never commit outputs.
+  and any non-pass entry with its diagnosis, at the reviewed head. Coverage
+  is not PR evidence: the nightly merges it and checks the floors. A PR that
+  sets or raises a floor cites the merged value it is based on (the latest
+  nightly's, or a `--coverage` run of that IP's level holding the floor).
+  Never commit outputs.
+- Mutants are deliberate bugs in the code the PR changes, each caught by a
+  named entry, run one test at a time so the first failing entry is
+  deterministic; a broad campaign over unchanged code is the nightly's.
 - Levels to run per change and the merge-gate rule are in the
   [DevOps BKM](devops.md#local-evidence).

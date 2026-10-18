@@ -109,7 +109,8 @@ dispatch table a new subcommand plugs into.
 ## 6. Before the PR
 
 Run the [local evidence](../../../wiki/bkm/devops.md#local-evidence) set for
-`tools/`/`cfg/` changes (checks, tool unit tests, L0 of all IPs) once on the
-head commit. A workflow change that cannot run locally records a dry run
+`tools/`/`cfg/` changes (checks, tool unit tests, L0 of all IPs, plus L1 of
+any IP the change also selects) once on the head commit; never full L2 or
+all-IP coverage. A workflow change that cannot run locally records a dry run
 (e.g. YAML parse plus the exact `./build` commands it invokes run locally)
 and says so. Then [pr-creation](../pr-creation/SKILL.md).

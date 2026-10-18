@@ -83,13 +83,15 @@ review guideline, not a check.
 ## Levels and budgets
 
 Levels are exclusive ([DV BKM](dv.md#regression-lists)); callers combine
-them with repeated `--level`.
+them with repeated `--level`. Each level has one purpose (captain decision,
+2026-10-18,
+[#325](https://github.com/amichai-bd/pcie-factory/issues/325)):
 
-| Level | Contents | Budget | Runs |
+| Level | Purpose and contents | Budget | Runs |
 | --- | --- | --- | --- |
-| L0 | Smoke and fastest directed tests | 120 s of CPU for all IPs | Locally while developing; in `ci-gate` |
-| L1 | Each IP's RTL acceptance entries and fastest discriminating tests, a few seeds ([placement](dv.md#regression-lists)) | 1200 s of CPU for all IPs; `ci-gate` (L0+L1 of affected IPs plus checks) targets 10 min | `ci-gate` |
-| L2 | Long tests, seed sweeps, FPGA and ASIC flows, metrics | 9600 s of CPU; nightly window | Nightly |
+| L0 | **Did we break the build:** files, names, filelists, elaboration (the design is alive), lint, style and the fastest smoke checks; seconds to a few minutes | 120 s of CPU for all IPs | Locally while developing; first in `ci-gate` |
+| L1 | **The PR gate:** functional checks that give high confidence the change is good, but not the full test: each IP's RTL acceptance entries and fastest discriminating tests, a few seeds ([placement](dv.md#regression-lists)); affected IPs only | 1200 s of CPU for all IPs; `ci-gate` (L0+L1 of affected IPs plus checks) targets 10 min | `ci-gate` |
+| L2 | **The full test:** long tests, seed sweeps, soaks, coverage floors, full mutant campaigns, FPGA and ASIC flows, metrics | 9600 s of CPU; nightly window | Nightly; targeted entries (named tests or seeds) when fixing or chasing confidence, never the whole level for a PR |
 
 Budgets live in `cfg/levels.yaml` and are **CPU time**: the sum, over a
 level's tests, of each test's user plus system CPU time (its process tree,
@@ -117,21 +119,50 @@ which the raised 1200 s budget covers.
 
 ## Local evidence
 
+PR evidence is the **affected L0+L1**, the levels `ci-gate` runs for the
+same selection. Everything heavier is the nightly's: full L2, coverage
+floors and broad mutant campaigns never gate a PR, and a nightly floor miss
+or L2 failure opens an issue naming the commits since the last green
+nightly ([Nightly](#nightly)), so a drop surfaces within a day.
+
 | Change | Run before review |
 | --- | --- |
 | Docs only | Link check and the neutrality and publishability checks |
-| `tools/`, `cfg/` | `./build check`, the tool unit tests, L0 of all IPs |
-| RTL or DV | `./build check`, `./build regress --level 0 --level 1 --affected origin/main` |
+| `tools/`, `cfg/` | `./build check`, the tool unit tests, L0 of all IPs (`ci-gate`'s selection; plus L1 of any IP another row selects) |
+| RTL or DV | `./build check`, `./build regress --level 0 --level 1 --affected origin/main` (or cite `ci-gate`'s run of it on the head), mutants of the changed code |
 | Architecture models (`arch/`) | `./build check`, the model self-tests, `./build arch --ip <ip>` ([arch BKM](arch.md#evidence)) |
 | Physical inputs (`fpga/`, `asic/`) | The above plus the flow on demand, when the host has the tool |
 
+| Evidence | Rule |
+| --- | --- |
+| Affected L0+L1 | Required. `ci-gate` runs exactly this selection on the head, so its green run may be cited in place of a local rerun (link the run, give its per-level counts and CPU). |
+| Targeted L2 entries | Only when the change targets L2 behaviour (a long test, sweep or soak it changes or fixes) or a reviewer asks: the named entries and seeds, each with `./build sim --ip <ip> --test <name> --seed <s>`, never the whole level. |
+| Mutants | Only against the code the PR changes: each a deliberate bug in a changed block, caught by a named entry ([DV BKM](dv.md#output-and-evidence)). Full mutant campaigns are nightly. |
+| Coverage | Not PR evidence; the nightly merges coverage and checks the floors. A PR that sets or raises a floor cites the merged value it is based on ([coverage](dv.md#coverage)). |
+
 Run the required set once on the commit intended for review and record exact
-commands, seeds, counts and every non-pass entry in the PR. Evidence shows
+commands, seeds, counts and every non-pass entry in the PR. After a review
+round, rerun only what the fixes affect; `ci-gate` reruns L0+L1 on every
+push. Evidence shows
 behavior, not command success. Treat every warning (lint, simulation, flow)
 as a failure unless a reviewed waiver explains it. Logs, waves and reports
 stay under `workdir/`; the PR summarizes them and never commits them.
 Missing evidence is a review finding; `./build pr check <pr>` catches
-missing or malformed evidence before review ([pr spec](../tools/pr/SPEC.md)).
+missing or malformed evidence before review, and the mechanical slips that
+cost review rounds: results labelled with a stale SHA, `Closes` when the
+body says acceptance moved elsewhere, and design or IP names added outside
+`src/` and `wiki/src/` ([pr spec](../tools/pr/SPEC.md)).
+
+**Shared host: CPU slots.** Several crewmates share one machine. Instead of
+one global lock that serializes every run, `./build sim` and
+`./build regress` take `--slots DIR` (or `$BUILD_SLOTS`): each build and
+simulation process holds one of `nproc` slot locks in `DIR` while it runs,
+so all runs that name the same directory together never start more
+processes than the host has CPUs, and a small run waits only for a free
+CPU, not for another crewmate's whole regression. Use one directory per
+host for every crewmate, any `--jobs` (`nproc` is a sensible upper bound),
+and run mutants serially with `--jobs 1`, so the first failing entry is
+deterministic ([build spec](../tools/build/SPEC.md#cpu-slots)).
 The author owns all evidence: the reviewer audits it and the `ci-gate`
 result and never re-runs anything; a claim without recorded proof goes back
 to the author to run.
@@ -296,8 +327,11 @@ permissions and data PR mechanics:
    `wiki/tracker/data/**`, and it auto-merges after `ci-gate` (the
    dispatched gate's result, posted as the `ci-gate` commit status). Each
    night's data PR closes any older open one.
-5. On failure, open or update the single `nightly-red` issue; close it when
-   the nightly is green again.
+5. On failure, open or update the single `nightly-red` issue, naming the
+   failed steps (a full-L2 failure or a coverage-floor miss fails
+   `regress`) and the commits since the last green nightly, with a compare
+   link; close it when the nightly is green again
+   ([metrics spec](../tools/metrics/SPEC.md#red)).
 
 ## Metrics
 

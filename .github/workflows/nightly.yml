@@ -7,7 +7,8 @@
 #   publish  contents/pull-requests/actions write: commits ONLY the data files
 #            (commits.jsonl and this run's <date>T<HHMMSS>Z.json record) on
 #            nightly/<date>, opens the type:data PR, dispatches ci-gate on it
-#   report   issues write: opens/updates/closes the single nightly-red issue
+#   report   issues write, actions read: opens/updates/closes the single nightly-red issue,
+#            naming the failed steps and the commits since the last green nightly
 # No pull_request trigger, so fork code never reaches this workflow.
 name: nightly
 
@@ -44,6 +45,12 @@ jobs:
     outputs:
       date: ${{ steps.prep.outputs.date }}
       collected: ${{ steps.collect.outcome == 'success' }}
+      # Step results, so the report names the failed ones (regress: full L2, coverage floors).
+      check: ${{ steps.check.outputs.result || 'fail' }}
+      unit: ${{ steps.unit.outputs.result || 'fail' }}
+      regress: ${{ steps.regress.outputs.result || 'fail' }}
+      fpga: ${{ steps.fpga.outputs.result || 'fail' }}
+      asic: ${{ steps.asic.outputs.result || 'fail' }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -292,7 +299,8 @@ jobs:
     runs-on: [self-hosted, linux, x64, wsl]
     timeout-minutes: 5
     permissions:
-      contents: read
+      contents: read         # compare the last green nightly's commit with this one
+      actions: read          # find the last green nightly run
       issues: write
     steps:
       - uses: actions/checkout@v7.0.1
@@ -308,4 +316,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OUTCOME: ${{ needs.nightly.result == 'success' && needs.publish.result == 'success' && 'success' || 'failure' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: workdir/venv/bin/python -B ./build metrics red --outcome "$OUTCOME" --run-url "$RUN_URL"
+          HEAD_SHA: ${{ github.sha }}
+          STEPS: >-
+            check=${{ needs.nightly.outputs.check || 'fail' }}
+            unit=${{ needs.nightly.outputs.unit || 'fail' }}
+            regress=${{ needs.nightly.outputs.regress || 'fail' }}
+            fpga=${{ needs.nightly.outputs.fpga || 'fail' }}
+            asic=${{ needs.nightly.outputs.asic || 'fail' }}
+        # A failure names the failed steps and the commits since the last green
+        # nightly (wiki/tools/metrics/SPEC.md#red).
+        run: |
+          args=()
+          for s in $STEPS; do args+=(--step "$s"); done
+          workdir/venv/bin/python -B ./build metrics red --outcome "$OUTCOME" --run-url "$RUN_URL" \
+            --head "$HEAD_SHA" "${args[@]}"

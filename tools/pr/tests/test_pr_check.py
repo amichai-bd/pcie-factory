@@ -12,6 +12,7 @@ import pytest
 from build.ip import REPO_ROOT
 from cli.main import main
 from labels import core as labels
+from checks import neutrality as nt
 from pr import check as pc
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -34,9 +35,16 @@ def standard():
     return labels.load(CFG / "labels.yaml", ["a"])
 
 
-def run(rules, standard, body=GOOD, head=HEAD, files=RTL_FILES, labs=GOOD_LABELS):
-    pr = pc.Pr(7, body, head, files, labs)
-    return pc.check(pr, rules, standard)
+# Neutral placeholders: "widget" is the design-target word, alpha and beta
+# the discovered IP ids.
+NEUTRAL = pc.Neutral(nt.word_pattern(("widget",)), nt.ip_pattern(("alpha", "beta")),
+                     nt.slug_pattern("o/r"))
+
+
+def run(rules, standard, body=GOOD, head=HEAD, files=RTL_FILES, labs=GOOD_LABELS,
+        added=None, neutral=NEUTRAL):
+    pr = pc.Pr(7, body, head, files, labs, {} if added is None else added)
+    return pc.check(pr, rules, standard, neutral)
 
 
 def rules_of(findings):
@@ -56,6 +64,10 @@ def test_partial_body_passes(rules, standard):
 MUTANTS = [
     ("head-sha", f"At head {HEAD}.", "Ran at the head.", "no 'At head <sha>' line"),
     ("head-sha", f"At head {HEAD}.", "At head 0123456.", "full 40-character SHA"),
+    ("stale-sha", "`<lock>` stands for", f"L1 also passed at {OTHER}. `<lock>` stands for",
+     f"labelled 'at {OTHER}', not the PR head"),
+    ("stale-sha", "`<lock>` stands for", f"CI green @{OTHER}. `<lock>` stands for",
+     f"labelled 'at {OTHER}'"),
     ("commands", "| Command | Result |", "| Step | Result |", "no '| Command | Result |' table"),
     ("commands", "| Command | Result |\n| --- | --- |\n", "| Command | Result |\n",
      "no separator row"),
@@ -76,6 +88,10 @@ MUTANTS = [
     ("keywords", "Follow-up: #14", "Part 2 closes #3; follow-up: #14",
      "#3 is 'Part of' and also next to a closing keyword"),
     ("keywords", "Closes #12.", "Closes #12, fixes #13.", "more than one issue: #12, #13"),
+    ("rescope", "Follow-up: #14 tracks the wider counter.",
+     "The wider-counter acceptance item moved to #14.", "closes #12 but says work moved to #14"),
+    ("rescope", "Follow-up: #14 tracks the wider counter.",
+     "Coverage floors deferred to issue #14.", "add 'Acceptance moved: #14"),
     ("keywords", "Closes #12. Part of epic #3.", "Implements #12.", "no 'Closes #<n>'"),
     ("validation", "\n## Validation\n", "\n## Checks\n", "no '## Validation' section"),
 ]
@@ -117,8 +133,18 @@ def test_mutants_only_for_mutation_paths(rules, standard):
     body = GOOD.replace("| Mutant |", "| Change |")
     assert run(rules, standard, body, files=("tools/x.py",)) == ([], [])
     findings, notes = run(rules, standard, body, files=None)
-    assert findings == [] and notes == ["mutants: changed files unknown (no --files); "
-                                        "not checked"]
+    assert findings == [] and notes == [
+        "mutants: changed files unknown (no --files); not checked",
+        "neutrality: changed files unknown (no --files or --diff); not checked"]
+
+
+def test_regression_list_moves_need_no_mutants(rules, standard):
+    body = GOOD.replace("| Mutant |", "| Change |")
+    files = ("src/dv/a/regress/level0.yaml", "src/dv/a/regress/level1.yaml",
+             "wiki/src/dv/a/DV_PLAN.md")
+    assert run(rules, standard, body, files=files) == ([], [])
+    findings, _ = run(rules, standard, body, files=files + ("src/dv/a/tests/test_a.py",))
+    assert rules_of(findings) == ["mutants"]
 
 
 def test_keywords_in_code_are_not_counted(rules, standard):
@@ -157,8 +183,8 @@ def test_tables_detect_the_separator():
 
 
 def test_report_format(rules, standard, capsys):
-    pr = pc.Pr(7, GOOD, OTHER, RTL_FILES, GOOD_LABELS)
-    findings, notes = pc.check(pr, rules, standard)
+    pr = pc.Pr(7, GOOD, OTHER, RTL_FILES, GOOD_LABELS, {})
+    findings, notes = pc.check(pr, rules, standard, NEUTRAL)
     buf = io.StringIO()
     assert pc.report(pr, findings, notes, buf) == 1
     assert buf.getvalue().splitlines() == [
@@ -172,11 +198,14 @@ def test_report_format(rules, standard, capsys):
 @pytest.mark.parametrize("text, msg", [
     ("[", "invalid YAML"),
     ("mutation_paths: [a]\n", "exactly the keys"),
-    ("mutation_paths: []\nseeded_commands: [x]\nversions: [{when: x, need: [y]}]\n",
-     "mutation_paths must be a non-empty list"),
-    ("mutation_paths: [a]\nseeded_commands: [x]\nversions: [{when: x}]\n",
+    ("mutation_paths: []\nmutation_exempt: []\nseeded_commands: [x]\n"
+     "versions: [{when: x, need: [y]}]\n", "mutation_paths must be a non-empty list"),
+    ("mutation_paths: [a]\nmutation_exempt: x\nseeded_commands: [x]\n"
+     "versions: [{when: x, need: [y]}]\n", "mutation_exempt must be a list"),
+    ("mutation_paths: [a]\nmutation_exempt: []\nseeded_commands: [x]\nversions: [{when: x}]\n",
      "versions[0] must have"),
-    ("mutation_paths: [a]\nseeded_commands: [x]\nversions: []\n", "versions must be"),
+    ("mutation_paths: [a]\nmutation_exempt: []\nseeded_commands: [x]\nversions: []\n",
+     "versions must be"),
 ])
 def test_malformed_config(tmp_path, text, msg):
     (tmp_path / "pr.yaml").write_text(text)
@@ -239,8 +268,10 @@ def test_cli_file_mode(tmp_path, capsys):
     argv = ["pr", "check", "7", "--body-file", str(body), "--head", HEAD,
             "--files", *RTL_FILES, "--labels", "type:feat,area:rtl"]
     assert main(argv) == 0
-    assert capsys.readouterr().out.splitlines() == [f"pr check: #7 at {HEAD}",
-                                                    "#7: evidence OK"]
+    assert capsys.readouterr().out.splitlines() == [
+        f"pr check: #7 at {HEAD}",
+        "note: #7: neutrality: added lines unknown (no --diff); only paths checked",
+        "#7: evidence OK"]
     assert main(argv[:6] + [OTHER] + argv[7:]) == 1
 
 
@@ -264,3 +295,158 @@ def test_cli_missing_body_file(tmp_path, capsys):
     assert main(["pr", "check", "7", "--body-file", str(tmp_path / "no.md"),
                  "--head", HEAD]) == 2
     assert "cannot read" in capsys.readouterr().err
+
+
+# --- stale SHA, rescope and neutrality ----------------------------------------------
+
+def test_head_sha_cited_twice_is_not_stale(rules, standard):
+    body = GOOD.replace("`<lock>` stands for", f"ci-gate green at {HEAD}. `<lock>` stands for")
+    assert run(rules, standard, body) == ([], [])
+
+
+def test_declared_rescope_passes(rules, standard):
+    body = GOOD.replace("Follow-up: #14 tracks the wider counter.",
+                        "The wider-counter item moved to #14.\n\nAcceptance moved: #14, agreed "
+                        "in https://github.com/o/r/issues/12#issuecomment-99")
+    assert run(rules, standard, body) == ([], [])
+    # Without the link to the closed issue's comment the declaration does not count.
+    body = body.replace("https://github.com/o/r/issues/12#issuecomment-99", "chat")
+    assert rules_of(run(rules, standard, body)[0]) == ["rescope"]
+
+
+def test_rescope_needs_a_closing_keyword(rules, standard):
+    body = PARTIAL.replace("Docs only.", "Docs only; the rest moved to #20.")
+    assert run(rules, standard, body, files=())[0] == []
+
+
+@pytest.mark.parametrize("path, line, hit", [
+    ("wiki/bkm/x.md", "run `beta` first", "beta"),                 # whole code span
+    ("wiki/bkm/x.md", "see src/rtl/alpha/x.sv", "alpha"),          # path segment
+    ("tools/t/a.py", "IPS = ['alpha']", "alpha"),                  # quoted string
+    ("tools/t/a.py", "x = 'alpha/y'", "alpha"),                    # leading segment
+    ("wiki/bkm/x.md", "`./build regress --ip beta`", "beta"),      # selector
+    ("wiki/bkm/x.md", "entry `alpha:smoke` failed", "alpha"),      # <ip>:<test>
+    ("wiki/bkm/x.md", "the alpha IP and the beta sub-IP", "alpha"),
+    (".claude/skills/s/SKILL.md", "a Widget-Bus target", "Widget"),  # word list
+])
+def test_neutrality_flags_identifiers_and_words(rules, standard, path, line, hit):
+    findings, _ = run(rules, standard, files=RTL_FILES + (path,),
+                      added={path: ("context", line)})
+    assert rules_of(findings) == ["neutrality"], findings
+    assert all(f.message.startswith(f"{path}: added line {line.strip()[:60]!r} names")
+               for f in findings)
+    assert any(repr(hit) in f.message for f in findings)
+
+
+@pytest.mark.parametrize("path, line", [
+    ("wiki/bkm/x.md", "an alpha release and the beta test"),       # plain English
+    ("tools/t/a.py", "from labels import alpha"),                  # module, not a string
+    ("wiki/bkm/x.md", "die/alpha area, alpha.py"),                 # last segment, stem
+    ("src/rtl/alpha/a.sv", "// the widget alpha IP"),              # exempt tree
+    ("wiki/src/arch/alpha/HAS.md", "the `alpha` widget"),          # exempt tree
+    ("wiki/tracker/data/x.json", '"alpha": 1'),                    # exempt tree
+    ("wiki/bkm/x.md", "https://github.com/o/r/blob/main/README.md"),
+    ("tools/wiki_site/theme/vendor/x.min.js", "var a='alpha'"),     # vendored, minified
+])
+def test_neutrality_passes(rules, standard, path, line):
+    assert run(rules, standard, files=RTL_FILES + (path,), added={path: (line,)}) == ([], [])
+
+
+def test_neutrality_flags_paths_and_blanks_the_word_list(rules, standard):
+    path = "tools/alpha/run.py"
+    findings, _ = run(rules, standard, files=RTL_FILES + (path,), added={path: ()})
+    assert [f.message for f in findings] == [f"{path}: path names 'alpha'"]
+    # cfg/checks.yaml may hold the word list itself, but nothing else.
+    words = "  words: [widget, widget bus]"
+    assert run(rules, standard, files=RTL_FILES + (nt.CONFIG,),
+               added={nt.CONFIG: (words,)}) == ([], [])
+    findings, _ = run(rules, standard, files=RTL_FILES + (nt.CONFIG,),
+                      added={nt.CONFIG: (words, "# a widget comment")})
+    assert rules_of(findings) == ["neutrality"]
+
+
+def test_neutrality_notes(rules, standard):
+    pr = pc.Pr(7, GOOD, HEAD, RTL_FILES + ("tools/t/blob.bin",), GOOD_LABELS, {},
+               ("tools/t/blob.bin",))
+    findings, notes = pc.check(pr, rules, standard, NEUTRAL)
+    assert findings == [] and notes == [
+        "neutrality: tools/t/blob.bin: GitHub gave no patch (binary or too large); "
+        "only its path checked"]
+    assert run(rules, standard, neutral=None)[1] == [
+        "neutrality: no source tree or word list given; not checked"]
+    pr = pc.Pr(7, GOOD, HEAD, RTL_FILES, GOOD_LABELS)  # added lines unknown
+    assert pc.check(pr, rules, standard, NEUTRAL)[1] == [
+        "neutrality: added lines unknown (no --diff); only paths checked"]
+
+
+DIFF = """diff --git a/wiki/bkm/x.md b/wiki/bkm/x.md
+--- a/wiki/bkm/x.md
++++ b/wiki/bkm/x.md
+@@ -1,2 +1,2 @@
+ kept
+-old
++run `alpha` first
++++not a header, an added line starting with ++
+diff --git a/tools/gone.py b/tools/gone.py
+--- a/tools/gone.py
++++ /dev/null
+@@ -1 +0,0 @@
+-x
+diff --git a/tools/new.py b/tools/new.py
+new file mode 100644
+--- /dev/null
++++ b/tools/new.py
+@@ -0,0 +1 @@
++print(1)
+"""
+
+
+def test_parse_diff():
+    assert pc.parse_diff(DIFF) == {"wiki/bkm/x.md": ("run `alpha` first",
+                                                     "++not a header, an added line "
+                                                     "starting with ++"),
+                                   "tools/new.py": ("print(1)",)}
+
+
+def test_load_neutral_discovers_ips_and_skips_top_level_names(tmp_path):
+    (tmp_path / "cfg").mkdir()
+    (tmp_path / "cfg" / "checks.yaml").write_text(
+        "neutrality:\n  words: [widget]\n  repo_slug: o/r\n")
+    for ip in ("alpha", "cfg"):
+        d = tmp_path / "src" / "rtl" / ip
+        d.mkdir(parents=True)
+        (d / f"{ip}.rtl.f").write_text("")
+    n = pc.load_neutral(tmp_path, tmp_path / "src")
+    assert n.ips.search("`alpha`") and not n.ips.search("`cfg`")
+    assert n.words.search("Widget") and n.slug.search("https://github.com/o/r/x")
+    assert pc.load_neutral(tmp_path, tmp_path / "nosrc").ips is None
+    (tmp_path / "cfg" / "checks.yaml").write_text("nope: 1\n")
+    with pytest.raises(pc.PrError, match="neutrality"):
+        pc.load_neutral(tmp_path, tmp_path / "src")
+
+
+def test_fetch_keeps_added_lines_and_notes_missing_patches():
+    files = [{"filename": "wiki/bkm/x.md", "status": "modified",
+              "patch": "@@ -1 +1 @@\n-old\n+new `alpha`"},
+             {"filename": "tools/t/blob.bin", "status": "added"}]
+    pr = pc.fetch(FakeGh("", files), 7)
+    assert pr.added == {"wiki/bkm/x.md": ("new `alpha`",)}
+    assert pr.unpatched == ("tools/t/blob.bin",)
+
+
+def test_cli_file_mode_with_diff(tmp_path, capsys):
+    body = tmp_path / "pr.md"
+    body.write_text(PARTIAL)
+    diff = tmp_path / "pr.diff"
+    diff.write_text(DIFF.replace("alpha", "widget"))
+    argv = ["pr", "check", "7", "--body-file", str(body), "--head", HEAD,
+            "--diff", str(diff), "--labels", "type:docs,area:wiki"]
+    words = nt.load_config(REPO_ROOT).words
+    diff.write_text(DIFF.replace("`alpha`", f"`{words[0]}`"))
+    assert main(argv) == 1
+    out = capsys.readouterr().out
+    assert "[neutrality] wiki/bkm/x.md: added line" in out
+    diff.write_text(DIFF.replace("`alpha`", "the checks"))
+    assert main(argv) == 0
+    assert main(["pr", "check", "7", "--diff", str(diff)]) == 2
+    assert "need --body-file" in capsys.readouterr().err

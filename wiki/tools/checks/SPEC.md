@@ -376,7 +376,21 @@ remote URL. With neither, nothing is exempt.
 
 IP names are not in the word list: bare IP names are ordinary words
 (they collide with generic text), and prefixed names contain the prefix,
-which the word list covers. Hard-coded bare IP names stay a review item.
+which the word list covers. Hard-coded bare IP names stay a review item for
+this check.
+
+**IP names as identifiers.** `neutrality.py` also holds an identifier-scoped
+matcher (`ip_ids`, `ip_pattern`, `scan_ip_text`): a discovered IP id counts
+only as a whole code span or quoted string, a directory path segment
+(`<id>/`; a file stem or a last segment does not count), `--ip <id>`,
+`` `<id>:<test>` ``, or "<id> IP"/"<id> sub-IP", so ordinary English use of
+the same word passes; ids equal to a top-level repository entry are skipped.
+[`./build pr check`](../pr/SPEC.md#rules) applies it to the paths and added
+lines of a PR's diff
+([#325](https://github.com/amichai-bd/pcie-factory/issues/325)). Applying it
+to the whole repository in this check is
+[#311](https://github.com/amichai-bd/pcie-factory/issues/311), which also
+settles the existing fixtures that use an IP id as a placeholder name.
 
 ### `cfg/checks.yaml`
 
