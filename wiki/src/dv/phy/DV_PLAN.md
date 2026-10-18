@@ -263,7 +263,10 @@ unchanged (the merged level 0 to 2 coverage and the floors are the same):
 **Model-only copies run on a rule** ([#327](https://github.com/amichai-bd/pcie-factory/issues/327)).
 The nine `_model` entries of level 2 (the two soaks and the seven scenario
 copies) run every layer as its model, with the RTL instances held in reset:
-they check the reference, and no RTL change can fail them. Each carries
+they check the reference, and no RTL behaviour change can fail them (a
+compile break or a reset-time assertion fails the non-reused entries of
+the same default-parameter build, `e2e_scrambler_block` and
+`e2e_encoder_block` at level 1). Each carries
 `rerun_when: models_change`, so the nightly reruns it only when a file it
 depends on changes (the phy DV and arch folders, the mac and pcs models and
 arch models it imports, the shared DV helpers, the simulation driver, the

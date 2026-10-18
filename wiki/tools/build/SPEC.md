@@ -289,10 +289,14 @@ CI job on the same host reuses it instead of compiling again (#327).
   (and ccache with it, below): every build compiles afresh in `workdir/`,
   as before the cache.
 - **Key:** sha256 of the build settings (top, `params`, waves, coverage,
-  the Verilator options of `sim.py`, the filelist's defines), the tools
-  (`verilator --version` and its path, the cocotb version and install,
-  whose library path is linked into the executable, and the Python), every
-  source in filelist order and every file under every include directory.
+  the Verilator options of `sim.py`, the filelist's defines), the build
+  driver (every `tools/build/*.py`, so a change to how the build is invoked,
+  such as a new runner argument in the build child, is a new key), the
+  tools (`verilator --version`, its path and `$VERILATOR_ROOT`, the C++
+  compiler's `--version` (`$CXX`, default `g++`), the cocotb version and
+  install, whose library path is linked into the executable, and the
+  Python), every source in filelist order and every file under every
+  include directory.
   Files are named by their path relative to the worktree (the source root's
   parent), so the same tree in another worktree has the same key. The key
   is content only, never a time: a changed byte in any input is a new
@@ -314,11 +318,16 @@ CI job on the same host reuses it instead of compiling again (#327).
   A coverage run's `coverage.dat` is rewritten to this worktree's paths
   after the run, so merging, the DV-only exclusion and annotation see this
   tree; an assertion message still names the compiling worktree's path
-  (the content is identical).
+  (the content is identical). When the file names no source under the
+  compiling tree (for example a checkout reached through a symlink), it is
+  left as it is and the run's `sim.log` gets a `warning: coverage:` line.
 - **Pruning:** at the end of every `regress` run, entries and
   [pass records](../regress/SPEC.md#reuse-of-unchanged-model-checks)
   unused for 14 days (`MAX_AGE_DAYS`), and temporary directories older
-  than a day (a killed writer's), are removed. A hit marks its entry used.
+  than a day (a killed writer's), are removed; then, while the entries
+  exceed 20 GiB (`MAX_BYTES`), the least recently used ones go. A hit marks
+  its entry used. An entry is renamed out of its key's place before it is
+  deleted, so a concurrent lookup never finds a half-deleted one.
 - **ccache:** with the cache on and `ccache` on `PATH`, the build child
   sets `OBJCACHE=ccache` for Verilator's generated makefile, with
   `CCACHE_BASEDIR` the build directory, `CCACHE_NOHASHDIR` and

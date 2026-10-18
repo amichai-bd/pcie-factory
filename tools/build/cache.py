@@ -32,6 +32,7 @@ ENV = "BUILD_CACHE"         # cache directory, or "off" to disable it
 OFF = "off"
 SCHEMA = 1                   # bump to invalidate every entry
 MAX_AGE_DAYS = 14            # an entry unused this long is pruned
+MAX_BYTES = 20 * 2**30       # above this, the least recently used entries are pruned
 BUILDS, PASSES = "builds", "passes"
 META = "meta.json"
 
@@ -199,22 +200,47 @@ class Cache:
 
     # ------------------------------------------------------------ pruning
 
-    def prune(self, max_age_days: float = MAX_AGE_DAYS, now: float | None = None) -> int:
+    def _drop(self, d: Path) -> None:
+        """Remove an entry: first rename it out of its key's place, so a
+        concurrent lookup never finds a half-deleted entry."""
+        if not d.name.startswith(".tmp-"):
+            gone = d.with_name(f".tmp-gone-{d.name}-{os.getpid()}-{uuid.uuid4().hex[:8]}")
+            try:
+                os.rename(d, gone)
+            except OSError:
+                return
+            d = gone
+        shutil.rmtree(d, ignore_errors=True)
+
+    def prune(self, max_age_days: float = MAX_AGE_DAYS, now: float | None = None,
+              max_bytes: int = MAX_BYTES) -> int:
         """Remove build entries and pass records unused for
-        ``max_age_days``, and temporary directories older than a day (a
-        killed writer's); return how many were removed."""
+        ``max_age_days``, temporary directories older than a day (a killed
+        writer's), and then the least recently used entries while the
+        builds exceed ``max_bytes``; return how many were removed."""
         now = time.time() if now is None else now
         removed = 0
+        kept = []
         for d in (self.root / BUILDS).iterdir():
             mark = d / META
             try:
-                age = now - (mark.stat().st_mtime if mark.is_file() else d.stat().st_mtime)
+                used = mark.stat().st_mtime if mark.is_file() else d.stat().st_mtime
             except OSError:
                 continue
             limit = 86400 if d.name.startswith(".tmp-") else max_age_days * 86400
-            if age > limit:
-                shutil.rmtree(d, ignore_errors=True)
+            if now - used > limit:
+                self._drop(d)
                 removed += 1
+            elif not d.name.startswith(".tmp-"):
+                size = sum(f.stat().st_size for f in d.iterdir() if f.is_file())
+                kept.append((used, size, d))
+        total = sum(size for _, size, _ in kept)
+        for used, size, d in sorted(kept):  # least recently used first
+            if total <= max_bytes:
+                break
+            self._drop(d)
+            total -= size
+            removed += 1
         for f in (self.root / PASSES).glob("*.json"):
             try:
                 if now - f.stat().st_mtime > max_age_days * 86400:

@@ -1,7 +1,8 @@
-# The nine `_model` copies run the models only (no RTL change can fail
-# them): each reruns when its models, testbench or tools change and
-# otherwise reuses its last pass on the host, and none is a coverage run
-# (DV plan, Level placement; #327).
+# The nine `_model` copies run the models only (no RTL behaviour change
+# can fail them; a compile break or a reset-time assertion fails the
+# non-reused entries of the same build): each reruns when its models,
+# testbench or tools change and otherwise reuses its last pass on the
+# host, and none is a coverage run (DV plan, Level placement; #327).
 tests:
   - name: e2e_link_up_spec
     module: tests.test_phy_e2e

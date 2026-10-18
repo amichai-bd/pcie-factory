@@ -200,11 +200,19 @@ a host that runs as that user shares it, it persists across jobs, and the
 first job on each host is cold. The WSL runners, the supported self-hosted
 runners, keep it there; no workflow configures it.
 **Trust:** the key is content, so a reused build is what a fresh build of
-the same inputs makes; and only trusted runs write the cache, since the
-fork guard and the [fork rules](#continuous-integration) keep fork code off
-the runners (no fork run is ever approved; fork changes reach CI only by
-review and re-push). A runner host is therefore never shared with
-untrusted code that could plant an entry.
+the same inputs makes, and the runs that write the cache are the runs the
+runners execute anyway. Its residual risk is the runner host's own: the
+[Forks](#continuous-integration) rules accept that a returning outside
+contributor's fork PR can run on the runners without approval, with a
+workflow copy that drops the guard. Such a run could write a planted
+executable under a valid key, and later trusted runs would reuse it and
+pass until it is pruned: a lasting false pass, not a one-off. The cache
+adds no new way in, since that code could equally tamper with the host's
+toolchain or runner environment, but it makes the effect persist. If a
+compromise is suspected, delete `~/.cache/<repo>/build` and the ccache
+directory (`ccache -C`, or `~/.cache/ccache`) on every runner host, or bump
+`SCHEMA` in `tools/build/cache.py` so every old entry is ignored. Each
+host's builds are bounded to 20 GiB, least recently used first.
 
 **Model checks.** A regression entry marked `rerun_when: models_change`
 (one that runs reference models only, no RTL) reuses its earlier pass on

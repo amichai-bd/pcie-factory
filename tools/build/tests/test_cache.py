@@ -68,6 +68,21 @@ def test_key_same_across_worktrees_and_changes_with_every_input(fixture_src, tmp
     assert _key(other, fake) != base
 
 
+def test_key_changes_with_the_build_driver(fixture_src, tmp_path, monkeypatch):
+    """A change to how the build is made (tools/build/*.py) is a new key,
+    even when no setting, source or tool version changed."""
+    real = sim.driver_files()  # the real driver is hashed
+    assert Path(sim.__file__).resolve() in real and any(p.name == "filelist.py" for p in real)
+    monkeypatch.setattr(sim, "tool_ident", lambda v: {"verilator": "v1"})
+    driver = tmp_path / "driver"
+    driver.mkdir()
+    (driver / "sim.py").write_text("runner.build(a)\n")
+    monkeypatch.setattr(sim, "driver_files", lambda: sorted(driver.glob("*.py")))
+    base = _key(fixture_src, Path("/fake/verilator"))
+    (driver / "sim.py").write_text("runner.build(a, timescale=(1, 1))\n")
+    assert _key(fixture_src, Path("/fake/verilator")) != base
+
+
 # ---------------------------------------------------------------- store
 
 def test_store_is_atomic_and_keeps_the_first_writer(tmp_path):
@@ -112,6 +127,19 @@ def test_prune_by_last_use(tmp_path):
     assert c.pass_record("p" * 64) is None
 
 
+def test_prune_by_size_drops_least_recently_used(tmp_path):
+    c = build_cache.Cache(tmp_path / "c")
+    exe = tmp_path / "top"
+    exe.write_bytes(b"x" * 1000)
+    old = c.store("top", "o" * 64, [exe], {})
+    new = c.store("top", "n" * 64, [exe], {})
+    t = time.time()
+    os.utime(old / build_cache.META, (t - 100, t - 100))
+    assert c.prune(max_bytes=1500) == 1
+    assert not old.exists() and new.exists()
+    assert not [p for p in (c.root / "builds").iterdir() if p.name.startswith(".tmp-")]
+
+
 def test_pass_records(tmp_path):
     c = build_cache.Cache(tmp_path / "c")
     assert c.pass_record("q" * 64) is None
@@ -127,8 +155,9 @@ def test_rebase_coverage_rewrites_the_compiling_tree(tmp_path):
                    "C '\x01t\x02line\x01f\x02/w1/src/rtl/a.sv\x01l\x0212\x01' 3\n")
     sim.rebase_coverage(dat, "/w1", "/w2")
     assert "\x02/w2/src/rtl/a.sv" in dat.read_text() and "/w1/" not in dat.read_text()
-    sim.rebase_coverage(dat, "/w2", "/w2")  # same tree: untouched
+    assert sim.rebase_coverage(dat, "/w2", "/w2")  # same tree: untouched
     assert "\x02/w2/src/rtl/a.sv" in dat.read_text()
+    assert not sim.rebase_coverage(dat, "/elsewhere", "/w3")  # nothing matched: reported
 
 
 # --------------------------------------------------------------- ccache

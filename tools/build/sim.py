@@ -271,9 +271,10 @@ _TOOL_IDENT: dict[str, dict] = {}
 
 
 def tool_ident(verilator: Path) -> dict:
-    """What a build depends on besides its sources: the Verilator version,
-    the cocotb version and install (its library path is linked into the
-    executable) and the Python that runs it."""
+    """What a build depends on besides its sources: the Verilator version
+    and install (``$VERILATOR_ROOT``), the C++ compiler, the cocotb version
+    and install (its library path is linked into the executable) and the
+    Python that runs it."""
     key = str(verilator)
     if key not in _TOOL_IDENT:
         try:
@@ -288,12 +289,27 @@ def tool_ident(verilator: Path) -> dict:
         except importlib.metadata.PackageNotFoundError:
             cocotb_version = None
         spec = importlib.util.find_spec("cocotb")
+        cxx = os.environ.get("CXX") or "g++"
+        try:
+            cxx_out = subprocess.run([cxx, "--version"], capture_output=True, text=True,
+                                     timeout=60).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            cxx_out = ""
         _TOOL_IDENT[key] = {
             "verilator": out, "verilator_path": key,
+            "verilator_root": os.environ.get("VERILATOR_ROOT"),
+            "cxx": cxx, "cxx_version": cxx_out,
             "cocotb": cocotb_version, "cocotb_path": spec.origin if spec else None,
             "python": sys.version, "python_path": sys.executable,
         }
     return _TOOL_IDENT[key]
+
+
+def driver_files() -> list[Path]:
+    """The build driver: every module of ``tools/build/`` (this file, the
+    filelist resolver, the backends, the cache), which decides how a build is
+    made beyond its settings."""
+    return sorted(Path(__file__).resolve().parent.glob("*.py"))
 
 
 def tree_root(ip) -> Path:
@@ -305,10 +321,13 @@ def tree_root(ip) -> Path:
 def content_key(spec: BuildSpec, sources: list[Path], incdirs: list[Path],
                 defines: dict, verilator: Path) -> str:
     """The build cache key: sha256 of the build settings, the tool versions,
+    the build driver (``tools/build/*.py``: how the build is invoked),
     every source in order and every file under every include directory, by
     content and by path relative to the worktree (so another worktree with
     the same content shares the entry)."""
     h = build_cache.Hasher(tree_root(spec.ip))
+    for f in driver_files():
+        h.file("driver", f)
     h.value("settings", {
         "schema": build_cache.SCHEMA, "top": spec.top, "params": spec.params,
         "waves": spec.waves, "coverage": spec.coverage,
@@ -435,20 +454,27 @@ def run_test(
     if code != 0 and status == "pass":
         status, detail = "error", f"simulator exited with {code}"
     if spec.coverage and built is not None and built.root:
-        rebase_coverage(tdir / COVERAGE_DAT, built.root, str(tree_root(spec.ip)))
+        if not rebase_coverage(tdir / COVERAGE_DAT, built.root, str(tree_root(spec.ip))):
+            with open(log, "a") as fh:
+                fh.write(f"warning: coverage: {COVERAGE_DAT} names no source under {built.root}, "
+                         "the tree the reused build was compiled from; its paths were not "
+                         "rewritten to this tree\n")
     return Result(status, runtime, log, detail, cpu)
 
 
-def rebase_coverage(dat: Path, old_root: str, new_root: str) -> None:
+def rebase_coverage(dat: Path, old_root: str, new_root: str) -> bool:
     """Point a reused build's coverage at this tree: Verilator records each
     source by the path it was compiled from, and a cached build may come
-    from another worktree with the same content."""
+    from another worktree with the same content. Returns False when the
+    file names no source under ``old_root`` (nothing could be rewritten)."""
     if old_root == new_root or not dat.is_file():
-        return
+        return True
     old, new = "\x02" + old_root.rstrip("/") + "/", "\x02" + new_root.rstrip("/") + "/"
     text = dat.read_text(errors="surrogateescape")
-    if old in text:
-        dat.write_text(text.replace(old, new), errors="surrogateescape")
+    if old not in text:
+        return False
+    dat.write_text(text.replace(old, new), errors="surrogateescape")
+    return True
 
 
 def parse_results(results_xml: Path) -> tuple[str, str]:
