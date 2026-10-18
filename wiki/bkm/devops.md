@@ -206,14 +206,17 @@ such entry and its reason.
 ## Continuous integration
 
 Workflows live in `.github/workflows/` (`ci`, `nightly`, `pages`, `fpga`,
-`asic`) and run on self-hosted runners selected with
-`runs-on: [self-hosted, linux, x64]`. The runners are registered to this
-repository only, so no workflow names the design target. Two hosts run
-them, both with the same pinned toolchain
-([host SPEC](../tools/host/SPEC.md#hosts)): the Omarchy machine and the WSL
-host, whose runners also carry the label `wsl`. Any runner takes any job,
-except the nightly, which selects `[self-hosted, linux, x64, wsl]` and so
-runs only on the WSL host ([Nightly](#nightly)).
+`asic`, `labels`) and every job selects
+`runs-on: [self-hosted, linux, x64, wsl]`. The runners are registered to this
+repository only, so no workflow names the design target. The WSL host,
+whose runners carry the label `wsl`, is the only supported CI host
+([host SPEC](../tools/host/SPEC.md#hosts)). The Omarchy host is unsupported
+(captain decision, #321): on it `ci-tests` hit its 20-minute timeout and
+`asic` stalled in detailed routing for two hours, where WSL finished the
+same inputs well within budget. Its runners lack the `wsl` label, so no job
+lands there; if no `wsl` runner is online, jobs wait in the queue rather
+than fall back. Taking those runners offline is a host action for the
+captain.
 
 **Forks.** The repository is public, so fork code must not reach these
 runners. Every job that a `pull_request` can trigger carries
@@ -327,8 +330,8 @@ gets its own run
 ## Nightly
 
 The nightly workflow runs daily on the WSL host's runners only (label
-`wsl`), never on the Omarchy runners, where it takes about 2 hours against
-about 27 minutes on WSL (captain decision, #273). If no `wsl` runner is
+`wsl`), like every workflow; on the Omarchy runners it took about 2 hours
+against about 27 minutes on WSL (captain decision, #273). If no `wsl` runner is
 online, every nightly job waits in the queue rather than fall back, its
 `report` job too, so no `nightly-red` issue opens; GitHub cancels a job
 queued for 24 hours. The

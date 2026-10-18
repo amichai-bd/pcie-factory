@@ -85,7 +85,7 @@ Host values come from the one `hosts.<name>` entry in
 
 Selection, first match wins: `ORFS_RUNNER` (`docker`|`native`) if set;
 `ORFS_ROOT` set means native; a cfg image means docker; a cfg root means
-native. With none of them the command exits 2. The Omarchy host has only the
+native. With none of them the command exits 2. The WSL host records only the
 pinned image; native mode is kept because it costs one `bash -c` and is what
 the unit tests drive with a fake ORFS.
 
@@ -230,7 +230,7 @@ liberty time is ns, area µm².
 ## Workflow
 
 `asic.yml` runs the full flow only on `workflow_dispatch` (nightly L2
-also runs the full command directly), on `[self-hosted, linux, x64]` (every CI host runs the ORFS image). Input
+also runs the full command directly), on `[self-hosted, linux, x64, wsl]`, the WSL host's runners only ([DevOps BKM](../../bkm/devops.md#continuous-integration)). Input
 `ip`: one IP id; empty (the default) runs every IP that has a `src/asic/<ip>/`
 folder, found with `find`, one `./build asic --ip <id>` each
 (the job fails if any fails). Input `study_clock_period`: empty (the

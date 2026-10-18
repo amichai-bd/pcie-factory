@@ -30,7 +30,7 @@ jobs:
   build:
     # Public repository: never run fork PR code on the self-hosted runners.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, linux, x64]
+    runs-on: [self-hosted, linux, x64, wsl]
     timeout-minutes: 10
     # Only the build is cancellable (wiki/tools/wiki_site/SPEC.md#publishing):
     # a new PR head or push to main cancels the superseded build; a cancelled
@@ -59,7 +59,7 @@ jobs:
   deploy:
     if: github.event_name != 'pull_request'
     needs: build
-    runs-on: [self-hosted, linux, x64]
+    runs-on: [self-hosted, linux, x64, wsl]
     timeout-minutes: 10
     permissions:
       pages: write
