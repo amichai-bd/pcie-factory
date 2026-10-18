@@ -101,24 +101,29 @@ With `FC_RELEASE` 1, the upper layer returns the posted and non-posted
 credits of a delivered TLP when the TLP leaves it, not when the `dll`
 delivers it, so it may hold delivered requests in queues bounded by the
 advertised credits (Q9). Completions always return at delivery. At most
-one release per class per cycle, each a one-cycle pulse for one TLP: 1
-header credit and the data credits given.
+one release per class per cycle, each a one-cycle pulse: 1 header credit
+and the data credits given.
 
 | Port | Dir | Width | Clock | Description |
 | --- | --- | --- | --- | --- |
-| `fc_rel_p_i` | in | 1 | `clk_i` | One posted TLP left the upper layer: release 1 posted header credit. |
-| `fc_rel_pd_i` | in | 4 | `clk_i` | With `fc_rel_p_i`: its posted data credits, 0 to 8. |
-| `fc_rel_np_i` | in | 1 | `clk_i` | One non-posted TLP left the upper layer: release 1 non-posted header credit. |
-| `fc_rel_npd_i` | in | 4 | `clk_i` | With `fc_rel_np_i`: its non-posted data credits, 0 to 8. |
+| `fc_rel_p_i` | in | 1 | `clk_i` | A posted TLP left the upper layer: release 1 posted header credit. |
+| `fc_rel_pd_i` | in | 4 | `clk_i` | With `fc_rel_p_i`: posted data credits, 0 to 8. |
+| `fc_rel_np_i` | in | 1 | `clk_i` | A non-posted TLP left the upper layer: release 1 non-posted header credit. |
+| `fc_rel_npd_i` | in | 4 | `clk_i` | With `fc_rel_np_i`: non-posted data credits, 0 to 8. |
 
-- **Credits.** A release names a TLP the `dll` delivered (its `eop` taken
-  at an earlier edge) since the last DL_Inactive and not yet released,
-  with the credits the `dll` counted for it: 1 header credit and Length
-  divided by 4, rounded up, as data credits when Fmt says it has data
-  ([classes](FLOW_CONTROL.md#classes-and-credits)). The `dll` delivers no
-  payload above 128 bytes, so at most 8. The upper layer may release a
-  class's TLPs in any order; only the totals count. The RTL checks the
-  data count (at most 8) with an assertion.
+- **Credits.** Each pulse releases 1 header credit of a TLP the `dll`
+  delivered (its `eop` taken at an earlier edge) since the last
+  DL_Inactive and not yet released. The credits a TLP returns are those
+  the `dll` counted for it: 1 header credit and Length divided by 4,
+  rounded up, as data credits when Fmt says it has data
+  ([classes](FLOW_CONTROL.md#classes-and-credits)); the `dll` delivers no
+  payload above 128 bytes, so at most 8. The data credits of a class's
+  TLPs that have left the upper layer may be spread across that class's
+  pulses, at most 8 per pulse and never before those TLPs left, as long
+  as the totals are exact: each TLP's header credit and its data credits
+  are released exactly once. The upper layer may release a class's TLPs
+  in any order; only the totals count. The RTL checks the data count (at
+  most 8) with an assertion.
 - **Timing.** The release taken at an edge adds to CREDITS_ALLOCATED at
   that edge; the class's UpdateFC is due in the next cycle and offered
   then when the DLLP arbiter is free, as for a return at delivery

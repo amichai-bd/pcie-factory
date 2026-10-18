@@ -12,7 +12,9 @@ clk_i cycle, one beat per stream per cycle:
   BAR2 decode, configuration, messages and Unsupported Request
   (``classify``);
 - the receive queues sized by the advertised credits, their ordering and
-  the credit release when a request leaves ``tl`` (Q9);
+  the credit release (Q9): in the cycle after a request leaves ``tl``,
+  colliding non-posted releases one per cycle with up to 8 data credits
+  merged, and none for a completion;
 - completions from ``cc``, from ``cfg`` and for Unsupported Request, split
   on the 64-byte read completion boundary (``split_read``);
 - the requester side: ``rq`` requests, the completion tracker by tag and
@@ -476,6 +478,9 @@ class Tl:
         self.rcq: deque = deque()                   # [stamp, packet]
         self.rc_bytes_held = 0
         self.track.reads.clear()
+        self.owe_p: deque = deque()                 # posted releases owed: (leave cycle, data credits)
+        self.owe_np_in: deque = deque()             # non-posted leaves not yet owed: (cycle, data)
+        self.owe_np = [0, 0]                        # non-posted headers, data credits owed
         self.rr = 0
         self.tx_cur_tag = None
 
@@ -485,10 +490,35 @@ class Tl:
             self.errors[bit] += 1
 
     def _release(self, now: int, cr: tuple[int, int, int]) -> None:
+        """A request left tl at this cycle's edge: its queue space frees
+        now and its credits are owed; ``_send_releases`` pulses them from
+        the next cycle (HAS, credit release; ORDERING.md, credits)."""
         cls, h, d = cr
+        if cls not in (P, NP):
+            raise AssertionError(f"release of a class {cls} TLP: completions need none")
         i = 0 if cls == P else 2
         self.occ[i] -= h
         self.occ[i + 1] -= d
+        if self.occ[i] < 0 or self.occ[i + 1] < 0:
+            raise AssertionError(f"receive queue occupancy below 0: {self.occ}")
+        (self.owe_p if cls == P else self.owe_np_in).append((now, d))
+
+    def _send_releases(self, now: int) -> None:
+        """This cycle's release pulses, for requests that left at an earlier
+        edge: the oldest posted request owed with its data credits; one
+        non-posted header with up to 8 of the data credits owed."""
+        if self.owe_p and self.owe_p[0][0] < now:
+            self._pulse(now, P, self.owe_p.popleft()[1])
+        while self.owe_np_in and self.owe_np_in[0][0] < now:
+            self.owe_np[0] += 1
+            self.owe_np[1] += self.owe_np_in.popleft()[1]
+        if self.owe_np[0]:
+            d = min(8, self.owe_np[1])
+            self.owe_np[0] -= 1
+            self.owe_np[1] -= d
+            self._pulse(now, NP, d)
+
+    def _pulse(self, now: int, cls: int, d: int) -> None:
         self.released.append((now, cls, d))
         if self.on_release:
             self.on_release(now, cls, d)
@@ -511,10 +541,12 @@ class Tl:
         self.err(bit)
         if kind == "cpl":
             self._rx_cpl(h, now)
+        elif cr[0] == CPL:                          # a malformed completion: dropped, no release
+            pass
         elif cr[0] == P:                            # every posted request keeps its order
             self.pq.append([self.p_rx, kind, h, cr])
             self.p_rx += 1
-        elif kind == "malformed":
+        elif kind == "malformed":                   # a non-posted one leaves at once
             self._release(now, cr)
         elif kind == "cq":
             self.npq_cq.append([self.p_rx, h, cr])
@@ -557,6 +589,7 @@ class Tl:
     def step(self, now: int, app, tx) -> None:
         """One clk_i cycle: timers, then each stream moves at most one beat,
         then at most one TLP is offered to the dll."""
+        self._send_releases(now)
         for tag in self.track.tick(now, self.cfg.cpl_timeout_dis):
             self.counts["timeout_cycles"].append(now - self.track.reads.pop(tag).sent)
             self.err(E_TIMEOUT)

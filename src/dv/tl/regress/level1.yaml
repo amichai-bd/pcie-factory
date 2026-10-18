@@ -1,1 +1,38 @@
-tests: []
+tests:
+  - name: rx_routing
+    module: tests.test_tl_rx
+    testcase: rx_routing
+    top: pcie_tl_tb
+    timeout_s: 300
+  - name: rx_order
+    module: tests.test_tl_rx
+    testcase: rx_order
+    top: pcie_tl_tb
+    timeout_s: 300
+  - name: rx_link_down
+    module: tests.test_tl_rx
+    testcase: rx_link_down
+    top: pcie_tl_tb
+    timeout_s: 300
+  - name: rx_random
+    module: tests.test_tl_rx
+    testcase: rx_random
+    top: pcie_tl_tb
+    seeds: 3
+    timeout_s: 300
+  # The smallest queues: every posted and non-posted queue fills, the host
+  # waits on releases.
+  - name: rx_random_min_credits
+    module: tests.test_tl_rx
+    testcase: rx_random
+    top: pcie_tl_tb
+    seeds: 2
+    timeout_s: 300
+    params: {FC_PH: 1, FC_PD: 8, FC_NPH: 1, FC_NPD: 2}
+  # Non-posted data credits above 8, so the release carries owed data.
+  - name: rx_np_collide
+    module: tests.test_tl_rx
+    testcase: rx_np_collide
+    top: pcie_tl_tb
+    timeout_s: 300
+    params: {FC_NPD: 16}

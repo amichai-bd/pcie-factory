@@ -68,13 +68,17 @@ group, `cpl_timeout_dis` in its register state, and the message-offer
 ### Credit release
 
 One posted and one non-posted release per cycle at most, each a pulse
-with its data credits. The header count is 1 per pulse.
+with its data credits. The header count is 1 per pulse. A release comes
+in the cycle after its request leaves; non-posted requests that leave
+together are released in successive cycles, the data credits owed merged
+into the pulses, at most 8 each ([release](ORDERING.md#credits)), as the
+[`dll` credit release](../dll/HAS.md#credit-release) allows.
 
 | Port | Dir | Width | Clock | Description |
 | --- | --- | --- | --- | --- |
 | `fc_rel_p_o` | out | 1 | `clk_i` | One-cycle pulse: one posted request left `tl`; release 1 posted header credit. |
-| `fc_rel_pd_o` | out | 4 | `clk_i` | With `fc_rel_p_o`: posted data credits to release, 0 to 8. |
-| `fc_rel_np_o` | out | 1 | `clk_i` | One-cycle pulse: one non-posted request left `tl`; release 1 non-posted header credit. |
+| `fc_rel_pd_o` | out | 4 | `clk_i` | With `fc_rel_p_o`: the posted request's data credits, 0 to 8. |
+| `fc_rel_np_o` | out | 1 | `clk_i` | One-cycle pulse: release 1 non-posted header credit of a request that left `tl`. |
 | `fc_rel_npd_o` | out | 4 | `clk_i` | With `fc_rel_np_o`: non-posted data credits to release, 0 to 8. |
 
 The credits are those the `dll` counted for the TLP: its class from Fmt
@@ -150,7 +154,7 @@ override; Q-rows are the captain's.
 
 | Choice | Rationale | Rejected |
 | --- | --- | --- |
-| Release port: a pulse per class with a 4-bit data count, header count 1 per pulse (Q9) | One request leaves per class per cycle; the widths cover the largest TLP the `dll` delivers. #303 owns the `link` side. | A count per field per cycle (wider, no user). |
+| Release port: a pulse per class with a 4-bit data count, header count 1 per pulse, registered in the cycle after the request leaves (Q9; release timing, firstmate decision on [#290](https://github.com/amichai-bd/pcie-factory/issues/290#issuecomment-6249200269)) | One posted request leaves per cycle; up to three non-posted requests can leave at one edge on handshakes `tl` does not control (a `cq` read, a cfg-line request, a malformed TLP), so their releases are owed and go one per cycle, their data credits merged up to 8 per pulse, as the [`dll` credit release](../dll/HAS.md#credit-release) allows (exact totals, never before the requests left). #303 owns the `link` side. | A count per field per cycle (wider, no user); holding a handshake back so only one request leaves per cycle (`cfg` would wait on the application). |
 | Dropped posted requests leave the posted queue in order | One in-order posted queue; a non-posted request counts the posted ones before it with no exceptions. | Releasing them at once (a second path past the queue). |
 | Transmit: separate posted and non-posted lines (firstmate decision) | Posted requests must be able to pass non-posted ones that wait for credits, or a host that holds non-posted credits until it sees a posted write deadlocks [cite: PCIe Base Spec, rev 3.0, §2.4.1]; each line keeps its own order. | One queue in the order taken (an `rq` write blocked behind a credit-blocked read). |
 | Two non-posted lines | Configuration and BAR2 never wait on the application (`core` HAS); BAR0 reads keep their own order. | One line with a bypass (more state to order). |
