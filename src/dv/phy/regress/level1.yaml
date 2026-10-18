@@ -67,6 +67,7 @@ tests:
     params: {MAC_RTL: 1, PCS_RTL: 1}
     seeds: 2
     timeout_s: 180
+    coverage_seeds: 2
   - name: e2e_elec_idle
     module: tests.test_phy_e2e
     testcase: e2e_elec_idle

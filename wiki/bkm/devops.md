@@ -167,6 +167,42 @@ The author owns all evidence: the reviewer audits it and the `ci-gate`
 result and never re-runs anything; a claim without recorded proof goes back
 to the author to run.
 
+## Build cache
+
+Every `./build sim` and `./build regress` reuses Verilator builds from one
+content-keyed cache per host, outside every checkout
+([build spec](../tools/build/SPEC.md#build-cache)): `$BUILD_CACHE`, else
+`~/.cache/<repo>/build`. A build whose sources, include files, settings and
+tool versions are byte-identical to an earlier one, in any run or worktree,
+takes no compile; a changed input is a new key, so nothing stale is reused.
+Generated C++ goes through ccache (Verilator's `OBJCACHE`) in
+`<cache>/ccache`, so a build after a small RTL change recompiles only what
+changed. Entries are written to a temporary directory and renamed into
+place, so concurrent runs never read a partial build. Entries unused for 14
+days are pruned. `--no-cache` (or `$BUILD_CACHE=off`) builds afresh, for a
+cold measurement or to rule the cache out.
+
+**CI hosts.** `actions/checkout` cleans the job checkout, `workdir/`
+included, so the cache lives at the fixed per-host default under the runner
+user's home, like the [specs cache](../tools/specs/SPEC.md): every runner of
+a host that runs as that user shares it, it persists across jobs, and the
+first job on each host is cold. The WSL runners, the supported self-hosted
+runners, keep it there; no workflow configures it.
+**Trust:** the key is content, so a reused build is what a fresh build of
+the same inputs makes; and only trusted runs write the cache, since the
+fork guard and the [fork rules](#continuous-integration) keep fork code off
+the runners (no fork run is ever approved; fork changes reach CI only by
+review and re-push). A runner host is therefore never shared with
+untrusted code that could plant an entry.
+
+**Model checks.** A regression entry marked `rerun_when: models_change`
+(one that runs reference models only, no RTL) reuses its earlier pass on
+the host while its models, testbench and tools are unchanged
+([regress spec](../tools/regress/SPEC.md#reuse-of-unchanged-model-checks));
+the nightly runs on one host type with this cache, so such an entry runs
+there the first night after its inputs change. The DV plan names every
+such entry and its reason.
+
 ## Continuous integration
 
 Workflows live in `.github/workflows/` (`ci`, `nightly`, `pages`, `fpga`,

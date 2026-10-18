@@ -6,12 +6,14 @@ tests:
     params: {WIDTH: 8}
     seeds: 8
     timeout_s: 600
+    coverage_seeds: 8
   - name: pulse_long
     module: tests.test_cdc_pulse
     testcase: long_ratio
     top: common_cdc_pulse
     seeds: 8
     timeout_s: 600
+    coverage_seeds: 6
   - name: fifo_long_depth2
     module: tests.test_cdc_fifo
     testcase: long_traffic
@@ -32,6 +34,7 @@ tests:
     top: common_cdc_rst
     seeds: 8
     timeout_s: 600
+    coverage_seeds: 4
   - name: rst_long_stages4
     module: tests.test_cdc_rst
     testcase: long_ratio

@@ -122,8 +122,10 @@ shows where each of their checks went.
 | The same, more seeds | `rx_errors_long` | 2 | 6 |
 | [Received TS fields and events](../../arch/mac/SYMBOLS.md#ts1-and-ts2): every link, lane and N_FTS byte, PAD, each control bit, TS2, both lanes; EIOS and FTS at both lanes; K link and lane fields, K, unknown and mismatched identifiers, a TS cut by COM; inverted TS1 and TS2 at both lanes | `ts_fields` | 1 | 2 |
 | Random partner resets, mutes, freezes, retrains, wrong TS fields and N_FTS, inverted wire, symbol errors, power requests on either side (L0s, L1, L2, mixed) with traffic, both roles | `random_soak` | 2 | 2 |
-| [Every core and power arc, timeouts included](../../arch/mac/ARCS.md), downstream; the 256-timeout `idle_to_rlock` loop | `arcs_full_downstream` | 2 | 1 |
-| The same, upstream | `arcs_full_upstream` | 2 | 1 |
+| [Every core and power arc, timeouts included](../../arch/mac/ARCS.md), downstream, but the two only the `idle_to_rlock` loop reaches: the level-1 recipes and every error-path timeout in one run, all those arcs required in it | `arcs_timeouts_downstream` | 2 | 1 |
+| The same, upstream | `arcs_timeouts_upstream` | 2 | 1 |
+| The `idle_to_rlock` loop, downstream: Recovery.Idle times out to RcvrLock 255 times without L0 (the count checked) and the next timeout goes to Detect.Quiet, then Configuration.Idle's timeout goes to Detect.Quiet too, the count not cleared; those two arcs required | `arcs_idle_rlock_downstream` | 2 | 1 |
+| The same, upstream | `arcs_idle_rlock_upstream` | 2 | 1 |
 | [Timeout dividers](../../arch/mac/HAS.md#parameters) and the error-timeout floor; the control-state recipes at these dividers (Hot Reset dwell 976 cycles, the 2 ms control timeouts at their floor) | `dividers` | 2 | 1; Polling.Active 23437 cycles |
 | [Training targets](../../arch/mac/HAS.md#targets) at dividers 1: link-up 12.0 to 12.2 ms, training 65.536 to 80 µs, both roles | `train_spec` | 2 | 1 |
 | [`N_FTS`](../../arch/mac/HAS.md#parameters) 1 and 255 in every TS sent; then the `arcs_quick` and `control_quick` recipes in both roles (testcase `smoke_arcs`): in the power episode the partner sends that many FTS, and the `Rx_L0s.FTS` timeout is at its extremes (16 and 542 cycles). With the DUT downstream the partner advertises the same N_FTS, upstream the default 32, so the DUT sends 1 or 255 FTS, and 32, on its own L0s exits | `smoke_n_fts_1`, `smoke_n_fts_255` | 2 | 1 each |
@@ -146,6 +148,25 @@ of its mutant below, so that kill stays in the merge gate. The merged
 level 0 to 2 coverage is unchanged, and the level 1 covergroup floors
 (`mac_os_tx`, `mac_os_rx`, `mac_frame`) still pass on levels 0 and 1.
 
+**The full arc entries, split** ([#327](https://github.com/amichai-bd/pcie-factory/issues/327)).
+`arcs_full_downstream` and `arcs_full_upstream` were about 16 minutes of
+CPU each, one quarter of all level 2, and ran serially inside one test. Each
+is now two entries that run in parallel: `arcs_timeouts_<role>` runs what
+the old entry ran before the loop (the level-1 recipes and the error-path
+timeouts) and still requires, in one run, every core and power arc except
+the two the loop alone reaches (`LOOP_ARCS` in the test: Recovery.Idle and
+Configuration.Idle to Detect.Quiet); `arcs_idle_rlock_<role>` runs the loop
+from a fresh training and requires those two arcs and the count of 255
+timeouts to RcvrLock. The union is the old entry's check, and the level-2 floor of
+`mac_ltssm_arcs` (every arc in each role) still holds over the merged runs.
+The loop could not be shortened: no port presets `idle_to_rlock` (a run of
+Recovery.Idle or Configuration.Idle timeouts with no L0, each counted, is
+the only way to reach 255), and at `ERR_TIMEOUT_DIV` 1024 every timeout of
+the loop already sits at the RTL's 16384-cycle floor
+([HAS parameters](../../arch/mac/HAS.md#parameters)), so no faster divider
+exists without changing the RTL contract. The loop is 256 × 16384 cycles,
+about 4.2 million, and is the level's longest entry.
+
 ## Leaf checks, old to new
 
 Every check of the removed leaf testbenches, and where it is now. "Shadow"
@@ -164,7 +185,7 @@ is the every-cycle comparison above; "decoder" the receive decoder.
 | `smoke` (frame) | Reset over the sop-to-eop ready rule; resync ends when `rx_l0` falls; exact framing of a TLP, a DLLP and a nullified TLP; abort by an L0 exit and by a bubble | `smoke` (reset with a packet half accepted: ready falls at once, then a clean packet; framing through the shadow), `rx_errors` (resync then retrain), `traffic` (L0-exit aborts), `tx_bubble` |
 | `tx_random`, `tx_long` (frame) | Random streams with back-pressure; ready rules; SKP deferral and back to back | `traffic`, `traffic_long`: a packet the model would not start, or a SKP placed otherwise, fails the shadow's symbol comparison |
 | `rx_random`, `rx_long` (frame) | Deframing, realignment, flags, framing errors, cuts; status outputs | `rx_errors`, `rx_errors_long`; `rcv_err_o` every cycle; idle marks through the LTSSM's idle counts; the `sop` latency bound in every entry (the old bench bounded the `eop` beat at 3 cycles after the reference; the bound is now the HAS one, on `sop`, from the pins) |
-| `smoke`, `arcs_quick`, `polarity`, `random_soak`, `arcs_full_*`, `dividers` (LTSSM) | As the plan rows of the same name, with a BFM in place of the ordered-set and frame blocks | Same names, through the real blocks; the partner's N_FTS now compared every cycle ([#158](https://github.com/amichai-bd/pcie-factory/issues/158)) |
+| `smoke`, `arcs_quick`, `polarity`, `random_soak`, `arcs_full_*` (now `arcs_timeouts_*` and `arcs_idle_rlock_*`), `dividers` (LTSSM) | As the plan rows of the same name, with a BFM in place of the ordered-set and frame blocks | Same names, through the real blocks; the partner's N_FTS now compared every cycle ([#158](https://github.com/amichai-bd/pcie-factory/issues/158)) |
 | LTSSM harness per-cycle request checks | One request at a time, none in electrical idle, compliance only in Polling.Compliance, the frame's line only in the Idle states and L0, packets and receive only in L0 | `u_os`'s `a_one_request` (`$onehot0` on the requests) and the top's `a_one_line_source` and `a_no_line_in_ei` in every run; what each state sends, and when, through the shadow's symbol comparison; packet starts and receive through the shadow's packets |
 | LTSSM gap: dividers at 1 | Detect.Quiet 12 ms | `train_spec` |
 | `smoke` (mac shell) | Reset values with toggling inputs | `smoke` |

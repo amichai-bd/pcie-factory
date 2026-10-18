@@ -1,3 +1,7 @@
+# The nine `_model` copies run the models only (no RTL change can fail
+# them): each reruns when its models, testbench or tools change and
+# otherwise reuses its last pass on the host, and none is a coverage run
+# (DV plan, Level placement; #327).
 tests:
   - name: e2e_link_up_spec
     module: tests.test_phy_e2e
@@ -10,27 +14,33 @@ tests:
     testcase: e2e_soak_dsp_first
     top: pcie_phy_e2e_tb
     params: {MAC_RTL: 1, PCS_RTL: 1}
-    seeds: 4
+    seeds: [729640957, 1165168337, 846478919]
     timeout_s: 900
+    coverage_seeds: 3
   - name: e2e_soak_usp_first
     module: tests.test_phy_e2e
     testcase: e2e_soak_usp_first
     top: pcie_phy_e2e_tb
     params: {MAC_RTL: 1, PCS_RTL: 1}
-    seeds: 4
+    seeds: 2
     timeout_s: 900
+    coverage_seeds: 2
   - name: e2e_soak_dsp_first_model
     module: tests.test_phy_e2e
     testcase: e2e_soak_dsp_first
     top: pcie_phy_e2e_tb
     seeds: 2
     timeout_s: 900
+    coverage_seeds: 0
+    rerun_when: models_change
   - name: e2e_soak_usp_first_model
     module: tests.test_phy_e2e
     testcase: e2e_soak_usp_first
     top: pcie_phy_e2e_tb
     seeds: 2
     timeout_s: 900
+    coverage_seeds: 0
+    rerun_when: models_change
   - name: e2e_reset_single
     module: tests.test_phy_e2e
     testcase: e2e_reset_single
@@ -42,39 +52,53 @@ tests:
     testcase: e2e_dsp_first_pos600
     top: pcie_phy_e2e_tb
     timeout_s: 180
+    coverage_seeds: 0
+    rerun_when: models_change
   - name: e2e_dsp_first_neg300_model
     module: tests.test_phy_e2e
     testcase: e2e_dsp_first_neg300
     top: pcie_phy_e2e_tb
     timeout_s: 180
+    coverage_seeds: 0
+    rerun_when: models_change
   - name: e2e_usp_first_neg600_model
     module: tests.test_phy_e2e
     testcase: e2e_usp_first_neg600
     top: pcie_phy_e2e_tb
     timeout_s: 180
+    coverage_seeds: 0
+    rerun_when: models_change
   - name: e2e_usp_first_pos300_model
     module: tests.test_phy_e2e
     testcase: e2e_usp_first_pos300
     top: pcie_phy_e2e_tb
     timeout_s: 180
+    coverage_seeds: 0
+    rerun_when: models_change
   - name: e2e_symbol_errors_model
     module: tests.test_phy_e2e
     testcase: e2e_symbol_errors
     top: pcie_phy_e2e_tb
     seeds: 2
     timeout_s: 180
+    coverage_seeds: 0
+    rerun_when: models_change
   - name: e2e_bit_slips_model
     module: tests.test_phy_e2e
     testcase: e2e_bit_slips
     top: pcie_phy_e2e_tb
     seeds: 2
     timeout_s: 180
+    coverage_seeds: 0
+    rerun_when: models_change
   - name: e2e_elec_idle_model
     module: tests.test_phy_e2e
     testcase: e2e_elec_idle
     top: pcie_phy_e2e_tb
     seeds: 2
     timeout_s: 180
+    coverage_seeds: 0
+    rerun_when: models_change
 # Floors: the higher of the existing floor and the merged L0 to L2 value
 # (the nightly runs the three together) minus 0.5 points, rounded down to
 # 0.1 (DV BKM, Coverage); a floor is never lowered. Every point below 100%

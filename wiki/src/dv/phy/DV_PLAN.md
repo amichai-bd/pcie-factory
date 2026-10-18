@@ -260,6 +260,20 @@ unchanged (the merged level 0 to 2 coverage and the floors are the same):
   `e2e_smoke` and `e2e_rtl_link_chan`, the same RTL recipe over the RTL
   channel.
 
+**Model-only copies run on a rule** ([#327](https://github.com/amichai-bd/pcie-factory/issues/327)).
+The nine `_model` entries of level 2 (the two soaks and the seven scenario
+copies) run every layer as its model, with the RTL instances held in reset:
+they check the reference, and no RTL change can fail them. Each carries
+`rerun_when: models_change`, so the nightly reruns it only when a file it
+depends on changes (the phy DV and arch folders, the mac and pcs models and
+arch models it imports, the shared DV helpers, the simulation driver, the
+tools, the seed) and otherwise reuses its last pass on the host
+([regress SPEC](../../../tools/regress/SPEC.md#reuse-of-unchanged-model-checks));
+they were about 6.5 minutes of the nightly's CPU. Each also carries
+`coverage_seeds: 0`: a run with the RTL in reset credits no RTL behaviour,
+and every `phy_e2e_*` bin they hit is also hit by an RTL entry or the
+all-model `e2e_smoke` (level 0), so the floors hold without them.
+
 **Power states and loopback** (L1, `MAC_RTL` 1, `PCS_RTL` 1, `ERR_TIMEOUT_DIV` 1024; enabled by [#182](https://github.com/amichai-bd/pcie-factory/issues/182), which carries electrical idle in order with the received words, so the whole EIOS reaches the MAC before RxElecIdle):
 
 | Feature | Testcase |
