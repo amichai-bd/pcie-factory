@@ -22,6 +22,10 @@ One cycle, at the falling edge of clk_i after rising edge n:
    ``reg_cpl_valid_o`` and ``irq_done_o`` must come within the HAS
    latency target (4 cycles, ``LATENCY``); ``reg_req_ready_o`` and
    ``irq_ready_o`` are 1 exactly when no access or request is open.
+   Reset (HAS, Reset): in every cycle where ``rst_i`` is 1 the readys are 0
+   once the inputs settle, before the edge samples it; from the cycle after
+   each edge that samples it every qualified output has its reset value; in
+   the first cycle where ``rst_i`` is 0 again both readys are 1.
 4. Drive the next inputs: the queued register accesses (one at a time,
    the next after the last one's ``reg_cpl_valid_o``), interrupt requests
    (one at a time), error-event cycles, slot power events (queued, or
@@ -43,7 +47,7 @@ from pathlib import Path
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import FallingEdge
+from cocotb.triggers import FallingEdge, ReadOnly
 
 from regress.funcov import Covergroup
 
@@ -198,6 +202,7 @@ class Env:
         self.irq_open: Irq | None = None
         self.offer_since = 0
         self.rst_cycles = 0
+        self.rst_fell = False          # rst_i driven 0 in this cycle, 1 in the last
         self.model: arch.Cfg | None = None
         self.p: arch.Params | None = None
 
@@ -208,6 +213,7 @@ class Env:
         cocotb.start_soon(Clock(d.clk_i, 8, unit="ns").start())
         self.drv["rst_i"] = 1
         self._drive()
+        await self._check_readys(0, "rst_i 1 before its edge")
         for _ in range(3):
             await FallingEdge(d.clk_i)
         cfg = int(d.cfg_params_o.value)
@@ -223,6 +229,7 @@ class Env:
         self.check_reset_values("in reset")
         self.drv["rst_i"] = 0
         self._drive()
+        self.rst_fell = True
         self.prev = self._read()
 
     def _read(self) -> dict[str, int]:
@@ -237,12 +244,26 @@ class Env:
             got = int(getattr(self.dut, name).value)
             assert got == want, f"cycle {self.cycle} {where}: {name} expected {want} got {got}"
 
+    async def _check_readys(self, want: int, where: str) -> None:
+        """The readys in this cycle, once the inputs just driven have
+        settled (HAS, Reset): 0 in a cycle where rst_i is 1, before the edge
+        that samples it; 1 in the first cycle where rst_i is 0 again."""
+        await ReadOnly()
+        for name in ("reg_req_ready_o", "irq_ready_o"):
+            got = int(getattr(self.dut, name).value)
+            if got != want:
+                self.fail(f"{where}: {name} expected {want} got {got}")
+
     def fail(self, msg: str) -> None:
         raise AssertionError(f"cycle {self.cycle}: {msg}")
 
     # ------------------------------------------------------------ one cycle
 
     async def step(self) -> None:
+        if self.drv["rst_i"]:
+            await self._check_readys(0, "rst_i 1 before its edge")
+        elif self.rst_fell:
+            await self._check_readys(1, "first cycle out of reset")
         await FallingEdge(self.dut.clk_i)
         self.cycle += 1
         now = self._read()
@@ -251,8 +272,10 @@ class Env:
         else:
             self._edge(now)
         self.prev = now
+        was_rst = self.drv["rst_i"]
         self._next_inputs(now)
         self._drive()
+        self.rst_fell = bool(was_rst and not self.drv["rst_i"])
 
     def _edge_reset(self, now: dict[str, int]) -> None:
         self.model.reset()
