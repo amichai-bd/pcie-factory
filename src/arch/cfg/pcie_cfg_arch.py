@@ -423,6 +423,14 @@ class Cfg:
                 self._offer = Msg(kind, src=("err", kind))
                 return self._offer
         if self.app is not None:
+            # The entry (or the MSI registers) is read when the write is
+            # offered, not when it was requested (CAPS.md, BAR2).
+            mode, vector = self.app.src[1], self.app.src[2]
+            if mode == "msix":
+                e = self.table[vector]
+                self.app = Msg(MSG_IRQ, e[0] | e[1] << 32, e[2], self.app.src)
+            else:
+                self.app = Msg(MSG_IRQ, *self._msi_msg(), self.app.src)
             self._offer = self.app
         elif self.msi_pending and self._msi_open():
             self._offer = Msg(MSG_IRQ, *self._msi_msg(), ("pend", "msi", 0))

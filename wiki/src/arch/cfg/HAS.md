@@ -193,7 +193,9 @@ that edge, without having been offered.
 
 - `irq_ready_o` is 1 whenever no request is open; one request is open
   from its take to its `irq_done_o`. A dropped or pending request is done
-  within 4 cycles; a sent one is done in the cycle `tl` takes its write.
+  within 4 cycles; a sent one is done in the cycle after the edge at which
+  `tl` takes its write (`irq_done_o` is 1 in that cycle), as a write takes
+  effect at the edge `cfg` takes it.
 - A request for an MSI-X vector whose pending bit is already set merges
   into it: status pending, one write later. A request under MSI while the
   MSI pending flag is set does the same.
@@ -204,6 +206,10 @@ that edge, without having been offered.
 - Under MSI, `msg_data_o[15:0]` is Message Data and `[31:16]` is 0; under
   MSI-X, `msg_data_o` is the entry's whole Message Data DW. `msg_addr_o`
   is the 64-bit address with bits `[1:0]` 0.
+- The MSI Message Address, Upper Address and Data are read when an MSI
+  write is offered, as an MSI-X entry is ([BAR2](CAPS.md#bar2)): a change
+  while the write waits reaches it, a change after its offer reaches the
+  next write only.
 
 ### Power states
 
@@ -237,7 +243,7 @@ override; Q and F numbers are the [record](../../decisions/0004-m3-grill.md)'s.
 | --- | --- | --- |
 | Enumeration | A host enumeration (IDs, capability walk, BAR sizing and assignment, enables, MSI and MSI-X, one interrupt each way with an MSI-X one pending first) finds no mismatch for any legal parameters. | [`enumeration`](../../../../src/arch/cfg/perf/enumeration.yaml): `enumeration_errors` 0 |
 | No interrupt lost | Under random masks, enables, D-state changes and error events, every request reported pending is held by a pending bit or the MSI pending flag, and every request reported sent or pending is followed by a write of its vector once allowed and unmasked (an MSI one counted while MSI stays enabled); no write is taken while blocked; no message is taken outside D0. | [`irq_stress`](../../../../src/arch/cfg/perf/irq_stress.yaml): `interrupts_lost`, `writes_while_blocked`, `messages_outside_d0` 0 |
-| Access latency | `reg_cpl_valid_o` at most 4 cycles after the take, BAR2 table reads included; `irq_done_o` for a dropped or pending request at most 4 cycles after the take. | `cfg` testbench, [#289](https://github.com/amichai-bd/pcie-factory/issues/289) |
+| Access latency | `reg_cpl_valid_o` at most 4 cycles after the take, BAR2 table reads included; `irq_done_o` for a dropped or pending request at most 4 cycles after the take. | The `LATENCY` check of the `cfg` testbench environment, [`cfg_env.py`](../../../../src/dv/cfg/tb/cfg_env.py), in every entry |
 
 ## Architecture model
 

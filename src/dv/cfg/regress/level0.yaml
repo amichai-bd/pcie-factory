@@ -2,5 +2,5 @@ tests:
   - name: smoke
     module: tests.test_cfg
     testcase: smoke
-    top: pcie_cfg
+    top: pcie_cfg_tb
     timeout_s: 60
