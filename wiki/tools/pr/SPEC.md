@@ -15,7 +15,18 @@ It requires no full-L2, coverage or broad mutant evidence: PR evidence is
 the affected L0+L1, which `ci-gate` runs and which may be cited, plus
 targeted L2 entries and mutants of the changed code
 ([local evidence](../../bkm/devops.md#local-evidence)). Its level rules
-apply only to the `./build regress` rows a body records. The code lives in `tools/pr/check.py`; the rules'
+apply only to the `./build regress` rows a body records.
+
+It does not look for contradictions between a BKM and a spec. That is not
+mechanically feasible: a contradiction is two prose rules that disagree in
+meaning (a level, a budget, an owner, a procedure), the pages state their
+rules in free text with no machine-readable form to compare, and a PR can
+contradict a page it never touches. A textual heuristic would flag
+rewordings and miss real conflicts. Spotting them stays with the review:
+the reviewer reads the owning BKMs and specs of every area a PR touches
+([pr-reviewer](../../../.claude/skills/pr-reviewer/SKILL.md#3-check), the
+Code and wiki and BKM rows), and `CLAUDE.md` has a contradiction found
+reconciled in the same issue. The code lives in `tools/pr/check.py`; the rules'
 facts live in `cfg/pr.yaml` and `cfg/levels.yaml`.
 
 The rules below and the skill's **(checked)** items are the same rules.
@@ -63,7 +74,7 @@ its path is scanned. A failing `gh` call exits 2 with its last error line.
 
 ```yaml
 mutation_paths: [src/rtl/, src/dv/]          # changed files that need a mutation table
-mutation_exempt: ["src/dv/*/regress/level*.yaml"]   # ...except these (fnmatch; may be [])
+mutation_exempt: ["src/dv/*/regress/level*.yaml"]   # ...except a change confined to these (fnmatch; may be [])
 seeded_commands: ["./build regress", "./build sim"]
 versions:                                     # command substring -> tools whose version is required
   - {when: "pytest", need: [Python, pytest]}
@@ -97,13 +108,13 @@ Each finding prints as `error: #N: [<rule>] <message>`.
 | Rule | Finding when |
 | --- | --- |
 | `head-sha` | No `At head <sha>` line; the SHA is not the full 40 characters; or it differs from the PR head. |
-| `stale-sha` | A full 40-character SHA labels a result (`at <sha>`, `at head <sha>` or `@<sha>`) in the section and is not the PR head: a previous round's result left in place. |
+| `stale-sha` | A full 40-character SHA labels a result (`at <sha>`, `at head <sha>` or `@<sha>`) in the section and is not the PR head: a previous round's result left in place. Authors write baselines with a short SHA, which this rule ignores. |
 | `commands` | No command table; it has no separator row or no rows; a row's first cell has no backtick-quoted command; a row's result is empty. |
 | `versions` | A command contains a `versions[].when` substring and a tool in its `need` has no `<Tool> <x.y>` in the section (case-insensitive, `v` prefix allowed). |
 | `seeds` | A command contains a `seeded_commands` substring and no line holds the word `seed`/`seeds` together with a digit, `crc32` or `#seeds`. |
 | `levels` | A `./build regress` row runs `--level N` and its result lacks `L<N> <passed>/<total>` (or `level<N>:`), or has no `CPU <s> s` between that level's result and the next level's. |
 | `budget` | That CPU is above level N's `budget_s` and the body has no `L<N> budget:` line explaining it. |
-| `mutants` | A changed, non-removed file starts with a `mutation_paths` entry and matches no `mutation_exempt` glob, and the section has no table with a header cell containing `Mutant`, or that table has no separator row or no rows. |
+| `mutants` | A changed, non-removed file starts with a `mutation_paths` entry and matches no `mutation_exempt` glob, and the section has no table with a header cell containing `Mutant`, or that table has no separator row or no rows. A change confined to regression lists therefore needs no table; whether a new entry or seed still needs a mutant is the reviewer's call. |
 | `not-run` | No `### Not run` subsection, or nothing under it before the next heading (`None.` is enough). |
 | `keywords` | Over the whole body, outside code spans and code blocks: an issue is both `Part of #N` (also `Part of epic #N`) and next to a closing keyword (`close`, `closes`, `closed`, `fix`, `fixes`, `fixed`, `resolve`, `resolves`, `resolved`, optional `:`); closing keywords name more than one issue; or the body has neither a closing keyword nor `Part of`. |
 | `rescope` | Over the whole body, outside code: the body closes an issue and says work moved to another issue (`moved`, `deferred`, `postponed`, `punted`, `split out`, `handed off`/`over`, `carried over`, `left` or `rescoped`, then `to #M` within the sentence), and no line `Acceptance moved: ... #M ... <issue-comment URL>` declares it with a link to the comment recording the rescope. |

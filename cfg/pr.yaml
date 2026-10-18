@@ -7,7 +7,8 @@
 # repository root) must record a mutation table.
 mutation_paths: [src/rtl/, src/dv/]
 # Files under mutation_paths that need no mutation table (fnmatch globs, `*`
-# also crosses `/`): moving entries between regression lists changes no code.
+# also crosses `/`): a change confined to regression lists changes no code.
+# The reviewer still judges whether a new entry or seed needs a mutant.
 mutation_exempt: ["src/dv/*/regress/level*.yaml"]
 
 # A validation command containing one of these substrings runs seeded tests:

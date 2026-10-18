@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 import threading
@@ -7,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from build import sim, slots
+from cli.main import main  # imported at collection, not under capsys
 
 
 def test_cpu_count_is_positive():
@@ -24,7 +26,6 @@ def test_slots_are_exclusive_and_released(tmp_path):
     b = pool.try_acquire()
     assert a is not None and b is not None and {a[0], b[0]} == {0, 1}
     assert pool.try_acquire() is None  # both taken
-    import os
     os.close(a[1])
     c = pool.try_acquire()
     assert c is not None and c[0] == a[0]
@@ -80,6 +81,18 @@ def test_stop_while_waiting_raises(tmp_path):
                 pass
 
 
+def test_stop_set_as_the_slot_frees_raises_and_releases(tmp_path):
+    """A slot acquired after stop is set is released at once, never used."""
+    pool = slots.Slots(tmp_path, count=1)
+    stop = threading.Event()
+    stop.set()  # the slot is free, but the run is already stopping
+    with pytest.raises(KeyboardInterrupt):
+        with pool.hold(stop):
+            pytest.fail("the body must not run")
+    got = pool.try_acquire()  # released, not leaked
+    assert got is not None
+
+
 def test_from_option_and_env(tmp_path, monkeypatch):
     monkeypatch.delenv(slots.ENV, raising=False)
     assert slots.from_option(None) is None
@@ -129,8 +142,64 @@ def test_run_child_waits_for_a_slot_and_stops_cleanly(tmp_path, monkeypatch):
         sim.set_slots(None)
 
 
+def test_run_child_never_starts_when_the_slot_frees_as_stop_is_set(tmp_path, monkeypatch):
+    """The Ctrl-C race: kill_all() sets _STOPPING and a killed sibling frees
+    its slot; the waiting thread takes that slot on its next poll and must
+    not start a child."""
+    started = []
+    monkeypatch.setattr(sim, "_run_child_now", lambda *a: started.append(a) or (0, 0.0, 0.0))
+    pool = slots.Slots(tmp_path / "s", count=1)
+    sim.set_slots(pool)
+    errors = []
+    try:
+        holder = pool.try_acquire()  # a sibling's running child holds the only slot
+
+        def work():
+            try:
+                sim._run_child("test", {}, tmp_path / "x/sim.log", timeout_s=None)
+            except KeyboardInterrupt as exc:
+                errors.append(exc)
+
+        # Make the waiter's stop check after a failed poll miss the flag, so
+        # it reaches the acquisition with _STOPPING already set.
+        real_try = pool.try_acquire
+        calls = []
+
+        def try_acquire():
+            got = real_try()
+            calls.append(got)
+            if got is None and len(calls) == 1:
+                sim._STOPPING.set()   # Ctrl-C: kill_all() sets the flag...
+                os.close(holder[1])   # ...and the killed sibling frees its slot
+                return real_try()
+            return got
+
+        monkeypatch.setattr(pool, "try_acquire", try_acquire)
+        t = threading.Thread(target=work)
+        t.start()
+        t.join(10)
+        assert not t.is_alive() and len(errors) == 1
+        assert started == []
+        assert real_try() is not None  # the slot was released again
+    finally:
+        sim._STOPPING.clear()
+        sim.set_slots(None)
+
+
+def test_child_is_not_started_once_stopping(tmp_path, monkeypatch):
+    """_run_child_now checks _STOPPING under the lock right at Popen."""
+    popen = []
+    monkeypatch.setattr(sim.subprocess, "Popen", lambda *a, **k: popen.append(a))
+    sim._STOPPING.set()
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            sim._run_child_now("test", {}, tmp_path / "x/sim.log", None)
+        assert popen == [] and not sim._ACTIVE
+    finally:
+        sim._STOPPING.clear()
+
+
 def test_cli_rejects_an_unusable_slot_directory(tmp_path, capsys):
-    from cli.main import main
     blocker = tmp_path / "file"
     blocker.write_text("")
     src = Path(__file__).resolve().parent / "fixtures" / "src"

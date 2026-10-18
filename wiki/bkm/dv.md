@@ -99,8 +99,10 @@ Level placement follows each level's purpose and budget in the
 [DevOps BKM](devops.md#levels-and-budgets):
 
 - **L0, did we break the build:** elaboration and lint entries, and smoke
-  and the fastest directed tests (about a second or two of CPU each); a
-  heavier functional test belongs in L1.
+  and the fastest directed tests (a few seconds of CPU each at most); a
+  heavier functional test belongs in L1. A fast directed test may stay in L0
+  when it is the IP's quickest catch of a broken block, with the reason in
+  the DV plan's "Level placement" note.
 - **L1, the PR gate:** each IP's RTL acceptance entries and its fastest
   discriminating tests with a few random seeds: high confidence, not the
   full test.

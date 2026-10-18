@@ -104,8 +104,8 @@ reviewer's. The evidence items sit in the `## Validation` section.
   that level (wall time too). A level's CPU above its `budget_s` in
   `cfg/levels.yaml` needs a line `L<N> budget: <why>` in the body.
 - **(checked)** Mutants: a PR that adds or changes files under `src/rtl/` or
-  `src/dv/` (`cfg/pr.yaml`; moving entries between regression lists alone
-  is exempt) has a table whose header names a `Mutant` column, with its
+  `src/dv/` (`cfg/pr.yaml`; a change confined to regression lists is
+  exempt, though the reviewer may still ask a new entry for a mutant) has a table whose header names a `Mutant` column, with its
   separator row and one row per mutant of the changed code: what was
   changed, the entry and seed, and where and how it failed (cycle and
   message).
@@ -113,6 +113,8 @@ reviewer's. The evidence items sit in the `## Validation` section.
   not rerun with the reason, or `None.`.
 - **(checked)** Stale SHA: no result in the section is labelled with
   another full SHA (`at <sha>`, `@<sha>`), such as a previous round's head.
+  Write baselines and other commits with a short SHA (`origin/main` at
+  `3d6ded2`), so only the head carries the full 40 characters.
 - **(checked)** Rescope: a body that closes an issue does not say any of
   its work moved, was deferred or left to another issue ("moved to #m").
   Either write `Part of #<n>`, or record the rescope on the closed issue

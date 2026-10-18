@@ -75,6 +75,9 @@ class Slots:
                 raise KeyboardInterrupt
             time.sleep(POLL_S)
         index, fd = got
+        if stop is not None and stop.is_set():  # stopped while the slot freed up
+            os.close(fd)
+            raise KeyboardInterrupt
         try:
             yield index
         finally:

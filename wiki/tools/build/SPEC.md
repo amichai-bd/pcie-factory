@@ -256,7 +256,17 @@ created or written is a usage error (exit 2).
   run to finish.
 - The kernel releases a lock when its holder exits, so a killed run never
   leaves a slot taken. Ctrl-C while waiting starts nothing and exits 130.
+- A slot is checked against the stop flag after it is taken, and a child
+  starts under the lock that the Ctrl-C handler snapshots: a child is either
+  killed by Ctrl-C or never started.
 - A run prints `slots: DIR (N CPU slots ...)` before its first child.
+
+Limits. Slots bound child processes, not busy CPUs: a Verilator build may
+use more than one CPU. Each run derives `N` from its own affinity mask, so
+runs with different masks see different counts. Waiters poll from slot 0
+with no queue, so there is no fairness between runs. A run killed with
+SIGKILL frees its slots while its children, in their own sessions, keep
+running.
 
 The [DevOps BKM](../../bkm/devops.md#local-evidence) owns the policy (one
 directory per host for every agent). Tests: `tools/build/tests/test_slots.py`

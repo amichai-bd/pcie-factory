@@ -245,6 +245,14 @@ below is first caught by them, and the transmit and replay paths they load
 stay under `ci-gate` through `lcrc_kat`, `rbuf_full`, `tlp_partner` and
 `tlp_bidir`.
 
+The other directed entries stay in level 0
+([#325](https://github.com/amichai-bd/pcie-factory/issues/325)): each takes
+about 1 to 5 s of CPU, and they are the quickest catch of a broken block
+(most mutants in the table below are first caught there), so a change that
+breaks the CRC, the control states, transmit, replay or receive fails in the
+first minutes of `ci-gate`, and a factory-only change, which runs level 0 of
+every IP, still exercises each block.
+
 `fc_tx_gate` runs in level 1, not 0
 ([#325](https://github.com/amichai-bd/pcie-factory/issues/325)): level 0
 checks that the build is not broken, and at about 13 s of CPU this

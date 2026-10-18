@@ -203,10 +203,15 @@ def _run_child_now(phase: str, job: dict, log: Path,
     code: int | None = None
     cpu = 0.0
     with open(log, "w") as fh:
-        proc = subprocess.Popen(
-            cmd, stdout=fh, stderr=subprocess.STDOUT, start_new_session=True
-        )
+        # Start and register the child under the lock that kill_all() takes for
+        # its snapshot, checking the stop flag there: a child is either seen by
+        # kill_all() or never started.
         with _LOCK:
+            if _STOPPING.is_set():
+                raise KeyboardInterrupt
+            proc = subprocess.Popen(
+                cmd, stdout=fh, stderr=subprocess.STDOUT, start_new_session=True
+            )
             _ACTIVE.add(proc)
         try:
             code, cpu = _wait_rusage(proc, timeout_s)
