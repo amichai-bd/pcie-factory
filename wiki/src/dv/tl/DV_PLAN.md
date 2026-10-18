@@ -307,6 +307,46 @@ named, at its first regression seed:
 | M70 an interrupt write pops the posted data queue | `tx_requests` | assertion `a_pop_when_empty` |
 | M71 an `rq` write started before all its data is in | `tx_random` | `tlp_tx_valid_o` 0 inside a TLP |
 
+The tracker and `rc` mutants (#292), each run alone at its first
+regression seed against L0 and L1 one entry at a time (`--jobs 1`); the
+entry is the first that fails, in level then name order. Dropping only
+the sent condition from the pulse count is equivalent (the count is
+cleared when the read is sent), so M89 also drops that clear.
+
+| Mutant | Entry | Fails with |
+| --- | --- | --- |
+| M72 the Requester ID not compared | `cpl_matching` | error pulse 0x000 where unexpected 0x020 was due |
+| M73 a completion matches a read not yet sent | `cpl_matching` | Transactions Pending 0 with a read outstanding (a completion before its read was sent matched) |
+| M74 Tag bits 7:3 not checked | `cpl_matching` | error pulse 0x000 where unexpected 0x020 was due |
+| M75 a locked completion matches | `cpl_matching` | error pulse 0x000 where unexpected 0x020 was due |
+| M76 Configuration Request Retry read as Unsupported Request | `cpl_matching` | error pulse 0x080 where malformed 0x004 was due |
+| M77 Completer Abort reported as Unsupported Request | `cpl_matching` | error pulse 0x080 where 0x100 was due |
+| M78 Byte Count not checked | `cpl_matching` | error pulse 0x000 where malformed 0x004 was due |
+| M79 Lower Address not checked | `cpl_matching` | error pulse 0x000 where malformed 0x004 was due |
+| M80 no 64-byte boundary check before the end | `cpl_matching` | error pulse 0x000 where malformed 0x004 was due |
+| M81 data past the read's last DW accepted | `cpl_matching` | Transactions Pending 0 with the read still due |
+| M82 a Successful completion without data accepted | `cpl_matching` | error pulse 0x000 where malformed 0x004 was due |
+| M83 a poisoned completion's data delivered | `cpl_matching` | an rc packet with none due |
+| M84 no poisoned-completion error | `cpl_matching` | error pulse 0x000 where 0x010 was due |
+| M85 the bytes due not advanced | `cpl_matching` | malformed pulse on a valid second completion |
+| M86 the next byte not advanced | `cpl_matching` | malformed pulse on a valid second completion |
+| M87 the timeout at the 16th pulse | `cpl_random` | completion timeout with no read beyond 2048 cycles |
+| M88 the timeout at the 18th pulse | `cpl_random` | a read not timed out 2176 cycles after it was sent |
+| M89 the timer starts when the read is taken, not sent | `cpl_timeout` | a read held unsent not timed out 2176 cycles after it was sent |
+| M90 the disable ignored | `cpl_timeout` | a read not timed out 2176 cycles after the disable cleared |
+| M91 Transactions Pending only once sent | `cpl_matching` | Transactions Pending 0 with a read taken, not yet sent |
+| M92 an error status does not end the read | `cpl_matching` | Transactions Pending 1 with no read outstanding |
+| M93 no timeout error | `cpl_random` | a read not timed out 2176 cycles after it was sent |
+| M94 a timeout queues no failed beat | `cpl_random` | not drained: the failed beat never comes |
+| M95 the error held until the next decision | `cpl_matching` | error pulse 0x004 in a cycle with none due |
+| M96 a digest DW written as data | `cpl_matching` | rc data DW 0x0badc0de (the digest) where the next completion's DW was due |
+| M97 rc not ordered behind posted requests | `cpl_matching` | an rc packet before the posted write received ahead of its completion left |
+| M98 the rc eligibility kept past its pop | `cpl_matching` | an rc packet before the posted write received ahead of its completion left |
+| M99 rc_done on every beat | `cpl_matching` | `rc_done_o` 1 on a packet's first beat |
+| M100 rc_eop one beat early | `cpl_matching` | `rc_eop_o` at beat 13 of 14 |
+| M101 a tag never freed at rc_done | `cpl_matching` | assertion `a_tag_in_use` |
+| M102 a reserved status read as Completer Abort | `cpl_matching` | error pulse 0x100 where 0x080 was due |
+
 ## Gaps
 
 | Feature | Owning issue |
@@ -315,9 +355,16 @@ named, at its first regression seed:
 
 ## Coverage holes
 
-No floors yet (the gaps above remain). With L0 to L2 and `--coverage`,
-functional coverage is 100%; the uncovered lines are the tracker's slot
-ties and outputs (#292), constant until it lands, and one unreachable
-`case` default: [`pcie_tl_reg.sv`](../../../../src/rtl/tl/pcie_tl_reg.sv)
-line 141, the `default` arm of the register engine's state, which only
-the unused fourth code of the 2-bit `t_reg_st` would reach.
+No floors yet (the gap above remains). With L0 and L1 and `--coverage`,
+functional coverage is 100% and line coverage 97.7%; the uncovered lines are nets that never
+change in a credit-correct run: the receive queues' full flags
+([`pcie_tl_rx_q.sv`](../../../../src/rtl/tl/pcie_tl_rx_q.sv)), the
+posted data queue's full flag in
+[`pcie_tl_txq.sv`](../../../../src/rtl/tl/pcie_tl_txq.sv), the rc
+queues' full flags ([`pcie_tl_rc.sv`](../../../../src/rtl/tl/pcie_tl_rc.sv),
+bounded by the 8 reads), the constant empty descriptor in
+[`pcie_tl_cpl.sv`](../../../../src/rtl/tl/pcie_tl_cpl.sv); and one
+unreachable `case` default:
+[`pcie_tl_reg.sv`](../../../../src/rtl/tl/pcie_tl_reg.sv) line 141, the
+`default` arm of the register engine's state, which only the unused
+fourth code of the 2-bit `t_reg_st` would reach.
