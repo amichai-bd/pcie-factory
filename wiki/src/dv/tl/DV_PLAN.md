@@ -353,6 +353,21 @@ cleared when the read is sent), so M89 also drops that clear.
 | M104 a timeout beat not held behind its read's completion in flight | `cpl_timeout` | the failed beat (status 3) before the read's own data packet |
 | M105 a timeout beat pushed in a cycle a completion packet is queued | `cpl_timeout` | not drained: the failed beat is lost |
 
+The transmit output stage's mutants
+([#295](https://github.com/amichai-bd/pcie-factory/issues/295)), each run
+alone against L0 and L1 one entry at a time (`--jobs 1`); the entry is the
+first that fails, at its first regression seed.
+
+| Mutant | Entry | Fails with |
+| --- | --- | --- |
+| M106 the arbiter always ready (the skid slot unused, a beat lost while `out` is held) | `cpl_random` | cycle 19: `tlp_tx` sop inside a TLP |
+| M107 the skid beat skipped when `out` frees | `cpl_random` | cycle 19: `tlp_tx_valid_o` 0 inside a TLP |
+| M108 `held` never set (the ID recaptured while a `sop` is held) | `tx_random` | cycle 2215: completion mismatch (Completer ID) |
+| M109 `rq_sent` at the arbiter's take, not the link's | `cpl_matching` | cycle 13: `rq_sent` with no sop beat taken |
+| M110 the ID not filled into DW 1 | `cpl_random` | cycle 58: rq read mismatch (Requester ID 0) |
+| M111 the ID filled into DW 2 | `smoke` | cycle 22: posted TLP mismatch |
+| M112 the output stage not reset (`so_q` a `COMMON_DFF`), so a beat survives `rst` | `rx_random` | cycle 202: `tlp_tx` beat outside a TLP |
+
 ## Gaps
 
 | Feature | Owning issue |
