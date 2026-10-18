@@ -85,7 +85,7 @@ Host values come from the one `hosts.<name>` entry in
 
 Selection, first match wins: `ORFS_RUNNER` (`docker`|`native`) if set;
 `ORFS_ROOT` set means native; a cfg image means docker; a cfg root means
-native. With none of them the command exits 2. The Omarchy host has only the
+native. With none of them the command exits 2. The WSL host records only the
 pinned image; native mode is kept because it costs one `bash -c` and is what
 the unit tests drive with a fake ORFS.
 

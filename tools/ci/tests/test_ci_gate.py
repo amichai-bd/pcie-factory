@@ -52,7 +52,8 @@ def test_workflow_wires_required_results_and_preserves_guards():
 def test_every_workflow_job_runs_only_on_the_wsl_host():
     """Every job of every workflow selects the WSL host's label, the only
     supported self-hosted runner (wiki/bkm/devops.md, Continuous integration)."""
-    paths = sorted((REPO_ROOT / ".github/workflows").glob("*.yml"))
+    workflows = REPO_ROOT / ".github/workflows"
+    paths = sorted([*workflows.glob("*.yml"), *workflows.glob("*.yaml")])
     assert paths
     for path in paths:
         jobs = yaml.safe_load(path.read_text())["jobs"]

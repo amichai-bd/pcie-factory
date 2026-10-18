@@ -118,7 +118,7 @@ cached after the hook completes, so later sessions take this fast path.
 
 ### Local hosts
 
-Local hosts (including Omarchy) install the same pins by hand: Verilator from
-the tag into the pinned prefix with the listed build deps (Arch package names
-differ), `python3` >= 3.11, and `python3 -m pip install -r
+Local hosts install the same pins by hand: Verilator from
+the tag into the pinned prefix with the listed build deps (package names
+differ by distribution), `python3` >= 3.11, and `python3 -m pip install -r
 tools/requirements.txt` in whatever environment `./build` will run.
