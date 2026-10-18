@@ -25,12 +25,19 @@ def add_args(p: argparse.ArgumentParser) -> None:
                       "then the origin remote)")
     act = p.add_subparsers(dest="action", required=True, metavar="action")
     c = act.add_parser("collect", parents=[repo], help="write one nightly record")
-    c.add_argument("--out", help="output file (default: <workdir>/metrics/<date>.json)")
+    out = c.add_mutually_exclusive_group()
+    out.add_argument("--out", help="output file (default: <workdir>/metrics/<run name>)")
+    out.add_argument("--out-dir", metavar="DIR",
+                     help="write DIR/<run name>, <run name> being <date>T<HHMMSS>Z.json of the run start")
     c.add_argument("--no-github", action="store_true", help="skip the GitHub sections")
     c.add_argument("--step", action="append", default=[], metavar="NAME=OUTCOME",
                    help="nightly step outcome (pass|fail|skipped); repeatable")
     c.add_argument("--started", metavar="TIME",
                    help="UTC start of the nightly job (ISO 8601), for meta.nightly.duration_s")
+    c.add_argument("--run-id", type=_positive, metavar="ID",
+                   help="the workflow run id, for meta.run_id")
+    c.add_argument("--run-attempt", type=_positive, metavar="N",
+                   help="the workflow run attempt, for meta.run_attempt")
     c.add_argument("--now", help=argparse.SUPPRESS)  # ISO time, for tests
     s = act.add_parser("commits", parents=[repo], help="append main commits to the series")
     s.add_argument("--file", help="series file (default: <data_dir>/commits.jsonl)")
@@ -44,11 +51,17 @@ def add_args(p: argparse.ArgumentParser) -> None:
     g.add_argument("--head", default="HEAD", help="head revision (default: HEAD)")
     t = act.add_parser("trends", help="print the per-IP drop alerts of the latest nightly record")
     t.add_argument("--dir", action="append", default=[], metavar="DIR",
-                   help="directory of <date>.json records; repeatable, a later one wins on "
-                   "the same date (default: <data_dir>)")
+                   help="directory of nightly records; repeatable, a later one wins on "
+                   "the same run (default: <data_dir>)")
     r = act.add_parser("red", parents=[repo], help="open, update or close the nightly-red issue")
     r.add_argument("--outcome", required=True, choices=red.OUTCOMES)
     r.add_argument("--run-url", required=True, help="the nightly run's URL")
+
+
+def _positive(value: str) -> int:
+    if not value.isdigit() or int(value) < 1:
+        raise argparse.ArgumentTypeError(f"must be a positive integer, got {value!r}")
+    return int(value)
 
 
 def _now(value: str | None) -> datetime:
@@ -82,7 +95,9 @@ def collect(ctx: Context, args, gh_factory=Gh) -> int:
         started = _now(args.started) if args.started else None
     except ValueError:
         raise MetricsError(f"--started must be an ISO 8601 time, got {args.started!r}") from None
-    out = Path(args.out) if args.out else ctx.workdir / "metrics" / f"{now:%Y-%m-%d}.json"
+    name = record.file_name(started or now)
+    out_dir = getattr(args, "out_dir", None)
+    out = Path(args.out) if args.out else (Path(out_dir) if out_dir else ctx.workdir / "metrics") / name
     raw = None
     if not args.no_github:
         gh = gh_factory(resolve_repo(args.repo, ctx.repo_root))
@@ -90,7 +105,8 @@ def collect(ctx: Context, args, gh_factory=Gh) -> int:
         raw = github.fetch(gh, cfg, log=sys.stdout)
     rec = record.build_record(repo=ctx.repo_root, workdir=ctx.workdir, ip_ids=_ip_ids(ctx),
                               cfg=cfg, now=now, raw=raw, steps=steps, started=started,
-                              versions=record.tool_versions())
+                              versions=record.tool_versions(),
+                              run=(getattr(args, "run_id", None), getattr(args, "run_attempt", None)))
     record.write_checked(rec, out, record.host_terms())
     for key in ("code", "tests", "coverage", "fpga", "asic", "arch"):
         print(f"[metrics] {key}: {rec[key]['status']}")
@@ -127,17 +143,11 @@ def series(ctx: Context, args, gh_factory=Gh) -> int:
     return 0
 
 
-def _record_date(data: dict, stem: str) -> str | None:
-    meta = data.get("meta")
-    raw = meta.get("date") if isinstance(meta, dict) else None
-    raw = raw if isinstance(raw, str) else stem
-    return raw[:10] if re.match(r"^\d{4}-\d{2}-\d{2}", raw) else None
-
-
 def load_history(dirs: list[Path]) -> tuple[list[tuple[str, dict]], list[str]]:
-    """(date, record) oldest first from every `*.json` in `dirs`, and notes
-    on the files skipped (unreadable, not schema 1, no date)."""
-    by_date, notes = {}, []
+    """(run label, record) in run order from every `*.json` in `dirs`, one
+    per run (a later dir wins on the same run), and notes on the files
+    skipped (unreadable, not schema 1, no date)."""
+    by_run, notes = {}, []
     for d in dirs:
         for f in sorted(d.glob("*.json")) if d.is_dir() else []:
             try:
@@ -148,12 +158,12 @@ def load_history(dirs: list[Path]) -> tuple[list[tuple[str, dict]], list[str]]:
             if not isinstance(data, dict) or data.get("schema_version") != record.SCHEMA_VERSION:
                 notes.append(f"{f.name}: not a schema {record.SCHEMA_VERSION} record; skipped")
                 continue
-            date = _record_date(data, f.stem)
-            if not date:
+            if not trends.run_date(data, f.stem):
                 notes.append(f"{f.name}: no YYYY-MM-DD date; skipped")
                 continue
-            by_date[date] = data
-    return sorted(by_date.items()), notes
+            by_run[trends.run_identity(data, f.stem)] = (trends.run_order(data, f.stem), f.stem, data)
+    ordered = sorted(by_run.values(), key=lambda x: x[0])
+    return [(trends.run_label(data, stem), data) for _, stem, data in ordered], notes
 
 
 def _short_sha(data: dict) -> str | None:
@@ -168,11 +178,11 @@ def summary(history: list[tuple[str, dict]], thresholds: dict) -> str:
     if not history:
         return "\n".join(out + ["No nightly records found.", ""])
     records = [r for _, r in history]
-    date, last = history[-1]
+    label, last = history[-1]
     commit = _short_sha(last)
     found = trends.alerts(records, thresholds)
-    out.append(f"Latest nightly {date}{f' at `{commit}`' if commit else ''}, over {len(history)} records; "
-               "each series is compared with its previous recorded value "
+    out.append(f"Latest nightly {label}{f' at `{commit}`' if commit else ''}, over {len(history)} runs; "
+               "each series is compared with its previous recorded value, run by run "
                "(thresholds: `drop_alerts` in `cfg/metrics.yaml`).")
     out.append("")
     if not found:

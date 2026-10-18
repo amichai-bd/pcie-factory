@@ -1,8 +1,9 @@
 // Tracker charts: draws every <canvas data-chart> from the page's
 // <script id="tracker-data"> JSON with the vendored Chart.js (assets/chart.umd.js,
-// loaded by wiki.js). Trends share one x axis and one x range per page, main
-// commits in order, labelled by short SHA with the date in the tooltip;
-// histograms are bar charts.
+// loaded by wiki.js). A trend sits on one of two x axes: main commits in order,
+// labelled by short SHA with the date in the tooltip, or nightly runs in run
+// order, labelled by UTC start with the commit in the tooltip. The trends of a
+// page on one axis share one x range; histograms are bar charts.
 // Colours come from CSS custom properties, so a theme change redraws in the
 // new palette. See wiki/tools/wiki_site/SPEC.md#tracker.
 (function () {
@@ -10,7 +11,8 @@
   var node = document.getElementById("tracker-data");
   if (!node || !window.Chart) return;
   var data = JSON.parse(node.textContent);
-  var axis = data.axis || [];
+  var axes = { commit: data.axis || [], run: data.runs || [] };
+  var ranges = { commit: data.xrange || [], run: data.run_xrange || [] };
   var drawn = [];
 
   function css(name) {
@@ -24,7 +26,6 @@
       : a >= 100 ? v.toFixed(1) : String(Number(v.toPrecision(3)));
     return s.replace(/^-/, "−");
   }
-  function commit(i) { var a = axis[Math.round(i)]; return a ? a[0] : ""; }
 
   function base(spec, ink, grid, xTitle) {
     return {
@@ -46,8 +47,9 @@
   }
 
   function trend(spec, ink, grid) {
-    var opts = base(spec, ink, grid, "Commit on main (short SHA)");
-    var xs = (data.xrange || []).slice();  // the page's shared range, so trends line up vertically
+    var on = spec.axis === "run" ? "run" : "commit", axis = axes[on];
+    var opts = base(spec, ink, grid, on === "run" ? "Nightly run (UTC start)" : "Commit on main (short SHA)");
+    var xs = ranges[on].slice();  // the page's shared range per axis, so trends line up vertically
     if (!xs.length) spec.series.forEach(function (s) { s.points.forEach(function (p) { xs.push(p[0]); }); });
     var lo = Math.min.apply(null, xs), hi = Math.max.apply(null, xs);
     opts.scales.x.type = "linear";
@@ -59,9 +61,9 @@
     opts.scales.x.ticks.autoSkip = true;
     opts.scales.x.ticks.maxRotation = 0;
     if (spec.max_ticks) opts.scales.x.ticks.maxTicksLimit = spec.max_ticks;
-    opts.scales.x.ticks.callback = function (v) { return commit(v); };
+    opts.scales.x.ticks.callback = function (v) { var a = axis[Math.round(v)]; return a ? a[0] : ""; };
     opts.scales.x.grid.display = false;
-    opts.scales.x.afterBuildTicks = function (scale) {  // one tick per commit; autoSkip thins labels
+    opts.scales.x.afterBuildTicks = function (scale) {  // one tick per commit or run; autoSkip thins labels
       var t = [];
       for (var i = Math.ceil(scale.min); i <= Math.floor(scale.max); i++) t.push({ value: i });
       scale.ticks = t;

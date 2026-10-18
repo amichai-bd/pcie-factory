@@ -273,7 +273,8 @@ permissions and data PR mechanics:
    leave the host: the logs themselves stay in `workdir/` and are never
    uploaded as artifacts (publishability).
 3. Metrics: the per-commit series `wiki/tracker/data/commits.jsonl` and the
-   nightly record `wiki/tracker/data/<date>.json` (versioned schemas), and
+   run's own record `wiki/tracker/data/<date>T<HHMMSS>Z.json`, named by its
+   UTC start so a same-day rerun never overwrites one (versioned schemas), and
    the per-IP trend drop alerts (thresholds in `cfg/metrics.yaml`) in the
    job summary and on the tracker ([trends](../tools/metrics/SPEC.md#trends)).
 4. A data PR from branch `nightly/<date>`, labelled `type:data`, under the
@@ -287,12 +288,13 @@ permissions and data PR mechanics:
 
 ## Metrics
 
-Every trend is plotted against commits on `main`, in order. The data:
+Per-commit trends are plotted against commits on `main`, in order; nightly
+trends against every nightly run, in run order. The data:
 
 | File | Holds |
 | --- | --- |
 | `commits.jsonl` | One line per main commit: code stats of its tree and its push `ci-gate` result and duration. Appended nightly; the first run backfills history. |
-| `<date>.json` | One record per night, keyed by the main SHA it ran on. |
+| `<date>T<HHMMSS>Z.json` | One record per nightly run, named by its UTC start, naming the main SHA it ran on. |
 
 | Group | Metrics |
 | --- | --- |

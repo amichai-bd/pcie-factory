@@ -128,7 +128,7 @@ def test_summary_lists_the_latest_drops(tmp_path, capsys):
     rc, out, _ = run_trends(tmp_path, capsys, HISTORY)
     assert rc == 0
     assert out.startswith("## Trend drop alerts\n")
-    assert "Latest nightly 2026-01-04 at `0000000`, over 4 records" in out
+    assert "Latest nightly 2026-01-04 at `0000000`, over 4 runs" in out
     rows = [r for r in out.splitlines() if r.startswith("| `")]
     assert rows == [
         "| `alpha` | Line coverage | 90% (2026-01-02) | 88.5% | −1.5 pts | 1 pts |",
@@ -160,6 +160,68 @@ def test_later_dir_wins_and_bad_files_are_skipped(tmp_path, capsys):
     assert rc == 0 and "FPGA Fmax" not in out and "Line coverage" in out
     assert "broken.json: not a readable JSON record; skipped" in err
     assert "2026-01-05.json: not a schema 1 record; skipped" in err
+
+
+def run(started: str | None, line_pct: float | None, generated: str | None = None, date: str | None = None) -> str:
+    """A minimal record of one run with `alpha` line coverage."""
+    meta = {"generated_at": generated or started, "started_at": started}
+    if date:
+        meta["date"] = date
+    cov = {"ips": {"alpha": {"line": {"pct": line_pct}}}} if line_pct is not None else {}
+    return json.dumps({"schema_version": 1, "meta": meta, "coverage": cov})
+
+
+def test_same_day_runs_are_consecutive_records(tmp_path, capsys):
+    # Three runs on one day plus an older date-named record: four records in
+    # run order, and the drop between the day's last two runs is the alert.
+    d = tmp_path / "data"
+    d.mkdir()
+    (d / "2026-02-01.json").write_text(json.dumps({"schema_version": 1, "meta": {"date": "2026-02-01"},
+                                                   "coverage": {"ips": {"alpha": {"line": {"pct": 80.0}}}}}))
+    (d / "2026-02-02T031700Z.json").write_text(run("2026-02-02T03:17:00Z", 90.0))
+    (d / "2026-02-02T090000Z.json").write_text(run("2026-02-02T09:00:00Z", 91.0))
+    (d / "2026-02-02T183000Z.json").write_text(run("2026-02-02T18:30:00Z", 88.0))
+    history, notes = cli.load_history([d])
+    assert notes == []
+    assert [label for label, _ in history] == ["2026-02-01", "2026-02-02 03:17", "2026-02-02 09:00", "2026-02-02 18:30"]
+    rc, out, _ = run_trends(tmp_path, capsys, d)
+    assert "Latest nightly 2026-02-02 18:30, over 4 runs" in out
+    rows = [r for r in out.splitlines() if r.startswith("| `")]
+    assert rows == ["| `alpha` | Line coverage | 91% (2026-02-02 09:00) | 88% | −3 pts | 1 pts |"]
+
+
+def test_run_order_is_the_start_time_not_the_file_name(tmp_path):
+    # File names that disagree with the records: the start time orders them,
+    # a record without a start falls back to generated_at, then to its date.
+    d = tmp_path / "data"
+    d.mkdir()
+    (d / "b.json").write_text(run("2026-02-02T01:00:00Z", 90.0))
+    (d / "a.json").write_text(run(None, 70.0, generated="2026-02-02T05:00:00Z"))
+    (d / "c.json").write_text(run(None, 60.0, generated="not-a-time", date="2026-02-01"))
+    history, _ = cli.load_history([d])
+    assert [r["coverage"]["ips"]["alpha"]["line"]["pct"] for _, r in history] == [60.0, 90.0, 70.0]
+    assert keys(trends.alerts([r for _, r in history], {"coverage_line": 1.0})) == [("alpha", "coverage_line", 2)]
+
+
+def test_one_run_in_two_files_is_one_record(tmp_path):
+    # A run restored under its per-run name while its old date file remains,
+    # or tonight's file passed again by a later --dir: one record per run.
+    old, new = tmp_path / "old", tmp_path / "new"
+    old.mkdir(), new.mkdir()
+    (old / "2026-02-02.json").write_text(run("2026-02-02T03:17:00Z", 90.0, generated="2026-02-02T05:00:00Z"))
+    (old / "2026-02-02T031700Z.json").write_text(run("2026-02-02T03:17:00Z", 90.0, generated="2026-02-02T05:00:00Z"))
+    (new / "2026-02-02T031700Z.json").write_text(run("2026-02-02T03:17:00Z", 85.0, generated="2026-02-02T05:00:00Z"))
+    history, _ = cli.load_history([old])
+    assert len(history) == 1
+    history, _ = cli.load_history([old, new])
+    assert len(history) == 1 and history[0][1]["coverage"]["ips"]["alpha"]["line"]["pct"] == 85.0
+
+
+def test_run_helpers_on_odd_records():
+    assert trends.run_date({}, "2026-02-03T120000Z") == "2026-02-03"
+    assert trends.run_date({"meta": "x"}, "notes") is None
+    assert trends.run_label({"meta": {"started_at": "2026-02-03T12:34:56+02:00"}}, "x") == "2026-02-03 10:34"
+    assert trends.run_identity({"meta": {"generated_at": 5}}, "s") == "file:s"
 
 
 def test_default_dir_is_the_data_dir(tmp_path, capsys):

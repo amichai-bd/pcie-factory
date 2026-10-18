@@ -86,10 +86,14 @@ def test_fixture_data_renders_every_section(tmp_path):
                 "open-issue-age"):
         spec = charts[f"hist-{key}"]
         assert spec["kind"] == "hist" and len(spec["labels"]) == len(spec["counts"]) and sum(spec["counts"]) > 0
-    # nightly points sit on the commit axis at the commit they ran on
+    # nightly points sit on the run axis, one slot per run, labelled by its
+    # time and carrying the commit it ran on
     first_night = json.loads((FIXTURES / "2026-09-03.json").read_text())
-    idx = [i for i, a in enumerate(data["axis"]) if first_night["meta"]["commit"].startswith(a[0])][0]
-    assert charts["nightly-duration"]["series"][0]["points"][0][0] == idx
+    assert len(data["runs"]) == 12 and data["runs"][0] == ["2026-09-03 03:00", first_night["meta"]["commit"][:7]]
+    assert charts["nightly-duration"]["axis"] == "run" and charts["ci-duration"]["axis"] == "commit"
+    assert charts["nightly-duration"]["series"][0]["points"][0][0] == 0
+    assert data["run_xrange"] == [0, 11] and data["xrange"] == [0, 35]
+    assert "Data table (every nightly run, 12)" in html
     # ci-gate pass and fail runs are separate marker series: colour plus shape
     series = {s["label"]: s for s in charts["ci-duration"]["series"]}
     assert series["ci-gate failed"]["color"] == "critical" and series["ci-gate failed"]["shape"] == "crossRot"
@@ -146,6 +150,7 @@ def test_per_ip_pages_and_sidebar(tmp_path):
 def test_ip_page_asic_per_clock_trends(tmp_path):
     rec = json.loads((FIXTURES / "2026-10-06.json").read_text())
     rec["meta"]["date"] = "2026-10-09"
+    rec["meta"]["generated_at"] = "2026-10-09T03:00:00Z"  # another run
     rec["asic"]["ips"]["beta"]["timing"]["clocks"] = {
         "rx_side": {"setup_ws_ns": 1.5, "wns_ns": 0.0, "tns_ns": 0.0},
         "core": {"setup_ws_ns": -0.25, "wns_ns": -0.25, "tns_ns": -3.0}}
@@ -258,7 +263,7 @@ def test_partial_groups_and_unknown_fields(tmp_path):
     assert problems == []
     html = (out / "tracker/details/index.html").read_text()
     data = chart_data(html)
-    assert data["axis"] == [[sha(7)[:7], "2026-09-05"]]  # no commits.jsonl: nightly SHAs form the axis
+    assert data["axis"] == [] and data["runs"] == [["2026-09-05", sha(7)[:7]]]  # no commits.jsonl: runs only
     assert data["charts"]["nightly-duration"]["series"][0]["label"] == "Nightly failed"
     for msg in ("No ci-gate data yet.", "No FPGA metrics yet.", "No ASIC metrics yet.",
                 "No slowest-test data yet.", "No file distribution yet.", "No issue or pull request data yet."):
@@ -275,7 +280,8 @@ def test_commit_index_orders_the_axis(tmp_path):
     assert problems == []
     data = chart_data((out / "tracker/details/index.html").read_text())
     assert [a[1] for a in data["axis"]] == ["2026-09-01", "2026-09-02", "2026-09-03"]
-    assert data["charts"]["nightly-duration"]["series"][0]["points"] == [[1, 1]]
+    assert data["charts"]["nightly-duration"]["series"][0]["points"] == [[0, 1]]
+    assert data["runs"] == [["2026-09-02", sha(1)[:7]]]
 
 
 def test_nightly_duration_is_the_collector_field(tmp_path):
@@ -290,16 +296,16 @@ def test_nightly_duration_is_the_collector_field(tmp_path):
     assert data["charts"]["nightly-duration"]["series"][0]["points"] == [[1, 3]]
 
 
-def test_trends_share_one_x_range(tmp_path):
-    # commit trends span 0..3, the nightly trend only 2..3: all line up on 0..3
+def test_trends_share_one_x_range_per_axis(tmp_path):
+    # commit trends span commits 0..3; the nightly trends span runs 0..1, on their own axis
     lines = "".join(commit(i, f"2026-09-0{i + 1}", code={"total": {"loc": 10 * (i + 1)}}) for i in range(4))
     problems, out = build(tree(tmp_path, {"commits.jsonl": lines,
                                           "2026-09-03.json": nightly("2026-09-03", 2, "pass", 60),
                                           "2026-09-04.json": nightly("2026-09-04", 3, "pass", 120)}))
     assert problems == []
     data = chart_data((out / "tracker/details/index.html").read_text())
-    assert data["xrange"] == [0, 3]
-    assert [p[0] for p in data["charts"]["nightly-duration"]["series"][0]["points"]] == [2, 3]
+    assert data["xrange"] == [0, 3] and data["run_xrange"] == [0, 1]
+    assert [p[0] for p in data["charts"]["nightly-duration"]["series"][0]["points"]] == [0, 1]
 
 
 def test_flow_charts_keep_every_ip_with_data(tmp_path):
@@ -641,8 +647,11 @@ def test_overview_keeps_only_recent_runtime_charts_and_links_details(tmp_path):
     charts = chart_data(html)["charts"]
     assert set(charts) == {"ci-duration", "nightly-duration"}
     assert all(chart["max_ticks"] == 4 for chart in charts.values())
-    assert min(point[0] for chart in charts.values() for series in chart["series"]
+    assert min(point[0] for series in charts["ci-duration"]["series"]
                for point in series["points"]) >= 6  # 36 commits, last 30 only
+    # every nightly run, however old its commit
+    assert sorted(point[0] for series in charts["nightly-duration"]["series"]
+                  for point in series["points"]) == list(range(12))
     assert html.count('class="tracker-card"') == 4
     assert 'Data table (latest' in html
     assert html.index('tracker-overview-cards') < html.index('Needs attention') < html.index('Recent runtimes')
@@ -878,3 +887,82 @@ def test_an_earlier_drop_is_history_not_an_alert(tmp_path):
     page = (out / "tracker/ip/alpha/index.html").read_text()
     section = page[page.index('id="drop-alerts"'):]
     assert "<td>2026-01-02</td><td>Line coverage</td>" in section and "alert</span>" not in section
+
+
+# ------------------------------------------------------ every nightly run
+def run_rec(n: int, started: str, result: str = "pass", duration: float = 60, **extra) -> str:
+    """A per-run record on commit `n`, started at `started` (UTC ISO)."""
+    meta = {"date": started[:10], "commit": sha(n), "started_at": started, "generated_at": started,
+            "nightly": {"result": result, "duration_s": duration}}
+    return json.dumps({"schema_version": 1, "meta": meta, **extra})
+
+
+def runs_tree(root: Path, n_commits: int = 40) -> Path:
+    # Commits 0..39; a date-named record on commit 0 (outside the landing's
+    # 30-commit window), three runs on one day, two of them on one commit.
+    lines = "".join(commit(i, f"2026-09-{1 + i // 4:02d}") for i in range(n_commits))
+    cov = lambda v: {"coverage": {"ips": {"alpha": {"line": {"pct": v}}}}}  # noqa: E731
+    return tree(root, {
+        "commits.jsonl": lines,
+        "2026-09-01.json": nightly("2026-09-01", 0, "pass", 120, **cov(90.0)),
+        "2026-09-10T031700Z.json": run_rec(36, "2026-09-10T03:17:00Z", duration=180, **cov(91.0)),
+        "2026-09-10T120500Z.json": run_rec(38, "2026-09-10T12:05:00Z", "fail", 240, **cov(92.0)),
+        "2026-09-10T183000Z.json": run_rec(38, "2026-09-10T18:30:00Z", duration=300, **cov(88.0)),
+    })
+
+
+def test_every_nightly_run_is_a_point_in_run_order(tmp_path):
+    problems, out = build(runs_tree(tmp_path))
+    assert problems == []
+    details = (out / "tracker/details/index.html").read_text()
+    data = chart_data(details)
+    assert data["runs"] == [["2026-09-01", sha(0)[:7]], ["2026-09-10 03:17", sha(36)[:7]],
+                            ["2026-09-10 12:05", sha(38)[:7]], ["2026-09-10 18:30", sha(38)[:7]]]
+    points = sorted(pt for s in data["charts"]["nightly-duration"]["series"] for pt in s["points"])
+    assert points == [[0, 2], [1, 3], [2, 4], [3, 5]]  # two runs on one commit stay two points
+    # the data table lists every run, newest first, with its commit
+    fig = details[details.index('id="chart-nightly-duration"'):].split("</figure>")[0]
+    assert re.findall(r"<tr><td>([^<]*)</td>", fig) == ["2026-09-10 18:30", "2026-09-10 12:05",
+                                                        "2026-09-10 03:17", "2026-09-01"]
+    # the landing page keeps the 30-commit CI window, but shows every nightly run
+    landing = chart_data(overview_html(out))["charts"]
+    assert sorted(pt[0] for s in landing["nightly-duration"]["series"] for pt in s["points"]) == [0, 1, 2, 3]
+    assert "Nightly: every run (4)" in overview_html(out)
+    # the latest snapshot is the newest run
+    assert "Nightly snapshot: 2026-09-10 18:30 · <code>" + sha(38)[:7] in overview_html(out)
+    ip = chart_data((out / "tracker/ip/alpha/index.html").read_text())["charts"]
+    assert [pt[0] for pt in ip["ip-coverage"]["series"][0]["points"]] == [0, 1, 2, 3]
+
+
+def test_drop_alerts_compare_consecutive_runs(tmp_path):
+    root = runs_tree(tmp_path)
+    (root / "cfg").mkdir()
+    (root / "cfg/metrics.yaml").write_text((REPO / "cfg/metrics.yaml").read_text())
+    problems, out = build(root)
+    assert problems == []
+    page = (out / "tracker/ip/alpha/index.html").read_text()
+    section = page[page.index('id="drop-alerts"'):]
+    # 92 -> 88 between the day's last two runs; the earlier same-day run is the "previous"
+    assert "<td>2026-09-10 18:30 " in section and "alert</span>" in section
+    assert '92% <span class="tracker-when">2026-09-10 12:05</span>' in section
+
+
+def test_more_runs_than_table_rows_all_listed(tmp_path):
+    n = tracker.TABLE_ROWS + 5
+    recs = {f"2026-09-01T{h:02d}0000Z.json": run_rec(0, f"2026-09-01T{h:02d}:00:00Z", duration=60 * (h + 1))
+            for h in range(n - 24)}
+    recs.update({f"2026-09-02T{h:02d}0000Z.json": run_rec(1, f"2026-09-02T{h:02d}:00:00Z") for h in range(24)})
+    problems, out = build(tree(tmp_path, {"commits.jsonl": commit(0, "2026-09-01") + commit(1, "2026-09-02"),
+                                          **recs}))
+    assert problems == []
+    details = (out / "tracker/details/index.html").read_text()
+    assert len(chart_data(details)["runs"]) == n
+    assert f"Data table (every nightly run, {n})" in details
+
+
+def test_one_run_in_two_files_is_a_problem(tmp_path):
+    rec = run_rec(1, "2026-09-02T03:00:00Z")
+    problems, out = build(tree(tmp_path, {"commits.jsonl": commit(1, "2026-09-02"),
+                                          "2026-09-02.json": rec, "2026-09-02T030000Z.json": rec}))
+    assert len(problems) == 1 and "a second record of the run in 2026-09-02.json" in problems[0]
+    assert len(chart_data((out / "tracker/details/index.html").read_text())["runs"]) == 1
