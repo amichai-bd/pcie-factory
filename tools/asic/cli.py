@@ -45,6 +45,8 @@ def run(ctx: Context, args) -> int:
     say(f"[asic] {ip.id}: {plan.design} on {plan.platform}, "
         f"runner {orfs.runner} ({orfs.image if orfs.runner == 'docker' else orfs.root}, "
         f"from {orfs.source})")
+    for old, new in plan.backends:
+        say(f"[asic] backend: {new} replaces {old}")
     if plan.study_clock_period_ns is not None:
         say(f"[asic] clock study: {plan.study_clock_period_ns:g} ns; "
             f"default target remains {plan.clock_period_ns} ns")
@@ -67,6 +69,8 @@ def run(ctx: Context, args) -> int:
         f"area {a['stdcell_um2']} um2, cells {doc['cells']}, util {doc['utilization']}, "
         f"max fanout {doc['max_fanout']['value']}, logic depth {doc['logic_depth']['value']}, "
         f"worst path {doc['worst_path'].get('from')} -> {doc['worst_path'].get('to')}")
+    peak = doc.get("peak_memory") or {}
+    say(f"[asic] peak memory: {peak.get('mb')} MB in {peak.get('step')}")
     say(f"[asic] metrics: {plan.metrics_json}")
     say(f"[asic] log: {plan.flow_log}")
     return code

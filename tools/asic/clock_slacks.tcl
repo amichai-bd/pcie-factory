@@ -6,7 +6,8 @@
 # Spec: wiki/tools/asic/SPEC.md.
 #
 # For each SDC clock: the worst slack and the total negative slack over the
-# constrained setup endpoints it captures (one worst path per endpoint).
+# constrained setup endpoints it captures (one worst path per endpoint), and
+# the start and end points of its five worst endpoints' paths.
 # The result is required: missing or empty, the run is incomplete.
 
 source $::env(SCRIPTS_DIR)/load.tcl
@@ -29,7 +30,7 @@ proc asic_clock_slacks {} {
   }
   set result {}
   foreach clk [all_clocks] {
-    dict set result [get_property $clk name] [dict create ws "" tns 0.0]
+    dict set result [get_property $clk name] [dict create ws "" tns 0.0 paths {}]
   }
   # One path per endpoint: the worst one, so the sum of the negative ones is
   # the TNS. The option names changed in OpenSTA; accept either.
@@ -46,7 +47,14 @@ proc asic_clock_slacks {} {
     set name [get_property $clk name]
     set slack [expr { double([get_property $end slack]) }]
     if { ![dict exists $result $name] } {
-      dict set result $name [dict create ws "" tns 0.0]
+      dict set result $name [dict create ws "" tns 0.0 paths {}]
+    }
+    # Start and end point names; a failure only drops this path's names.
+    if { ![catch { set from [get_full_name [get_property $end startpoint]]
+                   set to [get_full_name [get_property $end endpoint]] }] } {
+      set paths [dict get $result $name paths]
+      lappend paths [list $slack $from $to]
+      dict set result $name paths $paths
     }
     set ws [dict get $result $name ws]
     if { $ws eq "" || $slack < $ws } {
@@ -55,6 +63,11 @@ proc asic_clock_slacks {} {
     if { $slack < 0 } {
       dict set result $name tns [expr { [dict get $result $name tns] + $slack }]
     }
+  }
+  # Keep the five worst paths of each clock.
+  dict for {name v} $result {
+    set paths [lrange [lsort -real -index 0 [dict get $v paths]] 0 4]
+    dict set result $name paths $paths
   }
   return $result
 }
@@ -83,7 +96,11 @@ proc asic_json_string { s } {
 
 set clocks {}
 dict for {name v} $clock_slacks {
-  lappend clocks "    [asic_json_string $name]: {\"setup_ws\": [asic_json_number [dict get $v ws]], \"setup_tns\": [asic_json_number [dict get $v tns]]}"
+  set paths {}
+  foreach p [dict get $v paths] {
+    lappend paths "{\"slack\": [asic_json_number [lindex $p 0]], \"from\": [asic_json_string [lindex $p 1]], \"to\": [asic_json_string [lindex $p 2]]}"
+  }
+  lappend clocks "    [asic_json_string $name]: {\"setup_ws\": [asic_json_number [dict get $v ws]], \"setup_tns\": [asic_json_number [dict get $v tns]], \"worst_paths\": \[[join $paths ", "]\]}"
 }
 set out [open $::env(REPORTS_DIR)/asic_clocks.json w]
 if { [llength $clocks] } {

@@ -9,3 +9,6 @@
 fpga:
   suffix: intel
   dv_models: [dv/common/tb/altsyncram.sv]
+asic:
+  suffix: sky130
+  dv_models: [dv/common/tb/sky130_sram_1rw1r_64x256_8.sv]

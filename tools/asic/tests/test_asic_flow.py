@@ -95,6 +95,7 @@ def test_nickname_and_output_follow_the_ip_id(ctx, tmp_path):
     ("export RESULTS_DIR = /tmp\n", "RESULTS_DIR"),
     ("DESIGN_CONFIG := x\n", "DESIGN_CONFIG"),
     ("NUM_CORES = 64\n", "NUM_CORES"),
+    ("export ASIC_INPUT_DIR = /tmp\n", "ASIC_INPUT_DIR"),
 ])
 def test_mk_must_not_set_tool_owned(ctx, bad, message):
     (ctx.src_root / "asic" / "counter" / "sky130hd.mk").write_text(MK + bad)
@@ -130,6 +131,54 @@ def test_unknown_platform(ctx):
     ip = find_ip(discover(ctx.src_root), "counter")
     with pytest.raises(flow.AsicError, match="unknown platform"):
         flow.make_plan(ctx, ip, "nope")
+
+
+def test_config_mk_exports_the_input_dir_before_the_knobs(ctx):
+    text = flow.render_config_mk(plan_for(ctx))
+    asic = ctx.src_root / "asic" / "counter"
+    assert f"export ASIC_INPUT_DIR = {asic}\n" in text
+    assert text.index("export ASIC_INPUT_DIR") < text.index(f"include {asic / 'sky130hd.mk'}")
+
+
+# --- source backends (cfg/backends.yaml: asic -> suffix sky130) ---
+
+BACKEND_SV = """\
+module inc (input logic clk_i);
+endmodule
+"""
+
+
+def test_backend_file_replaces_its_portable_file_in_place(ctx):
+    rtl = ctx.src_root / "rtl" / "counter_inc"
+    alt = rtl / "inc_sky130.sv"
+    alt.write_text(BACKEND_SV)
+    plan = plan_for(ctx)
+    assert plan.backends == [((rtl / "inc.sv").resolve(), alt.resolve())]
+    assert (rtl / "inc.sv").resolve() not in plan.sources
+    files = flow.render_config_mk(plan).split("export VERILOG_FILES = ", 1)[1].split("export ", 1)[0]
+    # Filelist order is kept: the backend sits where the portable file was.
+    assert files.index("inc_sky130.sv") < files.index("counter.sv")
+
+
+def test_no_backend_file_keeps_the_filelist(ctx):
+    plan = plan_for(ctx)
+    assert plan.backends == []
+    assert all(not p.stem.endswith("_sky130") for p in plan.sources)
+
+
+def test_other_flows_backend_is_ignored(ctx):
+    rtl = ctx.src_root / "rtl" / "counter_inc"
+    (rtl / "inc_intel.sv").write_text(BACKEND_SV)
+    assert plan_for(ctx).backends == []
+
+
+def test_listed_backend_file_is_an_error(ctx):
+    rtl = ctx.src_root / "rtl" / "counter_inc"
+    (rtl / "inc_sky130.sv").write_text(BACKEND_SV)
+    f = rtl / "counter_inc.rtl.f"
+    f.write_text(f.read_text() + "inc_sky130.sv\n")
+    with pytest.raises(flow.AsicError, match="lists a backend file"):
+        plan_for(ctx)
 
 
 # --- ORFS settings ---
@@ -210,6 +259,9 @@ def test_docker_wrap_mounts_and_image(ctx, tmp_path):
                  f"--pids-limit={flow.DOCKER_PIDS}", f"--cpus={flow.DEFAULT_CORES}",
                  f"--memory={flow.DOCKER_MEMORY}"):
         assert flag in argv
+    # The captain's 6 GB limit (swap included): the swap cap equals the memory cap.
+    assert flow.DOCKER_MEMORY == "6g"
+    assert "--memory=6g" in argv and "--memory-swap=6g" in argv
     mounts = [argv[i + 1] for i, a in enumerate(argv) if a == "-v"]
     assert f"{ctx.workdir}:{ctx.workdir}:rw" in mounts
     assert f"{ctx.repo_root}:{ctx.repo_root}:ro" in mounts

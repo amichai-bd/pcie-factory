@@ -191,3 +191,54 @@ def test_full_clocks_file_has_no_warning():
 def test_clock_slacks_reject_non_numbers():
     clocks = metrics.clock_slacks({"clocks": {"c": {"setup_ws": "x", "setup_tns": True}}})
     assert clocks == {"c": {"setup_ws_ns": None, "wns_ns": None, "tns_ns": None}}
+
+
+def test_peak_memory_is_the_largest_step_peak():
+    line = "Elapsed time: 0:04.26[h:]min:sec. CPU time: user 4.08 sys 0.17 (99%). Peak memory: {}KB."
+    logs = {"2_1_floorplan": line.format(671508), "5_2_route": "x\n" + line.format(3145728),
+            "1_2_yosys": line.format(1024)}
+    assert metrics.peak_memory(logs) == {"mb": 3072.0, "step": "5_2_route"}
+
+
+def test_peak_memory_absent_or_malformed():
+    assert metrics.peak_memory({}) == {"mb": None, "step": None}
+    assert metrics.peak_memory({"a": "Peak memory: lots"}) == {"mb": None, "step": None}
+
+
+def test_peak_memory_in_the_summary(tmp_path):
+    logs = tmp_path / "logs" / "sky130hd" / "counter" / "base"
+    logs.mkdir(parents=True)
+    (logs / "3_3_place_gp.log").write_text("Peak memory: 2048KB.\n")
+    summary, _ = metrics.collect(tmp_path, "sky130hd", "counter")
+    assert summary["peak_memory"] == {"mb": 2.0, "step": "3_3_place_gp"}
+
+
+def _max_section() -> str:
+    text = (ORFS / "reports" / "6_finish.rpt").read_text()
+    return text[text.index("finish report_checks -path_delay max"):]
+
+
+def test_worst_path_is_the_least_slack_of_the_section():
+    # Two paths in one max section (one per path group, as OpenSTA prints
+    # them): the second, with less slack, is the worst.
+    body = _max_section().split("\n", 2)[2]
+    worse = body.replace("valid_i (input port", "other_i (input port").replace(
+        "6.01   slack (MET)", "-1.50   slack (VIOLATED)")
+    text = "finish report_checks -path_delay max\n----\n" + body + worse
+    path = metrics.parse_worst_path(text)
+    assert path["from"] == "other_i" and path["slack_ns"] == -1.5
+
+
+def test_worst_path_ignores_the_next_report_section():
+    body = _max_section()
+    later = ("=" * 74 + "\nfinish report_checks -unconstrained\n" + "-" * 74 + "\n"
+             + body.split("\n", 2)[2].replace("6.01   slack (MET)", "-9.00   slack (VIOLATED)"))
+    assert metrics.parse_worst_path(body + later)["slack_ns"] == 6.01
+
+
+def test_clock_worst_paths_pass_through():
+    doc = {"clocks": {"clk": {"setup_ws": -2.0, "setup_tns": -3.5, "worst_paths": [
+        {"slack": -2.0, "from": "u\\[3\\]/Q", "to": "v/D"}, {"slack": "x", "from": 1, "to": "w"}]}}}
+    got = metrics.clock_slacks(doc)["clk"]
+    assert got["worst_paths"] == [{"slack_ns": -2.0, "from": "u[3]/Q", "to": "v/D"}]
+    assert "worst_paths" not in metrics.clock_slacks({"clocks": {"c": {"setup_ws": 1.0}}})["c"]
