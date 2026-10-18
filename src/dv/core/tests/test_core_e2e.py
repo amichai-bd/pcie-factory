@@ -477,12 +477,18 @@ async def e2e_cpl_timeout(dut):
     assert ds & DS_NFED and not ds & DS_TP, f"Device Status {ds >> 16:#06x} after the timeout"
     # The late completion: unexpected, advisory, ERR_COR.
     t = env.host.dropped[-1]
+    await cfg_wr(env, DEVCTL, 0xF << 16, 0b1100)       # clear Device Status (RW1C)
+    ds = await cfg_rd(env, DEVCTL)
+    assert not ds & DS_CED, f"Device Status {ds >> 16:#06x}: not cleared"
     m1 = len(h.messages)
     h.send_request(ht.completion(HOST_RID, t.requester_id, t.tag, ht.CPL_SC, 16, lost & 0x7F,
                                  bytes(16)))
     await env.until(lambda: tl_errs(env, 5) == 1, 2000, "unexpected completion")
     await env.cycles(300)
     assert msgs(env, m1) == [ht.MSG_ERR_COR], [hex(c) for c in msgs(env, m1)]
+    ds = await cfg_rd(env, DEVCTL)
+    assert ds & DS_CED, (f"Device Status {ds >> 16:#06x}: Correctable Error Detected 0 after "
+                         "the unexpected completion")
     # Completion Timeout Disable: no timeout while set; a fresh one after.
     await cfg_wr(env, DEVCTL2, 1 << 4, 0b0001)
     r2 = app.read(lost, 4)
@@ -699,6 +705,8 @@ async def _throughput(dut, kind: str, tlps: int) -> dict:
     base = dev.bars[0].base
     words = [bytes(range(k, k + 128)) for k in range(4)]
     await env.cycles(100)
+    env.ep_line_count = {"tlp": 0, "dllp": 0}
+    env.count_line = True
     if kind in ("host_write", "bidir"):
         hb0 = env.app.cq_bytes
         hs = len(env.host.sent_log)
@@ -719,6 +727,10 @@ async def _throughput(dut, kind: str, tlps: int) -> dict:
         for i in range(tlps):
             reads.append(app.read(HOST_MEM + 128 * (i % 32), 128))
     await env.drain(limit=200 * tlps + 20_000)
+    env.count_line = False
+    c = env.ep_line_count
+    env.log.info("%s: the ep transmit line carried %d TLPs and %d DLLPs, %.3f DLLPs per TLP",
+                 kind, c["tlp"], c["dllp"], c["dllp"] / max(1, c["tlp"]))
     res = {}
     if kind in ("host_write", "bidir"):
         t0 = env.host.sent_log[hs][0]
@@ -842,6 +854,19 @@ async def e2e_link_down(dut):
     env = await up(dut)
     dev = await enumerate_ep(env)
     h, app, rng = env.host.model, env.app, env.rng
+    # Device Control Max_Payload_Size and Max_Read_Request_Size to non-reset
+    # values (both RW as written, cfg CAPS), so the first link-down cycle
+    # shows whether max_payload_o and max_read_req_o reach their reset
+    # values at once; Memory Space and Bus Master Enable are 1 already.
+    mps, mrrs = rng.randint(1, 5), rng.choice([v for v in range(6) if v != 2])
+    ctl = await cfg_rd(env, DEVCTL)
+    await cfg_wr(env, DEVCTL, (ctl & 0xFFFF & ~(7 << 5) & ~(7 << 12)) | mps << 5 | mrrs << 12,
+                 0b0011)
+    await env.cycles(4)
+    got = (env.rd["max_payload_o"](), env.rd["max_read_req_o"]())
+    assert got == (mps, mrrs), (
+        f"max_payload_o, max_read_req_o {got} after writing Device Control {mps}, {mrrs}")
+    assert env.mem_space_en and env.bus_master_en
     env.allow_link_errors = True
     base = dev.bars[0].base
     env.quiet_ok = True
@@ -853,8 +878,9 @@ async def e2e_link_down(dut):
     await env.cycles(rng.randint(50, 400))
     env.wr("host_hot_reset_req_i", 1)
     await env.until(lambda: not env.dl_up, 20_000, "ep dl_up_o falls")
-    for name in ("bus_master_en_o", "mem_space_en_o", "cq_valid_o", "rq_ready_o"):
-        assert env.rd[name]() == 0, f"{name} not at reset with dl_up_o 0"
+    for name, want in (("bus_master_en_o", 0), ("mem_space_en_o", 0), ("cq_valid_o", 0),
+                       ("rq_ready_o", 0), ("max_payload_o", 0), ("max_read_req_o", 2)):
+        assert env.rd[name]() == want, f"{name} not at its reset value {want} with dl_up_o 0"
     await env.cycles(200)
     env.wr("host_hot_reset_req_i", 0)
     app.rq_q.clear()
@@ -970,6 +996,10 @@ async def e2e_soak(dut):
         assert r.ok and (n == 0 or bytes(r.data) == want), f"read {off:#x}+{n}"
     for a, data, r in app_pend:
         assert r.status == RC_SC and app.read_bytes(r) == data, f"rq read {a:#x}: {r.status}"
+    if app_pend:
+        waits = [r.done_at - r.issued_at for _, _, r in app_pend]
+        env.log.info("soak: largest rq read completion wait %d cycles (mean %.0f), completion "
+                     "timeout %d cycles", max(waits), sum(waits) / len(waits), env.cpl_timeout)
     assert len(h.interrupts) == irqs, f"{len(h.interrupts)} interrupts for {irqs} requests"
     assert bytes(app.bar0) == bytes(mirror)
     env.finish()

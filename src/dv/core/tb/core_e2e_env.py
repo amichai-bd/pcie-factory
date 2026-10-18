@@ -896,6 +896,12 @@ class Env:
                     COV_ERR.sample(event=TL_ERR_NAMES[b])
             self.shadow.events(tl=err)
         self.np_pending = rd["mon_tl_np_pending_o"]()
+        if self.count_line:
+            for x in self.line_symbols(rd["mon_ep_line_o"]()):
+                if x == (0xFB, True):
+                    self.ep_line_count["tlp"] += 1          # STP
+                elif x == (0x5C, True):
+                    self.ep_line_count["dllp"] += 1         # SDP
         self.host.sample()
         self.app.sample()
         if (rd["host_tlp_tx_valid_i"]() or rd["host_tlp_rx_valid_o"]() or rd["cq_valid_o"]()
@@ -909,6 +915,8 @@ class Env:
 
     _live_from = 0
     last_activity = 0
+    count_line = False                  # count STP and SDP on the ep transmit line
+    ep_line_count = {"tlp": 0, "dllp": 0}
     quiet_ok = False
 
     def _check(self, table: dict, when: str) -> None:

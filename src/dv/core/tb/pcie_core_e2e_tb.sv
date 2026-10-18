@@ -9,7 +9,8 @@
 // are the link e2e's). The host-to-ep word goes through one register,
 // tapped on mon_line_o, so the environment sees each word for a cycle
 // before the ep samples it: line_sub_i replaces it with line_sub_data_i,
-// and line_flip_i flips chosen bits of it. The ep ports are
+// and line_flip_i flips chosen bits of it. mon_ep_line_o taps the ep's
+// transmit word, where the throughput entries count TLPs and DLLPs. The ep ports are
 // ports of this top with no prefix; the host link's upper stream, credits,
 // status and Hot Reset request are ports prefixed host_. The cocotb
 // environment (tb/core_e2e_env.py) puts the independent host model on the
@@ -125,6 +126,7 @@ module pcie_core_e2e_tb #(
   input  logic                   line_sub_i,        // replace the host-to-ep word
   input  logic [19:0]            line_sub_data_i,   // with this one
   output logic [19:0]            mon_line_o,        // the host-to-ep word the ep samples next
+  output logic [19:0]            mon_ep_line_o,     // the ep's transmit word
 
   // Taps of the ep's tl-cfg nets (core MAS)
   output logic [8:0]             mon_tl_err_o,
@@ -160,6 +162,7 @@ module pcie_core_e2e_tb #(
   end
   assign ep_rx_data = line_sub_i ? line_sub_data_i : (line_q ^ line_flip_i);
   assign mon_line_o = line_q;
+  assign mon_ep_line_o = ep_tx_data;
 
   pcie_core #(
     .FC_PH(FC_PH), .FC_PD(FC_PD), .FC_NPH(FC_NPH), .FC_NPD(FC_NPD),

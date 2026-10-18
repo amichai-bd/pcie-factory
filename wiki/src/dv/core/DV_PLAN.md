@@ -100,14 +100,14 @@ stated; each brings the link up and enumerates first.
 | [MSI](../../arch/core/APP.md#interrupts): the write after the data written before it (six rounds of four 128-byte writes), pending with bus mastering off, merged requests, sent on enable | `e2e_msi` | 1 | 1 |
 | MSI-X: masked vectors pend and show in the PBA, one write per unmask clearing its bit, Function Mask, unmasked writes at once | `e2e_msix` (level 1), `e2e_msix_sweep`, `e2e_msix_max` (64 vectors) | 1, 2 | 1; 2; 1 |
 | Goal items 5, 6, [Unsupported Request](../../arch/core/HAS.md#request-routing): I/O read, read past the BARs, write hitting no BAR, Type 0 read to function 1, Type 1 read; UR completions, Unsupported Request Detected, ERR_COR and ERR_NONFATAL with reporting on, none off, Signaled System Error, BAR0 still served; a BAR0 read with Memory Space Enable 0 | `e2e_unsupported` | 1 | 1 |
-| Goal items 5, 6, completion timeout: rc failed between 16P and 17P, Transactions Pending meanwhile, ERR_NONFATAL, Non-Fatal Error Detected; the late completion unexpected (ERR_COR); Completion Timeout Disable and the fresh timeout | `e2e_cpl_timeout` (level 1), `e2e_cpl_timeout_div64` | 1, 2 | 1; `CPL_TIMEOUT_DIV` 64 |
+| Goal items 5, 6, completion timeout: rc failed between 16P and 17P, Transactions Pending meanwhile, ERR_NONFATAL, Non-Fatal Error Detected; the late completion unexpected (ERR_COR); Correctable Error Detected after it; Completion Timeout Disable and the fresh timeout | `e2e_cpl_timeout` (level 1), `e2e_cpl_timeout_div64` | 1, 2 | 1; `CPL_TIMEOUT_DIV` 64 |
 | Goal item 6, other errors: malformed (ERR_FATAL), poisoned request (dropped, Detected Parity Error), poisoned completion (rc failed, Master Data Parity Error), UR and CA completions (Received Master and Target Abort, no message) | `e2e_errors` (level 1), `e2e_errors_sweep` | 1, 2 | 1; 2 |
 | [Link to cfg](../../arch/core/TL_CFG.md#link-to-cfg): line bit flips under traffic give `rcv_err_o` and `dl_err_o`, Correctable Error Detected and ERR_COR only, data lossless; then each wire alone: a flip on the idle line (`rcv_err_o` only) and a substituted data symbol in a TLP (`dl_err_o` Bad TLP only) | `e2e_link_errors` | 1 | 1 |
 | [Throughput targets](../../arch/core/HAS.md#targets), screen: 300 host writes | `e2e_throughput_short` | 1 | 1 |
 | Throughput targets: host writes, application writes (2000 of 128 bytes), host reads, application reads, both ways (1000) | `e2e_throughput_host_write`, `e2e_throughput_app_write`, `e2e_throughput_host_read`, `e2e_throughput_app_read`, `e2e_throughput_bidir` | 2 | 1 each |
 | [Outside D0](../../arch/core/HAS.md#decisions): UR for BAR0, no `rq` request, interrupt pending, no message; back in D0 all resume, configuration kept | `e2e_d3hot` | 2 | 1 |
-| [Link down](../../arch/core/HAS.md#link-down): Hot Reset with traffic in flight, outputs and configuration space at reset values, enumerated again and working; again from D3hot with interrupts resolving back to back (every gated output at its reset value from the first cycle `dl_up_o` is 0) | `e2e_link_down` | 1 | 1 |
-| Random mix: BAR0 writes and reads, `rq` writes and reads, MSI-X interrupts, random stalls | `e2e_soak`, `e2e_soak_max`, `e2e_soak_min_credits` | 2 | 3; 2; 2 (`CPL_TIMEOUT_DIV` 16: with minimum credits the host's completions wait behind its blocked writes longer than 2048 cycles) |
+| [Link down](../../arch/core/HAS.md#link-down): Hot Reset with traffic in flight and Max_Payload_Size and Max_Read_Request_Size written to other values first (the status outputs follow them), outputs and configuration space at reset values, enumerated again and working; again from D3hot with interrupts resolving back to back (every gated output at its reset value from the first cycle `dl_up_o` is 0) | `e2e_link_down` | 1 | 1 |
+| Random mix: BAR0 writes and reads, `rq` writes and reads, MSI-X interrupts, random stalls | `e2e_soak`, `e2e_soak_max`, `e2e_soak_min_credits` | 2 | 3; 2; 2 (`CPL_TIMEOUT_DIV` 16: with minimum credits the host's completions wait behind its blocked writes, up to 2752 cycles for an rq read on the first seed, more than the 2048-cycle default timeout) |
 
 ## Measured
 
@@ -124,8 +124,14 @@ payload over 2 bytes per cycle of line, against the `link` closed form
 | Application reads, 1000 | 0.7738 | 0.9988 | ≥ 0.98, ≥ 0.745 |
 | Both ways, 1000 each | 0.7752 | 1.0005 | ≥ 0.98, ≥ 0.745 |
 
-Host reads beat the both-ways closed form: their reverse direction
-carries only small read requests, not 128-byte writes. The architecture
+Host reads beat the both-ways closed form because the closed form
+charges one Ack and one UpdateFC DLLP per read on the completion
+direction, while the host model queues all its reads and sends them in
+bursts as non-posted credits return, so the endpoint coalesces Acks and
+UpdateFCs: its transmit line carried 1565 DLLPs for 1000 completions
+(1.57 per completion, against 2 in the closed form). Application reads,
+where the host returns each completion as its read arrives, measure
+0.9988 (the endpoint line carried 1122 DLLPs for 1000 read requests). The architecture
 model's figures are in the [HAS targets](../../arch/core/HAS.md#targets):
 the RTL agrees with them within 0.002 but for host reads, which measure
 0.794 of the line against the model's 0.774 (both above the target; the
@@ -146,22 +152,25 @@ named.
 | --- | --- | --- | --- |
 | M1: `link` `FC_RELEASE` 0: credits return at delivery | `e2e_enumeration` | 914163979 | 10366: `u_dll` assertion `a_rel_tied`: a release pulse with `FC_RELEASE` 0 |
 | M2: `cfg` reset without data link down (`cfg_rst = rst_i`) | `smoke` | 1152607520 | 8: `u_cfg` assertion `a_irq_vector`: `cfg` out of reset takes the random interrupt request while the link is down |
-| M3: `bus_master_en_o` not gated by `cfg_rst` | `e2e_link_down` | 189935525 | 13831: `bus_master_en_o` 1 with `dl_up_o` 0 |
-| M4: `link` `port_role_i` 0 (downstream) | `e2e_link_down` | 189935525 | 73980: no link-up again in 60000 cycles after the Hot Reset (a downstream port does not follow it) |
+| M3: `bus_master_en_o` not gated by `cfg_rst` | `e2e_link_down` | 189935525 | 14010: `bus_master_en_o` 1 with `dl_up_o` 0 |
+| M4: `link` `port_role_i` 0 (downstream) | `e2e_link_down` | 189935525 | 74157: no link-up again in 60000 cycles after the Hot Reset (a downstream port does not follow it) |
 | M5: Slot power event not wired to `cfg` | `e2e_enumeration` | 914163979 | 13434: shadow: Device Capabilities 0x8000, the `cfg` model 0x8c88000 |
 | M6: `tl_err` not wired to `cfg` | `e2e_unsupported` | 116918796 | 13580: shadow: Device Status without Unsupported Request Detected |
 | M7: `dl_err` not wired to `cfg` | `e2e_link_errors` | 830112853 | 19956: shadow: Correctable Error Detected 0 after a Bad TLP alone |
 | M8: `rcv_err` not wired to `cfg` | `e2e_link_errors` | 830112853 | 16662: shadow: Correctable Error Detected 0 after a receiver error alone |
-| M9: `cpl_timeout_dis` not wired to `tl` | `e2e_cpl_timeout` | 2115626119 | 20603: a read timed out with Completion Timeout Disable set |
+| M9: `cpl_timeout_dis` not wired to `tl` | `e2e_cpl_timeout` | 2115626119 | 20867: a read timed out with Completion Timeout Disable set |
 | M10: `tl_np_pending` not wired to `cfg` | `e2e_cpl_timeout` | 2115626119 | 13931: Transactions Pending 0 with a read outstanding |
 | M11: `tl` sees bus number 0 | `e2e_enumeration` | 914163979 | 10402: host model: completer ID 0x0000, expected 0x0100 |
 | M12: `max_read_req_o` 0 instead of 2 under `cfg_rst` | `smoke` | 1152607520 | 0: `max_read_req_o` expected 2 in reset, got 0 |
-| M13: `irq_done_o` not gated by `cfg_rst` | `e2e_link_down` | 189935525 | 28121: `irq_done_o` 1 with `dl_up_o` 0 (link down from D3hot during the interrupt storm) |
+| M13: `irq_done_o` not gated by `cfg_rst` | `e2e_link_down` | 189935525 | 28250: `irq_done_o` 1 with `dl_up_o` 0 (link down from D3hot during the interrupt storm) |
 | M14: Slot power scale not wired to `cfg` | `e2e_enumeration` | 914163979 | 13434: shadow: Device Capabilities 0xc88000, the `cfg` model 0x8c88000 |
 | M15: `tl` sees Memory Space Enable always 1 | `e2e_unsupported` | 116918796 | 15715: a BAR0 read with Memory Space Enable 0 completed successfully |
-| M16: `d_state_o` not gated by `cfg_rst` | `e2e_link_down` | 189935525 | 28121: `d_state_o` 3 with `dl_up_o` 0 |
+| M16: `d_state_o` not gated by `cfg_rst` | `e2e_link_down` | 189935525 | 28250: `d_state_o` 3 with `dl_up_o` 0 |
+| M17: `mem_space_en_o` not gated by `cfg_rst` | `e2e_link_down` | 189935525 | 14010: `mem_space_en_o` 1 with `dl_up_o` 0 |
+| M18: `max_payload_o` not gated by `cfg_rst` | `e2e_link_down` | 189935525 | 14010: `max_payload_o` 1 (as written before the link down) with `dl_up_o` 0 |
+| M19: `max_read_req_o` not gated by `cfg_rst` | `e2e_link_down` | 189935525 | 14010: `max_read_req_o` 4 (as written) with `dl_up_o` 0, expected 2 |
 
-Removed after the first run: a gate on `irq_ready_o`, which survived because `cfg` already drives it 0 from its reset input (an equivalent mutant); the gate went, the MAS says why. M7, M8, M13, M15 and M16 survived that first run and led to the isolated link events of `e2e_link_errors`, the Memory Space Enable check of `e2e_unsupported` and the D3hot round of `e2e_link_down`.
+Removed after the first run: a gate on `irq_ready_o`, which survived because `cfg` already drives it 0 from its reset input (an equivalent mutant); the gate went, the MAS says why. M7, M8, M13, M15 and M16 survived that first run and led to the isolated link events of `e2e_link_errors`, the Memory Space Enable check of `e2e_unsupported` and the D3hot round of `e2e_link_down`. M17 to M19 came from review: `e2e_link_down` now writes Max_Payload_Size and Max_Read_Request_Size to other values before the first link down, so every gated output differs from its reset value there.
 
 ## Gaps
 
