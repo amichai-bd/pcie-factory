@@ -3,7 +3,8 @@
 // by the checks and routing of wiki/src/arch/tl/ROUTING.md, stores the data
 // of BAR0 and BAR2 writes, and in the cycle after the TLP's eop pushes its
 // entry into the posted queue or a non-posted line and pulses its error
-// event. Completions go beat by beat to the tracker slot, a digest DW
+// event and, for a Set_Slot_Power_Limit to capture, the slot power event.
+// Completions go beat by beat to the tracker slot, a digest DW
 // included (the tracker reads Length DWs of data).
 `default_nettype none
 
@@ -33,6 +34,8 @@ module pcie_tl_rx #(
   output logic                    np_mal_o,       // a malformed non-posted TLP left at once
   output logic [3:0]              np_mal_d_o,     // its data credits
   output logic [3:0]              err_o,          // tl_err_o bits 3:0
+  output logic                    slot_pwr_valid_o, // a Set_Slot_Power_Limit to capture
+  output pcie_tl_pkg::t_slot_pwr  slot_pwr_o,
   output pcie_tl_pkg::t_rx_beat   cpl_beat_o      // completion beats, to the tracker (#292)
 );
 
@@ -158,6 +161,9 @@ module pcie_tl_rx #(
       end else begin
         judged.out = pcie_tl_pkg::OUT_UR;
       end
+      // A Set_Slot_Power_Limit with data that passed steps 1 to 6 and is
+      // not poisoned raises the slot power event (ROUTING.md, messages).
+      judged.spl = is_msg && code == pcie_tl_pkg::MSG_SET_SLOT_PWR && h.fmt[1] && !h.ep;
       // Step 8: poisoned, unless already an Unsupported Request.
       if (judged.out == pcie_tl_pkg::OUT_UR) begin
         judged.err[pcie_tl_pkg::E_UR_P]  = posted;
@@ -261,6 +267,11 @@ module pcie_tl_rx #(
   assign np_mal_o   = push_np && cur_q.out == pcie_tl_pkg::OUT_MAL;
   assign np_mal_d_o = cur_q.rel_d;
   assign err_o      = st_q.push ? cur_q.err : 4'd0;
+  // The slot power event: with the error event; the value and scale from
+  // the first data DW, byte 0 in [7:0] (TLP.md, messages).
+  assign slot_pwr_valid_o = st_q.push && cur_q.spl;
+  assign slot_pwr_o.value = cur_q.wdata[7:0];
+  assign slot_pwr_o.scale = cur_q.wdata[9:8];
 
   always_comb begin
     cpl_beat_o.valid = take && (tlp_rx_sop_i ? pcie_tl_pkg::is_cpl(tlp_rx_data_i[7:5], tlp_rx_data_i[4:0])

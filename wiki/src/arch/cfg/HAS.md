@@ -22,7 +22,7 @@ Base Spec rev 3.0 are paraphrased and cited, never copied
 
 ```mermaid
 flowchart LR
-  tl["pcie_tl"] -- "register access, error events" --> cfg["pcie_cfg"]
+  tl["pcie_tl"] -- "register access, error events, slot power" --> cfg["pcie_cfg"]
   cfg -- "register state, completions of accesses, messages" --> tl
   link["pcie_link"] -- "dl_err, rcv_err" --> cfg
   app["application"] <-- "interrupt request, status" --> cfg
@@ -53,6 +53,7 @@ of the same name; this table gives the `cfg` port, its direction and width.
 | `cpl_timeout_dis_o` | out | 1 | `clk_i` | Device Control 2 Completion Timeout Disable, to `tl`. |
 | `mem_space_en_o`, `bus_master_en_o`, `d_state_o` | out | 1, 1, 2 | `clk_i` | Command enables and Power State; to `tl` and to the `core` [status](../core/APP.md#status) ports. |
 | `tl_np_pending_i` | in | 1 | `clk_i` | [Requester state](../core/TL_CFG.md#requester-state): Device Status Transactions Pending. |
+| `slot_pwr_valid_i`, `slot_pwr_value_i`, `slot_pwr_scale_i` | in | 1, 8, 2 | `clk_i` | [Slot power limit](../core/TL_CFG.md#slot-power-limit) event: Captured Slot Power Limit Value and Scale. |
 | `tl_err_i` | in | 9 | `clk_i` | [Error events](../core/TL_CFG.md#error-events) from `tl`. |
 | `dl_err_i`, `rcv_err_i` | in | 7, 1 | `clk_i` | [Link errors](../core/TL_CFG.md#link-to-cfg). |
 | `msg_valid_o`, `msg_ready_i` | out, in | 1, 1 | `clk_i` | [Messages](../core/TL_CFG.md#messages) handshake. |
@@ -115,6 +116,18 @@ rule states: software writes them again before it unmasks a vector.
 - A write takes effect at the edge `cfg` takes it: every output it changes
   (enables, `d_state_o`, bases) changes at that edge, before
   `reg_cpl_valid_o`.
+
+### Slot power limit
+
+At the edge ending a cycle with `slot_pwr_valid_i` 1, Device Capabilities
+Captured Slot Power Limit Value (bits 25:18 of DW 0x74) takes
+`slot_pwr_value_i` and Captured Slot Power Limit Scale (bits 27:26) takes
+`slot_pwr_scale_i`, in any power state
+([tl-cfg slot power limit](../core/TL_CFG.md#slot-power-limit))
+[cite: PCIe Base Spec, rev 3.0, §7.8.3]. Both are read-only to software
+and keep the value until the next event; reset returns them to 0. A read
+taken at that edge returns the value before it, as any read sees the
+state before its edge.
 
 ### Errors
 
@@ -272,5 +285,4 @@ The Base Spec is not in the local cache (`./build specs list`:
 | Advisory non-fatal handling without AER: ERR_COR for a UR completion gated by Unsupported Request Reporting Enable and Correctable Error Reporting Enable together; Device Status sets Correctable, not Non-Fatal, Error Detected. | [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
 | A posted UR sends ERR_NONFATAL only with Unsupported Request Reporting Enable 1, SERR# Enable alone does not. | [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
 | **Slot Clock Configuration** (Link Status) reads 0; a board that uses the connector's reference clock needs 1, which a parameter would provide. | [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |
-| **Captured Slot Power Limit** (Device Capabilities) reads 0: `tl` does not pass a received Set_Slot_Power_Limit message to `cfg`, so its value and scale are not captured. | [#309](https://github.com/amichai-bd/pcie-factory/issues/309) |
 | **D3hot without L1:** the standard has the link enter L1 when the function is in D3hot; `link` stays in L0 (F5, the `mac` link power states). | [#282](https://github.com/amichai-bd/pcie-factory/issues/282) |

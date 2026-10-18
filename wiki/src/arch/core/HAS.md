@@ -263,7 +263,7 @@ composes the sibling models, loaded unchanged from `src/arch/`: the `tl`
 model over the endpoint's end of the `link` model's `LinkPair`, and the
 `cfg` model behind the [tl-cfg interface](TL_CFG.md) (register access by
 DW index, register state, `tl_err` and `dl_err` events,
-`tl_np_pending`, the message channel), with the application's interrupt
+`tl_np_pending`, the slot power event, the message channel), with the application's interrupt
 port on `cfg` and both held in reset while `dl_up_o` is 0. The other end
 of the link is a minimal host stand-in for these scenarios: it enumerates
 with configuration and BAR2 requests, sends BAR0 traffic, answers the

@@ -2,7 +2,7 @@
 Strategy): what the transaction layer must do with each TLP the link
 delivers, written from the tl HAS pages (TLP.md for the fields,
 ROUTING.md for the checks and outcomes, ORDERING.md and HAS.md for the
-classes and credits). It shares no code with the architecture model
+classes and credits, the core TL_CFG page for the slot power event). It shares no code with the architecture model
 (src/arch/tl), which DV uses only as a second, shadow reference.
 
 A TLP is its bytes, byte 0 first. On the dll upper stream byte 4k of a
@@ -177,6 +177,7 @@ class Verdict:
     data_credits: int       # what the dll counted for it
     kind: str               # mem, cfg0, msg, ... or "undefined"
     fields: dict = field(default_factory=dict)
+    slot_power: tuple[int, int] | None = None   # (value, scale) of the slot power event
 
     @property
     def posted(self) -> bool:
@@ -297,7 +298,14 @@ def judge(tlp: bytes, regs: Regs) -> Verdict:
     # Step 8.
     if h["ep"]:
         return verdict("drop" if cls == "P" else "ur", POISONED_REQUEST)
-    return verdict(outcome, None)
+    v = verdict(outcome, None)
+    # A Set_Slot_Power_Limit with data that got this far raises the slot
+    # power event: data byte 0 the value, byte 1 bits 1:0 the scale
+    # (ROUTING.md, messages; TL_CFG, slot power limit).
+    if kind == "msg" and h["code"] == SET_SLOT_POWER_LIMIT and h["fmt"] & 2:
+        dw = h["data"][0]
+        v.slot_power = (dw & 0xFF, (dw >> 8) & 3)
+    return v
 
 
 # ------------------------------------------------- what each outcome makes

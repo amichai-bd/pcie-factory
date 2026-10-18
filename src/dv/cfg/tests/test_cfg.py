@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import cocotb
 
-from tb.cfg_env import RESET_VALUES, Env
+from tb.cfg_env import RESET_VALUES, Access, Env
 from tb.cfg_regmap import ENTRY_RW, LISTED, dw_map
 
 # Offsets of the capabilities and their IDs (REGISTERS.md, Map).
 CAPS = {0x01: 0x40, 0x05: 0x50, 0x11: 0x60, 0x10: 0x70}
 PM_CSR = 0x44 // 4
+DEVCAP = 0x74 // 4
 DEVCTL = 0x78 // 4
 
 
@@ -111,6 +112,57 @@ async def power_states(dut):
     assert await env.cfg_read(DEVCTL) >> 21 & 1 == 1
     env.np_p = 0.0
     assert await env.cfg_read(DEVCTL) >> 21 & 1 == 0
+
+
+@cocotb.test()
+async def slot_power(dut):
+    """Captured Slot Power Limit (HAS, slot power limit): 0 from reset;
+    each slot power event loads Value (25:18) and Scale (27:26) of Device
+    Capabilities and nothing else, also in D3hot; a payload without
+    slot_pwr_valid_i loads nothing; software writes leave the fields; a
+    read taken at the event's edge returns the value before it; reset
+    clears them."""
+    env = Env(dut, seed())
+    await env.start()
+
+    def devcap(value: int, scale: int) -> int:
+        return 1 << 15 | value << 18 | scale << 26          # Role-Based Error Reporting 1
+
+    assert await env.cfg_read(DEVCAP) == devcap(0, 0)
+    await env.run(50)                                        # random payloads, valid 0
+    assert await env.cfg_read(DEVCAP) == devcap(0, 0)
+    for value, scale in ((0xA5, 3), (0x01, 0), (0xFF, 1), (0x80, 2), (0x00, 0)):
+        env.slot_power(value, scale)
+        await env.run(2)
+        assert await env.cfg_read(DEVCAP) == devcap(value, scale), (value, scale)
+    env.slot_power(0x3C, 2)
+    await env.run(2)
+    await env.cfg_write(DEVCAP, 0xFFFF_FFFF)
+    await env.cfg_write(DEVCAP, 0)
+    assert await env.cfg_read(DEVCAP) == devcap(0x3C, 2)
+    # Back to back: the second event wins.
+    env.slot_power(0x11, 1)
+    env.slot_power(0x22, 3)
+    await env.run(3)
+    assert await env.cfg_read(DEVCAP) == devcap(0x22, 3)
+    # A read and an event at one edge: the read sees the value before it.
+    await env.run(2)
+    acc = Access(False, False, DEVCAP)
+    env.accesses.append(acc)
+    env.slot_power(0x77, 1)                                  # driven with the access
+    t0 = env.cycle
+    await env.run(4)
+    # Both are driven after the next cycle's edge and meet the one after.
+    assert acc.done and acc.taken_at == t0 + 2, "the read was not taken at the event's edge"
+    assert acc.result == devcap(0x22, 3), f"read at the event's edge: 0x{acc.result:08x}"
+    assert await env.cfg_read(DEVCAP) == devcap(0x77, 1)
+    # D3hot: still captured.
+    await env.cfg_write(PM_CSR, 3, be=0x1)
+    env.slot_power(0x5A, 2)
+    await env.run(2)
+    assert await env.cfg_read(DEVCAP) == devcap(0x5A, 2)
+    await env.reset()
+    assert await env.cfg_read(DEVCAP) == devcap(0, 0)
 
 
 @cocotb.test()

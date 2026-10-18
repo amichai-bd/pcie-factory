@@ -10,7 +10,8 @@ core HAS stack wiring joins the IPs:
   two ends of the link model's ``LinkPair``;
 - ``pcie_cfg_arch.Cfg`` behind ``TlCfg``, the tl-cfg interface (TL_CFG.md):
   the register-access channel and the register state ``tl`` reads, the
-  ``tl_err`` and ``dl_err`` events and ``tl_np_pending`` into ``cfg``, and
+  ``tl_err`` and ``dl_err`` events, ``tl_np_pending`` and the slot power
+  event into ``cfg``, and
   the message channel (``cfg`` offers, ``tl`` takes);
 - the application's interrupt port on ``cfg``;
 - ``tl`` and ``cfg`` held in reset while ``dl_up`` is 0 (Q10).
@@ -95,6 +96,10 @@ class TlCfg:
     def id(self) -> int:
         """Completer and requester ID: bus_num, dev_num, function 0."""
         return (self.bus << 8) | (self.dev << 3)
+
+    def slot_power(self, value: int, scale: int) -> None:
+        """The slot power event, tl to cfg (TL_CFG slot power limit)."""
+        self.c.slot_power(value, scale)
 
     def access(self, bar2: bool, write: bool, addr: int, be: int, data: int,
                bus: int, dev: int) -> int:
