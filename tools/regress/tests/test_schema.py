@@ -50,6 +50,11 @@ def test_all_fields():
         ({"params": {"bad-name": 1}}, "not an identifier"),
         ({"backend": "fp ga"}, "'backend' must be a flow kind"),
         ({"backend": 1}, "'backend' must be a flow kind"),
+        ({"coverage_seeds": 2}, "'coverage_seeds' must be a count"),
+        ({"coverage_seeds": -1}, "'coverage_seeds' must be a count"),
+        ({"coverage_seeds": True}, "'coverage_seeds' must be a count"),
+        ({"rerun_when": "always"}, "'rerun_when' must be one of"),
+        ({"rerun_when": "models_change"}, "needs 'coverage_seeds: 0'"),
     ],
 )
 def test_entry_errors(change, message):
@@ -61,6 +66,14 @@ def test_entry_errors(change, message):
             raw[k] = v
     with pytest.raises(SchemaError, match=message):
         parse_entry(raw, "a", 0, "file.yaml: tests[0]")
+
+
+def test_coverage_seeds_and_rerun_when():
+    assert parse_entry(dict(GOOD), "a", 0, "w").coverage_seeds == 1
+    e = parse_entry(dict(GOOD, seeds=3, coverage_seeds=3), "a", 0, "w")
+    assert e.coverage_seeds == 3 and e.rerun_when is None
+    e = parse_entry(dict(GOOD, coverage_seeds=0, rerun_when="models_change"), "a", 0, "w")
+    assert (e.coverage_seeds, e.rerun_when) == (0, "models_change")
 
 
 def test_errors_name_the_test():

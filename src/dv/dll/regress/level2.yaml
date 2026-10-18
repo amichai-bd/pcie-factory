@@ -11,6 +11,7 @@ tests:
     top: pcie_dll_tb
     seeds: 4
     timeout_s: 600
+    coverage_seeds: 2
     params: {FC_PH: 1, FC_PD: 8, FC_NPH: 1, FC_NPD: 2, FC_CPLH: 1, FC_CPLD: 8}
   - name: tlp_partner_errors_sweep
     module: tests.test_dll_tlp_tx
@@ -30,6 +31,7 @@ tests:
     top: pcie_dll_tb
     seeds: 8
     timeout_s: 600
+    coverage_seeds: 6
   - name: rx_stall_smallest
     module: tests.test_dll_rx
     testcase: rx_stall

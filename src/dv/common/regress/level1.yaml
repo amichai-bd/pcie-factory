@@ -6,6 +6,7 @@ tests:
     params: {WIDTH: 4}
     seeds: 3
     timeout_s: 120
+    coverage_seeds: 3
   - name: sync2_arst
     module: tests.test_cdc_sync2
     testcase: async_reset
@@ -51,6 +52,7 @@ tests:
     top: common_cdc_fifo
     seeds: 2
     timeout_s: 120
+    coverage_seeds: 2
   - name: fifo_reset_in_flight
     module: tests.test_cdc_fifo
     testcase: reset_in_flight
@@ -76,6 +78,7 @@ tests:
     top: common_cdc_rst
     seeds: 3
     timeout_s: 120
+    coverage_seeds: 2
   - name: rst_random_stages3
     module: tests.test_cdc_rst
     testcase: random_ratio
@@ -83,6 +86,7 @@ tests:
     params: {STAGES: 3}
     seeds: 2
     timeout_s: 120
+    coverage_seeds: 2
   - name: macros_random
     module: tests.test_macros
     testcase: random_ops

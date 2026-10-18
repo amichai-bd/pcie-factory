@@ -117,6 +117,17 @@ Restoring one directed entry to L1 then added 48.2 s, for an L1 of
 a change to a widely shared block selects nearly every IP, about 1054 s,
 which the raised 1200 s budget covers.
 
+Measured for [#327](https://github.com/amichai-bd/pcie-factory/issues/327)
+on one 4-CPU host (`--jobs 4`), all IPs, at `005836f` and after it. L0 to L2
+with `--coverage` (the nightly): L2 fell from 4642.7 s to 3394.6 s of CPU
+with a cold cache and 3257.7 s warm (the reused model-only runs), the run
+from 27.2 to 22.5 minutes cold and 17.4 minutes warm, with the merged
+coverage of every IP identical point for point. L0+L1 without coverage
+(`ci-gate`'s selection for a global change): the 37 builds took 150 s
+before and none warm, the run 186 s before and 152 s warm; test CPU is
+unchanged (each L1 entry above about 10 s is an IP's RTL acceptance entry
+or the only catch of a recorded mutant, so it stays in L1).
+
 ## Local evidence
 
 PR evidence is the **affected L0+L1**, the levels `ci-gate` runs for the
@@ -166,6 +177,52 @@ deterministic ([build spec](../tools/build/SPEC.md#cpu-slots)).
 The author owns all evidence: the reviewer audits it and the `ci-gate`
 result and never re-runs anything; a claim without recorded proof goes back
 to the author to run.
+
+## Build cache
+
+Every `./build sim` and `./build regress` reuses Verilator builds from one
+content-keyed cache per host, outside every checkout
+([build spec](../tools/build/SPEC.md#build-cache)): `$BUILD_CACHE`, else
+`~/.cache/<repo>/build`. A build whose sources, include files, settings and
+tool versions are byte-identical to an earlier one, in any run or worktree,
+takes no compile; a changed input is a new key, so nothing stale is reused.
+Generated C++ goes through ccache (Verilator's `OBJCACHE`), in ccache's
+own per-user directory (`~/.cache/ccache` by default), so a build after a
+small RTL change recompiles only what changed. Builds that do compile are
+bounded by the host's CPUs and available memory, so a cold host does not
+run out of memory. Entries are written to a temporary directory and renamed into
+place, so concurrent runs never read a partial build. Entries unused for 14
+days are pruned. `--no-cache` (or `$BUILD_CACHE=off`) builds afresh, for a
+cold measurement or to rule the cache out.
+
+**CI hosts.** `actions/checkout` cleans the job checkout, `workdir/`
+included, so the cache lives at the fixed per-host default under the runner
+user's home, like the [specs cache](../tools/specs/SPEC.md): every runner of
+a host that runs as that user shares it, it persists across jobs, and the
+first job on each host is cold. The WSL runners, the supported self-hosted
+runners, keep it there; no workflow configures it.
+**Trust:** the key is content, so a reused build is what a fresh build of
+the same inputs makes, and the runs that write the cache are the runs the
+runners execute anyway. Its residual risk is the runner host's own: the
+[Forks](#continuous-integration) rules accept that a returning outside
+contributor's fork PR can run on the runners without approval, with a
+workflow copy that drops the guard. Such a run could write a planted
+executable under a valid key, and later trusted runs would reuse it and
+pass until it is pruned: a lasting false pass, not a one-off. The cache
+adds no new way in, since that code could equally tamper with the host's
+toolchain or runner environment, but it makes the effect persist. If a
+compromise is suspected, delete `~/.cache/<repo>/build` and the ccache
+directory (`ccache -C`, or `~/.cache/ccache`) on every runner host, or bump
+`SCHEMA` in `tools/build/cache.py` so every old entry is ignored. Each
+host's builds are bounded to 20 GiB, least recently used first.
+
+**Model checks.** A regression entry marked `rerun_when: models_change`
+(one that runs reference models only, no RTL) reuses its earlier pass on
+the host while its models, testbench and tools are unchanged
+([regress spec](../tools/regress/SPEC.md#reuse-of-unchanged-model-checks));
+the nightly runs on one host type with this cache, so such an entry runs
+there the first night after its inputs change. The DV plan names every
+such entry and its reason.
 
 ## Continuous integration
 

@@ -114,6 +114,17 @@ another IP's L1 covers, a model-only reference, a soak or a performance
 target, and the IP's DV plan then names it in a "Level placement" note with
 its reason; so does a heavy functional entry kept in L0 or moved out of it.
 
+**Seeds and reruns (#327).** A seed earns its CPU only by reaching
+something the others do not. Trim the seeds of an entry whose result is
+deterministic (the same measured value or outcome on every seed) or whose
+further seeds add no merged coverage and catch no recorded mutant, and
+give the reason in the DV plan; rerun the mutants that entry catches.
+A model-only copy of an RTL scenario (it checks the reference, so no RTL
+change can fail it) carries `rerun_when: models_change` and
+`coverage_seeds: 0`: it reruns when its models, testbench or tools change
+and otherwise reuses its last pass on the host
+([regress SPEC](../tools/regress/SPEC.md#reuse-of-unchanged-model-checks)).
+
 PR evidence is the affected L0+L1, which `ci-gate` runs and which may be
 cited; targeted L2 entries only when the change targets L2 behaviour or a
 reviewer asks; mutants only for the changed code. Full L2, coverage floors
@@ -206,6 +217,13 @@ helper's API, outputs and floor rules).
   satisfies this too; name the covergroups it must hold in the level
   file's comment, since a combined floor does not notice a covergroup that
   is renamed or no longer declared (its bins just leave the total).
+- **Coverage on the first seed.** `--coverage` instruments only each
+  entry's first seed (`coverage_seeds`, default 1); its other seeds run,
+  and must pass, on the plain build. Set `coverage_seeds` higher, with the
+  reason in the DV plan, only for an entry whose later seeds reach code or
+  bins its first does not and that no other entry reaches; `0` for a
+  model-only entry, which exercises no RTL. The floors on the merged levels
+  are the guard ([regress SPEC](../tools/regress/SPEC.md#coverage)).
 - Nightly runs L0+L1+L2 with `--coverage`; the tracker charts each IP's
   coverage over time, and a floor miss opens the `nightly-red` issue naming
   the commits since the last green nightly ([DevOps BKM](devops.md#nightly)).

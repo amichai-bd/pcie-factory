@@ -30,6 +30,7 @@ from fpga import flow as fpga
 from labels import core as labels
 from metrics import cli as metrics
 from pr import check as pr_check
+from build import cache as build_cache
 from build import slots as host_slots
 from regress import run as regress
 from regress.affected import GitError
@@ -42,7 +43,7 @@ WIKI_SITE = Path(__file__).resolve().parents[1] / "wiki_site"
 USER_ERRORS = (FilelistError, DiscoveryError, SchemaError, GitError, sim.SimError, CoverageError,
                fpga.FpgaError, labels.LabelsError, CheckConfigError, CiConfigError,
                ArchError, SpecsError, pr_check.PrError, BackendError,
-               host_slots.SlotError)
+               host_slots.SlotError, build_cache.CacheError)
 
 
 def _use_slots(args) -> None:
@@ -53,6 +54,17 @@ def _use_slots(args) -> None:
     if pool is not None:
         print(f"slots: {pool.directory} ({pool.count} CPU slots shared by every run "
               "that names it)", flush=True)
+
+
+def _use_cache(ctx: Context, args) -> None:
+    """Reuse builds from the host's shared build cache (`--no-cache` or
+    $BUILD_CACHE=off: none); wiki/tools/build/SPEC.md, "Build cache"."""
+    cache = build_cache.from_option(ctx.repo_root, args.no_cache)
+    sim.set_cache(cache)
+    if cache is None:
+        print("build cache: off", flush=True)
+    else:
+        print(f"build cache: {build_cache.show(cache.root)}", flush=True)
 
 
 def cmd_sim(ctx: Context, args) -> int:
@@ -69,13 +81,15 @@ def cmd_sim(ctx: Context, args) -> int:
     if verilator is None:
         raise sim.SimError(sim.not_found_message())
     _use_slots(args)
+    _use_cache(ctx, args)
     spec = sim.BuildSpec(ip, entry.top, dict(entry.params), args.waves, backend=entry.backend)
     built = sim.build(spec, ctx.workdir, verilator)
-    print(f"build {built.status} ({built.runtime_s:.1f}s): {built.log}")
+    print(f"build {built.status}{' (cached)' if built.cached else ''} "
+          f"({built.runtime_s:.1f}s): {built.log}")
     if built.status != "pass":
         return 1
     res = sim.run_test(spec, ctx.workdir, verilator, entry.name, entry.module,
-                       entry.testcase, seed, entry.timeout_s)
+                       entry.testcase, seed, entry.timeout_s, built)
     print(f"{ip.id}:{entry.name} seed={seed} {res.status.upper()} "
           f"({res.runtime_s:.1f}s) {res.detail}")
     print(f"log: {res.log}")
@@ -96,6 +110,7 @@ def cmd_regress(ctx: Context, args) -> int:
             print(f"L{entry.level} {entry.ip}:{entry.name} seed={seed}")
         return 0
     _use_slots(args)
+    _use_cache(ctx, args)
     if not selection.runs:
         print("no tests selected")
     summary = regress.run(ctx, selection, levels, jobs=args.jobs, waves=args.waves,
@@ -243,6 +258,9 @@ def _sim_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--slots", metavar="DIR",
                    help="host CPU slot directory shared with other runs: each build and test "
                         f"holds one of nproc slots (default: ${host_slots.ENV})")
+    p.add_argument("--no-cache", action="store_true",
+                   help="build afresh: neither use nor fill the host build cache "
+                        f"(default: on, ${build_cache.ENV} or ~/.cache/<repo>/build)")
 
 
 def _regress_args(p: argparse.ArgumentParser) -> None:
@@ -262,6 +280,9 @@ def _regress_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--slots", metavar="DIR",
                    help="host CPU slot directory shared with other runs: each build and test "
                         f"holds one of nproc slots (default: ${host_slots.ENV})")
+    p.add_argument("--no-cache", action="store_true",
+                   help="build afresh: neither use nor fill the host build cache "
+                        f"(default: on, ${build_cache.ENV} or ~/.cache/<repo>/build)")
 
 
 def _clean_args(p: argparse.ArgumentParser) -> None:

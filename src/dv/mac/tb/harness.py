@@ -382,22 +382,23 @@ class Upper:
             COV_PKT.sample(tx_size=len(pkt.data))
         return True
 
-    def receive(self, o: dict, where: str, now: int = 0) -> object:
-        """Take one cycle of receive outputs; returns a finished packet."""
+    def receive(self, o: dict, where, now: int = 0) -> object:
+        """Take one cycle of receive outputs; returns a finished packet.
+        ``where()`` names the cycle, formatted only for a failure message."""
         if not o["pkt_rx_valid_o"]:
             assert not (o["pkt_rx_sop_o"] or o["pkt_rx_eop_o"] or o["pkt_rx_err_o"]
-                        or o["pkt_rx_nullify_o"]), f"{where}: receive flags without valid"
+                        or o["pkt_rx_nullify_o"]), f"{where()}: receive flags without valid"
             return None
         if o["pkt_rx_sop_o"]:
-            assert not self.rx_open, f"{where}: sop inside a packet"
+            assert not self.rx_open, f"{where()}: sop inside a packet"
             self.rx_open, self.rx_beats, self.rx_dllp = True, [], o["pkt_rx_dllp_o"]
             self.rx_sop_at = now
-        assert self.rx_open, f"{where}: a beat outside a packet"
-        assert o["pkt_rx_dllp_o"] == self.rx_dllp, f"{where}: dllp changed inside a packet"
+        assert self.rx_open, f"{where()}: a beat outside a packet"
+        assert o["pkt_rx_dllp_o"] == self.rx_dllp, f"{where()}: dllp changed inside a packet"
         if not o["pkt_rx_eop_o"]:
             assert not (o["pkt_rx_err_o"] or o["pkt_rx_nullify_o"]), (
-                f"{where}: err or nullify without eop")
-        assert not (o["pkt_rx_err_o"] and o["pkt_rx_nullify_o"]), f"{where}: err and nullify"
+                f"{where()}: err or nullify without eop")
+        assert not (o["pkt_rx_err_o"] and o["pkt_rx_nullify_o"]), f"{where()}: err and nullify"
         d = o["pkt_rx_data_o"]
         self.rx_beats += [d & 0xFF, d >> 8]
         if not o["pkt_rx_eop_o"]:
@@ -539,7 +540,6 @@ class Harness:
         return f"cycle {self.now - self.t0} ({self.role}, shadow in {self.shadow.state})"
 
     def _compare(self, o: dict, obs: dict, sh, sh_tx, prev_tx, errs: int) -> None:
-        where = self.where()
         want = {"ltssm_state_o": sh.code, "link_up_o": int(sh.link_up),
                 "pipe_reset_no": int(sh_tx.reset_n)}
         if not self.rst_sampled:
@@ -553,25 +553,24 @@ class Harness:
         for k, v in want.items():
             got = obs[k] if k == "partner_n_fts" else o[k]
             if got != v:
-                raise AssertionError(f"{where}: {k} expected {v:#x} got {got:#x}")
+                raise AssertionError(f"{self.where()}: {k} expected {v:#x} got {got:#x}")
         if not prev_tx.elec_idle and prev_tx.reset_n and self.compare_tx:
             d, dk = o["pipe_tx_data_o"], o["pipe_tx_datak_o"]
             syms = ((dk & 1, d & 0xFF), (dk >> 1, d >> 8))
             if syms != tuple(prev_tx.syms):
-                raise AssertionError(f"{where}: transmitted symbols expected "
+                raise AssertionError(f"{self.where()}: transmitted symbols expected "
                                      f"{prev_tx.syms} got {syms}")
         self.checks += 1
 
     def _check_events(self, obs: dict, ev: dict) -> None:
-        where = self.where()
         for k in EVENTS:
             if obs[k] != ev[k]:
-                raise AssertionError(f"{where}: ordered-set event {k} expected {ev[k]} "
+                raise AssertionError(f"{self.where()}: ordered-set event {k} expected {ev[k]} "
                                      f"got {obs[k]}")
         if ev["ts"]:
             for k in TS_FIELDS:
                 if obs[k] != ev[k]:
-                    raise AssertionError(f"{where}: received TS field {k} expected "
+                    raise AssertionError(f"{self.where()}: received TS field {k} expected "
                                          f"{ev[k]:#x} got {obs[k]:#x}")
             kind = ("TS2" if ev["ts2"] else "TS1") + ("_inv" if ev["ts_inv"] else "")
             COV_OS_RX.sample(event=kind, phase=ev["phase"])
@@ -681,7 +680,7 @@ class Harness:
             self.decoder.reset()
         else:
             self._check_events(obs, self.decoder.word(self.rx_dut))
-        got = up.receive(o, self.where(), self.now)
+        got = up.receive(o, self.where, self.now)
         if got is not None:
             self._check_rx_packet(got)
         self._observe(o)
