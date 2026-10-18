@@ -231,7 +231,7 @@ class Procedure:
     def __init__(self, gen: Generator):
         self.gen = gen
         self.waiting: list[Request] = []
-        self.waiting_single = False
+        self.yielded = None  # what the generator last yielded, sent back on resume
         self.done = False
         self.result = None
         self.error: BaseException | None = None
@@ -287,6 +287,9 @@ class HostModel:
         # Status the host answers an endpoint read with: f(address, nbytes) -> CPL_*.
         self.read_status: Callable[[int, int], int] | None = None
         self._mem32_base = self._mem32_next = mem32_base
+        # Limits of the endpoint's own read requests (core HAS, F2).
+        self.ep_tags = 8
+        self.ep_max_read_request = 128
         self._mem32_limit = mem32_limit
         self._free_tags = list(range(num_tags))
         self._outstanding: dict[int, Request] = {}
@@ -601,6 +604,14 @@ class HostModel:
         self._check_requester(t, "memory read")
         self._check_4k(t)
         n = t.length_dw
+        # The endpoint's own limits (core HAS, F2): tags 0 to 7 with
+        # extended tags off, read requests of at most 128 bytes.
+        if t.tag >= self.ep_tags:
+            self._fail(f"memory read with tag {t.tag}: the endpoint uses tags 0 to "
+                       f"{self.ep_tags - 1}")
+        if 4 * n > self.ep_max_read_request:
+            self._fail(f"memory read of {4 * n} bytes exceeds the endpoint's "
+                       f"{self.ep_max_read_request}-byte maximum read request")
         fbe, lbe = t.first_be, t.last_be
         if n == 1 and lbe:
             self._fail(f"memory read of 1 DW with Last DW BE {lbe:04b}")
@@ -666,7 +677,13 @@ class HostModel:
             self._fail(f"{req.kind} tag {c.tag}: TC/Attr {c.tc}/{c.attr & 3} not the "
                        f"request's {req.tlp.tc}/{req.tlp.attr & 3}", req)
         req.completions += 1
-        status = STATUS_NAMES.get(c.status, "UR")  # reserved values read as UR
+        status = STATUS_NAMES.get(c.status)
+        if status is None:
+            # A reserved status is handled as UR by the requester
+            # [cite: PCIe Base Spec, rev 3.0, §2.3.2]; the endpoint sends only
+            # SC and UR, so the host also flags it.
+            self._fail(f"{req.kind} tag {c.tag}: reserved Completion Status {c.status:03b}", req)
+            status = "UR"
         if req.kind == "mem_rd":
             self._mem_completion(req, c, status)
         else:
@@ -696,6 +713,12 @@ class HostModel:
 
     def _mem_completion(self, req: Request, c: Tlp, status: str) -> None:
         tag = c.tag
+        if status == "CRS":
+            # Configuration Request Retry Status answers configuration
+            # requests only [cite: PCIe Base Spec, rev 3.0, §2.3.1].
+            self._fail(f"mem_rd tag {tag}: CRS completion to a memory read", req)
+            self._finish(req, "CRS")
+            return
         if status != "SC":
             # A UR or CA completion ends the read with no data; its Byte
             # Count is the bytes still owed [cite: PCIe Base Spec, rev 3.0, §2.3.1.1].
@@ -748,17 +771,15 @@ class HostModel:
         """Run a generator procedure; it advances as its requests finish."""
         proc = Procedure(gen)
         self._procs.append(proc)
-        self._step(proc, None)
+        self._step(proc)
         return proc
 
-    def _step(self, proc: Procedure, value) -> None:
+    def _step(self, proc: Procedure) -> None:
         while not proc.done:
             if proc.waiting and not all(r.done for r in proc.waiting):
                 return
-            send = value if not proc.waiting else (
-                proc.waiting[0] if proc.waiting_single else proc.waiting)
             try:
-                y = proc.gen.send(send)
+                y = proc.gen.send(proc.yielded)
             except StopIteration as stop:
                 proc.done, proc.result = True, stop.value
                 return
@@ -768,12 +789,12 @@ class HostModel:
                     raise
                 self.errors.append(f"[host @{self.now}] procedure failed: {exc}")
                 return
-            proc.waiting_single = isinstance(y, Request)
-            proc.waiting = [y] if proc.waiting_single else list(y)
+            proc.waiting = [y] if isinstance(y, Request) else list(y)
+            proc.yielded = y
 
     def _advance(self) -> None:
         for proc in list(self._procs):
-            self._step(proc, None)
+            self._step(proc)
             if proc.done:
                 self._procs.remove(proc)
 
@@ -879,11 +900,11 @@ class HostModel:
         off = 0x100
         seen = set()
         while True:
+            if off in seen or off < 0x100:
+                raise HostCheckError(f"extended capability list: bad or looping pointer {off:#x}")
             head = yield from self._cfg_rd(bdf, off)
             if head in (0, 0xFFFFFFFF):
                 break
-            if off in seen or off < 0x100:
-                raise HostCheckError(f"extended capability list: bad pointer {off:#x}")
             seen.add(off)
             dev.ext_caps.append((head & 0xFFFF, (head >> 16) & 0xF, off))
             off = (head >> 20) & 0xFFC
@@ -1023,6 +1044,10 @@ class HostModel:
         """Procedure: read ``nbytes`` from ``addr`` in requests of at most
         ``max_read_request`` bytes that never cross 4 KiB, all outstanding
         at once (tags permitting); returns the bytes."""
+        if nbytes == 0:
+            req = yield self.mem_read(addr, 0)
+            self._sc(req, f"memory read {addr:#x}")
+            return b""
         reqs = []
         pos = 0
         while pos < nbytes:

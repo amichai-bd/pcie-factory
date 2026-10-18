@@ -21,7 +21,7 @@ whose host stand-in it does not replace there. Part of the `core` DV
 | A different author from the architecture models | Written by a separate crewmate under [#288](https://github.com/amichai-bd/pcie-factory/issues/288); the PR records it. |
 | Written from the spec and the HAS | Sources: the author's reading of the PCIe Base Spec rev 3.0, cited by section and never reproduced, and the HAS pages: [`core`](../../arch/core/HAS.md) with its [application](../../arch/core/APP.md) and [tl-cfg](../../arch/core/TL_CFG.md) pages, [`tl`](../../arch/tl/HAS.md) with [TLP formats](../../arch/tl/TLP.md), [completions](../../arch/tl/COMPLETIONS.md), [ordering](../../arch/tl/ORDERING.md) and [routing](../../arch/tl/ROUTING.md), [`cfg`](../../arch/cfg/HAS.md) with [registers](../../arch/cfg/REGISTERS.md) and [capabilities](../../arch/cfg/CAPS.md), and the [`link`](../../arch/link/HAS.md) and [`dll` upper stream](../../arch/dll/HAS.md#upper-tlp-stream). |
 | No shared code | Nothing under `src/arch/`, `src/rtl/` or the `tl`, `cfg`, `dll` and `link` testbench models was read or imported. The host has its own TLP codec. |
-| Checked | `test_independence_no_shared_code` parses the four host files. It fails on an import other than the standard library, pytest and the host's own two modules, on `importlib`, `runpy`, `__import__`, `exec` or `eval`, and on model code (identifiers and strings other than docstrings) naming an `arch/` path, an architecture module or another testbench's models. |
+| Checked | `test_independence_no_shared_code` parses the four host files. It fails on an import other than the standard library, pytest and the host's own two modules, on `importlib` or `runpy`, on a call to `__import__`, `import_module`, `exec`, `eval` or `compile` (by name or as an attribute, such as `builtins.__import__`), and on model code (identifiers and strings other than docstrings) with an `arch` path segment, an architecture module name or another testbench's models. |
 | Disagreements stay visible | Points where the host's reading may differ from a HAS are listed under [possible disagreements](#possible-disagreements), never settled by looking at a model. |
 
 ## Interface
@@ -87,8 +87,10 @@ first violation, which fails a cocotb test; `strict=False` records it in
 **Capability walk.** If Status bit 4 (Capabilities List) is set, the walk
 starts at the Capabilities Pointer with its low 2 bits masked, and follows
 each Next pointer until 0. A pointer below 0x40, a pointer seen before or a
-49th entry fails the walk. The extended list starts at 0x100 and ends at a
-DW of 0 or all ones, or a Next of 0
+49th entry fails the walk. The extended list starts at 0x100; each header
+gives the ID in bits 15:0, the version in 19:16 and the Next offset in
+31:20 (low 2 bits masked). It ends at a DW of 0 or all ones, or a Next of
+0; a Next below 0x100 or seen before fails the walk
 [cite: PCIe Base Spec, rev 3.0, §7.9.1]. The host decodes PM, MSI (64-bit
 capable, Multiple Message Capable, per-vector masking), MSI-X (table size,
 table and PBA BIR and offset) and PCI Express (port type, supported
@@ -139,7 +141,7 @@ On a match the host checks, and fails on any miss:
 | Lower Address | Bits `[6:0]` of the next byte owed. |
 | Data | Starts at that byte's DW; never ends past the request's last DW; at most the host's maximum payload. |
 | Split | A completion that leaves bytes owed ends on a multiple of the completer's RCB (64 bytes), the finest legal split [cite: PCIe Base Spec, rev 3.0, §2.3.1.1]. |
-| Status | Successful needs data. Unsupported Request or Completer Abort (reserved values read as UR) ends the read with no data, its Byte Count and Lower Address those of the bytes owed. |
+| Status | Successful needs data. Unsupported Request or Completer Abort ends the read with no data, its Byte Count and Lower Address those of the bytes owed. A reserved status is handled as UR [cite: PCIe Base Spec, rev 3.0, §2.3.2] and also flagged, since the endpoint sends only SC and UR ([TLP formats](../../arch/tl/TLP.md#completions)). Configuration Request Retry is legal only for a configuration request [cite: PCIe Base Spec, rev 3.0, §2.3.1]: on a memory read it is flagged and ends the read. |
 | Poisoned | Recorded as an error; the read ends `poisoned`. |
 
 The read keeps the enabled bytes in address order and finishes when no
@@ -179,7 +181,10 @@ enumerated, every endpoint request (interrupts included) must come from it
 with Bus Master Enable set as the host last wrote it
 [cite: PCIe Base Spec, rev 3.0, §7.5.1.1], must not cross 4 KiB
 [cite: PCIe Base Spec, rev 3.0, §2.2.7], and a write carries at most the
-maximum payload. Messages are logged (code, routing, requester, data).
+maximum payload. A read must also keep to the endpoint's own limits
+([`core` parameters](../../arch/core/HAS.md#parameters), F2): a tag of 0
+to 7 (extended tags off) and at most 128 bytes (`ep_tags`,
+`ep_max_read_request`). Messages are logged (code, routing, requester, data).
 
 ### Use in the core e2e
 
@@ -203,13 +208,13 @@ choosing the side with a seed.
 | --- | --- |
 | TLP formats, byte enables, beats, credit cost | `test_pcie_core_host_tlp.py` (hand-worked byte vectors) |
 | Configuration reads and writes, completer ID, configuration Byte Count | `test_cfg_*` |
-| Enumeration: IDs, capability walk, BARs (default, 1 MiB, 64-bit prefetchable), loop and read-back failures | `test_enumeration_*`, `test_capability_loop_detected`, `test_bar_assignment_read_back_checked` |
+| Enumeration: IDs, capability walk, extended list, BARs (default, 1 MiB, 64-bit prefetchable, I/O), Expansion ROM, loop, bad-pointer and read-back failures | `test_enumeration_*`, `test_capability_loop_detected`, `test_extended_capabilities_walked`, `test_extended_capability_bad_pointer_fails`, `test_io_bar_and_rom_sized`, `test_bar_assignment_read_back_checked` |
 | MSI and MSI-X set-up, masking, pending bits, Function Mask, wrong data, no bus master | `test_msi_*`, `test_msix_*`, `test_interrupt_without_bus_master_flagged` |
-| Memory writes and reads, the [splitting table](../../arch/tl/COMPLETIONS.md#splitting), partial DWs, zero length, UR and CA | `test_write_then_read_back`, `test_split_completions`, `test_unaligned_partial_dw_read`, `test_zero_length_read`, `test_split_on_rcb_accepted`, `test_unsupported_request_status`, `test_completer_abort_ends_read` |
-| Each completion check fails when broken | `test_wrong_byte_count_flagged`, `test_wrong_lower_address_flagged`, `test_split_off_boundary_flagged`, `test_data_past_request_flagged`, `test_poisoned_completion_flagged`, `test_success_without_data_flagged`, `test_payload_above_max_flagged`, `test_strict_mode_raises` |
+| Memory writes and reads, the [splitting table](../../arch/tl/COMPLETIONS.md#splitting), partial DWs, zero length, UR and CA | `test_write_then_read_back`, `test_split_completions`, `test_unaligned_partial_dw_read`, `test_zero_length_read`, `test_zero_byte_read_procedure`, `test_split_on_rcb_accepted`, `test_unsupported_request_status`, `test_completer_abort_ends_read` |
+| Each completion check fails when broken | `test_wrong_byte_count_flagged`, `test_wrong_lower_address_flagged`, `test_split_off_boundary_flagged`, `test_data_past_request_flagged`, `test_poisoned_completion_flagged`, `test_success_without_data_flagged`, `test_crs_on_memory_read_flagged`, `test_reserved_status_read_as_ur_and_flagged`, `test_payload_above_max_flagged`, `test_strict_mode_raises` |
 | Tags, unexpected and duplicate completions, timeout | `test_tags_limited_reused_and_out_of_order`, `test_unexpected_completion_flagged`, `test_duplicate_completion_flagged`, `test_completion_timeout` |
 | Credits and ordering | `test_credit_gating_and_ordering`, `test_np_never_passes_blocked_posted`, `test_receive_returns_credit_cost` |
-| Endpoint requests, messages, link down, raw requests | `test_endpoint_*`, `test_messages_both_ways`, `test_malformed_tlp_flagged`, `test_link_down_drops_state_then_reenumerates`, `test_send_request_raw_io_read` |
+| Endpoint requests and their limits, messages, link down, raw requests | `test_endpoint_*`, `test_messages_both_ways`, `test_malformed_tlp_flagged`, `test_link_down_drops_state_then_reenumerates`, `test_send_request_raw_io_read` |
 | Independence | `test_independence_no_shared_code` |
 
 ## Possible disagreements

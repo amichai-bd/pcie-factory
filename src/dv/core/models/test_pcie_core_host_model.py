@@ -10,6 +10,7 @@ in order, with a seeded choice of which side moves next.
 
 import ast
 import random
+import re
 import sys
 from pathlib import Path
 
@@ -47,7 +48,13 @@ class EndpointStub:
     """A minimal endpoint for exercising the host model."""
 
     def __init__(self, bar0_addr_w=12, msix_size=8, bar64=False, cap_loop=False,
-                 split_rcb=64, max_payload=128):
+                 split_rcb=64, max_payload=128, io_bar=0, rom_size=0, ext_caps=(),
+                 ext_next=None):
+        # io_bar: an I/O BAR1 of that many bytes; rom_size: a sizable
+        # Expansion ROM; ext_caps: [(id, version)] from 0x100, each 0x40
+        # apart, the last one's Next set to ext_next (default 0, the end).
+        self.io_bar, self.rom_size = io_bar, rom_size
+        self.ext_caps, self.ext_next = list(ext_caps), ext_next
         self.bar0_size = 1 << bar0_addr_w
         self.msix_size = msix_size
         self.bar64 = bar64
@@ -83,10 +90,20 @@ class EndpointStub:
             self._reg(0x14, 0, rw=mask >> 32)
         else:
             self._reg(0x10, 0, rw=(0xFFFFFFFF - self.bar0_size + 1) & 0xFFFFFFFF)
-            self._reg(0x14, 0)
+            if self.io_bar:  # I/O space indicator bit 0 set, size from bit 2 up
+                self._reg(0x14, 0x1, rw=(0xFFFFFFFF - self.io_bar + 1) & 0xFFFFFFFC)
+            else:
+                self._reg(0x14, 0)
         self._reg(0x18, 0, rw=0xFFFFF000)
-        for off in (0x1C, 0x20, 0x24, 0x28, 0x30, 0x38):
+        for off in (0x1C, 0x20, 0x24, 0x28, 0x38):
             self._reg(off, 0)
+        rom_rw = ((0xFFFFFFFF - self.rom_size + 1) & 0xFFFFF800) | 1 if self.rom_size else 0
+        self._reg(0x30, 0, rw=rom_rw)
+        for i, (cid, ver) in enumerate(self.ext_caps):
+            off = 0x100 + 0x40 * i
+            last = i == len(self.ext_caps) - 1
+            nxt = (self.ext_next or 0) if last else off + 0x40
+            self._reg(off, (nxt << 20) | (ver << 16) | cid)
         self._reg(0x2C, 0xBEEF_CAFE)
         self._reg(0x34, 0x40)
         self._reg(0x3C, 0, rw=0xFF)
@@ -580,6 +597,33 @@ def test_split_on_rcb_accepted():
     assert r.ok and r.completion_sizes == [56, 64, 64, 16]
 
 
+def test_io_bar_and_rom_sized():
+    host, ep, dev = enumerated(io_bar=256, rom_size=2048)
+    io = dev.bars[1]
+    assert io.io and io.size == 256 and io.base == 0  # recorded, not assigned
+    assert dev.rom_size == 2048
+    assert ep.cfg[0x14] == 0x1 and ep.cfg[0x30] == 0  # left unassigned, ROM disabled
+    assert dev.bars[0].size == 4096 and not host.errors
+
+
+def test_extended_capabilities_walked():
+    host, ep, dev = enumerated(ext_caps=[(0x0001, 2), (0x000B, 1)])
+    assert dev.ext_caps == [(0x0001, 2, 0x100), (0x000B, 1, 0x140)]
+    assert not host.errors
+
+
+@pytest.mark.parametrize("nxt", [0x100, 0x40])
+def test_extended_capability_bad_pointer_fails(nxt):
+    host, ep = HostModel(), EndpointStub(ext_caps=[(0x0001, 1), (0x0003, 1)], ext_next=nxt)
+    with pytest.raises(HostCheckError, match="extended capability list"):
+        pump(host, ep, host.start(host.enumerate_device(BDF)))
+
+
+def test_zero_byte_read_procedure():
+    host, ep, dev = enumerated()
+    assert pump(host, ep, host.start(host.read(dev.bars[0].base, 0))) == b""
+
+
 def test_unsupported_request_status():
     host, ep, dev = enumerated()
     hole = max(b.base + b.size for b in dev.bars.values())
@@ -662,6 +706,22 @@ def test_payload_above_max_flagged():
     r = host.mem_read(dev.bars[0].base, 256)
     pump(host, ep)
     assert any("maximum payload" in e for e in r.errors)
+
+
+def test_crs_on_memory_read_flagged():
+    def m(t):
+        return completion(t.completer_id, t.requester_id, t.tag, 0b010,
+                          t.byte_count, t.lower_addr)
+    host, r = _mutated(m, offset=0, nbytes=8)
+    assert r.status == "CRS" and any("CRS completion to a memory read" in e for e in r.errors)
+
+
+def test_reserved_status_read_as_ur_and_flagged():
+    def m(t):
+        return completion(t.completer_id, t.requester_id, t.tag, 0b011,
+                          t.byte_count, t.lower_addr)
+    host, r = _mutated(m, offset=0, nbytes=8)
+    assert r.status == "UR" and any("reserved Completion Status 011" in e for e in r.errors)
 
 
 def test_strict_mode_raises():
@@ -764,6 +824,7 @@ def test_receive_returns_credit_cost():
 def test_endpoint_dma_read_and_write(split, sizes):
     host, ep, dev = enumerated()
     host.cpl_split = split
+    host.ep_max_read_request = 256  # a requester with a larger limit, to see the splits
     data = bytes(range(256))
     ep.dma_write(0x2000_0004, data)
     pump(host, ep)
@@ -773,6 +834,16 @@ def test_endpoint_dma_read_and_write(split, sizes):
     d = ep.dma[3]
     assert d["status"] == CPL_SC and bytes(d["data"]) == data and d["sizes"] == sizes
     assert not host.errors
+
+
+def test_endpoint_read_limits_flagged():
+    host, ep, dev = enumerated()
+    host.strict = False
+    ep.dma_read(0x2000_0000, 256, tag=1)  # above the 128-byte maximum read request
+    ep.dma_read(0x2000_0000, 4, tag=8)  # a tag above 7 with extended tags off
+    pump(host, ep)
+    assert any("maximum read request" in e for e in host.errors)
+    assert any("tag 8" in e for e in host.errors)
 
 
 def test_endpoint_read_ur_status():
@@ -841,6 +912,7 @@ def test_link_down_drops_state_then_reenumerates():
 # ----------------------------------------------------------------------------
 # Independence: only the standard library, pytest and the host's own modules
 _OWN = {"pcie_core_host_model", "pcie_core_host_tlp"}
+_DYNAMIC = {"__import__", "exec", "eval", "compile", "import_module"}
 _FILES = ["pcie_core_host_model.py", "pcie_core_host_tlp.py",
           "test_pcie_core_host_model.py", "test_pcie_core_host_tlp.py"]
 
@@ -853,9 +925,10 @@ def test_independence_no_shared_code(name):
             mods = [a.name.split(".")[0] for a in node.names]
         elif isinstance(node, ast.ImportFrom):
             mods = [(node.module or "").split(".")[0]]
-        elif isinstance(node, ast.Call) and getattr(node.func, "id", "") in (
-                "__import__", "exec", "eval"):
-            pytest.fail(f"{name}: dynamic import or exec")
+        elif isinstance(node, ast.Call) and (
+                getattr(node.func, "id", "") in _DYNAMIC
+                or getattr(node.func, "attr", "") in _DYNAMIC):
+            pytest.fail(f"{name}: dynamic import, exec or compile")
         else:
             continue
         for m in mods:
@@ -882,5 +955,7 @@ def test_independence_no_shared_code(name):
             text = node.attr
         if text is None:
             continue
-        for bad in ("arch/", "_arch", "dv/tl", "dv/cfg", "dv/dll", "partner"):
+        for bad in ("_arch", "dv/tl", "dv/cfg", "dv/dll", "dv/link", "partner"):
             assert bad not in text, f"{name} names {bad!r} in code: {text!r}"
+        segments = re.split(r"[/\\.]", text)
+        assert "arch" not in segments, f"{name} names an arch path segment: {text!r}"
