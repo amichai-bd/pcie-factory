@@ -87,8 +87,11 @@ own outputs the same way.
   model's enumeration (IDs, capability walk, BAR sizing) about 3000 cycles;
   the throughput targets met, at least 0.998 of the `link` rate.
 - **Critical path:** inside `tl`, `cfg` and `link`; `core` adds the
-  output gates. FPGA and ASIC timing: [#295](https://github.com/amichai-bd/pcie-factory/issues/295),
-  [#296](https://github.com/amichai-bd/pcie-factory/issues/296).
+  output gates. On the DE2-115 at 50 MHz the worst path is inside `tl`'s
+  transmit side, with +1.065 ns of slack
+  ([FPGA results](../../fpga/core/FPGA.md#results)); `tl`'s registered
+  transmit output stage keeps every path into the `link` starting at a
+  flop. ASIC timing: [#296](https://github.com/amichai-bd/pcie-factory/issues/296).
 
 ## Files
 

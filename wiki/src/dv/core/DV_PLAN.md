@@ -114,15 +114,16 @@ stated; each brings the link up and enumerates first.
 At `CPL_TIMEOUT_DIV` 1024, one seed each (the regression's first), the
 window from the first request taken to the last payload byte delivered,
 payload over 2 bytes per cycle of line, against the `link` closed form
-(one way 0.8569, both ways 0.7748):
+(one way 0.8569, both ways 0.7748); with `tl`'s registered transmit output stage
+([#295](https://github.com/amichai-bd/pcie-factory/issues/295)):
 
 | Scenario | Fraction of the line | Fraction of the link rate | HAS target |
 | --- | --- | --- | --- |
 | Host writes in, 2000 | 0.8563 | 0.9993 | ≥ 0.98, ≥ 0.833 |
-| Application writes out, 2000 | 0.8563 | 0.9994 | ≥ 0.98, ≥ 0.833 |
+| Application writes out, 2000 | 0.8563 | 0.9993 | ≥ 0.98, ≥ 0.833 |
 | Host reads, 1000, application answering in 16 cycles | 0.7935 | 1.0241 | ≥ 0.98, ≥ 0.745 |
 | Application reads, 1000 | 0.7738 | 0.9988 | ≥ 0.98, ≥ 0.745 |
-| Both ways, 1000 each | 0.7752 | 1.0005 | ≥ 0.98, ≥ 0.745 |
+| Both ways, 1000 each | 0.7740 | 0.9990 | ≥ 0.98, ≥ 0.745 |
 
 Host reads beat the both-ways closed form because the closed form
 charges one Ack and one UpdateFC DLLP per read on the completion
