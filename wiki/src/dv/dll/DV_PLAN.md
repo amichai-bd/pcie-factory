@@ -396,19 +396,19 @@ that is too small is caught (the last row above).
 
 The mutants of [#303](https://github.com/amichai-bd/pcie-factory/issues/303)'s
 code (`u_fc` release split and the top's release events; the `link`
-pass-through in the [`link` plan](../link/DV_PLAN.md#plan)),
-run serially on the final RTL: levels 0 and 1, one entry at a time at its
-first seed, the first failing entry named.
+pass-through in the [`link` plan](../link/DV_PLAN.md#plan)), run serially
+on the final RTL: levels 0 and 1, one entry at a time at its first seed,
+the first failing entry named. Every level-0 entry passes each of them.
 
 | Block | Mutant | First failing entry | Result |
 | --- | --- | --- | --- |
-| Flow control | P and NP finite credits returned at delivery as well (`taken_rel` 0) | `credit_release` (L1) | The upper layer holds 9 P header credits, above the 8 advertised. |
-| Flow control | A release returns nothing (P and NP release charges disabled) | `fc_rx_accounting_release` (L1) | TLPs never accepted: the far end runs out of credits. |
-| Flow control | The NP release charged to P | `credit_release` (L1) | The shadow's free credits differ from the DUT's before a TLP. |
-| Flow control | A release also returns an infinite field's credits (`fc_keep` keeps every field) | `fc_rx_accounting_release` (L1) | Stops on `a_free_within_space`. |
-| Flow control | A delivered P or NP TLP frees no reserve (infinite fields kept back too) | `fc_rx_accounting_release` (L1) | Receiver overflow with the reserve full. |
-| Flow control | Completions also wait for a release (`taken_rel` ignores the class) | `fc_rx_accounting_release` (L1) | Cpl credits never return: TLPs never accepted. |
-| Top | A release's data count dropped (data 0) | `credit_release` (L1) | The shadow's free credits differ from the DUT's before a TLP. |
+| Flow control | P and NP finite credits also returned at delivery (`taken_rel` 0) | `credit_release` (L1) | Stops on `a_free_within_space`: credits returned twice. |
+| Flow control | A release returns nothing (both release charges disabled) | `credit_release` (L1) | NP credits returned at cycle 112 not sent within 20 cycles; the drain never ends. |
+| Flow control | The NP release charged to P | `credit_release` (L1) | Stops on `a_free_within_space`. |
+| Flow control | A release also returns an infinite field's credits (`fc_keep` bypassed) | `fc_rx_accounting_release` (L1) | Stops on `a_free_within_space`. |
+| Flow control | A delivered P or NP TLP frees no reserve (infinite fields held back too) | `fc_rx_accounting_release` (L1) | 28 TLPs never accepted: the NP data reserve fills (the 40-write burst). |
+| Flow control | Completions also wait for a release (`taken_rel` ignores the class) | `fc_rx_accounting_release` (L1) | 61 TLPs never accepted: completion credits never return. |
+| Top | A release's data count dropped (data 0) | `credit_release` (L1) | UpdateFC-P carries data 32, expected 36 (cycle 190). |
 
 ## Gaps
 

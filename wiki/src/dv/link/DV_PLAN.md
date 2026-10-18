@@ -189,13 +189,14 @@ both ways keeps three seeds, which also move b's start against a's.
 
 **Release mutants** ([#303](https://github.com/amichai-bd/pcie-factory/issues/303)):
 the `link` pass-through of the credit release, run serially on the final
-RTL, level 0 then level 1, one entry at a time at its first seed.
+RTL, level 0 then level 1, one entry at a time at its first seed; every
+level-0 entry passes each of them.
 
 | Mutant in `pcie_link` | First failing entry | Result |
 | --- | --- | --- |
-| `fc_rel_p_i` and `fc_rel_np_i` swapped into the `dll` | `e2e_credits_release` (L1) | MUTANT1 |
-| `fc_rel_pd_i` not connected (data 0) | `e2e_credits_release` (L1) | MUTANT2 |
-| `FC_RELEASE` not passed to the `dll` (0) | `e2e_credits_release` (L1) | MUTANT3 |
+| `fc_rel_p_i` and `fc_rel_np_i` swapped into the `dll` | `e2e_credits_release` (L1) | Stops on `a_free_within_space` in the `dll`. |
+| `fc_rel_pd_i` not connected (data 0) | `e2e_credits_release` (L1) | Data credits never return: the drain does not end within 200000 cycles. |
+| `FC_RELEASE` not passed to the `dll` (0) | `e2e_credits_release` (L1) | Stops on `a_rel_tied` in the `dll`: a release with `FC_RELEASE` 0. |
 
 ## Gaps
 
