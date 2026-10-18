@@ -269,15 +269,21 @@ is in git history, one per data PR; each was restored once (#322) as its own
 per-run file, its measured content unchanged, with `meta` gaining:
 `started_at`, `generated_at` less `meta.nightly.duration_s` (the collector
 computed that duration from `--started`, so this is the job start it was
-given); `run_id` and `run_attempt`, from the run link in the data PR's body
-and the run's attempt; and `restored_from`. The `<date>.json` files were
+given); `run_id` and `run_attempt`, of the run whose `publish` job pushed
+the merged head; and `restored_from`. That run is the `nightly.yml` run
+(Actions API) whose `head_sha` is the record's `meta.commit`, and whose
+`publish` job, in that attempt, succeeded around the data PR's head commit;
+the `ci.yml` run dispatched on that head confirms it. The run link in the
+data PR's body is not used: it names the run that first opened the PR, and
+a later run that force-pushes onto the open PR keeps that link (#52 names an
+earlier run than the one whose push merged). The `<date>.json` files were
 then removed: each was the latest version of its date, restored like the
 others. Runs whose data PR closed unmerged left no record and cannot be
 restored.
 
 | File | `restored_from` (merge commit, data PR, file) | Run, attempt |
 | --- | --- | --- |
-| `2026-10-14T200319Z.json` | `6b84433`, #52, `2026-10-14.json` | 38623254395, 1 |
+| `2026-10-14T200319Z.json` | `6b84433`, #52, `2026-10-14.json` | 38628703968, 1 |
 | `2026-10-14T211537Z.json` | `bb52576`, #97, `2026-10-14.json` | 38638803579, 1 |
 | `2026-10-15T081643Z.json` | `7f08df0`, #155, `2026-10-15.json` | 38704349529, 1 |
 | `2026-10-15T085635Z.json` | `52cc15b`, #161, `2026-10-15.json` | 38708338857, 2 |
@@ -308,7 +314,8 @@ Each run appends missing commits (the first run, on an empty file, is the
 one-time backfill), refreshes `ci` on lines that were `none` or
 `unavailable` and now have a run, and leaves every other existing line
 unchanged (`n/a` is final). Line counts are cached per blob, so a backfill reads each blob
-once. Existing lines and nightly records are never rewritten: IPs are keyed
+once. Existing lines and nightly records are never rewritten (the one-time
+restoration only added `meta` keys, [restored records](#restored-records)): IPs are keyed
 by the id that was current when the line or record was written, so when an
 IP id changes (a layout move or a rename) its history before the change
 stays under the old id and the new id starts at the change. A fresh backfill
@@ -401,7 +408,9 @@ over the day's real data PR. Two runs on one day share the branch. Each adds
 its own record file, so once the earlier run's data PR has merged (auto-merge
 takes minutes) the later one adds a second record beside it; while that PR is
 still open, the later run force-pushes the branch from the base tip and the
-earlier record is lost, like that of any data PR closed unmerged.
+earlier record is lost, like that of any data PR closed unmerged (and of an
+older day's open data PR, which `publish` closes). #324 owns removing that
+loss.
 
 | Job | Permissions | Does |
 | --- | --- | --- |
