@@ -24,6 +24,14 @@ tests:
     top: pcie_link_e2e_tb
     params: {CREDITS: 1}
     timeout_s: 600
+  # The dll credit-release port through link (CREDITS 5): default
+  # credits, late releases at both ends.
+  - name: e2e_credits_release
+    module: tests.test_link_e2e
+    testcase: e2e_credits
+    top: pcie_link_e2e_tb
+    params: {CREDITS: 5}
+    timeout_s: 600
   - name: e2e_throughput_short
     module: tests.test_link_e2e
     testcase: e2e_throughput_short

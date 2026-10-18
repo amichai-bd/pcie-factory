@@ -17,6 +17,9 @@ adds below it, the Gen1 x1 line of two ``phy`` stacks:
 - the dll model's ``Channel`` impairments: dropped, corrupted and
   phy-flagged packets, and the retrain hold.
 
+A workload's ``release`` runs both ends with the dll credit-release port
+and the dll model's ``Releaser`` as their upper layers.
+
 ``perf`` measures the link HAS targets: the line fractions taken by TLPs,
 DLLPs and SKP ordered sets, the TLP payload rate as a fraction of the line
 rate, and the end-to-end no-loss, no-duplicate and no-reorder counts.
@@ -171,7 +174,10 @@ def run_traffic(w: dict, seed: int) -> dict[str, float]:
     mix = w.get("mix", "mwr")
     both = bool(w.get("bidirectional", False))
     fc = w.get("fc", {})
-    a, b = dll.Dll("a", fc), dll.Dll("b", fc)
+    rel = w.get("release")
+    a = dll.Dll("a", fc, release_port=rel is not None)
+    b = dll.Dll("b", fc, release_port=rel is not None)
+    rels = dll.make_releasers((a, b), rel, rng)
     line = Line(rng, skp_interval=_int(w, "skp_interval", SKP_INTERVAL_MIN,
                                        SKP_INTERVAL_MIN, SKP_INTERVAL_MAX),
                 latency=_int(w, "latency", STACK_LATENCY, 0, 1000),
@@ -193,6 +199,8 @@ def run_traffic(w: dict, seed: int) -> dict[str, float]:
                         pair.busy[k] = [0, 0]
                 idx[i] += 1
         pair.step()
+        for r in rels:
+            r.step(now)
         if len(b.delivered) >= len(sent[0]) and len(a.delivered) >= len(sent[1]):
             last = pair.now
             break
@@ -228,6 +236,7 @@ def run_traffic(w: dict, seed: int) -> dict[str, float]:
     }
     for i, n in enumerate(dll.ERR_NAMES):
         met["err_" + n] = float(a.errors[i] + b.errors[i])
+    met.update(dll.releaser_metrics(rels))
     return met
 
 

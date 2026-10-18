@@ -41,6 +41,15 @@
     (`rx_ready_p`) or for a set time only when every class is finite (the
     [obligation](../../arch/dll/HAS.md#receive)), checks each delivered
     TLP against the reference and returns its credits at its `eop`;
+  - with `FC_RELEASE` 1, the **releaser** on `fc_rel_*_i`
+    ([credit release](../../arch/dll/HAS.md#credit-release)): it holds each
+    delivered posted and non-posted TLP at least 2 cycles, releases per
+    class in delivery order at a set probability or not at all in a set
+    window, drops what it holds at DL_Inactive, drives random data counts
+    while not releasing, and fails if it ever holds more finite credits
+    than the DUT advertises; the reference returns a release's finite
+    fields, and the arch shadow takes the same releases (its `release`
+    refuses credits it did not deliver);
   - the **upper transmit driver**, which offers queued TLPs on `tlp_tx_*`
     (valid may drop inside a TLP) and records each TLP the DUT takes, in
     order, as its sequence number;
@@ -134,7 +143,9 @@
   or both, or infinite, per class; each consumed counter wrapped; a TLP
   refused and then taken), `dll_fc_rx` (stored, overflow, malformed,
   malformed under 4 bytes, per class; finite and infinite classes;
-  returns per class), `dll_tx_tail` (a DLLP finished with one, two or three beats
+  returns per class; with `FC_RELEASE` 1, releases per class, a release's
+  data count 0, 1 to 7 or 8, a release in FC_INIT2 or DL_Active, and the
+  upper layer holding all of a class's header credits), `dll_tx_tail` (a DLLP finished with one, two or three beats
   taken at or after the edge that sampled the link down), `dll_reset` (reset and link-up, crossed),
   `dll_tlp_tx` (header 3 or 4 DW; payload none, one DW, some, maximum;
   new or replayed, crossed with payload; upper gaps inside a TLP; a new TLP
@@ -194,7 +205,7 @@ into a model or the RTL silently.
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Reset values](../../arch/dll/HAS.md#reset-values) in reset and DL_Inactive | `smoke` | 0 | 1; 256 cycles, random inputs and link-up |
-| [Credit parameter ranges](../../arch/dll/HAS.md#parameters) | `param_limits` | 0 | 1; 8 illegal and 3 legal lints, no simulation |
+| [Credit parameter ranges](../../arch/dll/HAS.md#parameters), `FC_RELEASE` included | `param_limits` | 0 | 1; 9 illegal and 5 legal lints, no simulation |
 | [CRC-16](../../arch/dll/DLLP.md#crc-16) known answers, transmit and receive; [receiving DLLPs](../../arch/dll/DLLP.md#receiving-dllps): bad CRC, flagged, wrong length, DL_Inactive | `crc16_kat` | 0 | 1; 5 known answers and every single-bit error of them, 150 random DLLPs and one-bit errors, gaps |
 | [Control states](../../arch/dll/HAS.md#data-link-control-states) and [initialisation](../../arch/dll/FLOW_CONTROL.md#initialisation) by hand: groups and 128-cycle resend, recording, ignored DLLPs, FC_INIT2 ends, entry UpdateFC, [credits available](../../arch/dll/HAS.md#credits-available), UpdateFC limits, link down from each state | `fc_init_directed` | 0 | 1 |
 | [A started DLLP finished across a link-down](../../arch/dll/HAS.md#reset-values), two and one beats left, and all three when the `sop` is taken at the edge that samples `link_up_i` 0; an offered one withdrawn; clean restart | `link_down_mid_dllp` | 0 | 1 |
@@ -207,6 +218,9 @@ into a model or the RTL silently.
 | The same, partner and DUT all infinite: the gate never refuses | `credits_infinite` | 1 | 2 derived; the partner's upper layer stalls although it advertises infinite credits, outside the HAS upper-layer obligation: the partner's store is unbounded ([partner page](PARTNER.md#interface)) and only the DUT's gate is under test |
 | Credits target, receive side: every DUT class finite, its upper layer taking 30%, stalling 4000, taking 30%, stalling 10000 cycles, the partner sending 1500 TLPs as the UpdateFCs allow: no Receiver overflow, all delivered once and in order | `credit_starve_rx` | 1 | 2 derived; every `FC_*` finite; coverage on the first 2 (`coverage_seeds`) |
 | The same, every DUT class infinite, the upper layer never stalling | `credits_infinite_rx` | 1 | 2 derived; coverage on the first 2 (`coverage_seeds`) |
+| [Credit release](../../arch/dll/HAS.md#credit-release), [Credits target](../../arch/dll/HAS.md#targets) with `FC_RELEASE` 1: default credits, the upper layer taking every beat but releasing in 30% of cycles, none for 4000, 30%, none for 10000 cycles, then all; the partner sending 600 TLPs as the UpdateFCs allow: no Receiver overflow, never more held than advertised and all of a class held, every TLP once and in order, every release's UpdateFC within 20 cycles; reference and arch shadow | `credit_release` | 1 | 0, 1; `FC_RELEASE` 1 |
+| The same at the smallest legal credits, every class finite: the stream stalls on the same schedule as the releases | `credit_release_smallest` | 2 | 2 derived |
+| [Receive accounting](../../arch/dll/FLOW_CONTROL.md#credit-release) with releases: P and NP returns on release, completions and malformed TLPs at once, an infinite NP data field freed at delivery (40 configuration writes past the reserve), releases in FC_INIT2 (the `phy` stand-in stalled so the InitFC2 group cannot complete; at least 2 per link-up) in the entry UpdateFC, link down dropping what is held | `fc_rx_accounting_release` | 1 | 1 derived; NP data infinite, `FC_RELEASE` 1 |
 | [UpdateFC refresh](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling), round robin, with ready stalls | `updatefc_refresh` | 1 | 2; two 2048-cycle periods |
 | Link-up against the partner, default DUT credits, [init target](../../arch/dll/HAS.md#targets) 200 cycles; cross-check | `link_up` | 1 | 0 to 3 (the four partner advertisements); 6 link-ups each |
 | The same, DUT completions finite | `link_up_cpl_finite` | 1 | 0 to 3; `FC_CPLH` 16, `FC_CPLD` 64; coverage on the first 4 (`coverage_seeds`) |
@@ -385,6 +399,30 @@ whatever the limit holds. Neither is a larger infinite-field reserve
 reserve fills only if the upper layer stalls with a class infinite, which
 `a_rx_never_stall` forbids, so legal stimulus never reaches it. A reserve
 that is too small is caught (the last row above).
+
+### Credit release mutants
+
+The mutants of [#303](https://github.com/amichai-bd/pcie-factory/issues/303)'s
+code (`u_fc` release split and the top's release events; the `link`
+pass-through in the [`link` plan](../link/DV_PLAN.md#plan)), run serially
+on the final RTL: levels 0 and 1, one entry at a time at its first seed,
+the first failing entry named. Every level-0 entry passes each of them.
+
+| Block | Mutant | First failing entry | Result |
+| --- | --- | --- | --- |
+| Flow control | P and NP finite credits also returned at delivery (`taken_rel` 0) | `credit_release` (L1) | Stops on `a_free_within_space`: credits returned twice. |
+| Flow control | A release returns nothing (both release charges disabled) | `credit_release` (L1) | NP credits returned at cycle 112 not sent within 20 cycles; the drain never ends. |
+| Flow control | The NP release charged to P | `credit_release` (L1) | Stops on `a_free_within_space`. |
+| Flow control | A release also returns an infinite field's credits (`fc_keep` bypassed) | `fc_rx_accounting_release` (L1) | Stops on `a_free_within_space`. |
+| Flow control | A delivered P or NP TLP frees no reserve (infinite fields held back too) | `fc_rx_accounting_release` (L1) | 28 TLPs never accepted: the NP data reserve fills (the 40-write burst). |
+| Flow control | Completions also wait for a release (`taken_rel` ignores the class) | `fc_rx_accounting_release` (L1) | 61 TLPs never accepted: completion credits never return. |
+| Top | A release's data count dropped (data 0) | `credit_release` (L1) | UpdateFC-P carries data 32, expected 36 (cycle 190). |
+| Top | A non-posted release's data count dropped (data 0) | `credit_release` (L1) | UpdateFC-NP carries data 8, expected 9 (cycle 113). |
+
+`a_rel_data_max` is live: a one-off run of `credit_release` with the
+releaser driving a data count of 9 stops on it at the first release (a
+regression entry cannot expect a fatal stop, as for `a_rx_never_stall`).
+`a_rel_tied` is shown live by the `link` mutant that drops `FC_RELEASE`.
 
 ## Gaps
 

@@ -36,8 +36,9 @@ board's three 50 MHz pins are one oscillator, so the RX clock stays on
 asynchronous [cite: Terasic DE2-115 User Manual, rev unverified, §4.5]
 [cite: Terasic DE2-115 User Manual, rev unverified, §4.7].
 
-The board has pins for few of the stack's 201 port bits, so the wrapper
-bounds every `pcie_link` port with flops on that port's clock:
+The board has pins for few of the stack's 211 port bits, so the wrapper
+bounds every `pcie_link` port but the credit release with flops on that
+port's clock:
 
 - **Inputs.** Each domain has a serial-in shift register fed by one
   synchronized switch: 41 bits on `clk_i` drive the upper TLP transmit
@@ -52,7 +53,9 @@ bounds every `pcie_link` port with flops on that port's clock:
   transmit symbols) are folded into one parity flop on `LEDG[1]`, so each
   one is observed. The parity tree starts at registers, so it never
   lengthens a `pcie_link` path.
-- **Parameters.** The credit parameters keep their defaults;
+- **Parameters.** The credit parameters keep their defaults, so
+  `FC_RELEASE` is 0 and the four credit-release inputs are tied to 0, as
+  the [`dll` HAS](../../arch/dll/HAS.md#credit-release) requires;
   `TIMEOUT_DIV` and `ERR_TIMEOUT_DIV` are 1, as the
   [HAS](../../arch/link/HAS.md#parameters) asks for FPGA builds.
 - **Not a functional test.** The stimulus does not honour the HAS input

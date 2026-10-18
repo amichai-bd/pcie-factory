@@ -74,11 +74,9 @@ completion credits ([`core` credits](../core/HAS.md#credits)).
   reads of at most 128 bytes, and drops anything else at once.
 - **Release.** In the cycle a request [leaves `tl`](#receive-queues),
   `tl` pulses `fc_rel_p_o` or `fc_rel_np_o` with its data credits
-  ([credit release](HAS.md#credit-release)). This
-  depends on [#303](https://github.com/amichai-bd/pcie-factory/issues/303),
-  which adds the release input to `dll` and `link`; until it lands the
-  `dll` returns credits at delivery and the release outputs have no
-  effect.
+  ([credit release](HAS.md#credit-release)); the `link`
+  [credit-release](../dll/HAS.md#credit-release) inputs, with
+  `FC_RELEASE` 1, return those credits to the host then, not at delivery.
 - **Transmit.** `tl` offers a TLP's `sop` beat only when the matching
   `fc_*_avail_i` show at least 1 header credit and its data credits
   (all ones is infinite); the `dll` gates on the same credits.

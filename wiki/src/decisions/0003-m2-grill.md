@@ -122,3 +122,14 @@ which satisfies Q9.
   plus about 20%); L0 stays 120 s. The DevOps BKM owns the values.
   Per-IP affected L1 at #272: dll 332 s, link 123 s, mac 540 s (with
   `no_scramble` restored to L1, 48.2 s), pcs 577 s, phy 330 s.
+- **2026-10-18, M3 credit release ([#303](https://github.com/amichai-bd/pcie-factory/issues/303)):**
+  the captain's M3 decision Q9 (decision record
+  [0004 Updates](0004-m3-grill.md#updates), on
+  [#282](https://github.com/amichai-bd/pcie-factory/issues/282)) **amends
+  Q5**: the M3 transaction layer does not sit on the `dll` upper interface
+  unchanged. `dll` and `link` gain a credit-release input (a pulse and a
+  4-bit data count for posted and for non-posted TLPs) and the parameter
+  `FC_RELEASE`. With it 1, finite posted and non-posted credits return when
+  a request leaves the transaction layer, not at delivery; with it 0, the
+  default, the inputs are tied to 0 and the M2 interface behaves as
+  before ([`dll` credit release](../arch/dll/HAS.md#credit-release)).

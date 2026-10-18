@@ -9,7 +9,7 @@ two tie-offs of its own.
 
 ```mermaid
 flowchart TB
-  up["upper TLP stream, credits,<br/>data link status"] <--> dll["u_dll<br/>pcie_dll"]
+  up["upper TLP stream, credits,<br/>credit release, data link status"] <--> dll["u_dll<br/>pcie_dll"]
   dll <-- "pkt_tx_* / pkt_rx_* nets" --> phy["u_phy<br/>pcie_phy"]
   phy -- "link_up_o, ltssm_state_o" --> dll
   dll -- "retrain_req_o" --> or(("OR"))
@@ -17,9 +17,10 @@ flowchart TB
   phy <--> low["link control, lower symbol interface<br/>clk_i, ser_rx_clk_i"]
 ```
 
-- **`u_dll` (`pcie_dll`)** takes `clk_i`, `rst_i`, the upper TLP stream,
-  and drives the credits available and the data link status; its `err_o`
-  is the `link` port `dl_err_o`. `FC_PH` to `FC_CPLD` pass through.
+- **`u_dll` (`pcie_dll`)** takes `clk_i`, `rst_i`, the upper TLP stream
+  and the credit release (`fc_rel_*_i`), and drives the credits available
+  and the data link status; its `err_o` is the `link` port `dl_err_o`.
+  `FC_PH` to `FC_CPLD` and `FC_RELEASE` pass through.
 - **`u_phy` (`pcie_phy`)** takes `clk_i`, `rst_i`, `port_role_i`, the
   link control requests and the whole lower symbol interface, including
   `ser_rx_clk_i`, and drives the link status. `TIMEOUT_DIV` and

@@ -5,8 +5,9 @@ link layer [`pcie_dll`](../dll/HAS.md) stacked over the physical layer
 [`pcie_phy`](../phy/HAS.md), on one lane at 2.5 GT/s and virtual channel 0
 (decision record [0003](../../decisions/0003-m2-grill.md#decisions), Q1,
 Q4 to Q7). Above it sits the transaction layer (a testbench in M2, the M3
-transaction layer later, unchanged, Q5); below it, a serializer or the DV
-channel. It adds no protocol logic of its own: no transaction layer, no
+transaction layer later, Q5, which adds only the `dll` credit release:
+decision record [0004](../../decisions/0004-m3-grill.md#updates), Q9);
+below it, a serializer or the DV channel. It adds no protocol logic of its own: no transaction layer, no
 power management, no second virtual channel.
 
 This page owns the stack-level contract: the ports, how `link` joins the
@@ -23,7 +24,7 @@ the PCIe Base Spec rev 3.0 are paraphrased and cited, never copied
 
 ```mermaid
 flowchart TB
-  tl["transaction layer (DV: testbench)"] <-- "TLP stream (32-bit), credits available,<br/>DL status, link control" --> dll
+  tl["transaction layer (DV: testbench)"] <-- "TLP stream (32-bit), credits available,<br/>credit release, DL status, link control" --> dll
   dll["pcie_dll<br/>sequence numbers, LCRC, Ack/Nak, replay,<br/>flow control, DL states"] <-- "packet stream (16-bit), link_up,<br/>ltssm_state, retrain" --> phy
   phy["pcie_phy<br/>pcie_mac over pcie_pcs"] <-- "2x10-bit symbols<br/>TX clk_i, RX ser_rx_clk_i" --> ch["serializer (DV: channel)"]
 ```
@@ -44,6 +45,7 @@ bits `[7:0]` (or `[9:0]`) carry the earlier byte (symbol) on the line.
 | Clocks, reset, strap | `clk_i`, `rst_i`, `port_role_i` | [`phy` clocks](../phy/HAS.md#clocks-reset-and-strap); `rst_i` resets both layers. |
 | Upper TLP stream | `tlp_tx_valid_i`, `tlp_tx_ready_o`, `tlp_tx_data_i` (32), `tlp_tx_sop_i`, `tlp_tx_eop_i`; `tlp_rx_valid_o`, `tlp_rx_ready_i`, `tlp_rx_data_o` (32), `tlp_rx_sop_o`, `tlp_rx_eop_o` | [`dll` upper TLP stream](../dll/HAS.md#upper-tlp-stream), including the [upper-layer obligation](../dll/HAS.md#receive) never to stall the receive stream while any credit class is infinite. |
 | Credits available | `fc_ph_avail_o` (8), `fc_pd_avail_o` (12), `fc_nph_avail_o` (8), `fc_npd_avail_o` (12), `fc_cplh_avail_o` (8), `fc_cpld_avail_o` (12) | [`dll` credits available](../dll/HAS.md#credits-available). |
+| Credit release | `fc_rel_p_i`, `fc_rel_pd_i` (4), `fc_rel_np_i`, `fc_rel_npd_i` (4) | [`dll` credit release](../dll/HAS.md#credit-release); tied to 0 unless `FC_RELEASE` is 1. |
 | Data link status | `dl_up_o`, `dl_state_o` (2), `dl_err_o` (7) | The `dll` `dl_up_o`, `dl_state_o` and `err_o` ([status](../dll/HAS.md#status), [error bits](../dll/HAS.md#errors)). |
 | Physical link control and status | `link_up_o`, `ltssm_state_o` (6), `rcv_err_o`, `retrain_req_i`, `hot_reset_req_i`, `disable_req_i`, `loopback_req_i` | [`phy` link control](../phy/HAS.md#link-control-and-status), with the retrain and power rules [below](#stack-wiring). |
 | Lower symbol interface | `ser_tx_data_o` (20), `ser_tx_elec_idle_o`, `ser_tx_rxdet_i`, `ser_rx_clk_i`, `ser_rx_data_i` (20), `ser_rx_elec_idle_i` | [`phy` lower symbol interface](../phy/HAS.md#lower-symbol-interface). |
@@ -58,6 +60,7 @@ reports read apart ([errors](#errors)). The `phy` `pm_state_req_i` and
 | Name | Type | Default | Range | Effect |
 | --- | --- | --- | --- | --- |
 | `FC_PH`, `FC_PD`, `FC_NPH`, `FC_NPD`, `FC_CPLH`, `FC_CPLD` | `int unsigned` | 8, 32, 8, 8, 0, 0 | as the [`dll` parameters](../dll/HAS.md#parameters) | Passed to `pcie_dll`: the credits this receiver advertises (0 infinite). |
+| `FC_RELEASE` | `int unsigned` | 0 | 0, 1 | Passed to `pcie_dll`: 1 returns finite posted and non-posted credits on the [credit release](../dll/HAS.md#credit-release) port. |
 | `TIMEOUT_DIV`, `ERR_TIMEOUT_DIV` | `int unsigned` | 1, 1 | 1 to 1024 | Passed to `pcie_phy` ([`phy` parameters](../phy/HAS.md#parameters)). FPGA and ASIC builds use 1; DV uses 1024 where a test must wait one out. |
 
 ## Behavior
@@ -87,6 +90,7 @@ clock and no crossing.
 
 | `link` joins | How |
 | --- | --- |
+| Upper TLP stream, credits available, credit release, data link status | Straight to and from the `dll` ports of the same names (`err_o` as `dl_err_o`). |
 | `dll` lower packet stream to `phy` upper packet stream | Port for port, `pkt_tx_*` and `pkt_rx_*` ([`dll` lower stream](../dll/HAS.md#lower-packet-stream-and-link-status)). The `phy` `pkt_tx_nullify_i` is tied to 0: the `dll` never nullifies. |
 | `phy` `link_up_o`, `ltssm_state_o` | Both to the `link` ports and to the `dll` `link_up_i` and `ltssm_state_i`. |
 | `phy` `retrain_req_i` | The OR of `retrain_req_i` and the `dll` `retrain_req_o` (each a one-cycle pulse; a REPLAY_NUM rollover retrains without the upper layer). |
@@ -156,7 +160,7 @@ only, without header, sequence number, LCRC or framing.
 | Throughput, one way | The same in one direction only: at least 0.85 of the line rate (212.5 MB/s). | `mwr_oneway`; e2e `e2e_throughput_oneway`, `e2e_throughput_short` ([#216](https://github.com/amichai-bd/pcie-factory/issues/216)) |
 | Ack latency | Measured at the `dll`-to-`phy` boundary, as the [`dll` target](../dll/HAS.md#targets) is: every good TLP is covered by an Ack or Nak that starts on the `phy` packet stream within 118 cycles (237 symbol times) of the TLP's `eop` from `phy`, with SKP ordered sets and both directions loaded [cite: PCIe Base Spec, rev 3.0, §3.5.3.1]. A SKP ordered set holds `pkt_tx_ready` low, so its wait is inside the 118. Derived bound on the line, from the TLP's last symbol on `ser_rx_data_i` to the covering DLLP's first symbol on `ser_tx_data_o`: 118 + 16 (`phy` RX) + 6 (`phy` TX) = **140 cycles**. | `mwr_bidir`, `mixed_bidir` (`ack_latency_dll_cycles_max`) |
 | Lossless | Under every [error class](#error-injection): each TLP delivered once, in order, byte for byte; no DL protocol error or receiver overflow. | `error_recovery`, `replay_rollover`; [#215](https://github.com/amichai-bd/pcie-factory/issues/215) |
-| Credits | No receiver overflow in any [credit configuration](#credit-configurations), through starvation and recovery. | `dll` `credit_starve`, `credits_infinite`; [#215](https://github.com/amichai-bd/pcie-factory/issues/215) |
+| Credits | No receiver overflow in any [credit configuration](#credit-configurations), through starvation and recovery. With the credit release, the both-ways throughput target still holds when each upper layer releases 40 cycles after delivery. | `dll` `credit_starve`, `credits_infinite`, `credit_release`; `mwr_bidir_release`; [#215](https://github.com/amichai-bd/pcie-factory/issues/215), [#303](https://github.com/amichai-bd/pcie-factory/issues/303) |
 | Link-up | `rst_i` release to DL_Active at both ends: the [`phy` link-up target](../phy/HAS.md#targets) plus at most 200 cycles after the later `link_up_o`, finite or all-infinite credits. | `link_init`, `link_init_infinite`; [#215](https://github.com/amichai-bd/pcie-factory/issues/215) |
 | TLP latency | From a TLP's accepted `eop` at one `link` to its `sop` at the other: at most B + 29 cycles plus the channel delay, B = (n + 6) / 2 the `phy` beats of an n-byte TLP (102 for a 128-byte write), with nothing else queued and no SKP ordered set inside. It is the sum of the `dll` TX 4 and RX 4, the `phy` TX 6 and RX 16, and the packet's B − 1 beats after its first. | budget; [#215](https://github.com/amichai-bd/pcie-factory/issues/215) |
 | FPGA clock | `clk_i` and `ser_rx_clk_i` at 50 MHz on the DE2-115 (Quartus): timing and resources only, no board bring-up; the design's rates are unchanged (M1 Q26, Q2). | [#218](https://github.com/amichai-bd/pcie-factory/issues/218) |
@@ -260,6 +264,7 @@ re-encodes so that the receiver sees no other error.
 | Finite, default sizes | P 8, 32; NP 8, 8; Cpl 8, 32 | As above. |
 | All infinite | every class infinite | Never stalls. |
 | Asymmetric | a finite minimum, b default | a may stall; b never stalls. |
+| Release | default, `FC_RELEASE` 1 | Never stalls; each end releases its posted and non-posted TLPs in 30% of cycles and not at all for 4000 and 10000 cycles ([credit release](../dll/HAS.md#credit-release)). |
 
 In every configuration, both ends send a random mix, so that each class's
 header and data gates both bind:
@@ -278,7 +283,9 @@ Each kind is at least 20% of the TLPs.
   delivered on the other's `tlp_rx_*` to equal the oldest one not yet
   delivered, byte for byte. At the end of every test the traffic drains
   and every accepted TLP must have been delivered.
-- **Credits:** `dl_err_o` Receiver overflow never pulses. Each
+- **Credits:** `dl_err_o` Receiver overflow never pulses. With the
+  release, an upper layer never holds more unreleased credits than its own
+  end advertises. Each
   `fc_*_avail_o` never exceeds what the partner has advertised and
   returned, and with traffic drained every finite one is back at the
   partner's advertised value.
@@ -376,6 +383,7 @@ writes `workdir/link/arch/perf.json`.
 | --- | --- |
 | [`mwr_oneway`](../../../../src/arch/link/perf/mwr_oneway.yaml) | 2000 128-byte MWr one way. |
 | [`mwr_bidir`](../../../../src/arch/link/perf/mwr_bidir.yaml) | 2000 128-byte MWr each way. |
+| [`mwr_bidir_release`](../../../../src/arch/link/perf/mwr_bidir_release.yaml) | The same with the credit release at both ends, 40 cycles after delivery. |
 | [`mixed_bidir`](../../../../src/arch/link/perf/mixed_bidir.yaml) | 2000 random TLPs each way. |
 | [`error_recovery`](../../../../src/arch/link/perf/error_recovery.yaml) | 2000 random TLPs each way, TLPs and DLLPs corrupted, dropped and flagged. |
 | [`replay_rollover`](../../../../src/arch/link/perf/replay_rollover.yaml) | All TLPs one way dropped from cycle 5000 to 7000. |
@@ -386,5 +394,5 @@ writes `workdir/link/arch/perf.json`.
 | Item | Owner |
 | --- | --- |
 | If the Base Spec measures its Ack limit at the port (on the line), not at the data link layer's boundary, the 32-cycle `dll` Ack timer may be too long. The line bound here is 140 cycles against the 118 limit. The e2e measured up to 125.4 cycles on the line error-free and 126.4 under injection (111 at the `dll` boundary; [MAS timing](../../rtl/link/MAS.md#timing), [#215](https://github.com/amichai-bd/pcie-factory/issues/215)), so on the line the stack does not meet 118. | Captain |
-| M3 and later: software-directed L1 and L2 will need a power-state port on `link` and power-management DLLPs in `dll`. That changes the `link` port list, which conflicts with Q5's "M3 adds it on top unchanged". | Captain |
+| M3 and later: software-directed L1 and L2 will need a power-state port on `link` and power-management DLLPs in `dll`. That changes the `link` port list again, beyond the credit release Q9 added (decision record [0004](../../decisions/0004-m3-grill.md#updates), amending Q5's "M3 adds it on top unchanged"). | Captain |
 | The cited sections on this page, checked against rev 3.0 (the Base Spec is not in the local cache). | Captain, with a local copy |

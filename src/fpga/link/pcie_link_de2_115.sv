@@ -27,8 +27,9 @@ module pcie_link_de2_115 (
   // reset is held until then, at least the 8 clk_i cycles the stack needs.
   localparam int unsigned POR_W = 4;
 
-  // Stimulus widths: every non-clock pcie_link input except the reset and
-  // the static port role, per domain.
+  // Stimulus widths: every non-clock pcie_link input except the reset, the
+  // static port role and the credit release (tied to 0, as FC_RELEASE 0
+  // requires), per domain.
   localparam int unsigned STIM_W    = 41;  // clk_i: TLP transmit 35, TLP receive ready 1,
                                            //   link control 4, rxdet 1
   localparam int unsigned RX_STIM_W = 21;  // ser_rx_clk_i: 20 data bits, electrical idle
@@ -119,8 +120,8 @@ module pcie_link_de2_115 (
   `COMMON_DFF(stim_q, stim_d, clk_i)
   `COMMON_DFF(rx_stim_q, rx_stim_d, rx_clk_i)
 
-  // Default credits; FPGA builds use TIMEOUT_DIV and ERR_TIMEOUT_DIV 1
-  // (link HAS, Parameters).
+  // Default credits and FC_RELEASE 0; FPGA builds use TIMEOUT_DIV and
+  // ERR_TIMEOUT_DIV 1 (link HAS, Parameters).
   pcie_link #(
     .TIMEOUT_DIV     (1),
     .ERR_TIMEOUT_DIV (1)
@@ -144,6 +145,10 @@ module pcie_link_de2_115 (
     .fc_npd_avail_o     (fc_npd_avail),
     .fc_cplh_avail_o    (fc_cplh_avail),
     .fc_cpld_avail_o    (fc_cpld_avail),
+    .fc_rel_p_i         (1'b0),
+    .fc_rel_pd_i        (4'd0),
+    .fc_rel_np_i        (1'b0),
+    .fc_rel_npd_i       (4'd0),
     .dl_up_o            (dl_up),
     .dl_state_o         (dl_state),
     .dl_err_o           (dl_err),

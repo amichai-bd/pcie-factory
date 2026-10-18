@@ -1,7 +1,8 @@
 // Testbench top of pcie_dll (wiki/src/dv/dll/DV_PLAN.md): the DUT with its
 // credit parameters, every port passed through by name, plus cfg_fc_o,
 // the parameters as the cocotb environment reads them ({FC_PH, FC_PD,
-// FC_NPH, FC_NPD, FC_CPLH, FC_CPLD}, FC_PH in the most significant bits).
+// FC_NPH, FC_NPD, FC_CPLH, FC_CPLD}, FC_PH in the most significant bits;
+// FC_RELEASE in bit 0).
 // The DUT is driven only through its ports. probe_tx_ok_o shows the
 // MAS-named credit gate through the bind tap pcie_dll_fc_tap
 // (wiki/src/dv/dll/DV_PLAN.md, gate tap).
@@ -13,7 +14,8 @@ module pcie_dll_tb #(
   parameter int unsigned FC_NPH  = 8,
   parameter int unsigned FC_NPD  = 8,
   parameter int unsigned FC_CPLH = 0,
-  parameter int unsigned FC_CPLD = 0
+  parameter int unsigned FC_CPLD = 0,
+  parameter int unsigned FC_RELEASE = 0
 ) (
   input  logic        clk_i,
   input  logic        rst_i,
@@ -33,6 +35,10 @@ module pcie_dll_tb #(
   output logic [11:0] fc_npd_avail_o,
   output logic [7:0]  fc_cplh_avail_o,
   output logic [11:0] fc_cpld_avail_o,
+  input  logic        fc_rel_p_i,
+  input  logic [3:0]  fc_rel_pd_i,
+  input  logic        fc_rel_np_i,
+  input  logic [3:0]  fc_rel_npd_i,
   output logic        dl_up_o,
   output logic [1:0]  dl_state_o,
   output logic [6:0]  err_o,
@@ -58,7 +64,7 @@ module pcie_dll_tb #(
 );
 
   assign cfg_fc_o = {8'(FC_PH), 12'(FC_PD), 8'(FC_NPH), 12'(FC_NPD), 8'(FC_CPLH), 12'(FC_CPLD),
-                     20'd0};
+                     19'd0, 1'(FC_RELEASE)};
 
   pcie_dll #(
     .FC_PH   (FC_PH),
@@ -66,7 +72,8 @@ module pcie_dll_tb #(
     .FC_NPH  (FC_NPH),
     .FC_NPD  (FC_NPD),
     .FC_CPLH (FC_CPLH),
-    .FC_CPLD (FC_CPLD)
+    .FC_CPLD    (FC_CPLD),
+    .FC_RELEASE (FC_RELEASE)
   ) u_dut (
     .clk_i            (clk_i),
     .rst_i            (rst_i),
@@ -86,6 +93,10 @@ module pcie_dll_tb #(
     .fc_npd_avail_o   (fc_npd_avail_o),
     .fc_cplh_avail_o  (fc_cplh_avail_o),
     .fc_cpld_avail_o  (fc_cpld_avail_o),
+    .fc_rel_p_i       (fc_rel_p_i),
+    .fc_rel_pd_i      (fc_rel_pd_i),
+    .fc_rel_np_i      (fc_rel_np_i),
+    .fc_rel_npd_i     (fc_rel_npd_i),
     .dl_up_o          (dl_up_o),
     .dl_state_o       (dl_state_o),
     .err_o            (err_o),
