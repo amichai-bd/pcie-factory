@@ -142,7 +142,7 @@ backend files. Selection is by source list only, never by `` `ifdef``:
 | --- | --- |
 | No filelist lists a backend file; the block's filelist lists only the portable file. So simulation, `./build check` lint and the other flows never read it, and no source list holds two implementations of one module. | `filelist` check; the flows' and the simulator's selection fails on a listed backend file |
 | A backend file is reached through its portable file (which must be listed) and declares exactly that file's module. | `filelist` check (orphans) and `style` check (`file-name`) |
-| A flow replaces each source that has its backend file beside it, in place, in the source list it hands its tool. | `build.backends.select`, used by `./build fpga` ([fpga spec](../tools/fpga/SPEC.md#inputs)) |
+| A flow replaces each source that has its backend file beside it, in place, in the source list it hands its tool. | `build.backends.select`, used by `./build fpga` ([fpga spec](../tools/fpga/SPEC.md#inputs)) and `./build asic` ([asic spec](../tools/asic/SPEC.md#backends)) |
 | A regression entry with `backend: <kind>` builds the unit with that selection plus the kind's `dv_models`, so the block's contract tests run on the backend. | `./build sim`, `./build regress` ([regress spec](../tools/regress/SPEC.md#regression-lists)) |
 
 The block's MAS owns each backend's mapping and its evidence; only the
@@ -156,7 +156,7 @@ consuming flow's own reports prove a vendor mapping.
 | `dv/<ip>/<ip>.dv.f` | Simulation-only SystemVerilog (testbench tops, bind and assertion files, SV models). |
 | `dv/<ip>/<ip>.sim.f` | `-F ../../rtl/<ip>/<ip>.rtl.f` plus `-F <ip>.dv.f`. |
 | `dv/<ip>/regress/level{0,1,2}.yaml` | This IP's own tests per level. Levels are exclusive; sub-IP tests are not inherited. |
-| `fpga/<ip>/`, `asic/<ip>/` | Top-level IPs only. Constraints and flow config only; generated output goes to `workdir/`. |
+| `fpga/<ip>/`, `asic/<ip>/` | Top-level IPs only. Constraints and flow config only (for ASIC also files its `.mk` names through `$(ASIC_INPUT_DIR)`, such as a power-grid script); generated output goes to `workdir/`. |
 | `arch/<ip>/` | Top-level IPs only: `<prefix><ip>_arch.py` (Python architecture model, not verification), its self-tests and `perf/<scenario>.yaml`; required once the HAS defines targets ([arch BKM](../bkm/arch.md)). |
 
 `./build check` enforces the source layout (its `layout` check), the

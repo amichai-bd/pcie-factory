@@ -253,7 +253,10 @@ word space from `wr_addr`. `end_q`, a 64-entry flop table indexed by the
 sequence number's low 6 bits, holds the word after each stored TLP: at
 most 56 TLPs fit (`a_held_limit`), so slots never collide. `base` is the
 first word of the oldest TLP held, and `nts_addr` and `rp_addr` the first
-words of the next new and the next replayed TLP.
+words of the next new and the next replayed TLP. On sky130 the ASIC flow builds it, like the
+receive buffer, from SRAM macros through the RAM's
+[sky130 backend](../common/ram/common_sdp_ram.md#sky130-backend) (one
+macro here, two for the receive buffer), with the same cycle behavior.
 
 **Room.** Space in use counts each held TLP as n + 6 bytes, as the HAS
 does: `4 * (wr_addr - base) + 2 * held`, with `held` the TLPs holding a

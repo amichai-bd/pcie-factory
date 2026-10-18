@@ -100,6 +100,21 @@ which satisfies Q9.
   4. The open item "when a running replay ends" (for a replay requested
      during it) stays open for the captain, owned by epic #203; no effect
      on the line was observed.
+- **2026-10-17, link ASIC blocker ([#219](https://github.com/amichai-bd/pcie-factory/issues/219), [#279](https://github.com/amichai-bd/pcie-factory/issues/279)):**
+  captain decisions ([epic #203 comment](https://github.com/amichai-bd/pcie-factory/issues/203#issuecomment-6240731810)):
+  1. **SRAM macros.** The `dll` replay and receive buffers move to sky130
+     SRAM macros in the ASIC flow only (#279); simulation and FPGA are
+     unchanged.
+  2. **ORFS container memory.** The ORFS container may use up to 6 GB,
+     swap included, on the self-hosted host (from 3 GB), if the flow needs
+     it; never more.
+  3. **M2 ASIC gate.** If `link` still misses the 100 MHz checkpoint with
+     the macros, the achieved frequency and worst paths are recorded, M2
+     closes, and 100 MHz closure becomes a follow-up issue, as #235 is for
+     125 MHz. This **amends Q10** (and goal item 8) for that case.
+     With the macros, `link` reaches about 87 MHz at the 10 ns study
+     ([`link` ASIC, Timing status](../asic/link/ASIC.md#timing-status));
+     100 MHz closure is [#319](https://github.com/amichai-bd/pcie-factory/issues/319).
 - **2026-10-18 (captain):** the regression CPU budgets may be raised as
   needed, after speed-ups and rebalancing
   ([#272](https://github.com/amichai-bd/pcie-factory/issues/272#issuecomment-6242089772)).

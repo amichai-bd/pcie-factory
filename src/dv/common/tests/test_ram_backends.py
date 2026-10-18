@@ -163,3 +163,47 @@ async def stub_rejects(dut):
         fatals = [t for r, t in msgs if r == "USERFATAL"]
         assert len(fatals) == 1 and fatals[0].endswith(f"altsyncram stub: {message}"), (
             f"{override}: expected one failure, '{message}', got:\n{text}")
+
+
+# The sky130 (asic) backends: lint against the DV-only macro model.
+SKY130 = backends.load(REPO_ROOT / "cfg")["asic"]
+SKY130_MODELS = backends.dv_models(SKY130, SRC)
+SKY130_BLOCKS = tuple(sorted(p.stem for p in RTL.glob("common_*.sv")
+                             if backends.backend_file(p, SKY130).is_file()))
+SKY130_LEGAL = (
+    {"WIDTH": 34, "ADDR_W": 9, "LANES": 1},   # dll receive buffer: two macro rows
+    {"WIDTH": 32, "ADDR_W": 8, "LANES": 1},   # dll replay buffer: one macro
+    {"WIDTH": 16, "ADDR_W": 3, "LANES": 1},   # the regression shape: low words only
+    {"WIDTH": 70, "ADDR_W": 10, "LANES": 1},  # two macros across, four rows
+    {"WIDTH": 1, "ADDR_W": 1, "LANES": 1},    # the smallest RAM
+)
+SKY130_ILLEGAL = (
+    ({"WIDTH": 0}, "WIDTH must be at least 1"),
+    ({"ADDR_W": 0}, "ADDR_W must be at least 1"),
+    ({"WIDTH": 16, "LANES": 2}, "the sky130 backend supports LANES == 1 only"),
+)
+
+
+@cocotb.test()
+async def sky130_lint(dut):
+    """Legal geometries lint with only DECLFILENAME (the backend file holds
+    its portable file's module); illegal ones fail with the block's own
+    message."""
+    del dut
+    assert SKY130_BLOCKS, "no shared RAM has an asic backend file"
+    checked = 0
+    for block in SKY130_BLOCKS:
+        sources = [backends.backend_file(RTL / f"{block}.sv", SKY130), *SKY130_MODELS]
+        for params in SKY130_LEGAL:
+            code, msgs, text = lint(block, sources, params)
+            assert code == 0 and [r for r, _ in msgs] == ["DECLFILENAME"], (
+                f"{block} {params}: expected exactly DECLFILENAME, got exit {code}:\n{text}")
+            checked += 1
+        for params, message in SKY130_ILLEGAL:
+            code, msgs, text = lint(block, sources, {"LANES": 1, **params})
+            want = f"{block}: {message}"
+            assert any(r == "USERFATAL" and want in t for r, t in msgs), (
+                f"{block} {params}: expected an elaboration failure naming '{want}', got exit "
+                f"{code}:\n{text}")
+            checked += 1
+    assert checked == len(SKY130_BLOCKS) * (len(SKY130_LEGAL) + len(SKY130_ILLEGAL))

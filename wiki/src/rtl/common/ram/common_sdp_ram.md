@@ -54,7 +54,8 @@ Illegal values stop elaboration through `COMMON_ASSERT_PARAM` blocks
   FPGA flow does not rely on inference: it selects the
   [Intel backend](#intel-backend). Yosys infers a memory with one write
   port and one non-transparent synchronous read port with an enable; the
-  ASIC flow maps it to flops.
+  ASIC flow does not rely on it either: it selects the
+  [sky130 backend](#sky130-backend).
 
 ## Intel backend
 
@@ -108,6 +109,69 @@ infers the 64 x 8 `end_q` array of the dll TX path as a RAM.
 | dll receive buffer (`link`, DE2-115) | 512 x 34 | 2 (two x18 at 512 words) | 2 M9K: Simple Dual Port, Single Clock, 512 x 34, 17408 bits, mixed RDW Old data (`altsyncram:g_one_lane.u_ram`). |
 | dll replay buffer (`link`, DE2-115) | 256 x 32 | 1 (x32 at 256 words) | 1 M9K: Simple Dual Port, Single Clock, 256 x 32, 8192 bits, mixed RDW Old data (`altsyncram:g_one_lane.u_ram`). |
 
+## sky130 backend
+
+[`common_sdp_ram_sky130.sv`](../../../../../src/rtl/common/ram/common_sdp_ram_sky130.sv)
+is this module on sky130 SRAM macros, a
+[source backend](../../../../project/layout.md#source-backends) that only
+the ASIC flow's source list selects (`cfg/backends.yaml`, suffix `sky130`),
+in place of the portable file. Simulation, `./build check` lint and the
+FPGA flow read the portable file. Its
+parameters, ports and the behavior above are identical, with one limit:
+`LANES` must be 1 (`g_lanes_check`).
+
+**Macro.** `sky130_sram_1rw1r_64x256_8`, an OpenRAM macro the pinned ORFS
+image carries (`flow/platforms/sky130ram/sky130_sram_1rw1r_64x256_8/`:
+`.lef`, `_TT_1p8V_25C.lib`, `.gds`, `.v`; ORFS commit `d4b96380b10e`), 256
+words of 64 bits with a byte write mask. Port 0 reads or writes (`csb0`,
+`web0` active low), port 1 reads (`csb1` active low); both register every
+input at the rising edge of their clock. Its Liberty view (typical corner,
+1.8 V, 25 °C) gives a 0.165 ns setup and a −0.052 ns hold on every input,
+and the read data on a falling-edge arc, about 0.38 to 0.53 ns after the
+falling edge that follows the read edge; the area is about 0.42 mm²
+(1041 × 403 µm). The image also holds 128x256, 80x64 and 44x64 variants;
+64x256 tiles both `dll` buffers with the fewest macros of the same storage.
+The macro's model drives undefined data in a cycle without a read, and a
+port 1 read of the word port 0 writes at the same edge is undefined.
+
+**Structure.**
+
+- **Tiling.** `ceil(WIDTH / 64)` macros across and `2**(ADDR_W - 8)` deep
+  (one row, low words only, when `ADDR_W <= 8`). Port 0 of every macro is
+  the write port, port 1 the read port, both on `clk_i`; a row's chip
+  selects decode the top address bits; unused data bits are written as
+  zero. The `dll` replay buffer (256 × 32) takes one macro, the receive
+  buffer (512 × 34) two.
+- **Pending write.** A write is registered (`pend_q`, `pend_addr_q`,
+  `pend_data_q`) and committed to the macros at the next edge. A read of
+  the pending word (`collide`) disables the macro read and registers the
+  pending data (`byp_q`, `byp_data_q`) instead. So no physical collision
+  happens, and an enabled read always gets the word before this edge's
+  write (read-first); a word written at edge N is readable at edge N+1,
+  from the bypass, and from the macro after.
+- **Read data and hold.** `fresh_q` (the last edge read the macros) and
+  `row_q` select the macro row's read data; `hold_q` takes it at the next
+  edge, and `rd_data_o` is the bypass word, the fresh macro word or
+  `hold_q`. So `rd_data_o` keeps the last word read through cycles without
+  a read, as the portable read register does. The extra state is
+  `2 × WIDTH + ADDR_W + ROW_W + 3` flops.
+- **Latency and timing.** Still one edge, but the macro word arrives about
+  half a period plus 0.5 ns after the read edge, not at the clock-to-output
+  of a register, so the consumer's logic after `rd_data_o` gets the
+  remaining half period. STA covers it through the macro's Liberty arcs.
+
+**Verification.** Verilator reads the backend only against the DV-only
+cell model
+[`sky130_sram_1rw1r_64x256_8.sv`](../../../../../src/dv/common/tb/sky130_sram_1rw1r_64x256_8.sv)
+(`dv_models` of the `asic` entry), written for this repository from the
+macro's documented behavior: inputs at the rising edge, read data for one
+cycle only and junk otherwise, and a fatal error on a same-word write and
+read. The shared contract tests run on the backend through the regression
+entries with `backend: asic` ([DV plan](../../../dv/common/ram/common_sdp_ram.md)),
+at the regression shape and at both `dll` buffer shapes (one and two macro
+rows), and `tests.test_ram_backends` lints it with `-Wall`. Silicon
+behavior and timing come only from the ASIC flow.
+
 ## Decisions
 
 | Choice | Rationale | Rejected |
@@ -115,6 +179,8 @@ infers the 64 x 8 `end_q` array of the dll TX path as a RAM.
 | One module with a read enable | The source's two modules differ only in a tied-high enable; one block keeps one page and one test set. | The source's separate always-read wrapper. |
 | An explicit Intel backend selected by source list | The fit must be known (M9K, old-data collision), not inferred; one module name in two files keeps every consumer and test unchanged. | Inference alone (shape unmeasured); `ifdef` or `ramstyle` in the block; vendor primitives in IP RTL. |
 | Lanes on byte enables, 8- or 9-bit lanes only | Matches M9K byte sizes; the consumers use one lane. | Emulating narrow lanes with read-modify-write. |
+| A sky130 SRAM-macro backend for the ASIC flow ([#279](https://github.com/amichai-bd/pcie-factory/issues/279)) | Inferred arrays map to flops on sky130hd, too large to route in `link` (about 25 kbit); the same source-backend mechanism as the Intel one. | Yosys memory mapping in an ORFS hook (no reviewed RTL, no lint); raising the container memory alone (timing stays far off). |
+| Pending write with a bypass in the sky130 backend | The macro defines no same-word write and read in one edge; delaying the write one edge and bypassing it keeps the read-first contract for every input. | Requiring consumers never to collide (a contract change). |
 
 Provenance: adapted from nand2anything `src/common/rtl/n2a_sdp_ram_portable.sv`
 (modules `n2a_sdp_ram_enabled` and `n2a_sdp_ram`, commit `085ef4b`),
@@ -123,7 +189,11 @@ nand2anything `src/common/rtl/n2a_sdp_ram_intel.sv`, and its stub and
 rejection set from `src/common/dv/memory/n2a_altsyncram_port_stub.sv` and
 its reject fixtures (commit `8bb70d248d4755d7510fb2c0ec6487a5e05dec41`),
 adapted with the owner's permission; that project fits the same backend on
-the DE2-115.
+the DE2-115. The sky130 backend's pattern (pending write with a collision
+bypass, tiling, a strict DV-only macro model) is adapted from nand2anything
+`src/common/rtl/n2a_sdp_ram_ihp_edge.sv` and
+`src/common/dv/memory/n2a_ihp_edge_2p_model.sv` (commit `8bb70d2`), adapted
+with the owner's permission, for another macro.
 
 ## Timing
 
@@ -136,3 +206,4 @@ One clock, no reset. `rd_data_o` is the RAM's read register.
 | [`common_sdp_ram.sv`](../../../../../src/rtl/common/ram/common_sdp_ram.sv) | The module. |
 | [`common_sdp_ram.rtl.f`](../../../../../src/rtl/common/ram/common_sdp_ram.rtl.f) | `-F ../common_macros.rtl.f`, then the module. |
 | [`common_sdp_ram_intel.sv`](../../../../../src/rtl/common/ram/common_sdp_ram_intel.sv) | The [Intel backend](#intel-backend); in no filelist, selected by the FPGA flow. |
+| [`common_sdp_ram_sky130.sv`](../../../../../src/rtl/common/ram/common_sdp_ram_sky130.sv) | The [sky130 backend](#sky130-backend); in no filelist, selected by the ASIC flow. |
