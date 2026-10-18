@@ -189,6 +189,7 @@ module pcie_tl #(
 
   logic                    pq_valid;
   pcie_tl_pkg::t_pq_ent    pq_head;
+  pcie_tl_pkg::t_ep        pq_head_ep_rc;  // the posted-queue head's epoch on the rc line
   logic                    pq_pop_cq;
   logic                    pq_pop_reg;
   logic                    pd_valid;
@@ -526,6 +527,10 @@ module pcie_tl #(
     .data_o            (rc_dword)
   );
 
+  // A named net, not a package-indexed select in the port connection:
+  // Quartus Lite rejects the latter (error 10162; #295).
+  assign pq_head_ep_rc = pq_head.ep[pcie_tl_pkg::LINE_RC];
+
   pcie_tl_rc u_rc (
     .clk_i       (clk_i),
     .rst_i       (rst),
@@ -536,7 +541,7 @@ module pcie_tl #(
     .rc_ep_i     (rc_ep),
     .p_none_i    (p_none),
     .p_known_i   (p_known),
-    .p_head_ep_i (pq_head.ep[pcie_tl_pkg::LINE_RC]),
+    .p_head_ep_i (pq_head_ep_rc),
     .rc_valid_o  (rc_valid),
     .rc_ready_i  (rc_ready_i && !rst),
     .rc_sop_o    (rc_sop_o),
