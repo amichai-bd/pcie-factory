@@ -8,7 +8,9 @@ Ack and Nak, a replay buffer with its timer, credit-based flow control and
 the data link control states. Above it sits the transaction layer (a
 testbench in M2, the M3 transaction layer later, which adds only the
 [credit release](#credit-release); decision record
-[0004](../../decisions/0004-m3-grill.md#updates), Q9, amending M2 Q5); below it, the
+[0004](../../decisions/0004-m3-grill.md#updates), Q9, amending M2 Q5), or, in the downstream role, the root-port
+transaction layer of [`pcie_rc`](../rc/HAS.md) (decision record
+[0005](../../decisions/0005-m4-grill.md#decisions), Q3); below it, the
 upper packet stream of [`pcie_phy`](../phy/HAS.md). The `link` IP stacks
 `dll` over `phy` (Q4). It is not a transaction layer: it never builds,
 orders or checks the contents of a TLP beyond the header fields that flow
