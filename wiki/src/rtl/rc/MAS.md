@@ -62,6 +62,12 @@ No logic in `rc`: every latency is a sub-IP's or `link`'s
 [`rc_seq` timing](../rc_seq/MAS.md#timing)). The targets are in the
 [HAS targets](../../arch/rc/HAS.md#targets).
 
+Clocks: `clk_i`, plus `link`'s receive clock, `ser_rx_clk_i` at `LOWER` 0
+or `gpio_rx_clk_i` at `LOWER` 1; `rc` adds no crossing. Both clock inputs
+carry a `cdc-domain` annotation naming themselves, and the top declares
+`// cdc-params: LOWER=1`, so the CDC check analyzes the board build as
+well as the default ([`link` MAS](../link/MAS.md#timing)).
+
 ## Decisions
 
 | Choice | Rationale | Rejected |

@@ -590,8 +590,7 @@ def test_scan_port_domains(tmp_path):
 @pytest.mark.parametrize("line, msg", [
     ("  input  logic x_i,  // cdc-domain: y_o\n", "y_o is not an input port of xy_blk"),
     ("  input  logic x_i,  // cdc-domain: clk_c_i\n", "clk_c_i is not an input port of xy_blk"),
-    ("  input  logic x_i,  // cdc-domain: x_i\n", "names the port itself"),
-], ids=["output", "missing", "itself"])
+], ids=["output", "missing"])
 def test_annotation_must_name_another_input(tmp_path, line, msg):
     r = run(annotated(tmp_path, B_SAMPLES_X, line))
     assert r.findings == [f"blk: rtl/blk/xy_blk.sv:7: cdc-domain annotation on xy_blk.x_i: {msg}"]
@@ -635,6 +634,15 @@ endmodule
     r = run(tree(tmp_path, A_FLOP + "  assign y_o = a_q;\n", {"xy_blk_fn.sv": fn}))
     assert r.findings == ["rtl/blk/xy_blk_fn.sv:4: cdc-domain annotation does not annotate "
                           "an input port of an analyzed module"]
+
+
+@needs_verilator
+def test_annotation_naming_the_port_itself_declares_a_clock(tmp_path):
+    # x_i declared a clock input of its own domain, then sampled as data on clk_b_i.
+    r = run(annotated(tmp_path, B_SAMPLES_X, "  input  logic x_i,  // cdc-domain: x_i\n"))
+    [f] = blk(r)
+    assert f.startswith("blk: flop b_q (clock clk_b_i, rtl/blk/xy_blk.sv:")
+    assert "samples input port x_i (clock x_i, rtl/blk/xy_blk.sv:7) directly" in f
 
 
 # ---------------------------------------------------------------- src=async rule
@@ -1165,3 +1173,147 @@ def test_integrated_top_level_ip_is_analyzed_alone_and_in_its_integrator(tmp_pat
     assert run(src).checked.startswith(f"2 top-level IP(s), {N_BLOCKS} shared block(s)")
     assert run(src, {"oth"}).checked.startswith("2 top-level IP(s), 0 shared block(s)")
     assert run(src, {"blk"}).checked.startswith("1 top-level IP(s), 0 shared block(s)")
+
+
+# ---------------------------------------------------------------- parameter sets
+
+# At MODE 0 the second clock reaches nothing; at MODE 1 a clk_b_i flop
+# crosses into clk_a_i through a synchronizer. clk_b_i names itself, so its
+# annotation is right in both builds.
+PARAM_TOP = """`default_nettype none
+// cdc-params: MODE=1
+module xy_blk #(
+  parameter int unsigned MODE = 0
+) (
+  input  logic clk_a_i,
+  input  logic clk_b_i,  // cdc-domain: clk_b_i
+  input  logic rst_a_i,  // cdc-domain: clk_a_i
+  input  logic rst_b_i,  // cdc-domain: clk_b_i
+  input  logic x_i,      // cdc-domain: clk_b_i
+  output logic y_o
+);
+  logic s;
+  logic a_q;
+  if (MODE == 1) begin : g_b
+    logic b_q;
+    always_ff @(posedge clk_b_i) b_q <= rst_b_i ? 1'b0 : x_i;
+    common_cdc_sync2 u_sync (
+      .dst_clk_i (clk_a_i),
+      .dst_rst_i (rst_a_i),
+      .src_data_i(b_q),
+      .dst_data_o(s)
+    );
+  end else begin : g_a
+    assign s = 1'b0;
+  end
+  always_ff @(posedge clk_a_i) a_q <= s;
+  assign y_o = a_q;
+endmodule
+`default_nettype wire
+"""
+# The mutant: the synchronizer on the second-clock path removed.
+RAW = """    common_cdc_sync2 u_sync (
+      .dst_clk_i (clk_a_i),
+      .dst_rst_i (rst_a_i),
+      .src_data_i(b_q),
+      .dst_data_o(s)
+    );
+"""
+
+
+def param_tree(tmp_path: Path, text: str = PARAM_TOP) -> Path:
+    src = tree(tmp_path, "")
+    (src / "rtl/blk/xy_blk.sv").write_text(text)
+    return src
+
+
+@needs_verilator
+def test_param_set_is_one_more_run(tmp_path, capsys):
+    r = run(param_tree(tmp_path))
+    assert r.passed, r.findings
+    assert (f"1 top-level IP(s), {N_BLOCKS} shared block(s), {N_BLOCKS + 2} Verilator "
+            "--json-only run(s)") in r.checked
+    assert "4 cdc-domain annotation(s), 1 cdc-params directive(s)" in r.checked
+    out = capsys.readouterr().out
+    assert "[cdc] blk: top=xy_blk\n" in out
+    assert "[cdc] blk[MODE=1]: top=xy_blk -GMODE=1\n" in out
+
+
+@needs_verilator
+def test_crossing_only_in_a_param_set_is_caught_there(tmp_path):
+    mutant = PARAM_TOP.replace(RAW, "    assign s = b_q;\n")
+    [f] = run(param_tree(tmp_path, mutant)).findings
+    assert f.startswith("blk[MODE=1]: flop a_q (clock clk_a_i, rtl/blk/xy_blk.sv:")
+    assert "samples flop g_b.b_q (clock clk_b_i" in f
+    # Without the directive only the default build is elaborated: the gap.
+    other = tmp_path / "other"
+    other.mkdir()
+    assert run(param_tree(other, mutant.replace("// cdc-params: MODE=1\n", ""))).passed
+
+
+@needs_verilator
+def test_param_set_with_an_unknown_parameter_fails(tmp_path):
+    r = run(param_tree(tmp_path, PARAM_TOP.replace("MODE=1\n", "NOPE=1\n")))
+    assert r.findings == ["blk[NOPE=1]: verilator --json-only exited 1: %Error: Parameters "
+                          "from the command line were not found in the design: NOPE"]
+
+
+@needs_verilator
+def test_param_set_on_a_module_that_is_no_top(tmp_path):
+    sub = """`default_nettype none
+// cdc-params: W=2
+module xy_blk_reg #(parameter int W = 1) (
+  input  logic c_i,
+  input  logic [W-1:0] d_i,
+  output logic [W-1:0] q_o
+);
+  always_ff @(posedge c_i) q_o <= d_i;
+endmodule
+`default_nettype wire
+"""
+    body = A_FLOP + """
+  logic m;
+  xy_blk_reg u_a (.c_i(clk_a_i), .d_i(a_q), .q_o(m));
+  assign y_o = m;
+"""
+    src = tree(tmp_path, body, {"xy_blk_reg.sv": sub})
+    assert run(src).findings == ["rtl/blk/xy_blk_reg.sv:2: cdc-params directive on xy_blk_reg: "
+                                 "the module is no analyzed target's top"]
+    assert run(src, {"blk"}).passed  # a filtered run does not see every target
+
+
+def test_scan_param_sets(tmp_path):
+    src = tmp_path / "src"
+    (src / "rtl/blk").mkdir(parents=True)
+    f = src / "rtl/blk/xy_blk.sv"
+    f.write_text("// cdc-params: A=1 B=4'hF\n"      # 1: stacked with 2-4 above xy_blk
+                 "// cdc-params: B=4'hF A=1\n"      # 2: the same set again
+                 "// cdc-params: A=-2\n"
+                 "// cdc-cell: src=async dst=d_i\n"
+                 "module xy_blk;\nendmodule\n"
+                 "// cdc-params: A=1 A=2\n"         # 7: a parameter twice
+                 "// cdc-params: A=x\n"             # 8: not an integer
+                 "// cdc-params:\n"                 # 9: empty
+                 "// cdc-params: A=1 B=4'hF\n"      # 10: the same set, another module
+                 "module xy_other;\nendmodule\n"
+                 "// cdc-params: A=3\n\n"          # 13: a blank line before the module
+                 "module xy_gap;\nendmodule\n"
+                 "// A prose mention of a cdc-params directive is not one.\n"
+                 "// cdc-params: A=3\n")            # 18: at the end of the file
+    found, findings = cdc.scan_param_sets([f], src)
+    r = f.resolve()
+    assert found == {
+        "xy_blk": [cdc.ParamSet("xy_blk", (("A", "1"), ("B", "4'hF")), r, 1),
+                   cdc.ParamSet("xy_blk", (("A", "-2"),), r, 3)],
+        "xy_other": [cdc.ParamSet("xy_other", (("A", "1"), ("B", "4'hF")), r, 10)]}
+    assert found["xy_blk"][0].tag == "[A=1,B=4'hF]"
+    malformed = ("malformed cdc-params directive (expected "
+                 "'// cdc-params: <PARAMETER>=<integer> ...')")
+    assert findings == [
+        "rtl/blk/xy_blk.sv:2: cdc-params directive on xy_blk repeats another parameter set",
+        "rtl/blk/xy_blk.sv:7: malformed cdc-params directive on xy_other: a parameter is set twice",
+        f"rtl/blk/xy_blk.sv:8: {malformed}",
+        f"rtl/blk/xy_blk.sv:9: {malformed}",
+        "rtl/blk/xy_blk.sv:13: cdc-params directive is not directly above a module line",
+        "rtl/blk/xy_blk.sv:18: cdc-params directive is not directly above a module line",
+    ]
