@@ -1,1 +1,57 @@
-tests: []
+tests:
+  # Type 1 header: reset values, then with the IDs set.
+  - name: hdr_reset
+    module: tests.test_rc_tl_hdr
+    testcase: hdr_reset
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+  - name: hdr_reset_ids
+    module: tests.test_rc_tl_hdr
+    testcase: hdr_reset
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+    params: {VENDOR_ID: 0x1234, DEVICE_ID: 0xABCD, REVISION_ID: 0x5A}
+  - name: hdr_rw
+    module: tests.test_rc_tl_hdr
+    testcase: hdr_rw
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+  # Front end: checks 2 to 5, byte enables, routing, the interim rule and
+  # the result beats.
+  - name: cmd_checks
+    module: tests.test_rc_tl_cmd
+    testcase: cmd_checks
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+  - name: byte_enables
+    module: tests.test_rc_tl_cmd
+    testcase: byte_enables
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+  - name: routing
+    module: tests.test_rc_tl_cmd
+    testcase: routing
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+  - name: interim
+    module: tests.test_rc_tl_cmd
+    testcase: interim
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+  - name: result_beats
+    module: tests.test_rc_tl_cmd
+    testcase: result_beats
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+  - name: random_cmds
+    module: tests.test_rc_tl_cmd
+    testcase: random_cmds
+    top: pcie_rc_tl_tb
+    seeds: 2
+    timeout_s: 300
+  # Every parameter check fires on illegal values; the boundaries pass.
+  - name: param_limits
+    module: tests.test_rc_tl_params
+    testcase: param_limits
+    top: pcie_rc_tl_tb
+    timeout_s: 300
