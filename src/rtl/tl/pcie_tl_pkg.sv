@@ -1,7 +1,8 @@
 // Package of pcie_tl (wiki/src/rtl/tl/MAS.md#package): the header field
-// codes, the structs the blocks exchange, the block state types and the
-// pure helpers of the receive checks (wiki/src/arch/tl/ROUTING.md) and the
-// credit rule (wiki/src/arch/tl/HAS.md#credit-release).
+// codes but Type, the structs the blocks exchange, the block state types
+// and the helpers that need them. The Type codes and the pure TLP helpers
+// of the receive checks (wiki/src/arch/tl/ROUTING.md) and the credit rule
+// (wiki/src/arch/tl/HAS.md#credit-release) are in common_pkg.
 `default_nettype none
 
 package pcie_tl_pkg;
@@ -36,18 +37,6 @@ package pcie_tl_pkg;
   localparam int unsigned TX_CF    = 2;   // completions from cfg records
   localparam int unsigned TXP_D    = 4;   // transmit posted line entries (flop queue)
   localparam int unsigned CPL_MAX  = 32;  // DWs of the longest completion (128 bytes)
-
-  // Fmt (byte 0 bits 7:5) and Type (bits 4:0) (TLP.md, kinds)
-  localparam logic [4:0] T_MEM      = 5'h00;
-  localparam logic [4:0] T_MEMLK    = 5'h01;
-  localparam logic [4:0] T_IO       = 5'h02;
-  localparam logic [4:0] T_CFG0     = 5'h04;
-  localparam logic [4:0] T_CFG1     = 5'h05;
-  localparam logic [4:0] T_CPL      = 5'h0A;
-  localparam logic [4:0] T_CPLLK    = 5'h0B;
-  localparam logic [4:0] T_FETCHADD = 5'h0C;
-  localparam logic [4:0] T_SWAP     = 5'h0D;
-  localparam logic [4:0] T_CAS      = 5'h0E;
 
   // Message codes (ROUTING.md, messages)
   localparam logic [7:0] MSG_UNLOCK       = 8'h00;
@@ -90,13 +79,6 @@ package pcie_tl_pkg;
   localparam int unsigned E_RX_CA    = 8;
 
   // ---------------------------------------------------------------- types
-
-  // A TLP's credit class, as the dll counts it (dll FLOW_CONTROL classes).
-  typedef enum logic [1:0] {
-    CLS_P   = 2'd0,
-    CLS_NP  = 2'd1,
-    CLS_CPL = 2'd2
-  } t_cls;
 
   // Receive outcome (ROUTING.md, outcomes).
   typedef enum logic [2:0] {
@@ -188,7 +170,7 @@ package pcie_tl_pkg;
   typedef struct packed {
     t_out        out;
     logic [3:0]  err;        // tl_err_o bits 3:0
-    t_cls        cls;
+    common_pkg::t_cls cls;
     logic [3:0]  rel_d;      // data credits the dll counted, 0 to 8
     t_req_id     id;
     logic [25:0] addr;       // address bits 27:2 (BAR0 offset, BAR2 DW index in [9:0])
@@ -469,12 +451,6 @@ package pcie_tl_pkg;
 
   // ------------------------------------------------------------ helpers
 
-  // A DW of big-endian address bytes as an address word (TLP.md: byte 8
-  // carries address bits 31:24).
-  function automatic logic [31:0] be_word(input logic [31:0] dw);
-    return {dw[7:0], dw[15:8], dw[23:16], dw[31:24]};
-  endfunction
-
   // Decode a request header from its DWs as they sit on the stream.
   function automatic t_hdr hdr_decode(input logic [31:0] dw0, input logic [31:0] dw1,
                                       input logic [31:0] dw2, input logic [31:0] dw3);
@@ -483,8 +459,8 @@ package pcie_tl_pkg;
     logic [31:0] w2;
     logic [31:0] w3;
     lfield    = {dw0[17:16], dw0[31:24]};
-    w2        = be_word(dw2);
-    w3        = be_word(dw3);
+    w2        = common_pkg::be_word(dw2);
+    w3        = common_pkg::be_word(dw3);
     h.fmt     = dw0[7:5];
     h.typ     = dw0[4:0];
     h.tc      = dw0[14:12];
@@ -510,82 +486,6 @@ package pcie_tl_pkg;
     return h;
   endfunction
 
-  // Credit class from Fmt bit 6 and Type, as the dll counts it.
-  function automatic t_cls credit_class(input logic with_data, input logic [4:0] typ);
-    t_cls c;
-    if ((typ == T_MEM && with_data) || typ[4:3] == 2'b10) begin
-      c = CLS_P;
-    end else if (typ[4:1] == 4'b0101) begin
-      c = CLS_CPL;
-    end else begin
-      c = CLS_NP;
-    end
-    return c;
-  endfunction
-
-  // Data credits the dll counted: Length / 4 rounded up when Fmt says the
-  // TLP has data. The dll delivers at most 32 data DWs (Length bits 5:0),
-  // so at most 8.
-  function automatic logic [3:0] data_credits(input logic with_data, input logic [5:0] dw_len);
-    return with_data ? 4'(({1'b0, dw_len} + 7'd3) >> 2) : 4'd0;
-  endfunction
-
-  // Step 1: Fmt and Type name a kind (TLP.md, kinds); no prefix.
-  function automatic logic kind_known(input logic [2:0] fmt, input logic [4:0] typ);
-    logic ok;
-    ok = 1'b0;
-    if (!fmt[2]) begin
-      case (typ)
-        T_MEM:                       ok = 1'b1;
-        T_MEMLK:                     ok = !fmt[1];
-        T_IO, T_CFG0, T_CFG1:        ok = !fmt[0];
-        T_CPL, T_CPLLK:              ok = !fmt[0];
-        T_FETCHADD, T_SWAP, T_CAS:   ok = fmt[1];
-        default:                     ok = (typ[4:3] == 2'b10) && fmt[0];
-      endcase
-    end
-    return ok;
-  endfunction
-
-  // A completion kind with a defined Fmt: its beats go to the tracker.
-  function automatic logic is_cpl(input logic [2:0] fmt, input logic [4:0] typ);
-    return (typ == T_CPL || typ == T_CPLLK) && kind_known(fmt, typ);
-  endfunction
-
-  // Step 3: the byte-enable rules of a memory request (ROUTING.md).
-  function automatic logic be_ok(input logic [10:0] dw_len, input logic [3:0] fbe,
-                                 input logic [3:0] lbe, input logic addr_b2);
-    logic ok;
-    if (dw_len == 11'd1) begin
-      ok = (lbe == 4'd0);
-    end else if (fbe == 4'd0 || lbe == 4'd0) begin
-      ok = 1'b0;
-    end else if (dw_len == 11'd2 && !addr_b2) begin
-      ok = 1'b1;
-    end else begin
-      ok = (fbe == 4'b1111 || fbe == 4'b1110 || fbe == 4'b1100 || fbe == 4'b1000)
-        && (lbe == 4'b0001 || lbe == 4'b0011 || lbe == 4'b0111 || lbe == 4'b1111);
-    end
-    return ok;
-  endfunction
-
-  // Step 4: the request's bytes leave its aligned 4 KiB block.
-  function automatic logic cross_4k(input logic [11:2] addr_dw, input logic [10:0] dw_len);
-    logic [12:0] end_dw;
-    end_dw = {3'd0, addr_dw} + {2'd0, dw_len};
-    return end_dw > 13'd1024;
-  endfunction
-
-  // Step 6: message codes that require TC 0 (ROUTING.md).
-  function automatic logic msg_tc0(input logic [7:0] code);
-    logic hit;
-    case (code)
-      8'h14, 8'h18, 8'h19, 8'h1B, 8'h30, 8'h31, 8'h33, MSG_UNLOCK, MSG_SET_SLOT_PWR: hit = 1'b1;
-      default: hit = (code[7:3] == 5'b00100);   // INTx, 0x20 to 0x27
-    endcase
-    return hit;
-  endfunction
-
   // Messages that are dropped without an error (ROUTING.md, messages).
   function automatic logic msg_silent(input logic [7:0] code);
     logic hit;
@@ -607,50 +507,6 @@ package pcie_tl_pkg;
       end
     end
     return h;
-  endfunction
-
-  // Index of the lowest enabled byte, 0 when none (COMPLETIONS.md, B).
-  function automatic logic [1:0] be_lo(input logic [3:0] be);
-    logic [1:0] i;
-    if (be[0]) begin
-      i = 2'd0;
-    end else if (be[1]) begin
-      i = 2'd1;
-    end else if (be[2]) begin
-      i = 2'd2;
-    end else begin
-      i = (be[3]) ? 2'd3 : 2'd0;
-    end
-    return i;
-  endfunction
-
-  // Index of the highest enabled byte (callers pass a nonzero nibble).
-  function automatic logic [1:0] be_hi(input logic [3:0] be);
-    return 2'd3 - be_lo({be[0], be[1], be[2], be[3]});
-  endfunction
-
-  // A read's total bytes T (COMPLETIONS.md, byte count and lower address):
-  // 1 DW: the span of the enabled bytes of F, 1 when F is 0; more: 4n less
-  // the disabled bytes below F's first and above L's last enabled byte.
-  function automatic logic [12:0] byte_total(input logic [10:0] dw_len, input logic [3:0] fbe,
-                                             input logic [3:0] lbe);
-    logic [12:0] t;
-    if (dw_len == 11'd1) begin
-      t = (fbe == 4'd0) ? 13'd1 : 13'(be_hi(fbe)) - 13'(be_lo(fbe)) + 13'd1;
-    end else begin
-      t = {dw_len, 2'b00} - 13'(be_lo(fbe)) - 13'd3 + 13'(be_hi(lbe));
-    end
-    return t;
-  endfunction
-
-  // A byte-enable nibble as a DW mask.
-  function automatic logic [31:0] be_mask(input logic [3:0] be);
-    return {{8{be[3]}}, {8{be[2]}}, {8{be[1]}}, {8{be[0]}}};
-  endfunction
-
-  // Data credits of a TLP of n data DWs (1 to 32): n / 4 rounded up.
-  function automatic logic [3:0] dw_credits(input logic [5:0] n);
-    return 4'(({1'b0, n} + 7'd3) >> 2);
   endfunction
 
   // DW 0 of a TLP as it sits on the stream (TLP.md, common fields): TD,

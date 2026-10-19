@@ -170,6 +170,11 @@ verified by this testbench.
   read expires, a read expiring while one of its completions is between
   its decision and its packet, a failed beat first due in the cycle
   another packet is queued).
+- **Shared code:** the queue and the pure TLP helpers `tl` takes from
+  `common` ([MAS, package](../../rtl/tl/MAS.md#package),
+  [queue](../../rtl/tl/MAS.md#queue)) are checked here at `tl`'s shapes
+  and uses; the queue also has its own shared-unit tests
+  ([`common_sdp_ram_fifo` DV plan](../common/ram/common_sdp_ram_fifo.md)).
 
 ## Cross-check: RTL, architecture model, reference
 
@@ -196,7 +201,7 @@ self-tests check them.
 | [Epochs](../../rtl/tl/MAS.md#receive-queues) past their wrap (the comparison modulo 2^9): 520 rounds of a BAR2 write cfg holds, a configuration read behind it and a BAR0 write the application holds, the read leaving while the later write is held; a BAR0 read and an `rq` read's completion arm the cq and rc lines, their completions and the `rq` read the [transmit lines](../../rtl/tl/MAS.md#transmit-lines) cc, cf and np, which an `rq` write steps, so all six counters wrap | `rx_epoch_wrap` | 1 | 1; directed |
 | [Completer completions](../../arch/tl/COMPLETIONS.md#completer-completions): every read of the splitting table and the byte-enable cases through BAR0 and BAR2, configuration completions with the captured ID, every [Unsupported Request completion](../../arch/tl/COMPLETIONS.md#unsupported-request-completions) (locked, Byte Count 4096 as 0); then with the link and application stalling | `tx_completions` | 1 | 1; directed |
 | [Requester requests](../../arch/tl/COMPLETIONS.md#requester-requests), [interrupt writes and error messages](../../arch/core/TL_CFG.md#messages) (one withdrawn), PME_TO_Ack; `rq` held without bus mastering and in D3hot; [transmit ordering](../../arch/tl/ORDERING.md#ordering): posted order across sources, reads and completions behind posted requests held for credits, posted requests passing reads held for credits | `tx_requests` | 1 | 1; directed |
-| [Transmit credits](../../arch/tl/ORDERING.md#credits) per class and field (header, data), the other classes passing; the transmit posted line full, a message and a PME_Turn_Off waiting | `tx_credits` | 1 | 1; directed |
+| [Transmit credits](../../arch/tl/ORDERING.md#credits) per class and field (header, data), the other classes passing; the transmit posted line full, a message and a PME_Turn_Off waiting | `tx_credits` | 1 | 1; directed. The data-credit count of a TLP (`common_pkg::dw_credits`, rounding up) is not checked here: [#394](https://github.com/amichai-bd/pcie-factory/issues/394) |
 | Random host traffic, `rq` requests (in a random 64 KiB block below or above 4 GiB, so every address bit takes both values) and messages, random finite or infinite credits, link and application stalls, segments across link-downs | `tx_random` | 1 | 3 |
 | Longer random traffic | `rx_random_long` | 2 | 4 |
 | Longer random traffic, `BAR0_ADDR_W` 20 and odd credit sizes | `rx_random_long_params` | 2 | 2 |
@@ -381,7 +386,11 @@ fails; every other entry passes.
 
 ## Gaps
 
-None. The independent host model judges `tl` and `cfg` in the
+| Feature | Owning issue |
+| --- | --- |
+| The transmit data-credit gate's count: a TLP of n data DWs needs n / 4 rounded up (a gate that rounds down passes every `tl` entry; `pkg_tlp_contract` checks the helper alone) | [#394](https://github.com/amichai-bd/pcie-factory/issues/394) |
+
+Otherwise none. The independent host model judges `tl` and `cfg` in the
 [`core` e2e](../core/DV_PLAN.md) ([#288](https://github.com/amichai-bd/pcie-factory/issues/288),
 [#293](https://github.com/amichai-bd/pcie-factory/issues/293)); the
 coverage floors are set ([#294](https://github.com/amichai-bd/pcie-factory/issues/294)).
@@ -409,7 +418,8 @@ line's ordering is checked across it.
 
 The earlier L0 and L1 measurement listed the queue full flags as line
 holes. They are not line points: each is a continuous assignment
-(`pcie_tl_fifo.sv` line 40, the flags in `pcie_tl_rx_q.sv`,
+(`pcie_tl_fifo.sv` line 40, now
+[`common_sdp_ram_fifo.sv`](../../../../src/rtl/common/ram/common_sdp_ram_fifo.sv), the flags in `pcie_tl_rx_q.sv`,
 `pcie_tl_txq.sv` and `pcie_tl_rc.sv`), which Verilator's line coverage
 does not count, read only by the overflow assertions and the transmit
 room. They appear in the toggle table's queue fill row.
@@ -438,7 +448,7 @@ The 11686 toggle points not hit, by cause:
 How the toggle points were sorted, so a re-measurement reproduces the
 counts: a point is "hit in another parameter set" when the same file,
 hierarchy, signal bit and direction is hit in any copy. The rest go by
-signal name, in this order: `common_sdp_ram.sv` and a `pcie_tl_fifo.sv`
+signal name, in this order: `common_sdp_ram.sv` and a `common_sdp_ram_fifo.sv` (`pcie_tl_fifo.sv` when measured)
 `head_o` or `push_data_i` to the RAM row; the templates above, the fields
 `locked`, `tc`, `attr`, `rrr`, `mem`, `fixed4` and `kind`, the `ep` field
 of `pq_ent`, `cq_ent`, `cfg_ent`, `cqe_ent`, `cfge_ent` and of the

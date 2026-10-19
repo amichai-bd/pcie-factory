@@ -121,6 +121,20 @@ tests:
     params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
     seeds: 3
     timeout_s: 120
+  - name: sdp_ram_fifo_random
+    module: tests.test_sdp_ram_fifo
+    testcase: random_ops
+    top: common_sdp_ram_fifo
+    params: {WIDTH: 16, ADDR_W: 3}
+    seeds: 3
+    timeout_s: 120
+  - name: sdp_ram_fifo_random_min
+    module: tests.test_sdp_ram_fifo
+    testcase: random_ops
+    top: common_sdp_ram_fifo
+    params: {WIDTH: 1, ADDR_W: 1}
+    seeds: 2
+    timeout_s: 120
   - name: tdp_ram_random
     module: tests.test_ram
     testcase: random_ops

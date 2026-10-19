@@ -69,13 +69,13 @@ module pcie_tl_cplf #(
   logic                   data_room;
 
   assign first    = st_q.k == 11'd0;
-  assign lo       = pcie_tl_pkg::be_lo(ctx_i.fbe);
+  assign lo       = common_pkg::be_lo(ctx_i.fbe);
   assign rest     = ctx_i.dw_len - st_q.k;
   assign s_lo     = ctx_i.alo + st_q.k[4:0];
   // The rest in one completion when it fits in 128 bytes; else up to the
   // highest 64-byte boundary within 128 bytes (COMPLETIONS.md, splitting).
   assign n_start  = (rest <= 11'(pcie_tl_pkg::CPL_MAX)) ? rest[5:0] : 6'd32 - {2'b00, s_lo[3:0]};
-  assign total    = pcie_tl_pkg::byte_total(ctx_i.dw_len, ctx_i.fbe, ctx_i.lbe);
+  assign total    = common_pkg::byte_total(ctx_i.dw_len, ctx_i.fbe, ctx_i.lbe);
   assign bc_start = ctx_i.fixed4 ? 12'd4 : (first ? total[11:0] : st_q.rb[11:0]);
   assign la_start = ctx_i.fixed4 ? 7'd0 : (first ? {ctx_i.alo, lo} : {s_lo, 2'b00});
   // The bytes from the next completion's first byte to the read's end:
@@ -91,7 +91,7 @@ module pcie_tl_cplf #(
   // last of a longer read by L.
   assign m_first = first ? ctx_i.fbe : 4'hF;
   assign m_last  = (read_last_o && ctx_i.dw_len != 11'd1) ? ctx_i.lbe : 4'hF;
-  assign dmask   = pcie_tl_pkg::be_mask(m_first & m_last);
+  assign dmask   = common_pkg::be_mask(m_first & m_last);
   assign dpush   = data_i & dmask;
 
   always_comb begin
@@ -134,7 +134,7 @@ module pcie_tl_cplf #(
   assign data_room = data_used <= (DATA_AW + 1)'((1 << DATA_AW) - pcie_tl_pkg::CPL_MAX);
   assign room_o    = st_q.left != 6'd0 || (data_room && !desc_full);
 
-  pcie_tl_fifo #(
+  common_sdp_ram_fifo #(
     .WIDTH  (32),
     .ADDR_W (DATA_AW)
   ) u_data (
@@ -150,7 +150,7 @@ module pcie_tl_cplf #(
     .ram_used_o   (data_used)
   );
 
-  pcie_tl_fifo #(
+  common_sdp_ram_fifo #(
     .WIDTH  ($bits(pcie_tl_pkg::t_cpl_desc)),
     .ADDR_W (DESC_AW)
   ) u_desc (

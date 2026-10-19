@@ -249,16 +249,20 @@ to #375 and #373.
 
 ### Reuse of tl blocks
 
-`rc_tl` copies no `tl` file. It reuses two things, after
-[#385](https://github.com/amichai-bd/pcie-factory/issues/385) moves them
-to `common` (that move blocks #373):
+`rc_tl` copies no `tl` file. It reuses two things that
+[#385](https://github.com/amichai-bd/pcie-factory/issues/385) moved to
+`common`:
 
-- `tl`'s first-word-fall-through [queue](../tl/MAS.md#queue), as a shared
-  RAM-group block: the non-posted queue and the completion data queue.
-- The pure TLP helpers of [`pcie_tl_pkg`](../tl/MAS.md#package) whose
-  arguments are plain vectors (kinds, byte-enable and 4 KiB checks,
-  message TC, byte totals, credits), into `common_pkg`: the receive checks
-  and the completer's byte counts.
+- The first-word-fall-through queue
+  [`common_sdp_ram_fifo`](../common/ram/common_sdp_ram_fifo.md) (once
+  `tl`'s [queue](../tl/MAS.md#queue)), a shared RAM-group block: the
+  non-posted queue and the completion data queue.
+- The [TLP helpers of `common_pkg`](../common/common_pkg.md#tlp-helpers)
+  (once in [`pcie_tl_pkg`](../tl/MAS.md#package)), whose arguments are
+  plain vectors: kinds, byte-enable and 4 KiB checks, message TC, byte
+  totals and credits for the receive checks and the completer's byte
+  counts, and `credit_class` with `t_cls` for releasing a malformed TLP's
+  credits by the class the `dll` counted.
 
 Not reused: `tl`'s tracker (eight application tags, a prescaler and an rc
 buffer, where `rc_tl` has one request and streams results), its two
@@ -330,4 +334,3 @@ target: FPGA resources are reported with `rc`
 | Item | Owner |
 | --- | --- |
 | The cited sections, checked against rev 3.0 (the Base Spec is not in the local cache). | [#357](https://github.com/amichai-bd/pcie-factory/issues/357): the captain, with a local copy |
-| The queue and helper move. | [#385](https://github.com/amichai-bd/pcie-factory/issues/385) |
