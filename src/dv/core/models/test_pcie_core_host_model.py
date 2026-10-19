@@ -911,10 +911,13 @@ def test_link_down_drops_state_then_reenumerates():
 
 # ----------------------------------------------------------------------------
 # Independence: only the standard library, pytest and the host's own modules
-_OWN = {"pcie_core_host_model", "pcie_core_host_tlp"}
+# (the shadow's tests reuse this file's endpoint stub)
+_OWN = {"pcie_core_host_model", "pcie_core_host_tlp", "pcie_core_host_shadow",
+        "test_pcie_core_host_model"}
 _DYNAMIC = {"__import__", "exec", "eval", "compile", "import_module"}
-_FILES = ["pcie_core_host_model.py", "pcie_core_host_tlp.py",
-          "test_pcie_core_host_model.py", "test_pcie_core_host_tlp.py"]
+_FILES = ["pcie_core_host_model.py", "pcie_core_host_tlp.py", "pcie_core_host_shadow.py",
+          "test_pcie_core_host_model.py", "test_pcie_core_host_tlp.py",
+          "test_pcie_core_host_shadow.py"]
 
 
 @pytest.mark.parametrize("name", _FILES)
@@ -955,7 +958,8 @@ def test_independence_no_shared_code(name):
             text = node.attr
         if text is None:
             continue
-        for bad in ("_arch", "dv/tl", "dv/cfg", "dv/dll", "dv/link", "partner"):
+        for bad in ("_arch", "dv/tl", "dv/cfg", "dv/dll", "dv/link", "partner", "dv/rc",
+                    "pcie_rc", "rc_tl", "rc_seq"):
             assert bad not in text, f"{name} names {bad!r} in code: {text!r}"
         segments = re.split(r"[/\\.]", text)
         assert "arch" not in segments, f"{name} names an arch path segment: {text!r}"
