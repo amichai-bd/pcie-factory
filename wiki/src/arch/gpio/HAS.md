@@ -217,7 +217,7 @@ the stream. Latency targets and an architecture model are added by
 
 | Simplification | Consequence for the `dll` |
 | --- | --- |
-| One beat per 4 × `CLK_DIV` cycles | The replay timeout is too short for long TLPs ([`dll` timers](#dll-timers)). The `dll` and `link` targets measured at the line rate (Ack latency 118 cycles, line use, throughput, initialisation within 200 cycles) do not apply to the board build. |
+| One beat per 4 × `CLK_DIV` cycles | The default replay timeout is too short for long TLPs ([`dll` timers](#dll-timers)); the board build sets its own ([board-build value](../link/HAS.md#replay-timeout-at-lower-1)). The `dll` and `link` targets measured at the line rate (Ack latency 118 cycles, line use, throughput, initialisation within 200 cycles) do not apply to the board build. |
 | Packets buffered ahead of the pins | The `dll` hands a packet over up to a buffer's worth of beats before it leaves, so its replay timer starts early. |
 | No retrain: no `retrain_req_i`; the link never enters Recovery | The `dll` REPLAY_NUM rollover requests a retrain that never comes: its rollover hold ends at its 1024-cycle bound ([REPLAY_NUM](../dll/RETRY.md#replay_num)). Retrain Link from above has no effect. |
 | No Disabled, Loopback or power states | `link` ignores those requests in the board build; the `dll` sends no power-management DLLPs and `link` already holds L0 ([`link` power states](../link/HAS.md#power-states)). |

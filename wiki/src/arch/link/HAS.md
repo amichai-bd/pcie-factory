@@ -205,7 +205,7 @@ without a loss ([deviation](../dll/RETRY.md#slow-lower-layers)). Terms, in
 
 | Case | Round trip | At `GPIO_CLK_DIV` 2 |
 | --- | --- | --- |
-| Idle link: the `dll` hands the TLP over one beat per cycle, the pins send one per slot, then the Ack's 3 slots | `n`(`S` − 1) + 2(`S` − 1) + 2`L` + 35 + 3`S` + 3 = `n`(`S` − 1) + 5`S` + 2`L` + 37 | 650 |
+| Idle link: the `dll` hands the TLP over one beat per cycle, the pins send one per slot, then the Ack's 3 slots | `n`(`S` − 1) + 2(`S` − 1) + 2`L` + 35 + 3`S` + 3 = `n`(`S` − 1) + 5`S` + 2`L` + 36 | 649 |
 | Loaded both ways: the TLP leaves behind at most `D` buffered beats, its own included; the far adapter takes the Ack only with room for a maximum packet, after up to 75 slots, and sends it behind at most `D` − 75 beats | `D`·`S` + (`D` + 3)`S` + 2(`S` − 1) + 2`L` + 35 + 76 + 3 = 2`D`·`S` + 5`S` + 2`L` + 112 | 1400 |
 
 The idle bound is the [`gpio` HAS](../gpio/HAS.md#dll-timers) formula plus
@@ -215,7 +215,21 @@ cycles) times out, and four timeouts with no progress roll REPLAY_NUM over,
 which the adapter cannot retrain (the 1024-cycle hold). The price of 1400
 is that a lost TLP or Ack is recovered after 1400 cycles instead of 356. If
 #378's MAS sets `D` or `L` above these terms, #378 recomputes the value
-from the loaded formula.
+from the loaded formula. The loaded bound overestimates: it adds every
+term at its worst, though some overlap (the far `dll`'s started packet
+drains into the far buffer while that buffer empties, and the TLP's own
+beats are counted in `D`).
+
+**Clock ratio.** 1400 holds only for nominally equal clocks at the two
+ends. The [`gpio` clock contract](../gpio/HAS.md#clocks-and-resets) allows
+any ratio from 1/2 to 2: with a far end up to twice as slow, the far-side
+terms (its `dll`'s 35 and 76 cycles, its slots, its buffer of `D` beats and
+the Ack's slots) take up to twice as many near cycles, and the loaded round
+trip exceeds about 2100 near cycles. At 1400 that gives spurious replays
+under load and possibly REPLAY_NUM rollovers with their 1024-cycle hold:
+bandwidth is lost, no TLP is. Sizing for the full ratio range, or
+recording that degradation as accepted, is an
+[open item](#open-items) of #378.
 
 ## Decisions
 
@@ -480,3 +494,4 @@ writes `workdir/link/arch/perf.json`.
 | If the Base Spec measures its Ack limit at the port (on the line), not at the data link layer's boundary, the 32-cycle `dll` Ack timer may be too long. The line bound here is 140 cycles against the 118 limit. The e2e measured up to 125.4 cycles on the line error-free and 126.4 under injection (111 at the `dll` boundary; [MAS timing](../../rtl/link/MAS.md#timing), [#215](https://github.com/amichai-bd/pcie-factory/issues/215)), so on the line the stack does not meet 118. | Captain |
 | M3 and later: software-directed L1 and L2 will need a power-state port on `link` and power-management DLLPs in `dll`. That changes the `link` port list again, beyond the credit release Q9 added (decision record [0004](../../decisions/0004-m3-grill.md#updates), amending Q5's "M3 adds it on top unchanged"). | Captain |
 | The cited sections on this page, checked against rev 3.0 (the Base Spec is not in the local cache). | Captain, with a local copy |
+| The GPIO build's `REPLAY_TIMEOUT` (1400) is sized for nominally equal clocks ([clock ratio](#replay-timeout-at-lower-1)): size it for the `gpio` contract's ratio range of 1/2 to 2 (above about 2100 cycles loaded), or record the spurious replays and rollover holds off-nominal as accepted degradation. | [#378](https://github.com/amichai-bd/pcie-factory/issues/378) |
