@@ -233,9 +233,9 @@ module pcie_dll_tlp_tx #(
     end
 
     // Replay timer: counts in L0 while running; at REPLAY_TIMEOUT it stops
-    // and requests a replay.
+    // and requests a replay (timer_at_end, the one compare).
     if (st_q.rt_run && in_l0) begin
-      if (rt_q == RT_LAST) begin
+      if (timer_at_end) begin
         expire      = 1'b1;
         st_d.rt_run = 1'b0;
         rt_d        = '0;
