@@ -104,10 +104,8 @@ cases at the worst ratio (b twice as fast), 8.4 s in all
 ([#389](https://github.com/amichai-bd/pcie-factory/issues/389) budget);
 level 2 sweeps the ratios and `CLK_DIV`.
 
-**Coverage** (measured for #378, levels 0 to 2 merged, not a floor):
-line 91.7% (596/650), toggle 92.1% (4294/4664), functional 100% (95/95).
-The lines not hit are declarations and the package's `replay_timeout`,
-which only `link` calls. Floors are [#380](https://github.com/amichai-bd/pcie-factory/issues/380)'s.
+**Coverage:** the floors and every point they leave are in
+[coverage holes](#coverage-holes).
 
 ## Mutants
 
@@ -148,5 +146,43 @@ The `link` and `replay_timeout` mutants are in the
 
 | Feature | Owning issue |
 | --- | --- |
-| Coverage floors | [#380](https://github.com/amichai-bd/pcie-factory/issues/380) |
 | A real cable: wire delay and skew, the transfer rate it sustains | The two-board milestone ([HAS open items](../../arch/gpio/HAS.md#open-items)) |
+
+## Coverage holes
+
+Floors in [`level2.yaml`](../../../../src/dv/gpio/regress/level2.yaml),
+checked by every `--coverage` run that selects level 2 (the nightly runs
+levels 0 to 2): line 91.0, toggle 91.7, functional 100. Merged over levels
+0 to 2 ([#380](https://github.com/amichai-bd/pcie-factory/issues/380)):
+line 91.53% (595 of 650 points), toggle 92.23% (4302 of 4664), functional
+100% (99 of 99 bins in `gpio_config`, `gpio_slot`, `gpio_rx_table` and
+`gpio_link`). The code floors are the merged values less 0.5 points,
+rounded down to a tenth ([floor margin](../../../bkm/dv.md#coverage)).
+Verilator keeps one copy of each block per `CLK_DIV` (2, 4 and 64; the
+ratio only moves b's clock), and the copies at 4 and 64 run only
+`converge_div4`, `traffic_div4` and `smoke_div64`.
+
+The 55 line points not hit, by cause:
+
+| Cause | Points | Where |
+| --- | ---: | --- |
+| Hit in another `CLK_DIV` copy | 53 | `pcie_gpio_link.sv` 46 and `pcie_gpio_tx.sv` 7, nearly all in the `CLK_DIV` 64 copy, which runs only the smoke: the error, Hot Reset and restart branches the level 1 entries take at `CLK_DIV` 2. |
+| Elaboration only | 1 | `pcie_gpio_pkg.sv`: `replay_timeout`, called only for the `link`'s `localparam`. |
+| Unreachable by construction | 1 | The lane-disable branch of the transmit buffer's `common_sdp_ram` (`LANES` 1). |
+
+The 362 toggle points not hit, by cause:
+
+| Cause | Points | Signals |
+| --- | ---: | --- |
+| Hit in another `CLK_DIV` copy | 212 | `pcie_gpio_link.sv` 139, `pcie_gpio_tx.sv` 50, `pcie_gpio.sv` 23: the same signal bit and direction toggles at another `CLK_DIV`. |
+| Constant by construction | 90 | The top bit of each run counter (`run_good`, `run_clear`, `run_any`, `run_hr`, `run_exit` in `s_d` and `s_q`, 60): a run that reaches its count changes the state, which clears every run in the same cycle; `ltssm_state_o` bit 1 in `pcie_gpio` and the link block (12: none of `0x00`, `0x04`, `0x19`, `0x20` sets it); `pkt_rx_nullify_o` (6, tied to 0); `sop_code` bit 1 and `code_bits` bit 0 (6: every start code has bit 1 set; the marker is always 1); the window's `new_phase` (4, set only on the slot written into the crossing); the reset synchronizer's first-stage input (2). |
+| Never dropped | 10 | `port_role_i` 1 to 0 (6: static per end), the receive crossing's ready (`src_ready_o`, `dst_ready_i`, `push_ready`: it never fills, `a_rx_no_overflow`), the RAM's lane enable (`LANES` 1). |
+| Transmit buffer never past one packet | 30 | `buf_full`, `occ` bits 7 and 8, `ram_used` and the FIFO's `full_o`, `in_ram` and `ram_used_o` top bits: `pkt_tx_ready_o` rises between packets only on an empty buffer, so it holds at most one maximum packet (75 of its 129 entries; [MAS](../../rtl/gpio/MAS.md), `a_buf_room`). |
+| Receive crossing never past one slot | 8 | `fill` bits 1 and 2 and the FIFO's `dst_fill_o`: one slot per 4 forwarded-clock edges against a read every `clk_i` cycle; the MAS bound of 2 needs the hunting phase jump to land within the reader's 3-edge delay, which no entry produces. |
+| Watchdog top bits at `CLK_DIV` 64 | 12 | `wd_q` and `wd_d` bits 10 to 12, a silence of 1024 cycles or more: the watchdog fires in `restart` and `converge_*` at `CLK_DIV` 2 and 4, where these bits do not exist; the `CLK_DIV` 64 copy runs only the smoke, so a further entry there would add 12 points and re-check what `converge_div4` covers (its scaling with `CLK_DIV`). |
+
+How the points were sorted, so a re-measurement reproduces the counts: a
+line point is keyed by file, line, column and kind, a toggle point by
+file, signal bit and direction (any copy). A point not hit is "another
+copy" when its key is hit anywhere in the run; the rest go by file and
+signal name as the rows list them.

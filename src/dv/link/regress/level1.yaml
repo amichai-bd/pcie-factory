@@ -46,7 +46,9 @@ tests:
     params: {REPLAY_TIMEOUT: 1400}
     timeout_s: 600
   # The GPIO lower layer (LOWER 1, #378) on its own top: the dll over the
-  # adapter, error-free, and one and two damaged slots. No coverage runs:
+  # adapter, error-free with gpio_smoke's Hot Reset step (the link idle; its
+  # in-flight case is gpio_hot_reset in level 2), and one and two damaged
+  # slots. No coverage runs:
   # the adapter's coverage is the gpio unit's (#380), and the link floors
   # stay measured on the phy stack.
   - name: gpio_smoke

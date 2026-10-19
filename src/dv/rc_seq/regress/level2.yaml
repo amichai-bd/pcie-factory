@@ -67,3 +67,13 @@ tests:
     coverage_seeds: 0
     params: {PROGRAM: 3}
     timeout_s: 300
+# Coverage floors (#380), levels 0 to 2 merged, the code floors the merged
+# value less 0.5 points rounded down to a tenth (DV BKM, floor margin):
+# measured 59.88% line (106/177), 72.93% toggle (4758/6524); every point not
+# hit has a reason in the DV plan (Coverage holes). A new program, an entry
+# with a new parameter set, or an RTL change that adds state re-measures
+# these floors in the same PR.
+# Functional 100 must hold every bin of rc_seq_jumps, rc_seq_run and
+# rc_seq_steps; a renamed or undeclared covergroup leaves the total, so keep
+# this list.
+coverage_floors: {line: 59.3, toggle: 72.4, functional: 100}

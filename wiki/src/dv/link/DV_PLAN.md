@@ -338,8 +338,11 @@ sizing under sustained maximum-payload load at each clock ratio, 300 TLPs
 a run, 11.6, 14.6 and 15.3 s of CPU (41.5 s together, more than the
 whole of `link`'s other GPIO entries); they are the only catch of M25, the
 sizing itself, which no functional entry can see. `gpio_hot_reset` (1.8 s)
-re-checks with TLPs in flight what `gpio_smoke`'s Hot Reset step covers at
-level 1.
+is a level 2 extension of `gpio_smoke`'s Hot Reset step (the link idle)
+to the in-flight case, TLPs in flight each way through `link`: a re-check
+that another IP's level 1 covers, since the `gpio` unit's level 1
+`hot_reset` takes the adapter through Hot Reset with a packet in flight
+each way ([`gpio` plan](../gpio/DV_PLAN.md#plan)).
 
 **Replay-timeout evidence** (link HAS, replay timeout at LOWER 1): the
 largest round trip measured by `gpio_load_*` at `GPIO_CLK_DIV` 2 is 1184
