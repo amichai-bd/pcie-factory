@@ -87,6 +87,26 @@ _BAR_REGS = range(CFG_BAR0, CFG_BAR0 + 24, 4)
 _ID_REGS = (0x00, 0x08, 0x2C)  # IDs, class and revision, subsystem IDs: read-only
 
 
+_FIRST_CONTIGUOUS = (0b1111, 0b1110, 0b1100, 0b1000)  # enabled up to byte 3
+_LAST_CONTIGUOUS = (0b0001, 0b0011, 0b0111, 0b1111)  # enabled from byte 0
+
+
+def be_problem(length: int, address: int, first_be: int, last_be: int) -> str | None:
+    """Why a request's byte enables are illegal, or None
+    [cite: PCIe Base Spec, rev 3.0, §2.2.5]: Last DW BE 0 for 1 DW; both
+    fields non-zero for more; and, for 3 DW or more and for a 2-DW request
+    that is not QW aligned, only bytes contiguous across the request
+    enabled (First DW BE enabled up to byte 3, Last DW BE from byte 0)."""
+    if length == 1:
+        return f"1 DW with Last DW BE {last_be:04b}" if last_be else None
+    if not first_be or not last_be:
+        return f"{length} DW with a zero byte-enable field {last_be:04b}/{first_be:04b}"
+    if (length >= 3 or address & 4) and (first_be not in _FIRST_CONTIGUOUS
+                                         or last_be not in _LAST_CONTIGUOUS):
+        return f"{length} DW with non-contiguous byte enables {last_be:04b}/{first_be:04b}"
+    return None
+
+
 @dataclass
 class _Event:
     """An error-record event the root port records some time in [lo, hi]."""
@@ -324,7 +344,7 @@ class HostShadow(HostModel):
         """Route an endpoint command as the root port must (rc HAS,
         outbound routing) and build the request it should send."""
         n, fbe, lbe = c.length, c.first_be, c.last_be
-        c.local_ur_ok = not fbe or (lbe != 0) != (n > 1)
+        c.local_ur_ok = not fbe or be_problem(n, c.addr, fbe, lbe) is not None
         rid = self.rc_id
         if c.op in (CFG_RD, CFG_WR):
             bus, dev, fn, reg = c.addr >> 20 & 0xFF, c.addr >> 15 & 0x1F, c.addr >> 12 & 7, c.addr & 0xFFC
@@ -371,14 +391,10 @@ class HostShadow(HostModel):
     def _well_formed(self, t: Tlp) -> None:
         """Header rules of a request [cite: PCIe Base Spec, rev 3.0, §2.2.5]
         [cite: PCIe Base Spec, rev 3.0, §2.2.7]."""
-        n, fbe, lbe = t.length_dw, t.first_be, t.last_be
-        if n == 1 and lbe:
-            self._fail(f"{t.kind} of 1 DW with Last DW BE {lbe:04b}")
-        if n > 1 and (not fbe or not lbe):
-            self._fail(f"{t.kind} of {n} DW with a zero byte-enable field")
-        if n > 2 and (fbe & (fbe + (fbe & -fbe)) & 0xF or lbe & (lbe + 1)):
-            self._fail(f"{t.kind} of {n} DW with non-contiguous byte enables "
-                       f"{lbe:04b}/{fbe:04b}")
+        n = t.length_dw
+        problem = be_problem(n, t.address, t.first_be, t.last_be)
+        if problem is not None:
+            self._fail(f"{t.kind} at {t.address:#x}: {problem}")
         if t.kind.startswith("Cfg") and (t.tc or t.attr or n != 1):
             self._fail(f"{t.kind} with TC {t.tc}, Attr {t.attr}, Length {n}")
         if t.kind.startswith("M") and t.four_dw:
@@ -917,7 +933,7 @@ class HostShadow(HostModel):
         else:
             want = set(_FROM_HOST.get(req.status, {BAD}))
             if req.status == "CRS":
-                want = {BAD, CRS} if req.kind == "mem_rd" else {CRS}
+                want = {CRS}  # a configuration request's (memory reads set bad)
             if req.bad:
                 want = {BAD}
             if req.status == "SC" and self._down_at is not None and \

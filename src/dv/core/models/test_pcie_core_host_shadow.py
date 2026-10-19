@@ -743,3 +743,37 @@ def test_inbound_write_in_window_not_stored():
     sh.observe_command(HOST_RD, 0x100)
     with pytest.raises(HostCheckError, match="host memory holds 0x11"):
         sh.observe_result("OK", 0, True)
+
+
+@pytest.mark.parametrize("addr, length, fbe, lbe", [
+    (0x8000_0000, 3, 0b0011, 0b1111),  # First DW BE not enabled up to byte 3
+    (0x8000_0004, 2, 0b0101, 0b0001),  # 2 DW, not QW aligned, non-contiguous
+])
+def test_non_contiguous_byte_enables(addr, length, fbe, lbe):
+    """Byte enables that are not contiguous across the request
+    [cite: PCIe Base Spec, rev 3.0, §2.2.5]: refusing the command with
+    LOCAL_UR passes; sending it raises."""
+    sh = _bare_shadow()
+    sh.observe_command(HDR_WR, 8 * 4, data=WINDOW)
+    sh.observe_result("OK", 0, True)
+    sh.observe_command(MEM_RD, addr, length, fbe, lbe)
+    sh.observe_result("LOCAL_UR", 0, True)
+    sh.finish()
+    assert not sh.errors
+    sh.observe_command(MEM_RD, addr, length, fbe, lbe)
+    rd = Tlp(fmt=0, type=0, length=length, requester_id=0, tag=0, first_be=fbe, last_be=lbe,
+             address=addr)
+    with pytest.raises(HostCheckError, match="non-contiguous byte enables"):
+        sh.observe_tx(rd.encode())
+
+
+def test_qw_aligned_two_dw_any_byte_enables():
+    """A QW-aligned 2-DW request may enable any bytes: sent, it passes."""
+    sh = _bare_shadow()
+    sh.observe_command(HDR_WR, 8 * 4, data=WINDOW)
+    sh.observe_result("OK", 0, True)
+    sh.observe_command(MEM_RD, 0x8000_0008, 2, 0b0101, 0b1010)
+    rd = Tlp(fmt=0, type=0, length=2, requester_id=0, tag=0, first_be=0b0101, last_be=0b1010,
+             address=0x8000_0008)
+    sh.observe_tx(rd.encode())
+    assert not sh.errors

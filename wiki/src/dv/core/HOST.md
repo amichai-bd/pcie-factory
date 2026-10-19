@@ -232,11 +232,25 @@ The other arguments: `num_tags` (32, no extended tags), `latency` (32
 cycles that `rc` may take to act on a received TLP: its result, record,
 capture or host-memory effect), `timeout_min` and `timeout_max` (the
 completion timeout window in cycles from the request going out; the
-`rc_tl` MAS sets the value, [#368](https://github.com/amichai-bd/pcie-factory/issues/368)),
+`rc_tl` MAS sets the value, [#368](https://github.com/amichai-bd/pcie-factory/issues/368)).
+A request's send time is the cycle of its `observe_tx` call, the cycle
+`link` takes its **last** beat, while `rc_tl` starts its timer when `link`
+takes its `sop` beat; the bench gives `timeout_min` less the request's
+beats (3 for a read, 4 for a 1-DW write) so the shadow is never stricter.
+Then `msi_depth` (4, the least capture depth the tl-seq page allows),
 `msi_depth` (4, the least capture depth the tl-seq page allows),
 `bar_data` (predict endpoint memory reads from what `rc` wrote there:
 true while the endpoint's BAR behaves as memory, as BAR0 does in the
 `core` application model) and `strict`.
+
+**Call order.** In each `clk_i` cycle the bench reports what the rising
+edge took, in this order: `observe_dl_up(True)` if `dl_up_o` rose;
+`observe_tx` for a TLP whose last beat `link` took; `observe_rx` for a TLP
+`link` delivered; `observe_command`; `observe_result`; `observe_msi`;
+`observe_dl_up(False)` if `dl_up_o` fell; then `tick(1)`. A link down is
+thus reported after the TLPs of its own cycle, so a TLP taken as
+`dl_up_o` falls still matches its command, and a completion delivered in
+the same cycle as its result is seen first.
 
 ### What it predicts
 
@@ -251,7 +265,7 @@ forgets what it learnt of the endpoint, which resets itself.
 
 | Side | Checks |
 | --- | --- |
-| `rc` requests (TX) | Well formed [cite: PCIe Base Spec, rev 3.0, §2.2.5] [cite: PCIe Base Spec, rev 3.0, §2.2.7]: decodes; no TD or EP; byte-enable rules; configuration requests TC 0, Attr 0, Length 1; memory requests with 3-DW headers and at most 128 bytes of payload. Each is exactly the TLP the next unsent endpoint command asks for (kind, Requester ID from the Primary Bus Number, address or bus, device, function and register, Length, byte enables, enabled data bytes), in command order, a posted write passing non-posted requests but never the reverse [cite: PCIe Base Spec, rev 3.0, §2.4.1]. A command the [outbound routing](../../arch/rc/HAS.md#outbound-routing) refuses (another bus or device; Memory Space Enable 0; outside the memory window) or the [field checks](../../arch/rc/TL_SEQ.md#commands) refuse is never sent. A non-posted request uses a tag from 0 to `num_tags` − 1 that is not outstanding. |
+| `rc` requests (TX) | Well formed [cite: PCIe Base Spec, rev 3.0, §2.2.5] [cite: PCIe Base Spec, rev 3.0, §2.2.7]: decodes; no TD or EP; byte enables legal (Last DW BE 0 for 1 DW; both fields non-zero for more; for 3 DW or more and for a 2-DW request that is not QW aligned, only contiguous bytes: First DW BE 1111, 1110, 1100 or 1000 and Last DW BE 0001, 0011, 0111 or 1111); configuration requests TC 0, Attr 0, Length 1; memory requests with 3-DW headers and at most 128 bytes of payload. Each is exactly the TLP the next unsent endpoint command asks for (kind, Requester ID from the Primary Bus Number, address or bus, device, function and register, Length, byte enables, enabled data bytes), in command order, a posted write passing non-posted requests but never the reverse [cite: PCIe Base Spec, rev 3.0, §2.4.1]. A command the [outbound routing](../../arch/rc/HAS.md#outbound-routing) refuses (another bus or device; Memory Space Enable 0; outside the memory window) or the [field checks](../../arch/rc/TL_SEQ.md#commands) refuse is never sent. A non-posted request uses a tag from 0 to `num_tags` − 1 that is not outstanding. |
 | `rc` completions (TX) | Each answers an endpoint request still waiting, with `rc`'s ID as Completer ID and the request's TC and Attr, with the status the [inbound routing](../../arch/rc/HAS.md#inbound-routing) predicts (served from host memory, or Unsupported Request), Byte Count, Lower Address, the 64-byte split rule and the data as host memory held it when the read arrived (the host model's completion checks, applied to `rc` as completer). Every endpoint non-posted request is answered, unless a link down drops it. |
 | Endpoint completions (RX) | The host model's [completion checks](#memory-reads-and-completion-checks) and [tags](#tags), plus predictions: a BAR read after its base was written returns that base and its type bits; the ID, class and subsystem DWs never change; a memory read returns the bytes `rc` last wrote there (`bar_data`). |
 | Endpoint requests (RX) | The host model's [endpoint request](#endpoint-requests) rules: from the enumerated function with Bus Master Enable as `rc` wrote it, inside 4 KiB, the endpoint's tag and read limits, interrupt writes matching the MSI address and data `rc` programmed. |
@@ -264,10 +278,13 @@ forgets what it learnt of the endpoint, which resets itself.
 Each makes a check looser than `rc`'s real knowledge, never stricter,
 and each is tied to a rule the HAS leaves to the `rc_tl` MAS or to timing:
 
-- **Byte enables.** A command whose byte enables are not plainly legal
-  (First DW BE 0, or Last DW BE set for 1 DW or clear for more) may be
-  refused with `LOCAL_UR` or sent ([commands](../../arch/rc/TL_SEQ.md#commands):
-  the `rc_tl` MAS decides).
+- **Byte enables.** A command whose First DW BE is 0 may be refused with
+  `LOCAL_UR` or sent (a zero-length request is legal; whether `rc_tl`
+  sends it is the `rc_tl` MAS's, [commands](../../arch/rc/TL_SEQ.md#commands)).
+  A command whose byte enables break the legality rule above (Last DW BE
+  set for 1 DW, a zero field for more, or non-contiguous bytes for 3 DW or
+  more or a 2-DW request not QW aligned) must be refused with `LOCAL_UR`:
+  it is accepted refused, and sent it fails the well-formed check.
 - **Latency.** An event counts as surely recorded `latency` cycles after
   its TLP arrived. A host-memory byte is predicted only when the write
   that set it is certain to have landed: a sequencer write, a DMA write
@@ -280,8 +297,9 @@ and each is tied to a rule the HAS leaves to the `rc_tl` MAS or to timing:
   then the record's unexpected completion, not an endpoint error.
 - **Unsure outcomes.** Where the endpoint broke a rule the shadow already
   reported (with `strict=False`), the result of that request is not
-  judged further; a CRS completion to a memory read may be reported `CRS`
-  or `BAD`, and a reserved status may set bit 6.
+  judged further. A CRS completion to a memory read is such an endpoint
+  error (CRS answers configuration requests only); its bits 2 and 6 may
+  be set. A reserved status is predicted `BAD` and may set bit 6.
 
 ### Errors it raises
 
@@ -323,7 +341,7 @@ choosing the side with a seed.
 | Credits and ordering | `test_credit_gating_and_ordering`, `test_np_never_passes_blocked_posted`, `test_receive_returns_credit_cost` |
 | Endpoint requests and their limits, messages, link down, raw requests | `test_endpoint_*`, `test_command_byte_enables_kept`, `test_messages_both_ways`, `test_malformed_tlp_flagged`, `test_link_down_drops_state_then_reenumerates`, `test_send_request_raw_io_read` |
 | Shadow mode: recorded active-mode traffic (enumeration, MSI, MMIO with several completions, DMA both ways, endpoint and inbound Unsupported Requests, refused commands, header, host memory, error record, a completion timeout, a link down and re-enumeration) passes with no error | `test_recorded_*`, `test_command_while_link_down_is_link_down`, `test_byte_enables_the_mas_may_refuse` (`test_pcie_core_host_shadow.py`) |
-| Shadow mode: each class of seeded mismatch on the recorded stream raises `HostCheckError` (`rc` requests: malformed, poisoned, byte enables, busy or out-of-range tag, wrong fields or Requester ID, unrouted, a read passing a write; `rc` completions: data, status, Byte Count, Completer ID, unrequested, missing; endpoint: Byte Count, Completer ID, BAR read-back, IDs, memory data, interrupt data, requester, unexpected and malformed TLPs; results: data, status, `LOCAL_UR`, missing, extra, beat count, header, host memory, early; MSI captures; error record bits; timeouts; link down) | `test_seeded_mismatch_raises`, `test_non_strict_records_and_carries_on`, `test_timeout_*`, `test_link_down_result_must_be_link_down`, `test_header_survives_link_down`, `test_msi_capture_may_drop_when_full`, `test_inbound_*` (the memory window over host memory) |
+| Shadow mode: each class of seeded mismatch on the recorded stream raises `HostCheckError` (`rc` requests: malformed, poisoned, byte enables, busy or out-of-range tag, wrong fields or Requester ID, unrouted, a read passing a write; `rc` completions: data, status, Byte Count, Completer ID, unrequested, missing; endpoint: Byte Count, Completer ID, BAR read-back, IDs, memory data, interrupt data, requester, unexpected and malformed TLPs; results: data, status, `LOCAL_UR`, missing, extra, beat count, header, host memory, early; MSI captures; error record bits; timeouts; link down) | `test_seeded_mismatch_raises`, `test_non_strict_records_and_carries_on`, `test_timeout_*`, `test_link_down_result_must_be_link_down`, `test_header_survives_link_down`, `test_msi_capture_may_drop_when_full`, `test_inbound_*` (the memory window over host memory), `test_non_contiguous_byte_enables` and `test_qw_aligned_two_dw_any_byte_enables` (byte-enable legality: refused passes, sent raises) |
 | Independence | `test_independence_no_shared_code` |
 
 ## Possible disagreements
@@ -334,7 +352,18 @@ configuration request for a function other than 0. The host expects the
 addressed function; `tl` sends this function's ID, function 0
 ([`tl` TLP fields](../../arch/tl/TLP.md)). The e2e sends that request with
 `send_request` and checks only its status; the point is an open question
-on the [`core` HAS](../../arch/core/HAS.md#open-questions). On every other
+on the [`core` HAS](../../arch/core/HAS.md#open-questions).
+
+The shadow mode adds two readings where the `rc` HAS wording is looser
+than the shadow, both confirmed by the `rc_tl` MAS in review
+([#387](https://github.com/amichai-bd/pcie-factory/pull/387)):
+
+| Point | Shadow | `rc` HAS | `rc_tl` MAS (#387) |
+| --- | --- | --- | --- |
+| Completion matching | By Requester ID and Tag; any other completion is unexpected (error bit 4) [cite: PCIe Base Spec, rev 3.0, §2.3.2]. | "Matched to its outstanding request by tag", the matching left to the `rc_tl` MAS ([inbound routing](../../arch/rc/HAS.md#inbound-routing)). | Requester ID and Tag; anything else unexpected, bit 4. |
+| A `MEM_WR` sent just before a link down | `OK`, not `LINK_DOWN`: a posted write is done once `link` took its last beat. | `OK` means a `MEM_WR` sent ([results](../../arch/rc/TL_SEQ.md#results)). | `OK` the cycle after `link` takes `eop`. |
+
+On every other
 point the host checks, its reading of the Base Spec agrees with the HAS
 pages listed above. The Base Spec is not in the local
 cache (`./build specs list`), so the cited sections here, like those of the
