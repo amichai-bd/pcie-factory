@@ -238,7 +238,6 @@ A request's send time is the cycle of its `observe_tx` call, the cycle
 takes its `sop` beat; the bench gives `timeout_min` less the request's
 beats (3 for a read, 4 for a 1-DW write) so the shadow is never stricter.
 Then `msi_depth` (4, the least capture depth the tl-seq page allows),
-`msi_depth` (4, the least capture depth the tl-seq page allows),
 `bar_data` (predict endpoint memory reads from what `rc` wrote there:
 true while the endpoint's BAR behaves as memory, as BAR0 does in the
 `core` application model) and `strict`.
@@ -278,7 +277,7 @@ forgets what it learnt of the endpoint, which resets itself.
 Each makes a check looser than `rc`'s real knowledge, never stricter,
 and each is tied to a rule the HAS leaves to the `rc_tl` MAS or to timing:
 
-- **Byte enables.** A command whose First DW BE is 0 may be refused with
+- **Byte enables.** A 1-DW command whose First DW BE is 0 may be refused with
   `LOCAL_UR` or sent (a zero-length request is legal; whether `rc_tl`
   sends it is the `rc_tl` MAS's, [commands](../../arch/rc/TL_SEQ.md#commands)).
   A command whose byte enables break the legality rule above (Last DW BE

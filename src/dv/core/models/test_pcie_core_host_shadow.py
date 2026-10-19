@@ -748,6 +748,8 @@ def test_inbound_write_in_window_not_stored():
 @pytest.mark.parametrize("addr, length, fbe, lbe", [
     (0x8000_0000, 3, 0b0011, 0b1111),  # First DW BE not enabled up to byte 3
     (0x8000_0004, 2, 0b0101, 0b0001),  # 2 DW, not QW aligned, non-contiguous
+    (0x8000_0000, 3, 0b1111, 0b0110),  # Last DW BE not enabled from byte 0
+    (0x8000_0004, 2, 0b1100, 0b0010),  # 2 DW, not QW aligned, Last DW BE not from byte 0
 ])
 def test_non_contiguous_byte_enables(addr, length, fbe, lbe):
     """Byte enables that are not contiguous across the request
