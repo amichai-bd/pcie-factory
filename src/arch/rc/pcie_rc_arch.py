@@ -154,6 +154,7 @@ def inbound(req: dict, hdr: dict, params: dict = DEFAULTS) -> str:
     (``bus_master_en``, ``mem_base``, ``mem_limit``)."""
     addr, nbytes = req["addr"], 4 * req["len"]
     win = memory_window(hdr["mem_base"], hdr["mem_limit"])
+    # Whole DWs: byte enables are deliberately not applied to the window overlap.
     if win is not None and addr <= win[1] and addr + nbytes - 1 >= win[0]:
         return "ur"
     if not hdr["bus_master_en"]:
