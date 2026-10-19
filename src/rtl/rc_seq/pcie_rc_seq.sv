@@ -38,11 +38,6 @@ module pcie_rc_seq #(
 
   `COMMON_ASSERT_PARAM(g_program_check, PRG.n != 16'd0, "pcie_rc_seq: PROGRAM names no program")
 
-  // Reset state: no run.
-  localparam pcie_rc_seq_pkg::t_ctl CTL_RESET = '{state: pcie_rc_seq_pkg::ST_IDLE, pc: 16'd0,
-                                                  st: common_pkg::RC_ST_OK, loops: 16'd0,
-                                                  cnt: 32'd0, beat: 6'd0};
-
   // ---------------------------------------------------------------- state
 
   pcie_rc_seq_pkg::t_ctl    ctl_q, ctl_d;
@@ -50,7 +45,7 @@ module pcie_rc_seq #(
   logic                     start_prev_q;      // start_i of the previous cycle, 0 in reset
   common_pkg::t_rc_msi      msi_q;             // the capture taken, until R[0] and R[1] are written
 
-  `COMMON_DFF_RST_VAL(ctl_q, ctl_d, clk_i, rst_i, CTL_RESET)
+  `COMMON_DFF_RST_VAL(ctl_q, ctl_d, clk_i, rst_i, pcie_rc_seq_pkg::CTL_RESET)
   `COMMON_DFF_RST(res_q, res_d, clk_i, rst_i)
   `COMMON_DFF_RST(start_prev_q, start_i, clk_i, rst_i)
 
@@ -172,11 +167,8 @@ module pcie_rc_seq #(
     case (ctl_q.state)
       pcie_rc_seq_pkg::ST_IDLE: begin
         if (start_rise) begin
-          ctl_d.state = pcie_rc_seq_pkg::ST_FETCH;
-          ctl_d.pc    = 16'd0;
-          ctl_d.st    = common_pkg::RC_ST_OK;
-          ctl_d.loops = 16'd0;
-          res_d       = '0;
+          ctl_d = pcie_rc_seq_pkg::ctl_run_start();
+          res_d = '0;
         end
       end
 

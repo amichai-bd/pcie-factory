@@ -13,8 +13,8 @@ holds them as named constants, with the [constants](#constants) below.
 0xF; `last_be` 0xF when `len` is above 1 and 0 otherwise; an `EXPECT` or
 data `JUMP` with no bits named has `mask` 0xFFFF_FFFF and checks `R[0]`;
 a forward conditional `JUMP` (a skip) has limit 0, which only backward
-takes use ([`JUMP`](MAS.md#commands)); a polling loop's limit is a
-package constant #376 sets.
+takes use ([`JUMP`](MAS.md#commands)); a polling loop's limit is the
+polling-loop limit of the [constants](#constants).
 
 ## Constants
 
@@ -109,8 +109,9 @@ writes the destination.
 
 Program `ERRORS`. A run flag in host memory tells the three passes over
 `ENUM` apart, since host memory is the only state a run can branch on.
-It is about 110 + 2D steps, so it fits the 256-step ROM for a capture
-depth D up to 64 (the `rc_tl` MAS proposes 4).
+It is 114 + 2D steps, 122 at the capture depth D = 4 the [`rc_tl`
+MAS](../rc_tl/MAS.md#decisions) sets, so it fits the 256-step ROM for D
+up to 71.
 
 | # | Steps | Checks |
 | --- | --- | --- |

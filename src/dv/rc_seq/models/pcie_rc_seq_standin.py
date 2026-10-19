@@ -459,47 +459,99 @@ def reference_run(prog: int, seed: int, **kw) -> tuple[m.RcSeqModel, StandIn]:
     return seq, si
 
 
-def expect_corruptions(prog: int, seed: int) -> list[tuple[int, dict]]:
-    """For each EXPECT of the passing run (first occurrence of each index)
-    that one wrong bit can make the first failing step: (EXPECT pc,
-    stand-in keyword arguments). The source of R[idx] is the last REQ or
-    WAIT_MSI before it, with only EXPECTs and JUMPs between them; the bit
-    flipped is the lowest of the EXPECT's mask that no step in between
-    reads in that register, so they all behave as before, and it is
-    flipped in the source's beat idx or in the capture's data (R[0]) or
-    offset (R[1])."""
+def _flip(src: tuple, w: m.Step, bit: int) -> dict | None:
+    """Stand-in arguments that flip ``bit`` of R[w.idx] where its source
+    ``src`` wrote it, or None when that source cannot carry it."""
+    kind, num, sw = src
+    beats = sw.len if sw.op - m.REQ == m.MEM_RD else 1
+    if kind == "cmd" and w.idx < beats:
+        return {"corrupt": {num: (w.idx, bit)}}
+    if kind == "msi" and w.idx in (0, 1):
+        fld = "data" if w.idx == 0 else "offset"
+        if fld == "data" or bit < 1 << 10:
+            return {"msi_corrupt": {num: (fld, bit)}}
+    return None
+
+
+def corruptions(prog: int, seed: int) -> list[tuple[str, int, dict]]:
+    """Faults that make the image's checked fields matter, from the passing
+    run of ``prog`` on the model: (kind, pc, stand-in keyword arguments).
+
+    - ``expect``: for each EXPECT (first occurrence of each index), the
+      lowest and the highest bit of its mask that no step since the
+      register's source reads in it, flipped where the source wrote it (a
+      REQ's beat idx, a capture's data or offset): the run must fail at
+      that EXPECT.
+    - ``status``: for each REQ with ``chk`` 1 (first occurrence), its last
+      beat answered with another status: the run must fail at that REQ.
+    - ``jump``: for each JUMP on data, at its first and its last occurrence,
+      the lowest and the highest bit of its mask flipped likewise, which
+      turns its outcome; where the run then ends is the model's (a poll
+      runs once more, a skip falls into what it skipped).
+
+    A source is the last REQ or WAIT_MSI before the step, with only
+    EXPECTs and JUMPs between them."""
     seq, _ = reference_run(prog, seed)
     if not seq.passed:
         raise m.ModelError(f"reference run of {m.PROGRAM_NAMES[prog]} seed {seed} fails")
-    out: dict[int, dict] = {}
+    out: dict[tuple, dict] = {}
+    jumps: dict[int, list] = {}
     ncmd = nmsi = 0
-    src = None                  # (kind, number, source step)
+    src = None
     between: list[m.Step] = []
     for pc, op, _, _ in seq.events:
         w = m.decode(seq.rom[pc])
         if op >= m.REQ:
+            if w.chk and ("status", pc) not in out:
+                bad = (w.status + 1 + pc % 7) % 8
+                out[("status", pc)] = {"status_over": {ncmd: bad}}
             src, between = ("cmd", ncmd, w), []
             ncmd += 1
         elif op == m.WAIT_MSI:
             src, between = ("msi", nmsi, w), []
             nmsi += 1
         elif op in (m.EXPECT, m.JUMP) and src is not None:
-            if op == m.EXPECT and pc not in out:
-                kind, num, sw = src
+            data_jump = op == m.JUMP and w.cond in (m.DATA_EQ, m.DATA_NE)
+            if op == m.EXPECT or data_jump:
                 read = 0
                 for b in between:
                     if b.idx == w.idx and (b.op == m.EXPECT or b.cond in (m.DATA_EQ, m.DATA_NE)):
                         read |= b.mask
                 free = w.mask & ~read
-                bit = free & -free
-                beats = sw.len if sw.op - m.REQ == m.MEM_RD else 1
-                if bit and kind == "cmd" and w.idx < beats:
-                    out[pc] = {"corrupt": {num: (w.idx, bit)}}
-                elif bit and kind == "msi" and w.idx in (0, 1):
-                    fld = "data" if w.idx == 0 else "offset"
-                    if fld == "data" or bit < 1 << 10:
-                        out[pc] = {"msi_corrupt": {num: (fld, bit)}}
+                kws = []
+                if free:
+                    for bit in sorted({free & -free, 1 << (free.bit_length() - 1)}):
+                        kw = _flip(src, w, bit)
+                        if kw:
+                            kws.append(kw)
+                if op == m.EXPECT:
+                    for j, kw in enumerate(kws):
+                        out.setdefault(("expect", pc, j), kw)
+                else:
+                    jumps.setdefault(pc, []).append(kws)
             between.append(w)
         else:
             src, between = None, []
-    return sorted(out.items())
+    for pc, occ in jumps.items():
+        for j, kw in enumerate(occ[0] + (occ[-1] if len(occ) > 1 else [])):
+            out[("jump", pc, j)] = kw
+    return sorted(((k[0], k[1], kw) for k, kw in out.items()), key=lambda t: (t[1], t[0]))
+
+
+def expect_corruptions(prog: int, seed: int) -> list[tuple[int, dict]]:
+    """The ``expect`` faults of ``corruptions``: (EXPECT pc, arguments)."""
+    return [(pc, kw) for kind, pc, kw in corruptions(prog, seed) if kind == "expect"]
+
+
+def status_corruptions(prog: int, seed: int) -> list[tuple[int, dict]]:
+    """The ``status`` faults of ``corruptions``: (REQ pc, arguments)."""
+    return [(pc, kw) for kind, pc, kw in corruptions(prog, seed) if kind == "status"]
+
+
+def expected_end(prog: int, seed: int, kind: str, pc: int, kw: dict) -> int | None:
+    """Where a fault's run ends: the faulted step for ``expect`` and
+    ``status``; the model's failing step, or None for a pass, for ``jump``."""
+    if kind != "jump":
+        return pc
+    seq, _ = reference_run(prog, seed, **kw)
+    return None if seq.passed else seq.fail_step

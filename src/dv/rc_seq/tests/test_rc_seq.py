@@ -60,14 +60,15 @@ async def selftest(dut):
 
 @cocotb.test()
 async def expect_mismatch(dut):
-    """Every EXPECT of SELFTEST, one run each: one wrong bit of its mask
-    in the read that wrote its register (a 1-DW read, beat k of the 32-DW
-    read, the MSI capture's data or offset) fails the run at that EXPECT."""
+    """Every EXPECT and data JUMP of SELFTEST: the lowest and the highest
+    free bit of its mask flipped in the read that wrote its register (a
+    1-DW read, beat k of the 32-DW read, the MSI capture's data or
+    offset). An EXPECT fails at itself; a JUMP turns, and the run ends
+    where the model says."""
     rng = rng_of(0xE7)
     env = Env(dut, SELFTEST)
     seed = rng.getrandbits(32)
-    for pc, kw in envm.expect_corruptions(SELFTEST, seed):
-        await env.expect_run(standin(seed, "self", **kw), pc, f"wrong read for EXPECT {pc}")
+    await _faults(env, seed, ("expect", "jump"))
 
 
 @cocotb.test()
@@ -77,6 +78,7 @@ async def status_mismatch(dut):
     rng = rng_of(0x57A7)
     env = Env(dut, SELFTEST)
     seed = rng.getrandbits(32)
+    await _faults(env, seed, ("status",))
     seq, _ = envm.reference_run(SELFTEST, seed)
     reqs = []
     for pc, op, _, _ in seq.events:
@@ -229,21 +231,34 @@ async def start_reset(dut):
     RUN.sample(event="start_through_reset")
 
 
+async def _faults(env: Env, seed: int, kinds: tuple, pick=None) -> None:
+    """Runs of ``env.prog`` with each fault of ``corruptions`` of the given
+    kinds (or ``pick`` of them chosen by it): an EXPECT made wrong fails
+    at it, a checked REQ answered with another status fails at it, a data
+    JUMP turned ends where the model ends."""
+    prog = env.prog
+    faults = [f for f in envm.corruptions(prog, seed) if f[0] in kinds]
+    if pick is not None:
+        faults = pick(faults)
+    for kind, pc, kw in faults:
+        want = envm.expected_end(prog, seed, kind, pc, kw)
+        await env.expect_run(standin(seed, envm.mode_of(prog), **kw), want,
+                             f"{m.PROGRAM_NAMES[prog]} seed {seed}, {kind} fault at {pc}")
+
+
 async def _program(dut, prog: int, runs: int, every: bool) -> None:
     """Program ``prog`` (the entry's PROGRAM) passes against the stand-in
-    playing the endpoint; then, with one wrong bit in the read before an
-    EXPECT, fails at that EXPECT: every EXPECT of the image (``every``) or
-    three chosen at random."""
+    playing the endpoint; then fails as each fault of ``corruptions``
+    says: every EXPECT, checked REQ and data JUMP of the image (``every``),
+    or six faults chosen at random."""
     rng = rng_of(0x9A00 + prog * 16 + runs)
     env = Env(dut, prog)
     name = m.PROGRAM_NAMES[prog]
     for _ in range(runs):
         seed = rng.getrandbits(32)
         await env.expect_run(standin(seed, envm.mode_of(prog)), None, f"{name} seed {seed}")
-        choices = envm.expect_corruptions(prog, seed)
-        for pc, kw in (choices if every else rng.sample(choices, 3)):
-            await env.expect_run(standin(seed, envm.mode_of(prog), **kw), pc,
-                                 f"{name} seed {seed}, EXPECT {pc} made wrong")
+        await _faults(env, seed, ("expect", "status", "jump"),
+                      None if every else (lambda f: rng.sample(f, 6)))
 
 
 @cocotb.test()

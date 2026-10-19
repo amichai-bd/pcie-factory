@@ -84,6 +84,18 @@ package pcie_rc_seq_pkg;
     logic [5:0]             beat;    // result beats taken by the current REQ
   } t_ctl;
 
+  // Reset state: no run.
+  localparam t_ctl CTL_RESET = '{state: ST_IDLE, pc: 16'd0, st: common_pkg::RC_ST_OK,
+                                 loops: 16'd0, cnt: 32'd0, beat: 6'd0};
+
+  // The state a run starts in: step 0 fetched, S OK, L 0 (MAS: Run).
+  function automatic t_ctl ctl_run_start();
+    t_ctl c;
+    c       = CTL_RESET;
+    c.state = ST_FETCH;
+    return c;
+  endfunction
+
   // Run result: done_o, pass_o, fail_step_o.
   typedef struct packed {
     logic        done;

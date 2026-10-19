@@ -175,3 +175,117 @@ def test_programs_agree_with_the_arch_model(name):
     assert len(mine) == len(theirs)
     for pc, (a, b) in enumerate(zip(mine, theirs)):
         assert _used_fields(a) == _used_fields(b), (name, pc)
+
+
+@pytest.mark.parametrize("prog", range(len(m.PROGRAM_NAMES)))
+def test_every_checked_req_can_be_made_to_fail(prog):
+    """Each REQ with chk 1 is reached, and answered with another status
+    the run fails exactly there."""
+    rom = m.program(prog).rom()
+    checked = {pc for pc, w in enumerate(rom)
+               if m.decode(w).op >= m.REQ and m.decode(w).chk}
+    choices = sd.status_corruptions(prog, 3)
+    assert {pc for pc, _ in choices} == checked
+    for pc, kw in choices:
+        seq, _ = sd.reference_run(prog, 3, **kw)
+        assert not seq.passed and seq.fail_step == pc, (pc, kw, seq.events[-1])
+
+
+@pytest.mark.parametrize("prog", range(len(m.PROGRAM_NAMES)))
+def test_every_data_jump_is_turned(prog):
+    """Every polling loop's data JUMP the run reaches gets a fault (others
+    do where a mask bit is still free since the register's source), and
+    every jump fault ends, pass or fail, within the run bound."""
+    rom = m.program(prog).rom()
+    seq, _ = sd.reference_run(prog, 3)
+    reached = {pc for pc, op, _, _ in seq.events
+               if op == m.JUMP and m.decode(rom[pc]).cond in (m.DATA_EQ, m.DATA_NE)}
+    polls = {pc for pc in reached if m.decode(rom[pc]).addr & 0xFFFF <= pc}
+    faults = [(pc, kw) for kind, pc, kw in sd.corruptions(prog, 3) if kind == "jump"]
+    assert polls <= {pc for pc, _ in faults} <= reached
+    for pc, kw in faults:
+        sd.expected_end(prog, 3, "jump", pc, kw)
+
+
+# ------------------------------------------- second semantic reference
+
+class _Replay:
+    """rc_tl as the arch model's RcSeq sees it, replaying the commands'
+    result beats and the MSI captures a model run recorded."""
+
+    def __init__(self, cmds, msis):
+        self.cmds, self.msis, self.beats = list(cmds), list(msis), []
+
+    def offer(self, cmd, now):
+        want, beats = self.cmds.pop(0)
+        got = (cmd["op"], cmd["addr"], cmd["len"], cmd["fbe"], cmd["lbe"], cmd["data"])
+        assert got == want, (got, want)
+        self.beats = list(beats)
+        return True
+
+    def pop_rsp(self, now):
+        return self.beats.pop(0) if self.beats else None
+
+    @property
+    def msi(self):
+        return bool(self.msis)
+
+    def take_msi(self):
+        return self.msis.pop(0)
+
+
+def _recorded_run(prog, kw):
+    """The model's run with fault ``kw``, recording each command with its
+    beats and each MSI capture taken."""
+    rom = m.program(prog).rom()
+    si = sd.standin(3, sd.mode_of(prog), **kw)
+    seq = m.RcSeqModel(rom)
+    cmds, msis = [], []
+    for n in range(200_000):
+        rst = int(n < 8)
+        o = seq.outputs(m.Inputs())
+        i = si.drive(n, rst, o.cmd_valid, o.cmd, o.hot_reset_req)
+        i.rst, i.start = rst, 1
+        o = seq.outputs(i)
+        if o.cmd_valid and i.cmd_ready:
+            cmds.append((o.cmd, []))
+        if i.rsp_valid:
+            cmds[-1][1].append((i.rsp_status, i.rsp_data, i.rsp_last))
+        if o.msi_ready:
+            msis.append((i.msi_offset, i.msi_data))
+        si.commit(n, i, o.msi_ready)
+        seq.clock(i)
+        if seq.done and not seq.running:
+            return rom, seq, cmds, msis
+    raise m.ModelError("no end")
+
+
+@pytest.mark.parametrize("prog", range(len(m.PROGRAM_NAMES)))
+def test_arch_interpreter_agrees(prog):
+    """The rc arch model's RcSeq, fed the same commands' results and
+    captures, issues the same commands and ends the same way (pass, or
+    fail at the same step) as RcSeqModel, on the passing run and on
+    twelve faults of each kind."""
+    import random
+    import sys
+    from pathlib import Path
+    sys.path.append(str(Path(__file__).resolve().parents[3] / "arch" / "rc"))
+    import pcie_rc_arch as arch
+    rng = random.Random(prog)
+    faults = sd.corruptions(prog, 3)
+    picked = [{}]
+    for kind in ("expect", "status", "jump"):
+        of_kind = [kw for k, _, kw in faults if k == kind]
+        picked += rng.sample(of_kind, min(12, len(of_kind)))
+    for kw in picked:
+        rom, seq, cmds, msis = _recorded_run(prog, kw)
+        tl = _Replay(cmds, msis)
+        a = arch.RcSeq(rom)
+        a.start()
+        for now in range(400_000):
+            a.step(now, tl, True, not a.hot_reset_req)
+            if a.done:
+                break
+        assert a.done, kw
+        assert (bool(a.passed), a.fail_step) == (bool(seq.passed), seq.fail_step), kw
+        assert not tl.cmds, kw

@@ -248,3 +248,5 @@ standin = sd.standin
 mode_of = sd.mode_of
 reference_run = sd.reference_run
 expect_corruptions = sd.expect_corruptions
+corruptions = sd.corruptions
+expected_end = sd.expected_end
