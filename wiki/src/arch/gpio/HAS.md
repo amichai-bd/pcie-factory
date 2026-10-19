@@ -299,6 +299,6 @@ delegate, which the captain may override ([decision](https://github.com/amichai-
 
 | Item | Owner |
 | --- | --- |
-| The rate a board-to-board cable sustains, and whether `CLK_DIV` 2 holds on it (the default is decided as 2). | The two-board milestone on the [roadmap](../../roadmap.md#later); record owner [#357](https://github.com/amichai-bd/pcie-factory/issues/357) |
-| The cited header table checked against the manual itself; which jumper sets the header's I/O voltage (JP6 is assumed, as for `HSMC_CLKIN0`); and whether `GPIO[11]` (`AF16`) is one of the device's dedicated clock inputs. The [`rc` FPGA page](../../fpga/rc/FPGA.md#board-wrapper) gives the FPGA pins and the I/O standard (3.3-V LVTTL, JP6 at its default), cross-checked against a community pin table (components101.com, no revision given; source on that page), since the manual was not reachable from the session; the fit routes `gpio_rx_clk_i` as a clock and meets timing. | [#357](https://github.com/amichai-bd/pcie-factory/issues/357) |
-| The cited sections on this page, checked against rev 3.0 (the Base Spec is not in the local cache). | [#357](https://github.com/amichai-bd/pcie-factory/issues/357) |
+| The rate a board-to-board cable sustains, and whether `CLK_DIV` 2 holds on it (the default is decided as 2). | The two-board milestone on the [roadmap](../../roadmap.md#later) |
+| The [DE2-115 pins](#de2-115-pins) checked against the manual itself: the header table, the header's I/O voltage jumper and whether `GPIO[11]` (`AF16`) is a dedicated clock input. | Captain, in the **Open human checks** table on [References](../../references.md) |
+| The cited sections on this page, checked against rev 3.0 (the Base Spec is not in the local cache). | Captain, with a local copy |
