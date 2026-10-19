@@ -49,7 +49,7 @@ LCRC bytes `E1 F1 E7 E2`.
 | NEXT_TRANSMIT_SEQ | 12 | 0 | One past the newest TLP sent at least once. |
 | ACKD_SEQ | 12 | 4095 | The newest TLP acknowledged. |
 | REPLAY_NUM | 2 | 0 | Replays since the last forward progress. |
-| REPLAY_TIMER | 9 | 0, stopped | Cycles since the timer last (re)started. |
+| REPLAY_TIMER | ceil(log2(`REPLAY_TIMEOUT`)): 9 at the default | 0, stopped | Cycles since the timer last (re)started. |
 
 A TLP accepted from the upper stream gets the next sequence number in
 order (the first is 0); NEXT_TRANSMIT_SEQ moves past it when it is first
@@ -89,7 +89,7 @@ a cycle.
 
 | Timer | Value | Rule |
 | --- | --- | --- |
-| Replay timeout | 356 cycles | 711 symbol times for a 128-byte maximum payload on x1 at 2.5 GT/s, rounded up; the timer may expire later than the limit but never earlier [cite: PCIe Base Spec, rev 3.0, §3.5.2.1]. |
+| Replay timeout | `REPLAY_TIMEOUT`, 356 cycles by default ([parameters](HAS.md#parameters)) | At the default: 711 symbol times for a 128-byte maximum payload on x1 at 2.5 GT/s, rounded up; the timer may expire later than the limit but never earlier [cite: PCIe Base Spec, rev 3.0, §3.5.2.1]. |
 | Ack latency | 32 cycles | This design's choice; with a TLP in progress ahead of it (at most 76 cycles) an Ack still starts within the 237-symbol-time (118-cycle) limit [cite: PCIe Base Spec, rev 3.0, §3.5.3.1]. |
 | InitFC resend | 128 cycles | At most 34 µs apart [cite: PCIe Base Spec, rev 3.0, §3.3.1]. |
 | UpdateFC refresh | 2048 cycles | At most 30 µs apart [cite: PCIe Base Spec, rev 3.0, §2.6.1.2]. |
@@ -106,8 +106,27 @@ a cycle.
 - Holds its value while `ltssm_state_i` is not an L0 code (`0x20` to
   `0x2F`): in Recovery, and through a pass from Recovery to Configuration
   and back, during which `link_up_i` stays 1.
-- At 356 it stops, pulses Replay timeout on `err_o`, and requests a
-  [replay](#replay).
+- At `REPLAY_TIMEOUT` (356 by default) it stops, pulses Replay timeout on
+  `err_o`, and requests a [replay](#replay).
+
+### Slow lower layers
+
+The replay-timer rule sizes the timeout from the time a maximum TLP and the
+Ack that covers it take on a PCI Express link of the given width and rate,
+plus internal delays, so that the timer never expires before a compliant
+partner's Ack can arrive; it may expire later, never earlier
+[cite: PCIe Base Spec, rev 3.0, §3.5.2.1]. The default 356 cycles is that
+limit for x1 at 2.5 GT/s over `phy`.
+
+**Deviation.** A lower layer that is not a PCI Express physical layer, such
+as the GPIO adapter ([`gpio` `dll` timers](../gpio/HAS.md#dll-timers)),
+carries packets more slowly, so its round trip from a TLP's last beat to
+its Ack is longer than 356 cycles. Over such a layer `REPLAY_TIMEOUT` is
+raised to that layer's worst-case round trip. The value then follows no
+link width and rate of the rule; its cost is that a lost TLP or Ack is
+recovered later (a damaged TLP is still recovered at once by its Nak). A
+`phy` build keeps the default. The GPIO build's value is derived on the
+[`link` lower-layer section](../link/HAS.md#replay-timeout-at-lower-1).
 
 ## REPLAY_NUM
 

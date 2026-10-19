@@ -160,3 +160,11 @@ tests:
     seeds: [0, 1]
     timeout_s: 300
     coverage_seeds: 2
+  # A slowed lower layer (#384): REPLAY_TIMEOUT at the GPIO build's value
+  # (link HAS, lower layer), a round trip between 356 and it.
+  - name: replay_timeout_slow
+    module: tests.test_dll_tlp_tx
+    testcase: replay_timeout_slow
+    top: pcie_dll_tb
+    timeout_s: 300
+    params: {REPLAY_TIMEOUT: 1400}

@@ -68,7 +68,8 @@ per-class credit values (`t_fc_vals`), the upper transmit beat
 receive-buffer word (`t_rx_word`) and a TLP's class and credits
 (`t_rx_credit`) are packed
 structs from the [package](#package). The credit parameters keep the HAS checks
-(`COMMON_ASSERT_PARAM`, one per parameter) and form the constant `ADV`,
+(`COMMON_ASSERT_PARAM`, one per parameter, `REPLAY_TIMEOUT` too, which goes
+to [`u_tlp_tx`](#tlp-transmit)) and form the constant `ADV`,
 this side's advertisement, which `u_ctrl` puts in InitFC and `u_fc` in
 UpdateFC.
 
@@ -247,10 +248,12 @@ it is open, across a link-down too.
 
 [`pcie_dll_tlp_tx`](../../../../src/rtl/dll/pcie_dll_tlp_tx.sv) applies
 the [retry page](../../arch/dll/RETRY.md) on the transmit side. Its state
-is `t_retry_state` (sequence numbers, buffer pointers, replay, timer,
-hold), `t_tlp_stream` (the TLP on the `phy` stream) and an end-address
-table; all of it but the stream takes its DL_Inactive value under
-`flush_i`.
+is `t_retry_state` (sequence numbers, buffer pointers, replay, timer
+running flag, hold), the timer count `rt_q`, `t_tlp_stream` (the TLP on
+the `phy` stream) and an end-address table; all of it but the stream takes
+its DL_Inactive value under `flush_i`. `rt_q` is a flat register beside the
+struct because its width follows the parameter `REPLAY_TIMEOUT`:
+ceil(log2(`REPLAY_TIMEOUT`)) bits, 9 at the default.
 
 **Replay buffer.** A [`common_sdp_ram`](../common/ram/common_sdp_ram.md)
 of 256 words of 32 bits (1024 bytes, Q6). A TLP is stored as its DWs, in
@@ -320,9 +323,10 @@ back (a take that ends a replay and starts a pending one needs a free
 stream, so no `sop` waits then); `a_roll_now` checks it implies the
 rollover.
 
-**Timer and hold.** `rt` counts in L0 (`ltssm_state_i` bits 5:4 `10`, in
-the same cycle) while running, so it expires after exactly 356 L0
-cycles, never earlier; at the edge where it would reach 356 it stops, pulses `err_o`
+**Timer and hold.** `rt_q` counts in L0 (`ltssm_state_i` bits 5:4 `10`, in
+the same cycle) while running, so it expires after exactly `REPLAY_TIMEOUT`
+L0 cycles, never earlier: it compares with `REPLAY_TIMEOUT` − 1 (`RT_LAST`),
+and at the edge where it would reach `REPLAY_TIMEOUT` it stops, pulses `err_o`
 bit 2 and requests a replay; it starts at a TLP's `eop` taken when
 stopped. The hold counts cycles from the rollover; it ends at the first
 L0 code after a non-L0 one, or at 1024 cycles if the LTSSM never left L0.
@@ -475,8 +479,8 @@ Nak), never stored with a hole.
   ahead; its `sop` offered from then, taken by a ready `phy` at E+3: 3
   cycles, within the HAS's 4 ([Targets](../../arch/dll/HAS.md#targets)). A
   received Ack or Nak acts at the edge after its decode, so two edges
-  after its `eop`. The replay timer reaches 356 exactly 356 cycles after
-  the `eop` that started it.
+  after its `eop`. The replay timer reaches `REPLAY_TIMEOUT` exactly
+  `REPLAY_TIMEOUT` cycles after the `eop` that started it.
 - Two outputs depend on inputs. `tlp_tx_ready_o`: on a `sop` beat it reads
   `tlp_tx_sop_i` and the first DW of `tlp_tx_data_i`
   ([HAS, transmit](../../arch/dll/HAS.md#transmit)). `pkt_tx_valid_o`:

@@ -172,7 +172,8 @@ ties the `phy` `pkt_tx_nullify_i` to 0.
 
 ## Parameters
 
-The credits this receiver advertises for VC0 (Q6). 0 advertises the field
+The credits this receiver advertises for VC0 (Q6), and the replay timeout.
+For the credits, 0 advertises the field
 infinite; otherwise the receive buffer holds that many credits
 ([receive buffer](FLOW_CONTROL.md#receive-buffer)). One header credit is
 one TLP header; one data credit is 16 bytes of payload
@@ -187,6 +188,7 @@ one TLP header; one data credit is 16 bytes of payload
 | `FC_CPLH` | `int unsigned` | 0 (infinite) | 0, 1 to 127 | Completion header credits. |
 | `FC_CPLD` | `int unsigned` | 0 (infinite) | 0, 8 to 2047 | Completion data credits. |
 | `FC_RELEASE` | `int unsigned` | 0 | 0, 1 | 1: finite posted and non-posted credits return on the [credit release](#credit-release) port; 0: at delivery, the port tied to 0. |
+| `REPLAY_TIMEOUT` | `int unsigned` | 356 | 356 to 65535 | The [replay timeout](RETRY.md#timers), in `clk_i` cycles in L0. 356 meets the replay-timer rule over `phy`; a larger value is only for a lower layer slower than `phy` ([slow lower layers](RETRY.md#slow-lower-layers)). |
 
 The upper bounds keep every advertisement within half the counter range,
 as the accounting requires [cite: PCIe Base Spec, rev 3.0, §2.6.1]. The
@@ -198,7 +200,7 @@ is port-role neutral; a finite `FC_CPLH` or `FC_CPLD` is an override for a
 port whose role allows it. Any infinite class binds the upper layer to
 never stall the receive stream ([Receive](#receive)). Fixed, not parameters (Q6): maximum payload 128
 bytes, VC0 only, no ECRC, a 1024-byte [replay buffer](RETRY.md#replay-buffer),
-the [timer values](RETRY.md#timers).
+the other [timer values](RETRY.md#timers).
 
 ## Behavior
 
@@ -332,6 +334,7 @@ neither ([`link` errors](../link/HAS.md#errors)).
 | A credit-release input, per class a pulse and a 4-bit data count, behind `FC_RELEASE` (decision record [0004](../../decisions/0004-m3-grill.md#updates), Q9; [#303](https://github.com/amichai-bd/pcie-factory/issues/303)) | The transaction layer queues requests sized by the advertised credits, so the partner can never send more than it holds; the ports are the `tl` release outputs ([`tl` credit release](../tl/HAS.md#credit-release)). Completions keep returning at delivery (the transaction layer reserves room for its own reads). The parameter keeps the M2 behaviour, and every M2 user, unchanged. | Returning credits at delivery with the transaction layer unbounded (the `core` HAS decision); a header count per pulse (one TLP leaves per class per cycle); a release for completions (no user). |
 | Credit-available as six flat count ports | Mirrors the six counters the spec names; one meaning per port (M1 Q25 keeps single-meaning top ports flat). | One packed struct port (no package shared with M3 exists yet). |
 | `dl_up_o` from FC_INIT2 | DL_Up is reported once the partner's credits are recorded [cite: PCIe Base Spec, rev 3.0, §3.2.1]. | DL_Active only. |
+| The replay timeout a parameter, 356 by default and never below it ([#384](https://github.com/amichai-bd/pcie-factory/issues/384); firstmate decision, point 1, on [#370](https://github.com/amichai-bd/pcie-factory/issues/370#issuecomment-6267987546)) | A lower layer slower than `phy` returns Acks after 356 cycles, so a fixed timer replays every long TLP with no loss ([slow lower layers](RETRY.md#slow-lower-layers)); the build that knows its lower layer sets the value, and every `phy` build is unchanged. | A fixed 356 (spurious replays over the GPIO adapter); the `dll` deriving the value from its lower layer (the `dll` stays lower-layer neutral); values below 356 (would expire before a compliant partner's Ack). |
 | A Nak or timeout during a replay replays again after it | One replay at a time keeps the replay buffer read path simple; the second request is not lost. | Restarting the replay at once. |
 | Overflowed TLPs are discarded, neither acknowledged nor Nak'd | Never loses a TLP and needs no extra state. The consequence is spelled out: NEXT_RCV_SEQ does not advance, so the TLPs behind it arrive "ahead", pulse Bad TLP and schedule one Nak, and the partner replays from the overflowed TLP. If the stall persists, each replay overflows again, REPLAY_NUM rolls over and the link retrains. A credit-correct partner with a compliant upper layer never triggers it. The independent link partner ([#210](https://github.com/amichai-bd/pcie-factory/issues/210)) reads the spec as acknowledging an overflowed TLP at the data link layer and dropping it at the transaction layer; the two readings differ only with a credit-incorrect far end, and this design keeps the discard ([#261](https://github.com/amichai-bd/pcie-factory/issues/261)). | Acknowledging and dropping (loses the TLP). |
 | Completion credits infinite by default; `dll` port-role neutral | The Endpoint and Root Port rule; one IP serves both roles, and a role that may advertise finite completion credits overrides `FC_CPLH`/`FC_CPLD`. | Finite defaults (non-compliant for an Endpoint). |
