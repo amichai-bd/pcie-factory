@@ -300,7 +300,7 @@ async def credit_run(dut, n=120, stalls=(4000, 10000)):
         for e in stallers:
             e.stall(length)
         for e in releasers:
-            e.rel_stall_until = e.cycle + length
+            e.rel_stall(length)
         if stallers or releasers:
             COV_CREDIT.sample(stall=length)
         await env.cycles(length + 500)
@@ -311,6 +311,8 @@ async def credit_run(dut, n=120, stalls=(4000, 10000)):
     for e in releasers:
         e.rel_p = 1.0
     await env.drain()
+    if releasers:
+        await held_posted_headers(env)
     await env.cycles(2500)          # the last UpdateFCs arrive
     stats = env.finish()
     # Starvation and stalls are not errors: nothing is lost or replayed.
@@ -319,6 +321,31 @@ async def credit_run(dut, n=120, stalls=(4000, 10000)):
         if stallers:
             env.log.info("end %s starved: %s, sop waits %d", e.name, sorted(e.starved), e.sop_wait)
     return env, stats
+
+
+async def held_posted_headers(env, n=12):
+    """Release configuration, drained: each end stops releasing and the far
+    end sends ``n`` one-DW memory writes. The end holds every posted header
+    credit it advertises while posted data credits are left (one each), so
+    the far end's writes wait on headers alone, the gate the release port
+    sets through link; once releases resume, the rest are delivered."""
+    for e in env.ends:
+        e.rel_stall_until = 1 << 62
+    for i in (0, 1):
+        env.send(i, n, kinds=("MWr",), dw=1)
+    await env.until(lambda: all(e.held[0][0] == e.fc[0] for e in env.ends), 5000,
+                    "every posted header credit held")
+    await env.cycles(500)
+    for i, e in enumerate(env.ends):
+        far = env.ends[1 - i]
+        assert e.held[0][0] == e.fc[0] and e.held[0][1] < e.fc[1], (
+            f"end {e.name}: holds {e.held[0]} posted credits, advertised {e.fc[:2]}")
+        assert not far.tx_idle() and far.avail[0] == 0 and far.avail[1] > 0, (
+            f"end {far.name}: writes not waiting on posted headers alone (queued "
+            f"{len(far.tx_q)}, P avail {far.avail[:2]})")
+    for e in env.ends:
+        e.rel_stall_until = e.cycle
+    await env.drain()
 
 
 @cocotb.test()
@@ -349,15 +376,20 @@ async def e2e_credits(dut):
 @cocotb.test()
 async def e2e_soak(dut):
     """L2: the mixed classes, line flips and the credit stalls together,
-    1000 TLPs each way, ppm drawn from the seed."""
+    1000 TLPs each way, ppm drawn from the seed. In the release
+    configuration the stalls are release stalls: each end takes every beat
+    but releases in half the cycles, and none in the stall windows."""
     rng = random.Random(seed() ^ 0x50A)
     env = await up(dut, ppm=rng.uniform(-600, 600))
     for inj in env.injectors:
         inj.rates.update(lcrc=0.005, corrupt_tlp=0.003, drop_tlp=0.003, corrupt_dllp=0.005,
                          drop_dllp=0.005)
     stallers = [e for e in env.ends if not e.any_inf]
+    releasers = [e for e in env.ends if e.rel]
     for e in stallers:
         e.take_p = 0.5
+    for e in releasers:
+        e.rel_p = 0.5
     for _ in range(4):
         env.send(0, 250)
         env.send(1, 250)
@@ -365,8 +397,12 @@ async def e2e_soak(dut):
         env.line(rng.choice(("ab", "ba")), "flip", 2)
         for e in stallers:
             e.stall(rng.choice((4000, 10000)))
+        for e in releasers:
+            e.rel_stall(rng.choice((4000, 10000)))
     for e in stallers:
         e.take_p = 1.0
+    for e in releasers:
+        e.rel_p = 1.0
     await env.drain(600_000)
     for inj in env.injectors:
         inj.rates.update(dict.fromkeys(inj.rates, 0.0))
@@ -382,11 +418,22 @@ async def link_control(dut, request: str):
     leaves for Hot Reset, Disabled or Loopback), the dll outputs hold their
     reset values while it is 0, TLPs not yet delivered are dropped; after
     the request is released the link trains again, both ends return to
-    DL_Active, and new traffic is lossless."""
+    DL_Active, and new traffic is lossless. In the release configuration
+    both upper layers stop releasing before the request, so each end goes
+    down holding credits; the upper layer drops them (it is reset), and
+    after the relink every credit is back at the advertisement."""
     env = await up(dut)
     env.send(0, 80)
     env.send(1, 80)
     await env.cycles(1500)
+    releasers = [e for e in env.ends if e.rel]
+    for e in releasers:
+        e.rel_stall_until = 1 << 62
+    if releasers:
+        await env.cycles(500)
+        for e in releasers:
+            assert e.held[0][0] or e.held[1][0], f"end {e.name}: holds nothing at the {request}"
+            env.log.info("%s: end %s holds %s at the request", request, e.name, e.held)
     env.expect_down = True
     a = env.ends[0]
     a.s[f"{request}_req_i"].value = 1
@@ -397,6 +444,8 @@ async def link_control(dut, request: str):
     await env.until(lambda: all(e.live for e in env.ends), 60_000, f"{request}: DL_Active again")
     env.expect_down = False
     assert env.link_downs == 2
+    for e in releasers:
+        e.rel_stall_until = e.cycle
     env.send(0, 40)
     env.send(1, 40)
     await env.drain()

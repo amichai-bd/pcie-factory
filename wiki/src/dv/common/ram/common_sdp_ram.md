@@ -25,9 +25,12 @@ hold, read and hold.
 | Intel backend: the stub accepts the backend shape and rejects each rule alone | `ram_intel_stub_rejects` | 0 | 1; 16 lint runs |
 | Intel backend under random traffic, against the model | `sdp_ram_intel_random` | 1 | 3; 2000 cycles; `backend: fpga` |
 | Intel backend at the dll receive buffer shape (512 x 34, one lane) | `sdp_ram_intel_rx_buf_shape` | 1 | 1; `backend: fpga` |
-| [sky130 backend](../../../rtl/common/ram/common_sdp_ram.md#sky130-backend) through the DV macro model: separate ports, hold, collision (pending-write bypass), lane enable | `sdp_ram_sky130_contract` | 0 | 1; one lane, low words of one macro; `backend: asic` |
-| sky130 backend: legal geometries (both dll shapes, two macros across, the smallest) lint with only `DECLFILENAME`; illegal ones, `LANES` 2 included, fail with the block's message | `ram_sky130_lint` | 0 | 1; 8 lint runs |
-| sky130 backend under random traffic, against the model (the macro model is fatal on any physical same-word collision) | `sdp_ram_sky130_random` | 1 | 3; 2000 cycles; `backend: asic` |
+| [sky130 backend](../../../rtl/common/ram/common_sdp_ram.md#sky130-backend) on macros, through the DV macro model: separate ports, hold, collision (pending-write bypass), lane enable | `sdp_ram_sky130_contract` | 0 | 1; 72 x 128 (9216 bits): two macros across, low words; `backend: asic` |
+| sky130 backend on its portable array (below 8192 bits, or several lanes): separate ports, hold, collision, lanes | `sdp_ram_sky130_flops_contract` | 0 | 1; 16 x 8, two lanes; `backend: asic` |
+| sky130 backend: legal geometries (both dll shapes, the macro regression shape, two macros across, the flop shapes, a 12-lane table, the smallest) lint with only `DECLFILENAME`; illegal ones fail with the block's message | `ram_sky130_lint` | 0 | 1; 11 lint runs |
+| sky130 backend: [macro selection](../../../rtl/common/ram/common_sdp_ram.md#sky130-backend), linted without the macro model: only one-lane RAMs of at least 8192 bits miss the macro (8192 and 9216 bits do, 8064 bits, a two-lane 16 kbit RAM and smaller ones do not) | `ram_sky130_select` | 0 | 1; 7 lint runs |
+| sky130 backend on macros under random traffic, against the model (the macro model is fatal on any physical same-word collision) | `sdp_ram_sky130_random` | 1 | 3; 2000 cycles; 72 x 128; `backend: asic` |
+| sky130 backend on its portable array under random traffic | `sdp_ram_sky130_flops_random` | 1 | 3; 2000 cycles; 16 x 8, two lanes; `backend: asic` |
 | sky130 backend at the dll receive buffer shape (512 x 34: two macro rows) | `sdp_ram_sky130_rx_buf_shape` | 1 | 1; `backend: asic` |
 | sky130 backend at the dll replay buffer shape (256 x 32: one full macro) | `sdp_ram_sky130_replay_shape` | 1 | 1; `backend: asic` |
 
@@ -48,4 +51,8 @@ contract entry (the last with the macro model's fatal collision message).
 The two-row tiling is shown at the receive buffer shape: the read row select
 fixed to row 0, and the write row decode dropped (every row written), each
 fail `sdp_ram_sky130_rx_buf_shape`, which the one-row contract entry cannot
-see. The PR records them.
+see. The PR records them. For the macro selection
+([#296](https://github.com/amichai-bd/pcie-factory/issues/296)): a
+threshold one bit higher, and a selection that ignores the lane count, each
+fail `ram_sky130_select`; both paths keep the same cycle behavior, so the
+contract entries cannot see the selection.

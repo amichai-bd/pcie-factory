@@ -1,0 +1,11 @@
+# Address map (wiki/src/arch/rc/HAS.md#targets): the default host memory
+# (4 KiB) and the MSI window are disjoint and below 4 GiB. Closed form
+# until #371.
+description: Default parameters, host memory and MSI window.
+seed: 1
+workload:
+  kind: address_map
+targets:
+  host_mem_bytes: {min: 4096}
+  map_overlap_bytes: {max: 0}
+  map_top_byte: {max: 4294967295}

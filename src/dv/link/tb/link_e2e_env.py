@@ -285,7 +285,11 @@ class LinkEnd:
         self.held_max = [[0, 0], [0, 0]]
         self.rel_delay = 2
         self.rel_p = 1.0
-        self.rel_stall_until = 0
+        self.rel_stall_until = 0         # directed hold: no release before this cycle
+        self.rel_stalls: deque = deque()  # release stalls (from, until): releases nothing in [from, until)
+        self.rel_stall_end: int | None = None       # end of the last release stall scheduled
+        self.rel_stall_seen_end: int | None = None  # end of the last release stall applied
+        self.rel_stall_on = False
         self.released = [0, 0]
         # status
         self.link_up = False
@@ -458,10 +462,12 @@ class LinkEnd:
     def _release(self, n: int, dl_up: bool) -> None:
         """Release configuration: drive ``fc_rel_*_i`` for the next edge, at
         most one release per class, the oldest TLP held ``rel_delay`` cycles,
-        with probability ``rel_p`` and none before ``rel_stall_until``. With
-        DL_Up down the upper layer is reset: everything held is dropped."""
+        with probability ``rel_p``, none before ``rel_stall_until`` and none
+        in a scheduled release stall. With DL_Up down the upper layer is
+        reset: everything held is dropped."""
         if not self.rel:
             return
+        stalled = self._rel_stalled(n)
         if not dl_up:
             for q in self.rel_q:
                 q.clear()
@@ -470,6 +476,7 @@ class LinkEnd:
                                               ("fc_rel_np_i", "fc_rel_npd_i"))):
             q = self.rel_q[c]
             go = (dl_up and q and q[0][0] + self.rel_delay <= n and n >= self.rel_stall_until
+                  and not stalled
                   and (self.rel_p >= 1.0 or self.rng.random() < self.rel_p))
             self.wr(v_port, int(bool(go)))
             if not go:
@@ -480,6 +487,24 @@ class LinkEnd:
                 if self.fc[2 * c + f]:
                     self.held[c][f] -= x
             self.released[c] += 1
+
+    def _rel_stalled(self, n: int) -> bool:
+        """Whether cycle ``n`` is in a scheduled release stall; checks, as
+        applied, that each starts at least STALL_GAP cycles after the
+        previous one ended (``rel_stall``)."""
+        while self.rel_stalls and n >= self.rel_stalls[0][1]:
+            self.rel_stall_seen_end = self.rel_stalls.popleft()[1]
+            self.rel_stall_on = False
+        if self.rel_stalls and n >= self.rel_stalls[0][0]:
+            if (not self.rel_stall_on and self.rel_stall_seen_end is not None
+                    and n - self.rel_stall_seen_end < STALL_GAP):
+                self.violations.append(f"end {self.name} cycle {n}: release stall started "
+                                       f"{n - self.rel_stall_seen_end} cycles after the "
+                                       f"previous one ended, under the {STALL_GAP}-cycle gap "
+                                       "(bench)")
+            self.rel_stall_on = True
+            return True
+        return False
 
     def _take(self, n: int) -> bool:
         if self.any_inf:
@@ -555,6 +580,18 @@ class LinkEnd:
         start = self.cycle if self.stall_end is None else max(self.cycle, self.stall_end + gap)
         self.stalls.append((start, start + length))
         self.stall_end = start + length
+
+    def rel_stall(self, length: int, gap: int = STALL_GAP) -> None:
+        """Schedule one release stall of ``length`` cycles, the release
+        configuration's stall window: like ``stall``, it starts now but
+        never less than ``gap`` cycles after the last one scheduled ends,
+        so windows never chain into one longer than ``length`` (held
+        credits stop delivery, and the liveness bound stays meaningful).
+        ``_rel_stalled`` checks the gap as applied."""
+        start = (self.cycle if self.rel_stall_end is None
+                 else max(self.cycle, self.rel_stall_end + gap))
+        self.rel_stalls.append((start, start + length))
+        self.rel_stall_end = start + length
 
     def send(self, tlps) -> None:
         self.tx_q.extend(tlps)
@@ -748,14 +785,18 @@ class Env:
 
     # -- traffic ------------------------------------------------------------------
 
-    def tlps(self, i: int, n: int, kinds=KINDS) -> list[bytes]:
+    def tlps(self, i: int, n: int, kinds=KINDS, dw: int | None = None) -> list[bytes]:
         """``n`` TLPs of the HAS mix for end i (0 a, 1 b); each kind in turn,
-        drawn in order, so every kind is a quarter of any long run."""
+        drawn in order, so every kind is a quarter of any long run. ``dw``
+        fixes the payload length (DWs) instead of drawing it."""
         out = []
         for k in range(n):
             kind = kinds[self.rng.randrange(len(kinds))] if k % 2 else kinds[(k // 2) % len(kinds)]
-            dw = self.rng.choice((1, self.rng.randint(1, 32), 32))
-            out.append(ptn.make_tlp(kind, dw, (self.tag[i] + 0x4000 * i) & 0xFFFF))
+            if dw is None:
+                n_dw = self.rng.choice((1, self.rng.randint(1, 32), 32))
+            else:
+                n_dw = dw
+            out.append(ptn.make_tlp(kind, n_dw, (self.tag[i] + 0x4000 * i) & 0xFFFF))
             self.tag[i] += 1
         return out
 

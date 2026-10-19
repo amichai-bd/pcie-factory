@@ -117,8 +117,20 @@ is this module on sky130 SRAM macros, a
 the ASIC flow's source list selects (`cfg/backends.yaml`, suffix `sky130`),
 in place of the portable file. Simulation, `./build check` lint and the
 FPGA flow read the portable file. Its
-parameters, ports and the behavior above are identical, with one limit:
-`LANES` must be 1 (`g_lanes_check`).
+parameters, ports, parameter checks and the behavior above are identical.
+
+**Selection.** The backend puts a RAM on macros (generate block
+`g_macros`) only when it has one lane and holds at least 8192 bits
+(`WIDTH × 2**ADDR_W`, half a macro: the `dll` replay buffer); any other RAM
+(generate block `g_flops`) keeps the portable file's array and read
+register, which Yosys maps to flops
+([#296](https://github.com/amichai-bd/pcie-factory/issues/296)). Below half
+a macro, flops take less area than a mostly empty 0.42 mm² macro and avoid
+its late read data; the macro's write mask is not used for lanes, so a
+lane-enabled RAM stays on flops. In `core` this puts the `dll` buffers and the
+`tl` requester-completion data queue (256 × 32) on macros, and the other
+`tl` queues (at most 128 × 32) and the `cfg` MSI-X table (8 × 96, 12
+lanes) on flops.
 
 **Macro.** `sky130_sram_1rw1r_64x256_8`, an OpenRAM macro the pinned ORFS
 image carries (`flow/platforms/sky130ram/sky130_sram_1rw1r_64x256_8/`:
@@ -135,6 +147,8 @@ The macro's model drives undefined data in a cycle without a read, and a
 port 1 read of the word port 0 writes at the same edge is undefined.
 
 **Structure.**
+
+The rest of this section describes `g_macros`.
 
 - **Tiling.** `ceil(WIDTH / 64)` macros across and `2**(ADDR_W - 8)` deep
   (one row, low words only, when `ADDR_W <= 8`). Port 0 of every macro is
@@ -168,8 +182,10 @@ macro's documented behavior: inputs at the rising edge, read data for one
 cycle only and junk otherwise, and a fatal error on a same-word write and
 read. The shared contract tests run on the backend through the regression
 entries with `backend: asic` ([DV plan](../../../dv/common/ram/common_sdp_ram.md)),
-at the regression shape and at both `dll` buffer shapes (one and two macro
-rows), and `tests.test_ram_backends` lints it with `-Wall`. Silicon
+at a macro regression shape (two macros across), at both `dll` buffer
+shapes (one and two macro rows) and at a two-lane flop shape;
+`tests.test_ram_backends` lints it with `-Wall` and proves the selection by
+linting without the macro model, where only the macro shapes fail. Silicon
 behavior and timing come only from the ASIC flow.
 
 ## Decisions
@@ -180,6 +196,7 @@ behavior and timing come only from the ASIC flow.
 | An explicit Intel backend selected by source list | The fit must be known (M9K, old-data collision), not inferred; one module name in two files keeps every consumer and test unchanged. | Inference alone (shape unmeasured); `ifdef` or `ramstyle` in the block; vendor primitives in IP RTL. |
 | Lanes on byte enables, 8- or 9-bit lanes only | Matches M9K byte sizes; the consumers use one lane. | Emulating narrow lanes with read-modify-write. |
 | A sky130 SRAM-macro backend for the ASIC flow ([#279](https://github.com/amichai-bd/pcie-factory/issues/279)) | Inferred arrays map to flops on sky130hd, too large to route in `link` (about 25 kbit); the same source-backend mechanism as the Intel one. | Yosys memory mapping in an ORFS hook (no reviewed RTL, no lint); raising the container memory alone (timing stays far off). |
+| Macros only for one-lane RAMs of at least 8192 bits in the sky130 backend ([#296](https://github.com/amichai-bd/pcie-factory/issues/296)) | Small RAMs (the `tl` queues, the `cfg` table) cost less as flops than as mostly empty macros, and the selection needs no consumer or flow change. | Every RAM on macros (nine more macros in `core`, most nearly empty, and no lane support); a per-instance flow knob (no reviewed RTL). |
 | Pending write with a bypass in the sky130 backend | The macro defines no same-word write and read in one edge; delaying the write one edge and bypassing it keeps the read-first contract for every input. | Requiring consumers never to collide (a contract change). |
 
 Provenance: adapted from nand2anything `src/common/rtl/n2a_sdp_ram_portable.sv`

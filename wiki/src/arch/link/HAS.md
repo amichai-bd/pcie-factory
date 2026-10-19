@@ -7,7 +7,10 @@ link layer [`pcie_dll`](../dll/HAS.md) stacked over the physical layer
 Q4 to Q7). Above it sits the transaction layer (a testbench in M2, the M3
 transaction layer later, Q5, which adds only the `dll` credit release:
 decision record [0004](../../decisions/0004-m3-grill.md#updates), Q9);
-below it, a serializer or the DV channel. It adds no protocol logic of its own: no transaction layer, no
+below it, a serializer or the DV channel. In the downstream role the
+root-port stack [`pcie_rc`](../rc/HAS.md) is its upper layer, with no
+`link` change (decision record [0005](../../decisions/0005-m4-grill.md#decisions), F2;
+its [downstream-role contract](../rc/HAS.md#downstream-role)). It adds no protocol logic of its own: no transaction layer, no
 power management, no second virtual channel.
 
 This page owns the stack-level contract: the ports, how `link` joins the

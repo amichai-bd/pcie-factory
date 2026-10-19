@@ -147,7 +147,15 @@ tests:
     module: tests.test_ram
     testcase: random_ops
     top: common_sdp_ram
-    params: {WIDTH: 16, ADDR_W: 3, LANES: 1}
+    params: {WIDTH: 72, ADDR_W: 7, LANES: 1}
+    backend: asic
+    seeds: 3
+    timeout_s: 120
+  - name: sdp_ram_sky130_flops_random
+    module: tests.test_ram
+    testcase: random_ops
+    top: common_sdp_ram
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
     backend: asic
     seeds: 3
     timeout_s: 120

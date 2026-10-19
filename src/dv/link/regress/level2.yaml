@@ -47,6 +47,13 @@ tests:
     seeds: 2
     timeout_s: 1800
     coverage_seeds: 2
+  - name: e2e_soak_release
+    module: tests.test_link_e2e
+    testcase: e2e_soak
+    top: pcie_link_e2e_tb
+    params: {CREDITS: 5}
+    seeds: 1
+    timeout_s: 1800
   - name: e2e_tlp_errors_sweep
     module: tests.test_link_e2e
     testcase: e2e_tlp_errors
@@ -97,6 +104,12 @@ tests:
     testcase: e2e_hot_reset
     top: pcie_link_e2e_tb
     timeout_s: 600
+  - name: e2e_hot_reset_release
+    module: tests.test_link_e2e
+    testcase: e2e_hot_reset
+    top: pcie_link_e2e_tb
+    params: {CREDITS: 5}
+    timeout_s: 600
   - name: e2e_credits_finite
     module: tests.test_link_e2e
     testcase: e2e_credits
@@ -131,12 +144,15 @@ tests:
     seeds: 2
     timeout_s: 1800
 # Floors on the merged levels 0 to 2 (the nightly run), at the merged value
-# less 0.5 points rounded down to a tenth (DV BKM, floor margin): measured
-# 90.72% line (1379/1520), 80.35% toggle (24724/30770) over the whole
-# stack, with #216's throughput entries; every point not hit has a reason in
-# the DV plan (Coverage holes). An entry with a new parameter set (a new
+# less 0.5 points rounded down to a tenth (DV BKM, floor margin), measured
+# for #360: line 90.7 from 91.27% (1485/1627), raised from 90.2 by
+# firstmate decision on #360; toggle 76.5 from 77.10% (28955/37556),
+# lowered from 79.8 by captain decision on #360 for the FC_RELEASE
+# parameter copies, the tied-off release ports and the CDC copies under a
+# second name (DV plan, Coverage holes); every point not hit has a reason
+# in the DV plan (Coverage holes). An entry with a new parameter set (a new
 # CREDITS value) re-measures these floors in the same PR.
 # Functional 100 must hold every bin of link_e2e_config, link_e2e_control,
 # link_e2e_credit, link_e2e_inject, link_e2e_recovery and link_e2e_traffic;
 # a renamed or undeclared covergroup leaves the total, so keep this list.
-coverage_floors: {line: 90.2, toggle: 79.8, functional: 100}
+coverage_floors: {line: 90.7, toggle: 76.5, functional: 100}
