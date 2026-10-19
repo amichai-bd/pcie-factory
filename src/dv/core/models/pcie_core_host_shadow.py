@@ -178,6 +178,13 @@ class HostShadow(HostModel):
         ``latency``) is one when ``timeout_max`` is set.
       msi_depth: captures the root port holds at least (4 by its HAS); an
         MSI arriving with that many untaken may be dropped.
+      msi_depth_exact: the root port holds exactly ``msi_depth`` captures
+        (a bench that knows the depth): an MSI arriving with that many
+        untaken, after any take of the same cycle, is surely dropped and
+        sets bit 12; one arriving with fewer is surely captured.
+      zero_be_refused: the command ops whose First DW BE 0 the root port
+        surely refuses with ``LOCAL_UR`` (a bench that knows its rule);
+        without it, either outcome is accepted.
       bar_data: predict an endpoint memory read from the bytes the root
         port wrote there (the endpoint's BAR is memory-like).
       strict: as the host model.
@@ -187,7 +194,8 @@ class HostShadow(HostModel):
                  host_mem_base: int = 0, host_mem_addr_w: int = 12,
                  msi_addr: int = 0xFEE0_0000, num_tags: int = 32, latency: int = 32,
                  timeout_min: int = 0, timeout_max: int | None = None, msi_depth: int = 4,
-                 bar_data: bool = True, strict: bool = True, max_payload: int = 128):
+                 bar_data: bool = True, strict: bool = True, max_payload: int = 128,
+                 msi_depth_exact: bool = False, zero_be_refused: tuple = ()):
         super().__init__(requester_id=0, num_tags=num_tags, max_payload=max_payload,
                          rcb=64, timeout=None, strict=strict)
         self.vendor_id, self.device_id, self.revision_id = vendor_id, device_id, revision_id
@@ -197,6 +205,9 @@ class HostShadow(HostModel):
         self.latency = latency
         self.timeout_min, self.timeout_max = timeout_min, timeout_max
         self.msi_depth = msi_depth
+        self.msi_depth_exact = msi_depth_exact
+        self.zero_be_refused = tuple(zero_be_refused)
+        self._msi_new: list[list] = []  # MSIs that arrived this cycle (exact depth)
         self.bar_data = bar_data
         self.dl_up = False
         self.side = "rc"
@@ -211,10 +222,11 @@ class HostShadow(HostModel):
         self._events: list[_Event] = []
         self._clears: dict[int, list] = {}  # bit -> [[command index, time, result time]]
         self._ncmd = 0
-        self._msi_q: deque[tuple[int, int, bool]] = deque()  # (offset, data, may drop)
+        self._msi_q: deque[list] = deque()  # [offset, data, may drop]
         self._msi_fence = -1  # receive order of the last MSI the sequencer took
         self._rx_seq = 0
         self._late: set[int] = set()  # tags the root port timed out
+        self._deferred: list[tuple] = []  # (command, request, beat, data): data still arriving
         self._down_at: int | None = None
         self._reset_endpoint()
 
@@ -237,6 +249,7 @@ class HostShadow(HostModel):
         self._bars: dict[tuple[int, int], dict] = {}
         self._caps: dict[int, set] = {}
         self._msi_regs: dict[int, dict[int, int]] = {}
+        self._captured: set[int] = set()  # functions that took a configuration write
 
     def _event(self, bit: int, lo: int | None = None, hi: int | None = None,
                sure: bool = True) -> None:
@@ -344,6 +357,9 @@ class HostShadow(HostModel):
         """Route an endpoint command as the root port must (rc HAS,
         outbound routing) and build the request it should send."""
         n, fbe, lbe = c.length, c.first_be, c.last_be
+        if not fbe and c.op in self.zero_be_refused:
+            c.expect = [({LOCAL_UR}, 0, ~0)]
+            return
         c.local_ur_ok = not fbe or be_problem(n, c.addr, fbe, lbe) is not None
         rid = self.rc_id
         if c.op in (CFG_RD, CFG_WR):
@@ -474,8 +490,19 @@ class HostShadow(HostModel):
         model's completion checks judge its completions."""
         bdf = (t.cfg_bus, t.cfg_dev, t.cfg_fn)
         if t.kind.startswith("Cfg"):
+            # A function captures its bus and device numbers from each
+            # Type 0 configuration write, before it completes it
+            # [cite: PCIe Base Spec, rev 3.0, §2.2.6.2]; before the first,
+            # its Completer ID carries bus and device 0 (core TL_CFG,
+            # register state), which a read-first enumeration sees.
+            ident = bdf_id(*bdf)
+            captured = t.has_data or ident in self._captured
             req = Request("cfg_wr" if t.has_data else "cfg_rd", t,
-                          expected_completer=bdf_id(*bdf))
+                          expected_completer=ident if captured else None)
+            if not captured:
+                req.pre_capture = {ident, bdf_id(0, 0, t.cfg_fn)}
+            if t.has_data:
+                self._captured.add(ident)
             if t.has_data and t.cfg_reg == CFG_COMMAND:
                 self._note_command(bdf_id(*bdf), int.from_bytes(t.data, "little"), t.first_be)
             self._learn_write(t)
@@ -656,11 +683,18 @@ class HostShadow(HostModel):
             self._rx_completion(t)
             return
         self.stats["rx_requests"] += 1
+        # A request or message the routing would serve, capture or record,
+        # poisoned, sets bit 5 only and has no other effect, but a poisoned
+        # non-posted request is answered with an Unsupported Request
+        # completion; the routing's Unsupported Request outranks poisoned
+        # (bit 11 only) [cite: PCIe Base Spec, rev 3.0, §2.7.2.2] (rc HAS,
+        # inbound routing).
         if t.ep:
-            self._event(ERR_POISONED)
             self._blame("endpoint", f"poisoned {t.kind} [cite: PCIe Base Spec, rev 3.0, §2.7.2.2]")
-            return
         if t.kind in ("Msg", "MsgD"):
+            if t.ep:
+                self._event(ERR_POISONED)
+                return
             self._event(_ERR_MSG.get(t.msg_code, ERR_MSG_OTHER))
             self.side = "endpoint"
             self._on_message(t)
@@ -677,7 +711,9 @@ class HostShadow(HostModel):
         """Endpoint memory request: the endpoint's rules (host model) and
         the root port's inbound routing (rc HAS)."""
         self.side = "endpoint"
-        if t.kind == "MWr":
+        if t.ep:
+            pass                         # reported; not an interrupt nor a read to track
+        elif t.kind == "MWr":
             HostModel._on_mem_write(self, t)
         else:
             self._check_ep_read(t)
@@ -698,11 +734,18 @@ class HostShadow(HostModel):
             self._event(ERR_INBOUND_UR)
             if t.kind == "MRd":
                 self._expect_answer(t, CPL_UR)
+        elif t.ep:
+            self._event(ERR_POISONED)
+            if t.kind == "MRd":
+                self._expect_answer(t, CPL_UR)
         elif route == "msi":
-            drop = len(self._msi_q) >= self.msi_depth
-            if drop:
+            entry = [(lo - self.msi_addr) >> 2, int.from_bytes(t.data, "little"), False]
+            if self.msi_depth_exact:
+                self._msi_new.append(entry)  # decided at the end of the cycle (tick)
+            elif len(self._msi_q) >= self.msi_depth:
+                entry[2] = True
                 self._event(ERR_MSI_DROP, sure=False)
-            self._msi_q.append(((lo - self.msi_addr) >> 2, int.from_bytes(t.data, "little"), drop))
+            self._msi_q.append(entry)
         elif t.kind == "MWr":
             mask = self._be_mask(t)
             for i, b in enumerate(t.data):
@@ -746,14 +789,20 @@ class HostShadow(HostModel):
             req.bad = True
             self._event(ERR_MALFORMED, sure=False)
         elif status == "CRS":
-            self._event(ERR_CRS, sure=req.kind != "mem_rd")
-            if req.kind == "mem_rd":
+            if req.kind == "mem_rd":  # only a configuration request may be retried
                 req.bad = True
-                self._event(ERR_MALFORMED, sure=False)
+                self._event(ERR_MALFORMED)
+            else:
+                self._event(ERR_CRS)
         elif status in ("UR", "CA"):
             self._event(ERR_UR if status == "UR" else ERR_CA)
         errs = len(req.errors)
         self.side = "endpoint"
+        pre = getattr(req, "pre_capture", None)
+        if pre is not None and c.completer_id not in pre:
+            self._fail(f"{req.kind} tag {c.tag}: completer ID {c.completer_id:#06x} before the "
+                       f"first configuration write, expected one of "
+                       f"{sorted(hex(x) for x in pre)}", req)
         self.requester_id = req.tlp.requester_id
         try:
             self._on_completion(c)
@@ -761,6 +810,9 @@ class HostShadow(HostModel):
             self.side = "rc"
         if len(req.errors) > errs:
             req.unsure = True  # the endpoint broke a rule; the root port may see it otherwise
+            if not all("poisoned completion" in x for x in req.errors[errs:]):
+                self._event(ERR_MALFORMED, sure=False)  # it may judge the completion malformed
+        self._check_deferred(req)
         if req.done:
             req.done_at = self.now
             if req.kind == "cfg_rd" and req.status == "SC":
@@ -804,6 +856,10 @@ class HostShadow(HostModel):
 
     def _done(self, c: _Cmd) -> None:
         self._cmds.popleft()
+        for d in [d for d in self._deferred if d[0] is c]:
+            self._deferred.remove(d)
+            if not d[1].unsure and d[1].status == "SC":
+                self._fail(f"{d[4]}: beat {d[2]} before its data arrived")
         if c.op == ERR_CLR:  # the clear has taken effect by its result
             for clears in self._clears.values():
                 for clr in clears:
@@ -901,7 +957,9 @@ class HostShadow(HostModel):
 
     def _read_beat(self, c: _Cmd, req: Request, i: int, data: int, what: str) -> None:
         """Beat ``i`` of a memory read: the DW at ``addr + 4i``, its enabled
-        bytes as the completions carried them."""
+        bytes as the completions carried them. The root port may give a
+        DW as its completion arrives, before the shadow sees the whole
+        completion: such a beat is checked when it does."""
         be = c.first_be if i == 0 else (c.last_be if i == c.length - 1 else 0xF)
         for j in range(4):
             if not be >> j & 1:
@@ -909,11 +967,23 @@ class HostShadow(HostModel):
             a = c.addr + 4 * i + j
             k = a - req.first_byte
             if k >= len(req.data):
-                self._fail(f"{what}: beat {i} before its data arrived")
+                if req.done:
+                    self._fail(f"{what}: beat {i} beyond the data the completions carried")
+                else:
+                    self._deferred.append((c, req, i, data, what))
                 return
             if data >> 8 * j & 0xFF != req.data[k]:
                 self._fail(f"{what}: beat {i} byte {j} is {data >> 8 * j & 0xFF:#04x}, the "
                            f"completion carried {req.data[k]:#04x}")
+
+    def _check_deferred(self, req: Request) -> None:
+        """Beats given before the completion carrying their data arrived."""
+        waiting = [d for d in self._deferred if d[1] is req]
+        self._deferred = [d for d in self._deferred if d[1] is not req]
+        for c, r, i, data, what in waiting:
+            if r.unsure:
+                continue
+            self._read_beat(c, r, i, data, what)
 
     def _final(self, c: _Cmd, req: Request, st, data, last, what) -> None:
         """The last beat of an endpoint command."""
@@ -967,6 +1037,8 @@ class HostShadow(HostModel):
         self.stats["msi"] += 1
         while self._msi_q:
             off, val, may_drop = self._msi_q.popleft()
+            if may_drop is None:
+                continue                  # surely dropped (exact depth)
             if (off, val) == (offset, data):
                 self._msi_fence = self._rx_seq
                 return
@@ -994,6 +1066,8 @@ class HostShadow(HostModel):
 
     def tick(self, cycles: int = 1) -> None:
         """Advance the shadow's clock, one call per ``clk_i`` cycle."""
+        if self._msi_new:
+            self._decide_msi()
         self.now += cycles
         if self.timeout_max is None or not self._cmds:
             return
@@ -1006,10 +1080,24 @@ class HostShadow(HostModel):
             self._finish(req, "timeout")
             self._cmds.popleft()
 
+    def _decide_msi(self) -> None:
+        """Exact depth: an MSI that arrived this cycle is dropped when
+        ``msi_depth`` captures are held after this cycle's take."""
+        for entry in self._msi_new:
+            held = 0
+            for e in self._msi_q:
+                if e is entry:
+                    break
+                held += e[2] is not None
+            if held >= self.msi_depth:
+                entry[2] = None
+                self._event(ERR_MSI_DROP)
+        self._msi_new.clear()
+
     @property
     def pending_msi(self) -> int:
         """MSI captures predicted and not yet taken."""
-        return len(self._msi_q)
+        return sum(e[2] is not None for e in self._msi_q)
 
     def finish(self) -> None:
         """End of a test: every command has its result and every endpoint

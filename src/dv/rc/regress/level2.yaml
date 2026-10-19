@@ -1,1 +1,38 @@
-tests: []
+# Seed sweeps of the rc e2e entries (wiki/src/dv/rc/DV_PLAN.md); new seeds
+# derived from each entry's name.
+tests:
+  - name: e2e_mmio_sweep
+    module: tests.test_rc_e2e
+    testcase: e2e_mmio
+    top: pcie_rc_e2e_tb
+    params: {PROGRAM: 1}
+    seeds: 3
+    timeout_s: 600
+  - name: e2e_dma_msi_sweep
+    module: tests.test_rc_e2e
+    testcase: e2e_dma_msi
+    top: pcie_rc_e2e_tb
+    params: {PROGRAM: 2}
+    seeds: 3
+    timeout_s: 600
+  - name: e2e_inject_sweep
+    module: tests.test_rc_e2e
+    testcase: e2e_inject
+    top: pcie_rc_e2e_tb
+    params: {PROGRAM: 5}
+    seeds: 3
+    timeout_s: 600
+  - name: e2e_errors_sweep
+    module: tests.test_rc_e2e
+    testcase: e2e_errors
+    top: pcie_rc_e2e_tb
+    params: {PROGRAM: 3, CPL_TIMEOUT_DIV: 64}
+    seeds: 3
+    timeout_s: 900
+  - name: e2e_link_errors_sweep
+    module: tests.test_rc_e2e
+    testcase: e2e_link_errors
+    top: pcie_rc_e2e_tb
+    params: {PROGRAM: 1}
+    seeds: 4
+    timeout_s: 600

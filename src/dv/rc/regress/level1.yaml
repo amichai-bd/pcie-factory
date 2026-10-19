@@ -1,1 +1,45 @@
-tests: []
+# The rc back-to-back e2e against core over the full phy stack
+# (wiki/src/dv/rc/DV_PLAN.md): one rc_seq program per entry. Every program
+# runs in a few seconds of wall time at the tb defaults (TIMEOUT_DIV and
+# ERR_TIMEOUT_DIV 1024), so all of them are level 1 (DV plan, Level
+# placement).
+tests:
+  - name: e2e_enum
+    module: tests.test_rc_e2e
+    testcase: e2e_enum
+    top: pcie_rc_e2e_tb
+    params: {PROGRAM: 0}
+    timeout_s: 600
+  - name: e2e_mmio
+    module: tests.test_rc_e2e
+    testcase: e2e_mmio
+    top: pcie_rc_e2e_tb
+    params: {PROGRAM: 1}
+    timeout_s: 600
+  - name: e2e_dma_msi
+    module: tests.test_rc_e2e
+    testcase: e2e_dma_msi
+    top: pcie_rc_e2e_tb
+    params: {PROGRAM: 2}
+    timeout_s: 600
+  - name: e2e_inject
+    module: tests.test_rc_e2e
+    testcase: e2e_inject
+    top: pcie_rc_e2e_tb
+    params: {PROGRAM: 5}
+    timeout_s: 600
+  # The line cut must bring both ends down (one floored Recovery timeout,
+  # 16384 cycles) inside rc_tl's completion timeout, or R12 sees TIMEOUT:
+  # CPL_TIMEOUT_DIV 64 gives 32768 cycles (DV plan, ERRORS).
+  - name: e2e_errors
+    module: tests.test_rc_e2e
+    testcase: e2e_errors
+    top: pcie_rc_e2e_tb
+    params: {PROGRAM: 3, CPL_TIMEOUT_DIV: 64}
+    timeout_s: 900
+  - name: e2e_link_errors
+    module: tests.test_rc_e2e
+    testcase: e2e_link_errors
+    top: pcie_rc_e2e_tb
+    params: {PROGRAM: 1}
+    timeout_s: 600
