@@ -10,6 +10,7 @@ the parser together.
 
 | File | Mimics |
 | --- | --- |
+| `output_files/widget_board.map.summary` | Analysis and synthesis summary (`--synth-only`): plain counts, no totals and no device line |
 | `output_files/widget_board.fit.summary` | Fitter summary |
 | `output_files/widget_board.fit.rpt` | Fitter report: resource usage panel, a trimmed per-entity table (its `M9Ks` column must not be read as the block count) and a Fitter RAM Summary with one simple dual-port RAM (its columns follow the Quartus 25.1std Cyclone IV E panel; the first CI fit with RAMs (PR #276) filled every field) |
 | `output_files/widget_board.sta.rpt` | Timing analyzer report: Fmax (slow models only, as Quartus prints), setup and hold summaries for three corners, recovery and removal summaries (one empty), the unconstrained paths summary, plus unrelated panels including one with blank rows |

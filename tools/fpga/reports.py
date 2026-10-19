@@ -9,6 +9,10 @@ Reads, from a compiled project directory:
     worst_path.txt                   key=value worst setup path, written by
                                      the generated worst_path.tcl
 
+or, after ``--synth-only`` (analysis and synthesis only):
+
+    output_files/<rev>.map.summary   key : value synthesis summary
+
 All parsing is plain text; Quartus is never imported or run here.
 """
 
@@ -317,6 +321,54 @@ def collect(project_dir: Path, revision: str) -> dict:
             "met": met,
             "critical_path": parse_worst_path(Path(project_dir) / "worst_path.txt"),
         },
+    }
+
+
+# Synthesis summary key -> resource name. Each value is the used count
+# (a "used / total" value keeps the used part); a missing optional key is null.
+_MAP_COUNTS = {
+    "Total logic elements": "logic_elements",
+    "Total registers": "registers",
+    "Total memory bits": "memory_bits",
+    "Embedded Multiplier 9-bit elements": "dsp_9bit",
+    "Total pins": "pins",
+    "Total PLLs": "plls",
+}
+_MAP_REQUIRED = ("Total logic elements", "Total registers")
+_COUNT_RE = re.compile(r"^\s*([\d,]+)\b")
+
+
+def _used(text: str) -> int:
+    m = _COUNT_RE.match(text)
+    if not m:
+        raise ReportError(f"expected a count, got {text!r}")
+    return _int(m.group(1))
+
+
+def collect_synthesis(project_dir: Path, revision: str) -> dict:
+    """``synthesis.json`` fields from ``<rev>.map.summary`` (analysis and
+    synthesis only): resource counts before fitting, and no timing."""
+    path = Path(project_dir) / "output_files" / f"{revision}.map.summary"
+    fields = {}
+    for line in _read(path).splitlines():
+        key, sep, value = line.partition(" : ")
+        if sep:
+            fields[key.strip()] = value.strip()
+    status = fields.get("Analysis & Synthesis Status", "")
+    if not status.startswith("Successful"):
+        raise ReportError(f"{path}: analysis and synthesis status is {status or 'missing'!r}")
+    for required in _MAP_REQUIRED:
+        if required not in fields:
+            raise ReportError(f"{path}: no {required!r} line")
+    return {
+        "schema": SCHEMA,
+        "stage": "synthesis",
+        "quartus_version": fields.get("Quartus Prime Version"),
+        "family": fields.get("Family"),
+        "device": fields.get("Device"),
+        "top": fields.get("Top-level Entity Name"),
+        "resources": {name: _used(fields[key]) if key in fields else None
+                      for key, name in _MAP_COUNTS.items()},
     }
 
 

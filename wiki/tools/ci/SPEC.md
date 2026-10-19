@@ -9,7 +9,7 @@ and the `./build ci` helpers the workflow calls. The code lives in
 ```
 ./build ci [--src-root DIR] [--workdir DIR] unit [--affected BASE]
 ./build ci [--src-root DIR] [--workdir DIR] vendor --kind {fpga,asic} [--affected BASE] [--dry-run]
-./build ci gate --tests RESULT --fpga RESULT --asic-synth RESULT
+./build ci gate --tests RESULT --fpga RESULT
 ./build ci [--workdir DIR] summary
 ./build ci status --result RESULT --sha SHA --ref REF [--target-url URL] [--repo OWNER/NAME] [--dry-run]
 ```
@@ -97,23 +97,28 @@ closure selects the target so the flow reports the failure. Selection does
 not use simulation filelists or Python/DV imports. Docs-only changes select
 none. Reasons print before execution; `--dry-run` only prints the selection.
 
-Selected targets run in sorted order: `./build fpga --ip ID` performs the
-full compile, fit and timing acceptance, and `./build asic --ip ID
---synth-only` performs the [synthesis check](../asic/SPEC.md#synthesis-only-compatibility-check).
+Selected targets run in sorted order, synthesis only for both kinds:
+`./build fpga --ip ID --synth-only` performs Quartus
+[analysis and synthesis](../fpga/SPEC.md#synthesis-only) (no fit or
+timing), and `./build asic --ip ID --synth-only` performs the
+[synthesis check](../asic/SPEC.md#synthesis-only-compatibility-check).
 Each receives the caller's source root and workdir. A failed target does
 not suppress later targets. SIGINT/SIGTERM are forwarded to the active
 flow so its cleanup can run; signals during child creation are queued until
 the handle is available. Cancellation starts no later target and exits 130. Exit 0 means every selected target passed (or
 none selected), 1 means a child failed, 2 means selection/configuration failed.
-`workdir/ci/vendor-<kind>.json` records schema 1, kind, stage and each target's
+`workdir/ci/vendor-<kind>.json` records schema 1, kind, stage (`synthesis`) and each target's
 status and elapsed seconds; it is replaced each execution, even with no targets.
 Only that summary and the flows' summary JSON are uploaded, never raw logs.
 
 ## `./build ci gate`
 
-Returns 0 only when all three required results equal `success`; `failure`,
-`cancelled`, `skipped`, empty or unknown results return 1. Missing arguments
-are usage errors (2). It prints every dependency result before deciding.
+Returns 0 only when both required results (`ci-tests` and `ci-fpga`) equal
+`success`; `failure`, `cancelled`, `skipped`, empty or unknown results
+return 1. Missing or unknown arguments are usage errors (2); there is no
+ASIC result, because ASIC synthesis is a nightly check
+([levels](../../bkm/devops.md#levels-and-budgets)). It prints every
+dependency result before deciding.
 
 ## `./build ci summary`
 
@@ -186,15 +191,20 @@ requests to `main`, pushes to `main` and manual dispatch:
    (step outcomes plus `./build ci summary`) and the `regress-summary`
    artifact (`workdir/regress/summary.json`).
 
-The steps above are the `ci-tests` job. Two independent jobs run in parallel:
-`ci-fpga` calls `./build ci vendor --kind fpga $AFFECTED`, and
-`ci-asic-synth` calls it with `--kind asic`. Both use the same checkout,
-Python pins and PR-base selection; push and dispatch run every target.
-No-target jobs succeed after executing selection, rather than being skipped.
-The required `ci-gate` job depends on all three and uses `always()` plus the
+The steps above are the `ci-tests` job. One independent job runs in
+parallel: `ci-fpga` calls `./build ci vendor --kind fpga $AFFECTED`
+(Quartus synthesis only; fit and timing are nightly, captain decision,
+2026-10-19, #362) and uploads `workdir/ci/vendor-fpga.json` and each
+target's `fpga-synth/synthesis.json` as `ci-fpga-summary`, with
+the same checkout, Python pins and PR-base selection; push and dispatch run
+every target. With no target it succeeds after executing selection, rather
+than being skipped. `--kind asic` has no `ci.yml` job: the nightly runs it
+for every target, as an L2 check (captain decision, 2026-10-19, #362;
+[levels](../../bkm/devops.md#levels-and-budgets)).
+The required `ci-gate` job depends on both and uses `always()` plus the
 fork guard, so failed, cancelled or unexpectedly skipped dependencies reach
 `./build ci gate`. The aggregate takes each actual `needs.<job>.result`;
-only explicit success from all three satisfies protection.
+only explicit success from both satisfies protection.
 
 **Forks:** every job carries the fork guard `if:` that the
 [DevOps BKM](../../bkm/devops.md#continuous-integration) prescribes. That
@@ -288,9 +298,10 @@ same status. The guard base is not in the description; the run behind
 
 ## Tests
 
-`tools/ci/tests/`: all 64 aggregate success/failure/cancelled/skipped combinations
-and unknown-result rejection through the CLI, workflow dependency/guard wiring,
-vendor selection on synthetic git trees (a backend file selects only its own flow), child failure propagation, actual-child signal forwarding, no-target
+`tools/ci/tests/`: all 16 aggregate success/failure/cancelled/skipped combinations,
+unknown-result rejection and a missing or extra (ASIC) job as a usage error
+through the CLI, workflow dependency/guard wiring with no ASIC job,
+vendor selection on synthetic git trees (a backend file selects only its own flow), both kinds run `--synth-only` with stage `synthesis`, child failure propagation, actual-child signal forwarding, no-target
 and dry-run behavior (`test_ci_gate.py`, `test_ci_vendor.py`); rule loading and every malformed-input case
 (`test_ci_config.py`), suite planning on a synthetic git repository
 (including an IP with an arch model and scenario, and a vocabulary header

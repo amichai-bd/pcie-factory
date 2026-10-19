@@ -1,5 +1,9 @@
 # ASIC flow (ORFS); see wiki/tools/asic/SPEC.md and wiki/bkm/pd.md.
-# Full flow on demand; nightly calls it directly. CI uses only --synth-only.
+# Full flow on demand. The nightly runs the full flow directly (unless paused)
+# and the synthesis-only check for every target (an L2 check); ci.yml has no
+# ASIC job (captain decision, 2026-10-19, #362).
+# While ASIC_PAUSED is "true" in nightly.yml, do not dispatch this workflow:
+# it stays available for a captain-approved run only (wiki/bkm/devops.md#asic-pause).
 # Runs on the
 # self-hosted host that has ORFS and uploads only metrics.json and the
 # worst-path summary, never raw ORFS reports or logs.

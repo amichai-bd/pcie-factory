@@ -1,0 +1,14 @@
+Analysis & Synthesis Status : Successful - Wed Oct 14 12:00:00 2026
+Quartus Prime Version : 25.1std.0 Build 1129 10/21/2025 SC Lite Edition
+Revision Name : widget_board
+Top-level Entity Name : widget_board
+Family : Cyclone IV E
+Total logic elements : 1,301
+    Total combinational functions : 1,150
+    Dedicated logic registers : 470
+Total registers : 470
+Total pins : 18
+Total virtual pins : 0
+Total memory bits : 8,192
+Embedded Multiplier 9-bit elements : 2
+Total PLLs : 0

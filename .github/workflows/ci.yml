@@ -201,7 +201,9 @@ jobs:
             echo "$PWD/workdir/venv/bin" >> "$GITHUB_PATH"
           fi
 
-      - name: Required fpga compatibility
+      # Quartus analysis and synthesis only (`./build fpga --synth-only`); fit
+      # and timing run in the nightly (wiki/bkm/devops.md#levels-and-budgets).
+      - name: Required FPGA synthesis
         run: ./build ci vendor --kind fpga $AFFECTED
 
       - name: Upload vendor summary
@@ -210,53 +212,15 @@ jobs:
         with:
           name: ci-fpga-summary
           path: |
-            workdir/*/fpga/metrics.json
+            workdir/*/fpga-synth/synthesis.json
             workdir/ci/vendor-fpga.json
           if-no-files-found: warn
           retention-days: 14
 
-  ci-asic-synth:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, linux, x64, wsl]
-    timeout-minutes: 20
-    env:
-      AFFECTED: ${{ github.event_name == 'pull_request' && '--affected HEAD^1' || '' }}
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          fetch-depth: 2
-          persist-credentials: false
-
-      - name: Python dependencies
-        run: |
-          # Use the runner's environment when it already has every pin in
-          # tools/requirements.txt (checked offline); otherwise install them
-          # into a job venv and put it first on PATH for the later steps.
-          if python3 -m pip install --dry-run --no-index --quiet -r tools/requirements.txt >/dev/null 2>&1; then
-            echo "runner Python satisfies tools/requirements.txt"
-          else
-            echo "runner Python lacks some pins; installing them into workdir/venv"
-            python3 -m venv workdir/venv
-            workdir/venv/bin/pip install --quiet -r tools/requirements.txt
-            echo "$PWD/workdir/venv/bin" >> "$GITHUB_PATH"
-          fi
-
-      - name: Required asic compatibility
-        run: ./build ci vendor --kind asic $AFFECTED
-
-      - name: Upload vendor summary
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: ci-asic-synth-summary
-          path: |
-            workdir/*/asic-synth/synthesis.json
-            workdir/ci/vendor-asic.json
-          if-no-files-found: warn
-          retention-days: 14
-
   ci-gate:
-    needs: [ci-tests, ci-fpga, ci-asic-synth]
+    # ASIC synthesis is a nightly (L2) check, not a PR job (captain decision,
+    # 2026-10-19, #362; wiki/bkm/devops.md#levels-and-budgets).
+    needs: [ci-tests, ci-fpga]
     # always() makes failures, cancellations and unexpected skips reach the
     # aggregate. The helper accepts only explicit success from every job.
     if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
@@ -286,8 +250,7 @@ jobs:
         env:
           TESTS: ${{ needs.ci-tests.result }}
           FPGA: ${{ needs.ci-fpga.result }}
-          ASIC_SYNTH: ${{ needs.ci-asic-synth.result }}
-        run: ./build ci gate --tests "$TESTS" --fpga "$FPGA" --asic-synth "$ASIC_SYNTH"
+        run: ./build ci gate --tests "$TESTS" --fpga "$FPGA"
 
   # The data PR is opened with GITHUB_TOKEN, so its ci-gate runs by dispatch,
   # and branch protection does not count a dispatched check run toward a PR.

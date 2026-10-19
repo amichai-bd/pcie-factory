@@ -152,8 +152,10 @@ Cleaning before execution prevents a previous run from satisfying this check.
 `toolchain`, `source` and `elapsed_s`. It is written on pass or ordinary
 failure. It carries no routed area, timing, worst path or closure claim.
 The mode never writes `metrics.json` or `worst_path.txt`, and never changes
-`workdir/<ip>/asic/`. [CI](../ci/SPEC.md#build-ci-vendor) requires this
-check for affected targets; full implementation remains nightly/on demand.
+`workdir/<ip>/asic/`. The nightly runs this check for every target through
+[`./build ci vendor --kind asic`](../ci/SPEC.md#build-ci-vendor) (an L2
+check, [levels](../../bkm/devops.md#levels-and-budgets)); full
+implementation remains nightly/on demand.
 
 ## Clock studies
 
@@ -229,7 +231,8 @@ liberty time is ns, area µm².
 
 ## Workflow
 
-`asic.yml` runs the full flow only on `workflow_dispatch` (nightly L2
+`asic.yml` runs the full flow only on `workflow_dispatch`, not dispatched while the
+[ASIC pause](../../bkm/devops.md#asic-pause) is on without a captain go (nightly L2
 also runs the full command directly), on `[self-hosted, linux, x64, wsl]`, the WSL host's runners only ([DevOps BKM](../../bkm/devops.md#continuous-integration)). Input
 `ip`: one IP id; empty (the default) runs every IP that has a `src/asic/<ip>/`
 folder, found with `find`, one `./build asic --ip <id>` each

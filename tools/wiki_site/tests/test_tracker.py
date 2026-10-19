@@ -273,6 +273,24 @@ def test_partial_groups_and_unknown_fields(tmp_path):
     assert sorted(x.name for x in (out / "tracker/ip").iterdir()) == ["index.html"]
 
 
+def test_paused_asic_is_shown_paused_not_failed(tmp_path):
+    # The nightly's ASIC pause switch: the step is `paused` and the section
+    # carries no numbers. The tracker says so; it is neither a failure nor
+    # an attention item, and the FPGA section has no pause note.
+    old = nightly("2026-09-04", 6, "pass", 60, asic={"status": "ok", "ips": {
+        "alpha": {"status": "ok", "timing": {"wns_ns": -0.5}}}})
+    rec = json.loads(nightly("2026-09-05", 7, "pass", 60, asic={"status": "paused"},
+                             fpga={"status": "unavailable", "reason": "missing"}))
+    rec["meta"]["nightly"]["steps"] = {"asic": "paused", "check": "pass"}
+    problems, out = build(tree(tmp_path, {"2026-09-04.json": old, "2026-09-05.json": json.dumps(rec)}))
+    assert problems == []
+    details = (out / "tracker/details/index.html").read_text()
+    assert details.count("flow is paused in the latest nightly (2026-09-05)") == 1
+    assert "The ASIC flow is paused" in details and "The FPGA flow is paused" not in details
+    overview = (out / "tracker/index.html").read_text()
+    assert "Nightly asic" not in overview and "ASIC timing gap" not in overview
+
+
 def test_commit_index_orders_the_axis(tmp_path):
     lines = commit(2, "2026-09-03", index=2) + commit(0, "2026-09-01", index=0) + commit(1, "2026-09-02", index=1)
     problems, out = build(tree(tmp_path, {"commits.jsonl": lines,

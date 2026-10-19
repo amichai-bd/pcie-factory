@@ -90,8 +90,26 @@ them with repeated `--level`. Each level has one purpose (captain decision,
 | Level | Purpose and contents | Budget | Runs |
 | --- | --- | --- | --- |
 | L0 | **Did we break the build:** files, names, filelists, elaboration (the design is alive), lint, style and the fastest smoke checks; seconds to a few minutes | 120 s of CPU for all IPs | Locally while developing; first in `ci-gate` |
-| L1 | **The PR gate:** functional checks that give high confidence the change is good, but not the full test: each IP's RTL acceptance entries and fastest discriminating tests, a few seeds ([placement](dv.md#regression-lists)); affected IPs only | 1200 s of CPU for all IPs; `ci-gate` (L0+L1 of affected IPs plus checks) targets 10 min | `ci-gate` |
-| L2 | **The full test:** long tests, seed sweeps, soaks, coverage floors, full mutant campaigns, FPGA and ASIC flows, metrics | 9600 s of CPU; nightly window | Nightly; targeted entries (named tests or seeds) when fixing or chasing confidence, never the whole level for a PR |
+| L1 | **The PR gate:** functional checks that give high confidence the change is good, but not the full test: each IP's RTL acceptance entries and fastest discriminating tests, a few seeds ([placement](dv.md#regression-lists)); affected IPs only. Beside it in `ci-gate`, Quartus analysis and synthesis of the affected FPGA targets | 1200 s of CPU for all IPs; `ci-gate` (L0+L1 of affected IPs plus checks) targets 10 min | `ci-gate` |
+| L2 | **The full test:** long tests, seed sweeps, soaks, coverage floors, full mutant campaigns, the full FPGA flow (fit, timing), the ASIC synthesis-only check and the full ASIC flow ([paused](#asic-pause)), metrics | 9600 s of CPU; nightly window | Nightly; targeted entries (named tests or seeds) when fixing or chasing confidence, never the whole level for a PR |
+
+**Where each implementation check runs** (captain decision, 2026-10-19,
+[#362](https://github.com/amichai-bd/pcie-factory/issues/362): logic and
+fast PR CI first):
+
+| Check | `ci-gate` (PR, push) | Nightly (L2) |
+| --- | --- | --- |
+| FPGA analysis and synthesis (`./build fpga --synth-only`) | Affected targets, required | Inside the full flow |
+| FPGA fit and timing (`./build fpga`) | No | Every target |
+| ASIC synthesis (`./build asic --synth-only`) | No | Every target; a failure fails the nightly |
+| ASIC place and route, timing (`./build asic`) | No | Every target, while not [paused](#asic-pause) |
+
+The trade-off: a PR proves its logic, that it synthesizes in Quartus, and
+nothing physical. An FPGA fit or timing problem and an ASIC-incompatible
+construct surface at the next nightly, which fails and opens `nightly-red`,
+not on the PR that caused them. A change that can move timing or fit, or
+uses a construct the ASIC flow may reject, runs `./build fpga --ip <id>` or
+`./build asic --ip <id> --synth-only` locally and records it in the PR.
 
 Budgets live in `cfg/levels.yaml` and are **CPU time**: the sum, over a
 level's tests, of each test's user plus system CPU time (its process tree,
@@ -277,15 +295,16 @@ pushes to `main` and manual dispatch:
    the Verilator-built vocabulary tests, when an RTL vocabulary header
    changed), and the model unit tests of the affected IPs (`./build ci unit`).
 4. `./build regress --level 0 --level 1` for the affected IPs.
-5. In parallel with those steps, full Quartus compilation/fitting/timing and
-   ASIC synthesis-only checks for affected synthesis targets. Source/filelist,
+5. In parallel with those steps, Quartus analysis and synthesis only (no
+   fit or timing) for affected FPGA targets. Source/filelist,
    wrapper/constraint and tool/config changes select targets; docs-only PRs
-   select none ([selection](../tools/ci/SPEC.md#build-ci-vendor)). Full ASIC
-   physical implementation and L2 remain nightly.
+   select none ([selection](../tools/ci/SPEC.md#build-ci-vendor)). FPGA fit
+   and timing, ASIC synthesis, full ASIC physical implementation and L2 are
+   nightly ([levels](#levels-and-budgets)).
 
-The single required `ci-gate` aggregates the simulation/checks and both
-vendor jobs. All three must explicitly succeed; failure, cancellation or
-an unexpected skip fails the gate. Push/dispatch still select all targets.
+The single required `ci-gate` aggregates the simulation/checks and the
+FPGA job. Both must explicitly succeed; failure, cancellation or an
+unexpected skip fails the gate. Push/dispatch still select all targets.
 
 **`ci-gate` on the data PR.** The nightly opens its data PR with
 `GITHUB_TOKEN`, which starts no runnable `pull_request` run, so it
@@ -366,8 +385,11 @@ permissions and data PR mechanics:
    --level 1 --level 2 --coverage --rotate <date>` across all IPs (merged line, toggle and functional coverage
    per IP, with any floors checked; [regress SPEC](../tools/regress/SPEC.md#coverage)),
    plus the night's [rotated extra seeds](#seed-rotation).
-2. `./build fpga` and `./build asic` for every IP with `src/fpga/<ip>/` or
-   `src/asic/<ip>/` inputs. A failed step prints every error line of its
+2. `./build fpga` for every IP with `src/fpga/<ip>/` inputs; the ASIC
+   synthesis-only check (`./build ci vendor --kind asic`, step
+   `asic-synth`) for every IP with `src/asic/<ip>/` inputs, whose failure
+   fails the nightly; and `./build asic` (the full flow) for those IPs
+   while it is not [paused](#asic-pause). A failed step prints every error line of its
    log before the tail ([failure excerpt](../tools/build/SPEC.md#failure-excerpt))
    to the job log. That excerpt, and the FPGA summary's one sanitized line
    per unknown Quartus warning ID ([FPGA BKM](fpga.md#known-quartus-warnings)),
@@ -392,6 +414,30 @@ permissions and data PR mechanics:
    and the `./build sim --ip <ip> --test <name> --seed <seed>` command that
    reproduces it; close it when the nightly is green again
    ([metrics spec](../tools/metrics/SPEC.md#red)).
+
+### ASIC pause
+
+The full ASIC flow (place and route, timing) can be paused while the CI
+host cannot carry it (captain decision, 2026-10-19,
+[#362](https://github.com/amichai-bd/pcie-factory/issues/362): the WSL host
+dropped three times under ASIC load). The one switch is `ASIC_PAUSED` in
+the workflow-level `env` of `.github/workflows/nightly.yml`:
+
+- `"true"`: the nightly's full ASIC step runs no flow and records
+  `asic=paused`; tonight's record carries `{"status": "paused"}` for the
+  `asic` section, never an earlier run's numbers, a paused step is not a
+  failure and opens no `nightly-red` issue, and the tracker labels the ASIC
+  section paused ([metrics spec](../tools/metrics/SPEC.md#fpga-asic)).
+  **Do not dispatch `asic.yml`** while paused: it stays available for a run
+  the captain approves.
+- `"false"`: the full ASIC step runs again.
+
+The pause does not touch the nightly's `asic-synth` step (synthesis only,
+a few minutes per IP), which runs every night either way, nor the FPGA
+flow in `ci-gate` and the nightly. Resuming needs a captain go once the
+host is stable: an issue and PR that set `ASIC_PAUSED: "false"` and cite
+the decision. The next nightly runs the full ASIC flow again; dispatch
+`asic.yml` first for one IP if a trial run is wanted.
 
 ### Seed rotation
 
