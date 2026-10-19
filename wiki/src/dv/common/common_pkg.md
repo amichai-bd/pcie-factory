@@ -2,7 +2,8 @@
 
 ## Strategy
 
-The package holds no logic; its values are checked where they are used:
+The package holds codes, types and pure functions; the codes are checked
+where they are used, the functions also on their own:
 
 - **LTSSM encoding:** the mac architecture model's self-test
   (`test_rtl_package_encoding_matches_the_model` in
@@ -23,7 +24,21 @@ The package holds no logic; its values are checked where they are used:
   code from `common_pkg.sv` and compares them with the architecture
   model's EDB and the pcs pages; every RxStatus and PowerDown on PIPE is
   checked in the [pcs DV plan](../pcs/DV_PLAN.md).
-- **Type codes and TLP helpers:** every TLP `tl` receives is judged
+- **TLP helpers, unit:** `pkg_tlp_contract` drives
+  [`tb/common_pkg_tlp_fixture.sv`](../../../../src/dv/common/tb/common_pkg_tlp_fixture.sv),
+  which puts each helper on its own output, and compares every result with
+  a reference written in
+  [`test_pkg_tlp.py`](../../../../src/dv/common/tests/test_pkg_tlp.py)
+  from the owning specs (kinds, receive checks 1, 3, 4 and 6, byte
+  count, `dll` credit classes), not from the RTL. The Fmt and Type pairs,
+  both credit inputs, every message code, Lengths 0 to 32 for the
+  credits, every byte-enable pair at Lengths 1, 2, 3, 4, 32 and 1024 with
+  both address bit 2 values, are swept exhaustively; the 4 KiB check at
+  each boundary and on 500 seeded random requests; the byte order on 103
+  words. Covergroup `common_pkg_tlp`: kind known or not, each credit class,
+  byte enables legal or not, a request inside, ending at, or crossing its
+  4 KiB block, a TC 0 message code or not.
+- **Type codes and TLP helpers, in use:** every TLP `tl` receives is judged
   with `kind_known`, `is_cpl`, `be_ok`, `cross_4k` and `msg_tc0`, every
   completion it forms or tracks uses `be_lo`, `be_hi`, `byte_total` and
   `be_mask`, every header uses `be_word` and the `t_tlp_type` codes, and
@@ -44,4 +59,5 @@ The package holds no logic; its values are checked where they are used:
 | Symbol and PowerDown codes on PIPE | the [mac](../mac/DV_PLAN.md#plan) entries | 0 to 2 | as listed there |
 | EDB, RxStatus and PowerDown codes equal the pcs pages | (model unit test) | - | `python3 -m pytest src/dv/pcs/models` |
 | RxStatus, EDB and PowerDown on PIPE | the [pcs](../pcs/DV_PLAN.md#plan) entries | 0 to 2 | as listed there |
+| [TLP helpers](../../rtl/common/common_pkg.md#tlp-helpers) against the spec reference, exhaustive on the small domains | `pkg_tlp_contract` | 0 | 1 |
 | Type codes and TLP helpers in received, formed and tracked TLPs | the [tl](../tl/DV_PLAN.md#plan) entries | 0 to 2 | as listed there |
