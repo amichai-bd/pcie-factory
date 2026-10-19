@@ -25,8 +25,11 @@ two ends judge a TLP alike [cite: PCIe Base Spec, rev 3.0, §2.3]:
 
 Then the [inbound routing](../../arch/rc/HAS.md#inbound-routing) rows,
 first match deciding; then poisoned: a request or message that routing
-would serve, capture or record with EP 1 is dropped with bit 5 only
-(routing's Unsupported Request outranks it, bit 11 only)
+would serve, capture or record, with EP 1, records bit 5 only and has no
+other effect, except that a poisoned non-posted request is answered with
+an Unsupported Request completion, as the endpoint `tl` does
+([`tl` outcomes](../../arch/tl/ROUTING.md#outcomes)); routing's
+Unsupported Request outranks poisoned, bit 11 only
 [cite: PCIe Base Spec, rev 3.0, §2.7.2.2]. A 4-DW address with bits 63:32
 not 0 is outside every window and host memory. Every event sets its bit
 in the cycle after the TLP's `eop`.
@@ -38,7 +41,8 @@ in the cycle after the TLP's `eop`.
 | Posted Unsupported Request | Dropped, bit 11. |
 | Message | ERR_COR, ERR_NONFATAL, ERR_FATAL: bits 7, 8, 9; any other code: bit 10. Dropped. |
 | Non-posted: read of host memory; Unsupported Request (configuration, I/O, atomic, locked, or a memory read the routing refuses) | Into the [non-posted queue](#completer); an Unsupported Request sets bit 11. |
-| Non-posted, malformed or poisoned | Into the queue as a drop entry, so its release goes the one way ([credits](#credits)). |
+| Non-posted, poisoned, that routing would serve | Into the queue as an Unsupported Request entry (answered with an Unsupported Request completion); bit 5 only, not bit 11. |
+| Non-posted, malformed | Into the queue as a drop entry, never answered, so its release goes the one way ([credits](#credits)). |
 
 ## Completer
 
@@ -75,6 +79,12 @@ One [`common_sync_ram`](../common/ram/common_sync_ram.md), `WIDTH` 32,
 `LANES` 4, `ADDR_W` `HOST_MEM_ADDR_W` − 2: one port, one access per
 cycle. A received write DW always wins it; the completer's reads and the
 front end's `HOST_*` take turns when both wait, so neither starves. The
+writes never shut them out: one TLP writes at most 32 DWs (128-byte
+payload) in consecutive cycles, and every TLP brings at least 3 header
+beats that write nothing, so the port is free within 33 cycles and a
+waiting access, losing at most one turn, is granted within 34 (a
+forward-progress assertion for
+[#375](https://github.com/amichai-bd/pcie-factory/issues/375)). The
 endpoint's writes land in arrival order with no queue, so a capture, a
 completion or a `HOST_RD` after a write always sees it
 ([host memory access](../../arch/rc/TL_SEQ.md#host-memory-access)); a
@@ -99,4 +109,9 @@ and `fc_rel_p_o` pulses in the next cycle with `fc_rel_pd_o` its data
 credits. A non-posted TLP leaves when the completer takes it from the
 queue; `fc_rel_np_o` pulses in the next cycle with its data credits. At
 most one TLP of each class leaves per cycle, so nothing is owed. Releases
-stop under `lrst`. Completions need no release.
+stop under `lrst`. Completions need no release. A malformed TLP's class
+and data credits are those the `dll` counted, from its Fmt, Type and
+Length; `rc_tl` takes them from the shared helper that
+[#385](https://github.com/amichai-bd/pcie-factory/issues/385) moves to
+`common_pkg` (returning the class as a plain vector, or with the class
+type moved too), never from a re-implementation.

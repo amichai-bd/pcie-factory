@@ -75,7 +75,7 @@ watches both directions as a passive shadow (P5, goal item 8).
 
 | Name | Type | Default | Range | Effect |
 | --- | --- | --- | --- | --- |
-| `FC_PH`, `FC_PD`, `FC_NPH`, `FC_NPD` | `int unsigned` | 8, 32, 8, 8 | 1 to 127, 8 to 2047, 1 to 127, 2 to 2047 | Passed to `link`: the posted and non-posted credits advertised for the endpoint's DMA writes, MSI writes, messages and DMA reads. Never infinite: `rc_tl` sizes its inbound queues from them ([credits](#credits)). |
+| `FC_PH`, `FC_PD`, `FC_NPH`, `FC_NPD` | `int unsigned` | 8, 32, 8, 8 | 1 to 127, 8 to 2047, 1 to 127, 2 to 2047 | Passed to `link`: the posted and non-posted credits advertised for the endpoint's DMA writes, MSI writes, messages and DMA reads. Never infinite (no 0 in the ranges): `rc_tl` returns each posted and non-posted request's credits on the credit release (`FC_RELEASE` 1), and `FC_NPH` sizes its non-posted queue; posted requests are applied as they arrive and need no queue ([credits](#credits)). |
 | `TIMEOUT_DIV`, `ERR_TIMEOUT_DIV` | `int unsigned` | 1, 1 | 1 to 1024 | Passed to `link` ([`link` parameters](../link/HAS.md#parameters)). The FPGA build uses 1. |
 | `CPL_TIMEOUT_DIV` | `int unsigned` | 1 | 1 to 1024 | Passed to `rc_tl`: divides its completion timeout ([#368](https://github.com/amichai-bd/pcie-factory/issues/368) sets the value). The FPGA build uses 1; DV uses more to reach a timeout. |
 | `HOST_MEM_ADDR_W` | `int unsigned` | 12 | 8 to 16 | Host memory is 2^`HOST_MEM_ADDR_W` bytes (256 B to 64 KiB). |
@@ -238,7 +238,9 @@ messages are not gated by Bus Master Enable.
 An Unsupported Request is a completion with that status for a non-posted
 request and a drop for a posted one, and is recorded in either case
 [cite: PCIe Base Spec, rev 3.0, §2.3.1]. A poisoned or malformed TLP is
-recorded and dropped [cite: PCIe Base Spec, rev 3.0, §2.7.2.2]
+recorded and dropped, except that a poisoned non-posted request that
+would be served is answered with an Unsupported Request completion, as
+the endpoint does [cite: PCIe Base Spec, rev 3.0, §2.7.2.2]
 [cite: PCIe Base Spec, rev 3.0, §2.3]. Which header checks make a TLP
 malformed is the `rc_tl` MAS's
 ([#368](https://github.com/amichai-bd/pcie-factory/issues/368)).

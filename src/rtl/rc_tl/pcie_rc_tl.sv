@@ -73,6 +73,7 @@ module pcie_rc_tl #(
   // bases agree above the larger one's size.
   `COMMON_ASSERT_PARAM(g_msi_overlap_check, (MSI_ADDR >> OVL_SH) != (HOST_MEM_BASE >> OVL_SH), "pcie_rc_tl: the MSI window must not overlap host memory")
   `COMMON_ASSERT_PARAM(g_vendor_id_check, VENDOR_ID != 16'hFFFF, "pcie_rc_tl: VENDOR_ID must not be FFFF")
+  `COMMON_ASSERT_PARAM(g_device_id_check, DEVICE_ID != 16'hFFFF, "pcie_rc_tl: DEVICE_ID must not be FFFF")
 
   // Inputs and parameters the shell does not use yet; #373 to #375 consume
   // them.

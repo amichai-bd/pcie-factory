@@ -57,8 +57,11 @@ async def smoke(dut):
     for cycle in range(128):
         rst = int(cycle < 8 or 64 <= cycle < 72)
         dut.rst_i.value = rst
-        for name, width in INPUTS.items():
-            getattr(dut, name).value = random.getrandbits(width)
-        COV.sample(rst=rst, dl_up=int(dut.dl_up_i.value))
+        values = {name: random.getrandbits(width) for name, width in INPUTS.items()}
+        for name, value in values.items():
+            getattr(dut, name).value = value
+        # Sample what was driven, not the signal: writes land after this
+        # coroutine yields.
+        COV.sample(rst=rst, dl_up=values["dl_up_i"])
         await FallingEdge(dut.clk_i)
         check_outputs(dut, rst, f"cycle {cycle}")

@@ -84,7 +84,12 @@ the `rc_seq`-side bundles are the `common_pkg` structs of the
 `common_pkg` also holds `t_rc_op` (the `op` codes `RC_OP_CFG_RD` 0 to
 `RC_OP_ERR_CLR` 9) and `t_rc_status` (`RC_ST_OK` 0 to `RC_ST_BAD` 7), with
 the [TL_SEQ](../../arch/rc/TL_SEQ.md#commands) values. `cmd_i.op` is a raw
-4-bit field, since an undefined code must be refused, not cast.
+4-bit field, since an undefined code must be refused, not cast. The
+member names `len` and `last` are fixed by TL_SEQ but are built-in
+method names that the style rule `method-member-name` refuses as a member
+select inside a function ([RTL BKM](../../../bkm/rtl.md#systemverilog-rules)):
+helper functions in `rc_tl` and `rc_seq` take plain-vector arguments,
+and the member is read outside the function.
 
 ## Parameters
 
@@ -95,7 +100,7 @@ the [TL_SEQ](../../arch/rc/TL_SEQ.md#commands) values. `cmd_i.op` is a raw
 | `HOST_MEM_ADDR_W` | `int unsigned` | 12 | 8 to 16 | Host memory is 2^`HOST_MEM_ADDR_W` bytes. |
 | `HOST_MEM_BASE` | `logic [31:0]` | 32'h0 | aligned to the host memory size | System address of host memory byte 0. |
 | `MSI_ADDR` | `logic [31:0]` | 32'hFEE0_0000 | 4 KiB aligned, disjoint from host memory | The MSI window. |
-| `VENDOR_ID`, `DEVICE_ID` | `logic [15:0]` | 16'h0 | `VENDOR_ID` not 16'hFFFF | The [Type 1 header](#type-1-header) IDs. |
+| `VENDOR_ID`, `DEVICE_ID` | `logic [15:0]` | 16'h0 | any but 16'hFFFF | The [Type 1 header](#type-1-header) IDs. |
 | `REVISION_ID` | `logic [7:0]` | 8'h0 | any | The header's Revision ID. |
 
 These are the `rc` parameters of the same names, passed through. Each
@@ -176,9 +181,10 @@ recovery case, and what records it:
 | Endpoint completes with Completer Abort | `CA` | 1 |
 | Configuration Request Retry Status | `CRS` | 2 |
 | Completion timeout | `TIMEOUT` | 3 |
-| Completion matching no request | none | 4 |
+| Completion matching no request (late after a timeout, or a split read's remaining completions after one failed) | none | 4 |
 | Poisoned completion for the request | `BAD` | 5 |
-| Poisoned request or message received | none | 5 |
+| Poisoned posted request or message received | none (dropped) | 5 |
+| Poisoned non-posted request received | none (answered with an Unsupported Request completion) | 5 |
 | Malformed or reserved-status completion for the request | `BAD` | 6 |
 | Malformed TLP received | none | 6 |
 | ERR_COR, ERR_NONFATAL, ERR_FATAL received | none | 7, 8, 9 |
@@ -195,16 +201,23 @@ recovery case, and what records it:
 
 | File | Block | Holds | Built by |
 | --- | --- | --- | --- |
-| `pcie_rc_tl_pkg.sv` | package | `t_np_ent`, `t_hdr_st`, the decoded header, block states, error bit numbers | [#373](https://github.com/amichai-bd/pcie-factory/issues/373) |
-| `pcie_rc_tl_cmd.sv` | `u_cmd` | [Commands](#commands), [byte enables](REQUESTER.md#byte-enables), local commands, result mux, [error record](#error-record-and-q2-cases) | #373 |
+| `pcie_rc_tl_pkg.sv` | package | `t_hdr_st` and the front end's state first; then `t_np_ent`, the decoded header, the other block states, error bit numbers | [#374](https://github.com/amichai-bd/pcie-factory/issues/374), then [#373](https://github.com/amichai-bd/pcie-factory/issues/373), [#375](https://github.com/amichai-bd/pcie-factory/issues/375) |
+| `pcie_rc_tl_cmd.sv` | `u_cmd` | [Commands](#commands): the take, checks 2 to 7 against the real `t_hdr_st`, [byte enables](REQUESTER.md#byte-enables), `HDR_*` and the result beats (#374); check 1, endpoint commands to `u_req`, the [error record](#error-record-and-q2-cases) and `ERR_*` (#373); `HOST_*` (#375) | #374, #373, #375 |
 | `pcie_rc_tl_req.sv` | `u_req` | [Requests](REQUESTER.md#requests), tag, [timeout](REQUESTER.md#completion-timeout), [completion matching](REQUESTER.md#completion-matching) | #373 |
 | `pcie_rc_tl_tx.sv` | `u_tx` | [Transmit](REQUESTER.md#transmit) | #373 |
-| `pcie_rc_tl_rx.sv` | `u_rx` | [Receive checks](INBOUND.md#receive-checks), posted [release](INBOUND.md#credits); completions in #373, requests and messages in #375 | #373, [#375](https://github.com/amichai-bd/pcie-factory/issues/375) |
-| `pcie_rc_tl_hdr.sv` | `u_hdr` | [Type 1 header](#type-1-header) | [#374](https://github.com/amichai-bd/pcie-factory/issues/374) |
+| `pcie_rc_tl_rx.sv` | `u_rx` | [Receive checks](INBOUND.md#receive-checks), posted [release](INBOUND.md#credits); completions in #373, requests and messages in #375 | #373, #375 |
+| `pcie_rc_tl_hdr.sv` | `u_hdr` | [Type 1 header](#type-1-header), driving `t_hdr_st` | #374 |
 | `pcie_rc_tl_mem.sv` | `u_mem` | [Host memory](INBOUND.md#host-memory) and its port | #375 |
 | `pcie_rc_tl_cpl.sv` | `u_cpl` | [Completer](INBOUND.md#completer), non-posted queue and release | #375 |
 | `pcie_rc_tl_msi.sv` | `u_msi` | [MSI capture](INBOUND.md#msi-capture) | #375 |
-| `pcie_rc_tl.sv` | top | Parameter checks, `rst` and `lrst`, the blocks | today the shell |
+| `pcie_rc_tl.sv` | top | Parameter checks, `rst` and `lrst`, the blocks | today the shell; each issue adds its blocks |
+
+Build order: [#374](https://github.com/amichai-bd/pcie-factory/issues/374)
+first, so the requester ([#373](https://github.com/amichai-bd/pcie-factory/issues/373))
+routes by real header state (Memory Space Enable, the window, the bus
+numbers) and fills the Requester ID from it, with no stand-in; then #373
+(after [#385](https://github.com/amichai-bd/pcie-factory/issues/385));
+then #375 ([#368 decision](https://github.com/amichai-bd/pcie-factory/issues/368#issuecomment-6268994085)).
 
 ### Reuse of tl blocks
 
@@ -227,22 +240,29 @@ epochs (endpoint routing, BAR decode) and its three-line arbiter.
 ## Decisions
 
 Firstmate delegate decisions under the epic's
-[delegated sign-off](https://github.com/amichai-bd/pcie-factory/issues/357#issuecomment-6267954374);
+[delegated sign-off](https://github.com/amichai-bd/pcie-factory/issues/357#issuecomment-6267954374):
+D1 to D13 accepted in the
+[#368 decision](https://github.com/amichai-bd/pcie-factory/issues/368#issuecomment-6268860464),
+the poisoned non-posted answer and the build order in the
+[review decision](https://github.com/amichai-bd/pcie-factory/issues/368#issuecomment-6268994085);
 the captain may override any.
 
 | Choice | Rationale | Rejected |
 | --- | --- | --- |
-| One command, so one endpoint request, outstanding | Results come in command order with no reorder buffer; programs check step by step and M4 has no throughput target. | Up to 8 tags outstanding (a reorder buffer for results, for no M4 goal). |
-| 5-bit rolling tag | Legal without Extended Tag; makes a late completion unexpected instead of matching the next request. | A fixed tag 0 (a late completion would match); 8 bits (needs Extended Tag). |
-| Maximum read request 128 bytes, one TLP | M2 Q6; `cmd.len` is at most 32. | Splitting longer reads (no command asks for one). |
-| Timeout N = ⌊2^21 / div⌋ cycles, one counter, no disable | 16.8 ms: inside 50 µs to 50 ms and above 10 ms; one request needs no prescaler. | `tl`'s 16 to 17 prescaler steps per tag (eight tags' worth of state). |
-| Byte enables: the endpoint's receive rule, less zero-length writes and configuration accesses | Nothing `rc_tl` sends can be malformed at `core`; no program needs a zero-length write. | Every legal combination (zero-length writes, no M4 user). |
-| A failing completion ends its request at once | One rule for every `BAD`; the program sees the failure on the step. | Keep waiting after a malformed completion, as `tl` does (ends only by timeout). |
-| Posted requests applied as they arrive, no posted queue | The write always wins the memory port, so nothing waits; release is immediate and exact, ordering with captures and completions is arrival order. | A posted queue sized by `FC_PH` and `FC_PD` (RAM and ordering logic for no gain). |
-| Every non-posted TLP through the queue, drops included | One release per cycle at most, no owed counters. | Releasing drops at the `eop` (two releases in a cycle). |
-| One single-port RAM, received writes first, the other two alternating | Maps to one block RAM; a write beat never waits, so no data buffer. | A two-port RAM (two writers to arbitrate per word anyway). |
-| MSI capture of 4 flop entries | The TL_SEQ minimum; a program waits for each MSI before the next. | A deeper queue (no program queues MSIs). |
-| Reuse the queue and the TLP helpers through #385 | A second user exists; the layout rule moves shared logic to `common`, never by copy. | Copying `pcie_tl_fifo` (forbidden); reusing `tl`'s tracker or formers (endpoint structure). |
+| D1: One command, so one endpoint request, outstanding | Results come in command order with no reorder buffer; programs check step by step and M4 has no throughput target. | Up to 8 tags outstanding (a reorder buffer for results, for no M4 goal). |
+| D2: 5-bit rolling tag | Legal without Extended Tag; makes a late completion unexpected instead of matching the next request. | A fixed tag 0 (a late completion would match); 8 bits (needs Extended Tag). |
+| D3: Maximum read request 128 bytes, one TLP | M2 Q6; `cmd.len` is at most 32. | Splitting longer reads (no command asks for one). |
+| D4: Timeout N = ⌊2^21 / div⌋ cycles, one counter, no disable | 16.8 ms: inside 50 µs to 50 ms and above 10 ms; one request needs no prescaler. | `tl`'s 16 to 17 prescaler steps per tag (eight tags' worth of state). |
+| D5: Byte enables: the endpoint's receive rule, less zero-length writes and configuration accesses | Nothing `rc_tl` sends can be malformed at `core`; no program needs a zero-length write. | Every legal combination (zero-length writes, no M4 user). |
+| D6: Receive malformed checks are the endpoint `tl`'s steps (kind, byte enables, 4 KiB, configuration and I/O fields, message TC); routing's Unsupported Request outranks poisoned; a poisoned non-posted request is answered with an Unsupported Request completion | Both ends judge a TLP alike, through the same helpers (#385); one error per TLP, the higher-ranked, as the endpoint reports it; no request that routing would serve goes unanswered. | A reduced set of checks (the two ends would disagree on what is malformed); ignoring EP on requests without data (a poisoned read would hang until the endpoint's timeout). |
+| D7: A failing completion ends its request at once | One rule for every `BAD`; the program sees the failure on the step. | Keep waiting after a malformed completion, as `tl` does (ends only by timeout). |
+| D8: Posted requests applied as they arrive, no posted queue | The write always wins the memory port, so nothing waits; release is immediate and exact, ordering with captures and completions is arrival order. | A posted queue sized by `FC_PH` and `FC_PD` (RAM and ordering logic for no gain). |
+| D8: Every non-posted TLP through the queue, drops included | One release per cycle at most, no owed counters. | Releasing drops at the `eop` (two releases in a cycle). |
+| D9: One single-port RAM, received writes first, the other two alternating | Maps to one block RAM; a write beat never waits, so no data buffer. | A two-port RAM (two writers to arbitrate per word anyway). |
+| D10: MSI capture of 4 flop entries | The TL_SEQ minimum; a program waits for each MSI before the next. | A deeper queue (no program queues MSIs). |
+| D11: Reuse the queue and the TLP helpers through #385 | A second user exists; the layout rule moves shared logic to `common`, never by copy. | Copying `pcie_tl_fifo` (forbidden); reusing `tl`'s tracker or formers (endpoint structure). |
+| D12: Leaf blocks `cmd`, `req`, `tx`, `rx`, `hdr`, `mem`, `cpl`, `msi`, built #374 then #373 then #375 | One block per MAS section, each owned by one wave-2 issue; the header first gives the requester real routing state. | One requester-and-completer block (too large to review or test alone); a testbench-only header stand-in for #373 (throwaway logic). |
+| D13: The tl-seq types in `common_pkg` now, with this shell | The shell's ports must match the MAS, which uses the structs; one PR adds them, so the `rc_seq` shell (#369) waits instead of colliding. | Deferring the tl-seq ports to #373 (a shell that does not match its MAS); a type package of `rc_tl`'s own (a sibling sub-IP may not use it). |
 
 ## Timing
 

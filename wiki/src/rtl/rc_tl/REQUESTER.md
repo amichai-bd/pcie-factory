@@ -37,8 +37,8 @@ TC 0, Attr 0, TD 0, EP 0, AT 0, Requester ID {Primary Bus Number, device
 | `MEM_WR` | `010`, `00000` | 1; `first_be`, 0; then `data` | `addr[31:2]` |
 
 - **Tags.** Byte 6 of a non-posted request is `{3'b000, tag_q}`; the
-  5-bit `tag_q` steps at the edge the link takes the request's `sop`
-  beat. Five bits are the tags allowed without Extended Tag
+  5-bit `tag_q` steps at the edge the link takes a non-posted request's
+  `sop` beat. Five bits are the tags allowed without Extended Tag
   [cite: PCIe Base Spec, rev 3.0, §2.2.6.2]; with one request outstanding
   any tag would do, and the rolling value makes a completion that comes
   after its request timed out unexpected, unless 32 more non-posted
@@ -71,7 +71,8 @@ decides:
 
 A decided failure ends the request with one beat in the cycle after the
 completion's `eop`; its data is not delivered, and later completions for
-it are unexpected. A Successful completion's data DWs go out as `OK`
+it are unexpected: when one completion of a split read fails, each of the
+endpoint's remaining completions for that read also sets bit 4. A Successful completion's data DWs go out as `OK`
 beats, each in the cycle after the DW is taken from the link, a digest DW
 never. The read advances its remaining bytes and next byte by what the
 completion covers and finishes when none remain: that DW's beat has
@@ -106,7 +107,11 @@ credit and its data credits (Length / 4 rounded up) for its class; all
 ones passes. Priority: a requester posted write, then a completion, then
 a requester non-posted request. A completion never passes an earlier
 posted write, and a non-posted request waiting for credits never blocks
-a completion [cite: PCIe Base Spec, rev 3.0, §2.4.1]. The choice holds
+a completion [cite: PCIe Base Spec, rev 3.0, §2.4.1]. Strict priority
+means a long stream of endpoint DMA reads delays an `rc_seq` read or
+configuration request; the delay is bounded by what the endpoint keeps
+outstanding (its completions drain at link rate), and no M4 program
+measures it. The choice holds
 from `sop` to `eop`. `tlp_tx_*` come from an output stage of flops with a
 skid slot, as in `tl` ([`tl` output stage](../tl/MAS.md#transmit-arbiter)),
 so `tlp_tx_ready_i` reaches only the stage.
