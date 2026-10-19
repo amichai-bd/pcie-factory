@@ -32,7 +32,7 @@ async def _run(env: Env, limit: int, expected=()) -> dict:
     stats = env.finish(expected)
     for b in range(13):
         if any(st == 0 and op == 8 and d >> b & 1 for _, op, st, d, _ in env.mon.results):
-            COV_ERR.sample(bit=f"b{b}")
+            COV_ERR.sample(bit=b)
     return stats
 
 

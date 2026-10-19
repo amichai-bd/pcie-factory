@@ -84,22 +84,21 @@ RESET_RP = {"rp_done_o": 0, "rp_pass_o": 0, "rp_fail_step_o": 0, "rp_dl_up_o": 0
 # ------------------------------------------------------------ coverage
 
 COV_RUN = Covergroup("rc_e2e_run")
-COV_RUN.coverpoint("program", bins={n: p for p, n in PROGRAM_NAMES.items()})
+COV_RUN.coverpoint("program", bins={n: n for n in PROGRAM_NAMES.values()})
 COV_RUN.coverpoint("op", bins={n: n for n in TL_OPS})
 COV_RUN.coverpoint("status", bins={n: n for n in hs.RESULT_NAMES})
 COV_RUN.cross("op_x_status", "op", "status", unreachable=[
     (o, s) for o in TL_OPS for s in hs.RESULT_NAMES
-    if (o not in TL_OPS[:4] and s not in ("OK", "LOCAL_UR"))
-    or (o in TL_OPS[:4] and s == "CRS" and o not in ("CFG_RD", "CFG_WR"))
-    or (o in TL_OPS[4:] and s == "LOCAL_UR")
+    # TL_SEQ results: a local command finishes OK or LOCAL_UR; a MEM_WR has
+    # no completion; CRS answers configuration requests only.
+    if (o in TL_OPS[4:] and s not in ("OK", "LOCAL_UR"))
     or (o == "MEM_WR" and s not in ("OK", "LOCAL_UR", "LINK_DOWN"))
-    or (o in ("CFG_WR", "CFG_RD") and s in ("CA", "BAD", "TIMEOUT", "UR", "CRS"))
     or (o == "MEM_RD" and s == "CRS")])
 
 COV_LINE = Covergroup("rc_e2e_line")
 COV_LINE.coverpoint("rewrite", bins={n: n for n in (
     "split", "ca", "poisoned", "malformed_cpl", "stale_copy", "malformed_req")})
-COV_LINE.coverpoint("splits", bins={"two": 2, "three": 3, "four": 4})
+COV_LINE.coverpoint("splits", bins={"two": 2})   # 128 bytes split on 64: two at most
 COV_LINE.coverpoint("event", bins={n: n for n in ("link_down", "hot_reset", "replay")})
 
 COV_ERR = Covergroup("rc_e2e_err")

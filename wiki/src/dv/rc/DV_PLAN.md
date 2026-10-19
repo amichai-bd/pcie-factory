@@ -65,6 +65,13 @@ the full `phy` stack, where `rc_seq`'s programs alone drive the host side
   (smoke); the endpoint side also samples the core e2e's covergroups
   (`core_e2e_*`) through the reused model, which only per-covergroup floors
   should hold ([#380](https://github.com/amichai-bd/pcie-factory/issues/380)).
+  Merged levels 0 to 2 (#377): line 72.7%, toggle 44.1%, functional
+  61.1% over every covergroup the run declares. Not hit in `rc_e2e_*`:
+  error record bits 2 and 10 and the CRS status, which `core` never sends
+  and the [`rc_tl` DV](../rc_tl/DV_PLAN.md) injects; and the tl-seq
+  op-status pairs no M4 program draws (a configuration request failing,
+  a local command refused, a `MEM_WR` refused or cut by a link down).
+  Floors are #380's.
 
 ### Line models
 
