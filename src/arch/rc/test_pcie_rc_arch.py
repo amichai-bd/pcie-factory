@@ -684,6 +684,8 @@ def test_program_targets(name):
     d = m.perf({"kind": "program", "program": name}, 1)
     assert d["run_passed"] == 1 and d["fail_step"] == 0 and d["unexpected_completions"] == 0
     assert d["enumeration_cycles"] > 0
+    if name == "MMIO":                  # HAS, Decisions: core sends the fewest completions
+        assert d["mmio_read_completions"] == 1
 
 
 def test_errors_target():

@@ -1,6 +1,7 @@
 # MMIO (wiki/src/arch/rc/HAS.md#targets, goal item 5): program MMIO, BAR0
-# writes and reads with the expected data. The MMIO write and read rates
-# and the read latency are reported for information, with no bound.
+# writes and reads with the expected data; the 32-DW read returns as one
+# completion from core (HAS, Decisions). The MMIO write and read rates and
+# the read latency are reported for information, with no bound.
 description: Program MMIO (ENUM, then 32 BAR0 writes, a 32-DW read, a 4-DW read and byte enables).
 seed: 1
 workload:
@@ -9,5 +10,6 @@ workload:
 targets:
   run_passed: {min: 1}
   fail_step: {max: 0}
+  mmio_read_completions: {min: 1, max: 1}
   unexpected_completions: {max: 0}
   malformed_received: {max: 0}

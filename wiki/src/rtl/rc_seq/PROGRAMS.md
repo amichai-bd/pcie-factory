@@ -70,7 +70,7 @@ Program `MMIO`: `ENUM`, then this section, then `DONE`.
 | # | Steps | Checks |
 | --- | --- | --- |
 | M1 | 32 `MEM_WR` to BAR0 + 4k, k = 0 to 31, a distinct pattern per DW. | 1-DW writes. |
-| M2 | `MEM_RD` BAR0, `len` 32; 32 `EXPECT`s on `R[0]` to `R[31]`. | A 128-byte read returned as several completions (`core` splits on 64-byte boundaries), in address order. |
+| M2 | `MEM_RD` BAR0, `len` 32; 32 `EXPECT`s on `R[0]` to `R[31]`. | A 128-byte read in address order, returned as one completion: `core` sends the fewest completions ([`tl` splitting](../../arch/tl/COMPLETIONS.md#splitting)). Split-completion reassembly is `rc_tl`'s, tested in [#373](https://github.com/amichai-bd/pcie-factory/issues/373) and checked by the shadow in [#377](https://github.com/amichai-bd/pcie-factory/issues/377) ([#371 decision](https://github.com/amichai-bd/pcie-factory/issues/371#issuecomment-6269957025)). |
 | M3 | `MEM_RD` BAR0 + 0x38, `len` 4; 4 `EXPECT`s. | A short read crossing a 64-byte boundary. |
 | M4 | `MEM_WR` BAR0 + 0x80 = 0x1234_5678; `MEM_WR` BAR0 + 0x80 = 0xFFFF_FFFF with `first_be` 0x3; `MEM_RD`; `EXPECT` 0x1234_FFFF. | Byte enables. |
 | M5 | `ERR_RD`; `EXPECT` 0 on bits 12:0. | No error recorded. |
