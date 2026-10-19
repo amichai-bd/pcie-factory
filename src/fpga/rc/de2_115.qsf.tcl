@@ -76,3 +76,12 @@ set_location_assignment PIN_AF16 -to gpio_rx_clk_i
 foreach port {gpio_tx_clk_o gpio_tx_ctrl_o gpio_tx_data_o[*] gpio_rx_clk_i gpio_rx_ctrl_i gpio_rx_data_i[*]} {
   set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to $port
 }
+
+# Header outputs: an explicit drive and slew, as for the LEDs (Quartus warns
+# on an output with neither). 8 mA and the device's fast slew keep the
+# edges well inside the 20 ns half transfer at GPIO_CLK_DIV 2; the cable is
+# not measured (gpio HAS, Open items).
+foreach port {gpio_tx_clk_o gpio_tx_ctrl_o gpio_tx_data_o[*]} {
+  set_instance_assignment -name CURRENT_STRENGTH_NEW 8MA -to $port
+  set_instance_assignment -name SLEW_RATE 2 -to $port
+}
