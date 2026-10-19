@@ -124,7 +124,7 @@ file.
 | `resources.registers` | Fitter summary "Total registers". |
 | `resources.memory_bits` | `{used, total}`, "Total memory bits". |
 | `resources.memory_blocks` | `{type, used, total}` from the fitter resource usage line `M9Ks` (any `M<n>Ks`), or `null`. |
-| `resources.rams` | One entry per row of the fitter's "Fitter RAM Summary" panel: `name` (hierarchical), `mode`, `clock_mode`, `port_a_depth`, `port_a_width`, `port_b_depth`, `port_b_width`, `bits` (`Size`), `mixed_rdw` ("Mixed Width RDW Mode") and `blocks` (the `M<n>Ks` column); a missing column is `null`. Empty when there is no such panel. |
+| `resources.rams` | One entry per row of the fitter's "Fitter RAM Summary" panel: `name` (hierarchical), `mode`, `clock_mode`, `port_a_depth`, `port_a_width`, `port_b_depth`, `port_b_width`, `bits` (`Size`), `mixed_rdw` ("Mixed Width RDW Mode") and `blocks` (the `M<n>Ks` column); a missing column, and a cell Quartus prints as `--` (a field that does not apply, such as port B of a ROM or a single-port RAM), is `null`. Empty when there is no such panel. |
 | `resources.dsp_9bit` | `{used, total}`, "Embedded Multiplier 9-bit elements". |
 | `resources.pins`, `resources.plls` | `{used, total}`. |
 | `timing.clocks.<clock>` | `fmax_mhz`, `restricted_fmax_mhz`, `setup_slack_ns`, `hold_slack_ns`, `recovery_slack_ns`, `removal_slack_ns`: for each clock, the worst value over every timing model (corner) panel `* Model Fmax Summary` and `* Model <Setup\|Hold\|Recovery\|Removal> Summary`; `null` when a kind has no paths for that clock. |
@@ -245,7 +245,7 @@ of a log that leave the host.
   not real tool output, see its README): resources, worst-of-corners timing,
   the worst path, failed fitter status, malformed values, missing panels,
   no clocks, negative slack, and the per-RAM rows (all columns, a missing
-  panel, missing columns, a malformed block count), and the synthesis
+  panel, missing columns, `--` cells of a ROM row, a malformed block count), and the synthesis
   summary of `--synth-only` (resource counts, a `used / total` value, a
   missing optional line, a failed status, a missing register line, a
   malformed count, a missing summary).

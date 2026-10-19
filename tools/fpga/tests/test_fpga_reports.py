@@ -94,6 +94,19 @@ def test_fit_rams_absent_and_partial(tmp_path):
     assert ram["name"] == "a|b" and ram["blocks"] == 2 and ram["port_a_depth"] is None
 
 
+def test_fit_rams_not_applicable(tmp_path):
+    # A ROM row: Quartus prints "--" for port B and the mixed-port mode.
+    rpt = tmp_path / "x.fit.rpt"
+    rpt.write_text("+--+\n; Fitter RAM Summary ;\n+--+\n"
+                   "; Name ; Mode ; Port A Depth ; Port A Width ; Port B Depth ; Port B Width ;"
+                   " Size ; M9Ks ; Mixed Width RDW Mode ;\n+--+\n"
+                   "; a|rom ; ROM ; 256 ; 128 ; -- ; -- ; 32768 ; 4 ; -- ;\n+--+\n")
+    (ram,) = reports.parse_fit_rams(rpt)
+    assert ram["mode"] == "ROM" and ram["port_a_depth"] == 256 and ram["bits"] == 32768
+    assert ram["port_b_depth"] is None and ram["port_b_width"] is None
+    assert ram["mixed_rdw"] is None and ram["blocks"] == 4
+
+
 def test_fit_rams_malformed_count(tmp_path):
     rpt = tmp_path / "x.fit.rpt"
     rpt.write_text("+--+\n; Fitter RAM Summary ;\n+--+\n; Name ; M9Ks ;\n+--+\n"

@@ -20,7 +20,7 @@ module pcie_rc_de2_115 (
   output logic        gpio_tx_clk_o,    // GPIO[9]: forwarded clock, clk_i / GPIO_CLK_DIV
   output logic        gpio_tx_ctrl_o,   // GPIO[4]: control pin
   output logic [3:0]  gpio_tx_data_o,   // GPIO[3:0]: data pins
-  input  logic        gpio_rx_clk_i,    // GPIO[11]: the partner's forwarded clock
+  input  logic        gpio_rx_clk_i,    // GPIO[11]: the partner's forwarded clock // cdc-domain: gpio_rx_clk_i
   input  logic        gpio_rx_ctrl_i,   // GPIO[10]: the partner's control pin // cdc-domain: gpio_rx_clk_i
   input  logic [3:0]  gpio_rx_data_i    // GPIO[8:5]: the partner's data pins // cdc-domain: gpio_rx_clk_i
 );
