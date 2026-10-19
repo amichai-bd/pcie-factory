@@ -20,11 +20,15 @@ arrive with the RTL
   own clock, joined pin to pin, checked against a reference model written
   from the HAS: the [slots](../../arch/gpio/HAS.md#slots) and
   [idle words](../../arch/gpio/HAS.md#idle-words), the
-  [link-up](../../arch/gpio/HAS.md#link-up) handshake with skew and clock
-  offset, the [transmit](../../arch/gpio/HAS.md#transmit) ready rule, the
+  [link-up](../../arch/gpio/LINK_UP.md) handshake with skew, the [transmit](../../arch/gpio/HAS.md#transmit) ready rule, the
   [receive](../../arch/gpio/HAS.md#receive) table under injected slot
-  damage, [Hot Reset](../../arch/gpio/HAS.md#hot-reset), and `pcie_dll`
-  over the pair; then the `link` and `core` board-build pair.
+  damage, [Hot Reset](../../arch/gpio/LINK_UP.md#hot-reset), and `pcie_dll`
+  over the pair; then the `link` and `core` board-build pair. The
+  [convergence](../../arch/gpio/LINK_UP.md#convergence) cases: a single
+  damaged slot (both ends and both `dll`s stay up) and two damaged slots
+  within 8 (both go down once and come back); a partner reset at the same
+  and at a new slot phase; Hot Reset entry and exit; a forged run of 4;
+  each at `clk_i` ratios of 1/2, 1 and 2.
 
 ## Plan
 
@@ -38,6 +42,6 @@ Levels 1 and 2 have no entries yet (`tests: []`).
 
 | Feature | Owning issue |
 | --- | --- |
-| [Pins and transfers](../../arch/gpio/HAS.md#pins-and-transfers), [slots](../../arch/gpio/HAS.md#slots), [link-up](../../arch/gpio/HAS.md#link-up), [transmit](../../arch/gpio/HAS.md#transmit), [receive](../../arch/gpio/HAS.md#receive), [Hot Reset](../../arch/gpio/HAS.md#hot-reset) | [#378](https://github.com/amichai-bd/pcie-factory/issues/378) |
+| [Pins and transfers](../../arch/gpio/HAS.md#pins-and-transfers), [slots](../../arch/gpio/HAS.md#slots), [link-up](../../arch/gpio/LINK_UP.md), [transmit](../../arch/gpio/HAS.md#transmit), [receive](../../arch/gpio/HAS.md#receive), [Hot Reset](../../arch/gpio/LINK_UP.md#hot-reset) | [#378](https://github.com/amichai-bd/pcie-factory/issues/378) |
 | The `link` [lower layer](../../arch/link/HAS.md#lower-layer) and the `rc` and `core` board-build pair | [#378](https://github.com/amichai-bd/pcie-factory/issues/378) |
 | Coverage floors | [#380](https://github.com/amichai-bd/pcie-factory/issues/380) |

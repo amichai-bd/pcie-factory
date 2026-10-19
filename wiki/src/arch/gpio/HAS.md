@@ -136,84 +136,21 @@ Any other word is unknown: it pulses `rcv_err_o` and is ignored.
 
 ### Link-up
 
-| State | `ltssm_state_o` | `link_up_o` | Sends |
-| --- | --- | --- | --- |
-| Reset (`rst_i` high) | `0x00` | 0 | Nothing: the pins hold their [reset values](#reset-values). |
-| Not aligned | `0x00` | 0 | TRAIN, bit 8 0 |
-| Training: aligned, not up | `0x04` | 0 | TRAIN, bit 8 1 |
-| Up | `0x20` | 1 | Packets and IDLE |
-| Hot Reset | `0x19` | 0 | HOT_RESET (downstream); TRAIN, bit 8 per its alignment (upstream) |
+The link-state rules are on the [link-up page](LINK_UP.md): states and
+their `ltssm_state_o` codes (`0x00` in reset and while not aligned, `0x04`
+training, `0x20` up, `0x19` Hot Reset), alignment, the runs of received
+slots that take an end up or down, the quiet run of bit-8-clear TRAIN
+words that every down starts, and the argument that the pair converges at
+any clock ratio from 1/2 to 2. In short: the link goes up after 8 good
+slots from an aligned partner; it goes down on alignment loss, on 4
+bit-8-clear TRAIN words, on 64 TRAIN words of either value, or on a Hot
+Reset; and any down at one end takes the other end down too.
 
-Every state change below waits for a run of **consecutive** received
-slots, so no single damaged slot can cause one. `W` is the one-way
-latency in slots, from a slot's first transfer at the sender to its
-handling at the receiver's `clk_i` side; the MAS must keep `W` at most 4
-slots at every `CLK_DIV`.
-
-- **Damaged slot.** A slot whose transfer 0 reads 0, or one that pulses
-  `rcv_err_o` ([receive](#receive)); a slot counts once however many
-  rules it breaks.
-- **Alignment.** The receiver is aligned after 8 consecutive slots, at one
-  slot phase, whose control transfers read 1, 0, 0, 0. It loses alignment
-  on a second damaged slot within 8 slots of a first, or when no slot
-  arrives for 64 × `CLK_DIV` `clk_i` cycles (16 slot times; no pulse: the
-  partner stopped). Reset clears alignment.
-- **Up.** From training, the link goes up after 8 consecutive good slots
-  from an aligned partner: TRAIN words with bit 8 set, IDLE words or
-  packet slots (packet slots received while not up are not delivered).
-  Any other slot (a TRAIN word with bit 8 clear, a HOT_RESET or unknown
-  word, a damaged slot) restarts the count, which also starts at 0 on
-  entry to training. An end sends bit 8 set only while its own receiver
-  is aligned, and IDLE or packets only while up, so the run shows that
-  both directions work.
-- **Down.** An up link goes down, to training or not aligned, on any of:
-  1. alignment loss;
-  2. 4 consecutive TRAIN words with bit 8 clear (the partner is not
-     aligned: it restarted or lost alignment);
-  3. 32 consecutive TRAIN words of either bit-8 value (the partner is
-     training): a backstop, so that no state where one end is up and the
-     other trains can last;
-  4. a [Hot Reset](#hot-reset).
-
-  Shorter runs of TRAIN words are ignored while up.
 - **Transmit at link-down.** A packet partly sent ends with an ABORT slot;
   every other buffered beat is discarded; beats that the `dll` still offers
   up to its `eop` are taken and discarded ([transmit](#transmit)).
 - **Receive at link-down.** An open received packet is closed with an `eop`
   beat carrying `pkt_rx_err_o`, so every `sop` has exactly one `eop`.
-
-#### Why the handshake converges
-
-- **Reaching up, no livelock.** Each receiver aligns within 8 slots plus
-  `W` of the partner's transmitter starting, and an aligned end sends bit 8
-  set. Say end A goes up first, at slot time t. Its run shows that B was
-  aligned, and A has been sending bit 8 set for at least 8 slots, so B's
-  run over A's slots (TRAIN, then IDLE and packets, all of which count)
-  completes by t + `W`, or t + `W` + 8 if one damaged slot restarted it. B
-  sends TRAIN until then, so A receives at most 2 × `W` + 8 = 16
-  consecutive trailing TRAIN words, all with bit 8 set: below both down
-  thresholds. Both ends are up within 24 slots plus 3 × `W` of the later
-  transmitter starting, and stay up.
-- **Every down is symmetric.** Down cause 1 leaves the end not aligned,
-  sending bit 8 clear until it realigns, which takes at least 8 slots, so
-  the partner sees 4 in a row and goes down (cause 2). Causes 2 and 3 mean
-  the partner already left the up state. Hot Reset takes both ends down
-  ([below](#hot-reset)). So when one `dll` goes down, the other goes down
-  too, once, and the pair then reaches up again as above. A partner that
-  streams packets so that the not-aligned end cannot realign still goes
-  down on the bit-8-clear run and then sends only TRAIN, which realigns it.
-- **A single damaged slot.** It is one damaged slot: alignment needs two.
-  A forged idle word is one word, below every run length (4 HOT_RESET, 4
-  bit-8-clear TRAIN, 32 TRAIN, 8 good slots). In a packet, a damaged data
-  bit reaches the `dll` as a bad packet, and a damaged code bit as a cut,
-  merged or dropped packet; the `dll` recovers either by Nak or replay. So
-  both ends stay up and both `dll`s stay up; while training, the slot only
-  restarts a count.
-- **Restart.** A partner that resets stops its forwarded clock while
-  `rst_i` is high (the watchdog catches a reset of 16 slot times or more),
-  then sends TRAIN words with bit 8 clear for at least 8 slots while it
-  realigns: cause 2. If it restarts at a new slot phase, its markers fall
-  on other transfers and the first two slots read as damaged: cause 1.
 
 ### Transmit
 
@@ -254,31 +191,17 @@ silently until the next SOP, ONE or IDLE slot, which is handled as above;
 one pulse marks one damaged run, so a single damaged code bit makes one
 damaged slot. A slot whose transfer 0 reads 0 is handled the same way: an
 open packet is closed with an error `eop`, `rcv_err_o` pulses and the
-discard starts. Idle words drive the [link-up](#link-up) runs; a word that
+discard starts. Idle words drive the [link-up](LINK_UP.md#rules) runs; a word that
 no run in the current state uses is ignored.
 
 ### Hot Reset
 
 Hot Reset is emulated, so the root port can reset the endpoint as on the
-`phy` [cite: PCIe Base Spec, rev 3.0, §4.2.6.11]:
-
-- **Downstream** (`port_role_i` 0): while `hot_reset_req_i` is 1, from any
-  state but reset, and then until it has sent at least 32 HOT_RESET words,
-  the adapter is in Hot Reset. It ignores every received word meanwhile
-  (its receiver still tracks alignment), then trains, with bit 8 set only
-  if its receiver is aligned. In the upstream role `hot_reset_req_i` is
-  ignored.
-- **Upstream** (`port_role_i` 1): 4 consecutive HOT_RESET words, from any
-  state while aligned, enter Hot Reset; 4 consecutive TRAIN words (either
-  bit-8 value) leave it to training.
-- **Against the link-up rules.** The downstream end sends at least 32
-  HOT_RESET words, so the upstream end sees its run of 4 and both go down
-  once. A single forged HOT_RESET or TRAIN word enters or leaves nothing.
-  After the dwell the downstream end trains and the upstream end leaves
-  Hot Reset on its TRAIN words; both reach up as in
-  [link-up](#why-the-handshake-converges).
-- `link_up_o` falls on entry, so the `dll` goes to DL_Inactive and the
-  layers above see `dl_up_o` fall, as with a `phy` Hot Reset.
+`phy` [cite: PCIe Base Spec, rev 3.0, §4.2.6.11]. A downstream end directs
+it with `hot_reset_req_i` and sends at least 32 HOT_RESET words; the
+upstream end follows on a run of 4. `link_up_o` falls at both ends, so the
+`dll` goes to DL_Inactive and the layers above see `dl_up_o` fall. The
+rules are on the [link-up page](LINK_UP.md#hot-reset).
 
 ### Timing
 
@@ -300,7 +223,7 @@ the stream. Latency targets and an architecture model are added by
 | No Disabled, Loopback or power states | `link` ignores those requests in the board build; the `dll` sends no power-management DLLPs and `link` already holds L0 ([`link` power states](../link/HAS.md#power-states)). |
 | No nullify, no EDB | `pkt_rx_nullify_o` is 0; the `dll` nullified-TLP path is unused. |
 | Own link-up handshake, four state codes | The `dll` reads only "in L0" (`0x20` to `0x2F`), which `0x20` gives. Link-up takes slots, not the `phy`'s 12 ms; `TIMEOUT_DIV` and `ERR_TIMEOUT_DIV` have no effect. |
-| No 8b/10b, scrambling or check code | A damaged data bit reaches the `dll` as a bad packet, a damaged code bit as a cut, merged or dropped packet: Bad TLP or Bad DLLP, then a Nak or replay, as for a `phy`-flagged packet. A damaged idle word or a single damaged marker changes no link state ([link-up](#why-the-handshake-converges)); two damaged slots within 8 drop alignment, and both ends go down once. `rcv_err_o` pulses for a different set of causes. |
+| No 8b/10b, scrambling or check code | A damaged data bit reaches the `dll` as a bad packet, a damaged code bit as a cut, merged or dropped packet: Bad TLP or Bad DLLP, then a Nak or replay, as for a `phy`-flagged packet. A damaged idle word or a single damaged marker changes no link state ([convergence](LINK_UP.md#convergence)); two damaged slots within 8 drop alignment, and both ends go down once. `rcv_err_o` pulses for a different set of causes. |
 | No lane or link numbers; `port_role_i` only sets the Hot Reset direction | None: the `dll` is port-role neutral. |
 
 ### dll timers
@@ -353,6 +276,7 @@ delegate, which the captain may override ([decision](https://github.com/amichai-
 | A `dll` replay-timeout parameter, set by the board build, in its own issue [#384](https://github.com/amichai-bd/pcie-factory/issues/384) before the board-build e2e (firstmate decision, point 1) | Spurious replays waste bandwidth and hide real faults; a default that keeps 356 cycles changes nothing else ([`dll` timers](#dll-timers)). | Accepting the replays; a slower `CLK_DIV` (does not close the gap). |
 | `CLK_DIV` default 2 (firstmate decision, point 3) | M4 has no physical boards (P3), so there is no cable to measure; 2 gives the fastest centre-aligned transfers. | A slower default chosen with no measurement. |
 | Latency targets and an architecture model in [#378](https://github.com/amichai-bd/pcie-factory/issues/378), none in this HAS yet (firstmate decision, point 4) | Targets come with a model that checks them. | No targets at all. |
+| Every down starts a quiet run of at least 16 bit-8-clear TRAIN words, counted in the sender's own slots; the backstop run is 64 TRAIN words; `W` at most 4 slots of the slower end (firstmate decision as the captain's delegate, review of [#383](https://github.com/amichai-bd/pcie-factory/pull/383)) | Makes every down symmetric by construction at any clock ratio from 1/2 to 2: the partner always sees a run of 4, and the trailing-word bound (49 at a ratio of 2) stays below 64 ([convergence](LINK_UP.md#convergence)). | Relying on the realignment time to send enough bit-8-clear words (only about 4 at a ratio of 1/2); ignoring bit-8-set words while up with no backstop. |
 | `gpio_*` ports always present on `link` and `core`, tied off at `LOWER` 0 (firstmate decision, point 5; [`link` lower layer](../link/HAS.md#lower-layer)) | Follows from OP2's `link` parameter; SystemVerilog has no parameter-dependent ports. | A different top per build. |
 
 ## Open items
