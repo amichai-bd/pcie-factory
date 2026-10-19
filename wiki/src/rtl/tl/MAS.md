@@ -91,7 +91,7 @@ arbiter's choice), the structs (the decoded header `t_hdr`, the TLP being
 received `t_rx_cur`, the queue entries `t_pq_ent`, `t_cq_ent`,
 `t_cfg_ent`, `t_txp_ent`, `t_txnp_ent`, the queued completion
 `t_cpl_desc`, the former's read context `t_cpl_ctx`, the transmit
-output stage `t_tx_out` and its beats `t_tx_beat`, the block nets
+output stage's beat `t_tx_beat`, the block nets
 `t_hd_ctx`, `t_cpl_rec`, the tracker nets `t_rx_beat`, `t_rq_ctx`, the
 rc packet `t_rc_desc`, a tracked read `t_trk_tag`, the slot power payload
 `t_slot_pwr`, and each
@@ -124,9 +124,14 @@ pure TLP helpers live in the shared package
 ## Receive parser
 
 [`pcie_tl_rx`](../../../../src/rtl/tl/pcie_tl_rx.sv) takes every beat the
-`link` delivers (`tlp_rx_ready_o` is 1 out of reset). Its state
-(`t_rx_state`) counts the beats of the TLP and keeps the header size and
-whether it is a completion; DW 0 to 2 are captured. At the last header
+`link` delivers (`tlp_rx_ready_o` is 1 out of reset). The shared receive
+beat tracker [`common_tlp_rx_track`](../common/common_tlp_rx_track.md)
+(`u_beats`, [#400](https://github.com/amichai-bd/pcie-factory/issues/400))
+counts the beats of the TLP, keeps the header size (Fmt bit 0, stream bit
+5 of the `sop` beat) and gives the header DW enables and the last header
+DW; DW 0 to 2 are captured with those enables. The parser's own state
+(`t_rx_state`) keeps whether the TLP is a completion and the push of its
+entry. At the last header
 DW (beat 2 or 3) the header, the captured DWs and the beat on the stream,
 is judged combinationally by the [checks](../../arch/tl/ROUTING.md#checks)
 in order and the [routing](../../arch/tl/ROUTING.md#routing), with the
@@ -154,9 +159,9 @@ that cycle too, with `t_slot_pwr` from the kept data DW (bits 7:0 the
 value, 9:8 the scale), and is a `PK_DISCARD` entry like any dropped
 message ([slot power limit](../../arch/core/TL_CFG.md#slot-power-limit)). A
 completion with a defined Fmt pushes nothing: its beats went to the
-tracker as they arrived. Assertions: `a_beat_outside_tlp`,
-`a_sop_inside_tlp`, `a_short_tlp` (the `dll`'s whole-TLP contract) and
-`a_rel_data_max`.
+tracker as they arrived. Assertions: `a_rel_data_max`, and in `u_beats`
+`a_beat_outside_tlp`, `a_sop_inside_tlp` and `a_short_tlp` (the `dll`'s
+whole-TLP contract).
 
 ## Receive queues
 
@@ -378,19 +383,22 @@ DWs come from the line's data queue (an interrupt write's from its
 entry). The head and its data leave when the output stage takes the
 `eop` beat. Assertion: the line sent keeps its head.
 
-**Output stage.** `tlp_tx_*` come from flops (`t_tx_out`, beats
-`t_tx_beat`), so no path runs from a queue head through the arbiter into
-the `link` ([#295](https://github.com/amichai-bd/pcie-factory/issues/295)):
-`out` is the beat offered on `tlp_tx_*`, and `skid` takes the arbiter's
+**Output stage.** `tlp_tx_*` come from flops, so no path runs from a
+queue head through the arbiter into the `link`
+([#295](https://github.com/amichai-bd/pcie-factory/issues/295)). The
+stage is the shared [`common_skid_stage`](../common/common_skid_stage.md)
+(`u_out`, [#400](https://github.com/amichai-bd/pcie-factory/issues/400))
+on `t_tx_beat` (data, `sop`, `eop`, the DW 1 flag, and an rq read's `sop`
+flag and tag): `out` is the beat offered on `tlp_tx_*`, and `skid` takes the arbiter's
 beat in a cycle where `out` is held. The arbiter is ready while `skid` is
 empty, a register, so `tlp_tx_ready_i` reaches only the stage. While the
 link takes every beat `skid` stays empty and a TLP still goes out with no
 gap; an offered beat stays unchanged until taken. The ID (`bus_num_i`,
 `dev_num_i`) is captured in the cycle a `sop` beat is first offered on
-`tlp_tx_*` and fills bits 15:0 of DW 1, which the arbiter leaves 0 and
+`tlp_tx_*` (the stage's `out_new_o`) and fills bits 15:0 of DW 1, which the arbiter leaves 0 and
 the stage offers only after the `sop` is taken; `rq_sent` pulses when the
-link takes an rq read's `sop` beat. Assertions: a held beat is stable,
-`skid` holds a beat only behind `out`.
+link takes an rq read's `sop` beat. Assertions, in the stage: a held
+beat is stable, `skid` holds a beat only behind `out`.
 
 ## Completion tracker
 
@@ -488,6 +496,7 @@ beat frees its tag (`rc_free`).
 | An rq write enters the posted line at its `sop` beat and goes out whole | The order taken is the `sop` order (APP); a write never stalls the link mid-TLP waiting for the application. It relies on the application finishing a started write without waiting on `cc`, the interrupt port or `cq` ([APP](../../arch/core/APP.md#write-completion), [#291](https://github.com/amichai-bd/pcie-factory/issues/291#issuecomment-6250061556)). | Entering at its `eop` (a message taken during the write's data would pass it); cut-through. |
 | The ID captured as the `sop` is first offered on `tlp_tx_*`, filled into DW 1 at the output stage | A configuration write may change `bus_num_i` while a TLP waits for the link; an offered beat must not change, and the [TLP formats](../../arch/tl/TLP.md) give the ID as the `sop` is first offered. | Forming DW 1 when it is taken; capturing the ID at the arbiter (a cycle before the offer). |
 | A registered transmit output stage with a skid slot ([#295](https://github.com/amichai-bd/pcie-factory/issues/295)) | The first DE2-115 fit ran from a completion descriptor RAM through the arbiter and `tlp_tx_data` into the `dll` CRC in one cycle (36 MHz); the stage cuts it at `tl`'s edge for one cycle of latency and no throughput. | A plain register with `tlp_tx_ready_i` passed through to the arbiter (a combinational ready path); registering inside the `dll` (a signed interface's other side). |
+| The output stage and the receive beat tracking are shared blocks, `common_skid_stage` and `common_tlp_rx_track` ([#400](https://github.com/amichai-bd/pcie-factory/issues/400)) | `rc_tl` needs both on the same stream; the RTL BKM puts shared logic in `common`, never a copy per IP. The move kept `tl`'s behavior: the ID capture and the completion flag stay in `tl`. | Re-implementing them in `rc_tl` after `tl`. |
 
 ## Timing
 
@@ -554,4 +563,4 @@ beat frees its tag (`rc_free`).
 | [`pcie_tl_trk.sv`](../../../../src/rtl/tl/pcie_tl_trk.sv) | [Completion tracker](#completion-tracker): reads by tag, checks, timeout. |
 | [`pcie_tl_rc.sv`](../../../../src/rtl/tl/pcie_tl_rc.sv) | [rc stream](#rc-stream): the rc queues and their order. |
 | [`pcie_tl.sv`](../../../../src/rtl/tl/pcie_tl.sv) | [Top](#top): parameter checks, reset, the blocks, the [tracker nets](#tracker-nets). |
-| [`tl.rtl.f`](../../../../src/rtl/tl/tl.rtl.f) | The shared vocabulary, `common_pkg`, the shared [queue](#queue) (which reaches the shared RAM), the package, the blocks, the top. |
+| [`tl.rtl.f`](../../../../src/rtl/tl/tl.rtl.f) | The shared vocabulary, `common_pkg`, the shared [queue](#queue) (which reaches the shared RAM), the shared [output stage](../common/common_skid_stage.md) and [receive beat tracker](../common/common_tlp_rx_track.md), the package, the blocks, the top. |

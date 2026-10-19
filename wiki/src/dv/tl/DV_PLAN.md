@@ -172,11 +172,16 @@ verified by this testbench.
   read expires, a read expiring while one of its completions is between
   its decision and its packet, a failed beat first due in the cycle
   another packet is queued).
-- **Shared code:** the queue and the pure TLP helpers `tl` takes from
-  `common` ([MAS, package](../../rtl/tl/MAS.md#package),
-  [queue](../../rtl/tl/MAS.md#queue)) are checked here at `tl`'s shapes
-  and uses; the queue also has its own shared-unit tests
-  ([`common_sdp_ram_fifo` DV plan](../common/ram/common_sdp_ram_fifo.md)).
+- **Shared code:** the queue, the pure TLP helpers, the transmit output
+  stage and the receive beat tracker `tl` takes from `common`
+  ([MAS, package](../../rtl/tl/MAS.md#package),
+  [queue](../../rtl/tl/MAS.md#queue),
+  [receive parser](../../rtl/tl/MAS.md#receive-parser),
+  [transmit arbiter](../../rtl/tl/MAS.md#transmit-arbiter)) are checked
+  here at `tl`'s shapes and uses; each block also has its own shared-unit
+  tests ([`common_sdp_ram_fifo`](../common/ram/common_sdp_ram_fifo.md),
+  [`common_skid_stage`](../common/common_skid_stage.md),
+  [`common_tlp_rx_track`](../common/common_tlp_rx_track.md) DV plans).
 
 ## Cross-check: RTL, architecture model, reference
 
@@ -363,7 +368,12 @@ cleared when the read is sent), so M89 also drops that clear.
 | M105 a timeout beat pushed in a cycle a completion packet is queued | `cpl_timeout` | not drained: the failed beat is lost |
 
 The transmit output stage's mutants
-([#295](https://github.com/amichai-bd/pcie-factory/issues/295)), each run
+([#295](https://github.com/amichai-bd/pcie-factory/issues/295)), made
+when the stage was `tl`'s own (`so_q`). M106, M107, M108 and M112 now
+fall in [`common_skid_stage`](../common/common_skid_stage.md); the
+[#400](https://github.com/amichai-bd/pcie-factory/issues/400) PR reran
+their equivalents there, against the shared-unit and these entries. Each
+was run
 alone against L0 and L1 one entry at a time (`--jobs 1`); the entry is the
 first that fails, at its first regression seed.
 
@@ -441,7 +451,7 @@ The 24 line points not hit, by cause:
 | Cause | Points | Where |
 | --- | ---: | --- |
 | Unreachable by construction | 16 | The lane-disable branch of each `common_sdp_ram` copy (14: one lane, always enabled, [`common_sdp_ram.sv`](../../../../src/rtl/common/ram/common_sdp_ram.sv) line 45); the `default` arm of the register engine's state ([`pcie_tl_reg.sv`](../../../../src/rtl/tl/pcie_tl_reg.sv) line 141), which only the unused fourth code of the 2-bit `t_reg_st` would reach; the hold arm of the tag array's flop, whose enable is the constant 1 ([`pcie_tl_trk.sv`](../../../../src/rtl/tl/pcie_tl_trk.sv) line 250). |
-| Outside the input contract | 4 | The `dll` drops every TLP with more than 128 bytes of data ([ROUTING.md](../../arch/tl/ROUTING.md)), so no TLP reaches `tl` with 64 or more beats or with Length 0 and data (1024 DWs): the receive beat counter's saturation ([`pcie_tl_rx.sv`](../../../../src/rtl/tl/pcie_tl_rx.sv) line 79, two copies), the tracker's Length 0 decode and its beat counter's saturation (`pcie_tl_trk.sv` lines 110 and 129). |
+| Outside the input contract | 4 | The `dll` drops every TLP with more than 128 bytes of data ([ROUTING.md](../../arch/tl/ROUTING.md)), so no TLP reaches `tl` with 64 or more beats or with Length 0 and data (1024 DWs): the receive beat counter's saturation (`pcie_tl_rx.sv` line 79 when measured, now [`common_tlp_rx_track.sv`](../../../../src/rtl/common/common_tlp_rx_track.sv); two copies), the tracker's Length 0 decode and its beat counter's saturation (`pcie_tl_trk.sv` lines 110 and 129). |
 | Not reached in that parameter set | 4 | In the copies of `rx_random_min_credits` and `rx_random_long_params`, which send no completions, the rc line's arm on a completion ([`pcie_tl_rx_q.sv`](../../../../src/rtl/tl/pcie_tl_rx_q.sv) line 93, hit in the default copy), and the release of owed non-posted data above 8 (line 249), unreachable with `FC_NPD` 2 and 3 (`rx_np_collide` reaches it). |
 
 The 11686 toggle points not hit, by cause:

@@ -1,9 +1,12 @@
 // pcie_tl: synthesizable sources only: the shared vocabulary, the shared
-// package, the shared queue, the IP package, the blocks, then the top
+// package, the shared queue, output stage and receive beat tracker, the IP
+// package, the blocks, then the top
 // (wiki/src/rtl/tl/MAS.md#files).
 -F ../common/common_macros.rtl.f
 -F ../common/common_pkg.rtl.f
 -F ../common/ram/common_sdp_ram_fifo.rtl.f
+-F ../common/common_skid_stage.rtl.f
+-F ../common/common_tlp_rx_track.rtl.f
 pcie_tl_pkg.sv
 pcie_tl_rx.sv
 pcie_tl_rx_q.sv

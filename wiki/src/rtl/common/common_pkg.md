@@ -25,6 +25,7 @@ each IP that uses it includes it with `-F`. RTL names every item as
 | `t_rc_cmd`, `t_rc_rsp`, `t_rc_msi` | The tl-seq bundles `rc_tl` and `rc_seq` exchange: command (`op` raw 4 bits, `addr`, `len`, `first_be`, `last_be`, `data`), result beat (`status`, `data`, `last`), MSI capture (`offset`, `data`). | [tl-seq signals](../../arch/rc/TL_SEQ.md#signals), [`rc_tl` interfaces](../rc_tl/MAS.md#interfaces) |
 | `t_tlp_type` | The TLP Type field (header byte 0 bits 4:0): `T_MEM`, `T_MEMLK`, `T_IO`, `T_CFG0`, `T_CFG1`, `T_CPL`, `T_CPLLK`, `T_FETCHADD`, `T_SWAP`, `T_CAS`. `tl` compares a header's 5-bit Type with them and forms headers from them. | [TLP kinds](../../arch/tl/TLP.md#kinds) |
 | `t_cls` | A TLP's credit class as the `dll` counts it: `CLS_P` (0), `CLS_NP` (1), `CLS_CPL` (2). `credit_class` returns it; `tl` keeps it in its receive state. | [dll classes](../../arch/dll/FLOW_CONTROL.md#classes-and-credits) |
+| `t_tlp_rx_trk`, `t_tlp_rx_pos` | The state of the shared receive beat tracker (`busy`, `beat`, `hdr4`) and its output: where the beat taken sits in its TLP (`sop`, `mid`, `hdr_last`, `en_dw`) and the state before it (`busy`, `hdr4`, `beat`, `hdr_end`). | [`common_tlp_rx_track`](common_tlp_rx_track.md#interfaces) |
 | [TLP helpers](#tlp-helpers) | Pure functions of plain header fields. | below |
 
 ## TLP helpers
@@ -59,6 +60,7 @@ each ([tl MAS, package](../tl/MAS.md#package)) and `rc_tl` reuses them.
 | Every code is a value of a typed enum (`t_tlp_type` too) | Each IP lints its own closure with `-Wall`; an enum value that IP leaves unused raises no warning, where an unused `localparam` does (`UNUSEDPARAM`). | `localparam` constants (a waiver per IP for the other IPs' codes). |
 | Codes the IPs share only; widths, counts and internal types stay in the IP packages | One owner per fact; an IP package changes without touching the others. | One package for everything. |
 | Helpers shared by two IPs, with plain-vector arguments only; a helper that needs an IP type stays in that IP's package | A second user needs them ([#385](https://github.com/amichai-bd/pcie-factory/issues/385)); plain arguments keep `common_pkg` free of IP types. | Copying them into the second IP's package; moving IP types into `common_pkg` with them. |
+| A shared block's fixed-width interface and state types here | A shared block has no package of its own, and its users name the types too ([#400](https://github.com/amichai-bd/pcie-factory/issues/400)). A block generic in a width passes flat vectors instead. | A package per shared block. |
 
 The `pcs` restructure ([#145](https://github.com/amichai-bd/pcie-factory/issues/145))
 added `t_rx_status` and takes `t_power_down` and `SYM_EDB` from here.
