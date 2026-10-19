@@ -1,16 +1,16 @@
 """Parameter limits of pcie_rc_tl (wiki/src/rtl/rc_tl/MAS.md#parameters).
 
 A rejected parameter set cannot be simulated, so this test lints pcie_rc_tl
-with Verilator, as `./build check` lint does, from its .rtl.f: every illegal
-value must stop elaboration with its COMMON_ASSERT_PARAM message, and the
-legal boundaries must lint clean. The simulated top only hosts the test.
+with Verilator, as `./build check` lint does, from its .rtl.f as the build
+resolves it: every illegal value must stop elaboration with its
+COMMON_ASSERT_PARAM message, and the legal boundaries must lint clean. The simulated top only hosts the test.
 """
 
 import subprocess
 
 import cocotb
 
-from build import sim
+from build import filelist, sim
 from build.ip import REPO_ROOT
 
 RTL_F = REPO_ROOT / "src" / "rtl" / "rc_tl" / "rc_tl.rtl.f"
@@ -53,8 +53,13 @@ LEGAL = (
 
 
 def lint(params: dict[str, int | str]) -> subprocess.CompletedProcess:
-    cmd = [str(sim.find_verilator()), "--lint-only", "-Wall", "--top-module", TOP,
-           "-F", str(RTL_F)]
+    # The filelist resolved as the build resolves it: a shared block reached
+    # through two -F includes (common_pkg) is listed once.
+    flat = filelist.resolve(RTL_F)
+    cmd = [str(sim.find_verilator()), "--lint-only", "-Wall", "--top-module", TOP]
+    cmd += [f"+incdir+{d}" for d in flat.incdirs]
+    cmd += [f"+define+{k}" if v is None else f"+define+{k}={v}" for k, v in flat.defines.items()]
+    cmd += [str(f) for f in flat.sources]
     cmd += [f"-G{k}={v}" for k, v in params.items()]
     return subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=False)
 

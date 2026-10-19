@@ -48,8 +48,9 @@ flowchart LR
 ```
 
 `rc` wires it between `rc_seq` and `link` ([`rc` position](../../arch/rc/HAS.md#position)).
-The blocks above are the [leaf blocks](#leaf-blocks); today `u_cmd` and
-`u_hdr` are built and the others are tied to their reset values
+The blocks above are the [leaf blocks](#leaf-blocks); today `u_cmd`,
+`u_hdr`, `u_req`, `u_tx` (the requester's line) and `u_rx` (the
+completion side) are built and the others are tied to their reset values
 ([files](#files)).
 
 ## Interfaces
@@ -115,17 +116,18 @@ Two resets: `rst` (`rst_i`) and the link reset `lrst` (`rst_i` or
 
 | Reset by | State |
 | --- | --- |
-| `rst` only | The front end and the command in progress, the tag counter, the Type 1 header, the error record, the MSI capture. |
+| `rst` only | The front end and the command in progress, the requester (the outstanding request, the tag counter, the timeout counter), the Type 1 header, the error record, the MSI capture. |
 | `lrst` | The receive parser (a TLP in progress is dropped with no event), the non-posted queue and the completer (every inbound request held is dropped with no completion and no release), the transmit arbiter and output stage (a TLP in progress is abandoned), the pending credit releases. |
 
 Host memory is never reset. Out of `rst` every output is 0 but
 `tlp_rx_ready_o`, which is 1. While `rst_i` is 1, `cmd_ready_o`,
 `rsp_valid_o` and `rsp_o` are 0 at once, as [TL_SEQ](../../arch/rc/TL_SEQ.md#signals)
-requires, not only after the next edge. While `dl_up_i` is 0 the outstanding
-endpoint request ends with `LINK_DOWN`, and every endpoint command taken
-gets `LINK_DOWN` at once ([commands](#commands); until #373 only one that
-passes checks 2 to 7, by the [interim rule](#leaf-blocks)); local
-commands are unaffected. This is the [`rc` link-down rule](../../arch/rc/HAS.md#link-down):
+requires, not only after the next edge. The outstanding endpoint request
+ends with `LINK_DOWN` at the first edge with `dl_up_i` 0, its beat in the
+next cycle, after any data beats it already returned; nothing else ends it
+at that edge. Every endpoint command taken while `dl_up_i` is 0 gets
+`LINK_DOWN` at once ([check 1](#commands)); local commands are
+unaffected. This is the [`rc` link-down rule](../../arch/rc/HAS.md#link-down):
 `link` has abandoned every TLP it held and restarts every credit, so
 nothing held below `lrst` can be answered or released.
 
@@ -158,8 +160,10 @@ memory, MSI capture and credits on the [inbound page](INBOUND.md).
 
 - **Local commands** finish `OK` with one beat: `HDR_*` and `ERR_*` in
   the cycle after the take; `HOST_*` once [host memory](INBOUND.md#host-memory)
-  grants it. `ERR_RD` returns the error record; `ERR_CLR` clears the bits
-  set in `data` (an event setting a bit at the same edge wins).
+  grants it. `ERR_RD` returns the error record as it stands before the
+  take's edge (an event at that edge shows in the next `ERR_RD`);
+  `ERR_CLR` clears the bits set in `data` (an event setting a bit at the
+  same edge wins).
 - **Endpoint commands** go to the [requester](REQUESTER.md#requests).
 
 ### Type 1 header
@@ -214,8 +218,8 @@ recovery case, and what records it:
 | --- | --- | --- | --- |
 | `pcie_rc_tl_pkg.sv` | package | `t_hdr_st` and the front end's state first; then `t_np_ent`, the decoded header, the other block states, error bit numbers | [#374](https://github.com/amichai-bd/pcie-factory/issues/374), then [#373](https://github.com/amichai-bd/pcie-factory/issues/373), [#375](https://github.com/amichai-bd/pcie-factory/issues/375) |
 | `pcie_rc_tl_cmd.sv` | `u_cmd` | [Commands](#commands): the take, checks 2 to 7 against the real `t_hdr_st`, [byte enables](REQUESTER.md#byte-enables), `HDR_*` and the result beats (#374); check 1, endpoint commands to `u_req`, the [error record](#error-record-and-q2-cases) and `ERR_*` (#373); `HOST_*` (#375) | #374, #373, #375 |
-| `pcie_rc_tl_req.sv` | `u_req` | [Requests](REQUESTER.md#requests), tag, [timeout](REQUESTER.md#completion-timeout), [completion matching](REQUESTER.md#completion-matching) | #373 |
-| `pcie_rc_tl_tx.sv` | `u_tx` | [Transmit](REQUESTER.md#transmit) | #373 |
+| `pcie_rc_tl_req.sv` | `u_req` | [Requests](REQUESTER.md#requests), tag, [timeout](REQUESTER.md#completion-timeout), [completion matching](REQUESTER.md#completion-matching), the result beats and error events to `u_cmd`, [link down](#reset-and-link-down) | #373 |
+| `pcie_rc_tl_tx.sv` | `u_tx` | [Transmit](REQUESTER.md#transmit): the requester's line, the credit check, the grant and the output stage (#373); the completer's line and the priority between the lines (#375) | #373, #375 |
 | `pcie_rc_tl_rx.sv` | `u_rx` | [Receive checks](INBOUND.md#receive-checks), posted [release](INBOUND.md#credits); completions in #373, requests and messages in #375 | #373, #375 |
 | `pcie_rc_tl_hdr.sv` | `u_hdr` | [Type 1 header](#type-1-header), driving `t_hdr_st` | #374 |
 | `pcie_rc_tl_mem.sv` | `u_mem` | [Host memory](INBOUND.md#host-memory) and its port | #375 |
@@ -230,39 +234,41 @@ numbers) and fills the Requester ID from it, with no stand-in; then #373
 (after [#385](https://github.com/amichai-bd/pcie-factory/issues/385));
 then #375 ([#368 decision](https://github.com/amichai-bd/pcie-factory/issues/368#issuecomment-6268994085)).
 
-**Interim rule.** Until #373 lands, `u_cmd` (from #374) finishes an
-endpoint command that passes checks 2 to 7 with `LINK_DOWN` while
-`dl_up_i` is 0 and otherwise with `LOCAL_UR`, sending nothing, so no
-command hangs; #374's acceptance is judged on the refusals and the
-`HDR_*` commands, and the accepted path's tests belong to #373. Check 1
-is not applied until #373 either: `LINK_DOWN` is decided only after
-checks 2 to 7 pass, so an endpoint command that fails one of them
-finishes `LOCAL_UR` even while `dl_up_i` is 0. This differs, until #373,
-from the `LINK_DOWN` precedence of [TL_SEQ](../../arch/rc/TL_SEQ.md#commands)
-and of the [`rc` outbound routing](../../arch/rc/HAS.md#outbound-routing). For the
-same reason an `ERR_*` command that passes the checks finishes `LOCAL_UR`
-until #373 adds the error record, and a `HOST_*` one until #375 adds host
-memory: one beat in the cycle after the take, nothing changed. While a
-command finishes `LOCAL_UR` either way, the `HOST_*` and `ERR_*` refusals
-(checks 3, 4 and 6) are not observable at the ports; their tests belong
-to #375 and #373.
+**Interim rule.** Until #375 adds host memory, `u_cmd` finishes a
+`HOST_*` command that passes the checks with `LOCAL_UR`: one beat in the
+cycle after the take, nothing changed, so no command hangs. While it
+finishes `LOCAL_UR` either way, the `HOST_*` refusals (checks 3, 4 and 6)
+are not observable at the ports; their tests belong to #375. Until then
+`u_rx` hands only completions on: every other TLP is taken and dropped
+with no event and no release, and `u_tx` has only the requester's line.
 
 ### Reuse of tl blocks
 
-`rc_tl` copies no `tl` file. It reuses two things that
-[#385](https://github.com/amichai-bd/pcie-factory/issues/385) moved to
+`rc_tl` copies no `tl` file. It reuses what
+[#385](https://github.com/amichai-bd/pcie-factory/issues/385) and
+[#400](https://github.com/amichai-bd/pcie-factory/issues/400) moved to
 `common`:
 
 - The first-word-fall-through queue
   [`common_sdp_ram_fifo`](../common/ram/common_sdp_ram_fifo.md) (once
   `tl`'s [queue](../tl/MAS.md#queue)), a shared RAM-group block: the
   non-posted queue and the completion data queue.
+- The output stage [`common_skid_stage`](../common/common_skid_stage.md)
+  (once `tl`'s [output stage](../tl/MAS.md#transmit-arbiter)): `u_tx`'s
+  flops with a skid slot, with the beat format `t_tx_dw` of this package.
+- The receive beat tracker [`common_tlp_rx_track`](../common/common_tlp_rx_track.md)
+  (once inside `tl`'s receive parser): `u_rx` takes each beat's place in
+  its TLP and the whole-TLP assertions from it, and keeps only the
+  completion flag and header DWs 0 and 1.
 - The [TLP helpers of `common_pkg`](../common/common_pkg.md#tlp-helpers)
   (once in [`pcie_tl_pkg`](../tl/MAS.md#package)), whose arguments are
   plain vectors: kinds, byte-enable and 4 KiB checks, message TC, byte
   totals and credits for the receive checks and the completer's byte
   counts, and `credit_class` with `t_cls` for releasing a malformed TLP's
-  credits by the class the `dll` counted.
+  credits by the class the `dll` counted. The requester already uses
+  `is_cpl` (the parser's completion kinds), `byte_total` and `be_lo` (a
+  read's bytes due and first byte), `be_word` (the address DW), and
+  `credit_class` with `data_credits` (the transmit arbiter's credit check).
 
 Not reused: `tl`'s tracker (eight application tags, a prescaler and an rc
 buffer, where `rc_tl` has one request and streams results), its two
@@ -292,7 +298,7 @@ the captain may override any.
 | D8, cont.: Every non-posted TLP through the queue, drops included | One release per cycle at most, no owed counters. | Releasing drops at the `eop` (two releases in a cycle). |
 | D9: One single-port RAM, received writes first, the other two alternating | Maps to one block RAM; a write beat never waits, so no data buffer. | A two-port RAM (two writers to arbitrate per word anyway). |
 | D10: MSI capture of 4 flop entries | The TL_SEQ minimum; a program waits for each MSI before the next. | A deeper queue (no program queues MSIs). |
-| D11: Reuse the queue and the TLP helpers through #385 | A second user exists; the layout rule moves shared logic to `common`, never by copy. | Copying `pcie_tl_fifo` (forbidden); reusing `tl`'s tracker or formers (endpoint structure). |
+| D11: Reuse the queue and the TLP helpers through #385, the output stage and the receive beat tracker through #400 | A second user exists; the layout rule moves shared logic to `common`, never by copy. | Copying `pcie_tl_fifo` (forbidden); reusing `tl`'s tracker or formers (endpoint structure). |
 | D12: Leaf blocks `cmd`, `req`, `tx`, `rx`, `hdr`, `mem`, `cpl`, `msi`, built #374 then #373 then #375 | One block per MAS section, each owned by one wave-2 issue; the header first gives the requester real routing state. | One requester-and-completer block (too large to review or test alone); a testbench-only header stand-in for #373 (throwaway logic). |
 | D13: The tl-seq types in `common_pkg` now, with this shell | The shell's ports must match the MAS, which uses the structs; one PR adds them, so the `rc_seq` shell (#369) waits instead of colliding. | Deferring the tl-seq ports to #373 (a shell that does not match its MAS); a type package of `rc_tl`'s own (a sibling sub-IP may not use it). |
 
@@ -301,8 +307,13 @@ the captain may override any.
 - One clock, `clk_i`; resets `rst` and `lrst`, synchronous; no crossing.
 - A command taken at edge E: a refusal, `LINK_DOWN`, `HDR_*` or `ERR_*`
   beat pulses in the cycle after E; a request is offered on `tlp_tx_*`
-  from the third cycle after E (request flops, arbiter, output stage)
-  when it may go.
+  from the third cycle after E (request flops at E, the arbiter's grant
+  at E+1, the output stage at E+2) when it may go.
+- A request's beats: a `MEM_WR`'s `OK` in the cycle after the link takes
+  its `eop`; a read's data beat in the cycle after its DW; a completion's
+  status beat in the cycle after its `eop`; `TIMEOUT` in the cycle after
+  the expiry edge; `LINK_DOWN` in the cycle after the first edge with
+  `dl_up_i` 0. `cmd_ready_o` is 1 again in the cycle after the last beat.
 - Received: one beat per cycle. A posted write DW is written at the edge
   after it is taken; the release and every event of a TLP come in the
   cycle after its `eop`; a completion data beat on `rsp` in the cycle
@@ -323,11 +334,14 @@ target: FPGA resources are reported with `rc`
 
 | File | Holds |
 | --- | --- |
-| [`pcie_rc_tl_pkg.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_pkg.sv) | `t_hdr_st`, `t_hdr_acc` and the front end's `t_fe_st`; the header's byte-lane write and the check helpers of [commands](#commands), on plain vectors. |
+| [`pcie_rc_tl_pkg.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_pkg.sv) | `t_hdr_st`, `t_hdr_acc` and the front end's `t_fe_st`; the error record bit numbers; the requester's `t_req_cmd`, `t_req_st`, `t_cpl_st` and `t_res`, the parser's `t_cpl_rx`, the arbiter's `t_tx_tlp`, `t_tx_arb` and the output stage's beat `t_tx_dw`; the header's byte-lane write, the check helpers of [commands](#commands) and the request header DWs, on plain vectors. |
 | [`pcie_rc_tl_hdr.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_hdr.sv) | `u_hdr`, the [Type 1 header](#type-1-header), with its layout (DW indices, RW masks, constants). |
-| [`pcie_rc_tl_cmd.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_cmd.sv) | `u_cmd`, the [front end](#commands) of #374: the take, checks 2 to 7, `HDR_*`, the result beats and the [interim rule](#leaf-blocks). |
-| [`pcie_rc_tl.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl.sv) | The top: every [port](#interfaces) and [parameter](#parameters) with its range checks, `u_cmd` and `u_hdr`; the outputs of the blocks not built yet at their [reset values](#reset-and-link-down), `tlp_rx_ready_o` 1 out of reset (taken beats are dropped). |
-| [`rc_tl.rtl.f`](../../../../src/rtl/rc_tl/rc_tl.rtl.f) | The shared vocabulary, `common_pkg`, the package, the leaf blocks, the top. `rc.rtl.f` reaches it with `-F`. |
+| [`pcie_rc_tl_cmd.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_cmd.sv) | `u_cmd`, the [front end](#commands): the take, checks 1 to 7, `HDR_*`, `ERR_*` and the [error record](#error-record-and-q2-cases), the endpoint commands to `u_req`, the result beats, and the [interim rule](#leaf-blocks) for `HOST_*`. |
+| [`pcie_rc_tl_req.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_req.sv) | `u_req`, the [requester](REQUESTER.md): the request and its TLP, the tag, completion matching and checks, the timeout and link down. |
+| [`pcie_rc_tl_tx.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_tx.sv) | `u_tx`, the [transmit](REQUESTER.md#transmit) arbiter's requester line and the credit check, over a `common_skid_stage`. |
+| [`pcie_rc_tl_rx.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_rx.sv) | `u_rx`, the receive parser's completion side over a `common_tlp_rx_track`: each completion's header fields at its third header DW, then its beats. |
+| [`pcie_rc_tl.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl.sv) | The top: every [port](#interfaces) and [parameter](#parameters) with its range checks, `rst` and `lrst`, `u_cmd`, `u_hdr`, `u_req`, `u_tx` and `u_rx`; the outputs of the blocks not built yet at their [reset values](#reset-and-link-down), `tlp_rx_ready_o` 1 out of reset. |
+| [`rc_tl.rtl.f`](../../../../src/rtl/rc_tl/rc_tl.rtl.f) | The shared vocabulary, `common_pkg`, `common_skid_stage`, `common_tlp_rx_track`, the package, the leaf blocks, the top. `rc.rtl.f` reaches it with `-F`. |
 
 ## Open items
 

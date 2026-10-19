@@ -5,3 +5,16 @@ tests:
     top: pcie_rc_tl_tb
     seeds: 2
     timeout_s: 1200
+  - name: random_req_long
+    module: tests.test_rc_tl_req
+    testcase: random_req_long
+    top: pcie_rc_tl_tb
+    seeds: 2
+    timeout_s: 3600
+    params: {CPL_TIMEOUT_DIV: 1024}
+  # The completion timeout at the FPGA value, CPL_TIMEOUT_DIV 1: 2**21 cycles.
+  - name: req_timeout_div1
+    module: tests.test_rc_tl_req
+    testcase: timeout_once
+    top: pcie_rc_tl_tb
+    timeout_s: 2400

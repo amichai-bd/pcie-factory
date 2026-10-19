@@ -1,13 +1,14 @@
-"""pcie_rc_tl front end: the take, checks 2 to 7, byte enables, outbound
-routing, the interim rule and the result beats
+"""pcie_rc_tl front end: the take, checks 1 to 7, byte enables, outbound
+routing, ERR_*, the interim rule for HOST_* and the result beats
 (wiki/src/rtl/rc_tl/MAS.md#commands, REQUESTER.md#byte-enables).
 
-Until the requester lands (#373) an endpoint command that passes checks 2
-to 7 finishes LINK_DOWN while dl_up_i is 0 and LOCAL_UR otherwise (MAS,
-Leaf blocks), so the tests tell a pass from a refusal by offering endpoint
-commands with dl_up_i 0: LINK_DOWN is a pass, LOCAL_UR a refusal. HDR_*
-pass with OK. HOST_* and ERR_* finish LOCAL_UR either way until #375 and
-#373 serve them.
+Check 1 refuses every endpoint command with LINK_DOWN while dl_up_i is 0,
+so the tests offer endpoint commands with dl_up_i 1 and tell a pass from a
+refusal by the result: an endpoint command that passes goes to the
+requester, is sent, and the endpoint (tb/rc_tl_ep.py) completes it
+Successfully, so it finishes OK; a refusal finishes LOCAL_UR at once and
+sends nothing. HDR_* and ERR_* pass with OK; HOST_* finishes LOCAL_UR
+either way until #375 serves it (MAS, Leaf blocks).
 
 Each test states its expected statuses from the specs itself, besides the
 environment's per-cycle check against the reference model.
@@ -21,7 +22,7 @@ from pcie_rc_tl_model import (CFG_RD, CFG_WR, ERR_CLR, ERR_RD, HDR_RD, HDR_WR, H
                               HOST_WR, LINK_DOWN, LOCAL_UR, MEM_RD, MEM_WR, OK, Cmd,
                               Rsp, be_legal)
 
-PASS_DOWN = LINK_DOWN    # an endpoint command past the checks, dl_up_i 0
+PASS = OK                # an endpoint command past the checks, completed
 REFUSED = LOCAL_UR
 
 BUS, BASE, LIMIT = 0x05, 0x100, 0x1FF    # Secondary Bus Number, window [31:20]
@@ -49,36 +50,37 @@ async def cmd_checks(dut):
     env = Env(dut, seed())
     await env.start()
     await open_routes(env)
-    env.drv["dl_up_i"] = 0
     # Check 2: op 10 to 15 refused, with the link down and up.
     for op in range(10, 16):
         await env.expect_cmd(Cmd(op), REFUSED, dl_up=0)
         await env.expect_cmd(Cmd(op), REFUSED, dl_up=1)
-    env.drv["dl_up_i"] = 0
+    sent = len(env.sent)
     # Check 3: len.
     for n in (0, 33, 34, 48, 63):
         await env.expect_cmd(Cmd(MEM_RD, IN_WIN, n, 0xF, 0xF), REFUSED)
     for n in (1, 2, 31, 32):
-        await env.expect_cmd(Cmd(MEM_RD, IN_WIN, n, 0xF, 0xF if n > 1 else 0), PASS_DOWN)
+        await env.expect_cmd(Cmd(MEM_RD, IN_WIN, n, 0xF, 0xF if n > 1 else 0), PASS)
     for op, a in ((CFG_RD, cfg_addr()), (CFG_WR, cfg_addr()), (MEM_WR, IN_WIN)):
         for n in (0, 2, 32, 63):
             await env.expect_cmd(Cmd(op, a, n, 0xF, 0xF), REFUSED)
-        await env.expect_cmd(Cmd(op, a, 1, 0xF), PASS_DOWN)
-    for op in (HDR_RD, HDR_WR):
+        await env.expect_cmd(Cmd(op, a, 1, 0xF), PASS)
+    for op in (HDR_RD, HDR_WR, ERR_RD, ERR_CLR):
         for n in (0, 2, 63):
             await env.expect_cmd(Cmd(op, 0x30, n, 0xF, 0xF), REFUSED)
     await env.expect_cmd(Cmd(HDR_RD, 0x30, 1), OK)
+    # Every refusal so far sent nothing; each pass sent one TLP.
+    assert len(env.sent) == sent + 4 + 3, env.last_sent()
     # Check 4: every address bit outside the op's fields, one at a time
     # (flipped, so a field bit changes its field).
     for bit in range(32):
         a = cfg_addr() ^ (1 << bit)
         outside = bit >= 28 or bit < 2
         # Bits 27:15 select bus and device: check 7 refuses those.
-        want = REFUSED if outside or 15 <= bit <= 27 else PASS_DOWN
+        want = REFUSED if outside or 15 <= bit <= 27 else PASS
         await env.expect_cmd(Cmd(CFG_RD, a), want)
         await env.expect_cmd(Cmd(CFG_WR, a), want)
         a = IN_WIN ^ (1 << bit)
-        want = REFUSED if bit < 2 or not BASE <= a >> 20 <= LIMIT else PASS_DOWN
+        want = REFUSED if bit < 2 or not BASE <= a >> 20 <= LIMIT else PASS
         await env.expect_cmd(Cmd(MEM_WR, a), want)
         await env.expect_cmd(Cmd(MEM_RD, a), want)
         a = 1 << bit
@@ -87,11 +89,15 @@ async def cmd_checks(dut):
     # Check 5: a MEM_RD inside one aligned 4 KiB block.
     for n in (1, 2, 7, 31, 32):
         last = 0x1000 - 4 * n
-        await env.expect_cmd(Cmd(MEM_RD, IN_WIN | last, n, 0xF, 0xF if n > 1 else 0), PASS_DOWN)
+        await env.expect_cmd(Cmd(MEM_RD, IN_WIN | last, n, 0xF, 0xF if n > 1 else 0), PASS)
         if n > 1:
             # One DW further crosses into the next block.
             await env.expect_cmd(Cmd(MEM_RD, IN_WIN | (last + 4), n, 0xF, 0xF), REFUSED)
     await env.expect_cmd(Cmd(MEM_RD, IN_WIN | 0xFFC, 32, 0xF, 0xF), REFUSED)
+    # Check 4: ERR_* has no address field to check.
+    for a in (0, 3, 0x8000_0001, 0xFFFF_FFFF):
+        await env.expect_cmd(Cmd(ERR_RD, a), OK, 0)
+        await env.expect_cmd(Cmd(ERR_CLR, a), OK, 0)
 
 
 def hdr_data(env: Env, addr: int, status: int) -> int:
@@ -101,17 +107,16 @@ def hdr_data(env: Env, addr: int, status: int) -> int:
 
 @cocotb.test()
 async def byte_enables(dut):
-    """Check 6, every first_be and last_be of every op with len 1, and of
-    MEM_RD with len 2 (both QW alignments) and 3."""
+    """Check 6, every first_be and last_be of every op with len 1 (ERR_*
+    included), and of MEM_RD with len 2 (both QW alignments), 3 and 32."""
     env = Env(dut, seed())
     await env.start()
     await open_routes(env)
-    env.drv["dl_up_i"] = 0
     addr = {CFG_RD: cfg_addr(), CFG_WR: cfg_addr(), MEM_RD: IN_WIN, MEM_WR: IN_WIN,
             HDR_RD: 0x2C, HDR_WR: 0x2C, HOST_RD: 0, HOST_WR: 0, ERR_RD: 0, ERR_CLR: 0}
-    pass_status = {CFG_RD: PASS_DOWN, CFG_WR: PASS_DOWN, MEM_RD: PASS_DOWN, MEM_WR: PASS_DOWN,
+    pass_status = {CFG_RD: PASS, CFG_WR: PASS, MEM_RD: PASS, MEM_WR: PASS,
                    HDR_RD: OK, HDR_WR: OK, HOST_RD: REFUSED, HOST_WR: REFUSED,
-                   ERR_RD: REFUSED, ERR_CLR: REFUSED}
+                   ERR_RD: OK, ERR_CLR: OK}
     # The REQUESTER.md table, len 1: last_be 0; first_be not 0 for CFG_*
     # and MEM_WR; any first_be otherwise.
     for op, a in addr.items():
@@ -132,7 +137,7 @@ async def byte_enables(dut):
                                      or (fbe in contig_f and lbe in contig_l))
                 assert legal == be_legal(Cmd(MEM_RD, a, n, fbe, lbe))
                 await env.expect_cmd(Cmd(MEM_RD, a, n, fbe, lbe),
-                                     PASS_DOWN if legal else REFUSED)
+                                     PASS if legal else REFUSED)
 
 
 @cocotb.test()
@@ -142,15 +147,14 @@ async def routing(dut):
     routes the very next command."""
     env = Env(dut, seed())
     await env.start()
-    env.drv["dl_up_i"] = 0
     # Out of reset: Secondary Bus Number 0, Memory Space Enable 0, window
     # 0 to 1 MiB.
-    await env.expect_cmd(Cmd(CFG_RD, cfg_addr(bus=0)), PASS_DOWN)
+    await env.expect_cmd(Cmd(CFG_RD, cfg_addr(bus=0)), PASS)
     await env.expect_cmd(Cmd(CFG_RD, cfg_addr(bus=1)), REFUSED)
     await env.expect_cmd(Cmd(MEM_WR, 0x0000_0000), REFUSED)      # MSE 0
     await env.hdr_wr(1, 0x2)
-    await env.expect_cmd(Cmd(MEM_WR, 0x0000_0000), PASS_DOWN)    # the very next command
-    await env.expect_cmd(Cmd(MEM_WR, 0x000F_FFFC), PASS_DOWN)
+    await env.expect_cmd(Cmd(MEM_WR, 0x0000_0000), PASS)    # the very next command
+    await env.expect_cmd(Cmd(MEM_WR, 0x000F_FFFC), PASS)
     await env.expect_cmd(Cmd(MEM_WR, 0x0010_0000), REFUSED)
     await env.hdr_wr(1, 0x4)                                     # BME only: MSE back to 0
     await env.expect_cmd(Cmd(MEM_RD, 0x0000_0000), REFUSED)
@@ -160,16 +164,16 @@ async def routing(dut):
         await env.hdr_wr(6, (bus << 8) | 0x11, be=0x2)
         for b in (bus, bus ^ 0x01, bus ^ 0x80, (bus + 1) & 0xFF):
             await env.expect_cmd(Cmd(CFG_WR, cfg_addr(bus=b)),
-                                 PASS_DOWN if b == bus else REFUSED)
+                                 PASS if b == bus else REFUSED)
         for dev in (1, 2, 4, 8, 16, 31):
             await env.expect_cmd(Cmd(CFG_RD, cfg_addr(bus=bus, dev=dev)), REFUSED)
         for fn in range(8):
-            await env.expect_cmd(Cmd(CFG_RD, cfg_addr(bus=bus, fn=fn, reg=0x3FF)), PASS_DOWN)
+            await env.expect_cmd(Cmd(CFG_RD, cfg_addr(bus=bus, fn=fn, reg=0x3FF)), PASS)
     # Primary and Subordinate Bus Numbers do not route.
     await env.hdr_wr(6, 0x00FF_10EE)
     await env.expect_cmd(Cmd(CFG_RD, cfg_addr(bus=0xEE)), REFUSED)
     await env.expect_cmd(Cmd(CFG_RD, cfg_addr(bus=0xFF)), REFUSED)
-    await env.expect_cmd(Cmd(CFG_RD, cfg_addr(bus=0x10)), PASS_DOWN)
+    await env.expect_cmd(Cmd(CFG_RD, cfg_addr(bus=0x10)), PASS)
     # Memory window edges, for several windows, an empty one included.
     for base, limit in ((0x100, 0x1FF), (0x123, 0x123), (0x000, 0xFFF), (0xFFF, 0xFFF),
                         (0x800, 0x7FF), (0x456, 0x455), (0x001, 0xFFE)):
@@ -180,41 +184,60 @@ async def routing(dut):
             inside = base <= mib <= limit
             for low in (0x00000, 0xFFFFC):
                 a = (mib << 20) | low
-                await env.expect_cmd(Cmd(MEM_WR, a), PASS_DOWN if inside else REFUSED)
+                await env.expect_cmd(Cmd(MEM_WR, a), PASS if inside else REFUSED)
                 n = 1 if low else 32
                 await env.expect_cmd(Cmd(MEM_RD, a, n, 0xF, 0xF if n > 1 else 0),
-                                     PASS_DOWN if inside else REFUSED)
+                                     PASS if inside else REFUSED)
 
 
 @cocotb.test()
-async def interim(dut):
-    """The interim rule: an endpoint command past checks 2 to 7 finishes
-    LOCAL_UR with the link up and LINK_DOWN with it down, sending nothing;
-    a refused one LOCAL_UR either way; HOST_* and ERR_* LOCAL_UR."""
+async def check1(dut):
+    """Check 1: an endpoint command taken while dl_up_i is 0 finishes
+    LINK_DOWN at once, whichever of checks 2 to 7 it would fail, and sends
+    nothing; with the link up the same commands pass or finish LOCAL_UR.
+    Local commands are unaffected by the link; HOST_* finishes LOCAL_UR
+    (the interim rule until #375). dl_up_i is sampled at the take."""
     env = Env(dut, seed())
     await env.start()
     await open_routes(env)
     env.toggle_idle = True
     good = (Cmd(CFG_RD, cfg_addr()), Cmd(CFG_WR, cfg_addr(), data=0x1234),
             Cmd(MEM_RD, IN_WIN, 32, 0xF, 0xF), Cmd(MEM_WR, IN_WIN, data=0xFFFF_FFFF))
-    bad = (Cmd(CFG_RD, cfg_addr(bus=BUS + 1)), Cmd(CFG_WR, cfg_addr(), first_be=0),
-           Cmd(MEM_RD, IN_WIN | 0xF84, 32, 0xF, 0xF), Cmd(MEM_WR, (LIMIT + 1) << 20))
-    local = (Cmd(HOST_RD, 0x10), Cmd(HOST_WR, 0x10, data=0xA5), Cmd(ERR_RD), Cmd(ERR_CLR,
-             data=0xFFFF_FFFF))
+    # One endpoint command failing each of checks 3 to 7.
+    bad = (Cmd(MEM_WR, IN_WIN, 2, 0xF, 0xF),                    # 3
+           Cmd(CFG_RD, cfg_addr() | (1 << 28)),                 # 4
+           Cmd(MEM_RD, IN_WIN | 0xF84, 32, 0xF, 0xF),           # 5
+           Cmd(CFG_WR, cfg_addr(), first_be=0),                 # 6
+           Cmd(MEM_WR, (LIMIT + 1) << 20),                      # 7
+           Cmd(CFG_RD, cfg_addr(bus=BUS + 1)))                  # 7
+    local = ((Cmd(HDR_RD, 0x8), OK), (Cmd(HDR_WR, 0x0C, data=0x40), OK), (Cmd(ERR_RD), OK),
+             (Cmd(ERR_CLR, data=0xFFFF_FFFF), OK), (Cmd(HOST_RD, 0x10), LOCAL_UR),
+             (Cmd(HOST_WR, 0x10, data=0xA5), LOCAL_UR))
     for dl_up in (1, 0, 1, 0):
+        sent = len(env.sent)
         for c in good:
+            await env.expect_cmd(c, OK if dl_up else LINK_DOWN, dl_up=dl_up)
+        assert len(env.sent) == sent + (4 if dl_up else 0), env.last_sent()
+        for c in bad:
             await env.expect_cmd(c, LOCAL_UR if dl_up else LINK_DOWN, dl_up=dl_up)
-        for c in bad + local:
-            await env.expect_cmd(c, LOCAL_UR, dl_up=dl_up)
-    # dl_up_i is sampled at the take: toggled every cycle while offered.
-    for i in range(16):
+        for c, status in local:
+            await env.expect_cmd(c, status, dl_up=dl_up)
+        assert len(env.sent) == sent + (4 if dl_up else 0), env.last_sent()
+    # dl_up_i is sampled at the take: changed every cycle while offered
+    # (takes land on both values).
+    seen = set()
+    for i in range(18):
         env.drv["cmd_valid_i"] = 1
-        env.drv["cmd_i"] = good[i % 4].pack()
-        env.drv["dl_up_i"] = i & 1
+        env.drv["cmd_i"] = bad[i % len(bad)].pack()
+        up = int(i % 3 != 0)
+        env.drv["dl_up_i"] = up
         take, beat = await env.tick()
         if take:
-            assert beat == Rsp(LOCAL_UR if i & 1 else LINK_DOWN)
+            assert beat == Rsp(LOCAL_UR if up else LINK_DOWN)
+            seen.add(up)
+    assert seen == {0, 1}
     env.drv["cmd_valid_i"] = 0
+    env.drv["dl_up_i"] = 1
     await env.idle(4)
 
 
@@ -246,8 +269,8 @@ async def result_beats(dut):
     # Back-to-back different commands keep the order and pairing.
     for c, status in ((Cmd(HDR_WR, 0x18, data=0x0003_0201), OK), (Cmd(HDR_RD, 0x18), OK),
                       (Cmd(15), LOCAL_UR), (Cmd(HDR_RD, 0x0C), OK)):
-        beat = await env.command(c)
-        assert beat.status == status and beat.last == 1, f"{c}: {beat}"
+        beats = await env.command(c)
+        assert len(beats) == 1 and beats[0].status == status, f"{c}: {beats}"
     assert env.takes[-3][2].data == 0x0003_0201
     assert env.takes[-1][2].data == 0x0001_0000
     # rst_i rising in the beat cycle silences the beat at once.
@@ -329,14 +352,14 @@ async def run_random(dut, cmds: int) -> None:
         if r.random() < 0.004:
             await env.reset(r.randrange(1, 4))
             await open_routes(env)
-        env.drv["dl_up_i"] = int(r.random() < 0.3)
+        env.drv["dl_up_i"] = int(r.random() < 0.8)
         for _ in range(r.choice((0, 0, 0, 1, 3))):
             await env.tick()
         await env.command(random_cmd(env))
         done += 1
     env.drv["cmd_valid_i"] = 0
     await env.idle(4)
-    statuses = {b.status for _, _, b in env.takes}
+    statuses = {beats[-1].status for _, beats in env.results}
     assert {OK, LOCAL_UR, LINK_DOWN} <= statuses, statuses
 
 
