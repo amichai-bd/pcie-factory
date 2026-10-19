@@ -438,6 +438,7 @@ def test_posted_inbound_events(tlp, bit):
     (tlm.mem_tlp(False, 0xFEE0_0000, 1, 0xF, 0, 0x0100, 3), m.E_INBOUND_UR, tlm.UR, 4),
     (tlm.mem_tlp(False, 0x100, 1, 0x6, 0, 0x0100, 3, ep=1), m.E_POISONED, tlm.UR, 2),
     (tlm.cfg_tlp(False, 0, 0, 0, 0, 0xF, 0x0100, 3), m.E_INBOUND_UR, tlm.UR, 4),
+    (tlm.cfg_tlp(True, 0, 0, 0, 0, 0xF, 0x0100, 3, b"\1\2\3\4"), m.E_INBOUND_UR, tlm.UR, 4),
     (tlm.mem_tlp(False, 0xFF8, 4, 0xF, 0xF, 0x0100, 3), m.E_MALFORMED, None, 0),
 ])
 def test_nonposted_inbound(tlp, bit, status, bc):
