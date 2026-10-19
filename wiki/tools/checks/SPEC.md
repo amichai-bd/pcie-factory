@@ -689,7 +689,7 @@ every target, so it skips that test. The directive lives in the RTL, not in
 `tools/` or `cfg/`, so the check names no IP and no parameter.
 
 **Netlist.** For each target, Verilator runs
-`--json-only -Wno-fatal [--top-module T] +incdir+... -D... <sources>` with
+`--json-only -Wno-fatal [--top-module T] [-G<P>=<V> ...] +incdir+... -D... <sources>` with
 the resolved `.rtl.f`, writing the JSON tree and meta files to a temporary
 directory that is removed afterwards (nothing is written under `workdir/`).
 The JSON format is not stable across Verilator releases, so the check
