@@ -1,0 +1,2 @@
+-F ../../rtl/rc_seq/rc_seq.rtl.f
+-F rc_seq.dv.f

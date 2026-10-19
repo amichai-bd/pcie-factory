@@ -20,7 +20,7 @@ owns the interface between `rc_tl` and `rc_seq`. The `rc_tl` MAS
 ([#368](https://github.com/amichai-bd/pcie-factory/issues/368)) owns tags,
 outstanding requests, the completion timeout value and how each error is
 detected; the `rc_seq` MAS
-([#369](https://github.com/amichai-bd/pcie-factory/issues/369)) owns the
+([`rc_seq` MAS](../../rtl/rc_seq/MAS.md)) owns the
 command encoding, the ROM size and the program format. How `rc` is built
 is in the [MAS](../../rtl/rc/MAS.md); how it is verified, in the
 [DV plan](../../dv/rc/DV_PLAN.md). Rules from the PCIe Base Spec rev 3.0
@@ -83,15 +83,13 @@ watches both directions as a passive shadow (P5, goal item 8).
 | `MSI_ADDR` | `logic [31:0]` | 32'hFEE0_0000 | 4 KiB aligned, outside host memory | System address of the 4 KiB [MSI window](#msi-window). |
 | `VENDOR_ID`, `DEVICE_ID` | `logic [15:0]` | 16'h0000 each | any but 16'hFFFF | The root port's IDs in its [Type 1 header](#type-1-header). Placeholders that claim no assigned vendor, as `core`'s. |
 | `REVISION_ID` | `logic [7:0]` | 8'h00 | any | The root port's Revision ID. |
+| `PROGRAM` | `int unsigned` | 1 | a program id of the `rc_seq` package | Passed to `rc_seq`: the ROM image a run executes ([`rc_seq` programs](../../rtl/rc_seq/MAS.md#programs)). 1, enumeration then MMIO, is the board build's. |
 
 Fixed, not parameters: completion credits infinite (`FC_CPLH`, `FC_CPLD`
 0), `FC_RELEASE` 1, `port_role_i` 0 ([downstream role](#downstream-role));
 maximum payload and maximum read request 128 bytes, VC0 only, no ECRC
 (M2 Q6, carried over); memory requests from `rc` use 32-bit addresses
-(3-DW headers). The ROM image parameter that selects `rc_seq`'s program
-joins this table with the `rc_seq` MAS
-([#369](https://github.com/amichai-bd/pcie-factory/issues/369), program
-format).
+(3-DW headers).
 
 ## Behavior
 
@@ -137,8 +135,8 @@ enumerates again (goal item 7). A retrain (Recovery) keeps `dl_up_o` at
   run. Cycles with `rst_i` 1 count as `start_i` 0, so a `start_i` held at 1
   through the release of `rst_i` starts one run in the first cycle after
   reset (a board build may tie it to 1 to run once per reset). A run executes the ROM program from its first step
-  ([#369](https://github.com/amichai-bd/pcie-factory/issues/369) owns the
-  commands of OP4 and their encoding).
+  (the [`rc_seq` MAS](../../rtl/rc_seq/MAS.md) owns the commands of OP4
+  and their encoding).
 - `done_o` is 0 from reset and while a run is in progress, and 1 from the
   cycle after the run ends until the next run starts.
 - `pass_o` is meaningful while `done_o` is 1: 1 when the run reached its

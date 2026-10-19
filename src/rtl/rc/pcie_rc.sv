@@ -19,7 +19,8 @@ module pcie_rc #(
   parameter logic [31:0] MSI_ADDR        = 32'hFEE0_0000,  // system address of the 4 KiB MSI window
   parameter logic [15:0] VENDOR_ID       = 16'h0000,       // placeholder, claims no assigned vendor
   parameter logic [15:0] DEVICE_ID       = 16'h0000,       // placeholder
-  parameter logic [7:0]  REVISION_ID     = 8'h00
+  parameter logic [7:0]  REVISION_ID     = 8'h00,
+  parameter int unsigned PROGRAM         = 1               // rc_seq program id; 1 is MMIO (rc_seq MAS)
 ) (
   // Clock and reset
   input  logic        clk_i,              // core clock, 125 MHz
@@ -58,7 +59,8 @@ module pcie_rc #(
   assign unused_inputs = ^{clk_i, rst_i, start_i, ser_tx_rxdet_i,
                            FC_PH[0], FC_PD[0], FC_NPH[0], FC_NPD[0], TIMEOUT_DIV[0],
                            ERR_TIMEOUT_DIV[0], CPL_TIMEOUT_DIV[0], HOST_MEM_ADDR_W[0],
-                           HOST_MEM_BASE, MSI_ADDR, VENDOR_ID, DEVICE_ID, REVISION_ID};
+                           HOST_MEM_BASE, MSI_ADDR, VENDOR_ID, DEVICE_ID, REVISION_ID,
+                           PROGRAM[0]};
   logic unused_rx_inputs;
   assign unused_rx_inputs = ^{ser_rx_clk_i, ser_rx_data_i, ser_rx_elec_idle_i};
 
