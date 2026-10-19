@@ -19,6 +19,18 @@ import pcie_rc_line_model as lm  # noqa: E402
 code8b10b, mac_arch, crc = lm.code8b10b, lm.mac_arch, lm.crc
 
 
+def _invalid(rd: int) -> int:
+    """A code in neither column that leaves running disparity ``rd``."""
+    for code in range(1024):
+        _, _, out, err, _ = code8b10b.decode(code, rd)
+        if err and out == rd and 3 <= bin(code).count("1") <= 7:
+            return code
+    raise RuntimeError("no invalid code")
+
+
+INVALID_CODE = {-1: _invalid(-1), 1: _invalid(1)}
+
+
 class Tx:
     """A transmitter: symbols in, 20-bit words out, slot 0 first."""
 
@@ -33,9 +45,12 @@ class Tx:
     def idle(self, words: int) -> None:
         self.syms += [(False, 0)] * (2 * words)
 
-    def packet(self, dllp: bool, body: bytes) -> None:
-        self.syms += [(True, lm.K_SDP if dllp else lm.K_STP)] + [(False, b) for b in body]
-        self.syms.append((True, lm.K_END))
+    def packet(self, dllp: bool, body: bytes, end: int = lm.K_END, bad_at: int | None = None) -> None:
+        """``end`` END or EDB; ``bad_at`` replaces that body byte with an
+        invalid code."""
+        self.syms += [(True, lm.K_SDP if dllp else lm.K_STP)]
+        self.syms += [("bad", 0) if i == bad_at else (False, b) for i, b in enumerate(body)]
+        self.syms.append((True, end))
         if len(self.syms) % 2:
             self.syms.append((False, 0))
 
@@ -46,6 +61,10 @@ class Tx:
             w = 0
             for j in (0, 1):
                 k, b = self.syms[i + j]
+                if k == "bad":
+                    self.scr.feed(0, 0, True)
+                    w |= INVALID_CODE[self.rd] << (10 * j)
+                    continue
                 if k:
                     self.scr.feed(1, b, False)
                     byte = b
@@ -66,6 +85,7 @@ class Rx:
         self.rd = None
         self.cur = None
         self.packets: list[tuple[bool, bytes]] = []
+        self.edb: list[bytes] = []
         self.errors = 0
 
     def word(self, w: int) -> None:
@@ -73,6 +93,10 @@ class Rx:
             byte, k, self.rd, err, derr = code8b10b.decode((w >> (10 * j)) & 0x3FF, self.rd)
             if err or derr:
                 self.errors += 1
+                self.scr.feed(0, 0, True)
+                if self.cur is not None:
+                    self.cur[1].append(0)
+                continue
             if k:
                 self.scr.feed(1, byte, False)
                 plain = byte
@@ -80,8 +104,10 @@ class Rx:
                 plain = self.scr.feed(0, byte, True)
             if k and plain in (lm.K_STP, lm.K_SDP):
                 self.cur = [plain == lm.K_SDP, bytearray()]
-            elif k and plain == lm.K_END and self.cur is not None:
+            elif k and plain in (lm.K_END, lm.K_EDB) and self.cur is not None:
                 self.packets.append((self.cur[0], bytes(self.cur[1])))
+                if plain == lm.K_EDB:
+                    self.edb.append(bytes(self.cur[1]))
                 self.cur = None
             elif not k and self.cur is not None:
                 self.cur[1].append(plain)
@@ -246,3 +272,30 @@ def test_random_replacements_keep_the_line_clean():
             want += [(False, r) for r in reps[b]] if b in reps else [(d, b)]
         assert rx.packets == want and not rx.errors
         assert rw.delay == 0
+
+
+def test_nullified_and_broken_tlps_keep_their_fault_while_renumbered():
+    """After a replacement shifts the numbers, a nullified TLP (EDB) is
+    renumbered with its LCRC still inverted, and a TLP with an invalid
+    code goes as it came: still an error at the receiver, never fixed."""
+    tx, rx = Tx(), Rx()
+    tx.skp()
+    tx.idle(4)
+    tx.packet(False, lm.tlp_body(3, tlp_mrd(0)))
+    tx.idle(6)
+    tx.packet(False, lm.tlp_body(4, tlp_mrd(1), nullified=True), end=lm.K_EDB)
+    tx.idle(6)
+    tx.packet(False, lm.tlp_body(5, tlp_mrd(2)), bad_at=9)
+    tx.idle(6)
+    tx.packet(False, lm.tlp_body(6, tlp_mrd(3)))
+    tx.idle(400)
+    tx.skp()
+    tx.idle(8)
+    side = lm.TlpSide(lambda seq, t: [t, t] if seq == 3 else None)
+    run(lm.LineRewriter(side.on_packet), tx.words(), rx)
+    seqs = [lm.split_body(b)[0] for d, b in rx.packets]
+    assert seqs[:2] == [3, 4] and seqs[2] == 5 and seqs[-1] == 7, seqs
+    edb = [lm.split_body(b) for b in rx.edb]
+    assert len(edb) == 1 and edb[0][0] == 5 and not edb[0][2]
+    assert rx.packets[2][1][-4:] == lm.crc.invert(lm.crc.lcrc(rx.packets[2][1][:-4]))
+    assert rx.errors == 1, "the invalid code reaches the receiver"

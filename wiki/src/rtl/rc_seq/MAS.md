@@ -271,4 +271,5 @@ programs (#377). For `rc_seq` itself: every op and failure case of
 
 | Item | Owner |
 | --- | --- |
+| `ERRORS` on hardware: at `CPL_TIMEOUT_DIV` 1 (about 16.8 ms) `rc_tl`'s completion timeout ends R12's outstanding read before a link down reaches Detect (the 24 ms Recovery timeout), so R12 ends `TIMEOUT` and the run fails ([programs boundary](PROGRAMS.md#boundary)). | [#409](https://github.com/amichai-bd/pcie-factory/issues/409) |
 | Quartus Lite on the images: each is a 32 768-bit packed constant built by package functions, which Verilator accepts; the FPGA flow of `rc` first runs them through Quartus, and maps the ROM to block memory or reports why not. | [#379](https://github.com/amichai-bd/pcie-factory/issues/379) |

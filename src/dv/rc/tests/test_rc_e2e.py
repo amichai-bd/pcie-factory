@@ -77,7 +77,7 @@ def _cpl(c: ht.Tlp, data: bytes, byte_count: int, lower: int, **kw) -> bytes:
                          byte_count, lower, data, tc=c.tc, attr=c.attr, **kw).encode()
 
 
-# ------------------------------------------------------------------- L1
+# -------------------------------- every test is level 1; level 2 sweeps seeds
 
 @cocotb.test()
 async def e2e_enum(dut):
@@ -197,7 +197,7 @@ async def e2e_inject(dut):
     assert env.cfg.received_msgs[core.cfga.MSG_ERR_FATAL] >= 1, "no ERR_FATAL from the endpoint"
 
 
-# ------------------------------------------------------------------- L2
+# ----------------------------------------------------- errors and recovery
 
 async def _errors(dut, seed_):
     env = Env(dut, seed_)

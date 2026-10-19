@@ -33,7 +33,7 @@ the root-port RTL, its sub-IPs or any architecture model. Contract:
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from pcie_core_host_model import (
     CFG_BAR0,
@@ -803,8 +803,10 @@ class HostShadow(HostModel):
         if failed is not None:
             req.bad = True
             self._event(ERR_MALFORMED)
-        if c.ep and status != "SC":
-            c.ep = 0  # the status row decides first: EP has no effect
+        # The status row decides first: on a non-Successful completion EP
+        # has no effect, so the host checks judge it without EP (a copy;
+        # the observed TLP is left as it came).
+        judged = replace(c, ep=0) if c.ep and status != "SC" else c
         errs = len(req.errors)
         self.side = "endpoint"
         pre = getattr(req, "pre_capture", None)
@@ -814,7 +816,7 @@ class HostShadow(HostModel):
                        f"{sorted(hex(x) for x in pre)}", req)
         self.requester_id = req.tlp.requester_id
         try:
-            self._on_completion(c)
+            self._on_completion(judged)
         finally:
             self.side = "rc"
         if failed is not None:

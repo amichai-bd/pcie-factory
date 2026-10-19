@@ -139,4 +139,4 @@ entry's first seed; none committed):
 | Board build: `rc` and `core` with the GPIO adapter | [#378](https://github.com/amichai-bd/pcie-factory/issues/378) |
 | FPGA synthesis of `rc` (`ci-fpga` has no `rc` target until `src/fpga/rc/`) | [#379](https://github.com/amichai-bd/pcie-factory/issues/379) |
 | Coverage floors | [#380](https://github.com/amichai-bd/pcie-factory/issues/380) |
-| `regress --affected` does not select `rc` for a change to the core e2e's `tb/core_e2e_env.py` alone, which the rc e2e imports (the import scan follows `models/` and `arch/` folders only); a change to `core` RTL or its host models does select it | [#357](https://github.com/amichai-bd/pcie-factory/issues/357): a follow-up issue |
+| `regress --affected` does not select `rc` for a change to the core e2e's `tb/core_e2e_env.py` alone, which the rc e2e imports (the import scan follows `models/` and `arch/` folders only); a change to `core` RTL or its host models does select it | [#408](https://github.com/amichai-bd/pcie-factory/issues/408) |

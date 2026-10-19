@@ -114,7 +114,7 @@ class LineRewriter:
     # -- input ---------------------------------------------------------------
 
     def _decode(self, code: int) -> tuple:
-        byte, k, rd_after, code_err, _ = code8b10b.decode(code, self.rd_in)
+        byte, k, rd_after, code_err, disp_err = code8b10b.decode(code, self.rd_in)
         rd_before = self.rd_in
         if self.rd_in is None and not code_err:
             after = code8b10b.rd_after(code, -1), code8b10b.rd_after(code, 1)
@@ -129,7 +129,9 @@ class LineRewriter:
             key = None
         else:
             key = self.scr_in.feed(0, 0, True)
-        return (code, k, byte, key, rd_before, code_err)
+        # A disparity error counts as a code error: the symbol keeps its
+        # code (still an error at the receiver) and its packet goes as it came.
+        return (code, k, byte, key, rd_before, code_err or disp_err)
 
     @staticmethod
     def _plain(s: tuple) -> int:
@@ -275,7 +277,10 @@ def dllp_body(kind: int, seq: int) -> bytes:
 class SeqShift:
     """The sequence numbers one direction's TLPs have on the line after
     some were replaced by several: ``extra[s]`` more TLPs for the
-    transmitter's TLP ``s``."""
+    transmitter's TLP ``s``. A replacement at ``t`` shifts the numbers
+    within the 2048 that follow ``t`` (half the 12-bit space, the window
+    a data link layer compares in), so every replacement must lie within
+    2048 TLPs of those it shifts; the e2e replaces a few TLPs per run."""
 
     def __init__(self) -> None:
         self.extra: dict[int, int] = {}
