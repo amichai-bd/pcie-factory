@@ -137,8 +137,7 @@ error: it pulses Bad TLP only.
 ## Lower layer
 
 **Specified, not yet in the RTL:** the parameter and ports below arrive
-with [#378](https://github.com/amichai-bd/pcie-factory/issues/378), after
-the [`gpio` HAS](../gpio/HAS.md) sign-off. Until then the
+with [#378](https://github.com/amichai-bd/pcie-factory/issues/378). Until then the
 [Interfaces](#interfaces) and [Parameters](#parameters) tables are the
 RTL, and `link` is the `phy` stack only.
 

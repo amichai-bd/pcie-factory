@@ -1,8 +1,7 @@
 # pcie_gpio MAS
 
 **Draft for wave 3:** a stub until the adapter RTL
-([#378](https://github.com/amichai-bd/pcie-factory/issues/378)) arrives,
-after the [HAS](../../arch/gpio/HAS.md) sign-off.
+([#378](https://github.com/amichai-bd/pcie-factory/issues/378)) arrives.
 
 How `pcie_gpio` implements its [HAS](../../arch/gpio/HAS.md): today a
 ports-only shell; with #378 the transmit packet buffer and slot
