@@ -18,3 +18,9 @@ tests:
     testcase: timeout_once
     top: pcie_rc_tl_tb
     timeout_s: 2400
+  - name: random_inb_long
+    module: tests.test_rc_tl_inb
+    testcase: random_inb_long
+    top: pcie_rc_tl_tb
+    seeds: 2
+    timeout_s: 3600

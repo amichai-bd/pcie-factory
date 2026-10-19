@@ -8,6 +8,10 @@ completions: configuration reads from a register map, memory reads from a
 memory image, one completion each. A test replaces the answer to the next
 requests with `plan`: a function of the decoded request that returns the
 TLPs to send (any completion, well formed or not, split or late, or none).
+
+`tlp` builds the endpoint's own requests and messages for the inbound side
+(any Fmt, Type and field, a 3- or 4-DW header, data and a digest), and
+`Cpl.decode` reads a completion the DUT's completer sends.
 """
 
 from __future__ import annotations
@@ -20,9 +24,86 @@ from typing import Callable
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "models"))
 from pcie_rc_tl_model import (CS_SC, Cmd, MEM_RD, bytes_of, cpl_tlp,  # noqa: E402
-                              read_completions)
+                              dws_of, read_completions)
 
 CFG_RD_T, CFG_WR_T, MEM_RD_T, MEM_WR_T = 0x04, 0x44, 0x00, 0x40
+EP_RID = 0x0100          # the endpoint's Requester ID: bus 1, device 0, function 0
+
+
+def tlp(fmt: int, typ: int, *, addr: int = 0, length: int = 1, fbe: int = 0xF, lbe: int = 0,
+        data: list[int] | None = None, rid: int = EP_RID, tag: int = 0, tc: int = 0,
+        attr: int = 0, ep: int = 0, td: int = 0, code: int | None = None,
+        digest: int = 0xD16E_57ED) -> list[int]:
+    """A request or message as the endpoint sends it (TLP.md): Fmt bit 0
+    a 4-DW header (address bits 63:0 in bytes 8 to 15), bit 1 with data
+    (`data`, Length DWs as given); byte 7 the byte enables, or `code` for a
+    message; then a digest DW when TD is 1."""
+    b = [0] * (16 if fmt & 1 else 12)
+    b[0] = (fmt << 5) | typ
+    b[1] = (tc & 7) << 4
+    b[2] = (td << 7) | (ep << 6) | ((attr & 3) << 4) | ((length >> 8) & 3)
+    b[3] = length & 0xFF
+    b[4], b[5], b[6] = (rid >> 8) & 0xFF, rid & 0xFF, tag & 0xFF
+    b[7] = code if code is not None else ((lbe << 4) | fbe)
+    a = addr.to_bytes(8 if fmt & 1 else 4, "big")
+    b[8:8 + len(a)] = list(a)
+    dws = dws_of(b) + list(data or [])
+    if td:
+        dws.append(digest)
+    return dws
+
+
+def mem_wr(addr: int, data: list[int], fbe: int = 0xF, lbe: int | None = None,
+           hdr4: bool = False, **kw) -> list[int]:
+    """A memory write of len(data) DWs."""
+    if lbe is None:
+        lbe = 0xF if len(data) > 1 else 0
+    return tlp(0b011 if hdr4 else 0b010, 0x00, addr=addr, length=len(data), fbe=fbe, lbe=lbe,
+               data=data, **kw)
+
+
+def mem_rd(addr: int, n: int = 1, fbe: int = 0xF, lbe: int | None = None, hdr4: bool = False,
+           locked: bool = False, **kw) -> list[int]:
+    """A memory read (or locked read) of n DWs (1024 sent as Length 0)."""
+    if lbe is None:
+        lbe = 0xF if n > 1 else 0
+    return tlp(0b001 if hdr4 else 0b000, 0x01 if locked else 0x00, addr=addr, length=n & 0x3FF,
+               fbe=fbe, lbe=lbe, **kw)
+
+
+def msg(code: int, routing: int = 0b000, data: list[int] | None = None, **kw) -> list[int]:
+    """A message (4-DW header), with data when `data` is given."""
+    return tlp(0b011 if data else 0b001, 0x10 | routing, code=code,
+               length=len(data) if data else 0, data=data, **kw)
+
+
+@dataclass
+class Cpl:
+    """A completion as the endpoint decodes it (TLP.md, Completions)."""
+    fmt: int
+    typ: int
+    tc: int
+    attr: int
+    td: int
+    ep: int
+    length: int
+    cid: int
+    status: int
+    bcm: int
+    bc: int
+    rid: int
+    tag: int
+    la: int
+    data: list[int]
+
+    @staticmethod
+    def decode(dws: list[int]) -> "Cpl":
+        b = bytes_of(dws[:3])
+        return Cpl(fmt=b[0] >> 5, typ=b[0] & 0x1F, tc=(b[1] >> 4) & 7, attr=(b[2] >> 4) & 3,
+                   td=b[2] >> 7, ep=(b[2] >> 6) & 1, length=((b[2] & 3) << 8) | b[3],
+                   cid=(b[4] << 8) | b[5], status=b[6] >> 5, bcm=(b[6] >> 4) & 1,
+                   bc=((b[6] & 0xF) << 8) | b[7], rid=(b[8] << 8) | b[9], tag=b[10],
+                   la=b[11] & 0x7F, data=list(dws[3:]))
 
 
 @dataclass

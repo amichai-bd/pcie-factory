@@ -3,8 +3,8 @@
 L0: random inputs, commands included, with rst_i pulsed twice; the
 environment checks every output at every falling clk_i edge against the
 reference model: the reset values in reset, the front end's results after
-it, the blocks not built yet at their reset values, and tlp_rx_ready_o 1
-exactly when rst_i is 0.
+it, the MSI capture and the releases at rest, and tlp_rx_ready_o 1 exactly
+when rst_i is 0.
 """
 
 import cocotb

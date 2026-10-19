@@ -1,5 +1,5 @@
 """pcie_rc_tl front end: the take, checks 1 to 7, byte enables, outbound
-routing, ERR_*, the interim rule for HOST_* and the result beats
+routing, ERR_*, HOST_* and the result beats
 (wiki/src/rtl/rc_tl/MAS.md#commands, REQUESTER.md#byte-enables).
 
 Check 1 refuses every endpoint command with LINK_DOWN while dl_up_i is 0,
@@ -7,8 +7,7 @@ so the tests offer endpoint commands with dl_up_i 1 and tell a pass from a
 refusal by the result: an endpoint command that passes goes to the
 requester, is sent, and the endpoint (tb/rc_tl_ep.py) completes it
 Successfully, so it finishes OK; a refusal finishes LOCAL_UR at once and
-sends nothing. HDR_* and ERR_* pass with OK; HOST_* finishes LOCAL_UR
-either way until #375 serves it (MAS, Leaf blocks).
+sends nothing. HDR_*, HOST_* and ERR_* pass with OK.
 
 Each test states its expected statuses from the specs itself, besides the
 environment's per-cycle check against the reference model.
@@ -115,7 +114,7 @@ async def byte_enables(dut):
     addr = {CFG_RD: cfg_addr(), CFG_WR: cfg_addr(), MEM_RD: IN_WIN, MEM_WR: IN_WIN,
             HDR_RD: 0x2C, HDR_WR: 0x2C, HOST_RD: 0, HOST_WR: 0, ERR_RD: 0, ERR_CLR: 0}
     pass_status = {CFG_RD: PASS, CFG_WR: PASS, MEM_RD: PASS, MEM_WR: PASS,
-                   HDR_RD: OK, HDR_WR: OK, HOST_RD: REFUSED, HOST_WR: REFUSED,
+                   HDR_RD: OK, HDR_WR: OK, HOST_RD: OK, HOST_WR: OK,
                    ERR_RD: OK, ERR_CLR: OK}
     # The REQUESTER.md table, len 1: last_be 0; first_be not 0 for CFG_*
     # and MEM_WR; any first_be otherwise.
@@ -195,8 +194,8 @@ async def check1(dut):
     """Check 1: an endpoint command taken while dl_up_i is 0 finishes
     LINK_DOWN at once, whichever of checks 2 to 7 it would fail, and sends
     nothing; with the link up the same commands pass or finish LOCAL_UR.
-    Local commands are unaffected by the link; HOST_* finishes LOCAL_UR
-    (the interim rule until #375). dl_up_i is sampled at the take."""
+    Local commands, HOST_* included, are unaffected by the link. dl_up_i is
+    sampled at the take."""
     env = Env(dut, seed())
     await env.start()
     await open_routes(env)
@@ -211,8 +210,8 @@ async def check1(dut):
            Cmd(MEM_WR, (LIMIT + 1) << 20),                      # 7
            Cmd(CFG_RD, cfg_addr(bus=BUS + 1)))                  # 7
     local = ((Cmd(HDR_RD, 0x8), OK), (Cmd(HDR_WR, 0x0C, data=0x40), OK), (Cmd(ERR_RD), OK),
-             (Cmd(ERR_CLR, data=0xFFFF_FFFF), OK), (Cmd(HOST_RD, 0x10), LOCAL_UR),
-             (Cmd(HOST_WR, 0x10, data=0xA5), LOCAL_UR))
+             (Cmd(ERR_CLR, data=0xFFFF_FFFF), OK), (Cmd(HOST_RD, 0x10), OK),
+             (Cmd(HOST_WR, 0x10, data=0xA5), OK))
     for dl_up in (1, 0, 1, 0):
         sent = len(env.sent)
         for c in good:

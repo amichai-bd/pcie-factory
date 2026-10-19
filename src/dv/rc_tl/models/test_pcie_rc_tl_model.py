@@ -5,10 +5,13 @@ simulator."""
 
 from pcie_rc_tl_model import (BAD, CA, CFG_RD, CFG_WR, CRS, CS_CA, CS_CRS, CS_SC, CS_UR,
                               E_MAL, E_POIS, E_TMO, E_UNEXP, ERR_CLR, ERR_RD, HDR_RD, HDR_WR,
-                              HOST_RD, HOST_WR, LINK_DOWN, LOCAL_UR, MEM_RD, MEM_WR, OK,
+                              HOST, HOST_RD, HOST_WR, LINK_DOWN, LOCAL_UR, MEM_RD, MEM_WR, OK,
                               TIMEOUT, UR, Cmd, FrontEnd, Inputs, Params, RcTl, Rsp,
                               cpl_tlp, failed_check, read_bytes, read_completions,
                               request_tlp, timeout_cycles)
+from pcie_rc_tl_model import (CAPTURE, CLS_CPL, CLS_NP, CLS_P, DROP, E_COR, E_IN_UR,
+                              E_MSG, NP_DROP, READ, UR_CPL, URLK_CPL, WRITE, Header, RxHdr,
+                              completions_of, credit_class, judge, kind_known, malformed)
 
 
 def fe_open(p: Params = Params()) -> FrontEnd:
@@ -99,7 +102,7 @@ def test_local_results():
     assert fe.execute(Cmd(CFG_RD, 0x0010_0000, 2), 0) == Rsp(LINK_DOWN)
     assert failed_check(Cmd(MEM_RD, 0x1000_0F84, 32, 0xF, 0xF), fe.hdr, fe.p, 0) == 1
     assert failed_check(Cmd(15), fe.hdr, fe.p, 0) == 2
-    assert fe.execute(Cmd(HOST_RD, 0), 1) == Rsp(LOCAL_UR)          # interim (#375)
+    assert fe.execute(Cmd(HOST_RD, 0), 1) == HOST              # waits for host memory
     assert fe.execute(Cmd(HDR_RD, 0), 0) == Rsp(OK, 0)
     # ERR_*: checks 3 and 6 refuse; ERR_CLR clears the bits set in data.
     fe.err = 0x1FFF
@@ -250,3 +253,86 @@ def test_cycle_model_timeout():
     # Edge S + k is outs[k - 1]: the beat follows edge S + N.
     assert [k for k, o in enumerate(outs) if o["beat"] is not None] == [n - 1]
     assert outs[n - 1]["beat"] == Rsp(TIMEOUT) and m.err == 1 << E_TMO
+
+
+# --------------------------------------------------------------- inbound
+
+def rx(typ=0x00, fmt=0b000, addr=0x40, lfield=1, fbe=0xF, lbe=0, tc=0, attr=0, ep=0,
+       code=0) -> RxHdr:
+    return RxHdr(fmt=fmt, typ=typ, tc=tc, td=0, ep=ep, attr=attr, lfield=lfield, rid=0x0100,
+                 tag=7, fbe=fbe, lbe=lbe, code=code, addr=addr)
+
+
+def open_hdr(bme: int = 1) -> Header:
+    """Bus Master Enable, window 0x100..0x1FF MiB; host memory 4 KiB at 0."""
+    h = Header(Params())
+    h.write(1, 0xF, 0x2 | (bme << 2))
+    h.write(8, 0xF, 0x1FF0_1000)
+    return h
+
+
+def test_kinds_and_classes():
+    """TLP.md, Kinds; FLOW_CONTROL.md, classes."""
+    assert kind_known(0b000, 0x00) and kind_known(0b011, 0x00) and not kind_known(0b100, 0x00)
+    assert kind_known(0b001, 0x01) and not kind_known(0b010, 0x01)
+    assert kind_known(0b010, 0x04) and not kind_known(0b001, 0x04)
+    assert kind_known(0b001, 0x10) and kind_known(0b011, 0x17) and not kind_known(0b000, 0x10)
+    assert kind_known(0b011, 0x0E) and not kind_known(0b000, 0x0C) and not kind_known(0b000, 0x03)
+    assert credit_class(0b010, 0x00) == CLS_P and credit_class(0b001, 0x13) == CLS_P
+    assert credit_class(0b000, 0x00) == CLS_NP and credit_class(0b010, 0x0C) == CLS_NP
+    assert credit_class(0b001, 0x0A) == CLS_CPL and credit_class(0b110, 0x00) == CLS_P
+
+
+def test_malformed_steps():
+    """INBOUND.md, Receive checks, steps 3 to 6."""
+    assert not malformed(rx(lfield=1, fbe=0))                        # zero-length read
+    assert malformed(rx(lfield=1, lbe=1))
+    assert not malformed(rx(lfield=2, fbe=0x5, lbe=0xA, addr=0x40))  # one aligned QW
+    assert malformed(rx(lfield=2, fbe=0x5, lbe=0xA, addr=0x44))
+    assert malformed(rx(lfield=3, fbe=0xF, lbe=0x2)) and malformed(rx(lfield=2, fbe=0, lbe=1))
+    assert malformed(rx(addr=0xFFC, lfield=2, lbe=0xF)) and not malformed(rx(addr=0xFF8, lfield=2, lbe=0xF))
+    assert malformed(rx(addr=0x40, lfield=0, lbe=0xF))               # 1024 DWs from 0x40
+    assert not malformed(rx(addr=0, lfield=0, lbe=0xF))
+    assert malformed(rx(typ=0x04, lfield=2)) and malformed(rx(typ=0x02, tc=1))
+    assert malformed(rx(typ=0x05, attr=1)) and not malformed(rx(typ=0x04))
+    assert malformed(rx(typ=0x10, fmt=0b001, tc=1, code=0x30))
+    assert not malformed(rx(typ=0x10, fmt=0b001, tc=1, code=0x7E))
+
+
+def test_inbound_routing():
+    """rc HAS, Inbound routing, first match; poisoned after; UR outranks it."""
+    h, p = open_hdr(), Params()
+    w = rx(fmt=0b010, addr=0x40)
+    assert judge(w, h, p) == (WRITE, 0)
+    assert judge(rx(addr=0x40, lfield=4, lbe=0xF), h, p) == (READ, 0)
+    assert judge(rx(fmt=0b010, addr=0xFEE0_0010), h, p) == (CAPTURE, 0)
+    assert judge(rx(fmt=0b010, addr=0xFEE0_0010, lfield=2, lbe=0xF), h, p) == (DROP, 1 << E_IN_UR)
+    assert judge(rx(addr=0xFEE0_0010), h, p) == (UR_CPL, 1 << E_IN_UR)
+    assert judge(rx(fmt=0b010, addr=0x1000_0040), h, p) == (DROP, 1 << E_IN_UR)   # window
+    assert judge(rx(addr=0x1000), h, p) == (UR_CPL, 1 << E_IN_UR)                 # past host
+    assert judge(rx(fmt=0b001, addr=(1 << 32) | 0x40), h, p) == (UR_CPL, 1 << E_IN_UR)
+    assert judge(rx(typ=0x01, addr=0x40), h, p) == (URLK_CPL, 1 << E_IN_UR)
+    assert judge(rx(typ=0x04), h, p) == (UR_CPL, 1 << E_IN_UR)
+    assert judge(rx(addr=0x40, ep=1), h, p) == (UR_CPL, 1 << E_POIS)
+    assert judge(rx(fmt=0b010, addr=0x40, ep=1), h, p) == (DROP, 1 << E_POIS)
+    assert judge(rx(addr=0x1000_0040, ep=1), h, p) == (UR_CPL, 1 << E_IN_UR)
+    assert judge(rx(addr=0x40, lfield=1, lbe=1, ep=1), h, p) == (NP_DROP, 1 << E_MAL)
+    off = open_hdr(bme=0)
+    assert judge(w, off, p) == (DROP, 1 << E_IN_UR)
+    assert judge(rx(typ=0x10, fmt=0b001, code=0x30), off, p) == (DROP, 1 << E_COR)
+    assert judge(rx(typ=0x12, fmt=0b011, code=0x99, lfield=1), h, p) == (DROP, 1 << E_MSG)
+
+
+def test_completer_split():
+    """INBOUND.md, Completer: 64 DWs at 0x24, F 1110, L 0111: T 254 from B
+    0x25, end 0x123; 23 DWs to the 64-byte boundary 0x80, then 32 to 0x100,
+    then 9; Byte Counts 254, 0x123 - 0x80, 0x123 - 0x100."""
+    assert completions_of(rx(addr=0x24, lfield=64, fbe=0xE, lbe=0x7)) == [
+        (0x24, 23, 254, 0x25), (0x80, 32, 0x123 - 0x80, 0), (0x100, 9, 0x123 - 0x100, 0)]
+    # 1024 DWs: 32 completions of 32; the first's Byte Count 4096 is sent as 0.
+    c = completions_of(rx(addr=0, lfield=0, lbe=0xF))
+    assert len(c) == 32 and c[0] == (0, 32, 0, 0) and c[1] == (0x80, 32, 4096 - 128, 0)
+    assert completions_of(rx(addr=0x40, lfield=1, fbe=0)) == [(0x40, 1, 1, 0x40)]
+    # 33 DWs at 0x7C: the highest boundary within 128 bytes is 0xC0.
+    assert completions_of(rx(addr=0x7C, lfield=33, lbe=0xF)) == [(0x7C, 17, 132, 0x7C),
+                                                                 (0xC0, 16, 64, 0x40)]

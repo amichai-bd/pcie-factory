@@ -48,9 +48,7 @@ flowchart LR
 ```
 
 `rc` wires it between `rc_seq` and `link` ([`rc` position](../../arch/rc/HAS.md#position)).
-The blocks above are the [leaf blocks](#leaf-blocks); today `u_cmd`,
-`u_hdr`, `u_req`, `u_tx` (the requester's line) and `u_rx` (the
-completion side) are built and the others are tied to their reset values
+The blocks above are the [leaf blocks](#leaf-blocks), one file each
 ([files](#files)).
 
 ## Interfaces
@@ -97,7 +95,7 @@ and the member is read outside the function.
 
 | Name | Type | Default | Range | Effect |
 | --- | --- | --- | --- | --- |
-| `FC_NPH` | `int unsigned` | 8 | 1 to 127 | The non-posted header credits `rc` advertises: sizes the [non-posted queue](INBOUND.md#completer). |
+| `FC_NPH` | `int unsigned` | 8 | 1 to 127 | The non-posted header credits `rc` advertises: sizes the [non-posted queue](INBOUND.md#completer), 2^max(1, ⌈log2 `FC_NPH`⌉) + 1 entries. |
 | `CPL_TIMEOUT_DIV` | `int unsigned` | 1 | 1 to 1024 | Divides the [completion timeout](REQUESTER.md#completion-timeout). |
 | `HOST_MEM_ADDR_W` | `int unsigned` | 12 | 8 to 16 | Host memory is 2^`HOST_MEM_ADDR_W` bytes. |
 | `HOST_MEM_BASE` | `logic [31:0]` | 32'h0 | aligned to the host memory size | System address of host memory byte 0. |
@@ -117,12 +115,13 @@ Two resets: `rst` (`rst_i`) and the link reset `lrst` (`rst_i` or
 | Reset by | State |
 | --- | --- |
 | `rst` only | The front end and the command in progress, the requester (the outstanding request, the tag counter, the timeout counter), the Type 1 header, the error record, the MSI capture. |
-| `lrst` | The receive parser (a TLP in progress is dropped with no event), the non-posted queue and the completer (every inbound request held is dropped with no completion and no release), the transmit arbiter and output stage (a TLP in progress is abandoned), the pending credit releases. |
+| `lrst` | The receive parser (a TLP in progress is dropped with no event; a write DW already taken is still written at the next edge, so a write cut by link down keeps the DWs taken), the non-posted queue and the completer (every inbound request held is dropped with no completion and no release), the transmit arbiter and output stage (a TLP in progress is abandoned), the pending credit releases. |
 
 Host memory is never reset. Out of `rst` every output is 0 but
 `tlp_rx_ready_o`, which is 1. While `rst_i` is 1, `cmd_ready_o`,
-`rsp_valid_o` and `rsp_o` are 0 at once, as [TL_SEQ](../../arch/rc/TL_SEQ.md#signals)
-requires, not only after the next edge. The outstanding endpoint request
+`rsp_valid_o`, `rsp_o`, `msi_valid_o` and `msi_o` are 0 at once, as
+[TL_SEQ](../../arch/rc/TL_SEQ.md#signals) requires, not only after the
+next edge; while `lrst` is 1 the `fc_rel_*` outputs are 0 at once. The outstanding endpoint request
 ends with `LINK_DOWN` at the first edge with `dl_up_i` 0, its beat in the
 next cycle, after any data beats it already returned; nothing else ends it
 at that edge. Every endpoint command taken while `dl_up_i` is 0 gets
@@ -160,7 +159,9 @@ memory, MSI capture and credits on the [inbound page](INBOUND.md).
 
 - **Local commands** finish `OK` with one beat: `HDR_*` and `ERR_*` in
   the cycle after the take; `HOST_*` once [host memory](INBOUND.md#host-memory)
-  grants it. `ERR_RD` returns the error record as it stands before the
+  grants it, which it asks for from the cycle after the take: a `HOST_WR`
+  writes the bytes `first_be` enables at its grant, a `HOST_RD` reads its
+  DW there. `ERR_RD` returns the error record as it stands before the
   take's edge (an event at that edge shows in the next `ERR_RD`);
   `ERR_CLR` clears the bits set in `data` (an event setting a bit at the
   same edge wins).
@@ -217,13 +218,13 @@ recovery case, and what records it:
 | File | Block | Holds | Built by |
 | --- | --- | --- | --- |
 | `pcie_rc_tl_pkg.sv` | package | `t_hdr_st` and the front end's state first; then `t_np_ent`, the decoded header, the other block states, error bit numbers | [#374](https://github.com/amichai-bd/pcie-factory/issues/374), then [#373](https://github.com/amichai-bd/pcie-factory/issues/373), [#375](https://github.com/amichai-bd/pcie-factory/issues/375) |
-| `pcie_rc_tl_cmd.sv` | `u_cmd` | [Commands](#commands): the take, checks 2 to 7 against the real `t_hdr_st`, [byte enables](REQUESTER.md#byte-enables), `HDR_*` and the result beats (#374); check 1, endpoint commands to `u_req`, the [error record](#error-record-and-q2-cases) and `ERR_*` (#373); `HOST_*` (#375) | #374, #373, #375 |
+| `pcie_rc_tl_cmd.sv` | `u_cmd` | [Commands](#commands): the take, checks 2 to 7 against the real `t_hdr_st`, [byte enables](REQUESTER.md#byte-enables), `HDR_*` and the result beats (#374); check 1, endpoint commands to `u_req`, the [error record](#error-record-and-q2-cases) and `ERR_*` (#373); `HOST_*`, the access it holds for `u_mem` (#375) | #374, #373, #375 |
 | `pcie_rc_tl_req.sv` | `u_req` | [Requests](REQUESTER.md#requests), tag, [timeout](REQUESTER.md#completion-timeout), [completion matching](REQUESTER.md#completion-matching), the result beats and error events to `u_cmd`, [link down](#reset-and-link-down) | #373 |
 | `pcie_rc_tl_tx.sv` | `u_tx` | [Transmit](REQUESTER.md#transmit): the requester's line, the credit check, the grant and the output stage (#373); the completer's line and the priority between the lines (#375) | #373, #375 |
 | `pcie_rc_tl_rx.sv` | `u_rx` | [Receive checks](INBOUND.md#receive-checks), posted [release](INBOUND.md#credits); completions in #373, requests and messages in #375 | #373, #375 |
 | `pcie_rc_tl_hdr.sv` | `u_hdr` | [Type 1 header](#type-1-header), driving `t_hdr_st` | #374 |
-| `pcie_rc_tl_mem.sv` | `u_mem` | [Host memory](INBOUND.md#host-memory) and its port | #375 |
-| `pcie_rc_tl_cpl.sv` | `u_cpl` | [Completer](INBOUND.md#completer), non-posted queue and release | #375 |
+| `pcie_rc_tl_mem.sv` | `u_mem` | [Host memory](INBOUND.md#host-memory), its port arbitration and the forward-progress assertions | #375 |
+| `pcie_rc_tl_cpl.sv` | `u_cpl` | [Completer](INBOUND.md#completer), the non-posted queue, the completion data queue and the non-posted release | #375 |
 | `pcie_rc_tl_msi.sv` | `u_msi` | [MSI capture](INBOUND.md#msi-capture) | #375 |
 | `pcie_rc_tl.sv` | top | Parameter checks, `rst` and `lrst`, the blocks | #374 adds `u_cmd` and `u_hdr`; each issue adds its blocks |
 
@@ -234,13 +235,13 @@ numbers) and fills the Requester ID from it, with no stand-in; then #373
 (after [#385](https://github.com/amichai-bd/pcie-factory/issues/385));
 then #375 ([#368 decision](https://github.com/amichai-bd/pcie-factory/issues/368#issuecomment-6268994085)).
 
-**Interim rule.** Until #375 adds host memory, `u_cmd` finishes a
-`HOST_*` command that passes the checks with `LOCAL_UR`: one beat in the
-cycle after the take, nothing changed, so no command hangs. While it
-finishes `LOCAL_UR` either way, the `HOST_*` refusals (checks 3, 4 and 6)
-are not observable at the ports; their tests belong to #375. Until then
-`u_rx` hands only completions on: every other TLP is taken and dropped
-with no event and no release, and `u_tx` has only the requester's line.
+All the blocks are built. `u_cmd`, `u_req`, `u_hdr`, `u_mem` and `u_msi`
+are reset by `rst`; `u_rx`, `u_cpl` and `u_tx` by `lrst`
+([reset](#reset-and-link-down)). The blocks exchange the package's
+structs: `u_cmd` holds a `t_host_acc` for `u_mem`; `u_rx` gives `u_mem` a
+`t_mem_wr` from a flop, `u_cpl` a `t_np_ent` at a non-posted TLP's `eop`
+and `u_msi` a `t_rc_msi`; `u_cpl` offers `u_tx` a `t_cpl_tx` and its data
+from the completion data queue.
 
 ### Reuse of tl blocks
 
@@ -253,6 +254,8 @@ with no event and no release, and `u_tx` has only the requester's line.
   [`common_sdp_ram_fifo`](../common/ram/common_sdp_ram_fifo.md) (once
   `tl`'s [queue](../tl/MAS.md#queue)), a shared RAM-group block: the
   non-posted queue and the completion data queue.
+- The single-port RAM [`common_sync_ram`](../common/ram/common_sync_ram.md):
+  host memory.
 - The output stage [`common_skid_stage`](../common/common_skid_stage.md)
   (once `tl`'s [output stage](../tl/MAS.md#transmit-arbiter)): `u_tx`'s
   flops with a skid slot, with the beat format `t_tx_dw` of this package.
@@ -262,13 +265,15 @@ with no event and no release, and `u_tx` has only the requester's line.
   completion flag and header DWs 0 and 1.
 - The [TLP helpers of `common_pkg`](../common/common_pkg.md#tlp-helpers)
   (once in [`pcie_tl_pkg`](../tl/MAS.md#package)), whose arguments are
-  plain vectors: kinds, byte-enable and 4 KiB checks, message TC, byte
-  totals and credits for the receive checks and the completer's byte
-  counts, and `credit_class` with `t_cls` for releasing a malformed TLP's
-  credits by the class the `dll` counted. The requester already uses
-  `is_cpl` (the parser's completion kinds), `byte_total` and `be_lo` (a
-  read's bytes due and first byte), `be_word` (the address DW), and
-  `credit_class` with `data_credits` (the transmit arbiter's credit check).
+  plain vectors: `kind_known`, `be_ok`, `cross_4k` and `msg_tc0` for the
+  receive checks, `credit_class` with `t_cls` and `data_credits` for every
+  received TLP's release by the class the `dll` counted, malformed or not,
+  `byte_total`, `be_lo` and `be_mask` for the completer's Byte Count,
+  Lower Address and masked bytes, `dw_credits` for a completion's credit
+  check. The requester uses `is_cpl` (the parser's completion kinds),
+  `byte_total` and `be_lo` (a read's bytes due and first byte), `be_word`
+  (the address DW), and `credit_class` with `data_credits` (the transmit
+  arbiter's credit check).
 
 Not reused: `tl`'s tracker (eight application tags, a prescaler and an rc
 buffer, where `rc_tl` has one request and streams results), its two
@@ -315,13 +320,26 @@ the captain may override any.
   the expiry edge; `LINK_DOWN` in the cycle after the first edge with
   `dl_up_i` 0. `cmd_ready_o` is 1 again in the cycle after the last beat.
 - Received: one beat per cycle. A posted write DW is written at the edge
-  after it is taken; the release and every event of a TLP come in the
-  cycle after its `eop`; a completion data beat on `rsp` in the cycle
-  after its DW.
+  after it is taken; a capture is offered on `msi_*`, the posted release
+  pulses and every event of a TLP is in the error record in the cycle
+  after its `eop`; a completion data beat on `rsp` in the cycle after its
+  DW.
+- Host memory: a `HOST_*` taken at edge E asks from the cycle after E and
+  is granted at the first edge G the port is free for it (E + 1 when
+  nothing else waits, never after E + 34): a `HOST_WR`'s beat in the cycle
+  after G, a `HOST_RD`'s in the cycle after G + 1.
+- Completer: it takes the queue's head at an edge P when idle, its
+  non-posted release pulsing in the cycle after P; a read's DWs are read
+  one per granted cycle from the cycle after P (or after the link took the
+  previous completion's `eop`), each in the data queue at the next edge;
+  the completion is offered to the arbiter in the cycle after its last DW
+  is in, an Unsupported Request completion in the cycle after P.
 - Transmitted: one beat per cycle while the link takes them; the output
   stage adds one cycle of latency and none of throughput.
 - Combinational outputs: `tlp_rx_ready_o` (`rst_i` only); `cmd_ready_o`,
-  `rsp_valid_o` and `rsp_o` from flops, forced to 0 by `rst_i`.
+  `rsp_valid_o`, `rsp_o`, `msi_valid_o` and `msi_o` from flops, forced to
+  0 by `rst_i`; `fc_rel_*` from flops, forced to 0 by `lrst`. No output
+  depends on `msi_ready_i`.
 
 ## Targets
 
@@ -334,14 +352,17 @@ target: FPGA resources are reported with `rc`
 
 | File | Holds |
 | --- | --- |
-| [`pcie_rc_tl_pkg.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_pkg.sv) | `t_hdr_st`, `t_hdr_acc` and the front end's `t_fe_st`; the error record bit numbers; the requester's `t_req_cmd`, `t_req_st`, `t_cpl_st` and `t_res`, the parser's `t_cpl_rx`, the arbiter's `t_tx_tlp`, `t_tx_arb` and the output stage's beat `t_tx_dw`; the header's byte-lane write, the check helpers of [commands](#commands) and the request header DWs, on plain vectors. |
+| [`pcie_rc_tl_pkg.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_pkg.sv) | `t_hdr_st`, `t_hdr_acc` and the front end's `t_fe_st`; the error record bit numbers; the requester's `t_req_cmd`, `t_req_st`, `t_cpl_st` and `t_res`, the parser's `t_cpl_rx`, the arbiter's `t_tx_tlp`, `t_cpl_tx`, `t_tx_arb` and the output stage's beat `t_tx_dw`; the inbound side's `t_host_acc`, `t_rx_req`, `t_mem_wr`, `t_mem_st`, `t_np_kind`, `t_np_ent`, `t_cpl_ctl`, `t_msi_st` and the message codes; the header's byte-lane write, the check helpers of [commands](#commands), the request and completion header DWs and the completer's split, on plain vectors. |
 | [`pcie_rc_tl_hdr.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_hdr.sv) | `u_hdr`, the [Type 1 header](#type-1-header), with its layout (DW indices, RW masks, constants). |
-| [`pcie_rc_tl_cmd.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_cmd.sv) | `u_cmd`, the [front end](#commands): the take, checks 1 to 7, `HDR_*`, `ERR_*` and the [error record](#error-record-and-q2-cases), the endpoint commands to `u_req`, the result beats, and the [interim rule](#leaf-blocks) for `HOST_*`. |
+| [`pcie_rc_tl_cmd.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_cmd.sv) | `u_cmd`, the [front end](#commands): the take, checks 1 to 7, `HDR_*`, `HOST_*`, `ERR_*` and the [error record](#error-record-and-q2-cases), the endpoint commands to `u_req`, the result beats. |
 | [`pcie_rc_tl_req.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_req.sv) | `u_req`, the [requester](REQUESTER.md): the request and its TLP, the tag, completion matching and checks, the timeout and link down. |
-| [`pcie_rc_tl_tx.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_tx.sv) | `u_tx`, the [transmit](REQUESTER.md#transmit) arbiter's requester line and the credit check, over a `common_skid_stage`. |
-| [`pcie_rc_tl_rx.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_rx.sv) | `u_rx`, the receive parser's completion side over a `common_tlp_rx_track`: each completion's header fields at its third header DW, then its beats. |
-| [`pcie_rc_tl.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl.sv) | The top: every [port](#interfaces) and [parameter](#parameters) with its range checks, `rst` and `lrst`, `u_cmd`, `u_hdr`, `u_req`, `u_tx` and `u_rx`; the outputs of the blocks not built yet at their [reset values](#reset-and-link-down), `tlp_rx_ready_o` 1 out of reset. |
-| [`rc_tl.rtl.f`](../../../../src/rtl/rc_tl/rc_tl.rtl.f) | The shared vocabulary, `common_pkg`, `common_skid_stage`, `common_tlp_rx_track`, the package, the leaf blocks, the top. `rc.rtl.f` reaches it with `-F`. |
+| [`pcie_rc_tl_tx.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_tx.sv) | `u_tx`, the [transmit](REQUESTER.md#transmit) arbiter: the requester's and the completer's lines, their credit checks and priority, over a `common_skid_stage`. |
+| [`pcie_rc_tl_rx.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_rx.sv) | `u_rx`, the receive parser over a `common_tlp_rx_track`: each completion's header fields at its third header DW, then its beats; every other TLP's [receive checks](INBOUND.md#receive-checks), routing and poisoned rule at its last header DW, its write DWs, and at its `eop` the capture, the queue entry, the events and the posted release. |
+| [`pcie_rc_tl_mem.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_mem.sv) | `u_mem`, [host memory](INBOUND.md#host-memory): a `common_sync_ram`, the port's turn and the forward-progress assertions. |
+| [`pcie_rc_tl_cpl.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_cpl.sv) | `u_cpl`, the [completer](INBOUND.md#completer): the non-posted queue and the completion data queue (two `common_sdp_ram_fifo`), the completions and the non-posted release. |
+| [`pcie_rc_tl_msi.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_msi.sv) | `u_msi`, the [MSI capture](INBOUND.md#msi-capture): four entries in flops. |
+| [`pcie_rc_tl.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl.sv) | The top: every [port](#interfaces) and [parameter](#parameters) with its range checks, `rst` and `lrst`, the leaf blocks, the error record events of each edge, `tlp_rx_ready_o` 1 out of reset. |
+| [`rc_tl.rtl.f`](../../../../src/rtl/rc_tl/rc_tl.rtl.f) | The shared vocabulary, `common_pkg`, `common_skid_stage`, `common_tlp_rx_track`, `common_sync_ram`, `common_sdp_ram_fifo`, the package, the leaf blocks, the top. `rc.rtl.f` reaches it with `-F`. |
 
 ## Open items
 

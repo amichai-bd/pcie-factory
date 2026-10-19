@@ -106,16 +106,20 @@ capability in the [header](MAS.md#type-1-header)).
 
 ## Transmit
 
-One TLP at a time. A head is eligible when the link shows 1 header
+One TLP at a time, from two lines: the requester's request and the
+completer's completion. A head is eligible when the link shows 1 header
 credit and its data credits (Length / 4 rounded up for a TLP with data, 0
-for a read) for its class; all ones passes. The arbiter grants an
-eligible head at an edge and latches the TLP, so credits are checked
-only at the grant, and a request that ends while the link stalls its TLP
-(a timeout) never changes it: the TLP goes out whole and the next waits
-for it. Priority: a requester posted write, then a completion, then
-a requester non-posted request. A completion never passes an earlier
-posted write, and a non-posted request waiting for credits never blocks
-a completion [cite: PCIe Base Spec, rev 3.0, §2.4.1]. Strict priority
+for a read or a completion without data) for its class; all ones passes.
+The arbiter grants an eligible head at an edge and latches the TLP, so
+credits are checked only at the grant, and a request that ends while the
+link stalls its TLP (a timeout) never changes it: the TLP goes out whole
+and the next waits for it. Priority: a requester posted write, then a
+completion, then a requester non-posted request. A completion is not
+granted while a requester posted write waits, eligible or not, so it
+never passes an earlier posted write; a requester non-posted request is
+granted only when no completion is eligible, and a non-posted request
+waiting for credits never blocks a completion
+[cite: PCIe Base Spec, rev 3.0, §2.4.1]. Strict priority
 means a long stream of endpoint DMA reads delays an `rc_seq` read or
 configuration request; the delay is bounded by what the endpoint keeps
 outstanding (its completions drain at link rate), and no M4 program
@@ -124,5 +128,5 @@ from `sop` to `eop`. `tlp_tx_*` come from the shared output stage
 [`common_skid_stage`](../common/common_skid_stage.md), flops with a skid
 slot, so `tlp_tx_ready_i` reaches only the stage; they are 0 while no beat is
 offered. With the link down (`lrst`) the stage takes nothing and is
-cleared, abandoning a TLP in progress. Until #375 the requester is the
-only line ([interim rule](MAS.md#leaf-blocks)).
+cleared, abandoning a TLP in progress. A completion's data beats come
+from the completion data queue, one per beat the stage takes.
