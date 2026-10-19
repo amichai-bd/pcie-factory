@@ -169,7 +169,7 @@ All entries run on `pcie_link_e2e_tb`; credits are the default
 | Soak: random classes, line flips and credit stalls together, 1000 TLPs each way, ppm from the seed, in every credit configuration; in the release configuration the stalls are release stalls (half the cycles release, none in the stall windows) | `e2e_soak_default`, `e2e_soak_minimum`, `e2e_soak_finite`, `e2e_soak_infinite`, `e2e_soak_asymmetric`, `e2e_soak_release` | 2 | 3, 2, 3, 1, 2, 1; `CREDITS` 0 to 5; coverage on the first 2, 2, 1, 1, 2, 1 ([seeds](#seeds-and-coverage-runs)) |
 | [Throughput](../../arch/link/HAS.md#throughput), one way, screen: 400 128-byte memory writes a to b against the 0.85 target (more start and drain in the window than 2000 TLPs, so stricter), every line symbol attributed | `e2e_throughput_short` | 1 | 1 |
 | [Throughput targets](../../arch/link/HAS.md#targets): 2000 128-byte memory writes one way (0.85) and each way (0.76 per direction), every line symbol attributed; each seed draws the start against the SKP schedule (within one SKP interval) and, both ways, b's start against a's (within one TLP time) | `e2e_throughput_oneway`, `e2e_throughput_bidir` | 2 | 1 and 2 |
-| Seed sweeps of the directed and mixed tests | `e2e_tlp_errors_sweep`, `e2e_dllp_errors_sweep`, `e2e_rollover_sweep`, `e2e_line_sweep`, `e2e_mixed_sweep` | 2 | 2, 2, 2, 3, 4; coverage on the first 1, 1, 1, 2, 1 |
+| Seed sweeps of the directed and mixed tests | `e2e_tlp_errors_sweep`, `e2e_dllp_errors_sweep`, `e2e_rollover_sweep`, `e2e_line_sweep`, `e2e_mixed_sweep` | 2 | 2, 2, 2, 3, 4; coverage on the first 1, 1, 2, 2, 1 |
 
 **Level placement** ([#272](https://github.com/amichai-bd/pcie-factory/issues/272)).
 Level 1 is what `ci-gate` runs for every change that reaches `link`
@@ -235,14 +235,12 @@ forgets the end of a stall already over fails it on that check.
 `--coverage` instruments only the first seeds named in the plan rows (the
 entries' `coverage_seeds`); every seed still runs and must pass. Where a
 later seed reaches points the first does not (`e2e_soak_default`,
-`e2e_soak_minimum`, `e2e_soak_asymmetric`, `e2e_line_sweep`: 32, 68, 2
-and 2 points, 104 in all, measured for
+`e2e_soak_minimum`, `e2e_soak_asymmetric`, `e2e_rollover_sweep`,
+`e2e_line_sweep`: 32, 8, 35, 8 and 2 points that no other run reaches,
+85 in all, measured for
 [#360](https://github.com/amichai-bd/pcie-factory/issues/360)), that
 entry keeps coverage on its first two seeds, so the merged coverage is the
-same point for point. `e2e_rollover_sweep` instruments only its first
-seed since #360: its second seed (1434271262) reaches no line or toggle
-point and no bin that the rest of the levels miss, and its first reaches
-8; both seeds still run. A coverage build runs the link's soaks about 2.5 times slower than a plain
+same point for point. A coverage build runs the link's soaks about 2.5 times slower than a plain
 one (`e2e_soak_default`: 24.4 s against 9.7 s of CPU), so most seeds run
 plain.
 

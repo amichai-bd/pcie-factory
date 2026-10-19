@@ -72,6 +72,7 @@ tests:
     top: pcie_link_e2e_tb
     seeds: 2
     timeout_s: 900
+    coverage_seeds: 2
   - name: e2e_line_sweep
     module: tests.test_link_e2e
     testcase: e2e_line
