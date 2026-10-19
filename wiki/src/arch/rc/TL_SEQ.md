@@ -25,8 +25,8 @@ sub-IPs are reset by `rst_i` only, not by link down
 `rsp_valid` and `msi_valid` are 0. The bundled fields cross as packed
 structs in `common_pkg`, the package for types two IPs exchange
 ([RTL BKM](../../../bkm/rtl.md#structs-at-interfaces)); the field names
-below are the struct fields, and the RTL that first uses them adds the
-types ([#373](https://github.com/amichai-bd/pcie-factory/issues/373)).
+below are the struct fields of `t_rc_cmd`, `t_rc_rsp` and `t_rc_msi`,
+added with the `rc_tl` shell ([`rc_tl` interfaces](../../rtl/rc_tl/MAS.md#interfaces)).
 
 `rc` also wires `link`'s `dl_up_o` and `link_up_o` to `rc_seq` (for its
 waits) and `rc_seq`'s Hot Reset request to `link`'s `hot_reset_req_i`.
