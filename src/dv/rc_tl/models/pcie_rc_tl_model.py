@@ -1,21 +1,22 @@
 """Reference model of pcie_rc_tl: the front end, the Type 1 header, the
-error record, the requester, the completion side of the receive parser and
-the transmit stage.
+error record, the requester, the receive parser, host memory, the
+completer, the MSI capture, the credit releases and the transmit stage.
 
 Written from the specs, not the RTL: the command checks and result beats of
 wiki/src/rtl/rc_tl/MAS.md#commands, the error record of MAS.md and
 wiki/src/arch/rc/TL_SEQ.md#error-record, the byte-enable rule, requests,
 completion matching, timeout and transmit of
-wiki/src/rtl/rc_tl/REQUESTER.md, the header table of
-wiki/src/arch/rc/HAS.md#type-1-header, the header access of
-wiki/src/arch/rc/TL_SEQ.md#header-access, link down (MAS, Reset and link
-down) and the MAS timing. HOST_* follows the interim rule (MAS, Leaf
-blocks) until #375.
+wiki/src/rtl/rc_tl/REQUESTER.md, the receive checks, completer, host
+memory, MSI capture and credits of wiki/src/rtl/rc_tl/INBOUND.md, the
+inbound routing and header table of wiki/src/arch/rc/HAS.md, the header and
+host memory access of wiki/src/arch/rc/TL_SEQ.md, link down (MAS, Reset and
+link down) and the MAS timing.
 
 `RcTl.step` is the cycle model the testbench compares with the DUT at every
 clock edge. The completion checks here are stated on byte addresses (the
 read's enabled bytes, the completion's data window), not on the RTL's
-remaining-bytes counters.
+remaining-bytes counters; the receive checks on the TLP's bytes and its
+byte address range; the completer's splits on byte addresses.
 """
 
 from __future__ import annotations
@@ -41,11 +42,13 @@ def op_name(op: int) -> str:
 
 
 # Error record bits (TL_SEQ.md, Error record).
-E_UR, E_CA, E_CRS, E_TMO, E_UNEXP, E_POIS, E_MAL = range(7)
+(E_UR, E_CA, E_CRS, E_TMO, E_UNEXP, E_POIS, E_MAL, E_COR, E_NONFATAL, E_FATAL, E_MSG,
+ E_IN_UR, E_MSI_DROP) = range(13)
 ERR_MASK = (1 << 13) - 1     # 31:13 reserved, read 0
 
 # Completion Status [cite: PCIe Base Spec, rev 3.0, §2.2.9].
 CS_SC, CS_UR, CS_CRS, CS_CA = 0, 1, 2, 4
+MSI_DEPTH = 4     # MSI capture entries (INBOUND.md, MSI capture)
 
 # Fmt and Type of each request (REQUESTER.md, Requests) and completions.
 REQ_FMT_TYPE = {CFG_RD: 0x04, CFG_WR: 0x44, MEM_RD: 0x00, MEM_WR: 0x40}
@@ -65,6 +68,9 @@ class Params:
     revision_id: int = 0
     host_mem_addr_w: int = 12
     cpl_timeout_div: int = 1
+    host_mem_base: int = 0x0000_0000
+    msi_addr: int = 0xFEE0_0000
+    fc_nph: int = 8
 
 
 @dataclass(frozen=True)
@@ -107,10 +113,13 @@ class Cmd:
 
 @dataclass(frozen=True)
 class Rsp:
-    """A t_rc_rsp beat (common_pkg): status, data, last."""
+    """A t_rc_rsp beat (common_pkg): status, data, last. `known` marks the
+    data bits the model knows: a HOST_RD of bytes never written reads
+    unspecified data (INBOUND.md, Host memory), which no check compares."""
     status: int
     data: int = 0
     last: int = 1
+    known: int = field(default=0xFFFF_FFFF, compare=False)
 
     def pack(self) -> int:
         return (self.status << 33) | ((self.data & 0xFFFF_FFFF) << 1) | (self.last & 1)
@@ -345,6 +354,9 @@ def tlp_str(dws: list[int]) -> str:
 
 # --------------------------------------------------------------- front end
 
+HOST = "host"     # a HOST_* past the checks: it waits for host memory
+
+
 @dataclass
 class FrontEnd:
     """The local commands with the header and the error record: what each
@@ -356,9 +368,9 @@ class FrontEnd:
     def __post_init__(self) -> None:
         self.hdr = Header(self.p)
 
-    def execute(self, c: Cmd, dl_up: int) -> Rsp | None:
-        """The beat of c taken now, or None when it goes to the requester;
-        applies an HDR_WR and an ERR_CLR."""
+    def execute(self, c: Cmd, dl_up: int) -> Rsp | None | str:
+        """The beat of c taken now; None when it goes to the requester, HOST
+        when it waits for host memory; applies an HDR_WR and an ERR_CLR."""
         chk = failed_check(c, self.hdr, self.p, dl_up)
         if chk == 1:
             return Rsp(LINK_DOWN)
@@ -376,8 +388,189 @@ class FrontEnd:
         if c.op == ERR_CLR:
             self.err &= ~c.data & ERR_MASK
             return Rsp(OK)
-        # Interim: HOST_* until #375.
-        return Rsp(LOCAL_UR)
+        return HOST
+
+
+# --------------------------------------------------------------- inbound
+
+# TLP kinds by Fmt and Type (wiki/src/arch/tl/TLP.md#kinds): the Fmt values
+# each Type allows; messages are Type 10rrr with Fmt 001 or 011.
+T_MEM, T_MEMLK, T_IO, T_CFG0, T_CFG1 = 0x00, 0x01, 0x02, 0x04, 0x05
+T_ATOMICS = (0x0C, 0x0D, 0x0E)
+KIND_FMTS = {T_MEM: (0, 1, 2, 3), T_MEMLK: (0, 1), T_IO: (0, 2), T_CFG0: (0, 2),
+             T_CFG1: (0, 2), T_CPL: (0, 2), T_CPLLK: (0, 2),
+             0x0C: (2, 3), 0x0D: (2, 3), 0x0E: (2, 3)}
+# Message codes that require TC 0 (wiki/src/arch/tl/ROUTING.md#checks,
+# step 6): Unlock, power management, error signalling, Set_Slot_Power_Limit
+# and INTx.
+TC0_CODES = frozenset((0x00, 0x14, 0x18, 0x19, 0x1B, 0x30, 0x31, 0x33, 0x50)
+                      + tuple(range(0x20, 0x28)))
+MSG_BITS = {0x30: E_COR, 0x31: E_NONFATAL, 0x33: E_FATAL}
+CLS_P, CLS_NP, CLS_CPL = "P", "NP", "CPL"
+
+
+def is_msg(typ: int) -> bool:
+    return typ >> 3 == 0b10
+
+
+def kind_known(fmt: int, typ: int) -> bool:
+    """Receive check step 1: Fmt and Type name a kind, Fmt no prefix."""
+    if is_msg(typ):
+        return fmt in (1, 3)
+    return fmt in KIND_FMTS.get(typ, ())
+
+
+def credit_class(fmt: int, typ: int) -> str:
+    """The class the dll counted (wiki/src/arch/dll/FLOW_CONTROL.md):
+    memory writes and messages posted, completions, the rest non-posted."""
+    if (typ == T_MEM and fmt & 2) or is_msg(typ):
+        return CLS_P
+    if typ in (T_CPL, T_CPLLK):
+        return CLS_CPL
+    return CLS_NP
+
+
+@dataclass(frozen=True)
+class RxHdr:
+    """A received request's or message's header fields (TLP.md)."""
+    fmt: int
+    typ: int
+    tc: int
+    td: int
+    ep: int
+    attr: int
+    lfield: int        # the Length field
+    rid: int
+    tag: int
+    fbe: int
+    lbe: int
+    code: int          # a message's code (byte 7)
+    addr: int          # the byte address, bits [1:0] 0; 64 bits for a 4-DW header
+
+    @staticmethod
+    def parse(h: list[int]) -> "RxHdr":
+        b = bytes_of(h)
+        a = int.from_bytes(bytes(b[8:16] if len(h) == 4 else b[8:12]), "big") & ~3
+        return RxHdr(fmt=b[0] >> 5, typ=b[0] & 0x1F, tc=(b[1] >> 4) & 7, td=b[2] >> 7,
+                     ep=(b[2] >> 6) & 1, attr=(b[2] >> 4) & 3,
+                     lfield=((b[2] & 3) << 8) | b[3], rid=(b[4] << 8) | b[5], tag=b[6],
+                     fbe=b[7] & 0xF, lbe=b[7] >> 4, code=b[7], addr=a)
+
+    @property
+    def n(self) -> int:
+        """Length in DWs, 0 read as 1024."""
+        return self.lfield or 1024
+
+    @property
+    def wdata(self) -> bool:
+        return bool(self.fmt & 2)
+
+    @property
+    def data_credits(self) -> int:
+        """The data credits the dll counted: Length / 4 rounded up."""
+        return (self.lfield + 3) // 4 if self.wdata else 0
+
+
+def malformed(h: RxHdr) -> bool:
+    """INBOUND.md, Receive checks, steps 1 and 3 to 6."""
+    if not kind_known(h.fmt, h.typ):
+        return True
+    if h.typ in (T_MEM, T_MEMLK):
+        # Step 3: Length 1 needs only Last BE 0; more needs both non-zero
+        # and contiguous unless Length 2 in one aligned QW.
+        if h.n == 1:
+            if h.lbe:
+                return True
+        else:
+            if not h.fbe or not h.lbe:
+                return True
+            if not (h.n == 2 and not h.addr & 4) and not (
+                    h.fbe in CONTIG_FIRST and h.lbe in CONTIG_LAST):
+                return True
+        # Step 4: one aligned 4 KiB block.
+        if (h.addr & 0xFFF) + 4 * h.n > 0x1000:
+            return True
+    if h.typ in (T_IO, T_CFG0, T_CFG1):
+        if h.lfield != 1 or h.lbe or h.tc or h.attr:
+            return True
+    if is_msg(h.typ) and h.tc and h.code in TC0_CODES:
+        return True
+    return False
+
+
+# The outcome of a received request or message.
+DROP, WRITE, CAPTURE, READ, UR_CPL, URLK_CPL, NP_DROP = (
+    "drop", "write", "capture", "read", "ur", "urlk", "np_drop")
+
+
+def judge(h: RxHdr, hdr: Header, p: Params) -> tuple[str, int]:
+    """The receive checks, the inbound routing rows (rc HAS, first match)
+    and poisoned (INBOUND.md): (outcome, error record bits)."""
+    cls = credit_class(h.fmt, h.typ)
+    if malformed(h):
+        return (NP_DROP if cls == CLS_NP else DROP), 1 << E_MAL
+    if is_msg(h.typ):
+        if h.ep:
+            return DROP, 1 << E_POIS
+        return DROP, 1 << MSG_BITS.get(h.code, E_MSG)
+    lo, hi = h.addr, h.addr + 4 * h.n - 1
+    win_lo, win_hi = hdr.window()
+    host_lo = p.host_mem_base
+    host_hi = host_lo + (1 << p.host_mem_addr_w) - 1
+    if h.typ != T_MEM:
+        route = "ur"                              # locked, I/O, configuration, atomic
+    elif lo <= win_hi and hi >= win_lo:
+        route = "ur"                              # any byte inside the memory window
+    elif not hdr.bme:
+        route = "ur"
+    elif h.wdata and h.n == 1 and p.msi_addr <= lo and hi < p.msi_addr + 0x1000:
+        route = "msi"
+    elif host_lo <= lo and hi <= host_hi:
+        route = "host"
+    else:
+        route = "ur"
+    if route == "ur":
+        if cls == CLS_P:
+            return DROP, 1 << E_IN_UR
+        return (URLK_CPL if h.typ == T_MEMLK else UR_CPL), 1 << E_IN_UR
+    if h.ep:
+        return (DROP if cls == CLS_P else UR_CPL), 1 << E_POIS
+    if route == "msi":
+        return CAPTURE, 0
+    return (WRITE if h.wdata else READ), 0
+
+
+@dataclass
+class NpEntry:
+    """A non-posted queue entry (INBOUND.md, Completer)."""
+    kind: str          # READ, UR_CPL, URLK_CPL or NP_DROP
+    h: RxHdr
+
+
+def completions_of(h: RxHdr) -> list[tuple[int, int, int, int]]:
+    """A read's completions (INBOUND.md, Completer): (first DW address,
+    DWs, Byte Count, Lower Address) each, on byte addresses: total bytes T
+    from byte B; each starts where the previous ended and takes the rest
+    when it is at most 32 DWs, else ends on the highest 64-byte boundary
+    within 128 bytes; Byte Count the bytes from its first byte to the end
+    (4096 sent as 0), Lower Address that byte [6:0]."""
+    first, end = read_bytes(Cmd(MEM_RD, h.addr & 0xFFFF_FFFF, h.n, h.fbe, h.lbe))
+    out, a, left = [], h.addr & 0xFFFF_FFFF, h.n
+    s = first
+    while left:
+        if left <= 32:
+            k = left
+        else:
+            k = ((a + 128) // 64 * 64 - a) // 4
+        out.append((a, k, (end - s) & 0xFFF, s & 0x7F))
+        a += 4 * k
+        left -= k
+        s = a
+    return out
+
+
+def be_bytes(be: int) -> int:
+    return sum(0xFF << (8 * i) for i in range(4) if (be >> i) & 1)
 
 
 # --------------------------------------------------------------- cycle model
@@ -398,6 +591,9 @@ class Inputs:
     fc_pd: int = 0xFFF
     fc_nph: int = 0xFF
     fc_npd: int = 0xFFF
+    fc_cplh: int = 0xFF
+    fc_cpld: int = 0xFFF
+    msi_ready: int = 0
 
 
 @dataclass
@@ -408,6 +604,8 @@ class Beat:
     sop: int = 0
     eop: int = 0
     np: bool = False
+    cpl: bool = False
+    known: int = 0xFFFF_FFFF  # data bits the model knows (host memory never written)
 
 
 @dataclass
@@ -434,6 +632,31 @@ class Completion:
     lastc: bool = False       # its data ends the request
 
 
+@dataclass
+class Completer:
+    """The entry the completer serves and its current completion."""
+    e: NpEntry
+    cpls: list[tuple[int, int, int, int]]   # (DW address, DWs, Byte Count, Lower Address)
+    i: int = 0                # the current completion
+    iss: int = 0              # its reads still to issue
+    got: int = 0              # its DWs still to arrive
+    rd: int = 0               # the read's next DW to read (index)
+    data: list[int] = field(default_factory=list)   # its DWs read, masked
+    known: list[int] = field(default_factory=list)  # their bits known (written, or masked)
+    gnt: bool = False         # granted, waiting for the link to take its eop
+
+
+@dataclass
+class Rx:
+    """The received request or message after its last header DW."""
+    h: RxHdr
+    out: str
+    err: int
+    cnt: int = 0              # data DWs still to come
+    k: int = 0                # data DWs taken
+    first_dw: int = 0         # its first data DW (an MSI's data)
+
+
 class RcTl:
     """The cycle model of pcie_rc_tl's ports (MAS, Timing)."""
 
@@ -442,6 +665,12 @@ class RcTl:
         self.fe = FrontEnd(p)
         self.n_tmo = timeout_cycles(p.cpl_timeout_div)
         self.edge = 0
+        # Host memory is never reset and has no initial contents (MAS,
+        # Reset and link down): the model tracks the bytes written, and a
+        # byte never written is unknown, compared by no check.
+        self.mem = [0] * (1 << (p.host_mem_addr_w - 2))
+        self.known = [0] * (1 << (p.host_mem_addr_w - 2))
+        self.wr: tuple[int, int, int] | None = None     # a write DW, written at the next edge
         self.reset()
 
     @property
@@ -453,52 +682,100 @@ class RcTl:
         return self.fe.err
 
     def reset(self) -> None:
-        """rst: everything (MAS, Reset and link down)."""
+        """rst: everything but host memory (MAS, Reset and link down)."""
         self.fe.hdr.reset()
         self.fe.err = 0
         self.busy = False
         self.beat: Rsp | None = None
         self.tag = 0
         self.req: Request | None = None
+        self.host: tuple[bool, int, int, int] | None = None   # (write, DW, lanes, data)
+        self.host_rd: tuple[int, int] | None = None   # a HOST_RD's (data, known), its beat next
+        self.host_last = False             # the front end had the latest port grant
+        self.msi: list[tuple[int, int]] = []
         self.link_reset()
 
     def link_reset(self) -> None:
-        """lrst: the receive parser and the transmit stage."""
+        """lrst: the receive parser, the non-posted queue and the completer,
+        the transmit stage and the pending releases."""
         self.rx_busy = False
         self.rx_cpl = False
         self.rx_idx = 0
         self.rx_hdr: list[int] = []
+        self.rx: Rx | None = None
         self.cpl: Completion | None = None
-        self.arb: tuple[list[int], bool] | None = None   # (TLP, non-posted)
+        self.arb: tuple[list[int], bool, bool, list[int]] | None = None   # (TLP, non-posted, completion, known)
         self.arb_beat = 0
         self.out = Beat()
         self.skid = Beat()
+        self.npq: list[NpEntry] = []       # entries in the queue's RAM
+        self.np_head: NpEntry | None = None
+        self.cp: Completer | None = None
+        self.cp_rd: tuple[int, int] | None = None     # the completer's (data, known), pushed next
+        self.rel_p: int | None = None      # data credits released in this cycle
+        self.rel_np: int | None = None
+
+    # ------------------------------------------------------------ outputs
+
+    def msi_out(self) -> tuple[int, int] | None:
+        return self.msi[0] if self.msi else None
+
+    def cpl_offer(self) -> bool:
+        """The completer offers its completion: all its DWs are in."""
+        cp = self.cp
+        return cp is not None and not cp.gnt and cp.got == 0
 
     # ------------------------------------------------------------ edges
 
     def step(self, i: Inputs) -> dict:
         """One clock edge with these inputs. Returns the outputs after the
         edge (rst_i still applied) and what happened at it."""
-        ev: dict = {"take": False, "tx_taken": None, "events": 0}
+        ev: dict = {"take": False, "tx_taken": None, "events": 0, "cpl_sent": None}
         self.edge += 1
+        # A received write DW taken at the last edge is written at this one,
+        # whatever else happens: it holds the host memory port.
+        wr_now, self.wr = self.wr, None
+        if wr_now is not None:
+            self.write_mem(*wr_now)
+        pri_bus = self.hdr.pri_bus        # the header's flops before this edge
         if i.rst:
             self.reset()
-            ev |= {"cmd_ready": 0, "beat": None, "tx": Beat()}
+            ev |= {"cmd_ready": 0, "beat": None, "tx": Beat(), "msi": None, "rel_p": None,
+                   "rel_np": None}
             return ev
         up = bool(i.dl_up)
         req = self.req
         # ---- transmit: the link takes a beat; the arbiter grants
-        np_sop = p_eop = False
+        np_sop = p_eop = cpl_eop = False
         out_take = up and self.out.valid and i.tx_ready
         if out_take:
             ev["tx_taken"] = self.out
             np_sop = bool(self.out.sop and self.out.np)
-            p_eop = bool(self.out.eop and not self.out.np)
-        grant = (up and self.arb is None and req is not None and req.txq
-                 and self.eligible(req, i))
-        # ---- receive: the completion beats of this edge
+            p_eop = bool(self.out.eop and not self.out.np and not self.out.cpl)
+            cpl_eop = bool(self.out.eop and self.out.cpl)
+        req_valid = req is not None and req.txq
+        req_p = req_valid and req.cmd.op == MEM_WR
+        cpl_valid = self.cpl_offer()
+        cpl_el = cpl_valid and self.cpl_eligible(i)
+        idle = up and self.arb is None
+        cpl_grant = idle and cpl_el and not req_p
+        grant = (idle and req_valid and self.eligible(req, i)
+                 and (req_p or not cpl_el))
+        # ---- host memory: a write DW wins; else the waiting accesses take turns
+        host_req = self.host is not None
+        cp_req = up and self.cp is not None and self.cp.iss > 0
+        host_gnt = cp_gnt = False
+        if wr_now is None:
+            if host_req and cp_req:
+                host_gnt, cp_gnt = not self.host_last, self.host_last
+            else:
+                host_gnt, cp_gnt = host_req, cp_req
+        # ---- receive: the beats of this edge
         hdr_ev = dat_ev = eop_ev = False
         cfields = None
+        rx_events = 0
+        rx_last = None            # a request's or message's eop: (Rx)
+        wr_next = None
         if up and i.rx_valid:
             if i.rx_sop:
                 b0 = i.rx_data & 0xFF
@@ -506,6 +783,7 @@ class RcTl:
                 # Completion kinds with a 3-DW header (TLP.md, Kinds).
                 self.rx_cpl = typ in (T_CPL, T_CPLLK) and fmt in (0b000, 0b010)
                 self.rx_hdr = [i.rx_data]
+                self.rx = None
                 idx = 0
             else:
                 idx = self.rx_idx
@@ -515,6 +793,30 @@ class RcTl:
                     hdr_ev = idx == 2
                     dat_ev = idx > 2
                     eop_ev = bool(i.rx_eop)
+                else:
+                    hdr_end = 3 if (self.rx_hdr[0] >> 5) & 1 else 2
+                    if idx <= hdr_end:
+                        self.rx_hdr.append(i.rx_data)
+                    if idx == hdr_end:
+                        h = RxHdr.parse(self.rx_hdr)
+                        out, err = judge(h, self.hdr, self.p)
+                        self.rx = Rx(h, out, err, cnt=h.n if h.wdata else 0)
+                        ev["rx"] = self.rx
+                    elif self.rx is not None and self.rx.cnt:
+                        # A data DW: a host write is written at the next edge.
+                        rx = self.rx
+                        if rx.k == 0:
+                            rx.first_dw = i.rx_data
+                        if rx.out == WRITE:
+                            n = rx.h.n
+                            be = rx.h.fbe if rx.k == 0 else (rx.h.lbe if rx.k == n - 1 else 0xF)
+                            wr_next = (self.host_dw(rx.h.addr) + rx.k, be, i.rx_data)
+                        rx.k += 1
+                        rx.cnt -= 1
+                    if i.rx_eop and self.rx is not None:
+                        rx_last = self.rx
+                        rx_events = self.rx.err
+                        self.rx = None
             if hdr_ev:
                 cfields = self.cpl_fields(self.rx_hdr)
         # ---- the requester's decisions, on the state before the edge
@@ -548,23 +850,66 @@ class RcTl:
                 events |= 1 << E_TMO
             if res is None and req is not None and req.cmd.op == MEM_WR and p_eop:
                 res = Rsp(OK)
+        # ---- the inbound side at its eop: capture, queue entry, release
+        events |= rx_events
+        np_push = None
+        rel_p = None
+        if rx_last is not None:
+            h = rx_last.h
+            cls = credit_class(h.fmt, h.typ)
+            if rx_last.out == CAPTURE:
+                ev["msi_push"] = ((h.addr >> 2) & 0x3FF, rx_last.first_dw)
+            if cls == CLS_P:
+                rel_p = h.data_credits
+            elif cls == CLS_NP:
+                np_push = NpEntry(rx_last.out, h)
+        # ---- MSI capture: a take at this edge makes room
+        if self.msi and i.msi_ready:
+            self.msi.pop(0)
+        if "msi_push" in ev:
+            if len(self.msi) == MSI_DEPTH:
+                events |= 1 << E_MSI_DROP
+            else:
+                self.msi.append(ev["msi_push"])
         # ---- the front end: the take, and the beat out after this edge
         take = bool(i.cmd_valid) and not self.busy
         if self.beat is not None and self.beat.last:
             self.busy = False
         self.beat = None
         start = None
+        host_new = None
         if take:
             ev["take"] = True
             self.busy = True
             local = self.fe.execute(i.cmd, i.dl_up)
             if local is None:
                 start = i.cmd
+            elif local == HOST:
+                c = i.cmd
+                host_new = (c.op == HOST_WR, (c.addr >> 2) & (len(self.mem) - 1),
+                            c.first_be, c.data)
             else:
                 self.beat = local
         if res is not None:
             assert self.beat is None, "a requester beat with a local beat"
             self.beat = res
+        # Host memory: a HOST_WR's beat after its grant, a HOST_RD's after its data.
+        if self.host_rd is not None:
+            assert self.beat is None, "a host memory beat with another beat"
+            self.beat = Rsp(OK, self.host_rd[0], 1, self.host_rd[1])
+            self.host_rd = None
+        if host_gnt:
+            wr, dw, be, data = self.host
+            if wr:
+                self.write_mem(dw, be, data)
+                assert self.beat is None, "a host memory beat with another beat"
+                self.beat = Rsp(OK)
+            else:
+                self.host_rd = (self.mem[dw] & self.known[dw], self.known[dw])
+            self.host = None
+            self.host_last = True
+        if host_new is not None:
+            self.host = host_new
         self.fe.err |= events
         ev["events"] = events
         # ---- requester state
@@ -593,13 +938,67 @@ class RcTl:
                 self.rx_idx = min(self.rx_idx + 1, 63)
             if i.rx_eop:
                 self.rx_busy = False
+        self.wr = wr_next
+        # ---- the completer: its read data, its grants, then a new entry
+        cp = self.cp
+        cpl_tlp_new = None
+        rel_np = None
+        if cp is not None:
+            if self.cp_rd is not None:
+                cp.data.append(self.cp_rd[0])
+                cp.known.append(self.cp_rd[1])
+                cp.got -= 1
+            self.cp_rd = None
+            if cp_gnt:
+                e = cp.e
+                j = cp.rd
+                be = e.h.fbe if j == 0 else (e.h.lbe if j == e.h.n - 1 else 0xF)
+                dw, m = self.host_dw(e.h.addr) + j, be_bytes(be)
+                # Bytes F and L do not enable are 0, known; the others are
+                # known once written.
+                self.cp_rd = (self.mem[dw] & m & self.known[dw], (self.known[dw] & m) | ~m & 0xFFFF_FFFF)
+                cp.rd += 1
+                cp.iss -= 1
+                self.host_last = False
+            if cpl_grant:
+                cp.gnt = True
+                cpl_tlp_new = self.cpl_tlp(cp, pri_bus)
+                ev["cpl_sent"] = (cp.e, cpl_tlp_new)
+            if cpl_eop:
+                cp.gnt = False
+                cp.i += 1
+                if cp.i >= len(cp.cpls):         # an Unsupported Request has one, with no DWs
+                    self.cp = None
+                else:
+                    cp.iss = cp.got = cp.cpls[cp.i][1]
+                    cp.data, cp.known = [], []
+        elif self.np_head is not None:
+            # The completer takes the head when idle; its release follows.
+            e = self.np_head
+            rel_np = e.h.data_credits
+            ev["np_pop"] = e
+            if e.kind == READ:
+                cpls = completions_of(e.h)
+                self.cp = Completer(e, cpls, iss=cpls[0][1], got=cpls[0][1])
+            elif e.kind in (UR_CPL, URLK_CPL):
+                self.cp = Completer(e, [])
+        # The queue: a pop and a refill share an edge; an entry pushed at
+        # this edge reaches the head two edges later at the earliest.
+        popped = rel_np is not None
+        if self.npq and (self.np_head is None or popped):
+            self.np_head = self.npq.pop(0)
+        elif popped:
+            self.np_head = None
+        if np_push is not None:
+            self.npq.append(np_push)
+        self.rel_p, self.rel_np = rel_p, rel_np
         # ---- transmit state: the output stage, then the arbiter
         a_take = self.arb is not None and not self.skid.valid
         a_beat = Beat()
         if a_take:
-            tlp, np = self.arb
+            tlp, np, cplf, kn = self.arb
             a_beat = Beat(1, tlp[self.arb_beat], int(self.arb_beat == 0),
-                          int(self.arb_beat == len(tlp) - 1), np)
+                          int(self.arb_beat == len(tlp) - 1), np, cplf, kn[self.arb_beat])
         if not self.out.valid or out_take:
             if self.skid.valid:
                 self.out, self.skid = self.skid, Beat()
@@ -612,14 +1011,55 @@ class RcTl:
             if self.arb_beat == len(self.arb[0]):
                 self.arb = None
         if grant:
-            self.arb = (list(req.tlp), req.cmd.op != MEM_WR)
+            self.arb = (list(req.tlp), req.cmd.op != MEM_WR, False, [0xFFFF_FFFF] * len(req.tlp))
+            self.arb_beat = 0
+        if cpl_grant:
+            kn = [0xFFFF_FFFF] * 3 + (list(cp.known) if cp.e.kind == READ else [])
+            self.arb = (cpl_tlp_new, False, True, kn)
             self.arb_beat = 0
         if not up:
             self.link_reset()
-        ev |= {"cmd_ready": int(not self.busy), "beat": self.beat, "tx": self.out}
+            self.cp_rd = None
+        ev |= {"cmd_ready": int(not self.busy), "beat": self.beat, "tx": self.out,
+               "msi": self.msi_out(), "rel_p": self.rel_p, "rel_np": self.rel_np}
         return ev
 
     # ------------------------------------------------------------ helpers
+
+    def write_mem(self, dw: int, be: int, data: int) -> None:
+        m = be_bytes(be)
+        self.mem[dw] = (self.mem[dw] & ~m) | (data & m)
+        self.known[dw] |= m
+
+    def host_dw(self, addr: int) -> int:
+        """Host memory DW index of a byte address inside it."""
+        return ((addr & 0xFFFF_FFFF) - self.p.host_mem_base) >> 2
+
+    def cpl_eligible(self, i: Inputs) -> bool:
+        """REQUESTER.md, Transmit: 1 completion header credit and the data
+        credits of its DWs; all ones passes."""
+        cp = self.cp
+        k = cp.cpls[cp.i][1] if cp.cpls else 0
+        return i.fc_cplh != 0 and i.fc_cpld >= (k + 3) // 4
+
+    @staticmethod
+    def cpl_tlp(cp: Completer, pri_bus: int) -> list[int]:
+        """The current completion (INBOUND.md, Completer): Completer ID
+        {Primary Bus Number, 0, 0} at the grant, TC and Attr of the request."""
+        h = cp.e.h
+        cid = pri_bus << 8
+        if cp.e.kind == READ:
+            _, k, bc, la = cp.cpls[cp.i]
+            assert len(cp.data) == k
+            return cpl_tlp(CS_SC, h.rid, h.tag, cp.data, bc=bc, la=la, cid=cid, tc=h.tc,
+                           attr=h.attr)
+        if h.typ in (T_MEM, T_MEMLK):
+            first, end = read_bytes(Cmd(MEM_RD, h.addr & 0xFFFF_FFFF, h.n, h.fbe, h.lbe))
+            bc, la = (end - first) & 0xFFF, first & 0x7F
+        else:
+            bc, la = 4, 0
+        return cpl_tlp(CS_UR, h.rid, h.tag, bc=bc, la=la, cid=cid, tc=h.tc, attr=h.attr,
+                       locked=cp.e.kind == URLK_CPL)
 
     @staticmethod
     def eligible(req: Request, i: Inputs) -> bool:

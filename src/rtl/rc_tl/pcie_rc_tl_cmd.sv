@@ -1,8 +1,9 @@
 // pcie_rc_tl front end (u_cmd): the command take, checks 1 to 7, the
-// HDR_* and ERR_* commands, the error record, the endpoint commands to the
-// requester, and the result beats (wiki/src/rtl/rc_tl/MAS.md#commands).
-// Interim, until host memory lands (#375): a HOST_* command that passes
-// the checks finishes LOCAL_UR at once (MAS, Leaf blocks).
+// HDR_*, HOST_* and ERR_* commands, the error record, the endpoint
+// commands to the requester, and the result beats
+// (wiki/src/rtl/rc_tl/MAS.md#commands). A HOST_* that passes the checks
+// waits for host memory from the cycle after its take
+// (wiki/src/rtl/rc_tl/INBOUND.md#host-memory).
 `default_nettype none
 
 `include "common_macros.svh"
@@ -24,6 +25,12 @@ module pcie_rc_tl_cmd #(
   output pcie_rc_tl_pkg::t_req_cmd req_o,
   input  pcie_rc_tl_pkg::t_res     res_i,
   input  logic [pcie_rc_tl_pkg::ERR_W-1:0] err_ev_i,
+  // Host memory: the HOST_* waiting, its grant, and a HOST_RD's data in
+  // the cycle after its grant
+  output pcie_rc_tl_pkg::t_host_acc host_o,
+  input  logic                    host_gnt_i,
+  input  logic                    host_rd_vld_i,
+  input  logic [31:0]             host_rd_data_i,
   output logic                    rsp_valid_o,
   output common_pkg::t_rc_rsp     rsp_o
 );
@@ -31,7 +38,9 @@ module pcie_rc_tl_cmd #(
   // The host-memory offset bits that must be 0 (check 4).
   localparam logic [31:0] HOST_MASK = ~((32'd1 << HOST_MEM_ADDR_W) - 32'd1);
 
-  pcie_rc_tl_pkg::t_fe_st fe_q, fe_d;
+  pcie_rc_tl_pkg::t_fe_st    fe_q, fe_d;
+  pcie_rc_tl_pkg::t_host_acc host_q, host_d;
+  logic                      host;      // a HOST_* that passes the checks is taken
 
   logic [3:0] op;
   logic [5:0] n;          // cmd_i.len, read outside the helpers
@@ -79,6 +88,31 @@ module pcie_rc_tl_cmd #(
     req_o.data  = cmd_i.data;
   end
 
+  // A HOST_* that passes waits for host memory from the next cycle: a
+  // HOST_WR's beat in the cycle after its grant, a HOST_RD's in the cycle
+  // after its data (INBOUND.md, Host memory). Offset bits at or above
+  // HOST_MEM_ADDR_W are 0 (check 4).
+  assign host = take && pass
+             && ((op == common_pkg::RC_OP_HOST_RD) || (op == common_pkg::RC_OP_HOST_WR));
+
+  always_comb begin
+    host_d = host_q;
+    if (host_gnt_i) begin
+      host_d.valid = 1'b0;
+    end
+    if (host) begin
+      host_d.valid = 1'b1;
+      host_d.wr    = op == common_pkg::RC_OP_HOST_WR;
+      host_d.adw   = cmd_i.addr[pcie_rc_tl_pkg::HADW_W+1:2];
+      host_d.be    = cmd_i.first_be;
+      host_d.data  = cmd_i.data;
+    end
+  end
+
+  `COMMON_DFF_RST(host_q, host_d, clk_i, rst_i)
+
+  assign host_o = host_q;
+
   // A local command's or a refusal's one result beat. ERR_RD returns the
   // record as it stands before the take's edge.
   always_comb begin
@@ -99,7 +133,6 @@ module pcie_rc_tl_cmd #(
       end else if (op == common_pkg::RC_OP_ERR_CLR) begin
         status = common_pkg::RC_ST_OK;
       end
-      // Interim: HOST_* stays LOCAL_UR until #375.
     end
   end
 
@@ -113,7 +146,7 @@ module pcie_rc_tl_cmd #(
     if (take) begin
       fe_d.busy = 1'b1;
     end
-    if (take && !req_o.start) begin
+    if (take && !req_o.start && !host) begin
       fe_d.beat        = 1'b1;
       fe_d.rsp.status  = status;
       fe_d.rsp.data    = data;
@@ -122,6 +155,12 @@ module pcie_rc_tl_cmd #(
     if (res_i.valid) begin
       fe_d.beat = 1'b1;
       fe_d.rsp  = res_i.rsp;
+    end
+    if ((host_gnt_i && host_q.wr) || host_rd_vld_i) begin
+      fe_d.beat       = 1'b1;
+      fe_d.rsp.status = common_pkg::RC_ST_OK;
+      fe_d.rsp.data   = host_rd_vld_i ? host_rd_data_i : 32'd0;
+      fe_d.rsp.last   = 1'b1;
     end
     // The error record: an ERR_CLR that passes clears the bits set in
     // data; an event setting a bit at the same edge wins.
@@ -137,8 +176,8 @@ module pcie_rc_tl_cmd #(
   assign rsp_valid_o = !rst_i && fe_q.beat;
   assign rsp_o       = rst_i ? '0 : fe_q.rsp;
 
-  // Bus Master Enable gates inbound requests (#375); the requester reads
-  // the Primary Bus Number.
+  // The receive parser reads Bus Master Enable; the requester and the
+  // completer the Primary Bus Number.
   `COMMON_UNUSED_BITS(unused_hdr_st, {hdr_st_i.bme, hdr_st_i.pri_bus})
 
   // A beat only while a command is in progress; nothing between beats.
@@ -147,6 +186,9 @@ module pcie_rc_tl_cmd #(
   // The requester answers only the command in progress, never in the
   // cycle a local beat is made.
   `COMMON_ASSERT_NEVER(a_res_unasked, clk_i, rst_i, res_i.valid && (!fe_q.busy || take))
+  // Host memory answers only the HOST_* in progress, one beat.
+  `COMMON_ASSERT_NEVER(a_host_unasked, clk_i, rst_i, host_gnt_i && !host_q.valid)
+  `COMMON_ASSERT_NEVER(a_host_two, clk_i, rst_i, (host_gnt_i || host_rd_vld_i) && res_i.valid)
 
 endmodule
 

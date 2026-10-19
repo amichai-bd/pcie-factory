@@ -409,6 +409,25 @@ def test_dma_write_and_read_of_host_memory():
     assert d.released == [(dll.P, 1), (dll.NP, 0)]
 
 
+def test_completion_never_passes_a_waiting_posted_write():
+    """REQUESTER, Transmit: rc's posted write waiting for posted credits
+    holds a ready completion back; once the credit is there the write goes
+    first, then the completion. Failing case: the completion going first."""
+    t, d = make_tl()
+    full = d.avail
+    d.avail = lambda cls, f: 0 if cls == dll.P else full(cls, f)
+    assert t.offer(cmd(m.MEM_WR, 0x1000_0000), 0)
+    now = run(t, 8, 1)
+    d.delivered.append(tlm.mem_tlp(False, 0x100, 1, 0xF, 0x0, 0x0100, 9))
+    now = run(t, 12, now)
+    assert t.cpl_out, "no completion ready"
+    assert not d.sent, "the completion passed a waiting posted write"
+    d.avail = full
+    run(t, 12, now)
+    kinds = [tlm.parse(x)["type"] for x in d.sent]
+    assert kinds == [tlm.T_MEM, tlm.T_CPL]
+
+
 @pytest.mark.parametrize("tlp,bit", [
     (mwr(0x1000_0000, [1]), m.E_INBOUND_UR),                 # the window claims it
     (mwr(0x2000_0000, [1]), m.E_INBOUND_UR),                 # nowhere
