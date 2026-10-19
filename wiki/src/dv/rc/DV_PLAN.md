@@ -10,7 +10,8 @@
   `clk_i` and `ser_rx_clk_i` running, `rst_i` pulsed twice and every other
   input toggled at random, it checks each output with a defined
   [reset value](../../arch/rc/HAS.md#clocks-and-reset) at every falling
-  `clk_i` edge.
+  `clk_i` edge, and `ser_tx_data_o` 0: not qualified while the line is in
+  electrical idle, but the shell drives 0 ([MAS](../../rtl/rc/MAS.md#microarchitecture)).
 - **Functional coverage:** the `rc_shell` covergroup bins `rst` and
   `start_i` (low, high), crossed.
 - **Planned (wave 3):** `rc` back to back with the endpoint `core` over

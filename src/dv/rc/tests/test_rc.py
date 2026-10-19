@@ -22,6 +22,9 @@ RESET_VALUES = {
     "done_o": 0, "pass_o": 0, "fail_step_o": 0,
     "dl_up_o": 0, "dl_state_o": 0, "dl_err_o": 0,
     "link_up_o": 0, "ltssm_state_o": 0, "rcv_err_o": 0, "ser_tx_elec_idle_o": 1,
+    # Not qualified (don't care) by the HAS, but the shell drives 0 (MAS):
+    # checked so the shell keeps the line quiet while in electrical idle.
+    "ser_tx_data_o": 0,
 }
 
 # Inputs toggled at random, with their widths.

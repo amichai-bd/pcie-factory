@@ -57,8 +57,11 @@ waits) and `rc_seq`'s Hot Reset request to `link`'s `hot_reset_req_i`.
 | 8 | `ERR_RD` | Ignored | Read of the [error record](#error-record). |
 | 9 | `ERR_CLR` | Ignored | Clears the error record bits set in `data`. |
 
-Any other `op`, a `len` outside its range, or `addr` bits outside the
-fields above not 0, finishes with `LOCAL_UR` and has no effect. `rc_tl`
+Any other `op`, a `len` outside its range (a `MEM_WR` with `len` above 1
+included), `addr` bits outside the fields above not 0, or a `MEM_RD` whose
+`addr` and `len` cross a 4 KiB boundary, finishes with `LOCAL_UR`: nothing
+is sent and nothing changes. Which byte-enable combinations are legal is
+the `rc_tl` MAS's ([#368](https://github.com/amichai-bd/pcie-factory/issues/368)). `rc_tl`
 takes commands in order; a command's effect on rc state (a header,
 host-memory or error-record write) is visible to every later command.
 
@@ -83,8 +86,9 @@ host-memory or error-record write) is visible to every later command.
 | 7 | `BAD` | A poisoned or malformed completion, or one with a reserved status, for this request. |
 
 - **Order.** Results come in command order. Every command gets at least
-  one beat; only an `OK` `MEM_RD` gets more: `len` beats, the DWs in
-  address order, however many completions carried them.
+  one beat; only a `MEM_RD` gets more: `len` beats when it succeeds, the
+  DWs in address order, however many completions carried them, and fewer
+  when it fails (below).
 - **Failure.** Every beat but the last has status `OK`; the last beat's
   status is the command's. A read that fails after some of its data has
   arrived ends early with its failing status on its last beat.

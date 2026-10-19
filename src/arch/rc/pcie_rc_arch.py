@@ -40,8 +40,8 @@ def _inside(addr: int, nbytes: int, first: int, last: int) -> bool:
 def outbound(req: dict, hdr: dict, dl_up: bool) -> str:
     """The HAS outbound routing of one sequencer request to the endpoint:
     'send', 'LOCAL_UR' or 'LINK_DOWN'. ``req`` has ``kind`` ('cfg' or
-    'mem'), and ``bus`` and ``dev`` (cfg) or ``addr`` and ``len`` in DWs
-    (mem). ``hdr`` holds the header fields (``secondary``,
+    'mem'), and ``bus`` and ``dev`` (cfg) or ``addr``, ``len`` in DWs and
+    ``write`` (mem; a write is 1 DW, a read 1 to 32). ``hdr`` holds the header fields (``secondary``,
     ``mem_space_en``, ``mem_base``, ``mem_limit``)."""
     if not dl_up:
         return "LINK_DOWN"
@@ -50,7 +50,8 @@ def outbound(req: dict, hdr: dict, dl_up: bool) -> str:
     if req["kind"] != "mem":
         raise ValueError(f"request kind {req['kind']!r}")
     addr, nbytes = req["addr"], 4 * req["len"]
-    if not 1 <= req["len"] <= MAX_READ_DW or addr % 4 or addr // PAGE != (addr + nbytes - 1) // PAGE:
+    max_len = 1 if req.get("write", False) else MAX_READ_DW
+    if not 1 <= req["len"] <= max_len or addr % 4 or addr // PAGE != (addr + nbytes - 1) // PAGE:
         return "LOCAL_UR"
     win = memory_window(hdr["mem_base"], hdr["mem_limit"])
     if not hdr["mem_space_en"] or win is None or not _inside(addr, nbytes, *win):

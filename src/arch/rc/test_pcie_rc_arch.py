@@ -33,6 +33,8 @@ def test_memory_window():
     ({"kind": "mem", "addr": 0x8000_0FFC, "len": 2}, True, "LOCAL_UR"),   # crosses 4 KiB
     ({"kind": "mem", "addr": 0x7FFF_FFFC, "len": 1}, True, "LOCAL_UR"),
     ({"kind": "mem", "addr": 0x8000_0000, "len": 33}, True, "LOCAL_UR"),
+    ({"kind": "mem", "write": True, "addr": 0x8000_0000, "len": 1}, True, "send"),
+    ({"kind": "mem", "write": True, "addr": 0x8000_0000, "len": 2}, True, "LOCAL_UR"),  # a write is 1 DW
 ])
 def test_outbound(req, dl_up, want):
     """HAS, Outbound routing."""

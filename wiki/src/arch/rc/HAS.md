@@ -134,7 +134,9 @@ enumerates again (goal item 7). A retrain (Recovery) keeps `dl_up_o` at
 
 - A run starts at a cycle where `start_i` is 1, `start_i` was 0 in the
   previous cycle and no run is in progress; `start_i` is ignored during a
-  run. A run executes the ROM program from its first step
+  run. Cycles with `rst_i` 1 count as `start_i` 0, so a `start_i` held at 1
+  through the release of `rst_i` starts one run in the first cycle after
+  reset (a board build may tie it to 1 to run once per reset). A run executes the ROM program from its first step
   ([#369](https://github.com/amichai-bd/pcie-factory/issues/369) owns the
   commands of OP4 and their encoding).
 - `done_o` is 0 from reset and while a run is in progress, and 1 from the
@@ -190,23 +192,32 @@ The **memory window** is the byte range from `{Memory Base[15:4], 20'h0}`
 to `{Memory Limit[15:4], 20'hFFFFF}`, 1 MiB granular, below 4 GiB, and
 empty while Memory Base is above Memory Limit. The I/O and prefetchable
 windows read 0 (not implemented) [cite: PCIe Base Spec, rev 3.0, §7.5.3].
+At reset Memory Base and Memory Limit are both 0, which is a 1 MiB window
+at address 0 covering the default host memory: a program places the
+window apart from host memory and the MSI window before it sets Bus
+Master Enable, or every endpoint request becomes an Unsupported Request
+([inbound](#inbound-routing)).
 
 ### Outbound routing
 
 `rc_seq` asks `rc_tl` for each request to the endpoint
 ([commands](TL_SEQ.md#commands)). `rc_tl` sends it only as below and
-otherwise finishes it at once with result status `LOCAL_UR` and sends
+otherwise finishes it at once with the status in the Else column and sends
 nothing; checks apply in this order:
 
 | Request | Sent when | Else |
 | --- | --- | --- |
 | Any | `dl_up_o` is 1. | `LINK_DOWN`. |
 | Configuration read or write to bus b, device d | b equals Secondary Bus Number and d is 0: sent as a Type 0 request [cite: PCIe Base Spec, rev 3.0, §7.3.3]. A downstream port has only device 0 below it [cite: PCIe Base Spec, rev 3.0, §7.3.1]. | `LOCAL_UR`: another bus or device (Type 1 requests are a non-goal). |
-| Memory read or write | Memory Space Enable is 1, and every byte lies inside the memory window. | `LOCAL_UR`. |
+| Memory read or write | Memory Space Enable is 1, the request does not cross a 4 KiB boundary [cite: PCIe Base Spec, rev 3.0, §2.2.7], and every byte lies inside the memory window. | `LOCAL_UR`. |
 
-A memory read is 1 to 32 DW and never crosses a 4 KiB boundary
-[cite: PCIe Base Spec, rev 3.0, §2.2.7]; a memory write is 1 DW;
-configuration requests are 1 DW. The endpoint's completion (status,
+A memory read is 1 to 32 DW; a memory write and a configuration request
+are 1 DW ([field checks](TL_SEQ.md#commands)); a `MEM_RD` whose `addr` and
+`len` cross a 4 KiB boundary is not split but finished with `LOCAL_UR`.
+The byte enables go out as given; which combinations are legal (a zero
+`first_be`, `last_be` of a multi-DW read) and how `rc_tl` refuses the
+others is the `rc_tl` MAS's
+([#368](https://github.com/amichai-bd/pcie-factory/issues/368)). The endpoint's completion (status,
 data) becomes the result.
 
 ### Inbound routing
@@ -293,8 +304,11 @@ The `link` DV plan maps each entry name to its test
 ## Decisions
 
 Rows citing P, Q, OP or F are the captain's (decision record
-[0005](../../decisions/0005-m4-grill.md#decisions)); the others are this
-HAS's choices, which the captain signs off with it.
+[0005](../../decisions/0005-m4-grill.md#decisions)). The others are this
+HAS's choices, signed off by the firstmate as the captain's delegate
+([delegate decision](https://github.com/amichai-bd/pcie-factory/issues/367#issuecomment-6267968281)) under the M4 epic's
+[delegated decisions](https://github.com/amichai-bd/pcie-factory/issues/357#issuecomment-6267954374), during the captain's autonomous-delivery
+goal; the captain may override any of them.
 
 | Choice | Rationale | Rejected |
 | --- | --- | --- |
@@ -304,7 +318,7 @@ HAS's choices, which the captain signs off with it.
 | Status and Secondary Status read 0; one error record instead | Completion timeout and received error messages have no Status bit without AER, which is a non-goal; one record holds every event a program checks. | Error bits in Status and Secondary Status plus a second record for the rest. |
 | One host memory, its size a parameter, with a 4 KiB MSI window (OP5 default) | DMA and MSI checks need nothing more; the window's offset tells vectors apart. | An external memory port (a second bus contract); MSI writes stored in host memory (no event for "wait for MSI"). |
 | `rc_tl` and `rc_seq` survive link down; outstanding requests finish with `LINK_DOWN` | The sequencer drives the Hot Reset and must re-enumerate after it; a hung command would hang the run. | Holding both in reset while `dl_up_o` is 0 as `core` does (loses the program state). |
-| `retrain_req_i`, `disable_req_i`, `loopback_req_i` tied to 0 | OP4 lists Hot Reset only; the rollover retrain stays inside `link`. Open for the captain, below. | Commands for each (beyond OP4, and the upper-layer retrain through `link` has no `link` e2e test yet). |
+| `retrain_req_i`, `disable_req_i`, `loopback_req_i` tied to 0 | OP4 lists Hot Reset only, and Hot Reset plus link-down handling meet M4's errors-and-recovery scope; the rollover retrain stays inside `link`. Firstmate delegate decision, option (a) ([#367 comment](https://github.com/amichai-bd/pcie-factory/issues/367#issuecomment-6267968281)); the captain may override. | Commands for each (beyond OP4, and the upper-layer retrain through `link` has no `link` e2e test yet). |
 | Posted and non-posted credits released when a request leaves `rc_tl`, `FC_RELEASE` 1 | Bounds `rc_tl`'s queues by what it advertises, as in `core`; covered by `link` `e2e_credits_release`. | Release at delivery (nothing bounds what the endpoint sends while `rc_tl` waits for host memory or answers with Unsupported Request). |
 | 1-DW memory writes and configuration requests; reads of 1 to 32 DW | Programs check DW by DW; 32 DW is the 128-byte read limit (M2 Q6) and draws several completions from `core`. | Multi-DW writes (ROM data per DW for no M4 goal). |
 | 16-bit `fail_step_o` | Four hexadecimal digits on a board display; bounds the ROM at 65536 steps. | A width that follows the ROM size (the board wrapper would change with it). |
@@ -329,7 +343,9 @@ non-goals). The functional rows are goal items of the
 
 The [architecture model](#architecture-model) also reports, with no bound,
 the cycles to enumerate and the MMIO and DMA throughput
-([#371](https://github.com/amichai-bd/pcie-factory/issues/371)).
+([#371](https://github.com/amichai-bd/pcie-factory/issues/371)): no
+throughput bound until there is a measured basis for one (firstmate
+delegate decision, [#367 comment](https://github.com/amichai-bd/pcie-factory/issues/367#issuecomment-6267968281); the captain may override).
 
 ## Architecture model
 
@@ -349,5 +365,4 @@ The Base Spec is not in the local cache (`./build specs list`:
 
 | Item | Owner |
 | --- | --- |
-| Whether `rc_seq` also drives Retrain Link and Disabled (the issue lists them; OP4 lists Hot Reset only). This page ties both to 0. | Captain, on the [#367](https://github.com/amichai-bd/pcie-factory/issues/367) PR |
 | The cited sections on this page and the [tl-seq page](TL_SEQ.md), checked against rev 3.0: the Type 1 header fields and the window rules, the configuration routing of a downstream port, the completion-credit rule for a Root Port. | Captain, with a local copy |
