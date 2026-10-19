@@ -30,7 +30,7 @@ tests:
     testcase: e2e_soak
     top: pcie_link_e2e_tb
     params: {CREDITS: 2}
-    seeds: 1
+    seeds: [2116043723, 219244450, 74]   # derived seed 0; 219244450 and 74 pinned (#359)
     timeout_s: 1800
   - name: e2e_soak_infinite
     module: tests.test_link_e2e
