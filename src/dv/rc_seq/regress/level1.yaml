@@ -1,1 +1,69 @@
-tests: []
+tests:
+  - name: selftest
+    module: tests.test_rc_seq
+    testcase: selftest
+    top: pcie_rc_seq
+    params: {PROGRAM: 4}
+    seeds: 2
+    timeout_s: 300
+  - name: expect_mismatch
+    module: tests.test_rc_seq
+    testcase: expect_mismatch
+    top: pcie_rc_seq
+    params: {PROGRAM: 4}
+    seeds: 2
+    timeout_s: 300
+  - name: status_mismatch
+    module: tests.test_rc_seq
+    testcase: status_mismatch
+    top: pcie_rc_seq
+    params: {PROGRAM: 4}
+    timeout_s: 300
+  - name: wait_bounds
+    module: tests.test_rc_seq
+    testcase: wait_bounds
+    top: pcie_rc_seq
+    params: {PROGRAM: 4}
+    timeout_s: 300
+  - name: jump_traps
+    module: tests.test_rc_seq
+    testcase: jump_traps
+    top: pcie_rc_seq
+    params: {PROGRAM: 4}
+    timeout_s: 300
+  - name: loop_limit
+    module: tests.test_rc_seq
+    testcase: loop_limit
+    top: pcie_rc_seq
+    params: {PROGRAM: 4}
+    timeout_s: 300
+  - name: start_reset
+    module: tests.test_rc_seq
+    testcase: start_reset
+    top: pcie_rc_seq
+    params: {PROGRAM: 4}
+    timeout_s: 300
+  - name: program_enum
+    module: tests.test_rc_seq
+    testcase: program_enum
+    top: pcie_rc_seq
+    params: {PROGRAM: 0}
+    timeout_s: 300
+  - name: program_mmio
+    module: tests.test_rc_seq
+    testcase: program_mmio
+    top: pcie_rc_seq
+    params: {PROGRAM: 1}
+    timeout_s: 300
+  - name: program_dma_msi
+    module: tests.test_rc_seq
+    testcase: program_dma_msi
+    top: pcie_rc_seq
+    params: {PROGRAM: 2}
+    timeout_s: 300
+  - name: program_errors
+    module: tests.test_rc_seq
+    testcase: program_errors
+    top: pcie_rc_seq
+    params: {PROGRAM: 3}
+    timeout_s: 300

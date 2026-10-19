@@ -1,41 +1,107 @@
 # pcie_rc_seq DV plan
 
-> **Draft until the interpreter:** only the shell smoke test exists; the
-> command tests arrive with
-> [#376](https://github.com/amichai-bd/pcie-factory/issues/376).
+The interpreter and its programs
+([#376](https://github.com/amichai-bd/pcie-factory/issues/376)) are
+verified by this testbench against a stand-in for `rc_tl` that conforms
+to the [tl-seq interface](../../arch/rc/TL_SEQ.md). The programs against
+the real `rc_tl` and `core` are the `rc` e2e's
+([#377](https://github.com/amichai-bd/pcie-factory/issues/377)).
 
 ## Strategy
 
-- **Shell test:** [`tests/test_rc_seq.py`](../../../../src/dv/rc_seq/tests/test_rc_seq.py)
-  drives `pcie_rc_seq` directly (no SV testbench; `rc_seq.dv.f` is
-  empty). With `clk_i` running, `rst_i` pulsed twice and `start_i`,
-  `dl_up_i` and `link_up_i` toggled at random, it checks every output at
-  its [reset value](../../rtl/rc_seq/MAS.md#reset) at every falling `clk_i`
-  edge.
-- **Functional coverage:** the `rc_seq_shell` covergroup bins `rst` and
-  `start_i` (low, high), crossed.
-- **Planned (#376):** `pcie_rc_seq` with the `SELFTEST` program
-  ([programs](../../rtl/rc_seq/PROGRAMS.md#self-test)) against a cocotb
-  stand-in for `rc_tl` that answers each command, MSI capture and link
-  status as the test chooses, checking every op, failure case and timing
-  bound of the [MAS](../../rtl/rc_seq/MAS.md#commands) through `done_o`,
-  `pass_o` and `fail_step_o`; and every M4 program run against the
-  stand-in with one expected value made wrong, so `rc_seq` fails at that
-  step. The M4 programs against `core` are the `rc` e2e's
-  ([#377](https://github.com/amichai-bd/pcie-factory/issues/377)).
+- **No SV testbench:** cocotb drives `pcie_rc_seq` directly through its
+  ports (`rc_seq.dv.f` is empty); each entry sets `PROGRAM`.
+- **Environment:** [`tb/rc_seq_env.py`](../../../../src/dv/rc_seq/tb/rc_seq_env.py),
+  one step per `clk_i` cycle. At the falling edge the stand-in reads the
+  registered outputs and drives the cycle's inputs; once they settle the
+  environment reads every output and compares it with the reference
+  model: `cmd_valid_o` and `cmd_o` (while valid), `msi_ready_o`,
+  `hot_reset_req_o`, `done_o`, `pass_o`, `fail_step_o`, every cycle,
+  reset included. A mismatch names the cycle, the model's step and the
+  field.
+- **Reference model:** [`models/pcie_rc_seq_model.py`](../../../../src/dv/rc_seq/models/pcie_rc_seq_model.py),
+  written from the [MAS](../../rtl/rc_seq/MAS.md) and the
+  [programs page](../../rtl/rc_seq/PROGRAMS.md): the step format, an
+  assembler with label targets, every program built from the programs
+  page, and the interpreter cycle by cycle per the
+  [MAS timing](../../rtl/rc_seq/MAS.md#timing). The RTL runs its package
+  image and the model the image it builds itself, so a wrong word in an
+  image fails at the step that differs.
+- **Stand-in:** [`models/pcie_rc_seq_standin.py`](../../../../src/dv/rc_seq/models/pcie_rc_seq_standin.py),
+  for `rc_tl` and the endpoint behind it: random ready delays, result
+  beats in command order with random gaps (a local command's first beat
+  possibly in the take cycle, a `MEM_RD` as `len` beats), the field checks
+  and routing answering `LOCAL_UR`, `LINK_DOWN` while DL_Down, the error
+  record, the MSI capture (depth 4, overflow sets bit 12); behind it the
+  endpoint at `core` defaults as the [program boundary](../../rtl/rc_seq/PROGRAMS.md#boundary)
+  needs (configuration registers, BAR0 memory, the DMA doorbell, the
+  no-answer DW, Unsupported Requests and their messages) and a link that
+  trains, takes a Hot Reset and, in `ERRORS`, goes down once under
+  traffic. For `SELFTEST` the link and MSI follow the program's kick
+  writes, and tests set guard DWs, poll answers, a status, a wrong beat or
+  capture, and the cycle a wait's condition first holds.
+- **Wrong expected values:** for a program, the environment runs it on
+  the model alone, picks an `EXPECT` whose register comes from the
+  `REQ` or `WAIT_MSI` just before it (only `EXPECT`s between), and flips
+  one bit of its mask in that beat or capture; the run must fail at that
+  `EXPECT` exactly.
+- **Assertions:** the RTL's own, on the interface (a beat only for a
+  taken command, at most 32 beats, the command held while offered, a
+  capture taken only when offered).
+- **Model unit tests:** [`models/test_pcie_rc_seq_model.py`](../../../../src/dv/rc_seq/models/test_pcie_rc_seq_model.py)
+  (pytest, no simulator): field positions, constructor defaults, every
+  program passing on six stand-in seeds and failing at corrupted
+  `EXPECT`s, wait bounds, the loop limit, out-of-ROM and reserved ops,
+  start and reset, the stand-in's refusals and capture overflow.
 
 ## Plan
 
+All entries run `pcie_rc_seq`, with `PROGRAM` 4 (`SELFTEST`) unless the
+row names another.
+
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
-| [Reset values of the shell](../../rtl/rc_seq/MAS.md#reset) | `smoke` | 0 | 1; 128 cycles with random inputs |
+| A passing `SELFTEST` run, start held through reset, the result holding | `smoke` | 0 | 1 |
+| [Every op](../../rtl/rc_seq/MAS.md#commands), every `JUMP` condition taken and not taken, a `REQ` of every tl-seq op and two undefined ones, the 32-DW read, an MSI, Hot Reset, on random latencies | `selftest` | 1 | 2; two runs each |
+| `EXPECT` mismatch: a wrong bit in a 1-DW read, a beat of the 32-DW read, an MSI capture | `expect_mismatch` | 1 | 2; six or seven runs each |
+| `REQ` `chk`: each status answered where another is expected fails at the `REQ`; `chk` 0 does not | `status_mismatch` | 1 | 1; ten runs |
+| Wait bounds: `WAIT_LINK`, `WAIT_MSI`, `HOT_RESET` with the condition first at cycle 0, T (pass) and T + 1 (fail at the step); the Hot Reset request's length and its fall as a run fails | `wait_bounds` | 1 | 1; nine runs |
+| `FAIL`, reserved ops 0x07 and 0x0F, conditions 5 and 7, the FAIL padding past the program, a `pc` above the ROM (`fail_step_o` 0x0123) | `jump_traps` | 1 | 1; seven runs |
+| [`L` and the loop limit](../../rtl/rc_seq/MAS.md#commands): exactly the limit passes, one take over fails at the jump, `ALWAYS` leaves `L`, a forward conditional sets it 0 | `loop_limit` | 1 | 1; five runs |
+| [Run](../../rtl/rc_seq/MAS.md#run) and [reset](../../rtl/rc_seq/MAS.md#reset): a pulse starts, `start_i` in a run is ignored, the result holds until a new rising edge, a restart drops `done_o`, reset mid-run, `start_i` held through reset | `start_reset` | 1 | 1 |
+| [`ENUM`](../../rtl/rc_seq/PROGRAMS.md#enumeration) against the stand-in, then failing at a wrong expected value (`PROGRAM` 0) | `program_enum` | 1 | 1 |
+| [`MMIO`](../../rtl/rc_seq/PROGRAMS.md#mmio), likewise (`PROGRAM` 1) | `program_mmio` | 1 | 1 |
+| [`DMA_MSI`](../../rtl/rc_seq/PROGRAMS.md#dma-and-msi), likewise (`PROGRAM` 2) | `program_dma_msi` | 1 | 1 |
+| [`ERRORS`](../../rtl/rc_seq/PROGRAMS.md#errors-and-recovery): three enumerations, the polls, the refusals, the dropped MSI, the completion timeout, Hot Reset and link down, likewise (`PROGRAM` 3) | `program_errors` | 1 | 1 |
+| `SELFTEST` with random latencies and one random fault (expect, status, wait bound) or none | `selftest_random` | 2 | 4; six runs each |
+| Each M4 program over more stand-in seeds, passing then failing (`PROGRAM` 0 to 3) | `program_random_enum`, `program_random_mmio`, `program_random_dma_msi`, `program_random_errors` | 2 | 2 each; three seeds of the stand-in per run |
 
-Levels 1 and 2 have no entries yet (`tests: []`).
+**Level placement.** Every L1 entry takes about a second; L2 widens the
+stand-in seeds and fault choices.
+
+## Functional coverage
+
+Sampled from the steps the model finishes, which the cycle comparison
+holds equal to the RTL's:
+
+- `rc_seq_steps`: each op with its outcome (`FAIL`, reserved, `EXPECT`,
+  the waits, `HOT_RESET`, `JUMP`, `DONE`, `REQ`, passing and failing
+  where it can), each tl-seq op of a `REQ` and the undefined ones, each
+  final status;
+- `rc_seq_jumps`: each condition, bad ones included, and each outcome
+  (taken forward, not taken, taken back, at the limit, bad);
+- `rc_seq_run`: start held through reset, a start pulse, start during a
+  run, a restart after done, reset mid-run, a beat in the take cycle, a
+  32-DW read with gaps.
+
+L0 to L2 reach every bin. The package's program builders run at
+elaboration only, so line coverage counts them as never executed; the
+state machine's `default` arm is unreachable (11 of 16 state codes are
+used).
 
 ## Gaps
 
 | Feature | Owning issue |
 | --- | --- |
-| [Run](../../rtl/rc_seq/MAS.md#run), [result registers](../../rtl/rc_seq/MAS.md#result-registers), every [command](../../rtl/rc_seq/MAS.md#commands) and its failure, the [timing](../../rtl/rc_seq/MAS.md#timing) bound, `SELFTEST` | [#376](https://github.com/amichai-bd/pcie-factory/issues/376) |
-| The M4 [programs](../../rtl/rc_seq/PROGRAMS.md) against `core` | [#377](https://github.com/amichai-bd/pcie-factory/issues/377) |
+| The M4 programs against the real `rc_tl` and `core` | [#377](https://github.com/amichai-bd/pcie-factory/issues/377) |
 | Coverage floors | [#380](https://github.com/amichai-bd/pcie-factory/issues/380) |

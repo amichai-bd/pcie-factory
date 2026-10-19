@@ -1,1 +1,36 @@
-tests: []
+tests:
+  - name: selftest_random
+    module: tests.test_rc_seq
+    testcase: selftest_random
+    top: pcie_rc_seq
+    params: {PROGRAM: 4}
+    seeds: 4
+    timeout_s: 300
+  - name: program_random_enum
+    module: tests.test_rc_seq
+    testcase: program_random_enum
+    top: pcie_rc_seq
+    params: {PROGRAM: 0}
+    seeds: 2
+    timeout_s: 300
+  - name: program_random_mmio
+    module: tests.test_rc_seq
+    testcase: program_random_mmio
+    top: pcie_rc_seq
+    params: {PROGRAM: 1}
+    seeds: 2
+    timeout_s: 300
+  - name: program_random_dma_msi
+    module: tests.test_rc_seq
+    testcase: program_random_dma_msi
+    top: pcie_rc_seq
+    params: {PROGRAM: 2}
+    seeds: 2
+    timeout_s: 300
+  - name: program_random_errors
+    module: tests.test_rc_seq
+    testcase: program_random_errors
+    top: pcie_rc_seq
+    params: {PROGRAM: 3}
+    seeds: 2
+    timeout_s: 300
