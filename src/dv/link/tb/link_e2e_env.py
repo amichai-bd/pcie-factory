@@ -74,6 +74,7 @@ NEVER = (PROTOCOL, OVERFLOW, MALFORMED)
 ACK_DLL_BOUND = 118                  # HAS targets: at the dll-to-phy boundary
 ACK_LINE_BOUND = 140                 # HAS targets: derived bound on the line
 LIVENESS = 20_000
+STALL_GAP = 500                     # cycles of taking between two receive stalls
 
 CREDIT_CONFIGS = ("default", "minimum", "finite", "infinite", "asymmetric", "release")
 CLASS_FIELDS = ("P", "NP", "Cpl")
@@ -271,6 +272,7 @@ class LinkEnd:
         # upper receive
         self.rx_beats: list[int] = []
         self.take_p = 1.0                # probability of taking a beat (finite credits only)
+        self.stall_from = 0              # takes nothing in [stall_from, stall_until)
         self.stall_until = 0
         # releaser (release configuration): per class P, NP the delivered
         # TLPs (cycle, data credits) not yet released, the finite credits
@@ -480,7 +482,7 @@ class LinkEnd:
     def _take(self, n: int) -> bool:
         if self.any_inf:
             return True                  # the upper-layer obligation (dll HAS, receive)
-        if n < self.stall_until:
+        if self.stall_from <= n < self.stall_until:
             return False
         return self.take_p >= 1.0 or self.rng.random() < self.take_p
 
@@ -528,6 +530,15 @@ class LinkEnd:
         self.pos += 1
         if self.pos == len(self.cur) // 4:
             self.cur = None
+
+    def stall(self, length: int, gap: int = STALL_GAP) -> None:
+        """Schedule one receive stall of ``length`` cycles (HAS, credit
+        configurations: stalls of 4000 and 10000 cycles). It starts now,
+        or ``gap`` cycles after a stall still pending ends, so stalls never
+        chain into one longer than ``length``: the upper layer takes beats
+        between them, and the liveness bound stays meaningful."""
+        self.stall_from = max(self.cycle, self.stall_until + gap)
+        self.stall_until = self.stall_from + length
 
     def send(self, tlps) -> None:
         self.tx_q.extend(tlps)

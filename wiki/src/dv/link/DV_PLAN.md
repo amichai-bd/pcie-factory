@@ -165,7 +165,7 @@ All entries run on `pcie_link_e2e_tb`; credits are the default
 | The same with every class infinite (no stall) | `e2e_credits_infinite` | 2 | 1; `CREDITS` 3 |
 | [Credit release](../../arch/dll/HAS.md#credit-release) through `link`: default credits, `FC_RELEASE` 1, each end taking every beat but releasing in 30% of cycles and none for 4000 and 10000 cycles; no overflow, never more held than advertised, all of a class held and the far end starved, credits back when drained | `e2e_credits_release` | 1 | 1; `CREDITS` 5 |
 | Disabled and Loopback passed through | `e2e_disable`, `e2e_loopback` | 2 | 1 each |
-| Soak: random classes, line flips and credit stalls together, 1000 TLPs each way, ppm from the seed, in every credit configuration | `e2e_soak_default`, `e2e_soak_minimum`, `e2e_soak_finite`, `e2e_soak_infinite`, `e2e_soak_asymmetric` | 2 | 3, 2, 1, 1, 2; `CREDITS` 0 to 4; coverage on the first 2, 2, 1, 1, 2 ([seeds](#seeds-and-coverage-runs)) |
+| Soak: random classes, line flips and credit stalls together, 1000 TLPs each way, ppm from the seed, in every credit configuration | `e2e_soak_default`, `e2e_soak_minimum`, `e2e_soak_finite`, `e2e_soak_infinite`, `e2e_soak_asymmetric` | 2 | 3, 2, 2, 1, 2; `CREDITS` 0 to 4; coverage on the first 2, 2, 1, 1, 2 ([seeds](#seeds-and-coverage-runs)) |
 | [Throughput](../../arch/link/HAS.md#throughput), one way, screen: 400 128-byte memory writes a to b against the 0.85 target (more start and drain in the window than 2000 TLPs, so stricter), every line symbol attributed | `e2e_throughput_short` | 1 | 1 |
 | [Throughput targets](../../arch/link/HAS.md#targets): 2000 128-byte memory writes one way (0.85) and each way (0.76 per direction), every line symbol attributed; each seed draws the start against the SKP schedule (within one SKP interval) and, both ways, b's start against a's (within one TLP time) | `e2e_throughput_oneway`, `e2e_throughput_bidir` | 2 | 1 and 2 |
 | Seed sweeps of the directed and mixed tests | `e2e_tlp_errors_sweep`, `e2e_dllp_errors_sweep`, `e2e_rollover_sweep`, `e2e_line_sweep`, `e2e_mixed_sweep` | 2 | 2, 2, 2, 3, 4; coverage on the first 1, 1, 2, 2, 1 |
@@ -204,6 +204,18 @@ recorded kill depends on them:
   the cut seed hit no point or bin the others miss.
 - `e2e_soak_minimum` 3 to 2, `e2e_soak_finite` and `e2e_soak_infinite` 2
   to 1: each cut seed hit no point or bin that the rest of the levels miss.
+
+`e2e_soak_finite` lists its seeds: derived seed 0 (2116043723, the
+coverage run) and 219244450, pinned by
+[#359](https://github.com/amichai-bd/pcie-factory/issues/359). That rotated
+nightly seed drew four receive stalls at end a, each scheduled before the
+previous one ended, so they chained into one 22148-cycle stall (cycles
+13023 to 35171) while the `dll` offered a TLP every cycle; the liveness
+check fired on the bench, not the RTL. Each receive stall is now one
+window of 4000 or 10000 cycles ([credit configurations](../../arch/link/HAS.md#credit-configurations)),
+and a stall scheduled while one is pending starts 500 cycles after it
+ends, so the upper layer takes beats between stalls and no stall reaches
+the liveness bound.
 
 `--coverage` instruments only the first seeds named in the plan rows (the
 entries' `coverage_seeds`); every seed still runs and must pass. Where a
