@@ -128,7 +128,7 @@ and the code sequence rules ([receive](#receive)) catch damaged framing.
 
 | Word | Name | Sent |
 | --- | --- | --- |
-| `0x005A`, `0x015A` | TRAIN | While the link is not up and not in Hot Reset. Bit 8 is 1 when the sender's receiver is aligned. |
+| `0x005A`, `0x015A` | TRAIN | While the link is not up, except by a downstream end in Hot Reset (an upstream end in Hot Reset sends TRAIN). Bit 8 is 1 only when the sender's receiver is aligned and its quiet run is over ([states](LINK_UP.md#states)). |
 | `0x00C3` | IDLE | While the link is up, between packets. |
 | `0x0096` | HOT_RESET | By a downstream end in [Hot Reset](#hot-reset). |
 
@@ -276,7 +276,7 @@ delegate, which the captain may override ([decision](https://github.com/amichai-
 | A `dll` replay-timeout parameter, set by the board build, in its own issue [#384](https://github.com/amichai-bd/pcie-factory/issues/384) before the board-build e2e (firstmate decision, point 1) | Spurious replays waste bandwidth and hide real faults; a default that keeps 356 cycles changes nothing else ([`dll` timers](#dll-timers)). | Accepting the replays; a slower `CLK_DIV` (does not close the gap). |
 | `CLK_DIV` default 2 (firstmate decision, point 3) | M4 has no physical boards (P3), so there is no cable to measure; 2 gives the fastest centre-aligned transfers. | A slower default chosen with no measurement. |
 | Latency targets and an architecture model in [#378](https://github.com/amichai-bd/pcie-factory/issues/378), none in this HAS yet (firstmate decision, point 4) | Targets come with a model that checks them. | No targets at all. |
-| Every down starts a quiet run of at least 16 bit-8-clear TRAIN words, counted in the sender's own slots; the backstop run is 64 TRAIN words; `W` at most 4 slots of the slower end (firstmate decision as the captain's delegate, review of [#383](https://github.com/amichai-bd/pcie-factory/pull/383)) | Makes every down symmetric by construction at any clock ratio from 1/2 to 2: the partner always sees a run of 4, and the trailing-word bound (49 at a ratio of 2) stays below 64 ([convergence](LINK_UP.md#convergence)). | Relying on the realignment time to send enough bit-8-clear words (only about 4 at a ratio of 1/2); ignoring bit-8-set words while up with no backstop. |
+| Every down starts a quiet run of at least 16 bit-8-clear TRAIN words, counted in the sender's own slots; the backstop run is 64 TRAIN words; `W` at most 4 slots of the slower end (firstmate decision as the captain's delegate, [#370 comment](https://github.com/amichai-bd/pcie-factory/issues/370#issuecomment-6268798882)) | Makes every down symmetric by construction at any clock ratio from 1/2 to 2: the partner always sees a run of 4, and the trailing-word bound (49 at a ratio of 2) stays below 64 ([convergence](LINK_UP.md#convergence)). | Relying on the realignment time to send enough bit-8-clear words (only about 4 at a ratio of 1/2); ignoring bit-8-set words while up with no backstop. |
 | `gpio_*` ports always present on `link` and `core`, tied off at `LOWER` 0 (firstmate decision, point 5; [`link` lower layer](../link/HAS.md#lower-layer)) | Follows from OP2's `link` parameter; SystemVerilog has no parameter-dependent ports. | A different top per build. |
 
 ## Open items

@@ -53,7 +53,10 @@ is over.
   bit 8 set, IDLE words and undamaged packet slots; packet slots received
   while not up are not delivered.
 - **Down.** An up end goes down to training (or to not aligned) on any of
-  these causes:
+  these causes. The runs of causes 2 and 3 count only slots received while
+  up, starting at 0 when the end goes up; words received in any other
+  state, such as those a downstream end ignores during its Hot Reset dwell,
+  never feed them.
   1. alignment loss;
   2. a run of 4 TRAIN words with bit 8 clear;
   3. a run of 64 TRAIN words of either bit-8 value: a backstop against any
@@ -61,7 +64,9 @@ is over.
   4. a Hot Reset (below).
 
   Shorter runs of TRAIN words are ignored while up. Every down starts a
-  quiet run.
+  quiet run at once, except a downstream Hot Reset: that end sends
+  HOT_RESET words through its dwell and starts its quiet run at the end of
+  the dwell.
 - **At link-down,** a transmitted packet partly sent ends with an ABORT
   slot, and an open received packet is closed with an error `eop`
   ([HAS link-up](HAS.md#link-up)).
@@ -81,7 +86,9 @@ over the `phy` [cite: PCIe Base Spec, rev 3.0, §4.2.6.11].
   - In the upstream role, `hot_reset_req_i` is ignored.
 - **Upstream** (`port_role_i` 1):
   - A run of 4 HOT_RESET words, in any state while aligned, enters Hot
-    Reset and starts a quiet run.
+    Reset and starts a quiet run. Further HOT_RESET words while in Hot
+    Reset keep it there and do not restart the quiet run; a new entry
+    after leaving Hot Reset starts a new one.
   - A run of 4 TRAIN words, of either bit-8 value, leaves it to training.
 - `link_up_o` falls on entry, so the `dll` goes to DL_Inactive, as with a
   `phy` Hot Reset.
@@ -96,13 +103,19 @@ Each case below holds for any clock ratio from 1/2 to 2 and any `CLK_DIV`.
   of them at least 7 long. So an up B always sees a run of 4 (cause 2) and
   goes down too. Each `dll` goes down once, and both ends then train.
 - **No stale up.** A counts its run of 8 only after its own quiet run has
-  ended. B goes down after receiving 4 of A's quiet words. The good slots
-  B sent before that keep arriving at A for at most 4 + 2 × `W` + 1 slots
-  after A's quiet run started, counted in A's slots at equal rates. At a
-  ratio of 2 it is at most 26 of the faster end's 32 slots. At a ratio of
-  1/2 (B slower), at most 5 slot times reach past the 16. Every such
-  overlap is shorter than 8 good slots, so A cannot go up on B's stale
-  slots.
+  ended, 16 of A's slot times after it started. B goes down on receiving
+  4 of A's quiet words (5 if one is damaged), and the good slots B sent
+  before that keep arriving at A until the times below, in A's slot times
+  after A's quiet run started, with `W` at its bound:
+
+  | B's rate | B's last stale good slot reaches A by | Overlap with A's count |
+  | --- | --- | --- |
+  | Equal | 4 + 2 × 4 = 12 (13 with a damaged slot) | None |
+  | Twice A's (`W` = 4 A slots) | 12 (13) | None |
+  | Half A's (`W` = 8 A slots) | 4 + 2 × 8 = 20 (21) | 4 (5) A slot times: at most 2 (3) of B's slots |
+
+  Every overlap is shorter than the 8 good slots A needs, so A cannot go
+  up on B's stale slots.
 - **Reaching up, no livelock.** Say A goes up first, at time t. Its run
   shows that B is aligned and past its quiet run. A has sent good slots
   since its own run started, so B's run of 8 completes within 8 of A's
