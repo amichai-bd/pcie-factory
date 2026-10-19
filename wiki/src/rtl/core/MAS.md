@@ -93,7 +93,7 @@ own outputs the same way.
   transmit side, with +1.065 ns of slack
   ([FPGA results](../../fpga/core/FPGA.md#results)); `tl`'s registered
   transmit output stage keeps every path into the `link` starting at a
-  flop. ASIC timing: [#296](https://github.com/amichai-bd/pcie-factory/issues/296).
+  flop. ASIC inputs: [#296](https://github.com/amichai-bd/pcie-factory/issues/296); routed ASIC timing: [#363](https://github.com/amichai-bd/pcie-factory/issues/363).
 
 ## Files
 

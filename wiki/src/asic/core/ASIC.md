@@ -16,11 +16,16 @@ default and nightly clocks, and 125 MHz is reported nightly; its closure
 is future timing work,
 [#235](https://github.com/amichai-bd/pcie-factory/issues/235).
 
-The **M3 gate is the 100 MHz (10 ns) checkpoint on both domains**, an
-explicit clock study (goal item 8 of the
-[M3 record](../../decisions/0004-m3-grill.md#goal), after M1 Q27). If it is
-missed, the achieved frequency and the worst paths are recorded here and
-100 MHz closure becomes a follow-up, as captain decision 3 of 2026-10-17
+The **100 MHz (10 ns) checkpoint on both domains** is an explicit clock
+study (M1 Q27). Under the captain direction of 2026-10-19
+([#296](https://github.com/amichai-bd/pcie-factory/issues/296#issuecomment-6266206778)),
+place-and-route and timing wait until the RTL functionality is done, so
+the checkpoint moved out of M3 to
+[#363](https://github.com/amichai-bd/pcie-factory/issues/363); this page
+holds the flow inputs, and CI keeps the
+[synthesis-only check](../../../tools/asic/SPEC.md#synthesis-only-compatibility-check).
+If #363 misses 100 MHz, the achieved frequency and worst paths are recorded
+here and closure becomes a follow-up, as captain decision 3 of 2026-10-17
 set for `link` ([M2 record, Updates](../../decisions/0003-m2-grill.md#updates);
 [Timing status](#timing-status)).
 
@@ -114,20 +119,21 @@ the generated config. Nightly runs it with every IP that has
 logic depth, power and peak memory, are in `metrics.json` and, from the
 nightly run, on the tracker's `core` page.
 
-The M3 gate runs with `./build asic --ip core --study-clock-period 10` (the
+The checkpoint runs with `./build asic --ip core --study-clock-period 10` (the
 `asic` workflow's `study_clock_period` input). Its results are isolated in
 `workdir/core/asic-study/10ns/`, with both clocks at 10 ns, I/O delays at
 2 ns and crossing max delays at 10 ns; uncertainty and the hold exceptions
-are unchanged. The gate requires the flow to complete with nonnegative
+are unchanged. The checkpoint requires the flow to complete with nonnegative
 hold slack and zero route DRCs; nonnegative setup slack on both clocks
 meets 100 MHz. Study results never replace the nightly 125 MHz
 measurements.
 
 ## Timing status
 
-**Interim: no run has completed detailed route yet**, so there is no
-routed timing, final area or route DRC count, and the M3 gate is not yet
-judged. Runs by the `asic` workflow on the WSL runners:
+**Pending [#363](https://github.com/amichai-bd/pcie-factory/issues/363).**
+No run has completed detailed route, so there is no routed timing, final
+area or route DRC count, and the checkpoint is not judged. The runs below,
+by the `asic` workflow on the WSL runners, are interim notes only:
 
 | Run | Inputs | Outcome | Last timing (global route) | Cells (synthesis) | Std-cell area | Peak memory |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -141,12 +147,13 @@ registered transmit stage of
 6.38 mm² (utilization 0.43), and its power estimate (0.276 W) covers the
 standard cells only. At global route, `core` misses 100 MHz by about
 1.5 ns (about 87 MHz). Timing usually changes a little after detailed
-route, so this is an estimate, not the gate result. Per-clock slacks and
+route, so this is an estimate, not the checkpoint result. Per-clock slacks and
 worst paths come only from a finished run (`timing.clocks`).
 
 The second and third rows ran with a 10 GB container and the
-repair passes on; the third run lost the host. The final inputs add the
-[lighter flow](#flow-configuration) and an 8 GB limit.
+repair passes on; the third run lost the host. The inputs here add the
+[lighter flow](#flow-configuration) and an 8 GB limit, for the routed runs
+of #363.
 
 ## Files
 
