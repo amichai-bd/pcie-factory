@@ -5,15 +5,31 @@ steps, in order, and what each checks. The ops and their failure rules are
 the [MAS commands](MAS.md#commands); a request step is written as its
 tl-seq op (`CFG_RD` is `REQ` with op 0) and checks `OK` (`chk` 1) unless
 the row says otherwise. Values are those of `rc` and `core` at their
-default parameters; the package (#376) holds them as named constants, and
-the wait timeouts, Hot Reset hold and loop limits with them.
+default parameters; the package
+([`pcie_rc_seq_pkg.sv`](../../../../src/rtl/rc_seq/pcie_rc_seq_pkg.sv))
+holds them as named constants, with the [constants](#constants) below.
 
 **Defaults.** Where a row does not say otherwise: `len` 1; `first_be`
 0xF; `last_be` 0xF when `len` is above 1 and 0 otherwise; an `EXPECT` or
 data `JUMP` with no bits named has `mask` 0xFFFF_FFFF and checks `R[0]`;
 a forward conditional `JUMP` (a skip) has limit 0, which only backward
-takes use ([`JUMP`](MAS.md#commands)); a polling loop's limit is a
-package constant #376 sets.
+takes use ([`JUMP`](MAS.md#commands)); a polling loop's limit is the
+polling-loop limit of the [constants](#constants).
+
+## Constants
+
+| Item | Value | Used by |
+| --- | --- | --- |
+| `WAIT_LINK` timeout | 25 000 000 cycles (200 ms) | E3, R10, R13 |
+| `WAIT_MSI` timeout | 1 250 000 cycles (10 ms) | D3, R8 |
+| `HOT_RESET` timeout, hold | 125 000 cycles (1 ms), 64 cycles | R10 |
+| Polling-loop limit | 4096 takes | R5, R7, R8, R12 |
+| MSI capture depth D | 4 (the [`rc_tl` MAS](../rc_tl/MAS.md#decisions), D10) | R8 |
+| MMIO pattern of DW k | 0xA500_0000 OR k × 0x0001_0203 | M1 to M3 |
+| DMA pattern of DW k | 0xD000_0000 OR k × 0x0101_0101 | D1, D4 |
+| Write data | 0x5A5A_5A5A (R4), 0x0BAD_F00D (R11), 0x600D_CAFE (R14) | ERRORS |
+
+The MAS gives the reasons ([decisions](MAS.md#decisions)).
 
 ## Address plan
 
@@ -93,8 +109,9 @@ writes the destination.
 
 Program `ERRORS`. A run flag in host memory tells the three passes over
 `ENUM` apart, since host memory is the only state a run can branch on.
-It is about 110 + 2D steps, so it fits the 256-step ROM for a capture
-depth D up to 64 (the `rc_tl` MAS proposes 4).
+It is 114 + 2D steps, 122 at the capture depth D = 4 the [`rc_tl`
+MAS](../rc_tl/MAS.md#decisions) sets, so it fits the 256-step ROM for D
+up to 71.
 
 | # | Steps | Checks |
 | --- | --- | --- |
@@ -154,9 +171,27 @@ which the captain may override.
 ## Self-test
 
 Program `SELFTEST` runs only on the `rc_seq` testbench, whose stand-in
-for `rc_tl` answers each command as the test chooses (#376). It holds at
-least one step of every op, every `JUMP` condition taken and not taken, a
-loop that reaches its limit, a `REQ` of every tl-seq op, a `MEM_RD` of 32
-DWs and a `HOT_RESET`; each test makes exactly one chosen step fail, or
-none, and checks `pass_o` and `fail_step_o`. Further unit programs take
-ids 5 and up ([selection](MAS.md#programs)).
+for `rc_tl` answers each command as the test chooses
+([DV plan](../../dv/rc_seq/DV_PLAN.md)). It holds at least one step of
+every op, every `JUMP` condition taken and not taken, loops at and over
+their limit, a `REQ` of every tl-seq op and of two undefined ones, a
+`MEM_RD` of 32 DWs and two `HOT_RESET`s; each test makes exactly one chosen
+step fail, or none, and checks `pass_o` and `fail_step_o`. Its timeouts
+are 8 cycles, its hold 3 and its loop limit 3, so a test reaches every
+bound. Further unit programs take ids 5 and up
+([selection](MAS.md#programs)).
+
+| # | Steps | Checks |
+| --- | --- | --- |
+| S1 | `HOST_WR` 0x0F0 (the stand-in raises `dl_up` the test's number of cycles after the step's cycle 0); `WAIT_LINK`. | `WAIT_LINK` and its bound. |
+| S2 | `HDR_WR` DW 6, DW 8, DW 1 as E1; `HDR_RD` DW 6; `EXPECT`. | Header write and read. |
+| S3 | `CFG_WR` BAR0 0xFFFF_FFFF; `CFG_RD`; `EXPECT` 0xFFFF_F000 on 0xFFFF_FFF0; `CFG_WR` BAR0 = 0x1000_0000; `CFG_WR` DW 1 byte 0 = 0x06. | A masked expect; the endpoint's BAR0. |
+| S4 | 32 `MEM_WR` BAR0 + 4k of 0x5E00_0000 OR k × 0x0002_0401; `MEM_RD` BAR0, `len` 32; 32 `EXPECT`s on `R[0]` to `R[31]`. | A 32-DW read into the 32 result registers. |
+| S5 | `HOST_WR` 0x040 = 0xCAFE_F00D; `HOST_RD`; `EXPECT`; `ERR_CLR` 0x1FFF; `ERR_RD`; `EXPECT` 0 on 0x1FFF. | Host memory and the error record. |
+| S6 | `REQ` ops 10 and 15, then `MEM_RD` 0x2000_0000, each checking `LOCAL_UR`. | Undefined ops reach `rc_tl` verbatim; a status other than `OK`. |
+| S7 | With `S` = `LOCAL_UR`: `JUMP STATUS_EQ LOCAL_UR` over a `FAIL`; `JUMP STATUS_EQ OK` to the padding (not taken); `JUMP STATUS_NE OK` over a `FAIL`; `JUMP STATUS_NE LOCAL_UR` to the padding. | Status conditions taken and not taken. |
+| S8 | `HOST_RD` 0x040, then on `R[0]` = 0xCAFE_F00D: `DATA_EQ` taken over a `FAIL`, `DATA_EQ` 0xCAFE_F00E not taken, `DATA_NE` 0 taken, `DATA_NE` 0xCAFE_0000 on 0xFFFF_0000 not taken; `DATA_EQ` on `R[5]` taken; `JUMP ALWAYS` over a `FAIL`. | Data conditions, the mask and `idx`. |
+| S9 | Seven guarded traps: `HOST_RD` of a guard DW at 0x0A0 + 4i; `JUMP DATA_EQ` 0 over the trap; the trap: `FAIL`, op 0x07, op 0x0F, `JUMP` condition 5, condition 7, `JUMP ALWAYS` to the padding, `JUMP ALWAYS` to 0x0123. | Each trap fails at its index when the test sets its guard; 0x0123 is above the ROM. |
+| S10 | Three polling loops of limit 3 on the host DWs 0x0D0, 0x0D4, 0x0D8: A, `HOST_RD`; `JUMP DATA_NE` 1 on bit 0 back. B, the same with a `JUMP ALWAYS` to the next step in the body. C, the same with a `JUMP DATA_EQ` on bit 2 to the next step in the body. | A loop exits after exactly the limit and fails one take over it; `ALWAYS` leaves `L`; a forward conditional jump sets `L` 0, so C passes with 5 takes. |
+| S11 | `HOST_WR` 0x0F4 = 0x0155_BEEF (the stand-in queues an MSI with that data and offset 0x155 the test's number of cycles after the step's cycle 0); `WAIT_MSI`; `EXPECT` `R[0]` = 0x0155_BEEF, `R[1]` = 0x155. | `WAIT_MSI`, its bound and the capture registers. |
+| S12 | `HOT_RESET` (hold 3); `HOT_RESET` with hold 0 while `link_up` is 0; `MEM_RD` BAR0 checking `LINK_DOWN`; `CFG_RD` (`chk` 0); `JUMP STATUS_EQ LINK_DOWN` over a `FAIL`; `HDR_RD` DW 8; `EXPECT`; `DONE`. | `HOT_RESET`, its bound and hold; endpoint commands fail on link down, local ones do not. |

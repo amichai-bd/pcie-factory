@@ -25,30 +25,29 @@ and `hot_reset_req_i` ([downstream role](../../arch/rc/HAS.md#downstream-role)).
 
 All ports are synchronous to `clk_i`. The tl-seq ports carry the
 [tl-seq](../../arch/rc/TL_SEQ.md#signals) nets of the same names; their
-bundles are the `common_pkg` structs whose fields that page lists. The
-shell has the ports marked "now"; the tl-seq ports arrive with the
-interpreter ([#376](https://github.com/amichai-bd/pcie-factory/issues/376)),
-using the `common_pkg` types that came with the
-[`rc_tl` shell](../rc_tl/MAS.md#interfaces).
+bundles are the `common_pkg` structs `t_rc_cmd`, `t_rc_rsp` and `t_rc_msi`
+whose fields that page lists (D12). Every output is a register or decoded
+from registers, except `msi_ready_o`, which also follows `msi_valid_i` in
+the same cycle ([`WAIT_MSI`](#commands)).
 
-| Port | Dir | Width | Shell | Description |
-| --- | --- | --- | --- | --- |
-| `clk_i`, `rst_i` | in | 1, 1 | now | Clock (125 MHz) and synchronous active-high reset ([reset](#reset)). |
-| `start_i` | in | 1 | now | Run start ([run](#run)). |
-| `done_o`, `pass_o` | out | 1, 1 | now | Run result ([run](#run)). |
-| `fail_step_o` | out | 16 | now | ROM index of the failing step. |
-| `dl_up_i` | in | 1 | now | `link` `dl_up_o`: waited for by `WAIT_LINK`. |
-| `link_up_i` | in | 1 | now | `link` `link_up_o`: its fall ends the first phase of `HOT_RESET`. |
-| `hot_reset_req_o` | out | 1 | now | To `link` `hot_reset_req_i` ([`HOT_RESET`](#commands)). |
-| `cmd_valid_o`, `cmd_ready_i`, `cmd_o` | out, in, out | 1, 1, struct | #376 | Command to `rc_tl` ([commands](../../arch/rc/TL_SEQ.md#commands)). |
-| `rsp_valid_i`, `rsp_i` | in, in | 1, struct | #376 | Result beats ([results](../../arch/rc/TL_SEQ.md#results)); always taken. |
-| `msi_valid_i`, `msi_ready_o`, `msi_i` | in, out, in | 1, 1, struct | #376 | MSI capture ([MSI capture](../../arch/rc/TL_SEQ.md#msi-capture)). |
+| Port | Dir | Width | Description |
+| --- | --- | --- | --- |
+| `clk_i`, `rst_i` | in | 1, 1 | Clock (125 MHz) and synchronous active-high reset ([reset](#reset)). |
+| `start_i` | in | 1 | Run start ([run](#run)). |
+| `done_o`, `pass_o` | out | 1, 1 | Run result ([run](#run)). |
+| `fail_step_o` | out | 16 | ROM index of the failing step. |
+| `dl_up_i` | in | 1 | `link` `dl_up_o`: waited for by `WAIT_LINK`. |
+| `link_up_i` | in | 1 | `link` `link_up_o`: its fall ends the first phase of `HOT_RESET`. |
+| `hot_reset_req_o` | out | 1 | To `link` `hot_reset_req_i` ([`HOT_RESET`](#commands)). |
+| `cmd_valid_o`, `cmd_ready_i`, `cmd_o` | out, in, out | 1, 1, `t_rc_cmd` | Command to `rc_tl` ([commands](../../arch/rc/TL_SEQ.md#commands)); `cmd_o` is meaningful while `cmd_valid_o` is 1. |
+| `rsp_valid_i`, `rsp_i` | in, in | 1, `t_rc_rsp` | Result beats ([results](../../arch/rc/TL_SEQ.md#results)); always taken. |
+| `msi_valid_i`, `msi_ready_o`, `msi_i` | in, out, in | 1, 1, `t_rc_msi` | MSI capture ([MSI capture](../../arch/rc/TL_SEQ.md#msi-capture)). |
 
 ## Parameters
 
 | Name | Type | Default | Range | Effect |
 | --- | --- | --- | --- | --- |
-| `PROGRAM` | `int unsigned` | 1 | a program id of [the table](#programs) | The ROM image every run executes. `rc` passes its own `PROGRAM`. An id with no program stops elaboration (`COMMON_ASSERT_PARAM`, #376). |
+| `PROGRAM` | `int unsigned` | 1 | a program id of [the table](#programs) | The ROM image every run executes. `rc` passes its own `PROGRAM`. An id with no program, or a program longer than the ROM, stops elaboration (`COMMON_ASSERT_PARAM`). |
 
 ## Behavior
 
@@ -87,6 +86,9 @@ is undefined, and a program reads only what it wrote.
 
 A step is one 128-bit ROM word, `pcie_rc_seq_pkg::t_step`. Fields a step's
 op does not use are ignored; the package's step constructors write them 0.
+The struct member of `len` is `n_dw`: Quartus Lite takes a member named
+`len` inside a function for the string method
+([RTL BKM](../../../bkm/rtl.md#systemverilog-rules)).
 
 | Bits | Field | Width | Use |
 | --- | --- | --- | --- |
@@ -104,17 +106,19 @@ op does not use are ignored; the package's step constructors write them 0.
 
 ### Commands
 
-Let cycle 0 be a step's first execution cycle. A wait with timeout `T`
-(`data`) succeeds at the first cycle c ≤ T at which its condition holds,
-and fails at cycle T + 1 if it never held; T = 0 checks one cycle.
+Let cycle 0 be a step's first execution cycle, the cycle after its decode
+([timing](#timing)). A wait with timeout `T` (`data`) checks its condition
+at cycles 0 to T: it succeeds at the first cycle c ≤ T at which the
+condition holds, and otherwise fails at cycle T, so `done_o` rises at
+cycle T + 1; T = 0 checks one cycle.
 
 | `op` | Name | Effect on the `rc_tl` interface and `link` | Fails when |
 | --- | --- | --- | --- |
 | 5'h00 | `FAIL` | None. | Always: the run ends failing at this step. Every ROM index past a program's last step reads as this word. |
 | 5'h01 | `EXPECT` | None. | `(R[idx] ^ data) & mask` is not 0. |
-| 5'h02 | `WAIT_MSI` | Waits for `msi_valid_i`; on success `msi_ready_o` is 1 for that one cycle (the capture is taken) and `R[0]`, `R[1]` are written. | The wait times out; nothing is taken. |
+| 5'h02 | `WAIT_MSI` | Waits for `msi_valid_i`; on success `msi_ready_o` is 1 in that same cycle, and only then (the capture is taken), and `R[0]`, `R[1]` are written in the next two cycles. | The wait times out; nothing is taken. |
 | 5'h03 | `WAIT_LINK` | Waits for `dl_up_i` 1. | The wait times out. |
-| 5'h04 | `HOT_RESET` | `hot_reset_req_o` 1 from cycle 0; waits for `link_up_i` 0 (timeout `data`); then keeps `hot_reset_req_o` 1 for `addr[15:0]` more cycles and sets it 0 as the step ends. `link` then leaves Hot Reset by its own timer and retrains; `rc_tl` finishes requests with `LINK_DOWN` meanwhile. | `link_up_i` does not fall in time; `hot_reset_req_o` falls as the run ends. |
+| 5'h04 | `HOT_RESET` | `hot_reset_req_o` 1 from cycle 0; waits for `link_up_i` 0 (timeout `data`); if it falls at cycle c, keeps `hot_reset_req_o` 1 for `addr[15:0]` more cycles (c + 1 to c + `addr[15:0]`) and sets it 0 as the step ends. `link` then leaves Hot Reset by its own timer and retrains; `rc_tl` finishes requests with `LINK_DOWN` meanwhile. | `link_up_i` does not fall in time; `hot_reset_req_o` falls as the run ends. |
 | 5'h05 | `JUMP` | None. `cond`: 0 `ALWAYS`; 1 `DATA_EQ`, 2 `DATA_NE` on `(R[idx] ^ data) & mask` being 0 or not; 3 `STATUS_EQ`, 4 `STATUS_NE` on `S` equal to `status` or not. Taken: `pc` = target. A taken conditional jump backward (target ≤ `pc`) increments `L`; a taken one forward and one not taken set `L` 0; `ALWAYS` leaves `L`. So `L` counts the takes of the current polling loop only, and the limit applies to backward jumps only. A polling loop holds exactly one conditional jump, its backward one: another conditional jump in its body would reset `L` on every pass and unbound the loop. | `cond` 5 to 7; a conditional jump that would be taken backward with `L` equal to the limit (a polling loop out of budget). |
 | 5'h06 | `DONE` | None. | Never: the run ends passing. |
 | 5'h07 to 5'h0F | reserved | None. | Always, as `FAIL`. |
@@ -159,7 +163,7 @@ DV plan row; the interpreter does not change.
 
 ## Microarchitecture
 
-The interpreter (#376) is three blocks in `src/rtl/rc_seq/`:
+The interpreter is three blocks in `src/rtl/rc_seq/`:
 
 | Block | Holds |
 | --- | --- |
@@ -167,22 +171,43 @@ The interpreter (#376) is three blocks in `src/rtl/rc_seq/`:
 | `pcie_rc_seq_rom` | The image `PROGRAM` selects, read at `pc` with a registered output (one cycle), so the FPGA flow may map it to block memory. |
 | `pcie_rc_seq` | The top: the state machine below, `pc` (16), `S` (3), `L` (16), a 32-bit wait counter, the run result, and the result registers as one `common_sdp_ram` (32 × 32 bits, [RAM family](../common/ram/common_sdp_ram.md)), written by result beats and MSI captures and read by `EXPECT` and `JUMP`. |
 
-States: `IDLE` (no run), `FETCH` (ROM read), `EXEC` (decode; finish
-`FAIL`, `DONE` and `JUMP ALWAYS`, start the rest), `READ` (result register
-read for `EXPECT` and data `JUMP`), `REQ_OFFER`, `REQ_WAIT`, `WAIT`
-(`WAIT_MSI`, `WAIT_LINK`), `HR_FALL`, `HR_HOLD`. The run result registers
-`done_o`, `pass_o` and `fail_step_o`. The result RAM has one write port,
-so a `WAIT_MSI` latches the capture in the cycle it takes it and writes
-`R[0]` and `R[1]` in the next two cycles; a result beat writes in its own
-cycle.
+States (`pcie_rc_seq_pkg::t_state`): `IDLE` (no run), `FETCH` (ROM read
+at `pc`), `EXEC` (decode; finish `FAIL`, the reserved ops, `DONE`,
+`JUMP ALWAYS`, the status `JUMP`s and a bad condition, start the rest;
+issue the result-register read of `R[idx]`), `READ` (decide `EXPECT` and
+the data `JUMP`s on the register read), `REQ_OFFER`, `REQ_WAIT`, `WAIT`
+(`WAIT_MSI`, `WAIT_LINK`), `MSI_R0`, `MSI_R1`, `HR_FALL`, `HR_HOLD`. `pc`,
+`S`, `L`, the wait counter and the beat count are one `t_ctl` register;
+`done_o`, `pass_o` and `fail_step_o` one `t_result` register. The result
+RAM has one write port, so a `WAIT_MSI` latches the capture in the cycle
+it takes it (`msi_ready_o` 1) and writes `R[0]` in `MSI_R0` and `R[1]` in
+`MSI_R1`, the next two cycles; a result beat writes in its own cycle,
+`R[k]` for its beat number k below 32. Writes and the register read never
+meet: the last write of a step is in its last cycle, the read in the next
+step's `EXEC`.
+
+The outputs: `cmd_valid_o` is the state `REQ_OFFER` and `cmd_o` the ROM
+word's `REQ` fields (the ROM keeps reading the same `pc`, so they hold);
+`hot_reset_req_o` is the states `HR_FALL` and `HR_HOLD`; `msi_ready_o` is
+the state `WAIT` on a `WAIT_MSI` step with `msi_valid_i` 1.
+
+**Programs in the package.** Each image is a package constant built at
+elaboration by pure functions: a builder appends constructor words to a
+`t_prog` (the image and the next index), which starts all FAIL. A forward
+`JUMP` target (the `ERRORS` pass selection, the `SELFTEST` padding) comes
+from a first build of the same function, whose step count does not depend
+on the target values. `program_of(PROGRAM)` selects the image in
+`pcie_rc_seq_rom`.
 
 ## Decisions
 
 Rows citing OP are the captain's ([0005](../../decisions/0005-m4-grill.md#decisions));
-every other row is a firstmate decision taken as the captain's delegate
-([#369 decision](https://github.com/amichai-bd/pcie-factory/issues/369#issuecomment-6268649126),
-D1 to D12), which the captain may override. D10 and D11 are on the
-[programs page](PROGRAMS.md#decisions).
+rows citing D1 to D12 are firstmate decisions taken as the captain's
+delegate ([#369 decision](https://github.com/amichai-bd/pcie-factory/issues/369#issuecomment-6268649126)),
+which the captain may override; rows citing #376 are implementation
+choices of the interpreter
+([#376](https://github.com/amichai-bd/pcie-factory/issues/376)) where this
+page was silent. D10 and D11 are on the [programs page](PROGRAMS.md#decisions).
 
 | Choice | Rationale | Rejected |
 | --- | --- | --- |
@@ -197,14 +222,32 @@ D1 to D12), which the captain may override. D10 and D11 are on the
 | A 256-step ROM, `ROM_AW` 8 a package constant; `pc` and `fail_step_o` 16 bits (D8) | Every M4 program fits (about 60 to 140 steps) with room for growth; one constant to raise; 256 × 128 bits is a few FPGA memory blocks. | A depth per program (a ROM leaf per image size); a depth that follows `fail_step_o` (64 Ki steps of mostly padding). |
 | Program ids 0 `ENUM`, 1 `MMIO` (the default), 2 `DMA_MSI`, 3 `ERRORS`, 4 `SELFTEST`, 5 and up for unit programs (D9) | One image per M4 program, so each regression entry selects one and a failure names its program; `MMIO` (enumeration then BAR0 traffic) is what the board build runs (goal item 9), so the default needs no override there. | One combined image (one entry for every goal item, a long run per failure); `ENUM` as the default (the board would not exercise MMIO). |
 | The tl-seq ports wait for the interpreter (D12); their `common_pkg` types came with the [`rc_tl` shell](../rc_tl/MAS.md#interfaces) | Two shells adding the types in parallel would collide, so only the `rc_tl` shell, whose MAS ports use them, added them. | Adding the types in this shell. |
+| `msi_ready_o` follows `msi_valid_i` in the waiting cycle (#376) | The capture is taken in the cycle it is seen, so a wait's cycle count is exact and needs no extra cycle. | A registered ready (one cycle later, or a take the cycle after `msi_valid_i` fell). |
+| A `WAIT` or `HOT_RESET` timeout fails at cycle T, `done_o` at T + 1 (#376) | The counter stops at T, never at T + 1, so `T` may be any 32-bit value with no overflow. | Failing at T + 1 (a 33-bit compare). |
+| Images built by package functions, forward targets by a first build (#376) | One source for Verilator and Quartus, targets derived from section lengths (Programs), no tool. | Hand-counted targets; a generated include file. |
+| Program constants: `WAIT_LINK` 25 000 000 cycles (200 ms), `WAIT_MSI` 1 250 000 (10 ms), `HOT_RESET` 125 000 (1 ms) then a hold of 64, polling loops 4096 takes (#376; [programs page](PROGRAMS.md#constants)) | `WAIT_LINK` covers link training on a board at `TIMEOUT_DIV` 1 with retries; the hold outlasts `link_up_o` falling to `dl_up_o` falling (a few cycles in `link`), so the `WAIT_LINK` after a Hot Reset cannot see the old `dl_up_o`; every M4 poll ends in far fewer takes. | One timeout for every wait (200 ms for an MSI hides a lost one for long on a board); a hold of 0 (the `WAIT_LINK` could pass on the old `dl_up_o`). |
 
 ## Timing
 
-One clock, no crossing. Outside its waits and its `REQ` round trip, a step
-takes at most 4 cycles (fetch, decode, register read, decide). A `REQ`
-adds the `rc_tl` latency and one cycle per result beat; a 32-DW read
-takes its 32 beats at one per cycle. `fail_step_o`, `pass_o` and `done_o`
-are registers.
+One clock, no crossing. Cycle by cycle (n is the cycle of the event; the
+outputs named change at the edge that ends it):
+
+| Event | Cycles |
+| --- | --- |
+| Run start | A rising `start_i` at cycle s in `IDLE`: `FETCH` of step 0 at s + 1, when `done_o`, `pass_o` and `fail_step_o` are 0. |
+| Every step | `FETCH` then `EXEC`, one cycle each. `FAIL`, the reserved ops, `DONE`, `JUMP ALWAYS`, the status `JUMP`s and a bad condition end in `EXEC`: 2 cycles. `EXPECT` and the data `JUMP`s end in `READ`: 3 cycles. |
+| Cycle 0 | The cycle after `EXEC`: the first `REQ_OFFER`, `WAIT` or `HR_FALL` cycle. |
+| `REQ` | `cmd_valid_o` from cycle 0 to the take (`cmd_ready_i` 1); beats are taken from the take cycle on, one per cycle at most; the step ends in the cycle of the beat with `rsp.last`. A step after a `REQ` has its cycle 0 three cycles after that last beat. |
+| `WAIT_LINK` | Ends in the first cycle c ≤ T with `dl_up_i` 1, or fails at T. |
+| `WAIT_MSI` | Takes the capture in the first cycle c ≤ T with `msi_valid_i` 1 (`msi_ready_o` 1 in c), writes `R[0]` in c + 1 and `R[1]` in c + 2, which ends the step; or fails at T. |
+| `HOT_RESET` | `hot_reset_req_o` 1 from cycle 0; `link_up_i` 0 first seen at c ≤ T: the step ends at c + `addr[15:0]` and `hot_reset_req_o` is 0 from the next cycle (`FETCH`); not seen by T: fails at T, `hot_reset_req_o` 0 with `done_o`. |
+| Next step | `FETCH` in the cycle after a step ends. |
+| Run end | A step ending the run at cycle e: `done_o`, `pass_o`, `fail_step_o` from e + 1. |
+
+So a step takes at most 3 cycles outside its waits and its `REQ` round
+trip, and a 32-DW read takes its 32 beats at one per cycle at most.
+`done_o`, `pass_o` and `fail_step_o` are registers; the ROM read is
+registered and the result-register read is the RAM's registered read.
 
 ## Targets
 
@@ -218,12 +261,14 @@ programs (#377). For `rc_seq` itself: every op and failure case of
 
 | File | Holds |
 | --- | --- |
-| [`pcie_rc_seq.sv`](../../../../src/rtl/rc_seq/pcie_rc_seq.sv) | The shell: the ports marked "now" with every output at its [reset](#reset) value, every input and `PROGRAM` folded into one `unused_inputs` net. |
-| [`rc_seq.rtl.f`](../../../../src/rtl/rc_seq/rc_seq.rtl.f) | `pcie_rc_seq.sv`; [`rc.rtl.f`](../../../../src/rtl/rc/rc.rtl.f) reaches it with `-F`. |
+| [`pcie_rc_seq_pkg.sv`](../../../../src/rtl/rc_seq/pcie_rc_seq_pkg.sv) | The step format, the op, condition and state types, the control and result structs, the constants, the step constructors, the program builders and the images. |
+| [`pcie_rc_seq_rom.sv`](../../../../src/rtl/rc_seq/pcie_rc_seq_rom.sv) | The ROM: the image `PROGRAM` selects, a registered read at `pc`, FAIL at and above `ROM_STEPS`. |
+| [`pcie_rc_seq.sv`](../../../../src/rtl/rc_seq/pcie_rc_seq.sv) | The top: the state machine, the run result, the result RAM, the outputs and the interface assertions. |
+| [`rc_seq.rtl.f`](../../../../src/rtl/rc_seq/rc_seq.rtl.f) | The vocabulary, `common_pkg`, `common_sdp_ram`, then the three files; [`rc.rtl.f`](../../../../src/rtl/rc/rc.rtl.f) reaches it with `-F`. |
 
 ## Open items
 
 | Item | Owner |
 | --- | --- |
 | The `core` application model's side of the programs: BAR0 as memory, the DMA doorbell and the no-answer DW ([program boundary](PROGRAMS.md#boundary)), and the link-down injection during `ERRORS`. | [#377](https://github.com/amichai-bd/pcie-factory/issues/377) |
-| Wait timeouts, Hot Reset hold and loop limits: the package constants and their values. The hold covers at least the cycles from `link_up_o` falling to `dl_up_o` falling, so the `WAIT_LINK` after a `HOT_RESET` cannot see the old `dl_up_o`. | [#376](https://github.com/amichai-bd/pcie-factory/issues/376) |
+| Quartus Lite on the images: each is a 32 768-bit packed constant built by package functions, which Verilator accepts; the FPGA flow of `rc` first runs them through Quartus, and maps the ROM to block memory or reports why not. | [#379](https://github.com/amichai-bd/pcie-factory/issues/379) |
