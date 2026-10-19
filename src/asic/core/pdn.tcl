@@ -4,8 +4,8 @@
 # Provenance: adapted from OpenROAD-flow-scripts
 # flow/platforms/sky130hd/pdn.tcl (commit d4b96380b10e, BSD-3-Clause, the
 # ORFS build and run scripts license). Kept: the global connections and the
-# standard-cell grid. Dropped: the two macro grids. The dll buffer SRAM
-# macros' vdd/gnd pins are small met3 pads that the platform patterns do not
+# standard-cell grid. Dropped: the two macro grids. The SRAM macros'
+# vdd/gnd pins are small met3 pads that the platform patterns do not
 # name, so the macros are on no power net and pdngen cannot build a macro
 # grid for them (PDN-0217); they stay unpowered, a stated limitation.
 #

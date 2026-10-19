@@ -12,8 +12,7 @@ below.
 The [HAS clock target](../../arch/core/HAS.md#clocks): `clk_i` and
 `ser_rx_clk_i` both at 125 MHz (8 ns), as the periods in
 [`pcie_core.sdc`](../../../../src/asic/core/pcie_core.sdc). These are the
-default and nightly clocks, and 125 MHz is reported nightly; its closure
-is future timing work,
+default clocks; 125 MHz closure is future timing work,
 [#235](https://github.com/amichai-bd/pcie-factory/issues/235).
 
 The **100 MHz (10 ns) checkpoint on both domains** is an explicit clock
@@ -80,7 +79,8 @@ needs more than the 6 GB container that `link` fits in. So
 
 These passes trade run time and memory for slack, so the final timing can
 be slightly worse than a full flow would give. The container limit is
-8 GB, and the host runs one ORFS job at a time.
+8 GB. Operating rule, not enforced by the workflows: one ORFS job at a
+time per host.
 
 **Memories.** Every RAM is a
 [`common_sdp_ram`](../../rtl/common/ram/common_sdp_ram.md), and the ASIC
@@ -113,11 +113,13 @@ placer places the macros. No inferred memory is above ORFS's default
 ## Running
 
 `./build asic --ip core` on the CI host, or `--dry-run` anywhere to write
-the generated config. Nightly runs it with every IP that has
-`src/asic/<ip>/`. Results, including the setup WNS and TNS of each clock
+the generated config. While ASIC place-and-route is paused, the nightly
+runs only the ASIC synthesis-only check and PR CI runs no ASIC job
+([#362](https://github.com/amichai-bd/pcie-factory/issues/362#issuecomment-6266351123));
+full runs are by hand for [#363](https://github.com/amichai-bd/pcie-factory/issues/363).
+Results of a full run, including the setup WNS and TNS of each clock
 (`timing.clocks.clk` and `timing.clocks.rx_clk`), area, cells, max fanout,
-logic depth, power and peak memory, are in `metrics.json` and, from the
-nightly run, on the tracker's `core` page.
+logic depth, power and peak memory, are in `metrics.json`.
 
 The checkpoint runs with `./build asic --ip core --study-clock-period 10` (the
 `asic` workflow's `study_clock_period` input). Its results are isolated in

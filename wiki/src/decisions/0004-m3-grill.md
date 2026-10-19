@@ -103,3 +103,26 @@ verbatim from the epic
 The other open questions of that draft (throughput target,
 application-interface details, citations unchecked) stay as the author
 proposed, as firstmate decisions the captain may override.
+
+**2026-10-19, captain direction on ASIC work** (on
+[#282](https://github.com/amichai-bd/pcie-factory/issues/282#issuecomment-6266206427)
+and [#296](https://github.com/amichai-bd/pcie-factory/issues/296#issuecomment-6266206778)),
+after the WSL host dropped three times under ASIC load. It overrides goal
+item 8 and the M1 Q27, Q28 row above:
+
+- ASIC place-and-route and timing are a later target, taken up once the RTL
+  functionality is done or nearly done. The ASIC 100 MHz checkpoint for
+  `core` leaves M3 for that later milestone, tracked by
+  [#363](https://github.com/amichai-bd/pcie-factory/issues/363).
+- [#296](https://github.com/amichai-bd/pcie-factory/issues/296) delivers the
+  `core` ASIC inputs (SDC, power grid, flow configuration, the shared RAM
+  macro selection) with synthesis-only evidence; its global-route figures
+  are interim notes.
+- [#319](https://github.com/amichai-bd/pcie-factory/issues/319),
+  [#320](https://github.com/amichai-bd/pcie-factory/issues/320) and
+  [#235](https://github.com/amichai-bd/pcie-factory/issues/235) (ASIC timing
+  and power closure) wait for the same later target.
+- CI ([#362](https://github.com/amichai-bd/pcie-factory/issues/362#issuecomment-6266351123)):
+  PR CI runs Quartus synthesis only and no ASIC job; the nightly runs the
+  full Quartus flow and the ASIC synthesis-only check, with ASIC
+  place-and-route paused.

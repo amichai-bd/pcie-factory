@@ -177,7 +177,7 @@ Removed after the first run: a gate on `irq_ready_o`, which survived because `cf
 
 | Feature | Owning issue |
 | --- | --- |
-| FPGA and ASIC timing of `core` | [#295](https://github.com/amichai-bd/pcie-factory/issues/295), [#296](https://github.com/amichai-bd/pcie-factory/issues/296) |
+| FPGA and ASIC timing of `core` | FPGA [#295](https://github.com/amichai-bd/pcie-factory/issues/295); ASIC routed timing [#363](https://github.com/amichai-bd/pcie-factory/issues/363) |
 
 ## Coverage holes
 
