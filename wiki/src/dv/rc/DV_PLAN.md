@@ -147,7 +147,7 @@ entry's first seed; none committed):
 | Mutant | Entry | Fails |
 | --- | --- | --- |
 | M27 `pcie_core`: `LOWER` not passed to `link` | `board_enum` | Neither data link comes up: `ENUM` not done in 150 000 cycles. |
-| M28 `pcie_core`: `gpio_rx_data_i` not connected to `link` | `board_enum` | The same. |
+| M28 `pcie_core`: `gpio_rx_data_i` not connected to `link` | `board_enum` | `rcv_err_o` at the endpoint at cycle 101 on the error-free line. |
 | M29 `pcie_rc`: `LOWER` not passed to `link` | `board_enum` | The same. |
 | M30 `pcie_rc`: `gpio_tx_ctrl_o` not driven from `link` | `board_enum` | The same. |
 
