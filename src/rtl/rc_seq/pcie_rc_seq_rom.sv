@@ -16,10 +16,18 @@ module pcie_rc_seq_rom #(
 
   localparam pcie_rc_seq_pkg::t_prog PRG = pcie_rc_seq_pkg::program_of(PROGRAM);
 
-  `COMMON_ASSERT_PARAM(g_program_fits, PRG.n <= 16'(pcie_rc_seq_pkg::ROM_STEPS),
-                       "pcie_rc_seq_rom: the program is longer than the ROM")
+  // t_prog is the packed {rom, n}: its fields are taken by part-select,
+  // because Quartus Lite rejects a member select of a struct localparam
+  // in a constant expression (error 10742, "hierarchical identifier";
+  // #379). The layout check keeps the part-selects equal to the members.
+  localparam int unsigned N_W = 16;
+  localparam logic [N_W-1:0]        PRG_N = PRG[N_W-1:0];
+  localparam pcie_rc_seq_pkg::t_rom IMAGE = PRG[$bits(pcie_rc_seq_pkg::t_prog)-1:N_W];
 
-  localparam pcie_rc_seq_pkg::t_rom IMAGE = PRG.rom;
+  `COMMON_ASSERT_PARAM(g_prog_layout, $bits(pcie_rc_seq_pkg::t_prog) == $bits(pcie_rc_seq_pkg::t_rom) + N_W,
+                       "pcie_rc_seq_rom: t_prog is not {rom, n[15:0]}")
+  `COMMON_ASSERT_PARAM(g_program_fits, PRG_N <= 16'(pcie_rc_seq_pkg::ROM_STEPS),
+                       "pcie_rc_seq_rom: the program is longer than the ROM")
 
   logic [pcie_rc_seq_pkg::ROM_AW-1:0] rom_idx;
   logic                               in_rom;
