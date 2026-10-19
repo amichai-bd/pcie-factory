@@ -60,19 +60,14 @@ async def selftest(dut):
 
 @cocotb.test()
 async def expect_mismatch(dut):
-    """A read made wrong in one bit of an EXPECT's mask fails the run at
-    that EXPECT: R[k] of a 32-DW read, a 1-DW read, an MSI capture."""
+    """Every EXPECT of SELFTEST, one run each: one wrong bit of its mask
+    in the read that wrote its register (a 1-DW read, beat k of the 32-DW
+    read, the MSI capture's data or offset) fails the run at that EXPECT."""
     rng = rng_of(0xE7)
     env = Env(dut, SELFTEST)
     seed = rng.getrandbits(32)
-    choices = envm.expect_corruptions(env.prog, seed)
-    picks = rng.sample(choices, min(6, len(choices)))
-    msi = [c for c in choices if "msi_corrupt" in c[1]]
-    if msi and not any("msi_corrupt" in c[1] for c in picks):
-        picks.append(msi[0])
-    for pc, kw in picks:
-        await env.expect_run(standin(seed, envm.mode_of(env.prog), **kw), pc,
-                             f"corrupt read for EXPECT {pc}")
+    for pc, kw in envm.expect_corruptions(SELFTEST, seed):
+        await env.expect_run(standin(seed, "self", **kw), pc, f"wrong read for EXPECT {pc}")
 
 
 @cocotb.test()
@@ -234,67 +229,108 @@ async def start_reset(dut):
     RUN.sample(event="start_through_reset")
 
 
-async def _program(dut, prog: int, runs: int) -> None:
+async def _program(dut, prog: int, runs: int, every: bool) -> None:
     """Program ``prog`` (the entry's PROGRAM) passes against the stand-in
-    playing the endpoint, then fails at a chosen EXPECT when one read is
-    made wrong."""
+    playing the endpoint; then, with one wrong bit in the read before an
+    EXPECT, fails at that EXPECT: every EXPECT of the image (``every``) or
+    three chosen at random."""
     rng = rng_of(0x9A00 + prog * 16 + runs)
     env = Env(dut, prog)
+    name = m.PROGRAM_NAMES[prog]
     for _ in range(runs):
         seed = rng.getrandbits(32)
-        await env.expect_run(standin(seed, envm.mode_of(env.prog)), None,
-                             f"{m.PROGRAM_NAMES[env.prog]} seed {seed}")
-        pc, kw = rng.choice(envm.expect_corruptions(env.prog, seed))
-        await env.expect_run(standin(seed, envm.mode_of(env.prog), **kw), pc,
-                             f"{m.PROGRAM_NAMES[env.prog]} seed {seed}, EXPECT {pc} made wrong")
+        await env.expect_run(standin(seed, envm.mode_of(prog)), None, f"{name} seed {seed}")
+        choices = envm.expect_corruptions(prog, seed)
+        for pc, kw in (choices if every else rng.sample(choices, 3)):
+            await env.expect_run(standin(seed, envm.mode_of(prog), **kw), pc,
+                                 f"{name} seed {seed}, EXPECT {pc} made wrong")
 
 
 @cocotb.test()
 async def program_enum(dut):
     """L1, PROGRAM 0."""
-    await _program(dut, 0, 1)
+    await _program(dut, 0, 1, True)
 
 
 @cocotb.test()
 async def program_mmio(dut):
     """L1, PROGRAM 1."""
-    await _program(dut, 1, 1)
+    await _program(dut, 1, 1, True)
 
 
 @cocotb.test()
 async def program_dma_msi(dut):
     """L1, PROGRAM 2."""
-    await _program(dut, 2, 1)
+    await _program(dut, 2, 1, True)
 
 
 @cocotb.test()
 async def program_errors(dut):
     """L1, PROGRAM 3."""
-    await _program(dut, 3, 1)
+    await _program(dut, 3, 1, True)
 
 
 @cocotb.test()
 async def program_random_enum(dut):
     """L2, PROGRAM 0, three stand-in seeds."""
-    await _program(dut, 0, 3)
+    await _program(dut, 0, 3, False)
 
 
 @cocotb.test()
 async def program_random_mmio(dut):
     """L2, PROGRAM 1."""
-    await _program(dut, 1, 3)
+    await _program(dut, 1, 3, False)
 
 
 @cocotb.test()
 async def program_random_dma_msi(dut):
     """L2, PROGRAM 2."""
-    await _program(dut, 2, 3)
+    await _program(dut, 2, 3, False)
 
 
 @cocotb.test()
 async def program_random_errors(dut):
     """L2, PROGRAM 3."""
-    await _program(dut, 3, 3)
+    await _program(dut, 3, 3, False)
+
+
+async def _timeout(env: Env, fault: str, label: str) -> None:
+    """With the stand-in fault ``fault``, the program's wait or polling loop
+    at ``label`` runs out after its package timeout or limit and the run
+    fails there; the simulator runs freely through the quiet part of a
+    long wait (Env.fast_forward), and the cycles around the timeout are
+    compared, so the image's timeout must equal the programs page's."""
+    rng = rng_of(0x7100 + env.prog)
+    env.fast = True
+    skipped = env.skipped
+    seed = rng.getrandbits(32)
+    await env.expect_run(standin(seed, "m4", **{fault: True}), env.label(label),
+                         f"{m.PROGRAM_NAMES[env.prog]} with {fault}")
+    env.dut._log.info("%d cycles run freely", env.skipped - skipped)
+
+
+@cocotb.test()
+async def timeouts_enum(dut):
+    """L2, PROGRAM 0: the link never trains; E3's WAIT_LINK fails after
+    25 000 000 cycles."""
+    await _timeout(Env(dut, 0), "no_link", "E3")
+
+
+@cocotb.test()
+async def timeouts_dma_msi(dut):
+    """L2, PROGRAM 2: the copy raises no MSI; D3's WAIT_MSI fails after
+    1 250 000 cycles."""
+    await _timeout(Env(dut, 2), "no_msi", "D3")
+
+
+@cocotb.test()
+async def timeouts_errors(dut):
+    """L1, PROGRAM 3: the link ignores the Hot Reset request, R10's
+    HOT_RESET fails after 125 000 cycles; the error messages never come,
+    R5's poll fails at its jump after 4096 takes."""
+    env = Env(dut, 3)
+    await _timeout(env, "no_hr", "R10_HOT_RESET")
+    await _timeout(env, "no_msgs", "R5_JUMP")
 
 
 @cocotb.test()

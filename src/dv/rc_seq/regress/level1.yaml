@@ -11,7 +11,6 @@ tests:
     testcase: expect_mismatch
     top: pcie_rc_seq
     params: {PROGRAM: 4}
-    seeds: 2
     timeout_s: 300
   - name: status_mismatch
     module: tests.test_rc_seq
@@ -64,6 +63,12 @@ tests:
   - name: program_errors
     module: tests.test_rc_seq
     testcase: program_errors
+    top: pcie_rc_seq
+    params: {PROGRAM: 3}
+    timeout_s: 300
+  - name: timeouts_errors
+    module: tests.test_rc_seq
+    testcase: timeouts_errors
     top: pcie_rc_seq
     params: {PROGRAM: 3}
     timeout_s: 300

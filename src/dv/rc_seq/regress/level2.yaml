@@ -34,3 +34,15 @@ tests:
     params: {PROGRAM: 3}
     seeds: 2
     timeout_s: 300
+  - name: timeouts_enum
+    module: tests.test_rc_seq
+    testcase: timeouts_enum
+    top: pcie_rc_seq
+    params: {PROGRAM: 0}
+    timeout_s: 600
+  - name: timeouts_dma_msi
+    module: tests.test_rc_seq
+    testcase: timeouts_dma_msi
+    top: pcie_rc_seq
+    params: {PROGRAM: 2}
+    timeout_s: 300

@@ -231,6 +231,7 @@ def enum_section(a: Asm) -> None:
     for reg, want in ((0x00, RC_IDS), (0x04, 0x0000_0006), (0x08, 0x0604_0000 | RC_REVISION),
                       (0x18, BUSES), (0x20, WINDOW)):
         a(req(HDR_RD, reg), expect(want))
+    a.label("E3")
     a(wait_link(LINK_TIMEOUT))
     a(req(CFG_RD, ep(0x00)), expect(EP_IDS),
       req(CFG_RD, ep(0x0C)), expect(0, 0x007F_0000),
@@ -270,6 +271,7 @@ def dma_section(a: Asm) -> None:
     a(*(req(HOST_WR, DMA_SRC + 4 * k, data=dma_pattern(k)) for k in range(16)),
       *(req(HOST_WR, DMA_DST + 4 * k, data=0) for k in range(16)), req(ERR_CLR, 0, data=ERR_MASK))
     doorbell(a, DMA_SRC, DMA_DST, 64)
+    a.label("D3")
     a(wait_msi(MSI_TIMEOUT), expect(MSI_DATA), expect(0, idx=1))
     for k in range(16):
         a(req(HOST_RD, DMA_DST + 4 * k), expect(dma_pattern(k)))
@@ -279,6 +281,7 @@ def dma_section(a: Asm) -> None:
 def poll_err(a: Asm, name: str, bits: int) -> None:
     a.label(name)
     a(req(ERR_RD, 0))
+    a.label(name + "_JUMP")
     a.jump(DATA_NE, name, limit=POLL_LIMIT, value=bits, mask=bits)
 
 
@@ -303,7 +306,9 @@ def errors_program(a: Asm) -> None:
     a(*(wait_msi(MSI_TIMEOUT) for _ in range(MSI_DEPTH)))
     a(req(MEM_RD, BAR0 + NO_ANSWER, status=TIMEOUT), req(ERR_RD, 0), expect(0x1808, ERR_MASK),
       req(ERR_CLR, 0, data=ERR_MASK), req(ERR_RD, 0), expect(0, ERR_MASK))
-    a(req(HOST_WR, RUN_FLAG, data=1), hot_reset(HR_TIMEOUT, HR_HOLD), wait_link(LINK_TIMEOUT))
+    a(req(HOST_WR, RUN_FLAG, data=1))
+    a.label("R10_HOT_RESET")
+    a(hot_reset(HR_TIMEOUT, HR_HOLD), wait_link(LINK_TIMEOUT))
     a.jump(ALWAYS, "ENUM")
     a.label("R11")
     a(req(MEM_WR, BAR0 + 0x40, data=0x0BAD_F00D), req(MEM_RD, BAR0 + 0x40), expect(0x0BAD_F00D),

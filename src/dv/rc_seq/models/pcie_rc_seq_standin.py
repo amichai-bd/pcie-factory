@@ -25,9 +25,12 @@ request and, in ``ERRORS``, once under traffic. Two modes:
 
 Test hooks: ``corrupt`` (command number -> (beat, xor)), ``status_over``
 (command number -> status of its last beat), ``msi_corrupt`` (take number
--> xor of the offered data), and the wait offsets ``c_link``, ``c_msi``,
+-> (field, xor) of the offered capture, field ``data`` or ``offset``), and the wait offsets ``c_link``, ``c_msi``,
 ``c_hr`` in cycles from the waiting step's cycle 0 (MAS, Timing: the cycle
-0 of a step after a REQ is its last beat plus 3).
+0 of a step after a REQ is its last beat plus 3). Faults for the
+timeout tests: ``no_link`` (the link never trains), ``no_msi`` (a copy
+raises no MSI), ``no_hr`` (the link ignores the Hot Reset request),
+``no_msgs`` (the endpoint's error messages never arrive).
 """
 
 from __future__ import annotations
@@ -112,7 +115,8 @@ class Result:
 class StandIn:
     def __init__(self, rng: random.Random, mode: str = "m4", *, corrupt=None, status_over=None,
                  msi_corrupt=None, host_sched=None, c_link=0, c_msi=0, c_hr=0,
-                 same_cycle=0.25, ready_max=2, gap_max=2, linkdown_after=None):
+                 same_cycle=0.25, ready_max=2, gap_max=2, linkdown_after=None,
+                 no_link=False, no_msi=False, no_hr=False, no_msgs=False):
         if mode not in ("m4", "self"):
             raise ValueError(mode)
         self.rng, self.mode = rng, mode
@@ -123,6 +127,7 @@ class StandIn:
             host_sched = SELF_SCHED if mode == "self" else {}
         self.host_sched = {k: list(v) for k, v in host_sched.items()}
         self.c_link, self.c_msi, self.c_hr = c_link, c_msi, c_hr
+        self.no_link, self.no_msi, self.no_hr, self.no_msgs = no_link, no_msi, no_hr, no_msgs
         self.same_cycle, self.ready_max, self.gap_max = same_cycle, ready_max, gap_max
         self.linkdown_after = (rng.randint(1, 4) if linkdown_after is None else linkdown_after)
         self.host = bytearray(HOST_BYTES)
@@ -186,14 +191,14 @@ class StandIn:
             self.in_reset = False
             if self.mode == "self":
                 self.link_up = True
-            else:
+            elif not self.no_link:
                 self._at(now + self.rng.randint(10, 40),
                          lambda n: self._link(True, n, self.rng.randint(2, 8)))
         while self.events and self.events[0][0] <= now:
             _, _, fn = heapq.heappop(self.events)
             fn(now)
         # Hot Reset: link_up falls c_hr cycles after the request rises.
-        if hot_reset_req and not self.hr_active:
+        if hot_reset_req and not self.hr_active and not self.no_hr:
             self.hr_active = True
             delay = self.c_hr if self.mode == "self" else self.rng.randint(1, 10)
             if delay == 0:
@@ -219,8 +224,16 @@ class StandIn:
         if self.capture:
             i.msi_valid = 1
             i.msi_offset, i.msi_data = self.capture[0]
-            i.msi_data ^= self.msi_corrupt.get(self.ntake, 0)
+            fld, x = self.msi_corrupt.get(self.ntake, ("data", 0))
+            if fld == "offset":
+                i.msi_offset ^= x
+            else:
+                i.msi_data ^= x
         return i
+
+    def quiet(self) -> bool:
+        """Nothing pending: the inputs stay as they are until rc_seq acts."""
+        return not (self.events or self.beats or self.capture or self.cmd_at is not None)
 
     def commit(self, now: int, i: m.Inputs, msi_ready: int) -> None:
         """The clock edge ending cycle ``now``: a capture taken."""
@@ -343,7 +356,7 @@ class StandIn:
     def _ur_cpl(self) -> Result:
         r = Result([(m.UR, 0)], self._ep_delay())
         r.on_done.append(lambda t: self.set_err(E_UR_CPL))
-        if self.ep[0x78] & 1:
+        if self.ep[0x78] & 1 and not self.no_msgs:
             r.on_done.append(lambda t: self._at(t + self.rng.randint(1, 30),
                                                 lambda n: self.set_err(E_COR)))
         return r
@@ -372,7 +385,7 @@ class StandIn:
         if off is None and off2 is None:
             if c.op == m.MEM_RD:
                 return self._ur_cpl()
-            if self.ep[0x78] & 2:
+            if self.ep[0x78] & 2 and not self.no_msgs:
                 self._at(now + self.rng.randint(1, 30), lambda n: self.set_err(E_NONFATAL))
             return Result([(m.OK, 0)], self._local_delay())
         if off2 is not None:                     # BAR2: reads 0, writes ignored
@@ -414,7 +427,7 @@ class StandIn:
             self.set_err(E_INBOUND_UR)
         else:
             self.host[dst:dst + nbytes] = self.host[src:src + nbytes]
-            if self.ep[0x50] & 1 << 16:
+            if self.ep[0x50] & 1 << 16 and not self.no_msi:
                 addr = self.ep[0x54]
                 if m.MSI_ADDR <= addr < m.MSI_ADDR + 0x1000:
                     self._msi((addr - m.MSI_ADDR) >> 2, self.ep[0x5C] & 0xFFFF)
@@ -447,20 +460,22 @@ def reference_run(prog: int, seed: int, **kw) -> tuple[m.RcSeqModel, StandIn]:
 
 
 def expect_corruptions(prog: int, seed: int) -> list[tuple[int, dict]]:
-    """Every EXPECT of the passing run that a corrupted read can make the
-    first failing step: (EXPECT pc, stand-in keyword arguments). The
-    source of R[idx] is the last REQ or WAIT_MSI before it, with only
-    EXPECTs between them; one bit of the EXPECT's mask is flipped in the
-    source's beat (or MSI capture), and no EXPECT in between checks that
-    bit of that register."""
-    seq, si = reference_run(prog, seed)
+    """For each EXPECT of the passing run (first occurrence of each index)
+    that one wrong bit can make the first failing step: (EXPECT pc,
+    stand-in keyword arguments). The source of R[idx] is the last REQ or
+    WAIT_MSI before it, with only EXPECTs and JUMPs between them; the bit
+    flipped is the lowest of the EXPECT's mask that no step in between
+    reads in that register, so they all behave as before, and it is
+    flipped in the source's beat idx or in the capture's data (R[0]) or
+    offset (R[1])."""
+    seq, _ = reference_run(prog, seed)
     if not seq.passed:
         raise m.ModelError(f"reference run of {m.PROGRAM_NAMES[prog]} seed {seed} fails")
-    out = []
+    out: dict[int, dict] = {}
     ncmd = nmsi = 0
-    src = None                  # (kind, number, steps since)
+    src = None                  # (kind, number, source step)
     between: list[m.Step] = []
-    for pc, op, outcome, _ in seq.events:
+    for pc, op, _, _ in seq.events:
         w = m.decode(seq.rom[pc])
         if op >= m.REQ:
             src, between = ("cmd", ncmd, w), []
@@ -468,18 +483,23 @@ def expect_corruptions(prog: int, seed: int) -> list[tuple[int, dict]]:
         elif op == m.WAIT_MSI:
             src, between = ("msi", nmsi, w), []
             nmsi += 1
-        elif op == m.EXPECT and src is not None and w.mask:
-            kind, num, sw = src
-            bit = w.mask & -w.mask
-            shadowed = any(b.idx == w.idx and b.mask & bit for b in between)
-            fits = (kind == "msi" and w.idx in (0, 1)) or (
-                kind == "cmd" and w.idx < max(1, sw.len if sw.op - m.REQ == m.MEM_RD else 1))
-            if fits and not shadowed:
-                if kind == "cmd":
-                    out.append((pc, {"corrupt": {num: (w.idx, bit)}}))
-                elif w.idx == 0:
-                    out.append((pc, {"msi_corrupt": {num: bit}}))
+        elif op in (m.EXPECT, m.JUMP) and src is not None:
+            if op == m.EXPECT and pc not in out:
+                kind, num, sw = src
+                read = 0
+                for b in between:
+                    if b.idx == w.idx and (b.op == m.EXPECT or b.cond in (m.DATA_EQ, m.DATA_NE)):
+                        read |= b.mask
+                free = w.mask & ~read
+                bit = free & -free
+                beats = sw.len if sw.op - m.REQ == m.MEM_RD else 1
+                if bit and kind == "cmd" and w.idx < beats:
+                    out[pc] = {"corrupt": {num: (w.idx, bit)}}
+                elif bit and kind == "msi" and w.idx in (0, 1):
+                    fld = "data" if w.idx == 0 else "offset"
+                    if fld == "data" or bit < 1 << 10:
+                        out[pc] = {"msi_corrupt": {num: (fld, bit)}}
             between.append(w)
         else:
             src, between = None, []
-    return out
+    return sorted(out.items())

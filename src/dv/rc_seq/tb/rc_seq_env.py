@@ -20,7 +20,7 @@ from pathlib import Path
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import FallingEdge, ReadOnly
+from cocotb.triggers import FallingEdge, ReadOnly, Timer
 
 from regress.funcov import Covergroup
 
@@ -107,6 +107,8 @@ class Env:
         self.model = m.RcSeqModel(self.rom)
         self.si = None
         self.trace: list[m.Outputs] = []      # outputs of the current run, per cycle
+        self.fast = False                     # fast_forward through long quiet waits
+        self.skipped = 0                      # cycles fast_forward skipped
         self.checked = False                  # the first edge has passed
         cocotb.start_soon(Clock(dut.clk_i, 8, unit="ns").start())
         for name in ("rst_i", "start_i", "dl_up_i", "link_up_i", "cmd_ready_i", "rsp_valid_i",
@@ -170,6 +172,26 @@ class Env:
             raise SeqError(f"cycle {self.n} (model pc {self.model.pc}, state {self.model.state}, "
                            f"step {fmt_step(self.model.word())}): " + "; ".join(bad))
 
+    async def fast_forward(self) -> None:
+        """In a wait whose condition stays false with nothing pending at the
+        stand-in, let the simulator run freely to 8 cycles before the
+        timeout: the inputs hold, the outputs cannot change, and the model's
+        counter advances by the cycles skipped. Then cycle by cycle again,
+        so the timeout itself is compared."""
+        # cnt 1 or more: the condition was seen false, and with nothing
+        # pending the inputs that made it false hold.
+        if (self.model.state not in ("WAIT", "HR_FALL") or self.model.cnt == 0
+                or not self.si.quiet()):
+            return
+        left = self.model.word().data - self.model.cnt
+        if left <= 64:
+            return
+        k = left - 8
+        await Timer(8 * k - 2, unit="ns")
+        self.model.cnt += k - 1
+        self.n += k - 1
+        self.skipped += k - 1
+
     async def cycles(self, k: int) -> None:
         for _ in range(k):
             await self.cycle()
@@ -188,6 +210,8 @@ class Env:
             o = await self.cycle()
             if o.done and not self.model.running:
                 return o.passed, o.fail_step
+            if self.fast:
+                await self.fast_forward()
         raise SeqError(f"no done_o in {max_cycles} cycles (model pc {self.model.pc}, "
                        f"state {self.model.state})")
 

@@ -3,8 +3,6 @@ rc_tl (no simulator): the step format, the programs, the interpreter's
 cycle rules from the MAS, and every program passing against the stand-in
 and failing at a corrupted EXPECT."""
 
-import random
-
 import pytest
 
 import pcie_rc_seq_model as m
@@ -52,11 +50,14 @@ def test_program_passes_on_standin(prog, seed):
 
 
 @pytest.mark.parametrize("prog", range(len(m.PROGRAM_NAMES)))
-def test_corrupted_read_fails_at_its_expect(prog):
-    rng = random.Random(prog)
+def test_every_expect_can_be_made_to_fail(prog):
+    """Each EXPECT of a program is reachable by one wrong bit, and the run
+    then fails exactly there."""
+    rom = m.program(prog).rom()
+    expects = {pc for pc, w in enumerate(rom) if m.decode(w).op == m.EXPECT}
     choices = sd.expect_corruptions(prog, 3)
-    assert choices
-    for pc, kw in rng.sample(choices, min(8, len(choices))):
+    assert {pc for pc, _ in choices} == expects
+    for pc, kw in choices:
         seq, _ = sd.reference_run(prog, 3, **kw)
         assert not seq.passed and seq.fail_step == pc, (pc, kw, seq.events[-1])
 

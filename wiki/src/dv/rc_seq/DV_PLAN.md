@@ -40,11 +40,22 @@ the real `rc_tl` and `core` are the `rc` e2e's
   traffic. For `SELFTEST` the link and MSI follow the program's kick
   writes, and tests set guard DWs, poll answers, a status, a wrong beat or
   capture, and the cycle a wait's condition first holds.
-- **Wrong expected values:** for a program, the environment runs it on
-  the model alone, picks an `EXPECT` whose register comes from the
-  `REQ` or `WAIT_MSI` just before it (only `EXPECT`s between), and flips
-  one bit of its mask in that beat or capture; the run must fail at that
-  `EXPECT` exactly.
+- **Wrong expected values:** an `EXPECT` that passes on both a right and
+  a wrong image word shows no output, so the cycle comparison alone cannot
+  see it. For each `EXPECT` of a program the environment runs the program
+  on the model alone, finds the `REQ` or `WAIT_MSI` that wrote its
+  register (only `EXPECT`s and `JUMP`s between), and flips the lowest bit
+  of its mask that no step in between reads, in that beat or in the
+  capture's data or offset; the run must fail at that `EXPECT` exactly.
+  Every `EXPECT` of every program is reachable this way (a model unit test
+  checks it).
+- **Long waits:** the `timeouts_*` entries let a program's wait run out
+  (`WAIT_LINK` 25 000 000 cycles, `WAIT_MSI` 1 250 000, `HOT_RESET`
+  125 000) and a poll take 4096 times. Once a wait has seen its condition
+  false and the stand-in has nothing pending, the environment lets the
+  simulator run freely to 8 cycles before the timeout and advances the
+  model's counter by the cycles skipped; the cycles around the timeout are
+  compared, so the image's constant must equal the programs page's.
 - **Assertions:** the RTL's own, on the interface (a beat only for a
   taken command, at most 32 beats, the command held while offered, a
   capture taken only when offered).
@@ -63,21 +74,26 @@ row names another.
 | --- | --- | --- | --- |
 | A passing `SELFTEST` run, start held through reset, the result holding | `smoke` | 0 | 1 |
 | [Every op](../../rtl/rc_seq/MAS.md#commands), every `JUMP` condition taken and not taken, a `REQ` of every tl-seq op and two undefined ones, the 32-DW read, an MSI, Hot Reset, on random latencies | `selftest` | 1 | 2; two runs each |
-| `EXPECT` mismatch: a wrong bit in a 1-DW read, a beat of the 32-DW read, an MSI capture | `expect_mismatch` | 1 | 2; six or seven runs each |
+| `EXPECT` mismatch: every `EXPECT` of `SELFTEST`, by a wrong bit in a 1-DW read, a beat of the 32-DW read, the MSI capture's data or offset | `expect_mismatch` | 1 | 1; 39 runs |
 | `REQ` `chk`: each status answered where another is expected fails at the `REQ`; `chk` 0 does not | `status_mismatch` | 1 | 1; ten runs |
 | Wait bounds: `WAIT_LINK`, `WAIT_MSI`, `HOT_RESET` with the condition first at cycle 0, T (pass) and T + 1 (fail at the step); the Hot Reset request's length and its fall as a run fails | `wait_bounds` | 1 | 1; nine runs |
 | `FAIL`, reserved ops 0x07 and 0x0F, conditions 5 and 7, the FAIL padding past the program, a `pc` above the ROM (`fail_step_o` 0x0123) | `jump_traps` | 1 | 1; seven runs |
 | [`L` and the loop limit](../../rtl/rc_seq/MAS.md#commands): exactly the limit passes, one take over fails at the jump, `ALWAYS` leaves `L`, a forward conditional sets it 0 | `loop_limit` | 1 | 1; five runs |
 | [Run](../../rtl/rc_seq/MAS.md#run) and [reset](../../rtl/rc_seq/MAS.md#reset): a pulse starts, `start_i` in a run is ignored, the result holds until a new rising edge, a restart drops `done_o`, reset mid-run, `start_i` held through reset | `start_reset` | 1 | 1 |
-| [`ENUM`](../../rtl/rc_seq/PROGRAMS.md#enumeration) against the stand-in, then failing at a wrong expected value (`PROGRAM` 0) | `program_enum` | 1 | 1 |
-| [`MMIO`](../../rtl/rc_seq/PROGRAMS.md#mmio), likewise (`PROGRAM` 1) | `program_mmio` | 1 | 1 |
-| [`DMA_MSI`](../../rtl/rc_seq/PROGRAMS.md#dma-and-msi), likewise (`PROGRAM` 2) | `program_dma_msi` | 1 | 1 |
-| [`ERRORS`](../../rtl/rc_seq/PROGRAMS.md#errors-and-recovery): three enumerations, the polls, the refusals, the dropped MSI, the completion timeout, Hot Reset and link down, likewise (`PROGRAM` 3) | `program_errors` | 1 | 1 |
+| [`ENUM`](../../rtl/rc_seq/PROGRAMS.md#enumeration) passing against the stand-in, then failing at each of its `EXPECT`s made wrong (`PROGRAM` 0) | `program_enum` | 1 | 1; 24 runs |
+| [`MMIO`](../../rtl/rc_seq/PROGRAMS.md#mmio), likewise (`PROGRAM` 1) | `program_mmio` | 1 | 1; 62 runs |
+| [`DMA_MSI`](../../rtl/rc_seq/PROGRAMS.md#dma-and-msi), likewise (`PROGRAM` 2) | `program_dma_msi` | 1 | 1; 43 runs |
+| [`ERRORS`](../../rtl/rc_seq/PROGRAMS.md#errors-and-recovery): three enumerations, the polls, the refusals, the dropped MSI, the completion timeout, Hot Reset and link down, likewise (`PROGRAM` 3) | `program_errors` | 1 | 1; 29 runs |
+| [Constants](../../rtl/rc_seq/PROGRAMS.md#constants) of `ERRORS`: the `HOT_RESET` timeout with a link that ignores the request, the polling limit with error messages that never come (`PROGRAM` 3) | `timeouts_errors` | 1 | 1 |
+| The `WAIT_LINK` timeout of the enumeration, the link never training (`PROGRAM` 0) | `timeouts_enum` | 2 | 1; 25 000 000 cycles, most run freely |
+| The `WAIT_MSI` timeout of `DMA_MSI`, no MSI (`PROGRAM` 2) | `timeouts_dma_msi` | 2 | 1 |
 | `SELFTEST` with random latencies and one random fault (expect, status, wait bound) or none | `selftest_random` | 2 | 4; six runs each |
-| Each M4 program over more stand-in seeds, passing then failing (`PROGRAM` 0 to 3) | `program_random_enum`, `program_random_mmio`, `program_random_dma_msi`, `program_random_errors` | 2 | 2 each; three seeds of the stand-in per run |
+| Each M4 program over more stand-in seeds, passing, then failing at three random `EXPECT`s made wrong (`PROGRAM` 0 to 3) | `program_random_enum`, `program_random_mmio`, `program_random_dma_msi`, `program_random_errors` | 2 | 2 each; three stand-in seeds per entry seed |
 
-**Level placement.** Every L1 entry takes about a second; L2 widens the
-stand-in seeds and fault choices.
+**Level placement.** Every L1 entry takes a few seconds of CPU at most.
+L2 widens the stand-in seeds and fault choices and holds the two long
+timeouts, `timeouts_enum` (about 40 s, the simulator running 25 000 000
+cycles freely) and `timeouts_dma_msi`.
 
 ## Functional coverage
 
