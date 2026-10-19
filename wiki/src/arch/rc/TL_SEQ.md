@@ -3,7 +3,7 @@
 The interface between the root-port transaction layer `pcie_rc_tl` and the
 sequencer `pcie_rc_seq` inside [`pcie_rc`](HAS.md) (decision record
 [0005](../../decisions/0005-m4-grill.md#decisions), OP1, OP4, OP5). It is
-part of the `rc` HAS: the same sign-off covers it, and the `rc_tl` MAS
+part of the `rc` HAS and changes with it, and the `rc_tl` MAS
 ([#368](https://github.com/amichai-bd/pcie-factory/issues/368)) and the
 `rc_seq` MAS ([#369](https://github.com/amichai-bd/pcie-factory/issues/369))
 implement it exactly. A change here changes both.

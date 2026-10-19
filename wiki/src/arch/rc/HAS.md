@@ -304,11 +304,10 @@ The `link` DV plan maps each entry name to its test
 ## Decisions
 
 Rows citing P, Q, OP or F are the captain's (decision record
-[0005](../../decisions/0005-m4-grill.md#decisions)). The others are this
-HAS's choices, signed off by the firstmate as the captain's delegate
-([delegate decision](https://github.com/amichai-bd/pcie-factory/issues/367#issuecomment-6267968281)) under the M4 epic's
-[delegated decisions](https://github.com/amichai-bd/pcie-factory/issues/357#issuecomment-6267954374), during the captain's autonomous-delivery
-goal; the captain may override any of them.
+[0005](../../decisions/0005-m4-grill.md#decisions)). Every other row is a
+firstmate decision taken as the captain's delegate
+([#367 comment](https://github.com/amichai-bd/pcie-factory/issues/367#issuecomment-6267968281); the epic's
+[delegated decisions](https://github.com/amichai-bd/pcie-factory/issues/357#issuecomment-6267954374)), which the captain may override.
 
 | Choice | Rationale | Rejected |
 | --- | --- | --- |
@@ -321,6 +320,7 @@ goal; the captain may override any of them.
 | `retrain_req_i`, `disable_req_i`, `loopback_req_i` tied to 0 | OP4 lists Hot Reset only, and Hot Reset plus link-down handling meet M4's errors-and-recovery scope; the rollover retrain stays inside `link`. Firstmate delegate decision, option (a) ([#367 comment](https://github.com/amichai-bd/pcie-factory/issues/367#issuecomment-6267968281)); the captain may override. | Commands for each (beyond OP4, and the upper-layer retrain through `link` has no `link` e2e test yet). |
 | Posted and non-posted credits released when a request leaves `rc_tl`, `FC_RELEASE` 1 | Bounds `rc_tl`'s queues by what it advertises, as in `core`; covered by `link` `e2e_credits_release`. | Release at delivery (nothing bounds what the endpoint sends while `rc_tl` waits for host memory or answers with Unsupported Request). |
 | 1-DW memory writes and configuration requests; reads of 1 to 32 DW | Programs check DW by DW; 32 DW is the 128-byte read limit (M2 Q6) and draws several completions from `core`. | Multi-DW writes (ROM data per DW for no M4 goal). |
+| Functional targets plus the completion-timeout bound; enumeration cycles and MMIO and DMA throughput reported for information, with no bound ([targets](#targets)) | #367 asks for functional targets only, M4's success criteria are simulation plus FPGA synthesis, and no measurement yet supports a bound. Firstmate delegate decision, option (a) ([#367 comment](https://github.com/amichai-bd/pcie-factory/issues/367#issuecomment-6267968281)); the captain may override. | Throughput bounds now (no measured basis). |
 | 16-bit `fail_step_o` | Four hexadecimal digits on a board display; bounds the ROM at 65536 steps. | A width that follows the ROM size (the board wrapper would change with it). |
 
 ## Targets
@@ -365,4 +365,4 @@ The Base Spec is not in the local cache (`./build specs list`:
 
 | Item | Owner |
 | --- | --- |
-| The cited sections on this page and the [tl-seq page](TL_SEQ.md), checked against rev 3.0: the Type 1 header fields and the window rules, the configuration routing of a downstream port, the completion-credit rule for a Root Port. | Captain, with a local copy |
+| The cited sections on this page and the [tl-seq page](TL_SEQ.md), checked against rev 3.0: the Type 1 header fields and the window rules, the configuration routing of a downstream port, the completion-credit rule for a Root Port. | [#357](https://github.com/amichai-bd/pcie-factory/issues/357): the captain, with a local copy |
