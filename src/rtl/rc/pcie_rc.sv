@@ -11,6 +11,8 @@
 
 `include "common_macros.svh"
 
+// The board build (LOWER 1) is CDC-checked too (RTL BKM, parameter sets).
+// cdc-params: LOWER=1
 module pcie_rc #(
   parameter int unsigned FC_PH           = 8,              // posted header credits advertised, 1..127
   parameter int unsigned FC_PD           = 32,             // posted data credits, 8..2047
@@ -55,7 +57,7 @@ module pcie_rc #(
   input  logic        ser_tx_rxdet_i,     // far-end receiver termination present // cdc-domain: clk_i
 
   // Lower 2x10-bit symbol interface, receive (ser_rx_clk_i)
-  input  logic        ser_rx_clk_i,       // recovered clock, 125 MHz nominal
+  input  logic        ser_rx_clk_i,       // recovered clock, 125 MHz nominal // cdc-domain: ser_rx_clk_i
   input  logic [19:0] ser_rx_data_i,      // bit 0 earliest; no symbol alignment // cdc-domain: ser_rx_clk_i
   input  logic        ser_rx_elec_idle_i, // the line is in electrical idle // cdc-domain: ser_rx_clk_i
 
@@ -63,8 +65,8 @@ module pcie_rc #(
   output logic        gpio_tx_clk_o,      // forwarded clock, clk_i / GPIO_CLK_DIV
   output logic        gpio_tx_ctrl_o,
   output logic [3:0]  gpio_tx_data_o,
-  // The partner's forwarded clock; at LOWER 0, the checked build, it reaches nothing.
-  input  logic        gpio_rx_clk_i,      // cdc-domain: clk_i
+  // The partner's forwarded clock: a clock at LOWER 1, unused at LOWER 0.
+  input  logic        gpio_rx_clk_i,      // cdc-domain: gpio_rx_clk_i
   input  logic        gpio_rx_ctrl_i,     // cdc-domain: gpio_rx_clk_i
   input  logic [3:0]  gpio_rx_data_i      // cdc-domain: gpio_rx_clk_i
 );
