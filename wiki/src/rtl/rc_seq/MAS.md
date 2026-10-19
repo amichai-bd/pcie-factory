@@ -27,9 +27,9 @@ All ports are synchronous to `clk_i`. The tl-seq ports carry the
 [tl-seq](../../arch/rc/TL_SEQ.md#signals) nets of the same names; their
 bundles are the `common_pkg` structs whose fields that page lists. The
 shell has the ports marked "now"; the tl-seq ports arrive with the
-`common_pkg` types ([#373](https://github.com/amichai-bd/pcie-factory/issues/373),
-which adds them as the tl-seq page says) and the interpreter
-([#376](https://github.com/amichai-bd/pcie-factory/issues/376)).
+interpreter ([#376](https://github.com/amichai-bd/pcie-factory/issues/376)),
+using the `common_pkg` types that came with the
+[`rc_tl` shell](../rc_tl/MAS.md#interfaces).
 
 | Port | Dir | Width | Shell | Description |
 | --- | --- | --- | --- | --- |
@@ -196,7 +196,7 @@ D1 to D12), which the captain may override. D10 and D11 are on the
 | `FAIL` is op 0 and pads the ROM (D7) | Running off a program or jumping outside it fails instead of passing. | Op 0 as `DONE`. |
 | A 256-step ROM, `ROM_AW` 8 a package constant; `pc` and `fail_step_o` 16 bits (D8) | Every M4 program fits (about 60 to 140 steps) with room for growth; one constant to raise; 256 × 128 bits is a few FPGA memory blocks. | A depth per program (a ROM leaf per image size); a depth that follows `fail_step_o` (64 Ki steps of mostly padding). |
 | Program ids 0 `ENUM`, 1 `MMIO` (the default), 2 `DMA_MSI`, 3 `ERRORS`, 4 `SELFTEST`, 5 and up for unit programs (D9) | One image per M4 program, so each regression entry selects one and a failure names its program; `MMIO` (enumeration then BAR0 traffic) is what the board build runs (goal item 9), so the default needs no override there. | One combined image (one entry for every goal item, a long run per failure); `ENUM` as the default (the board would not exercise MMIO). |
-| The tl-seq ports wait for #373's `common_pkg` types (D12) | The [tl-seq page](../../arch/rc/TL_SEQ.md#signals) gives the types to the RTL that first uses them; two shells adding them in parallel would collide. | Adding the types in this shell. |
+| The tl-seq ports wait for the interpreter (D12); their `common_pkg` types came with the [`rc_tl` shell](../rc_tl/MAS.md#interfaces) | Two shells adding the types in parallel would collide, so only the `rc_tl` shell, whose MAS ports use them, added them. | Adding the types in this shell. |
 
 ## Timing
 

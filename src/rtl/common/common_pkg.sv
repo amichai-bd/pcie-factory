@@ -120,6 +120,59 @@ package common_pkg;
     t_power_down power_down;    // PowerDown
   } t_pipe_ctl;
 
+  // Root port: the tl-seq interface between rc_tl and rc_seq
+  // (wiki/src/arch/rc/TL_SEQ.md).
+
+  // A command's operation (TL_SEQ.md#commands).
+  typedef enum logic [3:0] {
+    RC_OP_CFG_RD  = 4'd0,
+    RC_OP_CFG_WR  = 4'd1,
+    RC_OP_MEM_RD  = 4'd2,
+    RC_OP_MEM_WR  = 4'd3,
+    RC_OP_HDR_RD  = 4'd4,
+    RC_OP_HDR_WR  = 4'd5,
+    RC_OP_HOST_RD = 4'd6,
+    RC_OP_HOST_WR = 4'd7,
+    RC_OP_ERR_RD  = 4'd8,
+    RC_OP_ERR_CLR = 4'd9
+  } t_rc_op;
+
+  // A result beat's status (TL_SEQ.md#results).
+  typedef enum logic [2:0] {
+    RC_ST_OK        = 3'd0,
+    RC_ST_UR        = 3'd1,
+    RC_ST_CA        = 3'd2,
+    RC_ST_CRS       = 3'd3,
+    RC_ST_TIMEOUT   = 3'd4,
+    RC_ST_LOCAL_UR  = 3'd5,
+    RC_ST_LINK_DOWN = 3'd6,
+    RC_ST_BAD       = 3'd7
+  } t_rc_status;
+
+  // A command, rc_seq to rc_tl. op is the raw code: an undefined one is
+  // refused, so it is not t_rc_op.
+  typedef struct packed {
+    logic [3:0]  op;
+    logic [31:0] addr;
+    logic [5:0]  len;       // DWs, 1 to 32 for a memory read, else 1
+    logic [3:0]  first_be;  // bit i enables data byte i
+    logic [3:0]  last_be;   // the last DW's enables when len is above 1, else 0
+    logic [31:0] data;      // byte 0 in [7:0]
+  } t_rc_cmd;
+
+  // A result beat, rc_tl to rc_seq.
+  typedef struct packed {
+    t_rc_status  status;
+    logic [31:0] data;      // byte 0 in [7:0]
+    logic        last;      // the command's last beat
+  } t_rc_rsp;
+
+  // A captured MSI, rc_tl to rc_seq.
+  typedef struct packed {
+    logic [9:0]  offset;    // DW offset in the MSI window
+    logic [31:0] data;      // byte 0 in [7:0]
+  } t_rc_msi;
+
 endpackage
 
 `default_nettype wire

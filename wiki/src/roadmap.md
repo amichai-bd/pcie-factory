@@ -95,7 +95,7 @@ starts once the `rc` HAS is signed off (F1, reading F1's "its HAS" as the
 | --- | --- | --- |
 | 0, record | This roadmap and the decision record | #366 |
 | 1, specs and models | `rc` HAS with the Type 1 header, host memory and downstream `link` contract; then the `rc_tl` and `rc_seq` MAS; the GPIO adapter HAS and the `link` lower-layer parameter (each signed off by the captain or the captain's delegate); then the `rc` arch model and perf scenarios; the host model passive shadow mode | #367, then #368, #369; #370; then #371; #372 |
-| 2, RTL (after the `rc` HAS sign-off) | `rc_tl` requester path, then the root-port Type 1 header, then the completer path with MSI capture and receive errors; `rc_seq` interpreter and the M4 programs | #373, then #374, then #375; #376 |
+| 2, RTL (after the `rc` HAS sign-off) | `rc_tl` root-port Type 1 header, then the requester path, then the completer path with MSI capture and receive errors; `rc_seq` interpreter and the M4 programs | #374, then #373, then #375; #376 |
 | 3, integration and evidence | `rc` stack and full-phy back-to-back e2e with `core`; then the GPIO adapter RTL, `link` parameter and board-build e2e; then the `rc` board build synthesis on the DE2-115; coverage floors | #377, then #378, then #379; #380 |
 
 M4 is done when the goal checklist in the decision record holds on `main`.
