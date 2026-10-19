@@ -34,7 +34,9 @@ def pulses(env, bit, since=0):
 async def gpio_smoke(dut):
     """Both dlls reach DL_Active over the adapter; 40 TLPs of the mix each
     way, lossless and in order; an error-free run: no Bad TLP, Bad DLLP,
-    replay timeout or rollover, and no rcv_err."""
+    replay timeout or rollover, and no rcv_err. Then a Hot Reset from a
+    (downstream), the link idle: both links down and both dlls back to
+    DL_Active (the hot_reset_req_i wiring at LOWER 1)."""
     env = await up(dut)
     env.send(0, 40)
     env.send(1, 40)
@@ -45,6 +47,17 @@ async def gpio_smoke(dut):
                       (ROLLOVER, "rollover")):
         assert not any(pulses(env, bit).values()), f"{name} in an error-free run: {stats['err']}"
     assert not any(stats["rcv_err"].values()), f"rcv_err in an error-free run: {stats['rcv_err']}"
+    # Hot Reset through link to the adapter (link HAS, lower layer: at
+    # LOWER 1 hot_reset_req_i goes to the gpio), the link idle: both links
+    # down, both dlls back to DL_Active.
+    env.expect_down = True
+    env.ends[0].s["hot_reset_req_i"].value = 1
+    await env.cycles(4)
+    env.ends[0].s["hot_reset_req_i"].value = 0
+    await env.until(lambda: env.link_downs >= 2, 5_000, "Hot Reset: both dlls down")
+    await env.until(lambda: all(e.live for e in env.ends), 5_000, "Hot Reset: both dlls back")
+    env.expect_down = False
+    env.raise_violations()
 
 
 @cocotb.test()

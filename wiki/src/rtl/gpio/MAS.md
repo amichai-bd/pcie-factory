@@ -190,7 +190,7 @@ receive stream beat and `rcv_err_o` are registered.
 | --- | --- | --- |
 | `L_tx`: a beat taken to its first transfer | 2 cycles, plus the wait for the next slot start (at most `S` − 1) | The buffer head is valid two edges after the write; the pins load at the slot start. |
 | `L_rx`: a slot's last transfer to its beat on the stream | Half a transfer (`CLK_DIV`/2 sender cycles), then at most 4 receiver `clk_i` cycles | The window is written at the forwarded-clock edge after the last capture; the crossing's two synchronizer edges and its read, then the beat register. |
-| `W`: a slot's first transfer (from the beat taken) to its handling | At most 1.75 slots of the slower end at `CLK_DIV` 2 (ratios 1/2, 1, 2), less at larger `CLK_DIV` | Within the 4 slots the [link-up rules](../../arch/gpio/LINK_UP.md#terms) require. |
+| `W`: a slot's first transfer to its handling, counting `L_tx` | At most 1.75 slots of the slower end at `CLK_DIV` 2 (ratios 1/2, 1, 2), less at larger `CLK_DIV` | Within the 4 slots the [link-up rules](../../arch/gpio/LINK_UP.md#terms) require. The slot-phase wait is not in it: `W` starts from a beat taken at a slot start, as an idle word (which the link-up rules count) always is; a packet beat waits up to `S` − 1 more before its slot starts, which the `link` replay round trip counts separately. |
 | Line use | One beat per slot each way; no idle slot between back-to-back packets | The next sop refills the buffer within 3 cycles of the last pop. |
 
 The [architecture model](../../../../src/arch/gpio/pcie_gpio_arch.py)

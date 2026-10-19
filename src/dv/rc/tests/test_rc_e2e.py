@@ -315,6 +315,8 @@ async def board_enum(dut):
     assert sorted(dev.bars) == [0, 2] and dev.bars[0].base == BAR0, (
         f"BARs the shadow learnt: {[(i, hex(b.base)) for i, b in dev.bars.items()]}")
     assert env.cfg.compared == 18, f"cfg shadow compared {env.cfg.compared} of the 18 reads"
+    assert env.link_downs == 0 and env.rp_link_downs == 0, (
+        f"link downs: ep {env.link_downs}, rc {env.rp_link_downs}")
     _over_gpio(env)
 
 

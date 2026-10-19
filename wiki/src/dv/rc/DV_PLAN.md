@@ -132,14 +132,14 @@ entry's first seed; none committed):
 
 | Mutant | Entry | Fails |
 | --- | --- | --- |
-| Enumeration: `rc_tl` configuration requests lose register bit 2 | `e2e_enum` | Shadow: a `CfgRd0` no pending command asks for. |
-| MMIO: `rc_tl` does not advance a split read's next byte | `e2e_mmio` | Shadow: `MEM_RD` result `BAD`, predicted `OK` (only the split completions reach it). |
-| DMA: the completer skips a host-memory DW | `e2e_dma_msi` | Shadow: completion data differs from host memory. |
-| MSI: the capture offset off by one | `e2e_dma_msi` | Shadow: MSI capture offset 1, predicted 0. |
-| Errors: error record bits 0 and 1 swapped | `e2e_errors` | Shadow: `ERR_RD` record 0x0182. |
-| MSI drop: the capture drops at 3 held | `e2e_errors` | Shadow: bit 12 set before the fifth MSI. |
-| Poisoned completion accepted | `e2e_inject` | `rc_seq`: J4 fails (`OK`, expected `BAD`). |
-| Integration: `link` Hot Reset request tied to 0 in `pcie_rc` | `e2e_errors` | `rc_seq`: R10's `HOT_RESET` times out. |
+| M1 Enumeration: `rc_tl` configuration requests lose register bit 2 | `e2e_enum` | Shadow: a `CfgRd0` no pending command asks for. |
+| M2 MMIO: `rc_tl` does not advance a split read's next byte | `e2e_mmio` | Shadow: `MEM_RD` result `BAD`, predicted `OK` (only the split completions reach it). |
+| M3 DMA: the completer skips a host-memory DW | `e2e_dma_msi` | Shadow: completion data differs from host memory. |
+| M4 MSI: the capture offset off by one | `e2e_dma_msi` | Shadow: MSI capture offset 1, predicted 0. |
+| M5 Errors: error record bits 0 and 1 swapped | `e2e_errors` | Shadow: `ERR_RD` record 0x0182. |
+| M6 MSI drop: the capture drops at 3 held | `e2e_errors` | Shadow: bit 12 set before the fifth MSI. |
+| M7 Poisoned completion accepted | `e2e_inject` | `rc_seq`: J4 fails (`OK`, expected `BAD`). |
+| M8 Integration: `link` Hot Reset request tied to 0 in `pcie_rc` | `e2e_errors` | `rc_seq`: R10's `HOT_RESET` times out. |
 | M9 `INJECT`: the expected record `INJ_RECORD` 0x0270, not 0x0272 (J8 expects no bit 1, Completer Abort) | `e2e_inject` | `rc_seq`: step 77 fails (J8's error-record check), cycle 14527, seed 2076889066. |
 
 **Board-build mutants** ([#378](https://github.com/amichai-bd/pcie-factory/issues/378); the adapter's and `link`'s are in the [gpio](../gpio/DV_PLAN.md#mutants) and [link](../link/DV_PLAN.md#gpio-lower-layer) DV plans):
