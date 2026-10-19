@@ -62,3 +62,10 @@ waivers:
     rule: SYNCASYNCNET
     match: "'rst_i'"
     reason: rst_i resets the link, rc_tl and rc_seq synchronously and reaches the pcs RX reset synchronizer (pcs crossing 2), as the rc, link, phy and pcs HAS require.
+  # The rc DE2-115 board build (#379) instantiates pcie_rc as the FPGA top
+  # at LOWER 1: the same rst_i net, seen from the wrapper, reaching the gpio
+  # receive-domain reset synchronizer.
+  - file: fpga/rc/pcie_rc_de2_115.sv
+    rule: SYNCASYNCNET
+    match: "'pcie_rc_de2_115.rst_q'"
+    reason: rst_q drives pcie_rc rst_i, which resets the link, rc_tl and rc_seq synchronously and reaches the gpio receive-domain reset synchronizer, as the rc, link and gpio HAS require; it is a flop with no logic after it, as common_cdc_rst requires.
