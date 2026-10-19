@@ -7,7 +7,7 @@ How `pcie_gpio` is verified: two adapters back to back carrying
 over the adapter, and `link` at `LOWER` 1, are verified by the
 [`link` e2e over the GPIO lower layer](../link/DV_PLAN.md#gpio-lower-layer);
 the board-build pair of `rc` and `core` by the
-[`rc` DV plan](../rc/DV_PLAN.md).
+[`rc` DV plan](../rc/DV_PLAN.md) (`board_enum`, `board_mmio`).
 
 ## Strategy
 
@@ -148,6 +148,5 @@ The `link` and `replay_timeout` mutants are in the
 
 | Feature | Owning issue |
 | --- | --- |
-| The `link` and `core` board-build pair: `rc` and `core` at `LOWER` 1, enumeration and MMIO | [#378](https://github.com/amichai-bd/pcie-factory/issues/378), after [#377](https://github.com/amichai-bd/pcie-factory/issues/377) |
 | Coverage floors | [#380](https://github.com/amichai-bd/pcie-factory/issues/380) |
 | A real cable: wire delay and skew, the transfer rate it sustains | The two-board milestone ([HAS open items](../../arch/gpio/HAS.md#open-items)) |

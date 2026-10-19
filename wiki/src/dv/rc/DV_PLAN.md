@@ -3,7 +3,8 @@
 How [`pcie_rc`](../../arch/rc/HAS.md) is verified: a smoke test of the
 stack alone, and the back-to-back e2e against the endpoint `core` over
 the full `phy` stack, where `rc_seq`'s programs alone drive the host side
-(goal items 4 to 8 of [0005](../../decisions/0005-m4-grill.md#goal)).
+(goal items 4 to 8 of [0005](../../decisions/0005-m4-grill.md#goal)),
+and the same pair as the board build over the GPIO adapter (goal item 9).
 `rc_tl` and `rc_seq` have their own testbenches
 ([`rc_tl`](../rc_tl/DV_PLAN.md), [`rc_seq`](../rc_seq/DV_PLAN.md)).
 
@@ -20,7 +21,11 @@ the full `phy` stack, where `rc_seq`'s programs alone drive the host side
   `PROGRAM`, the credits (both ends), `TIMEOUT_DIV` and `ERR_TIMEOUT_DIV`
   1024 (both links; a cut line goes down in 16384 cycles),
   `CPL_TIMEOUT_DIV` (rc_tl, 1024: 2048 cycles) and `EP_CPL_TIMEOUT_DIV`
-  (1024); `core` at its defaults, which the programs assume.
+  (1024); `core` at its defaults, which the programs assume. `LOWER`
+  (both stacks) and `GPIO_CLK_DIV` select the board build: at `LOWER` 1
+  each stack's `gpio_rx_*` are the other's `gpio_tx_*` (zero-delay
+  modelled wires on the one clock, [`link` lower layer](../../arch/link/HAS.md#lower-layer)),
+  the serial lines stay idle and the line models do not apply.
 - **Host side:** `rc` alone. `start_i` is held at 1 from reset, so
   `rc_seq` runs its program once ([sequencer run](../../arch/rc/HAS.md#sequencer-run));
   every test ends when `done_o` rises and requires `pass_o`.
@@ -85,7 +90,10 @@ Naks are carried back to the transmitter's numbers in the other
 direction (new CRC); a replay of a replaced TLP is replaced alike. Its
 unit tests (`test_pcie_rc_line_model.py`) run a synthetic transmitter and
 receiver: pass-through is bit for bit, replaced packets arrive clean, the
-delay returns to 0, renumbering and Ack translation round-trip.
+delay returns to 0, renumbering and Ack translation round-trip, and a
+nullified TLP (EDB) or one with an invalid code keeps its fault while it is
+renumbered: still an error at the receiver, never fixed
+(`test_nullified_and_broken_tlps_keep_their_fault_while_renumbered`).
 
 | Rewrite | Entry | What the line carries instead |
 | --- | --- | --- |
@@ -107,11 +115,12 @@ delay returns to 0, renumbering and Ack translation round-trip.
 | Goal item 7, [errors and recovery](../../rtl/rc_seq/PROGRAMS.md#errors-and-recovery) (`ERRORS`, `CPL_TIMEOUT_DIV` 64): Unsupported Requests (bits 0, 7, 8), outbound refusals, an inbound Unsupported Request (bit 11), the MSI past a full capture (bit 12), completion timeout (bit 3), Hot Reset and a link down (the line cut during R12), each followed by re-enumeration and traffic | `e2e_errors` / `e2e_errors_sweep` | 1 / 2 | 1 / 3 |
 | Goal item 7, [injected errors](../../rtl/rc_seq/PROGRAMS.md#injected-errors) (`INJECT`): Completer Abort (bit 1), poisoned (5), malformed (6) and unexpected (4) completions, ERR_FATAL from a malformed request toward `core` (9); the shadow reports exactly the three endpoint-side rule breaks | `e2e_inject` / `e2e_inject_sweep` | 1 / 2 | 1 / 3 |
 | Goal item 7, link errors with replay: `MMIO` with the injector on both directions (LCRC errors, corrupted and dropped TLPs and DLLPs, from link-up); at least three TLPs hit, `dl_err_o` pulses, no link down, the run passes and the shadow sees every TLP once and in order | `e2e_link_errors` / `e2e_link_errors_sweep` | 1 / 2 | 1 / 4 |
+| Goal item 9, the board build ([#378](https://github.com/amichai-bd/pcie-factory/issues/378)): `rc` and `core` both at `LOWER` 1 over the GPIO adapter, `ENUM` (as `e2e_enum`) and `MMIO` (enumeration, BAR0 writes and reads, nothing rewritten on the line), the host model shadow and the `cfg` shadow attached; error-free, no link down, both stacks up at `0x20` with their serial lines idle (the `core` and `rc` `LOWER` wiring) | `board_enum`, `board_mmio` | 1 | 1 each; `LOWER` 1 |
 
 **Level placement.** Every program runs in a few seconds of wall time at
 `TIMEOUT_DIV` and `ERR_TIMEOUT_DIV` 1024 (`ENUM` about 13 000 cycles,
 `ERRORS` about 90 000), so every acceptance case is level 1; level 2
-holds seed sweeps. **ERRORS:** the cut line brings both ends to Detect one
+holds seed sweeps. The board-build entries take about 1.2 s of CPU each (`ENUM` about 7 800 cycles, `MMIO` 12 400 over the adapter). **ERRORS:** the cut line brings both ends to Detect one
 floored Recovery timeout later (16384 cycles), which must fall inside
 `rc_tl`'s completion timeout or R12's outstanding read ends `TIMEOUT`;
 its entries set `CPL_TIMEOUT_DIV` 64 (32768 cycles), the
@@ -131,12 +140,21 @@ entry's first seed; none committed):
 | MSI drop: the capture drops at 3 held | `e2e_errors` | Shadow: bit 12 set before the fifth MSI. |
 | Poisoned completion accepted | `e2e_inject` | `rc_seq`: J4 fails (`OK`, expected `BAD`). |
 | Integration: `link` Hot Reset request tied to 0 in `pcie_rc` | `e2e_errors` | `rc_seq`: R10's `HOT_RESET` times out. |
+| M9 `INJECT`: the expected record `INJ_RECORD` 0x0270, not 0x0272 (J8 expects no bit 1, Completer Abort) | `e2e_inject` | `rc_seq`: step 77 fails (J8's error-record check), cycle 14527, seed 2076889066. |
+
+**Board-build mutants** ([#378](https://github.com/amichai-bd/pcie-factory/issues/378); the adapter's and `link`'s are in the [gpio](../gpio/DV_PLAN.md#mutants) and [link](../link/DV_PLAN.md#gpio-lower-layer) DV plans):
+
+| Mutant | Entry | Fails |
+| --- | --- | --- |
+| M27 `pcie_core`: `LOWER` not passed to `link` | `board_enum` | Neither data link comes up: `ENUM` not done in 150 000 cycles. |
+| M28 `pcie_core`: `gpio_rx_data_i` not connected to `link` | `board_enum` | The same. |
+| M29 `pcie_rc`: `LOWER` not passed to `link` | `board_enum` | The same. |
+| M30 `pcie_rc`: `gpio_tx_ctrl_o` not driven from `link` | `board_enum` | The same. |
 
 ## Gaps
 
 | Feature | Owning issue |
 | --- | --- |
-| Board build: `rc` and `core` with the GPIO adapter | [#378](https://github.com/amichai-bd/pcie-factory/issues/378) |
 | FPGA synthesis of `rc` (`ci-fpga` has no `rc` target until `src/fpga/rc/`) | [#379](https://github.com/amichai-bd/pcie-factory/issues/379) |
 | Coverage floors | [#380](https://github.com/amichai-bd/pcie-factory/issues/380) |
 | `regress --affected` does not select `rc` for a change to the core e2e's `tb/core_e2e_env.py` alone, which the rc e2e imports (the import scan follows `models/` and `arch/` folders only); a change to `core` RTL or its host models does select it | [#408](https://github.com/amichai-bd/pcie-factory/issues/408) |

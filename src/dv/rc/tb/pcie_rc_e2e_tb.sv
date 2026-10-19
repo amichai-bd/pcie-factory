@@ -19,6 +19,11 @@
 // rc_tl's link upper stream inside u_rc, for the host model shadow, and
 // u_ep.tl_err and u_ep.tl_np_pending (core MAS) for the cfg shadow. Every
 // parameter is echoed on a cfg_*_o output.
+//
+// LOWER 1 is the board build (goal item 9; link HAS, lower layer): both
+// stacks run over the GPIO adapter, each one's gpio_rx_* the other's
+// gpio_tx_* (zero-delay modelled wires, the forwarded clocks included),
+// and the serial lines stay idle; the line models do not apply.
 module pcie_rc_e2e_tb #(
   parameter int unsigned FC_PH           = 8,      // both ends' advertised credits
   parameter int unsigned FC_PD           = 32,
@@ -28,7 +33,9 @@ module pcie_rc_e2e_tb #(
   parameter int unsigned ERR_TIMEOUT_DIV = 1024,   // both links: a cut line goes down in 16384 cycles
   parameter int unsigned CPL_TIMEOUT_DIV = 1024,   // rc_tl's completion timeout
   parameter int unsigned EP_CPL_TIMEOUT_DIV = 1024, // the endpoint's
-  parameter int unsigned PROGRAM         = 1       // rc_seq program id
+  parameter int unsigned PROGRAM         = 1,      // rc_seq program id
+  parameter int unsigned LOWER           = 0,      // both stacks: 0 phy, 1 the GPIO adapter
+  parameter int unsigned GPIO_CLK_DIV    = 2       // both adapters' CLK_DIV
 ) (
   input  logic        clk_i,
   input  logic        rst_i,                // the endpoint's reset
@@ -163,8 +170,15 @@ module pcie_rc_e2e_tb #(
   output logic [15:0] cfg_subsys_vendor_id_o,
   output logic [15:0] cfg_subsys_id_o,
   output logic [23:0] cfg_class_code_o,
-  output logic [7:0]  cfg_revision_id_o
+  output logic [7:0]  cfg_revision_id_o,
+  output logic [1:0]  cfg_lower_o
 );
+
+  // The modelled GPIO wires between the two stacks (LOWER 1).
+  logic       rp_gpio_clk, rp_gpio_ctrl, ep_gpio_clk, ep_gpio_ctrl;
+  logic [3:0] rp_gpio_data, ep_gpio_data;
+
+  assign cfg_lower_o = 2'(LOWER);
 
   logic [19:0] dn_tx, up_tx;
   logic        dn_ei, up_ei;
@@ -186,7 +200,7 @@ module pcie_rc_e2e_tb #(
   pcie_rc #(
     .FC_PH(FC_PH), .FC_PD(FC_PD), .FC_NPH(FC_NPH), .FC_NPD(FC_NPD),
     .TIMEOUT_DIV(TIMEOUT_DIV), .ERR_TIMEOUT_DIV(ERR_TIMEOUT_DIV), .CPL_TIMEOUT_DIV(CPL_TIMEOUT_DIV),
-    .PROGRAM(PROGRAM)
+    .PROGRAM(PROGRAM), .LOWER(LOWER), .GPIO_CLK_DIV(GPIO_CLK_DIV)
   ) u_rc (
     .clk_i(clk_i), .rst_i(rp_rst_i),
     .start_i(rp_start_i), .done_o(rp_done_o), .pass_o(rp_pass_o),
@@ -196,13 +210,16 @@ module pcie_rc_e2e_tb #(
     .ser_tx_data_o(dn_tx), .ser_tx_elec_idle_o(dn_ei), .ser_tx_rxdet_i(ser_tx_rxdet_i),
     .ser_rx_clk_i(clk_i),
     .ser_rx_data_i(up_sub_i ? up_sub_data_i : up_q),
-    .ser_rx_elec_idle_i(up_sub_i ? up_sub_ei_i : up_ei_q)
+    .ser_rx_elec_idle_i(up_sub_i ? up_sub_ei_i : up_ei_q),
+    .gpio_tx_clk_o(rp_gpio_clk), .gpio_tx_ctrl_o(rp_gpio_ctrl), .gpio_tx_data_o(rp_gpio_data),
+    .gpio_rx_clk_i(ep_gpio_clk), .gpio_rx_ctrl_i(ep_gpio_ctrl), .gpio_rx_data_i(ep_gpio_data)
   );
   assign rp_ser_tx_elec_idle_o = dn_ei;
 
   pcie_core #(
     .FC_PH(FC_PH), .FC_PD(FC_PD), .FC_NPH(FC_NPH), .FC_NPD(FC_NPD),
-    .TIMEOUT_DIV(TIMEOUT_DIV), .ERR_TIMEOUT_DIV(ERR_TIMEOUT_DIV), .CPL_TIMEOUT_DIV(EP_CPL_TIMEOUT_DIV)
+    .TIMEOUT_DIV(TIMEOUT_DIV), .ERR_TIMEOUT_DIV(ERR_TIMEOUT_DIV), .CPL_TIMEOUT_DIV(EP_CPL_TIMEOUT_DIV),
+    .LOWER(LOWER), .GPIO_CLK_DIV(GPIO_CLK_DIV)
   ) u_ep (
     .clk_i(clk_i), .rst_i(rst_i),
     .cq_valid_o(cq_valid_o), .cq_ready_i(cq_ready_i), .cq_sop_o(cq_sop_o),
@@ -227,7 +244,9 @@ module pcie_rc_e2e_tb #(
     .ser_tx_data_o(up_tx), .ser_tx_elec_idle_o(up_ei), .ser_tx_rxdet_i(ser_tx_rxdet_i),
     .ser_rx_clk_i(clk_i),
     .ser_rx_data_i(dn_sub_i ? dn_sub_data_i : dn_q),
-    .ser_rx_elec_idle_i(dn_sub_i ? dn_sub_ei_i : dn_ei_q)
+    .ser_rx_elec_idle_i(dn_sub_i ? dn_sub_ei_i : dn_ei_q),
+    .gpio_tx_clk_o(ep_gpio_clk), .gpio_tx_ctrl_o(ep_gpio_ctrl), .gpio_tx_data_o(ep_gpio_data),
+    .gpio_rx_clk_i(rp_gpio_clk), .gpio_rx_ctrl_i(rp_gpio_ctrl), .gpio_rx_data_i(rp_gpio_data)
   );
   assign ser_tx_elec_idle_o = up_ei;
 
