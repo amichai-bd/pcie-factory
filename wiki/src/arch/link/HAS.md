@@ -134,6 +134,51 @@ each port as its own class and never adds them
 left L0 or the line went to electrical idle is flagged with no symbol
 error: it pulses Bad TLP only.
 
+## Lower layer
+
+**Specified, not yet in the RTL:** the parameter and ports below arrive
+with [#378](https://github.com/amichai-bd/pcie-factory/issues/378), after
+the [`gpio` HAS](../gpio/HAS.md) sign-off. Until then the
+[Interfaces](#interfaces) and [Parameters](#parameters) tables are the
+RTL, and `link` is the `phy` stack only.
+
+A board build replaces `phy` under the `dll` with the GPIO
+data-link-boundary adapter [`pcie_gpio`](../gpio/HAS.md) (decision record
+[0005](../../decisions/0005-m4-grill.md#decisions), Q4, OP2). One parameter
+selects the lower layer; `core` passes it through, so the endpoint gets the
+GPIO build too (OP2; the `core` HAS gains the same parameter and ports in
+#378).
+
+| Name | Type | Default | Range | Effect |
+| --- | --- | --- | --- | --- |
+| `LOWER` | `int unsigned` | 0 | 0, 1 | 0: `phy` under the `dll`, exactly as on the rest of this page. 1: `pcie_gpio` instead. |
+| `GPIO_CLK_DIV` | `int unsigned` | 2 | as the [`gpio` `CLK_DIV`](../gpio/HAS.md#parameters) | Passed to `pcie_gpio`; unused at `LOWER` 0. |
+
+**Default unchanged.** At `LOWER` 0 every existing port, parameter and
+behaviour of `link` and `core` stays as it is; the only change is six new
+ports, `gpio_tx_clk_o`, `gpio_tx_ctrl_o`, `gpio_tx_data_o` (4),
+`gpio_rx_clk_i`, `gpio_rx_ctrl_i` and `gpio_rx_data_i` (4), with the
+[`gpio` pin contract](../gpio/HAS.md#interfaces). At `LOWER` 0 the new
+outputs are held at 0 and the new inputs are ignored (instances tie them
+to 0).
+
+**At `LOWER` 1** the stack wiring changes only where `phy` was:
+
+| `link` joins | How |
+| --- | --- |
+| `dll` lower packet stream | To the `gpio` packet stream, port for port; `pkt_rx_nullify_i` from the `gpio` (always 0). |
+| `link_up_o`, `ltssm_state_o`, `rcv_err_o` | From the `gpio`; `link_up_o` and `ltssm_state_o` also to the `dll`. |
+| `port_role_i`, `hot_reset_req_i` | To the `gpio`. |
+| `retrain_req_i`, the `dll` `retrain_req_o`, `disable_req_i`, `loopback_req_i` | Unused: the adapter has no retrain, Disabled or Loopback ([simplifications](../gpio/HAS.md#simplifications-relative-to-phy)). |
+| Lower symbol interface | `ser_tx_data_o` 0, `ser_tx_elec_idle_o` 1; the `ser_*` inputs unused. |
+| `TIMEOUT_DIV`, `ERR_TIMEOUT_DIV` | Unused. |
+
+The [Targets](#targets), the [end-to-end plan](#end-to-end-plan) and the
+[architecture model](#architecture-model) on this page are for `LOWER` 0.
+At `LOWER` 1 the line-rate targets do not apply and the `dll` replay
+timeout is too short for long TLPs; the [`gpio` HAS](../gpio/HAS.md#dll-timers)
+lists each consequence.
+
 ## Decisions
 
 | Choice | Rationale | Rejected |
@@ -144,6 +189,7 @@ error: it pulses Bad TLP only.
 | Hot Reset, Disabled and Loopback passed through | The upper layer owns them, as on `phy`; each drops `link_up_o` and so resets the `dll` with no extra rule. | Tying them off (loses Hot Reset, which a downstream port needs). |
 | `dl_err_o` and `rcv_err_o` separate, no counter | One event in two layers is reported twice; only the consumer knows what it counts. | A merged vector, or a counter that matches a `phy` pulse to a later Bad TLP (state for no M2 user). |
 | Throughput stated for 128-byte memory writes both ways | The largest payload (Q6) on the posted class gives the best case the design must reach; both ways put the Acks and UpdateFCs on the same lines as the TLPs (goal item 6). | One way only (the Acks ride an idle reverse line, so their cost never shows); a random mix (the number tracks the mix, not the design). |
+| A `LOWER` parameter and six always-present `gpio` ports (OP2) | One `link` and one `core` serve both builds; SystemVerilog has no parameter-dependent ports, so the unused group is tied off. | A second stack top for the board build (two copies of the wiring); ports shared between `phy` and `gpio` (different widths and clocks). |
 | Error injection on the line, at symbol level | The e2e drives `link` through its ports only; a decoding injector makes exact classes (an LCRC error with no symbol error, a whole packet removed). | Injecting on the internal `dll`-`phy` stream (not a `link` port); raw bit flips only (cannot make a clean LCRC error or a drop). |
 
 ## Targets

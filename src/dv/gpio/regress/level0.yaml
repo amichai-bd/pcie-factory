@@ -1,0 +1,6 @@
+tests:
+  - name: smoke
+    module: tests.test_gpio
+    testcase: smoke
+    top: pcie_gpio
+    timeout_s: 60
