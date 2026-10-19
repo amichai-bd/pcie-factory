@@ -499,9 +499,11 @@ async def tlp_partner(dut):
 async def tlp_partner_errors(dut):
     """L1/L2, seeded: the same with the partner's fault hooks: good TLPs
     Nak'd, TLPs lost on the line, Acks and Naks lost, corrupted and flagged,
-    forced Naks, and Ack-delay windows that make the replay timer expire
-    (starting every fifth 200-cycle period, the rest at random; longer at a
-    REPLAY_TIMEOUT above 356). Every TLP delivered
+    forced Naks, and Ack-delay windows past the replay timeout (starting
+    every fifth 200-cycle period, the rest at random; longer at a
+    REPLAY_TIMEOUT above 356). A Nak in a window restarts the timer, so the
+    run ends with an Ack-loss window: every partner DLLP dropped while one
+    more TLP goes out, and the timer must expire. Every TLP delivered
     exactly once and in order; each replay from the oldest unacknowledged
     TLP, in order and complete, against the Acks and Naks the DUT received;
     no DL protocol error. The arch shadow's replay counts are logged: with
@@ -532,6 +534,22 @@ async def tlp_partner_errors(dut):
         left[0] = max(0, left[0] - 1)
 
     took = await deliver(env, partner, tlps, hooks=hooks)
+    # The Ack-loss window (#401): no Ack or Nak reaches the DUT, so the
+    # timer expires REPLAY_TIMEOUT cycles after the extra TLP's eop.
+    timeouts, start, drop = env.err_counts[ERR_TIMEOUT], env.cycle, partner.inject.tx_dllp_drop
+    partner.ack_delay = 0
+    partner.inject.tx_dllp_drop = 1.0
+    extra = rand_tlp(rng, len(tlps))
+    env.send(extra)
+    await env.run_until(lambda: env.err_counts[ERR_TIMEOUT] > timeouts,
+                        env.replay_timeout + 400, "a replay timeout with every Ack lost")
+    partner.inject.tx_dllp_drop = drop
+    tlps.append(extra)
+    while len(partner.received) < len(tlps) or env.m_ackd != (len(tlps) - 1) % SEQ_MOD:
+        await env.run(200)
+        assert env.cycle - start < 20000, (
+            f"{len(partner.received)} of {len(tlps)} TLPs delivered after the Ack-loss window")
+    await settle(env)
     env.check_tlp_delivered(partner, tlps)
     replays = sum(r for _, _, r in env.tlp_sent)
     assert env.replay_runs and env.err_counts[ERR_TIMEOUT], (
