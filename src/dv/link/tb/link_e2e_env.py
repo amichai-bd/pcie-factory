@@ -273,6 +273,9 @@ class LinkEnd:
         self.rx_beats: list[int] = []
         self.take_p = 1.0                # probability of taking a beat (finite credits only)
         self.stalls: deque = deque()     # receive stalls (from, until): takes nothing in [from, until)
+        self.stall_end: int | None = None        # end of the last stall scheduled (never popped)
+        self.stall_seen_end: int | None = None   # end of the last stall applied (gap check)
+        self.stall_on = False
         # releaser (release configuration): per class P, NP the delivered
         # TLPs (cycle, data credits) not yet released, the finite credits
         # held, and the release pace
@@ -482,8 +485,17 @@ class LinkEnd:
         if self.any_inf:
             return True                  # the upper-layer obligation (dll HAS, receive)
         while self.stalls and n >= self.stalls[0][1]:
-            self.stalls.popleft()
+            self.stall_seen_end = self.stalls.popleft()[1]
+            self.stall_on = False
         if self.stalls and n >= self.stalls[0][0]:
+            # Each stall is a separate window of the HAS: at least
+            # STALL_GAP cycles of taking since the previous one ended.
+            if (not self.stall_on and self.stall_seen_end is not None
+                    and n - self.stall_seen_end < STALL_GAP):
+                self.violations.append(f"end {self.name} cycle {n}: receive stall started "
+                                       f"{n - self.stall_seen_end} cycles after the previous "
+                                       f"one ended, under the {STALL_GAP}-cycle gap (bench)")
+            self.stall_on = True
             return False
         return self.take_p >= 1.0 or self.rng.random() < self.take_p
 
@@ -535,12 +547,14 @@ class LinkEnd:
     def stall(self, length: int, gap: int = STALL_GAP) -> None:
         """Schedule one receive stall of ``length`` cycles (HAS, credit
         configurations: stalls of 4000 and 10000 cycles). It starts now,
-        or ``gap`` cycles after the last stall still scheduled ends, so
-        stalls never chain into one longer than ``length`` and none is cut
-        short: the upper layer takes beats between them, and the liveness
-        bound stays meaningful."""
-        start = max(self.cycle, self.stalls[-1][1] + gap) if self.stalls else self.cycle
+        but never less than ``gap`` cycles after the last stall scheduled
+        ends (still pending or already over), so stalls never chain into
+        one longer than ``length`` and none is cut short: the upper layer
+        takes beats between them, and the liveness bound stays meaningful.
+        ``_take`` checks the gap independently, as applied."""
+        start = self.cycle if self.stall_end is None else max(self.cycle, self.stall_end + gap)
         self.stalls.append((start, start + length))
+        self.stall_end = start + length
 
     def send(self, tlps) -> None:
         self.tx_q.extend(tlps)
