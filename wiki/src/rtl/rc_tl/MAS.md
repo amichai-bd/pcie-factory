@@ -217,7 +217,12 @@ first, so the requester ([#373](https://github.com/amichai-bd/pcie-factory/issue
 routes by real header state (Memory Space Enable, the window, the bus
 numbers) and fills the Requester ID from it, with no stand-in; then #373
 (after [#385](https://github.com/amichai-bd/pcie-factory/issues/385));
-then #375 ([#368 decision](https://github.com/amichai-bd/pcie-factory/issues/368#issuecomment-6268994085)).
+then #375 ([#368 decision](https://github.com/amichai-bd/pcie-factory/issues/368#issuecomment-6268994085)). Until
+#373 lands, `u_cmd` (from #374) finishes an endpoint command that passes
+checks 2 to 7 with `LINK_DOWN` while `dl_up_i` is 0 and otherwise with
+`LOCAL_UR`, sending nothing, so no command hangs; #374's acceptance is
+judged on the refusals and the `HDR_*` commands, and the accepted path's
+tests belong to #373.
 
 ### Reuse of tl blocks
 
@@ -257,7 +262,7 @@ the captain may override any.
 | D6: Receive malformed checks are the endpoint `tl`'s steps (kind, byte enables, 4 KiB, configuration and I/O fields, message TC); routing's Unsupported Request outranks poisoned; a poisoned non-posted request is answered with an Unsupported Request completion | Both ends judge a TLP alike, through the same helpers (#385); one error per TLP, the higher-ranked, as the endpoint reports it; no request that routing would serve goes unanswered. | A reduced set of checks (the two ends would disagree on what is malformed); ignoring EP on requests without data (a poisoned read would hang until the endpoint's timeout). |
 | D7: A failing completion ends its request at once | One rule for every `BAD`; the program sees the failure on the step. | Keep waiting after a malformed completion, as `tl` does (ends only by timeout). |
 | D8: Posted requests applied as they arrive, no posted queue | The write always wins the memory port, so nothing waits; release is immediate and exact, ordering with captures and completions is arrival order. | A posted queue sized by `FC_PH` and `FC_PD` (RAM and ordering logic for no gain). |
-| D8: Every non-posted TLP through the queue, drops included | One release per cycle at most, no owed counters. | Releasing drops at the `eop` (two releases in a cycle). |
+| D8, cont.: Every non-posted TLP through the queue, drops included | One release per cycle at most, no owed counters. | Releasing drops at the `eop` (two releases in a cycle). |
 | D9: One single-port RAM, received writes first, the other two alternating | Maps to one block RAM; a write beat never waits, so no data buffer. | A two-port RAM (two writers to arbitrate per word anyway). |
 | D10: MSI capture of 4 flop entries | The TL_SEQ minimum; a program waits for each MSI before the next. | A deeper queue (no program queues MSIs). |
 | D11: Reuse the queue and the TLP helpers through #385 | A second user exists; the layout rule moves shared logic to `common`, never by copy. | Copying `pcie_tl_fifo` (forbidden); reusing `tl`'s tracker or formers (endpoint structure). |
