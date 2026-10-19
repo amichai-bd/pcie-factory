@@ -394,8 +394,9 @@ run alone against L0 and L1 one entry at a time (`--jobs 1`): only
 | Mutant | Entry | Fails with |
 | --- | --- | --- |
 | M114 `common_pkg::dw_credits` rounding down (`n >> 2`) | `tx_credits` | cycle 1085: a posted TLP offered needing 1 data credit with 0 |
-| M115 the `cfg` completion gate counting the `cc` head's length | `tx_credits` | nine completion data credits did not send exactly the configuration completion and one 128-byte completion |
+| M115 the `cfg` completion gate counting the `cc` head's length | `tx_credits` | nine completion data credits did not send exactly the configuration completion and one 128-byte completion (the older nine-credit case, before the edge cases) |
 | M116 the `cc` completion gate counting the `cfg` head's length | `tx_credits` | cycle 2316: a completion offered needing 2 data credits with 1 |
+| M117 the `cfg` completion gate rounding down (`cf_head_i.dlen >> 2`) | `tx_credits` | cycle 2924, a BAR2 edge case: a completion offered needing 1 data credit with 0 |
 
 ## Gaps
 
