@@ -1,8 +1,9 @@
 // pcie_rc_tl transmit arbiter and output stage (u_tx)
 // (wiki/src/rtl/rc_tl/REQUESTER.md#transmit): grants the requester's TLP
 // when the link shows its credits, latches it, and sends it one beat per
-// cycle through an output stage of flops with a skid slot, so tlp_tx_*
-// come from flops and tlp_tx_ready_i reaches only the stage. The
+// cycle through the shared output stage common_skid_stage (flops with a
+// skid slot), so tlp_tx_* come from flops and tlp_tx_ready_i reaches only
+// the stage. The
 // completer's line and the priority between the lines are #375's (MAS,
 // Leaf blocks).
 `default_nettype none
@@ -32,7 +33,6 @@ module pcie_rc_tl_tx (
 );
 
   pcie_rc_tl_pkg::t_tx_arb arb_q, arb_d;
-  pcie_rc_tl_pkg::t_tx_out so_q, so_d;
 
   // ------------------------------------------------------ the grant
   // A head is eligible when the link shows 1 header credit and its data
@@ -93,59 +93,54 @@ module pcie_rc_tl_tx (
   `COMMON_DFF_RST(arb_q, arb_d, clk_i, rst_i)
 
   // ------------------------------------------------------ output stage
-  // Two beats: out, offered on tlp_tx_*, and skid, which takes the
-  // arbiter's beat in a cycle where out is held. The arbiter is ready while
-  // skid is empty, a register; the link taking a beat every cycle keeps
-  // skid empty, so a TLP goes out with no gap.
-  pcie_rc_tl_pkg::t_tx_beat a_beat;
-  logic                     out_take;
+  // The arbiter offers a beat while busy and the stage takes it while its
+  // skid slot is empty. A beat not taken is all 0, so tlp_tx_* read 0
+  // between beats. Nothing is taken while the link is down (lrst): the
+  // stage is cleared, abandoning a TLP in progress.
+  pcie_rc_tl_pkg::t_tx_dw a_dw;
+  pcie_rc_tl_pkg::t_tx_dw out_dw;
+  logic                   out_valid;
+  logic                   out_ready;
+  logic                   out_take;
+  logic                   out_new;
 
-  assign a_ready  = !so_q.skid.valid;
-  // Nothing is taken while the link is down (lrst): the stage is abandoned.
-  assign out_take = so_q.out.valid && tlp_tx_ready_i && !rst_i;
-
-  // A beat not taken is all 0, so tlp_tx_* read 0 between beats.
   always_comb begin
-    a_beat = '0;
+    a_dw = '0;
     if (take) begin
-      a_beat.valid = 1'b1;
-      a_beat.data  = a_data;
-      a_beat.sop   = a_sop;
-      a_beat.eop   = a_eop;
-      a_beat.np    = arb_q.np;
+      a_dw.data = a_data;
+      a_dw.sop  = a_sop;
+      a_dw.eop  = a_eop;
+      a_dw.np   = arb_q.np;
     end
   end
 
-  always_comb begin
-    so_d = so_q;
-    if (!so_q.out.valid || out_take) begin
-      // out is free at this edge: the skid beat first, else the arbiter's.
-      if (so_q.skid.valid) begin
-        so_d.out        = so_q.skid;
-        so_d.skid.valid = 1'b0;
-      end else begin
-        so_d.out = a_beat;
-      end
-    end else if (take) begin
-      so_d.skid = a_beat;
-    end
-  end
+  assign out_ready = tlp_tx_ready_i && !rst_i;
 
-  `COMMON_DFF_RST(so_q, so_d, clk_i, rst_i)
+  common_skid_stage #(
+    .WIDTH ($bits(pcie_rc_tl_pkg::t_tx_dw))
+  ) u_out (
+    .clk_i       (clk_i),
+    .rst_i       (rst_i),
+    .in_valid_i  (a_valid),
+    .in_ready_o  (a_ready),
+    .in_data_i   (a_dw),
+    .out_valid_o (out_valid),
+    .out_ready_i (out_ready),
+    .out_data_o  (out_dw),
+    .out_take_o  (out_take),
+    .out_new_o   (out_new)
+  );
 
-  assign tlp_tx_valid_o = so_q.out.valid;
-  assign tlp_tx_data_o  = so_q.out.data;
-  assign tlp_tx_sop_o   = so_q.out.sop;
-  assign tlp_tx_eop_o   = so_q.out.eop;
+  assign tlp_tx_valid_o = out_valid;
+  assign tlp_tx_data_o  = out_dw.data;
+  assign tlp_tx_sop_o   = out_dw.sop;
+  assign tlp_tx_eop_o   = out_dw.eop;
 
-  assign np_sop_o = out_take && so_q.out.sop && so_q.out.np;
-  assign p_eop_o  = out_take && so_q.out.eop && !so_q.out.np;
+  assign np_sop_o = out_take && out_dw.sop && out_dw.np;
+  assign p_eop_o  = out_take && out_dw.eop && !out_dw.np;
 
-  // An offered beat never changes until taken; skid fills only while out
-  // is held.
-  `COMMON_ASSERT_STABLE_WHEN(a_out_held, clk_i, rst_i,
-                             so_q.out.valid && !tlp_tx_ready_i, so_q.out)
-  `COMMON_ASSERT_NEVER(a_skid_unheld, clk_i, rst_i, so_q.skid.valid && !so_q.out.valid)
+  `COMMON_UNUSED_BITS(unused_out, out_new)
+
   // A requester TLP is never a completion.
   `COMMON_ASSERT_NEVER(a_req_cls, clk_i, rst_i, req_i.valid && cls == common_pkg::CLS_CPL)
 

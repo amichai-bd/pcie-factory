@@ -4,6 +4,8 @@
 // with #375.
 -F ../common/common_macros.rtl.f
 -F ../common/common_pkg.rtl.f
+-F ../common/common_skid_stage.rtl.f
+-F ../common/common_tlp_rx_track.rtl.f
 pcie_rc_tl_pkg.sv
 pcie_rc_tl_hdr.sv
 pcie_rc_tl_cmd.sv

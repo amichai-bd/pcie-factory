@@ -244,14 +244,22 @@ with no event and no release, and `u_tx` has only the requester's line.
 
 ### Reuse of tl blocks
 
-`rc_tl` copies no `tl` file. It reuses two things that
-[#385](https://github.com/amichai-bd/pcie-factory/issues/385) moved to
+`rc_tl` copies no `tl` file. It reuses what
+[#385](https://github.com/amichai-bd/pcie-factory/issues/385) and
+[#400](https://github.com/amichai-bd/pcie-factory/issues/400) moved to
 `common`:
 
 - The first-word-fall-through queue
   [`common_sdp_ram_fifo`](../common/ram/common_sdp_ram_fifo.md) (once
   `tl`'s [queue](../tl/MAS.md#queue)), a shared RAM-group block: the
   non-posted queue and the completion data queue.
+- The output stage [`common_skid_stage`](../common/common_skid_stage.md)
+  (once `tl`'s [output stage](../tl/MAS.md#transmit-arbiter)): `u_tx`'s
+  flops with a skid slot, with the beat format `t_tx_dw` of this package.
+- The receive beat tracker [`common_tlp_rx_track`](../common/common_tlp_rx_track.md)
+  (once inside `tl`'s receive parser): `u_rx` takes each beat's place in
+  its TLP and the whole-TLP assertions from it, and keeps only the
+  completion flag and header DWs 0 and 1.
 - The [TLP helpers of `common_pkg`](../common/common_pkg.md#tlp-helpers)
   (once in [`pcie_tl_pkg`](../tl/MAS.md#package)), whose arguments are
   plain vectors: kinds, byte-enable and 4 KiB checks, message TC, byte
@@ -290,7 +298,7 @@ the captain may override any.
 | D8, cont.: Every non-posted TLP through the queue, drops included | One release per cycle at most, no owed counters. | Releasing drops at the `eop` (two releases in a cycle). |
 | D9: One single-port RAM, received writes first, the other two alternating | Maps to one block RAM; a write beat never waits, so no data buffer. | A two-port RAM (two writers to arbitrate per word anyway). |
 | D10: MSI capture of 4 flop entries | The TL_SEQ minimum; a program waits for each MSI before the next. | A deeper queue (no program queues MSIs). |
-| D11: Reuse the queue and the TLP helpers through #385 | A second user exists; the layout rule moves shared logic to `common`, never by copy. | Copying `pcie_tl_fifo` (forbidden); reusing `tl`'s tracker or formers (endpoint structure). |
+| D11: Reuse the queue and the TLP helpers through #385, the output stage and the receive beat tracker through #400 | A second user exists; the layout rule moves shared logic to `common`, never by copy. | Copying `pcie_tl_fifo` (forbidden); reusing `tl`'s tracker or formers (endpoint structure). |
 | D12: Leaf blocks `cmd`, `req`, `tx`, `rx`, `hdr`, `mem`, `cpl`, `msi`, built #374 then #373 then #375 | One block per MAS section, each owned by one wave-2 issue; the header first gives the requester real routing state. | One requester-and-completer block (too large to review or test alone); a testbench-only header stand-in for #373 (throwaway logic). |
 | D13: The tl-seq types in `common_pkg` now, with this shell | The shell's ports must match the MAS, which uses the structs; one PR adds them, so the `rc_seq` shell (#369) waits instead of colliding. | Deferring the tl-seq ports to #373 (a shell that does not match its MAS); a type package of `rc_tl`'s own (a sibling sub-IP may not use it). |
 
@@ -326,14 +334,14 @@ target: FPGA resources are reported with `rc`
 
 | File | Holds |
 | --- | --- |
-| [`pcie_rc_tl_pkg.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_pkg.sv) | `t_hdr_st`, `t_hdr_acc` and the front end's `t_fe_st`; the error record bit numbers; the requester's `t_req_cmd`, `t_req_st`, `t_cpl_st` and `t_res`, the parser's `t_rx_st` and `t_cpl_rx`, the arbiter's `t_tx_tlp`, `t_tx_arb` and output stage; the header's byte-lane write, the check helpers of [commands](#commands) and the request header DWs, on plain vectors. |
+| [`pcie_rc_tl_pkg.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_pkg.sv) | `t_hdr_st`, `t_hdr_acc` and the front end's `t_fe_st`; the error record bit numbers; the requester's `t_req_cmd`, `t_req_st`, `t_cpl_st` and `t_res`, the parser's `t_cpl_rx`, the arbiter's `t_tx_tlp`, `t_tx_arb` and the output stage's beat `t_tx_dw`; the header's byte-lane write, the check helpers of [commands](#commands) and the request header DWs, on plain vectors. |
 | [`pcie_rc_tl_hdr.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_hdr.sv) | `u_hdr`, the [Type 1 header](#type-1-header), with its layout (DW indices, RW masks, constants). |
 | [`pcie_rc_tl_cmd.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_cmd.sv) | `u_cmd`, the [front end](#commands): the take, checks 1 to 7, `HDR_*`, `ERR_*` and the [error record](#error-record-and-q2-cases), the endpoint commands to `u_req`, the result beats, and the [interim rule](#leaf-blocks) for `HOST_*`. |
 | [`pcie_rc_tl_req.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_req.sv) | `u_req`, the [requester](REQUESTER.md): the request and its TLP, the tag, completion matching and checks, the timeout and link down. |
-| [`pcie_rc_tl_tx.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_tx.sv) | `u_tx`, the [transmit](REQUESTER.md#transmit) arbiter's requester line, the credit check and the output stage. |
-| [`pcie_rc_tl_rx.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_rx.sv) | `u_rx`, the receive parser's beat tracking and completion side: each completion's header fields at its third header DW, then its beats. |
+| [`pcie_rc_tl_tx.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_tx.sv) | `u_tx`, the [transmit](REQUESTER.md#transmit) arbiter's requester line and the credit check, over a `common_skid_stage`. |
+| [`pcie_rc_tl_rx.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_rx.sv) | `u_rx`, the receive parser's completion side over a `common_tlp_rx_track`: each completion's header fields at its third header DW, then its beats. |
 | [`pcie_rc_tl.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl.sv) | The top: every [port](#interfaces) and [parameter](#parameters) with its range checks, `rst` and `lrst`, `u_cmd`, `u_hdr`, `u_req`, `u_tx` and `u_rx`; the outputs of the blocks not built yet at their [reset values](#reset-and-link-down), `tlp_rx_ready_o` 1 out of reset. |
-| [`rc_tl.rtl.f`](../../../../src/rtl/rc_tl/rc_tl.rtl.f) | The shared vocabulary, `common_pkg`, the package, the leaf blocks, the top. `rc.rtl.f` reaches it with `-F`. |
+| [`rc_tl.rtl.f`](../../../../src/rtl/rc_tl/rc_tl.rtl.f) | The shared vocabulary, `common_pkg`, `common_skid_stage`, `common_tlp_rx_track`, the package, the leaf blocks, the top. `rc.rtl.f` reaches it with `-F`. |
 
 ## Open items
 

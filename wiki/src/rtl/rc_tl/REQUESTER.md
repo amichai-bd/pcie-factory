@@ -120,9 +120,9 @@ means a long stream of endpoint DMA reads delays an `rc_seq` read or
 configuration request; the delay is bounded by what the endpoint keeps
 outstanding (its completions drain at link rate), and no M4 program
 measures it. The choice holds
-from `sop` to `eop`. `tlp_tx_*` come from an output stage of flops with a
-skid slot, as in `tl` ([`tl` output stage](../tl/MAS.md#transmit-arbiter)),
-so `tlp_tx_ready_i` reaches only the stage; they are 0 while no beat is
+from `sop` to `eop`. `tlp_tx_*` come from the shared output stage
+[`common_skid_stage`](../common/common_skid_stage.md), flops with a skid
+slot, so `tlp_tx_ready_i` reaches only the stage; they are 0 while no beat is
 offered. With the link down (`lrst`) the stage takes nothing and is
 cleared, abandoning a TLP in progress. Until #375 the requester is the
 only line ([interim rule](MAS.md#leaf-blocks)).

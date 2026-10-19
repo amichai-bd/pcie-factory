@@ -111,13 +111,6 @@ package pcie_rc_tl_pkg;
 
   // ------------------------------------------------------------ receive
 
-  // The receive parser's beat state (INBOUND.md, Receive checks).
-  typedef struct packed {
-    logic        busy;     // inside a TLP
-    logic        cpl;      // the TLP is a completion
-    logic [5:0]  beat;     // index of the next beat, saturating at 63
-  } t_rx_st;
-
   // A completion beat as the parser hands it to the requester: the header
   // fields with the third header DW, then every later beat (data and a
   // digest DW), and the eop.
@@ -171,19 +164,13 @@ package pcie_rc_tl_pkg;
     logic [31:0] data;
   } t_tx_arb;
 
-  // A beat of the output stage.
+  // A DW for the output stage (common_skid_stage, which carries its valid).
   typedef struct packed {
-    logic        valid;
     logic [31:0] data;
     logic        sop;
     logic        eop;
     logic        np;       // of a non-posted TLP
-  } t_tx_beat;
-
-  typedef struct packed {
-    t_tx_beat out;         // offered on tlp_tx_*
-    t_tx_beat skid;        // taken from the arbiter while out is held
-  } t_tx_out;
+  } t_tx_dw;
 
   // ------------------------------------------------------------ helpers
 
