@@ -12,16 +12,21 @@ oracle of F9 in decision record
 [0004](../../decisions/0004-m3-grill.md#decisions), the second opinion
 beside the [architecture model](../../arch/core/HAS.md#architecture-model),
 whose host stand-in it does not replace there. Part of the `core` DV
-([DV plan](DV_PLAN.md)).
+([DV plan](DV_PLAN.md)). In the root-port e2e it runs in
+[shadow mode](#shadow-mode) instead: it sends nothing and checks the
+root port and the endpoint from both directions of the root port's link
+(decision record [0005](../../decisions/0005-m4-grill.md#decisions), P5,
+goal item 8).
 
 ## Independence
 
 | Rule | How it holds |
 | --- | --- |
-| A different author from the architecture models | Written by a separate crewmate under [#288](https://github.com/amichai-bd/pcie-factory/issues/288); the PR records it. |
+| A different author from the architecture models | Written by a separate crewmate under [#288](https://github.com/amichai-bd/pcie-factory/issues/288); the PR records it. The shadow mode ([#372](https://github.com/amichai-bd/pcie-factory/issues/372)) is by a crewmate that is not the author of `rc_tl`, `rc_seq` or the `rc` architecture model and touches no `rc` code in M4. |
 | Written from the spec and the HAS | Sources: the author's reading of the PCIe Base Spec rev 3.0, cited by section and never reproduced, and the HAS pages: [`core`](../../arch/core/HAS.md) with its [application](../../arch/core/APP.md) and [tl-cfg](../../arch/core/TL_CFG.md) pages, [`tl`](../../arch/tl/HAS.md) with [TLP formats](../../arch/tl/TLP.md), [completions](../../arch/tl/COMPLETIONS.md), [ordering](../../arch/tl/ORDERING.md) and [routing](../../arch/tl/ROUTING.md), [`cfg`](../../arch/cfg/HAS.md) with [registers](../../arch/cfg/REGISTERS.md) and [capabilities](../../arch/cfg/CAPS.md), and the [`link`](../../arch/link/HAS.md) and [`dll` upper stream](../../arch/dll/HAS.md#upper-tlp-stream). |
 | No shared code | Nothing under `src/arch/`, `src/rtl/` or the `tl`, `cfg`, `dll` and `link` testbench models was read or imported. The host has its own TLP codec. |
-| Checked | `test_independence_no_shared_code` parses the four host files. It fails on an import other than the standard library, pytest and the host's own two modules, on `importlib` or `runpy`, on a call to `__import__`, `import_module`, `exec`, `eval` or `compile` (by name or as an attribute, such as `builtins.__import__`), and on model code (identifiers and strings other than docstrings) with an `arch` path segment, an architecture module name or another testbench's models. |
+| Root-port sources | The shadow mode is written from the [`rc` HAS](../../arch/rc/HAS.md) and its [tl-seq page](../../arch/rc/TL_SEQ.md) only: nothing under `src/arch/rc/`, `src/rtl/rc*` or the `rc` testbenches was read or imported. |
+| Checked | `test_independence_no_shared_code` parses the six host files (model, codec and shadow, and their tests). It fails on an import other than the standard library, pytest and the host's own modules, on `importlib` or `runpy`, on a call to `__import__`, `import_module`, `exec`, `eval` or `compile` (by name or as an attribute, such as `builtins.__import__`), and on model code (identifiers and strings other than docstrings) with an `arch` path segment, an architecture module name, another testbench's models or a root-port module (`pcie_rc`, `rc_tl`, `rc_seq`, `dv/rc`). |
 | Disagreements stay visible | Points where the host's reading may differ from a HAS are listed under [possible disagreements](#possible-disagreements), never settled by looking at a model. |
 
 ## Interface
@@ -196,9 +201,128 @@ link's `dl_up_o` falls. The application model on the endpoint side owns the
 [write-completion](../../arch/core/APP.md#write-completion) obligation
 (finish an `rq` write once its `sop` beat is taken); the host does not.
 
+## Shadow mode
+
+[`pcie_core_host_shadow.py`](../../../../src/dv/core/models/pcie_core_host_shadow.py)
+holds `HostShadow`, the host model in passive mode, as the `dll` partner's
+[passive mode](../dll/PASSIVE.md) is in the `link` e2e. In the root-port
+e2e ([#377](https://github.com/amichai-bd/pcie-factory/issues/377)) the
+host side is `rc`; the testbench shows the shadow what crosses the root
+port's `link` upper TLP stream and what `rc_tl` reports to `rc_seq`, and
+the shadow checks both sides against its own prediction. It generates no
+traffic. It reuses the host model's checks and its TLP codec and needs
+nothing else.
+
+### Shadow API
+
+| Call | The testbench calls it when |
+| --- | --- |
+| `HostShadow(vendor_id, device_id, revision_id, host_mem_base, host_mem_addr_w, msi_addr, ...)` | Built, and rebuilt on each `rst_i`, with `rc`'s [parameters](../../arch/rc/HAS.md#parameters). Further arguments below. |
+| `observe_dl_up(up)` | `rc`'s `dl_up_o` changes. A fall is a [link down](../../arch/rc/HAS.md#link-down). |
+| `observe_command(op, addr, length, first_be, last_be, data)` | `rc_tl` takes a command (`cmd_valid` and `cmd_ready` 1): its [fields](../../arch/rc/TL_SEQ.md#commands). |
+| `observe_tx(raw)`, `observe_tx_beats(beats)` | **A TX TLP:** `rc`'s `link` takes the last beat of a TLP on its transmit stream (`rc_tl` to `link`). |
+| `observe_rx(raw)`, `observe_rx_beats(beats)` | **An RX TLP:** `rc`'s `link` delivers a TLP on its receive stream. |
+| `observe_result(status, data, last)` | **An `rc` result:** one `rsp_valid` beat ([results](../../arch/rc/TL_SEQ.md#results)); `status` by number or name. |
+| `observe_msi(offset, data)` | `rc_seq` takes an [MSI capture](../../arch/rc/TL_SEQ.md#msi-capture) (`msi_valid` and `msi_ready` 1). |
+| `tick(cycles)` | Every `clk_i` cycle. |
+| `finish()` | The test ends: every command has its result and every endpoint request its answer. |
+| `errors`, `stats`, `pending_msi`, `devices`, `header(index)` | State for the testbench's checks; `stats` counts what was judged, so a test shows it is not vacuous. |
+
+The other arguments: `num_tags` (32, no extended tags), `latency` (32
+cycles that `rc` may take to act on a received TLP: its result, record,
+capture or host-memory effect), `timeout_min` and `timeout_max` (the
+completion timeout window in cycles from the request going out; the
+`rc_tl` MAS sets the value, [#368](https://github.com/amichai-bd/pcie-factory/issues/368)).
+A request's send time is the cycle of its `observe_tx` call, the cycle
+`link` takes its **last** beat, while `rc_tl` starts its timer when `link`
+takes its `sop` beat; the bench gives `timeout_min` less the request's
+beats (3 for a read, 4 for a 1-DW write) so the shadow is never stricter.
+Then `msi_depth` (4, the least capture depth the tl-seq page allows),
+`bar_data` (predict endpoint memory reads from what `rc` wrote there:
+true while the endpoint's BAR behaves as memory, as BAR0 does in the
+`core` application model) and `strict`.
+
+**Call order.** In each `clk_i` cycle the bench reports what the rising
+edge took, in this order: `observe_dl_up(True)` if `dl_up_o` rose;
+`observe_tx` for a TLP whose last beat `link` took; `observe_rx` for a TLP
+`link` delivered; `observe_command`; `observe_result`; `observe_msi`;
+`observe_dl_up(False)` if `dl_up_o` fell; then `tick(1)`. A link down is
+thus reported after the TLPs of its own cycle, so a TLP taken as
+`dl_up_o` falls still matches its command, and a completion delivered in
+the same cycle as its result is seen first.
+
+### What it predicts
+
+The shadow keeps its own copy of the root port's state, from the
+commands it observes: the [Type 1 header](../../arch/rc/HAS.md#type-1-header)
+(`HDR_WR`), host memory (`HOST_WR` and the endpoint's DMA writes) and the
+error record (events and `ERR_CLR`). From the configuration traffic it
+also learns, passively, the function, its BAR sizes and bases, its
+capability list, its MSI programming and the Command register as `rc`
+wrote it, which the host model's endpoint checks then use. A link down
+forgets what it learnt of the endpoint, which resets itself.
+
+| Side | Checks |
+| --- | --- |
+| `rc` requests (TX) | Well formed [cite: PCIe Base Spec, rev 3.0, §2.2.5] [cite: PCIe Base Spec, rev 3.0, §2.2.7]: decodes; no TD or EP; byte enables legal (Last DW BE 0 for 1 DW; both fields non-zero for more; for 3 DW or more and for a 2-DW request that is not QW aligned, only contiguous bytes: First DW BE 1111, 1110, 1100 or 1000 and Last DW BE 0001, 0011, 0111 or 1111); configuration requests TC 0, Attr 0, Length 1; memory requests with 3-DW headers and at most 128 bytes of payload. Each is exactly the TLP the next unsent endpoint command asks for (kind, Requester ID from the Primary Bus Number, address or bus, device, function and register, Length, byte enables, enabled data bytes), in command order, a posted write passing non-posted requests but never the reverse [cite: PCIe Base Spec, rev 3.0, §2.4.1]. A command the [outbound routing](../../arch/rc/HAS.md#outbound-routing) refuses (another bus or device; Memory Space Enable 0; outside the memory window) or the [field checks](../../arch/rc/TL_SEQ.md#commands) refuse is never sent. A non-posted request uses a tag from 0 to `num_tags` − 1 that is not outstanding. |
+| `rc` completions (TX) | Each answers an endpoint request still waiting, with `rc`'s ID as Completer ID and the request's TC and Attr, with the status the [inbound routing](../../arch/rc/HAS.md#inbound-routing) predicts (served from host memory, or Unsupported Request), Byte Count, Lower Address, the 64-byte split rule and the data as host memory held it when the read arrived (the host model's completion checks, applied to `rc` as completer). Every endpoint non-posted request is answered, unless a link down drops it. |
+| Endpoint completions (RX) | The host model's [completion checks](#memory-reads-and-completion-checks) and [tags](#tags), plus predictions: a BAR read after its base was written returns that base and its type bits; the ID, class and subsystem DWs never change; a memory read returns the bytes `rc` last wrote there (`bar_data`). |
+| Endpoint requests (RX) | The host model's [endpoint request](#endpoint-requests) rules: from the enumerated function with Bus Master Enable as `rc` wrote it, inside 4 KiB, the endpoint's tag and read limits, interrupt writes matching the MSI address and data `rc` programmed. |
+| `rc` results | In command order. Local commands: `HDR_RD` the header DW, `HOST_RD` the host memory bytes the shadow knows, writes and `ERR_CLR` `OK` with data 0, a refused command `LOCAL_UR`, an endpoint command while `dl_up_o` is 0 `LINK_DOWN`. Endpoint commands: the status from the endpoint's completion (`OK`, `UR`, `CA`, `CRS`; `BAD` for a poisoned completion, a reserved status or a successful one without data; `TIMEOUT`; `LINK_DOWN`), a `MEM_RD`'s DWs in address order, each beat only once its data has arrived, the enabled bytes as the completions carried them, and a configuration read's DW; a failing read may report its first DWs `OK` before its failing last beat, whose data is 0. |
+| MSI captures | In arrival order, each the DW offset in the [MSI window](../../arch/rc/HAS.md#msi-window) and the data of a 1-DW endpoint write into it with Bus Master Enable 1. |
+| Error record | An `ERR_RD` has every bit whose event was surely recorded before the command and after that bit's last clear, and no bit whose event cannot have been recorded by the result; bits 31:13 are 0. Events: bits 0 to 2 for UR, CA and configuration CRS completions; 3 a `TIMEOUT` result; 4 an unexpected or late completion; 5 a poisoned TLP; 6 a TLP the shadow cannot decode; 7 to 10 messages; 11 an inbound Unsupported Request; 12 a capture that may have been dropped. |
+
+### Allowances
+
+Each makes a check looser than `rc`'s real knowledge, never stricter,
+and each is tied to a rule the HAS leaves to the `rc_tl` MAS or to timing:
+
+- **Byte enables.** A 1-DW command whose First DW BE is 0 may be refused with
+  `LOCAL_UR` or sent (a zero-length request is legal; whether `rc_tl`
+  sends it is the `rc_tl` MAS's, [commands](../../arch/rc/TL_SEQ.md#commands)).
+  A command whose byte enables break the legality rule above (Last DW BE
+  set for 1 DW, a zero field for more, or non-contiguous bytes for 3 DW or
+  more or a 2-DW request not QW aligned) must be refused with `LOCAL_UR`:
+  it is accepted refused, and sent it fails the well-formed check.
+- **Latency.** An event counts as surely recorded `latency` cycles after
+  its TLP arrived. A host-memory byte is predicted only when the write
+  that set it is certain to have landed: a sequencer write, a DMA write
+  that arrived before the endpoint read or the MSI the sequencer took, or
+  one older than `latency` cycles.
+- **Captures.** An MSI arriving with `msi_depth` captures untaken may be
+  dropped (bit 12 then may be set).
+- **Timeouts.** `TIMEOUT` is accepted no earlier than `timeout_min`, also
+  for a read whose completion arrived after that; the late completion is
+  then the record's unexpected completion, not an endpoint error.
+- **Unsure outcomes.** Where the endpoint broke a rule the shadow already
+  reported (with `strict=False`), the result of that request is not
+  judged further. A CRS completion to a memory read is such an endpoint
+  error (CRS answers configuration requests only); its bits 2 and 6 may
+  be set. A reserved status is predicted `BAD` and may set bit 6.
+
+### Errors it raises
+
+Every finding is a `HostCheckError` (`strict`, the default) or a line in
+`errors`, `[host @<cycle>] <side>: <what>`, the side being `rc` or
+`endpoint`. For example: `rc: MRd with tag 0, still outstanding`;
+`rc: CfgWr0 sent (tag 0) that no pending command asks for` (with the expected
+and the sent TLP); `rc: CplD tag 1: host memory byte 0x100 sent as 0x6f,
+holds 0xef`; `rc: MEM_RD 0x80f00000: result OK, predicted UR`;
+`rc: MSI capture ... with none predicted`; `rc: ERR_RD: ... predicted OK
+with bits 0x0880 set and none outside 0x0880`; `endpoint: configuration
+read of 1:0.0 reg 0x10: 0x90000000, predicted 0x80000000`;
+`endpoint: interrupt write ... matches no programmed vector`.
+
+### Not modelled
+
+MSI-X and multiple MSI messages (`rc` programs one MSI vector), I/O,
+Type 1 configuration requests and messages from `rc` (it sends none),
+and the order of `rc`'s completions relative to its own requests, which
+depends on `rc_tl`'s internal queues.
+
 ## Unit tests
 
-`./build ci unit` runs both test files as `models:core`
+`./build ci unit` runs the three test files as `models:core`
 ([ci SPEC](../../../tools/ci/SPEC.md#build-ci-unit)). The far end is an
 endpoint stub written in the test from the `cfg` register and capability
 pages and the `tl` completion page; a pump moves TLPs both ways in order,
@@ -214,7 +338,9 @@ choosing the side with a seed.
 | Each completion check fails when broken | `test_wrong_byte_count_flagged`, `test_wrong_lower_address_flagged`, `test_split_off_boundary_flagged`, `test_data_past_request_flagged`, `test_poisoned_completion_flagged`, `test_success_without_data_flagged`, `test_crs_on_memory_read_flagged`, `test_reserved_status_read_as_ur_and_flagged`, `test_payload_above_max_flagged`, `test_strict_mode_raises` |
 | Tags, unexpected and duplicate completions, timeout | `test_tags_limited_reused_and_out_of_order`, `test_unexpected_completion_flagged`, `test_duplicate_completion_flagged`, `test_completion_timeout` |
 | Credits and ordering | `test_credit_gating_and_ordering`, `test_np_never_passes_blocked_posted`, `test_receive_returns_credit_cost` |
-| Endpoint requests and their limits, messages, link down, raw requests | `test_endpoint_*`, `test_messages_both_ways`, `test_malformed_tlp_flagged`, `test_link_down_drops_state_then_reenumerates`, `test_send_request_raw_io_read` |
+| Endpoint requests and their limits, messages, link down, raw requests | `test_endpoint_*`, `test_command_byte_enables_kept`, `test_messages_both_ways`, `test_malformed_tlp_flagged`, `test_link_down_drops_state_then_reenumerates`, `test_send_request_raw_io_read` |
+| Shadow mode: recorded active-mode traffic (enumeration, MSI, MMIO with several completions, DMA both ways, endpoint and inbound Unsupported Requests, refused commands, header, host memory, error record, a completion timeout, a link down and re-enumeration) passes with no error | `test_recorded_*`, `test_command_while_link_down_is_link_down`, `test_byte_enables_the_mas_may_refuse` (`test_pcie_core_host_shadow.py`) |
+| Shadow mode: each class of seeded mismatch on the recorded stream raises `HostCheckError` (`rc` requests: malformed, poisoned, byte enables, busy or out-of-range tag, wrong fields or Requester ID, unrouted, a read passing a write; `rc` completions: data, status, Byte Count, Completer ID, unrequested, missing; endpoint: Byte Count, Completer ID, BAR read-back, IDs, memory data, interrupt data, requester, unexpected and malformed TLPs; results: data, status, `LOCAL_UR`, missing, extra, beat count, header, host memory, early; MSI captures; error record bits; timeouts; link down) | `test_seeded_mismatch_raises`, `test_non_strict_records_and_carries_on`, `test_timeout_*`, `test_link_down_result_must_be_link_down`, `test_header_survives_link_down`, `test_msi_capture_may_drop_when_full`, `test_inbound_*` (the memory window over host memory), `test_non_contiguous_byte_enables` and `test_qw_aligned_two_dw_any_byte_enables` (byte-enable legality: refused passes, sent raises) |
 | Independence | `test_independence_no_shared_code` |
 
 ## Possible disagreements
@@ -225,7 +351,18 @@ configuration request for a function other than 0. The host expects the
 addressed function; `tl` sends this function's ID, function 0
 ([`tl` TLP fields](../../arch/tl/TLP.md)). The e2e sends that request with
 `send_request` and checks only its status; the point is an open question
-on the [`core` HAS](../../arch/core/HAS.md#open-questions). On every other
+on the [`core` HAS](../../arch/core/HAS.md#open-questions).
+
+The shadow mode adds two readings where the `rc` HAS wording is looser
+than the shadow, both confirmed by the `rc_tl` MAS in review
+([#387](https://github.com/amichai-bd/pcie-factory/pull/387)):
+
+| Point | Shadow | `rc` HAS | `rc_tl` MAS (#387) |
+| --- | --- | --- | --- |
+| Completion matching | By Requester ID and Tag; any other completion is unexpected (error bit 4) [cite: PCIe Base Spec, rev 3.0, §2.3.2]. | "Matched to its outstanding request by tag", the matching left to the `rc_tl` MAS ([inbound routing](../../arch/rc/HAS.md#inbound-routing)). | Requester ID and Tag; anything else unexpected, bit 4. |
+| A `MEM_WR` sent just before a link down | `OK`, not `LINK_DOWN`: a posted write is done once `link` took its last beat. | `OK` means a `MEM_WR` sent ([results](../../arch/rc/TL_SEQ.md#results)). | `OK` the cycle after `link` takes `eop`. |
+
+On every other
 point the host checks, its reading of the Base Spec agrees with the HAS
 pages listed above. The Base Spec is not in the local
 cache (`./build specs list`), so the cited sections here, like those of the
