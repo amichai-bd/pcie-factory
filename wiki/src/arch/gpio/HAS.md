@@ -140,46 +140,80 @@ Any other word is unknown: it pulses `rcv_err_o` and is ignored.
 | --- | --- | --- | --- |
 | Reset (`rst_i` high) | `0x00` | 0 | Nothing: the pins hold their [reset values](#reset-values). |
 | Not aligned | `0x00` | 0 | TRAIN, bit 8 0 |
-| Training: aligned, partner not yet seen aligned | `0x04` | 0 | TRAIN, bit 8 1 |
+| Training: aligned, not up | `0x04` | 0 | TRAIN, bit 8 1 |
 | Up | `0x20` | 1 | Packets and IDLE |
-| Hot Reset | `0x19` | 0 | HOT_RESET (downstream) or TRAIN (upstream) |
+| Hot Reset | `0x19` | 0 | HOT_RESET (downstream); TRAIN, bit 8 per its alignment (upstream) |
 
+Every state change below waits for a run of **consecutive** received
+slots, so no single damaged slot can cause one. `W` is the one-way
+latency in slots, from a slot's first transfer at the sender to its
+handling at the receiver's `clk_i` side; the MAS must keep `W` at most 4
+slots at every `CLK_DIV`.
+
+- **Damaged slot.** A slot whose transfer 0 reads 0, or one that pulses
+  `rcv_err_o` ([receive](#receive)); a slot counts once however many
+  rules it breaks.
 - **Alignment.** The receiver is aligned after 8 consecutive slots, at one
   slot phase, whose control transfers read 1, 0, 0, 0. It loses alignment
-  when a slot's transfer 0 reads 0 (pulsing `rcv_err_o`), or when no slot
+  on a second damaged slot within 8 slots of a first, or when no slot
   arrives for 64 × `CLK_DIV` `clk_i` cycles (16 slot times; no pulse: the
-  partner stopped).
-- **Up.** From training, the link goes up when the receiver is aligned and
-  either 8 consecutive TRAIN words with bit 8 set or one IDLE word have been
-  received. The count of 8 starts at 0 on entry to training (and on
-  alignment loss); any slot other than a TRAIN word with bit 8 set, a packet
-  slot included, resets it to 0. Each end sends bit 8 only once its own receiver is aligned, so
-  either condition shows that both directions work.
-- **Down.** An up link goes down, back to training (or not aligned), when
-  the receiver loses alignment, a TRAIN word with bit 8 clear arrives (the
-  partner restarted), or a [Hot Reset](#hot-reset) starts. A TRAIN word
-  with bit 8 set is ignored while up: it is one the partner sent before it
-  went up itself. Packet slots received while not up are dropped silently.
-- **Reaching up.** Reset clears alignment, so each end sends bit 8 clear
-  until its receiver is aligned and bit 8 set from then until it goes up;
-  an aligned end never sends bit 8 clear. With no damaged slot: each
-  receiver aligns within 8 slots of the partner's transmitter starting;
-  then the first end to count 8 bit-8-set words goes up and sends IDLE, and
-  the trailing bit-8-set words it still receives do not take it down. The
-  other end goes up on that IDLE, or on its own count. Both ends are
-  therefore up within 16 slots plus two one-way latencies (pins, receive
-  front end and crossing) of the later transmitter starting; neither can
-  go down again, since neither sends bit 8 clear once aligned.
-- **Restart detection.** A partner that resets stops its forwarded clock
-  for the length of its reset, and then sends TRAIN words with bit 8 clear
-  until it has realigned (at least 8 slots). The up end goes down on the
-  first of those words, or earlier on the watchdog when the reset lasts 16
-  slot times or more.
+  partner stopped). Reset clears alignment.
+- **Up.** From training, the link goes up after 8 consecutive good slots
+  from an aligned partner: TRAIN words with bit 8 set, IDLE words or
+  packet slots (packet slots received while not up are not delivered).
+  Any other slot (a TRAIN word with bit 8 clear, a HOT_RESET or unknown
+  word, a damaged slot) restarts the count, which also starts at 0 on
+  entry to training. An end sends bit 8 set only while its own receiver
+  is aligned, and IDLE or packets only while up, so the run shows that
+  both directions work.
+- **Down.** An up link goes down, to training or not aligned, on any of:
+  1. alignment loss;
+  2. 4 consecutive TRAIN words with bit 8 clear (the partner is not
+     aligned: it restarted or lost alignment);
+  3. 32 consecutive TRAIN words of either bit-8 value (the partner is
+     training): a backstop, so that no state where one end is up and the
+     other trains can last;
+  4. a [Hot Reset](#hot-reset).
+
+  Shorter runs of TRAIN words are ignored while up.
 - **Transmit at link-down.** A packet partly sent ends with an ABORT slot;
   every other buffered beat is discarded; beats that the `dll` still offers
   up to its `eop` are taken and discarded ([transmit](#transmit)).
 - **Receive at link-down.** An open received packet is closed with an `eop`
   beat carrying `pkt_rx_err_o`, so every `sop` has exactly one `eop`.
+
+#### Why the handshake converges
+
+- **Reaching up, no livelock.** Each receiver aligns within 8 slots plus
+  `W` of the partner's transmitter starting, and an aligned end sends bit 8
+  set. Say end A goes up first, at slot time t. Its run shows that B was
+  aligned, and A has been sending bit 8 set for at least 8 slots, so B's
+  run over A's slots (TRAIN, then IDLE and packets, all of which count)
+  completes by t + `W`, or t + `W` + 8 if one damaged slot restarted it. B
+  sends TRAIN until then, so A receives at most 2 × `W` + 8 = 16
+  consecutive trailing TRAIN words, all with bit 8 set: below both down
+  thresholds. Both ends are up within 24 slots plus 3 × `W` of the later
+  transmitter starting, and stay up.
+- **Every down is symmetric.** Down cause 1 leaves the end not aligned,
+  sending bit 8 clear until it realigns, which takes at least 8 slots, so
+  the partner sees 4 in a row and goes down (cause 2). Causes 2 and 3 mean
+  the partner already left the up state. Hot Reset takes both ends down
+  ([below](#hot-reset)). So when one `dll` goes down, the other goes down
+  too, once, and the pair then reaches up again as above. A partner that
+  streams packets so that the not-aligned end cannot realign still goes
+  down on the bit-8-clear run and then sends only TRAIN, which realigns it.
+- **A single damaged slot.** It is one damaged slot: alignment needs two.
+  A forged idle word is one word, below every run length (4 HOT_RESET, 4
+  bit-8-clear TRAIN, 32 TRAIN, 8 good slots). In a packet, a damaged data
+  bit reaches the `dll` as a bad packet, and a damaged code bit as a cut,
+  merged or dropped packet; the `dll` recovers either by Nak or replay. So
+  both ends stay up and both `dll`s stay up; while training, the slot only
+  restarts a count.
+- **Restart.** A partner that resets stops its forwarded clock while
+  `rst_i` is high (the watchdog catches a reset of 16 slot times or more),
+  then sends TRAIN words with bit 8 clear for at least 8 slots while it
+  realigns: cause 2. If it restarts at a new slot phase, its markers fall
+  on other transfers and the first two slots read as damaged: cause 1.
 
 ### Transmit
 
@@ -214,10 +248,14 @@ packet, as the `phy` allows.
 | EOP | Discard; pulse `rcv_err_o`. | Deliver the `eop` beat; the packet is closed. |
 | ABORT | Discard; pulse `rcv_err_o`. | Close the packet with an error `eop`; no pulse (the sender's choice). |
 
-**Discard.** After a `rcv_err_o` pulse from this table, the following MID,
-EOP and ABORT slots are dropped silently until the next SOP, ONE or IDLE
-slot, which is handled as above; one pulse marks one damaged run. A
-HOT_RESET word at a downstream end is ignored with a `rcv_err_o` pulse.
+**Discard.** After a `rcv_err_o` pulse, from this table or from an
+unknown idle word, the following MID, EOP and ABORT slots are dropped
+silently until the next SOP, ONE or IDLE slot, which is handled as above;
+one pulse marks one damaged run, so a single damaged code bit makes one
+damaged slot. A slot whose transfer 0 reads 0 is handled the same way: an
+open packet is closed with an error `eop`, `rcv_err_o` pulses and the
+discard starts. Idle words drive the [link-up](#link-up) runs; a word that
+no run in the current state uses is ignored.
 
 ### Hot Reset
 
@@ -226,16 +264,19 @@ Hot Reset is emulated, so the root port can reset the endpoint as on the
 
 - **Downstream** (`port_role_i` 0): while `hot_reset_req_i` is 1, from any
   state but reset, and then until it has sent at least 32 HOT_RESET words,
-  the adapter is in Hot Reset. It then trains. In the upstream role
-  `hot_reset_req_i` is ignored.
-- **Upstream** (`port_role_i` 1): a HOT_RESET word received while aligned
-  enters Hot Reset; the first TRAIN word received leaves it to training.
-- **Against the up and down rules.** The downstream end's receiver stays
-  aligned through Hot Reset, so when the dwell ends it trains with bit 8
-  set; the upstream end, aligned too, also sends bit 8 set. Both reach up
-  as above, and no bit-8-clear word is sent, so neither drops again. The
-  upstream end ignores bit-8-set TRAIN words only while up, never in Hot
-  Reset, where the first TRAIN word ends it.
+  the adapter is in Hot Reset. It ignores every received word meanwhile
+  (its receiver still tracks alignment), then trains, with bit 8 set only
+  if its receiver is aligned. In the upstream role `hot_reset_req_i` is
+  ignored.
+- **Upstream** (`port_role_i` 1): 4 consecutive HOT_RESET words, from any
+  state while aligned, enter Hot Reset; 4 consecutive TRAIN words (either
+  bit-8 value) leave it to training.
+- **Against the link-up rules.** The downstream end sends at least 32
+  HOT_RESET words, so the upstream end sees its run of 4 and both go down
+  once. A single forged HOT_RESET or TRAIN word enters or leaves nothing.
+  After the dwell the downstream end trains and the upstream end leaves
+  Hot Reset on its TRAIN words; both reach up as in
+  [link-up](#why-the-handshake-converges).
 - `link_up_o` falls on entry, so the `dll` goes to DL_Inactive and the
   layers above see `dl_up_o` fall, as with a `phy` Hot Reset.
 
@@ -259,7 +300,7 @@ the stream. Latency targets and an architecture model are added by
 | No Disabled, Loopback or power states | `link` ignores those requests in the board build; the `dll` sends no power-management DLLPs and `link` already holds L0 ([`link` power states](../link/HAS.md#power-states)). |
 | No nullify, no EDB | `pkt_rx_nullify_o` is 0; the `dll` nullified-TLP path is unused. |
 | Own link-up handshake, four state codes | The `dll` reads only "in L0" (`0x20` to `0x2F`), which `0x20` gives. Link-up takes slots, not the `phy`'s 12 ms; `TIMEOUT_DIV` and `ERR_TIMEOUT_DIV` have no effect. |
-| No 8b/10b, scrambling or check code | A damaged slot reaches the `dll` as a bad or cut packet: Bad TLP or Bad DLLP and a Nak or replay, as for a `phy`-flagged packet. `rcv_err_o` pulses for a different set of causes. |
+| No 8b/10b, scrambling or check code | A damaged data bit reaches the `dll` as a bad packet, a damaged code bit as a cut, merged or dropped packet: Bad TLP or Bad DLLP, then a Nak or replay, as for a `phy`-flagged packet. A damaged idle word or a single damaged marker changes no link state ([link-up](#why-the-handshake-converges)); two damaged slots within 8 drop alignment, and both ends go down once. `rcv_err_o` pulses for a different set of causes. |
 | No lane or link numbers; `port_role_i` only sets the Hot Reset direction | None: the `dll` is port-role neutral. |
 
 ### dll timers

@@ -11,7 +11,8 @@ serializer, the receive front end on `gpio_rx_clk_i` with its
 decoder and receive rules, and the link-up and Hot Reset state machine.
 #378 also sets the transmit buffer depth (at least 75 beats) and the
 latencies `L_tx` and `L_rx` the HAS [timing](../../arch/gpio/HAS.md#timing)
-names.
+names. It must keep the one-way latency `W` at most 4 slots, as the HAS
+[link-up](../../arch/gpio/HAS.md#link-up) rules require.
 
 ## Microarchitecture
 
