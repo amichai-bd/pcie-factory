@@ -13,11 +13,13 @@ tests:
     timeout_s: 600
     coverage_seeds: 2
     params: {FC_PH: 1, FC_PD: 8, FC_NPH: 1, FC_NPD: 2, FC_CPLH: 1, FC_CPLD: 8}
+  # Its 8 derived seeds pinned, then seeds 1 and 2 from level 1 (#389).
   - name: tlp_partner_errors_sweep
     module: tests.test_dll_tlp_tx
     testcase: tlp_partner_errors
     top: pcie_dll_tb
-    seeds: 8
+    seeds: [1769055356, 511087850, 125814096, 1886975430, 1847353445, 421220595,
+            1179977, 1997877727, 1, 2]
     timeout_s: 600
   - name: seq_wrap
     module: tests.test_dll_tlp_tx
@@ -25,11 +27,14 @@ tests:
     top: pcie_dll_tb
     seeds: 2
     timeout_s: 900
+  # Its 8 derived seeds pinned, then seeds 1 and 2 from level 1 (#389);
+  # coverage on the first 6, as before.
   - name: rx_errors_sweep
     module: tests.test_dll_rx
     testcase: rx_errors
     top: pcie_dll_tb
-    seeds: 8
+    seeds: [1329335001, 943405647, 556952565, 1446337379, 1213320896, 1062665814,
+            643805164, 1364762490, 1, 2]
     timeout_s: 600
     coverage_seeds: 6
   - name: rx_stall_smallest
@@ -102,6 +107,87 @@ tests:
     module: tests.test_dll_tlp_tx
     testcase: ack_spec_max
     top: pcie_dll_tb
+    timeout_s: 300
+  # The further seeds of level 1's seeded entries, moved here unchanged
+  # with their coverage instrumentation (#389; DV plan, Level placement):
+  # level 1 runs each entry's first seed.
+  - name: fc_rx_accounting_finite_sweep
+    module: tests.test_dll_fc
+    testcase: fc_rx_accounting
+    top: pcie_dll_tb
+    seeds: [1892473378]
+    timeout_s: 300
+    params: {FC_PH: 6, FC_PD: 40, FC_NPH: 4, FC_NPD: 2, FC_CPLH: 16, FC_CPLD: 64}
+  - name: fc_rx_accounting_infinite_sweep
+    module: tests.test_dll_fc
+    testcase: fc_rx_accounting
+    top: pcie_dll_tb
+    seeds: [1163266549]
+    timeout_s: 300
+    coverage_seeds: 0
+    params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
+  - name: credit_starve_sweep
+    module: tests.test_dll_fc
+    testcase: credit_starve
+    top: pcie_dll_tb
+    seeds: [1, 2, 3]
+    timeout_s: 600
+    coverage_seeds: 2
+  - name: credits_infinite_sweep
+    module: tests.test_dll_fc
+    testcase: credits_infinite
+    top: pcie_dll_tb
+    seeds: [1229063237]
+    timeout_s: 300
+    coverage_seeds: 0
+    params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
+  - name: tlp_partner_sweep
+    module: tests.test_dll_tlp_tx
+    testcase: tlp_partner
+    top: pcie_dll_tb
+    seeds: [1]
+    timeout_s: 300
+    coverage_seeds: 0
+  - name: tlp_rollover_sweep
+    module: tests.test_dll_tlp_tx
+    testcase: tlp_rollover
+    top: pcie_dll_tb
+    seeds: [1]
+    timeout_s: 300
+    coverage_seeds: 0
+  - name: rx_traffic_sweep
+    module: tests.test_dll_rx
+    testcase: rx_traffic
+    top: pcie_dll_tb
+    seeds: [1]
+    timeout_s: 300
+    coverage_seeds: 0
+  - name: credit_starve_rx_sweep
+    module: tests.test_dll_fc
+    testcase: credit_starve_rx
+    top: pcie_dll_tb
+    seeds: [1229081417]
+    timeout_s: 600
+    params: {FC_PH: 8, FC_PD: 32, FC_NPH: 8, FC_NPD: 8, FC_CPLH: 8, FC_CPLD: 32}
+  - name: credits_infinite_rx_sweep
+    module: tests.test_dll_fc
+    testcase: credits_infinite_rx
+    top: pcie_dll_tb
+    seeds: [1951378203]
+    timeout_s: 600
+    params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
+  - name: credit_release_sweep
+    module: tests.test_dll_fc
+    testcase: credit_release
+    top: pcie_dll_tb
+    seeds: [1]
+    timeout_s: 600
+    params: {FC_RELEASE: 1}
+  - name: tlp_bidir_sweep
+    module: tests.test_dll_tlp_tx
+    testcase: tlp_bidir
+    top: pcie_dll_tb
+    seeds: [1]
     timeout_s: 300
 # Floors on the merged levels 0 to 2 (the nightly run), at the merged value
 # less 0.5 points rounded down to a tenth (DV BKM, floor margin): line 98.4

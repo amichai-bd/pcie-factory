@@ -1,3 +1,6 @@
+# Level 1 runs one seed of each seeded entry (#389): the further seeds
+# run, unchanged and with the same coverage instrumentation, in the
+# entry's level 2 sweep (DV plan, Level placement).
 tests:
   - name: updatefc_refresh
     module: tests.test_dll
@@ -46,62 +49,58 @@ tests:
     module: tests.test_dll_fc
     testcase: fc_rx_accounting
     top: pcie_dll_tb
-    seeds: 2
     timeout_s: 300
-    coverage_seeds: 2
     params: {FC_PH: 6, FC_PD: 40, FC_NPH: 4, FC_NPD: 2, FC_CPLH: 16, FC_CPLD: 64}
   - name: fc_rx_accounting_infinite
     module: tests.test_dll_fc
     testcase: fc_rx_accounting
     top: pcie_dll_tb
-    seeds: 2
     timeout_s: 300
     params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
   # The test seed picks the partner's credits (one of four, test seed mod
   # 4): three with every class finite, one with completions infinite.
+  # Seed 0 here; seeds 1 to 3 in credit_starve_sweep (level 2, #389).
   - name: credit_starve
     module: tests.test_dll_fc
     testcase: credit_starve
     top: pcie_dll_tb
-    seeds: [0, 1, 2, 3]
+    seeds: [0]
     timeout_s: 600
-    coverage_seeds: 3
   - name: credits_infinite
     module: tests.test_dll_fc
     testcase: credits_infinite
     top: pcie_dll_tb
-    seeds: 2
     timeout_s: 300
     params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
   - name: tlp_partner
     module: tests.test_dll_tlp_tx
     testcase: tlp_partner
     top: pcie_dll_tb
-    seeds: [0, 1]
+    seeds: [0]
     timeout_s: 300
   - name: tlp_partner_errors
     module: tests.test_dll_tlp_tx
     testcase: tlp_partner_errors
     top: pcie_dll_tb
-    seeds: [0, 1, 2]
+    seeds: [0]
     timeout_s: 300
   - name: tlp_rollover
     module: tests.test_dll_tlp_tx
     testcase: tlp_rollover
     top: pcie_dll_tb
-    seeds: [0, 1]
+    seeds: [0]
     timeout_s: 300
   - name: rx_traffic
     module: tests.test_dll_rx
     testcase: rx_traffic
     top: pcie_dll_tb
-    seeds: [0, 1]
+    seeds: [0]
     timeout_s: 300
   - name: rx_errors
     module: tests.test_dll_rx
     testcase: rx_errors
     top: pcie_dll_tb
-    seeds: [0, 1, 2]
+    seeds: [0]
     timeout_s: 300
   - name: rx_errors_infinite
     module: tests.test_dll_rx
@@ -122,17 +121,16 @@ tests:
     module: tests.test_dll_fc
     testcase: credit_starve_rx
     top: pcie_dll_tb
-    seeds: 2
     timeout_s: 600
-    coverage_seeds: 2
     params: {FC_PH: 8, FC_PD: 32, FC_NPH: 8, FC_NPD: 8, FC_CPLH: 8, FC_CPLD: 32}
+  # Its derived seed 1, the catch of the data-reserve mutant (DV plan),
+  # pinned; derived seed 0 in credits_infinite_rx_sweep (level 2, #389).
   - name: credits_infinite_rx
     module: tests.test_dll_fc
     testcase: credits_infinite_rx
     top: pcie_dll_tb
-    seeds: 2
+    seeds: [55090061]
     timeout_s: 600
-    coverage_seeds: 2
     params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
   # FC_RELEASE 1 (HAS, credit release): default credits (completions
   # infinite, so the stream never stalls) with late releases; receive
@@ -142,9 +140,8 @@ tests:
     module: tests.test_dll_fc
     testcase: credit_release
     top: pcie_dll_tb
-    seeds: [0, 1]
+    seeds: [0]
     timeout_s: 600
-    coverage_seeds: 2
     params: {FC_RELEASE: 1}
   - name: fc_rx_accounting_release
     module: tests.test_dll_fc
@@ -157,9 +154,8 @@ tests:
     module: tests.test_dll_tlp_tx
     testcase: tlp_bidir
     top: pcie_dll_tb
-    seeds: [0, 1]
+    seeds: [0]
     timeout_s: 300
-    coverage_seeds: 2
   # A slowed lower layer (#384): REPLAY_TIMEOUT at the GPIO build's value
   # (link HAS, lower layer), a round trip between 356 and it.
   - name: replay_timeout_slow

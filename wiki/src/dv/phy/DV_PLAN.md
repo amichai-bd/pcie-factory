@@ -226,12 +226,12 @@ delivers the hooks, the cycle-model runs and this recipe):
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Link-up](../../arch/phy/HAS.md#link-up-and-requests), [packet stream](../../arch/phy/HAS.md#packet-stream) both ways, a symbol-error burst and a directed retrain, all models | `e2e_smoke` | 0 | 1; dsp first, b +300 ppm |
-| The RTL stack, channel model. RTL path: `cfg_*_o` echo, `RtlPort` for both instances, `rst_i` and `port_role_i` through reset per role. [Reset values](../../arch/phy/HAS.md#clocks-and-resets) with the upper-layer inputs random. [Link-up](../../arch/phy/HAS.md#link-up-and-requests) to L0, then 16 packets each way, lossless. Both ports reset while packets flow, once together and once with b up to 64 cycles later: reset values held, back to L0, and 8 packets each way lossless after each | `e2e_rtl_link` | 1 | 2; `MAC_RTL` 1, `PCS_RTL` 1; usp first, -300 ppm |
+| The RTL stack, channel model. RTL path: `cfg_*_o` echo, `RtlPort` for both instances, `rst_i` and `port_role_i` through reset per role. [Reset values](../../arch/phy/HAS.md#clocks-and-resets) with the upper-layer inputs random. [Link-up](../../arch/phy/HAS.md#link-up-and-requests) to L0, then 16 packets each way, lossless. Both ports reset while packets flow, once together and once with b up to 64 cycles later: reset values held, back to L0, and 8 packets each way lossless after each | `e2e_rtl_link` / `e2e_rtl_link_sweep` | 1 / 2 | derived seed 0 / its derived seed 1 (737010230) pinned; `MAC_RTL` 1, `PCS_RTL` 1; usp first, -300 ppm |
 | The same over the RTL channel (the top joins the lines; the environment steps only the ports) | `e2e_rtl_link_chan` | 0 | 1; `MAC_RTL` 1, `PCS_RTL` 1, `CHAN_RTL` 1 |
 | [Lossless](../../arch/phy/HAS.md#targets) at ±600 ppm and ±300 ppm, each port-role order: random mix, TLPs up to 1046 bytes, DLLPs; link-up with up to 2000 cycles of reset skew within 100 µs and training 65.536 to 80 µs ([targets](../../arch/phy/HAS.md#targets), `TIMEOUT_DIV` 1024) | `e2e_dsp_first_pos600`, `e2e_dsp_first_neg300`, `e2e_usp_first_neg600`, `e2e_usp_first_pos300` (RTL, level 1); the same names with `_model` (models, level 2) | 1, 2 | 1 each |
-| Symbol errors each way: flagged or lost packets only, directed Recovery, lossless after | `e2e_symbol_errors` (RTL, level 1), `e2e_symbol_errors_model` (level 2) | 1, 2 | 2 each; usp first, +600 ppm |
-| Bit slips each way: relock, directed Recovery, lossless after | `e2e_bit_slips` (RTL, level 1), `e2e_bit_slips_model` (level 2) | 1, 2 | 2 each; dsp first, -600 ppm; coverage on both RTL seeds |
-| Electrical-idle dropout each way: Recovery on its own, lossless after | `e2e_elec_idle` (RTL, level 1), `e2e_elec_idle_model` (level 2) | 1, 2 | 2 each; usp first, +300 ppm |
+| Symbol errors each way: flagged or lost packets only, directed Recovery, lossless after | `e2e_symbol_errors` (RTL, level 1), `e2e_symbol_errors_sweep` (RTL, level 2), `e2e_symbol_errors_model` (level 2) | 1, 2 | RTL: derived seed 0 / its derived seed 1 (1952118910) pinned; model: 2; usp first, +600 ppm |
+| Bit slips each way: relock, directed Recovery, lossless after | `e2e_bit_slips` (RTL, level 1), `e2e_bit_slips_sweep` (RTL, level 2), `e2e_bit_slips_model` (level 2) | 1, 2 | RTL: derived seed 0 / its derived seed 1 (1336911784) pinned; model: 2; dsp first, -600 ppm; coverage on both RTL seeds |
+| Electrical-idle dropout each way: Recovery on its own, lossless after | `e2e_elec_idle` (RTL, level 1), `e2e_elec_idle_sweep` (RTL, level 2), `e2e_elec_idle_model` (level 2) | 1, 2 | RTL: derived seed 0 / its derived seed 1 (1262508128) pinned; model: 2; usp first, +300 ppm |
 | Transmit scrambling by the `pcie_mac_scrambler` block (its cycle model) on both ports: train, lossless, an idle dropout, lossless | `e2e_scrambler_block` | 1 | 1; models; dsp first, -300 ppm |
 | 8b/10b transmit by the `pcs` encoder block (its cycle model) on both ports: train, lossless, a bit slip each way, lossless | `e2e_encoder_block` | 1 | 1; models; usp first, +600 ppm |
 | A port reset alone while packets flow, a then b: reset values held, the partner leaves L0 through Recovery's divided timeout, both back in L0, lossless after | `e2e_reset_single` | 2 | 1; RTL, `ERR_TIMEOUT_DIV` 1024; dsp first, +300 ppm |
@@ -259,6 +259,17 @@ unchanged (the merged level 0 to 2 coverage and the floors are the same):
   seeds) to keep level 0 inside its budget; level 0 keeps the all-model
   `e2e_smoke` and `e2e_rtl_link_chan`, the same RTL recipe over the RTL
   channel.
+
+**One seed per RTL entry in level 1** ([#389](https://github.com/amichai-bd/pcie-factory/issues/389)):
+the full level 1 of every IP, which `ci-gate` runs for a change to a
+shared package, was over its 1200 s CPU budget. `e2e_rtl_link`,
+`e2e_symbol_errors`, `e2e_bit_slips` and `e2e_elec_idle` run their
+derived seed 0 in level 1, and their derived seed 1 runs pinned in level 2
+as the entry's `_sweep`, with its coverage instrumentation unchanged
+(`e2e_bit_slips_sweep` stays a coverage run for the 54 points only it
+reaches), so the merged level 0 to 2 runs and the floors are the same. No
+mutant below names one of these entries, and each scenario keeps its RTL
+run in level 1 (a run checks each way, per its plan row).
 
 **Model-only copies run on a rule** ([#327](https://github.com/amichai-bd/pcie-factory/issues/327)).
 The nine `_model` entries of level 2 (the two soaks and the seven scenario
