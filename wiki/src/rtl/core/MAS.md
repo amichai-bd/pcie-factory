@@ -20,7 +20,7 @@ flowchart TB
 
 | Instance | Module | Parameters from `core` | Fixed |
 | --- | --- | --- | --- |
-| `u_link` | `pcie_link` | `FC_PH`, `FC_PD`, `FC_NPH`, `FC_NPD`, `TIMEOUT_DIV`, `ERR_TIMEOUT_DIV` | `FC_CPLH` 0 and `FC_CPLD` 0 (infinite), `FC_RELEASE` 1 |
+| `u_link` | `pcie_link` | `FC_PH`, `FC_PD`, `FC_NPH`, `FC_NPD`, `TIMEOUT_DIV`, `ERR_TIMEOUT_DIV`, `LOWER`, `GPIO_CLK_DIV` | `FC_CPLH` 0 and `FC_CPLD` 0 (infinite), `FC_RELEASE` 1 |
 | `u_tl` | `pcie_tl` | `FC_PH`, `FC_PD`, `FC_NPH`, `FC_NPD`, `CPL_TIMEOUT_DIV`, `BAR0_ADDR_W` | |
 | `u_cfg` | `pcie_cfg` | `BAR0_ADDR_W`, `MSIX_TABLE_SIZE` and the six ID parameters | |
 
@@ -46,7 +46,7 @@ port they carry without its `_o`/`_i` suffix (`tlp_tx_*`, `tlp_rx_*`,
 | `core` ports | `u_tl` | `clk_i`, `rst_i`, the four application streams. |
 | `core` ports | `u_cfg` | `clk_i`, the interrupt port inputs. |
 | `u_cfg` | `core` ports | Through the gate below: `irq_done_o`, `bus_master_en_o`, `mem_space_en_o`, `d_state_o`, `max_payload_o`, `max_read_req_o`; `irq_ready_o` and `irq_status_o` direct. |
-| `core` ports | `u_link` | `clk_i`, `rst_i` and the lower symbol interface; `port_role_i` 1, `retrain_req_i`, `hot_reset_req_i`, `disable_req_i` and `loopback_req_i` 0. |
+| `core` ports | `u_link` | `clk_i`, `rst_i`, the lower symbol interface and the GPIO pins; `port_role_i` 1, `retrain_req_i`, `hot_reset_req_i`, `disable_req_i` and `loopback_req_i` 0. |
 
 ## Reset
 

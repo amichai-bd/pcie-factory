@@ -36,7 +36,7 @@ board's three 50 MHz pins are one oscillator, so the RX clock stays on
 asynchronous [cite: Terasic DE2-115 User Manual, rev unverified, §4.5]
 [cite: Terasic DE2-115 User Manual, rev unverified, §4.7].
 
-The board has pins for few of the endpoint's 355 port bits, so the wrapper
+The board has pins for few of the endpoint's 366 port bits, so the wrapper
 bounds every `pcie_core` port with flops on that port's clock:
 
 - **Inputs.** Each domain has a serial-in shift register fed by one
@@ -56,7 +56,9 @@ bounds every `pcie_core` port with flops on that port's clock:
 - **Parameters.** Every `pcie_core` parameter keeps its default:
   `TIMEOUT_DIV`, `ERR_TIMEOUT_DIV` and `CPL_TIMEOUT_DIV` are 1, as the
   [HAS](../../arch/core/HAS.md#parameters) asks for FPGA builds;
-  `BAR0_ADDR_W` is 12 and `MSIX_TABLE_SIZE` 8.
+  `BAR0_ADDR_W` is 12 and `MSIX_TABLE_SIZE` 8. `LOWER` is 0, so the six
+  GPIO ports of the board build ([`link` lower layer](../../arch/link/HAS.md#lower-layer))
+  are tied off: the inputs to 0, the outputs held at 0 and unobserved.
 - **Not a functional test.** The stimulus does not honour the
   [application contracts](../../arch/core/APP.md): the streams and the
   interrupt request are arbitrary bit patterns. The LEDs are therefore not

@@ -162,7 +162,8 @@ run had the earlier 3 GB container limit (2% margin); the 8 ns run had the
   cells; logic depth 59 at `st_q[63]`).
 
 `rx_clk` meets both periods; its worst paths are inside the PCS aligner
-(`u_phy.u_pcs.u_align`, to `eios_q`).
+(`u_phy.u_pcs.u_align`, to `eios_q`; `g_phy.u_phy` since
+[#378](https://github.com/amichai-bd/pcie-factory/issues/378)).
 
 **The rollover path** (`ltssm_state_o` → `pkt_tx_valid` → `mac`, see
 [Constraints](#constraints)) ends at the `mac` packet-stream registers.

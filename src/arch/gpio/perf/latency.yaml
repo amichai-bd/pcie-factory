@@ -1,0 +1,13 @@
+# The adapter latencies at the default CLK_DIV over the clock contract's
+# ratios 1/2, 1 and 2 (wiki/src/arch/gpio/HAS.md#targets): L_tx, L_rx and
+# the one-way latency W, which the link-up rules bound to 4 slots of the
+# slower end (wiki/src/arch/gpio/LINK_UP.md#terms).
+description: L_tx, L_rx and W at CLK_DIV 2, clock ratios 1/2, 1 and 2.
+seed: 1
+workload:
+  kind: latency
+  clk_div: 2
+targets:
+  l_tx_cycles: {max: 2}
+  l_rx_cycles_max: {max: 6}
+  w_slots_max: {max: 4}

@@ -18,8 +18,9 @@ words are on the HAS ([slots](HAS.md#slots), [idle words](HAS.md#idle-words)).
   many rules it breaks.
 - **`W`.** The one-way latency: from a slot's first transfer at the sender
   (counting `L_tx` and the slot in flight) to its handling at the
-  receiver's `clk_i` side. The MAS must keep `W` at most 4 slots of the
-  slower end. That is at most 8 slots of the faster end at a ratio of 2.
+  receiver's `clk_i` side. The MAS keeps `W` at most 4 slots of the
+  slower end (at most 1.75: [MAS timing](../../rtl/gpio/MAS.md#timing)).
+  That is at most 8 slots of the faster end at a ratio of 2.
 - **Quiet run.** At least 16 TRAIN words with bit 8 clear, counted in the
   sender's own slots and sent whatever its alignment. An end sends one
   after reset, after any down from up, after alignment loss, at Hot Reset

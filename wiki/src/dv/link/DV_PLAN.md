@@ -150,7 +150,8 @@ flowchart LR
 ## Plan
 
 All entries run on `pcie_link_e2e_tb`; credits are the default
-(`CREDITS` 0) unless stated.
+(`CREDITS` 0) unless stated. The entries over the GPIO adapter run on
+their own top ([GPIO lower layer](#gpio-lower-layer)).
 
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
@@ -289,6 +290,66 @@ seed; `e2e_smoke` passes it.
 | Mutant in `pcie_link` | First failing entry | Result |
 | --- | --- | --- |
 | 356 passed to the `dll`, not `REPLAY_TIMEOUT` | `e2e_replay_timeout` (L1) | Timeout 357 cycles after the `eop` on `ab`, expected 1401. |
+
+## GPIO lower layer
+
+The [lower layer](../../arch/link/HAS.md#lower-layer) at `LOWER` 1
+([#378](https://github.com/amichai-bd/pcie-factory/issues/378)): two
+`pcie_link` instances, each a `pcie_dll` over a `pcie_gpio`, back to back
+over the modelled GPIO wires. The adapter's own rules are verified by its
+[unit DV](../gpio/DV_PLAN.md); this bench verifies the `link` wiring at
+`LOWER` 1 and the `dll` over the adapter: link-up to DL_Active, lossless
+traffic, a damaged slot recovered by the `dll`, Hot Reset, and the
+[replay timeout](../../arch/link/HAS.md#replay-timeout-at-lower-1) under
+load across the clock ratios.
+
+- **Top:** [`pcie_link_gpio_tb.sv`](../../../../src/dv/link/tb/pcie_link_gpio_tb.sv),
+  the ports of `pcie_link_e2e_tb` with both instances at `LOWER` 1, each
+  one's `gpio_rx_*` the other's `gpio_tx_*`, a control-wire override per
+  direction, `GPIO_CLK_DIV` and `RATIO` (b's clock 1/2, 1 or 2 times a's)
+  echoed for the environment, and the replay timeout the `dll`s run with
+  on `cfg_replay_timeout_o`.
+- **Environment:** [`link_gpio_env.py`](../../../../src/dv/link/tb/link_gpio_env.py)
+  reuses the phy e2e's upper-layer drivers, scoreboards and checks; the
+  line injector, channel, passive checker and the two Ack bounds do not
+  apply over the adapter ([`gpio` dll timers](../../arch/gpio/HAS.md#dll-timers))
+  and are left out. It damages a chosen slot's marker on the wire, and it
+  measures each TLP's replay round trip at the sender's `dll` boundary.
+- **Tests:** [`test_link_gpio.py`](../../../../src/dv/link/tests/test_link_gpio.py).
+- **Coverage:** no coverage runs (`coverage_seeds` 0): the adapter's
+  coverage is its unit's, and the link floors stay measured on the `phy`
+  stack.
+
+| Feature | Entry `name` | Level | Seeds / note |
+| --- | --- | --- | --- |
+| `LOWER` 1 wiring: both `dll`s from reset to DL_Active over the adapter, 40 TLPs of the mix each way, lossless and in order, credits back when drained; error-free: no Bad TLP, Bad DLLP, replay timeout, rollover or `rcv_err_o` | `gpio_smoke` | 1 | 1 |
+| [A single damaged slot](../../arch/gpio/LINK_UP.md#convergence) each way with traffic: both `dll`s stay in DL_Active, `rcv_err_o` once at the receiver, the `dll` recovers, lossless; a damaged marker on a TLP's EOP slot, its bytes intact: the adapter's error eop is a Bad TLP at the `dll`, replayed, delivered once; two damaged slots within 8: both links down once, both `dll`s back to DL_Active, lossless after | `gpio_damage` | 1 | 1 |
+| [Replay timeout](../../arch/link/HAS.md#replay-timeout-at-lower-1) under load: 150 maximum-payload writes each way back to back, no replay timeout, every round trip below the timeout, at clock ratios 1, 1/2 and 2 | `gpio_load_equal`, `gpio_load_half`, `gpio_load_double` | 2 | 1 each; `RATIO` 1, 0, 2 |
+| Hot Reset through `link` to the adapter: a (downstream) requests it with TLPs in flight; both links down, both `dll`s back to DL_Active after the dwell, lossless after | `gpio_hot_reset` | 2 | 1 |
+
+**Level placement.** Level 1 keeps the wiring smoke and the damaged-slot
+recovery, the two paths only this bench reaches (the `dll` over the
+adapter); the load sweep across ratios and Hot Reset, which the gpio
+unit DV covers at its level 1 for the adapter alone, are level 2.
+
+**Replay-timeout evidence** (link HAS, replay timeout at LOWER 1): the
+largest round trip measured by `gpio_load_*` at `GPIO_CLK_DIV` 2 is 1184
+cycles at equal clocks and 2607 and 2371 with one end twice as slow, with
+no timeout at 3214; with the timeout forced to 1400 (`gpio_smoke`, one
+spurious timeout at equal clocks, round trip 1621) or to 1924
+(`gpio_load_double`, 57), the bench sees the spurious replays the sizing
+removes.
+
+**GPIO mutants** (#378), one at a time at the entry's first seed:
+
+| Mutant | First failing entry | Result |
+| --- | --- | --- |
+| M23 `pcie_link`: the `dll` gets `REPLAY_TIMEOUT` at `LOWER` 1 (no GPIO value) | `gpio_smoke` (L1) | Replay timeouts in an error-free run: 23 at a, 18 at b. |
+| M24 `pcie_link`: the adapter's `pkt_rx_err_o` not connected | `gpio_damage` (L1) | A TLP closed with an error eop, bytes intact: no Bad TLP at b. |
+| M25 `pcie_gpio_pkg::replay_timeout` sized for equal clocks (1924) | `gpio_load_double` (L2) | 57 replay timeouts at b, round trip 2851 cycles. |
+| M26 `pcie_link`: `hot_reset_req_i` not passed to the adapter | `gpio_hot_reset` (L2) | Neither `dll` leaves DL_Active. |
+
+The adapter's own mutants are in the [gpio unit DV plan](../gpio/DV_PLAN.md#mutants).
 
 ## Gaps
 

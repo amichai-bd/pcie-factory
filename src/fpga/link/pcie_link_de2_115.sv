@@ -84,6 +84,9 @@ module pcie_link_de2_115 (
   logic                 ser_tx_elec_idle;
 
   logic [OBS_W-1:0]     obs_d;
+  logic                 gpio_tx_clk;
+  logic                 gpio_tx_ctrl;
+  logic [3:0]           gpio_tx_data;
   logic [OBS_W-1:0]     obs_q;
   logic                 par_d;
   logic                 par_q;
@@ -164,8 +167,17 @@ module pcie_link_de2_115 (
     .ser_tx_rxdet_i     (stim_q[40]),
     .ser_rx_clk_i       (rx_clk_i),
     .ser_rx_data_i      (rx_stim_q[19:0]),
-    .ser_rx_elec_idle_i (rx_stim_q[20])
+    .ser_rx_elec_idle_i (rx_stim_q[20]),
+    // The GPIO pins of the board build: unused at LOWER 0 (link HAS, lower layer).
+    .gpio_tx_clk_o      (gpio_tx_clk),
+    .gpio_tx_ctrl_o     (gpio_tx_ctrl),
+    .gpio_tx_data_o     (gpio_tx_data),
+    .gpio_rx_clk_i      (1'b0),
+    .gpio_rx_ctrl_i     (1'b0),
+    .gpio_rx_data_i     (4'd0)
   );
+
+  `COMMON_UNUSED_BITS(unused_gpio, {gpio_tx_clk, gpio_tx_ctrl, gpio_tx_data})
 
   // Every output is registered on clk_i before it is folded, so the parity
   // tree never lengthens a pcie_link path.
