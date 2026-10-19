@@ -1810,14 +1810,15 @@ def arch_to_partner_traffic(adv: dict[str, tuple[int, int]], partner: ptn.Partne
 
 def arch_partner_send(tlps: list[bytes], partner: ptn.Partner, *,
                          drop_from: int | None = None, retrain_cycles: int = 500,
-                         delay: int = 22, limit: int = 200000) -> tuple[arch.Dll, int]:
-    """The architecture model (default credits) sends ``tlps`` to
+                         delay: int = 22, limit: int = 200000,
+                         replay_timeout: int = arch.REPLAY_TIMEOUT) -> tuple[arch.Dll, int]:
+    """The architecture model (default credits, ``replay_timeout``) sends ``tlps`` to
     ``partner``; from cycle ``drop_from`` (counted from both in DL_Active)
     every TLP it starts is lost until its retrain request, which runs
     ``retrain_cycles`` of Recovery (no packet starts on either line, the
     LTSSM out of L0). Returns the model and the cycles taken once every
     TLP is delivered."""
-    a = ArchEnd(arch.Dll("arch", {}))
+    a = ArchEnd(arch.Dll("arch", {}, replay_timeout=replay_timeout))
     ab, ba = ptn.Line(delay), ptn.Line(delay)
     drop_a, drop_p = Drop(), Drop()
     to_a = to_p = None

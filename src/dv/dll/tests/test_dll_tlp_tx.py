@@ -500,7 +500,8 @@ async def tlp_partner_errors(dut):
     """L1/L2, seeded: the same with the partner's fault hooks: good TLPs
     Nak'd, TLPs lost on the line, Acks and Naks lost, corrupted and flagged,
     forced Naks, and Ack-delay windows that make the replay timer expire
-    (every fifth 200-cycle period, the rest at random). Every TLP delivered
+    (starting every fifth 200-cycle period, the rest at random; longer at a
+    REPLAY_TIMEOUT above 356). Every TLP delivered
     exactly once and in order; each replay from the oldest unacknowledged
     TLP, in order and complete, against the Acks and Naks the DUT received;
     no DL protocol error. The arch shadow's replay counts are logged: with
@@ -514,13 +515,21 @@ async def tlp_partner_errors(dut):
                                      inject=inject, retrain_cycles=200)
     tlps = [rand_tlp(rng, i) for i in range(300)]
     period = [0]
+    # An Ack-delay window: one 200-cycle period at the default timeout, one
+    # more per 200 cycles that REPLAY_TIMEOUT adds, so a window outlasts the
+    # timer whatever the parameter; the delay itself is the timeout plus 94.
+    span = 1 + -(-(env.replay_timeout - REPLAY_TIMEOUT) // 200)
+    left = [0]
 
     def hooks(env: Env, p: ptn.Partner) -> None:
         period[0] += 1
         r = rng.random()
         if r < 0.15:
             p.force_nak()
-        p.ack_delay = 450 if period[0] % 5 == 0 or 0.15 <= r < 0.25 else 0
+        if period[0] % 5 == 0 or 0.15 <= r < 0.25:
+            left[0] = span
+        p.ack_delay = env.replay_timeout + 94 if left[0] else 0
+        left[0] = max(0, left[0] - 1)
 
     took = await deliver(env, partner, tlps, hooks=hooks)
     env.check_tlp_delivered(partner, tlps)
@@ -567,7 +576,8 @@ async def tlp_rollover(dut):
     pairs = env.check_shadow_tx()
     assert got["replays"] == 4 and pairs["replays"][1] == 4, pairs
     fresh = ptn.Partner("fresh", credits=INFINITE, seed=seed)
-    model, cycles = arch_partner_send(tlps, fresh, drop_from=drop_at, retrain_cycles=500)
+    model, cycles = arch_partner_send(tlps, fresh, drop_from=drop_at, retrain_cycles=500,
+                                      replay_timeout=env.replay_timeout)
     arch_got = {"timeouts": model.errors[arch.E_TIMEOUT],
                 "rollovers": model.errors[arch.E_ROLLOVER],
                 "retrains": model.counts["retrains"], "bad_tlp": fresh.stats.get("bad_tlp", 0)}
