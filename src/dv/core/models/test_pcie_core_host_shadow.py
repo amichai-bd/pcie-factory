@@ -449,15 +449,13 @@ def m_ep_identity(ev):
     """The second read of the IDs disagrees with the first (a later
     enumeration step reads them through the same request kind)."""
     i = _find(ev, lambda e: e[0] == "tx" and _tlp(e).kind == "CfgRd0" and _tlp(e).cfg_reg == 0)
-    ev2 = [("tick",)] * 0
     t = Tlp.decode(ev[i][1])
     t.tag = 31
     # A second ID read, completed with other IDs, after enumeration.
     k = _find(ev, lambda e: e[0] == "cmd" and e[1] == HOST_WR)
     cpl = completion(0x0100, 0, 31, data=(0x1111_2222).to_bytes(4, "little"))
-    ev2 = [("cmd", CFG_RD, 1 << 20, 1, 0xF, 0, 0), ("tx", t.encode()), ("rx", cpl.encode()),
-           ("res", "OK", 0x1111_2222, True)]
-    ev[k:k] = ev2
+    ev[k:k] = [("cmd", CFG_RD, 1 << 20, 1, 0xF, 0, 0), ("tx", t.encode()), ("rx", cpl.encode()),
+               ("res", "OK", 0x1111_2222, True)]
     return ev
 
 
@@ -646,7 +644,7 @@ FAULTS = {
 @pytest.mark.parametrize("name", sorted(FAULTS))
 def test_seeded_mismatch_raises(name):
     mutate, message_part = FAULTS[name]
-    with pytest.raises(HostCheckError, match=None) as exc:
+    with pytest.raises(HostCheckError) as exc:
         replay(mutate(session()))
     assert message_part in str(exc.value), str(exc.value)
 
