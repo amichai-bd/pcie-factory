@@ -89,7 +89,7 @@ module pcie_rc_tl_req #(
       // A configuration read carries 1 DW, a configuration write none.
       mal = is_wr ? cpl_i.wdata : (!cpl_i.wdata || cpl_i.dw_n != 11'd1);
     end else begin
-      mal = !cpl_i.wdata || cpl_i.bc != {5'd0, rq_q.left} || cpl_i.la != rq_q.nxt
+      mal = !cpl_i.wdata || cpl_i.bc != {4'd0, rq_q.left} || cpl_i.la != rq_q.nxt
          || past || short_bad;
     end
   end

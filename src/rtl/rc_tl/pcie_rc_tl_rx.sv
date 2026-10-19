@@ -77,7 +77,7 @@ module pcie_rc_tl_rx (
     cpl_o.ep     = dw0_q[22];
     cpl_o.status = dw1_q[23:21];
     cpl_o.dw_n   = !dw0_q[6] ? 11'd0 : (lfield == 10'd0) ? 11'd1024 : {1'b0, lfield};
-    cpl_o.bc     = (bcf == 12'd0) ? 13'd4096 : {1'b0, bcf};
+    cpl_o.bc     = bcf;
     cpl_o.rid    = {tlp_rx_data_i[7:0], tlp_rx_data_i[15:8]};
     cpl_o.tag    = tlp_rx_data_i[23:16];
     cpl_o.la     = tlp_rx_data_i[30:24];

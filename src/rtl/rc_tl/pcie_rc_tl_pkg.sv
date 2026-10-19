@@ -131,7 +131,7 @@ package pcie_rc_tl_pkg;
     logic        ep;       // poisoned
     logic [2:0]  status;   // Completion Status
     logic [10:0] dw_n;     // data DWs: Length (0 read as 1024), 0 without data
-    logic [12:0] bc;       // Byte Count, 0 read as 4096
+    logic [11:0] bc;       // Byte Count (0 is 4096: never a read's bytes due)
     logic [15:0] rid;      // Requester ID
     logic [7:0]  tag;
     logic [6:0]  la;       // Lower Address

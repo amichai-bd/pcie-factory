@@ -353,6 +353,19 @@ async def req_unexpected(dut):
         env.ep.plan(answer(b, good))
         await env.expect_cmd(Cmd(CFG_RD, cfg_addr()), OK, 0x600D)
         await expect_err(env, bit(E_UNEXP), "mismatch")
+    # A completion Type with a Fmt that is no completion kind (a 4-DW
+    # header, with or without data, or a prefix) is not a completion: it
+    # never matches (dropped with no event until #375 judges it malformed).
+    def fmt(f, extra):
+        def build(r):
+            t = cpl_tlp(CS_SC, r.rid, r.tag, [0xBAD])
+            t[0] = (t[0] & ~0xE0) | (f << 5)
+            return t[:3] + extra
+        return build
+    for f, extra in ((0b001, [0]), (0b011, [0, 0xBAD]), (0b100, [0xBAD]), (0b110, [0xBAD])):
+        env.ep.plan(answer(fmt(f, extra), good))
+        await env.expect_cmd(Cmd(CFG_RD, cfg_addr()), OK, 0x600D)
+        assert await env.err_rd() == 0, f"Fmt {f:03b}"
     # Before its request is sent: no non-posted header credit, so it waits.
     env.drv["fc_nph_avail_i"] = 0
     tag = env.next_tag()
