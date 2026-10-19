@@ -190,7 +190,7 @@ def cmd_ci(ctx: Context, args) -> int:
     if args.action == "status":
         return ci_status.run(ctx, args)
     if args.action == "gate":
-        return ci_gate.run({"tests": args.tests, "fpga": args.fpga, "asic-synth": args.asic_synth})
+        return ci_gate.run({"tests": args.tests, "fpga": args.fpga})
     rules = load_rules(ctx.cfg_dir)
     if args.action == "vendor":
         return ci_vendor.run(ctx, rules, args.kind, args.affected, args.dry_run)
@@ -229,7 +229,7 @@ def cmd_fpga(ctx: Context, args) -> int:
         targets = [find_ip(ips, ip_id) for ip_id in args.ip]
     timeout = args.timeout if args.timeout is not None else cfg["step_timeout_s"]
     plans = [fpga.plan(ip, ctx.workdir, cfg["board"], args.part, cfg["processors"],
-                       cfg["backends"]) for ip in targets]
+                       cfg["backends"], args.synth_only) for ip in targets]
     if args.dry_run:
         for p in plans:
             fpga.generate(p, clean=False)
@@ -318,6 +318,8 @@ def _fpga_args(p: argparse.ArgumentParser) -> None:
     which.add_argument("--all", action="store_true", help="every IP that has an fpga/<ip>/ folder")
     p.add_argument("--part", help="override the device set by the board settings file")
     p.add_argument("--timeout", type=float, help="seconds per step (default: cfg/fpga.yaml)")
+    p.add_argument("--synth-only", action="store_true",
+                   help="analysis and synthesis only (no fit or timing), in workdir/<ip>/fpga-synth/")
     p.add_argument("--dry-run", action="store_true",
                    help="generate the project scripts and print the commands only")
 
@@ -361,7 +363,7 @@ def _ci_args(p: argparse.ArgumentParser) -> None:
     v.add_argument("--affected", metavar="BASE", help="select since the merge base with BASE")
     v.add_argument("--dry-run", action="store_true", help="print target selection without vendor execution")
     g = act.add_parser("gate", help="fail unless every required CI job succeeded")
-    for name in ("tests", "fpga", "asic-synth"):
+    for name in ("tests", "fpga"):
         g.add_argument(f"--{name}", required=True, help="required job result")
     act.add_parser("summary", help="print the regress summary as Markdown")
     st = act.add_parser("status", help="post the ci-gate commit status on a nightly data branch")

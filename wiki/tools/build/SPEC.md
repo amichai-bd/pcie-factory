@@ -224,7 +224,7 @@ flat sibling):
 | `workdir/<ip>/<test>/<seed>/` | `results.xml`, `sim.log` (the full simulator output), waves (`dump.vcd`) with `--waves`, and `coverage.dat` and `funcov.json` in a coverage run ([regress coverage](../regress/SPEC.md#coverage)). This directory is cleared before each run. |
 
 Because test directories share `workdir/<ip>/` with the tools' own output,
-a test may not be named `build`, `fpga` (the [fpga tool's](../fpga/SPEC.md#output) output),
+a test may not be named `build`, `fpga` and `fpga-synth` (the [fpga tool's](../fpga/SPEC.md#output) output),
 `asic` and `asic-synth` (the [asic tool's](../asic/SPEC.md#output) output), `arch` (the
 [arch tool's](../arch/SPEC.md#behavior-and-output) output) or `coverage`
 (the [merged coverage](../regress/SPEC.md#coverage)).

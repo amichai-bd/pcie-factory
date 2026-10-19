@@ -16,7 +16,7 @@ the command line, the generated project, the metrics schema and failures.
 ## Command line
 
 ```
-./build fpga (--ip ID [--ip ID]... | --all) [--part DEVICE] [--timeout S] [--dry-run]
+./build fpga (--ip ID [--ip ID]... | --all) [--part DEVICE] [--timeout S] [--synth-only] [--dry-run]
 ```
 
 | Option | Meaning |
@@ -25,6 +25,7 @@ the command line, the generated project, the metrics schema and failures.
 | `--all` | Every IP that has a `src/fpga/<ip>/` folder, sorted by id. |
 | `--part DEVICE` | Override the device that the board settings file sets (letters and digits only). |
 | `--timeout S` | Wall-clock bound in seconds on each step (default: `step_timeout_s` in `cfg/fpga.yaml`). |
+| `--synth-only` | Lint, `project` and `map` (analysis and synthesis) only, in `workdir/<ip>/fpga-synth/`: no fit, timing or worst path, and `synthesis.json` instead of `metrics.json` ([synthesis only](#synthesis-only)). PR CI runs this ([CI](#ci)). |
 | `--dry-run` | Validate inputs, write the project scripts, print the steps; run nothing and need no Quartus. A previous compile in the same directory is left in place. `./build check` runs the same input validation for every FPGA target ([flow-input check](../checks/SPEC.md#flow-input-check)). |
 
 The shared `--src-root` and `--workdir` options work as in the
@@ -163,11 +164,35 @@ A ratio missing from the fitter summary is `null`. These are report errors
 or device line, a missing Fmax, setup or hold summary panel or
 Unconstrained Paths Summary, no clock with timing paths, an unreadable report, or a malformed `worst_path.txt` line.
 
+## Synthesis only
+
+`--synth-only` is the fast compatibility check required CI runs: it proves
+that Quartus analyses and synthesizes the IP with its board wrapper, and
+reports resources before fitting; it makes no fit, placement or timing
+claim. It uses the same inputs, validation, generated `project.tcl`, lint
+step, timeouts, cancellation and failure excerpt as the full flow, in
+`workdir/<ip>/fpga-synth/` (deleted and recreated first; `worst_path.tcl`
+is not written), and never touches `workdir/<ip>/fpga/`, so a full-flow
+result is never replaced by a synthesis-only one, and the nightly metrics
+(which read only `fpga/metrics.json`) never see it.
+
+After `map` passes, the tool parses `output_files/<top>.map.summary` and
+writes `synthesis.json` (two-space indent): `ip`, `board`, `schema` (`1`),
+`stage` (`synthesis`), `quartus_version`, `family`, `device` (`null` when
+the summary has no device line), `top`, and `resources` with the used
+counts `logic_elements`, `registers`, `memory_bits`, `dsp_9bit`, `pins`
+and `plls` (a `used / total` value keeps the used part; a missing optional
+line is `null`), plus `flow` as in [metrics](#metrics). It has no `timing`
+key. A status other than `Successful`, no logic-element or register line,
+a malformed count or an unreadable summary is a report error (exit 1, no
+`synthesis.json`). It prints the family, the resource counts and the
+[warnings](#warnings) summary.
+
 ## Exit codes
 
 | Code | Meaning |
 | --- | --- |
-| 0 | Every selected IP compiled, `metrics.json` written, timing met. |
+| 0 | Every selected IP compiled, `metrics.json` written, timing met (`--synth-only`: synthesized and `synthesis.json` written). |
 | 1 | A step failed or timed out, a report could not be parsed, or timing is not met (metrics are still written). |
 | 2 | Usage or input error: unknown IP, IP without `src/fpga/<ip>/`, bad inputs or `cfg/fpga.yaml`, filelist error, Quartus not found. |
 
@@ -182,16 +207,18 @@ With several IPs, every IP runs and the worst code wins.
 | `workdir/<ip>/fpga/output_files/` | Reports (`*.rpt`, `*.summary`) and the `.sof`. |
 | `workdir/<ip>/fpga/logs/<step>.log` | Step logs. |
 | `workdir/<ip>/fpga/worst_path.txt`, `metrics.json` | Parsed inputs and the metrics. |
+| `workdir/<ip>/fpga-synth/` | The same layout for `--synth-only`, with `synthesis.json` and no `worst_path.*` or `metrics.json`. |
 
-Because `fpga/` lives in `workdir/<ip>/`, no test may be named `fpga`
+Because `fpga/` and `fpga-synth/` live in `workdir/<ip>/`, no test may be named `fpga` or `fpga-synth`
 (`RESERVED_TEST_NAMES` in `tools/build/ip.py`).
 
 ## CI
 
 `.github/workflows/fpga.yml` runs on `[self-hosted, linux, x64, wsl]`, the
 WSL host's runners, which have Quartus on `PATH`, with `contents: read` and a 90-minute job timeout. It has
-**manual dispatch only**; required CI separately runs full Quartus on
-affected targets ([CI selection](../ci/SPEC.md#build-ci-vendor)).
+**manual dispatch only**; required CI separately runs `--synth-only` on
+affected targets ([CI selection](../ci/SPEC.md#build-ci-vendor)), and the
+nightly the full flow on every target.
 Input `ip` runs `./build fpga --ip <ip>`,
 or `--all` when empty; nightly (DevOps BKM) calls `./build fpga --all`
 itself. The job still carries the fork guard
@@ -218,7 +245,10 @@ of a log that leave the host.
   not real tool output, see its README): resources, worst-of-corners timing,
   the worst path, failed fitter status, malformed values, missing panels,
   no clocks, negative slack, and the per-RAM rows (all columns, a missing
-  panel, missing columns, a malformed block count).
+  panel, missing columns, a malformed block count), and the synthesis
+  summary of `--synth-only` (resource counts, a `used / total` value, a
+  missing optional line, a failed status, a missing register line, a
+  malformed count, a missing summary).
 - `test_fpga_flow.py` builds a synthetic IP tree and checks planning and
   input errors (a filelist defining `SYNTHESIS`, a listed backend file),
   backend selection (the backend file in place in the Quartus sources and
@@ -238,8 +268,12 @@ of a log that leave the host.
   known and unknown counts with and without the repository's known IDs, a failing step stops the flow
   and prints every error line of the hand-made `map_fail.log` (errors more
   than 30 lines before its end) before the tail,
-  lint failure, timing not met, and a step timeout killing its group; and
-  the CLI (`--dry-run`, `--all`, missing Quartus, IP without `src/fpga/<ip>/`).
+  lint failure, timing not met, and a step timeout killing its group;
+  `--synth-only` (only `project` and `map` run, in `fpga-synth/`, fit and
+  timing never start, `synthesis.json` without timing, `fpga/` untouched; a
+  failing `map` or a missing summary writes nothing); and the CLI
+  (`--dry-run`, `--dry-run --synth-only`, `--all`, missing Quartus, IP
+  without `src/fpga/<ip>/`).
 
 The cancellation integration tests drive `ci vendor` through the FPGA CLI
 into fake Quartus executables. A fake map step starts a writing grandchild;

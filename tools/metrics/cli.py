@@ -31,7 +31,7 @@ def add_args(p: argparse.ArgumentParser) -> None:
                      help="write DIR/<run name>, <run name> being <date>T<HHMMSS>Z.json of the run start")
     c.add_argument("--no-github", action="store_true", help="skip the GitHub sections")
     c.add_argument("--step", action="append", default=[], metavar="NAME=OUTCOME",
-                   help="nightly step outcome (pass|fail|skipped); repeatable")
+                   help="nightly step outcome (pass|fail|skipped|paused); repeatable")
     c.add_argument("--started", metavar="TIME",
                    help="UTC start of the nightly job (ISO 8601), for meta.nightly.duration_s")
     c.add_argument("--run-id", type=_positive, metavar="ID",
@@ -63,7 +63,7 @@ def add_args(p: argparse.ArgumentParser) -> None:
                    help="branch of the nightly runs searched for the last green one "
                         "(default: main)")
     r.add_argument("--step", action="append", default=[], metavar="NAME=OUTCOME",
-                   help="nightly step outcome (pass|fail|skipped); a failure names the "
+                   help="nightly step outcome (pass|fail|skipped|paused); a failure names the "
                         "failed steps; repeatable")
     r.add_argument("--summary", metavar="FILE",
                    help="the run's ./build regress summary.json: a failure lists each failed "
@@ -87,7 +87,7 @@ def _steps(values: list[str]) -> dict[str, str]:
     for v in values:
         m = _STEP.match(v)
         if not m:
-            raise MetricsError(f"--step must be NAME=pass|fail|skipped, got {v!r}")
+            raise MetricsError(f"--step must be NAME=pass|fail|skipped|paused, got {v!r}")
         out[m.group(1)] = m.group(2)
     return out
 

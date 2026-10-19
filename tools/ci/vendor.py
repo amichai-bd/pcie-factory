@@ -101,8 +101,7 @@ def run(ctx: Context, rules: CiRules, kind: str, affected_base: str | None,
             continue
         command = [sys.executable, str(ctx.repo_root / "build"), kind, "--ip", ip.id,
                    "--src-root", str(ctx.src_root), "--workdir", str(ctx.workdir)]
-        if kind == "asic":
-            command.append("--synth-only")
+        command.append("--synth-only")  # both kinds: synthesis only (PR CI, nightly ASIC)
         started = time.monotonic()
         code = run_child(command, ctx.repo_root)
         failed |= code != 0
@@ -110,6 +109,6 @@ def run(ctx: Context, rules: CiRules, kind: str, affected_base: str | None,
                         "elapsed_s": round(time.monotonic() - started, 1)})
     if not dry_run:
         summary.write_text(json.dumps({"schema": 1, "kind": kind,
-                                      "stage": "implementation" if kind == "fpga" else "synthesis",
+                                      "stage": "synthesis",
                                       "targets": results}, indent=2) + "\n")
     return int(failed)

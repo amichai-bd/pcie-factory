@@ -13,7 +13,7 @@
 | Board | Terasic DE2-115 |
 | Device | Cyclone IV E `EP4CE115F29C7` |
 | Host | Self-hosted runners with Quartus; version recorded in `cfg/host.yaml` (Quartus Prime Lite 25.1std.0) |
-| When | Affected targets in required CI; nightly L2; or on demand with `./build fpga` |
+| When | Analysis and synthesis only (`--synth-only`) for affected targets in required CI; the full flow (fit, timing) in nightly L2 or on demand with `./build fpga` ([levels](devops.md#levels-and-budgets)) |
 | Command | `./build fpga --ip <ip>` ([fpga tool spec](../tools/fpga/SPEC.md)) |
 
 Required [CI vendor checks](../tools/ci/SPEC.md#build-ci-vendor) run the full
@@ -195,6 +195,9 @@ text cut to 160 characters. The logs themselves stay on the host
   M9K count, as the block's MAS records.
 - Every SDC exception has a reason.
 - Timing met on every clock, or the PR states the gap and the owning issue.
+  PR CI runs synthesis only, so a change that can move timing or fit records
+  a local `./build fpga --ip <id>` run; otherwise the next nightly shows it.
 - Quartus warnings are the known ones above, or the PR explains each new one
-  (each unknown ID is printed in the `ci-fpga` job log).
+  (each unknown synthesis ID is printed in the `ci-fpga` job log; fitter and
+  timing IDs in the nightly's).
 - No generated output committed.

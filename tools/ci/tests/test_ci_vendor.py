@@ -108,6 +108,17 @@ def test_failing_child_fails_vendor_and_records_summary(ctx, monkeypatch):
     assert doc["stage"] == "synthesis" and doc["targets"][0]["status"] == "fail"
 
 
+def test_fpga_vendor_check_is_synthesis_only(ctx, monkeypatch):
+    # PR CI runs Quartus analysis and synthesis only; fit and timing are nightly.
+    monkeypatch.setattr(vendor, "select", lambda *args: [(Ip("a", ctx.src_root), "all")])
+    calls = []
+    monkeypatch.setattr(vendor, "run_child", lambda command, cwd: calls.append(command) or 0)
+    assert vendor.run(ctx, RULES, "fpga", None) == 0
+    assert calls[0][2:5] == ["fpga", "--ip", "a"] and calls[0][-1] == "--synth-only"
+    doc = json.loads((ctx.workdir / "ci/vendor-fpga.json").read_text())
+    assert doc["stage"] == "synthesis" and doc["targets"][0]["status"] == "pass"
+
+
 def test_empty_selection_succeeds_without_toolchain(ctx, monkeypatch):
     monkeypatch.setattr(vendor, "select", lambda *args: [])
     monkeypatch.setattr(vendor, "run_child", lambda *a, **k: pytest.fail("ran vendor"))

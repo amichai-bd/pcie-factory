@@ -12,10 +12,10 @@
 | Flow | OpenROAD-flow-scripts (ORFS): synthesis, floorplan, place, CTS, route |
 | Platform | `sky130hd` |
 | Host | Self-hosted runners, through the pinned `openroad/orfs` Docker image recorded in `cfg/host.yaml` (`hosts.wsl.orfs_image`) |
-| When | Synthesis-only for affected targets in required CI; full flow in nightly L2 or on demand (`asic` dispatch or `./build asic --ip <id>`) |
+| When | Synthesis-only check for every target in the nightly (L2, [levels](devops.md#levels-and-budgets)); full flow in the nightly or on demand (`asic` dispatch or `./build asic --ip <id>`), neither while [paused](devops.md#asic-pause) without a captain go |
 
 The flow is an estimation and quality signal for the RTL, not a tape-out. The
-[required CI synthesis check](../tools/asic/SPEC.md#synthesis-only-compatibility-check)
+[nightly synthesis check](../tools/asic/SPEC.md#synthesis-only-compatibility-check)
 exercises the pinned frontend and config; it proves no routed timing or area.
 Its unit tests (config generation, report parsing)
 use fixture reports and run without ORFS.
