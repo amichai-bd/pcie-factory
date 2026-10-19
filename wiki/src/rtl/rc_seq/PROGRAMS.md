@@ -8,6 +8,13 @@ the row says otherwise. Values are those of `rc` and `core` at their
 default parameters; the package (#376) holds them as named constants, and
 the wait timeouts, Hot Reset hold and loop limits with them.
 
+**Defaults.** Where a row does not say otherwise: `len` 1; `first_be`
+0xF; `last_be` 0xF when `len` is above 1 and 0 otherwise; an `EXPECT` or
+data `JUMP` with no bits named has `mask` 0xFFFF_FFFF and checks `R[0]`;
+a forward conditional `JUMP` (a skip) has limit 0, which only backward
+takes use ([`JUMP`](MAS.md#commands)); a polling loop's limit is a
+package constant #376 sets.
+
 ## Address plan
 
 | Item | Value | Why |
@@ -31,7 +38,7 @@ programs need to behave as follows; #377 owns that model.
 | Need | Model behavior | Used by |
 | --- | --- | --- |
 | BAR0 as memory | Offsets 0x000 to 0xEFF store writes with their byte enables and return them on reads. | MMIO, recovery checks |
-| DMA doorbell | A write to BAR0 0xF0C starts a copy of the bytes from the system address at 0xF00 to the one at 0xF04, length in bytes at 0xF08 (up to 128), by bus-master reads then writes, then raises MSI vector 0. | DMA and MSI |
+| DMA doorbell | A write to BAR0 0xF0C starts a copy of the bytes from the system address at 0xF00 to the one at 0xF04, length in bytes at 0xF08 (up to 128), by bus-master reads then writes, then raises MSI vector 0. Doorbells are served in order, each copy and its MSI before the next. A read that completes with an error status ends that copy: nothing written, no MSI. | DMA and MSI; errors (bits 11, 12) |
 | No-answer DW | A read of BAR0 0xF10 is never answered. | Errors (completion timeout) |
 | Link down | The e2e takes the link down while the errors section polls BAR0 after its first re-enumeration. | Errors |
 
@@ -90,24 +97,57 @@ Program `ERRORS`. A run flag in host memory tells the three passes over
 | # | Steps | Checks |
 | --- | --- | --- |
 | R1 | `HOST_WR` flag = 0; `ENUM`. | First enumeration. |
-| R2 | `HOST_RD` flag; `JUMP DATA_EQ` 1 to R9; `JUMP DATA_EQ` 2 to R12 (limit 1 each). | Pass selection. |
+| R2 | `HOST_RD` flag; `JUMP DATA_EQ` 1 to R11; `JUMP DATA_EQ` 2 to R14. | Pass selection. |
 | R3 | `CFG_WR` 0x78 byte 0 = 0x1F; `ERR_CLR` 0x1FFF. | Every error reporting enable on in `core` ([`cfg` errors](../../arch/cfg/HAS.md#errors)), record clear. |
-| R4 | `CFG_RD` bus 1, device 0, function 1, checking `UR`; `MEM_WR` 0x1000_8000; `MEM_RD` 0x1000_8000 checking `UR`. | An Unsupported Request completion (non-posted) and a posted Unsupported Request at the endpoint. |
-| R5 | `ERR_RD`; `JUMP DATA_NE` back to that `ERR_RD` with value and mask 0x181 (limit set by #376); `EXPECT` 0x181 on 0x181. | Record bits 0 (UR completion), 7 (ERR_COR, the advisory non-posted UR) and 8 (ERR_NONFATAL, the posted UR) are set once the messages arrive. |
+| R4 | `MEM_WR` 0x1000_8000; `MEM_RD` 0x1000_8000 checking `UR`. | A posted Unsupported Request at the endpoint (ERR_NONFATAL), then a non-posted one (a UR completion and the advisory ERR_COR). No configuration request to function 1: `core`'s Completer ID for it is a [known discrepancy](../../arch/core/HAS.md#open-questions) the host model shadow would flag. |
+| R5 | `ERR_RD`; `JUMP DATA_NE` back to that `ERR_RD` with value and mask 0x181; `EXPECT` 0x181 on 0x1FFF. | Bits 0 (UR completion), 7 (ERR_COR) and 8 (ERR_NONFATAL) set, and no other: R4 draws exactly one of each message, so none can arrive after the loop exits. |
 | R6 | `MEM_RD` 0x2000_0000, `CFG_RD` device 1, `CFG_RD` bus 2, each checking `LOCAL_UR`. | `rc_tl`'s outbound refusals send nothing. |
-| R7 | `MEM_RD` BAR0 + 0xF10 checking `TIMEOUT`; `ERR_RD`; `EXPECT` bit 3; `ERR_CLR` 0x1FFF; `ERR_RD`; `EXPECT` 0 on bits 12:0. | Completion timeout recorded; the record clears. |
-| R8 | `HOST_WR` flag = 1; `HOT_RESET`; `WAIT_LINK`; `JUMP ALWAYS` to `ENUM`. | Hot Reset, link-up, second enumeration. |
-| R9 | `MEM_WR` then `MEM_RD` BAR0 + 0x40 with an `EXPECT`; `HOST_WR` flag = 2. | Traffic resumes after the Hot Reset. |
-| R10 | `MEM_RD` BAR0 (`chk` 0); `JUMP STATUS_EQ OK` back to it (limit set by #376); `JUMP STATUS_EQ LINK_DOWN` over the next step; `FAIL`. | The link goes down under traffic and the request finishes with `LINK_DOWN`. |
-| R11 | `WAIT_LINK`; `JUMP ALWAYS` to `ENUM`. | Third enumeration after the link down. |
-| R12 | `MEM_WR` then `MEM_RD` BAR0 + 0x44 with an `EXPECT`; `DONE`. | Traffic resumes after the link down. |
+| R7 | Doorbell (D2's four writes) with source 0x2000_0000, destination 0x200, 4 bytes; `ERR_RD`; `JUMP DATA_NE` back with value and mask 0x800. | Bit 11: the endpoint's read outside host memory is answered with Unsupported Request ([inbound routing](../../arch/rc/HAS.md#inbound-routing)). |
+| R8 | D + 1 doorbells (source 0x100, destination 0x200, 4 bytes) with no `WAIT_MSI`, where D is the capture depth the `rc_tl` MAS sets ([#368](https://github.com/amichai-bd/pcie-factory/issues/368)); `ERR_RD`; `JUMP DATA_NE` back with value and mask 0x1000; D × `WAIT_MSI`. | Bit 12: the MSI past a full capture is dropped; the D kept are then taken. |
+| R9 | `MEM_RD` BAR0 + 0xF10 checking `TIMEOUT`; `ERR_RD`; `EXPECT` 0x1808 on 0x1FFF; `ERR_CLR` 0x1FFF; `ERR_RD`; `EXPECT` 0 on 0x1FFF. | Bit 3: completion timeout, with bits 11 and 12 still set and nothing else; the record clears. |
+| R10 | `HOST_WR` flag = 1; `HOT_RESET`; `WAIT_LINK`; `JUMP ALWAYS` to `ENUM`. | Hot Reset, link-up, second enumeration. |
+| R11 | `MEM_WR` then `MEM_RD` BAR0 + 0x40 with an `EXPECT`; `HOST_WR` flag = 2. | Traffic resumes after the Hot Reset. |
+| R12 | `MEM_RD` BAR0 (`chk` 0); `JUMP STATUS_EQ OK` back to it; `JUMP STATUS_EQ LINK_DOWN` over the next step; `FAIL`. | The link goes down under traffic and the request finishes with `LINK_DOWN`. |
+| R13 | `WAIT_LINK`; `JUMP ALWAYS` to `ENUM`. | Third enumeration after the link down. |
+| R14 | `MEM_WR` then `MEM_RD` BAR0 + 0x44 with an `EXPECT`; `DONE`. | Traffic resumes after the link down. |
 
-Completer Abort, poisoned, malformed and unexpected completions are not
-drawn by a program: `core` sends none of them on request, so they are
-injected on the line by the e2e (#377) and by `rc_tl`'s own DV
-([#375](https://github.com/amichai-bd/pcie-factory/issues/375)), and
-`dl_err_o` with the host model shadow checks replay of injected link
-errors.
+### Error record coverage
+
+Every [error record](../../arch/rc/TL_SEQ.md#error-record) bit is either
+drawn by `ERRORS` or injected, with its owner. `core` sends a CRS
+completion, a Completer Abort, a poisoned or malformed TLP, an unexpected
+completion or an unknown message on no request, so those are injected.
+
+| Bit | Event | Drawn by | Injected by (owner) |
+| --- | --- | --- | --- |
+| 0 | UR completion | R4, R5 | — |
+| 1 | CA completion | — | `rc_tl` DV, its link stand-in ([#375](https://github.com/amichai-bd/pcie-factory/issues/375)) |
+| 2 | CRS completion | — | `rc_tl` DV (#375) |
+| 3 | Completion timeout | R9 | — |
+| 4 | Unexpected completion | — | `rc_tl` DV (#375); the e2e, a completion with a stale tag on the line ([#377](https://github.com/amichai-bd/pcie-factory/issues/377)) |
+| 5 | Poisoned TLP | — | `rc_tl` DV (#375); the e2e, a poisoned completion on the line (#377) |
+| 6 | Malformed TLP | — | `rc_tl` DV (#375); the e2e, a malformed TLP on the line (#377) |
+| 7 | ERR_COR | R4, R5 | — |
+| 8 | ERR_NONFATAL | R4, R5 | — |
+| 9 | ERR_FATAL | — | The e2e: a malformed TLP injected toward `core`, which reports it as fatal ([`cfg` errors](../../arch/cfg/HAS.md#errors)) (#377); `rc_tl` DV (#375) |
+| 10 | Other message | — | `rc_tl` DV (#375) |
+| 11 | Inbound request handled as UR | R7 | — |
+| 12 | MSI dropped, capture full | R8 | — |
+
+An e2e entry that injects checks its bit with an `ERR_RD` poll like R5's,
+in a program #377 adds (ids 5 and up). `dl_err_o` and the host model
+shadow check replay of injected link errors.
+
+## Decisions
+
+Firstmate decisions taken as the captain's delegate
+([#369 decision](https://github.com/amichai-bd/pcie-factory/issues/369#issuecomment-6268649126)),
+which the captain may override.
+
+| Choice | Rationale | Rejected |
+| --- | --- | --- |
+| The `core` application model in the e2e provides BAR0 memory, the DMA doorbell, the no-answer DW and the link-down injection; #377 owns it ([boundary](#boundary)) (D10) | The endpoint's application is not `rc_seq`'s: programs drive only the host side (goal item 4), and DMA and a completion timeout need the endpoint to act; the requirement goes on the DV model, not on `core`. | New `core` RTL for a DMA engine (widens `core` for a test); no DMA or timeout program (goal items 6 and 7 unchecked by `rc_seq`). |
+| `ERRORS` draws bits 0, 3, 7, 8, 11 and 12; the e2e and `rc_tl` DV inject bits 1, 2, 4, 5, 6, 9 and 10 ([coverage](#error-record-coverage)) (D11) | A program can only draw what `core` does on request; the rest needs a TLP on the line, which the test bench owns; every bit has an owner. | Drawing every bit from a program (needs fault modes in `core`); leaving injected bits to `rc_tl` DV alone (no end-to-end check of the endpoint's ERR_FATAL). |
 
 ## Self-test
 

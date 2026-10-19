@@ -90,7 +90,7 @@ op does not use are ignored; the package's step constructors write them 0.
 
 | Bits | Field | Width | Use |
 | --- | --- | --- | --- |
-| 127 | reserved | 1 | 0. |
+| 127 | reserved | 1 | Ignored; the constructors write 0. |
 | 126:122 | `op` | 5 | Below. |
 | 121:119 | `status` | 3 | A [result status](../../arch/rc/TL_SEQ.md#results) code: `REQ` with `chk`, `JUMP` on status. |
 | 118 | `chk` | 1 | `REQ`: 1 fails the step unless its status equals `status`. |
@@ -115,7 +115,7 @@ and fails at cycle T + 1 if it never held; T = 0 checks one cycle.
 | 5'h02 | `WAIT_MSI` | Waits for `msi_valid_i`; on success `msi_ready_o` is 1 for that one cycle (the capture is taken) and `R[0]`, `R[1]` are written. | The wait times out; nothing is taken. |
 | 5'h03 | `WAIT_LINK` | Waits for `dl_up_i` 1. | The wait times out. |
 | 5'h04 | `HOT_RESET` | `hot_reset_req_o` 1 from cycle 0; waits for `link_up_i` 0 (timeout `data`); then keeps `hot_reset_req_o` 1 for `addr[15:0]` more cycles and sets it 0 as the step ends. `link` then leaves Hot Reset by its own timer and retrains; `rc_tl` finishes requests with `LINK_DOWN` meanwhile. | `link_up_i` does not fall in time; `hot_reset_req_o` falls as the run ends. |
-| 5'h05 | `JUMP` | None. `cond`: 0 `ALWAYS`; 1 `DATA_EQ`, 2 `DATA_NE` on `(R[idx] ^ data) & mask` being 0 or not; 3 `STATUS_EQ`, 4 `STATUS_NE` on `S` equal to `status` or not. Taken: `pc` = target. A taken conditional jump increments `L`; one not taken sets `L` 0; `ALWAYS` leaves `L`. | `cond` 5 to 7; a conditional jump that would be taken with `L` equal to the limit (a polling loop out of budget). |
+| 5'h05 | `JUMP` | None. `cond`: 0 `ALWAYS`; 1 `DATA_EQ`, 2 `DATA_NE` on `(R[idx] ^ data) & mask` being 0 or not; 3 `STATUS_EQ`, 4 `STATUS_NE` on `S` equal to `status` or not. Taken: `pc` = target. A taken conditional jump backward (target ≤ `pc`) increments `L`; a taken one forward and one not taken set `L` 0; `ALWAYS` leaves `L`. So `L` counts the takes of the current polling loop only, and the limit applies to backward jumps only. | `cond` 5 to 7; a conditional jump that would be taken backward with `L` equal to the limit (a polling loop out of budget). |
 | 5'h06 | `DONE` | None. | Never: the run ends passing. |
 | 5'h07 to 5'h0F | reserved | None. | Always, as `FAIL`. |
 | 5'h10 + t | `REQ` | Offers `cmd` with `op` t (the [tl-seq op](../../arch/rc/TL_SEQ.md#commands): 0 `CFG_RD` to 9 `ERR_CLR`) and `addr`, `len`, `first_be`, `last_be`, `data` as written, holding `cmd_valid_o` until `cmd_ready_i`; takes every result beat from that cycle on, writing the [result registers](#result-registers), until the beat with `rsp.last`, whose status becomes `S`. Fields go out unchecked: `rc_tl`'s field checks answer `LOCAL_UR`, and t 10 to 15 reach `rc_tl` as illegal ops. | `chk` is 1 and `S` is not `status`. |
@@ -142,7 +142,9 @@ never hand-counted. The values a program checks are those of `rc` and
 
 **Selection.** `PROGRAM` picks the image at elaboration: a regression
 entry sets it with `params: {PROGRAM: <id>}` on `pcie_rc_seq` or `pcie_rc`,
-and a board wrapper with a parameter override. The flow needs no new tool.
+and a board wrapper with a parameter override. Any wrapper between the
+test and `pcie_rc` (an SV e2e top of #377, a board wrapper) forwards
+`PROGRAM` unchanged. The flow needs no new tool.
 
 | Id | Name | Runs | Used by |
 | --- | --- | --- | --- |
@@ -169,26 +171,32 @@ States: `IDLE` (no run), `FETCH` (ROM read), `EXEC` (decode; finish
 `FAIL`, `DONE` and `JUMP ALWAYS`, start the rest), `READ` (result register
 read for `EXPECT` and data `JUMP`), `REQ_OFFER`, `REQ_WAIT`, `WAIT`
 (`WAIT_MSI`, `WAIT_LINK`), `HR_FALL`, `HR_HOLD`. The run result registers
-`done_o`, `pass_o` and `fail_step_o`.
+`done_o`, `pass_o` and `fail_step_o`. The result RAM has one write port,
+so a `WAIT_MSI` latches the capture in the cycle it takes it and writes
+`R[0]` and `R[1]` in the next two cycles; a result beat writes in its own
+cycle.
 
 ## Decisions
 
 Rows citing OP are the captain's ([0005](../../decisions/0005-m4-grill.md#decisions));
 every other row is a firstmate decision taken as the captain's delegate
-(the epic's [delegated decisions](https://github.com/amichai-bd/pcie-factory/issues/357)),
-which the captain may override.
+([#369 decision](https://github.com/amichai-bd/pcie-factory/issues/369#issuecomment-6268649126),
+D1 to D12), which the captain may override. D10 and D11 are on the
+[programs page](PROGRAMS.md#decisions).
 
 | Choice | Rationale | Rejected |
 | --- | --- | --- |
 | Command-ROM interpreter, programs in the ROM (OP4) | New tests are new programs, not new RTL. | A hard-wired state machine per test. |
-| Fixed 128-bit step, one step per ROM index | `fail_step_o` names a step directly; decode is a field select; 256 × 128 bits fits a few FPGA memory blocks. | Variable-length steps in 32-bit words (an index that is not a step, a multi-cycle fetch). |
-| One `REQ` op carrying the tl-seq op, fields passed verbatim | One encoding for the ten tl-seq ops; `rc_tl` alone owns the field checks, and programs can test them. | A sequencer op per tl-seq op (two encodings to keep aligned). |
-| Result registers plus `EXPECT` with a mask, status checked in `REQ` | One expect form for every read, a 32-DW read included, and for MSI captures. | Expected value and mask inside each read step (a 224-bit step; no multi-DW check). |
-| `JUMP` with data and status conditions and a loop limit | Polling (error messages, link down) and re-enumeration need a branch; the limit makes every loop end with a failing step instead of hanging a board. | Unconditional jump only (no polling); call and return (a stack for no M4 need). |
-| One command at a time | Programs check DW by DW; throughput is information only ([`rc` targets](../../arch/rc/HAS.md#targets)). | Pipelined commands (result tracking in `rc_seq`). |
-| Programs as package constants selected by `PROGRAM` | No system task or init file in RTL ([RTL BKM](../../../bkm/rtl.md#assertions)), Verilator and Quartus read the same source, and regression `params` select it with no new tool. | `$readmemh` of a hex file (a forbidden system task); a program assembler tool (not needed while programs stay short). |
-| `FAIL` is op 0 and pads the ROM | Running off a program or jumping outside it fails instead of passing. | Op 0 as `DONE`. |
-| The tl-seq ports wait for #373's `common_pkg` types | The [tl-seq page](../../arch/rc/TL_SEQ.md#signals) gives the types to the RTL that first uses them; two shells adding them in parallel would collide. | Adding the types in this shell. |
+| Fixed 128-bit step, one step per ROM index (D1) | `fail_step_o` names a step directly; decode is a field select; 256 × 128 bits fits a few FPGA memory blocks. | Variable-length steps in 32-bit words (an index that is not a step, a multi-cycle fetch). |
+| One `REQ` op carrying the tl-seq op, fields passed verbatim (D2) | One encoding for the ten tl-seq ops; `rc_tl` alone owns the field checks, and programs can test them. | A sequencer op per tl-seq op (two encodings to keep aligned). |
+| Result registers plus `EXPECT` with a mask, status checked in `REQ` (D3) | One expect form for every read, a 32-DW read included, and for MSI captures. | Expected value and mask inside each read step (a 224-bit step; no multi-DW check). |
+| `JUMP` with data and status conditions and a loop limit on backward takes (D4) | Polling (error messages, link down) and re-enumeration need a branch; the limit makes every polling loop end with a failing step instead of hanging a board; counting backward takes only keeps a forward skip from eating a later loop's budget. | Unconditional jump only (no polling); call and return (a stack for no M4 need); one count over every taken jump (a skip before a loop cuts its budget). |
+| One command at a time (D5) | Programs check DW by DW; throughput is information only ([`rc` targets](../../arch/rc/HAS.md#targets)). | Pipelined commands (result tracking in `rc_seq`). |
+| Programs as package constants selected by `PROGRAM` (D6) | No system task or init file in RTL ([RTL BKM](../../../bkm/rtl.md#assertions)), Verilator and Quartus read the same source, and regression `params` select it with no new tool. | `$readmemh` of a hex file (a forbidden system task); a program assembler tool (not needed while programs stay short). |
+| `FAIL` is op 0 and pads the ROM (D7) | Running off a program or jumping outside it fails instead of passing. | Op 0 as `DONE`. |
+| A 256-step ROM, `ROM_AW` 8 a package constant; `pc` and `fail_step_o` 16 bits (D8) | Every M4 program fits (about 60 to 150 steps) with room for growth; one constant to raise; 256 × 128 bits is a few FPGA memory blocks. | A depth per program (a ROM leaf per image size); a depth that follows `fail_step_o` (64 Ki steps of mostly padding). |
+| Program ids 0 `ENUM`, 1 `MMIO` (the default), 2 `DMA_MSI`, 3 `ERRORS`, 4 `SELFTEST`, 5 and up for unit programs (D9) | One image per M4 program, so each regression entry selects one and a failure names its program; `MMIO` (enumeration then BAR0 traffic) is what the board build runs (goal item 9), so the default needs no override there. | One combined image (one entry for every goal item, a long run per failure); `ENUM` as the default (the board would not exercise MMIO). |
+| The tl-seq ports wait for #373's `common_pkg` types (D12) | The [tl-seq page](../../arch/rc/TL_SEQ.md#signals) gives the types to the RTL that first uses them; two shells adding them in parallel would collide. | Adding the types in this shell. |
 
 ## Timing
 
