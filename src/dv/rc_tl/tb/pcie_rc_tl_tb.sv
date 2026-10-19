@@ -1,8 +1,9 @@
 // Testbench top of pcie_rc_tl (wiki/src/dv/rc_tl/DV_PLAN.md): the DUT with
 // its parameters, every port passed through by name, plus params_o, the
-// parameters the cocotb environment's model needs ({CPL_TIMEOUT_DIV,
-// HOST_MEM_ADDR_W, REVISION_ID, DEVICE_ID, VENDOR_ID}, CPL_TIMEOUT_DIV in
-// the most significant bits). The DUT is driven only through its ports.
+// parameters the cocotb environment's model needs ({FC_NPH, MSI_ADDR,
+// HOST_MEM_BASE, CPL_TIMEOUT_DIV, HOST_MEM_ADDR_W, REVISION_ID, DEVICE_ID,
+// VENDOR_ID}, FC_NPH in the most significant bits). The DUT is driven only
+// through its ports.
 `default_nettype none
 
 module pcie_rc_tl_tb #(
@@ -48,10 +49,10 @@ module pcie_rc_tl_tb #(
   output logic                fc_rel_np_o,
   output logic [3:0]          fc_rel_npd_o,
   input  logic                dl_up_i,
-  output logic [55:0]         params_o
+  output logic [126:0]        params_o
 );
 
-  assign params_o = {11'(CPL_TIMEOUT_DIV), 5'(HOST_MEM_ADDR_W), 8'(REVISION_ID), 16'(DEVICE_ID), 16'(VENDOR_ID)};
+  assign params_o = {7'(FC_NPH), 32'(MSI_ADDR), 32'(HOST_MEM_BASE), 11'(CPL_TIMEOUT_DIV), 5'(HOST_MEM_ADDR_W), 8'(REVISION_ID), 16'(DEVICE_ID), 16'(VENDOR_ID)};
 
   pcie_rc_tl #(
     .FC_NPH          (FC_NPH),

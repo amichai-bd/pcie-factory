@@ -55,3 +55,10 @@ waivers:
     rule: SYNCASYNCNET
     match: "'rst_i'"
     reason: rst_i resets the gpio clk_i side synchronously and reaches the receive-domain reset synchronizer, as the gpio HAS (clocks and resets) requires.
+  # pcie_rc stacks pcie_rc_tl and pcie_rc_seq over pcie_link (#377): the
+  # same rst_i net, seen from the rc top; rc_tl and rc_seq take it
+  # synchronously.
+  - file: rtl/rc/pcie_rc.sv
+    rule: SYNCASYNCNET
+    match: "'rst_i'"
+    reason: rst_i resets the link, rc_tl and rc_seq synchronously and reaches the pcs RX reset synchronizer (pcs crossing 2), as the rc, link, phy and pcs HAS require.

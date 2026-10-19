@@ -2,9 +2,14 @@
 // in the downstream role. Interfaces and behavior: wiki/src/arch/rc/HAS.md
 // and TL_SEQ.md; structure: wiki/src/rtl/rc/MAS.md.
 //
-// Wave-1 shell: the ports of the HAS with every output tied to its reset
-// value. The stack integration arrives in wave 3.
+// The stack (MAS, Microarchitecture): pcie_rc_seq (u_seq) drives
+// pcie_rc_tl (u_tl) over the tl-seq nets, and u_tl sits on the upper TLP
+// stream of pcie_link (u_link) in the downstream role. rc adds no logic of
+// its own: the nets between the three are named in the MAS for the e2e
+// testbench's taps.
 `default_nettype none
+
+`include "common_macros.svh"
 
 module pcie_rc #(
   parameter int unsigned FC_PH           = 8,              // posted header credits advertised, 1..127
@@ -20,7 +25,7 @@ module pcie_rc #(
   parameter logic [15:0] VENDOR_ID       = 16'h0000,       // placeholder, claims no assigned vendor
   parameter logic [15:0] DEVICE_ID       = 16'h0000,       // placeholder
   parameter logic [7:0]  REVISION_ID     = 8'h00,
-  parameter int unsigned PROGRAM         = 1               // rc_seq program id; 1 is MMIO (rc_seq MAS)
+  parameter int unsigned PROGRAM         = 1               // rc_seq program id; 1 is MMIO (rc_seq MAS, Programs)
 ) (
   // Clock and reset
   input  logic        clk_i,              // core clock, 125 MHz
@@ -53,29 +58,171 @@ module pcie_rc #(
   input  logic        ser_rx_elec_idle_i  // the line is in electrical idle // cdc-domain: ser_rx_clk_i
 );
 
-  // Inputs and parameters the shell does not use yet; the wave-3
-  // integration consumes them.
-  logic unused_inputs;
-  assign unused_inputs = ^{clk_i, rst_i, start_i, ser_tx_rxdet_i,
-                           FC_PH[0], FC_PD[0], FC_NPH[0], FC_NPD[0], TIMEOUT_DIV[0],
-                           ERR_TIMEOUT_DIV[0], CPL_TIMEOUT_DIV[0], HOST_MEM_ADDR_W[0],
-                           HOST_MEM_BASE, MSI_ADDR, VENDOR_ID, DEVICE_ID, REVISION_ID,
-                           PROGRAM[0]};
-  logic unused_rx_inputs;
-  assign unused_rx_inputs = ^{ser_rx_clk_i, ser_rx_data_i, ser_rx_elec_idle_i};
+  // HAS parameter ranges that link alone would not refuse: rc never
+  // advertises infinite posted or non-posted credits (HAS, Parameters).
+  `COMMON_ASSERT_PARAM(g_fc_ph_check, FC_PH >= 1 && FC_PH <= 127, "pcie_rc: FC_PH must be 1 to 127")
+  `COMMON_ASSERT_PARAM(g_fc_pd_check, FC_PD >= 8 && FC_PD <= 2047, "pcie_rc: FC_PD must be 8 to 2047")
+  `COMMON_ASSERT_PARAM(g_fc_nph_check, FC_NPH >= 1 && FC_NPH <= 127, "pcie_rc: FC_NPH must be 1 to 127")
+  `COMMON_ASSERT_PARAM(g_fc_npd_check, FC_NPD >= 2 && FC_NPD <= 2047, "pcie_rc: FC_NPD must be 2 to 2047")
 
-  // Reset values from the HAS: no run has ended, link down.
-  assign done_o             = 1'b0;
-  assign pass_o             = 1'b0;
-  assign fail_step_o        = 16'd0;
-  assign dl_up_o            = 1'b0;
-  assign dl_state_o         = 2'd0;
-  assign dl_err_o           = 7'd0;
-  assign link_up_o          = 1'b0;
-  assign ltssm_state_o      = 6'd0;
-  assign rcv_err_o          = 1'b0;
-  assign ser_tx_data_o      = 20'd0;
-  assign ser_tx_elec_idle_o = 1'b1;
+  // ------------------------------------------------ tl-seq nets (TL_SEQ.md)
+
+  logic                cmd_valid;
+  logic                cmd_ready;
+  common_pkg::t_rc_cmd cmd;
+  logic                rsp_valid;
+  common_pkg::t_rc_rsp rsp;
+  logic                msi_valid;
+  logic                msi_ready;
+  common_pkg::t_rc_msi msi;
+  logic                hot_reset_req;
+
+  // ------------------------------------------ rc_tl to link (dll HAS, upper)
+
+  logic        tlp_tx_valid;
+  logic        tlp_tx_ready;
+  logic [31:0] tlp_tx_data;
+  logic        tlp_tx_sop;
+  logic        tlp_tx_eop;
+  logic        tlp_rx_valid;
+  logic        tlp_rx_ready;
+  logic [31:0] tlp_rx_data;
+  logic        tlp_rx_sop;
+  logic        tlp_rx_eop;
+  logic [7:0]  fc_ph_avail;
+  logic [11:0] fc_pd_avail;
+  logic [7:0]  fc_nph_avail;
+  logic [11:0] fc_npd_avail;
+  logic [7:0]  fc_cplh_avail;
+  logic [11:0] fc_cpld_avail;
+  logic        fc_rel_p;
+  logic [3:0]  fc_rel_pd;
+  logic        fc_rel_np;
+  logic [3:0]  fc_rel_npd;
+
+  // dl_up_o and link_up_o are ports and also feed u_seq and u_tl.
+  logic        dl_up;
+  logic        link_up;
+
+  assign dl_up_o   = dl_up;
+  assign link_up_o = link_up;
+
+  pcie_rc_seq #(
+    .PROGRAM (PROGRAM)
+  ) u_seq (
+    .clk_i           (clk_i),
+    .rst_i           (rst_i),
+    .start_i         (start_i),
+    .done_o          (done_o),
+    .pass_o          (pass_o),
+    .fail_step_o     (fail_step_o),
+    .dl_up_i         (dl_up),
+    .link_up_i       (link_up),
+    .hot_reset_req_o (hot_reset_req),
+    .cmd_valid_o     (cmd_valid),
+    .cmd_ready_i     (cmd_ready),
+    .cmd_o           (cmd),
+    .rsp_valid_i     (rsp_valid),
+    .rsp_i           (rsp),
+    .msi_valid_i     (msi_valid),
+    .msi_ready_o     (msi_ready),
+    .msi_i           (msi)
+  );
+
+  pcie_rc_tl #(
+    .FC_NPH          (FC_NPH),
+    .CPL_TIMEOUT_DIV (CPL_TIMEOUT_DIV),
+    .HOST_MEM_ADDR_W (HOST_MEM_ADDR_W),
+    .HOST_MEM_BASE   (HOST_MEM_BASE),
+    .MSI_ADDR        (MSI_ADDR),
+    .VENDOR_ID       (VENDOR_ID),
+    .DEVICE_ID       (DEVICE_ID),
+    .REVISION_ID     (REVISION_ID)
+  ) u_tl (
+    .clk_i           (clk_i),
+    .rst_i           (rst_i),
+    .cmd_valid_i     (cmd_valid),
+    .cmd_ready_o     (cmd_ready),
+    .cmd_i           (cmd),
+    .rsp_valid_o     (rsp_valid),
+    .rsp_o           (rsp),
+    .msi_valid_o     (msi_valid),
+    .msi_ready_i     (msi_ready),
+    .msi_o           (msi),
+    .tlp_tx_valid_o  (tlp_tx_valid),
+    .tlp_tx_ready_i  (tlp_tx_ready),
+    .tlp_tx_data_o   (tlp_tx_data),
+    .tlp_tx_sop_o    (tlp_tx_sop),
+    .tlp_tx_eop_o    (tlp_tx_eop),
+    .tlp_rx_valid_i  (tlp_rx_valid),
+    .tlp_rx_ready_o  (tlp_rx_ready),
+    .tlp_rx_data_i   (tlp_rx_data),
+    .tlp_rx_sop_i    (tlp_rx_sop),
+    .tlp_rx_eop_i    (tlp_rx_eop),
+    .fc_ph_avail_i   (fc_ph_avail),
+    .fc_pd_avail_i   (fc_pd_avail),
+    .fc_nph_avail_i  (fc_nph_avail),
+    .fc_npd_avail_i  (fc_npd_avail),
+    .fc_cplh_avail_i (fc_cplh_avail),
+    .fc_cpld_avail_i (fc_cpld_avail),
+    .fc_rel_p_o      (fc_rel_p),
+    .fc_rel_pd_o     (fc_rel_pd),
+    .fc_rel_np_o     (fc_rel_np),
+    .fc_rel_npd_o    (fc_rel_npd),
+    .dl_up_i         (dl_up)
+  );
+
+  pcie_link #(
+    .FC_PH           (FC_PH),
+    .FC_PD           (FC_PD),
+    .FC_NPH          (FC_NPH),
+    .FC_NPD          (FC_NPD),
+    .FC_CPLH         (0),               // infinite: a root port that routes no peer-to-peer (HAS, Downstream role)
+    .FC_CPLD         (0),
+    .FC_RELEASE      (1),               // P and NP credits return when a request leaves rc_tl
+    .TIMEOUT_DIV     (TIMEOUT_DIV),
+    .ERR_TIMEOUT_DIV (ERR_TIMEOUT_DIV)
+  ) u_link (
+    .clk_i              (clk_i),
+    .rst_i              (rst_i),
+    .port_role_i        (1'b0),         // downstream port (Q3)
+    .tlp_tx_valid_i     (tlp_tx_valid),
+    .tlp_tx_ready_o     (tlp_tx_ready),
+    .tlp_tx_data_i      (tlp_tx_data),
+    .tlp_tx_sop_i       (tlp_tx_sop),
+    .tlp_tx_eop_i       (tlp_tx_eop),
+    .tlp_rx_valid_o     (tlp_rx_valid),
+    .tlp_rx_ready_i     (tlp_rx_ready),
+    .tlp_rx_data_o      (tlp_rx_data),
+    .tlp_rx_sop_o       (tlp_rx_sop),
+    .tlp_rx_eop_o       (tlp_rx_eop),
+    .fc_ph_avail_o      (fc_ph_avail),
+    .fc_pd_avail_o      (fc_pd_avail),
+    .fc_nph_avail_o     (fc_nph_avail),
+    .fc_npd_avail_o     (fc_npd_avail),
+    .fc_cplh_avail_o    (fc_cplh_avail),
+    .fc_cpld_avail_o    (fc_cpld_avail),
+    .fc_rel_p_i         (fc_rel_p),
+    .fc_rel_pd_i        (fc_rel_pd),
+    .fc_rel_np_i        (fc_rel_np),
+    .fc_rel_npd_i       (fc_rel_npd),
+    .dl_up_o            (dl_up),
+    .dl_state_o         (dl_state_o),
+    .dl_err_o           (dl_err_o),
+    .link_up_o          (link_up),
+    .ltssm_state_o      (ltssm_state_o),
+    .rcv_err_o          (rcv_err_o),
+    .retrain_req_i      (1'b0),         // no retrain command (HAS, Decisions)
+    .hot_reset_req_i    (hot_reset_req),
+    .disable_req_i      (1'b0),         // no Disabled command
+    .loopback_req_i     (1'b0),         // no loopback command
+    .ser_tx_data_o      (ser_tx_data_o),
+    .ser_tx_elec_idle_o (ser_tx_elec_idle_o),
+    .ser_tx_rxdet_i     (ser_tx_rxdet_i),
+    .ser_rx_clk_i       (ser_rx_clk_i),
+    .ser_rx_data_i      (ser_rx_data_i),
+    .ser_rx_elec_idle_i (ser_rx_elec_idle_i)
+  );
 
 endmodule
 

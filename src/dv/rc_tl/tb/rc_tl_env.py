@@ -4,12 +4,15 @@ One coroutine drives and checks: `tick()` applies the driven inputs for a
 cycle, waits for the falling edge of clk_i (after the rising edge that used
 them), steps the reference model with the same inputs and compares every
 output with it. So every cycle of every test is checked against the model:
-cmd_ready_o, rsp_valid_o, rsp_o and tlp_tx_* exactly, the outputs of the
-blocks not built yet at their reset values, and tlp_rx_ready_o.
+cmd_ready_o, rsp_valid_o, rsp_o, tlp_tx_*, msi_valid_o, msi_o, the credit
+releases fc_rel_* exactly, and tlp_rx_ready_o.
 
 The link side is driven here too: tlp_tx_ready_i (always, or at random),
 the credits, and the receive stream, which carries the TLPs the endpoint
-(tb/rc_tl_ep.py) answers each request with, or any TLP a test queues.
+(tb/rc_tl_ep.py) answers each request with, or any TLP a test queues. The
+stream keeps the link's credit contract: a non-posted TLP waits while
+FC_NPH of them are unreleased. Completions the DUT sends (its completer's)
+are collected in `cpls`, not answered.
 """
 
 from __future__ import annotations
@@ -26,14 +29,13 @@ from cocotb.triggers import FallingEdge, Timer
 from regress.funcov import Covergroup
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "models"))
-from pcie_rc_tl_model import (CFG_RD, CFG_WR, ENDPOINT_OPS, ERR_CLR,  # noqa: E402
-                              MEM_RD, MEM_WR, OK, ST_NAMES, Beat, Cmd, Inputs, Params, RcTl,
-                              Rsp, failed_check, timeout_cycles, tlp_str)
+from pcie_rc_tl_model import (CFG_RD, CFG_WR, CLS_NP, ENDPOINT_OPS, ERR_CLR,  # noqa: E402
+                              HOST_RD, HOST_WR, MEM_RD, MEM_WR, OK, READ, ST_NAMES, T_ATOMICS,
+                              T_CPL, T_CPLLK, Beat, Cmd, Inputs, Params, RcTl, Rsp, RxHdr,
+                              credit_class, failed_check, is_msg, kind_known, timeout_cycles,
+                              tlp_str)
 from tb.rc_tl_ep import Endpoint  # noqa: E402
 
-# Outputs of the blocks not built yet: 0 always (MAS, Reset and link down).
-QUIET_OUTPUTS = ("msi_valid_o", "msi_o", "fc_rel_p_o", "fc_rel_pd_o", "fc_rel_np_o",
-                 "fc_rel_npd_o")
 FC_INPUTS = {"fc_ph_avail_i": 0xFF, "fc_pd_avail_i": 0xFFF, "fc_nph_avail_i": 0xFF,
              "fc_npd_avail_i": 0xFFF, "fc_cplh_avail_i": 0xFF, "fc_cpld_avail_i": 0xFFF}
 
@@ -56,7 +58,7 @@ COV.coverpoint("status", bins=ALL_ST)
 COV.coverpoint("dl_up", bins={"down": 0, "up": 1})
 COV.cross("op_x_status", "op", "status", unreachable=(
     [(op, st) for op in LOCAL_OPS for st in ("UR", "CA", "CRS", "TIMEOUT", "LINK_DOWN", "BAD")]
-    + [(op, "OK") for op in ("6", "7", "undef")]
+    + [("undef", "OK")]
     + [("3", st) for st in ("UR", "CA", "CRS", "TIMEOUT", "BAD")]
     + [("2", "CRS")]))
 COV.cross("op_x_check", "op", "check", unreachable=(
@@ -107,6 +109,54 @@ COV_CPL.cross("status_x_outcome", "status", "outcome", unreachable=(
     + [("SC", "CRS"), ("UR", "BAD"), ("CA", "BAD")]))
 COV_CPL.cross("td_x_outcome", "td", "outcome")
 
+# Functional coverage of the inbound side (INBOUND.md): each received
+# request or message by kind, the outcome the checks and the routing gave
+# it and its error record bit; each completion the completer sent; each
+# HOST_* by its wait for host memory.
+INB_KINDS = ("mem_wr", "mem_rd", "memlk", "io", "cfg", "atomic", "msg", "unknown")
+INB_OUTS = ("write", "capture", "read", "ur", "urlk", "drop", "np_drop")
+COV_INB = Covergroup("rc_tl_inb")
+COV_INB.coverpoint("kind", bins={k: k for k in INB_KINDS})
+COV_INB.coverpoint("outcome", bins={o: o for o in INB_OUTS})
+COV_INB.coverpoint("err", bins={"none": 0, "mal": 1 << 6, "pois": 1 << 5, "in_ur": 1 << 11,
+                                "cor": 1 << 7, "nonfatal": 1 << 8, "fatal": 1 << 9,
+                                "msg": 1 << 10})
+COV_INB.coverpoint("hdr4", bins={"3dw": 0, "4dw": 1})
+COV_INB.coverpoint("td", bins={"0": 0, "1": 1})
+COV_INB.coverpoint("msi", bins={"captured": "captured", "dropped": "dropped"})
+COV_INB.cross("kind_x_outcome", "kind", "outcome", unreachable=(
+    [("mem_wr", o) for o in ("read", "ur", "urlk", "np_drop")]
+    + [("mem_rd", o) for o in ("write", "capture", "urlk", "drop")]
+    + [("memlk", o) for o in ("write", "capture", "read", "ur", "drop")]
+    + [(k, o) for k in ("io", "cfg") for o in ("write", "capture", "read", "urlk", "drop")]
+    + [("atomic", o) for o in ("write", "capture", "read", "urlk", "drop", "np_drop")]
+    + [("msg", o) for o in ("write", "capture", "read", "ur", "urlk", "np_drop")]
+    + [("unknown", o) for o in ("write", "capture", "read", "ur", "urlk")]))
+COV_CPLR = Covergroup("rc_tl_cplr")
+COV_CPLR.coverpoint("status", bins={"SC": 0, "UR": 1})
+COV_CPLR.coverpoint("locked", bins={"0": 0, "1": 1})
+COV_CPLR.coverpoint("dws", bins={"0": 0, "1": 1, "2..16": range(2, 17), "17..31": range(17, 32),
+                                 "32": 32})
+COV_CPLR.coverpoint("part", bins={"first": "first", "later": "later"})
+COV_CPLR.coverpoint("bc", bins={"4096": 0, "other": range(1, 4096)})
+COV_CPLR.cross("status_x_dws", "status", "dws", unreachable=(
+    [("UR", d) for d in ("1", "2..16", "17..31", "32")] + [("SC", "0")]))
+COV_HOST = Covergroup("rc_tl_host")
+COV_HOST.coverpoint("op", bins={"HOST_RD": HOST_RD, "HOST_WR": HOST_WR})
+COV_HOST.coverpoint("wait", bins={"0": 0, "1": 1, "2..15": range(2, 16), "16..33": range(16, 34)})
+COV_HOST.cross("op_x_wait", "op", "wait")
+
+
+def inb_kind(h: RxHdr) -> str:
+    if not kind_known(h.fmt, h.typ) or h.typ in (T_CPL, T_CPLLK):
+        return "unknown"
+    if is_msg(h.typ):
+        return "msg"
+    if h.typ in T_ATOMICS:
+        return "atomic"
+    return {0x00: "mem_wr" if h.wdata else "mem_rd", 0x01: "memlk", 0x02: "io",
+            0x04: "cfg", 0x05: "cfg"}[h.typ]
+
 
 class Env:
     """Drives pcie_rc_tl_tb through its ports and checks it every cycle."""
@@ -144,6 +194,13 @@ class Env:
         self.cpl_count = 0
         self.hooks: list = []         # f(env) -> keep, called before each cycle's drive
         self.np_sops = 0              # non-posted sops the link took since rst
+        self.cpls: list[list[int]] = []        # every completion the DUT sent
+        self.cpl_cycles: list[int] = []        # the cycle the link took each one's eop
+        self.np_out = 0               # non-posted TLPs sent and not released
+        self.rel_p: list[tuple[int, int]] = []     # (cycle, data credits) of each release
+        self.rel_np: list[tuple[int, int]] = []
+        self.msi_taken: list[tuple[int, int]] = []  # (offset, data) taken by msi_ready_i
+        self.prev_msi: tuple[int, int] | None = None   # the capture offered in this cycle
 
     @property
     def fe(self) -> RcTl:
@@ -165,10 +222,11 @@ class Env:
         prm = int(self.dut.params_o.value)
         p = Params(vendor_id=prm & 0xFFFF, device_id=(prm >> 16) & 0xFFFF,
                    revision_id=(prm >> 32) & 0xFF, host_mem_addr_w=(prm >> 40) & 0x1F,
-                   cpl_timeout_div=(prm >> 45) & 0x7FF)
+                   cpl_timeout_div=(prm >> 45) & 0x7FF, host_mem_base=(prm >> 56) & 0xFFFF_FFFF,
+                   msi_addr=(prm >> 88) & 0xFFFF_FFFF, fc_nph=(prm >> 120) & 0x7F)
         if p != self.p:
             # The model is in reset like the DUT: a fresh one with the
-            # parameters is the same state.
+            # parameters is the same state (host memory unknown until written).
             self.p = p
             self.m = RcTl(p)
         self.drv["rst_i"] = 0
@@ -186,9 +244,11 @@ class Env:
     def drive_link(self) -> None:
         d = self.drv
         if d["rst_i"] or not d["dl_up_i"]:
-            # The link abandons what it holds (dll HAS, link down).
+            # The link abandons what it holds and restarts its credits (dll
+            # HAS, link down).
             self.rx_cur, self.rx_q = None, deque()
             self.tx_tlp = []
+            self.np_out = 0
         d["tlp_tx_ready_i"] = int(self.tx_ready_p >= 1 or self.rng.random() < self.tx_ready_p)
         d["tlp_rx_valid_i"] = d["tlp_rx_sop_i"] = d["tlp_rx_eop_i"] = 0
         if self.rx_cur is None and self.rx_q:
@@ -196,6 +256,11 @@ class Env:
             if idle > 0:
                 self.rx_q[0] = (idle - 1, tlp)
                 return
+            b0 = tlp[0] & 0xFF
+            np = credit_class(b0 >> 5, b0 & 0x1F) == CLS_NP
+            if np and self.np_out >= self.p.fc_nph:
+                return                   # no non-posted header credit
+            self.np_out += np
             self.rx_q.popleft()
             self.rx_cur, self.rx_idx = tlp, 0
         if self.rx_cur is None:
@@ -220,14 +285,19 @@ class Env:
         if b.sop:
             self.tx_tlp = []
             self.tx_sop_cycles.append(self.cycle)
-            if b.data & 0xFF != 0x40:
+            if b.data & 0xFF in (0x00, 0x04, 0x44):      # MEM_RD, CFG_RD, CFG_WR
                 self.np_sops += 1
         self.tx_tlp.append(b.data)
         if b.eop:
             self.tx_eop_cycles.append(self.cycle)
             tlp = self.tx_tlp
-            self.sent.append(tlp)
             self.tx_tlp = []
+            if tlp[0] & 0x1F in (T_CPL, T_CPLLK):
+                # The completer's completion: collected, not answered.
+                self.cpls.append(tlp)
+                self.cpl_cycles.append(self.cycle)
+                return
+            self.sent.append(tlp)
             if self.answer:
                 for cpl in self.ep.receive(tlp):
                     self.queue_rx(cpl, self.rng.randint(*self.answer_delay))
@@ -254,44 +324,80 @@ class Env:
             rx_valid=applied["tlp_rx_valid_i"], rx_data=applied["tlp_rx_data_i"],
             rx_sop=applied["tlp_rx_sop_i"], rx_eop=applied["tlp_rx_eop_i"],
             fc_ph=applied["fc_ph_avail_i"], fc_pd=applied["fc_pd_avail_i"],
-            fc_nph=applied["fc_nph_avail_i"], fc_npd=applied["fc_npd_avail_i"]))
+            fc_nph=applied["fc_nph_avail_i"], fc_npd=applied["fc_npd_avail_i"],
+            fc_cplh=applied["fc_cplh_avail_i"], fc_cpld=applied["fc_cpld_avail_i"],
+            msi_ready=applied["msi_ready_i"]))
         beat, take = o["beat"], o["take"]
         where = f"cycle {self.cycle}"
         self.expect(where, "cmd_ready_o", o["cmd_ready"])
         self.expect(where, "rsp_valid_o", int(beat is not None))
         got = int(d.rsp_o.value)
         want = beat.pack() if beat is not None else 0
-        assert got == want, (f"{where}: rsp_o expected {beat} got {Rsp.unpack(got)}"
-                             + (f" for {cmd}" if take else ""))
+        # Data bits from host memory never written are unspecified.
+        care = ~((~beat.known & 0xFFFF_FFFF) << 1) if beat is not None else -1
+        assert (got ^ want) & care == 0, (f"{where}: rsp_o expected {beat} got {Rsp.unpack(got)}"
+                                          + (f" for {cmd}" if take else ""))
         tx = o["tx"]
         got_tx = (int(d.tlp_tx_valid_o.value), int(d.tlp_tx_data_o.value),
                   int(d.tlp_tx_sop_o.value), int(d.tlp_tx_eop_o.value))
+        got_tx = (got_tx[0], (got_tx[1] & tx.known) | (tx.data & ~tx.known & 0xFFFF_FFFF),
+                  got_tx[2], got_tx[3])
         assert got_tx == (tx.valid, tx.data, tx.sop, tx.eop), (
             f"{where}: tlp_tx valid/data/sop/eop expected {tx.valid}/{tx.data:08x}/{tx.sop}/"
             f"{tx.eop} got {got_tx[0]}/{got_tx[1]:08x}/{got_tx[2]}/{got_tx[3]}")
-        for name in QUIET_OUTPUTS:
-            self.expect(where, name, 0)
+        msi = o["msi"]
+        self.expect(where, "msi_valid_o", int(msi is not None))
+        self.expect(where, "msi_o", 0 if msi is None else (msi[0] << 32) | msi[1])
+        for name, rel in (("p", o["rel_p"]), ("np", o["rel_np"])):
+            self.expect(where, f"fc_rel_{name}_o", int(rel is not None))
+            self.expect(where, f"fc_rel_{name}d_o", rel or 0)
+        if o["rel_np"] is not None:
+            self.np_out = max(0, self.np_out - 1)
+            self.rel_np.append((self.cycle, o["rel_np"]))
+        if o["rel_p"] is not None:
+            self.rel_p.append((self.cycle, o["rel_p"]))
+        if self.prev_msi is not None and applied["msi_ready_i"]:
+            self.msi_taken.append(self.prev_msi)
+        self.prev_msi = msi
         self.expect(where, "tlp_rx_ready_o", 1 - applied["rst_i"])
         self.tx_taken(applied["tlp_tx_ready_i"], applied["dl_up_i"] and not applied["rst_i"])
         self.tx_prev = tx
         if o.get("cpl") is not None:
             self.rx_hdr_cycles.append(self.cycle)
             self.sample_cpl(*o["cpl"])
+        if o.get("rx") is not None:
+            rx = o["rx"]
+            COV_INB.sample(kind=inb_kind(rx.h), outcome=rx.out, err=rx.err, hdr4=rx.h.fmt & 1,
+                           td=rx.h.td)
+        if o.get("msi_push") is not None:
+            COV_INB.sample(msi="dropped" if o["events"] & (1 << 12) else "captured")
+        if o.get("cpl_sent") is not None:
+            e, t = o["cpl_sent"]
+            b = t[0] & 0xFF
+            COV_CPLR.sample(status=(t[1] >> 21) & 7, locked=int(b & 0x1F == T_CPLLK),
+                            dws=(t[0] >> 24) & 0xFF if b & 0x40 else 0,
+                            part="first" if e.kind != READ or self.m.cp.i == 0 else "later",
+                            bc=((t[1] >> 8) & 0xF00) | (t[1] >> 24))
         if applied["rst_i"]:
             self.pending = None
         if take:
-            self.pending = (cmd, check, applied["dl_up_i"], len(self.beats), self.cpl_count)
+            self.pending = (cmd, check, applied["dl_up_i"], len(self.beats), self.cpl_count,
+                            self.cycle)
         if beat is not None:
             self.beats.append(beat)
             self.beat_cycles.append(self.cycle)
             if take:
                 self.takes.append((self.cycle, cmd, beat))
             if beat.last and self.pending is not None:
-                c, chk, up, first, cpls = self.pending
+                c, chk, up, first, cpls, at = self.pending
                 self.pending = None
                 beats = self.beats[first:]
                 self.results.append((c, beats))
                 self.sample(c, chk, beats, up, self.cpl_count - cpls)
+                if c.op in (HOST_RD, HOST_WR) and chk == 0:
+                    # Uncontended, the beat is 1 (HOST_WR) or 2 (HOST_RD)
+                    # cycles after the take's (INBOUND.md, Host memory).
+                    COV_HOST.sample(op=c.op, wait=self.cycle - at - (2 if c.op == HOST_RD else 1))
         self.cycle += 1
         return take, beat
 

@@ -779,3 +779,266 @@ def test_qw_aligned_two_dw_any_byte_enables():
              address=0x8000_0008)
     sh.observe_tx(rd.encode())
     assert not sh.errors
+
+
+# ----------------------------------------------------------------------------
+# Rules a bench may tighten, and the poisoned and CRS rules (#377)
+def _routed_shadow(**kw):
+    """As _bare_shadow, with the memory window at WINDOW, apart from host
+    memory, so host memory is served."""
+    sh = HostShadow(**kw)
+    sh.observe_dl_up(True)
+    for idx, value in ((6, 0x01_01_00), (8, WINDOW), (1, 0x6)):
+        sh.observe_command(HDR_WR, 4 * idx, data=value)
+        sh.observe_result("OK", 0, True)
+    return sh
+
+
+def _record(sh, value):
+    sh.tick(100)
+    sh.observe_command(ERR_RD)
+    sh.observe_result("OK", value, True)
+
+
+@pytest.mark.parametrize("addr, bit", [(0x100, 5), (0x2000_0000, 11)])
+def test_poisoned_read(addr, bit):
+    """A poisoned endpoint read that routing would serve gets an
+    Unsupported Request completion and bit 5 only; one routing refuses
+    gets it too, with bit 11 only (Unsupported Request outranks
+    poisoned)."""
+    sh = _routed_shadow(strict=False)
+    rd = Tlp(fmt=0, type=0, ep=1, length=1, requester_id=0x0100, tag=3, first_be=0xF, address=addr)
+    sh.observe_rx(rd.encode())
+    assert any("poisoned MRd" in e for e in sh.errors)
+    sh.errors.clear()
+    sh.observe_tx(completion(0, 0x0100, 3, CPL_UR, 4, 0).encode())
+    _record(sh, 1 << bit)
+    sh.finish()
+    assert not sh.errors
+    other = 11 if bit == 5 else 5
+    _record(sh, 1 << bit | 1 << other)
+    assert sh.errors and "none outside" in sh.errors[-1]
+
+
+def test_poisoned_read_served_with_data_raises():
+    sh = _routed_shadow(strict=False)
+    rd = Tlp(fmt=0, type=0, ep=1, length=1, requester_id=0x0100, tag=3, first_be=0xF, address=0x100)
+    sh.observe_rx(rd.encode())
+    sh.errors.clear()
+    sh.observe_tx(completion(0, 0x0100, 3, CPL_SC, 4, 0, bytes(4)).encode())
+    assert sh.errors and "predicted 001" in sh.errors[-1]
+
+
+def test_poisoned_write_dropped():
+    """A poisoned write into host memory is not stored; bit 5 only."""
+    sh = _routed_shadow(strict=False)
+    sh.observe_command(HOST_WR, 0x100, data=0x1111_1111)
+    sh.observe_result("OK", 0, True)
+    wr = Tlp(fmt=0b010, type=0, ep=1, length=1, requester_id=0x0100, first_be=0xF,
+             address=0x100, data=bytes(4))
+    sh.observe_rx(wr.encode())
+    sh.errors.clear()
+    _record(sh, 1 << 5)
+    sh.observe_command(HOST_RD, 0x100)
+    sh.observe_result("OK", 0x1111_1111, True)
+    sh.finish()
+    assert not sh.errors
+
+
+def _sent_read(sh, tag=0):
+    sh.observe_command(MEM_RD, 0x8000_0000)
+    sh.observe_tx(Tlp(fmt=0, type=0, length=1, requester_id=0, tag=tag, first_be=0xF,
+                      address=0x8000_0000).encode())
+
+
+def test_crs_on_memory_read_is_bad_and_malformed():
+    """CRS answers configuration requests only: on a memory read the
+    result is BAD and bit 6 is surely set, bit 2 never."""
+    sh = _routed_shadow(strict=False)
+    _sent_read(sh)
+    sh.observe_rx(completion(0x0100, 0, 0, 0b010, 4, 0).encode())
+    sh.errors.clear()                      # the endpoint broke a rule: reported
+    sh.observe_result("BAD", 0, True)
+    _record(sh, 1 << 6)
+    assert not sh.errors
+    _record(sh, 0)
+    assert sh.errors and "bits 0x0040 set" in sh.errors[-1]
+    sh.errors.clear()
+    _record(sh, 1 << 6 | 1 << 2)
+    assert sh.errors and "none outside" in sh.errors[-1]
+
+
+def _msi_rx(sh, n):
+    wr = Tlp(fmt=0b010, type=0, length=1, requester_id=0x0100, first_be=0xF,
+             address=MSI_ADDR + MSI_OFFSET, data=(0x42).to_bytes(4, "little"))
+    for _ in range(n):
+        sh.observe_rx(wr.encode())
+        sh.tick(1)
+
+
+def test_msi_drop_exact_depth():
+    """With the depth known exactly, the fifth MSI with four held is surely
+    dropped: bit 12 must be set and the fifth capture is not predicted."""
+    sh = _routed_shadow(msi_depth_exact=True)
+    _msi_rx(sh, 5)
+    assert sh.pending_msi == 4
+    _record(sh, 1 << 12)
+    for _ in range(4):
+        sh.observe_msi(MSI_OFFSET >> 2, 0x42)
+    with pytest.raises(HostCheckError, match="with none predicted"):
+        sh.observe_msi(MSI_OFFSET >> 2, 0x42)
+    sh2 = _routed_shadow(msi_depth_exact=True, strict=False)
+    _msi_rx(sh2, 5)
+    _record(sh2, 0)
+    assert sh2.errors and "bits 0x1000 set" in sh2.errors[-1]
+
+
+def test_msi_take_in_the_arrival_cycle_makes_room():
+    """A take in the cycle the fifth MSI arrives makes room: nothing is
+    dropped and bit 12 may not be set."""
+    sh = _routed_shadow(msi_depth_exact=True, strict=False)
+    _msi_rx(sh, 4)
+    wr = Tlp(fmt=0b010, type=0, length=1, requester_id=0x0100, first_be=0xF,
+             address=MSI_ADDR + MSI_OFFSET, data=(0x43).to_bytes(4, "little"))
+    sh.observe_rx(wr.encode())
+    sh.observe_msi(MSI_OFFSET >> 2, 0x42)
+    sh.tick(1)
+    assert sh.pending_msi == 4
+    _record(sh, 1 << 12)
+    assert sh.errors and "none outside" in sh.errors[-1]
+
+
+@pytest.mark.parametrize("op", [CFG_RD, CFG_WR, MEM_WR])
+def test_zero_first_be_refused(op):
+    """With the bench's rule, a zero First DW BE on a configuration request
+    or a memory write must be refused; sent, nothing asks for it. A 1-DW
+    memory read with it may still go."""
+    addr = 1 << 20 if op in (CFG_RD, CFG_WR) else 0x8000_0000
+    sh = _routed_shadow(zero_be_refused=(CFG_RD, CFG_WR, MEM_WR), strict=False)
+    sh.observe_command(op, addr, 1, 0, 0)
+    sh.observe_result("LOCAL_UR", 0, True)
+    assert not sh.errors
+    sh.observe_command(op, addr, 1, 0, 0)
+    sh.observe_result("OK", 0, True)
+    assert sh.errors and "predicted LOCAL_UR" in sh.errors[-1]
+    sh = _routed_shadow(zero_be_refused=(CFG_RD, CFG_WR, MEM_WR))
+    sh.observe_command(MEM_RD, 0x8000_0000, 1, 0, 0)
+    sh.observe_tx(Tlp(fmt=0, type=0, length=1, requester_id=0, tag=0, first_be=0,
+                      address=0x8000_0000).encode())
+    assert not sh.errors
+
+
+def test_completer_id_before_the_first_configuration_write():
+    """A configuration read before any configuration write may complete
+    with bus and device 0 (not yet captured) or the addressed ones; after
+    a write, only the addressed ones."""
+    sh = _routed_shadow(strict=False)
+    addr = 1 << 20                                      # bus 1, device 0, register 0
+    for tag, cid, ok in ((0, 0x0000, True), (1, 0x0100, True), (2, 0x0200, False)):
+        sh.observe_command(CFG_RD, addr)
+        sh.observe_tx(Tlp(fmt=0, type=0b00100, length=1, requester_id=0, tag=tag, first_be=0xF,
+                          cfg_bus=1).encode())
+        sh.observe_rx(completion(cid, 0, tag, CPL_SC, 4, 0, bytes(4)).encode())
+        sh.observe_result("OK", 0, True)
+        assert bool(sh.errors) != ok, (cid, sh.errors)
+        sh.errors.clear()
+    sh.observe_command(CFG_WR, addr | 0x4, data=0)
+    sh.observe_tx(Tlp(fmt=0b010, type=0b00100, length=1, requester_id=0, tag=3, first_be=0xF,
+                      cfg_bus=1, cfg_reg=4, data=bytes(4)).encode())
+    sh.observe_rx(completion(0x0100, 0, 3, CPL_SC, 4, 0).encode())
+    sh.observe_result("OK", 0, True)
+    sh.observe_command(CFG_RD, addr)
+    sh.observe_tx(Tlp(fmt=0, type=0b00100, length=1, requester_id=0, tag=4, first_be=0xF,
+                      cfg_bus=1).encode())
+    sh.observe_rx(completion(0x0000, 0, 4, CPL_SC, 4, 0, bytes(4)).encode())
+    assert sh.errors and "expected 0x0100" in sh.errors[-1]
+
+
+def test_malformed_completion_ends_read_bad():
+    """A successful completion with a wrong Byte Count is malformed for the
+    root port (rc_tl MAS, completion matching): the read ends BAD at once,
+    bit 6 surely set, and a later completion for it is unexpected (bit 4)
+    and still the endpoint's error."""
+    sh = _routed_shadow(strict=False)
+    _sent_read(sh)
+    sh.observe_rx(completion(0x0100, 0, 0, CPL_SC, 8, 0, bytes(4)).encode())
+    sh.errors.clear()                      # the endpoint broke a rule: reported
+    sh.observe_result("BAD", 0, True)
+    _record(sh, 1 << 6)
+    assert not sh.errors
+    _record(sh, 0)
+    assert sh.errors and "bits 0x0040 set" in sh.errors[-1]
+    sh.errors.clear()
+    sh.observe_rx(completion(0x0100, 0, 0, CPL_SC, 4, 0, bytes(4)).encode())
+    assert len(sh.errors) == 1 and "endpoint: unexpected completion" in sh.errors[0]
+    sh.errors.clear()
+    _record(sh, 1 << 6 | 1 << 4)
+    assert not sh.errors
+
+
+def test_malformed_completion_reported_ok_raises():
+    sh = _routed_shadow(strict=False)
+    _sent_read(sh)
+    sh.observe_rx(completion(0x0100, 0, 0, CPL_SC, 4, 0x10, bytes(4)).encode())
+    sh.errors.clear()
+    sh.observe_result("OK", 0, True)
+    assert sh.errors and "predicted BAD" in sh.errors[-1]
+
+
+def test_poisoned_ur_completion_is_ur():
+    """The status row decides first: a poisoned Unsupported Request
+    completion is UR with bit 0, never bit 5."""
+    sh = _routed_shadow(strict=False)
+    _sent_read(sh)
+    sh.observe_rx(completion(0x0100, 0, 0, CPL_UR, 4, 0, ep=1).encode())
+    sh.observe_result("UR", 0, True)
+    _record(sh, 1 << 0)
+    assert not sh.errors
+    _record(sh, 1 << 0 | 1 << 5)
+    assert sh.errors and "none outside 0x0001" in sh.errors[-1]
+
+
+def test_poisoned_malformed_completion_is_bit_6():
+    """Malformed outranks poisoned: bit 6, not bit 5."""
+    sh = _routed_shadow(strict=False)
+    _sent_read(sh)
+    sh.observe_rx(completion(0x0100, 0, 0, CPL_SC, 8, 0, bytes(4), ep=1).encode())
+    sh.errors.clear()
+    sh.observe_result("BAD", 0, True)
+    _record(sh, 1 << 6)
+    assert not sh.errors
+    _record(sh, 1 << 6 | 1 << 5)
+    assert sh.errors and "none outside 0x0040" in sh.errors[-1]
+
+
+def test_completer_id_mismatch_sets_no_bit_6():
+    """A wrong Completer ID is not among the root port's malformed checks:
+    bit 6 must stay clear."""
+    sh = _routed_shadow(strict=False)
+    _sent_read(sh)
+    sh.observe_rx(completion(0x0200, 0, 0, CPL_SC, 4, 0, bytes(4)).encode())
+    sh.errors.clear()
+    sh.observe_result("OK", 0, True)
+    _record(sh, 1 << 6)
+    assert sh.errors and "none outside 0x0000" in sh.errors[-1]
+
+
+@pytest.mark.parametrize("op", [CFG_RD, CFG_WR])
+def test_poisoned_ur_configuration_completion_is_ur(op):
+    """The status row decides first for a configuration request too: an
+    Unsupported Request completion with EP set is UR with bit 0, never
+    BAD or bit 5; any other result raises."""
+    for result, ok in (("UR", True), ("BAD", False), ("OK", False)):
+        sh = _routed_shadow(strict=False)
+        sh.observe_command(op, 1 << 20, data=0)
+        data = bytes(4) if op == CFG_WR else b""
+        sh.observe_tx(Tlp(fmt=0b010 if data else 0, type=0b00100, length=1, requester_id=0,
+                          tag=0, first_be=0xF, cfg_bus=1, data=data).encode())
+        sh.observe_rx(completion(0x0100, 0, 0, CPL_UR, 4, 0, ep=1).encode())
+        sh.observe_result(result, 0, True)
+        assert bool(sh.errors) != ok, (result, sh.errors)
+        if ok:
+            _record(sh, 1 << 0)
+            assert not sh.errors
+            _record(sh, 1 << 0 | 1 << 5)
+            assert sh.errors and "none outside 0x0001" in sh.errors[-1]

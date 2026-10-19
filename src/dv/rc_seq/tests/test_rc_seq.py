@@ -309,6 +309,12 @@ async def program_random_errors(dut):
     await _program(dut, 3, 3, False)
 
 
+@cocotb.test()
+async def program_random_inject(dut):
+    """L1, PROGRAM 5."""
+    await _program(dut, 5, 3, False)
+
+
 async def _timeout(env: Env, fault: str, label: str) -> None:
     """With the stand-in fault ``fault``, the program's wait or polling loop
     at ``label`` runs out after its package timeout or limit and the run

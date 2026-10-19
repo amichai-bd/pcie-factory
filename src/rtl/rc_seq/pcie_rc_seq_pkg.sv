@@ -149,6 +149,14 @@ package pcie_rc_seq_pkg;
   localparam logic [31:0] DB_RING     = 32'h0000_0F0C;
   localparam logic [31:0] NO_ANSWER   = 32'h0000_0F10;
   localparam logic [31:0] ERR_MASK    = 32'h0000_1FFF;  // error record bits 12:0
+  // INJECT: BAR0 offsets whose traffic the e2e bench changes on the line
+  // (PROGRAMS: Injected errors).
+  localparam logic [31:0] INJ_CA         = 32'h0000_0100;  // completion made Completer Abort
+  localparam logic [31:0] INJ_POISONED   = 32'h0000_0104;  // completion poisoned
+  localparam logic [31:0] INJ_MALFORMED  = 32'h0000_0108;  // completion with a wrong Byte Count
+  localparam logic [31:0] INJ_UNEXPECTED = 32'h0000_010C;  // completion followed by a stale copy
+  localparam logic [31:0] INJ_FATAL      = 32'h0000_0110;  // write made malformed toward the endpoint
+  localparam logic [31:0] INJ_RECORD     = 32'h0000_0272;  // bits 1, 4, 5, 6 and 9
 
   // SELFTEST (PROGRAMS: Self-test): its timeouts, hold and loop limit,
   // the host-memory offsets whose writes and reads the rc_seq testbench's
@@ -172,6 +180,7 @@ package pcie_rc_seq_pkg;
   localparam int unsigned PROG_DMA_MSI  = 2;
   localparam int unsigned PROG_ERRORS   = 3;
   localparam int unsigned PROG_SELFTEST = 4;
+  localparam int unsigned PROG_INJECT   = 5;
 
   // ---------------------------------------------------- step constructors
 
@@ -542,6 +551,41 @@ package pcie_rc_seq_pkg;
     return p;
   endfunction
 
+  // INJECT, J1 to J8 (PROGRAMS: Injected errors): the bench changes the
+  // traffic of the INJ_* offsets on the line.
+  function automatic t_prog prog_inject();
+    t_prog p;
+    p = sec_enum(PROG_EMPTY);
+    // J1: error reporting enables, record clear
+    p = put(p, step_wr_be(common_pkg::RC_OP_CFG_WR, ep(12'h078), 32'h0000_001F, 4'h1));
+    p = put(p, step_wr(common_pkg::RC_OP_ERR_CLR, 32'd0, ERR_MASK));
+    // J2: the BAR0 words the reads return
+    for (int k = 0; k < 4; k++) begin
+      p = put(p, step_wr(common_pkg::RC_OP_MEM_WR, BAR0 + INJ_CA + 32'(4 * k),
+                         mmio_pattern(6'(k + 40))));
+    end
+    // J3 to J5: Completer Abort, poisoned and malformed completions
+    p = put(p, step_rd_st(common_pkg::RC_OP_MEM_RD, BAR0 + INJ_CA, common_pkg::RC_ST_CA));
+    p = put(p, step_rd_st(common_pkg::RC_OP_MEM_RD, BAR0 + INJ_POISONED, common_pkg::RC_ST_BAD));
+    p = put(p, step_rd_st(common_pkg::RC_OP_MEM_RD, BAR0 + INJ_MALFORMED, common_pkg::RC_ST_BAD));
+    // J6: a good completion, then a stale copy (unexpected)
+    p = put(p, step_rd(common_pkg::RC_OP_MEM_RD, BAR0 + INJ_UNEXPECTED));
+    p = put(p, step_expect(5'd0, mmio_pattern(6'd43), FULL));
+    // J7: a write the endpoint receives malformed: its ERR_FATAL
+    p = put(p, step_wr(common_pkg::RC_OP_MEM_WR, BAR0 + INJ_FATAL, 32'hFA7A_1000));
+    // J8: bits 1, 4, 5, 6 and 9 and no other; the record clears; traffic
+    // goes on
+    p = poll_err(p, 32'h0000_0210);
+    p = put(p, step_expect(5'd0, INJ_RECORD, ERR_MASK));
+    p = put(p, step_wr(common_pkg::RC_OP_ERR_CLR, 32'd0, ERR_MASK));
+    p = put(p, step_rd(common_pkg::RC_OP_MEM_RD, BAR0 + INJ_CA));
+    p = put(p, step_expect(5'd0, mmio_pattern(6'd40), FULL));
+    p = put(p, step_rd(common_pkg::RC_OP_ERR_RD, 32'd0));
+    p = put(p, step_expect(5'd0, 32'd0, ERR_MASK));
+    p = put(p, step_done());
+    return p;
+  endfunction
+
   // ERRORS and the indices of its forward targets R11 and R14, which a
   // first build finds and a second one uses.
   typedef struct packed {
@@ -749,6 +793,7 @@ package pcie_rc_seq_pkg;
   localparam t_err_build ERR_PASS1    = prog_errors(16'd0, 16'd0);
   localparam t_err_build ERR_PASS2    = prog_errors(ERR_PASS1.r11, ERR_PASS1.r14);
   localparam t_prog      PRG_ERRORS   = ERR_PASS2.p;
+  localparam t_prog      PRG_INJECT   = prog_inject();
   localparam t_prog      SELF_PASS1     = prog_selftest(16'd0);
   localparam t_prog      PRG_SELFTEST = prog_selftest(SELF_PASS1.n);
 
@@ -761,6 +806,7 @@ package pcie_rc_seq_pkg;
       PROG_DMA_MSI:  return PRG_DMA_MSI;
       PROG_ERRORS:   return PRG_ERRORS;
       PROG_SELFTEST: return PRG_SELFTEST;
+      PROG_INJECT:   return PRG_INJECT;
       default:       return PROG_EMPTY;
     endcase
   endfunction

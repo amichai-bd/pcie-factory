@@ -83,6 +83,7 @@ HDR_REGS = {
 
 E_UR_CPL, E_CA, E_CRS, E_TIMEOUT = 0, 1, 2, 3
 E_COR, E_NONFATAL, E_INBOUND_UR, E_MSI_DROP = 7, 8, 11, 12
+E_UNEXPECTED, E_POISONED, E_MALFORMED, E_FATAL = 4, 5, 6, 9
 
 
 def be_mask(be: int) -> int:
@@ -132,6 +133,7 @@ class StandIn:
         self.linkdown_after = (rng.randint(1, 4) if linkdown_after is None else linkdown_after)
         self.host = bytearray(HOST_BYTES)
         self.bar0 = {}
+        self.injected: set[int] = set()  # INJECT offsets already changed
         self.ncmd = 0                   # commands taken
         self.ntake = 0                  # MSI captures taken
         self.log: list[tuple] = []      # (cycle, command number, Command, statuses)
@@ -391,6 +393,9 @@ class StandIn:
         if off2 is not None:                     # BAR2: reads 0, writes ignored
             n = c.len if c.op == m.MEM_RD else 1
             return Result([(m.OK, 0)] * n, self._ep_delay())
+        inj = self._inject(now, c, off)
+        if inj is not None:
+            return inj
         if c.op == m.MEM_WR:
             self._bar0_write(off, c.data, c.fbe)
             return Result([(m.OK, 0)], self._local_delay())
@@ -400,6 +405,35 @@ class StandIn:
             return r
         return Result([(m.OK, self.bar0.get(off + 4 * k, 0)) for k in range(c.len)],
                       self._ep_delay())
+
+    def _inject(self, now: int, c: Command, off: int) -> Result | None:
+        """What the rc e2e bench makes of INJECT's traffic on the line
+        (PROGRAMS, Injected errors): a Completer Abort, poisoned or
+        malformed completion, a good one followed by a stale copy, and a
+        write the endpoint receives malformed (its ERR_FATAL, with Fatal
+        Error Reporting on)."""
+        rd_offs = (m.INJ_CA, m.INJ_POISONED, m.INJ_MALFORMED, m.INJ_UNEXPECTED)
+        hit = off in rd_offs if c.op == m.MEM_RD else (c.op == m.MEM_WR and off == m.INJ_FATAL)
+        if self.mode != "m4" or c.len != 1 or not hit or off in self.injected:
+            return None
+        self.injected.add(off)                      # the bench changes the first only
+        bad = {m.INJ_CA: (m.CA, E_CA), m.INJ_POISONED: (m.BAD, E_POISONED),
+               m.INJ_MALFORMED: (m.BAD, E_MALFORMED)}
+        if c.op == m.MEM_RD and off in bad:
+            status, bit = bad[off]
+            r = Result([(status, 0)], self._ep_delay())
+            r.on_done.append(lambda t: self.set_err(bit))
+            return r
+        if c.op == m.MEM_RD and off == m.INJ_UNEXPECTED:
+            r = Result([(m.OK, self.bar0.get(off, 0))], self._ep_delay())
+            r.on_done.append(lambda t: self._at(t + self.rng.randint(1, 20),
+                                                lambda n: self.set_err(E_UNEXPECTED)))
+            return r
+        if c.op == m.MEM_WR and off == m.INJ_FATAL:
+            if self.ep[0x78] & 4 and not self.no_msgs:
+                self._at(now + self.rng.randint(20, 80), lambda n: self.set_err(E_FATAL))
+            return Result([(m.OK, 0)], self._local_delay())
+        return None
 
     def _bar0_write(self, off: int, data: int, be: int) -> None:
         old = self.bar0.get(off, 0)

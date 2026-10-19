@@ -118,6 +118,77 @@ tests:
     seeds: 2
     timeout_s: 600
     params: {CPL_TIMEOUT_DIV: 1024}
+  # Inbound: HOST_*, posted writes, the completer, MSI capture, messages,
+  # the receive checks, ordering and priority, link down; random traffic.
+  - name: host_cmds
+    module: tests.test_rc_tl_inb
+    testcase: host_cmds
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+  - name: host_cmds_aw8
+    module: tests.test_rc_tl_inb
+    testcase: host_cmds
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+    params: {HOST_MEM_ADDR_W: 8, HOST_MEM_BASE: 0x300}
+  - name: host_cmds_aw16
+    module: tests.test_rc_tl_inb
+    testcase: host_cmds
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+    params: {HOST_MEM_ADDR_W: 16, HOST_MEM_BASE: 0x10000}
+  - name: inb_write
+    module: tests.test_rc_tl_inb
+    testcase: inb_write
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+  - name: inb_host_edge
+    module: tests.test_rc_tl_inb
+    testcase: inb_host_edge
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+    params: {HOST_MEM_ADDR_W: 8, HOST_MEM_BASE: 0x300}
+  - name: inb_read
+    module: tests.test_rc_tl_inb
+    testcase: inb_read
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+  - name: msi_capture
+    module: tests.test_rc_tl_inb
+    testcase: msi_capture
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+  - name: inb_msg
+    module: tests.test_rc_tl_inb
+    testcase: inb_msg
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+  - name: inb_malformed
+    module: tests.test_rc_tl_inb
+    testcase: inb_malformed
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+  - name: inb_order
+    module: tests.test_rc_tl_inb
+    testcase: inb_order
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+  - name: inb_link_down
+    module: tests.test_rc_tl_inb
+    testcase: inb_link_down
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+  - name: random_inb_aw8
+    module: tests.test_rc_tl_inb
+    testcase: random_inb
+    top: pcie_rc_tl_tb
+    timeout_s: 600
+    params: {HOST_MEM_ADDR_W: 8, HOST_MEM_BASE: 0xF00, FC_NPH: 1}
+  - name: random_inb
+    module: tests.test_rc_tl_inb
+    testcase: random_inb
+    top: pcie_rc_tl_tb
+    timeout_s: 600
   # Every parameter check fires on illegal values; the boundaries pass.
   - name: param_limits
     module: tests.test_rc_tl_params
