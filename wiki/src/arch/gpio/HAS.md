@@ -156,9 +156,25 @@ Any other word is unknown: it pulses `rcv_err_o` and is ignored.
   slot included, resets it to 0. Each end sends bit 8 only once its own receiver is aligned, so
   either condition shows that both directions work.
 - **Down.** An up link goes down, back to training (or not aligned), when
-  the receiver loses alignment, a TRAIN word arrives (the partner restarted),
-  or a [Hot Reset](#hot-reset) starts. Packet slots received while not up are
-  dropped silently.
+  the receiver loses alignment, a TRAIN word with bit 8 clear arrives (the
+  partner restarted), or a [Hot Reset](#hot-reset) starts. A TRAIN word
+  with bit 8 set is ignored while up: it is one the partner sent before it
+  went up itself. Packet slots received while not up are dropped silently.
+- **Reaching up.** Reset clears alignment, so each end sends bit 8 clear
+  until its receiver is aligned and bit 8 set from then until it goes up;
+  an aligned end never sends bit 8 clear. With no damaged slot: each
+  receiver aligns within 8 slots of the partner's transmitter starting;
+  then the first end to count 8 bit-8-set words goes up and sends IDLE, and
+  the trailing bit-8-set words it still receives do not take it down. The
+  other end goes up on that IDLE, or on its own count. Both ends are
+  therefore up within 16 slots plus two one-way latencies (pins, receive
+  front end and crossing) of the later transmitter starting; neither can
+  go down again, since neither sends bit 8 clear once aligned.
+- **Restart detection.** A partner that resets stops its forwarded clock
+  for the length of its reset, and then sends TRAIN words with bit 8 clear
+  until it has realigned (at least 8 slots). The up end goes down on the
+  first of those words, or earlier on the watchdog when the reset lasts 16
+  slot times or more.
 - **Transmit at link-down.** A packet partly sent ends with an ABORT slot;
   every other buffered beat is discarded; beats that the `dll` still offers
   up to its `eop` are taken and discarded ([transmit](#transmit)).
@@ -173,9 +189,10 @@ Any other word is unknown: it pulses `rcv_err_o` and is ignored.
   (M2 Q6). From an accepted `sop` to its `eop`, ready is 1 every cycle
   whatever the link does, as the `phy` guarantees and the `dll` requires.
 - **Valid inside a packet.** The `dll` keeps `pkt_tx_valid_i` at 1 from
-  `sop` to `eop`. If it drops inside a packet, the adapter ends that packet
-  on the pins with an ABORT slot, then takes and discards the remaining
-  beats up to the `eop`, as the `phy` ends such a packet with EDB
+  `sop` to `eop`. If it drops inside a packet, the beats of that packet
+  already buffered go out on the pins as usual, then an ABORT slot ends the
+  packet in place of its `eop`; the remaining beats up to the `eop` are
+  taken and discarded, as the `phy` ends such a packet with EDB
   ([`phy` packet stream](../phy/HAS.md#packet-stream)).
 - **Cut-through.** A packet starts on the pins as soon as its first beat is
   buffered. The `dll` hands a beat every cycle inside a packet, faster than
@@ -213,6 +230,12 @@ Hot Reset is emulated, so the root port can reset the endpoint as on the
   `hot_reset_req_i` is ignored.
 - **Upstream** (`port_role_i` 1): a HOT_RESET word received while aligned
   enters Hot Reset; the first TRAIN word received leaves it to training.
+- **Against the up and down rules.** The downstream end's receiver stays
+  aligned through Hot Reset, so when the dwell ends it trains with bit 8
+  set; the upstream end, aligned too, also sends bit 8 set. Both reach up
+  as above, and no bit-8-clear word is sent, so neither drops again. The
+  upstream end ignores bit-8-set TRAIN words only while up, never in Hot
+  Reset, where the first TRAIN word ends it.
 - `link_up_o` falls on entry, so the `dll` goes to DL_Inactive and the
   layers above see `dl_up_o` fall, as with a `phy` Hot Reset.
 
