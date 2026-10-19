@@ -437,8 +437,8 @@ includes the cell's filelist with `-F`.
   only by constants. A pointer that is synchronized but does not really
   guard the read is left to the cell's MAS and review.
 - **Port domains.** An input port declares the clock it is synchronous to
-  with a comment ending its declaration line, naming another input port of
-  the same module:
+  with a comment ending its declaration line, naming an input port of the
+  same module:
 
   ```systemverilog
   input  logic        clk_i,
