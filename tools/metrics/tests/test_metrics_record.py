@@ -281,6 +281,51 @@ def test_write_refuses_leaks(tmp_path):
     assert not out.exists()
 
 
+def test_paused_flow_records_no_numbers(tmp_path, cfg):
+    # A paused step (the nightly's ASIC pause switch) records the section as
+    # paused, never an earlier run's metrics.json left in the workdir.
+    stale = tmp_path / "blk" / "asic" / "metrics.json"
+    stale.parent.mkdir(parents=True)
+    stale.write_text(json.dumps({"timing": {"wns_ns": -1}}))
+    assert record.paused_or_flow(tmp_path, ["blk"], "asic", cfg.asic_fields,
+                                 {"asic": "paused"}) == {"status": "paused"}
+    ran = record.paused_or_flow(tmp_path, ["blk"], "asic", cfg.asic_fields, {"asic": "pass"})
+    assert ran["status"] == "ok" and ran["ips"]["blk"]["timing"]["wns_ns"] == -1
+    assert cli._steps(["asic=paused", "fpga=pass"]) == {"asic": "paused", "fpga": "pass"}
+
+
+def test_paused_step_is_not_a_failure(repo):
+    meta = record.meta_section(repo, record.now_utc(), {"asic": "paused", "check": "pass"}, {})
+    assert meta["nightly"] == {"steps": {"asic": "paused", "check": "pass"}, "result": "pass",
+                               "duration_s": None}
+
+
+def test_nightly_asic_pause_switch():
+    # One switch, ASIC_PAUSED at the top of nightly.yml, drives the full ASIC step
+    # (wiki/bkm/devops.md#asic-pause); the step records `paused`, which the
+    # metrics step passes on.
+    import yaml
+    wf = yaml.safe_load((FIXTURES.parents[3] / ".github/workflows/nightly.yml").read_text())
+    assert wf["env"]["ASIC_PAUSED"] in ("true", "false")
+    steps = wf["jobs"]["nightly"]["steps"]
+    lib = next(s for s in steps if s.get("id") == "prep")["run"]
+    assert 'pause_step() { echo "::notice::$1"; echo "result=paused" >> "$GITHUB_OUTPUT"; }' in lib
+    asic = next(s for s in steps if s.get("id") == "asic")["run"]
+    first = next(line.strip() for line in asic.splitlines() if line.strip().startswith("if "))
+    assert first.startswith('if [ "$ASIC_PAUSED" = true ]; then pause_step ')
+    assert 'run_step asic' in asic  # the flow stays, behind the switch
+    collect = next(s for s in steps if s.get("id") == "collect")["run"]
+    assert '--step "asic=${{ steps.asic.outputs.result' in collect
+    # ASIC synthesis is an L2 check: it runs every night, outside the switch,
+    # and its outcome reaches the record and the nightly-red report.
+    synth = next(s for s in steps if s.get("id") == "asic_synth")
+    assert synth["run"].strip().splitlines()[-1] == "run_step asic-synth ./build ci vendor --kind asic"
+    assert "ASIC_PAUSED" not in synth["run"] and synth["if"] == "${{ !cancelled() }}"
+    assert '--step "asic-synth=${{ steps.asic_synth.outputs.result' in collect
+    assert "asic-synth=${{ needs.nightly.outputs.asic_synth" in \
+        wf["jobs"]["report"]["steps"][-1]["env"]["STEPS"]
+
+
 def test_bad_step_argument():
     with pytest.raises(MetricsError, match="--step"):
         cli._steps(["check=maybe"])

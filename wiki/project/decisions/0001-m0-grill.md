@@ -129,3 +129,14 @@ pd (ORFS/sky130hd).
   and L2 remain nightly. Synthesis-only evidence is isolated from routed
   metrics and makes no physical timing closure claim. The
   [CI spec](../../tools/ci/SPEC.md#build-ci-vendor) owns selection.
+
+- **ASIC synthesis moves to the nightly; ASIC place and route paused
+  (captain, 2026-10-19,
+  [#362](https://github.com/amichai-bd/pcie-factory/issues/362)), amending
+  the update above:** PR CI drops the ORFS synthesis-only job, and its
+  Quartus job runs analysis and synthesis only, without fit or timing;
+  `ci-gate` requires the tests and that Quartus synthesis. The nightly runs
+  the full Quartus flow and the synthesis-only check for every ASIC target
+  (a failure fails it), and its full ASIC flow is paused while the host is
+  unstable ([where each check runs](../../bkm/devops.md#levels-and-budgets),
+  [ASIC pause](../../bkm/devops.md#asic-pause)).

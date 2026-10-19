@@ -1055,6 +1055,10 @@ def physical_section(p: Page, d: Data, ips: list[str], name: str, metrics: list[
     getter) groups from other record sections under the same heading."""
     p.md(f"## {name}")
     n = d.nightly
+    if n and text(n[-1].data, f"{name.lower()}.status") == "paused":
+        p.html(f'<p>{badge("info", "paused")} The {escape(name)} flow is paused in the latest '
+               f'nightly ({escape(n[-1].when)}): it recorded no {escape(name)} numbers, so the '
+               'charts end at the last run that did.</p>')
     drew = False
     for group, get in ((metrics, getter), *more):
         with_data = [ip for ip in ips if any(isinstance(get(r.data, ip), dict) for r in n)]

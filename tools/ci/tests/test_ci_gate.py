@@ -12,39 +12,49 @@ WSL_RUNNER = ["self-hosted", "linux", "x64", "wsl"]
 
 
 @pytest.mark.parametrize("results", list(itertools.product(
-    ("success", "failure", "cancelled", "skipped"), repeat=3)))
+    ("success", "failure", "cancelled", "skipped"), repeat=2)))
 def test_gate_requires_every_job_to_succeed(results):
     args = ["ci", "gate"]
-    for job, result in zip(("tests", "fpga", "asic-synth"), results):
+    for job, result in zip(("tests", "fpga"), results):
         args += [f"--{job}", result]
-    assert main(args) == (0 if results == ("success",) * 3 else 1)
+    assert main(args) == (0 if results == ("success",) * 2 else 1)
 
 
-def test_gate_unknown_result_fails_closed():
-    assert main(["ci", "gate", "--tests", "success", "--fpga", "success",
-                 "--asic-synth", "unexpected"]) == 1
+@pytest.mark.parametrize("args", [["--tests", "success", "--fpga", "unexpected"],
+                                  ["--tests", "", "--fpga", "success"]])
+def test_gate_unknown_result_fails_closed(args):
+    assert main(["ci", "gate", *args]) == 1
+
+
+@pytest.mark.parametrize("args", [["--tests", "success"], ["--fpga", "success"],
+                                  ["--tests", "success", "--fpga", "success",
+                                   "--asic-synth", "success"]])
+def test_gate_requires_exactly_tests_and_fpga(args):
+    # ASIC synthesis is a nightly (L2) check: the gate takes no ASIC result
+    # (wiki/tools/ci/SPEC.md#build-ci-gate); a missing job is a usage error.
+    with pytest.raises(SystemExit) as e:
+        main(["ci", "gate", *args])
+    assert e.value.code == 2
 
 
 def test_workflow_wires_required_results_and_preserves_guards():
     workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/ci.yml").read_text())
     jobs = workflow["jobs"]
     gate = jobs["ci-gate"]
-    assert set(gate["needs"]) == {"ci-tests", "ci-fpga", "ci-asic-synth"}
+    assert set(gate["needs"]) == {"ci-tests", "ci-fpga"}
+    assert not any("asic" in name for name in jobs)  # ASIC synthesis is nightly only
     assert "always()" in gate["if"]
     step = next(s for s in gate["steps"] if s.get("name") == "Require every CI job")
     assert step["env"] == {"TESTS": "${{ needs.ci-tests.result }}",
-                           "FPGA": "${{ needs.ci-fpga.result }}",
-                           "ASIC_SYNTH": "${{ needs.ci-asic-synth.result }}"}
-    assert step["run"] == './build ci gate --tests "$TESTS" --fpga "$FPGA" --asic-synth "$ASIC_SYNTH"'
+                           "FPGA": "${{ needs.ci-fpga.result }}"}
+    assert step["run"] == './build ci gate --tests "$TESTS" --fpga "$FPGA"'
     for name in gate["needs"] + ["ci-gate"]:
         job = jobs[name]
         assert "github.event.pull_request.head.repo.full_name == github.repository" in job["if"]
         assert job["runs-on"] == WSL_RUNNER
-    for name, kind in (("ci-fpga", "fpga"), ("ci-asic-synth", "asic")):
-        job = jobs[name]
-        assert "needs" not in job  # parallel to simulation
-        assert any(s.get("run") == f"./build ci vendor --kind {kind} $AFFECTED"
-                   for s in job["steps"])
+    job = jobs["ci-fpga"]
+    assert "needs" not in job  # parallel to simulation
+    assert any(s.get("run") == "./build ci vendor --kind fpga $AFFECTED" for s in job["steps"])
     assert jobs["ci-gate-status"]["needs"] == "ci-gate"
     assert "github.event_name != 'pull_request'" in jobs["ci-gate-status"]["if"]
 

@@ -3,7 +3,8 @@
 #
 # Three jobs, each with only the token permissions it needs:
 #   nightly  read-only: checks, unit suites (arch perf included), L0+L1+L2 with coverage,
-#            FPGA and ASIC flows, metrics files, trend drop alerts in the job summary
+#            FPGA flow, ASIC synthesis-only check, full ASIC flow (unless ASIC_PAUSED),
+#            metrics files, trend drop alerts in the job summary
 #   publish  contents/pull-requests/actions write: commits ONLY the data files
 #            (commits.jsonl and this run's <date>T<HHMMSS>Z.json record) on
 #            nightly/<date>, opens the type:data PR, dispatches ci-gate on it
@@ -31,6 +32,12 @@ concurrency:
 
 env:
   BASE: ${{ inputs.base || 'main' }}
+  # The ASIC pause switch, the only one (wiki/bkm/devops.md#asic-pause):
+  # "true" skips the full ASIC flow step (place and route, timing), recorded
+  # as `asic=paused`, with no ASIC numbers in tonight's record. Set by captain
+  # decision (2026-10-19, #362, unstable host); "false" resumes it. The ASIC
+  # synthesis-only check (step asic-synth) runs every night either way.
+  ASIC_PAUSED: "true"
 
 jobs:
   # Every job runs only on the WSL host's runners (label wsl), never on the
@@ -51,6 +58,7 @@ jobs:
       unit: ${{ steps.unit.outputs.result || 'fail' }}
       regress: ${{ steps.regress.outputs.result || 'fail' }}
       fpga: ${{ steps.fpga.outputs.result || 'fail' }}
+      asic_synth: ${{ steps.asic_synth.outputs.result || 'fail' }}
       asic: ${{ steps.asic.outputs.result || 'fail' }}
     steps:
       - uses: actions/checkout@v7.0.1
@@ -67,6 +75,7 @@ jobs:
           mkdir -p workdir/nightly
           # run_step NAME CMD...: run CMD with its output logged; record
           # result=pass|fail|skipped (skipped: the subcommand is still a stub).
+          # pause_step records result=paused (a step its pause switch turned off).
           cat > workdir/nightly/lib.sh <<'EOF'
           run_step() {
             local name="$1"; shift
@@ -80,6 +89,7 @@ jobs:
             return "$code"
           }
           skip_step() { echo "::notice::$1"; echo "result=skipped" >> "$GITHUB_OUTPUT"; }
+          pause_step() { echo "::notice::$1"; echo "result=paused" >> "$GITHUB_OUTPUT"; }
           EOF
           git log --oneline -1
 
@@ -131,6 +141,16 @@ jobs:
           elif ./build fpga --help 2>/dev/null | grep -q -- '--all'; then run_step fpga ./build fpga --all
           else skip_step "fpga: ./build fpga --all is not available on this commit"; fi
 
+      # ASIC synthesis is an L2 check (captain decision, 2026-10-19, #362):
+      # the synthesis-only compatibility check of every IP with src/asic/<ip>/,
+      # the same command PR CI ran before; a failure fails the nightly.
+      - name: ASIC synthesis check (IPs with src/asic/<ip>/)
+        id: asic_synth
+        if: ${{ !cancelled() }}
+        run: |
+          . workdir/nightly/lib.sh
+          run_step asic-synth ./build ci vendor --kind asic
+
       - name: ASIC flow (IPs with src/asic/<ip>/)
         id: asic
         if: ${{ !cancelled() }}
@@ -138,7 +158,8 @@ jobs:
           . workdir/nightly/lib.sh
           ips=$(find src/asic -mindepth 1 -maxdepth 1 -type d -not -name '.*' -printf '%f\n' 2>/dev/null | sort)
           help=$(./build asic --help 2>/dev/null || true)
-          if [ -z "$ips" ]; then skip_step "asic: no IP has asic/<ip>/ inputs"
+          if [ "$ASIC_PAUSED" = true ]; then pause_step "asic: paused by ASIC_PAUSED (wiki/bkm/devops.md#asic-pause)"
+          elif [ -z "$ips" ]; then skip_step "asic: no IP has asic/<ip>/ inputs"
           elif grep -q -- '--all' <<<"$help"; then run_step asic ./build asic --all
           elif grep -q -- '--ip' <<<"$help"; then
             run_step asic bash -c 'rc=0; for ip in "$@"; do ./build asic --ip "$ip" || rc=1; done; exit $rc' _ $ips
@@ -164,6 +185,7 @@ jobs:
             --step "unit=${{ steps.unit.outputs.result || 'fail' }}" \
             --step "regress=${{ steps.regress.outputs.result || 'fail' }}" \
             --step "fpga=${{ steps.fpga.outputs.result || 'fail' }}" \
+            --step "asic-synth=${{ steps.asic_synth.outputs.result || 'fail' }}" \
             --step "asic=${{ steps.asic.outputs.result || 'fail' }}"
 
       # Per-IP drop alerts of tonight's record against the committed history
@@ -181,6 +203,17 @@ jobs:
           name: nightly-data
           path: workdir/nightly-data/
           if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload ASIC synthesis summary
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: asic-synth-summary
+          path: |
+            workdir/*/asic-synth/synthesis.json
+            workdir/ci/vendor-asic.json
+          if-no-files-found: warn
           retention-days: 14
 
       - name: Upload regression summary
@@ -335,6 +368,7 @@ jobs:
             unit=${{ needs.nightly.outputs.unit || 'fail' }}
             regress=${{ needs.nightly.outputs.regress || 'fail' }}
             fpga=${{ needs.nightly.outputs.fpga || 'fail' }}
+            asic-synth=${{ needs.nightly.outputs.asic_synth || 'fail' }}
             asic=${{ needs.nightly.outputs.asic || 'fail' }}
         # A failure names the failed steps, the commits since the last green
         # nightly and each failed run with its exact seed (wiki/tools/metrics/SPEC.md#red).

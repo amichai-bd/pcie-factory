@@ -26,7 +26,7 @@ from .config import Config, MetricsError
 from .tree import FileStat, TreeReader, git
 
 SCHEMA_VERSION = 1
-STEP_OUTCOMES = ("pass", "fail", "skipped")
+STEP_OUTCOMES = ("pass", "fail", "skipped", "paused")
 _SAFE_STR = re.compile(r"^[A-Za-z0-9 _.,:;+()\[\]|/<>=-]{0,120}$")
 _SAFE_KEY = re.compile(r"^[A-Za-z0-9_.:|\[\]-][A-Za-z0-9_.:|/\[\]-]{0,119}$")
 _NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_./-]{0,119}$")
@@ -256,6 +256,16 @@ def flow_section(workdir: Path, ip_ids: list[str], kind: str, fields) -> dict:
     return {"status": "ok", "ips": ips}
 
 
+def paused_or_flow(workdir: Path, ip_ids: list[str], kind: str, fields,
+                   steps: dict[str, str]) -> dict:
+    """``{"status": "paused"}`` when the nightly paused the ``kind`` step:
+    a paused flow reports no numbers, so no earlier run's files in the
+    workdir pass for tonight's; else :func:`flow_section`."""
+    if steps.get(kind) == "paused":
+        return {"status": "paused"}
+    return flow_section(workdir, ip_ids, kind, fields)
+
+
 ARCH_STATUSES = ("pass", "fail", "error")
 _ARCH_NAME = re.compile(r"^[a-z0-9][a-z0-9_]{0,63}$")  # a scenario (the arch SPEC)
 _METRIC = re.compile(r"^[A-Za-z0-9_]{1,64}$")
@@ -403,8 +413,8 @@ def build_record(*, repo: Path, workdir: Path, ip_ids: list[str], cfg: Config, n
         "health": health,
         "tests": tests,
         "coverage": coverage_section(workdir / "regress" / "summary.json"),
-        "fpga": flow_section(workdir, ip_ids, "fpga", cfg.fpga_fields),
-        "asic": flow_section(workdir, ip_ids, "asic", cfg.asic_fields),
+        "fpga": paused_or_flow(workdir, ip_ids, "fpga", cfg.fpga_fields, steps),
+        "asic": paused_or_flow(workdir, ip_ids, "asic", cfg.asic_fields, steps),
         "arch": arch_section(workdir, ip_ids),
         "distributions": dict(sorted(dist.items())),
     }
