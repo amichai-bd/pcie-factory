@@ -24,6 +24,11 @@ where they are used, the functions also on their own:
   code from `common_pkg.sv` and compares them with the architecture
   model's EDB and the pcs pages; every RxStatus and PowerDown on PIPE is
   checked in the [pcs DV plan](../pcs/DV_PLAN.md).
+- **Root-port tl-seq types:** `t_rc_*` are the port types of `pcie_rc_tl`;
+  its [shell smoke test](../rc_tl/DV_PLAN.md) drives `cmd_i` at its 82
+  bits, and the `rc_tl` and `rc_seq` unit tests check every code and field
+  once the logic arrives ([#373](https://github.com/amichai-bd/pcie-factory/issues/373),
+  [#376](https://github.com/amichai-bd/pcie-factory/issues/376)).
 - **TLP helpers, unit:** `pkg_tlp_contract` drives
   [`tb/common_pkg_tlp_fixture.sv`](../../../../src/dv/common/tb/common_pkg_tlp_fixture.sv),
   which puts each helper on its own output, and compares every result with

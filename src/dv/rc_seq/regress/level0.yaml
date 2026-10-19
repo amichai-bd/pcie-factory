@@ -1,0 +1,6 @@
+tests:
+  - name: smoke
+    module: tests.test_rc_seq
+    testcase: smoke
+    top: pcie_rc_seq
+    timeout_s: 60

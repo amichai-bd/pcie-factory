@@ -20,7 +20,7 @@ owns the interface between `rc_tl` and `rc_seq`. The `rc_tl` MAS
 ([#368](https://github.com/amichai-bd/pcie-factory/issues/368)) owns tags,
 outstanding requests, the completion timeout value and how each error is
 detected; the `rc_seq` MAS
-([#369](https://github.com/amichai-bd/pcie-factory/issues/369)) owns the
+([`rc_seq` MAS](../../rtl/rc_seq/MAS.md)) owns the
 command encoding, the ROM size and the program format. How `rc` is built
 is in the [MAS](../../rtl/rc/MAS.md); how it is verified, in the
 [DV plan](../../dv/rc/DV_PLAN.md). Rules from the PCIe Base Spec rev 3.0
@@ -75,7 +75,7 @@ watches both directions as a passive shadow (P5, goal item 8).
 
 | Name | Type | Default | Range | Effect |
 | --- | --- | --- | --- | --- |
-| `FC_PH`, `FC_PD`, `FC_NPH`, `FC_NPD` | `int unsigned` | 8, 32, 8, 8 | 1 to 127, 8 to 2047, 1 to 127, 2 to 2047 | Passed to `link`: the posted and non-posted credits advertised for the endpoint's DMA writes, MSI writes, messages and DMA reads. Never infinite: `rc_tl` sizes its inbound queues from them ([credits](#credits)). |
+| `FC_PH`, `FC_PD`, `FC_NPH`, `FC_NPD` | `int unsigned` | 8, 32, 8, 8 | 1 to 127, 8 to 2047, 1 to 127, 2 to 2047 | Passed to `link`: the posted and non-posted credits advertised for the endpoint's DMA writes, MSI writes, messages and DMA reads. Never infinite (no 0 in the ranges): `rc_tl` returns each posted and non-posted request's credits on the credit release (`FC_RELEASE` 1), and `FC_NPH` sizes its non-posted queue; posted requests are applied as they arrive and need no queue ([credits](#credits)). |
 | `TIMEOUT_DIV`, `ERR_TIMEOUT_DIV` | `int unsigned` | 1, 1 | 1 to 1024 | Passed to `link` ([`link` parameters](../link/HAS.md#parameters)). The FPGA build uses 1. |
 | `CPL_TIMEOUT_DIV` | `int unsigned` | 1 | 1 to 1024 | Passed to `rc_tl`: divides its completion timeout ([#368](https://github.com/amichai-bd/pcie-factory/issues/368) sets the value). The FPGA build uses 1; DV uses more to reach a timeout. |
 | `HOST_MEM_ADDR_W` | `int unsigned` | 12 | 8 to 16 | Host memory is 2^`HOST_MEM_ADDR_W` bytes (256 B to 64 KiB). |
@@ -83,15 +83,13 @@ watches both directions as a passive shadow (P5, goal item 8).
 | `MSI_ADDR` | `logic [31:0]` | 32'hFEE0_0000 | 4 KiB aligned, outside host memory | System address of the 4 KiB [MSI window](#msi-window). |
 | `VENDOR_ID`, `DEVICE_ID` | `logic [15:0]` | 16'h0000 each | any but 16'hFFFF | The root port's IDs in its [Type 1 header](#type-1-header). Placeholders that claim no assigned vendor, as `core`'s. |
 | `REVISION_ID` | `logic [7:0]` | 8'h00 | any | The root port's Revision ID. |
+| `PROGRAM` | `int unsigned` | 1 | a program id of the `rc_seq` package | Passed to `rc_seq`: the ROM image a run executes ([`rc_seq` programs](../../rtl/rc_seq/MAS.md#programs)). 1, enumeration then MMIO, is the board build's. |
 
 Fixed, not parameters: completion credits infinite (`FC_CPLH`, `FC_CPLD`
 0), `FC_RELEASE` 1, `port_role_i` 0 ([downstream role](#downstream-role));
 maximum payload and maximum read request 128 bytes, VC0 only, no ECRC
 (M2 Q6, carried over); memory requests from `rc` use 32-bit addresses
-(3-DW headers). The ROM image parameter that selects `rc_seq`'s program
-joins this table with the `rc_seq` MAS
-([#369](https://github.com/amichai-bd/pcie-factory/issues/369), program
-format).
+(3-DW headers).
 
 ## Behavior
 
@@ -137,8 +135,8 @@ enumerates again (goal item 7). A retrain (Recovery) keeps `dl_up_o` at
   run. Cycles with `rst_i` 1 count as `start_i` 0, so a `start_i` held at 1
   through the release of `rst_i` starts one run in the first cycle after
   reset (a board build may tie it to 1 to run once per reset). A run executes the ROM program from its first step
-  ([#369](https://github.com/amichai-bd/pcie-factory/issues/369) owns the
-  commands of OP4 and their encoding).
+  (the [`rc_seq` MAS](../../rtl/rc_seq/MAS.md) owns the commands of OP4
+  and their encoding).
 - `done_o` is 0 from reset and while a run is in progress, and 1 from the
   cycle after the run ends until the next run starts.
 - `pass_o` is meaningful while `done_o` is 1: 1 when the run reached its
@@ -240,7 +238,9 @@ messages are not gated by Bus Master Enable.
 An Unsupported Request is a completion with that status for a non-posted
 request and a drop for a posted one, and is recorded in either case
 [cite: PCIe Base Spec, rev 3.0, §2.3.1]. A poisoned or malformed TLP is
-recorded and dropped [cite: PCIe Base Spec, rev 3.0, §2.7.2.2]
+recorded and dropped, except that a poisoned non-posted request that
+would be served is answered with an Unsupported Request completion, as
+the endpoint does [cite: PCIe Base Spec, rev 3.0, §2.7.2.2]
 [cite: PCIe Base Spec, rev 3.0, §2.3]. Which header checks make a TLP
 malformed is the `rc_tl` MAS's
 ([#368](https://github.com/amichai-bd/pcie-factory/issues/368)).
@@ -270,12 +270,13 @@ where the data is the same.
 
 `rc_tl` must take every received TLP at once (`tlp_rx_ready_i` 1 while
 `dl_up_o` is 1), the [`dll` upper-layer obligation](../dll/HAS.md#receive)
-for infinite completion credits. It queues received posted and
-non-posted requests per class, sized by the credits `rc` advertises, and
-returns a request's credits on the
-[credit release](../dll/HAS.md#credit-release) port when it leaves the
-queue (served, captured, recorded or answered with Unsupported Request),
-as `core` does ([`core` credits](../core/HAS.md#credits)). Completions
+for infinite completion credits. It holds received non-posted requests
+in a queue sized by the non-posted credits `rc` advertises and applies
+posted requests as they arrive (the
+[`rc_tl` MAS](../../rtl/rc_tl/INBOUND.md#credits)), and returns a request's
+credits on the [credit release](../dll/HAS.md#credit-release) port when it
+leaves `rc_tl` (served, captured, recorded or answered with Unsupported
+Request), as `core` does ([`core` credits](../core/HAS.md#credits)). Completions
 need no release: `rc_tl` reserves room for every outstanding read.
 
 ### Downstream role
