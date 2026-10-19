@@ -300,7 +300,7 @@ async def credit_run(dut, n=120, stalls=(4000, 10000)):
         for e in stallers:
             e.stall(length)
         for e in releasers:
-            e.rel_stall_until = e.cycle + length
+            e.rel_stall(length)
         if stallers or releasers:
             COV_CREDIT.sample(stall=length)
         await env.cycles(length + 500)
@@ -398,7 +398,7 @@ async def e2e_soak(dut):
         for e in stallers:
             e.stall(rng.choice((4000, 10000)))
         for e in releasers:
-            e.rel_stall_until = e.cycle + rng.choice((4000, 10000))
+            e.rel_stall(rng.choice((4000, 10000)))
     for e in stallers:
         e.take_p = 1.0
     for e in releasers:
