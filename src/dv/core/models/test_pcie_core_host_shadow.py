@@ -1021,3 +1021,24 @@ def test_completer_id_mismatch_sets_no_bit_6():
     sh.observe_result("OK", 0, True)
     _record(sh, 1 << 6)
     assert sh.errors and "none outside 0x0000" in sh.errors[-1]
+
+
+@pytest.mark.parametrize("op", [CFG_RD, CFG_WR])
+def test_poisoned_ur_configuration_completion_is_ur(op):
+    """The status row decides first for a configuration request too: an
+    Unsupported Request completion with EP set is UR with bit 0, never
+    BAD or bit 5; any other result raises."""
+    for result, ok in (("UR", True), ("BAD", False), ("OK", False)):
+        sh = _routed_shadow(strict=False)
+        sh.observe_command(op, 1 << 20, data=0)
+        data = bytes(4) if op == CFG_WR else b""
+        sh.observe_tx(Tlp(fmt=0b010 if data else 0, type=0b00100, length=1, requester_id=0,
+                          tag=0, first_be=0xF, cfg_bus=1, data=data).encode())
+        sh.observe_rx(completion(0x0100, 0, 0, CPL_UR, 4, 0, ep=1).encode())
+        sh.observe_result(result, 0, True)
+        assert bool(sh.errors) != ok, (result, sh.errors)
+        if ok:
+            _record(sh, 1 << 0)
+            assert not sh.errors
+            _record(sh, 1 << 0 | 1 << 5)
+            assert sh.errors and "none outside 0x0001" in sh.errors[-1]
