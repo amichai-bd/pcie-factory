@@ -116,6 +116,8 @@ tests:
 # less 0.5 points rounded down to a tenth (DV BKM, floor margin): measured
 # 75.88% line (4168/5493), 44.63% toggle (77783/174278) over the whole
 # stack; every point not hit has a reason in the DV plan (Coverage holes).
+# Re-measured for #416 (after #393 and #378): 75.84% line (4172/5501),
+# 44.59% toggle (78118/175198); both floors hold and stay.
 # An entry with a new parameter set, or an RTL change in the stack that adds
 # state, re-measures these floors in the same PR.
 # Functional 100 must hold every bin of core_e2e_enum, core_e2e_err,

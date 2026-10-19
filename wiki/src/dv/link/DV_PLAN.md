@@ -169,6 +169,7 @@ their own top ([GPIO lower layer](#gpio-lower-layer)).
 | Hot Reset in the release configuration ([`dll` credit release](../../arch/dll/HAS.md#credit-release), link down): both upper layers stop releasing, so each end goes down holding credits; the upper layer drops them, and after the relink every credit is back at the advertisement | `e2e_hot_reset_release` | 2 | 1; `CREDITS` 5 |
 | Disabled and Loopback passed through | `e2e_disable`, `e2e_loopback` | 2 | 1 each |
 | Soak: random classes, line flips and credit stalls together, 1000 TLPs each way, ppm from the seed, in every credit configuration; in the release configuration the stalls are release stalls (half the cycles release, none in the stall windows, scheduled as the receive stalls are) | `e2e_soak_default`, `e2e_soak_minimum`, `e2e_soak_finite`, `e2e_soak_infinite`, `e2e_soak_asymmetric`, `e2e_soak_release` | 2 | 3, 2, 3, 1, 2, 1; `CREDITS` 0 to 5; coverage on the first 2, 2, 1, 1, 2, 1 ([seeds](#seeds-and-coverage-runs)) |
+| The same soak on the `REPLAY_TIMEOUT` 1400 build of `e2e_replay_timeout`: default credits, the losses replayed on Naks with the raised timer running | `e2e_soak_replay_timeout` | 2 | 1; `REPLAY_TIMEOUT` 1400 |
 | [Throughput](../../arch/link/HAS.md#throughput), one way, screen: 400 128-byte memory writes a to b against the 0.85 target (more start and drain in the window than 2000 TLPs, so stricter), every line symbol attributed | `e2e_throughput_short` | 1 | 1 |
 | [Throughput targets](../../arch/link/HAS.md#targets): 2000 128-byte memory writes one way (0.85) and each way (0.76 per direction), every line symbol attributed; each seed draws the start against the SKP schedule (within one SKP interval) and, both ways, b's start against a's (within one TLP time) | `e2e_throughput_oneway`, `e2e_throughput_bidir` | 2 | 1 and 2 |
 | Seed sweeps of the directed and mixed tests | `e2e_tlp_errors_sweep`, `e2e_dllp_errors_sweep`, `e2e_rollover_sweep`, `e2e_line_sweep`, `e2e_mixed_sweep` | 2 | 2, 2, 2, 3, 4; coverage on the first 1, 1, 2, 2, 1 |
@@ -200,6 +201,17 @@ paths that `e2e_credits_release` (level 1) and the `dll` unit DV already
 check: the release port through `link`, and the upper layer dropping what
 it holds at a link-down. No recorded mutant is first caught by them, so
 level 1 keeps only `e2e_credits_release`.
+
+`e2e_soak_replay_timeout` runs in level 2 for the same reason
+([#416](https://github.com/amichai-bd/pcie-factory/issues/416)): it runs
+the soak on the `REPLAY_TIMEOUT` 1400 build that `e2e_replay_timeout`
+(level 1) uses, for the toggle points of that build's own `pcie_link`,
+`pcie_dll` and `pcie_dll_tlp_tx` specializations (759 points and 1 line
+point no other entry reaches), and re-checks what the other soaks check on
+the default build. The raised timer never expires in it (the losses are
+replayed on Naks), so `e2e_replay_timeout` stays the check of the value
+passed through. At seed 1850787340 it runs in 12.4 s plain and 24.0 s on
+the coverage build.
 
 ### Seeds and coverage runs
 
@@ -387,7 +399,38 @@ the captain decision's "unchanged" means not lowered), and the toggle
 floor is lowered as below. The remaining gaps add no
 simulation stimulus that could lower them: #302 adds an injector class,
 and #218 and #219 are timing reports. A future entry with a new parameter
-set (a new `CREDITS` value) re-measures the floors in the same PR.
+set (a new `CREDITS`, `REPLAY_TIMEOUT` or other parameter value)
+re-measures the floors in the same PR.
+
+**Re-measured for [#416](https://github.com/amichai-bd/pcie-factory/issues/416)**
+(levels 0 to 2, `--coverage`). `e2e_replay_timeout`
+([#393](https://github.com/amichai-bd/pcie-factory/issues/393)) builds
+`REPLAY_TIMEOUT` 1400, which adds three parameter-set copies
+(`pcie_link__T400_R578`, `pcie_dll__R578`, `pcie_dll_tlp_tx__R578`: 3826
+toggle and 91 line points). The GPIO lower layer
+([#378](https://github.com/amichai-bd/pcie-factory/issues/378)) adds 4
+line points and 208 toggle points in the `pcie_link` copies (182 outside
+the new ones). Its `LOWER` 1 entries have no coverage runs, so they add no
+copies. Without a re-measurement the merged toggle fell to 75.02% (31181 of
+41564) and missed the 76.5 floor; line was 90.88% (1565 of 1722).
+`e2e_soak_replay_timeout` runs that build with soak traffic and gives
+toggle 76.85% (31940 of 41564, +759, all in the new copies), line 90.94%
+(1566 of 1722) and functional 100% (85 of 85). Both floors stay: the
+merged value less 0.5 points (90.4 and 76.3) is below them, and a floor
+is never lowered to fit the margin. The points added since #360, by cause:
+
+| Cause | Toggle points | Not hit | Line points | Not hit |
+| --- | ---: | ---: | ---: | ---: |
+| `REPLAY_TIMEOUT` 1400 copies: hit in another copy (for line: the replay-buffer lock, a replay requested while one runs, the REPLAY_NUM rollover and its hold, all hit in the default `pcie_dll_tlp_tx`) | 3800 | 342 | 91 | 13 |
+| `REPLAY_TIMEOUT` 1400 copies: the causes of the toggle table below (the `dll` unit-plan causes, the release events and ports tied off at `FC_RELEASE` 0, behaviour the stack does not produce), counted again in this copy | (in the row above) | 473 | | |
+| GPIO ports at `LOWER` 0: `gpio_*` of `pcie_link` and `g_phy.unused_gpio_ports`, outputs held at 0 and inputs tied off by the bench (constant by construction) | 208 | 208 | | |
+| `pcie_gpio_pkg::replay_timeout`, called only for a `localparam` (elaboration only) | | | 1 | 1 |
+| Other line points the #393 and #378 RTL edits added to the copies that existed at #360, all hit | | | 3 | 0 |
+| Total | 4008 | 1023 | 95 | 14 |
+
+The toggle table below counts the 8601 points not hit at #360; with
+these 1023 the total is 9624 (41564 less 31940). The line table counts
+142; with these 14 it is 156 (1722 less 1566).
 
 **Toggle floor lowered from 79.8 to 76.5**
 ([captain decision on #360](https://github.com/amichai-bd/pcie-factory/issues/360#issuecomment-6266063487),
@@ -444,7 +487,8 @@ toggle in another copy, so more runs on the release build would only
 toggle duplicate copies, which was rejected as low test value.
 
 Points each entry reaches that no other entry does (line and toggle,
-merged over the entry's coverage seeds), largest first:
+merged over the entry's coverage seeds), largest first, as measured for
+#360 (`e2e_soak_replay_timeout`, added since, reaches 760 alone, #416):
 `e2e_soak_release` 411, `e2e_loopback` 131, `e2e_soak_minimum` 130,
 `e2e_soak_asymmetric` 127, `e2e_hot_reset_release` 118, `e2e_disable`
 94, `e2e_soak_finite` 50, `e2e_soak_infinite` 39, `e2e_soak_default` 32,

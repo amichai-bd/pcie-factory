@@ -210,6 +210,22 @@ for the `FC_RELEASE` parameter copies and the tied-off release port, and
 its [holes](../dll/DV_PLAN.md#coverage-holes) explain every point it does
 not hit.
 
+**Re-measured for [#416](https://github.com/amichai-bd/pcie-factory/issues/416)**
+on `3ec1037` (levels 0 to 2, `--coverage`), after the `dll` replay-timeout
+parameter ([#393](https://github.com/amichai-bd/pcie-factory/issues/393))
+and the GPIO lower layer ([#378](https://github.com/amichai-bd/pcie-factory/issues/378)):
+line 75.84% (4172 of 5501), toggle 44.59% (78118 of 175198), functional
+100% (62 of 62); both floors hold and stay (the merged value less 0.5
+points gives 75.3 and 44.0). Of the 8 line and 920 toggle points added
+since the tables below, the `pcie_link` GPIO ports at `LOWER` 0 (the
+bench holds the outputs at 0 and ties off the inputs: constant by
+construction) are 200 toggle points, and `pcie_gpio_pkg::replay_timeout`
+(called only for a `localparam`: elaboration only) is 1 line point, none
+hit. The rest come from the stacked IPs' RTL changes since #294, and
+their hits rose by 4 line and 335 toggle points. The `core` builds use
+neither `REPLAY_TIMEOUT` nor `LOWER` 1, so they add no parameter-set copy.
+The tables below keep the counts of #294.
+
 A PR in a stacked IP (`link`, `dll`, `mac`, `pcs`, `phy`, `tl`, `cfg`)
 that adds state, or an entry here with a new parameter set, dilutes these
 floors too: it re-measures `core` coverage (levels 0 to 2 with
