@@ -44,14 +44,17 @@ where they are used, the functions also on their own:
   byte enables legal or not, a request inside, ending at, or crossing its
   4 KiB block, a TC 0 message code or not.
 - **Type codes and TLP helpers, in use:** every TLP `tl` receives is judged
-  with `kind_known`, `is_cpl`, `be_ok`, `cross_4k` and `msg_tc0`, every
+  with `kind_known`, `is_cpl`, `be_ok`, `cross_4k` and `msg_tc0`; every
   completion it forms or tracks uses `be_lo`, `be_hi`, `byte_total` and
-  `be_mask`, every header uses `be_word` and the `t_tlp_type` codes, and
-  every credit release uses `credit_class` with `data_credits`, or
-  `dw_credits`; the
-  [`tl` DV plan](../tl/DV_PLAN.md#plan) compares all of it with the
-  `tl` architecture model and the reference, so a wrong helper fails
-  its entries. The mutants of the move are in
+  `be_mask`; every header uses `be_word` and the `t_tlp_type` codes; every
+  credit release uses `credit_class` with `data_credits`; and the transmit
+  arbiter gates each TLP's data credits with `dw_credits`. The
+  [`tl` DV plan](../tl/DV_PLAN.md#plan) compares this with the `tl`
+  architecture model and the reference, so a wrong helper fails its
+  entries, except `dw_credits`: no `tl` entry checks the transmit
+  data-credit gate ([#394](https://github.com/amichai-bd/pcie-factory/issues/394)),
+  so `pkg_tlp_contract` is what catches a wrong `dw_credits`. The mutants
+  of the move are in
   [#385](https://github.com/amichai-bd/pcie-factory/issues/385)'s PR.
 - `common.sim.f` reaches the filelist, so the shared unit's build compiles it.
 
