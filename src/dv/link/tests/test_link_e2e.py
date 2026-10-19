@@ -298,7 +298,7 @@ async def credit_run(dut, n=120, stalls=(4000, 10000)):
     for length in stalls:
         await env.cycles(1500)
         for e in stallers:
-            e.stall_until = e.cycle + length
+            e.stall(length)
         for e in releasers:
             e.rel_stall_until = e.cycle + length
         if stallers or releasers:
@@ -396,7 +396,7 @@ async def e2e_soak(dut):
         await env.cycles(rng.randint(2000, 6000))
         env.line(rng.choice(("ab", "ba")), "flip", 2)
         for e in stallers:
-            e.stall_until = e.cycle + rng.choice((4000, 10000))
+            e.stall(rng.choice((4000, 10000)))
         for e in releasers:
             e.rel_stall_until = e.cycle + rng.choice((4000, 10000))
     for e in stallers:
