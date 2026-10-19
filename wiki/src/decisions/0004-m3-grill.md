@@ -103,3 +103,6 @@ verbatim from the epic
 The other open questions of that draft (throughput target,
 application-interface details, citations unchecked) stay as the author
 proposed, as firstmate decisions the captain may override.
+
+**2026-10-19:** the order after M3 in Q7 is changed by the M4 epic's Later
+section; see [0005](0005-m4-grill.md#waves).

@@ -88,7 +88,8 @@ and endpoint (P1). Tracked by the M4 epic
 ([#357](https://github.com/amichai-bd/pcie-factory/issues/357)); the goal,
 the done criteria and the decisions are in
 [decision record 0005](decisions/0005-m4-grill.md). Specs start now; RTL
-starts once the `rc` HAS is signed off (F1).
+starts once the `rc` HAS is signed off (F1, reading F1's "its HAS" as the
+`rc` HAS; the adapter RTL also waits for #370).
 
 | Wave | Outcome | Issues |
 | --- | --- | --- |
@@ -102,8 +103,9 @@ FPGA timing is reported for information only, and M4 has no ASIC target.
 
 ## Later
 
-In order ([0005](decisions/0005-m4-grill.md#waves), which reorders
-[0004](decisions/0004-m3-grill.md) Q7 under P1 and P2):
+In order: the firstmate's ordering in the M4 epic, consistent with P1 and
+P2, which changes [0004](decisions/0004-m3-grill.md) Q7; the captain may
+override it ([0005](decisions/0005-m4-grill.md#waves)):
 
 1. The two-board demonstration over physical GPIO between the DE2-115 and
    the DE10-Lite, with the endpoint board build and DE10-Lite flow support

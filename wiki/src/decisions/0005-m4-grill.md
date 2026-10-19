@@ -76,6 +76,10 @@ Notes on the table:
 
 - **P1 to P7, F1 and F2** are captain decisions despite the letters; F here
   is not a firstmate delegate decision as in [0004](0004-m3-grill.md#decisions).
+- **F1 reading:** this record reads F1's "its HAS" as the `rc` HAS, so the
+  `rc_tl` and `rc_seq` RTL waits for #367's sign-off; the adapter RTL
+  ([#378](https://github.com/amichai-bd/pcie-factory/issues/378)) also waits
+  for the adapter HAS ([#370](https://github.com/amichai-bd/pcie-factory/issues/370)).
 - **OP1 and sub-IPs:** OP1 is the captain approval that
   [0004](0004-m3-grill.md#decisions) Q8 requires for each sub-IP. `rc_tl`
   and `rc_seq` are sub-IPs of `rc` under the
@@ -93,7 +97,7 @@ Not decided here; each point belongs to the named sub-issue:
 | Point | Owner |
 | --- | --- |
 | The downstream `link` contract and its test evidence (F2); host memory size and the MSI window address; Type 1 header fields and reset values | [#367](https://github.com/amichai-bd/pcie-factory/issues/367) `rc` HAS |
-| `rc_tl` tags, outstanding requests, payload and read-request sizes, completion timeout value | [#368](https://github.com/amichai-bd/pcie-factory/issues/368) `rc_tl` MAS |
+| `rc_tl` tags, outstanding requests, max read request size within M2 Q6, and the completion timeout value | [#368](https://github.com/amichai-bd/pcie-factory/issues/368) `rc_tl` MAS |
 | `rc_seq` command encoding, ROM size and program format | [#369](https://github.com/amichai-bd/pcie-factory/issues/369) `rc_seq` MAS |
 | The adapter's framing and control-pin use, and the `link` parameter's name and values | [#370](https://github.com/amichai-bd/pcie-factory/issues/370) adapter HAS |
 | The coverage floor values | [#380](https://github.com/amichai-bd/pcie-factory/issues/380) |
@@ -113,6 +117,7 @@ IPs:
 | M1 Q22 | The shared RTL vocabulary and the hard coding-style rules apply to all M4 RTL. |
 | M1 Q24, M3 Q8 | One testbench per IP and sub-IP. `rc_tl` and `rc_seq` are sub-IPs approved by OP1 under the [layout rule](../../project/layout.md#ips-and-sub-ips). |
 | M1 Q25 | Structs at interfaces inside an IP, declared in a package and referenced as `pkg::t_name`. |
+| M2 Q6 | Max payload 128 B, VC0 only, no ECRC, on the root-port side too: M4 reuses the same `link` with no RTL change (F2). Recorded in [0003](0003-m2-grill.md#decisions) Q6. |
 | M2 Q3, M3 F9 | An independently written oracle judges the new layer; P5 applies it as the host model (#288) in passive shadow mode (goal item 8). |
 
 M1 Q26's 50 MHz DE2-115 target is not an M4 gate: goal item 10 reports
@@ -132,11 +137,13 @@ wave to its issues.
 **Later (not M4),** in this order: the two-board demonstration over physical
 GPIO between the DE2-115 and the DE10-Lite (with the endpoint board build and
 DE10-Lite flow support, OP3); a CPU or SoC host, firmware and Linux (P2); the
-AXI bridge; Gen2, Gen3 and wider links. This changes
+AXI bridge; Gen2, Gen3 and wider links. This order is the firstmate's, in
+the epic's Later section, and the captain may override it. It changes
 [0004](0004-m3-grill.md#decisions) Q7, which put the AXI bridge next after
-M3: P1 makes the two-board destination the next milestones and P2 puts the
-CPU host after the sequencer, so both come before the bridge. Gen2, Gen3 and
-wider links stay after the bridge, as Q7 had them.
+M3. It is consistent with P1 (the two-board destination is split into
+milestones, M4 first) and P2 (CPU, firmware and Linux come later), but
+neither captain answer orders those milestones against the bridge. Gen2,
+Gen3 and wider links stay after the bridge, as Q7 had them.
 
 ## Updates
 
