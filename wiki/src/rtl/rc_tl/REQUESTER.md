@@ -24,21 +24,22 @@ what the endpoint's receive check accepts
 
 ## Requests
 
-The requester forms the TLP in flops and offers it to the
+The requester loads the command at its take and offers its TLP to the
 [transmit arbiter](#transmit). Field positions are on the
 [TLP formats page](../../arch/tl/TLP.md); `rc_tl` sends a 3-DW header with
 TC 0, Attr 0, TD 0, EP 0, AT 0, Requester ID {Primary Bus Number, device
-0, function 0}, and:
+0, function 0} (the header's value at the take), and:
 
 | Command | Fmt, Type | Length, byte enables | Address DW |
 | --- | --- | --- | --- |
-| `CFG_RD`, `CFG_WR` | `000`, `010`; `00100` (Type 0) | 1; First `first_be`, Last 0 | Bus `addr[27:20]`, Device `[19:15]`, Function `[14:12]`, Extended Register `[11:8]`, Register `[7:2]` [cite: PCIe Base Spec, rev 3.0, §2.2.7] |
+| `CFG_RD`, `CFG_WR` | `000`, `010`; `00100` (Type 0) | 1; First `first_be`, Last 0; a `CFG_WR` then `data` | Bus `addr[27:20]`, Device `[19:15]`, Function `[14:12]`, Extended Register `[11:8]`, Register `[7:2]` [cite: PCIe Base Spec, rev 3.0, §2.2.7] |
 | `MEM_RD` | `000`, `00000` | `len`; `first_be`, `last_be` | `addr[31:2]` |
 | `MEM_WR` | `010`, `00000` | 1; `first_be`, 0; then `data` | `addr[31:2]` |
 
-- **Tags.** Byte 6 of a non-posted request is `{3'b000, tag_q}`; the
-  5-bit `tag_q` steps at the edge the link takes a non-posted request's
-  `sop` beat. Five bits are the tags allowed without Extended Tag
+- **Tags.** Byte 6 of a non-posted request is `{3'b000, tag_q}` as it
+  stands at the take, and of a `MEM_WR` 0; the 5-bit `tag_q` steps at the
+  edge the link takes a non-posted request's `sop` beat, so a request
+  abandoned after its `sop` (link down) has used its tag. Five bits are the tags allowed without Extended Tag
   [cite: PCIe Base Spec, rev 3.0, §2.2.6.2]; with one request outstanding
   any tag would do, and the rolling value makes a completion that comes
   after its request timed out unexpected, unless 32 more non-posted
@@ -69,25 +70,28 @@ decides:
 | Successful, poisoned (EP 1) | `BAD` | bit 5 |
 | Successful | Its data DWs, `OK` | none |
 
-A decided failure ends the request with one beat in the cycle after the
-completion's `eop`; its data is not delivered, and later completions for
+A decided failure ends the request with one beat, data 0, in the cycle
+after the completion's `eop`; its data is not delivered, and later completions for
 it are unexpected: when one completion of a split read fails, each of the
 endpoint's remaining completions for that read also sets bit 4. A Successful completion's data DWs go out as `OK`
 beats, each in the cycle after the DW is taken from the link, a digest DW
 never. The read advances its remaining bytes and next byte by what the
 completion covers and finishes when none remain: that DW's beat has
 `last` 1. A configuration read is one data beat; a configuration write
-one `OK` beat with data 0.
+one `OK` beat with data 0, in the cycle after the completion's `eop`.
 
 ## Completion timeout
 
 One counter for the one outstanding request. It starts at the edge the
 link takes the request's `sop` beat. If the request has not finished
 after N = ⌊2^21 / `CPL_TIMEOUT_DIV`⌋ cycles, it ends with `TIMEOUT` and
-bit 3, its beat in the next cycle. The counter does not expire while a
-matched completion of the request is being received (third header DW to
-`eop`); it then expires at that `eop`'s edge if the completion did not
-finish the request. A completion arriving afterwards is unexpected.
+bit 3, its beat in the next cycle. The counter does not expire at the
+edges from a matched completion's third header DW to its `eop`, both
+included; if the completion did not finish the request, it expires at
+the next edge (the completion's last data beat may be due in the cycle
+after its `eop`, so `TIMEOUT` follows it). A completion whose third
+header DW arrives after the expiry is unexpected. Link down at the same
+edge wins ([link down](MAS.md#reset-and-link-down)).
 
 | `CPL_TIMEOUT_DIV` | N | At 125 MHz |
 | --- | --- | --- |
@@ -103,8 +107,12 @@ capability in the [header](MAS.md#type-1-header)).
 ## Transmit
 
 One TLP at a time. A head is eligible when the link shows 1 header
-credit and its data credits (Length / 4 rounded up) for its class; all
-ones passes. Priority: a requester posted write, then a completion, then
+credit and its data credits (Length / 4 rounded up for a TLP with data, 0
+for a read) for its class; all ones passes. The arbiter grants an
+eligible head at an edge and latches the TLP, so credits are checked
+only at the grant, and a request that ends while the link stalls its TLP
+(a timeout) never changes it: the TLP goes out whole and the next waits
+for it. Priority: a requester posted write, then a completion, then
 a requester non-posted request. A completion never passes an earlier
 posted write, and a non-posted request waiting for credits never blocks
 a completion [cite: PCIe Base Spec, rev 3.0, §2.4.1]. Strict priority
@@ -114,4 +122,7 @@ outstanding (its completions drain at link rate), and no M4 program
 measures it. The choice holds
 from `sop` to `eop`. `tlp_tx_*` come from an output stage of flops with a
 skid slot, as in `tl` ([`tl` output stage](../tl/MAS.md#transmit-arbiter)),
-so `tlp_tx_ready_i` reaches only the stage.
+so `tlp_tx_ready_i` reaches only the stage; they are 0 while no beat is
+offered. With the link down (`lrst`) the stage takes nothing and is
+cleared, abandoning a TLP in progress. Until #375 the requester is the
+only line ([interim rule](MAS.md#leaf-blocks)).

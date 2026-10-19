@@ -3,10 +3,12 @@
 // Interfaces and behavior: wiki/src/rtl/rc_tl/MAS.md, which implements
 // wiki/src/arch/rc/HAS.md and TL_SEQ.md.
 //
-// Built so far: the front end (u_cmd: the take, checks 2 to 7, HDR_* and
-// the result beats) and the Type 1 header (u_hdr), #374. Every other output
-// holds its reset value and received beats are taken and dropped; the
-// other blocks arrive with #373 and #375 (MAS, Leaf blocks).
+// Built so far: the front end (u_cmd), the Type 1 header (u_hdr), #374;
+// the requester (u_req), the transmit arbiter (u_tx) and the completion
+// side of the receive parser (u_rx), #373. The MSI capture and credit
+// release outputs hold their reset values, and received TLPs other than
+// completions are taken and dropped; the inbound blocks arrive with #375
+// (MAS, Leaf blocks).
 `default_nettype none
 
 `include "common_macros.svh"
@@ -77,9 +79,22 @@ module pcie_rc_tl #(
   `COMMON_ASSERT_PARAM(g_vendor_id_check, VENDOR_ID != 16'hFFFF, "pcie_rc_tl: VENDOR_ID must not be FFFF")
   `COMMON_ASSERT_PARAM(g_device_id_check, DEVICE_ID != 16'hFFFF, "pcie_rc_tl: DEVICE_ID must not be FFFF")
 
+  // The link reset: rst_i, or the link down (MAS, Reset and link down).
+  logic lrst;
+
+  assign lrst = rst_i || !dl_up_i;
+
   pcie_rc_tl_pkg::t_hdr_st  hdr_st;
   pcie_rc_tl_pkg::t_hdr_acc hdr_acc;
   logic [31:0]              hdr_rd_data;
+  pcie_rc_tl_pkg::t_req_cmd req_cmd;
+  pcie_rc_tl_pkg::t_res     req_res;
+  logic [pcie_rc_tl_pkg::ERR_W-1:0] req_err;
+  pcie_rc_tl_pkg::t_tx_tlp  req_tx;
+  pcie_rc_tl_pkg::t_cpl_rx  rx_cpl;
+  logic                     tx_grant;
+  logic                     tx_np_sop;
+  logic                     tx_p_eop;
 
   pcie_rc_tl_cmd #(
     .HOST_MEM_ADDR_W (HOST_MEM_ADDR_W)
@@ -93,6 +108,9 @@ module pcie_rc_tl #(
     .hdr_st_i      (hdr_st),
     .hdr_rd_data_i (hdr_rd_data),
     .hdr_acc_o     (hdr_acc),
+    .req_o         (req_cmd),
+    .res_i         (req_res),
+    .err_ev_i      (req_err),
     .rsp_valid_o   (rsp_valid_o),
     .rsp_o         (rsp_o)
   );
@@ -109,21 +127,59 @@ module pcie_rc_tl #(
     .st_o      (hdr_st)
   );
 
-  // Inputs and parameters no block uses yet; #373 and #375 consume them.
-  `COMMON_UNUSED_BITS(unused_inputs, {msi_ready_i, tlp_tx_ready_i,
-                           tlp_rx_valid_i, tlp_rx_data_i, tlp_rx_sop_i, tlp_rx_eop_i,
-                           fc_ph_avail_i, fc_pd_avail_i, fc_nph_avail_i, fc_npd_avail_i,
-                           fc_cplh_avail_i, fc_cpld_avail_i,
-                           FC_NPH[0], CPL_TIMEOUT_DIV[0], HOST_MEM_BASE, MSI_ADDR})
+  pcie_rc_tl_req #(
+    .CPL_TIMEOUT_DIV (CPL_TIMEOUT_DIV)
+  ) u_req (
+    .clk_i     (clk_i),
+    .rst_i     (rst_i),
+    .dl_up_i   (dl_up_i),
+    .cmd_i     (req_cmd),
+    .pri_bus_i (hdr_st.pri_bus),
+    .tx_o      (req_tx),
+    .grant_i   (tx_grant),
+    .np_sop_i  (tx_np_sop),
+    .p_eop_i   (tx_p_eop),
+    .cpl_i     (rx_cpl),
+    .res_o     (req_res),
+    .err_o     (req_err)
+  );
+
+  pcie_rc_tl_tx u_tx (
+    .clk_i          (clk_i),
+    .rst_i          (lrst),
+    .fc_ph_avail_i  (fc_ph_avail_i),
+    .fc_pd_avail_i  (fc_pd_avail_i),
+    .fc_nph_avail_i (fc_nph_avail_i),
+    .fc_npd_avail_i (fc_npd_avail_i),
+    .req_i          (req_tx),
+    .grant_o        (tx_grant),
+    .np_sop_o       (tx_np_sop),
+    .p_eop_o        (tx_p_eop),
+    .tlp_tx_valid_o (tlp_tx_valid_o),
+    .tlp_tx_ready_i (tlp_tx_ready_i),
+    .tlp_tx_data_o  (tlp_tx_data_o),
+    .tlp_tx_sop_o   (tlp_tx_sop_o),
+    .tlp_tx_eop_o   (tlp_tx_eop_o)
+  );
+
+  pcie_rc_tl_rx u_rx (
+    .clk_i          (clk_i),
+    .rst_i          (lrst),
+    .tlp_rx_valid_i (tlp_rx_valid_i),
+    .tlp_rx_data_i  (tlp_rx_data_i),
+    .tlp_rx_sop_i   (tlp_rx_sop_i),
+    .tlp_rx_eop_i   (tlp_rx_eop_i),
+    .cpl_o          (rx_cpl)
+  );
+
+  // Inputs and parameters no block uses yet; #375 consumes them.
+  `COMMON_UNUSED_BITS(unused_inputs, {msi_ready_i, fc_cplh_avail_i, fc_cpld_avail_i,
+                           FC_NPH[0], HOST_MEM_BASE, MSI_ADDR})
 
   // Reset values of the blocks not built yet (MAS): no capture, nothing
-  // sent or released; every received beat taken out of reset.
+  // released; every received beat taken out of reset.
   assign msi_valid_o    = 1'b0;
   assign msi_o          = '0;
-  assign tlp_tx_valid_o = 1'b0;
-  assign tlp_tx_data_o  = 32'd0;
-  assign tlp_tx_sop_o   = 1'b0;
-  assign tlp_tx_eop_o   = 1'b0;
   assign tlp_rx_ready_o = !rst_i;
   assign fc_rel_p_o     = 1'b0;
   assign fc_rel_pd_o    = 4'd0;

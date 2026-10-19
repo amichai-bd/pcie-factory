@@ -16,8 +16,8 @@ tests:
     testcase: hdr_rw
     top: pcie_rc_tl_tb
     timeout_s: 300
-  # Front end: checks 2 to 5, byte enables, routing, the interim rule and
-  # the result beats.
+  # Front end: checks 2 to 5, byte enables, routing, check 1 and the
+  # result beats.
   - name: cmd_checks
     module: tests.test_rc_tl_cmd
     testcase: cmd_checks
@@ -33,9 +33,9 @@ tests:
     testcase: routing
     top: pcie_rc_tl_tb
     timeout_s: 300
-  - name: interim
+  - name: check1
     module: tests.test_rc_tl_cmd
-    testcase: interim
+    testcase: check1
     top: pcie_rc_tl_tb
     timeout_s: 300
   - name: result_beats
@@ -49,6 +49,75 @@ tests:
     top: pcie_rc_tl_tb
     seeds: 2
     timeout_s: 300
+  # Requester: requests, completion statuses and checks, splits,
+  # unexpected completions, the timeout, link down, credits, the error
+  # record; random endpoint commands against the model.
+  - name: req_success
+    module: tests.test_rc_tl_req
+    testcase: req_success
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+  - name: req_status
+    module: tests.test_rc_tl_req
+    testcase: req_status
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+    params: {CPL_TIMEOUT_DIV: 1024}
+  - name: req_malformed
+    module: tests.test_rc_tl_req
+    testcase: req_malformed
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+    params: {CPL_TIMEOUT_DIV: 1024}
+  - name: req_split
+    module: tests.test_rc_tl_req
+    testcase: req_split
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+    params: {CPL_TIMEOUT_DIV: 1024}
+  - name: req_unexpected
+    module: tests.test_rc_tl_req
+    testcase: req_unexpected
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+    params: {CPL_TIMEOUT_DIV: 1024}
+  - name: req_timeout
+    module: tests.test_rc_tl_req
+    testcase: req_timeout
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+    params: {CPL_TIMEOUT_DIV: 1024}
+  - name: req_timeout_div1000
+    module: tests.test_rc_tl_req
+    testcase: req_timeout
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+    params: {CPL_TIMEOUT_DIV: 1000}
+  - name: req_link_down
+    module: tests.test_rc_tl_req
+    testcase: req_link_down
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+    params: {CPL_TIMEOUT_DIV: 1024}
+  - name: req_credits
+    module: tests.test_rc_tl_req
+    testcase: req_credits
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+    params: {CPL_TIMEOUT_DIV: 1024}
+  - name: err_record
+    module: tests.test_rc_tl_req
+    testcase: err_record
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+    params: {CPL_TIMEOUT_DIV: 1024}
+  - name: random_req
+    module: tests.test_rc_tl_req
+    testcase: random_req
+    top: pcie_rc_tl_tb
+    seeds: 2
+    timeout_s: 600
+    params: {CPL_TIMEOUT_DIV: 1024}
   # Every parameter check fires on illegal values; the boundaries pass.
   - name: param_limits
     module: tests.test_rc_tl_params
