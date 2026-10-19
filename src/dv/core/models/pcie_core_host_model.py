@@ -344,13 +344,16 @@ class HostModel:
         self._check_reg(reg)
         t = cfg_write(self.requester_id, 0, *bdf, reg, value, first_be, type1)
         if reg == CFG_COMMAND and not type1:
-            ident = bdf_id(*bdf)
-            old = self._command.get(ident, 0)
-            for i in range(2):  # Command is bytes 0 and 1
-                if first_be >> i & 1:
-                    old = (old & ~(0xFF << 8 * i)) | (value & (0xFF << 8 * i))
-            self._command[ident] = old & 0xFFFF
+            self._note_command(bdf_id(*bdf), value, first_be)
         return self._issue_np(Request("cfg_wr", t, expected_completer=bdf_id(*bdf)))
+
+    def _note_command(self, ident: int, value: int, first_be: int) -> None:
+        """Keep the Command register as the host wrote it (bytes 0 and 1)."""
+        old = self._command.get(ident, 0)
+        for i in range(2):
+            if first_be >> i & 1:
+                old = (old & ~(0xFF << 8 * i)) | (value & (0xFF << 8 * i))
+        self._command[ident] = old & 0xFFFF
 
     def mem_read(self, addr: int, nbytes: int, tc: int = 0, attr: int = 0) -> Request:
         """One memory read request for the bytes [addr, addr + nbytes),
@@ -598,9 +601,9 @@ class HostModel:
             self._fail(f"{t.kind} at {t.address:#x}, {t.length_dw} DW crosses 4 KiB "
                        "[cite: PCIe Base Spec, rev 3.0, §2.2.7]")
 
-    def _on_mem_read(self, t: Tlp) -> None:
-        """Answer an endpoint read from host memory, split on the host's
-        RCB [cite: PCIe Base Spec, rev 3.0, §2.3.1.1]."""
+    def _check_ep_read(self, t: Tlp) -> tuple[int, int]:
+        """Check an endpoint memory read against the host's rules and the
+        endpoint's limits; return its first byte and byte count."""
         self._check_requester(t, "memory read")
         self._check_4k(t)
         n = t.length_dw
@@ -617,7 +620,13 @@ class HostModel:
             self._fail(f"memory read of 1 DW with Last DW BE {lbe:04b}")
         if n > 1 and (fbe == 0 or lbe == 0):
             self._fail(f"memory read of {n} DW with a zero byte-enable field")
-        # Byte count and lower address [cite: PCIe Base Spec, rev 3.0, §2.3.1.1].
+        return self._read_span(t)
+
+    @staticmethod
+    def _read_span(t: Tlp) -> tuple[int, int]:
+        """First byte and byte count of a memory read: a zero-length read
+        counts as 1 byte at its DW [cite: PCIe Base Spec, rev 3.0, §2.3.1.1]."""
+        n, fbe, lbe = t.length_dw, t.first_be, t.last_be
         if n == 1:
             if fbe == 0:
                 total, low = 1, 0
@@ -629,7 +638,13 @@ class HostModel:
             low = (fbe & -fbe).bit_length() - 1
             high_last = lbe.bit_length() - 1
             total = 4 * n - low - (3 - high_last)
-        first = t.address + low
+        return t.address + low, total
+
+    def _on_mem_read(self, t: Tlp) -> None:
+        """Answer an endpoint read from host memory, split on the host's
+        RCB [cite: PCIe Base Spec, rev 3.0, §2.3.1.1]."""
+        first, total = self._check_ep_read(t)
+        n = t.length_dw
         status = self.read_status(t.address, 4 * n) if self.read_status else CPL_SC
         ckw = dict(tc=t.tc, attr=t.attr & 0x3)
         if status != CPL_SC:
