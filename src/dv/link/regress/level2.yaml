@@ -47,6 +47,13 @@ tests:
     seeds: 2
     timeout_s: 1800
     coverage_seeds: 2
+  - name: e2e_soak_release
+    module: tests.test_link_e2e
+    testcase: e2e_soak
+    top: pcie_link_e2e_tb
+    params: {CREDITS: 5}
+    seeds: 1
+    timeout_s: 1800
   - name: e2e_tlp_errors_sweep
     module: tests.test_link_e2e
     testcase: e2e_tlp_errors
@@ -96,6 +103,12 @@ tests:
     module: tests.test_link_e2e
     testcase: e2e_hot_reset
     top: pcie_link_e2e_tb
+    timeout_s: 600
+  - name: e2e_hot_reset_release
+    module: tests.test_link_e2e
+    testcase: e2e_hot_reset
+    top: pcie_link_e2e_tb
+    params: {CREDITS: 5}
     timeout_s: 600
   - name: e2e_credits_finite
     module: tests.test_link_e2e

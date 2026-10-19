@@ -721,14 +721,18 @@ class Env:
 
     # -- traffic ------------------------------------------------------------------
 
-    def tlps(self, i: int, n: int, kinds=KINDS) -> list[bytes]:
+    def tlps(self, i: int, n: int, kinds=KINDS, dw: int | None = None) -> list[bytes]:
         """``n`` TLPs of the HAS mix for end i (0 a, 1 b); each kind in turn,
-        drawn in order, so every kind is a quarter of any long run."""
+        drawn in order, so every kind is a quarter of any long run. ``dw``
+        fixes the payload length (DWs) instead of drawing it."""
         out = []
         for k in range(n):
             kind = kinds[self.rng.randrange(len(kinds))] if k % 2 else kinds[(k // 2) % len(kinds)]
-            dw = self.rng.choice((1, self.rng.randint(1, 32), 32))
-            out.append(ptn.make_tlp(kind, dw, (self.tag[i] + 0x4000 * i) & 0xFFFF))
+            if dw is None:
+                n_dw = self.rng.choice((1, self.rng.randint(1, 32), 32))
+            else:
+                n_dw = dw
+            out.append(ptn.make_tlp(kind, n_dw, (self.tag[i] + 0x4000 * i) & 0xFFFF))
             self.tag[i] += 1
         return out
 
