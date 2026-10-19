@@ -1,0 +1,15 @@
+# Enumeration (wiki/src/arch/rc/HAS.md#targets, goal item 4): program ENUM
+# alone sets up the root port's header, reads core's IDs, walks its
+# capabilities, sizes and assigns its BARs, configures MSI and enables
+# memory space and bus mastering. enumeration_cycles (from link-up to the
+# last enumeration step) is reported for information, with no bound.
+description: Program ENUM from start_i, rc and core at their defaults, back to back over the link model.
+seed: 1
+workload:
+  kind: program
+  program: ENUM
+targets:
+  run_passed: {min: 1}
+  fail_step: {max: 0}
+  unexpected_completions: {max: 0}
+  malformed_received: {max: 0}

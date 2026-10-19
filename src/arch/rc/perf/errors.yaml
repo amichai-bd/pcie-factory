@@ -1,0 +1,23 @@
+# Errors and recovery (wiki/src/arch/rc/HAS.md#targets, goal item 7):
+# program ERRORS, with CPL_TIMEOUT_DIV 1024 as DV runs it: Unsupported
+# Requests at both ends, the error messages, local refusals, the MSI
+# capture overflow, a completion timeout of N = 2048 cycles, a Hot Reset
+# and a link down under traffic, each followed by re-enumeration.
+description: Program ERRORS, CPL_TIMEOUT_DIV 1024, the link taken down while R12 polls BAR0.
+seed: 1
+workload:
+  kind: program
+  program: ERRORS
+  cpl_timeout_div: 1024
+targets:
+  run_passed: {min: 1}
+  fail_step: {max: 0}
+  enumerations: {min: 3, max: 3}
+  timeouts: {min: 1, max: 1}
+  timeout_cycles: {min: 2048, max: 2048}
+  hot_resets: {min: 1, max: 1}
+  link_downs: {min: 2, max: 2}
+  link_down_results: {min: 1}
+  msi_dropped: {min: 1, max: 1}
+  inbound_ur: {min: 1, max: 1}
+  unexpected_completions: {max: 0}

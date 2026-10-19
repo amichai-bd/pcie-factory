@@ -320,7 +320,7 @@ firstmate decision taken as the captain's delegate
 | `rc_tl` and `rc_seq` survive link down; outstanding requests finish with `LINK_DOWN` | The sequencer drives the Hot Reset and must re-enumerate after it; a hung command would hang the run. | Holding both in reset while `dl_up_o` is 0 as `core` does (loses the program state). |
 | `retrain_req_i`, `disable_req_i`, `loopback_req_i` tied to 0 | OP4 lists Hot Reset only, and Hot Reset plus link-down handling meet M4's errors-and-recovery scope; the rollover retrain stays inside `link`. Firstmate delegate decision, option (a) ([#367 comment](https://github.com/amichai-bd/pcie-factory/issues/367#issuecomment-6267968281)); the captain may override. | Commands for each (beyond OP4, and the upper-layer retrain through `link` has no `link` e2e test yet). |
 | Posted and non-posted credits released when a request leaves `rc_tl`, `FC_RELEASE` 1 | Bounds `rc_tl`'s queues by what it advertises, as in `core`; covered by `link` `e2e_credits_release`. | Release at delivery (nothing bounds what the endpoint sends while `rc_tl` waits for host memory or answers with Unsupported Request). |
-| 1-DW memory writes and configuration requests; reads of 1 to 32 DW | Programs check DW by DW; 32 DW is the 128-byte read limit (M2 Q6) and draws several completions from `core`. | Multi-DW writes (ROM data per DW for no M4 goal). |
+| 1-DW memory writes and configuration requests; reads of 1 to 32 DW | Programs check DW by DW; 32 DW is the 128-byte read limit (M2 Q6). `core` returns any read of 128 bytes or less as one completion ([`tl` splitting](../tl/COMPLETIONS.md#splitting)). The several completions of goal item 5 come from the [#377](https://github.com/amichai-bd/pcie-factory/issues/377) e2e, which replaces an MMIO read's completion on the line with several split ones; `rc_seq` checks the data and the host model shadow the reassembly. [#373](https://github.com/amichai-bd/pcie-factory/issues/373) also tests the reassembly with injected splits (firstmate delegate decision, [#371 comment](https://github.com/amichai-bd/pcie-factory/issues/371#issuecomment-6270100643); the captain may override). | Multi-DW writes (ROM data per DW for no M4 goal). |
 | Functional targets plus the completion-timeout bound; enumeration cycles and MMIO and DMA throughput reported for information, with no bound ([targets](#targets)) | #367 asks for functional targets only, M4's success criteria are simulation plus FPGA synthesis, and no measurement yet supports a bound. Firstmate delegate decision, option (a) ([#367 comment](https://github.com/amichai-bd/pcie-factory/issues/367#issuecomment-6267968281)); the captain may override. | Throughput bounds now (no measured basis). |
 | 16-bit `fail_step_o` | Four hexadecimal digits on a board display; bounds the ROM at 65536 steps. | A width that follows the ROM size (the board wrapper would change with it). |
 
@@ -333,11 +333,11 @@ non-goals). The functional rows are goal items of the
 
 | Item | Target | Check |
 | --- | --- | --- |
-| Enumeration | Goal item 4: `rc_seq`'s programs alone set up the Type 1 header, read the endpoint's IDs, walk its capabilities, size and assign every BAR, enable memory space and bus mastering, and configure MSI. | [#377](https://github.com/amichai-bd/pcie-factory/issues/377) e2e |
-| MMIO | Goal item 5: BAR0 reads and writes with the expected data, reads returned as several completions included. | #377 e2e |
-| DMA and MSI | Goal item 6: the endpoint's bus-master reads and writes reach host memory correctly; its MSI writes are captured and checked. | #377 e2e |
-| Errors and recovery | Goal item 7: each event of the [error record](TL_SEQ.md#error-record) detected and recorded; re-enumeration after a Hot Reset or link down; replay recovers injected link errors with no lost TLP. | #377 e2e |
-| Completion timeout | `rc_tl`'s timeout, at `CPL_TIMEOUT_DIV` 1, between 50 µs and 50 ms [cite: PCIe Base Spec, rev 3.0, §2.8]; the value is the `rc_tl` MAS's. | [#371](https://github.com/amichai-bd/pcie-factory/issues/371) model; #377 |
+| Enumeration | Goal item 4: `rc_seq`'s programs alone set up the Type 1 header, read the endpoint's IDs, walk its capabilities, size and assign every BAR, enable memory space and bus mastering, and configure MSI. | [#377](https://github.com/amichai-bd/pcie-factory/issues/377) e2e; [`enumeration`](../../../../src/arch/rc/perf/enumeration.yaml) model |
+| MMIO | Goal item 5: BAR0 reads and writes with the expected data, reads returned as several completions included. `core` returns a read of 128 bytes or less as one completion; the several come from the #377 e2e injection ([1-DW-writes decision](#decisions)). | #377 e2e; [`mmio`](../../../../src/arch/rc/perf/mmio.yaml) model |
+| DMA and MSI | Goal item 6: the endpoint's bus-master reads and writes reach host memory correctly; its MSI writes are captured and checked. | #377 e2e; [`dma_msi`](../../../../src/arch/rc/perf/dma_msi.yaml) model |
+| Errors and recovery | Goal item 7: each event of the [error record](TL_SEQ.md#error-record) detected and recorded; re-enumeration after a Hot Reset or link down; replay recovers injected link errors with no lost TLP. | #377 e2e; [`errors`](../../../../src/arch/rc/perf/errors.yaml) model |
+| Completion timeout | `rc_tl`'s timeout, at `CPL_TIMEOUT_DIV` 1, between 50 µs and 50 ms [cite: PCIe Base Spec, rev 3.0, §2.8]; the value is the `rc_tl` MAS's. | [`completion_timeout`](../../../../src/arch/rc/perf/completion_timeout.yaml) model; #377 |
 | Address map | The default host memory (4 KiB) and the MSI window are disjoint and below 4 GiB. | [`address_map`](../../../../src/arch/rc/perf/address_map.yaml) |
 | Board build | Goal item 9: `rc` and `core` with the GPIO adapter run the enumeration and MMIO programs back to back. | [#378](https://github.com/amichai-bd/pcie-factory/issues/378) |
 | FPGA | Goal item 10: the `rc` board build passes Quartus synthesis on the DE2-115; resources reported, timing for information only. | [#379](https://github.com/amichai-bd/pcie-factory/issues/379) |
@@ -350,14 +350,35 @@ delegate decision, [#367 comment](https://github.com/amichai-bd/pcie-factory/iss
 
 ## Architecture model
 
-[`pcie_rc_arch.py`](../../../../src/arch/rc/pcie_rc_arch.py) is a
-placeholder until [#371](https://github.com/amichai-bd/pcie-factory/issues/371):
-it encodes the [address map](#parameters), the
-[outbound](#outbound-routing) and [inbound](#inbound-routing) routing
-rules and the [memory window](#type-1-header) as functions, its
-[self-tests](../../../../src/arch/rc/test_pcie_rc_arch.py) check this
-page's examples, and `./build arch --ip rc` runs the `address_map`
-scenario and writes `workdir/rc/arch/perf.json`.
+[`pcie_rc_arch.py`](../../../../src/arch/rc/pcie_rc_arch.py) makes this
+page, the [tl-seq page](TL_SEQ.md) and the sub-IP MAS pages executable
+([#371](https://github.com/amichai-bd/pcie-factory/issues/371)). It is
+written from them alone and shares no code with the host model shadow
+(`src/dv/core/models/`, [#372](https://github.com/amichai-bd/pcie-factory/issues/372)),
+which stays the e2e oracle. One step per `clk_i` cycle:
+
+| Part | Models |
+| --- | --- |
+| `RcTl` | `rc_tl`: the command checks, the [Type 1 header](#type-1-header), host memory, the error record, the MSI capture, one endpoint request with a 5-bit rolling tag, completion matching and the completion timeout ([requester](../../rtl/rc_tl/REQUESTER.md)), the receive checks, [inbound routing](#inbound-routing), the completer, the transmit arbiter and the [credit release](#credits) ([inbound](../../rtl/rc_tl/INBOUND.md)), and [link down](#link-down). |
+| `RcSeq` | `rc_seq`: the interpreter of 128-bit ROM words in the [`rc_seq` step format](../../rtl/rc_seq/MAS.md#step-format), and the programs `ENUM`, `MMIO`, `DMA_MSI` and `ERRORS` built from the [programs page](../../rtl/rc_seq/PROGRAMS.md). |
+| `Bench` | `rc` over one end of the `link` arch model, the `core` arch model over the other, and the endpoint application the [program boundary](../../rtl/rc_seq/PROGRAMS.md#boundary) asks for; or `rc_tl` alone over a link that never answers. |
+
+Cycle costs are the MAS timing figures; the wait timeouts, Hot Reset hold
+and loop limit, which [#376](https://github.com/amichai-bd/pcie-factory/issues/376)
+sets, and the `link` Hot Reset timer are model constants that bound
+nothing. Its [self-tests](../../../../src/arch/rc/test_pcie_rc_arch.py)
+check the rules on this page and the sub-IP pages, with a failing case
+for each, and `./build arch --ip rc` runs these scenarios into
+`workdir/rc/arch/perf.json`:
+
+| Scenario | Target row | Bound | Reported for information |
+| --- | --- | --- | --- |
+| [`enumeration`](../../../../src/arch/rc/perf/enumeration.yaml) | Enumeration | `ENUM` passes against `core`. | Cycles from link-up to the last enumeration step. |
+| [`mmio`](../../../../src/arch/rc/perf/mmio.yaml) | MMIO | `MMIO` passes; the 32-DW read returns as one completion. | BAR0 write and 32-DW read rates, the read latency. |
+| [`dma_msi`](../../../../src/arch/rc/perf/dma_msi.yaml) | DMA and MSI | `DMA_MSI` passes: 64 bytes copied, one MSI. | Cycles and rate from the doorbell to the MSI capture. |
+| [`errors`](../../../../src/arch/rc/perf/errors.yaml) | Errors and recovery | `ERRORS` passes at `CPL_TIMEOUT_DIV` 1024: one timeout of 2048 cycles, a Hot Reset and a link down, three enumerations. | - |
+| [`completion_timeout`](../../../../src/arch/rc/perf/completion_timeout.yaml), [`completion_timeout_50mhz`](../../../../src/arch/rc/perf/completion_timeout_50mhz.yaml) | Completion timeout | 50 µs to 50 ms at `CPL_TIMEOUT_DIV` 1, 125 and 50 MHz. | The cycles (2^21). |
+| [`address_map`](../../../../src/arch/rc/perf/address_map.yaml) | Address map | Disjoint, below 4 GiB. | - |
 
 ## Open questions
 
