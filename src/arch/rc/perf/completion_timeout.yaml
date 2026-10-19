@@ -1,0 +1,17 @@
+# Completion timeout (wiki/src/arch/rc/HAS.md#targets): rc_tl's timeout at
+# CPL_TIMEOUT_DIV 1 lies between 50 us and 50 ms at 125 MHz
+# (wiki/src/rtl/rc_tl/REQUESTER.md#completion-timeout: N = 2^21 cycles,
+# 16.8 ms). Two unanswered reads, so the rolling tag steps.
+description: Two memory reads never answered, rc_tl alone, CPL_TIMEOUT_DIV 1, clk_i 125 MHz.
+seed: 1
+workload:
+  kind: completion_timeout
+  cpl_timeout_div: 1
+  clk_mhz: 125
+  reads: 2
+targets:
+  run_passed: {min: 1}
+  timeouts: {min: 2, max: 2}
+  timeout_us_min: {min: 50}
+  timeout_us_max: {max: 50000}
+  tags_used: {min: 2, max: 2}

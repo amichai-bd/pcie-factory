@@ -3,8 +3,10 @@
 // Interfaces and behavior: wiki/src/rtl/rc_tl/MAS.md, which implements
 // wiki/src/arch/rc/HAS.md and TL_SEQ.md.
 //
-// Wave-1 shell: the ports of the MAS with every output at its reset value;
-// received beats are taken and dropped. The blocks arrive with #373 to #375.
+// Built so far: the front end (u_cmd: the take, checks 2 to 7, HDR_* and
+// the result beats) and the Type 1 header (u_hdr), #374. Every other output
+// holds its reset value and received beats are taken and dropped; the
+// other blocks arrive with #373 and #375 (MAS, Leaf blocks).
 `default_nettype none
 
 `include "common_macros.svh"
@@ -75,21 +77,47 @@ module pcie_rc_tl #(
   `COMMON_ASSERT_PARAM(g_vendor_id_check, VENDOR_ID != 16'hFFFF, "pcie_rc_tl: VENDOR_ID must not be FFFF")
   `COMMON_ASSERT_PARAM(g_device_id_check, DEVICE_ID != 16'hFFFF, "pcie_rc_tl: DEVICE_ID must not be FFFF")
 
-  // Inputs and parameters the shell does not use yet; #373 to #375 consume
-  // them.
-  logic unused_inputs;
-  assign unused_inputs = ^{clk_i, cmd_valid_i, cmd_i, msi_ready_i, tlp_tx_ready_i,
+  pcie_rc_tl_pkg::t_hdr_st  hdr_st;
+  pcie_rc_tl_pkg::t_hdr_acc hdr_acc;
+  logic [31:0]              hdr_rd_data;
+
+  pcie_rc_tl_cmd #(
+    .HOST_MEM_ADDR_W (HOST_MEM_ADDR_W)
+  ) u_cmd (
+    .clk_i         (clk_i),
+    .rst_i         (rst_i),
+    .cmd_valid_i   (cmd_valid_i),
+    .cmd_ready_o   (cmd_ready_o),
+    .cmd_i         (cmd_i),
+    .dl_up_i       (dl_up_i),
+    .hdr_st_i      (hdr_st),
+    .hdr_rd_data_i (hdr_rd_data),
+    .hdr_acc_o     (hdr_acc),
+    .rsp_valid_o   (rsp_valid_o),
+    .rsp_o         (rsp_o)
+  );
+
+  pcie_rc_tl_hdr #(
+    .VENDOR_ID   (VENDOR_ID),
+    .DEVICE_ID   (DEVICE_ID),
+    .REVISION_ID (REVISION_ID)
+  ) u_hdr (
+    .clk_i     (clk_i),
+    .rst_i     (rst_i),
+    .acc_i     (hdr_acc),
+    .rd_data_o (hdr_rd_data),
+    .st_o      (hdr_st)
+  );
+
+  // Inputs and parameters no block uses yet; #373 and #375 consume them.
+  `COMMON_UNUSED_BITS(unused_inputs, {msi_ready_i, tlp_tx_ready_i,
                            tlp_rx_valid_i, tlp_rx_data_i, tlp_rx_sop_i, tlp_rx_eop_i,
                            fc_ph_avail_i, fc_pd_avail_i, fc_nph_avail_i, fc_npd_avail_i,
-                           fc_cplh_avail_i, fc_cpld_avail_i, dl_up_i,
-                           FC_NPH[0], CPL_TIMEOUT_DIV[0], HOST_MEM_ADDR_W[0],
-                           HOST_MEM_BASE, MSI_ADDR, VENDOR_ID, DEVICE_ID, REVISION_ID};
+                           fc_cplh_avail_i, fc_cpld_avail_i,
+                           FC_NPH[0], CPL_TIMEOUT_DIV[0], HOST_MEM_BASE, MSI_ADDR})
 
-  // Reset values (MAS): no command taken, no result, no capture, nothing
+  // Reset values of the blocks not built yet (MAS): no capture, nothing
   // sent or released; every received beat taken out of reset.
-  assign cmd_ready_o    = 1'b0;
-  assign rsp_valid_o    = 1'b0;
-  assign rsp_o          = '0;
   assign msi_valid_o    = 1'b0;
   assign msi_o          = '0;
   assign tlp_tx_valid_o = 1'b0;

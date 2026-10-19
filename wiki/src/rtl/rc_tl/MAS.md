@@ -48,8 +48,9 @@ flowchart LR
 ```
 
 `rc` wires it between `rc_seq` and `link` ([`rc` position](../../arch/rc/HAS.md#position)).
-The blocks above are the planned [leaf blocks](#leaf-blocks); today the
-module is a [shell](#files).
+The blocks above are the [leaf blocks](#leaf-blocks); today `u_cmd` and
+`u_hdr` are built and the others are tied to their reset values
+([files](#files)).
 
 ## Interfaces
 
@@ -66,7 +67,7 @@ the `rc_seq`-side bundles are the `common_pkg` structs of the
 | `cmd_ready_o` | out | 1 | `clk_i` | Taken at an edge where both are 1 ([commands](#commands)). |
 | `cmd_i` | in | 82 | `clk_i` | `common_pkg::t_rc_cmd`: `op` (4), `addr` (32), `len` (6), `first_be` (4), `last_be` (4), `data` (32). |
 | `rsp_valid_o` | out | 1 | `clk_i` | One-cycle pulse per result beat; no ready, `rc_seq` takes every beat. |
-| `rsp_o` | out | 36 | `clk_i` | `common_pkg::t_rc_rsp`: `status` (`t_rc_status`, 3), `data` (32), `last` (1). |
+| `rsp_o` | out | 36 | `clk_i` | `common_pkg::t_rc_rsp`: `status` (`t_rc_status`, 3), `data` (32), `last` (1); 0 while `rsp_valid_o` is 0. |
 | `msi_valid_o` | out | 1 | `clk_i` | The oldest capture is offered. |
 | `msi_ready_i` | in | 1 | `clk_i` | Taken (removed) at an edge where both are 1. |
 | `msi_o` | out | 42 | `clk_i` | `common_pkg::t_rc_msi`: `offset` (10), `data` (32). |
@@ -118,10 +119,13 @@ Two resets: `rst` (`rst_i`) and the link reset `lrst` (`rst_i` or
 | `lrst` | The receive parser (a TLP in progress is dropped with no event), the non-posted queue and the completer (every inbound request held is dropped with no completion and no release), the transmit arbiter and output stage (a TLP in progress is abandoned), the pending credit releases. |
 
 Host memory is never reset. Out of `rst` every output is 0 but
-`tlp_rx_ready_o`, which is 1. While `dl_up_i` is 0 the outstanding
+`tlp_rx_ready_o`, which is 1. While `rst_i` is 1, `cmd_ready_o`,
+`rsp_valid_o` and `rsp_o` are 0 at once, as [TL_SEQ](../../arch/rc/TL_SEQ.md#signals)
+requires, not only after the next edge. While `dl_up_i` is 0 the outstanding
 endpoint request ends with `LINK_DOWN`, and every endpoint command taken
-gets `LINK_DOWN` at once ([commands](#commands)); local commands are
-unaffected. This is the [`rc` link-down rule](../../arch/rc/HAS.md#link-down):
+gets `LINK_DOWN` at once ([commands](#commands); until #373 only one that
+passes checks 2 to 7, by the [interim rule](#leaf-blocks)); local
+commands are unaffected. This is the [`rc` link-down rule](../../arch/rc/HAS.md#link-down):
 `link` has abandoned every TLP it held and restarts every credit, so
 nothing held below `lrst` can be answered or released.
 
@@ -169,6 +173,13 @@ enables, Primary and Secondary Bus Numbers and the window's base and
 limit, so a write affects the routing of the next command and of every
 TLP whose last header DW arrives after the write's edge.
 
+`u_hdr` keeps one register per DW with RW fields (DWs 1, 3, 6 and 8),
+holding only its RW bits, and adds the constants at the read. `u_cmd`
+gives it a `t_hdr_acc` (the DW index `addr[11:2]`, and for an `HDR_WR`
+that passes the checks a write strobe at the take with `first_be` and
+`data`); `u_hdr` returns that DW's read data combinationally, which
+`u_cmd` registers into the result beat.
+
 ### Error record and Q2 cases
 
 The record ([bits](../../arch/rc/TL_SEQ.md#error-record)) lives in the
@@ -210,19 +221,31 @@ recovery case, and what records it:
 | `pcie_rc_tl_mem.sv` | `u_mem` | [Host memory](INBOUND.md#host-memory) and its port | #375 |
 | `pcie_rc_tl_cpl.sv` | `u_cpl` | [Completer](INBOUND.md#completer), non-posted queue and release | #375 |
 | `pcie_rc_tl_msi.sv` | `u_msi` | [MSI capture](INBOUND.md#msi-capture) | #375 |
-| `pcie_rc_tl.sv` | top | Parameter checks, `rst` and `lrst`, the blocks | today the shell; each issue adds its blocks |
+| `pcie_rc_tl.sv` | top | Parameter checks, `rst` and `lrst`, the blocks | #374 adds `u_cmd` and `u_hdr`; each issue adds its blocks |
 
 Build order: [#374](https://github.com/amichai-bd/pcie-factory/issues/374)
 first, so the requester ([#373](https://github.com/amichai-bd/pcie-factory/issues/373))
 routes by real header state (Memory Space Enable, the window, the bus
 numbers) and fills the Requester ID from it, with no stand-in; then #373
 (after [#385](https://github.com/amichai-bd/pcie-factory/issues/385));
-then #375 ([#368 decision](https://github.com/amichai-bd/pcie-factory/issues/368#issuecomment-6268994085)). Until
-#373 lands, `u_cmd` (from #374) finishes an endpoint command that passes
-checks 2 to 7 with `LINK_DOWN` while `dl_up_i` is 0 and otherwise with
-`LOCAL_UR`, sending nothing, so no command hangs; #374's acceptance is
-judged on the refusals and the `HDR_*` commands, and the accepted path's
-tests belong to #373.
+then #375 ([#368 decision](https://github.com/amichai-bd/pcie-factory/issues/368#issuecomment-6268994085)).
+
+**Interim rule.** Until #373 lands, `u_cmd` (from #374) finishes an
+endpoint command that passes checks 2 to 7 with `LINK_DOWN` while
+`dl_up_i` is 0 and otherwise with `LOCAL_UR`, sending nothing, so no
+command hangs; #374's acceptance is judged on the refusals and the
+`HDR_*` commands, and the accepted path's tests belong to #373. Check 1
+is not applied until #373 either: `LINK_DOWN` is decided only after
+checks 2 to 7 pass, so an endpoint command that fails one of them
+finishes `LOCAL_UR` even while `dl_up_i` is 0. This differs, until #373,
+from the `LINK_DOWN` precedence of [TL_SEQ](../../arch/rc/TL_SEQ.md#commands)
+and of the [`rc` outbound routing](../../arch/rc/HAS.md#outbound-routing). For the
+same reason an `ERR_*` command that passes the checks finishes `LOCAL_UR`
+until #373 adds the error record, and a `HOST_*` one until #375 adds host
+memory: one beat in the cycle after the take, nothing changed. While a
+command finishes `LOCAL_UR` either way, the `HOST_*` and `ERR_*` refusals
+(checks 3, 4 and 6) are not observable at the ports; their tests belong
+to #375 and #373.
 
 ### Reuse of tl blocks
 
@@ -286,8 +309,8 @@ the captain may override any.
   after its DW.
 - Transmitted: one beat per cycle while the link takes them; the output
   stage adds one cycle of latency and none of throughput.
-- Combinational outputs: `tlp_rx_ready_o` (`rst_i` only); `cmd_ready_o`
-  from flops.
+- Combinational outputs: `tlp_rx_ready_o` (`rst_i` only); `cmd_ready_o`,
+  `rsp_valid_o` and `rsp_o` from flops, forced to 0 by `rst_i`.
 
 ## Targets
 
@@ -300,8 +323,11 @@ target: FPGA resources are reported with `rc`
 
 | File | Holds |
 | --- | --- |
-| [`pcie_rc_tl.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl.sv) | The shell: every [port](#interfaces) and [parameter](#parameters) with its range checks; every output at its [reset value](#reset-and-link-down) and `tlp_rx_ready_o` 1 out of reset (taken beats are dropped). |
-| [`rc_tl.rtl.f`](../../../../src/rtl/rc_tl/rc_tl.rtl.f) | The shared vocabulary, `common_pkg`, `pcie_rc_tl.sv`. `rc.rtl.f` reaches it with `-F`. |
+| [`pcie_rc_tl_pkg.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_pkg.sv) | `t_hdr_st`, `t_hdr_acc` and the front end's `t_fe_st`; the header's byte-lane write and the check helpers of [commands](#commands), on plain vectors. |
+| [`pcie_rc_tl_hdr.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_hdr.sv) | `u_hdr`, the [Type 1 header](#type-1-header), with its layout (DW indices, RW masks, constants). |
+| [`pcie_rc_tl_cmd.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl_cmd.sv) | `u_cmd`, the [front end](#commands) of #374: the take, checks 2 to 7, `HDR_*`, the result beats and the [interim rule](#leaf-blocks). |
+| [`pcie_rc_tl.sv`](../../../../src/rtl/rc_tl/pcie_rc_tl.sv) | The top: every [port](#interfaces) and [parameter](#parameters) with its range checks, `u_cmd` and `u_hdr`; the outputs of the blocks not built yet at their [reset values](#reset-and-link-down), `tlp_rx_ready_o` 1 out of reset (taken beats are dropped). |
+| [`rc_tl.rtl.f`](../../../../src/rtl/rc_tl/rc_tl.rtl.f) | The shared vocabulary, `common_pkg`, the package, the leaf blocks, the top. `rc.rtl.f` reaches it with `-F`. |
 
 ## Open items
 

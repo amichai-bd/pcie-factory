@@ -20,7 +20,8 @@ module pcie_link #(
   parameter int unsigned FC_CPLD         = 0,  // completion data credits; 0 infinite (default), else 8..2047
   parameter int unsigned FC_RELEASE      = 0,  // 0: credits return at delivery; 1: P and NP on fc_rel_*_i
   parameter int unsigned TIMEOUT_DIV     = 1,  // 1..1024: divides Detect.Quiet and Hot Reset waits; 1 for silicon
-  parameter int unsigned ERR_TIMEOUT_DIV = 1   // 1..1024: divides error-path timeouts (floored); 1 for silicon
+  parameter int unsigned ERR_TIMEOUT_DIV = 1,  // 1..1024: divides error-path timeouts (floored); 1 for silicon
+  parameter int unsigned REPLAY_TIMEOUT  = 356 // dll replay timeout, clk_i cycles; 356..65535
 ) (
   // Clocks, reset and strap
   input  logic        clk_i,            // core clock, 125 MHz
@@ -108,7 +109,8 @@ module pcie_link #(
     .FC_NPD  (FC_NPD),
     .FC_CPLH (FC_CPLH),
     .FC_CPLD    (FC_CPLD),
-    .FC_RELEASE (FC_RELEASE)
+    .FC_RELEASE (FC_RELEASE),
+    .REPLAY_TIMEOUT (REPLAY_TIMEOUT)
   ) u_dll (
     .clk_i            (clk_i),
     .rst_i            (rst_i),

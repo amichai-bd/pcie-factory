@@ -65,6 +65,7 @@ reports read apart ([errors](#errors)). The `phy` `pm_state_req_i` and
 | `FC_PH`, `FC_PD`, `FC_NPH`, `FC_NPD`, `FC_CPLH`, `FC_CPLD` | `int unsigned` | 8, 32, 8, 8, 0, 0 | as the [`dll` parameters](../dll/HAS.md#parameters) | Passed to `pcie_dll`: the credits this receiver advertises (0 infinite). |
 | `FC_RELEASE` | `int unsigned` | 0 | 0, 1 | Passed to `pcie_dll`: 1 returns finite posted and non-posted credits on the [credit release](../dll/HAS.md#credit-release) port. |
 | `TIMEOUT_DIV`, `ERR_TIMEOUT_DIV` | `int unsigned` | 1, 1 | 1 to 1024 | Passed to `pcie_phy` ([`phy` parameters](../phy/HAS.md#parameters)). FPGA and ASIC builds use 1; DV uses 1024 where a test must wait one out. |
+| `REPLAY_TIMEOUT` | `int unsigned` | 356 | 356 to 65535 | Passed to `pcie_dll`: the [replay timeout](../dll/HAS.md#parameters). Every `phy` build keeps 356; the GPIO build's value is [below](#replay-timeout-at-lower-1). |
 
 ## Behavior
 
@@ -109,7 +110,7 @@ the `dll` in DL_Active: TLPs in flight are replayed, not lost
 `link` holds the `phy` at L0: its transmitter never enters L0s, L1 or L2,
 and `link` has no power-state port. This resolves the `dll`'s L0s item:
 
-- The `dll` replay timeout (356 cycles, [timers](../dll/RETRY.md#timers))
+- The `dll` replay timeout (356 cycles by default, [timers](../dll/RETRY.md#timers))
   has no allowance for the partner's L0s exit time, so it is correct only
   while neither transmitter uses L0s [cite: PCIe Base Spec, rev 3.0, §3.5.2.1].
   ASPM L0s is not enabled in M2 (no ASPM changes, Q6), so no compliant
@@ -177,9 +178,58 @@ to 0).
 
 The [Targets](#targets), the [end-to-end plan](#end-to-end-plan) and the
 [architecture model](#architecture-model) on this page are for `LOWER` 0.
-At `LOWER` 1 the line-rate targets do not apply and the `dll` replay
-timeout is too short for long TLPs; the [`gpio` HAS](../gpio/HAS.md#dll-timers)
+At `LOWER` 1 the line-rate targets do not apply and the default `dll`
+replay timeout is too short for long TLPs; the [`gpio` HAS](../gpio/HAS.md#dll-timers)
 lists each consequence.
+
+### Replay timeout at LOWER 1
+
+The GPIO build sets `REPLAY_TIMEOUT` to **1400** (applied with `LOWER` by
+[#378](https://github.com/amichai-bd/pcie-factory/issues/378)): the
+worst-case round trip from a TLP's last beat taken by the adapter to its Ack
+acting at the near `dll`, with both directions loaded, so no replay happens
+without a loss ([deviation](../dll/RETRY.md#slow-lower-layers)). Terms, in
+`clk_i` cycles, the two ends' clocks nominally equal
+([`gpio` clock contract](../gpio/HAS.md#clocks-and-resets)):
+
+| Term | Value at `GPIO_CLK_DIV` 2 | Source |
+| --- | --- | --- |
+| `S`, one slot | 4 × `CLK_DIV` = 8 | [`gpio` timing](../gpio/HAS.md#timing) |
+| `n`, beats of a maximum TLP | 75 | [`gpio` transmit](../gpio/HAS.md#transmit) |
+| `L` = `L_tx` + `L_rx` | at most 3 × `S` = 24 | The [MAS bound](../../rtl/gpio/MAS.md) `W` ≤ 4 slots, `W` counting the slot in flight ([terms](../gpio/LINK_UP.md#terms)) |
+| `D`, transmit buffer depth in beats | 75, the minimum | [`gpio` MAS](../../rtl/gpio/MAS.md) (set by #378) |
+| Slot-phase wait, each way | at most `S` − 1 | A packet waits for the slot in progress. |
+| Far `dll`, `eop` to Ack offered | 35 | The 4-cycle check and 32-cycle Ack timer ([`dll` MAS timing](../../rtl/dll/MAS.md#timing)). |
+| Far `dll`, a started packet ahead of the Ack | at most 76 | A TLP, or an UpdateFC, started first ([transmit priority](../dll/RETRY.md#transmit-priority)). |
+| Near `dll`, Ack `eop` to acting, and the timer's compare edge | 3 | [`dll` MAS timing](../../rtl/dll/MAS.md#timing) |
+
+| Case | Round trip | At `GPIO_CLK_DIV` 2 |
+| --- | --- | --- |
+| Idle link: the `dll` hands the TLP over one beat per cycle, the pins send one per slot, then the Ack's 3 slots | `n`(`S` − 1) + 2(`S` − 1) + 2`L` + 35 + 3`S` + 3 = `n`(`S` − 1) + 5`S` + 2`L` + 36 | 649 |
+| Loaded both ways: the TLP leaves behind at most `D` buffered beats, its own included; the far adapter takes the Ack only with room for a maximum packet, after up to 75 slots, and sends it behind at most `D` − 75 beats | `D`·`S` + (`D` + 3)`S` + 2(`S` − 1) + 2`L` + 35 + 76 + 3 = 2`D`·`S` + 5`S` + 2`L` + 112 | 1400 |
+
+The idle bound is the [`gpio` HAS](../gpio/HAS.md#dll-timers) formula plus
+the slot-phase waits and the near `dll`'s check. It is not the value: with
+it, an Ack that waits behind a maximum TLP on the far pins (up to 600
+cycles) times out, and four timeouts with no progress roll REPLAY_NUM over,
+which the adapter cannot retrain (the 1024-cycle hold). The price of 1400
+is that a lost TLP or Ack is recovered after 1400 cycles instead of 356. If
+#378's MAS sets `D` or `L` above these terms, #378 recomputes the value
+from the loaded formula. The loaded bound overestimates: it adds every
+term at its worst, though some overlap (the far `dll`'s started packet
+drains into the far buffer while that buffer empties, and the TLP's own
+beats are counted in `D`).
+
+**Clock ratio.** 1400 holds only for nominally equal clocks at the two
+ends. The [`gpio` clock contract](../gpio/HAS.md#clocks-and-resets) allows
+any ratio from 1/2 to 2: with a far end up to twice as slow, the far-side
+terms (its `dll`'s 35 and 76 cycles, its slots, its buffer of `D` beats and
+the Ack's slots) take up to twice as many near cycles, and the loaded round
+trip exceeds about 2100 near cycles. At 1400 that gives spurious replays
+under load and possibly REPLAY_NUM rollovers with their 1024-cycle hold:
+bandwidth is lost, no TLP is. Sizing for the full ratio range, or
+recording that degradation as accepted, is an
+[open item](#open-items) of #378.
 
 ## Decisions
 
@@ -444,3 +494,4 @@ writes `workdir/link/arch/perf.json`.
 | If the Base Spec measures its Ack limit at the port (on the line), not at the data link layer's boundary, the 32-cycle `dll` Ack timer may be too long. The line bound here is 140 cycles against the 118 limit. The e2e measured up to 125.4 cycles on the line error-free and 126.4 under injection (111 at the `dll` boundary; [MAS timing](../../rtl/link/MAS.md#timing), [#215](https://github.com/amichai-bd/pcie-factory/issues/215)), so on the line the stack does not meet 118. | Captain |
 | M3 and later: software-directed L1 and L2 will need a power-state port on `link` and power-management DLLPs in `dll`. That changes the `link` port list again, beyond the credit release Q9 added (decision record [0004](../../decisions/0004-m3-grill.md#updates), amending Q5's "M3 adds it on top unchanged"). | Captain |
 | The cited sections on this page, checked against rev 3.0 (the Base Spec is not in the local cache). | Captain, with a local copy |
+| The GPIO build's `REPLAY_TIMEOUT` (1400) is sized for nominally equal clocks ([clock ratio](#replay-timeout-at-lower-1)): size it for the `gpio` contract's ratio range of 1/2 to 2 (above about 2100 cycles loaded), or record the spurious replays and rollover holds off-nominal as accepted degradation. | [#378](https://github.com/amichai-bd/pcie-factory/issues/378) |

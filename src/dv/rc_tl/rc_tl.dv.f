@@ -1,1 +1,2 @@
-// Simulation-only sources: none (cocotb drives pcie_rc_tl directly).
+// Simulation-only sources: the testbench top.
+tb/pcie_rc_tl_tb.sv

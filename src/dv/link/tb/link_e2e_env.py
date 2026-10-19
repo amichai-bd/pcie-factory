@@ -298,6 +298,8 @@ class LinkEnd:
         self.live = False                # DL_Active reached; link checks on
         self.err = [0] * 7
         self.err_log: list[tuple[int, int]] = []   # (time ps, dl_err_o) per nonzero pulse
+        self.timeout_at: list[int] = []            # cycle of each replay-timeout pulse
+        self.tlp_eops: list[int] = []              # cycle of each TLP eop the phy takes from the dll
         self.rcv_err = 0
         self.not_l0: list[list[int]] = []          # [left, back] in ps, live only
         self.l0_leaves = 0
@@ -342,6 +344,8 @@ class LinkEnd:
                     self.err[b] += 1
                     if b == ROLLOVER:
                         self.env.chk.rollover(self.name, t)
+                    if b == TIMEOUT:
+                        self.timeout_at.append(n)
                     if b in NEVER:
                         self.violations.append(f"end {self.name} cycle {n}: "
                                                f"{ERR_NAMES[b]} pulsed on dl_err_o")
@@ -379,6 +383,8 @@ class LinkEnd:
                              bool(rd["mon_pkt_rx_dllp_o"]()),
                              bool(rd["mon_pkt_rx_err_o"]()))
         if rd["mon_pkt_tx_valid_o"]() and rd["mon_pkt_tx_ready_o"]():
+            if rd["mon_pkt_tx_eop_o"]() and not rd["mon_pkt_tx_dllp_o"]():
+                self.tlp_eops.append(n)
             self.ack.tx_beat(n, rd["mon_pkt_tx_data_o"](),
                              bool(rd["mon_pkt_tx_sop_o"]()),
                              bool(rd["mon_pkt_tx_eop_o"]()),
@@ -638,14 +644,15 @@ class Env:
         self.credits = CREDIT_CONFIGS[int(dut.cfg_credits_o.value)]
         self.timeout_div = int(dut.cfg_timeout_div_o.value)
         self.err_timeout_div = int(dut.cfg_err_timeout_div_o.value)
+        self.replay_timeout = int(dut.cfg_replay_timeout_o.value)
         fcs = []
         for e in "ab":
             v = int(getattr(dut, f"{e}_cfg_fc_o").value)
             fcs.append(tuple((v >> (12 * i)) & 0xFFF for i in range(6)))
         self.log.info("link e2e: COCOTB_RANDOM_SEED %s, test seed %d, credits %s (a %s, b %s), "
-                      "b clock %+g ppm, TIMEOUT_DIV %d, ERR_TIMEOUT_DIV %d",
+                      "b clock %+g ppm, TIMEOUT_DIV %d, ERR_TIMEOUT_DIV %d, REPLAY_TIMEOUT %d",
                       os.environ.get("COCOTB_RANDOM_SEED", "-"), seed, self.credits, fcs[0],
-                      fcs[1], ppm, self.timeout_div, self.err_timeout_div)
+                      fcs[1], ppm, self.timeout_div, self.err_timeout_div, self.replay_timeout)
         COV_CONFIG.sample(credits=self.credits, ppm=ppm)
         self.ends = (LinkEnd(self, "a_", 0, fcs[0]), LinkEnd(self, "b_", 1, fcs[1]))
         skew = self.rng.randrange(64) if skew is None else skew

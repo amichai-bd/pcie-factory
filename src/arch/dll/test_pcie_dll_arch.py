@@ -666,3 +666,24 @@ def test_perf_credit_release_starves_without_overflow():
     assert r["held_np_hdr_max"] <= 8
     with pytest.raises(ValueError):
         m.perf(dict(w, release={"delay": 0}), 3)
+
+
+def test_replay_timeout_parameter():
+    """REPLAY_TIMEOUT (HAS, parameters): 356 to 65535; the timer expires
+    after that many L0 cycles, not after the default."""
+    for bad in (m.REPLAY_TIMEOUT - 1, m.REPLAY_TIMEOUT_MAX + 1):
+        with pytest.raises(ValueError):
+            m.Dll("x", replay_timeout=bad)
+    a, b = m.Dll("a", replay_timeout=1400), m.Dll("b")
+    p = m.Pair(a, b, m.Channel(random.Random(1), errors={"drop_tlp_window": (0, 10**9)}))
+    run(p, 400)
+    assert a.state == b.state == m.ACTIVE
+    assert a.offer(m.make_tlp("mwr", 32, 1), p.now)
+    while not a.rt_running:
+        p.step()
+    steps = 0
+    while not a.errors[m.E_TIMEOUT]:
+        p.step()
+        steps += 1
+        assert steps <= 1400, "no timeout within 1400 cycles"
+    assert steps == 1400, f"timeout {steps} cycles after the timer started, expected 1400"

@@ -158,6 +158,7 @@ All entries run on `pcie_link_e2e_tb`; credits are the default
 | [Error injection](../../arch/link/HAS.md#error-injection): LCRC error, corrupted TLP, dropped TLP (with a TLP behind it, and as the last), each way, with their pulses | `e2e_tlp_errors` | 1 | 1 |
 | Corrupted and dropped DLLP, the Nak class and the duplicate class, each way, with their pulses | `e2e_dllp_errors` | 1 | 1 |
 | [REPLAY_NUM rollover](../../arch/link/HAS.md#error-injection), each way: 4 timeouts, 1 rollover, the retrain through the `retrain_req` OR, traffic resumes | `e2e_rollover` | 1 | 1 |
+| [`REPLAY_TIMEOUT`](../../arch/link/HAS.md#parameters) passed to both `dll`s, each way: one maximum-payload TLP with the reverse line's Acks dropped; the `dl_err_o` timeout pulse `REPLAY_TIMEOUT` + 1 cycles after the TLP's `eop` at the `dll`-to-`phy` boundary (the bench samples the pulse one cycle after it is set), one timeout, no pulse at the receiver, delivered once | `e2e_replay_timeout` | 1 | 1; `REPLAY_TIMEOUT` 1400 |
 | Line impairments each way: flips, a slip, an electrical-idle dropout of 200 to 1000 cycles | `e2e_line` | 2 | 1 |
 | Every per-packet class at random both ways, ±600 ppm; Bad TLP and Bad DLLP at least the corruptions | `e2e_mixed` | 2 | 1 |
 | Hot Reset passed through ([stack wiring](../../arch/link/HAS.md#stack-wiring)): link down at both ends, `dll` outputs at reset values, link-up again, lossless after | `e2e_hot_reset` | 2 | 1 |
@@ -280,6 +281,14 @@ upper layer holds 9 to 12 posted header credits, above the 8 advertised
 (cycle 30350, seed 1376215603). Every other level 0 and 1 entry, and
 `e2e_soak_release` and `e2e_hot_reset_release` at their pinned seeds,
 pass it.
+
+**Replay-timeout mutant** ([#384](https://github.com/amichai-bd/pcie-factory/issues/384)):
+run on the final RTL, level 0 then the entry, one at a time at its first
+seed; `e2e_smoke` passes it.
+
+| Mutant in `pcie_link` | First failing entry | Result |
+| --- | --- | --- |
+| 356 passed to the `dll`, not `REPLAY_TIMEOUT` | `e2e_replay_timeout` (L1) | Timeout 357 cycles after the `eop` on `ab`, expected 1401. |
 
 ## Gaps
 

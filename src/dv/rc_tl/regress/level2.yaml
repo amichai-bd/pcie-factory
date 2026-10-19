@@ -1,1 +1,7 @@
-tests: []
+tests:
+  - name: random_long
+    module: tests.test_rc_tl_cmd
+    testcase: random_long
+    top: pcie_rc_tl_tb
+    seeds: 2
+    timeout_s: 1200

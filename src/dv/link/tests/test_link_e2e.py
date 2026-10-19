@@ -229,6 +229,39 @@ async def e2e_rollover(dut):
 
 
 @cocotb.test()
+async def e2e_replay_timeout(dut):
+    """REPLAY_TIMEOUT through link to both dlls (HAS, parameters): each way,
+    one maximum-payload TLP with every Ack on the reverse line dropped. The
+    sender's replay timer expires exactly REPLAY_TIMEOUT cycles after the
+    TLP's eop at its dll-to-phy boundary (one cycle later on dl_err_o, the
+    registered pulse); the Acks then flow again, the replay is acknowledged
+    with no second timeout, and the TLP is delivered once."""
+    env = await up(dut)
+    limit = env.replay_timeout
+    for d in ("ab", "ba"):
+        s, r = ends(env, d)
+        inj = env.injectors[1 if d == "ab" else 0]
+        await env.cycles(200)
+        t0, eops, tos = now_ps(), len(s.tlp_eops), len(s.timeout_at)
+        inj.drop_acks = True
+        s.send([ptn.make_tlp("MWr", 32, 0x3F00 if d == "ab" else 0x3F01)])
+        await env.until(lambda: len(s.timeout_at) > tos, limit + 2000, f"replay timeout on {d}")
+        inj.drop_acks = False
+        got = s.timeout_at[tos] - s.tlp_eops[eops]
+        assert got == limit + 1, (
+            f"{d}: dl_err_o replay timeout {got} cycles after the TLP's eop at the boundary, "
+            f"expected REPLAY_TIMEOUT {limit} + 1")
+        await settle(env, d, cycles=limit + 200)
+        assert delta(s, TIMEOUT, t0) == 1 and delta(s, ROLLOVER, t0) == 0, (
+            f"{d}: {delta(s, TIMEOUT, t0)} timeouts, {delta(s, ROLLOVER, t0)} rollovers; "
+            f"{trace(env, d, t0)}")
+        assert delta(r, BAD_TLP, t0) == 0 and delta(r, BAD_DLLP, t0) == 0, (
+            f"{d}: a pulse at the receiver; {trace(env, d, t0)}")
+    await env.drain()
+    env.finish()
+
+
+@cocotb.test()
 async def e2e_line(dut):
     """The phy channel's impairments each way while traffic flows: bit
     flips and a slip (rcv_err at the receiver), and an electrical-idle

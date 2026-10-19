@@ -603,6 +603,7 @@ class Env:
         d.rst_i.value = 0
         # The DUT's credit parameters, from the testbench's cfg_fc_o.
         self.rel = bool(int(d.cfg_fc_o.value) & 1)
+        self.replay_timeout = (int(d.cfg_fc_o.value) >> 1) & 0xFFFF
         cfg = int(d.cfg_fc_o.value) >> 20
         fields = []
         for w in (12, 8, 12, 8, 12, 8):         # FC_CPLD up to FC_PH
@@ -611,7 +612,8 @@ class Env:
         cpld, cplh, npd, nph, pd, ph = fields
         self.adv = {"P": (ph, pd), "NP": (nph, npd), "Cpl": (cplh, cpld)}
         self.shadow = arch.Dll("shadow", {"ph": ph, "pd": pd, "nph": nph, "npd": npd,
-                                          "cplh": cplh, "cpld": cpld}, release_port=self.rel)
+                                          "cplh": cplh, "cpld": cpld}, release_port=self.rel,
+                                 replay_timeout=self.replay_timeout)
         self._rx_reset()
         self.ref.credits = self
 

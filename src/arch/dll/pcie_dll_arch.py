@@ -46,6 +46,7 @@ LCRC_BYTES = 4
 DLLP_BYTES = 6
 REPLAY_BUF_BYTES = 1024     # HAS: replay buffer
 REPLAY_TIMEOUT = 356        # cycles: 711 symbol times, rounded up [cite: PCIe Base Spec, rev 3.0, §3.5.2.1]
+REPLAY_TIMEOUT_MAX = 65535  # HAS Parameters: the REPLAY_TIMEOUT range is 356 to this
 ACK_LATENCY = 32            # cycles: HAS Ack scheduling
 ACK_LIMIT = 118             # cycles: 237 symbol times [cite: PCIe Base Spec, rev 3.0, §3.5.3.1]
 FC_INIT_PERIOD = 128        # cycles between InitFC groups; at most 34 us [cite: PCIe Base Spec, rev 3.0, §3.3.1]
@@ -186,10 +187,11 @@ class Packet:
 class Dll:
     """One pcie_dll at packet level. ``fc`` maps the six credit parameters
     (0 is infinite); ``ack_latency`` lets a scenario model a slower partner;
-    ``release_port`` is FC_RELEASE 1 (HAS, credit release)."""
+    ``release_port`` is FC_RELEASE 1 (HAS, credit release); ``replay_timeout``
+    is the REPLAY_TIMEOUT parameter (HAS, parameters)."""
 
     def __init__(self, name: str, fc: dict | None = None, ack_latency: int = ACK_LATENCY,
-                 release_port: bool = False):
+                 release_port: bool = False, replay_timeout: int = REPLAY_TIMEOUT):
         fc = dict(DEFAULT_FC, **(fc or {}))
         if set(fc) != set(DEFAULT_FC):
             raise ValueError(f"credit parameters {sorted(fc)}")
@@ -204,6 +206,9 @@ class Dll:
             raise ValueError("cpld below one maximum payload")
         if self.adv[NP][1] == 1:
             raise ValueError("npd below one 16-byte-operand CAS (2 credits)")
+        if not REPLAY_TIMEOUT <= replay_timeout <= REPLAY_TIMEOUT_MAX:
+            raise ValueError(f"replay timeout {replay_timeout}")
+        self.replay_timeout = replay_timeout
         self.ack_latency = ack_latency
         self.release_port = release_port
         self.errors = [0] * len(ERR_NAMES)
@@ -534,7 +539,7 @@ class Dll:
                 self.replay_hold = False
         if self.rt_running and in_l0:
             self.rt_count += 1
-            if self.rt_count >= REPLAY_TIMEOUT:
+            if self.rt_count >= self.replay_timeout:
                 self.err(E_TIMEOUT)
                 self.rt_running, self.rt_count = False, 0
                 self._start_replay()
