@@ -48,7 +48,10 @@ tests:
 # core's floors in its own level file, not here. rc_e2e_line and rc_shell
 # hold every bin; rc_e2e_err (11 of 13) and rc_e2e_run (39 of 61) the
 # merged value less 0.5 points, with each bin not hit explained in the DV
-# plan (Coverage holes), so losing any one bin fails.
+# plan (Coverage holes), so losing any one bin fails. rc_e2e_run's 22 bins
+# not hit are reachable but drawn by no program; since the programs are
+# fixed in rc_seq's ROM, a later change could reshape the cross to the
+# drawn pairs so that its floor can be 100.
 coverage_floors:
   line: 72.8
   toggle: 45.3
