@@ -38,3 +38,10 @@ export PLACE_DENSITY_LB_ADDON = 0.20
 # not all of them (pcie_link's TNS_END_PERCENT 100): with every endpoint
 # repaired, the first 8 ns run grew from 55k cells after synthesis to 157k
 # after global route, which detailed route could not hold in 6 GB.
+# Lighter flow (captain decision of 2026-10-19,
+# https://github.com/amichai-bd/pcie-factory/issues/296#issuecomment-6260250587):
+# skip the repair pass inside global route and the last-gasp repair before
+# detailed route, so detailed route starts sooner and the design is
+# smaller. Final timing can be slightly worse than with them.
+export SKIP_INCREMENTAL_REPAIR = 1
+export SKIP_LAST_GASP = 1

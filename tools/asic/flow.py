@@ -52,12 +52,13 @@ ENV_ROOT = "ORFS_ROOT"
 IMAGE_ROOT = "/OpenROAD-flow-scripts"
 # Container limits on the shared host: memory (swap included, as on the
 # host's verified invocation) and process count. CPUs come from cfg.
-# Memory is 10 GB under the captain's decision of 2026-10-18 (up from 6 GB,
-# so detailed route of the largest target completes; one ORFS job at a time
-# per host): https://github.com/amichai-bd/pcie-factory/issues/296#issuecomment-6253639191.
-# Before that: 6 GB (decision 2 of 2026-10-17,
+# Memory is 8 GB under the captain's decision of 2026-10-19
+# (https://github.com/amichai-bd/pcie-factory/issues/296#issuecomment-6260250587):
+# 10 GB (issuecomment-6253639191) twice lost the host, so the largest target
+# uses a lighter flow instead. One ORFS job at a time per host. Before
+# that: 6 GB (decision 2 of 2026-10-17,
 # https://github.com/amichai-bd/pcie-factory/issues/203#issuecomment-6240731810).
-DOCKER_MEMORY = "10g"
+DOCKER_MEMORY = "8g"
 DOCKER_PIDS = 4096
 DEFAULT_CORES = 2
 DIGEST = "@sha256:"

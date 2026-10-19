@@ -59,8 +59,23 @@ credits, `MSIX_TABLE_SIZE` 8, `BAR0_ADDR_W` 12; `TIMEOUT_DIV`,
 [HAS](../../arch/core/HAS.md#parameters) states for ASIC builds). The RTL
 is read with the slang SystemVerilog frontend
 (`SYNTH_HDL_FRONTEND = slang`). The core is sized from the instance area,
-macros included, at 30% utilization, with placement-density headroom for
-the two clock trees and resizing buffers, as for `link`.
+macros included, at 40% utilization (30% gave an 8.5 mm² core whose
+detailed route ran out of memory), with placement-density headroom for the
+two clock trees and resizing buffers.
+
+**Lighter flow.** `core` is the largest target, and its detailed route
+needs more than the 6 GB container that `link` fits in. So
+`sky130hd.mk` cuts repair work (captain decisions of 2026-10-18 and
+2026-10-19 on [#296](https://github.com/amichai-bd/pcie-factory/issues/296#issuecomment-6260250587)):
+
+- Timing repair covers ORFS's default share of the failing endpoints
+  (`TNS_END_PERCENT` at its default), not all of them as for `link`.
+- `SKIP_INCREMENTAL_REPAIR` and `SKIP_LAST_GASP` skip the repair pass
+  inside global route and the last-gasp repair before detailed route.
+
+These passes trade run time and memory for slack, so the final timing can
+be slightly worse than a full flow would give. The container limit is
+8 GB, and the host runs one ORFS job at a time.
 
 **Memories.** Every RAM is a
 [`common_sdp_ram`](../../rtl/common/ram/common_sdp_ram.md), and the ASIC
@@ -118,9 +133,9 @@ judged. Runs by the `asic` workflow on the WSL runners:
 | --- | --- | --- | --- | --- | --- | --- |
 | 8 ns (run 39141818708, at `bf78951`) | 30% utilization, `TNS_END_PERCENT` 100, 6 GB container | Detailed route killed at the 6 GB limit | WNS −7.47 ns, TNS −21579 ns | 156616 (54847) | 1.155 mm² | 6125 MB, detailed route |
 | 10 ns study (run 39163877374, at `65b7411`) | 40% utilization, default `TNS_END_PERCENT`, 10 GB container | Stopped at the 7200 s budget in detailed route (104 violations after the first optimization pass, 5.4 to 6.2 GB) | WNS −1.50 ns, TNS −309.6 ns; hold +0.093 ns | 125437 (55343) | 1.083 mm² | above 6 GB, detailed route |
-| 10 ns study (run 39172848187, at `65b7411`, 8400 s budget) | as above | The runner lost contact with GitHub after 2 h 7 min; no result | none | none | none | none |
+| 10 ns study (run 39172848187, at `65b7411`, 8400 s budget) | as the row above | The runner lost contact with GitHub after 2 h 7 min; no result | none | none | none | none |
 
-The second row's inputs are the final ones; it also includes the `tl`
+The second row includes the `tl`
 registered transmit stage of
 [#295](https://github.com/amichai-bd/pcie-factory/issues/295). Its core is
 6.38 mm² (utilization 0.43), and its power estimate (0.276 W) covers the
@@ -129,10 +144,9 @@ standard cells only. At global route, `core` misses 100 MHz by about
 route, so this is an estimate, not the gate result. Per-clock slacks and
 worst paths come only from a finished run (`timing.clocks`).
 
-The 10 GB container limit is the captain's decision of 2026-10-18
-([#296](https://github.com/amichai-bd/pcie-factory/issues/296#issuecomment-6253639191)),
-since detailed route needs more than 6 GB; the host runs one ORFS job at a
-time.
+The second and third rows ran with a 10 GB container and the
+repair passes on; the third run lost the host. The final inputs add the
+[lighter flow](#flow-configuration) and an 8 GB limit.
 
 ## Files
 

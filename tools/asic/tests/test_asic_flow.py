@@ -259,9 +259,9 @@ def test_docker_wrap_mounts_and_image(ctx, tmp_path):
                  f"--pids-limit={flow.DOCKER_PIDS}", f"--cpus={flow.DEFAULT_CORES}",
                  f"--memory={flow.DOCKER_MEMORY}"):
         assert flag in argv
-    # The captain's 10 GB limit (swap included): the swap cap equals the memory cap.
-    assert flow.DOCKER_MEMORY == "10g"
-    assert "--memory=10g" in argv and "--memory-swap=10g" in argv
+    # The captain's 8 GB limit (swap included): the swap cap equals the memory cap.
+    assert flow.DOCKER_MEMORY == "8g"
+    assert "--memory=8g" in argv and "--memory-swap=8g" in argv
     mounts = [argv[i + 1] for i, a in enumerate(argv) if a == "-v"]
     assert f"{ctx.workdir}:{ctx.workdir}:rw" in mounts
     assert f"{ctx.repo_root}:{ctx.repo_root}:ro" in mounts
