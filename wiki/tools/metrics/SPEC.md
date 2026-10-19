@@ -9,12 +9,12 @@ schemas, the publishability rules and the workflows. Code: `tools/metrics/`
 `guard.py`, `red.py`, `trends.py`, `cli.py`); configuration: `cfg/metrics.yaml`.
 
 ```
-./build metrics collect [--out FILE | --out-dir DIR] [--no-github] [--step NAME=pass|fail|skipped]... [--started TIME] [--run-id ID] [--run-attempt N] [--repo OWNER/NAME]
+./build metrics collect [--out FILE | --out-dir DIR] [--no-github] [--step NAME=pass|fail|skipped|paused]... [--started TIME] [--run-id ID] [--run-attempt N] [--repo OWNER/NAME]
 ./build metrics commits [--file FILE] [--ref REV] [--no-ci] [--limit N] [--repo OWNER/NAME]
 ./build metrics guard   --branch NAME --base REV [--head REV]
 ./build metrics trends  [--dir DIR]...
 ./build metrics red     --outcome success|failure --run-url URL [--head SHA] [--branch NAME]
-                        [--step NAME=pass|fail|skipped]... [--summary FILE] [--repo OWNER/NAME]
+                        [--step NAME=pass|fail|skipped|paused]... [--summary FILE] [--repo OWNER/NAME]
 ```
 
 The shared `--src-root` and `--workdir` options work as in the

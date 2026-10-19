@@ -16,8 +16,10 @@
 | When | Analysis and synthesis only (`--synth-only`) for affected targets in required CI; the full flow (fit, timing) in nightly L2 or on demand with `./build fpga` ([levels](devops.md#levels-and-budgets)) |
 | Command | `./build fpga --ip <ip>` ([fpga tool spec](../tools/fpga/SPEC.md)) |
 
-Required [CI vendor checks](../tools/ci/SPEC.md#build-ci-vendor) run the full
-Quartus compile, fit and timing acceptance in parallel with simulation.
+Required [CI vendor checks](../tools/ci/SPEC.md#build-ci-vendor) run Quartus
+analysis and synthesis only (`./build fpga --synth-only`) in parallel with
+simulation; the fit and timing acceptance runs in the nightly
+([where each check runs](devops.md#levels-and-budgets)).
 Its unit tests (project generation, report parsing) use hand-made fixture
 reports and run without Quartus. In a cloud session, `./build fpga --ip <ip> --dry-run` validates the
 inputs and generates the project scripts. On demand on a configured host,

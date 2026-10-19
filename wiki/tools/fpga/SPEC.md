@@ -49,7 +49,7 @@ names the file.
 
 ## Steps
 
-Everything runs in `workdir/<ip>/fpga/`, which a real run deletes and
+Everything runs in `workdir/<ip>/fpga/` (`fpga-synth/` with `--synth-only`), which a real run deletes and
 recreates first (`--dry-run` only overwrites the two scripts). Each step runs in its own process group, with stdout and stderr in
 `logs/<step>.log` (first line: the command). A step that exceeds the
 timeout has its group killed and counts as `timeout`. SIGINT or SIGTERM
