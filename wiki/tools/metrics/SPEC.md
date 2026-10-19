@@ -9,12 +9,12 @@ schemas, the publishability rules and the workflows. Code: `tools/metrics/`
 `guard.py`, `red.py`, `trends.py`, `cli.py`); configuration: `cfg/metrics.yaml`.
 
 ```
-./build metrics collect [--out FILE | --out-dir DIR] [--no-github] [--step NAME=pass|fail|skipped]... [--started TIME] [--run-id ID] [--run-attempt N] [--repo OWNER/NAME]
+./build metrics collect [--out FILE | --out-dir DIR] [--no-github] [--step NAME=pass|fail|skipped|paused]... [--started TIME] [--run-id ID] [--run-attempt N] [--repo OWNER/NAME]
 ./build metrics commits [--file FILE] [--ref REV] [--no-ci] [--limit N] [--repo OWNER/NAME]
 ./build metrics guard   --branch NAME --base REV [--head REV]
 ./build metrics trends  [--dir DIR]...
 ./build metrics red     --outcome success|failure --run-url URL [--head SHA] [--branch NAME]
-                        [--step NAME=pass|fail|skipped]... [--summary FILE] [--repo OWNER/NAME]
+                        [--step NAME=pass|fail|skipped|paused]... [--summary FILE] [--repo OWNER/NAME]
 ```
 
 The shared `--src-root` and `--workdir` options work as in the
@@ -111,8 +111,8 @@ change), then the sections below.
 | `restored_from` | Only on a [restored record](#restored-records): `{commit, pr, file}`, the merge commit and data PR it came from and its file name there. |
 | `commit`, `commit_short`, `commit_date` | `HEAD` SHA (40 and 12 hex) and its committer date (UTC); on the scheduled run, the main commit the night ran on: the x-axis key shared with the series. |
 | `tools` | `python`, `git`, `gh`, `verilator`, `cocotb`, `pytest`, `pyyaml`: version strings only, `null` when absent. |
-| `nightly.steps` | `{name: pass\|fail\|skipped}` from `--step` (the nightly passes `check`, `unit`, `regress`, `fpga`, `asic`; arch perf runs inside `unit`). |
-| `nightly.result` | `fail` if any step failed, else `pass`; `null` without steps. |
+| `nightly.steps` | `{name: pass\|fail\|skipped\|paused}` from `--step` (the nightly passes `check`, `unit`, `regress`, `fpga`, `asic-synth` (the synthesis-only check), `asic` (the full flow); arch perf runs inside `unit`). `paused`: a pause switch turned the step off ([ASIC pause](../../bkm/devops.md#asic-pause)). |
+| `nightly.result` | `fail` if any step failed, else `pass` (`skipped` and `paused` are not failures); `null` without steps. |
 | `nightly.duration_s` | Seconds from `--started` (the nightly job's start) to `generated_at`: the nightly wall time up to metrics collection; `null` without `--started`. |
 
 ### `code`
@@ -228,7 +228,10 @@ setup slack, WNS and TNS, areas, cells,
 utilization, max fanout and logic depth values, worst-path slack, cells and
 group, power, DRC errors and elapsed time (ASIC). Net, pin and path names,
 tool paths, images and work directories are dropped. An IP whose file does
-not parse is `{"status": "invalid"}`.
+not parse is `{"status": "invalid"}`. When the step of the same name is
+`paused` (`--step asic=paused`), the section is `{"status": "paused"}` and no
+file is read, so files an earlier run left in the workdir never pass for
+tonight's.
 
 ### `arch`
 
@@ -454,7 +457,7 @@ loss.
 
 | Job | Permissions | Does |
 | --- | --- | --- |
-| `nightly` (480 min) | read: contents, issues, pull-requests, actions | `./build check`; `./build ci unit` (every suite, including `./build arch --ip <ip>` for each IP with `src/arch/<ip>/perf/`, the only arch perf run); `./build regress --level 0 --level 1 --level 2 --coverage --rotate <date>` (all IPs, with the date's [rotated extra seeds](../regress/SPEC.md#seed-rotation)); `./build fpga --all` and the ASIC flow for IPs with `src/fpga/<ip>/` or `src/asic/<ip>/` (`--all`, else one `--ip` per IP); `./build metrics commits --ref origin/main` continuing the base branch's series, then `./build metrics collect --out-dir` with the step outcomes, the start time and the run id and attempt (this run's own `<date>T<HHMMSS>Z.json`); `./build metrics trends --dir wiki/tracker/data --dir <tonight's data>` into the job summary (the nightly summary); uploads both files. Every step runs even after a failure; a step whose subcommand is still a stub, or has no IP inputs, is `skipped`. |
+| `nightly` (480 min) | read: contents, issues, pull-requests, actions | `./build check`; `./build ci unit` (every suite, including `./build arch --ip <ip>` for each IP with `src/arch/<ip>/perf/`, the only arch perf run); `./build regress --level 0 --level 1 --level 2 --coverage --rotate <date>` (all IPs, with the date's [rotated extra seeds](../regress/SPEC.md#seed-rotation)); `./build fpga --all`; `./build ci vendor --kind asic` (the synthesis-only check, step `asic-synth`, every IP with `src/asic/<ip>/`, its summaries uploaded as `asic-synth-summary`); the full ASIC flow for IPs with `src/asic/<ip>/` (`--all`, else one `--ip` per IP; `paused`, with no flow run, while the workflow env `ASIC_PAUSED` is `"true"`, [ASIC pause](../../bkm/devops.md#asic-pause)); `./build metrics commits --ref origin/main` continuing the base branch's series, then `./build metrics collect --out-dir` with the step outcomes, the start time and the run id and attempt (this run's own `<date>T<HHMMSS>Z.json`); `./build metrics trends --dir wiki/tracker/data --dir <tonight's data>` into the job summary (the nightly summary); uploads both files. Every step runs even after a failure; a step whose subcommand is still a stub, or has no IP inputs, is `skipped`. |
 | `publish` (15 min) | write: contents, pull-requests, actions | Checks out without persisted credentials and installs PyYAML; commits only the two data files (`commits.jsonl` and this run's record, a new file beside the earlier runs'), as `github-actions[bot]`, on the data branch from the base tip; runs `./build metrics guard` from this trusted checkout; force-pushes the branch with the token passed for that one command; closes, with a comment, any other open `nightly/*` PR into the same base (they would conflict on `commits.jsonl`); opens (or reuses) the PR labelled `type:data` and `area:wiki`; dispatches `ci.yml` (`ci-gate`, with the data guard) on the branch; on `main`, enables squash auto-merge and dispatches `pages.yml` on `main`. |
 | `report` (5 min) | read contents and actions, write issues | Downloads the run's `regress-summary` artifact (a missing one is not an error); `./build metrics red` with `success` only when `nightly` and `publish` both succeeded, `--head` the run's commit, `--step` each nightly step's outcome (the `nightly` job's outputs; a missing one is `fail`) and `--summary` that summary. |
 
@@ -554,7 +557,8 @@ form is not an IP), tree statistics and determinism
 incremental append, CI refresh and idempotence (`test_metrics_tree.py`);
 every GitHub section, distribution and health value from fixtures, and
 unavailable sources (`test_metrics_github.py`); the test, FPGA and ASIC
-whitelists, the coverage section, the arch section (whitelist, missing and
+whitelists, a paused flow section and step, the nightly's `ASIC_PAUSED`
+wiring, the coverage section, the arch section (whitelist, missing and
 invalid files), the `arch_py` kind, the forbidden-pattern scan, and an end-to-end `collect` whose
 inputs plant paths, emails and names that must not appear in the output
 (`test_metrics_record.py`); the guard on real branches including renames

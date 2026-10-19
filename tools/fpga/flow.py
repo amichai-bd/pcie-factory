@@ -17,6 +17,10 @@ Output, all under ``workdir/<ip>/fpga/`` (cleared first):
     output_files/                     Quartus reports and bitstream
     logs/<step>.log                   stdout+stderr of each step
     metrics.json                      see wiki/tools/fpga/SPEC.md
+
+With ``synth_only`` (``--synth-only``), only analysis and synthesis run, in
+``workdir/<ip>/fpga-synth/``, which writes ``synthesis.json`` (resources
+from the synthesis summary, no timing) and never touches ``fpga/``.
 """
 
 from __future__ import annotations
@@ -45,6 +49,8 @@ from fpga import reports
 
 QUARTUS_SH = "quartus_sh"
 FLOW_KIND = "fpga"  # this flow's key in cfg/backends.yaml
+SYNTH_DIR = "fpga-synth"  # the --synth-only work directory under workdir/<ip>/
+SYNTH_STEPS = ("project", "map")  # the steps --synth-only runs
 SOURCE_TYPES = {".sv": "SYSTEMVERILOG_FILE", ".v": "VERILOG_FILE"}
 _PART_RE = re.compile(r"^[A-Za-z0-9]+$")
 
@@ -150,6 +156,7 @@ class Plan:
     steps: list[tuple[str, list[str]]] = field(default_factory=list)
     lint_sources: list[Path] = field(default_factory=list)  # portable view, wrapper last
     swapped: list[tuple[Path, Path]] = field(default_factory=list)  # (portable, backend)
+    synth_only: bool = False   # analysis and synthesis only: no fit, timing or worst path
 
 
 def _one(fpga_dir: Path, pattern: str, what: str) -> Path:
@@ -166,10 +173,13 @@ def fpga_ips(ips: list[Ip]) -> list[Ip]:
 
 
 def plan(ip: Ip, workdir: Path, board: str, part: str | None = None,
-         processors: int = 1, known: dict[str, backends.Backend] | None = None) -> Plan:
+         processors: int = 1, known: dict[str, backends.Backend] | None = None,
+         synth_only: bool = False) -> Plan:
     """Validate an IP's FPGA inputs and resolve its sources. ``known`` is
     cfg/backends.yaml: Quartus gets this flow's backend files in place of
-    their portable files; lint keeps the portable (simulation) view."""
+    their portable files; lint keeps the portable (simulation) view.
+    ``synth_only`` plans only the project and analysis-and-synthesis steps,
+    in ``workdir/<ip>/fpga-synth/``."""
     fpga_dir = ip.dir("fpga")
     if not fpga_dir.is_dir():
         raise FpgaError(f"IP {ip.id} has no fpga/{ip.id}/ folder (not an FPGA target)")
@@ -200,10 +210,11 @@ def plan(ip: Ip, workdir: Path, board: str, part: str | None = None,
         if src.suffix not in SOURCE_TYPES:
             raise FpgaError(f"{src}: unsupported source type {src.suffix!r} "
                             f"(expected {', '.join(sorted(SOURCE_TYPES))})")
-    out_dir = ip.work_dir(workdir) / "fpga"
+    out_dir = ip.work_dir(workdir) / (SYNTH_DIR if synth_only else "fpga")
     p = Plan(ip, top, board, part, processors, sources, list(resolved.incdirs),
              synthesis_defines(resolved, ip.rtl_f), sdc.resolve(), qsf_tcl.resolve(),
-             wrapper.resolve(), out_dir, lint_sources=portable, swapped=swapped)
+             wrapper.resolve(), out_dir, lint_sources=portable, swapped=swapped,
+             synth_only=synth_only)
     p.steps = [
         ("project", [QUARTUS_SH, "-t", "project.tcl"]),
         ("map", ["quartus_map", top, "-c", top]),
@@ -211,6 +222,8 @@ def plan(ip: Ip, workdir: Path, board: str, part: str | None = None,
         ("sta", ["quartus_sta", top, "-c", top]),
         ("worst_path", ["quartus_sta", "-t", "worst_path.tcl"]),
     ]
+    if synth_only:
+        p.steps = [s for s in p.steps if s[0] in SYNTH_STEPS]
     return p
 
 
@@ -303,7 +316,8 @@ def generate(p: Plan, clean: bool = True) -> None:
         shutil.rmtree(p.out_dir)
     (p.out_dir / "logs").mkdir(parents=True, exist_ok=True)
     (p.out_dir / "project.tcl").write_text(project_tcl(p))
-    (p.out_dir / "worst_path.tcl").write_text(worst_path_tcl(p))
+    if not p.synth_only:
+        (p.out_dir / "worst_path.tcl").write_text(worst_path_tcl(p))
 
 
 # --------------------------------------------------------------------------
@@ -395,8 +409,10 @@ def quartus_cmd(cmd: list[str], bin_dir: Path) -> list[str]:
 def run(p: Plan, bin_dir: Path, timeout_s: float, verilator: Path | None,
         known_warnings: frozenset[int] = frozenset()) -> int:
     """Lint (when Verilator is available), compile, parse. Returns 0 when
-    metrics were written and timing is met, 1 otherwise. ``known_warnings``
-    (cfg/fpga.yaml) classifies the Quartus warning IDs in the summary."""
+    metrics were written and timing is met (with ``synth_only``: when
+    synthesis passed and ``synthesis.json`` was written), 1 otherwise.
+    ``known_warnings`` (cfg/fpga.yaml) classifies the Quartus warning IDs in
+    the summary."""
     generate(p)
     for old, new in p.swapped:
         print(f"[backend] {old.name} -> {new.name}", flush=True)
@@ -428,6 +444,8 @@ def run(p: Plan, bin_dir: Path, timeout_s: float, verilator: Path | None,
         if res.status != "pass":
             print_failure(res.log)
             return 1
+    if p.synth_only:
+        return write_synthesis(p, flow, known_warnings, messages)
     try:
         metrics = reports.collect(p.out_dir, p.top)
     except reports.ReportError as exc:
@@ -441,6 +459,28 @@ def run(p: Plan, bin_dir: Path, timeout_s: float, verilator: Path | None,
     if not metrics["timing"]["met"]:
         print("timing: NOT MET (negative slack, or unconstrained paths)")
         return 1
+    return 0
+
+
+def write_synthesis(p: Plan, flow: dict, known_warnings: frozenset[int],
+                    messages: dict[str, dict[int, str]]) -> int:
+    """``synthesis.json`` of a passing ``--synth-only`` run: the synthesis
+    summary's resources, no timing. 1 when the summary does not parse."""
+    try:
+        doc = reports.collect_synthesis(p.out_dir, p.top)
+    except reports.ReportError as exc:
+        print(f"error: {exc}")
+        return 1
+    doc = {"ip": p.ip.id, "board": p.board, **doc, "flow": flow}
+    path = p.out_dir / "synthesis.json"
+    path.write_text(json.dumps(doc, indent=2) + "\n")
+    r = doc["resources"]
+    print(f"{p.ip.id}: {doc['family']} ({doc['quartus_version']}), synthesis only, no timing")
+    print(f"  logic elements {r['logic_elements']}, registers {r['registers']}, "
+          f"memory bits {r['memory_bits']}")
+    for line in warning_lines(flow["steps"], known_warnings, messages, REPO_ROOT):
+        print(line)
+    print(f"synthesis: {path}")
     return 0
 
 

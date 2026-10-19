@@ -20,6 +20,41 @@ def project(tmp_path) -> Path:
     return dst
 
 
+def test_synthesis_summary(project):
+    doc = reports.collect_synthesis(project, REV)
+    assert doc["schema"] == 1 and doc["stage"] == "synthesis"
+    assert doc["family"] == "Cyclone IV E" and doc["device"] is None
+    assert doc["top"] == REV and doc["quartus_version"].startswith("25.1std.0")
+    assert doc["resources"] == {"logic_elements": 1301, "registers": 470, "memory_bits": 8192,
+                                "dsp_9bit": 2, "pins": 18, "plls": 0}
+    assert "timing" not in doc  # synthesis only: no timing claim
+
+
+def test_synthesis_summary_keeps_used_of_a_ratio_and_nulls_missing(project):
+    path = project / "output_files" / f"{REV}.map.summary"
+    text = path.read_text().replace("Total pins : 18", "Total pins : 18 / 529 ( 3 % )")
+    path.write_text(text.replace("Total PLLs : 0\n", ""))
+    r = reports.collect_synthesis(project, REV)["resources"]
+    assert r["pins"] == 18 and r["plls"] is None
+
+
+@pytest.mark.parametrize("old, new, msg", [
+    ("Successful - Wed Oct 14 12:00:00 2026", "Failed - Wed Oct 14", "status is 'Failed"),
+    ("Total registers : 470\n", "", "no 'Total registers' line"),
+    ("Total logic elements : 1,301", "Total logic elements : many", "expected a count"),
+])
+def test_synthesis_summary_errors(project, old, new, msg):
+    path = project / "output_files" / f"{REV}.map.summary"
+    path.write_text(path.read_text().replace(old, new))
+    with pytest.raises(ReportError, match=msg):
+        reports.collect_synthesis(project, REV)
+
+
+def test_synthesis_summary_missing(tmp_path):
+    with pytest.raises(ReportError, match="cannot read report"):
+        reports.collect_synthesis(tmp_path, REV)
+
+
 def test_fit_summary():
     fit = reports.parse_fit_summary(FIX / "output_files" / f"{REV}.fit.summary")
     assert fit["device"] == "EP4CE115F29C7"

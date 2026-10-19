@@ -269,7 +269,8 @@ def fake_quartus(bin_dir: Path, fail: str | None = None, fail_body: str = "echo 
     copy_reports = f"mkdir -p output_files && cp {FIX}/output_files/* output_files/"
     bodies = {
         "quartus_sh": ok,
-        "quartus_map": f"cat {FIX}/map_warnings.log",
+        "quartus_map": (f"cat {FIX}/map_warnings.log; mkdir -p output_files; "
+                        f"cp {FIX}/output_files/{TOP}.map.summary output_files/"),
         "quartus_fit": ok,
         "quartus_sta": (f'if [ "$1" = "-t" ]; then cp {FIX}/worst_path.txt .; '
                         f'else {copy_reports}; fi\n{ok}'),
@@ -301,6 +302,37 @@ def test_run_writes_metrics(src, tmp_path, capsys):
     assert "  warnings map: known 0, unknown 7 (closing line: 7)" in out
     assert "  warnings fit: known 0, unknown 0 (closing line: 2)" in out
     assert "    unknown 10036 (x2): Verilog HDL or VHDL warning at widget.sv(12):" in out
+
+
+def test_run_synth_only_writes_synthesis_without_timing(src, tmp_path, capsys):
+    # --synth-only: project and map only, in fpga-synth/, never fpga/; the
+    # result carries resources from synthesis and no timing claim.
+    p = make_plan(src, tmp_path, synth_only=True)
+    assert p.out_dir == tmp_path / "work" / "widget" / "fpga-synth"
+    assert [name for name, _ in p.steps] == ["project", "map"]
+    bin_dir = fake_quartus(tmp_path / "bin")
+    for name in ("quartus_fit", "quartus_sta"):  # must never run
+        fake_exe(bin_dir / name, "echo ran >> ../ran.txt; exit 9")
+    assert flow.run(p, bin_dir, 30, None) == 0
+    doc = json.loads((p.out_dir / "synthesis.json").read_text())
+    assert doc["ip"] == "widget" and doc["stage"] == "synthesis" and "timing" not in doc
+    assert doc["resources"]["logic_elements"] == 1301
+    assert set(doc["flow"]["steps"]) == {"project", "map"}
+    assert not (p.out_dir / "metrics.json").exists() and not (p.out_dir / "worst_path.tcl").exists()
+    assert not (tmp_path / "work" / "widget" / "fpga").exists()
+    assert not (p.out_dir.parent / "ran.txt").exists()
+    out = capsys.readouterr().out
+    assert "synthesis only, no timing" in out and "logic elements 1301, registers 470" in out
+
+
+def test_run_synth_only_map_failure_and_bad_summary(src, tmp_path):
+    p = make_plan(src, tmp_path, synth_only=True)
+    assert flow.run(p, fake_quartus(tmp_path / "bin", fail="quartus_map"), 30, None) == 1
+    assert not (p.out_dir / "synthesis.json").exists()
+    # map passes but writes no summary: a report error, exit 1
+    assert flow.run(p, fake_quartus(tmp_path / "bin2", fail="quartus_map",
+                                    fail_body="echo ok"), 30, None) == 1
+    assert not (p.out_dir / "synthesis.json").exists()
 
 
 def test_run_step_failure(src, tmp_path, capsys):
@@ -490,6 +522,17 @@ def test_cli_dry_run(src, tmp_path, capsys):
     assert (tmp_path / "w" / "widget" / "fpga" / "project.tcl").is_file()
 
 
+def test_cli_dry_run_synth_only(src, tmp_path, capsys):
+    argv = ["fpga", "--src-root", str(src), "--workdir", str(tmp_path / "w"),
+            "--ip", "widget", "--synth-only", "--dry-run"]
+    assert main(argv) == 0
+    out = capsys.readouterr().out
+    assert f"[map] quartus_map {TOP} -c {TOP}" in out
+    assert "[fit]" not in out and "[sta]" not in out and "[worst_path]" not in out
+    assert (tmp_path / "w" / "widget" / "fpga-synth" / "project.tcl").is_file()
+    assert not (tmp_path / "w" / "widget" / "fpga").exists()
+
+
 def test_cli_dry_run_keeps_previous_compile(src, tmp_path):
     out = tmp_path / "w" / "widget" / "fpga"
     (out / "output_files").mkdir(parents=True)
@@ -569,7 +612,7 @@ child.wait()
                            fail_body=f"exec {shlex.join([sys.executable, str(compiler), str(worker)])}")
     fake_exe(bin_dir / "verilator")  # lint succeeds; no real simulator/toolchain needed
     work = tmp_path / "work"
-    out = work / "widget/fpga"
+    out = work / "widget/fpga-synth"  # ci vendor runs the synthesis-only flow
     pids = []
     env = dict(os.environ, PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     with (tmp_path / "ci.log").open("w") as log:
