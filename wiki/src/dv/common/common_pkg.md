@@ -69,3 +69,4 @@ where they are used, the functions also on their own:
 | RxStatus, EDB and PowerDown on PIPE | the [pcs](../pcs/DV_PLAN.md#plan) entries | 0 to 2 | as listed there |
 | [TLP helpers](../../rtl/common/common_pkg.md#tlp-helpers) against the spec reference, exhaustive on the small domains | `pkg_tlp_contract` | 0 | 1 |
 | Type codes and TLP helpers in received, formed and tracked TLPs | the [tl](../tl/DV_PLAN.md#plan) entries | 0 to 2 | as listed there |
+| The receive beat tracker's types `t_tlp_rx_trk` and `t_tlp_rx_pos`, field by field | the [`common_tlp_rx_track`](common_tlp_rx_track.md#plan) entries | 0 to 1 | as listed there |
