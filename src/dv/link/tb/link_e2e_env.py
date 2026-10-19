@@ -272,8 +272,7 @@ class LinkEnd:
         # upper receive
         self.rx_beats: list[int] = []
         self.take_p = 1.0                # probability of taking a beat (finite credits only)
-        self.stall_from = 0              # takes nothing in [stall_from, stall_until)
-        self.stall_until = 0
+        self.stalls: deque = deque()     # receive stalls (from, until): takes nothing in [from, until)
         # releaser (release configuration): per class P, NP the delivered
         # TLPs (cycle, data credits) not yet released, the finite credits
         # held, and the release pace
@@ -482,7 +481,9 @@ class LinkEnd:
     def _take(self, n: int) -> bool:
         if self.any_inf:
             return True                  # the upper-layer obligation (dll HAS, receive)
-        if self.stall_from <= n < self.stall_until:
+        while self.stalls and n >= self.stalls[0][1]:
+            self.stalls.popleft()
+        if self.stalls and n >= self.stalls[0][0]:
             return False
         return self.take_p >= 1.0 or self.rng.random() < self.take_p
 
@@ -534,11 +535,12 @@ class LinkEnd:
     def stall(self, length: int, gap: int = STALL_GAP) -> None:
         """Schedule one receive stall of ``length`` cycles (HAS, credit
         configurations: stalls of 4000 and 10000 cycles). It starts now,
-        or ``gap`` cycles after a stall still pending ends, so stalls never
-        chain into one longer than ``length``: the upper layer takes beats
-        between them, and the liveness bound stays meaningful."""
-        self.stall_from = max(self.cycle, self.stall_until + gap)
-        self.stall_until = self.stall_from + length
+        or ``gap`` cycles after the last stall still scheduled ends, so
+        stalls never chain into one longer than ``length`` and none is cut
+        short: the upper layer takes beats between them, and the liveness
+        bound stays meaningful."""
+        start = max(self.cycle, self.stalls[-1][1] + gap) if self.stalls else self.cycle
+        self.stalls.append((start, start + length))
 
     def send(self, tlps) -> None:
         self.tx_q.extend(tlps)

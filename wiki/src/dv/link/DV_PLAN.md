@@ -213,9 +213,9 @@ previous one ended, so they chained into one 22148-cycle stall (cycles
 13023 to 35171) while the `dll` offered a TLP every cycle; the liveness
 check fired on the bench, not the RTL. Each receive stall is now one
 window of 4000 or 10000 cycles ([credit configurations](../../arch/link/HAS.md#credit-configurations)),
-and a stall scheduled while one is pending starts 500 cycles after it
-ends, so the upper layer takes beats between stalls and no stall reaches
-the liveness bound.
+and a stall scheduled while others are pending starts 500 cycles after
+the last of them ends, none cut short, so the upper layer takes beats
+between stalls and no stall reaches the liveness bound.
 
 `--coverage` instruments only the first seeds named in the plan rows (the
 entries' `coverage_seeds`); every seed still runs and must pass. Where a
