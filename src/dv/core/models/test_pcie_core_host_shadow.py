@@ -635,7 +635,7 @@ FAULTS = {
     "res_header": (m_res_header, "predicted OK data 0x06040000"),
     "res_host_memory": (m_res_host_memory, "host memory holds 0x01"),
     "res_early": (m_res_early, "while the request is outstanding"),
-    "msi_wrong": (m_msi_wrong, "MSI capture offset 0x5"),
+    "msi_wrong": (m_msi_wrong, "predicted offset 0x4"),
     "msi_unpredicted": (m_msi_unpredicted, "with none predicted"),
     "err_extra_bit": (m_err_extra_bit, "none outside"),
     "err_missing_bit": (m_err_missing_bit, "bits 0x0880 set"),
@@ -709,3 +709,39 @@ def test_msi_capture_may_drop_when_full():
     assert not sh.errors and sh.pending_msi == 1
     with pytest.raises(HostCheckError, match="with none predicted"):
         sh.observe_msi(0x9, 0x42)
+
+
+def _bare_shadow():
+    """A shadow with the root port set up by hand: bus 0, Secondary Bus 1,
+    Memory Space and Bus Master Enable, the memory window left at its
+    reset value (1 MiB at address 0, over host memory)."""
+    sh = HostShadow()
+    sh.observe_dl_up(True)
+    for idx, value in ((6, 0x01_01_00), (1, 0x6)):
+        sh.observe_command(HDR_WR, 4 * idx, data=value)
+        sh.observe_result("OK", 0, True)
+    return sh
+
+
+def test_inbound_request_in_window_is_ur():
+    """An endpoint read of host memory that the memory window also claims
+    is an Unsupported Request, not served (rc HAS, inbound routing)."""
+    sh = _bare_shadow()
+    rd = Tlp(fmt=0, type=0, length=1, requester_id=0x0100, tag=0, first_be=0xF, address=0x100)
+    sh.observe_rx(rd.encode())
+    served = completion(0, 0x0100, 0, CPL_SC, 4, 0, bytes(4))
+    with pytest.raises(HostCheckError, match="status 000, predicted 001"):
+        sh.observe_tx(served.encode())
+
+
+def test_inbound_write_in_window_not_stored():
+    sh = _bare_shadow()
+    sh.observe_command(HOST_WR, 0x100, data=0x1111_1111)
+    sh.observe_result("OK", 0, True)
+    wr = Tlp(fmt=0b010, type=0, length=1, requester_id=0x0100, first_be=0xF, address=0x100,
+             data=bytes(4))
+    sh.observe_rx(wr.encode())
+    sh.tick(100)
+    sh.observe_command(HOST_RD, 0x100)
+    with pytest.raises(HostCheckError, match="host memory holds 0x11"):
+        sh.observe_result("OK", 0, True)

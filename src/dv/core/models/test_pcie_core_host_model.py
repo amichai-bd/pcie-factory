@@ -836,6 +836,16 @@ def test_endpoint_dma_read_and_write(split, sizes):
     assert not host.errors
 
 
+def test_command_byte_enables_kept():
+    """A Command write of byte 1 only keeps Bus Master Enable (byte 0)."""
+    host, ep, dev = enumerated()
+    host.cfg_write(BDF, 0x04, 0x0400, 0b0010)  # Interrupt Disable only
+    pump(host, ep)
+    ep.dma_write(0x100, bytes(8))
+    pump(host, ep)
+    assert not host.errors
+
+
 def test_endpoint_read_limits_flagged():
     host, ep, dev = enumerated()
     host.strict = False
