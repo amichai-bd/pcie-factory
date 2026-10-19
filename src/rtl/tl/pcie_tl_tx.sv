@@ -59,7 +59,6 @@ module pcie_tl_tx (
 );
 
   pcie_tl_pkg::t_tx_state st_q, st_d;
-  pcie_tl_pkg::t_tx_out   so_q, so_d;
 
   // The arbiter's beat, into the output stage.
   logic        a_valid;
@@ -250,63 +249,58 @@ module pcie_tl_tx (
   assign cfd_pop_o = take && !hdr_beat && sel == pcie_tl_pkg::TS_CF;
 
   // ------------------------------------------------------ output stage
-  // Two beats: out, offered on tlp_tx_*, and skid, which takes the
-  // arbiter's beat in a cycle where out is held. The arbiter is ready
+  // A common_skid_stage: out, offered on tlp_tx_*, and skid, which takes
+  // the arbiter's beat in a cycle where out is held. The arbiter is ready
   // while skid is empty, a register, so tlp_tx_ready_i reaches no arbiter
   // logic; the link taking a beat every cycle keeps skid empty, so a TLP
   // still goes out with no gap. The ID (bus_num_i, dev_num_i) is captured
   // as a sop beat is first offered on tlp_tx_* and goes into DW 1, which
   // is offered only after the sop is taken.
   pcie_tl_pkg::t_tx_beat a_beat;
+  pcie_tl_pkg::t_tx_beat out_beat;
+  logic                  out_valid;
   logic                  out_take;
+  logic                  out_new;
   logic                  out_first;
+  logic [15:0]           id_q, id_d;
 
-  assign a_ready  = !so_q.skid.valid;
-  assign a_beat   = '{valid: take, data: a_data, sop: a_sop, eop: a_eop,
-                      idw: st_q.beat == 6'd1,
-                      rq: a_sop && sel == pcie_tl_pkg::TS_NP,
-                      tag: np_head_i.tag};
-  assign out_take  = so_q.out.valid && tlp_tx_ready_i;
-  assign out_first = so_q.out.valid && so_q.out.sop && !so_q.held;
+  assign a_beat = '{data: a_data, sop: a_sop, eop: a_eop,
+                    idw: st_q.beat == 6'd1,
+                    rq: a_sop && sel == pcie_tl_pkg::TS_NP,
+                    tag: np_head_i.tag};
 
-  always_comb begin
-    so_d      = so_q;
-    so_d.held = so_q.out.valid && !tlp_tx_ready_i;
-    if (out_first) so_d.id = {bus_num_i, dev_num_i, 3'd0};
-    if (!so_q.out.valid || out_take) begin
-      // out is free at this edge: the skid beat first, else the arbiter's.
-      if (so_q.skid.valid) begin
-        so_d.out        = so_q.skid;
-        so_d.skid.valid = 1'b0;
-      end else begin
-        so_d.out = a_beat;
-      end
-    end else if (take) begin
-      so_d.skid = a_beat;
-    end
-  end
+  common_skid_stage #(
+    .WIDTH ($bits(pcie_tl_pkg::t_tx_beat))
+  ) u_out (
+    .clk_i       (clk_i),
+    .rst_i       (rst_i),
+    .in_valid_i  (a_valid),
+    .in_ready_o  (a_ready),
+    .in_data_i   (a_beat),
+    .out_valid_o (out_valid),
+    .out_ready_i (tlp_tx_ready_i),
+    .out_data_o  (out_beat),
+    .out_take_o  (out_take),
+    .out_new_o   (out_new)
+  );
 
-  `COMMON_DFF_RST(so_q, so_d, clk_i, rst_i)
+  assign out_first = out_new && out_beat.sop;
+  assign id_d      = out_first ? {bus_num_i, dev_num_i, 3'd0} : id_q;
 
-  assign tlp_tx_valid_o = so_q.out.valid;
-  assign tlp_tx_data_o  = {so_q.out.data[31:16],
-                           so_q.out.idw ? {so_q.id[7:0], so_q.id[15:8]} : so_q.out.data[15:0]};
-  assign tlp_tx_sop_o   = so_q.out.sop;
-  assign tlp_tx_eop_o   = so_q.out.eop;
+  `COMMON_DFF_RST(id_q, id_d, clk_i, rst_i)
 
-  assign rq_sent_o     = out_take && so_q.out.rq;
-  assign rq_sent_tag_o = so_q.out.tag;
+  assign tlp_tx_valid_o = out_valid;
+  assign tlp_tx_data_o  = {out_beat.data[31:16],
+                           out_beat.idw ? {id_q[7:0], id_q[15:8]} : out_beat.data[15:0]};
+  assign tlp_tx_sop_o   = out_beat.sop;
+  assign tlp_tx_eop_o   = out_beat.eop;
+
+  assign rq_sent_o     = out_take && out_beat.rq;
+  assign rq_sent_tag_o = out_beat.tag;
 
   // rq reads carry no data: no non-posted data credit is needed. The
   // epoch of a completion is read only by the ordering above.
   `COMMON_UNUSED_BITS(unused_tx, {fc_npd_avail_i, cd.ep})
-
-  // An offered beat never changes until taken; skid fills only while out
-  // is held.
-  `COMMON_ASSERT_STABLE_WHEN(a_out_held, clk_i, rst_i,
-                             so_q.out.valid && !tlp_tx_ready_i, so_q.out)
-  `COMMON_ASSERT_NEVER(a_skid_unheld, clk_i, rst_i,
-                       so_q.skid.valid && !so_q.out.valid)
 
   // The line being sent keeps its head until its eop (one consumer each).
   `COMMON_ASSERT_NEVER(a_head_lost, clk_i, rst_i,

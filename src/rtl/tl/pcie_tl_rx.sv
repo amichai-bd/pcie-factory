@@ -45,6 +45,7 @@ module pcie_tl_rx #(
   logic [31:0]            dw1_q;
   logic [31:0]            dw2_q;
 
+  common_pkg::t_tlp_rx_pos rp;          // the beat's place in its TLP
   logic                   take;
   logic                   take_sop;
   logic                   take_mid;       // a beat after the sop
@@ -60,23 +61,35 @@ module pcie_tl_rx #(
   logic [31:0]            hdw3;
   pcie_tl_pkg::t_hdr      h;
   pcie_tl_pkg::t_rx_cur   judged;
-  logic [5:0]             beat_inc;
+
+  // Every beat is taken; the tracker places it in its TLP and checks the
+  // dll's whole-TLP contract (dll HAS, upper TLP stream): a sop starts
+  // one, no beat comes outside one, and the eop is no earlier than the
+  // last header DW. Fmt bit 0 (byte 0 bit 5) marks a 4-DW header.
+  common_tlp_rx_track u_beats (
+    .clk_i  (clk_i),
+    .rst_i  (rst_i),
+    .take_i (tlp_rx_valid_i),
+    .sop_i  (tlp_rx_sop_i),
+    .eop_i  (tlp_rx_eop_i),
+    .hdr4_i (tlp_rx_data_i[5]),
+    .pos_o  (rp)
+  );
 
   assign take     = tlp_rx_valid_i;
-  assign take_sop = take && tlp_rx_sop_i;
-  assign take_mid = take && !tlp_rx_sop_i && st_q.busy;
-  assign hdr_end  = st_q.hdr4 ? 6'd3 : 6'd2;
-  assign hdr_last = take_mid && st_q.beat == hdr_end;
+  assign take_sop = rp.sop;
+  assign take_mid = rp.mid;
+  assign hdr_end  = rp.hdr_end;
+  assign hdr_last = rp.hdr_last;
   // Payload beats: the Length DWs after the header of a TLP with data. A
   // digest DW after them (TD 1) is never stored (TLP.md, TD).
-  assign data_idx   = st_q.beat - hdr_end - 6'd1;
-  assign data_beat  = take_mid && st_q.beat > hdr_end && cur_q.write
+  assign data_idx   = rp.beat - hdr_end - 6'd1;
+  assign data_beat  = take_mid && rp.beat > hdr_end && cur_q.write
                    && {5'd0, data_idx} < cur_q.dw_len;
   assign first_data = data_beat && data_idx == 6'd0;
-  assign en_dw0   = take_sop;
-  assign en_dw1   = take_mid && st_q.beat == 6'd1;
-  assign en_dw2   = take_mid && st_q.beat == 6'd2;
-  assign beat_inc = (st_q.beat == 6'h3F) ? st_q.beat : st_q.beat + 6'd1;
+  assign en_dw0   = rp.en_dw[0];
+  assign en_dw1   = rp.en_dw[1];
+  assign en_dw2   = rp.en_dw[2];
 
   `COMMON_DFF_EN(dw0_q, tlp_rx_data_i, clk_i, en_dw0)
   `COMMON_DFF_EN(dw1_q, tlp_rx_data_i, clk_i, en_dw1)
@@ -84,7 +97,7 @@ module pcie_tl_rx #(
 
   // The header at its last DW: DW 0 to 2 from registers, the last from the
   // stream.
-  assign hdw2 = st_q.hdr4 ? dw2_q : tlp_rx_data_i;
+  assign hdw2 = rp.hdr4 ? dw2_q : tlp_rx_data_i;
   assign hdw3 = tlp_rx_data_i;
   assign h    = pcie_tl_pkg::hdr_decode(dw0_q, dw1_q, hdw2, hdw3);
 
@@ -183,15 +196,7 @@ module pcie_tl_rx #(
     st_d      = st_q;
     st_d.push = take && tlp_rx_eop_i;
     if (take_sop) begin
-      st_d.busy = 1'b1;
-      st_d.beat = 6'd1;
-      st_d.hdr4 = tlp_rx_data_i[5];
       st_d.cpl  = common_pkg::is_cpl(tlp_rx_data_i[7:5], tlp_rx_data_i[4:0]);
-    end else if (take_mid) begin
-      st_d.beat = beat_inc;
-    end
-    if (take && tlp_rx_eop_i) begin
-      st_d.busy = 1'b0;
     end
   end
 
@@ -275,7 +280,7 @@ module pcie_tl_rx #(
 
   always_comb begin
     cpl_beat_o.valid = take && (tlp_rx_sop_i ? common_pkg::is_cpl(tlp_rx_data_i[7:5], tlp_rx_data_i[4:0])
-                                             : st_q.cpl && st_q.busy);
+                                             : st_q.cpl && rp.busy);
     cpl_beat_o.data  = tlp_rx_data_i;
     cpl_beat_o.sop   = tlp_rx_sop_i;
     cpl_beat_o.eop   = tlp_rx_eop_i;
@@ -284,14 +289,8 @@ module pcie_tl_rx #(
   // Fields the entries do not carry.
   `COMMON_UNUSED_BITS(unused_hdr, {h.addr[1:0], h.b1_other, h.td})
 
-  // The dll delivers whole TLPs (dll HAS, upper TLP stream): a sop starts
-  // one, no beat comes outside one, the eop is no earlier than the last
-  // header DW, and no TLP has more than 32 data DWs (8 data credits) and
-  // a digest DW.
-  `COMMON_ASSERT_NEVER(a_beat_outside_tlp, clk_i, rst_i, take && !tlp_rx_sop_i && !st_q.busy)
-  `COMMON_ASSERT_NEVER(a_sop_inside_tlp, clk_i, rst_i, take_sop && st_q.busy)
-  `COMMON_ASSERT_NEVER(a_short_tlp, clk_i, rst_i,
-                       take && tlp_rx_eop_i && (tlp_rx_sop_i || st_q.beat < hdr_end))
+  // No TLP has more than 32 data DWs (8 data credits) and a digest DW
+  // (dll HAS, upper TLP stream); the framing assertions are u_beats'.
   `COMMON_ASSERT_NEVER(a_rel_data_max, clk_i, rst_i, hdr_last && judged.rel_d > 4'd8)
 
 endmodule

@@ -143,6 +143,26 @@ package common_pkg;
     CLS_CPL = 2'd2
   } t_cls;
 
+  // Receive beat tracker state (wiki/src/rtl/common/common_tlp_rx_track.md).
+  typedef struct packed {
+    logic        busy;       // inside a TLP: its sop taken, its eop not yet
+    logic [5:0]  beat;       // beats of it taken, saturating at 63
+    logic        hdr4;       // its header is 4 DWs
+  } t_tlp_rx_trk;
+
+  // Where the beat taken this cycle sits in its TLP, and the tracker state
+  // before it (wiki/src/rtl/common/common_tlp_rx_track.md#interfaces).
+  typedef struct packed {
+    logic        sop;        // a sop beat taken: it starts a TLP
+    logic        mid;        // a later beat of the open TLP taken
+    logic        hdr_last;   // that beat is the TLP's last header DW
+    logic [2:0]  en_dw;      // bit i: the beat taken is header DW i
+    logic        busy;       // a TLP is open (t_tlp_rx_trk.busy)
+    logic        hdr4;       // its header is 4 DWs (t_tlp_rx_trk.hdr4)
+    logic [5:0]  beat;       // its beats taken before this one, saturating at 63
+    logic [5:0]  hdr_end;    // beat index of its last header DW: 2, or 3 for hdr4
+  } t_tlp_rx_pos;
+
   // ------------------------------------------------------- TLP helpers
   // Pure functions of plain header fields: the receive checks, byte
   // enables, byte totals and credits
