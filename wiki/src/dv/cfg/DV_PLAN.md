@@ -97,13 +97,13 @@ reads them at the offer, with a self-test. No other disagreement is open.
 | [BAR2](../../arch/cfg/CAPS.md#bar2): table fields by byte enable, address bits 1:0, mask reset 1, pending bits read-only, other offsets 0, table kept and masks reset by a reset | `bar2_map` | 1 | 1 |
 | The same with 64 vectors (both pending-bit DWs) | `bar2_map_64` | 1 | 1 |
 | [Targets](../../arch/cfg/HAS.md#targets) enumeration: IDs, capability walk, BAR sizing and assignment, enables, an MSI and an MSI-X interrupt (pending first) | `enumeration` | 1 | 1 |
-| The same with other parameters (BAR0 1 MiB, one vector, set IDs) | `enumeration_params` | 1 | 2 |
+| The same with other parameters (BAR0 1 MiB, one vector, set IDs) | `enumeration_params` / `enumeration_params_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (1585370101), pinned |
 | [Errors](../../arch/cfg/HAS.md#errors): every event under 11 enable sets, status bits, message decision, UR gate, Signaled System Error, RW1C by byte | `error_table` | 1 | 1 |
 | [Messages](../../arch/cfg/HAS.md#messages): priority, merging (same cycle and into a held offer), no message outside D0 (each event), an offered error withdrawn by D3hot | `error_messages` | 1 | 1 |
 | [Interrupts](../../arch/cfg/HAS.md#interrupts) under MSI: dropped with no mode, 32- and 64-bit writes, pending while not allowed and merged, MSI Enable clears the flag, D3hot | `irq_msi` | 1 | 1 |
 | Interrupts under MSI-X: each vector's entry, vector and function masks, pending bits and their clearing on the take, lowest vector first, merging, MSI-X over MSI, pending kept while disabled, the entry read at the offer, a stale looked-up entry read again after a BAR2 write | `irq_msix` | 1 | 1 |
 | [Withdrawal](../../arch/core/TL_CFG.md#withdrawal): by Bus Master Enable, D3hot, MSI Enable (to the flag, to the vector's bit, dropped); a mask after the offer does not withdraw; a waiting request turned pending | `irq_withdraw` | 1 | 1 |
-| Everything at once under the shadow: random accesses, masks, enables, power states, events, slot power events, requests, link-down resets, a stalling taker; nothing pending after the drain | `random_ops` | 1 | 3; 1500 operations |
+| Everything at once under the shadow: random accesses, masks, enables, power states, events, slot power events, requests, link-down resets, a stalling taker; nothing pending after the drain | `random_ops` / `random_ops_sweep` | 1 / 2 | derived seeds 1 and 2 (329618035 and 179094473, pinned) / derived seed 0 (1688380133), pinned; 1500 operations |
 | [Parameter](../../arch/cfg/HAS.md#parameters) limits | `param_limits` | 1 | 1 |
 | The random test, longer | `random_long` | 2 | 4; 12000 operations |
 | The random test with 64 vectors and BAR0 256 MiB | `random_long_64` | 2 | 2 |
@@ -111,7 +111,15 @@ reads them at the offer, with a self-test. No other disagreement is open.
 
 **Level placement.** Level 0 holds the smoke test only. The `random_long`
 entries are level 2 as soaks (longer runs of `random_ops`, which level 1
-holds with three seeds).
+runs with two seeds and level 2 with a third, in `random_ops_sweep`).
+Since [#389](https://github.com/amichai-bd/pcie-factory/issues/389) (the
+full level 1 of every IP was over its 1200 s CPU budget), level 1 runs
+`enumeration_params` at its derived seed 0, with seed 1 pinned in
+`enumeration_params_sweep`, and `random_ops` at the two seeds the mutant
+table names (179094473 and 329618035), with its derived seed 0 pinned in
+`random_ops_sweep`. Each seed keeps its coverage instrumentation, so the
+merged level 0 to 2 runs are the same runs, and every mutant below is
+still caught in level 1 at the seed it names.
 
 ## Mutation evidence
 

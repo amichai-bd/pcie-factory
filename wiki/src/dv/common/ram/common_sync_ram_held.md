@@ -15,10 +15,19 @@ about three edges in ten. The functional covergroup
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Enabled read, hold, write independent of the enable, read-first collision, lanes](../../../rtl/common/ram/common_sync_ram_held.md#behavior) | `sync_ram_held_contract` | 0 | 1 |
-| The same under random traffic, against the model | `sync_ram_held_random` | 1 | 3; 2000 cycles |
+| The same under random traffic, against the model | `sync_ram_held_random` / `sync_ram_held_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (1412732973 and 1295894935), pinned; 2000 cycles |
 | [Parameter limits](../../../rtl/common/ram/common_sync_ram_held.md#parameters) | `ram_param_limits` | 1 | shared with the family |
 | Random traffic, smallest RAM | `sync_ram_held_long_min` | 2 | 2; 20000 cycles |
 | Random traffic, wide RAM with eight lanes | `sync_ram_held_long_wide` | 2 | 2; 20000 cycles |
+
+**Level placement**
+([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
+level 1 of every IP, which `ci-gate` runs for a change to a shared
+package, was over its 1200 s CPU budget. `sync_ram_held_random` runs its
+first seed in level 1; its further seeds run pinned and unchanged in its
+level 2 `_sweep`, each seed with its coverage instrumentation, so the
+merged level 0 to 2 runs are the same runs. The mutation evidence on this
+page names no seed for it, and was not rerun at the first seed alone.
 
 Mutation evidence ([#126](https://github.com/amichai-bd/pcie-factory/issues/126)),
 in a scratch copy: `rd_data_o` tied to the always-reading RAM (no hold)

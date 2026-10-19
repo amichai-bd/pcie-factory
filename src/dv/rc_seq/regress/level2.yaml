@@ -13,27 +13,6 @@ tests:
     params: {PROGRAM: 0}
     seeds: 2
     timeout_s: 300
-  - name: program_random_mmio
-    module: tests.test_rc_seq
-    testcase: program_random_mmio
-    top: pcie_rc_seq
-    params: {PROGRAM: 1}
-    seeds: 2
-    timeout_s: 300
-  - name: program_random_dma_msi
-    module: tests.test_rc_seq
-    testcase: program_random_dma_msi
-    top: pcie_rc_seq
-    params: {PROGRAM: 2}
-    seeds: 2
-    timeout_s: 300
-  - name: program_random_errors
-    module: tests.test_rc_seq
-    testcase: program_random_errors
-    top: pcie_rc_seq
-    params: {PROGRAM: 3}
-    seeds: 2
-    timeout_s: 300
   - name: timeouts_enum
     module: tests.test_rc_seq
     testcase: timeouts_enum
@@ -45,4 +24,46 @@ tests:
     testcase: timeouts_dma_msi
     top: pcie_rc_seq
     params: {PROGRAM: 2}
+    timeout_s: 300
+  - name: program_mmio
+    module: tests.test_rc_seq
+    testcase: program_mmio
+    top: pcie_rc_seq
+    params: {PROGRAM: 1}
+    timeout_s: 300
+  - name: program_dma_msi
+    module: tests.test_rc_seq
+    testcase: program_dma_msi
+    top: pcie_rc_seq
+    params: {PROGRAM: 2}
+    timeout_s: 300
+  - name: program_errors
+    module: tests.test_rc_seq
+    testcase: program_errors
+    top: pcie_rc_seq
+    params: {PROGRAM: 3}
+    timeout_s: 300
+  - name: program_random_mmio_sweep
+    module: tests.test_rc_seq
+    testcase: program_random_mmio
+    top: pcie_rc_seq
+    seeds: [298234656]
+    coverage_seeds: 0
+    params: {PROGRAM: 1}
+    timeout_s: 300
+  - name: program_random_dma_msi_sweep
+    module: tests.test_rc_seq
+    testcase: program_random_dma_msi
+    top: pcie_rc_seq
+    seeds: [1770673933]
+    coverage_seeds: 0
+    params: {PROGRAM: 2}
+    timeout_s: 300
+  - name: program_random_errors_sweep
+    module: tests.test_rc_seq
+    testcase: program_random_errors
+    top: pcie_rc_seq
+    seeds: [1956525912]
+    coverage_seeds: 0
+    params: {PROGRAM: 3}
     timeout_s: 300

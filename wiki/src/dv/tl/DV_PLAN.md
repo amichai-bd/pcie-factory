@@ -202,21 +202,21 @@ self-tests check them.
 | Every request type and error case of the [routing](../../arch/tl/ROUTING.md): served `cq`, BAR2 and configuration requests, every Unsupported Request, every message outcome, every malformed step, poisoned requests and the Unsupported Request first, completions to the tracker, TLPs with a digest; the [slot power event](../../arch/core/TL_CFG.md#slot-power-limit) of Set_Slot_Power_Limit (back to back, any routing, other bits ignored, two data DWs, a digest; none without data, poisoned or with TC not 0); then the same with memory space off and in D3hot ([outside D0](../../arch/tl/ROUTING.md#outside-d0)) | `rx_routing` | 1 | 1; directed |
 | [Ordering](../../arch/tl/ORDERING.md#ordering): reads waiting for handles and writes passing them, configuration passing waiting reads, nothing passing a held posted request, posted order across `cq` and `cfg`, a configuration request not waiting for a later write, one beat per cycle on `cq`, merged non-posted releases | `rx_order` | 1 | 1; directed |
 | [Reset](../../arch/tl/HAS.md#reset) by link-down mid-TLP and by `rst_i` with requests queued | `rx_link_down` | 1 | 1; directed |
-| Random TLPs of every kind with stalls and gaps, segments across link-downs | `rx_random` | 1 | 3 |
-| The same with the smallest queues (`FC_PH` 1, `FC_PD` 8, `FC_NPH` 1, `FC_NPD` 2) | `rx_random_min_credits` | 1 | 2 |
+| Random TLPs of every kind with stalls and gaps, segments across link-downs | `rx_random` / `rx_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (1825658846 and 1977091684), pinned |
+| The same with the smallest queues (`FC_PH` 1, `FC_PD` 8, `FC_NPH` 1, `FC_NPD` 2) | `rx_random_min_credits` / `rx_random_min_credits_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (1654524014), pinned |
 | [Release](../../arch/tl/ORDERING.md#credits) of three non-posted requests leaving at one edge (a malformed I/O write with 8 data credits, a configuration write, a BAR0 read), the data carried above 8 (`FC_NPD` 16) | `rx_np_collide` | 1 | 1; directed, three times |
 | [Epochs](../../rtl/tl/MAS.md#receive-queues) past their wrap (the comparison modulo 2^9): 520 rounds of a BAR2 write cfg holds, a configuration read behind it and a BAR0 write the application holds, the read leaving while the later write is held; a BAR0 read and an `rq` read's completion arm the cq and rc lines, their completions and the `rq` read the [transmit lines](../../rtl/tl/MAS.md#transmit-lines) cc, cf and np, which an `rq` write steps, so all six counters wrap | `rx_epoch_wrap` | 1 | 1; directed |
 | [Completer completions](../../arch/tl/COMPLETIONS.md#completer-completions): every read of the splitting table and the byte-enable cases through BAR0 and BAR2, configuration completions with the captured ID, every [Unsupported Request completion](../../arch/tl/COMPLETIONS.md#unsupported-request-completions) (locked, Byte Count 4096 as 0); then with the link and application stalling | `tx_completions` | 1 | 1; directed |
 | [Requester requests](../../arch/tl/COMPLETIONS.md#requester-requests), [interrupt writes and error messages](../../arch/core/TL_CFG.md#messages) (one withdrawn), PME_TO_Ack; `rq` held without bus mastering and in D3hot; [transmit ordering](../../arch/tl/ORDERING.md#ordering): posted order across sources, reads and completions behind posted requests held for credits, posted requests passing reads held for credits | `tx_requests` | 1 | 1; directed |
 | [Transmit credits](../../arch/tl/ORDERING.md#credits) per class and field (header, data), the other classes passing; the transmit posted line full, a message and a PME_Turn_Off waiting; the data-credit count at its edge: TLPs of 1, 5 and 30 data DWs held with n / 4 rounded up, less one, data credits and sent with exactly n / 4 rounded up, on the posted line (`rq` writes) and on both completion sources (`cc` BAR0 reads, `cfg` BAR2 reads) | `tx_credits` | 1 | 1; directed |
-| Random host traffic, `rq` requests (in a random 64 KiB block below or above 4 GiB, so every address bit takes both values) and messages, random finite or infinite credits, link and application stalls, segments across link-downs | `tx_random` | 1 | 3 |
+| Random host traffic, `rq` requests (in a random 64 KiB block below or above 4 GiB, so every address bit takes both values) and messages, random finite or infinite credits, link and application stalls, segments across link-downs | `tx_random` / `tx_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (73702813 and 493734951), pinned |
 | Longer random traffic | `rx_random_long` | 2 | 4 |
 | Longer random traffic, `BAR0_ADDR_W` 20 and odd credit sizes | `rx_random_long_params` | 2 | 2 |
 | The random transmit traffic of `tx_random`, longer | `tx_random_long` | 2 | 4 |
 | [Matching and checks](../../arch/tl/COMPLETIONS.md#checks): reads finished in one, two and three completions, byte-enable, zero-length and 64-bit reads; each check (Byte Count, Lower Address, boundary, past the end, no data, Configuration Request Retry) dropping a completion while its read waits; Unsupported Request, Completer Abort and a reserved status ending a read; poisoned completions; every unexpected case (Requester ID, Tag 8 or more, locked, after the read ended, before it was sent); a digest; [delivery](../../arch/tl/COMPLETIONS.md#delivery-on-rc) behind a posted write held on `cq`; interleaved reads with `rc` stalls | `cpl_matching` | 1 | 1; directed |
 | [Requester tags](../../arch/tl/COMPLETIONS.md#requester-tags): eight reads outstanding, more waiting for a tag; 1 KiB held while the application stalls `rc`; [Transactions Pending](../../arch/tl/COMPLETIONS.md#non-posted-pending) | `cpl_tags` | 1 | 1; directed |
 | [Completion timeout](../../arch/tl/COMPLETIONS.md#completion-timeout) at `CPL_TIMEOUT_DIV` 1024: lost reads time out once in 2048 to 2176 cycles, several at one pulse, one after part of its data; late completions unexpected; a read held unsent past the window; the disable holding a read past the window, then a full timeout; against an expiry placed from the prescaler phase the timeouts show: a completion's third header DW in the expiry cycle (unexpected), a non-last completion decided 3 cycles before the expiry and queued 14 after (the failed beat after it), another read's completion with its `eop` in the expiry cycle (both packets queued) | `cpl_timeout` | 1 | 1; directed |
-| Random `rq` traffic with the host's completions split at random and faulted (lost, poisoned, error status, malformed, unexpected, duplicated, digest), host traffic, `rc` stalls, the disable, segments across link-downs | `cpl_random` | 1 | 2 |
+| Random `rq` traffic with the host's completions split at random and faulted (lost, poisoned, error status, malformed, unexpected, duplicated, digest), host traffic, `rc` stalls, the disable, segments across link-downs | `cpl_random` / `cpl_random_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (1306959881), pinned |
 | The same, longer | `cpl_random_long` | 2 | 3 |
 | [Receive](../../../../src/dv/tl/models/test_pcie_tl_rx_ref.py), [transmit](../../../../src/dv/tl/models/test_pcie_tl_tx_ref.py) and [completion](../../../../src/dv/tl/models/test_pcie_tl_cpl_ref.py) reference unit tests | pytest | `./build ci unit` | |
 
@@ -230,6 +230,21 @@ ordering, credit gating, interrupt messages), and `cpl_matching`,
 `cpl_tags` and `cpl_timeout`, the tracker's (the timeout at
 `CPL_TIMEOUT_DIV` 1024 takes about 2200 cycles). The random entries are
 short in L1 (about 3 s of CPU each) and long in L2.
+One seed per random entry in level 1
+([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
+level 1 of every IP, which `ci-gate` runs for a change to a shared
+package, was over its 1200 s CPU budget. `rx_random`,
+`rx_random_min_credits`, `tx_random` and `cpl_random` run their first
+seed in level 1; their further seeds run pinned and unchanged in the
+entry's level 2 `_sweep`, each seed with its coverage instrumentation, so
+the merged level 0 to 2 runs are the same runs. The mutation tables below
+were measured at each entry's first regression seed, which stays in level
+1, except the slot power event's (#309), whose `rx_random` runs covered
+all three seeds; rerun at `rx_random`'s derived seed 0 (467035976), M34
+and M35 still fail it (cycles 748 and 158), while M36 and M37 pass it and
+are first caught in level 1 by `rx_random_min_credits` (seed 362363128,
+cycles 3572 and 5759), then `rx_routing` (seed 2084312926), and in level 2
+by `rx_random`'s derived seed 1 (1825658846).
 
 ## Mutation evidence
 

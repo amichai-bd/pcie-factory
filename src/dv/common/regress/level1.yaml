@@ -4,163 +4,135 @@ tests:
     testcase: random_ratio
     top: common_cdc_sync2
     params: {WIDTH: 4}
-    seeds: 3
     timeout_s: 120
-    coverage_seeds: 3
   - name: sync2_arst
     module: tests.test_cdc_sync2
     testcase: async_reset
     top: common_cdc_sync2
     params: {WIDTH: 4, RESET_VALUE: "4'h9", ASYNC_RESET: 1}
-    seeds: 2
     timeout_s: 120
   - name: pulse_random
     module: tests.test_cdc_pulse
     testcase: random_ratio
     top: common_cdc_pulse
-    seeds: 3
     timeout_s: 120
   - name: pulse_near_1to1
     module: tests.test_cdc_pulse
     testcase: near_ratio
     top: common_cdc_pulse
-    seeds: 2
     timeout_s: 120
   - name: pulse_arst
     module: tests.test_cdc_pulse
     testcase: async_reset
     top: common_cdc_pulse
     params: {SRC_ASYNC_RESET: 1, DST_ASYNC_RESET: 1}
-    seeds: 2
     timeout_s: 120
   - name: pulse_arst_dst
     module: tests.test_cdc_pulse
     testcase: async_reset
     top: common_cdc_pulse
     params: {DST_ASYNC_RESET: 1}
-    seeds: 2
     timeout_s: 120
   - name: fifo_full_empty_src_fast
     module: tests.test_cdc_fifo
     testcase: full_empty_src_fast
     top: common_cdc_fifo
-    seeds: 2
     timeout_s: 120
   - name: fifo_full_empty_dst_fast
     module: tests.test_cdc_fifo
     testcase: full_empty_dst_fast
     top: common_cdc_fifo
-    seeds: 2
     timeout_s: 120
-    coverage_seeds: 2
   - name: fifo_reset_in_flight
     module: tests.test_cdc_fifo
     testcase: reset_in_flight
     top: common_cdc_fifo
-    seeds: 2
     timeout_s: 120
   - name: fifo_arst
     module: tests.test_cdc_fifo
     testcase: async_reset
     top: common_cdc_fifo
     params: {SRC_ASYNC_RESET: 1, DST_ASYNC_RESET: 1}
-    seeds: 2
     timeout_s: 120
   - name: fifo_random
     module: tests.test_cdc_fifo
     testcase: random_traffic
     top: common_cdc_fifo
-    seeds: 3
     timeout_s: 120
   - name: rst_random
     module: tests.test_cdc_rst
     testcase: random_ratio
     top: common_cdc_rst
-    seeds: 3
     timeout_s: 120
-    coverage_seeds: 2
   - name: rst_random_stages3
     module: tests.test_cdc_rst
     testcase: random_ratio
     top: common_cdc_rst
     params: {STAGES: 3}
-    seeds: 2
     timeout_s: 120
-    coverage_seeds: 2
   - name: macros_random
     module: tests.test_macros
     testcase: random_ops
     top: common_macros_fixture
-    seeds: 3
     timeout_s: 120
   - name: sync_ram_random
     module: tests.test_ram
     testcase: random_ops
     top: common_sync_ram
     params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
-    seeds: 3
     timeout_s: 120
   - name: sync_ram_held_random
     module: tests.test_ram
     testcase: random_ops
     top: common_sync_ram_held
     params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
-    seeds: 3
     timeout_s: 120
   - name: sync_ram_wt_random
     module: tests.test_ram
     testcase: random_ops
     top: common_sync_ram_wt
     params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
-    seeds: 3
     timeout_s: 120
   - name: sdp_ram_random
     module: tests.test_ram
     testcase: random_ops
     top: common_sdp_ram
     params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
-    seeds: 3
     timeout_s: 120
   - name: sdp_ram_fifo_random
     module: tests.test_sdp_ram_fifo
     testcase: random_ops
     top: common_sdp_ram_fifo
     params: {WIDTH: 16, ADDR_W: 3}
-    seeds: 3
     timeout_s: 120
   - name: sdp_ram_fifo_random_min
     module: tests.test_sdp_ram_fifo
     testcase: random_ops
     top: common_sdp_ram_fifo
     params: {WIDTH: 1, ADDR_W: 1}
-    seeds: 2
     timeout_s: 120
   - name: skid_stage_random
     module: tests.test_skid_stage
     testcase: random_ops
     top: common_skid_stage
     params: {WIDTH: 16}
-    seeds: 3
     timeout_s: 120
   - name: skid_stage_random_min
     module: tests.test_skid_stage
     testcase: random_ops
     top: common_skid_stage
     params: {WIDTH: 1}
-    seeds: 2
     timeout_s: 120
   - name: tlp_rx_track_random
     module: tests.test_tlp_rx_track
     testcase: random_tlps
     top: common_tlp_rx_track_fixture
-    seeds: 3
     timeout_s: 120
   - name: tdp_ram_random
     module: tests.test_ram
     testcase: random_ops
     top: common_tdp_ram
     params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
-    seeds: 3
     timeout_s: 120
   - name: sdp_ram_intel_random
     module: tests.test_ram
@@ -168,7 +140,6 @@ tests:
     top: common_sdp_ram
     params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
     backend: fpga
-    seeds: 3
     timeout_s: 120
   - name: sdp_ram_intel_rx_buf_shape
     module: tests.test_ram
@@ -183,7 +154,6 @@ tests:
     top: common_sdp_ram
     params: {WIDTH: 72, ADDR_W: 7, LANES: 1}
     backend: asic
-    seeds: 3
     timeout_s: 120
   - name: sdp_ram_sky130_flops_random
     module: tests.test_ram
@@ -191,7 +161,6 @@ tests:
     top: common_sdp_ram
     params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
     backend: asic
-    seeds: 3
     timeout_s: 120
   - name: sdp_ram_sky130_rx_buf_shape
     module: tests.test_ram

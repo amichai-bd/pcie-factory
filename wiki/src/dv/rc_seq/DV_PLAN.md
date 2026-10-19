@@ -103,20 +103,58 @@ row names another.
 | [`L` and the loop limit](../../rtl/rc_seq/MAS.md#commands): exactly the limit passes, one take over fails at the jump, `ALWAYS` leaves `L`, a forward conditional sets it 0 | `loop_limit` | 1 | 1; five runs |
 | [Run](../../rtl/rc_seq/MAS.md#run) and [reset](../../rtl/rc_seq/MAS.md#reset): a pulse starts, `start_i` in a run is ignored, the result holds until a new rising edge, a restart drops `done_o`, reset mid-run, `start_i` held through reset | `start_reset` | 1 | 1 |
 | [`ENUM`](../../rtl/rc_seq/PROGRAMS.md#enumeration) passing against the stand-in, then each of its faults: every `EXPECT` made wrong, every `chk` 1 `REQ` answered with another status, every data `JUMP` turned (`PROGRAM` 0) | `program_enum` | 1 | 1; 84 runs |
-| [`MMIO`](../../rtl/rc_seq/PROGRAMS.md#mmio), likewise (`PROGRAM` 1) | `program_mmio` | 1 | 1; 198 runs |
-| [`DMA_MSI`](../../rtl/rc_seq/PROGRAMS.md#dma-and-msi), likewise (`PROGRAM` 2) | `program_dma_msi` | 1 | 1; 175 runs |
-| [`ERRORS`](../../rtl/rc_seq/PROGRAMS.md#errors-and-recovery): three enumerations, the polls, the refusals, the dropped MSI, the completion timeout, Hot Reset and link down, likewise (`PROGRAM` 3) | `program_errors` | 1 | 1; 141 runs |
+| [`MMIO`](../../rtl/rc_seq/PROGRAMS.md#mmio), likewise (`PROGRAM` 1) | `program_mmio` | 2 | 1; 198 runs |
+| [`DMA_MSI`](../../rtl/rc_seq/PROGRAMS.md#dma-and-msi), likewise (`PROGRAM` 2) | `program_dma_msi` | 2 | 1; 175 runs |
+| [`ERRORS`](../../rtl/rc_seq/PROGRAMS.md#errors-and-recovery): three enumerations, the polls, the refusals, the dropped MSI, the completion timeout, Hot Reset and link down, likewise (`PROGRAM` 3) | `program_errors` | 2 | 1; 141 runs |
 | [Constants](../../rtl/rc_seq/PROGRAMS.md#constants) of `ERRORS`: the `HOT_RESET` timeout with a link that ignores the request, the polling limit with error messages that never come (`PROGRAM` 3) | `timeouts_errors` | 1 | 1 |
 | The `WAIT_LINK` timeout of the enumeration, the link never training (`PROGRAM` 0) | `timeouts_enum` | 2 | 1; 25 000 000 cycles, most run freely |
 | The `WAIT_MSI` timeout of `DMA_MSI`, no MSI (`PROGRAM` 2) | `timeouts_dma_msi` | 2 | 1 |
 | `SELFTEST` with random latencies and one random fault (expect, status, wait bound) or none | `selftest_random` | 2 | 4; six runs each |
-| Each M4 program over more stand-in seeds, passing, then six random faults of any kind (`PROGRAM` 0 to 3) | `program_random_enum`, `program_random_mmio`, `program_random_dma_msi`, `program_random_errors` | 2 | 2 each; three stand-in seeds per entry seed |
+| Each M4 program over more stand-in seeds, passing, then six random faults of any kind (`PROGRAM` 0 to 3) | `program_random_enum` | 2 | 2; three stand-in seeds per entry seed |
+| The same for `MMIO`, `DMA_MSI` and `ERRORS`: each program's random fault sample under `ci-gate` | `program_random_mmio` / `program_random_mmio_sweep`, `program_random_dma_msi` / `program_random_dma_msi_sweep`, `program_random_errors` / `program_random_errors_sweep` | 1 / 2 | derived seed 0 / derived seed 1, pinned (298234656, 1770673933, 1956525912); three stand-in seeds per entry seed |
 
-**Level placement.** Every L1 entry takes at most about 11 s of CPU, all
-of the programs' faults included (L1 46.6 s in all).
-L2 widens the stand-in seeds and fault choices and holds the two long
-timeouts, `timeouts_enum` (about 40 s, the simulator running 25 000 000
-cycles freely) and `timeouts_dma_msi`.
+**Level placement.** L2 widens the stand-in seeds and fault choices and
+holds the two long timeouts, `timeouts_enum` (about 40 s, the simulator
+running 25 000 000 cycles freely) and `timeouts_dma_msi`.
+
+Every-fault runs ([#389](https://github.com/amichai-bd/pcie-factory/issues/389)):
+the full level 1 of every IP, which `ci-gate` runs for a change to a
+shared package, was over its 1200 s CPU budget, and the four every-fault
+program entries were 55.5 s of it on the `ci-gate` runner (`program_enum`
+5.0 s, `program_mmio` 17.2, `program_dma_msi` 15.6, `program_errors`
+17.7). Level 1 keeps `program_enum`: of the image mutants of
+[#396](https://github.com/amichai-bd/pcie-factory/pull/396) it alone
+catches two (M21 and M28), more than any other program, and it is the
+cheapest. `program_mmio`, `program_dma_msi` and `program_errors` run in
+level 2, unchanged and at the same seeds. Each of those three programs
+keeps a random fault sample in level 1, so every program still runs under
+`ci-gate`: derived seed 0 of `program_random_mmio`,
+`program_random_dma_msi` and `program_random_errors` (three stand-in
+seeds, each passing, then six random faults), with their derived seed 1
+pinned in the entry's level 2 `_sweep`. The merged level 0 to 2 runs are
+the same runs, with the same coverage instrumentation. The model unit
+tests stay in pytest (`./build ci unit`), among them the reachability of
+every `EXPECT` and every `chk` 1 `REQ` of every image.
+
+The mutants whose recorded catch moved to level 2 were rerun one at a
+time against levels 0 and 1 (`--jobs 1`), at `1d585ad` for M28 to M30 and
+at `1d240e3` for the others, each also against its level 2 entry, which
+fails as #396 recorded:
+
+| Mutant | First catch in levels 0 and 1 | Level 2 catch |
+| --- | --- | --- |
+| M8 `chk` ignored, status always checked (interpreter) | `smoke` (level 0, seed 1467269013, cycle 779); in level 1 `expect_mismatch` (seed 1878443167) first, and also `loop_limit`, `program_random_errors`, `selftest`, `start_reset`, `status_mismatch`, `wait_bounds` | `program_errors` |
+| M18 `MMIO` image: M3 reads BAR0 + 0x3C | `program_random_mmio` (seed 1723958198, cycle 917) | `program_mmio` |
+| M19 `ERRORS` image: R2 targets swapped | `program_random_errors` (seed 60360654, cycle 1992) | `program_errors` |
+| M20 `DMA_MSI` image: D3 checks R[0] only | none: level 2 only | `program_dma_msi` (seed 898750186, cycle 49322) |
+| M27 Hot Reset hold 63 | `program_random_errors` (seed 60360654, cycle 1365) | `program_errors` |
+| M28 `ENUM` image: E4 `CFG_RD` DW 0 with `chk` 0 | `program_enum` (level 1, seed 1005197596, cycle 1479) | - |
+| M29 `ERRORS` image: R5 poll value and mask 0x180 | none: level 2 only | `program_errors` (seed 728949876, cycle 46931) |
+| M30 `MMIO` image: M5 `EXPECT` mask 0x0FFF | none: level 2 only | `program_mmio` (seed 156425704, cycle 115899) |
+
+So the interpreter mutant M8 keeps level 0 and level 1 catches, and three
+image mutants (M20, M29, M30), each a wrong field the random sample did
+not draw, are caught nightly rather than under `ci-gate`.
 
 ## Functional coverage
 

@@ -112,3 +112,210 @@ tests:
     params: {WIDTH: 64, ADDR_W: 6, LANES: 8}
     seeds: 2
     timeout_s: 600
+  - name: sync2_random_sweep
+    module: tests.test_cdc_sync2
+    testcase: random_ratio
+    top: common_cdc_sync2
+    seeds: [1836129780, 1954040910]
+    coverage_seeds: 2
+    params: {WIDTH: 4}
+    timeout_s: 120
+  - name: sync2_arst_sweep
+    module: tests.test_cdc_sync2
+    testcase: async_reset
+    top: common_cdc_sync2
+    seeds: [1313951933]
+    coverage_seeds: 0
+    params: {WIDTH: 4, RESET_VALUE: "4'h9", ASYNC_RESET: 1}
+    timeout_s: 120
+  - name: pulse_random_sweep
+    module: tests.test_cdc_pulse
+    testcase: random_ratio
+    top: common_cdc_pulse
+    seeds: [313476785, 195434251]
+    coverage_seeds: 0
+    timeout_s: 120
+  - name: pulse_near_1to1_sweep
+    module: tests.test_cdc_pulse
+    testcase: near_ratio
+    top: common_cdc_pulse
+    seeds: [1562228821]
+    coverage_seeds: 0
+    timeout_s: 120
+  - name: pulse_arst_sweep
+    module: tests.test_cdc_pulse
+    testcase: async_reset
+    top: common_cdc_pulse
+    seeds: [1141078041]
+    coverage_seeds: 0
+    params: {SRC_ASYNC_RESET: 1, DST_ASYNC_RESET: 1}
+    timeout_s: 120
+  - name: pulse_arst_dst_sweep
+    module: tests.test_cdc_pulse
+    testcase: async_reset
+    top: common_cdc_pulse
+    seeds: [391930980]
+    coverage_seeds: 0
+    params: {DST_ASYNC_RESET: 1}
+    timeout_s: 120
+  - name: fifo_full_empty_src_fast_sweep
+    module: tests.test_cdc_fifo
+    testcase: full_empty_src_fast
+    top: common_cdc_fifo
+    seeds: [371511452]
+    coverage_seeds: 0
+    timeout_s: 120
+  - name: fifo_full_empty_dst_fast_sweep
+    module: tests.test_cdc_fifo
+    testcase: full_empty_dst_fast
+    top: common_cdc_fifo
+    seeds: [844326524]
+    timeout_s: 120
+  - name: fifo_reset_in_flight_sweep
+    module: tests.test_cdc_fifo
+    testcase: reset_in_flight
+    top: common_cdc_fifo
+    seeds: [2131291639]
+    coverage_seeds: 0
+    timeout_s: 120
+  - name: fifo_arst_sweep
+    module: tests.test_cdc_fifo
+    testcase: async_reset
+    top: common_cdc_fifo
+    seeds: [2035002250]
+    coverage_seeds: 0
+    params: {SRC_ASYNC_RESET: 1, DST_ASYNC_RESET: 1}
+    timeout_s: 120
+  - name: fifo_random_sweep
+    module: tests.test_cdc_fifo
+    testcase: random_traffic
+    top: common_cdc_fifo
+    seeds: [1461264718, 1309700340]
+    coverage_seeds: 0
+    timeout_s: 120
+  - name: rst_random_sweep
+    module: tests.test_cdc_rst
+    testcase: random_ratio
+    top: common_cdc_rst
+    seeds: [165534332, 282364870]
+    timeout_s: 120
+  - name: rst_random_stages3_sweep
+    module: tests.test_cdc_rst
+    testcase: random_ratio
+    top: common_cdc_rst
+    seeds: [526130068]
+    params: {STAGES: 3}
+    timeout_s: 120
+  - name: macros_random_sweep
+    module: tests.test_macros
+    testcase: random_ops
+    top: common_macros_fixture
+    seeds: [1917233032, 1800402482]
+    coverage_seeds: 0
+    timeout_s: 120
+  - name: sync_ram_random_sweep
+    module: tests.test_ram
+    testcase: random_ops
+    top: common_sync_ram
+    seeds: [976709618, 591279688]
+    coverage_seeds: 0
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    timeout_s: 120
+  - name: sync_ram_held_random_sweep
+    module: tests.test_ram
+    testcase: random_ops
+    top: common_sync_ram_held
+    seeds: [1412732973, 1295894935]
+    coverage_seeds: 0
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    timeout_s: 120
+  - name: sync_ram_wt_random_sweep
+    module: tests.test_ram
+    testcase: random_ops
+    top: common_sync_ram_wt
+    seeds: [644655698, 1063648232]
+    coverage_seeds: 0
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    timeout_s: 120
+  - name: sdp_ram_random_sweep
+    module: tests.test_ram
+    testcase: random_ops
+    top: common_sdp_ram
+    seeds: [1925332298, 1808493808]
+    coverage_seeds: 0
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    timeout_s: 120
+  - name: sdp_ram_fifo_random_sweep
+    module: tests.test_sdp_ram_fifo
+    testcase: random_ops
+    top: common_sdp_ram_fifo
+    seeds: [1044357706, 657912816]
+    coverage_seeds: 0
+    params: {WIDTH: 16, ADDR_W: 3}
+    timeout_s: 120
+  - name: sdp_ram_fifo_random_min_sweep
+    module: tests.test_sdp_ram_fifo
+    testcase: random_ops
+    top: common_sdp_ram_fifo
+    seeds: [1130685727]
+    coverage_seeds: 0
+    params: {WIDTH: 1, ADDR_W: 1}
+    timeout_s: 120
+  - name: skid_stage_random_sweep
+    module: tests.test_skid_stage
+    testcase: random_ops
+    top: common_skid_stage
+    seeds: [285127183, 167240629]
+    coverage_seeds: 0
+    params: {WIDTH: 16}
+    timeout_s: 120
+  - name: skid_stage_random_min_sweep
+    module: tests.test_skid_stage
+    testcase: random_ops
+    top: common_skid_stage
+    seeds: [268928640]
+    coverage_seeds: 0
+    params: {WIDTH: 1}
+    timeout_s: 120
+  - name: tlp_rx_track_random_sweep
+    module: tests.test_tlp_rx_track
+    testcase: random_tlps
+    top: common_tlp_rx_track_fixture
+    seeds: [489432863, 69564069]
+    coverage_seeds: 0
+    timeout_s: 120
+  - name: tdp_ram_random_sweep
+    module: tests.test_ram
+    testcase: random_ops
+    top: common_tdp_ram
+    seeds: [255575359, 372413573]
+    coverage_seeds: 0
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    timeout_s: 120
+  - name: sdp_ram_intel_random_sweep
+    module: tests.test_ram
+    testcase: random_ops
+    top: common_sdp_ram
+    seeds: [1053016126, 667586948]
+    coverage_seeds: 0
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    backend: fpga
+    timeout_s: 120
+  - name: sdp_ram_sky130_random_sweep
+    module: tests.test_ram
+    testcase: random_ops
+    top: common_sdp_ram
+    seeds: [1462882861, 1312326551]
+    coverage_seeds: 0
+    params: {WIDTH: 72, ADDR_W: 7, LANES: 1}
+    backend: asic
+    timeout_s: 120
+  - name: sdp_ram_sky130_flops_random_sweep
+    module: tests.test_ram
+    testcase: random_ops
+    top: common_sdp_ram
+    seeds: [1772447795, 1890335113]
+    coverage_seeds: 0
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    backend: asic
+    timeout_s: 120

@@ -65,13 +65,24 @@
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Reset state, order](../../../rtl/common/cdc/common_cdc_fifo.md#behavior): one word, then a burst at a fixed 2:5 ratio | `fifo_smoke` | 0 | 1; `ADDR_W` 2 |
-| [Full, empty, wrap, flag latency](../../../rtl/common/cdc/common_cdc_fifo.md#behavior), source faster | `fifo_full_empty_src_fast` | 1 | 2; five fill/drain rounds |
-| [Full, empty, wrap, flag latency](../../../rtl/common/cdc/common_cdc_fifo.md#behavior), destination faster | `fifo_full_empty_dst_fast` | 1 | 2; five fill/drain rounds; coverage on the first 2 (`coverage_seeds`) |
-| [Reset](../../../rtl/common/cdc/common_cdc_fifo.md#behavior) of both sides with words in flight, three times, then checked traffic | `fifo_reset_in_flight` | 1 | 2; ratio up to 8:1 |
-| [Asynchronous sides](../../../rtl/common/cdc/common_cdc_fifo.md#behavior): a full FIFO empty and not full in the time step both resets rise with the clocks stopped, at two pointer positions; pulse and held reset; checked traffic after | `fifo_arst` | 1 | 2; `SRC_ASYNC_RESET` 1, `DST_ASYNC_RESET` 1, ratio up to 8:1 |
-| [Order and capacity](../../../rtl/common/cdc/common_cdc_fifo.md#behavior) under random rates and ratios; read-side fill and look-ahead every cycle | `fifo_random` | 1 | 3; `ADDR_W` 2, 40 rounds, ratio up to 8:1 |
+| [Full, empty, wrap, flag latency](../../../rtl/common/cdc/common_cdc_fifo.md#behavior), source faster | `fifo_full_empty_src_fast` / `fifo_full_empty_src_fast_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (371511452), pinned; five fill/drain rounds |
+| [Full, empty, wrap, flag latency](../../../rtl/common/cdc/common_cdc_fifo.md#behavior), destination faster | `fifo_full_empty_dst_fast` / `fifo_full_empty_dst_fast_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (844326524), pinned; five fill/drain rounds; coverage on the same seeds as before |
+| [Reset](../../../rtl/common/cdc/common_cdc_fifo.md#behavior) of both sides with words in flight, three times, then checked traffic | `fifo_reset_in_flight` / `fifo_reset_in_flight_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (2131291639), pinned; ratio up to 8:1 |
+| [Asynchronous sides](../../../rtl/common/cdc/common_cdc_fifo.md#behavior): a full FIFO empty and not full in the time step both resets rise with the clocks stopped, at two pointer positions; pulse and held reset; checked traffic after | `fifo_arst` / `fifo_arst_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (2035002250), pinned; `SRC_ASYNC_RESET` 1, `DST_ASYNC_RESET` 1, ratio up to 8:1 |
+| [Order and capacity](../../../rtl/common/cdc/common_cdc_fifo.md#behavior) under random rates and ratios; read-side fill and look-ahead every cycle | `fifo_random` / `fifo_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (1461264718 and 1309700340), pinned; `ADDR_W` 2, 40 rounds, ratio up to 8:1 |
 | Random traffic, smallest depth | `fifo_long_depth2` | 2 | 4; `ADDR_W` 1, `WIDTH` 4, 400 rounds, ratio up to 16:1 |
 | Random traffic, deep and wide | `fifo_long_depth16` | 2 | 4; `ADDR_W` 4, `WIDTH` 16, 400 rounds, ratio up to 16:1 |
+
+**Level placement**
+([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
+level 1 of every IP, which `ci-gate` runs for a change to a shared
+package, was over its 1200 s CPU budget. `fifo_full_empty_src_fast`,
+`fifo_full_empty_dst_fast`, `fifo_reset_in_flight`, `fifo_arst` and
+`fifo_random` run their first seed in level 1; their further seeds run
+pinned and unchanged in each entry's level 2 `_sweep`, each seed with its
+coverage instrumentation, so the merged level 0 to 2 runs are the same
+runs. The mutation evidence on this page names no seed for these entries,
+and was not rerun at the first seed alone.
 
 Every [interface](../../../rtl/common/cdc/common_cdc_fifo.md#interfaces) port is exercised by every entry; `dst_fill_o` and `dst_next_data_o` are checked every destination cycle of every entry.
 
