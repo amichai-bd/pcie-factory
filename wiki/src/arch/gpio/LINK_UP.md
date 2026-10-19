@@ -100,30 +100,34 @@ Each case below holds for any clock ratio from 1/2 to 2 and any `CLK_DIV`.
 - **Every down is symmetric, by construction.** Whatever takes end A down,
   A then sends at least 16 bit-8-clear words. The partner B receives every
   one of them, at any ratio. One damaged slot splits the 16 into runs, one
-  of them at least 7 long. So an up B always sees a run of 4 (cause 2) and
+  of them at least 8 long. So an up B always sees a run of 4 (cause 2) and
   goes down too. Each `dll` goes down once, and both ends then train.
 - **No stale up.** A counts its run of 8 only after its own quiet run has
   ended, 16 of A's slot times after it started. B goes down on receiving
-  4 of A's quiet words (5 if one is damaged), and the good slots B sent
+  4 of A's quiet words in a run (after at most 8 if one is damaged: a
+  damaged slot breaks the run), and the good slots B sent
   before that keep arriving at A until the times below, in A's slot times
-  after A's quiet run started, with `W` at its bound:
+  after A's quiet run started, with `W` (which includes the slot in flight)
+  at its bound; figures in brackets are with one damaged slot:
 
   | B's rate | B's last stale good slot reaches A by | Overlap with A's count |
   | --- | --- | --- |
-  | Equal | 4 + 2 × 4 = 12 (13 with a damaged slot) | None |
-  | Twice A's (`W` = 4 A slots) | 12 (13) | None |
-  | Half A's (`W` = 8 A slots) | 4 + 2 × 8 = 20 (21) | 4 (5) A slot times: at most 2 (3) of B's slots |
+  | Equal | 4 + 2 × 4 = 12 (8 + 2 × 4 = 16) | None (none: A counts only after 16) |
+  | Twice A's (`W` = 4 A slots) | 12 (16) | None (none) |
+  | Half A's (`W` = 8 A slots) | 4 + 2 × 8 = 20 (8 + 2 × 8 = 24) | 4 (8) A slot times: at most 2 (4) of B's slots |
 
   Every overlap is shorter than the 8 good slots A needs, so A cannot go
   up on B's stale slots.
 - **Reaching up, no livelock.** Say A goes up first, at time t. Its run
   shows that B is aligned and past its quiet run. A has sent good slots
   since its own run started, so B's run of 8 completes within 8 of A's
-  slots plus `W`, or 16 of A's slots plus `W` if one damaged slot restarts
-  it. B sends TRAIN with bit 8 set until then. Those words keep arriving
-  at A until 2 × `W` + 16 A-slots + 1 after t. At a ratio of 2 with B the
-  faster end, that is at most 16 + 32 + 1 = 49 of B's slots. Every
-  trailing word has bit 8 set, and 49 is below the run of 64 (cause 3), so
+  slots plus `W`, or 16 of A's slots plus `W` if one damaged slot breaks
+  the run (at most 8 slots lost, then 8 more). B sends TRAIN with bit 8
+  set until then. Those words keep arriving at A until 2 × `W` + 16 A
+  slots after t (`W` includes the slot in flight, so nothing is added).
+  At a ratio of 2 with B the faster end (`W` = 8 of B's slots, an A slot
+  = 2 of B's), that is at most 16 + 32 = 48 of B's slots. Every trailing
+  word has bit 8 set, and 48 is below the run of 64 (cause 3), so
   A stays up. Without a damaged slot, both ends are up within 8 + 16 +
   8 slots, plus 3 × `W`, of the later transmitter starting (counted in the
   slower end's slots). After that, neither end goes down unless a cause
