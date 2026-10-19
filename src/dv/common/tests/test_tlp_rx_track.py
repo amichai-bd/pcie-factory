@@ -192,6 +192,8 @@ async def framing(dut, beats, label: str) -> None:
         t.drive(*b)
         await RisingEdge(dut.clk_i)
         await FallingEdge(dut.clk_i)
+    # Idle after the beats, so only the beat under test can trip a check.
+    t.drive(False, False, False, False)
     for _ in range(3):
         await RisingEdge(dut.clk_i)
     raise AssertionError(f"assertion {label} did not stop the simulation")

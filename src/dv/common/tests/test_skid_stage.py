@@ -131,9 +131,10 @@ async def contract(dut):
     assert not s.model.in_ready
     await s.step(True, s.word(9), True)        # refused: not ready
     await s.step(True, s.word(10), True)
-    # A long stall: the offered beat stays, new only in its first cycle.
-    for _ in range(5):
-        await s.step(True, s.word(11), False)
+    # A long stall: the offered beat stays, new only in its first cycle;
+    # upstream keeps offering new words, which the full stage refuses.
+    for i in range(5):
+        await s.step(True, s.word(11 + i), False)
     # Drain.
     while s.model.out_valid:
         await s.step(False, 0, True)
