@@ -169,7 +169,7 @@ All entries run on `pcie_link_e2e_tb`; credits are the default
 | Soak: random classes, line flips and credit stalls together, 1000 TLPs each way, ppm from the seed, in every credit configuration; in the release configuration the stalls are release stalls (half the cycles release, none in the stall windows) | `e2e_soak_default`, `e2e_soak_minimum`, `e2e_soak_finite`, `e2e_soak_infinite`, `e2e_soak_asymmetric`, `e2e_soak_release` | 2 | 3, 2, 3, 1, 2, 1; `CREDITS` 0 to 5; coverage on the first 2, 2, 1, 1, 2, 1 ([seeds](#seeds-and-coverage-runs)) |
 | [Throughput](../../arch/link/HAS.md#throughput), one way, screen: 400 128-byte memory writes a to b against the 0.85 target (more start and drain in the window than 2000 TLPs, so stricter), every line symbol attributed | `e2e_throughput_short` | 1 | 1 |
 | [Throughput targets](../../arch/link/HAS.md#targets): 2000 128-byte memory writes one way (0.85) and each way (0.76 per direction), every line symbol attributed; each seed draws the start against the SKP schedule (within one SKP interval) and, both ways, b's start against a's (within one TLP time) | `e2e_throughput_oneway`, `e2e_throughput_bidir` | 2 | 1 and 2 |
-| Seed sweeps of the directed and mixed tests | `e2e_tlp_errors_sweep`, `e2e_dllp_errors_sweep`, `e2e_rollover_sweep`, `e2e_line_sweep`, `e2e_mixed_sweep` | 2 | 2, 2, 2, 3, 4; coverage on the first 1, 1, 2, 2, 1 |
+| Seed sweeps of the directed and mixed tests | `e2e_tlp_errors_sweep`, `e2e_dllp_errors_sweep`, `e2e_rollover_sweep`, `e2e_line_sweep`, `e2e_mixed_sweep` | 2 | 2, 2, 2, 3, 4; coverage on the first 1, 1, 1, 2, 1 |
 
 **Level placement** ([#272](https://github.com/amichai-bd/pcie-factory/issues/272)).
 Level 1 is what `ci-gate` runs for every change that reaches `link`
@@ -188,6 +188,16 @@ are the same. `e2e_throughput_oneway` runs one seed: the three seeds of
 0.85645 (the start against the SKP schedule moved nothing measurable);
 both ways keeps two seeds, which also move b's start against a's
 ([seeds](#seeds-and-coverage-runs)).
+
+`e2e_soak_release` and `e2e_hot_reset_release` run in level 2
+([#360](https://github.com/amichai-bd/pcie-factory/issues/360)): they run
+the soak and the Hot Reset on the `FC_RELEASE` 1 build (`CREDITS` 5), for
+the toggle points of its own `pcie_link`, `pcie_dll` and `pcie_dll_fc`
+specializations (417 and 118 points no other entry reaches), and re-check
+paths that `e2e_credits_release` (level 1) and the `dll` unit DV already
+check: the release port through `link`, and the upper layer dropping what
+it holds at a link-down. No recorded mutant is first caught by them, so
+level 1 keeps only `e2e_credits_release`.
 
 ### Seeds and coverage runs
 
@@ -225,10 +235,14 @@ forgets the end of a stall already over fails it on that check.
 `--coverage` instruments only the first seeds named in the plan rows (the
 entries' `coverage_seeds`); every seed still runs and must pass. Where a
 later seed reaches points the first does not (`e2e_soak_default`,
-`e2e_soak_minimum`, `e2e_soak_asymmetric`, `e2e_rollover_sweep`,
-`e2e_line_sweep`: 52 points in all), that entry keeps coverage on its
-first two seeds, so the merged coverage is the same point for point. A
-coverage build runs the link's soaks about 2.5 times slower than a plain
+`e2e_soak_minimum`, `e2e_soak_asymmetric`, `e2e_line_sweep`: 32, 68, 2
+and 2 points, 104 in all, measured for
+[#360](https://github.com/amichai-bd/pcie-factory/issues/360)), that
+entry keeps coverage on its first two seeds, so the merged coverage is the
+same point for point. `e2e_rollover_sweep` instruments only its first
+seed since #360: its second seed (1434271262) reaches no line or toggle
+point and no bin that the rest of the levels miss, and its first reaches
+8; both seeds still run. A coverage build runs the link's soaks about 2.5 times slower than a plain
 one (`e2e_soak_default`: 24.4 s against 9.7 s of CPU), so most seeds run
 plain.
 
@@ -243,6 +257,18 @@ level-0 entry passes each of them.
 | `fc_rel_pd_i` not connected (data 0) | `e2e_credits_release` (L1) | Data credits never return: the drain does not end within 200000 cycles. |
 | `FC_RELEASE` not passed to the `dll` (0) | `e2e_credits_release` (L1) | Stops on `a_rel_tied` in the `dll`: a release with `FC_RELEASE` 0. |
 
+The release-hold phase of `e2e_credits_release`
+([#360](https://github.com/amichai-bd/pcie-factory/issues/360)) has its
+own kill, with the same method: in `pcie_dll_fc`, a delivered posted TLP
+returns its header credit at delivery, and the release returns only its
+data credits. The credits return in full, so every drain still ends, and
+before the hold phase posted headers are never what runs out. The phase
+fails it: the far end's writes are not held back by headers, and end a's
+upper layer holds 9 to 12 posted header credits, above the 8 advertised
+(cycle 30350, seed 1376215603). Every other level 0 and 1 entry, and
+`e2e_soak_release` and `e2e_hot_reset_release` at their pinned seeds,
+pass it.
+
 ## Gaps
 
 | Feature | Owning issue |
@@ -252,60 +278,112 @@ level-0 entry passes each of them.
 
 ## Coverage holes
 
-The floors were planned before #216 landed
-([firstmate decision on #217](https://github.com/amichai-bd/pcie-factory/issues/217#issuecomment-6241327256)): its throughput entries use the
-default configuration, an existing parameter set, so they could only raise
-line and toggle. They were set from a run that includes those entries. The
-remaining gaps add no simulation stimulus that could lower them: #302 adds
-an injector class, and #218 and #219 are timing reports. A future entry
-with a new parameter set (a new `CREDITS` value) re-measures the floors in
-the same PR.
-
 Floors in [`level2.yaml`](../../../../src/dv/link/regress/level2.yaml),
 checked by every `--coverage` run that selects level 2 (the nightly runs
-levels 0 to 2): line 90.2, toggle 79.8, functional 100. Merged over levels
-0 to 2 with the [#216](https://github.com/amichai-bd/pcie-factory/issues/216)
-entries ([#217](https://github.com/amichai-bd/pcie-factory/issues/217)),
-over the whole stack that `link.rtl.f` reaches: line 90.72% (1379 of 1520
-points), toggle 80.35% (24724 of 30770), functional 100% (82 of 82 bins in
-the six covergroups the level file names). The line and toggle floors are
-the merged values less 0.5 points, rounded down to a tenth
-([floor margin](../../../bkm/dv.md#coverage)). Before #216 the same run gave
-80.08% toggle (the throughput entries hit 83 more points) and the same line
-count.
+levels 0 to 2): line 90.2, toggle 76.6, functional 100. Merged over levels
+0 to 2 ([#360](https://github.com/amichai-bd/pcie-factory/issues/360)),
+over the whole stack that `link.rtl.f` reaches: line 91.27% (1485 of 1627
+points), toggle 77.11% (28961 of 37556), functional 100% (85 of 85 bins in
+the six covergroups the level file names). The line floor is the merged
+value of [#217](https://github.com/amichai-bd/pcie-factory/issues/217)
+(90.72%, with the [#216](https://github.com/amichai-bd/pcie-factory/issues/216)
+throughput entries) less 0.5 points, kept; the toggle floor is the merged
+value less 0.5 points, rounded down to a tenth
+([floor margin](../../../bkm/dv.md#coverage)). The remaining gaps add no
+simulation stimulus that could lower them: #302 adds an injector class,
+and #218 and #219 are timing reports. A future entry with a new parameter
+set (a new `CREDITS` value) re-measures the floors in the same PR.
+
+**Toggle floor lowered from 79.8 to 76.6**
+([captain decision on #360](https://github.com/amichai-bd/pcie-factory/issues/360#issuecomment-6266063487),
+the rule of the [`dll`](../dll/DV_PLAN.md#coverage-holes) on #354). The
+79.8 floor of #217 was set on 80.35% (24724 of 30770). The credit release
+of [#335](https://github.com/amichai-bd/pcie-factory/issues/335) and its
+`release` configuration then added 6786 toggle points, and the merged
+value fell to 75.59% (28390 of 37556) on `d684928`, with the functional
+bin `link_e2e_credit` `held_all` `P` missed. No point hit before was lost:
+all 3120 new misses are new points, and the causes are structural:
+
+- `FC_RELEASE` is a parameter, so its build is three more parameter-set
+  copies: `pcie_link` and `pcie_dll` with `FC_RELEASE` 1 and `pcie_dll_fc`
+  with `RELEASE` 1, 5124 toggle points between them (2070 missed on
+  `d684928`, 1546 now). They repeat the whole `dll` transmit side and
+  the credit counters, which the release entries share with every other
+  copy but stress less: 374 of their misses toggle in another copy.
+- With `FC_RELEASE` 0 the release ports are tied to 0 (`a_rel_tied` in
+  the `dll` asserts it), so the `fc_rel_*` ports of `pcie_link` and
+  `pcie_dll` and the release events built from them never toggle in the
+  copies without release: 974 points.
+- The build adds names for CDC specializations that other builds already
+  have (the `phy`'s synchronizers, pulse and FIFO under a second
+  parameter name): 408 points that repeat their other copy.
+
+[#360](https://github.com/amichai-bd/pcie-factory/issues/360) added the
+tests of value for this configuration: the release-hold phase of
+`e2e_credits_release`, which hits `held_all` `P` and catches a mutant no
+other entry catches ([release mutants](#seeds-and-coverage-runs)), and
+`e2e_soak_release` and `e2e_hot_reset_release` in level 2. The +571
+points to 77.11%, each counted where only that addition reaches it:
+`e2e_soak_release` 417, `e2e_hot_reset_release` 118, both of them 1, and
+35 from the hold phase and the stall schedule of
+[#359](https://github.com/amichai-bd/pcie-factory/issues/359) (15 of
+them). Reaching 79.8 would take 1009 more points. The tied-off ports
+(974) and the release events' constant bits (260) below cannot toggle;
+the release copies' other misses are mostly points that toggle in another
+copy, so more runs on the release build would only toggle duplicate
+copies, which was rejected as low test value.
+
+Points each entry reaches that no other entry does (line and toggle,
+merged over the entry's coverage seeds): `e2e_soak_release` 417,
+`e2e_soak_minimum` 130, `e2e_loopback` 131, `e2e_soak_asymmetric` 127,
+`e2e_hot_reset_release` 118, `e2e_disable` 94, `e2e_soak_finite` 50,
+`e2e_soak_infinite` 39, `e2e_soak_default` 32, `e2e_line_sweep` 8,
+`e2e_rollover_sweep` 8, `e2e_credits_finite` 2, `e2e_hot_reset` 2; every
+other entry reaches nothing alone (it re-checks behaviour, or carries
+functional bins and mutant kills). The entries with `coverage_seeds` 2
+are justified in [seeds and coverage runs](#seeds-and-coverage-runs).
 
 Verilator merges the two ends into one copy of each block when they share
 parameters (`u_*`), and keeps a copy per parameter set otherwise: the
-`dll` and its receive buffer once per credit configuration, the
-asymmetric configuration's two ends apart. The 141 line points not hit,
-by cause:
+`link`, the `dll` and its receive buffer once per credit configuration,
+the asymmetric configuration's two ends apart. The 142 line points not
+hit, by cause:
 
 | Cause | Points | Where |
 | --- | ---: | --- |
 | Tied off by `link` ([power states](../../arch/link/HAS.md#power-states)) | 40 | The `mac` L0s sub-states (receive and transmit), the L1 and L2 states and the `pm_state` request arc, the FTS ordered sets they send (`pcie_mac_ltssm.sv` 35, `pcie_mac_os.sv` 2, the transmit-mode table in `pcie_mac_pkg.sv` 3). |
 | Not reached by two compliant ends | 63 | Behaviour that two conforming stacks over this channel never produce, each covered by the [`mac`](../mac/DV_PLAN.md), [`pcs`](../pcs/DV_PLAN.md) or [`dll`](../dll/DV_PLAN.md) unit DV ([granularity](../../../bkm/rtl.md#granularity)): Polling.Compliance and the compliance pattern, receiver detection with no receiver, the Polling and Configuration timeouts and their fallbacks, the Configuration and Recovery error exits (PAD and renumbering runs, mismatching TS, the `idle_to_rlock` count), Disable Scrambling, the LTSSM timer's saturation, framing errors from a K symbol inside a packet, the elastic buffer's overflow and underflow (outside ±600 ppm), the encoder's unsupported K and run-length check, the aligner's tail case; in the `dll`, a DLLP of the wrong length or an unknown type, a packet beyond the beat counter and the InitFC group resend (`mac` 44, `pcs` 14, `dll` 5). |
 | Elaboration only or tool artefact | 29 | `pcie_mac_pkg.sv`: `err_timeout`, called only for `localparam` values; the early `return` branches of `run_next` ([`mac` plan](../mac/DV_PLAN.md#coverage-holes)); the 23 arms of `arc_target`, called only with the constant indices of unrolled loops (`step_end_arc`, `arc_target_listed`), which Verilator folds at elaboration. |
-| Unreachable by construction | 9 | The RAM lane-disable branch of each `common_sdp_ram` copy (5: `LANES` is 1), the `dll` receive buffer's full branch (`noroom`, [`dll` plan](../dll/DV_PLAN.md#coverage-holes)), and the `default` arms of the LTSSM's state groups, the ordered-set kind and the transmit mode. |
+| Unreachable by construction | 10 | The RAM lane-disable branch of each `common_sdp_ram` copy (5: `LANES` is 1), the `dll` receive buffer's full branch (`noroom`, [`dll` plan](../dll/DV_PLAN.md#coverage-holes)), the release arm of `taken_ret` in `u_fc` without `RELEASE` (the `RELEASE` 1 copy takes it), and the `default` arms of the LTSSM's state groups, the ordered-set kind and the transmit mode. |
 
-The 6046 toggle points not hit, by cause:
+The 8595 toggle points not hit, by cause:
 
 | Cause | Points | Signals |
 | --- | ---: | --- |
-| Hit in another parameter set or at the other end | 1280 | The same bit and direction toggles in another credit configuration's copy, or at the other end of the asymmetric configuration (for example, the limit and infinite-field bits of the finite configurations, the larger receive buffer's address bits, a request input driven at one end only). |
-| `dll`: the causes of its [unit plan](../dll/DV_PLAN.md#coverage-holes) | 2570 | Constant per build (credit parameters, InitFC bodies: 718), constant by the DLLP format (Ack, Nak and UpdateFC reserved and type bits: 504), one TLP's credits (917), large data credits (238), receive buffer full (34), credit counter top bits (136), the transmit block's constant bits (18), RAM lanes (5), counted in each copy. |
-| `dll`: behaviour the stack does not produce | 544 | The bench checks that no DL protocol error, Receiver overflow or Malformed TLP pulses (`err_o`, `rx_overflow`, `malformed_tlp`, `tlp_tx_err`, the error flags of `u_fc`, `u_tlp_rx` and `u_tlp_tx`), the `phy` never delivers a nullified TLP (the `dll` never nullifies), credits available never exceed the advertisement (their upper bits), and sequence numbers do not wrap (at most 2000 new TLPs each way per link-up, in the throughput entries, and at most 1000 in the entries that replay: the top bits of the sequence and replay counters in `u_tlp_tx` and `u_tlp_rx`); the DLLP assembly of a wrong-length DLLP, the InitFC group timer's top bits and the rollover hold counter's top bits. Each is reached in the `dll` unit DV. |
-| `link` ports | 204 | `dl_err_o` (never pulses, as checked), the upper bits of `fc_*_avail_o` (at most the advertisement), `pkt_rx_nullify` (never set), and inputs the bench holds constant at an end: `port_role_i`, `retrain_req_i`, `ser_tx_rxdet_i`, and the control requests in the copies that never get them. |
+| Constant by construction: release ports tied off | 974 | With `FC_RELEASE` 0 (the four `pcie_link` and `pcie_dll` copies without release, and `pcie_dll_fc` without `RELEASE`): `fc_rel_*_i` in `pcie_link` (120) and the `dll` top, the release events `rel_p`, `rel_np` in the top (654 in the `dll` top in all), and `rel_p_i`, `rel_np_i`, `rel_p_ret`, `rel_np_ret`, `taken_ret` and `taken_rel` in `u_fc` (200), tied to 0 or a copy of the delivery return (`a_rel_tied`). |
+| Hit in another parameter set or at the other end | 1728 | The same bit and direction toggles in another credit configuration's copy, or at the other end of the asymmetric configuration (for example, the limit and infinite-field bits of the finite configurations, the larger receive buffer's address bits, a request input driven at one end only); 374 of them in the `FC_RELEASE` 1 copies, whose transmit side and counters toggle in the copies without release. |
+| `dll`: the causes of its [unit plan](../dll/DV_PLAN.md#coverage-holes) | 3315 | Constant per build (credit parameters, InitFC bodies: 979), constant by the DLLP format (Ack, Nak and UpdateFC reserved and type bits: 580), one TLP's credits (1125), large data credits (270), receive buffer full (28), credit counter top bits (310), the transmit block's constant bits (18), RAM lanes (5), counted in each copy. |
+| `dll` and `link`: release events constant by construction | 260 | In the `FC_RELEASE` 1 copies, the release events (`rel_p`, `rel_np` in the `dll` top; `rel_p_i`, `rel_np_i`, `rel_p_ret`, `rel_np_ret` and `taken_ret` in `u_fc`): a fixed class, a header field that is always 1, data bits 11:4 (a release carries at most 8 credits, `a_rel_data_max`), and `fc_rel_npd_i` bit 3 in `pcie_link` and the `dll` with its event bits (no non-posted release of 8 credits: the non-posted requests the bench sends carry fewer), as in the [`dll` plan](../dll/DV_PLAN.md#coverage-holes). |
+| `dll`: behaviour the stack does not produce | 622 | The bench checks that no DL protocol error, Receiver overflow or Malformed TLP pulses (`err_o`, `rx_overflow`, `malformed_tlp`, `tlp_tx_err`, the error flags of `u_fc`, `u_tlp_rx` and `u_tlp_tx`), the `phy` never delivers a nullified TLP (the `dll` never nullifies), credits available never exceed the advertisement (their upper bits), and sequence numbers do not wrap (at most 2000 new TLPs each way per link-up, in the throughput entries, and at most 1000 in the entries that replay: the top bits of the sequence and replay counters in `u_tlp_tx` and `u_tlp_rx`); the DLLP assembly of a wrong-length DLLP, the InitFC group timer's top bits and the rollover hold counter's top bits. Each is reached in the `dll` unit DV. |
+| `link` ports | 238 | `dl_err_o` (never pulses, as checked), the upper bits of `fc_*_avail_o` (at most the advertisement), `pkt_rx_nullify` (never set), and inputs the bench holds constant at an end: `port_role_i`, `retrain_req_i`, `ser_tx_rxdet_i`, and the control requests in the copies that never get them. |
 | `mac` and `pcs`: power states tied off | 394 | The L0s, L1 and L2 logic: FTS counts and requests, `pm_state`, PM waits, electrical-idle ordered sets for power entry, power-down and the receive and transmit sub-states. |
-| `mac` and `pcs`: not reached by two compliant ends, or constant by design | 1054 | Compliance, polarity inversion (the channel never inverts), link and lane numbers other than 0 and N_FTS other than the default (both ends use them), TS control bits, Disable Scrambling, the Configuration and Recovery error-exit run counters and mismatch counts, the LTSSM timer's top bits, the frame's second receive-queue slot and its nullify path, the elastic buffer's fill extremes and the decoder's error classes. Each is covered by the [`mac`](../mac/DV_PLAN.md#coverage-holes), [`pcs`](../pcs/DV_PLAN.md#coverage-holes) or [`phy`](../phy/DV_PLAN.md#coverage-holes) plan, or listed there as a hole with its reason. |
+| `mac` and `pcs`: not reached by two compliant ends, or constant by design | 1064 | Compliance, polarity inversion (the channel never inverts), link and lane numbers other than 0 and N_FTS other than the default (both ends use them), TS control bits, Disable Scrambling, the Configuration and Recovery error-exit run counters and mismatch counts, the LTSSM timer's top bits, the frame's second receive-queue slot and its nullify path, the elastic buffer's fill extremes (with its CDC FIFO's top fill bits, full state and unused data bit, and the reset synchronizer's first stage) and the decoder's error classes. Each is covered by the [`mac`](../mac/DV_PLAN.md#coverage-holes), [`pcs`](../pcs/DV_PLAN.md#coverage-holes) or [`phy`](../phy/DV_PLAN.md#coverage-holes) plan, or listed there as a hole with its reason. |
 
 How the toggle points were sorted, so a re-measurement reproduces the
-counts: a point is "hit in another parameter set or at the other end" when
-the same file, hierarchy (with `u_a`, `u_b` and `u_*` taken as one), signal
-bit and direction is hit in any copy. The rest go by file and signal name:
-`dll` files by the rules of the [`dll` plan](../dll/DV_PLAN.md#coverage-holes)
-(unmatched `dll` signals form the "does not produce" row), `pcie_link.sv`
-to the ports row, and `mac` and `pcs` signals whose names contain `fts`,
-`pm`, `l0s`, `rx_sub`, `tx_sub`, `power_down`, `pd`, `in_power`, `pwr_`,
-`l0_to`, `l0_blocked`, `idle_sent`, `eios`, `tx_mode`, `l0_exit`,
-`rx_moved`, `rx_age`, `pend`, `ei_cycles` or `q_old` to the power row, the
-others to the last row.
+counts: first, the release-port signals (`fc_rel_*`, `rel_p*`, `rel_np*`,
+`taken_ret`, `taken_rel`) of `dll` files and `pcie_link.sv` in a copy
+without release (release ports tied off; the release copies are the
+specializations with `FC_RELEASE` or `RELEASE` 1). Then a point is "hit in
+another parameter set or at the other end" when the same file, hierarchy
+(with `u_a`, `u_b` and `u_*` taken as one), signal bit and direction is
+hit in any copy. The rest go by file and signal name: `dll` files by the
+rules of the [`dll` plan](../dll/DV_PLAN.md#coverage-holes) (the release
+events among them go to the release-events row, with `pcie_link.sv`'s
+release ports in the release copy; unmatched `dll` signals form the "does
+not produce" row), `pcie_link.sv` to the ports row, the common RAMs'
+`wr_lanes_i` to the `dll` row, and `mac` and `pcs` signals whose names
+contain `fts`, `pm`, `l0s`, `rx_sub`, `tx_sub`, `power_down`, `pd`,
+`in_power`, `pwr_`, `l0_to`, `l0_blocked`, `idle_sent`, `eios`,
+`tx_mode`, `l0_exit`, `rx_moved`, `rx_age`, `pend`, `ei_cycles` or
+`q_old` to the power row, the others (with the common CDC blocks inside
+the `phy`) to the last row.
