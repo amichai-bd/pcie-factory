@@ -336,3 +336,17 @@ def test_completer_split():
     # 33 DWs at 0x7C: the highest boundary within 128 bytes is 0xC0.
     assert completions_of(rx(addr=0x7C, lfield=33, lbe=0xF)) == [(0x7C, 17, 132, 0x7C),
                                                                  (0xC0, 16, 64, 0x40)]
+
+
+def test_host_memory_has_no_initial_contents():
+    """INBOUND.md, Host memory: a byte never written is unknown, so no check
+    compares it; written bytes are known, lane by lane."""
+    t = RcTl(Params())
+    t.step(Inputs(rst=1))
+    t.step(Inputs(cmd_valid=1, cmd=Cmd(HOST_WR, 0x10, first_be=0b0011, data=0x1234_5678)))
+    beats = [t.step(Inputs())["beat"] for _ in range(3)]
+    assert [b for b in beats if b is not None] == [Rsp(OK)] and t.known[4] == 0x0000_FFFF
+    t.step(Inputs(cmd_valid=1, cmd=Cmd(HOST_RD, 0x10)))
+    beat = [t.step(Inputs())["beat"] for _ in range(3)]
+    got = [b for b in beat if b is not None][0]
+    assert got == Rsp(OK, 0x5678) and got.known == 0x0000_FFFF

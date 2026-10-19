@@ -226,7 +226,7 @@ class Env:
                    msi_addr=(prm >> 88) & 0xFFFF_FFFF, fc_nph=(prm >> 120) & 0x7F)
         if p != self.p:
             # The model is in reset like the DUT: a fresh one with the
-            # parameters is the same state (host memory starts at 0).
+            # parameters is the same state (host memory unknown until written).
             self.p = p
             self.m = RcTl(p)
         self.drv["rst_i"] = 0
@@ -333,11 +333,15 @@ class Env:
         self.expect(where, "rsp_valid_o", int(beat is not None))
         got = int(d.rsp_o.value)
         want = beat.pack() if beat is not None else 0
-        assert got == want, (f"{where}: rsp_o expected {beat} got {Rsp.unpack(got)}"
-                             + (f" for {cmd}" if take else ""))
+        # Data bits from host memory never written are unspecified.
+        care = ~((~beat.known & 0xFFFF_FFFF) << 1) if beat is not None else -1
+        assert (got ^ want) & care == 0, (f"{where}: rsp_o expected {beat} got {Rsp.unpack(got)}"
+                                          + (f" for {cmd}" if take else ""))
         tx = o["tx"]
         got_tx = (int(d.tlp_tx_valid_o.value), int(d.tlp_tx_data_o.value),
                   int(d.tlp_tx_sop_o.value), int(d.tlp_tx_eop_o.value))
+        got_tx = (got_tx[0], (got_tx[1] & tx.known) | (tx.data & ~tx.known & 0xFFFF_FFFF),
+                  got_tx[2], got_tx[3])
         assert got_tx == (tx.valid, tx.data, tx.sop, tx.eop), (
             f"{where}: tlp_tx valid/data/sop/eop expected {tx.valid}/{tx.data:08x}/{tx.sop}/"
             f"{tx.eop} got {got_tx[0]}/{got_tx[1]:08x}/{got_tx[2]}/{got_tx[3]}")

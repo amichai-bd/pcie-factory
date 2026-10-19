@@ -87,7 +87,10 @@ becomes its completions [cite: PCIe Base Spec, rev 3.0, §2.3.1.1]:
 
 ## Host memory
 
-One [`common_sync_ram`](../common/ram/common_sync_ram.md), `WIDTH` 32,
+Host memory has no reset and no initial contents: a DW never written
+reads unspecified data, which a program never relies on (it writes what it
+later checks, [`rc` reset](../../arch/rc/HAS.md#clocks-and-reset)). One
+[`common_sync_ram`](../common/ram/common_sync_ram.md), `WIDTH` 32,
 `LANES` 4, `ADDR_W` `HOST_MEM_ADDR_W` − 2: one port, one access per
 cycle, a read's data in the cycle after its edge. A received write DW,
 from the parser's flop, always wins it; the completer's reads and the

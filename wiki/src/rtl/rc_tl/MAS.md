@@ -117,7 +117,8 @@ Two resets: `rst` (`rst_i`) and the link reset `lrst` (`rst_i` or
 | `rst` only | The front end and the command in progress, the requester (the outstanding request, the tag counter, the timeout counter), the Type 1 header, the error record, the MSI capture. |
 | `lrst` | The receive parser (a TLP in progress is dropped with no event; a write DW already taken is still written at the next edge, so a write cut by link down keeps the DWs taken), the non-posted queue and the completer (every inbound request held is dropped with no completion and no release), the transmit arbiter and output stage (a TLP in progress is abandoned), the pending credit releases. |
 
-Host memory is never reset. Out of `rst` every output is 0 but
+Host memory is reset by neither and has no initial contents: a DW never
+written reads unspecified data. Out of `rst` every output is 0 but
 `tlp_rx_ready_o`, which is 1. While `rst_i` is 1, `cmd_ready_o`,
 `rsp_valid_o`, `rsp_o`, `msi_valid_o` and `msi_o` are 0 at once, as
 [TL_SEQ](../../arch/rc/TL_SEQ.md#signals) requires, not only after the

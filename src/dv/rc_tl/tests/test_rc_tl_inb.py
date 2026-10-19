@@ -149,12 +149,14 @@ def check_cpl(c: Cpl, *, status: int, rid: int, tag: int, k: int, bc: int, la: i
                                 f"{[hex(x) for x in data]} got {[hex(x) for x in c.data]}")
 
 
-async def fill_host(env: Env, mem: dict[int, int]) -> None:
-    """Every host DW written with HOST_WR, a pattern by offset."""
+async def fill_host(env: Env, mem: dict[int, int] | None = None) -> None:
+    """Every host DW written with HOST_WR, a seeded non-zero pattern: host
+    memory has no initial contents (INBOUND.md, Host memory)."""
     for dw in range(host_size(env) // 4):
-        v = (0xA5000000 | (dw * 0x10101)) & 0xFFFF_FFFF
+        v = env.rng.getrandbits(32) | 0x0100_0000
         await host_wr(env, dw << 2, v)
-        mem[dw] = v
+        if mem is not None:
+            mem[dw] = v
 
 
 # --------------------------------------------------------------- HOST_*
@@ -512,6 +514,7 @@ async def inb_malformed(dut):
     the dll counted (a completion kind not), a non-posted one through the
     queue, with no completion. The legal neighbours are not malformed."""
     env = await setup(dut)
+    await fill_host(env)
     mal = []
     for fmt in range(8):
         for typ in range(32):
@@ -562,12 +565,13 @@ async def inb_host_edge(dut):
     base, size = env.p.host_mem_base, host_size(env)
     assert size < 0x1000 and (base + size) & 0xFFF, "needs a small host memory inside a 4 KiB block"
     end = base + size
+    await host_wr(env, size - 8, 0x2222)
     await host_wr(env, size - 4, 0x1111)
     await send(env, mem_wr(end - 8, [0xA, 0xB]))
     assert await host_rd(env, size - 4) == 0xB and await env.err_rd() == 0
     got = await send(env, mem_rd(end - 8, 2, tag=1))
     check_cpl(got[0], status=CS_SC, rid=EP_RID, tag=1, k=2, bc=8, la=(end - 8) & 0x7F,
-              data=[await host_rd(env, size - 8), 0xB], where="read to the end")
+              data=[0xA, 0xB], where="read to the end")
     await send(env, mem_wr(end - 4, [0xBAD, 0xBAD]))
     await expect_err(env, bit(E_IN_UR), "write past the end")
     assert await host_rd(env, size - 4) == 0xB
@@ -876,6 +880,7 @@ def blip(env: Env, r) -> None:
 async def run_random(dut, tlps: int) -> None:
     env = await setup(dut, answer_delay=(0, 8))
     r = env.rng
+    await fill_host(env)
     env.toggle_idle = True
     sent = 0
     while sent < tlps:

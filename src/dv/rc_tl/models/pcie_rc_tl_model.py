@@ -113,10 +113,13 @@ class Cmd:
 
 @dataclass(frozen=True)
 class Rsp:
-    """A t_rc_rsp beat (common_pkg): status, data, last."""
+    """A t_rc_rsp beat (common_pkg): status, data, last. `known` marks the
+    data bits the model knows: a HOST_RD of bytes never written reads
+    unspecified data (INBOUND.md, Host memory), which no check compares."""
     status: int
     data: int = 0
     last: int = 1
+    known: int = field(default=0xFFFF_FFFF, compare=False)
 
     def pack(self) -> int:
         return (self.status << 33) | ((self.data & 0xFFFF_FFFF) << 1) | (self.last & 1)
@@ -602,6 +605,7 @@ class Beat:
     eop: int = 0
     np: bool = False
     cpl: bool = False
+    known: int = 0xFFFF_FFFF  # data bits the model knows (host memory never written)
 
 
 @dataclass
@@ -638,6 +642,7 @@ class Completer:
     got: int = 0              # its DWs still to arrive
     rd: int = 0               # the read's next DW to read (index)
     data: list[int] = field(default_factory=list)   # its DWs read, masked
+    known: list[int] = field(default_factory=list)  # their bits known (written, or masked)
     gnt: bool = False         # granted, waiting for the link to take its eop
 
 
@@ -660,9 +665,11 @@ class RcTl:
         self.fe = FrontEnd(p)
         self.n_tmo = timeout_cycles(p.cpl_timeout_div)
         self.edge = 0
-        # Host memory is never reset (MAS, Reset and link down); the
-        # simulator starts it at 0.
+        # Host memory is never reset and has no initial contents (MAS,
+        # Reset and link down): the model tracks the bytes written, and a
+        # byte never written is unknown, compared by no check.
         self.mem = [0] * (1 << (p.host_mem_addr_w - 2))
+        self.known = [0] * (1 << (p.host_mem_addr_w - 2))
         self.wr: tuple[int, int, int] | None = None     # a write DW, written at the next edge
         self.reset()
 
@@ -683,7 +690,7 @@ class RcTl:
         self.tag = 0
         self.req: Request | None = None
         self.host: tuple[bool, int, int, int] | None = None   # (write, DW, lanes, data)
-        self.host_rd: int | None = None    # a HOST_RD's data, its beat at the next edge
+        self.host_rd: tuple[int, int] | None = None   # a HOST_RD's (data, known), its beat next
         self.host_last = False             # the front end had the latest port grant
         self.msi: list[tuple[int, int]] = []
         self.link_reset()
@@ -697,14 +704,14 @@ class RcTl:
         self.rx_hdr: list[int] = []
         self.rx: Rx | None = None
         self.cpl: Completion | None = None
-        self.arb: tuple[list[int], bool, bool] | None = None   # (TLP, non-posted, completion)
+        self.arb: tuple[list[int], bool, bool, list[int]] | None = None   # (TLP, non-posted, completion, known)
         self.arb_beat = 0
         self.out = Beat()
         self.skid = Beat()
         self.npq: list[NpEntry] = []       # entries in the queue's RAM
         self.np_head: NpEntry | None = None
         self.cp: Completer | None = None
-        self.cp_rd: int | None = None      # the completer's read data, pushed at the next edge
+        self.cp_rd: tuple[int, int] | None = None     # the completer's (data, known), pushed next
         self.rel_p: int | None = None      # data credits released in this cycle
         self.rel_np: int | None = None
 
@@ -889,7 +896,7 @@ class RcTl:
         # Host memory: a HOST_WR's beat after its grant, a HOST_RD's after its data.
         if self.host_rd is not None:
             assert self.beat is None, "a host memory beat with another beat"
-            self.beat = Rsp(OK, self.host_rd)
+            self.beat = Rsp(OK, self.host_rd[0], 1, self.host_rd[1])
             self.host_rd = None
         if host_gnt:
             wr, dw, be, data = self.host
@@ -898,7 +905,7 @@ class RcTl:
                 assert self.beat is None, "a host memory beat with another beat"
                 self.beat = Rsp(OK)
             else:
-                self.host_rd = self.mem[dw]
+                self.host_rd = (self.mem[dw] & self.known[dw], self.known[dw])
             self.host = None
             self.host_last = True
         if host_new is not None:
@@ -938,14 +945,18 @@ class RcTl:
         rel_np = None
         if cp is not None:
             if self.cp_rd is not None:
-                cp.data.append(self.cp_rd)
+                cp.data.append(self.cp_rd[0])
+                cp.known.append(self.cp_rd[1])
                 cp.got -= 1
             self.cp_rd = None
             if cp_gnt:
                 e = cp.e
                 j = cp.rd
                 be = e.h.fbe if j == 0 else (e.h.lbe if j == e.h.n - 1 else 0xF)
-                self.cp_rd = self.mem[self.host_dw(e.h.addr) + j] & be_bytes(be)
+                dw, m = self.host_dw(e.h.addr) + j, be_bytes(be)
+                # Bytes F and L do not enable are 0, known; the others are
+                # known once written.
+                self.cp_rd = (self.mem[dw] & m & self.known[dw], (self.known[dw] & m) | ~m & 0xFFFF_FFFF)
                 cp.rd += 1
                 cp.iss -= 1
                 self.host_last = False
@@ -960,7 +971,7 @@ class RcTl:
                     self.cp = None
                 else:
                     cp.iss = cp.got = cp.cpls[cp.i][1]
-                    cp.data = []
+                    cp.data, cp.known = [], []
         elif self.np_head is not None:
             # The completer takes the head when idle; its release follows.
             e = self.np_head
@@ -985,9 +996,9 @@ class RcTl:
         a_take = self.arb is not None and not self.skid.valid
         a_beat = Beat()
         if a_take:
-            tlp, np, cplf = self.arb
+            tlp, np, cplf, kn = self.arb
             a_beat = Beat(1, tlp[self.arb_beat], int(self.arb_beat == 0),
-                          int(self.arb_beat == len(tlp) - 1), np, cplf)
+                          int(self.arb_beat == len(tlp) - 1), np, cplf, kn[self.arb_beat])
         if not self.out.valid or out_take:
             if self.skid.valid:
                 self.out, self.skid = self.skid, Beat()
@@ -1000,10 +1011,11 @@ class RcTl:
             if self.arb_beat == len(self.arb[0]):
                 self.arb = None
         if grant:
-            self.arb = (list(req.tlp), req.cmd.op != MEM_WR, False)
+            self.arb = (list(req.tlp), req.cmd.op != MEM_WR, False, [0xFFFF_FFFF] * len(req.tlp))
             self.arb_beat = 0
         if cpl_grant:
-            self.arb = (cpl_tlp_new, False, True)
+            kn = [0xFFFF_FFFF] * 3 + (list(cp.known) if cp.e.kind == READ else [])
+            self.arb = (cpl_tlp_new, False, True, kn)
             self.arb_beat = 0
         if not up:
             self.link_reset()
@@ -1017,6 +1029,7 @@ class RcTl:
     def write_mem(self, dw: int, be: int, data: int) -> None:
         m = be_bytes(be)
         self.mem[dw] = (self.mem[dw] & ~m) | (data & m)
+        self.known[dw] |= m
 
     def host_dw(self, addr: int) -> int:
         """Host memory DW index of a byte address inside it."""

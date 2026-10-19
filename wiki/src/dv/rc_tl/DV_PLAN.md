@@ -54,12 +54,16 @@ and the inbound side
   byte addresses (the read's enabled bytes and the completion's data
   window), not on remaining-byte counters, its timeout on the edge count
   since the `sop`, its routing on the request's byte range and its splits
-  on byte addresses. Host memory starts at 0, as the simulator's RAM
-  does. Its pytest unit tests check hand-worked spec cases with no
+  on byte addresses. Host memory has no initial contents: the model
+  tracks the bytes written, and a byte never written is unknown, so the
+  environment compares no `rsp_o` or `tlp_tx_data_o` bits that carry one;
+  the inbound tests write host memory with `HOST_WR` (a seeded non-zero
+  pattern) before reading it. Its pytest unit tests check hand-worked spec cases with no
   simulator: request header bytes, Byte Count and Lower Address of a
   split, the timing of a request, each status row, a split read, the
   timeout bound, the kinds and classes, each malformed step, the routing
-  rows with poisoned, and the completer's splits.
+  rows with poisoned, the completer's splits, and host memory's unknown
+  bytes.
 - **Telling a pass from a refusal.** Check 1 refuses every endpoint
   command while `dl_up_i` is 0, so the front-end tests offer endpoint
   commands with `dl_up_i` 1: a pass is sent and completed `OK` by the
@@ -133,7 +137,7 @@ and the inbound side
 | The [receive checks](../../rtl/rc_tl/INBOUND.md#receive-checks): every Fmt and Type pair that is no kind, each memory byte-enable break, 4 KiB crossings (a 1024-DW read included), configuration and I/O Length, Last BE, TC and Attr, a malformed locked read, malformed and poisoned; each bit 6, dropped, no completion, released by the `dll`'s class (none for a completion kind); the legal neighbours pass | `inb_malformed` | 1 | 1 |
 | Ordering and [transmit](../../rtl/rc_tl/REQUESTER.md#transmit) priority: a DMA write lands before a later read's completion and a later `HOST_RD`; a completion held back by a requester posted write waiting for credits, which then goes first; a completion before a non-posted request; a non-posted request without credits does not block a completion; a completion without completion header or data credits lets a non-posted request go; forward progress under back-to-back 32-DW writes and 64-DW reads: every `HOST_*` waits at most 33 cycles, and the `u_mem` assertions hold on every access | `inb_order` | 1 | 1 |
 | Inbound [link down](../../rtl/rc_tl/MAS.md#reset-and-link-down): a full non-posted queue and a completion being sent dropped with no completion and no release; a write cut after 5 DWs keeps them; a posted release pulsing when `dl_up_i` falls inside that cycle is cut at once; captures, host memory and the error record kept; served again after link-up | `inb_link_down` | 1 | 1 |
-| Random inbound traffic of every kind (writes, reads up to 300 DWs, MSIs, messages, Unsupported Requests, malformed, any Fmt and Type, poisoned, TD, 4-DW headers) mixed with `HOST_*`, local and endpoint commands, link stalls, receive gaps, credit outages (completion credits included), Bus Master Enable changes, `msi_ready_i` at random, link drops and resets, against the model | `random_inb` | 1 | 1; 700 TLPs |
+| Host memory filled with a seeded pattern, then random inbound traffic of every kind (writes, reads up to 300 DWs, MSIs, messages, Unsupported Requests, malformed, any Fmt and Type, poisoned, TD, 4-DW headers) mixed with `HOST_*`, local and endpoint commands, link stalls, receive gaps, credit outages (completion credits included), Bus Master Enable changes, `msi_ready_i` at random, link drops and resets, against the model | `random_inb` | 1 | 1; 700 TLPs |
 | The same with 256 bytes of host memory at `0xF00` (requests past its end) and `FC_NPH` 1 | `random_inb_aw8` | 1 | 1; 700 TLPs |
 | Long random commands | `random_long` | 2 | 2; 30000 commands each |
 | Long random endpoint commands, as `random_req` | `random_req_long` | 2 | 2; 20000 commands each |
