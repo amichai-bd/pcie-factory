@@ -1,0 +1,16 @@
+# DMA and MSI (wiki/src/arch/rc/HAS.md#targets, goal item 6): program
+# DMA_MSI, core's bus-master read and write of 64 bytes through host
+# memory, then its MSI captured and checked. The copy time and rate, from
+# the doorbell write to the MSI capture, are reported for information.
+description: Program DMA_MSI (ENUM, then a 64-byte doorbell copy from host memory to host memory and its MSI).
+seed: 1
+workload:
+  kind: program
+  program: DMA_MSI
+targets:
+  run_passed: {min: 1}
+  fail_step: {max: 0}
+  dma_bytes: {min: 64, max: 64}
+  msi_captured: {min: 1, max: 1}
+  host_bytes_written: {min: 192, max: 192}
+  unexpected_completions: {max: 0}

@@ -337,7 +337,7 @@ non-goals). The functional rows are goal items of the
 | MMIO | Goal item 5: BAR0 reads and writes with the expected data, reads returned as several completions included. | #377 e2e |
 | DMA and MSI | Goal item 6: the endpoint's bus-master reads and writes reach host memory correctly; its MSI writes are captured and checked. | #377 e2e |
 | Errors and recovery | Goal item 7: each event of the [error record](TL_SEQ.md#error-record) detected and recorded; re-enumeration after a Hot Reset or link down; replay recovers injected link errors with no lost TLP. | #377 e2e |
-| Completion timeout | `rc_tl`'s timeout, at `CPL_TIMEOUT_DIV` 1, between 50 µs and 50 ms [cite: PCIe Base Spec, rev 3.0, §2.8]; the value is the `rc_tl` MAS's. | [#371](https://github.com/amichai-bd/pcie-factory/issues/371) model; #377 |
+| Completion timeout | `rc_tl`'s timeout, at `CPL_TIMEOUT_DIV` 1, between 50 µs and 50 ms [cite: PCIe Base Spec, rev 3.0, §2.8]; the value is the `rc_tl` MAS's. | [`completion_timeout`](../../../../src/arch/rc/perf/completion_timeout.yaml) model; #377 |
 | Address map | The default host memory (4 KiB) and the MSI window are disjoint and below 4 GiB. | [`address_map`](../../../../src/arch/rc/perf/address_map.yaml) |
 | Board build | Goal item 9: `rc` and `core` with the GPIO adapter run the enumeration and MMIO programs back to back. | [#378](https://github.com/amichai-bd/pcie-factory/issues/378) |
 | FPGA | Goal item 10: the `rc` board build passes Quartus synthesis on the DE2-115; resources reported, timing for information only. | [#379](https://github.com/amichai-bd/pcie-factory/issues/379) |
@@ -350,14 +350,35 @@ delegate decision, [#367 comment](https://github.com/amichai-bd/pcie-factory/iss
 
 ## Architecture model
 
-[`pcie_rc_arch.py`](../../../../src/arch/rc/pcie_rc_arch.py) is a
-placeholder until [#371](https://github.com/amichai-bd/pcie-factory/issues/371):
-it encodes the [address map](#parameters), the
-[outbound](#outbound-routing) and [inbound](#inbound-routing) routing
-rules and the [memory window](#type-1-header) as functions, its
-[self-tests](../../../../src/arch/rc/test_pcie_rc_arch.py) check this
-page's examples, and `./build arch --ip rc` runs the `address_map`
-scenario and writes `workdir/rc/arch/perf.json`.
+[`pcie_rc_arch.py`](../../../../src/arch/rc/pcie_rc_arch.py) makes this
+page, the [tl-seq page](TL_SEQ.md) and the sub-IP MAS pages executable
+([#371](https://github.com/amichai-bd/pcie-factory/issues/371)). It is
+written from them alone and shares no code with the host model shadow
+(`src/dv/core/models/`, [#372](https://github.com/amichai-bd/pcie-factory/issues/372)),
+which stays the e2e oracle. One step per `clk_i` cycle:
+
+| Part | Models |
+| --- | --- |
+| `RcTl` | `rc_tl`: the command checks, the [Type 1 header](#type-1-header), host memory, the error record, the MSI capture, one endpoint request with a 5-bit rolling tag, completion matching and the completion timeout ([requester](../../rtl/rc_tl/REQUESTER.md)), the receive checks, [inbound routing](#inbound-routing), the completer, the transmit arbiter and the [credit release](#credits) ([inbound](../../rtl/rc_tl/INBOUND.md)), and [link down](#link-down). |
+| `RcSeq` | `rc_seq`: the interpreter of 128-bit ROM words in the [`rc_seq` step format](../../rtl/rc_seq/MAS.md#step-format), and the programs `ENUM`, `MMIO`, `DMA_MSI` and `ERRORS` built from the [programs page](../../rtl/rc_seq/PROGRAMS.md). |
+| `Bench` | `rc` over one end of the `link` arch model, the `core` arch model over the other, and the endpoint application the [program boundary](../../rtl/rc_seq/PROGRAMS.md#boundary) asks for; or `rc_tl` alone over a link that never answers. |
+
+Cycle costs are the MAS timing figures; the wait timeouts, Hot Reset hold
+and loop limit, which [#376](https://github.com/amichai-bd/pcie-factory/issues/376)
+sets, and the `link` Hot Reset timer are model constants that bound
+nothing. Its [self-tests](../../../../src/arch/rc/test_pcie_rc_arch.py)
+check the rules on this page and the sub-IP pages, with a failing case
+for each, and `./build arch --ip rc` runs these scenarios into
+`workdir/rc/arch/perf.json`:
+
+| Scenario | Target row | Bound | Reported for information |
+| --- | --- | --- | --- |
+| [`enumeration`](../../../../src/arch/rc/perf/enumeration.yaml) | Enumeration | `ENUM` passes against `core`. | Cycles from link-up to the last enumeration step. |
+| [`mmio`](../../../../src/arch/rc/perf/mmio.yaml) | MMIO | `MMIO` passes. | BAR0 write and 32-DW read rates, the read latency and its completion count. |
+| [`dma_msi`](../../../../src/arch/rc/perf/dma_msi.yaml) | DMA and MSI | `DMA_MSI` passes: 64 bytes copied, one MSI. | Cycles and rate from the doorbell to the MSI capture. |
+| [`errors`](../../../../src/arch/rc/perf/errors.yaml) | Errors and recovery | `ERRORS` passes at `CPL_TIMEOUT_DIV` 1024: one timeout of 2048 cycles, a Hot Reset and a link down, three enumerations. | - |
+| [`completion_timeout`](../../../../src/arch/rc/perf/completion_timeout.yaml), [`completion_timeout_50mhz`](../../../../src/arch/rc/perf/completion_timeout_50mhz.yaml) | Completion timeout | 50 µs to 50 ms at `CPL_TIMEOUT_DIV` 1, 125 and 50 MHz. | The cycles (2^21). |
+| [`address_map`](../../../../src/arch/rc/perf/address_map.yaml) | Address map | Disjoint, below 4 GiB. | - |
 
 ## Open questions
 
@@ -367,3 +388,4 @@ The Base Spec is not in the local cache (`./build specs list`:
 | Item | Owner |
 | --- | --- |
 | The cited sections on this page and the [tl-seq page](TL_SEQ.md), checked against rev 3.0: the Type 1 header fields and the window rules, the configuration routing of a downstream port, the completion-credit rule for a Root Port. | [#357](https://github.com/amichai-bd/pcie-factory/issues/357): the captain, with a local copy |
+| A read from `rc` never draws several completions from `core`. The MMIO target, the 1-DW-writes decision and [M2](../../rtl/rc_seq/PROGRAMS.md#mmio) expect a 128-byte read "returned as several completions". But `core` sends the fewest completions, and the rest of a read of at most 128 bytes always fits in one ([`tl` splitting](../tl/COMPLETIONS.md#splitting)). The [`mmio`](../../../../src/arch/rc/perf/mmio.yaml) scenario measures 1. Only `rc_tl` DV, with injected completions, covers the multi-completion path. Either the text changes, or the e2e gets a completer that splits. | [#377](https://github.com/amichai-bd/pcie-factory/issues/377) |

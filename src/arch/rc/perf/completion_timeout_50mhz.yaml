@@ -1,0 +1,14 @@
+# Completion timeout (wiki/src/arch/rc/HAS.md#targets) with clk_i at
+# 50 MHz: N = 2^21 cycles is 41.9 ms, still inside 50 us to 50 ms
+# (wiki/src/rtl/rc_tl/REQUESTER.md#completion-timeout).
+description: One memory read never answered, rc_tl alone, CPL_TIMEOUT_DIV 1, clk_i 50 MHz.
+seed: 1
+workload:
+  kind: completion_timeout
+  cpl_timeout_div: 1
+  clk_mhz: 50
+targets:
+  run_passed: {min: 1}
+  timeouts: {min: 1, max: 1}
+  timeout_us_min: {min: 50}
+  timeout_us_max: {max: 50000}
