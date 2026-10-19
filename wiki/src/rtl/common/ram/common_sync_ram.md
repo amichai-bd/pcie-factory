@@ -66,11 +66,16 @@ dividing `WIDTH`), each with the message `common_sync_ram: <rule>`.
   Reads and writes in separate processes make a collision read-first by
   nonblocking order, with no bypass logic.
 - **Inference shape:** this is the conventional single-port RAM template
-  (one write process, one registered read on the same address). Expected,
-  not yet measured by a flow (no consumer synthesizes it):
-  - Quartus maps it to block RAM in single-port mode with old-data
-    read-during-write. Lanes of 8 or 9 bits map to the block's byte
-    enables; other lane widths may split the RAM into one RAM per lane.
+  (one write process, one registered read on the same address). Expected
+  and, where a flow has measured it, measured:
+  - Quartus was expected to map it to block RAM in single-port mode with
+    old-data read-during-write, with lanes of 8 or 9 bits on the block's
+    byte enables. **Measured otherwise:** in the first consumer that
+    synthesizes it, the [`rc` fit](../../../fpga/rc/FPGA.md#results)
+    (`fpga` workflow run 39328627425), the `rc_tl` host memory (`WIDTH`
+    32, `ADDR_W` 10, `LANES` 4) is built from logic, not M9K: about
+    32768 registers, and its read data ends the worst `clk_core` path.
+    An Intel backend that maps it to M9K is owned by [#417](https://github.com/amichai-bd/pcie-factory/issues/417).
   - Yosys (the ASIC flow) infers a memory with a non-transparent
     synchronous read port. The ASIC flow has no SRAM macros, so the
     memory becomes flops and read multiplexers; size it accordingly.
@@ -85,7 +90,7 @@ These hold for the whole family.
 | --- | --- | --- |
 | Depth as `ADDR_W` (`2**ADDR_W` words) | Power-of-two depth is the source's rule anyway; one parameter cannot disagree with another, and it matches [`common_cdc_fifo`](../cdc/common_cdc_fifo.md). | The source's `DEPTH` plus a checked `ADDR_WIDTH`. |
 | Lane enables on every write port, `LANES` default 1 | The vocabulary has the lane-write form; consumers of partial words need it, and a one-lane RAM is the plain template. | A separate lane variant of each block. |
-| Portable inferred RAM only | No consumer needs a vendor macro yet; one source serves simulation, lint, FPGA and ASIC. | The source's Intel and IHP backends (out of scope in [#126](https://github.com/amichai-bd/pcie-factory/issues/126)). |
+| Portable inferred RAM only, until [#417](https://github.com/amichai-bd/pcie-factory/issues/417) | No consumer needed a vendor macro until the `rc` fit (above); one source serves simulation, lint, FPGA and ASIC. | The source's Intel and IHP backends (out of scope in [#126](https://github.com/amichai-bd/pcie-factory/issues/126)). |
 | No reset, no initialization, no ROM image | RAM blocks cannot reset their contents; an image needs a system task the design rules forbid. | An initialization macro (no consumer). |
 | No dual-clock RAM yet | A registered read of a memory written on another clock is a raw crossing to the [CDC check](../../../../tools/checks/SPEC.md#cdc-check); its only exception needs a synchronized pointer inside the cell, which a plain RAM has not. Cross-domain data uses [`common_cdc_fifo`](../cdc/common_cdc_fifo.md). | Porting the source's dual-clock RAM with a CDC-check exception; deferred to [#180](https://github.com/amichai-bd/pcie-factory/issues/180) with the CDC gate unchanged. |
 
@@ -102,7 +107,8 @@ register when inferred).
 
 | Item | Owner |
 | --- | --- |
-| Measure the inference shape in Quartus and the ASIC flow with the first consumer that synthesizes a family block. | [#65](https://github.com/amichai-bd/pcie-factory/issues/65) |
+| Quartus builds the byte-lane form from logic (measured in the `rc` fit, above): an Intel backend so it maps to M9K, then the measured mode and M9K count here. | [#417](https://github.com/amichai-bd/pcie-factory/issues/417) |
+| The Yosys (sky130 ASIC flow) inference shape is not measured: deferred until the first `common_sync_ram` consumer enters the ASIC flow. | [#420](https://github.com/amichai-bd/pcie-factory/issues/420) |
 | A dual-clock simple dual-port RAM (the source's `n2a_sdp_ram_dc`) waits for a consumer; the CDC gate stays as it is, so it needs a consumer-specific crossing cell or a separately approved check rule. | [#180](https://github.com/amichai-bd/pcie-factory/issues/180) |
 
 ## Files

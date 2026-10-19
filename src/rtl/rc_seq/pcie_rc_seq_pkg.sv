@@ -785,17 +785,33 @@ package pcie_rc_seq_pkg;
     return p;
   endfunction
 
+  // Second passes: ERRORS rebuilt with the targets its first pass found,
+  // SELFTEST with its first pass's length. Each runs both passes inside
+  // one function: Quartus Lite rejects a member select of a struct
+  // localparam in a constant expression (error 10742, "hierarchical
+  // identifier"; #379).
+  function automatic t_prog prog_errors_final();
+    t_err_build b;
+    b = prog_errors(16'd0, 16'd0);
+    b = prog_errors(b.r11, b.r14);
+    return b.p;
+  endfunction
+
+  function automatic t_prog prog_selftest_final();
+    t_prog p;
+    p = prog_selftest(16'd0);
+    p = prog_selftest(p.n);
+    return p;
+  endfunction
+
   // ------------------------------------------------------------- programs
 
   localparam t_prog      PRG_ENUM     = prog_enum();
   localparam t_prog      PRG_MMIO     = prog_mmio();
   localparam t_prog      PRG_DMA_MSI  = prog_dma_msi();
-  localparam t_err_build ERR_PASS1    = prog_errors(16'd0, 16'd0);
-  localparam t_err_build ERR_PASS2    = prog_errors(ERR_PASS1.r11, ERR_PASS1.r14);
-  localparam t_prog      PRG_ERRORS   = ERR_PASS2.p;
+  localparam t_prog      PRG_ERRORS   = prog_errors_final();
   localparam t_prog      PRG_INJECT   = prog_inject();
-  localparam t_prog      SELF_PASS1     = prog_selftest(16'd0);
-  localparam t_prog      PRG_SELFTEST = prog_selftest(SELF_PASS1.n);
+  localparam t_prog      PRG_SELFTEST = prog_selftest_final();
 
   // The program with id prog: its image and its length in steps; an id
   // with no program has length 0.

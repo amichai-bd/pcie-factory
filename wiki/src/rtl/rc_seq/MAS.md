@@ -169,7 +169,7 @@ The interpreter is three blocks in `src/rtl/rc_seq/`:
 | Block | Holds |
 | --- | --- |
 | `pcie_rc_seq_pkg` | `t_step`, the op, condition and state enums, `ROM_AW`, the program ids, the step constructors and the program constants. |
-| `pcie_rc_seq_rom` | The image `PROGRAM` selects, read at `pc` with a registered output (one cycle), so the FPGA flow may map it to block memory. |
+| `pcie_rc_seq_rom` | The image `PROGRAM` selects, read at `pc` with a registered output (one cycle), so the FPGA flow may map it to block memory. In the [`rc` board build](../../fpga/rc/FPGA.md#results) (`PROGRAM` 1) Quartus Lite elaborates the images and maps the ROM to block memory: a 256-word ROM narrowed by synthesis to 57 bits, 2 M9K. |
 | `pcie_rc_seq` | The top: the state machine below, `pc` (16), `S` (3), `L` (16), a 32-bit wait counter, the run result, and the result registers as one `common_sdp_ram` (32 × 32 bits, [RAM family](../common/ram/common_sdp_ram.md)), written by result beats and MSI captures and read by `EXPECT` and `JUMP`. |
 
 States (`pcie_rc_seq_pkg::t_state`): `IDLE` (no run), `FETCH` (ROM read
@@ -197,8 +197,13 @@ elaboration by pure functions: a builder appends constructor words to a
 `t_prog` (the image and the next index), which starts all FAIL. A forward
 `JUMP` target (the `ERRORS` pass selection, the `SELFTEST` padding) comes
 from a first build of the same function, whose step count does not depend
-on the target values. `program_of(PROGRAM)` selects the image in
-`pcie_rc_seq_rom`.
+on the target values; both builds run inside one function
+(`prog_errors_final`, `prog_selftest_final`). `program_of(PROGRAM)`
+selects the `t_prog` in `pcie_rc_seq_rom`, which takes the image and the
+length by part-select of the packed `{rom, n}` and checks that layout with
+a parameter check. No constant expression selects a member of a struct
+localparam: Quartus Lite rejects that (error 10742, "hierarchical
+identifier"; [#379](https://github.com/amichai-bd/pcie-factory/issues/379)).
 
 ## Decisions
 
@@ -272,4 +277,3 @@ programs (#377). For `rc_seq` itself: every op and failure case of
 | Item | Owner |
 | --- | --- |
 | `ERRORS` on hardware: at `CPL_TIMEOUT_DIV` 1 (about 16.8 ms) `rc_tl`'s completion timeout ends R12's outstanding read before a link down reaches Detect (the 24 ms Recovery timeout), so R12 ends `TIMEOUT` and the run fails ([programs boundary](PROGRAMS.md#boundary)). | [#409](https://github.com/amichai-bd/pcie-factory/issues/409) |
-| Quartus Lite on the images: each is a 32 768-bit packed constant built by package functions, which Verilator accepts; the FPGA flow of `rc` first runs them through Quartus, and maps the ROM to block memory or reports why not. | [#379](https://github.com/amichai-bd/pcie-factory/issues/379) |

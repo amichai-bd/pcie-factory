@@ -124,6 +124,15 @@ _RAM_COLUMNS = {
 _INT_RAM_KEYS = ("port_a_depth", "port_a_width", "port_b_depth", "port_b_width", "bits")
 
 
+def _ram_cell(text: str | None) -> str | None:
+    """A Fitter RAM Summary cell; None when the column is missing, empty or
+    "--", Quartus's mark for a field that does not apply (port B of a ROM
+    or a single-port RAM)."""
+    if not text or text == "--":
+        return None
+    return text
+
+
 def parse_fit_rams(path: Path) -> list[dict]:
     """One entry per row of the "Fitter RAM Summary" panel: the inferred or
     instantiated RAM's hierarchical name, mode, clock mode, port geometry,
@@ -135,7 +144,7 @@ def parse_fit_rams(path: Path) -> list[dict]:
     for row in tables.get(_RAM_PANEL, []):
         if not row.get("Name"):
             continue
-        entry = {k: (row.get(col) or None) for k, col in _RAM_COLUMNS.items()}
+        entry = {k: _ram_cell(row.get(col)) for k, col in _RAM_COLUMNS.items()}
         for k in _INT_RAM_KEYS:
             if entry[k] is not None:
                 entry[k] = _count(entry[k])

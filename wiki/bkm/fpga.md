@@ -164,6 +164,7 @@ rule, so `./build check` rejects it before Quartus runs; the
 | `$countones` (and the other bit-vector functions) in logic | 10174, not supported for synthesis | A package function; the system functions stay in assertion arguments | `system-task` |
 | A member select named like a built-in method (`h.len`, `x.size`, ...) inside a function | 10049, value must not be assigned to nonvariable `len`; then 10903 and 12152 at the caller | Rename the struct member (`length`); the same select at module level is accepted | `method-member-name` |
 | A package constant as an index inside a port connection (`.p_i (s.f[pkg::C])`) under `` `default_nettype none`` | 10162, can't declare implicit net | A named net plus `assign` (`assign f_c = s.f[pkg::C];`, then `.p_i (f_c)`) | `port-index-constant` |
+| A member select of a struct-typed localparam in a constant expression (`localparam t_x B = f(A.m);`, a parameter check on `A.n`) | 10742, constant expression cannot contain a hierarchical identifier; then 10734, not a constant | Select inside a function from a local or an argument (run both passes of a two-pass build in one function), or part-select the packed struct (`A[15:0]`) | Pending, [#418](https://github.com/amichai-bd/pcie-factory/issues/418) |
 
 ## Known Quartus warnings
 
@@ -175,7 +176,7 @@ list equal to this table, so add or remove a row and its ID together:
 | ID | Warning | Why it is accepted |
 | --- | --- | --- |
 | 292013 | LogicLock is only available with a subscription license | Lite edition; the flow uses no LogicLock regions. |
-| 169177 | Pins must meet requirements for 3.3, 3.0 and 2.5 V interfaces | Reported for 3.3-V LVTTL clock inputs that the board wires that way (`CLOCK_50`, `SMA_CLKIN`, `HSMC_CLKIN0` with JP6 at its default) (AN 447). |
+| 169177 | Pins must meet requirements for 3.3, 3.0 and 2.5 V interfaces | Reported for 3.3-V LVTTL inputs that the board wires that way: the clock inputs `CLOCK_50` and `SMA_CLKIN`, `HSMC_CLKIN0` with JP6 at its default, and the expansion header `GPIO` pins with the header's I/O voltage jumper at its default (AN 447). |
 | 10036 | Object assigned a value but never read | A signal read only inside `COMMON_ASSERT*` arguments, which `SYNTHESIS` compiles out ([assertions](rtl.md#assertions)); Verilator lint, which sees the assertions, still reports a signal that nothing reads. |
 | 276020 | Inferred RAM node from synchronous design logic; pass-through logic added to match the read-during-write behavior | Quartus maps a register array to block RAM and adds bypass logic so that a read of the word being written returns what the RTL returns: behavior is preserved, and the added logic is inside the timing and resource results. A memory that must be block RAM with a defined collision uses the explicit backend instead ([layout, source backends](../project/layout.md#source-backends)). |
 
