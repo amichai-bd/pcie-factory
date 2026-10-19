@@ -81,7 +81,10 @@ own outputs the same way.
 ## Timing
 
 - **Clocks:** `clk_i` for everything but the `link` receive front end on
-  `ser_rx_clk_i`; `core` adds no crossing.
+  `ser_rx_clk_i` (on `gpio_rx_clk_i` at `LOWER` 1); `core` adds no
+  crossing. Both clock inputs carry a `cdc-domain` annotation naming
+  themselves, and the top declares `// cdc-params: LOWER=1`, so the CDC
+  check analyzes both builds ([`link` MAS](../link/MAS.md#timing)).
 - **Latency added by `core`:** none; the gate and `cfg_rst` are one level
   of logic each, after the `cfg` registers and `dl_up_o`.
 - **Measured end to end** ([DV plan](../../dv/core/DV_PLAN.md#measured)):

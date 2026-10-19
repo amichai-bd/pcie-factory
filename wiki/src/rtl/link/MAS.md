@@ -67,10 +67,13 @@ packet-stream nets and the retrain OR are the same in both.
 - **Hierarchy.** The `phy` is `g_phy.u_phy` (it was `u_phy` before
   [#378](https://github.com/amichai-bd/pcie-factory/issues/378)); `u_dll`
   and the packet-stream nets that the e2e taps keep their names.
-- **`gpio_rx_clk_i`** is the adapter's receive clock at `LOWER` 1. The
-  checks elaborate the default, `LOWER` 0, where it reaches nothing, so it
-  carries a `clk_i` annotation like the other unused inputs; the adapter's
-  crossings are checked on the `gpio` top itself.
+- **`gpio_rx_clk_i`** is the adapter's receive clock at `LOWER` 1 and
+  reaches nothing at `LOWER` 0; `ser_rx_clk_i` is the reverse. Each
+  carries a `cdc-domain` annotation naming itself, which declares a clock
+  input and is right in both builds. The `link` top declares
+  `// cdc-params: LOWER=1`, so the CDC check analyzes both builds, and so
+  do the `core` and `rc` tops that integrate it
+  ([CDC check](../../../tools/checks/SPEC.md#cdc-check)).
 
 ## Timing
 
@@ -107,7 +110,8 @@ latency is the sum of the two IPs' ([HAS targets](../../arch/link/HAS.md#targets
   going out ahead of the Ack ([`dll` RETRY page, timers](../../arch/dll/RETRY.md#timers)).
 - **Clocks and crossings.** `dll` runs on `clk_i` only; the only crossings
   are inside `pcie_pcs` (inside `pcie_gpio` at `LOWER` 1). Every `link`
-  input carries a `cdc-domain` annotation: `ser_rx_data_i` and
+  input carries a `cdc-domain` annotation: `ser_rx_clk_i` and
+  `gpio_rx_clk_i` name themselves (clock inputs), `ser_rx_data_i` and
   `ser_rx_elec_idle_i` are on `ser_rx_clk_i`, `gpio_rx_ctrl_i` and
   `gpio_rx_data_i` on `gpio_rx_clk_i`, every other input on `clk_i`. The `rst_i` net has a
   `SYNCASYNCNET` lint waiver seen from the `link` top

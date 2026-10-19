@@ -44,7 +44,7 @@ check: 2 IP(s) under /abs/src
 [lint] PASS: 2 IP(s), 1 shared block(s), 4 Verilator run(s) with -E audit, 0 waiver(s), 0 warning(s) waived
 [cdc] blk: top=xy_blk
 [cdc] common/common_lib: top=common_lib
-[cdc] PASS: 1 top-level IP(s), 1 shared block(s), 2 Verilator --json-only run(s), 2 flop(s), 0 cdc-cell directive(s), 0 cdc-domain annotation(s)
+[cdc] PASS: 1 top-level IP(s), 1 shared block(s), 2 Verilator --json-only run(s), 2 flop(s), 0 cdc-cell directive(s), 0 cdc-domain annotation(s), 0 cdc-params directive(s)
 check: FAIL (style)
 ```
 
@@ -657,7 +657,36 @@ ancestors (parents and integrators), because a sub-IP's clocks are known
 only at its top; shared blocks are skipped. Board wrappers in `fpga/<ip>/`
 are not analyzed. A crossing cell instantiated through a vocabulary macro
 (`COMMON_METAFLOP`, `COMMON_PULSE_SYNC`, ...) is the same cell instance in
-the elaborated netlist.
+the elaborated netlist. Each target is elaborated with its top's default
+parameters, plus once more for each [parameter set](#cdc-check) its top
+declares.
+
+**Parameter sets.** A build that differs from the default parameters, such
+as one that enables a second clock, is analyzed when the target's top
+declares it in a comment directly above its `module` line:
+
+```systemverilog
+// cdc-params: MODE=1
+// cdc-params: MODE=2 WIDTH=8
+module xy_blk #(parameter int unsigned MODE = 0, ...)
+```
+
+A comment line that starts with `cdc-params` is a directive and must match
+`// cdc-params: <PARAMETER>=<value> ...` with one or more assignments, each
+value a decimal integer (optionally negative) or a sized literal such as
+`4'hF`; several directives, and a `cdc-cell` directive, may be stacked
+between it and the `module` line. Each directive is one more run of the
+target, labelled `<label>[<PARAMETER>=<value>,...]` (for example
+`blk[MODE=1]`), with Verilator's `-G<PARAMETER>=<value>` for each
+assignment; it is analyzed exactly like the default run, and its findings
+carry that label. A malformed directive, one that is not directly above a
+`module` line, a parameter set twice in one directive and a directive that
+repeats another set of the same module (in any order) are findings at its
+line. A parameter that the top does not declare makes Verilator exit
+nonzero, which is a finding of that run. Without `--ip`, a directive on a
+module that is no target's top is a finding; a filtered run does not see
+every target, so it skips that test. The directive lives in the RTL, not in
+`tools/` or `cfg/`, so the check names no IP and no parameter.
 
 **Netlist.** For each target, Verilator runs
 `--json-only -Wno-fatal [--top-module T] +incdir+... -D... <sources>` with
@@ -749,8 +778,13 @@ A comment that starts with `cdc-domain` must match
 `// cdc-domain: <clock input port>` and end the line, and that line must
 start with `input`; each broken rule is a finding at its line. The
 annotation applies to every port the line declares. In the netlist, the
-named port must be another input port of the same module, or the
-annotation is a finding, reported once. An annotation that annotates no
+named port must be an input port of the same module, or the annotation is
+a finding, reported once. An annotation that names the port itself
+declares a clock input: such a port needs no other annotation, and where
+it reaches data it is a source in its own domain. It is the annotation
+for a clock input that some parameter sets leave unused, because it stays
+correct in the build where the port clocks flops and in the one where it
+reaches nothing. An annotation that annotates no
 input port of any analyzed module (a function argument, a module no
 target elaborates) is a finding, except when a target failed to
 elaborate. An annotation takes effect only on the target's top: there
@@ -848,11 +882,13 @@ nothing, and that flop's read is a finding. Lint's
 it and in one that is not; this rule also covers a domain whose flops all
 take the reset synchronously, and a read through combinational logic.
 
-Findings are prefixed with the target's label (`<ip>` or `common/<block>`);
-directive and annotation text findings are not. Identical findings, such
-as one per iteration of a generate loop, are reported once. The summary
-counts targets, Verilator runs, flops in the analyzed netlists, valid
-directives and well-formed annotations.
+Findings are prefixed with the target's label (`<ip>`, `common/<block>`,
+or either followed by a parameter set's `[...]`); directive and annotation
+text findings are not. Identical findings, such as one per iteration of a
+generate loop, are reported once. The summary counts targets, Verilator
+runs (one per target and parameter set), flops in the analyzed netlists,
+valid `cdc-cell` directives, well-formed annotations and valid
+`cdc-params` directives.
 
 ### Limits
 
@@ -912,7 +948,10 @@ Each is a known gap, not a promise; review and each cell's MAS cover them.
   before inlining: parameters are resolved, each parameterization is its
   own module, generate blocks are unrolled, and constant-only drivers may
   be folded into initial values. Logic that elaboration removes cannot be
-  reported; logic it keeps is analyzed as written. Variables of packages
+  reported; logic it keeps is analyzed as written. Only the default
+  parameters and the declared [parameter sets](#cdc-check) are elaborated,
+  so a crossing that only another parameter value enables is not seen
+  until its top declares that set. Variables of packages
   are constants here and are not tracked.
 - **Unsupported constructs** that the check reports rather than guess:
   hierarchical references, interface instances, an instance of a module
@@ -1043,7 +1082,13 @@ of cell input, a wrong cell side, every annotation finding, a missing annotation
 two clock inputs, an exempt `inout` port, a reset-synchronizer cell form (`src=async`, an
 asynchronous-reset flop pair) against the same reset used raw, an
 annotation on a sub-module port checked but not applied, one on a
-function argument), `--ip` selection (a sub-IP and an integrated
+function argument, an annotation naming its own port as a clock input
+sampled as data), parameter sets (the directive grammar and placement, a
+repeated set and a parameter set twice, one more labelled run with `-G`, a
+crossing that only the declared set enables caught there with the
+synchronizer removed while the default run passes, an unknown parameter,
+and a directive on a module that is no target's top, skipped with
+`--ip`), `--ip` selection (a sub-IP and an integrated
 top-level IP), the version pin (mismatched, and missing, empty or
 malformed in `cfg/host.yaml`), and the repository itself. Negative cases include a `.vlt`
 and a `.v` file in an `rtl/` closure, a `w.txt` waiver reached by
