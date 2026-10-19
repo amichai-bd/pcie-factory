@@ -169,7 +169,7 @@ their own top ([GPIO lower layer](#gpio-lower-layer)).
 | Hot Reset in the release configuration ([`dll` credit release](../../arch/dll/HAS.md#credit-release), link down): both upper layers stop releasing, so each end goes down holding credits; the upper layer drops them, and after the relink every credit is back at the advertisement | `e2e_hot_reset_release` | 2 | 1; `CREDITS` 5 |
 | Disabled and Loopback passed through | `e2e_disable`, `e2e_loopback` | 2 | 1 each |
 | Soak: random classes, line flips and credit stalls together, 1000 TLPs each way, ppm from the seed, in every credit configuration; in the release configuration the stalls are release stalls (half the cycles release, none in the stall windows, scheduled as the receive stalls are) | `e2e_soak_default`, `e2e_soak_minimum`, `e2e_soak_finite`, `e2e_soak_infinite`, `e2e_soak_asymmetric`, `e2e_soak_release` | 2 | 3, 2, 3, 1, 2, 1; `CREDITS` 0 to 5; coverage on the first 2, 2, 1, 1, 2, 1 ([seeds](#seeds-and-coverage-runs)) |
-| The same soak on the `REPLAY_TIMEOUT` 1400 build of `e2e_replay_timeout`: default credits, the losses replayed on Naks with the raised timer running | `e2e_soak_replay_timeout` | 2 | 1; `REPLAY_TIMEOUT` 1400 |
+| The same soak on the `REPLAY_TIMEOUT` 1400 build of `e2e_replay_timeout`: default credits, the losses recovered through Naks or the raised timer | `e2e_soak_replay_timeout` | 2 | 1; `REPLAY_TIMEOUT` 1400; coverage on the first 1 |
 | [Throughput](../../arch/link/HAS.md#throughput), one way, screen: 400 128-byte memory writes a to b against the 0.85 target (more start and drain in the window than 2000 TLPs, so stricter), every line symbol attributed | `e2e_throughput_short` | 1 | 1 |
 | [Throughput targets](../../arch/link/HAS.md#targets): 2000 128-byte memory writes one way (0.85) and each way (0.76 per direction), every line symbol attributed; each seed draws the start against the SKP schedule (within one SKP interval) and, both ways, b's start against a's (within one TLP time) | `e2e_throughput_oneway`, `e2e_throughput_bidir` | 2 | 1 and 2 |
 | Seed sweeps of the directed and mixed tests | `e2e_tlp_errors_sweep`, `e2e_dllp_errors_sweep`, `e2e_rollover_sweep`, `e2e_line_sweep`, `e2e_mixed_sweep` | 2 | 2, 2, 2, 3, 4; coverage on the first 1, 1, 2, 2, 1 |
@@ -208,9 +208,12 @@ the soak on the `REPLAY_TIMEOUT` 1400 build that `e2e_replay_timeout`
 (level 1) uses, for the toggle points of that build's own `pcie_link`,
 `pcie_dll` and `pcie_dll_tlp_tx` specializations (759 points and 1 line
 point no other entry reaches), and re-checks what the other soaks check on
-the default build. The raised timer never expires in it (the losses are
-replayed on Naks), so `e2e_replay_timeout` stays the check of the value
-passed through. At seed 1850787340 it runs in 12.4 s plain and 24.0 s on
+the default build. At seed 1850787340 the timer does not expire (the
+`dl_err_o` replay-timeout pulse 0 times at a and 0 at b; 13 replays each
+way, all requested by Naks). At another seed, a lost Nak or a lost last
+TLP can expire it, which the soak's checks allow. `e2e_replay_timeout`
+stays the check of the value passed through: it alone checks the cycle
+the timer expires on. At seed 1850787340 it runs in 12.4 s plain and 24.0 s on
 the coverage build.
 
 ### Seeds and coverage runs
@@ -408,9 +411,10 @@ re-measures the floors in the same PR.
 `REPLAY_TIMEOUT` 1400, which adds three parameter-set copies
 (`pcie_link__T400_R578`, `pcie_dll__R578`, `pcie_dll_tlp_tx__R578`: 3826
 toggle and 91 line points). The GPIO lower layer
-([#378](https://github.com/amichai-bd/pcie-factory/issues/378)) adds 4
-line points and 208 toggle points in the `pcie_link` copies (182 outside
-the new ones). Its `LOWER` 1 entries have no coverage runs, so they add no
+([#378](https://github.com/amichai-bd/pcie-factory/issues/378)) adds 208
+toggle points in the `pcie_link` copies (182 outside the new ones) and 1
+line point (`pcie_gpio_pkg::replay_timeout`). The RTL edits of #393 and
+#378 add 3 more line points to the copies that existed at #360. Its `LOWER` 1 entries have no coverage runs, so they add no
 copies. Without a re-measurement the merged toggle fell to 75.02% (31181 of
 41564) and missed the 76.5 floor; line was 90.88% (1565 of 1722).
 `e2e_soak_replay_timeout` runs that build with soak traffic and gives
@@ -430,7 +434,9 @@ is never lowered to fit the margin. The points added since #360, by cause:
 
 The toggle table below counts the 8601 points not hit at #360; with
 these 1023 the total is 9624 (41564 less 31940). The line table counts
-142; with these 14 it is 156 (1722 less 1566).
+142; with these 14 it is 156 (1722 less 1566). The next re-measurement
+sorts the points it adds the same way, in a table like this one
+([#424](https://github.com/amichai-bd/pcie-factory/pull/424)).
 
 **Toggle floor lowered from 79.8 to 76.5**
 ([captain decision on #360](https://github.com/amichai-bd/pcie-factory/issues/360#issuecomment-6266063487),
