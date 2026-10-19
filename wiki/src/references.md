@@ -30,6 +30,7 @@ on the entry's **Verified** line and removes it here.
 | --- | --- |
 | Open the [`pcie-base`](#pcie-base) PCI-SIG link and the [`de2-115`](#de2-115) Terasic link in a browser and confirm each reaches the named document. | Captain |
 | Confirm the [`de2-115`](#de2-115) user manual revision and record it in its **Revision** line, replacing `rev unverified`. | Captain |
+| For the [`gpio` HAS pins](arch/gpio/HAS.md#de2-115-pins): the cited header table checked against the [`de2-115`](#de2-115) manual itself; which jumper sets the header's I/O voltage (JP6 is assumed, as for `HSMC_CLKIN0`); and whether `GPIO[11]` (`AF16`) is one of the device's dedicated clock inputs. The [`rc` FPGA page](fpga/rc/FPGA.md#board-wrapper) gives the FPGA pins and the I/O standard (3.3-V LVTTL, JP6 at its default), cross-checked against a community pin table (components101.com, no revision given; source on that page), since the manual was not reachable from the session; the fit routes `gpio_rx_clk_i` as a clock and meets timing. | Captain |
 
 ## pcie-base
 

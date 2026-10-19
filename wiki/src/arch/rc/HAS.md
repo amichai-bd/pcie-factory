@@ -392,4 +392,4 @@ The Base Spec is not in the local cache (`./build specs list`:
 
 | Item | Owner |
 | --- | --- |
-| The cited sections on this page and the [tl-seq page](TL_SEQ.md), checked against rev 3.0: the Type 1 header fields and the window rules, the configuration routing of a downstream port, the completion-credit rule for a Root Port. | [#357](https://github.com/amichai-bd/pcie-factory/issues/357): the captain, with a local copy |
+| The cited sections on this page and the [tl-seq page](TL_SEQ.md), checked against rev 3.0: the Type 1 header fields and the window rules, the configuration routing of a downstream port, the completion-credit rule for a Root Port. | Captain, with a local copy |
