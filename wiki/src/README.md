@@ -29,3 +29,4 @@ Numbers are shared with the factory records in
 | 0002 | [M1 grill: Gen1 x1 physical layer, kind-first layout](decisions/0002-m1-grill.md) | accepted |
 | 0003 | [M2 grill: data link layer, `dll` and `link` IPs](decisions/0003-m2-grill.md) | accepted |
 | 0004 | [M3 grill: endpoint transaction layer, `tl`, `cfg` and `core` IPs](decisions/0004-m3-grill.md) | accepted |
+| 0005 | [M4 grill: root-port stack, `rc` IP with `rc_tl` and `rc_seq`, GPIO adapter](decisions/0005-m4-grill.md) | accepted |
