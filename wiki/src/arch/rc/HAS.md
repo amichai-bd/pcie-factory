@@ -270,12 +270,13 @@ where the data is the same.
 
 `rc_tl` must take every received TLP at once (`tlp_rx_ready_i` 1 while
 `dl_up_o` is 1), the [`dll` upper-layer obligation](../dll/HAS.md#receive)
-for infinite completion credits. It queues received posted and
-non-posted requests per class, sized by the credits `rc` advertises, and
-returns a request's credits on the
-[credit release](../dll/HAS.md#credit-release) port when it leaves the
-queue (served, captured, recorded or answered with Unsupported Request),
-as `core` does ([`core` credits](../core/HAS.md#credits)). Completions
+for infinite completion credits. It holds received non-posted requests
+in a queue sized by the non-posted credits `rc` advertises and applies
+posted requests as they arrive (the
+[`rc_tl` MAS](../../rtl/rc_tl/INBOUND.md#credits)), and returns a request's
+credits on the [credit release](../dll/HAS.md#credit-release) port when it
+leaves `rc_tl` (served, captured, recorded or answered with Unsupported
+Request), as `core` does ([`core` credits](../core/HAS.md#credits)). Completions
 need no release: `rc_tl` reserves room for every outstanding read.
 
 ### Downstream role

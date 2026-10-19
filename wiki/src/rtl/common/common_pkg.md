@@ -20,6 +20,8 @@ each IP that uses it includes it with `-F`. RTL names every item as
 | `t_l0s_sub` | The L0s sub-machine codes, the tx and rx fields of an L0 code. | [state encoding](../../arch/mac/LTSSM.md#state-encoding) |
 | `t_power_down` | PIPE PowerDown: `PD_P0`, `PD_P0S`, `PD_P1`, `PD_P2`. Used by the mac and the pcs. | [PIPE](../../arch/phy/PIPE.md#signals) |
 | `t_rx_status` | PIPE RxStatus: `RX_OK`, `RX_SKP_ADDED`, `RX_SKP_REMOVED`, `RX_DETECTED`, `RX_CODE_ERR`, `RX_EB_OVERFLOW`, `RX_EB_UNDERFLOW`, `RX_DISP_ERR`. The type of `t_pipe_rx.status`: the pcs drives it; the mac casts its PIPE input to it and compares `RX_DETECTED`. | [RxStatus](../../arch/pcs/RECEIVE.md#decode-and-rxstatus) |
+| `t_rc_op`, `t_rc_status` | The root port's tl-seq codes: command operations `RC_OP_CFG_RD` (0) to `RC_OP_ERR_CLR` (9), result statuses `RC_ST_OK` (0) to `RC_ST_BAD` (7). | [tl-seq commands and results](../../arch/rc/TL_SEQ.md#commands) |
+| `t_rc_cmd`, `t_rc_rsp`, `t_rc_msi` | The tl-seq bundles `rc_tl` and `rc_seq` exchange: command (`op` raw 4 bits, `addr`, `len`, `first_be`, `last_be`, `data`), result beat (`status`, `data`, `last`), MSI capture (`offset`, `data`). | [tl-seq signals](../../arch/rc/TL_SEQ.md#signals), [`rc_tl` interfaces](../rc_tl/MAS.md#interfaces) |
 
 ## Decisions
 
