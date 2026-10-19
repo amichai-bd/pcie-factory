@@ -72,3 +72,9 @@ tests:
     top: pcie_rc_seq
     params: {PROGRAM: 3}
     timeout_s: 300
+  - name: program_random_inject
+    module: tests.test_rc_seq
+    testcase: program_random_inject
+    top: pcie_rc_seq
+    params: {PROGRAM: 5}
+    timeout_s: 300

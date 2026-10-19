@@ -364,9 +364,11 @@ which stays the e2e oracle. One step per `clk_i` cycle:
 | `Bench` | `rc` over one end of the `link` arch model, the `core` arch model over the other, and the endpoint application the [program boundary](../../rtl/rc_seq/PROGRAMS.md#boundary) asks for; or `rc_tl` alone over a link that never answers. |
 
 Cycle costs are the MAS timing figures; the wait timeouts, Hot Reset hold
-and loop limit, which [#376](https://github.com/amichai-bd/pcie-factory/issues/376)
-sets, and the `link` Hot Reset timer are model constants that bound
-nothing. Its [self-tests](../../../../src/arch/rc/test_pcie_rc_arch.py)
+and loop limit are the [programs page constants](../../rtl/rc_seq/PROGRAMS.md#constants)
+(25 000 000, 1 250 000 and 125 000 cycles, a hold of 64, 4096 takes),
+which bound nothing in the scenarios (each wait ends long before its
+timeout); the `link` Hot Reset timer is a model constant. `INJECT`, whose
+errors only the e2e's line makes, is not modelled. Its [self-tests](../../../../src/arch/rc/test_pcie_rc_arch.py)
 check the rules on this page and the sub-IP pages, with a failing case
 for each, and `./build arch --ip rc` runs these scenarios into
 `workdir/rc/arch/perf.json`:

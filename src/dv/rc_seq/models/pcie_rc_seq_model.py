@@ -4,7 +4,7 @@ Written from those pages, not from the RTL:
 
 - the 128-bit step format, its constructors and an assembler whose jump
   targets are labels resolved at the end (never hand-counted);
-- the programs ENUM, MMIO, DMA_MSI, ERRORS and SELFTEST, built from the
+- the programs ENUM, MMIO, DMA_MSI, ERRORS, SELFTEST and INJECT, built from the
   programs page step by step; the testbench runs the RTL's package images
   against the same stand-in as these, so any encoding difference shows as
   a cycle mismatch;
@@ -195,6 +195,10 @@ DMA_SRC, DMA_DST, RUN_FLAG = 0x100, 0x200, 0xFFC
 DB_SRC, DB_DST, DB_LEN, DB_RING = 0xF00, 0xF04, 0xF08, 0xF0C
 NO_ANSWER = 0xF10
 ERR_MASK = 0x1FFF
+# INJECT: BAR0 offsets whose traffic the rc e2e changes on the line
+# (PROGRAMS, Injected errors).
+INJ_CA, INJ_POISONED, INJ_MALFORMED, INJ_UNEXPECTED, INJ_FATAL = 0x100, 0x104, 0x108, 0x10C, 0x110
+INJ_RECORD = 0x0272
 
 # SELFTEST (PROGRAMS, Self-test).
 SELF_WAIT, SELF_HOLD, SELF_LIMIT = 8, 3, 3
@@ -326,6 +330,21 @@ def errors_program(a: Asm) -> None:
       done())
 
 
+def inject_program(a: Asm) -> None:
+    """J1 to J8 (PROGRAMS, Injected errors)."""
+    enum_section(a)
+    a(req(CFG_WR, ep(0x78), data=0x1F, fbe=0x1), req(ERR_CLR, 0, data=ERR_MASK))
+    a(*(req(MEM_WR, BAR0 + INJ_CA + 4 * k, data=mmio_pattern(40 + k)) for k in range(4)))
+    a(req(MEM_RD, BAR0 + INJ_CA, status=CA), req(MEM_RD, BAR0 + INJ_POISONED, status=BAD),
+      req(MEM_RD, BAR0 + INJ_MALFORMED, status=BAD))
+    a(req(MEM_RD, BAR0 + INJ_UNEXPECTED), expect(mmio_pattern(43)))
+    a(req(MEM_WR, BAR0 + INJ_FATAL, data=0xFA7A_1000))
+    poll_err(a, "J8", 0x210)
+    a(expect(INJ_RECORD, ERR_MASK), req(ERR_CLR, 0, data=ERR_MASK),
+      req(MEM_RD, BAR0 + INJ_CA), expect(mmio_pattern(40)), req(ERR_RD, 0), expect(0, ERR_MASK),
+      done())
+
+
 # Guarded traps of SELFTEST, in order: (name, trap word or label target).
 TRAPS = ("FAIL", "RSV07", "RSV0F", "COND5", "COND7", "PAD", "FAR")
 
@@ -402,7 +421,7 @@ def selftest_program(a: Asm) -> None:
     a.label("PAD")
 
 
-PROGRAM_NAMES = ("ENUM", "MMIO", "DMA_MSI", "ERRORS", "SELFTEST")
+PROGRAM_NAMES = ("ENUM", "MMIO", "DMA_MSI", "ERRORS", "SELFTEST", "INJECT")
 
 
 def program(prog: int | str) -> Asm:
@@ -413,6 +432,8 @@ def program(prog: int | str) -> Asm:
         errors_program(a)
     elif name == "SELFTEST":
         selftest_program(a)
+    elif name == "INJECT":
+        inject_program(a)
     else:
         enum_section(a)
         if name == "MMIO":

@@ -66,10 +66,12 @@ ROM_AW = 8                    # rc_seq ROM: 256 steps (rc_seq MAS, Programs)
 ROM_STEPS = 1 << ROM_AW
 REQ_TX_DELAY = 3              # take to first offer on tlp_tx (rc_tl MAS, Timing)
 HOST_RD_DELAY = 2             # HOST_RD beat: second cycle after the take (INBOUND)
-# Model constants, not MAS values: #376 sets the package's.
-WAIT_TIMEOUT = 200_000        # WAIT_LINK, WAIT_MSI and HOT_RESET timeouts, cycles
-HOT_RESET_HOLD = 16           # HOT_RESET hold after link_up falls, cycles
-LOOP_LIMIT = 2000             # polling-loop limit (backward takes)
+# Program constants (PROGRAMS, Constants), the values of the rc_seq package.
+WAIT_LINK_TIMEOUT = 25_000_000  # WAIT_LINK timeout, cycles (200 ms)
+WAIT_MSI_TIMEOUT = 1_250_000  # WAIT_MSI timeout, cycles (10 ms)
+HOT_RESET_TIMEOUT = 125_000   # HOT_RESET timeout for link_up to fall, cycles (1 ms)
+HOT_RESET_HOLD = 64           # HOT_RESET hold after link_up falls, cycles
+LOOP_LIMIT = 4096             # polling-loop limit (backward takes)
 HOT_RESET_ENTRY = 8           # bench: hot_reset_req to link_up falling, cycles
 HOT_RESET_EXIT = 2000         # bench: the link's Hot Reset timer, scaled down
 
@@ -724,15 +726,15 @@ def expect(value: int, mask: int = FULL, idx: int = 0) -> int:
     return encode(op=S_EXPECT, data=value & mask, mask=mask, idx=idx)
 
 
-def wait_msi(timeout: int = WAIT_TIMEOUT) -> int:
+def wait_msi(timeout: int = WAIT_MSI_TIMEOUT) -> int:
     return encode(op=S_WAIT_MSI, data=timeout)
 
 
-def wait_link(timeout: int = WAIT_TIMEOUT) -> int:
+def wait_link(timeout: int = WAIT_LINK_TIMEOUT) -> int:
     return encode(op=S_WAIT_LINK, data=timeout)
 
 
-def hot_reset(timeout: int = WAIT_TIMEOUT, hold: int = HOT_RESET_HOLD) -> int:
+def hot_reset(timeout: int = HOT_RESET_TIMEOUT, hold: int = HOT_RESET_HOLD) -> int:
     return encode(op=S_HOT_RESET, data=timeout, addr=hold)
 
 
