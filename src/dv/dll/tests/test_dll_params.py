@@ -1,4 +1,5 @@
-"""Credit-parameter limits of pcie_dll, FC_RELEASE included (wiki/src/arch/dll/HAS.md#parameters).
+"""Parameter limits of pcie_dll: the credits, FC_RELEASE and REPLAY_TIMEOUT
+(wiki/src/arch/dll/HAS.md#parameters).
 
 A rejected parameter set cannot be simulated, so this test lints the dll
 with Verilator, as `./build check` lint does, from its .rtl.f: every
@@ -28,9 +29,12 @@ ILLEGAL = (
     ({"FC_CPLH": 128}, "FC_CPLH must be 0 or 1..127"),
     ({"FC_CPLD": 7}, "FC_CPLD must be 0 or 8..2047"),
     ({"FC_RELEASE": 2}, "FC_RELEASE must be 0 or 1"),
+    ({"REPLAY_TIMEOUT": 355}, "REPLAY_TIMEOUT must be 356..65535"),
+    ({"REPLAY_TIMEOUT": 65536}, "REPLAY_TIMEOUT must be 356..65535"),
 )
 # Legal boundaries: the smallest finite values, all infinite, the largest;
-# the release port with the smallest and with all-infinite credits.
+# the release port with the smallest and with all-infinite credits; the
+# replay timeout's bounds.
 LEGAL = (
     {"FC_PH": 1, "FC_PD": 8, "FC_NPH": 1, "FC_NPD": 2, "FC_CPLH": 1, "FC_CPLD": 8},
     {"FC_PH": 0, "FC_PD": 0, "FC_NPH": 0, "FC_NPD": 0, "FC_CPLH": 0, "FC_CPLD": 0},
@@ -40,6 +44,8 @@ LEGAL = (
      "FC_RELEASE": 1},
     {"FC_PH": 127, "FC_PD": 2047, "FC_NPH": 127, "FC_NPD": 2047, "FC_CPLH": 127,
      "FC_CPLD": 2047},
+    {"REPLAY_TIMEOUT": 356},
+    {"REPLAY_TIMEOUT": 65535},
 )
 
 
@@ -52,8 +58,8 @@ def lint(params: dict[str, int]) -> subprocess.CompletedProcess:
 
 @cocotb.test()
 async def param_limits(dut):
-    """Illegal credit parameters fail elaboration with their message; the
-    legal boundaries lint clean."""
+    """Illegal parameters fail elaboration with their message; the legal
+    boundaries lint clean."""
     del dut
     checked = 0
     for params, message in ILLEGAL:

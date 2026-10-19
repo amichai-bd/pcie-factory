@@ -298,11 +298,11 @@ package pcie_dll_pkg;
 
   // TLP transmit (MAS, TLP transmit; RETRY.md): the replay buffer is
   // 1024 bytes of framed TLPs, held as 256 words of 32 bits; the timers are
-  // in clk_i cycles.
+  // in clk_i cycles. The replay timeout is the pcie_dll parameter
+  // REPLAY_TIMEOUT; its counter, sized from it, sits beside this struct.
   localparam int unsigned RBUF_BYTES     = 1024;
   localparam int unsigned RBUF_ADDR_W    = 8;     // 256 words
   localparam int unsigned RBUF_SLOT_W    = 6;     // end-address table: seq mod 64 (at most 56 TLPs)
-  localparam logic [8:0]  REPLAY_TIMEOUT = 9'd356;
   localparam logic [9:0]  HOLD_LAST      = 10'd1023;  // rollover hold ends at 1024 cycles
 
   // One beat of the upper transmit stream (valid and ready stay single
@@ -340,8 +340,7 @@ package pcie_dll_pkg;
     logic [11:0] rp_end;      // one past the last TLP the replay sends
     logic [7:0]  rp_addr;     // first word of TLP rp_seq
     logic [1:0]  replay_num;  // REPLAY_NUM
-    logic        rt_run;      // replay timer running
-    logic [8:0]  rt;          // REPLAY_TIMER
+    logic        rt_run;      // replay timer running (its count: rt_q in pcie_dll_tlp_tx)
     logic        hold;        // rollover hold: no TLP starts
     logic        hold_left;   // the LTSSM has left L0 since the rollover
     logic [9:0]  hold_cnt;    // cycles since the rollover
@@ -366,7 +365,6 @@ package pcie_dll_pkg;
     rp_addr:    8'd0,
     replay_num: 2'd0,
     rt_run:     1'b0,
-    rt:         9'd0,
     hold:       1'b0,
     hold_left:  1'b0,
     hold_cnt:   10'd0

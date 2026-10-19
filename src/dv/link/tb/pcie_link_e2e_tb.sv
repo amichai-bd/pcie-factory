@@ -22,11 +22,13 @@
 //   5 release         default credits, FC_RELEASE 1 both ends (the
 //                     dll credit-release port, <e>_fc_rel_*_i, live)
 // With any other CREDITS, FC_RELEASE is 0 and the environment holds the
-// release inputs at 0.
+// release inputs at 0. REPLAY_TIMEOUT goes to both ends' dll and is echoed
+// on cfg_replay_timeout_o.
 module pcie_link_e2e_tb #(
   parameter int unsigned CREDITS         = 0,
   parameter int unsigned TIMEOUT_DIV     = 1024,
-  parameter int unsigned ERR_TIMEOUT_DIV = 1
+  parameter int unsigned ERR_TIMEOUT_DIV = 1,
+  parameter int unsigned REPLAY_TIMEOUT  = 356
 ) (
   input  logic        a_clk_i,
   input  logic        b_clk_i,
@@ -132,7 +134,8 @@ module pcie_link_e2e_tb #(
   output logic [71:0] b_cfg_fc_o,
   output logic [2:0]  cfg_credits_o,
   output logic [10:0] cfg_timeout_div_o,
-  output logic [10:0] cfg_err_timeout_div_o
+  output logic [10:0] cfg_err_timeout_div_o,
+  output logic [15:0] cfg_replay_timeout_o
 );
 
   typedef int unsigned t_fc [6];
@@ -149,11 +152,13 @@ module pcie_link_e2e_tb #(
   assign cfg_credits_o         = 3'(CREDITS);
   assign cfg_timeout_div_o     = 11'(TIMEOUT_DIV);
   assign cfg_err_timeout_div_o = 11'(ERR_TIMEOUT_DIV);
+  assign cfg_replay_timeout_o  = 16'(REPLAY_TIMEOUT);
 
   pcie_link #(
     .FC_PH(A_FC[0]), .FC_PD(A_FC[1]), .FC_NPH(A_FC[2]),
     .FC_NPD(A_FC[3]), .FC_CPLH(A_FC[4]), .FC_CPLD(A_FC[5]), .FC_RELEASE(REL),
-    .TIMEOUT_DIV(TIMEOUT_DIV), .ERR_TIMEOUT_DIV(ERR_TIMEOUT_DIV)
+    .TIMEOUT_DIV(TIMEOUT_DIV), .ERR_TIMEOUT_DIV(ERR_TIMEOUT_DIV),
+    .REPLAY_TIMEOUT(REPLAY_TIMEOUT)
   ) u_a (
     .clk_i(a_clk_i),
     .ser_rx_clk_i(b_clk_i),
@@ -213,7 +218,8 @@ module pcie_link_e2e_tb #(
   pcie_link #(
     .FC_PH(B_FC[0]), .FC_PD(B_FC[1]), .FC_NPH(B_FC[2]),
     .FC_NPD(B_FC[3]), .FC_CPLH(B_FC[4]), .FC_CPLD(B_FC[5]), .FC_RELEASE(REL),
-    .TIMEOUT_DIV(TIMEOUT_DIV), .ERR_TIMEOUT_DIV(ERR_TIMEOUT_DIV)
+    .TIMEOUT_DIV(TIMEOUT_DIV), .ERR_TIMEOUT_DIV(ERR_TIMEOUT_DIV),
+    .REPLAY_TIMEOUT(REPLAY_TIMEOUT)
   ) u_b (
     .clk_i(b_clk_i),
     .ser_rx_clk_i(a_clk_i),

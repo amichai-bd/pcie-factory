@@ -9,7 +9,9 @@
 
 `include "common_macros.svh"
 
-module pcie_dll_tlp_tx (
+module pcie_dll_tlp_tx #(
+  parameter int unsigned REPLAY_TIMEOUT = 356   // replay timeout, clk_i cycles in L0 (pcie_dll)
+) (
   input  logic                      clk_i,
   input  logic                      rst_i,
   input  logic                      flush_i,        // DL_Inactive: clear everything
@@ -34,11 +36,15 @@ module pcie_dll_tlp_tx (
 );
 
   localparam int unsigned SLOTS = 2 ** pcie_dll_pkg::RBUF_SLOT_W;
+  // REPLAY_TIMER counts 0 to REPLAY_TIMEOUT - 1: 9 bits at the default 356.
+  localparam int unsigned RT_W  = $clog2(REPLAY_TIMEOUT);
+  localparam logic [RT_W-1:0] RT_LAST = RT_W'(REPLAY_TIMEOUT - 1);
 
   pcie_dll_pkg::t_retry_state st_q, st_d;
   pcie_dll_pkg::t_tlp_stream  sm_q, sm_d;
   logic [7:0]                 end_q [SLOTS];   // word after each held TLP, by seq mod 64
   logic [7:0]                 end_d [SLOTS];
+  logic [RT_W-1:0]            rt_q, rt_d;      // REPLAY_TIMER (st_q.rt_run: running)
   logic [2:0]                 err_q, err_d;
   logic                       retrain_q, retrain_d;
 
@@ -166,7 +172,7 @@ module pcie_dll_tlp_tx (
   logic [7:0]  cand_addr;
   logic [7:0]  cand_end;
   logic        tlp_eop_beat; // the phy takes a TLP's last beat at this edge
-  logic        timer_at_end; // the replay timer reaches 356 at this edge
+  logic        timer_at_end; // the replay timer reaches REPLAY_TIMEOUT at this edge
   logic        roll_now;     // a rollover at this edge, whatever the arbiter takes
 
   assign have      = st_q.rp_active || st_q.nts != st_q.seq_done;
@@ -182,10 +188,10 @@ module pcie_dll_tlp_tx (
   // waiting then.) The arbiter then stops offering a waiting TLP sop at
   // this very edge, so none starts ahead of the rollover replay. Its one
   // direct input is ltssm_state_i (in_l0, so the timer expires exactly
-  // after 356 L0 cycles, never earlier); the rest are registers and the
+  // after REPLAY_TIMEOUT L0 cycles, never earlier); the rest are registers and the
   // registered received DLLP. pkt_tx_valid_o depends on ltssm_state_i
   // through it, in the rollover cycle only (MAS, Timing).
-  assign timer_at_end = st_q.rt_run && in_l0 && st_q.rt == pcie_dll_pkg::REPLAY_TIMEOUT - 9'd1;
+  assign timer_at_end = st_q.rt_run && in_l0 && rt_q == RT_LAST;
   assign roll_now     = (nak || timer_at_end || st_q.rp_pending) && !progress
                      && !st_q.rp_active && st_q.replay_num == 2'd3
                      && st_q.nts != st_q.ackd + 12'd1;
@@ -197,12 +203,13 @@ module pcie_dll_tlp_tx (
 
   // ------------------------------------------------------------ state
 
-  logic        expire;       // the replay timer reaches 356 at this edge
+  logic        expire;       // the replay timer reaches REPLAY_TIMEOUT at this edge
   logic        replay_req;
   logic        rollover;
 
   always_comb begin
     st_d         = st_q;
+    rt_d         = rt_q;
     expire       = 1'b0;
     rollover     = 1'b0;
 
@@ -225,15 +232,15 @@ module pcie_dll_tlp_tx (
       st_d.seq_done = st_q.seq_done + 12'd1;
     end
 
-    // Replay timer: counts in L0 while running; at 356 it stops and
-    // requests a replay.
+    // Replay timer: counts in L0 while running; at REPLAY_TIMEOUT it stops
+    // and requests a replay (timer_at_end, the one compare).
     if (st_q.rt_run && in_l0) begin
-      if (st_q.rt == pcie_dll_pkg::REPLAY_TIMEOUT - 9'd1) begin
-        expire     = 1'b1;
+      if (timer_at_end) begin
+        expire      = 1'b1;
         st_d.rt_run = 1'b0;
-        st_d.rt     = 9'd0;
+        rt_d        = '0;
       end else begin
-        st_d.rt = st_q.rt + 9'd1;
+        rt_d = rt_q + RT_W'(1);
       end
     end
 
@@ -257,7 +264,7 @@ module pcie_dll_tlp_tx (
       st_d.base       = ack_end;
       st_d.replay_num = 2'd0;
       st_d.rt_run     = ack_seq != st_q.nts - 12'd1;   // sent TLPs remain
-      st_d.rt         = 9'd0;
+      rt_d            = '0;
       // The running replay skips what the Ack removed.
       if (st_d.rp_active && (ack_seq - st_d.rp_seq) < 12'd2048) begin
         st_d.rp_seq  = ack_seq + 12'd1;
@@ -282,7 +289,7 @@ module pcie_dll_tlp_tx (
           st_d.rp_addr    = st_d.base;
           st_d.rp_end     = st_d.nts;
           st_d.rt_run     = 1'b0;
-          st_d.rt         = 9'd0;
+          rt_d            = '0;
           // REPLAY_NUM after this edge's Ack or Nak (0 on progress).
           if (st_d.replay_num == 2'd3) begin
             rollover        = 1'b1;
@@ -300,7 +307,7 @@ module pcie_dll_tlp_tx (
     // The timer starts, when stopped, as a TLP's last beat is taken.
     if (tlp_eop_beat && !st_d.rt_run) begin
       st_d.rt_run = 1'b1;
-      st_d.rt     = 9'd0;
+      rt_d        = '0;
     end
 
     // Rollover hold: until the LTSSM has left L0 and come back, or 1024
@@ -316,10 +323,12 @@ module pcie_dll_tlp_tx (
 
     if (flush_i) begin
       st_d = pcie_dll_pkg::RETRY_RESET;
+      rt_d = '0;
     end
   end
 
   `COMMON_DFF_RST_VAL(st_q, st_d, clk_i, rst_i, pcie_dll_pkg::RETRY_RESET)
+  `COMMON_DFF_RST(rt_q, rt_d, clk_i, rst_i)
 
   // ------------------------------------------------------------ stream
 

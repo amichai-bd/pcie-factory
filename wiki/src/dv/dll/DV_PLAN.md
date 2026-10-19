@@ -176,7 +176,7 @@ for credit accounting:
 | Pair | Compared |
 | --- | --- |
 | RTL and partner | The partner as the far end and judge: both reach DL_Active, each records the other's advertisement, no partner violation. Every TLP the DUT sends delivered by the partner exactly once and in order, under its fault hooks (Naks, lost TLPs, lost and damaged Acks, Ack delays). |
-| RTL and architecture model | DLLP bytes and CRC-16 (every DLLP sent); the sequence of control states visited by the DUT and the shadow, each change within 200 cycles of the other; credits available equal to the shadow's. The LCRC of every TLP sent. Replay-buffer room: a TLP the DUT takes is taken by the shadow within 200 cycles, and a `sop` the DUT refuses is refused by the shadow (outside the cycles where the two act on an Ack at different edges, the LCRC-write cycle, or an acknowledged TLP still on the DUT's stream). The counts of replay timeouts, rollovers, DL protocol errors and replays equal the shadow's in `lcrc_kat`, `replay_directed`, `rollover_directed`, `rbuf_full`, `tlp_partner` and `tlp_rollover`. In `tlp_partner_errors` and `tlp_bidir` they are logged, not compared: the shadow transmits at its own pace (no `phy` stall or upper-stream gap, its own Acks), so with errors a Nak can land inside a replay of one model and after the replay of the other, and with both directions loaded its TLPs lag the DUT's, so an Ack can name a TLP it has not sent yet. |
+| RTL and architecture model | DLLP bytes and CRC-16 (every DLLP sent); the sequence of control states visited by the DUT and the shadow, each change within 200 cycles of the other; credits available equal to the shadow's. The LCRC of every TLP sent. Replay-buffer room: a TLP the DUT takes is taken by the shadow within 200 cycles, and a `sop` the DUT refuses is refused by the shadow (outside the cycles where the two act on an Ack at different edges, the LCRC-write cycle, or an acknowledged TLP still on the DUT's stream). The counts of replay timeouts, rollovers, DL protocol errors and replays equal the shadow's in `lcrc_kat`, `replay_directed`, `rollover_directed`, `rbuf_full`, `tlp_partner`, `tlp_rollover` and `replay_timeout_slow`. In `tlp_partner_errors` and `tlp_bidir` they are logged, not compared: the shadow transmits at its own pace (no `phy` stall or upper-stream gap, its own Acks), so with errors a Nak can land inside a replay of one model and after the replay of the other, and with both directions loaded its TLPs lag the DUT's, so an Ack can name a TLP it has not sent yet. |
 | Architecture model and partner | A run of the model against a fresh partner with the same skew and credits (`ArchEnd` puts the model on the partner's beat stream): both reach DL_Active, each records the other's advertisement, no partner violation, and the time to DL_Active within 200 cycles of the RTL's. CRC-16 of every received DLLP and of the known answers computed by both. In `tlp_rollover`, the model sends the same TLPs to a fresh partner with the same loss window and Recovery (`arch_partner_send`): 4 timeouts, 1 rollover, 1 retrain, no Bad TLP, every TLP delivered once and in order, as the RTL. |
 | RTL, reference and partner (receive) | The partner sends TLPs with its fault hooks; the DUT delivers exactly the partner's TLPs, once and in order; the partner sees no violation (every Ack and Nak in range) and its replay buffer drains (every TLP acknowledged); the RTL's pulses and Naks equal the reference's. |
 | RTL and architecture model (receive) | The shadow, given the same packets, judges every received TLP as the reference does on the DUT's counters (stored, overflow, malformed, bad, duplicate, discarded), overflows included, and counts the same Bad TLP, Malformed TLP, Receiver overflow, Nak and duplicate events (`check_shadow_rx`). It delivers the same TLPs, except that at a link-down the TLP being delivered may be finished by one side and abandoned by the other (their delivery latencies differ): within an epoch ended by a link-down the two delivery lists are equal, or the longer is the shorter plus exactly one TLP; the last epoch must match exactly. Both sides' free credits for the TLP's class are equal before every TLP, so a drifting counter fails at the first TLP it affects. A verdict that differed on the same free credits would be a rule difference and go to the HAS open items. |
@@ -206,7 +206,7 @@ into a model or the RTL silently.
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Reset values](../../arch/dll/HAS.md#reset-values) in reset and DL_Inactive | `smoke` | 0 | 1; 256 cycles, random inputs and link-up |
-| [Credit parameter ranges](../../arch/dll/HAS.md#parameters), `FC_RELEASE` included | `param_limits` | 0 | 1; 9 illegal and 5 legal lints, no simulation |
+| [Parameter ranges](../../arch/dll/HAS.md#parameters): the credits, `FC_RELEASE` and `REPLAY_TIMEOUT` | `param_limits` | 0 | 1; 11 illegal and 7 legal lints, no simulation |
 | [CRC-16](../../arch/dll/DLLP.md#crc-16) known answers, transmit and receive; [receiving DLLPs](../../arch/dll/DLLP.md#receiving-dllps): bad CRC, flagged, wrong length, DL_Inactive | `crc16_kat` | 0 | 1; 5 known answers and every single-bit error of them, 150 random DLLPs and one-bit errors, gaps |
 | [Control states](../../arch/dll/HAS.md#data-link-control-states) and [initialisation](../../arch/dll/FLOW_CONTROL.md#initialisation) by hand: groups and 128-cycle resend, recording, ignored DLLPs, FC_INIT2 ends, entry UpdateFC, [credits available](../../arch/dll/HAS.md#credits-available), UpdateFC limits, link down from each state | `fc_init_directed` | 0 | 1 |
 | [A started DLLP finished across a link-down](../../arch/dll/HAS.md#reset-values), two and one beats left, and all three when the `sop` is taken at the edge that samples `link_up_i` 0; an offered one withdrawn; clean restart | `link_down_mid_dllp` | 0 | 1 |
@@ -248,6 +248,7 @@ into a model or the RTL silently.
 | [Replay-buffer](../../arch/dll/RETRY.md#replay-buffer) back-pressure on the upper stream: 6 maximum TLPs, the 1024-byte boundary (1022 taken, 1026 refused), room freed by an Ack | `rbuf_full` | 0 | 1 |
 | [A started TLP finished across a link-down](../../arch/dll/HAS.md#reset-values), the TLP being taken abandoned, sequence numbers from 0 after the relink; an offered TLP withdrawn | `link_down_mid_tlp` | 0 | 1 |
 | TLPs to the partner, error-free, stalls and gaps: delivered once and in order, no replay | `tlp_partner` | 1 | 0, 1 |
+| [Slow lower layers](../../arch/dll/RETRY.md#slow-lower-layers) at `REPLAY_TIMEOUT` 1400: the stand-in's line delay at 300 cycles each way, so a maximum-payload TLP (4-DW header, 128 bytes) is acknowledged 634 cycles after its `eop`, with no timeout and no replay; then every partner DLLP dropped: the timeout exactly 1400 cycles after the second TLP's `eop`, that TLP replayed once, both delivered once; replay counts equal the shadow's | `replay_timeout_slow` | 1 | 1; `REPLAY_TIMEOUT` 1400 |
 | TLPs to the partner with its fault hooks: Nak'd, lost, lost and damaged Acks, forced Naks, Ack delays past the timeout; delivered once and in order | `tlp_partner_errors` | 1 | 0, 1, 2 |
 | The same, wide sweep | `tlp_partner_errors_sweep` | 2 | 8 derived |
 | [Rollover target](../../arch/dll/HAS.md#targets): TLPs lost from a set cycle until the retrain; architecture model against the partner in the same scenario | `tlp_rollover` | 1 | 0, 1 |
@@ -460,6 +461,22 @@ The sizing differs only where rounding up to a power of two separates the
 two sums: every other parameter set in the regression lists gets the same
 size either way (512 words by default, 128 at the smallest credits), so
 only `rx_stall_digest` can catch it.
+
+### Replay-timeout mutants
+
+The mutants of [#384](https://github.com/amichai-bd/pcie-factory/issues/384)'s
+code (the `REPLAY_TIMEOUT` parameter), run serially on the final RTL, one
+entry at a time at its first seed: level 0, then `replay_timeout_slow`.
+Each is caught; the `link` pass-through mutant is in the
+[`link` DV plan](../link/DV_PLAN.md#seeds-and-coverage-runs), with the release mutants.
+
+| Block | Mutant | First failing entry | Result |
+| --- | --- | --- | --- |
+| TLP transmit | Timeout compare one early (`RT_LAST` = `REPLAY_TIMEOUT` − 2) | `replay_directed` | Timeout 355 cycles after the `eop`, expected 356. Alone, `replay_timeout_slow` fails too: 1399, expected 1400. |
+| TLP transmit | Timeout compare at the fixed 356 (`RT_LAST` = 355) | `replay_timeout_slow` (L1) | A spurious replay: 1 timeout and 1 replay with a 634-cycle round trip. Every level-0 entry passes. |
+| TLP transmit | Timer counting by 2 | `replay_directed` | No timeout within 600 cycles. |
+| Top | 356 passed to `u_tlp_tx`, not `REPLAY_TIMEOUT` | `replay_timeout_slow` (L1) | The same spurious replay. Every level-0 entry passes. |
+| Top | Range check accepting 355 | `param_limits` | `REPLAY_TIMEOUT` 355 lints clean, expected the elaboration failure. |
 
 ## Gaps
 

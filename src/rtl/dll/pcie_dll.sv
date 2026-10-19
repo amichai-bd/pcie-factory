@@ -18,7 +18,8 @@ module pcie_dll #(
   parameter int unsigned FC_NPD  = 8,   // non-posted data credits; 0 infinite, else 2..2047
   parameter int unsigned FC_CPLH = 0,   // completion header credits; 0 infinite (default), else 1..127
   parameter int unsigned FC_CPLD = 0,   // completion data credits; 0 infinite (default), else 8..2047
-  parameter int unsigned FC_RELEASE = 0 // 0: credits return at delivery; 1: P and NP on fc_rel_*_i
+  parameter int unsigned FC_RELEASE = 0, // 0: credits return at delivery; 1: P and NP on fc_rel_*_i
+  parameter int unsigned REPLAY_TIMEOUT = 356 // replay timeout, clk_i cycles in L0; 356..65535
 ) (
   // Clock and reset
   input  logic        clk_i,            // core clock, 125 MHz
@@ -94,6 +95,10 @@ module pcie_dll #(
   `COMMON_ASSERT_PARAM(g_bad_fc_cpld, FC_CPLD == 0 || (FC_CPLD >= 8 && FC_CPLD <= 2047),
                        "FC_CPLD must be 0 or 8..2047")
   `COMMON_ASSERT_PARAM(g_bad_fc_release, FC_RELEASE <= 1, "FC_RELEASE must be 0 or 1")
+  // The replay timeout: never below the 356 cycles of the phy stack (HAS,
+  // parameters), at most 16 bits of timer.
+  `COMMON_ASSERT_PARAM(g_bad_replay_timeout, REPLAY_TIMEOUT >= 356 && REPLAY_TIMEOUT <= 65535,
+                       "REPLAY_TIMEOUT must be 356..65535")
 
   // The credits this side advertises, per class (0 is infinite).
   localparam pcie_dll_pkg::t_fc_vals ADV = '{
@@ -300,7 +305,9 @@ module pcie_dll #(
     .pkt_tx_o       (pkt_tx)
   );
 
-  pcie_dll_tlp_tx u_tlp_tx (
+  pcie_dll_tlp_tx #(
+    .REPLAY_TIMEOUT (REPLAY_TIMEOUT)
+  ) u_tlp_tx (
     .clk_i         (clk_i),
     .rst_i         (rst_i),
     .flush_i       (flush),

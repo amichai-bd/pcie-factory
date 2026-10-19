@@ -37,3 +37,10 @@ tests:
     testcase: e2e_throughput_short
     top: pcie_link_e2e_tb
     timeout_s: 600
+  # REPLAY_TIMEOUT through link (#384), at the GPIO build's value.
+  - name: e2e_replay_timeout
+    module: tests.test_link_e2e
+    testcase: e2e_replay_timeout
+    top: pcie_link_e2e_tb
+    params: {REPLAY_TIMEOUT: 1400}
+    timeout_s: 600

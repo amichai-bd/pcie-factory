@@ -763,3 +763,77 @@ async def timer_edge(dut):
     env.inject(ack(0))
     await settle(env)
     env.check_clean()
+
+
+# A slowed lower layer (HAS, parameters): the stand-in's line delay each
+# way, so a maximum TLP's Ack is acted on about 640 cycles after its eop,
+# the idle round trip of the GPIO build (link HAS, lower layer): longer
+# than the default 356, shorter than a REPLAY_TIMEOUT sized for it.
+SLOW_DELAY = 300
+
+
+@cocotb.test()
+async def replay_timeout_slow(dut):
+    """L1, at a REPLAY_TIMEOUT above 356 (HAS, parameters): over a lower
+    layer slowed to a round trip between 356 and REPLAY_TIMEOUT, a
+    maximum-payload TLP (4-DW header, 128 bytes) is acknowledged with no
+    replay timeout and no replay, though its Ack comes more than 356 cycles
+    after its eop. Then every DLLP of the partner is dropped while a second
+    maximum TLP goes out: the timer expires exactly REPLAY_TIMEOUT cycles
+    after its eop, that TLP alone is replayed, and the partner, which
+    discards the duplicate, Acks it; both TLPs delivered once, in order."""
+    seed = cocotb.RANDOM_SEED
+    partner = ptn.Partner("partner", credits=INFINITE, seed=seed)
+    env = Env(dut, seed, partner=partner, delay=SLOW_DELAY)
+    await env.start()
+    limit = env.replay_timeout
+    assert limit > REPLAY_TIMEOUT, (
+        f"REPLAY_TIMEOUT {limit}: this test needs a value above {REPLAY_TIMEOUT}")
+    env.dut_link = env.partner_link = True
+    await env.run_until(lambda: env.state == ACTIVE and partner.state == ptn.ACTIVE, 4000,
+                        "both ends in DL_Active")
+    await env.run(30)
+    tlps = [make_tlp("MWr64", 32, 0x200 + i) for i in range(2)]
+
+    # Idle link, slow round trip: no spurious replay.
+    env.send(tlps[0])
+    await env.run_until(lambda: env.tlp_packets and not env.in_pkt, 200, "TLP 0 sent")
+    sop, data = env.tlp_packets[-1]
+    assert len(data) == 150, f"maximum TLP framed as {len(data)} bytes, expected 150"
+    eop = sop + len(data) // 2                # the edge that took its eop
+    await env.run_until(lambda: any(s == 0 and k == "ack" for _, k, s, _ in env.acknak_log),
+                        limit, "the Ack of TLP 0")
+    acked = next(c for c, k, s, _ in env.acknak_log if s == 0 and k == "ack")
+    trip = acked - eop
+    assert REPLAY_TIMEOUT < trip < limit, (
+        f"Ack acted {trip} cycles after the eop: the slowed round trip must lie between "
+        f"{REPLAY_TIMEOUT} and REPLAY_TIMEOUT {limit}")
+    await env.run(limit + 50)
+    assert env.err_counts[ERR_TIMEOUT] == 0 and env.replay_runs == 0, (
+        f"a spurious replay: {env.err_counts[ERR_TIMEOUT]} timeouts, {env.replay_runs} "
+        f"replays, round trip {trip} cycles, REPLAY_TIMEOUT {limit}")
+    assert [(s, r) for _, s, r in env.tlp_sent] == [(0, False)], f"sent {env.tlp_sent}"
+
+    # The Ack withheld: a replay exactly REPLAY_TIMEOUT cycles after the eop.
+    partner.inject.tx_dllp_drop = 1.0
+    env.send(tlps[1])
+    await env.run_until(lambda: len(env.tlp_packets) == 2 and not env.in_pkt, 200,
+                        "TLP 1 sent")
+    sop, data = env.tlp_packets[-1]
+    eop = sop + len(data) // 2
+    await env.run_until(lambda: env.err_counts[ERR_TIMEOUT] == 1, limit + 10, "the timeout")
+    got = env.err_cycles[ERR_TIMEOUT][0] - eop
+    assert got == limit, f"timeout {got} cycles after the eop, expected {limit}"
+    partner.inject.tx_dllp_drop = 0.0
+    await env.run_until(lambda: any(s == 1 and k == "ack" for _, k, s, _ in env.acknak_log),
+                        limit, "the Ack of the replayed TLP 1")
+    await settle(env)
+    await env.run(limit + 50)
+    assert [(s, r) for _, s, r in env.tlp_sent] == [(0, False), (1, False), (1, True)], (
+        f"sent {env.tlp_sent}, expected TLP 1 replayed once")
+    assert env.err_counts[ERR_TIMEOUT] == 1 and env.replay_runs == 1
+    env.check_tlp_delivered(partner, tlps)
+    pairs = env.check_shadow_tx()
+    dut._log.info("REPLAY_TIMEOUT %d: round trip %d cycles; DUT vs arch shadow %s; partner %s",
+                  limit, trip, pairs, partner.stats)
+    env.check_clean()

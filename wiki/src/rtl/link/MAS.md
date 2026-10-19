@@ -20,7 +20,7 @@ flowchart TB
 - **`u_dll` (`pcie_dll`)** takes `clk_i`, `rst_i`, the upper TLP stream
   and the credit release (`fc_rel_*_i`), and drives the credits available
   and the data link status; its `err_o` is the `link` port `dl_err_o`.
-  `FC_PH` to `FC_CPLD` and `FC_RELEASE` pass through.
+  `FC_PH` to `FC_CPLD`, `FC_RELEASE` and `REPLAY_TIMEOUT` pass through.
 - **`u_phy` (`pcie_phy`)** takes `clk_i`, `rst_i`, `port_role_i`, the
   link control requests and the whole lower symbol interface, including
   `ser_rx_clk_i`, and drives the link status. `TIMEOUT_DIV` and
