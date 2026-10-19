@@ -203,8 +203,8 @@ levels 0 to 2 with `--coverage` on the same tree as the `core` run
 `link` (90.94% line, 76.85% toggle), `dll` (99.1%, 77.6%), `mac` (87.0%,
 79.2%), `pcs` (99.2%, 98.0%), `phy` (81.7%, 76.0%), `tl` (97.8%, 78.4%),
 `cfg` (97.9%, 64.9%) and the shared unit `common` (97.3%, 91.6%); every
-unit's floors hold, and each unit's [holes](../dll/DV_PLAN.md#coverage-holes)
-explain the points it does not hit.
+unit's floors hold, and each unit's plan (Coverage holes) explains the
+points it does not hit.
 
 **Re-measured for [#416](https://github.com/amichai-bd/pcie-factory/issues/416)**
 on `3ec1037` and again on `fe5b43f` (levels 0 to 2, `--coverage`, the same
@@ -222,9 +222,24 @@ line and 585 toggle points (+7, -1, -3 and +1 line and +322, +116, +51 and
 | --- | ---: | ---: |
 | The GPIO ports at `LOWER` 0, held at 0 or tied off by the bench (constant by construction): `pcie_core.sv` 96 (own nets), `pcie_link.sv` 104 (not hit by `link` either) | | +200 |
 | `pcie_gpio_pkg::replay_timeout`, called only for a `localparam` (elaboration only, [#378](https://github.com/amichai-bd/pcie-factory/issues/378)) | +1 | |
-| `tl`'s queue, TLP helpers, output stage and receive beat tracker moved to the shared blocks ([#390](https://github.com/amichai-bd/pcie-factory/pull/390), [#402](https://github.com/amichai-bd/pcie-factory/pull/402)): the same logic, now counted in `common_sdp_ram_fifo` (the RAM rows), `common_skid_stage` and `common_tlp_rx_track`. These are the only other RTL changes in the stack since #294; the figure is the net change in `tl` and those blocks, each point in the row its cause gives below | +3 | +255 |
-| The common CDC blocks inside the `pcs` (`common_cdc_fifo`, `common_cdc_pulse`, `common_cdc_sync2`, `common_cdc_rst`), which the #294 tables did not name: hit in another copy 57, reached by the `pcs` and `phy` DV 69 (the CDC FIFO's data and fill bits), the reset synchronizer's first stage 4 | | +130 |
+| `tl`'s queue, TLP helpers, output stage and receive beat tracker moved to the shared blocks ([#390](https://github.com/amichai-bd/pcie-factory/pull/390), [#402](https://github.com/amichai-bd/pcie-factory/pull/402)): the same logic, now counted in `common_sdp_ram_fifo` (the RAM rows), `common_skid_stage` and `common_tlp_rx_track`. By file, points not hit: toggle `tl` -3849, the common RAMs +3530, `common_skid_stage` +580, `common_tlp_rx_track` +124; line `tl` -58, the common RAMs +45, `common_skid_stage` +9, `common_tlp_rx_track` +7. Each point is in the row its cause gives below | +3 | +385 |
 | Total | +4 | +585 |
+
+How these were measured: `core` at levels 0 to 2 with `--coverage` on
+`07bae13` (the tree of the #294 tables) gives the #294 figures again (line
+4168 of 5493, toggle 77783 of 174278). Its points not hit, counted by file
+and compared with `fe5b43f`, change only in the files above. `dll`,
+`mac`, `pcs`, `phy`, `cfg`, the common CDC blocks and the rest of
+`pcie_core.sv` and `pcie_link.sv` are unchanged, so the `dll`
+`REPLAY_TIMEOUT` parameter ([#393](https://github.com/amichai-bd/pcie-factory/issues/393))
+adds no point not hit in `core`. The #294 tables counted the common CDC
+blocks inside the `pcs` (`common_cdc_fifo`, `common_cdc_pulse`,
+`common_cdc_sync2`, `common_cdc_rst`) under "the common RAMs": that label
+held 3881 points not hit (3750, 121 and 10), which is 3751 in the RAM
+files and 130 in the CDC blocks. The tables below name the CDC blocks (57
+hit in another copy, 69 reached by the `pcs` and `phy` DV, 4 not hit
+either), which moves those 130 points out of the RAM counts with no net
+change.
 
 The `link` reference now includes its level 2 (it was levels 0 and 1).
 That moves 104 `pcie_link.sv` points from "not hit either" to "reached by
@@ -249,7 +264,7 @@ The 97080 toggle points not hit, by cause:
 | --- | ---: | --- |
 | Hit in another parameter set or at the host's end | 46325 | The same file, signal bit and direction toggles in another copy: `tl` 19709, `dll` 7913, the common RAMs 7199, `cfg` 5392, `mac` 2286, `pcie_core.sv` 1914, `pcs` 734, `pcie_link.sv` 456, `common_skid_stage` 400, `phy` 177, `common_tlp_rx_track` 88, the common CDC blocks 57. |
 | Reached by the stacked IP's own DV | 33167 | `tl` 17723, `cfg` 8667, `dll` 3072, `mac` 2640, `pcs` 570, `common_skid_stage` 180, `pcie_link.sv` 136, the common RAMs 74, `common_cdc_fifo` 69, `phy` 36: data and address patterns, error and malformed paths, credit and queue extremes and parameter values that the host model and the e2e's parameter sets do not produce, and the CDC FIFO's data and fill bits, which the `pcs` and `phy` DV reach. |
-| Not hit by the stacked IP's own DV either | 16188 | `tl` 5660, `dll` 4782, `cfg` 4722, `mac` 580, `pcie_link.sv` 260, `pcs` 130, `common_tlp_rx_track` 36, the common RAMs 8, `phy` 6, `common_cdc_rst` 4: the causes of each IP's plan ([`tl`](../tl/DV_PLAN.md#coverage-holes), [`cfg`](../cfg/DV_PLAN.md#coverage-holes), [`dll`](../dll/DV_PLAN.md#coverage-holes), [`link`](../link/DV_PLAN.md#coverage-holes)): bits outside the registers' writable masks, constant templates and fields, credit counters' top bits, power states tied off. The `dll` 4782 by the causes of its holes: constant per build 1284, one TLP's credits 1128, release events 952, the DLLP format 590, counter top bits 492, large data credits 260, the transmit block and hold release 40, receive buffer full 36. In `pcie_link.sv`, 104 of the 260 are the GPIO ports at `LOWER` 0 (constant by construction, [`link` holes](../link/DV_PLAN.md#coverage-holes)). `common_tlp_rx_track` 36: `hdr_end` and `pos_o.hdr_end` are 2 or 3, so their other bits are constant by construction. The common RAMs 8: the top bits of `in_ram` and `ram_used_o` in the RAM FIFO copies that `tl` builds, a fill level that no unit's DV reaches at that depth. `common_cdc_rst` 4: the reset synchronizer's first stage, constant ([`link` holes](../link/DV_PLAN.md#coverage-holes)). |
+| Not hit by the stacked IP's own DV either | 16188 | `tl` 5660, `dll` 4782, `cfg` 4722, `mac` 580, `pcie_link.sv` 260, `pcs` 130, `common_tlp_rx_track` 36, the common RAMs 8, `phy` 6, `common_cdc_rst` 4: the causes of each IP's plan ([`tl`](../tl/DV_PLAN.md#coverage-holes), [`cfg`](../cfg/DV_PLAN.md#coverage-holes), [`dll`](../dll/DV_PLAN.md#coverage-holes), [`link`](../link/DV_PLAN.md#coverage-holes)): bits outside the registers' writable masks, constant templates and fields, credit counters' top bits, power states tied off. The `dll` 4782 by the causes of its holes: constant per build 1284, one TLP's credits 1128, release events 952, the DLLP format 590, counter top bits 492, large data credits 260, the transmit block and hold release 40, receive buffer full 36. In `pcie_link.sv`, 104 of the 260 are the GPIO ports at `LOWER` 0 (constant by construction, [`link` holes](../link/DV_PLAN.md#coverage-holes)). `common_tlp_rx_track` 36: `hdr_end` and `pos_o.hdr_end` are 2 or 3, so their other bits are constant by construction. The common RAMs 8: the top bits of `in_ram` and `ram_used_o` in the RAM FIFO copies that `tl` builds, a fill level that no unit's DV reaches at that depth (the `tl` plan's queue fill and owed credits row: a host that keeps to its credits never fills a queue, [`tl` holes](../tl/DV_PLAN.md#coverage-holes)). `common_cdc_rst` 4: the reset synchronizer's first stage, constant ([`link` holes](../link/DV_PLAN.md#coverage-holes)). |
 | The stack's own nets | 1400 | `pcie_core.sv` 1384: the GPIO ports at `LOWER` 0, held at 0 or tied off by the bench (96, constant by construction), the values the host model fixes (its BAR0, BAR2 and MSI addresses and data, one bus and device number, Max_Payload_Size and Max_Read_Request_Size), credits available above the advertisement (`fc_*_avail`, `fc_rel_npd`), and the error-event bits that do not pulse on this line (`dl_err_o`); `tl` 16: the completion timeout prescaler's top bits in a parameter set only `core` builds. |
 
 How the points were sorted, so a re-measurement reproduces the counts: a

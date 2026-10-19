@@ -414,7 +414,7 @@ toggle and 91 line points). The GPIO lower layer
 ([#378](https://github.com/amichai-bd/pcie-factory/issues/378)) adds 208
 toggle points in the `pcie_link` copies (182 outside the new ones) and 1
 line point (`pcie_gpio_pkg::replay_timeout`). The RTL edits of #393 and
-#378 add 3 more line points to the copies that existed at #360. Its `LOWER` 1 entries have no coverage runs, so they add no
+#378 add 3 more line points to the copies that existed at #360. The GPIO layer's `LOWER` 1 entries have no coverage runs, so they add no
 copies. Without a re-measurement the merged toggle fell to 75.02% (31181 of
 41564) and missed the 76.5 floor; line was 90.88% (1565 of 1722).
 `e2e_soak_replay_timeout` runs that build with soak traffic and gives
