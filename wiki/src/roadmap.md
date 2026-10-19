@@ -75,9 +75,45 @@ run alongside M2's `link` wave; RTL starts after M2 closes (Q6).
 
 M3 is done when the goal checklist in the decision record holds on `main`.
 
+## M4: Root-port stack and test sequencer
+
+Add a synthesizable root-port stack with no CPU: `link` reused in the
+downstream role under a new integration IP, `rc`, which holds the root-port
+transaction layer `rc_tl` and the command-ROM test sequencer `rc_seq`
+(sub-IPs, OP1). It is verified back to back against the endpoint `core` in
+simulation, with the independent host model (#288) as a shadow checker, and
+synthesized for the DE2-115 in a board build where a GPIO data-link-boundary
+adapter replaces `phy`. M4 is the first milestone towards a two-board host
+and endpoint (P1). Tracked by the M4 epic
+([#357](https://github.com/amichai-bd/pcie-factory/issues/357)); the goal,
+the done criteria and the decisions are in
+[decision record 0005](decisions/0005-m4-grill.md). Specs start now; RTL
+starts once the `rc` HAS is signed off (F1, reading F1's "its HAS" as the
+`rc` HAS; the adapter RTL also waits for #370).
+
+| Wave | Outcome | Issues |
+| --- | --- | --- |
+| 0, record | This roadmap and the decision record | #366 |
+| 1, specs and models | `rc` HAS with the Type 1 header, host memory and downstream `link` contract; then the `rc_tl` and `rc_seq` MAS; the GPIO adapter HAS and the `link` lower-layer parameter (each signed off by the captain or the captain's delegate); then the `rc` arch model and perf scenarios; the host model passive shadow mode | #367, then #368, #369; #370; then #371; #372 |
+| 2, RTL (after the `rc` HAS sign-off) | `rc_tl` requester path, then the root-port Type 1 header, then the completer path with MSI capture and receive errors; `rc_seq` interpreter and the M4 programs | #373, then #374, then #375; #376 |
+| 3, integration and evidence | `rc` stack and full-phy back-to-back e2e with `core`; then the GPIO adapter RTL, `link` parameter and board-build e2e; then the `rc` board build synthesis on the DE2-115; coverage floors | #377, then #378, then #379; #380 |
+
+M4 is done when the goal checklist in the decision record holds on `main`.
+FPGA timing is reported for information only, and M4 has no ASIC target.
+
 ## Later
 
-In order ([0004](decisions/0004-m3-grill.md) Q7): an AXI bridge IP on top of
-the `core` TLP stream; then Gen2 and Gen3 rates
-([0002](decisions/0002-m1-grill.md) Q9) and wider links. They are planned
-here once M3 lands.
+In order: the firstmate's ordering in the M4 epic, consistent with P1 and
+P2, which changes [0004](decisions/0004-m3-grill.md) Q7; the captain may
+override it ([0005](decisions/0005-m4-grill.md#waves)):
+
+1. The two-board demonstration over physical GPIO between the DE2-115 and
+   the DE10-Lite, with the endpoint board build and DE10-Lite flow support
+   (OP3).
+2. A CPU or SoC host, firmware and Linux (P2).
+3. An AXI bridge IP on top of the `core` TLP stream
+   ([0004](decisions/0004-m3-grill.md) Q7).
+4. Gen2 and Gen3 rates ([0002](decisions/0002-m1-grill.md) Q9) and wider
+   links.
+
+Each is planned here once the milestone before it lands.

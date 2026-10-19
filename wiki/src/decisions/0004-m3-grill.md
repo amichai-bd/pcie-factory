@@ -126,3 +126,6 @@ item 8 and the M1 Q27, Q28 row above:
   PR CI runs Quartus synthesis only and no ASIC job; the nightly runs the
   full Quartus flow and the ASIC synthesis-only check, with ASIC
   place-and-route paused.
+
+**2026-10-19:** the order after M3 in Q7 is changed by the M4 epic's Later
+section; see [0005](0005-m4-grill.md#waves).
