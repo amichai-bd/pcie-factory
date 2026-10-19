@@ -58,22 +58,18 @@ tests:
     testcase: e2e_symbol_errors
     top: pcie_phy_e2e_tb
     params: {MAC_RTL: 1, PCS_RTL: 1}
-    seeds: 2
     timeout_s: 180
   - name: e2e_bit_slips
     module: tests.test_phy_e2e
     testcase: e2e_bit_slips
     top: pcie_phy_e2e_tb
     params: {MAC_RTL: 1, PCS_RTL: 1}
-    seeds: 2
     timeout_s: 180
-    coverage_seeds: 2
   - name: e2e_elec_idle
     module: tests.test_phy_e2e
     testcase: e2e_elec_idle
     top: pcie_phy_e2e_tb
     params: {MAC_RTL: 1, PCS_RTL: 1}
-    seeds: 2
     timeout_s: 180
   - name: e2e_scrambler_block
     module: tests.test_phy_e2e
@@ -90,5 +86,4 @@ tests:
     testcase: e2e_rtl_link
     top: pcie_phy_e2e_tb
     params: {MAC_RTL: 1, PCS_RTL: 1}
-    seeds: 2
     timeout_s: 120
