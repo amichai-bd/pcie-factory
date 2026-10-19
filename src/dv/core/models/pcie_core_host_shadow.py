@@ -782,20 +782,29 @@ class HostShadow(HostModel):
             self._blame("endpoint", f"unexpected completion: requester {c.requester_id:#06x}, "
                         f"tag {c.tag}, status {c.status:03b}")
             return
+        # The root port's outcome, first row deciding (rc_tl MAS, completion
+        # matching): CRS, UR, CA, a reserved status, then a successful
+        # completion that is malformed (bit 6) or poisoned (bit 5).
         status = STATUS_NAMES.get(c.status)
-        if c.ep:
-            self._event(ERR_POISONED)
+        failed = None  # why the root port ends the request BAD at once
         if status is None:
-            req.bad = True
-            self._event(ERR_MALFORMED, sure=False)
+            failed = f"reserved Completion Status {c.status:03b}"
         elif status == "CRS":
             if req.kind == "mem_rd":  # only a configuration request may be retried
-                req.bad = True
-                self._event(ERR_MALFORMED)
+                failed = "CRS completion to a memory read"
             else:
                 self._event(ERR_CRS)
         elif status in ("UR", "CA"):
             self._event(ERR_UR if status == "UR" else ERR_CA)
+        else:
+            failed = self._malformed_cpl(req, c)
+            if failed is None and c.ep:
+                self._event(ERR_POISONED)
+        if failed is not None:
+            req.bad = True
+            self._event(ERR_MALFORMED)
+        if c.ep and status != "SC":
+            c.ep = 0  # the status row decides first: EP has no effect
         errs = len(req.errors)
         self.side = "endpoint"
         pre = getattr(req, "pre_capture", None)
@@ -808,10 +817,17 @@ class HostShadow(HostModel):
             self._on_completion(c)
         finally:
             self.side = "rc"
-        if len(req.errors) > errs:
-            req.unsure = True  # the endpoint broke a rule; the root port may see it otherwise
-            if not all("poisoned completion" in x for x in req.errors[errs:]):
-                self._event(ERR_MALFORMED, sure=False)  # it may judge the completion malformed
+        if failed is not None:
+            # The root port ends the request at once: BAD, its data not
+            # delivered, later completions for it unexpected (bit 4) and,
+            # as the endpoint's, still reported.
+            if not req.done:
+                self._finish(req, "error")
+            elif self._outstanding.get(req.tag) is req:
+                del self._outstanding[req.tag]
+            req.unsure = False
+        elif len(req.errors) > errs:
+            req.unsure = True  # an endpoint rule the root port does not judge (Completer ID, TC)
         self._check_deferred(req)
         if req.done:
             req.done_at = self.now
@@ -824,6 +840,31 @@ class HostShadow(HostModel):
                     if got != want:
                         self._blame("endpoint", f"memory read at {a:#x}: byte {got:#04x}, the "
                                     f"root port wrote {want:#04x}", req)
+
+    @staticmethod
+    def _malformed_cpl(req: Request, c: Tlp) -> str | None:
+        """Why a successful completion is malformed for the root port, or
+        None (rc_tl MAS, completion matching)
+        [cite: PCIe Base Spec, rev 3.0, §2.3.1.1]."""
+        if req.kind == "cfg_rd":
+            return None if c.has_data and c.length_dw == 1 else "configuration read completion " \
+                "without one DW of data"
+        if req.kind == "cfg_wr":
+            return "configuration write completion with data" if c.has_data else None
+        if req.kind != "mem_rd":
+            return None
+        if not c.has_data:
+            return "successful memory read completion without data"
+        if c.byte_count_value != req.remaining:
+            return f"Byte Count {c.byte_count_value}, {req.remaining} remaining"
+        if c.lower_addr != req.next_byte & 0x7F:
+            return f"Lower Address {c.lower_addr:#x}, next byte {req.next_byte & 0x7F:#x}"
+        stop = (req.next_byte & ~3) + 4 * c.length_dw
+        if stop > req.end_dw:
+            return f"data ending at {stop:#x}, past the request's {req.end_dw:#x}"
+        if stop < req.end_dw and stop % 64:
+            return f"partial completion ending at {stop:#x}, not on 64 bytes"
+        return None
 
     def _check_prediction(self, req: Request) -> None:
         if req.predict is not None and req.value != req.predict:

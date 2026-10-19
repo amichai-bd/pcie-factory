@@ -952,3 +952,72 @@ def test_completer_id_before_the_first_configuration_write():
                       cfg_bus=1).encode())
     sh.observe_rx(completion(0x0000, 0, 4, CPL_SC, 4, 0, bytes(4)).encode())
     assert sh.errors and "expected 0x0100" in sh.errors[-1]
+
+
+def test_malformed_completion_ends_read_bad():
+    """A successful completion with a wrong Byte Count is malformed for the
+    root port (rc_tl MAS, completion matching): the read ends BAD at once,
+    bit 6 surely set, and a later completion for it is unexpected (bit 4)
+    and still the endpoint's error."""
+    sh = _routed_shadow(strict=False)
+    _sent_read(sh)
+    sh.observe_rx(completion(0x0100, 0, 0, CPL_SC, 8, 0, bytes(4)).encode())
+    sh.errors.clear()                      # the endpoint broke a rule: reported
+    sh.observe_result("BAD", 0, True)
+    _record(sh, 1 << 6)
+    assert not sh.errors
+    _record(sh, 0)
+    assert sh.errors and "bits 0x0040 set" in sh.errors[-1]
+    sh.errors.clear()
+    sh.observe_rx(completion(0x0100, 0, 0, CPL_SC, 4, 0, bytes(4)).encode())
+    assert len(sh.errors) == 1 and "endpoint: unexpected completion" in sh.errors[0]
+    sh.errors.clear()
+    _record(sh, 1 << 6 | 1 << 4)
+    assert not sh.errors
+
+
+def test_malformed_completion_reported_ok_raises():
+    sh = _routed_shadow(strict=False)
+    _sent_read(sh)
+    sh.observe_rx(completion(0x0100, 0, 0, CPL_SC, 4, 0x10, bytes(4)).encode())
+    sh.errors.clear()
+    sh.observe_result("OK", 0, True)
+    assert sh.errors and "predicted BAD" in sh.errors[-1]
+
+
+def test_poisoned_ur_completion_is_ur():
+    """The status row decides first: a poisoned Unsupported Request
+    completion is UR with bit 0, never bit 5."""
+    sh = _routed_shadow(strict=False)
+    _sent_read(sh)
+    sh.observe_rx(completion(0x0100, 0, 0, CPL_UR, 4, 0, ep=1).encode())
+    sh.observe_result("UR", 0, True)
+    _record(sh, 1 << 0)
+    assert not sh.errors
+    _record(sh, 1 << 0 | 1 << 5)
+    assert sh.errors and "none outside 0x0001" in sh.errors[-1]
+
+
+def test_poisoned_malformed_completion_is_bit_6():
+    """Malformed outranks poisoned: bit 6, not bit 5."""
+    sh = _routed_shadow(strict=False)
+    _sent_read(sh)
+    sh.observe_rx(completion(0x0100, 0, 0, CPL_SC, 8, 0, bytes(4), ep=1).encode())
+    sh.errors.clear()
+    sh.observe_result("BAD", 0, True)
+    _record(sh, 1 << 6)
+    assert not sh.errors
+    _record(sh, 1 << 6 | 1 << 5)
+    assert sh.errors and "none outside 0x0040" in sh.errors[-1]
+
+
+def test_completer_id_mismatch_sets_no_bit_6():
+    """A wrong Completer ID is not among the root port's malformed checks:
+    bit 6 must stay clear."""
+    sh = _routed_shadow(strict=False)
+    _sent_read(sh)
+    sh.observe_rx(completion(0x0200, 0, 0, CPL_SC, 4, 0, bytes(4)).encode())
+    sh.errors.clear()
+    sh.observe_result("OK", 0, True)
+    _record(sh, 1 << 6)
+    assert sh.errors and "none outside 0x0000" in sh.errors[-1]
