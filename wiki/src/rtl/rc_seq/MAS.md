@@ -197,8 +197,13 @@ elaboration by pure functions: a builder appends constructor words to a
 `t_prog` (the image and the next index), which starts all FAIL. A forward
 `JUMP` target (the `ERRORS` pass selection, the `SELFTEST` padding) comes
 from a first build of the same function, whose step count does not depend
-on the target values. `program_of(PROGRAM)` selects the image in
-`pcie_rc_seq_rom`.
+on the target values; both builds run inside one function
+(`prog_errors_final`, `prog_selftest_final`). `program_of(PROGRAM)`
+selects the `t_prog` in `pcie_rc_seq_rom`, which takes the image and the
+length by part-select of the packed `{rom, n}` and checks that layout with
+a parameter check. No constant expression selects a member of a struct
+localparam: Quartus Lite rejects that (error 10742, "hierarchical
+identifier"; [#379](https://github.com/amichai-bd/pcie-factory/issues/379)).
 
 ## Decisions
 

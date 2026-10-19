@@ -36,7 +36,12 @@ module pcie_rc_seq #(
 
   localparam pcie_rc_seq_pkg::t_prog PRG = pcie_rc_seq_pkg::program_of(PROGRAM);
 
-  `COMMON_ASSERT_PARAM(g_program_check, PRG.n != 16'd0, "pcie_rc_seq: PROGRAM names no program")
+  // The length n is t_prog's low 16 bits, taken by part-select: Quartus
+  // Lite rejects a member select of a struct localparam in a constant
+  // expression (error 10742; #379). pcie_rc_seq_rom checks the layout.
+  localparam logic [15:0] PRG_N = PRG[15:0];
+
+  `COMMON_ASSERT_PARAM(g_program_check, PRG_N != 16'd0, "pcie_rc_seq: PROGRAM names no program")
 
   // ---------------------------------------------------------------- state
 
