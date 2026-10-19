@@ -38,7 +38,7 @@ programs need to behave as follows; #377 owns that model.
 | Need | Model behavior | Used by |
 | --- | --- | --- |
 | BAR0 as memory | Offsets 0x000 to 0xEFF store writes with their byte enables and return them on reads. | MMIO, recovery checks |
-| DMA doorbell | A write to BAR0 0xF0C starts a copy of the bytes from the system address at 0xF00 to the one at 0xF04, length in bytes at 0xF08 (up to 128), by bus-master reads then writes, then raises MSI vector 0. Doorbells are served in order, each copy and its MSI before the next. A read that completes with an error status ends that copy: nothing written, no MSI. | DMA and MSI; errors (bits 11, 12) |
+| DMA doorbell | A write to BAR0 0xF0C starts a copy of the bytes from the system address at 0xF00 to the one at 0xF04, length in bytes at 0xF08 (up to 128), by bus-master reads then writes, then raises MSI vector 0. Doorbells are served in order, each copy and its MSI before the next; while a copy runs the model accepts and queues, or back-pressures, at least D + 1 further doorbells (D the MSI capture depth, R8). A read that completes with an error status ends that copy: nothing written, no MSI. | DMA and MSI; errors (bits 11, 12) |
 | No-answer DW | A read of BAR0 0xF10 is never answered. | Errors (completion timeout) |
 | Link down | The e2e takes the link down while the errors section polls BAR0 after its first re-enumeration. | Errors |
 
@@ -93,6 +93,8 @@ writes the destination.
 
 Program `ERRORS`. A run flag in host memory tells the three passes over
 `ENUM` apart, since host memory is the only state a run can branch on.
+It is about 110 + 2D steps, so it fits the 256-step ROM for a capture
+depth D up to 64 (the `rc_tl` MAS proposes 4).
 
 | # | Steps | Checks |
 | --- | --- | --- |
@@ -100,10 +102,10 @@ Program `ERRORS`. A run flag in host memory tells the three passes over
 | R2 | `HOST_RD` flag; `JUMP DATA_EQ` 1 to R11; `JUMP DATA_EQ` 2 to R14. | Pass selection. |
 | R3 | `CFG_WR` 0x78 byte 0 = 0x1F; `ERR_CLR` 0x1FFF. | Every error reporting enable on in `core` ([`cfg` errors](../../arch/cfg/HAS.md#errors)), record clear. |
 | R4 | `MEM_WR` 0x1000_8000; `MEM_RD` 0x1000_8000 checking `UR`. | A posted Unsupported Request at the endpoint (ERR_NONFATAL), then a non-posted one (a UR completion and the advisory ERR_COR). No configuration request to function 1: `core`'s Completer ID for it is a [known discrepancy](../../arch/core/HAS.md#open-questions) the host model shadow would flag. |
-| R5 | `ERR_RD`; `JUMP DATA_NE` back to that `ERR_RD` with value and mask 0x181; `EXPECT` 0x181 on 0x1FFF. | Bits 0 (UR completion), 7 (ERR_COR) and 8 (ERR_NONFATAL) set, and no other: R4 draws exactly one of each message, so none can arrive after the loop exits. |
+| R5 | `ERR_RD`; `JUMP DATA_NE` back to that `ERR_RD` with value and mask 0x181; `EXPECT` 0x181 on 0x1FFF; `ERR_CLR` 0x1FFF. | Bits 0 (UR completion), 7 (ERR_COR) and 8 (ERR_NONFATAL) set, and no other: R4 draws exactly one of each message, so none can arrive after the loop exits. The clear leaves R7 to R9 a clean record. |
 | R6 | `MEM_RD` 0x2000_0000, `CFG_RD` device 1, `CFG_RD` bus 2, each checking `LOCAL_UR`. | `rc_tl`'s outbound refusals send nothing. |
-| R7 | Doorbell (D2's four writes) with source 0x2000_0000, destination 0x200, 4 bytes; `ERR_RD`; `JUMP DATA_NE` back with value and mask 0x800. | Bit 11: the endpoint's read outside host memory is answered with Unsupported Request ([inbound routing](../../arch/rc/HAS.md#inbound-routing)). |
-| R8 | D + 1 doorbells (source 0x100, destination 0x200, 4 bytes) with no `WAIT_MSI`, where D is the capture depth the `rc_tl` MAS sets ([#368](https://github.com/amichai-bd/pcie-factory/issues/368)); `ERR_RD`; `JUMP DATA_NE` back with value and mask 0x1000; D × `WAIT_MSI`. | Bit 12: the MSI past a full capture is dropped; the D kept are then taken. |
+| R7 | Doorbell (D2's four writes) with source 0x2000_0000, destination 0x200, 4 bytes; `ERR_RD`; `JUMP DATA_NE` back to that `ERR_RD` with value and mask 0x800. | Bit 11: the endpoint's read outside host memory is answered with Unsupported Request ([inbound routing](../../arch/rc/HAS.md#inbound-routing)). |
+| R8 | `MEM_WR` BAR0 + 0xF00 = 0x100, + 0xF04 = 0x200, + 0xF08 = 4 once, then D + 1 `MEM_WR` BAR0 + 0xF0C = 1, with no `WAIT_MSI`, where D is the capture depth the `rc_tl` MAS sets ([#368](https://github.com/amichai-bd/pcie-factory/issues/368)); `ERR_RD`; `JUMP DATA_NE` back to that `ERR_RD` with value and mask 0x1000; D × `WAIT_MSI`. | Bit 12: the MSI past a full capture is dropped; the D kept are then taken. |
 | R9 | `MEM_RD` BAR0 + 0xF10 checking `TIMEOUT`; `ERR_RD`; `EXPECT` 0x1808 on 0x1FFF; `ERR_CLR` 0x1FFF; `ERR_RD`; `EXPECT` 0 on 0x1FFF. | Bit 3: completion timeout, with bits 11 and 12 still set and nothing else; the record clears. |
 | R10 | `HOST_WR` flag = 1; `HOT_RESET`; `WAIT_LINK`; `JUMP ALWAYS` to `ENUM`. | Hot Reset, link-up, second enumeration. |
 | R11 | `MEM_WR` then `MEM_RD` BAR0 + 0x40 with an `EXPECT`; `HOST_WR` flag = 2. | Traffic resumes after the Hot Reset. |
@@ -131,8 +133,8 @@ completion or an unknown message on no request, so those are injected.
 | 8 | ERR_NONFATAL | R4, R5 | — |
 | 9 | ERR_FATAL | — | The e2e: a malformed TLP injected toward `core`, which reports it as fatal ([`cfg` errors](../../arch/cfg/HAS.md#errors)) (#377); `rc_tl` DV (#375) |
 | 10 | Other message | — | `rc_tl` DV (#375) |
-| 11 | Inbound request handled as UR | R7 | — |
-| 12 | MSI dropped, capture full | R8 | — |
+| 11 | Inbound request handled as UR | R7 (rechecked in R9) | — |
+| 12 | MSI dropped, capture full | R8 (rechecked in R9) | — |
 
 An e2e entry that injects checks its bit with an `ERR_RD` poll like R5's,
 in a program #377 adds (ids 5 and up). `dl_err_o` and the host model
