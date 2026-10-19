@@ -206,7 +206,10 @@ bits, the held offer (`t_offer`) and the lookup state.
 
 - One clock (`clk_i`, 125 MHz), synchronous active-high reset; no
   crossings. Every output is a register or a function of registers and
-  the parameters, except the two ready outputs (below).
+  the parameters, except the two ready outputs (below). Every reset
+  register is a `COMMON_DFF_RST*`, so those outputs reach their reset
+  values the cycle after the first edge at which `rst_i` is sampled 1, as
+  the [HAS reset](../../arch/cfg/HAS.md#reset) states.
 - Register access: taken at edge E, completed in the cycle after E (1
   cycle, within the HAS's 4); `reg_req_ready_o` is 0 in that cycle, so one
   access per 2 cycles. A write's effect on every output is at E.

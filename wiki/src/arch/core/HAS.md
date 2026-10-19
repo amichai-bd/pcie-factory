@@ -270,9 +270,10 @@ with configuration and BAR2 requests, sends BAR0 traffic, answers the
 application's reads, receives interrupt writes and error messages, and
 checks each BAR0 read completion by the splitting rules. It is not the
 independent host model DV uses, which is
-[#288](https://github.com/amichai-bd/pcie-factory/issues/288)'s. The host
-stand-in still keeps the release rule's credit count itself, as in the `tl`
-model; moving both models to the `dll` model's release port is [#337](https://github.com/amichai-bd/pcie-factory/issues/337). The scenarios are error-free: `rcv_err` is not driven. The [self-tests](../../../../src/arch/core/test_pcie_core_arch.py)
+[#288](https://github.com/amichai-bd/pcie-factory/issues/288)'s. As [Credits](#credits) wires
+them, `tl`'s release pulses drive the endpoint `dll`
+model's [credit-release](../dll/HAS.md#credit-release) port, so the host
+stand-in's `dll` sends only what the released credits allow. The scenarios are error-free: `rcv_err` is not driven. The [self-tests](../../../../src/arch/core/test_pcie_core_arch.py)
 check these pages' examples; `./build arch --ip core` runs the
 scenarios of the [targets](#targets) and writes
 `workdir/core/arch/perf.json`.

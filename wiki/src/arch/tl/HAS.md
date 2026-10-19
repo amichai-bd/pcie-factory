@@ -112,7 +112,9 @@ packet partly taken or offered on any stream; no completion, release,
 error event or timeout is sent for them. `tlp_tx_valid_o`,
 `tlp_rx_ready_o`, `fc_rel_p_o`, `fc_rel_np_o`, `reg_req_valid_o`,
 `tl_err_o`, `tl_np_pending_o`, `slot_pwr_valid_o`, `msg_ready_o`, `cq_valid_o`, `cc_ready_o`, `rq_ready_o` and
-`rc_valid_o` are 0; data outputs are don't care. The `dll` has already
+`rc_valid_o` are 0 in every such cycle, the first included: each takes
+the reset condition combinationally, so none lags the reset edge; data
+outputs are don't care. The `dll` has already
 abandoned every TLP it held when `dl_up_i` falls
 ([`core` link down](../core/HAS.md#link-down)), so the credits `tl` would
 have released need no release.
@@ -207,10 +209,11 @@ timeout, and the transmit arbiter. Its TLPs are the `dll` model's, and
 `perf` runs `tl` over the `link` model's `LinkPair` against a host and an
 application stand-in, both loaded unchanged from
 [`src/arch/dll/`](../../../../src/arch/dll/pcie_dll_arch.py) and
-[`src/arch/link/`](../../../../src/arch/link/pcie_link_arch.py). The host
-stand-in still counts the release rule's credits itself, its credit return
-reaching it 32 cycles after a release, instead of using the `dll` model's
-release port ([#337](https://github.com/amichai-bd/pcie-factory/issues/337)). The
+[`src/arch/link/`](../../../../src/arch/link/pcie_link_arch.py). `tl`'s
+`dll` model has the [credit-release](../dll/HAS.md#credit-release) port and
+`tl`'s release pulses drive it, so posted and non-posted credits reach the
+host stand-in's `dll` over the line's UpdateFC only when `tl` releases
+them, and the host sends only what they allow. The
 [self-tests](../../../../src/arch/tl/test_pcie_tl_arch.py) check every
 page's examples; `./build arch --ip tl` writes `workdir/tl/arch/perf.json`.
 It is written from these pages and is not the DV oracle: the independent

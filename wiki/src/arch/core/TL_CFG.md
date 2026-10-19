@@ -22,7 +22,11 @@ pages implement it exactly. A change here changes both.
 Each net `<x>` is the port `<x>_o` of the IP that drives it and `<x>_i` of
 the other; none is a `core` port. All are synchronous to `clk_i`. Both IPs
 are held in reset while `rst_i` is 1 or `dl_up_o` is 0
-([reset](HAS.md#reset)); every output below is 0 in reset.
+([reset](HAS.md#reset)). Each output below takes its reset value at the
+timing its IP's HAS reset section states: [`cfg` reset](../cfg/HAS.md#reset)
+(the two readys from the first reset cycle, every other `cfg` output from
+the cycle after the first reset edge) and [`tl` reset](../tl/HAS.md#reset)
+(every `tl` output below from the first reset cycle).
 
 ### Register access
 
