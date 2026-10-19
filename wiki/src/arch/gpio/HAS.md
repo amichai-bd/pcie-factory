@@ -178,7 +178,7 @@ packet, as the `phy` allows.
 
 | Slot | No packet open | Packet open |
 | --- | --- | --- |
-| IDLE | Act on the word. | Close the packet with an `eop` beat carrying `pkt_rx_err_o`; pulse `rcv_err_o`; act on the word. |
+| IDLE | Act on the word. | Close the packet with an `eop` beat carrying `pkt_rx_err_o`; pulse `rcv_err_o`. The slot is damaged, so its word feeds no run ([terms](LINK_UP.md#terms)). |
 | SOP_TLP, SOP_DLLP | Deliver the `sop` beat; the packet is open. | Close the open packet with an error `eop`; pulse `rcv_err_o`; discard the new packet. |
 | ONE_TLP, ONE_DLLP | Deliver one beat with `sop` and `eop`. | As SOP. |
 | MID | Discard; pulse `rcv_err_o`. | Deliver the beat. |
@@ -209,9 +209,25 @@ One beat per slot, so the adapter carries one beat every 4 × `CLK_DIV`
 `clk_i` cycles each way (one in 8 at the default), against one per cycle
 on the `phy`. The MAS sets the latencies: `L_tx`, from an accepted beat to
 its first transfer, and `L_rx`, from a slot's last transfer to its beat on
-the stream. Latency targets and an architecture model are added by
-[#378](https://github.com/amichai-bd/pcie-factory/issues/378) (firstmate
+the stream; the [targets](#targets) bound them.
+
+## Targets
+
+Stated by the [architecture model](../../../../src/arch/gpio/pcie_gpio_arch.py)
+and its [scenarios](../../../../src/arch/gpio/perf/), measured by the
+[unit DV](../../dv/gpio/DV_PLAN.md) at the clock ratios 1/2, 1 and 2
+([#378](https://github.com/amichai-bd/pcie-factory/issues/378); firstmate
 [decision](https://github.com/amichai-bd/pcie-factory/issues/370#issuecomment-6267987546), point 4).
+`S` is one slot, 4 × `CLK_DIV` cycles.
+
+| Target | Value | Measured at `CLK_DIV` 2 |
+| --- | --- | --- |
+| `L_tx` | 2 `clk_i` cycles, plus the wait for the next slot start (at most `S` − 1) | 2 to 9 cycles |
+| `L_rx` | `CLK_DIV`/2 sender cycles (to the end of the half transfer after the slot), then at most 4 receiver `clk_i` cycles | At most 4.83 receiver cycles |
+| `W` ([terms](LINK_UP.md#terms)) | At most 4 slots of the slower end | Model: at most 1.75 slots |
+| Line use, back-to-back packets | One beat in every slot: no idle slot between packets under the [ready rule](#transmit) | Model: 0.9999 over 200 maximum TLPs |
+| Payload both ways, 128-byte writes, an Ack and an UpdateFC per TLP on the reverse direction | At least 0.78 payload beats per slot | Model: 0.79 |
+| Link-up from reset, no damage | Both ends up within 8 + 16 + 8 slots plus 3 × `W` of the later reset release, in slots of the slower end (44) | 22 to 25 slots (model 24.75) |
 
 ## Simplifications relative to phy
 
@@ -230,7 +246,7 @@ the stream. Latency targets and an architecture model are added by
 
 | Timer | Value | Depends on the transport | In the board build |
 | --- | --- | --- | --- |
-| Replay timeout | 356 cycles | Yes: it must exceed the round trip from a TLP's last beat taken to its Ack [cite: PCIe Base Spec, rev 3.0, §3.5.2.1]. | Too short. With `S` = 4 × `CLK_DIV`, an idle link and an n-beat TLP, the Ack returns about n × (S − 1) + 3 × S + 36 + 2 × (`L_tx` + `L_rx`) cycles after the timer starts (the far `dll`'s 4-cycle check and 32-cycle Ack timer, the 3-beat Ack). At the default, S = 8, and with zero adapter latency (the best case), a TLP above 42 beats (from a 3-DW-header write with 68 bytes of payload) times out before its Ack arrives; any adapter latency lowers the bound. Under load the Ack also waits behind the reverse transmit buffer: up to its depth (at least 75 beats; the MAS sets it) × S cycles. Each spurious timeout replays; the far end discards the duplicates and Acks at once, so no TLP is lost, but bandwidth is wasted, and four timeouts with no acknowledging Ack between them roll REPLAY_NUM over. So the board build raises the `dll` [`REPLAY_TIMEOUT`](../dll/HAS.md#parameters) to the loaded round trip, 1400 cycles at the default `CLK_DIV` ([`link` lower layer](../link/HAS.md#replay-timeout-at-lower-1)). |
+| Replay timeout | 356 cycles | Yes: it must exceed the round trip from a TLP's last beat taken to its Ack [cite: PCIe Base Spec, rev 3.0, §3.5.2.1]. | Too short. With `S` = 4 × `CLK_DIV`, an idle link and an n-beat TLP, the Ack returns about n × (S − 1) + 3 × S + 36 + 2 × (`L_tx` + `L_rx`) cycles after the timer starts (the far `dll`'s 4-cycle check and 32-cycle Ack timer, the 3-beat Ack). At the default, S = 8, and with zero adapter latency (the best case), a TLP above 42 beats (from a 3-DW-header write with 68 bytes of payload) times out before its Ack arrives; any adapter latency lowers the bound. Under load the Ack also waits at the far adapter behind a maximum packet draining and then the packet the far `dll` had already started (the `dll` finishes a started packet, [transmit priority](../dll/RETRY.md#transmit-priority)): two maximum packets of slots. Each spurious timeout replays; the far end discards the duplicates and Acks at once, so no TLP is lost, but bandwidth is wasted, and four timeouts with no acknowledging Ack between them roll REPLAY_NUM over. So the board build raises the `dll` [`REPLAY_TIMEOUT`](../dll/HAS.md#parameters) to the loaded round trip with the far end up to twice as slow, 3214 cycles at the default `CLK_DIV` ([`link` lower layer](../link/HAS.md#replay-timeout-at-lower-1)). |
 | Ack timer | 32 cycles | No: it runs at the receiver. | Unchanged. The 118-cycle Ack limit [cite: PCIe Base Spec, rev 3.0, §3.5.3.1] cannot hold, since an Ack may wait behind a 75-beat packet on the pins. |
 | InitFC resend | 128 cycles | Only in rate: a group of three InitFCs is 9 slots [cite: PCIe Base Spec, rev 3.0, §3.3.1]. | At `CLK_DIV` 4 and above a group takes longer than 128 cycles, so groups go out back to back; initialisation still completes. |
 | UpdateFC refresh | 2048 cycles | No [cite: PCIe Base Spec, rev 3.0, §2.6.1.2]. | Unchanged. |
@@ -275,7 +291,7 @@ delegate, which the captain may override ([decision](https://github.com/amichai-
 | Hot Reset emulated; retrain, Disabled and Loopback not provided (firstmate decision, point 2) | The root port resets the endpoint with Hot Reset (OP4); the rest has no M4 user (the `rc` HAS ties them to 0 in M4), and alignment loss already restarts the link. | Emulating every control (logic with no user); no Hot Reset (no reset path for the board build). |
 | A `dll` replay-timeout parameter, set by the board build, in its own issue [#384](https://github.com/amichai-bd/pcie-factory/issues/384) before the board-build e2e (firstmate decision, point 1) | Spurious replays waste bandwidth and hide real faults; a default that keeps 356 cycles changes nothing else ([`dll` timers](#dll-timers)). | Accepting the replays; a slower `CLK_DIV` (does not close the gap). |
 | `CLK_DIV` default 2 (firstmate decision, point 3) | M4 has no physical boards (P3), so there is no cable to measure; 2 gives the fastest centre-aligned transfers. | A slower default chosen with no measurement. |
-| Latency targets and an architecture model in [#378](https://github.com/amichai-bd/pcie-factory/issues/378), none in this HAS yet (firstmate decision, point 4) | Targets come with a model that checks them. | No targets at all. |
+| Latency targets and an architecture model in [#378](https://github.com/amichai-bd/pcie-factory/issues/378) (firstmate decision, point 4): the [targets](#targets) above | Targets come with a model that checks them. | No targets at all. |
 | Every down starts a quiet run of at least 16 bit-8-clear TRAIN words, counted in the sender's own slots; the backstop run is 64 TRAIN words; `W` at most 4 slots of the slower end (firstmate decision as the captain's delegate, [#370 comment](https://github.com/amichai-bd/pcie-factory/issues/370#issuecomment-6268798882)) | Makes every down symmetric by construction at any clock ratio from 1/2 to 2: the partner always sees a run of 4, and the trailing-word bound (48 at a ratio of 2) stays below 64 ([convergence](LINK_UP.md#convergence)). | Relying on the realignment time to send enough bit-8-clear words (only about 4 at a ratio of 1/2); ignoring bit-8-set words while up with no backstop. |
 | `gpio_*` ports always present on `link` and `core`, tied off at `LOWER` 0 (firstmate decision, point 5; [`link` lower layer](../link/HAS.md#lower-layer)) | Follows from OP2's `link` parameter; SystemVerilog has no parameter-dependent ports. | A different top per build. |
 
@@ -283,7 +299,6 @@ delegate, which the captain may override ([decision](https://github.com/amichai-
 
 | Item | Owner |
 | --- | --- |
-| Latency targets and an architecture model for the adapter. | [#378](https://github.com/amichai-bd/pcie-factory/issues/378) |
 | The rate a board-to-board cable sustains, and whether `CLK_DIV` 2 holds on it (the default is decided as 2). | The two-board milestone on the [roadmap](../../roadmap.md#later); record owner [#357](https://github.com/amichai-bd/pcie-factory/issues/357) |
 | The header pin numbers and signal names checked against the manual; whether the header offers a clock-capable input for `gpio_rx_clk_i`; the I/O standard. | [#379](https://github.com/amichai-bd/pcie-factory/issues/379) |
 | The cited sections on this page, checked against rev 3.0 (the Base Spec is not in the local cache). | [#357](https://github.com/amichai-bd/pcie-factory/issues/357) |

@@ -164,6 +164,14 @@ module pcie_core_e2e_tb #(
   assign mon_line_o = line_q;
   assign mon_ep_line_o = ep_tx_data;
 
+  // The GPIO pins of both stacks (LOWER 0: outputs held at 0, inputs tied off).
+  logic       ep_gpio_tx_clk;
+  logic       ep_gpio_tx_ctrl;
+  logic [3:0] ep_gpio_tx_data;
+  logic       host_gpio_tx_clk;
+  logic       host_gpio_tx_ctrl;
+  logic [3:0] host_gpio_tx_data;
+
   pcie_core #(
     .FC_PH(FC_PH), .FC_PD(FC_PD), .FC_NPH(FC_NPH), .FC_NPD(FC_NPD),
     .TIMEOUT_DIV(TIMEOUT_DIV), .ERR_TIMEOUT_DIV(1), .CPL_TIMEOUT_DIV(CPL_TIMEOUT_DIV),
@@ -194,7 +202,10 @@ module pcie_core_e2e_tb #(
     .ser_tx_data_o(ep_tx_data), .ser_tx_elec_idle_o(ep_tx_ei),
     .ser_tx_rxdet_i(ser_tx_rxdet_i),
     .ser_rx_clk_i(clk_i), .ser_rx_data_i(ep_rx_data),
-    .ser_rx_elec_idle_i(line_ei_q)
+    .ser_rx_elec_idle_i(line_ei_q),
+    .gpio_tx_clk_o(ep_gpio_tx_clk), .gpio_tx_ctrl_o(ep_gpio_tx_ctrl),
+    .gpio_tx_data_o(ep_gpio_tx_data),
+    .gpio_rx_clk_i(1'b0), .gpio_rx_ctrl_i(1'b0), .gpio_rx_data_i(4'd0)
   );
   assign ser_tx_elec_idle_o = ep_tx_ei;
 
@@ -222,7 +233,10 @@ module pcie_core_e2e_tb #(
     .loopback_req_i(1'b0),
     .ser_tx_data_o(host_tx_data), .ser_tx_elec_idle_o(host_tx_ei),
     .ser_tx_rxdet_i(1'b1),
-    .ser_rx_clk_i(clk_i), .ser_rx_data_i(ep_tx_data), .ser_rx_elec_idle_i(ep_tx_ei)
+    .ser_rx_clk_i(clk_i), .ser_rx_data_i(ep_tx_data), .ser_rx_elec_idle_i(ep_tx_ei),
+    .gpio_tx_clk_o(host_gpio_tx_clk), .gpio_tx_ctrl_o(host_gpio_tx_ctrl),
+    .gpio_tx_data_o(host_gpio_tx_data),
+    .gpio_rx_clk_i(1'b0), .gpio_rx_ctrl_i(1'b0), .gpio_rx_data_i(4'd0)
   );
 
   assign mon_tl_err_o        = u_ep.tl_err;

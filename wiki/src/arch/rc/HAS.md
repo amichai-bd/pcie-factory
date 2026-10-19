@@ -54,7 +54,8 @@ lower interface and the `link` parameter that selects it.
 
 ## Interfaces
 
-All ports but the lower RX group are synchronous to `clk_i`. Port names
+All ports but the lower RX group and the GPIO receive pins are synchronous
+to `clk_i`. Port names
 follow the [RTL BKM](../../../bkm/rtl.md#naming).
 
 | Group | Ports | Contract |
@@ -64,6 +65,7 @@ follow the [RTL BKM](../../../bkm/rtl.md#naming).
 | Data link status | `dl_up_o`, `dl_state_o` (2), `dl_err_o` (7) | The `link` ports of the same names ([`link` interfaces](../link/HAS.md#interfaces)). |
 | Physical link status | `link_up_o`, `ltssm_state_o` (6), `rcv_err_o` | The `link` ports of the same names. The `link` control inputs are driven inside `rc` ([downstream role](#downstream-role)). |
 | Lower symbol interface | `ser_tx_data_o` (20), `ser_tx_elec_idle_o`, `ser_tx_rxdet_i`, `ser_rx_clk_i`, `ser_rx_data_i` (20), `ser_rx_elec_idle_i` | The `link` ports of the same names ([`phy` lower symbol interface](../phy/HAS.md#lower-symbol-interface)). |
+| GPIO pins | `gpio_tx_clk_o`, `gpio_tx_ctrl_o`, `gpio_tx_data_o` (4), `gpio_rx_clk_i`, `gpio_rx_ctrl_i`, `gpio_rx_data_i` (4) | The `link` ports of the same names, live at `LOWER` 1, the board build ([`link` lower layer](../link/HAS.md#lower-layer)). |
 
 Every `link` port `rc` exposes keeps its name, direction, width, clock and
 meaning. Everything else a test checks it checks through `rc_seq`'s
@@ -83,6 +85,7 @@ watches both directions as a passive shadow (P5, goal item 8).
 | `MSI_ADDR` | `logic [31:0]` | 32'hFEE0_0000 | 4 KiB aligned, outside host memory | System address of the 4 KiB [MSI window](#msi-window). |
 | `VENDOR_ID`, `DEVICE_ID` | `logic [15:0]` | 16'h0000 each | any but 16'hFFFF | The root port's IDs in its [Type 1 header](#type-1-header). Placeholders that claim no assigned vendor, as `core`'s. |
 | `REVISION_ID` | `logic [7:0]` | 8'h00 | any | The root port's Revision ID. |
+| `LOWER`, `GPIO_CLK_DIV` | `int unsigned` | 0, 2 | 0 or 1; even, 2 to 64 | Passed to `link`: the lower layer, `phy` (0) or the GPIO adapter (1, the board build), and the adapter's `CLK_DIV` ([`link` lower layer](../link/HAS.md#lower-layer)). At 1 `link` sets the GPIO build's `dll` replay timeout itself. |
 | `PROGRAM` | `int unsigned` | 1 | a program id of the `rc_seq` package | Passed to `rc_seq`: the ROM image a run executes ([`rc_seq` programs](../../rtl/rc_seq/MAS.md#programs)). 1, enumeration then MMIO, is the board build's. |
 
 Fixed, not parameters: completion credits infinite (`FC_CPLH`, `FC_CPLD`
@@ -339,7 +342,7 @@ non-goals). The functional rows are goal items of the
 | Errors and recovery | Goal item 7: each event of the [error record](TL_SEQ.md#error-record) detected and recorded; re-enumeration after a Hot Reset or link down; replay recovers injected link errors with no lost TLP. | #377 e2e; [`errors`](../../../../src/arch/rc/perf/errors.yaml) model |
 | Completion timeout | `rc_tl`'s timeout, at `CPL_TIMEOUT_DIV` 1, between 50 µs and 50 ms [cite: PCIe Base Spec, rev 3.0, §2.8]; the value is the `rc_tl` MAS's. | [`completion_timeout`](../../../../src/arch/rc/perf/completion_timeout.yaml) model; #377 |
 | Address map | The default host memory (4 KiB) and the MSI window are disjoint and below 4 GiB. | [`address_map`](../../../../src/arch/rc/perf/address_map.yaml) |
-| Board build | Goal item 9: `rc` and `core` with the GPIO adapter run the enumeration and MMIO programs back to back. | [#378](https://github.com/amichai-bd/pcie-factory/issues/378) |
+| Board build | Goal item 9: `rc` and `core` with the GPIO adapter run the enumeration and MMIO programs back to back. | [#378](https://github.com/amichai-bd/pcie-factory/issues/378): `board_enum`, `board_mmio` ([DV plan](../../dv/rc/DV_PLAN.md#plan)) |
 | FPGA | Goal item 10: the `rc` board build passes Quartus synthesis on the DE2-115; resources reported, timing for information only. | [#379](https://github.com/amichai-bd/pcie-factory/issues/379) |
 
 The [architecture model](#architecture-model) also reports, with no bound,

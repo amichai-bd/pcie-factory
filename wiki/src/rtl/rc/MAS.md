@@ -28,7 +28,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | `u_seq` | `pcie_rc_seq` | `PROGRAM` | `start_i`, `done_o`, `pass_o`, `fail_step_o` are `rc`'s ports. |
 | `u_tl` | `pcie_rc_tl` | `FC_NPH`, `CPL_TIMEOUT_DIV`, `HOST_MEM_ADDR_W`, `HOST_MEM_BASE`, `MSI_ADDR`, `VENDOR_ID`, `DEVICE_ID`, `REVISION_ID` | Its link side on `u_link`'s upper stream, credits and credit release. |
-| `u_link` | `pcie_link` | `FC_PH`, `FC_PD`, `FC_NPH`, `FC_NPD`, `TIMEOUT_DIV`, `ERR_TIMEOUT_DIV`; fixed `FC_CPLH` 0, `FC_CPLD` 0, `FC_RELEASE` 1, `REPLAY_TIMEOUT` at its default | `port_role_i` 0; `retrain_req_i`, `disable_req_i`, `loopback_req_i` 0; `hot_reset_req_i` from `u_seq` ([downstream role](../../arch/rc/HAS.md#downstream-role)). Its status and lower symbol ports are `rc`'s. |
+| `u_link` | `pcie_link` | `FC_PH`, `FC_PD`, `FC_NPH`, `FC_NPD`, `TIMEOUT_DIV`, `ERR_TIMEOUT_DIV`, `LOWER`, `GPIO_CLK_DIV`; fixed `FC_CPLH` 0, `FC_CPLD` 0, `FC_RELEASE` 1, `REPLAY_TIMEOUT` at its default | `port_role_i` 0; `retrain_req_i`, `disable_req_i`, `loopback_req_i` 0; `hot_reset_req_i` from `u_seq` ([downstream role](../../arch/rc/HAS.md#downstream-role)). Its status, lower symbol and GPIO ports are `rc`'s. |
 
 Every parameter is passed unchanged to the instance that owns its range
 check; `rc` itself checks only the credit ranges `link` alone would not

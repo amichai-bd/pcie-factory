@@ -25,7 +25,9 @@ module pcie_rc #(
   parameter logic [15:0] VENDOR_ID       = 16'h0000,       // placeholder, claims no assigned vendor
   parameter logic [15:0] DEVICE_ID       = 16'h0000,       // placeholder
   parameter logic [7:0]  REVISION_ID     = 8'h00,
-  parameter int unsigned PROGRAM         = 1               // rc_seq program id; 1 is MMIO (rc_seq MAS, Programs)
+  parameter int unsigned PROGRAM         = 1,              // rc_seq program id; 1 is MMIO (rc_seq MAS, Programs)
+  parameter int unsigned LOWER           = 0,              // passed to link: 0 phy, 1 the GPIO adapter
+  parameter int unsigned GPIO_CLK_DIV    = 2               // passed to link: the adapter's CLK_DIV
 ) (
   // Clock and reset
   input  logic        clk_i,              // core clock, 125 MHz
@@ -55,7 +57,16 @@ module pcie_rc #(
   // Lower 2x10-bit symbol interface, receive (ser_rx_clk_i)
   input  logic        ser_rx_clk_i,       // recovered clock, 125 MHz nominal
   input  logic [19:0] ser_rx_data_i,      // bit 0 earliest; no symbol alignment // cdc-domain: ser_rx_clk_i
-  input  logic        ser_rx_elec_idle_i  // the line is in electrical idle // cdc-domain: ser_rx_clk_i
+  input  logic        ser_rx_elec_idle_i, // the line is in electrical idle // cdc-domain: ser_rx_clk_i
+
+  // GPIO pins (LOWER 1; link HAS, lower layer)
+  output logic        gpio_tx_clk_o,      // forwarded clock, clk_i / GPIO_CLK_DIV
+  output logic        gpio_tx_ctrl_o,
+  output logic [3:0]  gpio_tx_data_o,
+  // The partner's forwarded clock; at LOWER 0, the checked build, it reaches nothing.
+  input  logic        gpio_rx_clk_i,      // cdc-domain: clk_i
+  input  logic        gpio_rx_ctrl_i,     // cdc-domain: gpio_rx_clk_i
+  input  logic [3:0]  gpio_rx_data_i      // cdc-domain: gpio_rx_clk_i
 );
 
   // HAS parameter ranges that link alone would not refuse: rc never
@@ -181,7 +192,9 @@ module pcie_rc #(
     .FC_CPLD         (0),
     .FC_RELEASE      (1),               // P and NP credits return when a request leaves rc_tl
     .TIMEOUT_DIV     (TIMEOUT_DIV),
-    .ERR_TIMEOUT_DIV (ERR_TIMEOUT_DIV)
+    .ERR_TIMEOUT_DIV (ERR_TIMEOUT_DIV),
+    .LOWER           (LOWER),           // at 1 link sets the GPIO build's replay timeout
+    .GPIO_CLK_DIV    (GPIO_CLK_DIV)
   ) u_link (
     .clk_i              (clk_i),
     .rst_i              (rst_i),
@@ -221,7 +234,13 @@ module pcie_rc #(
     .ser_tx_rxdet_i     (ser_tx_rxdet_i),
     .ser_rx_clk_i       (ser_rx_clk_i),
     .ser_rx_data_i      (ser_rx_data_i),
-    .ser_rx_elec_idle_i (ser_rx_elec_idle_i)
+    .ser_rx_elec_idle_i (ser_rx_elec_idle_i),
+    .gpio_tx_clk_o      (gpio_tx_clk_o),
+    .gpio_tx_ctrl_o     (gpio_tx_ctrl_o),
+    .gpio_tx_data_o     (gpio_tx_data_o),
+    .gpio_rx_clk_i      (gpio_rx_clk_i),
+    .gpio_rx_ctrl_i     (gpio_rx_ctrl_i),
+    .gpio_rx_data_i     (gpio_rx_data_i)
   );
 
 endmodule

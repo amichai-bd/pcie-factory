@@ -1,0 +1,12 @@
+# The loaded replay round trip of the dll over the adapter at the default
+# CLK_DIV, at clock ratios 1/2, 1 and 2, against the GPIO build's replay
+# timeout, which covers the worst ratio (wiki/src/arch/link/HAS.md#replay-timeout-at-lower-1).
+description: Loaded replay round trip against the GPIO build's replay timeout, CLK_DIV 2.
+seed: 5
+workload:
+  kind: replay
+  clk_div: 2
+targets:
+  replay_timeout_cycles: {min: 3214, max: 3214}
+  replay_margin_cycles: {min: 0}
+  round_trip_cycles_equal: {max: 1924}

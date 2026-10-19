@@ -149,6 +149,14 @@ module pcie_link_e2e_tb #(
                        : CREDITS == 2 ? FC_FINITE : CREDITS == 3 ? FC_INF : FC_DEFAULT;
   localparam int unsigned REL = CREDITS == 5 ? 1 : 0;
 
+  // The GPIO pins (LOWER 0: outputs held at 0, inputs tied off).
+  logic       a_gpio_tx_clk;
+  logic       a_gpio_tx_ctrl;
+  logic [3:0] a_gpio_tx_data;
+  logic       b_gpio_tx_clk;
+  logic       b_gpio_tx_ctrl;
+  logic [3:0] b_gpio_tx_data;
+
   assign cfg_credits_o         = 3'(CREDITS);
   assign cfg_timeout_div_o     = 11'(TIMEOUT_DIV);
   assign cfg_err_timeout_div_o = 11'(ERR_TIMEOUT_DIV);
@@ -198,7 +206,13 @@ module pcie_link_e2e_tb #(
     .ltssm_state_o(a_ltssm_state_o),
     .rcv_err_o(a_rcv_err_o),
     .ser_tx_data_o(a_ser_tx_data_o),
-    .ser_tx_elec_idle_o(a_ser_tx_elec_idle_o)
+    .ser_tx_elec_idle_o(a_ser_tx_elec_idle_o),
+    .gpio_tx_clk_o(a_gpio_tx_clk),
+    .gpio_tx_ctrl_o(a_gpio_tx_ctrl),
+    .gpio_tx_data_o(a_gpio_tx_data),
+    .gpio_rx_clk_i(1'b0),
+    .gpio_rx_ctrl_i(1'b0),
+    .gpio_rx_data_i(4'd0)
   );
   assign a_mon_pkt_tx_valid_o = u_a.pkt_tx_valid;
   assign a_mon_pkt_tx_ready_o = u_a.pkt_tx_ready;
@@ -259,7 +273,13 @@ module pcie_link_e2e_tb #(
     .ltssm_state_o(b_ltssm_state_o),
     .rcv_err_o(b_rcv_err_o),
     .ser_tx_data_o(b_ser_tx_data_o),
-    .ser_tx_elec_idle_o(b_ser_tx_elec_idle_o)
+    .ser_tx_elec_idle_o(b_ser_tx_elec_idle_o),
+    .gpio_tx_clk_o(b_gpio_tx_clk),
+    .gpio_tx_ctrl_o(b_gpio_tx_ctrl),
+    .gpio_tx_data_o(b_gpio_tx_data),
+    .gpio_rx_clk_i(1'b0),
+    .gpio_rx_ctrl_i(1'b0),
+    .gpio_rx_data_i(4'd0)
   );
   assign b_mon_pkt_tx_valid_o = u_b.pkt_tx_valid;
   assign b_mon_pkt_tx_ready_o = u_b.pkt_tx_ready;

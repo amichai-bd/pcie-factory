@@ -36,7 +36,7 @@ board's three 50 MHz pins are one oscillator, so the RX clock stays on
 asynchronous [cite: Terasic DE2-115 User Manual, rev unverified, §4.5]
 [cite: Terasic DE2-115 User Manual, rev unverified, §4.7].
 
-The board has pins for few of the stack's 211 port bits, so the wrapper
+The board has pins for few of the stack's 222 port bits, so the wrapper
 bounds every `pcie_link` port but the credit release with flops on that
 port's clock:
 
@@ -57,7 +57,9 @@ port's clock:
   `FC_RELEASE` is 0 and the four credit-release inputs are tied to 0, as
   the [`dll` HAS](../../arch/dll/HAS.md#credit-release) requires;
   `TIMEOUT_DIV` and `ERR_TIMEOUT_DIV` are 1, as the
-  [HAS](../../arch/link/HAS.md#parameters) asks for FPGA builds.
+  [HAS](../../arch/link/HAS.md#parameters) asks for FPGA builds. `LOWER`
+  is 0, so the six GPIO ports ([lower layer](../../arch/link/HAS.md#lower-layer))
+  are tied off: the inputs to 0, the outputs held at 0 and unobserved.
 - **Not a functional test.** The stimulus does not honour the HAS input
   contracts: `port_role_i` follows a live switch, and the TLP stream and
   link requests are arbitrary bit patterns. The LEDs are therefore not a

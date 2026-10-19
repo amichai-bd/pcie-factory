@@ -143,6 +143,36 @@ tests:
     top: pcie_link_e2e_tb
     seeds: 2
     timeout_s: 1800
+# The GPIO lower layer (#378): sustained maximum-payload load both ways at
+# the clock ratios 1/2, 1 and 2 of the gpio clock contract (no replay
+# timeout: the replay timeout's sizing, link HAS), and Hot Reset. No coverage
+# runs (level1.yaml).
+  - name: gpio_load_equal
+    module: tests.test_link_gpio
+    testcase: gpio_load
+    top: pcie_link_gpio_tb
+    timeout_s: 1200
+    coverage_seeds: 0
+  - name: gpio_load_half
+    module: tests.test_link_gpio
+    testcase: gpio_load
+    top: pcie_link_gpio_tb
+    params: {RATIO: 0}
+    timeout_s: 1200
+    coverage_seeds: 0
+  - name: gpio_load_double
+    module: tests.test_link_gpio
+    testcase: gpio_load
+    top: pcie_link_gpio_tb
+    params: {RATIO: 2}
+    timeout_s: 1200
+    coverage_seeds: 0
+  - name: gpio_hot_reset
+    module: tests.test_link_gpio
+    testcase: gpio_hot_reset
+    top: pcie_link_gpio_tb
+    timeout_s: 600
+    coverage_seeds: 0
 # Floors on the merged levels 0 to 2 (the nightly run), at the merged value
 # less 0.5 points rounded down to a tenth (DV BKM, floor margin), measured
 # for #360: line 90.7 from 91.27% (1485/1627), raised from 90.2 by

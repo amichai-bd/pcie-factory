@@ -1,1 +1,86 @@
-tests: []
+# Sweeps: the convergence cases at the other ratios and at CLK_DIV 4, the
+# traffic, error and reset tests at ratios 1/2 and 2, CLK_DIV 4 and 64.
+tests:
+  - name: converge_equal
+    module: tests.test_gpio
+    testcase: converge
+    top: pcie_gpio_tb
+    timeout_s: 600
+  - name: converge_half
+    module: tests.test_gpio
+    testcase: converge
+    top: pcie_gpio_tb
+    params: {RATIO: 0}
+    timeout_s: 600
+  - name: converge_div4
+    module: tests.test_gpio
+    testcase: converge
+    top: pcie_gpio_tb
+    params: {CLK_DIV: 4, RATIO: 0}
+    timeout_s: 900
+  - name: traffic_half
+    module: tests.test_gpio
+    testcase: traffic
+    top: pcie_gpio_tb
+    params: {RATIO: 0}
+    timeout_s: 600
+  - name: traffic_double
+    module: tests.test_gpio
+    testcase: traffic
+    top: pcie_gpio_tb
+    params: {RATIO: 2}
+    timeout_s: 600
+  - name: traffic_div4
+    module: tests.test_gpio
+    testcase: traffic
+    top: pcie_gpio_tb
+    params: {CLK_DIV: 4, RATIO: 2}
+    timeout_s: 600
+  - name: smoke_div64
+    module: tests.test_gpio
+    testcase: smoke
+    top: pcie_gpio_tb
+    params: {CLK_DIV: 64, RATIO: 0}
+    timeout_s: 900
+  - name: errors_half
+    module: tests.test_gpio
+    testcase: errors
+    top: pcie_gpio_tb
+    params: {RATIO: 0}
+    timeout_s: 600
+  - name: errors_double
+    module: tests.test_gpio
+    testcase: errors
+    top: pcie_gpio_tb
+    params: {RATIO: 2}
+    timeout_s: 600
+  - name: restart_double
+    module: tests.test_gpio
+    testcase: restart
+    top: pcie_gpio_tb
+    params: {RATIO: 2}
+    timeout_s: 600
+  - name: hot_reset_half
+    module: tests.test_gpio
+    testcase: hot_reset
+    top: pcie_gpio_tb
+    params: {RATIO: 0}
+    timeout_s: 600
+  - name: train_cases_half
+    module: tests.test_gpio
+    testcase: train_cases
+    top: pcie_gpio_tb
+    params: {RATIO: 0}
+    timeout_s: 600
+  - name: train_cases_double
+    module: tests.test_gpio
+    testcase: train_cases
+    top: pcie_gpio_tb
+    params: {RATIO: 2}
+    timeout_s: 600
+  - name: hot_reset_double
+    module: tests.test_gpio
+    testcase: hot_reset
+    top: pcie_gpio_tb
+    params: {RATIO: 2}
+    timeout_s: 600

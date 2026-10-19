@@ -1,0 +1,13 @@
+# Link-up of two ends from reset at random clock ratios 1/2, 1 and 2 and up
+# to 400 cycles of reset skew: both up within 8 + 16 + 8 slots plus 3 W of
+# the later start, in slots of the slower end, 44 at the W bound
+# (wiki/src/arch/gpio/HAS.md#targets, LINK_UP.md#convergence).
+description: 200 link-ups, clock ratios 1/2 to 2, reset skew up to 400 cycles.
+seed: 3
+workload:
+  kind: link_up
+  clk_div: 2
+  trials: 200
+  skew_cycles: 400
+targets:
+  up_slots_max: {max: 44}
