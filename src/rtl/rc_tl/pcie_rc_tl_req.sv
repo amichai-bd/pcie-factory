@@ -193,7 +193,10 @@ module pcie_rc_tl_req #(
     cp_d  = cp_q;
     tag_d = tag_q;
     cnt_d = cnt_q;
-    if (rq_q.act && rq_q.sent && !reach) begin
+    // The counter runs freely, saturating at N - 1: it is cleared at the
+    // edge the link takes the request's sop and read only while the request
+    // is outstanding and sent, so it needs no other gate.
+    if (!reach) begin
       cnt_d = cnt_q + TMO_W'(1);
     end
     if (grant_i) begin
@@ -209,6 +212,8 @@ module pcie_rc_tl_req #(
     if (cpl_i.hdr) begin
       cp_d = dec;
       if (dec.dlv && !is_cfg) begin
+        // Wraps on a read's last completion when its last DW has disabled
+        // bytes (span > left); harmless, as left is not read again.
         rq_d.left = rq_q.left - span;
         rq_d.nxt  = rq_q.nxt + span[6:0];
       end
