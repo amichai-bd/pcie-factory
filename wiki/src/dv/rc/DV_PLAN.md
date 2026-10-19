@@ -68,15 +68,8 @@ and the same pair as the board build over the GPIO adapter (goal item 9).
   unreachable), `rc_e2e_line` (line rewrites, split counts, link down,
   Hot Reset, replay), `rc_e2e_err` (error record bits read set), `rc_shell`
   (smoke); the endpoint side also samples the core e2e's covergroups
-  (`core_e2e_*`) through the reused model, which only per-covergroup floors
-  should hold ([#380](https://github.com/amichai-bd/pcie-factory/issues/380)).
-  Merged levels 0 to 2 (#377): line 72.7%, toggle 44.1%, functional
-  61.1% over every covergroup the run declares. Not hit in `rc_e2e_*`:
-  error record bits 2 and 10 and the CRS status, which `core` never sends
-  and the [`rc_tl` DV](../rc_tl/DV_PLAN.md) injects; and the tl-seq
-  op-status pairs no M4 program draws (a configuration request failing,
-  a local command refused, a `MEM_WR` refused or cut by a link down).
-  Floors are #380's.
+  (`core_e2e_*`) through the reused model; `rc`'s floors name its own
+  covergroups only ([coverage holes](#coverage-holes)).
 
 ### Line models
 
@@ -156,5 +149,64 @@ entry's first seed; none committed):
 | Feature | Owning issue |
 | --- | --- |
 | FPGA synthesis of `rc` (`ci-fpga` has no `rc` target until `src/fpga/rc/`) | [#379](https://github.com/amichai-bd/pcie-factory/issues/379) |
-| Coverage floors | [#380](https://github.com/amichai-bd/pcie-factory/issues/380) |
 | `regress --affected` does not select `rc` for a change to the core e2e's `tb/core_e2e_env.py` alone, which the rc e2e imports (the import scan follows `models/` and `arch/` folders only); a change to `core` RTL or its host models does select it | [#408](https://github.com/amichai-bd/pcie-factory/issues/408) |
+
+## Coverage holes
+
+Floors in [`level2.yaml`](../../../../src/dv/rc/regress/level2.yaml),
+checked by every `--coverage` run that selects level 2 (the nightly runs
+levels 0 to 2): line 72.8, toggle 45.3 and, per covergroup, `rc_e2e_line`
+100, `rc_shell` 100, `rc_e2e_err` 84.1 and `rc_e2e_run` 63.4. Merged over
+levels 0 to 2 ([#380](https://github.com/amichai-bd/pcie-factory/issues/380)),
+over what `rc.rtl.f` reaches (`rc_tl`, `rc_seq`, `pcie_rc` and the whole
+`link` stack, the `gpio` adapter included; `core` is a DV-only source
+here): line 73.32% (3400 of 4637 points), toggle 45.88% (48923 of
+106620). The code floors are the merged values less 0.5 points, rounded
+down to a tenth ([floor margin](../../../bkm/dv.md#coverage)).
+
+**Functional floors per covergroup.** The e2e reuses the core e2e's
+endpoint model, which samples `core_e2e_*`, so the run's combined value
+(61.1%, 85 of 139 bins) depends on `core`'s covergroups as the e2e happens
+to reach them; those hold `core`'s floors in its own
+[level file](../../../../src/dv/core/regress/level2.yaml), not `rc`'s.
+`rc`'s floors name its four covergroups and leave the others without a
+floor ([regress SPEC](../../../tools/regress/SPEC.md#coverage-floors)).
+`rc_e2e_line` (10 of 10) and `rc_shell` (7 of 7) hold every bin;
+`rc_e2e_err` (11 of 13, 84.6%) and `rc_e2e_run` (39 of 61, 63.9%) are
+floored at the merged value less 0.5 points, below which any lost bin
+falls. Their bins not hit:
+
+| Covergroup | Bins | Why |
+| --- | --- | --- |
+| `rc_e2e_err` | `b2`, `b10` | Error record bits that `core` never causes: bit 2, a configuration completion with CRS, and bit 10, a message other than the ones `rc_tl` handles (dropped); the [`rc_tl` DV](../rc_tl/DV_PLAN.md) sends both. |
+| `rc_e2e_run` | `status` `CRS` and the pairs `CFG_RD` with `BAD`, `CA`, `CRS`, `LINK_DOWN`, `TIMEOUT`, `UR`; `CFG_WR` with `BAD`, `CA`, `CRS`, `LINK_DOWN`, `LOCAL_UR`, `TIMEOUT`, `UR`; `LOCAL_UR` of `ERR_CLR`, `ERR_RD`, `HDR_RD`, `HDR_WR`, `HOST_RD`, `HOST_WR`; `MEM_WR` with `LINK_DOWN`, `LOCAL_UR` (22 bins) | Reachable, but no M4 program draws them: a configuration request failing, a local command refused, a `MEM_WR` refused or cut by a link down. The programs are the goal items of [0005](../../decisions/0005-m4-grill.md#goal), fixed in `rc_seq`'s ROM; `rc_tl`'s `rc_tl_cmd` and `rc_tl_req` cover every pair at its own ports. A new program that draws one raises the floor. |
+
+**Code points.** Each point not hit was looked up in the merged coverage
+of the owning IP's own regression, levels 0 to 2 with `--coverage`, on the
+same tree (`rc_tl`, `rc_seq`, `gpio`, `link`, `dll`, `mac`, `pcs`, `phy`
+and the shared unit `common`). The 1237 line points not hit, by cause:
+
+| Cause | Points | Where |
+| --- | ---: | --- |
+| Hit in another parameter set | 614 | The same point is hit in another copy of its block (the entries' `PROGRAM` and `LOWER` builds, the `CPL_TIMEOUT_DIV` 64 build, and the endpoint's `link` stack in `core`, which shares these files): `rc_seq` 148, `dll` 137, `mac` 130, `rc_tl` 130, the common blocks 48, `pcs` 21. |
+| Reached by the stacked IP's own DV | 500 | `mac` 231, `pcs` 60, `rc_seq` 60, `dll` 47, `gpio` 45, `rc_tl` 32, the common blocks 25: behaviour two compliant stacks on an error-free or injected line do not produce (the LTSSM's error, timeout and compliance exits, the power states `link` ties off, decoder and elastic-buffer extremes, as in the [`link` holes](../link/DV_PLAN.md#coverage-holes)), the `rc_tl` checks `core` never trips, `rc_seq`'s failure paths (every e2e program passes), and the adapter's error and restart branches. |
+| Not hit by the stacked IP's own DV either | 123 | The holes of the unit plans: `rc_seq` 70 (elaboration-only package functions, [`rc_seq` holes](../rc_seq/DV_PLAN.md#coverage-holes)), `mac` 44 (elaboration-only functions, [`mac` holes](../mac/DV_PLAN.md#coverage-holes)), `pcs` 4, `dll` 2 (`noroom`), `rc_tl` 2 ([`rc_tl` holes](../rc_tl/DV_PLAN.md#coverage-holes)), `gpio` 1 ([`gpio` holes](../gpio/DV_PLAN.md#coverage-holes)). |
+
+The 57697 toggle points not hit, by cause:
+
+| Cause | Points | Signals |
+| --- | ---: | --- |
+| Hit in another parameter set | 25442 | `rc_tl` 7189, `dll` 6751, the common blocks 4637, `rc_seq` 2929, `mac` 1771, `pcie_rc.sv` 1396, `pcie_link.sv` 515, `pcs` 155, `phy` 99. |
+| Reached by the stacked IP's own DV | 20416 | `rc_tl` 11613, `dll` 3757, `mac` 2304, `rc_seq` 1494, `pcs` 550, the common blocks 331, `gpio` 223, `pcie_link.sv` 108, `phy` 36: data, address and header patterns, error and malformed paths, credit and queue extremes and parameter values the programs and `core` do not produce. |
+| Not hit by the stacked IP's own DV either | 9813 | `dll` 3164, `rc_tl` 2903, `rc_seq` 2820, `mac` 580, `pcs` 130, `pcie_link.sv` 121, `gpio` 47, the common blocks 42, `phy` 6: the causes of each unit plan ([`rc_tl`](../rc_tl/DV_PLAN.md#coverage-holes), [`rc_seq`](../rc_seq/DV_PLAN.md#coverage-holes), [`gpio`](../gpio/DV_PLAN.md#coverage-holes), [`dll`](../dll/DV_PLAN.md#coverage-holes), [`link`](../link/DV_PLAN.md#coverage-holes)): constant header fields and register bits, error-vector slices, step fields, counter top bits, release ports tied off. |
+| Points the owner's builds do not have | 298 | The common blocks 294 and `dll` 4: bits of parameterizations only this stack builds (wider or deeper RAM queues and CDC FIFOs), at the same causes as their narrower copies: fill extremes and constant bits. |
+| `pcie_rc.sv`'s own nets | 1728 | The MSI data and offset the programs configure (656); `fail_step_o` (256: every e2e program passes; the failure paths are `rc_seq`'s DV); the step fields `cmd.addr` and `cmd.len`, constant over the programs (288); credits available above the advertisement and the release data bits of 1-DW requests (448); `dl_err_o` bits 3 to 6, which do not pulse on these lines (64); `done_o` and `pass_o` never falling within a run (16). |
+
+How the points were sorted, so a re-measurement reproduces the counts: a
+line point is keyed by file, line, column and kind, a toggle point by
+file, signal bit and direction (any hierarchy and copy). A point not hit
+is "another parameter set" when its key is hit anywhere in the `rc` run;
+otherwise "reached by the stacked IP's own DV" when it is hit in the
+merged coverage of the IP that owns the file (the shared unit for common
+blocks), "not hit either" when it is a point there but not hit, and "the
+owner's builds do not have" when that run has no such point.
