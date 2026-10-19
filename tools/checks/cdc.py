@@ -217,7 +217,7 @@ def scan_param_sets(files: list[Path], src_root: Path
             m = _PARAMS_RE.match(line)
             if m is None:
                 findings.append(f"{where}:{n}: malformed cdc-params directive (expected "
-                                "'// cdc-params: <PARAMETER>=<integer> ...')")
+                                "'// cdc-params: <PARAMETER>=<value> ...')")
                 continue
             j = i + 1  # past the other directives stacked above the same module line
             while j < len(lines) and (_PARAMS_LINE_RE.match(lines[j])
@@ -1058,10 +1058,11 @@ def select(ips: list[Ip], ip_ids: set[str] | None) -> list[Ip]:
 def port_domain_findings(nl: Netlist, domains: dict[tuple[Path, int], PortDomain],
                          used: set[tuple[Path, int]]) -> tuple[list[str], dict[str, str]]:
     """Check each annotated input port of every module in ``nl`` (its clock
-    must be another input port of the same module) and record the
-    annotations seen in ``used``; a broken annotation is reported the first
-    time it is seen. Returns the findings and, for the top, the
-    annotated input ports mapped to their clock ports (var addrs)."""
+    must be an input port of the same module; naming the port itself
+    declares a clock) and record the annotations seen in ``used``; a broken
+    annotation is reported the first time it is seen. Returns the findings
+    and, for the top, the annotated input ports mapped to their clock ports
+    (var addrs)."""
     findings: list[str] = []
     top: dict[str, str] = {}
     for addr, mod in nl.modules.items():

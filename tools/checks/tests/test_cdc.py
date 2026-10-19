@@ -1308,7 +1308,7 @@ def test_scan_param_sets(tmp_path):
         "xy_other": [cdc.ParamSet("xy_other", (("A", "1"), ("B", "4'hF")), r, 10)]}
     assert found["xy_blk"][0].tag == "[A=1,B=4'hF]"
     malformed = ("malformed cdc-params directive (expected "
-                 "'// cdc-params: <PARAMETER>=<integer> ...')")
+                 "'// cdc-params: <PARAMETER>=<value> ...')")
     assert findings == [
         "rtl/blk/xy_blk.sv:2: cdc-params directive on xy_blk repeats another parameter set",
         "rtl/blk/xy_blk.sv:7: malformed cdc-params directive on xy_other: a parameter is set twice",
