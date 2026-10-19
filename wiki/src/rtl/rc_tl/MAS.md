@@ -370,4 +370,4 @@ target: FPGA resources are reported with `rc`, on the
 
 | Item | Owner |
 | --- | --- |
-| The cited sections, checked against rev 3.0 (the Base Spec is not in the local cache). | [#357](https://github.com/amichai-bd/pcie-factory/issues/357): the captain, with a local copy |
+| The cited sections, checked against rev 3.0 (the Base Spec is not in the local cache). | Captain, with a local copy |
