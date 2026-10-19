@@ -53,7 +53,8 @@ tests:
     module: tests.test_cfg_random
     testcase: random_ops
     top: pcie_cfg_tb
-    seeds: 3
+    seeds: [329618035, 179094473]
+    coverage_seeds: 0
     timeout_s: 300
   # Every parameter at a boundary: the largest BAR0 and table, IDs set.
   - name: regmap_params
@@ -74,7 +75,6 @@ tests:
     module: tests.test_cfg
     testcase: enumeration
     top: pcie_cfg_tb
-    seeds: 2
     timeout_s: 300
     params: {BAR0_ADDR_W: 20, MSIX_TABLE_SIZE: 1, VENDOR_ID: 0x1AF4, DEVICE_ID: 0x0001,
              CLASS_CODE: 0x058000, REVISION_ID: 0x01}

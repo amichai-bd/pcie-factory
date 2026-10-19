@@ -14,10 +14,19 @@ each write.
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Write-through read, per-lane merge, disabled writes, lanes](../../../rtl/common/ram/common_sync_ram_wt.md#behavior) | `sync_ram_wt_contract` | 0 | 1 |
-| The same under random traffic (partial-lane writes), against the model | `sync_ram_wt_random` | 1 | 3; 2000 cycles |
+| The same under random traffic (partial-lane writes), against the model | `sync_ram_wt_random` / `sync_ram_wt_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (644655698 and 1063648232), pinned; 2000 cycles |
 | [Parameter limits](../../../rtl/common/ram/common_sync_ram_wt.md#parameters) | `ram_param_limits` | 1 | shared with the family |
 | Random traffic, smallest RAM | `sync_ram_wt_long_min` | 2 | 2; 20000 cycles |
 | Random traffic, wide RAM with eight lanes | `sync_ram_wt_long_wide` | 2 | 2; 20000 cycles |
+
+**Level placement**
+([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
+level 1 of every IP, which `ci-gate` runs for a change to a shared
+package, was over its 1200 s CPU budget. `sync_ram_wt_random` runs its
+first seed in level 1; its further seeds run pinned and unchanged in its
+level 2 `_sweep`, each seed with its coverage instrumentation, so the
+merged level 0 to 2 runs are the same runs. The mutation evidence on this
+page names no seed for it, and was not rerun at the first seed alone.
 
 Mutation evidence ([#126](https://github.com/amichai-bd/pcie-factory/issues/126)),
 in a scratch copy: a read-first output fails `sync_ram_wt_contract` at the

@@ -49,11 +49,22 @@
 | --- | --- | --- | --- |
 | [Reset and transfer](../../../rtl/common/cdc/common_cdc_pulse.md#behavior), fast source | `pulse_smoke` | 0 | 1; 8 pulses at the minimum spacing |
 | [Spacing rule](../../../rtl/common/cdc/common_cdc_pulse.md#behavior): slow source pulsing on consecutive cycles | `pulse_slow_to_fast` | 0 | 1; 8 back-to-back pulses |
-| [Transfer](../../../rtl/common/cdc/common_cdc_pulse.md#behavior) at random ratios and spacing | `pulse_random` | 1 | 3; 100 pulses, ratio up to 8:1 |
-| [Transfer](../../../rtl/common/cdc/common_cdc_pulse.md#behavior) near 1:1, every launch offset | `pulse_near_1to1` | 1 | 2; 200 pulses, ratio 1:1 to 1.2:1 either way |
+| [Transfer](../../../rtl/common/cdc/common_cdc_pulse.md#behavior) at random ratios and spacing | `pulse_random` / `pulse_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (313476785 and 195434251), pinned; 100 pulses, ratio up to 8:1 |
+| [Transfer](../../../rtl/common/cdc/common_cdc_pulse.md#behavior) near 1:1, every launch offset | `pulse_near_1to1` / `pulse_near_1to1_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (1562228821), pinned; 200 pulses, ratio 1:1 to 1.2:1 either way |
 | [Transfer](../../../rtl/common/cdc/common_cdc_pulse.md#behavior), long, mostly minimum spacing | `pulse_long` | 2 | 8; 1000 pulses, ratio up to 16:1; coverage on the first 6 (`coverage_seeds`) |
-| [Asynchronous side](../../../rtl/common/cdc/common_cdc_pulse.md#behavior), both sides: assertion with the clocks stopped, a pulse inside the stop, no spurious pulse, transfer after | `pulse_arst` | 1 | 2; `SRC_ASYNC_RESET` 1, `DST_ASYNC_RESET` 1, ratio up to 8:1 |
-| [Asynchronous side](../../../rtl/common/cdc/common_cdc_pulse.md#behavior), destination only (the `COMMON_PULSE_SYNC_ARST` configuration) | `pulse_arst_dst` | 1 | 2; `DST_ASYNC_RESET` 1, ratio up to 8:1 |
+| [Asynchronous side](../../../rtl/common/cdc/common_cdc_pulse.md#behavior), both sides: assertion with the clocks stopped, a pulse inside the stop, no spurious pulse, transfer after | `pulse_arst` / `pulse_arst_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (1141078041), pinned; `SRC_ASYNC_RESET` 1, `DST_ASYNC_RESET` 1, ratio up to 8:1 |
+| [Asynchronous side](../../../rtl/common/cdc/common_cdc_pulse.md#behavior), destination only (the `COMMON_PULSE_SYNC_ARST` configuration) | `pulse_arst_dst` / `pulse_arst_dst_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (391930980), pinned; `DST_ASYNC_RESET` 1, ratio up to 8:1 |
+
+**Level placement**
+([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
+level 1 of every IP, which `ci-gate` runs for a change to a shared
+package, was over its 1200 s CPU budget. `pulse_random`,
+`pulse_near_1to1`, `pulse_arst` and `pulse_arst_dst` run their first seed
+in level 1; their further seeds run pinned and unchanged in each entry's
+level 2 `_sweep`, each seed with its coverage instrumentation, so the
+merged level 0 to 2 runs are the same runs. The mutation evidence on this
+page names no seed for these entries, and was not rerun at the first seed
+alone.
 
 Every [interface](../../../rtl/common/cdc/common_cdc_pulse.md#interfaces) port is exercised by every entry.
 

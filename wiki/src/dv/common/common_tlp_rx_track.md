@@ -43,9 +43,18 @@ than a `sop`, so a tracker that reads them there fails.
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Beat numbers, header DW enables, last header DW, saturation, reset](../../rtl/common/common_tlp_rx_track.md#behavior) | `tlp_rx_track_contract` | 0 | 1 |
-| The same under random TLPs and gaps, against the model | `tlp_rx_track_random` | 1 | 3; 300 TLPs |
+| The same under random TLPs and gaps, against the model | `tlp_rx_track_random` / `tlp_rx_track_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (489432863 and 69564069), pinned; 300 TLPs |
 | [Whole-TLP contract assertions](../../rtl/common/common_tlp_rx_track.md#behavior) | `framing_*` (no level) | - | by hand, from a scratch level list |
 | Model rules | (model unit test) | - | `python3 -m pytest src/dv/common/models` |
+
+**Level placement**
+([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
+level 1 of every IP, which `ci-gate` runs for a change to a shared
+package, was over its 1200 s CPU budget. `tlp_rx_track_random` runs its
+first seed in level 1; its further seeds run pinned and unchanged in its
+level 2 `_sweep`, each seed with its coverage instrumentation, so the
+merged level 0 to 2 runs are the same runs. The mutation evidence on this
+page names no seed for it, and was not rerun at the first seed alone.
 
 Mutation evidence ([#400](https://github.com/amichai-bd/pcie-factory/issues/400)):
 the PR records the mutants of the moved tracker and which entries, here
