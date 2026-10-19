@@ -1,6 +1,7 @@
 tests:
+  # Random inputs and commands around two resets, against the model.
   - name: smoke
     module: tests.test_rc_tl
     testcase: smoke
-    top: pcie_rc_tl
+    top: pcie_rc_tl_tb
     timeout_s: 60
