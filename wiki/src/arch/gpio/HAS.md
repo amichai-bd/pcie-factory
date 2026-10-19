@@ -271,9 +271,9 @@ forwarded clocks sit on either side of the ground pin 12.
 
 This is the `rc` (downstream) board's map; a straight cable needs the
 partner board to swap the transmit and receive groups. The FPGA package
-pins, I/O standard and pin timing constraints belong to the `rc` FPGA page
-([#379](https://github.com/amichai-bd/pcie-factory/issues/379)); this page
-makes no claim about a measured rate.
+pins, I/O standard and pin timing constraints are on the
+[`rc` FPGA page](../../fpga/rc/FPGA.md#board-wrapper); this page makes no
+claim about a measured rate.
 
 ## Decisions
 
@@ -300,5 +300,5 @@ delegate, which the captain may override ([decision](https://github.com/amichai-
 | Item | Owner |
 | --- | --- |
 | The rate a board-to-board cable sustains, and whether `CLK_DIV` 2 holds on it (the default is decided as 2). | The two-board milestone on the [roadmap](../../roadmap.md#later); record owner [#357](https://github.com/amichai-bd/pcie-factory/issues/357) |
-| The header pin numbers and signal names checked against the manual; whether the header offers a clock-capable input for `gpio_rx_clk_i`; the I/O standard. | [#379](https://github.com/amichai-bd/pcie-factory/issues/379) |
+| The cited header table checked against the manual itself, and whether `GPIO[11]` (`AF16`) is one of the device's dedicated clock inputs. The [`rc` FPGA page](../../fpga/rc/FPGA.md#board-wrapper) gives the FPGA pins and the I/O standard (3.3-V LVTTL, JP6 at its default), cross-checked against a published pin table, since the manual was not reachable from the session; the fit routes `gpio_rx_clk_i` as a clock and meets timing. | [#357](https://github.com/amichai-bd/pcie-factory/issues/357) |
 | The cited sections on this page, checked against rev 3.0 (the Base Spec is not in the local cache). | [#357](https://github.com/amichai-bd/pcie-factory/issues/357) |

@@ -55,10 +55,14 @@ for the downstream board, on the 40-pin expansion header
   default [cite: Terasic DE2-115 User Manual, rev unverified, §4.8], so
   the 12 pins are 3.3-V LVTTL. Another JP6 setting needs the board file
   changed with it.
-- **Forwarded clock input.** `GPIO[11]` (`AF16`) is a regular I/O pin, not
-  one of the device's dedicated clock inputs; the fitter promotes
-  `gpio_rx_clk_i` to a global clock network through a clock control
-  block. The header offers no dedicated clock input in the adapter's map.
+- **Forwarded clock input.** `gpio_rx_clk_i` enters on `GPIO[11]` (`AF16`),
+  where the adapter HAS puts it; the fit routes it as the clock
+  `clk_gpio_rx` and meets timing ([results](#results)). Whether `AF16` is
+  one of the device's dedicated clock inputs is not checked against the
+  manual ([gpio HAS, Open items](../../arch/gpio/HAS.md#open-items)).
+- **Pin source.** The FPGA pin of each `GPIO[n]` is cross-checked against a
+  published DE2-115 pin table; the manual itself was not reachable from the
+  authoring session (same open item).
 - **Parameters.** Every `pcie_rc` parameter keeps its default but
   `LOWER`, which is 1: `TIMEOUT_DIV`, `ERR_TIMEOUT_DIV` and
   `CPL_TIMEOUT_DIV` 1, as the [HAS](../../arch/rc/HAS.md#parameters) asks
@@ -117,6 +121,47 @@ power-on counter, `rst_q`, two 2-flop synchronizers, the start flop and
 20 LED flops) is included in them.
 
 ## Results
+
+For information only (synthesis evidence, no board): the nightly tracker
+owns the live figures. This is the first fit, `fpga` workflow run
+39328627425 at `9114f49`, Quartus Prime Lite 25.1std.0, slow and fast
+models.
+
+| Item | Result |
+| --- | --- |
+| `clk_core` (50 MHz) | Met: setup slack +2.488 ns, hold +0.115 ns, Fmax 57.10 MHz. |
+| `clk_gpio_rx` (25 MHz) | Met: setup slack +16.984 ns, hold +0.198 ns, recovery +13.982 ns, removal +0.528 ns, Fmax 187.72 MHz. |
+| Unconstrained paths | 0. |
+| Logic elements | 48243 / 114480. |
+| Registers | 35699. |
+| Memory | 11 / 432 M9K, 45704 memory bits, 8 RAMs: 7 simple dual port, single clock, old data on a mixed-port read during write; and the `rc_seq` ROM, 256 words narrowed by synthesis to 57 bits, 2 M9K. |
+| Pins | 35. |
+| Worst setup path | `clk_core`: the `dll` control state (`u_dll` `u_ctrl` `state_q.st`) to `rc_tl`'s host memory read data (`u_mem` `u_ram` `rd_data_o`); slack +2.488 ns. |
+
+**Host memory in registers.** The `rc_tl` host memory, a 4 KiB
+[`common_sync_ram`](../../rtl/common/ram/common_sync_ram.md) with byte
+lanes, is not one of the RAMs above: Quartus builds it from logic, about
+32768 of the registers, and it ends the worst path. The build still fits
+with timing met; mapping it to M9K is a change to the shared RAM block
+(an Intel backend), outside this build.
+
+**Quartus elaboration.** The first runs showed that Quartus Lite rejects a
+member select of a struct localparam in a constant expression (error
+10742, "constant expression cannot contain a hierarchical identifier"),
+which Verilator accepts: the `rc_seq` package's second-pass program builds
+and the ROM's and top's parameter checks used it. They now build both
+passes inside one function and take `t_prog`'s fields by part-select
+([`rc_seq` MAS, Programs in the package](../../rtl/rc_seq/MAS.md#microarchitecture)).
+The 32768-bit program images themselves elaborate (map about 4 minutes).
+
+**Quartus warnings.** Fit: 169177 and 292013, both
+[known](../../../bkm/fpga.md#known-quartus-warnings). Map: 10036 ×1 and
+276020 ×1, known (276020 is the `dll` `end_q` array, as in the
+[`core` fit](../core/FPGA.md#results)), and three not on the known list:
+
+| ID | What | Why |
+| --- | --- | --- |
+| 14320 ×4, under 14284 and 14285 | RAM bits synthesized away in `rc_tl`'s non-posted queue (`pcie_rc_tl_cpl` `u_npq`). | Each 8-entry `t_np_ent` carries the request's address bits 15:2 (`adw`, 14 bits), but at `HOST_MEM_ADDR_W` 12 host memory reads only bits 11:2, so the 4 columns of bits 15:12 have no reader. Expected; a larger `HOST_MEM_ADDR_W` keeps them. The same class as the `core` fit's 14320 rows. |
 
 ## Files
 
