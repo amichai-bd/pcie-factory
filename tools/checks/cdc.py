@@ -12,7 +12,10 @@ the layout check keeps crossing cells in theirs) with a valid ``cdc-cell``
 directive, which the check treats as a black box whose ``src_*`` ports
 belong to its source clock and ``dst_*`` ports to its destination clock.
 An input port of the analyzed top that carries a ``cdc-domain`` annotation
-is a source in the domain of the clock input it names.
+is a source in the domain of the clock input it names (an annotation that
+names the port itself declares a clock input). A ``cdc-params`` directive
+above a target's top module adds one more run of that target, elaborated
+with those parameter values.
 The SPEC (wiki/tools/checks/SPEC.md, "CDC check") owns the rule, its
 assumptions and its limits.
 """
@@ -51,6 +54,11 @@ _MODULE_LINE_RE = re.compile(r"^\s*module\s+(?:(?:automatic|static)\s+)?(?P<name
 _DOMAIN_LINE_RE = re.compile(r"//\s*cdc-domain\b")
 _DOMAIN_RE = re.compile(r"^//\s*cdc-domain:\s*(?P<clock>[A-Za-z_]\w*)\s*$")
 _INPUT_LINE_RE = re.compile(r"^\s*input\b")
+# A parameter-set directive: one more elaboration of the module below it.
+_PARAMS_LINE_RE = re.compile(r"^\s*//\s*cdc-params\b")
+_PARAM_VALUE = r"(?:-?[0-9][0-9_]*|[0-9]*'[sS]?[bBoOdDhH][0-9a-fA-F_]+)"
+_PARAMS_RE = re.compile(r"^\s*//\s*cdc-params:(?P<sets>(?:\s+[A-Za-z_]\w*=" + _PARAM_VALUE
+                        + r")+)\s*$")
 
 # Edge kinds, ordered: a path's kind is the largest kind on it.
 ALIAS, WIRE, LOGIC = 0, 1, 2
@@ -172,6 +180,68 @@ def scan_port_domains(files: list[Path], src_root: Path
                                 "declaration line")
             else:
                 found[(path, n)] = PortDomain(m.group("clock"), path, n)
+    return found, findings
+
+
+@dataclass(frozen=True)
+class ParamSet:
+    module: str
+    params: tuple[tuple[str, str], ...]  # (parameter, value), in directive order
+    file: Path   # resolved
+    line: int
+
+    @property
+    def tag(self) -> str:
+        return "[" + ",".join(f"{k}={v}" for k, v in self.params) + "]"
+
+
+def scan_param_sets(files: list[Path], src_root: Path
+                    ) -> tuple[dict[str, list[ParamSet]], list[str]]:
+    """Read every ``cdc-params`` directive in ``files``. Returns the valid
+    ones grouped by the module they precede, and the findings for malformed,
+    misplaced or repeated ones."""
+    found: dict[str, list[ParamSet]] = {}
+    findings: list[str] = []
+    seen: set[tuple[str, tuple[tuple[str, str], ...]]] = set()
+    for path in files:
+        path = Path(path).resolve()
+        try:
+            lines = path.read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        where = rel(path, src_root)
+        for i, line in enumerate(lines):
+            if not _PARAMS_LINE_RE.match(line):
+                continue
+            n = i + 1
+            m = _PARAMS_RE.match(line)
+            if m is None:
+                findings.append(f"{where}:{n}: malformed cdc-params directive (expected "
+                                "'// cdc-params: <PARAMETER>=<integer> ...')")
+                continue
+            j = i + 1  # past the other directives stacked above the same module line
+            while j < len(lines) and (_PARAMS_LINE_RE.match(lines[j])
+                                      or _DIRECTIVE_LINE_RE.match(lines[j])):
+                j += 1
+            mod = _MODULE_LINE_RE.match(lines[j]) if j < len(lines) else None
+            if mod is None:
+                findings.append(f"{where}:{n}: cdc-params directive is not directly above "
+                                "a module line")
+                continue
+            name = mod.group("name")
+            params = tuple(tuple(t.split("=", 1)) for t in m.group("sets").split())
+            keys = [k for k, _ in params]
+            if len(set(keys)) != len(keys):
+                findings.append(f"{where}:{n}: malformed cdc-params directive on {name}: "
+                                "a parameter is set twice")
+                continue
+            key = (name, tuple(sorted(params)))
+            if key in seen:
+                findings.append(f"{where}:{n}: cdc-params directive on {name} repeats "
+                                "another parameter set")
+                continue
+            seen.add(key)
+            found.setdefault(name, []).append(ParamSet(name, params, path, n))
     return found, findings
 
 
@@ -937,6 +1007,7 @@ class Target:
     label: str
     flat: Resolved
     top: str | None
+    params: tuple[tuple[str, str], ...] = ()
 
 
 def pinned_version() -> str | None:
@@ -957,12 +1028,14 @@ def verilator_version(verilator: Path) -> str | None:
     return m.group(1) if m else None
 
 
-def json_command(verilator: Path, flat: Resolved, top: str | None, out_dir: Path) -> list[str]:
+def json_command(verilator: Path, flat: Resolved, top: str | None, out_dir: Path,
+                 params: tuple[tuple[str, str], ...] = ()) -> list[str]:
     cmd = [str(verilator), "--json-only", "-Wno-fatal", "--Mdir", str(out_dir),
            "--json-only-output", str(out_dir / "tree.json"),
            "--json-only-meta-output", str(out_dir / "meta.json")]
     if top:
         cmd += ["--top-module", top]
+    cmd += [f"-G{k}={v}" for k, v in params]
     cmd += [f"+incdir+{d}" for d in flat.incdirs]
     cmd += [f"-D{k}={'' if v is None else v}" for k, v in flat.defines.items()]
     return cmd + [str(s) for s in flat.sources]
@@ -1005,8 +1078,8 @@ def port_domain_findings(nl: Netlist, domains: dict[tuple[Path, int], PortDomain
             used.add((pd.file, pd.line))
             name = mod.get("origName", mod["name"])
             ca = ports.get(pd.clock)
-            bad = ("names the port itself" if pd.clock == v.name else
-                   f"{pd.clock} is not an input port of {name}"
+            # Naming the port itself declares a clock input: its own domain.
+            bad = (f"{pd.clock} is not an input port of {name}"
                    if ca is None or model.vars[ca].direction != "INPUT" else "")
             if bad and first:
                 findings.append(f"{rel(pd.file, nl.src_root)}:{pd.line}: cdc-domain annotation "
@@ -1273,6 +1346,22 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
     result.findings += found
     domains, found = scan_port_domains(files, src_root)
     result.findings += found
+    param_sets, found = scan_param_sets(files, src_root)
+    result.findings += found
+    expanded: list[Target] = []
+    used_sets: set[ParamSet] = set()
+    for t in plan:  # each parameter set of a target's top is one more run
+        expanded.append(t)
+        for ps in param_sets.get(t.top or "", []):
+            if ps.file in {s.resolve() for s in t.flat.sources}:
+                used_sets.add(ps)
+                expanded.append(Target(t.label + ps.tag, t.flat, t.top, ps.params))
+    plan = expanded
+    if ip_ids is None:  # a filtered run does not see every target
+        result.findings += [f"{rel(ps.file, src_root)}:{ps.line}: cdc-params directive on "
+                            f"{ps.module}: the module is no analyzed target's top"
+                            for sets in param_sets.values() for ps in sets
+                            if ps not in used_sets]
     used: set[tuple[Path, int]] = set()
     complete = True
     flops = 0
@@ -1289,11 +1378,12 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
             complete = False
         checked_cells: dict[str, list[str]] = {}
         for t in plan:
-            print(f"[cdc] {t.label}: top={t.top or '(verilator picks)'}", flush=True)
+            print(f"[cdc] {t.label}: top={t.top or '(verilator picks)'}"
+                  + "".join(f" -G{k}={v}" for k, v in t.params), flush=True)
             with tempfile.TemporaryDirectory(prefix="cdc-") as tmp:
                 out = Path(tmp)
                 try:
-                    proc = subprocess.run(json_command(verilator, t.flat, t.top, out),
+                    proc = subprocess.run(json_command(verilator, t.flat, t.top, out, t.params),
                                           capture_output=True, text=True, timeout=CDC_TIMEOUT_S)
                 except subprocess.TimeoutExpired:
                     result.findings.append(f"{t.label}: verilator --json-only timed out after "
@@ -1327,7 +1417,8 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None) -> CheckResult:
                       f"{len(lists) - len(tops) - headers_only - packages_only} shared block(s), "
                       f"{len(plan)} Verilator --json-only run(s), {flops} flop(s), "
                       f"{len(directives)} cdc-cell directive(s), "
-                      f"{len(domains)} cdc-domain annotation(s)"
+                      f"{len(domains)} cdc-domain annotation(s), "
+                      f"{sum(len(v) for v in param_sets.values())} cdc-params directive(s)"
                       + (f", {headers_only} include-only block(s) skipped" if headers_only else "")
                       + (f", {packages_only} package-only block(s) skipped"
                          if packages_only else ""))

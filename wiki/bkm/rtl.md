@@ -447,6 +447,9 @@ includes the cell's filelist with `-F`.
   input  logic [19:0] aux_data_i,   // cdc-domain: aux_clk_i
   ```
 
+  A clock input may name itself (`aux_clk_i // cdc-domain: aux_clk_i`),
+  which declares it a clock; that is how a clock input that a parameter
+  leaves unused is annotated, so the comment is right in every build.
   An IP or shared block with more than one clock input annotates every
   input port that is not a clock, as its HAS or MAS port table gives it
   (the `Clock` column), so the check sees a port sampled in the wrong
@@ -469,6 +472,12 @@ includes the cell's filelist with `-F`.
   synchronizer (asynchronous assertion, synchronous release) is a
   `src=async` cell whose `src_*` reset input drives the asynchronous
   reset of its `dst_clk_i` flops.
+- **Parameter sets.** A top whose parameters change its clocking (for
+  example a build that adds a second clock) declares each such build in a
+  directive above its `module` line, `// cdc-params: <PARAMETER>=<value> ...`,
+  one line per set, and the check elaborates and analyzes each set besides
+  the defaults ([CDC check](../tools/checks/SPEC.md#cdc-check)). A crossing
+  that only a parameter value enables is otherwise never checked.
 - **Check.** `./build check` runs the structural
   [CDC check](../tools/checks/SPEC.md#cdc-check): it enforces the directive,
   the port prefixes, pass-through-free cells, the cell-only crossing rule,
