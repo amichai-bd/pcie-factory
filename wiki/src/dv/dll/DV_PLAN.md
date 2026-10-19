@@ -300,10 +300,13 @@ under `ci-gate`. They take about 12 s and 2 x 4 s of CPU.
 they run existing tests on the `REPLAY_TIMEOUT` 1400 build, whose
 `pcie_dll` and `pcie_dll_tlp_tx` are their own specializations and which
 `replay_timeout_slow` alone barely reaches (14 line and 1509 toggle points
-missed). They add 13 line and 552 toggle points no other entry reaches
-(`tlp_partner_errors_slow` 7 and 55, `tlp_rollover_slow` 5 and 66,
-`link_down_mid_tlp_slow` 1 and 134, `tlp_bidir_slow` 0 and 297) and 360
-toggle points that only they reach between them. `replay_timeout_slow`
+missed). Of the 14 line and 912 toggle points they gain, 8 and 490 are
+reached by one of them alone (`tlp_partner_errors_slow` 7 and 55,
+`link_down_mid_tlp_slow` 1 and 134, `tlp_bidir_slow` 0 and 297,
+`tlp_rollover_slow` 0 and 4) and the rest by two or more.
+`tlp_rollover_slow` stays for its check: it alone compares the replay
+counts with the shadow at 1400, and it alone of them catches a timeout
+fixed at 356. `replay_timeout_slow`
 (level 1) keeps the parameter under `ci-gate`. Each mutant they catch
 ([below](#replay-timeout-build-mutants)) is also caught under `ci-gate`:
 by the same test on the default build, or, for a timeout fixed at 356, by
@@ -507,6 +510,7 @@ against one RTL mutant, serially, the tree restored after each.
 | TLP transmit | Flush keeps the retry state (`RETRY_RESET` not loaded) | `link_down_mid_tlp_slow` | First TLP after the relink carries sequence 1, expected 0 (cycle 306). | `link_down_mid_tlp` (L0) |
 | TLP transmit | A running replay does not skip what an Ack removed | `tlp_partner_errors_slow` | Partner violation at cycle 7245: TLP 78 taken, already acknowledged (ACKD_SEQ 86). | `tlp_partner_errors` (L1), cycle 2555 |
 | Transmit block | Ack and Nak below TLPs in the transmit priority | `tlp_bidir_slow` | An Ack started 14522 cycles after its TLP's `eop`, bound 118. | `tlp_bidir` (L1) |
+| TLP transmit | The timer never expires at 1400 (the compare also needs a count whose bits 2:0 are not all 1, as 1399's are) | `tlp_partner_errors_slow` | The final Ack-loss window: no replay timeout within 1800 cycles (cycle 38705). | `replay_timeout_slow` (L1): the timeout not reached within 1410 cycles |
 
 ## Gaps
 
