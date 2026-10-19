@@ -123,8 +123,9 @@ Host memory is never reset. Out of `rst` every output is 0 but
 `rsp_valid_o` and `rsp_o` are 0 at once, as [TL_SEQ](../../arch/rc/TL_SEQ.md#signals)
 requires, not only after the next edge. While `dl_up_i` is 0 the outstanding
 endpoint request ends with `LINK_DOWN`, and every endpoint command taken
-gets `LINK_DOWN` at once ([commands](#commands)); local commands are
-unaffected. This is the [`rc` link-down rule](../../arch/rc/HAS.md#link-down):
+gets `LINK_DOWN` at once ([commands](#commands); until #373 only one that
+passes checks 2 to 7, by the [interim rule](#leaf-blocks)); local
+commands are unaffected. This is the [`rc` link-down rule](../../arch/rc/HAS.md#link-down):
 `link` has abandoned every TLP it held and restarts every credit, so
 nothing held below `lrst` can be answered or released.
 
@@ -233,7 +234,12 @@ then #375 ([#368 decision](https://github.com/amichai-bd/pcie-factory/issues/368
 endpoint command that passes checks 2 to 7 with `LINK_DOWN` while
 `dl_up_i` is 0 and otherwise with `LOCAL_UR`, sending nothing, so no
 command hangs; #374's acceptance is judged on the refusals and the
-`HDR_*` commands, and the accepted path's tests belong to #373. For the
+`HDR_*` commands, and the accepted path's tests belong to #373. Check 1
+is not applied until #373 either: `LINK_DOWN` is decided only after
+checks 2 to 7 pass, so an endpoint command that fails one of them
+finishes `LOCAL_UR` even while `dl_up_i` is 0. This differs, until #373,
+from the `LINK_DOWN` precedence of [TL_SEQ](../../arch/rc/TL_SEQ.md#commands)
+and of the [`rc` outbound routing](../../arch/rc/HAS.md#outbound-routing). For the
 same reason an `ERR_*` command that passes the checks finishes `LOCAL_UR`
 until #373 adds the error record, and a `HOST_*` one until #375 adds host
 memory: one beat in the cycle after the take, nothing changed. While a

@@ -110,12 +110,11 @@ module pcie_rc_tl #(
   );
 
   // Inputs and parameters no block uses yet; #373 and #375 consume them.
-  logic unused_inputs;
-  assign unused_inputs = ^{msi_ready_i, tlp_tx_ready_i,
+  `COMMON_UNUSED_BITS(unused_inputs, {msi_ready_i, tlp_tx_ready_i,
                            tlp_rx_valid_i, tlp_rx_data_i, tlp_rx_sop_i, tlp_rx_eop_i,
                            fc_ph_avail_i, fc_pd_avail_i, fc_nph_avail_i, fc_npd_avail_i,
                            fc_cplh_avail_i, fc_cpld_avail_i,
-                           FC_NPH[0], CPL_TIMEOUT_DIV[0], HOST_MEM_BASE, MSI_ADDR};
+                           FC_NPH[0], CPL_TIMEOUT_DIV[0], HOST_MEM_BASE, MSI_ADDR})
 
   // Reset values of the blocks not built yet (MAS): no capture, nothing
   // sent or released; every received beat taken out of reset.
