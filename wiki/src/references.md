@@ -82,7 +82,7 @@ on the entry's **Verified** line and removes it here.
 | Publisher | Terasic Technologies |
 | Official link | [DE2-115 product page (manual under Resources)](https://www.terasic.com.tw/cgi-bin/page/archive.pl?Language=English&No=502) |
 | Access | Free download from the board vendor. |
-| Relied on by | The [`phy` FPGA page](fpga/phy/FPGA.md) and its [pin settings](../../src/fpga/phy/de2_115.qsf.tcl); the [`gpio` HAS](arch/gpio/HAS.md#de2-115-pins) (expansion header). |
+| Relied on by | The [`phy` FPGA page](fpga/phy/FPGA.md) and its [pin settings](../../src/fpga/phy/de2_115.qsf.tcl); the [`gpio` HAS](arch/gpio/HAS.md#de2-115-pins) (expansion header); the [`rc` FPGA page](fpga/rc/FPGA.md) and its [pin settings](../../src/fpga/rc/de2_115.qsf.tcl) (expansion header, keys, LEDs). |
 | Verified | **Not verified:** the vendor site did not answer from the cloud session on 2026-10-15; a human confirms the link and the manual revision. |
 
 ## sky130

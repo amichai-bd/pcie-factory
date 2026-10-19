@@ -90,7 +90,7 @@ These hold for the whole family.
 | --- | --- | --- |
 | Depth as `ADDR_W` (`2**ADDR_W` words) | Power-of-two depth is the source's rule anyway; one parameter cannot disagree with another, and it matches [`common_cdc_fifo`](../cdc/common_cdc_fifo.md). | The source's `DEPTH` plus a checked `ADDR_WIDTH`. |
 | Lane enables on every write port, `LANES` default 1 | The vocabulary has the lane-write form; consumers of partial words need it, and a one-lane RAM is the plain template. | A separate lane variant of each block. |
-| Portable inferred RAM only | No consumer needs a vendor macro yet; one source serves simulation, lint, FPGA and ASIC. | The source's Intel and IHP backends (out of scope in [#126](https://github.com/amichai-bd/pcie-factory/issues/126)). |
+| Portable inferred RAM only, until [#417](https://github.com/amichai-bd/pcie-factory/issues/417) | No consumer needed a vendor macro until the `rc` fit (above); one source serves simulation, lint, FPGA and ASIC. | The source's Intel and IHP backends (out of scope in [#126](https://github.com/amichai-bd/pcie-factory/issues/126)). |
 | No reset, no initialization, no ROM image | RAM blocks cannot reset their contents; an image needs a system task the design rules forbid. | An initialization macro (no consumer). |
 | No dual-clock RAM yet | A registered read of a memory written on another clock is a raw crossing to the [CDC check](../../../../tools/checks/SPEC.md#cdc-check); its only exception needs a synchronized pointer inside the cell, which a plain RAM has not. Cross-domain data uses [`common_cdc_fifo`](../cdc/common_cdc_fifo.md). | Porting the source's dual-clock RAM with a CDC-check exception; deferred to [#180](https://github.com/amichai-bd/pcie-factory/issues/180) with the CDC gate unchanged. |
 
@@ -107,7 +107,8 @@ register when inferred).
 
 | Item | Owner |
 | --- | --- |
-| Quartus builds the byte-lane form from logic (measured in the `rc` fit, above): an Intel backend so it maps to M9K, then the measured mode and M9K count here. The ASIC flow's shape is still not measured. | [#417](https://github.com/amichai-bd/pcie-factory/issues/417) |
+| Quartus builds the byte-lane form from logic (measured in the `rc` fit, above): an Intel backend so it maps to M9K, then the measured mode and M9K count here. | [#417](https://github.com/amichai-bd/pcie-factory/issues/417) |
+| The Yosys (sky130 ASIC flow) inference shape is not measured: deferred until the first `common_sync_ram` consumer enters the ASIC flow. | [#420](https://github.com/amichai-bd/pcie-factory/issues/420) |
 | A dual-clock simple dual-port RAM (the source's `n2a_sdp_ram_dc`) waits for a consumer; the CDC gate stays as it is, so it needs a consumer-specific crossing cell or a separately approved check rule. | [#180](https://github.com/amichai-bd/pcie-factory/issues/180) |
 
 ## Files
