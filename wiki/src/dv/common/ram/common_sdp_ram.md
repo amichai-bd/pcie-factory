@@ -38,13 +38,12 @@ hold, read and hold.
 ([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
 level 1 of every IP, which `ci-gate` runs for a change to a shared
 package, was over its 1200 s CPU budget. `sdp_ram_random`,
-`sdp_ram_intel_random`, `sdp_ram_sky130_random`,
-`sdp_ram_sky130_flops_random` run one seed in level 1 (the first, unless
-the row says otherwise); their further seeds run pinned and unchanged in
-the entry's level 2 `_sweep`, each seed with its coverage instrumentation,
-so the merged level 0 to 2 runs are the same runs. Any mutant recorded
-on this page is still first caught at the seed it names, or at the entry's
-first seed, which stays in level 1.
+`sdp_ram_intel_random`, `sdp_ram_sky130_random` and
+`sdp_ram_sky130_flops_random` run their first seed in level 1; their
+further seeds run pinned and unchanged in each entry's level 2 `_sweep`,
+each seed with its coverage instrumentation, so the merged level 0 to 2
+runs are the same runs. The mutation evidence on this page names no seed
+for these entries, and was not rerun at the first seed alone.
 
 Mutation evidence ([#126](https://github.com/amichai-bd/pcie-factory/issues/126)),
 in a scratch copy: a read port that ignores `rd_en_i` fails

@@ -255,8 +255,8 @@ unchanged (the merged level 0 to 2 coverage and the floors are the same):
   `e2e_rtl_link` (both ports reset while packets flow) and `e2e_polarity`;
   its own part, the partner leaving L0 through Recovery's divided timeout
   when one port resets alone, is checked nightly.
-- `e2e_rtl_link` moved from level 0 to level 1 (about 44 s for its two
-  seeds) to keep level 0 inside its budget; level 0 keeps the all-model
+- `e2e_rtl_link` moved from level 0 to level 1 (then about 44 s for its two
+  seeds; one seed since #389) to keep level 0 inside its budget; level 0 keeps the all-model
   `e2e_smoke` and `e2e_rtl_link_chan`, the same RTL recipe over the RTL
   channel.
 

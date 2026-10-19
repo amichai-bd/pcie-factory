@@ -109,22 +109,17 @@ reads them at the offer, with a self-test. No other disagreement is open.
 | The random test with 64 vectors and BAR0 256 MiB | `random_long_64` | 2 | 2 |
 | The random test with one vector | `random_long_1` | 2 | 2 |
 
-**Level placement**
-([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
-level 1 of every IP, which `ci-gate` runs for a change to a shared
-package, was over its 1200 s CPU budget. `enumeration_params`,
-`random_ops` run one seed in level 1 (the first, unless the row says
-otherwise); their further seeds run pinned and unchanged in the entry's
-level 2 `_sweep`, each seed with its coverage instrumentation, so the
-merged level 0 to 2 runs are the same runs. `random_ops` keeps in level 1
-the two seeds the mutant table names (179094473 and 329618035), and moves
-its derived seed 0. Any mutant recorded on this page is still first
-caught at the seed it names, or at the entry's first seed, which stays in
-level 1.
-
 **Level placement.** Level 0 holds the smoke test only. The `random_long`
 entries are level 2 as soaks (longer runs of `random_ops`, which level 1
-holds with three seeds).
+runs with two seeds and level 2 with a third, in `random_ops_sweep`).
+Since [#389](https://github.com/amichai-bd/pcie-factory/issues/389) (the
+full level 1 of every IP was over its 1200 s CPU budget), level 1 runs
+`enumeration_params` at its derived seed 0, with seed 1 pinned in
+`enumeration_params_sweep`, and `random_ops` at the two seeds the mutant
+table names (179094473 and 329618035), with its derived seed 0 pinned in
+`random_ops_sweep`. Each seed keeps its coverage instrumentation, so the
+merged level 0 to 2 runs are the same runs, and every mutant below is
+still caught in level 1 at the seed it names.
 
 ## Mutation evidence
 

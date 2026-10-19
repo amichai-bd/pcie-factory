@@ -220,17 +220,6 @@ self-tests check them.
 | The same, longer | `cpl_random_long` | 2 | 3 |
 | [Receive](../../../../src/dv/tl/models/test_pcie_tl_rx_ref.py), [transmit](../../../../src/dv/tl/models/test_pcie_tl_tx_ref.py) and [completion](../../../../src/dv/tl/models/test_pcie_tl_cpl_ref.py) reference unit tests | pytest | `./build ci unit` | |
 
-**Level placement**
-([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
-level 1 of every IP, which `ci-gate` runs for a change to a shared
-package, was over its 1200 s CPU budget. `rx_random`,
-`rx_random_min_credits`, `tx_random`, `cpl_random` run one seed in level 1
-(the first, unless the row says otherwise); their further seeds run pinned
-and unchanged in the entry's level 2 `_sweep`, each seed with its coverage
-instrumentation, so the merged level 0 to 2 runs are the same runs. Any
-mutant recorded on this page is still first caught at the seed it names,
-or at the entry's first seed, which stays in level 1.
-
 **Level placement.** `rx_routing`, `rx_order` and `rx_link_down` are the
 receive path's acceptance entries and its fastest discriminating tests,
 as are `rx_np_collide`, the only entry that reaches the release carry,
@@ -241,6 +230,21 @@ ordering, credit gating, interrupt messages), and `cpl_matching`,
 `cpl_tags` and `cpl_timeout`, the tracker's (the timeout at
 `CPL_TIMEOUT_DIV` 1024 takes about 2200 cycles). The random entries are
 short in L1 (about 3 s of CPU each) and long in L2.
+One seed per random entry in level 1
+([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
+level 1 of every IP, which `ci-gate` runs for a change to a shared
+package, was over its 1200 s CPU budget. `rx_random`,
+`rx_random_min_credits`, `tx_random` and `cpl_random` run their first
+seed in level 1; their further seeds run pinned and unchanged in the
+entry's level 2 `_sweep`, each seed with its coverage instrumentation, so
+the merged level 0 to 2 runs are the same runs. The mutation tables below
+were measured at each entry's first regression seed, which stays in level
+1, except the slot power event's (#309), whose `rx_random` runs covered
+all three seeds; rerun at `rx_random`'s derived seed 0 (467035976), M34
+and M35 still fail it (cycles 748 and 158), while M36 and M37 pass it and
+are first caught in level 1 by `rx_random_min_credits` (seed 362363128,
+cycles 3572 and 5759), then `rx_routing` (seed 2084312926), and in level 2
+by `rx_random`'s derived seed 1 (1825658846).
 
 ## Mutation evidence
 
