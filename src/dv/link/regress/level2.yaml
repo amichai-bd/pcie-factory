@@ -144,14 +144,15 @@ tests:
     seeds: 2
     timeout_s: 1800
 # Floors on the merged levels 0 to 2 (the nightly run), at the merged value
-# less 0.5 points rounded down to a tenth (DV BKM, floor margin): line 90.2
-# from 90.72% (1379/1520, #217; now 91.27%, 1485/1627); toggle 76.6 from
-# 77.11% (28961/37556, #360), lowered from 79.8 by captain decision on #360
-# for the FC_RELEASE parameter copies, the tied-off release ports and the
-# duplicate CDC copies (DV plan, Coverage holes); every point not hit has a
-# reason in the DV plan (Coverage holes). An entry with a new parameter set
-# (a new CREDITS value) re-measures these floors in the same PR.
+# less 0.5 points rounded down to a tenth (DV BKM, floor margin), measured
+# for #360: line 90.7 from 91.27% (1485/1627), raised from 90.2 by
+# firstmate decision on #360; toggle 76.5 from 77.10% (28955/37556),
+# lowered from 79.8 by captain decision on #360 for the FC_RELEASE
+# parameter copies, the tied-off release ports and the CDC copies under a
+# second name (DV plan, Coverage holes); every point not hit has a reason
+# in the DV plan (Coverage holes). An entry with a new parameter set (a new
+# CREDITS value) re-measures these floors in the same PR.
 # Functional 100 must hold every bin of link_e2e_config, link_e2e_control,
 # link_e2e_credit, link_e2e_inject, link_e2e_recovery and link_e2e_traffic;
 # a renamed or undeclared covergroup leaves the total, so keep this list.
-coverage_floors: {line: 90.2, toggle: 76.6, functional: 100}
+coverage_floors: {line: 90.7, toggle: 76.5, functional: 100}
