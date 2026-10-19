@@ -120,7 +120,7 @@ renumbered: still an error at the receiver, never fixed
 **Level placement.** Every program runs in a few seconds of wall time at
 `TIMEOUT_DIV` and `ERR_TIMEOUT_DIV` 1024 (`ENUM` about 13 000 cycles,
 `ERRORS` about 90 000), so every acceptance case is level 1; level 2
-holds seed sweeps. The board-build entries take about 1.2 s of CPU each (`ENUM` about 7 800 cycles, `MMIO` 12 400 over the adapter). **ERRORS:** the cut line brings both ends to Detect one
+holds seed sweeps. The board-build entries take 1.01 s (`board_enum`, `ENUM` about 7 800 cycles) and 1.07 s (`board_mmio`, `MMIO` 12 400 over the adapter) of CPU. **ERRORS:** the cut line brings both ends to Detect one
 floored Recovery timeout later (16384 cycles), which must fall inside
 `rc_tl`'s completion timeout or R12's outstanding read ends `TIMEOUT`;
 its entries set `CPL_TIMEOUT_DIV` 64 (32768 cycles), the

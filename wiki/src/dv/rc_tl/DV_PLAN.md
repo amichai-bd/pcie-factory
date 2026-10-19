@@ -153,6 +153,48 @@ L1 budget).
 
 ## Gaps
 
-| Feature | Owning issue |
-| --- | --- |
-| Coverage floors | [#380](https://github.com/amichai-bd/pcie-factory/issues/380) |
+None: every feature of the MAS and its pages has a test.
+
+## Coverage holes
+
+Floors in [`level2.yaml`](../../../../src/dv/rc_tl/regress/level2.yaml),
+checked by every `--coverage` run that selects level 2 (the nightly runs
+levels 0 to 2): line 91.4, toggle 65.5, functional 100. Merged over levels
+0 to 2 ([#380](https://github.com/amichai-bd/pcie-factory/issues/380)):
+line 91.91% (943 of 1026 points), toggle 66.00% (31793 of 48168),
+functional 100% (344 of 344 bins in `rc_tl_cmd`, `rc_tl_req`, `rc_tl_cpl`,
+`rc_tl_inb`, `rc_tl_cplr`, `rc_tl_host` and `rc_tl_reset`). The code
+floors are the merged values less 0.5 points, rounded down to a tenth
+([floor margin](../../../bkm/dv.md#coverage)). Verilator keeps one copy
+of each block per parameter set: the default, the IDs of `hdr_reset_ids`,
+`CPL_TIMEOUT_DIV` 1024 and 1000, and the host memories of the `*_aw8`,
+`*_aw16` and `FC_NPH` 1 entries; most copies run a few entries, which is
+why toggle coverage is low while every bin is hit.
+
+The 83 line points not hit, by cause:
+
+| Cause | Points | Where |
+| --- | ---: | --- |
+| Hit in another parameter copy | 75 | `pcie_rc_tl_rx.sv` 50, `pcie_rc_tl_req.sv` 15, `pcie_rc_tl_mem.sv` 6, `pcie_rc_tl_cmd.sv` 4. |
+| Outside the input contract | 5 | The `dll` drops every TLP with more than 128 bytes of data or a length that disagrees with its header ([inbound](../../rtl/rc_tl/INBOUND.md)), so no TLP reaches `rc_tl` with 64 or more beats or with Length 0 and data (1024 DWs): the beat counter's saturation in [`common_tlp_rx_track.sv`](../../../../src/rtl/common/common_tlp_rx_track.sv) (as in the [`tl` holes](../tl/DV_PLAN.md#coverage-holes)) and the Length 0 decode of a received completion's DW count in `pcie_rc_tl_rx.sv` (four copies). |
+| Unreachable by construction | 3 | The lane-disable branch of each `common_sdp_ram` copy (`LANES` 1). |
+
+The 16375 toggle points not hit, by cause:
+
+| Cause | Points | Signals |
+| --- | ---: | --- |
+| Hit in another parameter copy | 12747 | The same signal bit and direction toggles in another copy: `pcie_rc_tl.sv` 7098, `pcie_rc_tl_rx.sv` 3893, `pcie_rc_tl_req.sv` 870, `pcie_rc_tl_cmd.sv` 588, `pcie_rc_tl_mem.sv` 212, `pcie_rc_tl_cpl.sv` 70, the common RAMs 12, `pcie_rc_tl_hdr.sv` 4. |
+| Header fields every TLP `rc_tl` builds holds constant | 1750 | The request and completion DWs from `req_dw0`, `req_dw1`, `cfg_dw2` and `cpl_dw*` in the requester, the completer, the transmit stage and the top (`req_tx`, `cpl_tx`, `tx_o`, `req_i`, `cpl_i`, `arb_*`, `dw0_len`, `typ`, `cls`, `dcred`, `rq_*.rid`, `rq_*.addr`): TD, EP, AT, TH and the reserved bits 0; TC and Attr 0 in requests; Length bits 6 to 9 0 (at most 32 DWs); Type 0 configuration requests only ([HAS](../../arch/rc/HAS.md), no Type 1); the IDs' device and function 0; the completer's status `SC` or `UR` and BCM 0; one data credit per request (1-DW writes); DW-aligned addresses. |
+| Error vectors: another block's bits | 612 | `err_o`, `err`, `rx_err` and `req_err` in the requester, the receive block and the top: each source drives only its own bits of the 13-bit [error record](../../rtl/rc_tl/MAS.md#error-record-and-q2-cases), and each decode stage a subset of those. |
+| Header registers outside the writable mask | 560 | `cmd_*`, `cls_*`, `bus_*` and `mem_*` in `pcie_rc_tl_hdr.sv`, both copies: the bits outside `RW_CMD`, `RW_CLS`, `RW_BUS` and `RW_MEM`, read-only 0. |
+| Constant by construction | 321 | The receive decision's `mdata`, never set (`dec` starts at 0), and its `on` and `dbeg`, always 1; the header end (2 or 3 DWs) in `common_tlp_rx_track.sv` and `rp.hdr_end`. |
+| Outside the input contract | 160 | The DW counts above 32 (bits 6 to 10 of `dw_n` in the receive block, the requester and the top; `rem_dw` bits 7 and 8; the completer's `rest` bit 10): no TLP with more than 128 bytes of data reaches `rc_tl`, as for the line points. |
+| Received fields `rc_tl` ignores | 56 | `dw0_q` bits 8 to 11, 15, 18 and 19 of the receive block (TH, LN, Attr bit 2, T8, T9 and AT, listed in `unused_hdr`): the endpoint never sets them, and `rc_tl` reads none of them. |
+| Queues never full; RAM lanes | 31 | The non-posted queue's and the data queue's full flags and top fill bits in `pcie_rc_tl_cpl.sv` and its `common_sdp_ram_fifo`: the link's credit contract (at most `FC_NPH` unreleased non-posted TLPs) keeps them below their depth; the RAMs' lane enable (`LANES` 1), and bit 22 of two entries of one queue RAM, never written 1. |
+| Not reached: data patterns | 138 | The MSI capture's entry 2 data bits (96: the bench's MSI data in that slot), the 16-bit host memory copy's request end bits 11 to 15 (40: its requests end in the first 8 KB), the completion timeout counter's top bit falling (2). Each is a value pattern of a register already checked bit for bit against the model; more patterns were rejected as low test value. |
+
+How the points were sorted, so a re-measurement reproduces the counts: a
+line point is keyed by file, line, column and kind, a toggle point by
+file, signal bit and direction (any copy). A point not hit is "another
+copy" when its key is hit anywhere in the run; the rest go by file and
+signal name as the rows list them.

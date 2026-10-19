@@ -172,13 +172,46 @@ holds equal to the RTL's:
   run, a restart after done, reset mid-run, a beat in the take cycle, a
   32-DW read with gaps.
 
-L0 to L2 reach every bin. The package's program builders run at
-elaboration only, so line coverage counts them as never executed; the
-state machine's `default` arm is unreachable (11 of 16 state codes are
-used).
+L0 to L2 reach every bin; the floors and every code point they leave are
+in [coverage holes](#coverage-holes).
 
 ## Gaps
 
-| Feature | Owning issue |
-| --- | --- |
-| Coverage floors | [#380](https://github.com/amichai-bd/pcie-factory/issues/380) |
+None: every feature of the MAS has a test.
+
+## Coverage holes
+
+Floors in [`level2.yaml`](../../../../src/dv/rc_seq/regress/level2.yaml),
+checked by every `--coverage` run that selects level 2 (the nightly runs
+levels 0 to 2): line 59.3, toggle 72.4, functional 100. Merged over levels
+0 to 2 ([#380](https://github.com/amichai-bd/pcie-factory/issues/380)):
+line 59.88% (106 of 177 points), toggle 72.93% (4758 of 6524), functional
+100% (52 of 52 bins in `rc_seq_steps`, `rc_seq_jumps` and `rc_seq_run`).
+The code floors are the merged values less 0.5 points, rounded down to a
+tenth ([floor margin](../../../bkm/dv.md#coverage)). Verilator keeps one
+copy of the ROM per `PROGRAM` (six), each a different constant image.
+
+The 71 line points not hit, by cause:
+
+| Cause | Points | Where |
+| --- | ---: | --- |
+| Elaboration only | 64 | `pcie_rc_seq_pkg.sv`: the step encoders (`step_*`), the program builders and `program_of`, called only for `localparam` values (the ROM image), which Verilator folds at elaboration. |
+| Hit in another `PROGRAM` copy | 5 | `pcie_rc_seq_rom.sv`: each image's copy reaches only its own arms. |
+| Unreachable by construction | 2 | The state machine's `default` arm (11 of 16 state codes are used) and the lane-disable branch of the result RAM's `common_sdp_ram` (`LANES` 1). |
+
+The 1766 toggle points not hit, by cause:
+
+| Cause | Points | Signals |
+| --- | ---: | --- |
+| Hit in another `PROGRAM` copy | 715 | `pcie_rc_seq_rom.sv`: a word bit that toggles in another program's image. |
+| Step fields constant over the six programs | 744 | The fetched word (`word_d`, `word_q`, `word_o` in the ROM, `word` in the top: 612 and 132), its fields as `cmd_o.addr`, `cmd_o.len`, `jump_target`, `jump_limit` and `hold_cycles`, and the reserved bits (`rsvd`, `unused_rsvd`): address, length and limit bits that no step of any program sets, since the images are fixed at elaboration ([programs](../../rtl/rc_seq/PROGRAMS.md)). |
+| PC top bits | 168 | Bits 9 to 15 of `pc_i`, `rom_pc`, `ctl_*.pc`, `fail_step_o` and `res_*.fail_step`: the ROM holds 256 steps (`ROM_AW` 8) and a jump past a program's end traps (bit 8 toggles in `expect_mismatch` and `jump_traps`), so no PC reaches 512. |
+| Counter top bits | 44 | `ctl_*.cnt` bits 25 to 31 and `ctl_*.loops` bits 13 to 15, and the fall of `cnt` bit 24 and `loops` bit 12: only the longest wait (`timeouts_enum`, past 2^24 cycles) and the longest loop (`timeouts_errors`, past 4096) set those bits, and their test ends there. |
+| MSI capture data and offset | 93 | `msi_i` and `msi_q` data and offset bits: the MSI data and offsets the programs' captures carry, and the selftest's corruptions of them. The capture is a register copied into the result RAM, compared bit for bit with the model; more data patterns would toggle storage bits only, which was rejected as low test value. |
+| Constant by construction | 2 | The result RAM's lane enable (`wr_lanes_i`, `ram_wlane`; `LANES` 1). |
+
+How the points were sorted, so a re-measurement reproduces the counts: a
+line point is keyed by file, line, column and kind, a toggle point by
+file, signal bit and direction (any copy). A point not hit is "another
+copy" when its key is hit anywhere in the run; the rest go by file and
+signal name as the rows list them.
