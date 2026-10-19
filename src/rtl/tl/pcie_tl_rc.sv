@@ -55,7 +55,7 @@ module pcie_tl_rc (
     desc_in.ep = rc_ep_i;
   end
 
-  pcie_tl_fifo #(
+  common_sdp_ram_fifo #(
     .WIDTH  ($bits(pcie_tl_pkg::t_rc_desc)),
     .ADDR_W (pcie_tl_pkg::RC_HQ_AW)
   ) u_hq (
@@ -71,7 +71,7 @@ module pcie_tl_rc (
     .ram_used_o   (hq_used)
   );
 
-  pcie_tl_fifo #(
+  common_sdp_ram_fifo #(
     .WIDTH  (32),
     .ADDR_W (pcie_tl_pkg::RC_DQ_AW)
   ) u_dq (

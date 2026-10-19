@@ -82,9 +82,9 @@ also the block nets `cpl_rec`, `rd_take`, `rd_ctx` and `pme_ack`
 
 ## Package
 
-[`pcie_tl_pkg`](../../../../src/rtl/tl/pcie_tl_pkg.sv) holds the Fmt,
-Type, message, routing and completion status codes, the `tl_err_o` bit
-numbers, the enums (`t_cls` credit class, `t_out` receive outcome,
+[`pcie_tl_pkg`](../../../../src/rtl/tl/pcie_tl_pkg.sv) holds the
+message, routing and completion status codes, the `tl_err_o` bit
+numbers, the enums (`t_out` receive outcome,
 `t_pkind` posted entry kind, `t_ckind` cfg line kind, `t_crkind` record
 kind, `t_reg_st`, `t_pxkind` transmit posted entry kind, `t_txsel` the
 arbiter's choice), the structs (the decoded header `t_hdr`, the TLP being
@@ -95,19 +95,31 @@ output stage `t_tx_out` and its beats `t_tx_beat`, the block nets
 `t_hd_ctx`, `t_cpl_rec`, the tracker nets `t_rx_beat`, `t_rq_ctx`, the
 rc packet `t_rc_desc`, a tracked read `t_trk_tag`, the slot power payload
 `t_slot_pwr`, and each
-block's state), and the pure helpers:
+block's state), and the helpers that need its types or are `tl`'s alone:
 
 | Helper | Does |
 | --- | --- |
-| `be_word`, `hdr_decode` | A big-endian header DW as an address word; every header field from the stream DWs ([TLP formats](../../arch/tl/TLP.md)). |
-| `credit_class`, `data_credits` | The class and data credits the `dll` counted ([credit release](../../arch/tl/HAS.md#credit-release)). |
-| `kind_known`, `is_cpl` | Step 1 of the [checks](../../arch/tl/ROUTING.md#checks); a completion with a defined Fmt. |
-| `be_ok`, `cross_4k`, `msg_tc0`, `msg_silent` | Steps 3, 4 and 6; the messages dropped without an error. |
+| `hdr_decode` | Every header field from the stream DWs ([TLP formats](../../arch/tl/TLP.md)). |
+| `msg_silent` | The messages dropped without an error ([checks](../../arch/tl/ROUTING.md#checks), step 6). |
 | `lowest_free` | The lowest free read handle. |
 | `ep_after` | The [epoch](#receive-queues) comparison (also the [transmit epochs](#transmit-lines)). |
+| `tx_dw0`, `tx_dw1_req` | Header DW 0 and a request's DW 1 as they sit on the stream ([TLP formats](../../arch/tl/TLP.md)). |
+
+The Type codes (`t_tlp_type`: `T_MEM` to `T_CAS`), the credit class
+(`t_cls`: `CLS_P`, `CLS_NP`, `CLS_CPL`, the type of `t_rx_cur.cls`) and the
+pure TLP helpers live in the shared package
+([`common_pkg`, TLP helpers](../common/common_pkg.md#tlp-helpers)), so
+`rc_tl` reuses them ([#385](https://github.com/amichai-bd/pcie-factory/issues/385)).
+`tl` uses them as `common_pkg::<name>`:
+
+| Helper | Use in `tl` |
+| --- | --- |
+| `be_word` | A big-endian header DW as an address word (`hdr_decode`, the transmit headers). |
+| `credit_class`, `data_credits` | The class and data credits the `dll` counted, for the release ([credit release](../../arch/tl/HAS.md#credit-release)). |
+| `kind_known`, `is_cpl` | Step 1 of the [checks](../../arch/tl/ROUTING.md#checks); a completion's beats to the tracker. |
+| `be_ok`, `cross_4k`, `msg_tc0` | Steps 3, 4 and 6. |
 | `be_lo`, `be_hi`, `byte_total`, `be_mask` | The lowest and highest enabled byte, a read's total bytes T (also a tracked read's first bytes due), a byte-enable mask ([byte count](../../arch/tl/COMPLETIONS.md#byte-count-and-lower-address)). |
 | `dw_credits` | Data credits of a TLP sent. |
-| `tx_dw0`, `tx_dw1_req` | Header DW 0 and a request's DW 1 as they sit on the stream ([TLP formats](../../arch/tl/TLP.md)). |
 
 ## Receive parser
 
@@ -205,13 +217,11 @@ above 8 per header owed (`a_owed_data`), and the headers owed never above
 
 ### Queue
 
-[`pcie_tl_fifo`](../../../../src/rtl/tl/pcie_tl_fifo.sv) is a
-first-word-fall-through queue: 2^`ADDR_W` entries in a
-[`common_sdp_ram`](../common/ram/common_sdp_ram.md), the head in its read
-register. The next entry loads into the head when the head is empty or
-popped and the RAM holds an entry written at an earlier edge, so a read
-never meets a write, a push shows at the head two edges later, and the
-head can be popped every cycle. `empty_o` covers the head and the RAM.
+Every RAM queue of `tl` is the shared block
+[`common_sdp_ram_fifo`](../common/ram/common_sdp_ram_fifo.md), which owns
+its contract: a first-word-fall-through queue of 2^`ADDR_W` entries in a
+`common_sdp_ram` plus the head in its read register, so a push shows at
+the head two edges later and the head can be popped every cycle.
 
 ## cq stream
 
@@ -533,7 +543,6 @@ beat frees its tag (`rc_free`).
 | File | Holds |
 | --- | --- |
 | [`pcie_tl_pkg.sv`](../../../../src/rtl/tl/pcie_tl_pkg.sv) | [Package](#package). |
-| [`pcie_tl_fifo.sv`](../../../../src/rtl/tl/pcie_tl_fifo.sv) | [Queue](#queue). |
 | [`pcie_tl_rx.sv`](../../../../src/rtl/tl/pcie_tl_rx.sv) | [Receive parser](#receive-parser). |
 | [`pcie_tl_rx_q.sv`](../../../../src/rtl/tl/pcie_tl_rx_q.sv) | [Receive queues](#receive-queues), epochs, [credit release](#credit-release). |
 | [`pcie_tl_cq.sv`](../../../../src/rtl/tl/pcie_tl_cq.sv) | [cq stream](#cq-stream). |
@@ -545,4 +554,4 @@ beat frees its tag (`rc_free`).
 | [`pcie_tl_trk.sv`](../../../../src/rtl/tl/pcie_tl_trk.sv) | [Completion tracker](#completion-tracker): reads by tag, checks, timeout. |
 | [`pcie_tl_rc.sv`](../../../../src/rtl/tl/pcie_tl_rc.sv) | [rc stream](#rc-stream): the rc queues and their order. |
 | [`pcie_tl.sv`](../../../../src/rtl/tl/pcie_tl.sv) | [Top](#top): parameter checks, reset, the blocks, the [tracker nets](#tracker-nets). |
-| [`tl.rtl.f`](../../../../src/rtl/tl/tl.rtl.f) | The shared vocabulary, the shared RAM, the package, the blocks, the top. |
+| [`tl.rtl.f`](../../../../src/rtl/tl/tl.rtl.f) | The shared vocabulary, `common_pkg`, the shared [queue](#queue) (which reaches the shared RAM), the package, the blocks, the top. |

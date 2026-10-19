@@ -4,7 +4,8 @@
 and one read port with its own address and a read enable, on one clock.
 Like every shared block it has no HAS, and this page owns its interface,
 behavior and structure. The [family decisions](common_sync_ram.md#decisions)
-apply; a consumer that reads every edge ties `rd_en_i` high.
+apply; a consumer that reads every edge ties `rd_en_i` high. The queue
+[`common_sdp_ram_fifo`](common_sdp_ram_fifo.md) is built on it.
 
 ## Interfaces
 

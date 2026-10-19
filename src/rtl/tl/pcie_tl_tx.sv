@@ -86,15 +86,15 @@ module pcie_tl_tx (
   assign ord_cc  = !p_valid_i || pcie_tl_pkg::ep_after(p_head_i.ep[pcie_tl_pkg::TX_CC], cc_head_i.ep);
   assign ord_cf  = !p_valid_i || pcie_tl_pkg::ep_after(p_head_i.ep[pcie_tl_pkg::TX_CF], cf_head_i.ep);
   assign p_dcred = (p_head_i.kind == pcie_tl_pkg::PX_MSG) ? 4'd0
-                 : pcie_tl_pkg::dw_credits(p_head_i.dw_len);
+                 : common_pkg::dw_credits(p_head_i.dw_len);
   // A TLP is offered only with 1 header credit and its data credits.
   assign el_p    = p_valid_i && p_ready_i && fc_ph_avail_i != 8'd0
                 && fc_pd_avail_i >= {8'd0, p_dcred};
   assign el_np   = np_valid_i && ord_np && fc_nph_avail_i != 8'd0;
   assign el_cc   = cc_valid_i && ord_cc && fc_cplh_avail_i != 8'd0
-                && fc_cpld_avail_i >= {8'd0, pcie_tl_pkg::dw_credits(cc_head_i.dlen)};
+                && fc_cpld_avail_i >= {8'd0, common_pkg::dw_credits(cc_head_i.dlen)};
   assign el_cf   = cf_valid_i && ord_cf && fc_cplh_avail_i != 8'd0
-                && fc_cpld_avail_i >= {8'd0, pcie_tl_pkg::dw_credits(cf_head_i.dlen)};
+                && fc_cpld_avail_i >= {8'd0, common_pkg::dw_credits(cf_head_i.dlen)};
   assign el_cpl  = el_cc || el_cf;
   assign pick_cf = el_cf && (!el_cc || st_q.cf_turn);
 
@@ -163,28 +163,28 @@ module pcie_tl_tx (
           // A memory write: 3-DW header when address bits 63:32 are 0.
           h4   = addr[61:30] != 32'd0;
           dlen = p_head_i.dw_len;
-          dw0  = pcie_tl_pkg::tx_dw0({2'b01, h4}, pcie_tl_pkg::T_MEM, 3'd0, 2'd0, {4'd0, dlen});
+          dw0  = pcie_tl_pkg::tx_dw0({2'b01, h4}, common_pkg::T_MEM, 3'd0, 2'd0, {4'd0, dlen});
           dw1  = pcie_tl_pkg::tx_dw1_req(16'd0, 8'd0, p_head_i.lbe, p_head_i.fbe);
-          dw2  = h4 ? pcie_tl_pkg::be_word(addr[61:30]) : pcie_tl_pkg::be_word({addr[29:0], 2'b00});
-          dw3  = pcie_tl_pkg::be_word({addr[29:0], 2'b00});
+          dw2  = h4 ? common_pkg::be_word(addr[61:30]) : common_pkg::be_word({addr[29:0], 2'b00});
+          dw3  = common_pkg::be_word({addr[29:0], 2'b00});
         end
         ddw  = (p_head_i.kind == pcie_tl_pkg::PX_IRQ) ? p_head_i.data : pd_head_i;
         d_ok = p_head_i.kind == pcie_tl_pkg::PX_IRQ || pd_valid_i;
       end
       pcie_tl_pkg::TS_NP: begin
         h4  = addr[61:30] != 32'd0;
-        dw0 = pcie_tl_pkg::tx_dw0({2'b00, h4}, pcie_tl_pkg::T_MEM, 3'd0, 2'd0,
+        dw0 = pcie_tl_pkg::tx_dw0({2'b00, h4}, common_pkg::T_MEM, 3'd0, 2'd0,
                                   {4'd0, np_head_i.dw_len});
         dw1 = pcie_tl_pkg::tx_dw1_req(16'd0, {5'd0, np_head_i.tag}, np_head_i.lbe, np_head_i.fbe);
-        dw2 = h4 ? pcie_tl_pkg::be_word(addr[61:30]) : pcie_tl_pkg::be_word({addr[29:0], 2'b00});
-        dw3 = pcie_tl_pkg::be_word({addr[29:0], 2'b00});
+        dw2 = h4 ? common_pkg::be_word(addr[61:30]) : common_pkg::be_word({addr[29:0], 2'b00});
+        dw3 = common_pkg::be_word({addr[29:0], 2'b00});
       end
       default: begin
         // A completion, with or without data; the locked kind for a
         // refused locked read.
         dlen = cd.dlen;
         dw0  = pcie_tl_pkg::tx_dw0({1'b0, cd.dlen != 6'd0, 1'b0},
-                                   cd.locked ? pcie_tl_pkg::T_CPLLK : pcie_tl_pkg::T_CPL,
+                                   cd.locked ? common_pkg::T_CPLLK : common_pkg::T_CPL,
                                    cd.id.tc, cd.id.attr, {4'd0, cd.dlen});
         dw1  = {cd.bc[7:0], cd.status, 1'b0, cd.bc[11:8], 16'd0};
         dw2  = {1'b0, cd.la, cd.id.tag, cd.id.rid[7:0], cd.id.rid[15:8]};

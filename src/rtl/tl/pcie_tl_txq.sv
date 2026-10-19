@@ -243,7 +243,7 @@ module pcie_tl_txq (
   assign p_ready_o = p_head_o.kind != pcie_tl_pkg::PX_RQ
                   || pd_used >= (PD_AW + 2)'(p_head_o.dw_len);
 
-  pcie_tl_fifo #(
+  common_sdp_ram_fifo #(
     .WIDTH  (32),
     .ADDR_W (PD_AW)
   ) u_pd (
@@ -272,7 +272,7 @@ module pcie_tl_txq (
     np_in.ep     = ep_q[pcie_tl_pkg::TX_NP];
   end
 
-  pcie_tl_fifo #(
+  common_sdp_ram_fifo #(
     .WIDTH  ($bits(pcie_tl_pkg::t_txnp_ent)),
     .ADDR_W (NP_AW)
   ) u_np (

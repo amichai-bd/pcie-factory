@@ -100,7 +100,7 @@ module pcie_tl_trk #(
   // Matching (COMPLETIONS.md, matching): a plain completion for this
   // function, with a tag 0 to 7 whose read is outstanding and sent; a read
   // that times out at this edge has already ended.
-  assign match  = typ == pcie_tl_pkg::T_CPL && rid == {bus_num_i, dev_num_i, 3'd0}
+  assign match  = typ == common_pkg::T_CPL && rid == {bus_num_i, dev_num_i, 3'd0}
                && tagf[7:3] == 5'd0 && tg_q[t3].act && tg_q[t3].snt && !expire[t3];
 
   // Checks of a Successful completion against its read (COMPLETIONS.md,
@@ -227,9 +227,9 @@ module pcie_tl_trk #(
         tg_d[t].held   = 1'b1;
         tg_d[t].failed = 1'b0;
         tg_d[t].cnt    = 5'd0;
-        tg_d[t].left   = 8'(pcie_tl_pkg::byte_total({5'd0, rq_rd_ctx_i.dw_len},
+        tg_d[t].left   = 8'(common_pkg::byte_total({5'd0, rq_rd_ctx_i.dw_len},
                                                     rq_rd_ctx_i.fbe, rq_rd_ctx_i.lbe));
-        tg_d[t].nxt    = {rq_rd_ctx_i.addr[4:0], pcie_tl_pkg::be_lo(rq_rd_ctx_i.fbe)};
+        tg_d[t].nxt    = {rq_rd_ctx_i.addr[4:0], common_pkg::be_lo(rq_rd_ctx_i.fbe)};
       end
     end
     // A matched completion (an edge where none of the above touch its tag).
