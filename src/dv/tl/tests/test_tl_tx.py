@@ -264,6 +264,41 @@ async def tx_credits(dut):
     env.cr_hold.discard("P")
     env.cr_avail["P"] = [16, 64]
     await env.drain()
+    await data_credit_edges(env)
+
+
+# Lengths that are not a multiple of 4, so n / 4 rounded up and rounded
+# down differ: 1, 2 and 8 data credits (HAS, credit release).
+EDGE_LENS = (1, 5, 30)
+
+
+async def data_credit_edges(env: tl_env.TlEnv) -> None:
+    """Each TLP of n data DWs waits with n / 4 rounded up, less one, data
+    credits available and goes with exactly n / 4 rounded up (ORDERING.md,
+    transmit credits), on the posted line (rq writes) and on both
+    completion sources: cc (BAR0 reads) and cfg (BAR2 reads). The
+    environment fails any TLP offered without its data credits; here the
+    TLP must also go once they are there."""
+    b0, b2 = env.regs.bar0_base, env.regs.bar2_base
+    cases = ([("P", "mwr32", lambda i, n: env.request(True, 0x7000 + 0x100 * i, n))]
+             + [("CPL", "cpl_data", lambda i, n, b=b: env.send(
+                 ref.memory(False, b + 0x400 + 0x80 * i, n, lbe=0 if n == 1 else 0xF,
+                            tag=0x60 + i))) for b in (b0, b2)])
+    for cls, kind, offer in cases:
+        for i, n in enumerate(EDGE_LENS):
+            need = (n + 3) // 4
+            await hold(env, cls, [8, need - 1], 0)
+            before = sent(env, kind)
+            offer(i, n)
+            await env.run(150)
+            if sent(env, kind) != before:
+                raise TlError(f"a {n}-DW {kind} sent with {need - 1} data credits, {need} due")
+            await hold(env, cls, [8, need], 150)
+            if sent(env, kind) != before + 1:
+                raise TlError(f"a {n}-DW {kind} not sent with exactly {need} data credits")
+            env.cr_hold.discard(cls)
+            env.cr_avail[cls] = None if cls == "CPL" else [16, 64]
+            await env.drain()
 
 
 async def random_tx(dut, *, segments: int, per_segment: int) -> tl_env.TlEnv:
