@@ -56,7 +56,7 @@ programs need to behave as follows; #377 owns that model.
 | BAR0 as memory | Offsets 0x000 to 0xEFF store writes with their byte enables and return them on reads. | MMIO, recovery checks |
 | DMA doorbell | A write to BAR0 0xF0C starts a copy of the bytes from the system address at 0xF00 to the one at 0xF04, length in bytes at 0xF08 (up to 128), by bus-master reads then writes, then raises MSI vector 0. Doorbells are served in order, each copy and its MSI before the next; while a copy runs the model accepts and queues, or back-pressures, at least D + 1 further doorbells (D the MSI capture depth, R8). A read that completes with an error status ends that copy: nothing written, no MSI. | DMA and MSI; errors (bits 11, 12) |
 | No-answer DW | A read of BAR0 0xF10 is never answered. | Errors (completion timeout) |
-| Link down | The e2e takes the link down while the errors section polls BAR0 after its first re-enumeration. | Errors |
+| Link down | The e2e takes the link down while the errors section polls BAR0 after its first re-enumeration (R12). The link must be down before `rc_tl`'s completion timeout ends the poll that is outstanding, or R12 sees `TIMEOUT` and fails: the e2e cuts the line (electrical idle both ways), both ends fall to Detect one floored Recovery timeout later (16384 cycles at `ERR_TIMEOUT_DIV` 1024), and its `ERRORS` entry sets `CPL_TIMEOUT_DIV` 64 (32768 cycles) ([rc DV plan](../../dv/rc/DV_PLAN.md#plan)). | Errors |
 
 The board build (goal item 9) runs `MMIO` only, with the board's
 application answering BAR0 as memory.
@@ -140,22 +140,43 @@ completion or an unknown message on no request, so those are injected.
 | Bit | Event | Drawn by | Injected by (owner) |
 | --- | --- | --- | --- |
 | 0 | UR completion | R4, R5 | — |
-| 1 | CA completion | — | `rc_tl` DV, its link stand-in ([#375](https://github.com/amichai-bd/pcie-factory/issues/375)) |
+| 1 | CA completion | — | `rc_tl` DV, its link stand-in ([#375](https://github.com/amichai-bd/pcie-factory/issues/375)); the e2e, J3 of [`INJECT`](#injected-errors) |
 | 2 | CRS completion | — | `rc_tl` DV (#375) |
 | 3 | Completion timeout | R9 | — |
-| 4 | Unexpected completion | — | `rc_tl` DV (#375); the e2e, a completion with a stale tag on the line ([#377](https://github.com/amichai-bd/pcie-factory/issues/377)) |
-| 5 | Poisoned TLP | — | `rc_tl` DV (#375); the e2e, a poisoned completion on the line (#377) |
-| 6 | Malformed TLP | — | `rc_tl` DV (#375); the e2e, a malformed TLP on the line (#377) |
+| 4 | Unexpected completion | — | `rc_tl` DV (#375); the e2e, a completion with a stale tag on the line, J6 ([#377](https://github.com/amichai-bd/pcie-factory/issues/377)) |
+| 5 | Poisoned TLP | — | `rc_tl` DV (#375); the e2e, a poisoned completion on the line, J4 (#377) |
+| 6 | Malformed TLP | — | `rc_tl` DV (#375); the e2e, a completion with a wrong Byte Count on the line, J5 (#377) |
 | 7 | ERR_COR | R4, R5 | — |
 | 8 | ERR_NONFATAL | R4, R5 | — |
-| 9 | ERR_FATAL | — | The e2e: a malformed TLP injected toward `core`, which reports it as fatal ([`cfg` errors](../../arch/cfg/HAS.md#errors)) (#377); `rc_tl` DV (#375) |
+| 9 | ERR_FATAL | — | The e2e: a malformed TLP injected toward `core`, which reports it as fatal ([`cfg` errors](../../arch/cfg/HAS.md#errors)), J7 (#377); `rc_tl` DV (#375) |
 | 10 | Other message | — | `rc_tl` DV (#375) |
 | 11 | Inbound request handled as UR | R7 (rechecked in R9) | — |
 | 12 | MSI dropped, capture full | R8 (rechecked in R9) | — |
 
-An e2e entry that injects checks its bit with an `ERR_RD` poll like R5's,
-in a program #377 adds (ids 5 and up). `dl_err_o` and the host model
-shadow check replay of injected link errors.
+The e2e entry that injects checks its bits with an `ERR_RD` poll like
+R5's, in program [`INJECT`](#injected-errors) (id 5). `dl_err_o` and the
+host model shadow check replay of injected link errors.
+
+## Injected errors
+
+Program `INJECT` (id 5, #377): `ENUM`, then this section, then `DONE`.
+It runs only in the e2e, whose bench changes, on the line, the first
+traffic of each `INJ_*` BAR0 offset below
+([rc DV plan](../../dv/rc/DV_PLAN.md#line-models)); the program checks
+each result and then the record, which holds bits 1, 4, 5, 6 and 9 and
+no other. The offsets lie between MMIO's data and the doorbell, so no
+other program touches them.
+
+| # | Steps | Checks |
+| --- | --- | --- |
+| J1 | `CFG_WR` 0x78 byte 0 = 0x1F; `ERR_CLR` 0x1FFF. | Every error reporting enable on in `core`, record clear (as R3). |
+| J2 | 4 `MEM_WR` BAR0 + 0x100 + 4k, k = 0 to 3, MMIO pattern 40 + k. | The DWs the reads return. |
+| J3 | `MEM_RD` BAR0 + 0x100 checking `CA`. | The bench makes the completion a Completer Abort (no data): bit 1. |
+| J4 | `MEM_RD` BAR0 + 0x104 checking `BAD`. | The bench poisons the completion: bit 5. |
+| J5 | `MEM_RD` BAR0 + 0x108 checking `BAD`. | The bench sets the completion's Byte Count to 8 (4 remain): malformed, bit 6. |
+| J6 | `MEM_RD` BAR0 + 0x10C; `EXPECT` MMIO pattern 43. | The bench sends the completion, then a copy with the previous request's tag: the read completes, the copy is unexpected, bit 4. |
+| J7 | `MEM_WR` BAR0 + 0x110 = 0xFA7A_1000. | The bench sets the write's Last DW BE (Length 1): `core` drops it as malformed and sends ERR_FATAL, bit 9. |
+| J8 | `ERR_RD`; `JUMP DATA_NE` back to it with value and mask 0x210; `EXPECT` 0x0272 on 0x1FFF; `ERR_CLR` 0x1FFF; `MEM_RD` BAR0 + 0x100 with an `EXPECT`; `ERR_RD`; `EXPECT` 0 on 0x1FFF. | The last two events (the copy and the message) recorded, the record exact, cleared; traffic goes on. |
 
 ## Decisions
 
@@ -166,7 +187,7 @@ which the captain may override.
 | Choice | Rationale | Rejected |
 | --- | --- | --- |
 | The `core` application model in the e2e provides BAR0 memory, the DMA doorbell, the no-answer DW and the link-down injection; #377 owns it ([boundary](#boundary)) (D10) | The endpoint's application is not `rc_seq`'s: programs drive only the host side (goal item 4), and DMA and a completion timeout need the endpoint to act; the requirement goes on the DV model, not on `core`. | New `core` RTL for a DMA engine (widens `core` for a test); no DMA or timeout program (goal items 6 and 7 unchecked by `rc_seq`). |
-| `ERRORS` draws bits 0, 3, 7, 8, 11 and 12; the e2e and `rc_tl` DV inject bits 1, 2, 4, 5, 6, 9 and 10 ([coverage](#error-record-coverage)) (D11) | A program can only draw what `core` does on request; the rest needs a TLP on the line, which the test bench owns; every bit has an owner. | Drawing every bit from a program (needs fault modes in `core`); leaving injected bits to `rc_tl` DV alone (no end-to-end check of the endpoint's ERR_FATAL). |
+| `ERRORS` draws bits 0, 3, 7, 8, 11 and 12; the e2e (`INJECT`) and `rc_tl` DV inject bits 1, 2, 4, 5, 6, 9 and 10 ([coverage](#error-record-coverage)) (D11) | A program can only draw what `core` does on request; the rest needs a TLP on the line, which the test bench owns; every bit has an owner. | Drawing every bit from a program (needs fault modes in `core`); leaving injected bits to `rc_tl` DV alone (no end-to-end check of the endpoint's ERR_FATAL). |
 
 ## Self-test
 
@@ -178,7 +199,7 @@ their limit, a `REQ` of every tl-seq op and of two undefined ones, a
 `MEM_RD` of 32 DWs and two `HOT_RESET`s; each test makes exactly one chosen
 step fail, or none, and checks `pass_o` and `fail_step_o`. Its timeouts
 are 8 cycles, its hold 3 and its loop limit 3, so a test reaches every
-bound. Further unit programs take ids 5 and up
+bound. Further programs take ids 6 and up
 ([selection](MAS.md#programs)).
 
 | # | Steps | Checks |

@@ -5,7 +5,7 @@ The interpreter and its programs
 verified by this testbench against a stand-in for `rc_tl` that conforms
 to the [tl-seq interface](../../arch/rc/TL_SEQ.md). The programs against
 the real `rc_tl` and `core` are the `rc` e2e's
-([#377](https://github.com/amichai-bd/pcie-factory/issues/377)).
+([`rc` DV plan](../rc/DV_PLAN.md)).
 
 ## Strategy
 
@@ -111,6 +111,7 @@ row names another.
 | The `WAIT_MSI` timeout of `DMA_MSI`, no MSI (`PROGRAM` 2) | `timeouts_dma_msi` | 2 | 1 |
 | `SELFTEST` with random latencies and one random fault (expect, status, wait bound) or none | `selftest_random` | 2 | 4; six runs each |
 | Each M4 program over more stand-in seeds, passing, then six random faults of any kind (`PROGRAM` 0 to 3) | `program_random_enum` | 2 | 2; three stand-in seeds per entry seed |
+| [`INJECT`](../../rtl/rc_seq/PROGRAMS.md#injected-errors): the stand-in answers the first traffic of each injected offset as the e2e's line makes it (Completer Abort, `BAD` twice, a stale copy setting bit 4, ERR_FATAL), then three stand-in seeds passing and six random faults each (`PROGRAM` 5) | `program_random_inject` | 1 | derived seed 0; three stand-in seeds |
 | The same for `MMIO`, `DMA_MSI` and `ERRORS`: each program's random fault sample under `ci-gate` | `program_random_mmio` / `program_random_mmio_sweep`, `program_random_dma_msi` / `program_random_dma_msi_sweep`, `program_random_errors` / `program_random_errors_sweep` | 1 / 2 | derived seed 0 / derived seed 1, pinned (298234656, 1770673933, 1956525912); three stand-in seeds per entry seed |
 
 **Level placement.** L2 widens the stand-in seeds and fault choices and
@@ -180,5 +181,4 @@ used).
 
 | Feature | Owning issue |
 | --- | --- |
-| The M4 programs against the real `rc_tl` and `core` | [#377](https://github.com/amichai-bd/pcie-factory/issues/377) |
 | Coverage floors | [#380](https://github.com/amichai-bd/pcie-factory/issues/380) |

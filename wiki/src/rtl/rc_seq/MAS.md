@@ -157,8 +157,9 @@ test and `pcie_rc` (an SV e2e top of #377, a board wrapper) forwards
 | 2 | `DMA_MSI` | Enumeration, then [DMA and MSI](PROGRAMS.md#dma-and-msi). | #377 |
 | 3 | `ERRORS` | [Errors and recovery](PROGRAMS.md#errors-and-recovery), re-enumerating after a Hot Reset and a link down. | #377 |
 | 4 | `SELFTEST` | [Self-test](PROGRAMS.md#self-test): every op against the `rc_seq` testbench's stand-in for `rc_tl`. | #376 |
+| 5 | `INJECT` | Enumeration, then [injected errors](PROGRAMS.md#injected-errors): results and record bits of the errors the e2e injects on the line. | #377 |
 
-A new test adds a program constant and an id here (ids 5 and up), and a
+A new test adds a program constant and an id here (ids 6 and up), and a
 DV plan row; the interpreter does not change.
 
 ## Microarchitecture
@@ -220,7 +221,7 @@ page was silent. D10 and D11 are on the [programs page](PROGRAMS.md#decisions).
 | Programs as package constants selected by `PROGRAM` (D6) | No system task or init file in RTL ([RTL BKM](../../../bkm/rtl.md#assertions)), Verilator and Quartus read the same source, and regression `params` select it with no new tool. | `$readmemh` of a hex file (a forbidden system task); a program assembler tool (not needed while programs stay short). |
 | `FAIL` is op 0 and pads the ROM (D7) | Running off a program or jumping outside it fails instead of passing. | Op 0 as `DONE`. |
 | A 256-step ROM, `ROM_AW` 8 a package constant; `pc` and `fail_step_o` 16 bits (D8) | Every M4 program fits (about 60 to 140 steps) with room for growth; one constant to raise; 256 × 128 bits is a few FPGA memory blocks. | A depth per program (a ROM leaf per image size); a depth that follows `fail_step_o` (64 Ki steps of mostly padding). |
-| Program ids 0 `ENUM`, 1 `MMIO` (the default), 2 `DMA_MSI`, 3 `ERRORS`, 4 `SELFTEST`, 5 and up for unit programs (D9) | One image per M4 program, so each regression entry selects one and a failure names its program; `MMIO` (enumeration then BAR0 traffic) is what the board build runs (goal item 9), so the default needs no override there. | One combined image (one entry for every goal item, a long run per failure); `ENUM` as the default (the board would not exercise MMIO). |
+| Program ids 0 `ENUM`, 1 `MMIO` (the default), 2 `DMA_MSI`, 3 `ERRORS`, 4 `SELFTEST`, 5 and up for unit programs (D9); 5 is `INJECT`, the e2e's injected-error program, which the programs page reserved for #377 (D11) | One image per M4 program, so each regression entry selects one and a failure names its program; `MMIO` (enumeration then BAR0 traffic) is what the board build runs (goal item 9), so the default needs no override there. | One combined image (one entry for every goal item, a long run per failure); `ENUM` as the default (the board would not exercise MMIO). |
 | The tl-seq ports wait for the interpreter (D12); their `common_pkg` types came with the [`rc_tl` shell](../rc_tl/MAS.md#interfaces) | Two shells adding the types in parallel would collide, so only the `rc_tl` shell, whose MAS ports use them, added them. | Adding the types in this shell. |
 | `msi_ready_o` follows `msi_valid_i` in the waiting cycle (#376) | The capture is taken in the cycle it is seen, so a wait's cycle count is exact and needs no extra cycle. | A registered ready (one cycle later, or a take the cycle after `msi_valid_i` fell). |
 | A `WAIT` or `HOT_RESET` timeout fails at cycle T, `done_o` at T + 1 (#376) | The counter stops at T, never at T + 1, so `T` may be any 32-bit value with no overflow. | Failing at T + 1 (a 33-bit compare). |
@@ -270,5 +271,4 @@ programs (#377). For `rc_seq` itself: every op and failure case of
 
 | Item | Owner |
 | --- | --- |
-| The `core` application model's side of the programs: BAR0 as memory, the DMA doorbell and the no-answer DW ([program boundary](PROGRAMS.md#boundary)), and the link-down injection during `ERRORS`. | [#377](https://github.com/amichai-bd/pcie-factory/issues/377) |
 | Quartus Lite on the images: each is a 32 768-bit packed constant built by package functions, which Verilator accepts; the FPGA flow of `rc` first runs them through Quartus, and maps the ROM to block memory or reports why not. | [#379](https://github.com/amichai-bd/pcie-factory/issues/379) |
