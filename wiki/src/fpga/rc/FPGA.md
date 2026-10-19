@@ -60,9 +60,12 @@ for the downstream board, on the 40-pin expansion header
   `clk_gpio_rx` and meets timing ([results](#results)). Whether `AF16` is
   one of the device's dedicated clock inputs is not checked against the
   manual ([gpio HAS, Open items](../../arch/gpio/HAS.md#open-items)).
-- **Pin source.** The FPGA pin of each `GPIO[n]` is cross-checked against a
-  published DE2-115 pin table; the manual itself was not reachable from the
-  authoring session (same open item).
+- **Pin source.** The FPGA pin of each `GPIO[n]` is cross-checked against
+  the DE2-115 GPIO pin table on components101.com
+  (<https://components101.com/development-boards/altera-de2-115-development-board>,
+  read 2026-10-19; the page gives no revision), a community copy of the
+  board's pin list; the manual itself was not reachable from the authoring
+  session (same open item).
 - **Parameters.** Every `pcie_rc` parameter keeps its default but
   `LOWER`, which is 1: `TIMEOUT_DIV`, `ERR_TIMEOUT_DIV` and
   `CPL_TIMEOUT_DIV` 1, as the [HAS](../../arch/rc/HAS.md#parameters) asks
@@ -143,7 +146,8 @@ models.
 lanes, is not one of the RAMs above: Quartus builds it from logic, about
 32768 of the registers, and it ends the worst path. The build still fits
 with timing met; mapping it to M9K is a change to the shared RAM block
-(an Intel backend), outside this build.
+(an Intel backend), owned by [#417](https://github.com/amichai-bd/pcie-factory/issues/417) and recorded in the block's
+[MAS](../../rtl/common/ram/common_sync_ram.md#microarchitecture).
 
 **Quartus elaboration.** The first runs showed that Quartus Lite rejects a
 member select of a struct localparam in a constant expression (error
@@ -152,10 +156,15 @@ which Verilator accepts: the `rc_seq` package's second-pass program builds
 and the ROM's and top's parameter checks used it. They now build both
 passes inside one function and take `t_prog`'s fields by part-select
 ([`rc_seq` MAS, Programs in the package](../../rtl/rc_seq/MAS.md#microarchitecture)).
+The limit is a row of the [FPGA BKM's known limits](../../../bkm/fpga.md#known-quartus-limits);
+its style-check rule is owned by [#418](https://github.com/amichai-bd/pcie-factory/issues/418).
 The 32768-bit program images themselves elaborate (map about 4 minutes).
 
 **Quartus warnings.** Fit: 169177 and 292013, both
-[known](../../../bkm/fpga.md#known-quartus-warnings). Map: 10036 ×1 and
+[known](../../../bkm/fpga.md#known-quartus-warnings). The published log
+gives the count of a known ID, not its pins; the 3.3-V LVTTL inputs here
+are `CLOCK_50` and the header's `gpio_rx_*` pins, both covered by the
+169177 row. Map: 10036 ×1 and
 276020 ×1, known (276020 is the `dll` `end_q` array, as in the
 [`core` fit](../core/FPGA.md#results)), and three not on the known list:
 

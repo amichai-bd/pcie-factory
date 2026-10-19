@@ -346,7 +346,8 @@ the captain may override any.
 
 The [`rc` targets](../../arch/rc/HAS.md#targets) apply through `rc`; this
 page owns the completion-timeout value above. No area or throughput
-target: FPGA resources are reported with `rc`
+target: FPGA resources are reported with `rc`, on the
+[`rc` FPGA page](../../fpga/rc/FPGA.md#results)
 ([#379](https://github.com/amichai-bd/pcie-factory/issues/379)).
 
 ## Files
