@@ -156,7 +156,7 @@ module pcie_tl_cpl (
   assign rec_bar2 = cpl_rec_i.kind == pcie_tl_pkg::CR_BAR2_RD;
   assign cf_nd    = cpl_rec_valid_i && (rec_ur || rec_wr);
   assign cf_beat  = cpl_rec_valid_i && !(rec_ur || rec_wr);
-  assign ur_total = pcie_tl_pkg::byte_total(cpl_rec_i.dw_len, cpl_rec_i.fbe, cpl_rec_i.lbe);
+  assign ur_total = common_pkg::byte_total(cpl_rec_i.dw_len, cpl_rec_i.fbe, cpl_rec_i.lbe);
 
   always_comb begin
     cf_ctx        = '0;
@@ -173,7 +173,7 @@ module pcie_tl_cpl (
     cf_nd_desc.locked = rec_ur && cpl_rec_i.locked;
     cf_nd_desc.bc     = (rec_ur && cpl_rec_i.mem) ? ur_total[11:0] : 12'd4;
     cf_nd_desc.la     = (rec_ur && cpl_rec_i.mem)
-                      ? {cpl_rec_i.addr[6:2], pcie_tl_pkg::be_lo(cpl_rec_i.fbe)} : 7'd0;
+                      ? {cpl_rec_i.addr[6:2], common_pkg::be_lo(cpl_rec_i.fbe)} : 7'd0;
     cf_nd_desc.id     = cpl_rec_i.id;
   end
 

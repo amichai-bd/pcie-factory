@@ -23,6 +23,16 @@ The package holds no logic; its values are checked where they are used:
   code from `common_pkg.sv` and compares them with the architecture
   model's EDB and the pcs pages; every RxStatus and PowerDown on PIPE is
   checked in the [pcs DV plan](../pcs/DV_PLAN.md).
+- **Type codes and TLP helpers:** every TLP `tl` receives is judged
+  with `kind_known`, `is_cpl`, `be_ok`, `cross_4k` and `msg_tc0`, every
+  completion it forms or tracks uses `be_lo`, `be_hi`, `byte_total` and
+  `be_mask`, every header uses `be_word` and the `t_tlp_type` codes, and
+  every credit release uses `credit_class` with `data_credits`, or
+  `dw_credits`; the
+  [`tl` DV plan](../tl/DV_PLAN.md#plan) compares all of it with the
+  `tl` architecture model and the reference, so a wrong helper fails
+  its entries. The mutants of the move are in
+  [#385](https://github.com/amichai-bd/pcie-factory/issues/385)'s PR.
 - `common.sim.f` reaches the filelist, so the shared unit's build compiles it.
 
 ## Plan
@@ -34,3 +44,4 @@ The package holds no logic; its values are checked where they are used:
 | Symbol and PowerDown codes on PIPE | the [mac](../mac/DV_PLAN.md#plan) entries | 0 to 2 | as listed there |
 | EDB, RxStatus and PowerDown codes equal the pcs pages | (model unit test) | - | `python3 -m pytest src/dv/pcs/models` |
 | RxStatus, EDB and PowerDown on PIPE | the [pcs](../pcs/DV_PLAN.md#plan) entries | 0 to 2 | as listed there |
+| Type codes and TLP helpers in received, formed and tracked TLPs | the [tl](../tl/DV_PLAN.md#plan) entries | 0 to 2 | as listed there |

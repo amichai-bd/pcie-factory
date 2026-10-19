@@ -121,7 +121,7 @@ module pcie_tl_rx_q #(
   logic [NQ_AW:0] cq_used;
   logic [NQ_AW:0] cfg_used;
 
-  pcie_tl_fifo #(
+  common_sdp_ram_fifo #(
     .WIDTH  ($bits(pcie_tl_pkg::t_pq_ent)),
     .ADDR_W (PQ_AW)
   ) u_pq (
@@ -137,7 +137,7 @@ module pcie_tl_rx_q #(
     .ram_used_o   (pq_used)
   );
 
-  pcie_tl_fifo #(
+  common_sdp_ram_fifo #(
     .WIDTH  (32),
     .ADDR_W (PD_AW)
   ) u_pd (
@@ -153,7 +153,7 @@ module pcie_tl_rx_q #(
     .ram_used_o   (pd_used)
   );
 
-  pcie_tl_fifo #(
+  common_sdp_ram_fifo #(
     .WIDTH  ($bits(pcie_tl_pkg::t_cq_ent)),
     .ADDR_W (NQ_AW)
   ) u_npq_cq (
@@ -169,7 +169,7 @@ module pcie_tl_rx_q #(
     .ram_used_o   (cq_used)
   );
 
-  pcie_tl_fifo #(
+  common_sdp_ram_fifo #(
     .WIDTH  ($bits(pcie_tl_pkg::t_cfg_ent)),
     .ADDR_W (NQ_AW)
   ) u_npq_cfg (

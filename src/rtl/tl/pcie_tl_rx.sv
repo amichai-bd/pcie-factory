@@ -103,10 +103,10 @@ module pcie_tl_rx #(
   localparam logic [31:0] BAR0_MASK = ~((32'd1 << BAR0_ADDR_W) - 32'd1);
   localparam logic [31:0] BAR2_MASK = 32'hFFFF_F000;
 
-  assign known    = pcie_tl_pkg::kind_known(h.fmt, h.typ);
-  assign is_mem   = h.typ == pcie_tl_pkg::T_MEM || h.typ == pcie_tl_pkg::T_MEMLK;
-  assign is_cfgio = h.typ == pcie_tl_pkg::T_IO || h.typ == pcie_tl_pkg::T_CFG0
-                 || h.typ == pcie_tl_pkg::T_CFG1;
+  assign known    = common_pkg::kind_known(h.fmt, h.typ);
+  assign is_mem   = h.typ == common_pkg::T_MEM || h.typ == common_pkg::T_MEMLK;
+  assign is_cfgio = h.typ == common_pkg::T_IO || h.typ == common_pkg::T_CFG0
+                 || h.typ == common_pkg::T_CFG1;
   assign is_msg   = h.typ[4:3] == 2'b10;
   assign code     = {h.lbe, h.fbe};
   // BAR decode (ROUTING.md): memory space on, D0, address below 4 GiB.
@@ -116,8 +116,8 @@ module pcie_tl_rx #(
 
   always_comb begin
     judged         = '0;
-    judged.cls     = pcie_tl_pkg::credit_class(h.fmt[1], h.typ);
-    judged.rel_d   = pcie_tl_pkg::data_credits(h.fmt[1], h.dw_len[5:0]);
+    judged.cls     = common_pkg::credit_class(h.fmt[1], h.typ);
+    judged.rel_d   = common_pkg::data_credits(h.fmt[1], h.dw_len[5:0]);
     judged.id.rid  = h.rid;
     judged.id.tag  = h.tag;
     judged.id.tc   = h.tc;
@@ -128,31 +128,31 @@ module pcie_tl_rx #(
     judged.fbe     = h.fbe;
     judged.lbe     = h.lbe;
     judged.mem     = is_mem;
-    judged.locked  = h.typ == pcie_tl_pkg::T_MEMLK;
+    judged.locked  = h.typ == common_pkg::T_MEMLK;
     judged.write   = h.fmt[1];
     judged.bus     = h.bus;
     judged.dev     = h.dev;
-    posted         = judged.cls == pcie_tl_pkg::CLS_P;
+    posted         = judged.cls == common_pkg::CLS_P;
     // Steps 1 to 6 (ROUTING.md, checks): the first that fails decides.
     if (!known) begin
       judged.out = pcie_tl_pkg::OUT_MAL;
-    end else if (h.typ == pcie_tl_pkg::T_CPL || h.typ == pcie_tl_pkg::T_CPLLK) begin
+    end else if (h.typ == common_pkg::T_CPL || h.typ == common_pkg::T_CPLLK) begin
       judged.out = pcie_tl_pkg::OUT_CPL;
-    end else if (is_mem && (!pcie_tl_pkg::be_ok(h.dw_len, h.fbe, h.lbe, h.addr[2])
-                            || pcie_tl_pkg::cross_4k(h.addr[11:2], h.dw_len))) begin
+    end else if (is_mem && (!common_pkg::be_ok(h.dw_len, h.fbe, h.lbe, h.addr[2])
+                            || common_pkg::cross_4k(h.addr[11:2], h.dw_len))) begin
       judged.out = pcie_tl_pkg::OUT_MAL;
     end else if (is_cfgio && (h.dw_len != 11'd1 || h.lbe != 4'd0 || h.tc != 3'd0
                               || h.attr != 2'd0)) begin
       judged.out = pcie_tl_pkg::OUT_MAL;
-    end else if (is_msg && pcie_tl_pkg::msg_tc0(code) && h.tc != 3'd0) begin
+    end else if (is_msg && common_pkg::msg_tc0(code) && h.tc != 3'd0) begin
       judged.out = pcie_tl_pkg::OUT_MAL;
     end else begin
       // Step 7: route.
-      if (h.typ == pcie_tl_pkg::T_MEM && h.at == 2'd0 && hit0) begin
+      if (h.typ == common_pkg::T_MEM && h.at == 2'd0 && hit0) begin
         judged.out = pcie_tl_pkg::OUT_CQ;
-      end else if (h.typ == pcie_tl_pkg::T_MEM && h.at == 2'd0 && hit2) begin
+      end else if (h.typ == common_pkg::T_MEM && h.at == 2'd0 && hit2) begin
         judged.out = pcie_tl_pkg::OUT_BAR2;
-      end else if (h.typ == pcie_tl_pkg::T_CFG0 && h.fn == 3'd0) begin
+      end else if (h.typ == common_pkg::T_CFG0 && h.fn == 3'd0) begin
         judged.out = pcie_tl_pkg::OUT_CFG;
       end else if (is_msg && pcie_tl_pkg::msg_silent(code)) begin
         judged.out = pcie_tl_pkg::OUT_DROP;
@@ -186,7 +186,7 @@ module pcie_tl_rx #(
       st_d.busy = 1'b1;
       st_d.beat = 6'd1;
       st_d.hdr4 = tlp_rx_data_i[5];
-      st_d.cpl  = pcie_tl_pkg::is_cpl(tlp_rx_data_i[7:5], tlp_rx_data_i[4:0]);
+      st_d.cpl  = common_pkg::is_cpl(tlp_rx_data_i[7:5], tlp_rx_data_i[4:0]);
     end else if (take_mid) begin
       st_d.beat = beat_inc;
     end
@@ -212,12 +212,12 @@ module pcie_tl_rx #(
   logic push_p;
   logic push_np;
 
-  assign pd_push_o = data_beat && cur_q.cls == pcie_tl_pkg::CLS_P
+  assign pd_push_o = data_beat && cur_q.cls == common_pkg::CLS_P
                   && (cur_q.out == pcie_tl_pkg::OUT_CQ || cur_q.out == pcie_tl_pkg::OUT_BAR2);
   assign pd_data_o = tlp_rx_data_i;
 
-  assign push_p  = st_q.push && cur_q.out != pcie_tl_pkg::OUT_CPL && cur_q.cls == pcie_tl_pkg::CLS_P;
-  assign push_np = st_q.push && cur_q.out != pcie_tl_pkg::OUT_CPL && cur_q.cls == pcie_tl_pkg::CLS_NP;
+  assign push_p  = st_q.push && cur_q.out != pcie_tl_pkg::OUT_CPL && cur_q.cls == common_pkg::CLS_P;
+  assign push_np = st_q.push && cur_q.out != pcie_tl_pkg::OUT_CPL && cur_q.cls == common_pkg::CLS_NP;
 
   always_comb begin
     pq_push_o     = push_p;
@@ -274,7 +274,7 @@ module pcie_tl_rx #(
   assign slot_pwr_o.scale = cur_q.wdata[9:8];
 
   always_comb begin
-    cpl_beat_o.valid = take && (tlp_rx_sop_i ? pcie_tl_pkg::is_cpl(tlp_rx_data_i[7:5], tlp_rx_data_i[4:0])
+    cpl_beat_o.valid = take && (tlp_rx_sop_i ? common_pkg::is_cpl(tlp_rx_data_i[7:5], tlp_rx_data_i[4:0])
                                              : st_q.cpl && st_q.busy);
     cpl_beat_o.data  = tlp_rx_data_i;
     cpl_beat_o.sop   = tlp_rx_sop_i;

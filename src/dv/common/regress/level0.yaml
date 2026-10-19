@@ -58,6 +58,12 @@ tests:
     top: common_sdp_ram
     params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
     timeout_s: 60
+  - name: sdp_ram_fifo_contract
+    module: tests.test_sdp_ram_fifo
+    testcase: contract
+    top: common_sdp_ram_fifo
+    params: {WIDTH: 8, ADDR_W: 2}
+    timeout_s: 60
   - name: tdp_ram_contract
     module: tests.test_ram
     testcase: contract

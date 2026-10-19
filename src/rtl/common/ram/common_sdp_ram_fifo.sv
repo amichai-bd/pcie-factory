@@ -1,5 +1,5 @@
-// First-word-fall-through queue of pcie_tl (wiki/src/rtl/tl/MAS.md#queue):
-// entries in a simple dual-port RAM, the head in the RAM's read register.
+// First-word-fall-through queue (wiki/src/rtl/common/ram/common_sdp_ram_fifo.md):
+// entries in a common_sdp_ram, the head in the RAM's read register.
 // A push at edge E shows at the head two edges later when the queue was
 // empty; a pop and a refill share an edge, so the head can be taken every
 // cycle. It holds 2**ADDR_W entries in the RAM plus the head.
@@ -7,7 +7,7 @@
 
 `include "common_macros.svh"
 
-module pcie_tl_fifo #(
+module common_sdp_ram_fifo #(
   parameter int unsigned WIDTH  = 8,
   parameter int unsigned ADDR_W = 1
 ) (

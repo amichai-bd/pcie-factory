@@ -170,6 +170,11 @@ verified by this testbench.
   read expires, a read expiring while one of its completions is between
   its decision and its packet, a failed beat first due in the cycle
   another packet is queued).
+- **Shared code:** the queue and the pure TLP helpers `tl` takes from
+  `common` ([MAS, package](../../rtl/tl/MAS.md#package),
+  [queue](../../rtl/tl/MAS.md#queue)) are checked here at `tl`'s shapes
+  and uses; the queue also has its own shared-unit tests
+  ([`common_sdp_ram_fifo` DV plan](../common/ram/common_sdp_ram_fifo.md)).
 
 ## Cross-check: RTL, architecture model, reference
 
@@ -409,7 +414,8 @@ line's ordering is checked across it.
 
 The earlier L0 and L1 measurement listed the queue full flags as line
 holes. They are not line points: each is a continuous assignment
-(`pcie_tl_fifo.sv` line 40, the flags in `pcie_tl_rx_q.sv`,
+(`pcie_tl_fifo.sv` line 40, now
+[`common_sdp_ram_fifo.sv`](../../../../src/rtl/common/ram/common_sdp_ram_fifo.sv), the flags in `pcie_tl_rx_q.sv`,
 `pcie_tl_txq.sv` and `pcie_tl_rc.sv`), which Verilator's line coverage
 does not count, read only by the overflow assertions and the transmit
 room. They appear in the toggle table's queue fill row.
@@ -438,7 +444,7 @@ The 11686 toggle points not hit, by cause:
 How the toggle points were sorted, so a re-measurement reproduces the
 counts: a point is "hit in another parameter set" when the same file,
 hierarchy, signal bit and direction is hit in any copy. The rest go by
-signal name, in this order: `common_sdp_ram.sv` and a `pcie_tl_fifo.sv`
+signal name, in this order: `common_sdp_ram.sv` and a `common_sdp_ram_fifo.sv` (then `pcie_tl_fifo.sv`)
 `head_o` or `push_data_i` to the RAM row; the templates above, the fields
 `locked`, `tc`, `attr`, `rrr`, `mem`, `fixed4` and `kind`, the `ep` field
 of `pq_ent`, `cq_ent`, `cfg_ent`, `cqe_ent`, `cfge_ent` and of the
