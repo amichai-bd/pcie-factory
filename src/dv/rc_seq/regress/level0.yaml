@@ -3,4 +3,5 @@ tests:
     module: tests.test_rc_seq
     testcase: smoke
     top: pcie_rc_seq
-    timeout_s: 60
+    params: {PROGRAM: 4}
+    timeout_s: 120

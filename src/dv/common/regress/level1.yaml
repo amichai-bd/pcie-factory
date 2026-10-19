@@ -135,6 +135,26 @@ tests:
     params: {WIDTH: 1, ADDR_W: 1}
     seeds: 2
     timeout_s: 120
+  - name: skid_stage_random
+    module: tests.test_skid_stage
+    testcase: random_ops
+    top: common_skid_stage
+    params: {WIDTH: 16}
+    seeds: 3
+    timeout_s: 120
+  - name: skid_stage_random_min
+    module: tests.test_skid_stage
+    testcase: random_ops
+    top: common_skid_stage
+    params: {WIDTH: 1}
+    seeds: 2
+    timeout_s: 120
+  - name: tlp_rx_track_random
+    module: tests.test_tlp_rx_track
+    testcase: random_tlps
+    top: common_tlp_rx_track_fixture
+    seeds: 3
+    timeout_s: 120
   - name: tdp_ram_random
     module: tests.test_ram
     testcase: random_ops

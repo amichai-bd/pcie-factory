@@ -69,6 +69,17 @@ tests:
     top: common_sdp_ram_fifo
     params: {WIDTH: 8, ADDR_W: 2}
     timeout_s: 60
+  - name: skid_stage_contract
+    module: tests.test_skid_stage
+    testcase: contract
+    top: common_skid_stage
+    params: {WIDTH: 8}
+    timeout_s: 60
+  - name: tlp_rx_track_contract
+    module: tests.test_tlp_rx_track
+    testcase: contract
+    top: common_tlp_rx_track_fixture
+    timeout_s: 60
   - name: tdp_ram_contract
     module: tests.test_ram
     testcase: contract

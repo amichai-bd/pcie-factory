@@ -345,25 +345,16 @@ package pcie_tl_pkg;
     logic        cf_turn;    // between the two completion queues: cfg first
   } t_tx_state;
 
-  // A beat in the transmit output stage (MAS, transmit arbiter).
+  // A beat in the transmit output stage, a common_skid_stage (MAS,
+  // transmit arbiter); the stage carries its valid.
   typedef struct packed {
-    logic        valid;
-    logic [31:0] data;       // DW 1's ID bits 15:0 are 0 here; the stage fills them
+    logic [31:0] data;       // DW 1's ID bits 15:0 are 0 here; filled at the stage's output
     logic        sop;
     logic        eop;
     logic        idw;        // DW 1 of a TLP: the ID goes in bits 15:0
     logic        rq;         // the sop beat of an rq read
     logic [2:0]  tag;        // that read's tag
   } t_tx_beat;
-
-  // Transmit output stage state: the offered beat, the skid slot, and the
-  // ID captured as a sop beat is first offered.
-  typedef struct packed {
-    t_tx_beat    out;        // offered on tlp_tx_*
-    t_tx_beat    skid;       // taken while out was held; out next
-    logic        held;       // out was offered and not taken last cycle
-    logic [15:0] id;         // this function's ID as the TLP's sop was first offered
-  } t_tx_out;
 
   // A beat of a received completion (to the tracker).
   typedef struct packed {
@@ -418,11 +409,9 @@ package pcie_tl_pkg;
     logic        ok;         // the head packet has seen every earlier posted request leave
   } t_rc_state;
 
-  // Receive parser state.
+  // Receive parser state, beside its common_tlp_rx_track (MAS, receive
+  // parser).
   typedef struct packed {
-    logic        busy;       // inside a TLP
-    logic [5:0]  beat;       // beats of it taken, saturating at 63
-    logic        hdr4;       // 4-DW header
     logic        cpl;        // a completion: its beats go to the tracker
     logic        push;       // the TLP ended at the last edge: push its entry now
   } t_rx_state;

@@ -108,7 +108,9 @@ verified by this testbench.
   completions in order; no read and no completion before every posted
   request taken before it (before the `cc` `sop` beat for a BAR0 read's,
   before it was formed for the others); every offered `sop` with its
-  class's header credit and data credits available; an offered beat held
+  class's header credit and its data credits (its Length / 4 rounded up,
+  as the [transmit reference](../../../../src/dv/tl/models/pcie_tl_tx_ref.py)
+  counts them) available; an offered beat held
   unchanged until taken and no gap inside a TLP; `rq_ready_o` 0 on a `sop`
   beat while Bus Master Enable is 0 or outside D0; each read freeing its
   handle at its `cc` `eop`, and the next read offered with the lowest
@@ -170,11 +172,16 @@ verified by this testbench.
   read expires, a read expiring while one of its completions is between
   its decision and its packet, a failed beat first due in the cycle
   another packet is queued).
-- **Shared code:** the queue and the pure TLP helpers `tl` takes from
-  `common` ([MAS, package](../../rtl/tl/MAS.md#package),
-  [queue](../../rtl/tl/MAS.md#queue)) are checked here at `tl`'s shapes
-  and uses; the queue also has its own shared-unit tests
-  ([`common_sdp_ram_fifo` DV plan](../common/ram/common_sdp_ram_fifo.md)).
+- **Shared code:** the queue, the pure TLP helpers, the transmit output
+  stage and the receive beat tracker `tl` takes from `common`
+  ([MAS, package](../../rtl/tl/MAS.md#package),
+  [queue](../../rtl/tl/MAS.md#queue),
+  [receive parser](../../rtl/tl/MAS.md#receive-parser),
+  [transmit arbiter](../../rtl/tl/MAS.md#transmit-arbiter)) are checked
+  here at `tl`'s shapes and uses; each block also has its own shared-unit
+  tests ([`common_sdp_ram_fifo`](../common/ram/common_sdp_ram_fifo.md),
+  [`common_skid_stage`](../common/common_skid_stage.md),
+  [`common_tlp_rx_track`](../common/common_tlp_rx_track.md) DV plans).
 
 ## Cross-check: RTL, architecture model, reference
 
@@ -201,7 +208,7 @@ self-tests check them.
 | [Epochs](../../rtl/tl/MAS.md#receive-queues) past their wrap (the comparison modulo 2^9): 520 rounds of a BAR2 write cfg holds, a configuration read behind it and a BAR0 write the application holds, the read leaving while the later write is held; a BAR0 read and an `rq` read's completion arm the cq and rc lines, their completions and the `rq` read the [transmit lines](../../rtl/tl/MAS.md#transmit-lines) cc, cf and np, which an `rq` write steps, so all six counters wrap | `rx_epoch_wrap` | 1 | 1; directed |
 | [Completer completions](../../arch/tl/COMPLETIONS.md#completer-completions): every read of the splitting table and the byte-enable cases through BAR0 and BAR2, configuration completions with the captured ID, every [Unsupported Request completion](../../arch/tl/COMPLETIONS.md#unsupported-request-completions) (locked, Byte Count 4096 as 0); then with the link and application stalling | `tx_completions` | 1 | 1; directed |
 | [Requester requests](../../arch/tl/COMPLETIONS.md#requester-requests), [interrupt writes and error messages](../../arch/core/TL_CFG.md#messages) (one withdrawn), PME_TO_Ack; `rq` held without bus mastering and in D3hot; [transmit ordering](../../arch/tl/ORDERING.md#ordering): posted order across sources, reads and completions behind posted requests held for credits, posted requests passing reads held for credits | `tx_requests` | 1 | 1; directed |
-| [Transmit credits](../../arch/tl/ORDERING.md#credits) per class and field (header, data), the other classes passing; the transmit posted line full, a message and a PME_Turn_Off waiting | `tx_credits` | 1 | 1; directed. The data-credit count of a TLP (`common_pkg::dw_credits`, rounding up) is not checked here: [#394](https://github.com/amichai-bd/pcie-factory/issues/394) |
+| [Transmit credits](../../arch/tl/ORDERING.md#credits) per class and field (header, data), the other classes passing; the transmit posted line full, a message and a PME_Turn_Off waiting; the data-credit count at its edge: TLPs of 1, 5 and 30 data DWs held with n / 4 rounded up, less one, data credits and sent with exactly n / 4 rounded up, on the posted line (`rq` writes) and on both completion sources (`cc` BAR0 reads, `cfg` BAR2 reads) | `tx_credits` | 1 | 1; directed |
 | Random host traffic, `rq` requests (in a random 64 KiB block below or above 4 GiB, so every address bit takes both values) and messages, random finite or infinite credits, link and application stalls, segments across link-downs | `tx_random` | 1 | 3 |
 | Longer random traffic | `rx_random_long` | 2 | 4 |
 | Longer random traffic, `BAR0_ADDR_W` 20 and odd credit sizes | `rx_random_long_params` | 2 | 2 |
@@ -361,7 +368,12 @@ cleared when the read is sent), so M89 also drops that clear.
 | M105 a timeout beat pushed in a cycle a completion packet is queued | `cpl_timeout` | not drained: the failed beat is lost |
 
 The transmit output stage's mutants
-([#295](https://github.com/amichai-bd/pcie-factory/issues/295)), each run
+([#295](https://github.com/amichai-bd/pcie-factory/issues/295)), made
+when the stage was `tl`'s own (`so_q`). M106, M107, M108 and M112 now
+fall in [`common_skid_stage`](../common/common_skid_stage.md); the
+[#400](https://github.com/amichai-bd/pcie-factory/issues/400) PR reran
+their equivalents there, against the shared-unit and these entries. Each
+was run
 alone against L0 and L1 one entry at a time (`--jobs 1`); the entry is the
 first that fails, at its first regression seed.
 
@@ -384,13 +396,21 @@ fails; every other entry passes.
 | --- | --- | --- |
 | M113 the epoch comparison not modulo 2^9 (`oldest > e`) | `rx_epoch_wrap` | round 511: the configuration read waited for a later BAR0 write |
 
+The transmit data-credit gate's mutants
+([#394](https://github.com/amichai-bd/pcie-factory/issues/394)), each
+run alone against L0 and L1 one entry at a time (`--jobs 1`): only
+`tx_credits` fails; every other entry passes.
+
+| Mutant | Entry | Fails with |
+| --- | --- | --- |
+| M114 `common_pkg::dw_credits` rounding down (`n >> 2`) | `tx_credits` | cycle 1085: a posted TLP offered needing 1 data credit with 0 |
+| M115 the `cfg` completion gate counting the `cc` head's length | `tx_credits` | nine completion data credits did not send exactly the configuration completion and one 128-byte completion (the older nine-credit case, before the edge cases) |
+| M116 the `cc` completion gate counting the `cfg` head's length | `tx_credits` | cycle 2316: a completion offered needing 2 data credits with 1 |
+| M117 the `cfg` completion gate rounding down (`cf_head_i.dlen >> 2`) | `tx_credits` | cycle 2924, a BAR2 edge case: a completion offered needing 1 data credit with 0 |
+
 ## Gaps
 
-| Feature | Owning issue |
-| --- | --- |
-| The transmit data-credit gate's count: a TLP of n data DWs needs n / 4 rounded up (a gate that rounds down passes every `tl` entry; `pkg_tlp_contract` checks the helper alone) | [#394](https://github.com/amichai-bd/pcie-factory/issues/394) |
-
-Otherwise none. The independent host model judges `tl` and `cfg` in the
+None. The independent host model judges `tl` and `cfg` in the
 [`core` e2e](../core/DV_PLAN.md) ([#288](https://github.com/amichai-bd/pcie-factory/issues/288),
 [#293](https://github.com/amichai-bd/pcie-factory/issues/293)); the
 coverage floors are set ([#294](https://github.com/amichai-bd/pcie-factory/issues/294)).
@@ -431,7 +451,7 @@ The 24 line points not hit, by cause:
 | Cause | Points | Where |
 | --- | ---: | --- |
 | Unreachable by construction | 16 | The lane-disable branch of each `common_sdp_ram` copy (14: one lane, always enabled, [`common_sdp_ram.sv`](../../../../src/rtl/common/ram/common_sdp_ram.sv) line 45); the `default` arm of the register engine's state ([`pcie_tl_reg.sv`](../../../../src/rtl/tl/pcie_tl_reg.sv) line 141), which only the unused fourth code of the 2-bit `t_reg_st` would reach; the hold arm of the tag array's flop, whose enable is the constant 1 ([`pcie_tl_trk.sv`](../../../../src/rtl/tl/pcie_tl_trk.sv) line 250). |
-| Outside the input contract | 4 | The `dll` drops every TLP with more than 128 bytes of data ([ROUTING.md](../../arch/tl/ROUTING.md)), so no TLP reaches `tl` with 64 or more beats or with Length 0 and data (1024 DWs): the receive beat counter's saturation ([`pcie_tl_rx.sv`](../../../../src/rtl/tl/pcie_tl_rx.sv) line 79, two copies), the tracker's Length 0 decode and its beat counter's saturation (`pcie_tl_trk.sv` lines 110 and 129). |
+| Outside the input contract | 4 | The `dll` drops every TLP with more than 128 bytes of data ([ROUTING.md](../../arch/tl/ROUTING.md)), so no TLP reaches `tl` with 64 or more beats or with Length 0 and data (1024 DWs): the receive beat counter's saturation (`pcie_tl_rx.sv` line 79 when measured, now [`common_tlp_rx_track.sv`](../../../../src/rtl/common/common_tlp_rx_track.sv); two copies), the tracker's Length 0 decode and its beat counter's saturation (`pcie_tl_trk.sv` lines 110 and 129). |
 | Not reached in that parameter set | 4 | In the copies of `rx_random_min_credits` and `rx_random_long_params`, which send no completions, the rc line's arm on a completion ([`pcie_tl_rx_q.sv`](../../../../src/rtl/tl/pcie_tl_rx_q.sv) line 93, hit in the default copy), and the release of owed non-posted data above 8 (line 249), unreachable with `FC_NPD` 2 and 3 (`rx_np_collide` reaches it). |
 
 The 11686 toggle points not hit, by cause:

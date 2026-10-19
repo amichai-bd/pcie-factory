@@ -247,14 +247,18 @@ into a model or the RTL silently.
 | [Rollover edge](../../arch/dll/RETRY.md#replay_num): a TLP `sop` waiting for the `phy` in the rollover cycle, the `phy` ready in exactly that cycle: not offered, resent after the oldest by the replay | `rollover_edge` | 0 | 1 |
 | [Replay-buffer](../../arch/dll/RETRY.md#replay-buffer) back-pressure on the upper stream: 6 maximum TLPs, the 1024-byte boundary (1022 taken, 1026 refused), room freed by an Ack | `rbuf_full` | 0 | 1 |
 | [A started TLP finished across a link-down](../../arch/dll/HAS.md#reset-values), the TLP being taken abandoned, sequence numbers from 0 after the relink; an offered TLP withdrawn | `link_down_mid_tlp` | 0 | 1 |
+| The same at `REPLAY_TIMEOUT` 1400: the abort and the flush of its transmit block, the wider replay timer included ([#401](https://github.com/amichai-bd/pcie-factory/issues/401)) | `link_down_mid_tlp_slow` | 2 | 1 derived; `REPLAY_TIMEOUT` 1400 |
 | TLPs to the partner, error-free, stalls and gaps: delivered once and in order, no replay | `tlp_partner` / `tlp_partner_sweep` | 1 / 2 | 0 / 1, no coverage run |
 | [Slow lower layers](../../arch/dll/RETRY.md#slow-lower-layers) at `REPLAY_TIMEOUT` 1400: the stand-in's line delay at 300 cycles each way, so a maximum-payload TLP (4-DW header, 128 bytes) is acknowledged 634 cycles after its `eop`, with no timeout and no replay; then every partner DLLP dropped: the timeout exactly 1400 cycles after the second TLP's `eop`, that TLP replayed once, both delivered once; replay counts equal the shadow's | `replay_timeout_slow` | 1 | 1; `REPLAY_TIMEOUT` 1400 |
-| TLPs to the partner with its fault hooks: Nak'd, lost, lost and damaged Acks, forced Naks, Ack delays past the timeout; delivered once and in order | `tlp_partner_errors` | 1 | 0; seeds 1 and 2 in `tlp_partner_errors_sweep` |
+| TLPs to the partner with its fault hooks: Nak'd, lost, lost and damaged Acks, forced Naks, Ack delays past the timeout (each window one 200-cycle period at the default timeout, one more per 200 cycles a larger `REPLAY_TIMEOUT` adds); then an Ack-loss window, every partner DLLP dropped while one more TLP goes out, in which the timer must expire (a Nak in a delay window restarts the timer, so the windows alone left some seeds without a timeout: derived seed 930231584, and 1728083710 at `REPLAY_TIMEOUT` 1400, [#401](https://github.com/amichai-bd/pcie-factory/issues/401)); delivered once and in order | `tlp_partner_errors` | 1 | 0; seeds 1 and 2 in `tlp_partner_errors_sweep` |
 | The same, wide sweep | `tlp_partner_errors_sweep` | 2 | its 8 derived seeds pinned, then 1 and 2 from `tlp_partner_errors` |
+| The same at `REPLAY_TIMEOUT` 1400, whose `pcie_dll` and `pcie_dll_tlp_tx` are their own specializations: Naks, timeouts, an Ack ending or shortening a running replay, a replay held while one runs ([#401](https://github.com/amichai-bd/pcie-factory/issues/401)) | `tlp_partner_errors_slow` | 2 | 0; `REPLAY_TIMEOUT` 1400 |
 | [Rollover target](../../arch/dll/HAS.md#targets): TLPs lost from a set cycle until the retrain; architecture model against the partner in the same scenario | `tlp_rollover` / `tlp_rollover_sweep` | 1 / 2 | 0 / 1, no coverage run |
+| The same at `REPLAY_TIMEOUT` 1400: 4 timeouts of 1400 cycles, the rollover and its hold; the shadow and the architecture model at the same timeout ([#401](https://github.com/amichai-bd/pcie-factory/issues/401)) | `tlp_rollover_slow` | 2 | 0; `REPLAY_TIMEOUT` 1400 |
 | [Line use and replay-buffer sizing targets](../../arch/dll/HAS.md#targets) (`mwr_max`, `ack_spec_max`): 500 128-byte writes, partner Acks at 32 and 118 cycles, at least 99% | `mwr_max`, `ack_spec_max` | 2 | 1 each; 99.30% both (architecture model 99.20%) |
 | Sequence numbers across the 4095-to-0 wrap with Naks, lost TLPs and lost Acks around it | `seq_wrap` | 2 | 2 derived |
 | Both directions loaded: 300 TLPs each way, the DUT's Acks waiting behind its own TLPs; [Ack latency target](../../arch/dll/HAS.md#targets) 118 cycles | `tlp_bidir` / `tlp_bidir_sweep` | 1 / 2 | 0 / 1; worst Ack 107 and 108 cycles; coverage on both |
+| The same at `REPLAY_TIMEOUT` 1400: the receive side and credits of its `pcie_dll` specialization ([#401](https://github.com/amichai-bd/pcie-factory/issues/401)) | `tlp_bidir_slow` | 2 | 0; `REPLAY_TIMEOUT` 1400 |
 
 **Level placement** ([#272](https://github.com/amichai-bd/pcie-factory/issues/272)):
 `mwr_max` and `ack_spec_max` run in level 2. They measure the line-use and
@@ -290,6 +294,23 @@ they catch (a payload above 128 bytes accepted, the non-posted release
 charged to P, the half-range gate) are first caught by `rx_directed`,
 `credit_release` and `fc_tx_gate`, which keep the release and gate paths
 under `ci-gate`. They take about 12 s and 2 x 4 s of CPU.
+
+`tlp_partner_errors_slow`, `tlp_rollover_slow`, `tlp_bidir_slow` and
+`link_down_mid_tlp_slow` run in level 2 ([#401](https://github.com/amichai-bd/pcie-factory/issues/401)), for the same reason:
+they run existing tests on the `REPLAY_TIMEOUT` 1400 build, whose
+`pcie_dll` and `pcie_dll_tlp_tx` are their own specializations and which
+`replay_timeout_slow` alone barely reaches (14 line and 1509 toggle points
+missed). Of the 14 line and 912 toggle points they gain, 8 and 490 are
+reached by one of them alone (`tlp_partner_errors_slow` 7 and 55,
+`link_down_mid_tlp_slow` 1 and 134, `tlp_bidir_slow` 0 and 297,
+`tlp_rollover_slow` 0 and 4) and the rest by two or more.
+`tlp_rollover_slow` stays for its check: it alone compares the replay
+counts with the shadow at 1400, and it alone of them catches a timeout
+fixed at 356. `replay_timeout_slow`
+(level 1) keeps the parameter under `ci-gate`. Each mutant they catch
+([below](#replay-timeout-build-mutants)) is also caught under `ci-gate`:
+by the same test on the default build, or, for a timeout fixed at 356, by
+`replay_timeout_slow`. They take about 5, 3, 4 and 1 s of CPU.
 
 **One seed per entry in level 1** ([#389](https://github.com/amichai-bd/pcie-factory/issues/389)):
 the full level 1 of every IP, which `ci-gate` runs for a change to a
@@ -501,6 +522,19 @@ Each is caught; the `link` pass-through mutant is in the
 | Top | 356 passed to `u_tlp_tx`, not `REPLAY_TIMEOUT` | `replay_timeout_slow` (L1) | The same spurious replay. Every level-0 entry passes. |
 | Top | Range check accepting 355 | `param_limits` | `REPLAY_TIMEOUT` 355 lints clean, expected the elaboration failure. |
 
+### Replay-timeout build mutants
+
+The `REPLAY_TIMEOUT` 1400 entries of [#401](https://github.com/amichai-bd/pcie-factory/issues/401), each run alone at its seed
+against one RTL mutant, serially, the tree restored after each.
+
+| Block | Mutant | Entry | Result | Also caught by |
+| --- | --- | --- | --- | --- |
+| TLP transmit | Timeout compare at the fixed 356 (`RT_LAST` = 355) | `tlp_rollover_slow` | Replay counts differ from the shadow's at 1400: timeouts 4 against 1, replays 4 against 1 (cycle 9102). `tlp_partner_errors_slow` passes: it logs those counts, not compares them. | `replay_timeout_slow` (L1) |
+| TLP transmit | Flush keeps the retry state (`RETRY_RESET` not loaded) | `link_down_mid_tlp_slow` | First TLP after the relink carries sequence 1, expected 0 (cycle 306). | `link_down_mid_tlp` (L0) |
+| TLP transmit | A running replay does not skip what an Ack removed | `tlp_partner_errors_slow` | Partner violation at cycle 7245: TLP 78 taken, already acknowledged (ACKD_SEQ 86). | `tlp_partner_errors` (L1), cycle 2555 |
+| Transmit block | Ack and Nak below TLPs in the transmit priority | `tlp_bidir_slow` | An Ack started 14522 cycles after its TLP's `eop`, bound 118. | `tlp_bidir` (L1) |
+| TLP transmit | The timer never expires at 1400 (the compare also needs a count whose bits 2:0 are not all 1, as 1399's are) | `tlp_partner_errors_slow` | The final Ack-loss window: no replay timeout within 1800 cycles (cycle 38705). | `replay_timeout_slow` (L1): the timeout not reached within 1410 cycles |
+
 ## Gaps
 
 None. The [targets](../../arch/dll/HAS.md#targets) end to end run in the
@@ -518,16 +552,33 @@ its entries are on the `link` bench and add nothing to this one.
 
 Floors in [`level2.yaml`](../../../../src/dv/dll/regress/level2.yaml),
 checked by every `--coverage` run that selects level 2 (the nightly runs
-levels 0 to 2): line 98.4, toggle 76.4, functional 100. Merged over levels
-0 to 2 ([#354](https://github.com/amichai-bd/pcie-factory/issues/354)):
-line 98.91% (543 of 549 line and branch points), toggle 76.94% (17296 of
-22480), functional 100% (221 of 221 bins in the 18 covergroups the level
-file names). The line floor is the merged value of
-[#217](https://github.com/amichai-bd/pcie-factory/issues/217) less 0.5
-points, kept ([floor margin](../../../bkm/dv.md#coverage)); the toggle
-floor is the merged value less 0.5 points, rounded down to a tenth.
+levels 0 to 2): line 98.5, toggle 77.0, functional 100. Merged over levels
+0 to 2 ([#401](https://github.com/amichai-bd/pcie-factory/issues/401)): line 99.07% (637 of 643 line and branch points), toggle
+77.57% (19987 of 25768), functional 100% (221 of 221 bins in the 18
+covergroups the level file names). Both code floors are the merged value
+less 0.5 points, rounded down to a tenth
+([floor margin](../../../bkm/dv.md#coverage)), raised by [#401](https://github.com/amichai-bd/pcie-factory/issues/401) from
+98.4 and 76.4.
 
-**Toggle floor lowered from 80.0 to 76.4**
+**The `REPLAY_TIMEOUT` copies** ([#401](https://github.com/amichai-bd/pcie-factory/issues/401)). The replay-timeout parameter of
+[#384](https://github.com/amichai-bd/pcie-factory/issues/384) gave the
+entries at `REPLAY_TIMEOUT` 1400 their own `pcie_dll` and
+`pcie_dll_tlp_tx` specializations (Verilator's `__R578`): 91 line and 3288
+toggle points (1460 in the top, 1828 in the transmit block, whose replay
+timer is 11 bits there), plus 3 line points of the new timer statements in
+the default transmit block. With `replay_timeout_slow` the only entry on
+that build, two TLPs and one replay, the merged value fell to 96.89% line
+(623 of 643) and 74.03% toggle (19075 of 25768), below the floors of 98.4
+and 76.4: 14 line points (Ack and replay interplay, the rollover and its
+hold, the abort) and 1509 toggle points of the copies went unreached. The
+level-2 entries `tlp_partner_errors_slow`, `tlp_rollover_slow`,
+`tlp_bidir_slow` and `link_down_mid_tlp_slow` run those tests on that
+build ([level placement](#plan)) and reach every line point of the copies
+and all but 597 of their toggle points; the toggle table below counts
+those 597 by the same causes as the other copies. The other copies' holes
+are unchanged, point for point (5184).
+
+**Toggle floor lowered from 80.0 to 76.4** (since raised to 77.0)
 ([captain decision on #354](https://github.com/amichai-bd/pcie-factory/issues/354#issuecomment-6253919165)).
 The 80.0 floor of #217 was set on 80.53% (13566 of 16846); the credit
 release of [#335](https://github.com/amichai-bd/pcie-factory/issues/335)
@@ -566,8 +617,10 @@ Verilator counts each parameter set of a block apart
 ([regress SPEC](../../../tools/regress/SPEC.md#coverage)): `pcie_dll` and
 `pcie_dll_rx_buf` are built with the credit sets of the entries (default,
 completions finite, all infinite, every class finite, smallest, and
-`FC_RELEASE` 1), and `pcie_dll_fc` with and without `RELEASE`, so a point
-is missed once per set that does not reach it. The 6 line points not hit:
+`FC_RELEASE` 1), `pcie_dll` and `pcie_dll_tlp_tx` also with
+`REPLAY_TIMEOUT` 1400, and `pcie_dll_fc` with and without `RELEASE`, so a
+point is missed once per set that does not reach it. The 6 line points not
+hit:
 
 | Points | Where | Cause |
 | --- | --- | --- |
@@ -575,22 +628,22 @@ is missed once per set that does not reach it. The 6 line points not hit:
 | 1 | `u_tlp_rx`: the `buf_full_i` branch that sets `noroom` | Unreachable by construction: the receive buffer holds every TLP the advertised credits cover plus the one being collected ([MAS, receive buffer](../../rtl/dll/MAS.md#receive-buffer)), and the overflow check admits nothing more. |
 | 1 | `u_fc` without `RELEASE`: the release arm of `taken_ret` | Unreachable by construction: `RELEASE` is 0 in that specialization; the `RELEASE` 1 copy takes it. |
 
-The 5184 toggle points not hit, by cause:
+The 5781 toggle points not hit, by cause (of them, in the `REPLAY_TIMEOUT` 1400 copies: 597):
 
 | Cause | Points | Signals |
 | --- | ---: | --- |
-| Constant by construction: release port tied off | 709 | With `FC_RELEASE` 0 (six `pcie_dll` copies and `pcie_dll_fc` without `RELEASE`): `fc_rel_*_i` and the release events `rel_p`, `rel_np` in the top; `rel_p_i`, `rel_np_i`, `rel_p_ret`, `rel_np_ret`, `taken_ret` and `taken_rel` in `u_fc`, tied to 0 or a copy of the delivery return (`a_rel_tied`). |
-| Hit in another parameter set | 1385 | The same bit and direction toggles in another credit set's copy of the block: for example, the infinite-field flags and the upper limit bits toggle only in the sets with finite classes, the receive buffer's upper address bits only in its larger sizes, and the `FC_RELEASE` 1 copies' transmit side and counters only in the copies without release. |
-| Constant per build | 782 | The credit parameters (`adv_i` in `u_ctrl` and `u_fc`, `rx_base`, `grp_base`) and the InitFC bodies built from them (`initfc_req` in the top, `u_ctrl` and `u_tx`, with their fixed type and reserved bits): a parameter does not change during a run, so its bits rise at most once after reset. |
-| Constant by the DLLP format | 523 | Ack and Nak bodies (`acknak_req` in the top, `u_tlp_rx` and `u_tx`): the type bits other than the Ack-to-Nak bit, the reserved byte and the reserved nibble above the sequence number; the UpdateFC bodies (`updfc_req`): the type code's low bits and the reserved bits between the fields; the same bits of the transmit block's chosen body and packet register (`body`, `tx_q.pkt`, `tx_d.pkt`). |
-| Constant by construction: one TLP's credits | 959 | The credit fields of a single TLP (`rx_chk`, `rx_stored`, `rx_malformed`, `rx_taken`, their `u_fc` and `u_tlp_rx` ports, `u_rx_buf` `cur_q`, `cur_d` and `taken_o`, and `u_fc` `tx_cost`): the header field is always 1 (bits 7:1 never set, bit 0 never falls once the field holds a TLP), the data field is at most 256 (1024 DWs, bits 11:9 never set), and the `valid` flag that `tlp_credit` sets to 1. |
-| Not reached: large data credits | 224 | Bits 8:4 of a delivered TLP's data credits (`rx_taken`, `u_rx_buf` `cur_q`, `cur_d` and `taken_o`): a TLP that is delivered carries at most 128 bytes, 8 credits. Bit 7 of the credit fields of `rx_chk`, `rx_stored` and `rx_malformed` and their ports, which carry every judged TLP's credits whatever its verdict (128 to 255 credits, a Length of 509 to 1020 DWs). Only malformed TLPs exceed 8 credits; `rx_directed`'s malformed cases toggle bits 6:4 (Length 508) and 8 (Length 0 is 1024 DWs), and another Length would add no check. (`u_tlp_rx` `hdr.length` bit 9, here until #354, is now hit by `rx_errors_release`.) |
+| Constant by construction: release port tied off | 818 | With `FC_RELEASE` 0 (seven `pcie_dll` copies, 109 in the `REPLAY_TIMEOUT` 1400 one, and `pcie_dll_fc` without `RELEASE`): `fc_rel_*_i` and the release events `rel_p`, `rel_np` in the top; `rel_p_i`, `rel_np_i`, `rel_p_ret`, `rel_np_ret`, `taken_ret` and `taken_rel` in `u_fc`, tied to 0 or a copy of the delivery return (`a_rel_tied`). |
+| Hit in another parameter set | 1660 | The same bit and direction toggles in another credit set's copy of the block (275 in the `REPLAY_TIMEOUT` 1400 copies: 122 in the top, 153 in the transmit block, such as the upper sequence-number bits that only `seq_wrap` reaches, on the default build): for example, the infinite-field flags and the upper limit bits toggle only in the sets with finite classes, the receive buffer's upper address bits only in its larger sizes, and the `FC_RELEASE` 1 copies' transmit side and counters only in the copies without release. |
+| Constant per build | 817 (35 in the 1400 copy) | The credit parameters (`adv_i` in `u_ctrl` and `u_fc`, `rx_base`, `grp_base`) and the InitFC bodies built from them (`initfc_req` in the top, `u_ctrl` and `u_tx`, with their fixed type and reserved bits): a parameter does not change during a run, so its bits rise at most once after reset. |
+| Constant by the DLLP format | 580 (57 in the 1400 copy) | Ack and Nak bodies (`acknak_req` in the top, `u_tlp_rx` and `u_tx`): the type bits other than the Ack-to-Nak bit, the reserved byte and the reserved nibble above the sequence number; the UpdateFC bodies (`updfc_req`): the type code's low bits and the reserved bits between the fields; the same bits of the transmit block's chosen body and packet register (`body`, `tx_q.pkt`, `tx_d.pkt`). |
+| Constant by construction: one TLP's credits | 1042 (83 in the 1400 copy) | The credit fields of a single TLP (`rx_chk`, `rx_stored`, `rx_malformed`, `rx_taken`, their `u_fc` and `u_tlp_rx` ports, `u_rx_buf` `cur_q`, `cur_d` and `taken_o`, and `u_fc` `tx_cost`): the header field is always 1 (bits 7:1 never set, bit 0 never falls once the field holds a TLP), the data field is at most 256 (1024 DWs, bits 11:9 never set), and the `valid` flag that `tlp_credit` sets to 1. |
+| Not reached: large data credits | 240 (16 in the 1400 copy) | Bits 8:4 of a delivered TLP's data credits (`rx_taken`, `u_rx_buf` `cur_q`, `cur_d` and `taken_o`): a TLP that is delivered carries at most 128 bytes, 8 credits. Bit 7 of the credit fields of `rx_chk`, `rx_stored` and `rx_malformed` and their ports, which carry every judged TLP's credits whatever its verdict (128 to 255 credits, a Length of 509 to 1020 DWs). Only malformed TLPs exceed 8 credits; `rx_directed`'s malformed cases toggle bits 6:4 (Length 508) and 8 (Length 0 is 1024 DWs), and another Length would add no check. (`u_tlp_rx` `hdr.length` bit 9, here until #354, is now hit by `rx_errors_release`.) |
 | Constant by construction: release events | 238 | In the `FC_RELEASE` 1 copies, the release events (`rel_p`, `rel_np` in the top; `rel_p_i`, `rel_np_i`, `rel_p_ret`, `rel_np_ret` and `taken_ret` in `u_fc`): a fixed class, a header field that is always 1, data bits 11:4 (a release carries at most 8 credits, `a_rel_data_max`), and `fc_rel_npd_i` bit 3 with its event bits (no non-posted release of 8 credits: the non-posted requests the tests send carry fewer). |
-| Unreachable by construction: receive buffer full | 30 | `rx_full`, `u_rx_buf` `full_o` and its fill's top bit (`used`), `u_tlp_rx` `buf_full_i` and `noroom`: the line hole above. |
+| Unreachable by construction: receive buffer full | 32 (2 in the 1400 copy) | `rx_full`, `u_rx_buf` `full_o` and its fill's top bit (`used`), `u_tlp_rx` `buf_full_i` and `noroom`: the line hole above. |
 | Not reached: counter top bits | 310 | The top bits of the NP and Cpl credit counters and recorded limits in `u_fc` (`alloc`, `alloc_mal`, `alloc_dlv`, `alloc_rel`, `rcvd`, `sent`, `upd`, `used`, `lim_np`, `lim_cpl`) and bit 7 of the completion header in use: only the P class wraps its counters (`fc_tx_gate`), and the NP data counter grows by one credit per CfgWr, so a wrap would take over 2048 non-posted writes in one link-up. The wrap arithmetic is shared by every class (`fc_charge`, `fc_record`), and the P wrap checks it. |
-| Constant by construction: transmit block | 18 | In `u_tlp_tx`: bit 0 of the space-in-use sums (`need_bytes`, `used_bytes`: whole words plus 2 bytes per TLP), bits 1:0 of a TLP's size (`sop_bytes`: whole DWs), bits 7:4 of the sequence-number beat (reserved, 0) and bit 13 of the space in use, which stays below 8192. |
+| Constant by construction: transmit block | 36 (18 in the 1400 copy) | In `u_tlp_tx`: bit 0 of the space-in-use sums (`need_bytes`, `used_bytes`: whole words plus 2 bytes per TLP), bits 1:0 of a TLP's size (`sop_bytes`: whole DWs), bits 7:4 of the sequence-number beat (reserved, 0) and bit 13 of the space in use, which stays below 8192. |
 | Constant by construction: RAM lanes | 4 | `wr_lanes_i` of each `common_sdp_ram` (tied to 1). |
-| Not reached: hold release | 2 | `u_tlp_tx` `hold_left` never falls: only a second rollover or DL_Inactive clears it after a hold that a retrain ended, and no test rolls over twice in one link-up; its rise and the hold's end are checked in `rollover_directed`. Cost: a second rollover there, about 2500 more cycles (four replay timeouts and the hold) for a flag whose clearing line is already hit at DL_Inactive; not worth an L0 entry, so no owning issue. |
+| Not reached: hold release | 4 (2 in the 1400 copy) | `u_tlp_tx` `hold_left` never falls: only a second rollover or DL_Inactive clears it after a hold that a retrain ended, and no test rolls over twice in one link-up; its rise and the hold's end are checked in `rollover_directed`. Cost: a second rollover there, about 2500 more cycles (four replay timeouts and the hold) for a flag whose clearing line is already hit at DL_Inactive; not worth an L0 entry, so no owning issue. |
 
 How the toggle points were sorted, so a re-measurement reproduces the
 counts: first, the release-port signals (`fc_rel_*`, `rel_p*`, `rel_np*`,
