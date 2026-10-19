@@ -145,3 +145,33 @@ def test_standin_refusals_and_capture_overflow():
     for k in range(sd.CAPTURE_DEPTH + 1):
         si._msi(0, k)
     assert len(si.capture) == sd.CAPTURE_DEPTH and si.err >> sd.E_MSI_DROP & 1
+
+
+def _used_fields(w: int) -> dict:
+    """A step's fields its op uses (MAS, Step format), with the waits'
+    timeouts, the Hot Reset hold and the loop limits left out: those are
+    the package's constants (PROGRAMS, Constants), which the arch model
+    sets on its own."""
+    s = m.decode(w)
+    d = dict(s.__dict__)
+    if s.op in (m.WAIT_MSI, m.WAIT_LINK, m.HOT_RESET):
+        d["data"] = d["addr"] = 0
+    if s.op == m.JUMP:
+        d["addr"] &= 0xFFFF
+        if s.cond not in (m.DATA_EQ, m.DATA_NE):
+            d["data"] = d["mask"] = d["idx"] = 0
+    return d
+
+
+@pytest.mark.parametrize("name", ["ENUM", "MMIO", "DMA_MSI", "ERRORS"])
+def test_programs_agree_with_the_arch_model(name):
+    """Second reference: the rc architecture model builds the same M4
+    programs from the programs page."""
+    import sys
+    from pathlib import Path
+    sys.path.append(str(Path(__file__).resolve().parents[3] / "arch" / "rc"))
+    import pcie_rc_arch as arch
+    mine, theirs = m.program(name).rom(), arch.program(name).rom()
+    assert len(mine) == len(theirs)
+    for pc, (a, b) in enumerate(zip(mine, theirs)):
+        assert _used_fields(a) == _used_fields(b), (name, pc)

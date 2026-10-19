@@ -13,8 +13,8 @@ Written from those pages, not from the RTL:
   ``outputs`` and the clock edge from ``clock``.
 
 Provenance: the step encoder and the program builders are adapted from the
-rc architecture model, src/arch/rc/pcie_rc_arch.py (PR #392, commit
-2bfb7fc, this repository, Apache-2.0); the cycle model is new.
+rc architecture model, src/arch/rc/pcie_rc_arch.py (#392, commit 3a4ff26,
+this repository, Apache-2.0); the cycle model is new.
 """
 
 from __future__ import annotations
