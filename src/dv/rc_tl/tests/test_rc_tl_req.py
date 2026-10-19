@@ -217,6 +217,8 @@ async def req_malformed(dut):
         (rd4, lambda r: cpl_tlp(CS_SC, r.rid, r.tag, [0] * 4, bc=15, la=0x10)),
         (rd4, lambda r: cpl_tlp(CS_SC, r.rid, r.tag, [0] * 4, bc=17, la=0x10)),
         (rd4, lambda r: cpl_tlp(CS_SC, r.rid, r.tag, [0] * 4, bc=0, la=0x10)),  # 4096
+        (rd4, lambda r: cpl_tlp(CS_SC, r.rid, r.tag, [0] * 4, bc=0x110, la=0x10)),
+        (rd4, lambda r: cpl_tlp(CS_SC, r.rid, r.tag, [0] * 4, bc=0x810, la=0x10)),
         (rd4, lambda r: cpl_tlp(CS_SC, r.rid, r.tag, [0] * 4, bc=16, la=0x11)),
         (rd4, lambda r: cpl_tlp(CS_SC, r.rid, r.tag, [0] * 4, bc=16, la=0x50)),
         (rd4, lambda r: cpl_tlp(CS_SC, r.rid, r.tag, [0] * 5, bc=16, la=0x10)),  # past
