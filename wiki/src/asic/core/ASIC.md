@@ -110,7 +110,29 @@ measurements.
 
 ## Timing status
 
-Pending the `asic` workflow runs of this change.
+**Interim: no run has completed detailed route yet**, so there is no
+routed timing, final area or route DRC count, and the M3 gate is not yet
+judged. Runs by the `asic` workflow on the WSL runners:
+
+| Run | Inputs | Outcome | Last timing (global route) | Cells (synthesis) | Std-cell area | Peak memory |
+| --- | --- | --- | --- | --- | --- | --- |
+| 8 ns (run 39141818708, at `bf78951`) | 30% utilization, `TNS_END_PERCENT` 100, 6 GB container | Detailed route killed at the 6 GB limit | WNS −7.47 ns, TNS −21579 ns | 156616 (54847) | 1.155 mm² | 6125 MB, detailed route |
+| 10 ns study (run 39163877374, at `65b7411`) | 40% utilization, default `TNS_END_PERCENT`, 10 GB container | Stopped at the 7200 s budget in detailed route (104 violations after the first optimization pass, 5.4 to 6.2 GB) | WNS −1.50 ns, TNS −309.6 ns; hold +0.093 ns | 125437 (55343) | 1.083 mm² | above 6 GB, detailed route |
+| 10 ns study (run 39172848187, at `65b7411`, 8400 s budget) | as above | The runner lost contact with GitHub after 2 h 7 min; no result | none | none | none | none |
+
+The second row's inputs are the final ones; it also includes the `tl`
+registered transmit stage of
+[#295](https://github.com/amichai-bd/pcie-factory/issues/295). Its core is
+6.38 mm² (utilization 0.43), and its power estimate (0.276 W) covers the
+standard cells only. At global route, `core` misses 100 MHz by about
+1.5 ns (about 87 MHz). Timing usually changes a little after detailed
+route, so this is an estimate, not the gate result. Per-clock slacks and
+worst paths come only from a finished run (`timing.clocks`).
+
+The 10 GB container limit is the captain's decision of 2026-10-18
+([#296](https://github.com/amichai-bd/pcie-factory/issues/296#issuecomment-6253639191)),
+since detailed route needs more than 6 GB; the host runs one ORFS job at a
+time.
 
 ## Files
 
