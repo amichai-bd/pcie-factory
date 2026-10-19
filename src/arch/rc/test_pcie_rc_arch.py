@@ -27,6 +27,8 @@ def test_memory_window():
     ({"kind": "cfg", "bus": 1, "dev": 1}, True, "LOCAL_UR"),
     ({"kind": "cfg", "bus": 2, "dev": 0}, True, "LOCAL_UR"),
     ({"kind": "cfg", "bus": 1, "dev": 0}, False, "LINK_DOWN"),
+    ({"kind": "cfg", "bus": 2, "dev": 1}, False, "LINK_DOWN"),             # LINK_DOWN first
+    ({"kind": "mem", "addr": 0x8000_0FFC, "len": 2}, False, "LINK_DOWN"),  # over the 4 KiB check
     ({"kind": "mem", "addr": 0x8000_0000, "len": 32}, True, "send"),
     ({"kind": "mem", "addr": 0x800F_FFFC, "len": 1}, True, "send"),
     ({"kind": "mem", "addr": 0x800F_FFFC, "len": 2}, True, "LOCAL_UR"),   # leaves the window
