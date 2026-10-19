@@ -147,4 +147,16 @@ Gen3 and wider links stay after the bridge, as Q7 had them.
 
 ## Updates
 
-None yet.
+**2026-10-19, firstmate delegate decision** (the captain may override),
+from the review of the `rc_tl` MAS (PR
+[#387](https://github.com/amichai-bd/pcie-factory/pull/387) for
+[#368](https://github.com/amichai-bd/pcie-factory/issues/368),
+[comment](https://github.com/amichai-bd/pcie-factory/issues/368#issuecomment-6268994085)):
+wave 2 builds the `rc_tl` root-port Type 1 header
+([#374](https://github.com/amichai-bd/pcie-factory/issues/374)) first, then
+the requester path ([#373](https://github.com/amichai-bd/pcie-factory/issues/373)),
+then the completer path ([#375](https://github.com/amichai-bd/pcie-factory/issues/375)),
+so the requester routes by real header state with no stand-in. The wave-2
+bullet under [Waves](#waves) stays as recorded from the epic; the
+[roadmap](../roadmap.md#m4-root-port-stack-and-test-sequencer) gives the
+current order.
