@@ -223,22 +223,22 @@ into a model or the RTL silently.
 | The same at the smallest legal credits, every class finite: the stream stalls on the same schedule as the releases | `credit_release_smallest` | 2 | 2 derived |
 | The transmit accounting of `fc_tx_gate` in the `FC_RELEASE` 1 build, whose credit block is its own specialization, with the releaser running ([#354](https://github.com/amichai-bd/pcie-factory/issues/354)) | `fc_tx_gate_release` | 2 | 0; `FC_RELEASE` 1 |
 | [Receive accounting](../../arch/dll/FLOW_CONTROL.md#credit-release) with releases: P and NP returns on release, completions and malformed TLPs at once, an infinite NP data field freed at delivery (40 configuration writes past the reserve), releases in FC_INIT2 (the `phy` stand-in stalled so the InitFC2 group cannot complete; at least 2 per link-up) in the entry UpdateFC, link down dropping what is held | `fc_rx_accounting_release` | 1 | 1 derived; NP data infinite, `FC_RELEASE` 1 |
-| [UpdateFC refresh](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling), round robin, with ready stalls | `updatefc_refresh` | 1 | 2; two 2048-cycle periods |
-| Link-up against the partner, default DUT credits, [init target](../../arch/dll/HAS.md#targets) 200 cycles; cross-check | `link_up` | 1 | 0 to 3 (the four partner advertisements); 6 link-ups each |
-| The same, DUT completions finite | `link_up_cpl_finite` | 1 | 0 to 3; `FC_CPLH` 16, `FC_CPLD` 64; coverage on the first 4 (`coverage_seeds`) |
-| The same, DUT all infinite | `link_up_infinite` | 1 | 0 to 3; every `FC_*` 0; coverage on the first 4 (`coverage_seeds`) |
-| Link-up with stalls, gaps and DLLP errors both ways (5% corrupted, 3% dropped, 2% flagged by the partner; 5% lost at it), target 4500 cycles | `link_up_stress` | 1 | 0, 1 |
+| [UpdateFC refresh](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling), round robin, with ready stalls | `updatefc_refresh` / `updatefc_refresh_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (1567202113), pinned; two 2048-cycle periods |
+| Link-up against the partner, default DUT credits, [init target](../../arch/dll/HAS.md#targets) 200 cycles; cross-check | `link_up` / `link_up_sweep` | 1 / 2 | 0 / 1, 2 and 3 (the seed picks one of the four partner advertisements; level 1 runs advertisement 0 here, 1 in `link_up_cpl_finite` and 2 in `link_up_infinite`); 6 link-ups each |
+| The same, DUT completions finite | `link_up_cpl_finite` / `link_up_cpl_finite_sweep` | 1 / 2 | 1 / 0, 2 and 3; `FC_CPLH` 16, `FC_CPLD` 64; coverage on the same seeds as before |
+| The same, DUT all infinite | `link_up_infinite` / `link_up_infinite_sweep` | 1 / 2 | 2 / 0, 1 and 3; every `FC_*` 0; coverage on the same seeds as before |
+| Link-up with stalls, gaps and DLLP errors both ways (5% corrupted, 3% dropped, 2% flagged by the partner; 5% lost at it), target 4500 cycles | `link_up_stress` / `link_up_stress_sweep` | 1 / 2 | 0 / 1 |
 | 300 random TLPs from the partner within the DUT's credits, a quarter with a digest (in every partner entry of `test_dll_rx`), error-free: delivered once and in order, digests included; [Ack latency](../../arch/dll/HAS.md#targets) within 118 cycles, receive latency within 4; cross-checks | `rx_traffic` / `rx_traffic_sweep` | 1 / 2 | 0 / 1, no coverage run |
 | The same with the partner's TLPs dropped 2%, corrupted 3%, nullified 2%, flagged 2%, its DLLPs corrupted 3%, and 15% of the DUT's Acks and Naks lost (replays, duplicates): no bad TLP delivered | `rx_errors` | 1 | 0; seeds 1 and 2 in `rx_errors_sweep` |
 | The same, DUT all infinite | `rx_errors_infinite` | 1 | 0; every `FC_*` 0 |
 | The same, wide sweep | `rx_errors_sweep` | 2 | its 8 derived seeds pinned, then 1 and 2 from `rx_errors`; coverage on the first 6 (`coverage_seeds`) |
 | The same with `FC_RELEASE` 1: bad, duplicate and nullified TLPs never delivered, so never released; the delivered ones released late, reference and arch shadow ([#354](https://github.com/amichai-bd/pcie-factory/issues/354)) | `rx_errors_release` | 2 | 0, 1; `FC_RELEASE` 1; coverage on both (`coverage_seeds`): seed 1 alone reaches 8 toggle points that no other run reaches, `u_tlp_rx` Length bit 9 (a corrupted TLP whose header reads a Length of 512 or more, judged by its LCRC) |
 | The same injection with 300 TLPs beyond the advertisement, the partner sending as the UpdateFCs allow, DUT at the smallest legal credits: bad and duplicate TLPs discarded in the smallest receive buffer (its rewind) | `rx_errors_smallest` | 2 | 2 derived; every `FC_*` at its smallest |
-| [Receive buffer](../../arch/dll/FLOW_CONTROL.md#receive-buffer) sizing: every class finite, the upper layer stalls while the partner sends TLPs that use every advertised credit (a quarter with a digest, which takes buffer space but no credit), then takes 30% of beats | `rx_stall` | 1 | 0, 1; `FC_CPLH` 16, `FC_CPLD` 64; coverage on the first 2 (`coverage_seeds`) |
+| [Receive buffer](../../arch/dll/FLOW_CONTROL.md#receive-buffer) sizing: every class finite, the upper layer stalls while the partner sends TLPs that use every advertised credit (a quarter with a digest, which takes buffer space but no credit), then takes 30% of beats | `rx_stall` / `rx_stall_sweep` | 1 / 2 | 0 / 1; `FC_CPLH` 16, `FC_CPLD` 64; coverage on the same seeds as before |
 | The same at the smallest legal credits | `rx_stall_smallest` | 2 | 4 derived |
 | Receive buffer sizing for [digests](../../arch/dll/HAS.md#receive) ([MAS sizing](../../rtl/dll/MAS.md#receive-buffer), 5 DWs per header credit): the upper layer stalls while the partner sends 62 TLPs, every one with a digest, 4-DW headers (3-DW completions) and full data credits, 533 DWs; at these credits (118 in all) 4 DWs per header credit would round to 512 words, 5 give 1024 | `rx_stall_digest` | 2 | 1 derived; `FC_PH` 60, `FC_PD` 46, `FC_NPH` 1, `FC_NPD` 2, `FC_CPLH` 1, `FC_CPLD` 8 |
 | NEXT_RCV_SEQ wrapping past 4095: 4200 short TLPs with light errors (Naks and duplicates around the wrap) | `rx_seq_wrap` | 2 | 1 derived |
-| The same, wide sweep | `link_up_stress_sweep` | 2 | 8 derived |
+| The same, wide sweep | `link_up_stress_sweep` | 2 | its 8 derived seeds pinned, then 1 from `link_up_stress` |
 | The same, DUT at the smallest legal credits | `link_up_stress_smallest` | 2 | 4 derived; coverage on the first 2 (`coverage_seeds`) |
 | [Sequence numbers](../../arch/dll/RETRY.md#transmitter-state) from 0 and the [LCRC](../../arch/dll/RETRY.md#lcrc): the retry page's example (`E1 F1 E7 E2`), 86 random TLPs of every shape with upper gaps and `phy` stalls; [TX latency target](../../arch/dll/HAS.md#targets) | `lcrc_kat` | 0 | 1; latency 3 cycles, target 4 |
 | [Received Ack and Nak](../../arch/dll/RETRY.md#received-ack-and-nak) and the [replay](../../arch/dll/RETRY.md#replay) by hand: Ack, Nak with and without progress, out of range, everything acknowledged; [replay timer](../../arch/dll/RETRY.md#timers) at 356 cycles, held outside L0, restarted by progress; Ack during a replay, Nak during a replay | `replay_directed` | 0 | 1 |
@@ -330,10 +330,14 @@ which keeps its derived seed 1 (55090061), the catch of the data-reserve
 mutant; so every mutant below is still first caught at level 0 or 1, and
 every plan row keeps a level 1 run. The seeds moved are breadth (other
 partner advertisements, impairment draws and stream orders), which the
-nightly runs with its rotated extra seeds. The `link_up` entries keep
-their four seeds: the seed picks the partner's advertisement, and the four
-are the plan row. Level 1 of `dll` went from 52 to 35 runs and from
-142.5 s to 83.5 s of CPU on a development host.
+nightly runs with its rotated extra seeds. Level 1 of `dll` went from 52 to 35 runs and from
+142.5 s to 83.5 s of CPU on a development host. A second step (#389, the
+rc_seq L1 added on `main`) also moves `updatefc_refresh`, `rx_stall` and
+`link_up_stress` to one seed (seed 1 of `link_up_stress` appended to
+`link_up_stress_sweep`), and the three `link_up` entries to one partner
+advertisement each, 0, 1 and 2, so level 1 still runs three of the four;
+each entry's other three seeds run in its `_sweep`. Level 1 of `dll` is
+now 23 runs.
 
 **Coverage runs** ([#327](https://github.com/amichai-bd/pcie-factory/issues/327)):
 `--coverage` instruments each entry's first seed only (`coverage_seeds`,

@@ -38,9 +38,20 @@ make them fire, so no test breaks them on purpose.
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [No-gap stream, skid fill and ready, held beat, new flag, drain, reset](../../rtl/common/common_skid_stage.md#behavior) | `skid_stage_contract` | 0 | 1; `WIDTH` 8 |
-| The same under random traffic, against the model | `skid_stage_random` | 1 | 3; 3000 cycles; `WIDTH` 16 |
-| Random traffic, one-bit beats | `skid_stage_random_min` | 1 | 2; 3000 cycles; `WIDTH` 1 |
+| The same under random traffic, against the model | `skid_stage_random` / `skid_stage_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (285127183 and 167240629), pinned; 3000 cycles; `WIDTH` 16 |
+| Random traffic, one-bit beats | `skid_stage_random_min` / `skid_stage_random_min_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (268928640), pinned; 3000 cycles; `WIDTH` 1 |
 | Model rules | (model unit test) | - | `python3 -m pytest src/dv/common/models` |
+
+**Level placement**
+([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
+level 1 of every IP, which `ci-gate` runs for a change to a shared
+package, was over its 1200 s CPU budget. `skid_stage_random`,
+`skid_stage_random_min` run one seed in level 1 (the first, unless the row
+says otherwise); their further seeds run pinned and unchanged in the
+entry's level 2 `_sweep`, each seed with its coverage instrumentation, so
+the merged level 0 to 2 runs are the same runs. Any mutant recorded on
+this page is still first caught at the seed it names, or at the entry's
+first seed, which stays in level 1.
 
 Mutation evidence ([#400](https://github.com/amichai-bd/pcie-factory/issues/400)):
 the PR records the mutants of the moved stage and which entries, here and

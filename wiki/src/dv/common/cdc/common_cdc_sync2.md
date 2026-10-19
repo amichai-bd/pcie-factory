@@ -62,9 +62,20 @@
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Reset](../../../rtl/common/cdc/common_cdc_sync2.md#behavior): zero output in reset with all-ones input; transfer at a fixed 3:5 ratio | `sync2_smoke` | 0 | 1; `WIDTH` 1, 16 updates |
-| [Transfer](../../../rtl/common/cdc/common_cdc_sync2.md#behavior): Gray sequence and latency at random ratios | `sync2_random` | 1 | 3; `WIDTH` 4, 200 updates, ratio up to 8:1; coverage on the first 3 (`coverage_seeds`) |
+| [Transfer](../../../rtl/common/cdc/common_cdc_sync2.md#behavior): Gray sequence and latency at random ratios | `sync2_random` / `sync2_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (1836129780 and 1954040910), pinned; `WIDTH` 4, 200 updates, ratio up to 8:1; coverage on the same seeds as before |
 | [Transfer](../../../rtl/common/cdc/common_cdc_sync2.md#behavior), long and wide | `sync2_long` | 2 | 8; `WIDTH` 8, 2000 updates, ratio up to 16:1; coverage on the first 8 (`coverage_seeds`) |
-| [Asynchronous reset](../../../rtl/common/cdc/common_cdc_sync2.md#behavior): assertion with no edge (time zero, running clock, stopped clock), a pulse inside a stop, synchronous release two edges before the source value | `sync2_arst` | 1 | 2; `WIDTH` 4, `RESET_VALUE` 9, `ASYNC_RESET` 1, ratio up to 8:1 |
+| [Asynchronous reset](../../../rtl/common/cdc/common_cdc_sync2.md#behavior): assertion with no edge (time zero, running clock, stopped clock), a pulse inside a stop, synchronous release two edges before the source value | `sync2_arst` / `sync2_arst_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (1313951933), pinned; `WIDTH` 4, `RESET_VALUE` 9, `ASYNC_RESET` 1, ratio up to 8:1 |
+
+**Level placement**
+([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
+level 1 of every IP, which `ci-gate` runs for a change to a shared
+package, was over its 1200 s CPU budget. `sync2_random`, `sync2_arst` run
+one seed in level 1 (the first, unless the row says otherwise); their
+further seeds run pinned and unchanged in the entry's level 2 `_sweep`,
+each seed with its coverage instrumentation, so the merged level 0 to 2
+runs are the same runs. Any mutant recorded on this page is still first
+caught at the seed it names, or at the entry's first seed, which stays in
+level 1.
 
 Every [interface](../../../rtl/common/cdc/common_cdc_sync2.md#interfaces) port is exercised by all three entries.
 A nonzero `RESET_VALUE`, and the `COMMON_METAFLOP`, `COMMON_METAFLOP_VAL`

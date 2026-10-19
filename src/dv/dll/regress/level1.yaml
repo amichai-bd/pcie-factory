@@ -6,37 +6,35 @@ tests:
     module: tests.test_dll
     testcase: updatefc_refresh
     top: pcie_dll_tb
-    seeds: 2
     timeout_s: 120
   # The test seed picks the partner's credits (one of four, test seed mod
-  # 4); four consecutive seeds give all four.
+  # 4): level 1 runs 0, 1 and 2 across the three link_up entries; the other
+  # three seeds of each run in its level 2 sweep (#389).
   - name: link_up
     module: tests.test_dll
     testcase: link_up
     top: pcie_dll_tb
-    seeds: [0, 1, 2, 3]
+    seeds: [0]
     timeout_s: 300
   - name: link_up_cpl_finite
     module: tests.test_dll
     testcase: link_up
     top: pcie_dll_tb
-    seeds: [0, 1, 2, 3]
+    seeds: [1]
     timeout_s: 300
-    coverage_seeds: 4
     params: {FC_CPLH: 16, FC_CPLD: 64}
   - name: link_up_infinite
     module: tests.test_dll
     testcase: link_up
     top: pcie_dll_tb
-    seeds: [0, 1, 2, 3]
+    seeds: [2]
     timeout_s: 300
-    coverage_seeds: 4
     params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
   - name: link_up_stress
     module: tests.test_dll
     testcase: link_up_stress
     top: pcie_dll_tb
-    seeds: [0, 1]
+    seeds: [0]
     timeout_s: 300
   # Level 1, not 0 (#325): about 13 s of CPU, a functional gate test rather
   # than a fast build check (DV_PLAN, Level placement).
@@ -113,9 +111,8 @@ tests:
     module: tests.test_dll_rx
     testcase: rx_stall
     top: pcie_dll_tb
-    seeds: [0, 1]
+    seeds: [0]
     timeout_s: 300
-    coverage_seeds: 2
     params: {FC_CPLH: 16, FC_CPLD: 64}
   - name: credit_starve_rx
     module: tests.test_dll_fc

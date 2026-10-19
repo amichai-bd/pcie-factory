@@ -18,7 +18,6 @@ tests:
     module: tests.test_tl_rx
     testcase: rx_random
     top: pcie_tl_tb
-    seeds: 3
     timeout_s: 300
   # The smallest queues: every posted and non-posted queue fills, the host
   # waits on releases.
@@ -26,7 +25,6 @@ tests:
     module: tests.test_tl_rx
     testcase: rx_random
     top: pcie_tl_tb
-    seeds: 2
     timeout_s: 300
     params: {FC_PH: 1, FC_PD: 8, FC_NPH: 1, FC_NPD: 2}
   # Non-posted data credits above 8, so the release carries owed data.
@@ -56,7 +54,6 @@ tests:
     module: tests.test_tl_tx
     testcase: tx_random
     top: pcie_tl_tb
-    seeds: 3
     timeout_s: 300
   - name: tx_credits
     module: tests.test_tl_tx
@@ -83,5 +80,4 @@ tests:
     module: tests.test_tl_cpl
     testcase: cpl_random
     top: pcie_tl_tb
-    seeds: 2
     timeout_s: 300

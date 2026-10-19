@@ -54,4 +54,14 @@
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Registers](../../../bkm/rtl.md#registers-and-memories): reset values, capture, enable hold, asynchronous assertion between edges; register arrays; memory read-during-write and lane merge; `COMMON_METAFLOP` latency, `COMMON_METAFLOP_VAL` reset value, `COMMON_METAFLOP_ARST` cleared before any edge and between edges; five `COMMON_PULSE_SYNC` and five `COMMON_PULSE_SYNC_ARST` events, then a high `COMMON_PULSE_SYNC_ARST` pulse dropped between edges by the asynchronous reset while the synchronous form's stays high; `COMMON_RESET_SYNC` on the asynchronous reset: high before any edge and between edges, released at the second edge after the fall; `COMMON_RESET_SYNC_STAGES` with 3 the same, still high at the second edge and released at the third | `macros_contract` | 0 | 1 |
-| Every register, array, memory, level-crossing and reset-synchronizer form under random reset, enable, data and memory traffic, against the model | `macros_random` | 1 | 3; 2000 cycles |
+| Every register, array, memory, level-crossing and reset-synchronizer form under random reset, enable, data and memory traffic, against the model | `macros_random` / `macros_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (1917233032 and 1800402482), pinned; 2000 cycles |
+
+**Level placement**
+([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
+level 1 of every IP, which `ci-gate` runs for a change to a shared
+package, was over its 1200 s CPU budget. `macros_random` runs one seed in
+level 1 (the first, unless the row says otherwise); its further seeds
+run pinned and unchanged in the entry's level 2 `_sweep`, each seed with
+its coverage instrumentation, so the merged level 0 to 2 runs are the same
+runs. Any mutant recorded on this page is still first caught at the seed
+it names, or at the entry's first seed, which stays in level 1.

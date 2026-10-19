@@ -22,10 +22,20 @@ writing one word, one write and reads only.
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Two ports, read-first collisions within and across ports, disjoint-lane double write, lanes](../../../rtl/common/ram/common_tdp_ram.md#behavior) | `tdp_ram_contract` | 0 | 1 |
-| The same under random traffic, against the model | `tdp_ram_random` | 1 | 3; 2000 cycles |
+| The same under random traffic, against the model | `tdp_ram_random` / `tdp_ram_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (255575359 and 372413573), pinned; 2000 cycles |
 | [Parameter limits](../../../rtl/common/ram/common_tdp_ram.md#parameters) | `ram_param_limits` | 1 | shared with the family |
 | Random traffic, smallest RAM | `tdp_ram_long_min` | 2 | 2; 20000 cycles |
 | Random traffic, wide RAM with eight lanes | `tdp_ram_long_wide` | 2 | 2; 20000 cycles |
+
+**Level placement**
+([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
+level 1 of every IP, which `ci-gate` runs for a change to a shared
+package, was over its 1200 s CPU budget. `tdp_ram_random` runs one seed in
+level 1 (the first, unless the row says otherwise); its further seeds
+run pinned and unchanged in the entry's level 2 `_sweep`, each seed with
+its coverage instrumentation, so the merged level 0 to 2 runs are the same
+runs. Any mutant recorded on this page is still first caught at the seed
+it names, or at the entry's first seed, which stays in level 1.
 
 Mutation evidence ([#126](https://github.com/amichai-bd/pcie-factory/issues/126)),
 in a scratch copy: port `b` reading at `a_addr_i` fails `tdp_ram_contract`

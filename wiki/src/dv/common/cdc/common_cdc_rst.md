@@ -90,10 +90,21 @@
 | --- | --- | --- | --- |
 | [Assertion and hold](../../../rtl/common/cdc/common_cdc_rst.md#behavior) with no clock; [release](../../../rtl/common/cdc/common_cdc_rst.md#behavior) within the 3-cycle contract | `rst_smoke` | 0 | 1; clock stopped, then 8004:8000 ps |
 | [Assertion](../../../rtl/common/cdc/common_cdc_rst.md#behavior) by pulses shorter than a destination period; [re-assertion during release](../../../rtl/common/cdc/common_cdc_rst.md#behavior) | `rst_glitch` | 0 | 1; 60 pulses, 2 ps up to one period |
-| [Release](../../../rtl/common/cdc/common_cdc_rst.md#behavior) latency and re-assertion at random ratios | `rst_random` | 1 | 3; 100 pulses, ratio up to 8:1; coverage on the first 2 (`coverage_seeds`) |
-| Same, [`STAGES`](../../../rtl/common/cdc/common_cdc_rst.md#parameters) 3 | `rst_random_stages3` | 1 | 2; 100 pulses, ratio up to 8:1; coverage on the first 2 (`coverage_seeds`) |
+| [Release](../../../rtl/common/cdc/common_cdc_rst.md#behavior) latency and re-assertion at random ratios | `rst_random` / `rst_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (165534332 and 282364870), pinned; 100 pulses, ratio up to 8:1; coverage on the same seeds as before |
+| Same, [`STAGES`](../../../rtl/common/cdc/common_cdc_rst.md#parameters) 3 | `rst_random_stages3` / `rst_random_stages3_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (526130068), pinned; 100 pulses, ratio up to 8:1; coverage on the same seeds as before |
 | Long random pulses | `rst_long` | 2 | 8; 1000 pulses, ratio up to 16:1; coverage on the first 4 (`coverage_seeds`) |
 | Same, [`STAGES`](../../../rtl/common/cdc/common_cdc_rst.md#parameters) 4 | `rst_long_stages4` | 2 | 4; 1000 pulses, ratio up to 16:1 |
+
+**Level placement**
+([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
+level 1 of every IP, which `ci-gate` runs for a change to a shared
+package, was over its 1200 s CPU budget. `rst_random`,
+`rst_random_stages3` run one seed in level 1 (the first, unless the row
+says otherwise); their further seeds run pinned and unchanged in the
+entry's level 2 `_sweep`, each seed with its coverage instrumentation, so
+the merged level 0 to 2 runs are the same runs. Any mutant recorded on
+this page is still first caught at the seed it names, or at the entry's
+first seed, which stays in level 1.
 
 Every [interface](../../../rtl/common/cdc/common_cdc_rst.md#interfaces) port is exercised by every entry.
 

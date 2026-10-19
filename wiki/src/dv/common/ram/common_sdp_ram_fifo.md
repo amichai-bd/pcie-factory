@@ -35,9 +35,20 @@ assertions stay quiet.
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Fall-through, capacity, pop and refill, drain, reset](../../../rtl/common/ram/common_sdp_ram_fifo.md#behavior) | `sdp_ram_fifo_contract` | 0 | 1; 8 x 4 |
-| The same under random traffic, against the model | `sdp_ram_fifo_random` | 1 | 3; 3000 cycles; 16 x 8 |
-| Random traffic, smallest queue (1 bit, two RAM entries) | `sdp_ram_fifo_random_min` | 1 | 2; 3000 cycles; 1 x 2 |
+| The same under random traffic, against the model | `sdp_ram_fifo_random` / `sdp_ram_fifo_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (1044357706 and 657912816), pinned; 3000 cycles; 16 x 8 |
+| Random traffic, smallest queue (1 bit, two RAM entries) | `sdp_ram_fifo_random_min` / `sdp_ram_fifo_random_min_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (1130685727), pinned; 3000 cycles; 1 x 2 |
 | Model rules | (model unit test) | - | `python3 -m pytest src/dv/common/models` |
+
+**Level placement**
+([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
+level 1 of every IP, which `ci-gate` runs for a change to a shared
+package, was over its 1200 s CPU budget. `sdp_ram_fifo_random`,
+`sdp_ram_fifo_random_min` run one seed in level 1 (the first, unless the
+row says otherwise); their further seeds run pinned and unchanged in the
+entry's level 2 `_sweep`, each seed with its coverage instrumentation, so
+the merged level 0 to 2 runs are the same runs. Any mutant recorded on
+this page is still first caught at the seed it names, or at the entry's
+first seed, which stays in level 1.
 
 Mutation evidence ([#385](https://github.com/amichai-bd/pcie-factory/issues/385)):
 the PR records the mutants of the moved queue and which entries, here
