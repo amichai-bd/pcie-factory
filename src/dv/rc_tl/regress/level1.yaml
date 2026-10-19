@@ -142,6 +142,12 @@ tests:
     testcase: inb_write
     top: pcie_rc_tl_tb
     timeout_s: 300
+  - name: inb_host_edge
+    module: tests.test_rc_tl_inb
+    testcase: inb_host_edge
+    top: pcie_rc_tl_tb
+    timeout_s: 300
+    params: {HOST_MEM_ADDR_W: 8, HOST_MEM_BASE: 0x300}
   - name: inb_read
     module: tests.test_rc_tl_inb
     testcase: inb_read

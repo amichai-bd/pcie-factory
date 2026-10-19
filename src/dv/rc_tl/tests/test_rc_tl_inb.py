@@ -279,6 +279,23 @@ async def inb_write(dut):
     for dw in range(0, 1024, 7):
         assert await host_rd(env, dw << 2) == snap[dw], f"host DW {dw} changed"
     assert not env.cpls
+    # The window row comes first: a window over host memory (Memory Base
+    # and Limit 0, their reset values) or over the MSI window claims what
+    # it covers; an empty window (Base above Limit) claims nothing.
+    await env.hdr_wr(8, 0x0000_0000)
+    await send(env, mem_wr(0x40, [0xBAD]))
+    await expect_err(env, bit(E_IN_UR), "window over host memory")
+    got = await send(env, mem_rd(0x40, 1, tag=1))
+    check_cpl(got[0], status=CS_UR, rid=EP_RID, tag=1, k=0, bc=4, la=0x40, where="window")
+    await expect_err(env, bit(E_IN_UR), "read under the window")
+    await env.hdr_wr(8, (0xFEE << 20) | (0xFEE << 4))
+    await send(env, mem_wr(MSI, [0xBAD]))
+    assert int(dut.msi_valid_o.value) == 0
+    await expect_err(env, bit(E_IN_UR), "window over the MSI window")
+    await env.hdr_wr(8, 0x0000_0010)                    # Base 1, Limit 0
+    await send(env, mem_wr(0x40, [0x600D]))
+    assert await host_rd(env, 0x40) == 0x600D and await env.err_rd() == 0
+    await env.hdr_wr(8, (LIMIT << 20) | (BASE << 4))
 
 
 def tlp_name(t: list[int]) -> str:
@@ -535,6 +552,31 @@ async def inb_malformed(dut):
         assert await env.err_rd() == 0, tlp_name(t)
 
 
+@cocotb.test()
+async def inb_host_edge(dut):
+    """Host memory smaller than 4 KiB (rc HAS, Inbound routing: entirely
+    inside host memory): a write or read ending on its last DW is served,
+    one straddling its end (inside one 4 KiB block) is an Unsupported
+    Request, nothing written."""
+    env = await setup(dut)
+    base, size = env.p.host_mem_base, host_size(env)
+    assert size < 0x1000 and (base + size) & 0xFFF, "needs a small host memory inside a 4 KiB block"
+    end = base + size
+    await host_wr(env, size - 4, 0x1111)
+    await send(env, mem_wr(end - 8, [0xA, 0xB]))
+    assert await host_rd(env, size - 4) == 0xB and await env.err_rd() == 0
+    got = await send(env, mem_rd(end - 8, 2, tag=1))
+    check_cpl(got[0], status=CS_SC, rid=EP_RID, tag=1, k=2, bc=8, la=(end - 8) & 0x7F,
+              data=[await host_rd(env, size - 8), 0xB], where="read to the end")
+    await send(env, mem_wr(end - 4, [0xBAD, 0xBAD]))
+    await expect_err(env, bit(E_IN_UR), "write past the end")
+    assert await host_rd(env, size - 4) == 0xB
+    got = await send(env, mem_rd(end - 4, 2, tag=2))
+    check_cpl(got[0], status=CS_UR, rid=EP_RID, tag=2, k=0, bc=8, la=(end - 4) & 0x7F,
+              where="read past the end")
+    await expect_err(env, bit(E_IN_UR), "read past the end")
+
+
 # --------------------------------------------------------------- ordering
 
 @cocotb.test()
@@ -680,6 +722,17 @@ async def inb_link_down(dut):
         want = data[j] if j < 5 else 0x100 + 0x10 + j
         assert await host_rd(env, 0x40 + 4 * j) == want, f"cut write DW {j}"
     assert env.m.msi == [(0, 0x99)] and await env.err_rd() == bit(E_COR)
+    # A posted release pulsing in the cycle the link goes down is cut at
+    # once: dl_up_i falling inside that cycle forces fc_rel_* to 0.
+    env.queue_rx(mem_wr(0x80, [1]))
+    await quiesce_rx(env)
+    assert int(dut.fc_rel_p_o.value) == 1 and int(dut.fc_rel_pd_o.value) == 1
+    env.drv["dl_up_i"] = 0
+    await env.apply()
+    assert int(dut.fc_rel_p_o.value) == 0 and int(dut.fc_rel_pd_o.value) == 0
+    await env.tick()
+    env.drv["dl_up_i"] = 1
+    await env.idle(2)
     # Served again after link-up.
     got = await send(env, mem_rd(0x0, 2, tag=0x42))
     check_cpl(got[0], status=CS_SC, rid=EP_RID, tag=0x42, k=2, bc=8, la=0,

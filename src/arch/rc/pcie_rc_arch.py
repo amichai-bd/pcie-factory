@@ -632,7 +632,9 @@ class RcTl:
     # ------------------------------------------------------- transmit
     def _transmit(self, now: int) -> None:
         """Priority: rc's posted write, then a completion, then rc's
-        non-posted request; a head needs its link credits."""
+        non-posted request; a head needs its link credits, and a posted
+        write waiting for them holds the completion back, which never
+        passes it (REQUESTER, Transmit)."""
         d = self.dll
         heads = []
         if self.txp and self.txp[0].ready <= now:
@@ -644,6 +646,8 @@ class RcTl:
         for which, tlp in heads:
             cls, hc, dc = tlm.credits(tlp)
             if d.avail(cls, 0) < hc or d.avail(cls, 1) < dc:
+                if which == "p":
+                    return
                 continue
             if not d.offer(tlp, now):
                 return
