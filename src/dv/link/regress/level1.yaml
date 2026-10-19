@@ -37,10 +37,27 @@ tests:
     testcase: e2e_throughput_short
     top: pcie_link_e2e_tb
     timeout_s: 600
-  # REPLAY_TIMEOUT through link (#384), at the GPIO build's value.
+  # REPLAY_TIMEOUT through link (#384), at 1400: a raised value (the GPIO
+  # build now runs at 3214, link HAS replay timeout at LOWER 1).
   - name: e2e_replay_timeout
     module: tests.test_link_e2e
     testcase: e2e_replay_timeout
     top: pcie_link_e2e_tb
     params: {REPLAY_TIMEOUT: 1400}
     timeout_s: 600
+  # The GPIO lower layer (LOWER 1, #378) on its own top: the dll over the
+  # adapter, error-free, and one and two damaged slots. No coverage runs:
+  # the adapter's coverage is the gpio unit's (#380), and the link floors
+  # stay measured on the phy stack.
+  - name: gpio_smoke
+    module: tests.test_link_gpio
+    testcase: gpio_smoke
+    top: pcie_link_gpio_tb
+    timeout_s: 600
+    coverage_seeds: 0
+  - name: gpio_damage
+    module: tests.test_link_gpio
+    testcase: gpio_damage
+    top: pcie_link_gpio_tb
+    timeout_s: 600
+    coverage_seeds: 0

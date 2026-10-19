@@ -1,1 +1,3 @@
-// Simulation-only sources: none (cocotb drives pcie_gpio directly).
+// Simulation-only sources: the pin checker, then the pair testbench top.
+tb/pcie_gpio_pin_check.sv
+tb/pcie_gpio_tb.sv

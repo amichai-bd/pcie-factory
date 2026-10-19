@@ -281,3 +281,55 @@ async def e2e_link_errors(dut):
     COV_LINE.sample(event="replay")
     if env.rp_link_downs:
         raise CheckError(f"rc link went down {env.rp_link_downs} times under link errors")
+
+
+# ------------------------------------- the board build (LOWER 1, goal item 9)
+
+def _board(env: Env) -> None:
+    assert int(env.dut.cfg_lower_o.value) == 1, "board-build entry on a LOWER 0 build"
+
+
+def _over_gpio(env: Env) -> None:
+    """The run went over the adapter: both stacks up at the adapter's L0
+    code with their serial lines idle (link HAS, lower layer: at LOWER 1
+    ser_tx_elec_idle_o is 1)."""
+    for p in ("rp_", ""):
+        assert env.rd[f"{p}ser_tx_elec_idle_o"]() == 1, f"{p or 'ep '}serial line not idle"
+        assert env.rd[f"{p}ltssm_state_o"]() == 0x20 and env.rd[f"{p}link_up_o"]() == 1, (
+            f"{p or 'ep '}link not up over the adapter")
+
+
+@cocotb.test()
+async def board_enum(dut):
+    """Goal item 9, PROGRAM 0 (ENUM) on the board build: rc and core both at
+    LOWER 1, over the GPIO adapter and the modelled GPIO wires. Enumeration
+    passes as over the phy, the host model shadow attached: the shadow learnt
+    the function, its BARs and MSI from the configuration traffic alone, the
+    cfg shadow compared every read, and the line is error-free."""
+    env = Env(dut, seed())
+    _board(env)
+    await _run(env, LIMIT["short"])
+    sh = env.mon.shadow
+    dev = sh.devices.get(0x0100)
+    assert dev is not None and dev.msi is not None, "the shadow learnt no function or no MSI"
+    assert sorted(dev.bars) == [0, 2] and dev.bars[0].base == BAR0, (
+        f"BARs the shadow learnt: {[(i, hex(b.base)) for i, b in dev.bars.items()]}")
+    assert env.cfg.compared == 18, f"cfg shadow compared {env.cfg.compared} of the 18 reads"
+    assert env.link_downs == 0 and env.rp_link_downs == 0, (
+        f"link downs: ep {env.link_downs}, rc {env.rp_link_downs}")
+    _over_gpio(env)
+
+
+@cocotb.test()
+async def board_mmio(dut):
+    """Goal item 9, PROGRAM 1 (MMIO) on the board build: enumeration, then
+    BAR0 writes and reads with their data checked by rc_seq and every
+    completion by the host model shadow, over the GPIO adapter. Nothing is
+    rewritten on the line (the serial lines are idle at LOWER 1); the run
+    is error-free."""
+    env = Env(dut, seed())
+    _board(env)
+    await _run(env, LIMIT["short"])
+    assert env.link_downs == 0 and env.rp_link_downs == 0, (
+        f"link downs: ep {env.link_downs}, rc {env.rp_link_downs}")
+    _over_gpio(env)

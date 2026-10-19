@@ -1,1 +1,37 @@
-tests: []
+# The pair at equal clocks (b 250 ppm off a): sustained load and rate
+# matching, every receive error case, reset and restart, Hot Reset; and the
+# convergence cases at the worst clock ratio, b twice as fast (RATIO 2), and
+# the transitions out of training and Hot Reset.
+# Each runs in about 2 s of CPU.
+tests:
+  - name: traffic
+    module: tests.test_gpio
+    testcase: traffic
+    top: pcie_gpio_tb
+    timeout_s: 300
+  - name: errors
+    module: tests.test_gpio
+    testcase: errors
+    top: pcie_gpio_tb
+    timeout_s: 300
+  - name: restart
+    module: tests.test_gpio
+    testcase: restart
+    top: pcie_gpio_tb
+    timeout_s: 300
+  - name: hot_reset
+    module: tests.test_gpio
+    testcase: hot_reset
+    top: pcie_gpio_tb
+    timeout_s: 300
+  - name: converge_double
+    module: tests.test_gpio
+    testcase: converge
+    top: pcie_gpio_tb
+    params: {RATIO: 2}
+    timeout_s: 300
+  - name: train_cases
+    module: tests.test_gpio
+    testcase: train_cases
+    top: pcie_gpio_tb
+    timeout_s: 300

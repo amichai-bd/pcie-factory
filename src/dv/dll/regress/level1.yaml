@@ -153,8 +153,9 @@ tests:
     top: pcie_dll_tb
     seeds: [0]
     timeout_s: 300
-  # A slowed lower layer (#384): REPLAY_TIMEOUT at the GPIO build's value
-  # (link HAS, lower layer), a round trip between 356 and it.
+  # A slowed lower layer (#384): REPLAY_TIMEOUT 1400, a raised value (the
+  # GPIO build runs at 3214, link HAS lower layer), a round trip between 356
+  # and it.
   - name: replay_timeout_slow
     module: tests.test_dll_tlp_tx
     testcase: replay_timeout_slow

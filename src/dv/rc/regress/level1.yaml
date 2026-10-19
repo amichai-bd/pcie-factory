@@ -43,3 +43,18 @@ tests:
     top: pcie_rc_e2e_tb
     params: {PROGRAM: 1}
     timeout_s: 600
+  # The board build (goal item 9, #378): rc and core both at LOWER 1 over
+  # the GPIO adapter and modelled GPIO wires, ENUM and MMIO with the host
+  # model shadow attached.
+  - name: board_enum
+    module: tests.test_rc_e2e
+    testcase: board_enum
+    top: pcie_rc_e2e_tb
+    params: {PROGRAM: 0, LOWER: 1}
+    timeout_s: 600
+  - name: board_mmio
+    module: tests.test_rc_e2e
+    testcase: board_mmio
+    top: pcie_rc_e2e_tb
+    params: {PROGRAM: 1, LOWER: 1}
+    timeout_s: 600

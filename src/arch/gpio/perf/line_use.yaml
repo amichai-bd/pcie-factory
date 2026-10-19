@@ -1,0 +1,14 @@
+# Back-to-back maximum TLPs one way: every slot but the first carries a
+# beat under the ready rule (room for a maximum packet in D = 75 beats);
+# both ways, with an Ack and an UpdateFC per TLP on the reverse line, the
+# payload rate per slot (wiki/src/arch/gpio/HAS.md#targets).
+description: 200 back-to-back maximum TLPs, CLK_DIV 2.
+seed: 4
+workload:
+  kind: traffic
+  clk_div: 2
+  packets: 200
+  mix: max_tlp
+targets:
+  line_use: {min: 0.999}
+  payload_beats_per_slot_bidir: {min: 0.78}

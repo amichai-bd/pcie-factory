@@ -45,7 +45,8 @@ integrates `dll` and `phy`. `core.rtl.f` reaches their filelists with `-F`
 
 ## Interfaces
 
-All ports but the lower RX group are synchronous to `clk_i`. Port names
+All ports but the lower RX group and the GPIO receive pins are synchronous
+to `clk_i`. Port names
 follow the [RTL BKM](../../../bkm/rtl.md#naming).
 
 | Group | Ports | Contract |
@@ -57,6 +58,7 @@ follow the [RTL BKM](../../../bkm/rtl.md#naming).
 | Data link status | `dl_up_o`, `dl_state_o` (2), `dl_err_o` (7) | The `link` ports of the same names ([`link` interfaces](../link/HAS.md#interfaces)). |
 | Physical link status | `link_up_o`, `ltssm_state_o` (6), `rcv_err_o` | The `link` ports of the same names. `core` has no link control inputs ([stack wiring](#stack-wiring)). |
 | Lower symbol interface | `ser_tx_data_o` (20), `ser_tx_elec_idle_o`, `ser_tx_rxdet_i`, `ser_rx_clk_i`, `ser_rx_data_i` (20), `ser_rx_elec_idle_i` | The `link` ports of the same names ([`phy` lower symbol interface](../phy/HAS.md#lower-symbol-interface)). |
+| GPIO pins | `gpio_tx_clk_o`, `gpio_tx_ctrl_o`, `gpio_tx_data_o` (4), `gpio_rx_clk_i`, `gpio_rx_ctrl_i`, `gpio_rx_data_i` (4) | The `link` ports of the same names, live at `LOWER` 1 ([`link` lower layer](../link/HAS.md#lower-layer)). |
 
 Every `link` port `core` exposes keeps its name, direction, width, clock
 and meaning.
@@ -73,6 +75,7 @@ and meaning.
 | `VENDOR_ID`, `DEVICE_ID`, `SUBSYS_VENDOR_ID`, `SUBSYS_ID` | `logic [15:0]` | 16'h0000 each | any but 16'hFFFF | Passed to `cfg`. Placeholders that claim no assigned vendor (F7). |
 | `CLASS_CODE` | `logic [23:0]` | 24'hFF0000 | any | Passed to `cfg`: base class FFh, a device that fits no defined class. |
 | `REVISION_ID` | `logic [7:0]` | 8'h00 | any | Passed to `cfg`. |
+| `LOWER`, `GPIO_CLK_DIV` | `int unsigned` | 0, 2 | 0 or 1; even, 2 to 64 | Passed to `link`: the lower layer, `phy` (0) or the GPIO adapter (1), and the adapter's `CLK_DIV` ([`link` lower layer](../link/HAS.md#lower-layer)). At 1 `link` sets the GPIO build's `dll` replay timeout itself. |
 
 The completion credits are not parameters: `core` passes `FC_CPLH` and
 `FC_CPLD` 0 (infinite) to `link`, as an Endpoint must
