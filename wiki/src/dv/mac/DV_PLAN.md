@@ -297,6 +297,10 @@ a 3-byte DLLP ending in the receive queue's second slot; each new
 stimulus catches a mutant the old one missed ([mutation
 evidence](#mutation-evidence)).
 
+The L1 `rx_idle_tail` also sends a two-byte TLP in each role, checks its
+lossless arrival at the partner and requires `tx_size.one_beat` to increment.
+This makes the existing 100% L1 frame floor independent of random sizes.
+
 The L1 `rx_idle_tail` EDB exception checks require the measured latency
 bins to increment in both roles. Moving the deferred EDB wait to the
 wrong half of the word fails `rx_idle_tail` at cycle 10278: a packet is

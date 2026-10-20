@@ -1109,6 +1109,14 @@ async def rx_idle_tail(dut):
     data = list(range(1, 21))
     for role in arch.ROLES:
         await train(h, role)
+        # A two-byte TX packet occupies one upper-layer beat. Pin this
+        # framing corner in L1 rather than depending on random packet sizes.
+        before = COV_PKT.counts["tx_size"]["one_beat"]
+        h.send(arch.Packet(False, bytes((0x12, 0x34))))
+        await h.drain()
+        h.check_partner()
+        assert COV_PKT.counts["tx_size"]["one_beat"] > before, (
+            f"{role}: directed two-byte TX packet did not hit one_beat")
         for lane in (0, 1):
             c = Crafter(hold_idle=True)
             # Both end in the next word's high half: two bytes from lane 0,
