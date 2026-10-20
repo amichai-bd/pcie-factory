@@ -1,297 +1,62 @@
-# ci-gate: the single required check. Owning docs: wiki/bkm/devops.md
-# (continuous integration) and wiki/tools/ci/SPEC.md (also the ci-gate-status
-# job for nightly data branches). Selection rules live in
-# cfg/ci.yaml and the tools, never here: this file only chooses between
-# "affected since the PR base" (pull_request), "affected since the data PR's
-# merge base" (a dispatch on a nightly/ branch that the data guard proved
-# changes only valid data files) and "everything" (any other push or dispatch).
-name: ci
-
+# Disposable #435 evidence experiment, never merge. wiki/tools/build/SPEC.md
+name: isolated compiler optimization evidence
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
   workflow_dispatch:
-
 permissions:
   contents: read
-  pull-requests: read   # data guard: the base of a dispatched branch's open PR
-
 concurrency:
-  # Superseded runs are cancelled (wiki/tools/ci/SPEC.md#concurrency): one
-  # group per PR and one per pushed branch (main), so a new head cancels the
-  # older in-flight or queued run there. A dispatch (the nightly data PR's
-  # gate, ci-gate-status) gets a group of its own run, so a push never cancels
-  # it. A cancelled run's ci-gate still runs (always()) and fails, on the old
-  # SHA only; the new head always gets its own run.
-  group: ci-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref) || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
-
+  group: isolated-compiler-${{ github.run_id }}
+  cancel-in-progress: false
 jobs:
-  ci-tests:
-    # Fork guard; the rule is in wiki/bkm/devops.md (Forks). This `if:` lives
-    # in the PR's own copy of this file, so a fork can delete it: defense in
-    # depth only. Maintainers NEVER approve a fork PR's workflow run; fork
-    # changes reach CI only by review and re-push to a branch here (a skipped
-    # required check counts as passing). Never use pull_request_target with a
-    # PR checkout.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+  compiler-evidence:
     runs-on: [self-hosted, linux, x64, wsl]
-    # Target (not enforced): checks plus L0+L1 of the affected IPs within
-    # 10 minutes; the hard timeout leaves headroom for a cold dependency install.
-    timeout-minutes: 20
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          fetch-depth: 2
           persist-credentials: false
-
-      - name: Toolchain
+          fetch-depth: 2
+      - name: Verify exact benchmark source and host capacity
+        env:
+          SOURCE_SHA: 8d54b623d9919da08812d0df771fb0a98bd70308
         run: |
-          git log --oneline -3
-          echo "python3: $(command -v python3) ($(python3 --version 2>&1)); VIRTUAL_ENV=${VIRTUAL_ENV:-unset}"
-          prefix=$(python3 -c 'import yaml; print(yaml.safe_load(open("cfg/host.yaml"))["verilator"]["prefix"])' 2>/dev/null || true)
-          echo "cfg/host.yaml verilator prefix: ${prefix:-unreadable} ($( [ -x "$prefix/bin/verilator" ] && echo present || echo absent))"
-          if command -v verilator >/dev/null; then
-            echo "verilator: $(command -v verilator) ($(verilator --version))"
-          elif [ -x "$prefix/bin/verilator" ]; then
-            echo "verilator: $prefix/bin/verilator ($("$prefix/bin/verilator" --version))"
-          else
-            echo "::error::verilator not found on PATH or under the cfg/host.yaml prefix"
-            exit 1
-          fi
-          python3 -c 'import cocotb; print("cocotb", cocotb.__version__)' || echo "cocotb: not importable by python3"
-
-      - name: Python dependencies
+          set -eu
+          test "$(git rev-parse HEAD^)" = "$SOURCE_SHA"
+          test -z "$(git diff "$SOURCE_SHA" HEAD -- tools cfg src ':!src/dv/opt_probe.py')"
+          mkdir -p workdir/opt-evidence
+          git rev-parse HEAD > workdir/opt-evidence/probe-head.txt
+          printf '%s\n' "$SOURCE_SHA" > workdir/opt-evidence/source-head.txt
+          nproc > workdir/opt-evidence/nproc.txt
+          lscpu > workdir/opt-evidence/lscpu.txt
+          free -b > workdir/opt-evidence/memory-start.txt
+          cat /proc/loadavg > workdir/opt-evidence/load-start.txt
+          ps -eo pid,ppid,comm,pcpu,pmem --sort=-pcpu | head -30 > workdir/opt-evidence/processes-start.txt
+      - name: Dependencies
         run: |
-          # Use the runner's environment when it already has every pin in
-          # tools/requirements.txt (checked offline); otherwise install them
-          # into a job venv and put it first on PATH for the later steps.
           if python3 -m pip install --dry-run --no-index --quiet -r tools/requirements.txt >/dev/null 2>&1; then
-            echo "runner Python satisfies tools/requirements.txt"
+            echo "runner dependencies satisfied"
           else
-            echo "runner Python lacks some pins; installing them into workdir/venv"
             python3 -m venv workdir/venv
             workdir/venv/bin/pip install --quiet -r tools/requirements.txt
             echo "$PWD/workdir/venv/bin" >> "$GITHUB_PATH"
           fi
-
-      # Sets AFFECTED for the later steps (wiki/tools/ci/SPEC.md#the-workflow).
-      - name: Data guard and selection
-        id: guard
-        if: ${{ !cancelled() }}
+      - name: Paired benchmark using unchanged test entries
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_BRANCH: ${{ github.head_ref }}
+          BUILD_CACHE: ${{ runner.temp }}/opt-probe-${{ github.run_id }}
         run: |
-          # A nightly/ branch may change only valid data files
-          # (wiki/tools/metrics/SPEC.md#guard); other branches pass at once.
-          # pull_request checks out the merge commit refs/pull/N/merge, whose
-          # first parent is the base tip it merged onto, so HEAD^1 diffs exactly
-          # the PR's change (fetch-depth 2 is enough). A dispatch on a nightly/
-          # ref (the nightly's data PR is opened with GITHUB_TOKEN, so it is
-          # dispatched; push triggers only on main) compares with the base of
-          # the branch's open PR into main, else of any open PR, else main; when
-          # it passes, the guard selects --affected <merge base>, which runs no
-          # suite, IP or target for data files. Anything else runs everything.
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            echo "AFFECTED=--affected HEAD^1" >> "$GITHUB_ENV"
-            ./build metrics guard --branch "$PR_BRANCH" --base HEAD^1
-          else
-            echo "AFFECTED=" >> "$GITHUB_ENV"
-            ./build metrics guard --branch "$GITHUB_REF_NAME" --pr-base main --select "$GITHUB_ENV"
-          fi
-
-      - name: Reference documents (best effort)
-        # `./build specs fetch` (wiki/tools/specs/SPEC.md) caches the listed
-        # reference documents outside the checkout, so that the spec-cache
-        # check can compare committed files with them. A blocked network or
-        # a sha256 mismatch is reported in the log and never fails the job.
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        timeout-minutes: 3
-        run: ./build specs fetch
-
-      - name: Static checks
-        id: check
-        if: ${{ !cancelled() }}
-        run: ./build check
-
-      - name: Wiki build
-        id: wiki
-        if: ${{ !cancelled() }}
-        # A few seconds; the strict build fails on a broken link or page, so
-        # a docs-only change is gated by checks plus this build.
-        run: ./build wiki build --strict
-
-      - name: Unit tests (tools, models)
-        id: unit
-        if: ${{ !cancelled() }}
-        run: ./build ci unit $AFFECTED
-
-      - name: Regression L0+L1
-        id: regress
-        if: ${{ !cancelled() }}
-        run: ./build regress --level 0 --level 1 $AFFECTED --jobs "$(nproc)"
-
-      - name: Job summary
-        if: ${{ !cancelled() }}
-        env:
-          GUARD: ${{ steps.guard.outcome }}
-          CHECK: ${{ steps.check.outcome }}
-          WIKI: ${{ steps.wiki.outcome }}
-          UNIT: ${{ steps.unit.outcome }}
-          REGRESS: ${{ steps.regress.outcome }}
-        run: |
-          {
-            echo "## ci-tests (${GITHUB_EVENT_NAME}${AFFECTED:+, $AFFECTED})"
-            echo
-            echo "| Step | Outcome |"
-            echo "| --- | --- |"
-            echo "| \`./build metrics guard\` | $GUARD |"
-            echo "| \`./build check\` | $CHECK |"
-            echo "| \`./build wiki build --strict\` | $WIKI |"
-            echo "| \`./build ci unit\` | $UNIT |"
-            echo "| \`./build regress\` | $REGRESS |"
-            echo
-            ./build ci summary
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload regression summary
-        if: ${{ !cancelled() }}
+          set -o pipefail
+          mkdir -p workdir/opt-evidence
+          git log --oneline -2 > workdir/opt-evidence/source-history.txt
+          verilator --version | tee workdir/opt-evidence/verilator.txt
+          g++ --version > workdir/opt-evidence/compiler.txt
+          python3 src/dv/opt_probe.py 2>&1 | tee workdir/opt-evidence/probe.log
+          cat /proc/loadavg > workdir/opt-evidence/load-end.txt
+          free -b > workdir/opt-evidence/memory-end.txt
+      - name: Upload all measurements
+        if: ${{ always() }}
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: regress-summary
-          path: workdir/regress/summary.json
-          if-no-files-found: warn
+          name: compiler-optimization-evidence
+          path: workdir/opt-evidence/
+          if-no-files-found: error
           retention-days: 14
-
-  ci-fpga:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, linux, x64, wsl]
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          fetch-depth: 2
-          persist-credentials: false
-
-      - name: Python dependencies
-        run: |
-          # Use the runner's environment when it already has every pin in
-          # tools/requirements.txt (checked offline); otherwise install them
-          # into a job venv and put it first on PATH for the later steps.
-          if python3 -m pip install --dry-run --no-index --quiet -r tools/requirements.txt >/dev/null 2>&1; then
-            echo "runner Python satisfies tools/requirements.txt"
-          else
-            echo "runner Python lacks some pins; installing them into workdir/venv"
-            python3 -m venv workdir/venv
-            workdir/venv/bin/pip install --quiet -r tools/requirements.txt
-            echo "$PWD/workdir/venv/bin" >> "$GITHUB_PATH"
-          fi
-
-      # The same selection as ci-tests' guard step: HEAD^1 on a pull request,
-      # the merge base for a guarded data-only nightly/ branch, else everything.
-      - name: Selection
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_BRANCH: ${{ github.head_ref }}
-        run: |
-          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            echo "AFFECTED=--affected HEAD^1" >> "$GITHUB_ENV"
-          else
-            echo "AFFECTED=" >> "$GITHUB_ENV"
-            ./build metrics guard --branch "$GITHUB_REF_NAME" --pr-base main --select "$GITHUB_ENV"
-          fi
-
-      # Quartus analysis and synthesis only (`./build fpga --synth-only`); fit
-      # and timing run in the nightly (wiki/bkm/devops.md#levels-and-budgets).
-      - name: Required FPGA synthesis
-        run: ./build ci vendor --kind fpga $AFFECTED
-
-      - name: Upload vendor summary
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: ci-fpga-summary
-          path: |
-            workdir/*/fpga-synth/synthesis.json
-            workdir/ci/vendor-fpga.json
-          if-no-files-found: warn
-          retention-days: 14
-
-  ci-gate:
-    # ASIC synthesis is a nightly (L2) check, not a PR job (captain decision,
-    # 2026-10-19, #362; wiki/bkm/devops.md#levels-and-budgets).
-    needs: [ci-tests, ci-fpga]
-    # always() makes failures, cancellations and unexpected skips reach the
-    # aggregate. The helper accepts only explicit success from every job.
-    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-    runs-on: [self-hosted, linux, x64, wsl]
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Python dependencies
-        run: |
-          # Use the runner's environment when it already has every pin in
-          # tools/requirements.txt (checked offline); otherwise install them
-          # into a job venv and put it first on PATH for the later steps.
-          if python3 -m pip install --dry-run --no-index --quiet -r tools/requirements.txt >/dev/null 2>&1; then
-            echo "runner Python satisfies tools/requirements.txt"
-          else
-            echo "runner Python lacks some pins; installing them into workdir/venv"
-            python3 -m venv workdir/venv
-            workdir/venv/bin/pip install --quiet -r tools/requirements.txt
-            echo "$PWD/workdir/venv/bin" >> "$GITHUB_PATH"
-          fi
-
-      - name: Require every CI job
-        env:
-          TESTS: ${{ needs.ci-tests.result }}
-          FPGA: ${{ needs.ci-fpga.result }}
-        run: ./build ci gate --tests "$TESTS" --fpga "$FPGA"
-
-  # The data PR is opened with GITHUB_TOKEN, so its ci-gate runs by dispatch,
-  # and branch protection does not count a dispatched check run toward a PR.
-  # This job mirrors the gate's own result as a `ci-gate` commit status on the
-  # tested commit, which protection does accept from GitHub Actions
-  # (wiki/tools/ci/SPEC.md#build-ci-status). It is the only place with
-  # statuses: write; it runs only for a dispatch on a nightly/ ref (push
-  # triggers only on main; never for a pull_request, so never for a fork),
-  # after the gate finishes, and its state comes from needs.ci-gate.result
-  # alone. The status binds to the commit, not to a PR or its base.
-  ci-gate-status:
-    needs: ci-gate
-    if: ${{ always() && github.event_name != 'pull_request' && startsWith(github.ref, 'refs/heads/nightly/') }}
-    runs-on: [self-hosted, linux, x64, wsl]
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      statuses: write
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Python dependencies
-        run: |
-          if python3 -m pip install --dry-run --no-index --quiet -r tools/requirements.txt >/dev/null 2>&1; then
-            echo "runner Python satisfies tools/requirements.txt"
-          else
-            python3 -m venv workdir/venv
-            workdir/venv/bin/pip install --quiet -r tools/requirements.txt
-            echo "$PWD/workdir/venv/bin" >> "$GITHUB_PATH"
-          fi
-
-      - name: Post the ci-gate commit status
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RESULT: ${{ needs.ci-gate.result }}
-          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: ./build ci status --result "$RESULT" --sha "$GITHUB_SHA" --ref "$GITHUB_REF" --target-url "$TARGET_URL"
