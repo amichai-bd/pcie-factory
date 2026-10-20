@@ -342,6 +342,7 @@ re-encodes so that the receiver sees no other error.
 | --- | --- | --- |
 | LCRC error | One TLP data byte changed, re-encoded cleanly. | Bad TLP and a Nak at the receiver; the sender replays from that TLP. |
 | Corrupted TLP | One TLP symbol replaced by an invalid code. | `rcv_err_o`, then Bad TLP and a Nak; replay. |
+| Disparity only | One TLP symbol sent as the same byte's code from the other running-disparity column ([decoder error classes](../pcs/8B10B.md#decoder-and-error-classes)): the bytes and the LCRC intact, no other code changed ([#436](https://github.com/amichai-bd/pcie-factory/issues/436)). | `rcv_err_o`, and the `phy` flags the TLP on `pkt_rx_err` at its `eop`: Bad TLP and a Nak; replay. |
 | Dropped TLP | A whole TLP, framing included, replaced by logical idle. | The next TLP arrives ahead: Bad TLP and a Nak, and replay; if none follows, the sender's replay timeout replays it. |
 | Corrupted DLLP | One DLLP byte changed. | Bad DLLP; the DLLP is ignored. A lost Ack is covered by a later Ack or the replay timeout, a lost UpdateFC by a later one or the refresh. |
 | Dropped DLLP | A whole DLLP removed. | As a corrupted DLLP, with no error pulse. |
@@ -380,14 +381,24 @@ Each kind is at least 20% of the TLPs.
   and every accepted TLP must have been delivered.
 - **Credits:** `dl_err_o` Receiver overflow never pulses. With the
   release, an upper layer never holds more unreleased credits than its own
-  end advertises. Each
-  `fc_*_avail_o` never exceeds what the partner has advertised and
-  returned, and with traffic drained every finite one is back at the
-  partner's advertised value.
+  end advertises. Each finite
+  `fc_*_avail_o`, per class and field, never exceeds the partner's
+  advertisement less the credits of that class still in flight: those of
+  the TLPs this end has accepted (from the cycle after the `sop`, as the
+  [`dll`](../dll/FLOW_CONTROL.md#transmit-accounting) shows them) that the
+  partner has not yet delivered, which cannot have been returned yet. So a
+  swap or mis-wire of the per-class outputs fails while one class's
+  credits are in flight and the other's are not
+  ([#436](https://github.com/amichai-bd/pcie-factory/issues/436)). With
+  traffic drained every finite one is back at the partner's advertised
+  value.
 - **Errors:** DL protocol error and Malformed TLP never pulse, and the
   delivered bytes rule out any undetected corruption. Per injected class,
   at the receiving end unless stated:
   - an LCRC error or corrupted TLP yields at least one Bad TLP;
+  - a disparity-only error yields `rcv_err_o`, at least one Bad TLP and a
+    Nak, though the TLP's bytes and LCRC are intact (the `phy`'s flag
+    through `link`, [errors](#errors));
   - a dropped TLP yields Bad TLP and a Nak when a later TLP arrives
     before the sender's replay timeout, and a Replay timeout pulse at the
     sender otherwise;

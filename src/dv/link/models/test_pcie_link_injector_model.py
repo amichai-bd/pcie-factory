@@ -150,6 +150,58 @@ def test_corrupt_tlp_one_invalid_code(seed):
     assert [cls for _, cls, _ in log] == ["corrupt_tlp"]
 
 
+def commas(words):
+    """Bit offsets of every comma in the serial stream (bit 0 first)."""
+    seq = sum(w << (20 * i) for i, w in enumerate(words))
+    return [i for i in range(20 * len(words) - 6)
+            if (seq >> i) & 0x7F in (c.COMMA_MINUS, c.COMMA_PLUS)]
+
+
+def max_run(words):
+    bits = [(w >> i) & 1 for w in words for i in range(20)]
+    best = run = 1
+    for x, y in zip(bits, bits[1:]):
+        run = run + 1 if x == y else 1
+        best = max(best, run)
+    return best
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_disparity_only_bytes_intact(seed):
+    """The disparity class: one disparity error and no code error on the
+    line, every delivered byte as sent, the hit TLP flagged (err) and no
+    other; commas only where the transmitter sent them, no run over five."""
+    x, words, got, sent, delivered, log = run(stream(), lambda x: x.request("disparity"),
+                                              seed=seed)
+    syms, cerr, derr = decode_strict(got)
+    assert (cerr, derr) == (0, 1)
+    assert [cls for _, cls, _ in log] == ["disparity"] and "TLP seq 0" in log[0][2]
+    assert bodies(delivered) == bodies(sent)
+    assert delivered[0][4] and not any(d[4] for d in delivered[1:])
+    assert x.counts["disparity"] == 1 and x.counts["disparity_missed"] == 0
+    assert commas(got) == commas(words) and max_run(got) <= 5
+
+
+def test_disparity_code_rules():
+    """A qualifying code decodes to the byte with a disparity error; a
+    neutral code (the same in both columns) never qualifies, nor does a
+    symbol with no code before it."""
+    prev = c.encode(0x00, False, -1)[0]
+    rd = c.rd_after(prev, -1)
+    found = 0
+    for b in range(256):
+        code = inj.disparity_code(b, rd, prev)
+        neutral = c.encode(b, False, -1)[0] == c.encode(b, False, 1)[0]
+        if code is None:
+            continue
+        found += 1
+        assert not neutral
+        byte, k, _, ce, de = c.decode(code, rd)
+        assert (byte, k, ce, de) == (b, False, False, True)
+    assert found > 64
+    assert inj.disparity_code(0x00, rd, None) is None
+
+
 def test_drop_tlp_becomes_logical_idle():
     x, words, got, sent, delivered, log = run(stream(), lambda x: x.request("drop_tlp"))
     syms, cerr, derr = decode_strict(got)
