@@ -141,6 +141,13 @@ models.
 | Pins | 35. |
 | Worst setup path | `clk_core`: the `dll` control state (`u_dll` `u_ctrl` `state_q.st`) to `rc_tl`'s host memory read data (`u_mem` `u_ram` `rd_data_o`); slack +2.488 ns. |
 
+**Inferred RAMs** ([FPGA BKM](../../../bkm/fpga.md#intel-backends)). Six of the 8 RAMs are `common_sdp_ram` Intel backends; two are inferred:
+
+| Node | Instance | Why it stays inferred |
+| --- | --- | --- |
+| `end_q` | `pcie_dll_tlp_tx` `u_tlp_tx` | A 64 × 8 register array (the word after each held TLP) that Quartus maps to one M9K, adding pass-through logic so a read of the word being written returns what the RTL returns (known warning 276020). It stays inferred: behavior is preserved, the 512 bits fit one block, and nothing needs a defined collision, so it does not need the shared RAM block's explicit backend. |
+| `WideOr0` | `pcie_rc_seq_rom` `u_rom` | The program image, a constant indexed by the step index with a registered read, which Quartus builds as a ROM (2 M9K, 256 words of 57 bits) and names `WideOr0`. A ROM is the intended mapping: it has no write port, so read-during-write does not apply, and the shared RAM blocks have no ROM backend. If Quartus renames the node, `./build fpga` reports it unnamed and this row changes with it. |
+
 **Host memory in registers.** The `rc_tl` host memory, a 4 KiB
 [`common_sync_ram`](../../rtl/common/ram/common_sync_ram.md) with byte
 lanes, is not one of the RAMs above: Quartus builds it from logic, about

@@ -25,13 +25,11 @@ from the synthesis summary, no timing) and never touches ``fpga/``.
 
 from __future__ import annotations
 
-import getpass
 import json
 import os
 import re
 import shutil
 import signal
-import socket
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -43,6 +41,7 @@ from build import backends
 from build.filelist import SYNTHESIS_DEFINE, resolve, synthesis_defines
 from build.ip import REPO_ROOT, Ip
 from build.logexcerpt import excerpt
+from build.logscrub import host_names, scrub
 from checks import lint as check_lint
 from checks.common import CheckConfigError
 from fpga import reports
@@ -92,47 +91,29 @@ def load_config(cfg_dir: Path) -> dict:
             "known_warnings": frozenset(known_ids), "backends": known}
 
 
-def host_quartus_root(cfg_dir: Path) -> Path | None:
-    """``hosts.omarchy.quartus_root`` from cfg/host.yaml, if filled in."""
-    try:
-        data = yaml.safe_load((Path(cfg_dir) / "host.yaml").read_text()) or {}
-        root = data["hosts"]["omarchy"]["quartus_root"]
-    except (OSError, KeyError, TypeError, yaml.YAMLError):
-        return None
-    return Path(str(root)) if root else None
+QUARTUS_ENV = "QUARTUS_ROOTDIR"
 
 
-def quartus_bin_candidates(cfg_dir: Path) -> list[Path]:
-    """Directories searched after PATH: ``$QUARTUS_ROOTDIR/bin``, then the
-    host pin's ``<quartus_root>/bin``."""
-    dirs = []
-    if os.environ.get("QUARTUS_ROOTDIR"):
-        dirs.append(Path(os.environ["QUARTUS_ROOTDIR"]) / "bin")
-    root = host_quartus_root(cfg_dir)
-    if root is not None:
-        dirs.append(root / "bin")
-    return dirs
-
-
-def find_quartus(cfg_dir: Path) -> Path | None:
-    """The directory holding ``quartus_sh``: PATH, ``$QUARTUS_ROOTDIR/bin``,
-    then cfg/host.yaml ``hosts.omarchy.quartus_root``/bin."""
+def find_quartus() -> tuple[Path, str] | None:
+    """The directory holding ``quartus_sh`` and where it was found: ``PATH``,
+    then ``$QUARTUS_ROOTDIR/bin``. No host entry in cfg/host.yaml is read:
+    the supported CI host puts Quartus on the runner ``PATH``."""
     found = shutil.which(QUARTUS_SH)
     if found:
-        return Path(found).parent
-    for d in quartus_bin_candidates(cfg_dir):
+        return Path(found).parent, "PATH"
+    if os.environ.get(QUARTUS_ENV):
+        d = Path(os.environ[QUARTUS_ENV]) / "bin"
         exe = d / QUARTUS_SH
         if exe.is_file() and os.access(exe, os.X_OK):
-            return d
+            return d, f"${QUARTUS_ENV}/bin"
     return None
 
 
-def quartus_not_found(cfg_dir: Path) -> str:
-    places = ["PATH", "$QUARTUS_ROOTDIR/bin"]
-    root = host_quartus_root(cfg_dir)
-    places.append(f"{root}/bin" if root else "cfg/host.yaml hosts.omarchy.quartus_root (empty)")
-    return (f"{QUARTUS_SH} not found (looked in {', '.join(places)}); "
-            "Quartus runs only on the FPGA CI host")
+def quartus_not_found() -> str:
+    env = "set" if os.environ.get(QUARTUS_ENV) else "unset"
+    return (f"{QUARTUS_SH} not found (looked in PATH and ${QUARTUS_ENV}/bin; "
+            f"${QUARTUS_ENV} is {env}); Quartus runs only on the supported FPGA "
+            "CI host, which has it on PATH (wiki/tools/host/SPEC.md)")
 
 
 # --------------------------------------------------------------------------
@@ -406,34 +387,60 @@ def quartus_cmd(cmd: list[str], bin_dir: Path) -> list[str]:
     return [str(bin_dir / cmd[0])] + cmd[1:]
 
 
+def log_roots(workdir: Path) -> dict[Path, str]:
+    """How paths print in the job log: relative to the checkout, or under
+    ``<workdir>/`` when the workdir is outside it (``--workdir``)."""
+    roots = {REPO_ROOT: ""}
+    workdir = Path(workdir).resolve()
+    if not workdir.is_relative_to(REPO_ROOT.resolve()):
+        roots[workdir] = "<workdir>/"
+    return roots
+
+
+def plan_roots(p: Plan) -> dict[Path, str]:
+    """``log_roots`` of the plan's workdir (``out_dir`` is ``<workdir>/<ip>/<dir>``)."""
+    return log_roots(p.out_dir.parents[1])
+
+
+def public(text: str, roots: dict[Path, str], names: list[str] | None = None) -> str:
+    """A job-log line with its paths relative and host details scrubbed."""
+    return scrub(text, roots, host_names() if names is None else names)
+
+
 def run(p: Plan, bin_dir: Path, timeout_s: float, verilator: Path | None,
         known_warnings: frozenset[int] = frozenset()) -> int:
     """Lint (when Verilator is available), compile, parse. Returns 0 when
-    metrics were written and timing is met (with ``synth_only``: when
-    synthesis passed and ``synthesis.json`` was written), 1 otherwise.
-    ``known_warnings`` (cfg/fpga.yaml) classifies the Quartus warning IDs in
-    the summary."""
+    metrics were written, timing is met and every inferred RAM is named in
+    the IP's FPGA page (with ``synth_only``: when synthesis passed and
+    ``synthesis.json`` was written), 1 otherwise. ``known_warnings``
+    (cfg/fpga.yaml) classifies the Quartus warning IDs in the summary.
+    Every printed path is relative and every printed log line scrubbed."""
+    roots, names = plan_roots(p), host_names()
+
+    def say(text: str) -> None:
+        print(public(text, roots, names), flush=True)
+
     generate(p)
     for old, new in p.swapped:
-        print(f"[backend] {old.name} -> {new.name}", flush=True)
+        say(f"[backend] {old.name} -> {new.name}")
     logs = p.out_dir / "logs"
     flow: dict = {"lint": "skipped", "steps": {}}
-    messages: dict[str, dict[int, str]] = {}  # step -> ID -> first message
+    messages: dict[str, dict[int, tuple[str, bool]]] = {}  # step -> ID -> (first message, critical)
     steps = list(p.steps)
     if verilator is not None:
         steps.insert(0, ("lint", lint_command(p, verilator)))
     else:
-        print("lint: skipped (verilator not found)")
+        say("lint: skipped (verilator not found)")
     for name, cmd in steps:
         full = cmd if name == "lint" else quartus_cmd(cmd, bin_dir)
-        print(f"[{name}] {' '.join(full)}", flush=True)
+        say(f"[{name}] {' '.join(full)}")
         res = run_step(name, full, p.out_dir, logs / f"{name}.log", timeout_s)
         if name == "lint" and res.status != "timeout":
             findings = lint_findings(res.log, p.ip.src_root, res.status == "pass")
             for f in findings:
-                print(f"[lint] {f}")
+                say(f"[lint] {f}")
             res.status = "fail" if findings else "pass"
-        print(f"[{name}] {res.status} ({res.runtime_s:.1f}s) log: {res.log}", flush=True)
+        say(f"[{name}] {res.status} ({res.runtime_s:.1f}s) log: {res.log}")
         if name == "lint":
             flow["lint"] = res.status
         else:
@@ -442,34 +449,42 @@ def run(p: Plan, bin_dir: Path, timeout_s: float, verilator: Path | None,
                                    "warnings": quartus_warnings(res.log),
                                    "warning_ids": ids}
         if res.status != "pass":
-            print_failure(res.log)
+            print_failure(res.log, roots, names)
             return 1
     if p.synth_only:
-        return write_synthesis(p, flow, known_warnings, messages)
+        return write_synthesis(p, flow, known_warnings, messages, roots, names)
     try:
         metrics = reports.collect(p.out_dir, p.top)
     except reports.ReportError as exc:
-        print(f"error: {exc}")
+        say(f"error: {exc}")
         return 1
     metrics = {"ip": p.ip.id, "board": p.board, **metrics, "flow": flow}
     path = p.out_dir / "metrics.json"
     path.write_text(json.dumps(metrics, indent=2) + "\n")
-    print_summary(metrics, known_warnings, messages, REPO_ROOT)
-    print(f"metrics: {path}")
+    rams = classify_rams(metrics["resources"]["rams"], explicit_modules(p), fpga_page(p.ip))
+    print_summary(metrics, known_warnings, messages, roots, names, rams)
+    say(f"metrics: {path}")
+    code = 0
     if not metrics["timing"]["met"]:
         print("timing: NOT MET (negative slack, or unconstrained paths)")
-        return 1
-    return 0
+        code = 1
+    unnamed = sorted({r.node for r in rams if r.inferred and not r.named})
+    if unnamed:
+        say(f"rams: inferred RAM {', '.join(unnamed)} not named in {fpga_page(p.ip)} "
+            "(FPGA BKM: name each inferred RAM and its reason)")
+        code = 1
+    return code
 
 
 def write_synthesis(p: Plan, flow: dict, known_warnings: frozenset[int],
-                    messages: dict[str, dict[int, str]]) -> int:
+                    messages: dict[str, dict[int, tuple[str, bool]]],
+                    roots: dict[Path, str], names: list[str]) -> int:
     """``synthesis.json`` of a passing ``--synth-only`` run: the synthesis
     summary's resources, no timing. 1 when the summary does not parse."""
     try:
         doc = reports.collect_synthesis(p.out_dir, p.top)
     except reports.ReportError as exc:
-        print(f"error: {exc}")
+        print(public(f"error: {exc}", roots, names))
         return 1
     doc = {"ip": p.ip.id, "board": p.board, **doc, "flow": flow}
     path = p.out_dir / "synthesis.json"
@@ -478,10 +493,60 @@ def write_synthesis(p: Plan, flow: dict, known_warnings: frozenset[int],
     print(f"{p.ip.id}: {doc['family']} ({doc['quartus_version']}), synthesis only, no timing")
     print(f"  logic elements {r['logic_elements']}, registers {r['registers']}, "
           f"memory bits {r['memory_bits']}")
-    for line in warning_lines(flow["steps"], known_warnings, messages, REPO_ROOT):
+    for line in warning_lines(flow["steps"], known_warnings, messages, roots, names):
         print(line)
-    print(f"synthesis: {path}")
+    print(public(f"synthesis: {path}", roots, names))
     return 0
+
+
+# --------------------------------------------------------------------------
+# Inferred RAMs
+
+
+@dataclass
+class Ram:
+    name: str       # hierarchical name from the Fitter RAM Summary
+    node: str       # the name the FPGA page must use for an inferred RAM
+    inferred: bool  # not built by an explicit backend
+    named: bool     # inferred and named in the FPGA page (explicit: True)
+
+
+_RTL_NODE_RE = re.compile(r"^(.+)_rtl_\d+$")
+
+
+def explicit_modules(p: Plan) -> set[str]:
+    """Modules whose backend file this flow selected: a RAM row under one
+    of them is the explicit backend's, not an inference. A backend file
+    declares the module of its portable file, whose stem names it."""
+    return {portable.stem for portable, _ in p.swapped}
+
+
+def fpga_page(ip: Ip) -> Path:
+    """The IP's FPGA page, ``wiki/src/fpga/<ip>/FPGA.md`` beside ``src/``."""
+    return ip.src_root.parent / "wiki" / "src" / "fpga" / ip.id / "FPGA.md"
+
+
+def classify_rams(rams: list[dict], explicit: set[str], page: Path) -> list[Ram]:
+    """Each ``resources.rams`` row as inferred or explicit. A row with a
+    ``<node>_rtl_<n>`` instance, Quartus's name for an inferred memory, is
+    inferred, and its node is ``<node>`` (the register array, or a name
+    Quartus gives a ROM). Otherwise it is explicit when an instance in its
+    hierarchy is an explicit-backend module, else inferred with the whole
+    name as its node. An inferred RAM is named when the FPGA page has its
+    node as a code span."""
+    try:
+        spans = set(re.findall(r"`([^`\n]+)`", page.read_text()))
+    except OSError:
+        spans = set()
+    out = []
+    for row in rams or []:
+        name = row["name"]
+        segs = [seg.partition(":") for seg in name.split("|")]
+        nodes = [m.group(1) for _, _, inst in segs if (m := _RTL_NODE_RE.match(inst))]
+        inferred = bool(nodes) or not any(mod in explicit for mod, _, _ in segs)
+        node = nodes[0] if nodes else name
+        out.append(Ram(name, node, inferred, not inferred or node in spans))
+    return out
 
 
 _DONE_RE = re.compile(r"was successful\. \d+ errors?, (\d+) warnings?")
@@ -498,70 +563,41 @@ def quartus_warnings(log: Path) -> int | None:
 
 # "Warning (<id>): <message>" and "Critical Warning (<id>): ...", including
 # sub-messages indented under another message.
-WARNING_RE = re.compile(r"^\s*(?:Critical )?Warning \((\d+)\): ?(.*)$", re.M)
+WARNING_RE = re.compile(r"^\s*(Critical )?Warning \((\d+)\): ?(.*)$", re.M)
 MESSAGE_CHARS = 160  # an unknown warning's published message is cut to this
 
 
-def warning_ids(log: Path) -> tuple[dict[str, int], dict[int, str]]:
+def warning_ids(log: Path) -> tuple[dict[str, int], dict[int, tuple[str, bool]]]:
     """Per Quartus message ID in a step log: its count (keys are the IDs as
-    strings, in numeric order, for ``metrics.json``) and its first message."""
+    strings, in numeric order, for ``metrics.json``), and its first message
+    with whether any of its messages is a critical warning."""
     try:
         text = log.read_text(errors="replace")
     except OSError:
         return {}, {}
     counts: dict[int, int] = {}
-    first: dict[int, str] = {}
+    first: dict[int, tuple[str, bool]] = {}
     for m in WARNING_RE.finditer(text):
-        i = int(m.group(1))
+        i, critical = int(m.group(2)), bool(m.group(1))
         counts[i] = counts.get(i, 0) + 1
-        first.setdefault(i, m.group(2).strip())
+        msg, was = first.get(i, (m.group(3).strip(), False))
+        first[i] = (msg, was or critical)
     return {str(i): counts[i] for i in sorted(counts)}, first
 
 
-_ABS_PATH_RE = re.compile(r"(?<![\w.~/-])/[^\s\"'()<>,;]+")
-_EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b")
-_IPV4_RE = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
-
-
-def host_names() -> list[str]:
-    """This machine's user and host names, which must not leave it."""
-    names = set()
-    try:
-        names.add(getpass.getuser())
-    except (KeyError, OSError):
-        pass
-    host = socket.gethostname()
-    names.update({host, host.split(".")[0]})
-    return sorted((n for n in names if len(n) > 1), key=len, reverse=True)
-
-
-def sanitize(message: str, repo_root: Path, names: list[str],
+def sanitize(message: str, roots: dict[Path, str], names: list[str],
              limit: int = MESSAGE_CHARS) -> str:
-    """A warning message fit to publish: paths under ``repo_root`` made
-    relative to it, any other absolute path cut to ``.../<file name>``,
-    ``names`` (user and host names), e-mail and IPv4 addresses replaced,
-    then cut to ``limit`` characters."""
-    root = str(Path(repo_root).resolve()).rstrip("/") + "/"
-
-    def path(m: re.Match) -> str:
-        p = m.group(0)
-        if p.startswith(root):
-            return p[len(root):]
-        return ".../" + p.rstrip("/").rsplit("/", 1)[-1]
-
-    text = _ABS_PATH_RE.sub(path, message.replace(root, ""))
-    text = _EMAIL_RE.sub("<email>", text)
-    text = _IPV4_RE.sub("<ip>", text)
-    for n in names:
-        text = re.sub(rf"(?<![\w-]){re.escape(n)}(?![\w-])", "<name>", text)
-    text = " ".join(text.split())
-    return text if len(text) <= limit else text[:limit - 3] + "..."
+    """An unknown warning's message fit to publish: scrubbed, whitespace
+    collapsed and cut to ``limit`` characters."""
+    return scrub(message, roots, names, limit=limit, collapse=True)
 
 
-def warning_lines(steps: dict, known: frozenset[int], messages: dict[str, dict[int, str]],
-                  repo_root: Path, names: list[str] | None = None) -> list[str]:
+def warning_lines(steps: dict, known: frozenset[int],
+                  messages: dict[str, dict[int, tuple[str, bool]]],
+                  roots: dict[Path, str], names: list[str] | None = None) -> list[str]:
     """Summary lines: per step with warnings, its known and unknown counts,
-    then one sanitized line per unknown ID. Nothing else from the logs."""
+    then one sanitized line per unknown ID, marked ``critical`` when it was
+    a critical warning. Nothing else from the logs."""
     names = host_names() if names is None else names
     out = []
     for step, s in steps.items():
@@ -573,14 +609,18 @@ def warning_lines(steps: dict, known: frozenset[int], messages: dict[str, dict[i
         out.append(f"  warnings {step}: known {k}, unknown {u} (closing line: {s.get('warnings')})")
         for i, n in ids.items():
             if int(i) not in known:
-                msg = sanitize(messages.get(step, {}).get(int(i), ""), repo_root, names)
-                out.append(f"    unknown {i} (x{n}): {msg}")
+                msg, critical = messages.get(step, {}).get(int(i), ("", False))
+                kind = "unknown critical" if critical else "unknown"
+                out.append(f"    {kind} {i} (x{n}): {sanitize(msg, roots, names)}")
     return out
 
 
 def print_summary(m: dict, known: frozenset[int] = frozenset(),
-                  messages: dict[str, dict[int, str]] | None = None,
-                  repo_root: Path = REPO_ROOT) -> None:
+                  messages: dict[str, dict[int, tuple[str, bool]]] | None = None,
+                  roots: dict[Path, str] | None = None, names: list[str] | None = None,
+                  rams: list[Ram] | None = None) -> None:
+    roots = log_roots(REPO_ROOT / "workdir") if roots is None else roots
+    names = host_names() if names is None else names
     r, t = m["resources"], m["timing"]
     le = r["logic_elements"]
     print(f"{m['ip']}: {m['device']} ({m['quartus_version']})")
@@ -588,20 +628,26 @@ def print_summary(m: dict, known: frozenset[int] = frozenset(),
     mb = r.get("memory_blocks")
     if mb:
         print(f"  {mb['type']} blocks {mb['used']}/{mb['total']}")
+    kinds = {x.name: x for x in rams or []}
     for ram in r.get("rams") or []:
-        print(f"  RAM {ram['name']}: {ram['mode']}, {ram['clock_mode']}, "
-              f"{ram['port_a_depth']}x{ram['port_a_width']}, {ram['blocks']} block(s), "
-              f"mixed RDW {ram['mixed_rdw']}")
+        k = kinds.get(ram["name"])
+        how = ("" if k is None else "; explicit backend" if not k.inferred
+               else f"; inferred {k.node}, named in the FPGA page" if k.named
+               else f"; inferred {k.node}, NOT NAMED in the FPGA page")
+        print(public(f"  RAM {ram['name']}: {ram['mode']}, {ram['clock_mode']}, "
+                     f"{ram['port_a_depth']}x{ram['port_a_width']}, {ram['blocks']} block(s), "
+                     f"mixed RDW {ram['mixed_rdw']}{how}", roots, names))
     for name, c in t["clocks"].items():
         print(f"  clock {name}: fmax {c['fmax_mhz']} MHz (restricted "
               f"{c['restricted_fmax_mhz']}), setup {c['setup_slack_ns']} ns, "
               f"hold {c['hold_slack_ns']} ns")
     print(f"  unconstrained paths: {t['unconstrained_total']}")
     cp = t["critical_path"]
-    for line in warning_lines(m["flow"]["steps"], known, messages or {}, repo_root):
+    for line in warning_lines(m["flow"]["steps"], known, messages or {}, roots, names):
         print(line)
     if cp:
-        print(f"  critical path {cp['from']} -> {cp['to']} (slack {cp['slack_ns']} ns)")
+        print(public(f"  critical path {cp['from']} -> {cp['to']} (slack {cp['slack_ns']} ns)",
+                     roots, names))
 
 
 # Quartus "Error (<id>):" and "Critical Warning[ (<id>)]:" messages, and
@@ -609,11 +655,12 @@ def print_summary(m: dict, known: frozenset[int] = frozenset(),
 ERROR_RE = re.compile(r"^\s*(?:Error \(\d+\)|Critical Warning(?: \(\d+\))?):|^%Error")
 
 
-def print_failure(log: Path) -> None:
-    """Every error line of a failed step's log (capped), then its tail."""
+def print_failure(log: Path, roots: dict[Path, str], names: list[str]) -> None:
+    """Every error line of a failed step's log (capped), then its tail,
+    each line scrubbed."""
     try:
         text = log.read_text(errors="replace")
     except OSError:
         return
     for line in excerpt(text, ERROR_RE, str(log)):
-        print(line, flush=True)
+        print(public(line, roots, names), flush=True)

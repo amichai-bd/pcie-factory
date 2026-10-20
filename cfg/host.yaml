@@ -29,14 +29,13 @@ hosts:
     python: system python3, packages installed into it from tools/requirements.txt
   omarchy:
     description: UNSUPPORTED former self-hosted CI host (Arch Linux); no workflow selects it (#321)
-    # Kept as a historical record of what the host agent reported, and for the
-    # fpga tool's quartus_root fallback. Its runners carry no wsl label, so no
-    # job lands there; taking them offline is a host action for the captain.
+    # Kept only as a historical record of what the host agent reported; no
+    # tool reads this entry (#440). Its runners carry no wsl label, so no job
+    # lands there; taking them offline is a host action for the captain.
     verilator_prefix: /usr          # /usr/bin/verilator, found on PATH
     verilator_version: "5.052"
     python: "3.14.7"                # base interpreter of the runner venv
     venv: runner                    # the runner service's own venv ($VIRTUAL_ENV), first on PATH; holds the cocotb, pytest and PyYAML pins
-    quartus_root: /opt/intelFPGA_lite/25.1/quartus   # seen by the fpga workflow (also $QUARTUS_ROOTDIR and on PATH)
     quartus_version: "25.1std.0 Build 1129"         # `quartus_sh --version`; Lite Edition
     pdftotext: "26.08.0"              # from the ci-gate "Reference documents" step log (text extractor line); extracts reference text
   wsl:

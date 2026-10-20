@@ -51,7 +51,13 @@ names the file.
 
 Everything runs in `workdir/<ip>/fpga/` (`fpga-synth/` with `--synth-only`), which a real run deletes and
 recreates first (`--dry-run` only overwrites the two scripts). Each step runs in its own process group, with stdout and stderr in
-`logs/<step>.log` (first line: the command). A step that exceeds the
+`logs/<step>.log` (first line: the command). Every line the tool prints
+goes through the [log scrub](../build/SPEC.md#log-scrub): the
+`[<ip>] ... project <dir>`, `[<step>] <command>`, `[<step>] <status> (<s>) log: <log>`,
+`metrics:` and `synthesis:` lines, lint findings, report errors and the
+failure excerpt print paths relative to the checkout (or under
+`<workdir>/` for a workdir outside it), and other absolute paths, such as
+the Quartus and Verilator executables, as `.../<file name>`. A step that exceeds the
 timeout has its group killed and counts as `timeout`. SIGINT or SIGTERM
 also kills the active step's whole process group and waits for its leader,
 including when cancellation arrives through `ci vendor`. The flow stops
@@ -94,14 +100,14 @@ and writes `key=value` lines for the single worst setup path
 The tool looks for `quartus_sh` in this order and runs every `quartus_*`
 from the same directory:
 
-1. `PATH`.
+1. `PATH` (the supported CI host puts Quartus there,
+   [host spec](../host/SPEC.md#hosts)).
 2. `$QUARTUS_ROOTDIR/bin`.
-3. `<quartus_root>/bin`, with `hosts.omarchy.quartus_root` from
-   `cfg/host.yaml` ([host spec](../host/SPEC.md#hosts)); a fallback kept
-   from the now unsupported Omarchy host.
 
-If none has it, the command fails with exit 2 and names the places it
-looked. `--dry-run` never looks.
+No host entry in `cfg/host.yaml` is read. If neither has it, the command
+fails with exit 2, names both places and says whether `$QUARTUS_ROOTDIR`
+is set. `--dry-run` never looks. The job log prints where it was found
+(`quartus: PATH` or `quartus: $QUARTUS_ROOTDIR/bin`), never the directory.
 
 ## Metrics
 
@@ -113,7 +119,9 @@ line per RAM (name, mode, clock mode, depth x width, blocks, mixed-port
 read-during-write mode), each clock's Fmax and slack, the unconstrained
 paths, the [warnings](#warnings) and the critical path. Before the steps, and in `--dry-run`, it
 prints one `[backend] <portable> -> <backend>` line per selected backend
-file.
+file. Each RAM line ends with how the RAM was made ([inferred RAMs](#inferred-rams)):
+`; explicit backend`, `; inferred <node>, named in the FPGA page` or
+`; inferred <node>, NOT NAMED in the FPGA page`.
 
 | Key | Source and meaning |
 | --- | --- |
@@ -152,12 +160,33 @@ warning, the summary prints:
 ```
 
 with one `unknown` line per unknown ID, in ID order, holding the ID's first
-message, sanitized: paths under the checkout made relative to it, any other
-absolute path cut to `.../<file name>`, the user and host names (whole
-words) replaced by `<name>`, e-mail and IPv4 addresses by `<email>` and
-`<ip>`, whitespace runs collapsed, and the text cut to 160 characters
-(ending in `...` when cut). Known IDs print only as a count. Nothing else
-from the logs is printed for a passing run.
+message, sanitized by the [log scrub](../build/SPEC.md#log-scrub) (paths
+relative or cut, user and host names, e-mail, license-server, MAC and IP
+addresses replaced), whitespace runs collapsed, and the text cut to 160
+characters (ending in `...` when cut). An ID with any `Critical Warning`
+message prints as `unknown critical <id>` instead of `unknown <id>`. Known
+IDs print only as a count. Nothing else from the logs is printed for a
+passing run.
+
+### Inferred RAMs
+
+After a full compile the tool compares the `resources.rams` rows with the
+IP's FPGA page, `wiki/src/fpga/<ip>/FPGA.md` (beside the source root), as
+the [FPGA BKM](../../bkm/fpga.md#intel-backends) requires:
+
+- A row with an instance named `<node>_rtl_<n>`, Quartus's name for a
+  memory it inferred, is **inferred**; its node is `<node>` (the register
+  array, or the name Quartus gives a ROM it built from logic).
+- Otherwise a row is **explicit** when an instance in its hierarchy is of
+  a module whose backend file the flow selected (`[backend]` lines; the
+  backend declares its portable file's module); any other row is inferred,
+  with its whole name as the node.
+- An inferred row is named when the FPGA page holds its node as a code
+  span (`` `end_q` ``). A missing page names nothing.
+
+Each unnamed inferred RAM fails the run (exit 1, `metrics.json` still
+written) with `rams: inferred RAM <nodes> not named in <page> (FPGA BKM: ...)`.
+`--synth-only` has no RAM rows and makes no comparison.
 
 A ratio missing from the fitter summary is `null`. These are report errors
 (exit 1): fitter status other than `Successful`, no logic-element, register
@@ -192,8 +221,8 @@ a malformed count or an unreadable summary is a report error (exit 1, no
 
 | Code | Meaning |
 | --- | --- |
-| 0 | Every selected IP compiled, `metrics.json` written, timing met (`--synth-only`: synthesized and `synthesis.json` written). |
-| 1 | A step failed or timed out, a report could not be parsed, or timing is not met (metrics are still written). |
+| 0 | Every selected IP compiled, `metrics.json` written, timing met, every inferred RAM named (`--synth-only`: synthesized and `synthesis.json` written). |
+| 1 | A step failed or timed out, a report could not be parsed, timing is not met, or an [inferred RAM](#inferred-rams) is not named in the FPGA page (metrics are still written). |
 | 2 | Usage or input error: unknown IP, IP without `src/fpga/<ip>/`, bad inputs or `cfg/fpga.yaml`, filelist error, Quartus not found. |
 
 With several IPs, every IP runs and the worst code wins.
@@ -232,7 +261,7 @@ and versions. The artifact `fpga-metrics` (kept 14 days, uploaded even when a
 step fails) holds only this tool's own output, `metrics.json` and
 `worst_path.txt`, for each IP. Quartus reports and logs carry the vendor's
 notice, so they stay in `workdir/` on the host and are never uploaded or
-committed; the failure excerpt and the sanitized
+committed; the scrubbed failure excerpt and the sanitized
 [unknown-warning lines](#warnings) printed to the job log are the only parts
 of a log that leave the host.
 
@@ -259,10 +288,22 @@ of a log that leave the host.
   waiver file fails),
   `cfg/fpga.yaml` (including bad `known_warnings`) and `cfg/backends.yaml`
   loading, the known IDs in `cfg/fpga.yaml` equal to the FPGA BKM table,
+  Quartus discovery (`PATH` then `$QUARTUS_ROOTDIR/bin`, the not-found
+  message, a host entry with a `quartus_root` never read, and no
+  `quartus_root` left in `cfg/host.yaml`),
   warning-ID parsing of the hand-made `map_warnings.log` (counts, critical
-  and indented warnings, lines that are not warnings), message sanitizing
+  and indented warnings, which IDs are critical, lines that are not
+  warnings), message sanitizing
   (checkout-relative and cut absolute paths, a home path, user and host
-  names as whole words, e-mail and IPv4 addresses, the length cut),
+  names as whole words, e-mail and IPv4 addresses, the length cut), the
+  `unknown critical` mark, job-log lines with relative paths (`log_roots`
+  inside and outside the checkout, the run's command, step and `metrics:`
+  lines, the CLI's `quartus:` and `project` lines, `--dry-run`), a failure
+  excerpt with a host path, user name and addresses scrubbed, RAM
+  classification (explicit under a backend module, inferred by
+  `<node>_rtl_<n>` even inside one, a ROM node, no node, named in a table
+  cell, a missing page) and the run failing on an unnamed inferred RAM
+  (and passing when it is named),
   and the run loop with fake `quartus_*` scripts
   that replay the fixtures: metrics written with `warning_ids`, the summary's
   known and unknown counts with and without the repository's known IDs, a failing step stops the flow

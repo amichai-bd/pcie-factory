@@ -368,6 +368,22 @@ def test_run_failure_prints_every_error_line_then_tail(ctx, monkeypatch, capsys)
     assert not any(str(ctx.workdir) in line for line in out)
 
 
+def test_failure_excerpt_is_scrubbed(ctx, monkeypatch, capsys):
+    # The ASIC excerpt goes through the same scrub as the FPGA one: paths
+    # under the checkout, sources and workdir redacted, any other absolute
+    # path cut, user and host names and addresses replaced.
+    monkeypatch.setattr(flow, "host_names", lambda: ["ci-user"])
+    plan = plan_for(ctx)
+    mail = "ci-user" + "@" + "example.org"
+    text = (f"[ERROR GPL-0302] see {ctx.workdir}/counter/asic/x.log\n"
+            f"Error: /OpenROAD-flow-scripts/flow/scripts/synth.tcl by ci-user {mail}\n")
+    flow.print_failure(ctx, plan, "flow", text)
+    out = capsys.readouterr().out
+    assert f"[ERROR GPL-0302] see <workdir>/counter/asic/x.log" in out
+    assert "Error: .../synth.tcl by <name> <email>" in out
+    assert str(ctx.workdir) not in out and "ci-user" not in out
+
+
 def test_run_failure_without_error_lines_says_so(ctx, monkeypatch, capsys):
     native_env(monkeypatch, "fail")
     plan = plan_for(ctx)

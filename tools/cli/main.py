@@ -230,24 +230,28 @@ def cmd_fpga(ctx: Context, args) -> int:
     timeout = args.timeout if args.timeout is not None else cfg["step_timeout_s"]
     plans = [fpga.plan(ip, ctx.workdir, cfg["board"], args.part, cfg["processors"],
                        cfg["backends"], args.synth_only) for ip in targets]
+    roots = fpga.log_roots(ctx.workdir)
     if args.dry_run:
         for p in plans:
             fpga.generate(p, clean=False)
-            print(f"[{p.ip.id}] top {p.top}, board {p.board}, project {p.out_dir}")
+            print(fpga.public(f"[{p.ip.id}] top {p.top}, board {p.board}, project {p.out_dir}",
+                              roots))
             for old, new in p.swapped:
                 print(f"[backend] {old.name} -> {new.name}")
-            print(f"[lint] {' '.join(fpga.lint_command(p, 'verilator'))}")
+            print(fpga.public(f"[lint] {' '.join(fpga.lint_command(p, 'verilator'))}", roots))
             for name, cmd in p.steps:
                 print(f"[{name}] {' '.join(cmd)}")
         return 0
-    bin_dir = fpga.find_quartus(ctx.cfg_dir)
-    if bin_dir is None:
-        raise fpga.FpgaError(fpga.quartus_not_found(ctx.cfg_dir))
-    print(f"quartus: {bin_dir}")
+    found = fpga.find_quartus()
+    if found is None:
+        raise fpga.FpgaError(fpga.quartus_not_found())
+    bin_dir, where = found
+    print(f"quartus: {where}")
     verilator = sim.find_verilator()
     code = 0
     for p in plans:
-        print(f"[{p.ip.id}] top {p.top}, board {p.board}, project {p.out_dir}")
+        print(fpga.public(f"[{p.ip.id}] top {p.top}, board {p.board}, project {p.out_dir}",
+                          roots))
         code = max(code, fpga.run(p, bin_dir, timeout, verilator,
                                   cfg["known_warnings"]))
     return code

@@ -63,7 +63,7 @@ def test_fit_summary():
     r = fit["resources"]
     assert r["logic_elements"] == {"used": 1234, "total": 114480}
     assert r["registers"] == 456
-    assert r["memory_bits"] == {"used": 8192, "total": 3981312}
+    assert r["memory_bits"] == {"used": 8704, "total": 3981312}
     assert r["dsp_9bit"] == {"used": 2, "total": 532}
     assert r["pins"] == {"used": 18, "total": 529}
     assert r["plls"] == {"used": 0, "total": 4}
@@ -71,17 +71,20 @@ def test_fit_summary():
 
 def test_fit_memory_blocks():
     blocks = reports.parse_fit_memory_blocks(FIX / "output_files" / f"{REV}.fit.rpt")
-    assert blocks == {"type": "M9K", "used": 1, "total": 432}
+    assert blocks == {"type": "M9K", "used": 2, "total": 432}
 
 
 def test_fit_rams():
     rams = reports.parse_fit_rams(FIX / "output_files" / f"{REV}.fit.rpt")
     assert rams == [{
-        "name": "widget_core:u_core|widget_fifo:u_fifo|altsyncram:u_ram|"
-                "altsyncram_k1d1:auto_generated|ALTSYNCRAM",
+        "name": "widget:u_widget|altsyncram:u_ram|altsyncram_k1d1:auto_generated|ALTSYNCRAM",
         "mode": "Simple Dual Port", "clock_mode": "Single Clock",
         "port_a_depth": 256, "port_a_width": 32, "port_b_depth": 256, "port_b_width": 32,
-        "bits": 8192, "mixed_rdw": "Old data", "blocks": 1}]
+        "bits": 8192, "mixed_rdw": "Old data", "blocks": 1}, {
+        "name": "widget:u_widget|altsyncram:hist_q_rtl_0|altsyncram_0qg1:auto_generated|ALTSYNCRAM",
+        "mode": "Simple Dual Port", "clock_mode": "Single Clock",
+        "port_a_depth": 64, "port_a_width": 8, "port_b_depth": 64, "port_b_width": 8,
+        "bits": 512, "mixed_rdw": "Old data", "blocks": 1}]
 
 
 def test_fit_rams_absent_and_partial(tmp_path):
@@ -210,8 +213,8 @@ def test_worst_path_malformed(tmp_path):
 def test_collect(project):
     m = reports.collect(project, REV)
     assert m["schema"] == reports.SCHEMA
-    assert m["resources"]["memory_blocks"] == {"type": "M9K", "used": 1, "total": 432}
-    assert [r["blocks"] for r in m["resources"]["rams"]] == [1]
+    assert m["resources"]["memory_blocks"] == {"type": "M9K", "used": 2, "total": 432}
+    assert [r["blocks"] for r in m["resources"]["rams"]] == [1, 1]
     t = m["timing"]
     assert t["worst_setup_slack_ns"] == 4.16
     assert t["worst_hold_slack_ns"] == 0.181
