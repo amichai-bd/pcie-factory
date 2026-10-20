@@ -104,7 +104,12 @@
   usp_requests_ignored, polarity, reset_single, each sampled when its check
   passes); `phy_e2e_power` (l0s, l1, l2, loopback; hit by `e2e_power` and
   `e2e_loopback`, enabled with
-  [#182](https://github.com/amichai-bd/pcie-factory/issues/182)). The run log also names the layers.
+  [#182](https://github.com/amichai-bd/pcie-factory/issues/182));
+  `idle_tail` requires an observed valid high-half EDB followed by electrical
+  idle on the public PIPE pins. `e2e_power` lets clock compensation change
+  packing before entry and requires at least one such tail, while checking
+  cumulative receiver errors remain zero across L0s, L1 and L2 entry and
+  exit. The run log also names the layers.
 - **RTL by default:** every acceptance entry runs both layers as RTL
   (`MAC_RTL` 1, `PCS_RTL` 1). Each model-only copy, `<name>_model`, runs
   the same testcase with the models as a fast reference.

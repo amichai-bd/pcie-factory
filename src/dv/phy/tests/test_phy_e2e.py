@@ -45,7 +45,6 @@ async def impairment_run(dut, kind: str, a_role: str, ppm: float) -> None:
     for direction in (0, 1):
         await env.impair(kind, direction)
         await env.lossless(12)
-        zero_errors(f"L{req - 1} entry and exit")
     env.final_checks()
 
 
@@ -308,14 +307,19 @@ async def e2e_power(dut):
     assert env.err_timeout_div == 1024, "e2e_power needs ERR_TIMEOUT_DIV 1024"
     a, b = env.ports
     await env.lossless(8)
+
     def zero_errors(phase):
         for i, port in enumerate(env.ports):
             assert port.rcv_errors == 0, (
                 f"port {'ab'[i]}: {port.rcv_errors} receiver errors across {phase}")
 
     zero_errors("initial traffic")
+    env.bench.hooks.append(lambda bench, i: zero_errors("power entry and exit"))
+    # Allow clock compensation to change symbol parity before the EIOS:
+    # a real PCS idle tail must be observed, not only its even-word case.
+    tails_before = sum(p.idle_tails for p in env.ports)
     # ---- L0s
-    await env.settle(100)
+    await env.settle(4000)
     for p in env.ports:
         p.request(pm_state=1)
     n = await poll_until(env, lambda: all(tx_l0s(p.code) == 2 and rx_l0s(p.code) == 2 for p in env.ports),
@@ -366,6 +370,11 @@ async def e2e_power(dut):
         env.log.info("pm_state 0 from %#x: both in L0 after %d cycles", idle, n)
         COV_POWER.sample(state="l1" if req == 2 else "l2")
         await env.lossless(12)
+        zero_errors(f"L{req - 1} entry and exit")
+    tails = sum(p.idle_tails for p in env.ports) - tails_before
+    assert tails > 0, "power transitions never exercised a real PCS idle tail"
+    COV_POWER.sample(idle_tail="observed")
+    env.log.info("power transitions: %d real PCS idle tails, zero receiver errors", tails)
     env.final_checks()
 
 

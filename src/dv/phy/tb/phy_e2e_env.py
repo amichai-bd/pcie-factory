@@ -101,6 +101,7 @@ COV_CONTROL.coverpoint("event", bins={n: n for n in (
     "retrain", "hot_reset", "disable", "usp_requests_ignored", "polarity", "reset_single")})
 COV_POWER = Covergroup("phy_e2e_power")
 COV_POWER.coverpoint("state", bins={n: n for n in ("l0s", "l1", "l2", "loopback")})
+COV_POWER.coverpoint("idle_tail", bins=["observed"])
 
 # Reset values of pcie_phy's outputs, held while rst_i is high
 # (wiki/src/arch/phy/HAS.md#clocks-and-resets); ltssm_state_o 0 is
@@ -356,6 +357,8 @@ class RtlPort:
         self._code = 0
         self._up = False
         self._rcv = 0
+        self.idle_tails = 0
+        self._pipe_tail = False
         self._retrain = False
         self.req = dict.fromkeys(REQUESTS, 0)   # level requests, driven outside reset
         self.trace = False                 # log beats and frame starts with times
@@ -415,6 +418,15 @@ class RtlPort:
         self._code = rd["ltssm_state_o"]()
         self._up = bool(rd["link_up_o"]())
         self._rcv += rd["rcv_err_o"]()
+        # A valid high-half EDB followed by electrical idle is the PCS's
+        # synthetic idle tail. Observe public PIPE pins, never internals.
+        if rd["pipe_rx_elec_idle_o"]():
+            if self._pipe_tail:
+                self.idle_tails += 1
+            self._pipe_tail = False
+        elif rd["pipe_rx_valid_o"]():
+            self._pipe_tail = (rd["pipe_rx_datak_o"]() & 2 != 0
+                               and rd["pipe_rx_data_o"]() >> 8 == code8b10b.K_EDB)
         word, ei = rd["ser_tx_data_o"](), bool(rd["ser_tx_elec_idle_o"]())
         if self.trace and not ei and (word & 0x3FF) in FRAME_START_CODES:
             self.tx_starts.append((self.edges, t_rise))
