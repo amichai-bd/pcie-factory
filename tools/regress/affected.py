@@ -56,16 +56,16 @@ def select_affected_levels(
     (tools, configuration, the launcher) changed: such a change is proved by
     the tools' unit tests and a smoke level of every IP, not by every IP's
     full set. An IP whose DV or arch Python imports a changed file (an
-    import-root module, or another IP's arch or models module; see
+    import-root module, or any module of another IP's DV or arch folder; see
     ``regress.deps``) is selected at every level, global change or not."""
     globals_ = [rel for rel in changed if rules.is_global(rel)]
     hit = _select_design(ips, repo, [rel for rel in changed if not rules.is_global(rel)],
                          src_root, rules)
     out: dict[str, tuple[str, tuple[int, ...] | None]] = {k: (v, None) for k, v in hit.items()}
     if changed:
-        graph = Imports(ips, (repo / rules.import_root).resolve(), rules.models)
+        graph = Imports(ips, (repo / rules.import_root).resolve())
         files = [((repo / rel).resolve(), rel) for rel in changed]
-        names = [(graph.module_name(p, rules.models), rel) for p, rel in files]
+        names = [(graph.module_name(p), rel) for p, rel in files]
         for ip in ips:
             if ip.id in out:
                 continue

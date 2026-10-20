@@ -28,7 +28,7 @@ below defines each required key.
 | `global` | A change under a prefix, or to one of the files, selects every IP and the tools unit tests. An IP that only such a change selects runs only the regression `levels` (a non-empty list of level numbers) among those requested; an IP another rule selects runs every requested level ([regress selection](../regress/SPEC.md#selection)). |
 | `shared_dv` | Shared DV Python that no filelist reaches; a change under one selects every IP. |
 | `models` | An IP's reference models and their unit tests. A change under a sub-IP's (or an integrated IP's) models directory also selects every ancestor IP, because parent models import sub-IP models ([DV BKM](../../bkm/dv.md#reusing-a-sub-ip-model)). `./build ci unit` runs the model tests of each selected IP. |
-| `import_root` | The directory whose Python the DV imports at run time (on `sys.path` in every simulation). `--affected` scans the imports of each IP's DV and arch Python and selects the IP, at every level, when a file it reaches under this root or in another IP's arch or models folder changes ([regress selection](../regress/SPEC.md#selection)). |
+| `import_root` | The directory whose Python the DV imports at run time (on `sys.path` in every simulation). `--affected` scans the imports of each IP's DV and arch Python and selects the IP, at every level, when a file it reaches under this root or in another IP's arch or DV folder (imported by bare name) changes ([regress selection](../regress/SPEC.md#selection)). |
 | `vendor.files` | Additional repo-relative files whose changes select every FPGA and ASIC target. Global paths already select all vendor targets; regression levels do not limit vendor checks. |
 | `tools_tests` | The pytest paths of the tools unit tests. |
 | `vocabulary_tests` | `marker`: a pytest marker on tools tests that build source files (the RTL vocabulary headers, with Verilator); `paths`: repo-relative files (a trailing `/` makes a prefix) whose change runs those tests; a checks unit test keeps them equal to the style check's vocabulary header list ([checks SPEC](../checks/SPEC.md#style-check)). |
@@ -72,7 +72,9 @@ files are those of [`regress --affected`](../regress/SPEC.md#selection)
   path did (`tools` already includes the marked tests); it never runs
   without `--affected`, where `tools` runs;
 - `models:<ip>`, `arch:<ip>` and `perf:<ip>` run for each IP that
-  `regress --affected BASE` selects.
+  `regress --affected BASE` selects. That selection follows the import
+  scan, so a change confined to an arch model that another IP's arch model
+  imports runs the importer's perf scenarios too.
 
 Each suite prints `[unit] <suite>: <reason>`, pytest's own output, then
 `[unit] <suite>: PASS` or `FAIL (exit N)`. Every suite runs even after a
@@ -305,11 +307,14 @@ vendor selection on synthetic git trees (a backend file selects only its own flo
 and dry-run behavior (`test_ci_gate.py`, `test_ci_vendor.py`); rule loading and every malformed-input case
 (`test_ci_config.py`), suite planning on a synthetic git repository
 (including an IP with an arch model and scenario, and a vocabulary header
-change selecting only the marked tools tests), running the arch and perf
-suites, and failure propagation (`test_ci_unit.py`), summary rendering
+change selecting only the marked tools tests, and a change confined to an
+imported arch model selecting the importer's perf suite), running the arch
+and perf suites, and failure propagation (`test_ci_unit.py`), summary rendering
 (`test_ci_summary.py`), and the status mapping, the 140-character description cap, the data-branch-only rule,
 posted request, dry run, API failure and CLI wiring (`test_ci_status.py`,
 `gh` faked). The affected-IP rules are tested in
 `tools/regress/tests/test_affected.py` against the real `cfg/ci.yaml`,
-including sub-IP and integrated-IP changes selecting every ancestor (on the fixtures and on
-the repository's own `src/`, IPs discovered, never named).
+including sub-IP and integrated-IP changes selecting every ancestor, and a
+change confined to a module that another IP's DV or arch Python imports by
+bare name (a testbench environment, a model) selecting the importer (on the
+fixtures and on the repository's own `src/`, IPs discovered, never named).
