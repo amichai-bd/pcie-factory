@@ -53,6 +53,57 @@ def test_parse_and_classify_points(tmp_path):
         cov.parse_dat(tmp_path / "bad.dat")
 
 
+def test_source_union_preserves_branch_and_signal_distinctions(tmp_path, fake_tool):
+    # The two parameterizations cover complementary points: both have the
+    # same source locations, despite distinct hierarchy and page values.
+    def param(kind, line, column, obj, hits, name):
+        return point(kind, line, hits, obj).replace(
+            "\x01t\x02", f"\x01n\x02{column}\x01t\x02").replace(
+            f"v_{kind}/a", f"v_{kind}/a__W{name}").replace(
+            "\x01h\x02a", f"\x01h\x02top.u_{name}")
+
+    rows = []
+    for name, reverse in (("8", False), ("16", True)):
+        rows += [param("line", 10, 3, "block", int(not reverse), name),
+                 param("branch", 10, 5, "if", int(not reverse), name),
+                 param("branch", 10, 6, "else", int(reverse), name),
+                 param("toggle", 12, 10, "q[0]:0->1", int(not reverse), name),
+                 param("toggle", 12, 10, "q[0]:1->0", int(reverse), name),
+                 param("toggle", 12, 10, "q[1]:0->1", 0, name),
+                 param("toggle", 12, 10, "other:0->1", 0, name),
+                 # Same line and column as q, but a different source file.
+                 param("toggle", 12, 10, "q[0]:0->1", 0, name).replace(
+                     "/abs/a.sv", "/abs/b.sv")]
+    # A wider parameterization adds a real source bit: retain it once.
+    rows.append(param("toggle", 12, 10, "q[8]:0->1", 1, "16"))
+    run = dat(tmp_path / "run" / sim.COVERAGE_DAT, *rows).parent
+    e = cov.merge_ip(tmp_path / "out", [run], fake_tool)
+    assert e["by_source"] == {"line": {"covered": 3, "total": 3, "pct": 100.0},
+                               "toggle": {"covered": 3, "total": 6, "pct": 50.0}}
+    assert e["by_instance"] == {"line": {"covered": 3, "total": 6, "pct": 50.0},
+                                 "toggle": {"covered": 3, "total": 11, "pct": 27.27}}
+    # A source floor succeeds although the per-instance number would fail;
+    # an uncovered signal/direction cannot disappear into its covered peer.
+    assert cov.check_floors(e, {"line": (100.0, "level2.yaml"),
+                                "toggle": (50.0, "level2.yaml")}) == []
+    assert cov.check_floors(e, {"toggle": (50.1, "level2.yaml")})
+    assert e["line"] == e["by_source"]["line"]
+    assert e["toggle"] == e["by_source"]["toggle"]
+    # Preserve the annotation file's original parameterization keys.
+    raw = cov.parse_dat(tmp_path / "out" / "merged.dat")
+    assert len(raw) == 17
+
+
+def test_source_identity_ignores_elaboration_span_but_keeps_columns(tmp_path):
+    a = point("line", 5, 0).replace("\x01t\x02", "\x01n\x023\x01t\x02")
+    b = a.replace("' 0", "' 2").replace("\x01h\x02a", "\x01h\x02b")
+    b = b.replace("\x01h", "\x01S\x025-7\x01h")
+    c = a.replace("\x01n\x023", "\x01n\x028")
+    points = cov.parse_dat(dat(tmp_path / "x.dat", a, b, c))
+    assert cov.code_metrics(points)["line"] == {"covered": 1, "total": 2}
+    assert cov.code_metrics(points, by_source=False)["line"] == {"covered": 1, "total": 3}
+
+
 def test_find_tool(tmp_path, fake_tool):
     assert cov.find_tool(fake_tool.parent / "verilator") == fake_tool
     with pytest.raises(cov.CoverageError, match="verilator_coverage not found"):

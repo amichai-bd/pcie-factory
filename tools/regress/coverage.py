@@ -63,17 +63,34 @@ def point_type(key: str) -> str | None:
     return point_field(key, "t")
 
 
-def code_metrics(points: dict[str, int], exclude: frozenset[Path] = frozenset()) -> dict[str, dict]:
-    """Covered and total points per code metric, leaving out points whose
-    source file (the ``f`` field, resolved) is in ``exclude``."""
-    out = {m: {"covered": 0, "total": 0} for m in ("line", "toggle")}
+def source_point(key: str) -> tuple:
+    """Source identity, independent of instance hierarchy and parameters.
+
+    Verilator's f/l/n locate a statement or signal declaration. The type
+    and object distinguish statement/branch outcomes and each signal bit's
+    transition direction. page and h identify elaborations; S annotates the
+    lines a statement spans and is not another source point.
+    """
+    return (str(Path(point_field(key, "f") or "").resolve()),
+            *(point_field(key, field) for field in ("l", "n", "t", "o")))
+
+
+def code_metrics(points: dict[str, int], exclude: frozenset[Path] = frozenset(),
+                 *, by_source: bool = True) -> dict[str, dict]:
+    """Source points (or full per-instance keys), covered by any instance.
+    Leave out points whose source file is in ``exclude`` in either view.
+    """
+    grouped: dict[tuple | str, tuple[str, bool]] = {}
     for key, count in points.items():
         metric = POINT_TYPES.get(point_type(key) or "")
-        if metric and exclude and Path(point_field(key, "f") or "").resolve() in exclude:
+        if not metric or Path(point_field(key, "f") or "").resolve() in exclude:
             continue
-        if metric:
-            out[metric]["total"] += 1
-            out[metric]["covered"] += count > 0
+        identity = source_point(key) if by_source else key
+        grouped[identity] = (metric, count > 0 or grouped.get(identity, (metric, False))[1])
+    out = {m: {"covered": 0, "total": 0} for m in ("line", "toggle")}
+    for metric, covered in grouped.values():
+        out[metric]["total"] += 1
+        out[metric]["covered"] += covered
     return out
 
 
@@ -109,14 +126,22 @@ def merge_ip(ip_dir: Path, test_dirs: list[Path], tool: Path | None,
                          + ", ".join(f"{d.parent.name}/{d.name}" for d in no_dat[:5])
                          + (", ..." if len(no_dat) > 5 else "")] if no_dat else []
     code = {m: {"covered": 0, "total": 0} for m in ("line", "toggle")}
+    instance_code = code
     if dats:
         if tool is None:
             raise CoverageError("verilator_coverage is needed to merge coverage.dat files")
         merged = ip_dir / "merged.dat"
         merge_dat(tool, dats, merged)
-        code = code_metrics(parse_dat(merged), exclude)
+        points = parse_dat(merged)
+        code = code_metrics(points, exclude)
+        instance_code = code_metrics(points, exclude, by_source=False)
     for m in ("line", "toggle"):
         entry[m] = {**code[m], "pct": _round(pct(code[m]["covered"], code[m]["total"]))}
+    entry["by_source"] = {m: entry[m] for m in ("line", "toggle")}
+    entry["by_instance"] = {
+        m: {**instance_code[m], "pct": _round(pct(instance_code[m]["covered"],
+                                                 instance_code[m]["total"]))}
+        for m in ("line", "toggle")}
     merged_f = funcov.merge([funcov.load(p) for p in fcov])
     fsum = funcov.summarize(merged_f)
     (ip_dir / "functional.json").write_text(
