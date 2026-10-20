@@ -45,6 +45,7 @@ async def impairment_run(dut, kind: str, a_role: str, ppm: float) -> None:
     for direction in (0, 1):
         await env.impair(kind, direction)
         await env.lossless(12)
+        zero_errors(f"L{req - 1} entry and exit")
     env.final_checks()
 
 
@@ -307,6 +308,12 @@ async def e2e_power(dut):
     assert env.err_timeout_div == 1024, "e2e_power needs ERR_TIMEOUT_DIV 1024"
     a, b = env.ports
     await env.lossless(8)
+    def zero_errors(phase):
+        for i, port in enumerate(env.ports):
+            assert port.rcv_errors == 0, (
+                f"port {'ab'[i]}: {port.rcv_errors} receiver errors across {phase}")
+
+    zero_errors("initial traffic")
     # ---- L0s
     await env.settle(100)
     for p in env.ports:
@@ -323,6 +330,7 @@ async def e2e_power(dut):
         await env.until(lambda: env.sb[i].drained(), 2000, "the L0s exit packet delivered")
         assert env.bench.cycles[0] > before
     await env.lossless(16, l0s=True)
+    zero_errors("L0s entry and exit")
     COV_POWER.sample(state="l0s")
     for i, s in enumerate(env.sb):
         assert s.lost == 0 and s.flagged == 0 and s.check_failed == 0, f"{s.name}: loss across L0s"
@@ -686,4 +694,16 @@ async def e2e_polarity(dut):
     await env.lossless(30)
     await env.reset_ports()
     await env.lossless(12)
+    env.final_checks()
+
+
+@cocotb.test()
+async def e2e_mixed(dut):
+    """One layer RTL and the other a model: train, bound timing, packets both ways."""
+    env = await trained(dut, "downstream", 300)
+    assert env.layers["mac"] != env.layers["pcs"], "mixed entry must switch one layer"
+    env.check_link_up(max_us=100.0)
+    await env.lossless(24)
+    await env.lossless(16, mix="dllp")
+    await env.lossless(8, mix="tlp_nullified")
     env.final_checks()

@@ -90,9 +90,8 @@
   flight after the recovery are skipped, and one delivered late fails as
   out of order.
 - **Functional coverage:** `phy_e2e_layers` (mac, pcs and channel, each
-  `model` or `rtl`; `stack`: `all_model` or `all_rtl`, mac and pcs as one
-  choice, because the mixed choices of step 2 are not planned in M1, see
-  below; `tx_scrambler`: the mac
+  `model` or `rtl`, with all four combinations in `mac_x_pcs`;
+  `tx_scrambler`: the mac
   model's own, the block's cycle model, or `rtl` when the mac layer is RTL;
   `tx_encoder`: the same for the pcs stand-in; sampled once the pair
   has trained), the coverage hook that
@@ -138,10 +137,13 @@ echoes them on `cfg_*_o` and the environment builds the ports from them.
 | pcs | `PCS_RTL` | `PcsModel` | `pcie_pcs` inside `u_a`/`u_b` |
 | channel | `CHAN_RTL` | `Channel` in Python: offset, impairments | One register per direction in the top: ideal, no Python per cycle; needs `PCS_RTL` 1 |
 
-The RTL side of mac and pcs is the whole `pcie_phy` instance, so the two
-switch together (the environment rejects a mixed choice). With both at 1,
-the environment drives the instance pins through `RtlPort`, which has the
-same interface as the model port. A beat that `RtlPort` offers at a
+The top instantiates the two layers independently inside `u_a`/`u_b`,
+with the same direct PIPE connections as `pcie_phy` when both are RTL.
+The PIPE nets are also top ports: `MacRtl` joins RTL mac to `PcsModel`,
+and `PcsRtl` joins `pcie_mac_arch.Mac` to RTL pcs. The adapters sample
+registered outputs at falling edges and drive the model's next PIPE word
+before the following rising edge. `RtlPort` drives both RTL layers.
+A beat that `RtlPort` offers at a
 falling edge is taken at the next rising edge if `pkt_tx_ready_o`, read at
 that same falling edge, is 1. Ready depends on the MAC state and
 `rst_i`, not on valid, so it holds from one rising edge to the next. Every mac and pcs block runs inside its RTL layer. In
@@ -209,22 +211,19 @@ delivers the hooks, the cycle-model runs and this recipe):
    as the reference. `CHAN_RTL: 1` runs over an ideal channel, minus the
    impairments: `e2e_rtl_link_chan`, `e2e_targets` and
    `e2e_link_up_spec`.
-2. **One layer RTL, the other a model: not planned in M1** ([ruling on #86](https://github.com/amichai-bd/pcie-factory/issues/86#issuecomment-6197199773); post-M1:
-   [#194](https://github.com/amichai-bd/pcie-factory/issues/194)). The full RTL stack and the full model stack are both run, so
-   the mixed choices add debug value but no acceptance value. The
-   `mac x pcs` cross of `phy_e2e_layers`, with its two mixed bins, became
-   the `stack` coverpoint with `all_model` and `all_rtl` only. The recipe,
-   kept for [#194](https://github.com/amichai-bd/pcie-factory/issues/194): with `mac.rtl.f` and `pcs.rtl.f`
-   reached from `phy.rtl.f`, add per-port `pcie_mac` and `pcie_pcs`
-   instances to the top behind the parameters, with their PIPE nets as top
-   ports, and a `MacRtl` or `PcsRtl` port in the environment that moves
-   `PipeTx`/`PipeRx` (the PIPE objects of the mac model) to and from those
-   pins; then drop the mixed-choice check.
+2. **One layer RTL, the other a model: complete**
+   ([#437](https://github.com/amichai-bd/pcie-factory/issues/437)).
+   `e2e_mixed_mac_rtl` and `e2e_mixed_pcs_rtl` run in level 1. Each trains
+   from reset, checks the link-up and training-time bounds, then checks
+   mixed packets, DLLPs and nullified TLPs losslessly in both directions.
+   `mac_x_pcs` records both mixed combinations only after successful
+   training, alongside the all-model and all-RTL combinations.
 
 ## Plan
 
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
+| Independent layers through PIPE: train within the HAS bounds, then mixed packets, DLLPs and nullified TLPs both ways, zero receiver errors | `e2e_mixed_mac_rtl`, `e2e_mixed_pcs_rtl` | 1 | 1 each; only the named layer RTL; channel model, downstream first, +300 ppm |
 | [Link-up](../../arch/phy/HAS.md#link-up-and-requests), [packet stream](../../arch/phy/HAS.md#packet-stream) both ways, a symbol-error burst and a directed retrain, all models | `e2e_smoke` | 0 | 1; dsp first, b +300 ppm |
 | The RTL stack, channel model. RTL path: `cfg_*_o` echo, `RtlPort` for both instances, `rst_i` and `port_role_i` through reset per role. [Reset values](../../arch/phy/HAS.md#clocks-and-resets) with the upper-layer inputs random. [Link-up](../../arch/phy/HAS.md#link-up-and-requests) to L0, then 16 packets each way, lossless. Both ports reset while packets flow, once together and once with b up to 64 cycles later: reset values held, back to L0, and 8 packets each way lossless after each | `e2e_rtl_link` / `e2e_rtl_link_sweep` | 1 / 2 | derived seed 0 / its derived seed 1 (737010230) pinned; `MAC_RTL` 1, `PCS_RTL` 1; usp first, -300 ppm |
 | The same over the RTL channel (the top joins the lines; the environment steps only the ports) | `e2e_rtl_link_chan` | 0 | 1; `MAC_RTL` 1, `PCS_RTL` 1, `CHAN_RTL` 1 |
@@ -307,7 +306,7 @@ e2e test about twice as slow as a plain one (`e2e_rtl_link`: 8.2 s against
 
 | Feature | Testcase |
 | --- | --- |
-| [Power states](../../arch/phy/HAS.md#link-up-and-requests). L0s: both transmitters reach Tx_L0s.Idle within `L0S_IDLE_CYCLES` + 16 cycles of the request, a packet leaves L0s within 2·N_FTS + 16, and traffic is lossless. L1: entry within 64 cycles, `link_up_o` high, exit through Recovery within 4 µs. L2: entry within 64 cycles, exit through Detect within 100 µs. Lossless after each | `e2e_power` |
+| [Power states](../../arch/phy/HAS.md#link-up-and-requests). L0s: both transmitters reach Tx_L0s.Idle within `L0S_IDLE_CYCLES` + 16 cycles of the request, a packet leaves L0s within 2·N_FTS + 16, and traffic is lossless. L1: entry within 64 cycles, `link_up_o` high, exit through Recovery within 4 µs. L2: entry within 64 cycles, exit through Detect within 100 µs. Lossless after each; zero cumulative receiver errors across every entry and exit, including idle tails | `e2e_power` |
 | Loopback from each port as master, with packets flowing into the entry: both reach Loopback.Active with `link_up_o` low, then Detect and back to L0, lossless after. In Loopback.Active, the master's data pattern is echoed by the slave, and the [loopback echo scoreboard](#strategy) checks that every symbol is the master's own, in order and unchanged. At least 1.9 pattern symbols per held cycle (3800 in 2000 cycles) must come back. A packet of the master's own delivered back to it fails the packet scoreboard, either as not sent by the far port or as corrupted. Before #182, a packet looped back in an earlier run was delivered in L0 after the master trained against its own echo. This was not a mac defect ([#192](https://github.com/amichai-bd/pcie-factory/issues/192)); the mac HAS states the rule since [#193](https://github.com/amichai-bd/pcie-factory/pull/193). The echo check was added in [#198](https://github.com/amichai-bd/pcie-factory/issues/198) | `e2e_loopback` |
 
 ### Removed checks
