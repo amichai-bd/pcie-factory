@@ -90,8 +90,12 @@ flowchart LR
     not yet delivered (`eop` taken) at the far end, so not yet returnable;
     all ones for an infinite field, and back at the advertisement once
     drained ([#436](https://github.com/amichai-bd/pcie-factory/issues/436));
-  - liveness: 20000 cycles with nothing delivered while a TLP is
-    outstanding fails;
+  - liveness: more than 20000 receiver cycles with nothing delivered
+    while a TLP is continuously outstanding fails. An empty-to-busy
+    transition starts the timer at acceptance, excluding prior idle time;
+    another acceptance cannot refresh it while work remains outstanding.
+    Each delivery restarts it only for remaining work, and draining or an
+    expected link-down clears it;
   - reset values while `rst_i` is high, and the `dll` outputs at theirs
     while `link_up_o` is 0 ([reset values](../../arch/link/HAS.md#reset-values));
   - Ack latency at each end's `dll`-to-`phy` boundary, on the tapped nets:

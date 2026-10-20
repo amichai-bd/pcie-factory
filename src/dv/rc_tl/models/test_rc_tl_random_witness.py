@@ -2,8 +2,11 @@
 
 from collections import Counter
 import importlib.util
+import os
 from pathlib import Path
 import random
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -11,6 +14,17 @@ import pytest
 from pcie_rc_tl_model import Cmd, MEM_RD, request_tlp
 from pcie_rc_tl_random_witness import (EXPECTED_STATUSES, PHASE_WITNESSES, PLAN_CATEGORIES,
                                       check_witness)
+
+
+def test_requester_module_imports_without_prior_model_path(tmp_path):
+    """Standalone simulations cannot rely on another testcase importing Env."""
+    dv = Path(__file__).resolve().parents[1]
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join((str(dv), str(dv.parents[2] / "tools"))))
+    result = subprocess.run(
+        [sys.executable, "-c", "import tests.test_rc_tl_req"],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def complete_counts():

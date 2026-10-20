@@ -217,7 +217,10 @@ parameter-entry versus testcase identity and deterministic seed rotation.
 `models/test_rc_tl_random_witness.py` rejects each absent plan/phase/status and
 missing requester error events; it compares observed versus unobserved answer
 frames and RNG states over 512 seeds, exercising every plan category without
-a simulator. These unit tests support reproducibility and non-vacuity; they do
+a simulator. A fresh-process import check also loads the standalone requester
+module with only the simulation's DV and tool paths, so witness imports cannot
+depend on an earlier contract importing the environment. These unit tests
+support reproducibility and non-vacuity; they do
 not replace the pending CI coverage comparison or known-fault experiments.
 
 **Level placement.** `random_req_long` and `random_inb_long` are long

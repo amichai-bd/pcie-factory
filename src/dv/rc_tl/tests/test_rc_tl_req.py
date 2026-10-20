@@ -13,9 +13,9 @@ from collections import Counter
 
 import cocotb
 
-from pcie_rc_tl_random_witness import check_witness
 from tb.rc_tl_env import FC_INPUTS, Env
 from tb.rc_tl_ep import CFG_RD_T, CFG_WR_T, MEM_RD_T, MEM_WR_T, Req
+from pcie_rc_tl_random_witness import check_witness
 from pcie_rc_tl_model import (BAD, CA, CFG_RD, CFG_WR, CRS, CS_CA, CS_CRS, CS_SC, CS_UR,
                               E_CA, E_CRS, E_MAL, E_POIS, E_TMO, E_UNEXP, E_UR, ERR_CLR,
                               ERR_RD, LINK_DOWN, LOCAL_UR, MEM_RD, MEM_WR, OK, TIMEOUT, UR,
