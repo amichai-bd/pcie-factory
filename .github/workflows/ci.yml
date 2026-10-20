@@ -2,7 +2,9 @@
 # (continuous integration) and wiki/tools/ci/SPEC.md (also the ci-gate-status
 # job for nightly data branches). Selection rules live in
 # cfg/ci.yaml and the tools, never here: this file only chooses between
-# "affected since the PR base" (pull_request) and "everything" (push, dispatch).
+# "affected since the PR base" (pull_request), "affected since the data PR's
+# merge base" (a dispatch on a nightly/ branch that the data guard proved
+# changes only valid data files) and "everything" (any other push or dispatch).
 name: ci
 
 on:
@@ -39,13 +41,6 @@ jobs:
     # Target (not enforced): checks plus L0+L1 of the affected IPs within
     # 10 minutes; the hard timeout leaves headroom for a cold dependency install.
     timeout-minutes: 20
-    env:
-      # pull_request checks out the merge commit refs/pull/N/merge, whose first
-      # parent is the base branch tip it was merged onto. HEAD^1 therefore
-      # diffs exactly the PR's change against the tree being tested, even if
-      # main moved after the event (base.sha could be older and over-select).
-      # fetch-depth 2 is enough: HEAD^1 is a parent of HEAD, so it is the merge base.
-      AFFECTED: ${{ github.event_name == 'pull_request' && '--affected HEAD^1' || '' }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -82,34 +77,31 @@ jobs:
             echo "$PWD/workdir/venv/bin" >> "$GITHUB_PATH"
           fi
 
-      - name: Data guard
+      # Sets AFFECTED for the later steps (wiki/tools/ci/SPEC.md#the-workflow).
+      - name: Data guard and selection
         id: guard
         if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_BRANCH: ${{ github.head_ref }}
         run: |
-          # A nightly/ branch may change only the data directory
+          # A nightly/ branch may change only valid data files
           # (wiki/tools/metrics/SPEC.md#guard); other branches pass at once.
-          # A pull request compares its merge commit with the first parent. A
-          # dispatch on a nightly/ ref (the nightly's data PR is opened with
-          # GITHUB_TOKEN, so it gets no runnable pull_request run and is
-          # dispatched instead; push triggers only on main) compares with the
-          # base of the branch's open PR into main, else of any open PR, else
-          # main. Other pushes and dispatches stop here.
+          # pull_request checks out the merge commit refs/pull/N/merge, whose
+          # first parent is the base tip it merged onto, so HEAD^1 diffs exactly
+          # the PR's change (fetch-depth 2 is enough). A dispatch on a nightly/
+          # ref (the nightly's data PR is opened with GITHUB_TOKEN, so it is
+          # dispatched; push triggers only on main) compares with the base of
+          # the branch's open PR into main, else of any open PR, else main; when
+          # it passes, the guard selects --affected <merge base>, which runs no
+          # suite, IP or target for data files. Anything else runs everything.
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            echo "AFFECTED=--affected HEAD^1" >> "$GITHUB_ENV"
             ./build metrics guard --branch "$PR_BRANCH" --base HEAD^1
-            exit 0
+          else
+            echo "AFFECTED=" >> "$GITHUB_ENV"
+            ./build metrics guard --branch "$GITHUB_REF_NAME" --pr-base main --select "$GITHUB_ENV"
           fi
-          case "$GITHUB_REF_NAME" in
-            nightly/*) ;;
-            *) echo "$GITHUB_REF_NAME: not a nightly/ branch; nothing to guard"; exit 0 ;;
-          esac
-          base=$(gh api "repos/$GITHUB_REPOSITORY/pulls?head=$GITHUB_REPOSITORY_OWNER:$GITHUB_REF_NAME&state=open" \
-            --jq '([.[] | select(.base.ref == "main")] + .)[0].base.ref // "main"')
-          git fetch --quiet --unshallow origin 2>/dev/null || true
-          git fetch --quiet origin "$base"
-          ./build metrics guard --branch "$GITHUB_REF_NAME" --base "origin/$base"
 
       - name: Reference documents (best effort)
         # `./build specs fetch` (wiki/tools/specs/SPEC.md) caches the listed
@@ -179,8 +171,6 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, linux, x64, wsl]
     timeout-minutes: 20
-    env:
-      AFFECTED: ${{ github.event_name == 'pull_request' && '--affected HEAD^1' || '' }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -199,6 +189,20 @@ jobs:
             python3 -m venv workdir/venv
             workdir/venv/bin/pip install --quiet -r tools/requirements.txt
             echo "$PWD/workdir/venv/bin" >> "$GITHUB_PATH"
+          fi
+
+      # The same selection as ci-tests' guard step: HEAD^1 on a pull request,
+      # the merge base for a guarded data-only nightly/ branch, else everything.
+      - name: Selection
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_BRANCH: ${{ github.head_ref }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            echo "AFFECTED=--affected HEAD^1" >> "$GITHUB_ENV"
+          else
+            echo "AFFECTED=" >> "$GITHUB_ENV"
+            ./build metrics guard --branch "$GITHUB_REF_NAME" --pr-base main --select "$GITHUB_ENV"
           fi
 
       # Quartus analysis and synthesis only (`./build fpga --synth-only`); fit

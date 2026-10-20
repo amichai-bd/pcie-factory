@@ -126,35 +126,39 @@ power-on counter, `rst_q`, two 2-flop synchronizers, the start flop and
 ## Results
 
 For information only (synthesis evidence, no board): the nightly tracker
-owns the live figures. This is the first fit, `fpga` workflow run
-39328627425 at `9114f49`, Quartus Prime Lite 25.1std.0, slow and fast
-models.
+owns the live figures. This is the fit with the host memory in M9K,
+`fpga` workflow run 39373371520 at `09b41c4`
+([#417](https://github.com/amichai-bd/pcie-factory/issues/417)), Quartus
+Prime Lite 25.1std.0, slow and fast models.
 
 | Item | Result |
 | --- | --- |
-| `clk_core` (50 MHz) | Met: setup slack +2.488 ns, hold +0.115 ns, Fmax 57.10 MHz. |
-| `clk_gpio_rx` (25 MHz) | Met: setup slack +16.984 ns, hold +0.198 ns, recovery +13.982 ns, removal +0.528 ns, Fmax 187.72 MHz. |
+| `clk_core` (50 MHz) | Met: setup slack +3.813 ns, hold +0.141 ns, Fmax 61.78 MHz. |
+| `clk_gpio_rx` (25 MHz) | Met: setup slack +17.366 ns, hold +0.201 ns, recovery +15.008 ns, removal +0.800 ns, Fmax 167.59 MHz. |
 | Unconstrained paths | 0. |
-| Logic elements | 48243 / 114480. |
-| Registers | 35699. |
-| Memory | 11 / 432 M9K, 45704 memory bits, 8 RAMs: 7 simple dual port, single clock, old data on a mixed-port read during write; and the `rc_seq` ROM, 256 words narrowed by synthesis to 57 bits, 2 M9K. |
+| Logic elements | 6440 / 114480. |
+| Registers | 2899. |
+| Memory | 15 / 432 M9K, 78472 memory bits, 9 RAMs: 7 simple dual port, single clock, old data on a mixed-port read during write; the `rc_tl` host memory, single port, 1024 x 32, 4 M9K; and the `rc_seq` ROM, 256 words narrowed by synthesis to 57 bits, 2 M9K. |
 | Pins | 35. |
-| Worst setup path | `clk_core`: the `dll` control state (`u_dll` `u_ctrl` `state_q.st`) to `rc_tl`'s host memory read data (`u_mem` `u_ram` `rd_data_o`); slack +2.488 ns. |
+| Worst setup path | `clk_core`: the `dll` flow-control state (`u_dll` `u_fc` `alloc_q`) to the `dll` TX path (`u_tlp_tx` `rt_q`); slack +3.813 ns. |
 
-**Inferred RAMs** ([FPGA BKM](../../../bkm/fpga.md#intel-backends)). Six of the 8 RAMs are `common_sdp_ram` Intel backends; two are inferred:
+**Inferred RAMs** ([FPGA BKM](../../../bkm/fpga.md#intel-backends)). Seven of the 9 RAMs use explicit Intel backends (six `common_sdp_ram` and one `common_sync_ram`); two are inferred:
 
 | Node | Instance | Why it stays inferred |
 | --- | --- | --- |
 | `end_q` | `pcie_dll_tlp_tx` `u_tlp_tx` | A 64 × 8 register array (the word after each held TLP) that Quartus maps to one M9K, adding pass-through logic so a read of the word being written returns what the RTL returns (known warning 276020). It stays inferred: behavior is preserved, the 512 bits fit one block, and nothing needs a defined collision, so it does not need the shared RAM block's explicit backend. |
 | `WideOr0` | `pcie_rc_seq_rom` `u_rom` | The program image, a constant indexed by the step index with a registered read, which Quartus builds as a ROM (2 M9K, 256 words of 57 bits) and names `WideOr0`. A ROM is the intended mapping: it has no write port, so read-during-write does not apply, and the shared RAM blocks have no ROM backend. If Quartus renames the node, `./build fpga` reports it unnamed and this row changes with it. |
 
-**Host memory in registers.** The `rc_tl` host memory, a 4 KiB
-[`common_sync_ram`](../../rtl/common/ram/common_sync_ram.md) with byte
-lanes, is not one of the RAMs above: Quartus builds it from logic, about
-32768 of the registers, and it ends the worst path. The build still fits
-with timing met; mapping it to M9K is a change to the shared RAM block
-(an Intel backend), owned by [#417](https://github.com/amichai-bd/pcie-factory/issues/417) and recorded in the block's
-[MAS](../../rtl/common/ram/common_sync_ram.md#microarchitecture).
+**Host memory in M9K.** The `rc_tl` host memory, a 4 KiB
+[`common_sync_ram`](../../rtl/common/ram/common_sync_ram.md) with four
+byte lanes, maps to 4 M9K in single-port mode through the block's
+[Intel backend](../../rtl/common/ram/common_sync_ram.md#intel-backend),
+which the FPGA flow selects. In the first fit (`fpga` workflow run
+39328627425 at `9114f49`, the portable inferred RAM) Quartus built it from
+logic: 35699 registers and 48243 logic elements in all, and its read data
+(`u_mem` `u_ram` `rd_data_o`) ended the worst `clk_core` path at slack
++2.488 ns. With the backend the build has 32800 fewer registers and 41803
+fewer logic elements.
 
 **Quartus elaboration.** The first runs showed that Quartus Lite rejects a
 member select of a struct localparam in a constant expression (error
@@ -164,7 +168,7 @@ and the ROM's and top's parameter checks used it. They now build both
 passes inside one function and take `t_prog`'s fields by part-select
 ([`rc_seq` MAS, Programs in the package](../../rtl/rc_seq/MAS.md#microarchitecture)).
 The limit is a row of the [FPGA BKM's known limits](../../../bkm/fpga.md#known-quartus-limits);
-its style-check rule is owned by [#418](https://github.com/amichai-bd/pcie-factory/issues/418).
+its style-check rule `struct-param-select` ([#418](https://github.com/amichai-bd/pcie-factory/issues/418), delivered under [#439](https://github.com/amichai-bd/pcie-factory/issues/439)) now rejects the construct in `./build check`.
 The 32768-bit program images themselves elaborate (map about 4 minutes).
 
 **Quartus warnings.** Fit: 169177 and 292013, both

@@ -21,8 +21,8 @@ hold, read and hold.
 | Random traffic, smallest RAM | `sdp_ram_long_min` | 2 | 2; 20000 cycles |
 | Random traffic, wide RAM with eight lanes | `sdp_ram_long_wide` | 2 | 2; 20000 cycles |
 | [Intel backend](../../../rtl/common/ram/common_sdp_ram.md#intel-backend) through the stub: separate ports, hold, collision, lanes | `sdp_ram_intel_contract` | 0 | 1; `backend: fpga` |
-| Intel backend: legal geometries lint with exactly the expected messages; illegal ones fail with the block's message | `ram_intel_lint` | 0 | 1; 10 lint runs per backend |
-| Intel backend: the stub accepts the backend shape and rejects each rule alone | `ram_intel_stub_rejects` | 0 | 1; 16 lint runs |
+| Intel backend: legal geometries lint with exactly the expected messages; illegal ones fail with the block's message | `ram_intel_lint` | 0 | 1; 10 lint runs for this backend, 9 for [`common_sync_ram`'s](common_sync_ram.md#plan) |
+| Intel backend: the stub accepts each backend's shape (`DUAL_PORT` here, `SINGLE_PORT` for `common_sync_ram`) and rejects each rule alone | `ram_intel_stub_rejects` | 0 | 1; 33 lint runs: the two shapes, 16 `DUAL_PORT` and 15 `SINGLE_PORT` rejections |
 | Intel backend under random traffic, against the model | `sdp_ram_intel_random` / `sdp_ram_intel_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (1053016126 and 667586948), pinned; 2000 cycles; `backend: fpga` |
 | Intel backend at the dll receive buffer shape (512 x 34, one lane) | `sdp_ram_intel_rx_buf_shape` | 1 | 1; `backend: fpga` |
 | [sky130 backend](../../../rtl/common/ram/common_sdp_ram.md#sky130-backend) on macros, through the DV macro model: separate ports, hold, collision (pending-write bypass), lane enable | `sdp_ram_sky130_contract` | 0 | 1; 72 x 128 (9216 bits): two macros across, low words; `backend: asic` |

@@ -15,7 +15,8 @@ shared macro headers) follow the same tool's clocked-process, raw-assert and
 raw-initial rules, and nonblocking-assignment ports its scan;
 system-task, sampled-value, assert-label, clocking-block, object-macro,
 local-define, conditional-compilation, package-import, include-path,
-vocabulary-include and cdc-cell-macro are new.
+vocabulary-include and cdc-cell-macro are new, as is struct-param-select
+(its symbol table and scan live in ``struct_params.py``).
 
 The vocabulary headers are the files named in ``VOCABULARY_HEADERS``,
 directly in ``rtl/common/`` (the RTL BKM's shared vocabulary). They alone
@@ -37,7 +38,7 @@ from pathlib import Path
 from build.backends import portable_of
 from build.filelist import FilelistError, Resolved, resolve
 from build.ip import SHARED_DIR, Ip, locate, owner_ip
-from checks import filelists
+from checks import filelists, struct_params
 from checks.common import (
     COMMON_PREFIX,
     CheckResult,
@@ -138,6 +139,12 @@ RULES = {
                             "no package constant (pkg::NAME) inside a [...] select of a port "
                             "connection expression (.p_i(s[pkg::C])); Quartus Lite reports an "
                             "implicit net. Assign the select to a named net and connect that"),
+    "struct-param-select": ("systemverilog-rules",
+                            "no member select (A.m, pkg::A.m) of a struct-typed localparam or "
+                            "parameter in a constant expression (an initialiser, a "
+                            "COMMON_ASSERT_PARAM condition, a generate condition, a range, a "
+                            "replication count or a size cast); Quartus Lite rejects it. Select "
+                            "inside a function from a local or an argument, or part-select"),
 }
 
 # A tool directive comment: a tool keyword followed by a directive word.
@@ -838,14 +845,17 @@ def include_findings(relpath: str, raw: str, text: str, vocab: Vocabulary) -> li
 
 def check_text(relpath: str, raw: str, expected_prefix: str | None,
                defined: frozenset[str] | set[str] = frozenset(),
-               vocab: Vocabulary = Vocabulary(), unit_name: str | None = None) -> list[str]:
+               vocab: Vocabulary = Vocabulary(), unit_name: str | None = None,
+               structs: struct_params.StructParams | None = None) -> list[str]:
     """Apply every rule to one file; ``expected_prefix`` is the name prefix
     a unit in this file must start with (None: no prefix declared);
     ``unit_name`` is the name its unit must have (default: the file stem; a
     source backend file declares its portable file's module);
     ``defined`` holds the macros the rest of its RTL closure defines;
     ``vocab`` describes the vocabulary headers (``relpath`` is relative to
-    the source root, so a header is recognized by its path)."""
+    the source root, so a header is recognized by its path); ``structs`` is
+    the struct-parameter symbol table of every RTL file (default: this
+    file's own)."""
     text = strip_comments_and_strings(raw)
     path = Path(relpath)
     out: list[str] = []
@@ -891,6 +901,11 @@ def check_text(relpath: str, raw: str, expected_prefix: str | None,
     for index, item in port_index_constants(body):
         add("port-index-constant", index, f"package constant {item} in a select of a port "
             "connection; assign the select to a named net and connect that")
+    table = structs if structs is not None else struct_params.collect([body])
+    for index, sel, ctx in struct_params.struct_param_selects(body, table):
+        add("struct-param-select", index, f"member select {sel} of a struct-typed parameter "
+            f"in a constant expression ({ctx}); select inside a function from a local or an "
+            "argument, or part-select the packed struct")
     for index in pattern_contexts(body):
         add("pattern-context", index, "assignment pattern outside an assignment context")
     for index in bare_generate(body):
@@ -1035,12 +1050,16 @@ def run(src_root: Path, ips: list[Ip], ip_ids: set[str] | None,
                          f"{len(extra)} other includable or fpga/ file(s) for directives")
     closures, by_fpga = closure_macros(src_root, ips)
     vocab = vocabulary(src_root)
+    # The symbol table spans every RTL file, so a filtered run still knows
+    # the struct types and parameters of the packages it imports.
+    structs = struct_params.collect([strip_comments_and_strings(f.read_text(errors="replace"))
+                                     for f in kind_files(src_root, ("rtl", "fpga"))])
     for f in files:
         exp = expected_prefix(f, src_root, ips, prefix)
         backend = portable_of(f, known or {})
         result.findings += check_text(rel(f, src_root), f.read_text(errors="replace"), exp,
                                       _defined_for(f, closures, by_fpga), vocab,
-                                      backend[0].stem if backend else None)
+                                      backend[0].stem if backend else None, structs)
     for f in extra:
         text = _text(f)
         if text is not None:  # binary files cannot carry directives
