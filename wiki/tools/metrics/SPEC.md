@@ -6,12 +6,13 @@ the single `nightly-red` issue. The [DevOps BKM](../../bkm/devops.md#metrics)
 owns what is measured and when; this page owns the command line, the data
 schemas, the publishability rules and the workflows. Code: `tools/metrics/`
 (`config.py`, `tree.py`, `gh.py`, `github.py`, `record.py`, `commits.py`,
-`guard.py`, `red.py`, `trends.py`, `cli.py`); configuration: `cfg/metrics.yaml`.
+`guard.py`, `stage.py`, `red.py`, `trends.py`, `cli.py`); configuration: `cfg/metrics.yaml`.
 
 ```
 ./build metrics collect [--out FILE | --out-dir DIR] [--no-github] [--step NAME=pass|fail|skipped|paused]... [--started TIME] [--run-id ID] [--run-attempt N] [--repo OWNER/NAME]
 ./build metrics commits [--file FILE] [--ref REV] [--no-ci] [--limit N] [--repo OWNER/NAME]
-./build metrics guard   --branch NAME --base REV [--head REV]
+./build metrics guard   --branch NAME (--base REV | --pr-base DEFAULT) [--head REV] [--select FILE] [--repo OWNER/NAME]
+./build metrics stage   --base BRANCH --branch NAME --data DIR --worktree DIR --message TEXT [--out FILE] [--repo OWNER/NAME]
 ./build metrics trends  [--dir DIR]...
 ./build metrics red     --outcome success|failure --run-url URL [--head SHA] [--branch NAME]
                         [--step NAME=pass|fail|skipped|paused]... [--summary FILE] [--repo OWNER/NAME]
@@ -24,7 +25,8 @@ reached only through `gh api` (REST, never GraphQL), authenticated by
 `gh`'s own login or `$GH_TOKEN`.
 
 Exit codes: `0` success; `1` the guard failed; `2` a configuration, git,
-GitHub (for `red`) or publishability error.
+GitHub (for `red`, `stage` and `guard --pr-base`) or publishability error,
+or a refused staging.
 
 ## Configuration: `cfg/metrics.yaml`
 
@@ -344,9 +346,14 @@ nightly summary flag the same drops. Every series is higher-is-better:
 | --- | --- | --- | --- |
 | `coverage_line`, `coverage_toggle`, `coverage_functional` | Merged regression coverage | % | `coverage.ips.<ip>.<metric>.pct` |
 | `mutant_score` | Mutant score | % | `mutants.ips.<ip>.score_pct`, else `100 * killed / total` |
-| `fpga_fmax` | FPGA Fmax, worst clock | MHz | lowest `fpga.ips.<ip>.timing.clocks.*.fmax_mhz` |
-| `fpga_setup_slack` | FPGA worst setup slack | ns | `fpga.ips.<ip>.timing.worst_setup_slack_ns` |
-| `asic_wns`, `asic_tns` | ASIC WNS, TNS | ns | `asic.ips.<ip>.timing.wns_ns`, `.tns_ns` |
+| `fpga_fmax` | FPGA Fmax, worst clock | MHz | `fpga.ips.<ip>.fmax_mhz`, else the lowest `fpga.ips.<ip>.timing.clocks.*.fmax_mhz` |
+| `fpga_setup_slack` | FPGA worst setup slack | ns | `fpga.ips.<ip>.timing.worst_setup_slack_ns`, else `.setup_slack_ns` |
+| `asic_wns`, `asic_tns` | ASIC WNS, TNS | ns | `asic.ips.<ip>.timing.wns_ns`, else `.wns_ns`; `.timing.tns_ns`, else `.tns_ns` |
+
+The flat keys after "else" are the legacy forms the tracker charts also
+read, in the same order, so a series alerts on exactly the values its chart
+plots. Higher is better for slack too: a WNS going from −1.0 ns to −1.5 ns is
+a 0.5 ns drop.
 
 `mutants` is an optional record section that no nightly step writes yet;
 the series is read where a record carries it. Values must be finite numbers;
@@ -385,13 +392,85 @@ change, threshold), or a line saying no series dropped or no records were
 found. Alerts never fail the command; it exits 2
 only on a configuration error.
 
+**The nightly step has no `continue-on-error`** (a deliberate choice):
+alerts never fail the command, so a failure means a broken tool or
+configuration, and the night is reported red for it. The data upload and
+`publish` do not depend on this step, so tonight's record is still
+published.
+
+**The Fmax threshold** (`fpga_fmax`, 2 MHz absolute) was checked against
+the first week of history on 2026-10-20 (15 runs from 2026-10-14): Quartus
+repeats its result exactly on the same commit, so every change seen came
+from a design change (−0.43, −0.20, +1.41 and +5.91 MHz). The worst clock of
+every IP is its slow core clock, between 50 and 57 MHz, where 2 MHz is 3.5 to
+4 %, so a relative threshold would act the same way for now and the
+threshold stays absolute. The re-check on two weeks of history (from
+2026-10-28) is owned by #441.
+
 ## `guard`
 
 Lists the paths changed between the merge base of `--base` and `--head`
-and `--head` (`git diff --name-only --no-renames`, so a rename shows both
+and `--head` (`git diff --name-status --no-renames`, so a rename shows both
 paths). A branch that does not start with `branch_prefix` passes at once.
-A data branch passes only when it changes at least one path and every path
-is under `data_dir/`; otherwise it prints each offending path and exits 1.
+A data branch passes only when it changes at least one path, every path is
+under `data_dir/`, and every change is one of these; otherwise it prints
+each offending path and exits 1:
+
+| Path in `data_dir/` | Allowed change |
+| --- | --- |
+| `<date>T<HHMMSS>Z.json` (a run name of `collect`, directly in `data_dir/`) | Added (never modified or deleted), a JSON object with `schema_version` `1` and `meta.generated_at` a UTC `YYYY-MM-DDTHH:MM:SSZ`. |
+| `commits.jsonl` | Every line a JSON object with a string `sha`, no `sha` twice, and every `sha` of the merge base's file still present. |
+| Anything else, or any deletion | Never. |
+
+So a data branch can only add records and grow the series: it never loses
+or rewrites data, and a malformed file fails the guard (publishability is
+`./build check`'s, which runs beside it in `ci-gate`).
+
+`--pr-base DEFAULT` replaces `--base` in CI: for a data branch it looks up
+the branch's open PRs (`GET repos/{repo}/pulls?state=open&head={owner}:{branch}`),
+takes the base of the one into `DEFAULT`, else of any, else `DEFAULT`,
+fetches the full history (`git fetch --unshallow`, best effort) and that
+branch, and guards against `origin/<base>`; any other branch passes at once
+with no API call or fetch. `--select FILE`, when a data branch passes,
+appends `AFFECTED=--affected <merge base SHA>` to `FILE` (the job's
+`$GITHUB_ENV`); it writes nothing for another branch or a failure. With that
+selection `./build ci unit`, `./build regress` and `./build ci vendor` see
+only data files changed and select nothing
+([data PR CI](#workflows)).
+
+## `stage`
+
+Builds the data branch for one nightly run in `--worktree` and commits it,
+so that no run's record is lost when runs publish faster than their data
+PRs merge. The `publish` job runs it; it needs PyYAML and `gh` only.
+
+1. Lists the open PRs into `--base` whose head is a `branch_prefix` branch
+   of this repository (`GET repos/{repo}/pulls?state=open&base=`; a fork's
+   head is ignored), fetches the base and each head, and runs the guard on
+   each head against the base. One that fails stops staging (exit 2): a
+   person must fix or close it.
+2. **Continue or start.** With open data PRs, the newest is continued: the
+   worktree starts at its head, so this run's commit lands on top of the
+   earlier runs' records (`mode=continue`). Without one, `--branch` starts
+   at the base tip (`mode=new`).
+3. **Carry.** Every other open data PR's added records and its series are
+   copied in; the caller closes those PRs once the branch is pushed
+   (`carried`).
+4. Copies this run's files from `--data`: each record (a run name only),
+   and `commits.jsonl` merged by commit. **The series merge** keeps one line
+   per `sha` from the branch's file, the carried ones and this run's, a later
+   source winning on the same `sha` (this run's lines are the newest), in
+   `index` order, then by date. Main's first-parent history only grows, so
+   nothing is lost and nothing is duplicated.
+5. A record already on the branch under the same name must be identical
+   (exit 2 otherwise). With no change, nothing is committed
+   (`changed=false`); otherwise it commits with `--message`, with the
+   identity of the environment (the workflow sets the `data_author` bot).
+
+It prints, and with `--out` writes, `KEY=VALUE` lines: `branch`, `mode`
+(`new` or `continue`), `number` (the continued PR), `carried` (PR numbers,
+space-separated), `changed` (`true` or `false`) and `sha` (the commit).
+Branch names must match `[A-Za-z0-9._/-]+` without `..` or a leading `-`.
 
 ## `red`
 
@@ -446,19 +525,20 @@ WSL host's runners only
 (default `main`) is the data PR's base; any other base is for testing the
 workflow and skips auto-merge and the `nightly-red` issue. The data branch
 is `nightly/<date>` for `main` and `nightly/<date>-<base>` (slashes in the
-base become `-`) for any other base, so a test dispatch never force-pushes
-over the day's real data PR. Two runs on one day share the branch. Each adds
-its own record file, so once the earlier run's data PR has merged (auto-merge
-takes minutes) the later one adds a second record beside it; while that PR is
-still open, the later run force-pushes the branch from the base tip and the
-earlier record is lost, like that of any data PR closed unmerged (and of an
-older day's open data PR, which `publish` closes). #324 owns removing that
-loss.
+base become `-`) for any other base, so a test dispatch never touches the
+day's real data PR. Those are the names of a new branch; **no record is
+lost** when runs publish faster than their PRs merge: while a data PR into
+the base is open, the next run commits its record on top of that PR's head
+([`stage`](#stage)), and any other open data PR is carried in and closed.
+Runs never overlap (the workflow's concurrency group queues them), and a
+push that loses the race with the open PR's auto-merge (the PR merged at the
+older head, or the branch moved) stages again on the new base, up to three
+attempts, before the job fails.
 
 | Job | Permissions | Does |
 | --- | --- | --- |
 | `nightly` (480 min) | read: contents, issues, pull-requests, actions | `./build check`; `./build ci unit` (every suite, including `./build arch --ip <ip>` for each IP with `src/arch/<ip>/perf/`, the only arch perf run); `./build regress --level 0 --level 1 --level 2 --coverage --rotate <date>` (all IPs, with the date's [rotated extra seeds](../regress/SPEC.md#seed-rotation)); `./build fpga --all`; `./build ci vendor --kind asic` (the synthesis-only check, step `asic-synth`, every IP with `src/asic/<ip>/`, its summaries uploaded as `asic-synth-summary`); the full ASIC flow for IPs with `src/asic/<ip>/` (`--all`, else one `--ip` per IP; `paused`, with no flow run, while the workflow env `ASIC_PAUSED` is `"true"`, [ASIC pause](../../bkm/devops.md#asic-pause)); `./build metrics commits --ref origin/main` continuing the base branch's series, then `./build metrics collect --out-dir` with the step outcomes, the start time and the run id and attempt (this run's own `<date>T<HHMMSS>Z.json`); `./build metrics trends --dir wiki/tracker/data --dir <tonight's data>` into the job summary (the nightly summary); uploads both files. Every step runs even after a failure; a step whose subcommand is still a stub, or has no IP inputs, is `skipped`. |
-| `publish` (15 min) | write: contents, pull-requests, actions | Checks out without persisted credentials and installs PyYAML; commits only the two data files (`commits.jsonl` and this run's record, a new file beside the earlier runs'), as `github-actions[bot]`, on the data branch from the base tip; runs `./build metrics guard` from this trusted checkout; force-pushes the branch with the token passed for that one command; closes, with a comment, any other open `nightly/*` PR into the same base (they would conflict on `commits.jsonl`); opens (or reuses) the PR labelled `type:data` and `area:wiki`; dispatches `ci.yml` (`ci-gate`, with the data guard) on the branch; on `main`, enables squash auto-merge and dispatches `pages.yml` on `main`. |
+| `publish` (15 min) | write: contents, pull-requests, actions | Checks out without persisted credentials and installs PyYAML; `./build metrics stage` commits only the data files (this run's record, a new file beside the earlier runs', and the merged `commits.jsonl`), as `github-actions[bot]`, on top of the open data PR's head, else on a new branch from the base tip; runs `./build metrics guard` from this trusted checkout; pushes with the token passed for that one command (fast-forward for a continued branch, forced for a new one) and, for a continued PR, checks it is still open at that commit, else stages again; closes, with a comment, each carried data PR; comments the run on a continued PR, or opens the PR, labelled `type:data` and `area:wiki`; dispatches `ci.yml` (`ci-gate`, with the data guard) on the branch; on `main`, enables squash auto-merge and dispatches `pages.yml` on `main`. |
 | `report` (5 min) | read contents and actions, write issues | Downloads the run's `regress-summary` artifact (a missing one is not an error); `./build metrics red` with `success` only when `nightly` and `publish` both succeeded, `--head` the run's commit, `--step` each nightly step's outcome (the `nightly` job's outputs; a missing one is `fail`) and `--summary` that summary. |
 
 Pushes and PRs made with `GITHUB_TOKEN` start no runnable workflows (a
@@ -524,13 +604,25 @@ API call or history fetch. Like every PR check, a PR can
 edit its own copy of the workflow; the `publish` job's own guard run, from
 the trusted checkout, is what keeps the bot honest. A superseded data PR
 (for example one opened before a fix to this flow) is closed by the next
-night's `publish`, which closes every other open `nightly/*` PR into the
-same base.
+night's `publish`, which carries its records and closes it.
 
-A data PR changes only `wiki/tracker/data/**`, a docs-only change: on a
-`pull_request` run `ci-gate` selects no IPs. The nightly's dispatched run is
-a dispatch, so it runs every IP's L0+L1 (about the same few minutes as any
-push to `main`).
+**Data PR CI** runs what a data-only change needs. The dispatched run's
+guard step runs `./build metrics guard --pr-base main --select`: once the
+guard has proved, against the PR's real base and from the merge base, that
+the branch changes only valid data files, the run's unit, regression and
+FPGA steps get `--affected <merge base>`, so they select no suite, IP or
+target, just as a docs-only pull request. `./build check` (publishability
+of the data among the rest) and the strict wiki build (the tracker
+rendered from the new data) still run, and the data guard validates every
+record and the series. The gate result is the run's own, posted on the
+tested commit by `ci-gate-status`; neither the preceding nightly's result
+nor the dispatch itself counts. A guard failure (a mixed change, a
+malformed or deleted file) fails `ci-gate` and leaves the selection at
+everything. Every other push, dispatch and pull request keeps its usual
+selection ([CI spec](../ci/SPEC.md#the-workflow)). Measured before this
+path, the gate of a data PR took 7m10s of runner time (units 3m13s,
+regression 3m09s) and 8m10s end to end
+([run 38713182485](https://github.com/amichai-bd/pcie-factory/actions/runs/38713182485)).
 
 ## Consumers
 
@@ -562,7 +654,17 @@ wiring, the coverage section, the arch section (whitelist, missing and
 invalid files), the `arch_py` kind, the forbidden-pattern scan, and an end-to-end `collect` whose
 inputs plant paths, emails and names that must not appear in the output
 (`test_metrics_record.py`); the guard on real branches including renames
-and a moving base (`test_metrics_guard.py`); and the red-issue rule
+and a moving base, each malformed data file (bad JSON, wrong schema, no
+`generated_at`, a non-run name, a subfolder, a series line without `sha`,
+a duplicate `sha`), a deleted or rewritten record and a lost series line,
+`--select` writing the merge base only for a passing data branch (not for
+another branch or a mixed change), and `--pr-base` resolution, fetch and
+the no-API pass of other branches (`test_metrics_guard.py`); staging
+(`test_metrics_stage.py`): a new branch from the base tip, two runs back to
+back where the second commits on the open PR's head and both records and
+one line per commit remain, another open data PR carried, a fork's PR
+ignored, an open PR failing the guard, a differing record refused, nothing
+to publish, the series merge, bad branch names and the `--out` lines; and the red-issue rule
 (`test_metrics_red.py`: open, update and close, and on failure the failed
 steps, the commits since the last green nightly, the cap on long ranges,
 no green run, no new commits, a failed lookup, bad `--head` or
@@ -572,7 +674,10 @@ copied, and a missing or unreadable summary); extra rotated seeds left out
 of the `tests` section (`test_metrics_record.py`); the trend series and drop rule on a fixture
 history (`fixtures/trends/`) with a drop that alerts across a gap, a flat
 series, a drop equal to its threshold, a rise, a gap at the latest record,
-retired and new IPs, malformed and missing values, and the `trends`
+retired and new IPs, malformed and missing values, a negative series
+(WNS −1.0 → −1.5 alerts, −1.75 → −1.0 does not), the legacy flat keys read
+like the tracker (`tools/wiki_site/tests/test_tracker.py` also checks that
+both read the same value from one record), and the `trends`
 summary, its `--dir` precedence and skipped files; run order: three runs on
 one day after a date-named record, consecutive and alerting between the
 day's last two runs, order by start time over file names with the

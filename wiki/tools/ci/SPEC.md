@@ -169,20 +169,30 @@ requests to `main`, pushes to `main` and manual dispatch:
 2. Python dependencies: the runner's environment when it already satisfies
    `tools/requirements.txt` (`pip install --dry-run --no-index`), otherwise a
    job venv under `workdir/venv` put first on `PATH`.
-3. The data guard, `./build metrics guard` ([metrics spec](../metrics/SPEC.md#guard)):
-   on a pull request `--branch <head> --base HEAD^1`; on a dispatch on a
-   `nightly/` ref (push triggers only on `main`, so a `nightly/` ref arrives
-   only by dispatch) `--branch <ref> --base origin/<base>`, where `<base>`
-   is the base of the branch's open PR into `main` (else of any open PR,
-   else `main`; the history is unshallowed first). Any other push or
-   dispatch skips it. Only a `nightly/` branch can fail it.
+3. The data guard and selection, `./build metrics guard`
+   ([metrics spec](../metrics/SPEC.md#guard)), which sets `AFFECTED` for
+   the later steps: on a pull request `--branch <head> --base HEAD^1`, with
+   `AFFECTED=--affected HEAD^1`; on any push or dispatch `--branch <ref>
+   --pr-base main --select $GITHUB_ENV`, with `AFFECTED` empty unless the
+   guard selects. For a `nightly/` ref (push triggers only on `main`, so a
+   `nightly/` ref arrives only by dispatch) that compares with
+   `origin/<base>`, `<base>` being the base of the branch's open PR into
+   `main` (else of any open PR, else `main`; the history is unshallowed
+   first), and when the branch passes (only valid data files changed) it
+   sets `AFFECTED=--affected <merge base>`. Any other ref passes at once
+   with nothing selected. Only a `nightly/` branch can fail it, and a
+   failure leaves `AFFECTED` empty.
 4. `./build check`, then `./build wiki build --strict` (a few seconds; it
    gates a docs-only change, which selects no IP and no suite).
 5. `./build ci unit`, then `./build regress --level 0 --level 1 --jobs
    $(nproc)`. On a pull request both get `--affected HEAD^1`: the checkout is
    the merge commit, whose first parent is the base tip it merged onto, so
-   the diff is exactly the PR's change against the tree under test. On a push
-   or dispatch neither gets `--affected` (every IP, every suite). With
+   the diff is exactly the PR's change against the tree under test. On a
+   dispatch on a guarded data branch both get `--affected <merge base>`, so
+   they select nothing, as for a docs-only PR: the data path is the checks,
+   the strict wiki build (the tracker rendered from the new data) and the
+   guard's validation of every data file. On any other push or dispatch
+   neither gets `--affected` (every IP, every suite). With
    `--affected`, a change only under `global` paths runs the tools unit
    tests and level 0 of every IP; a change in an IP's sources or DV runs
    L0 and L1 of that IP and of every IP whose filelists reach it.
@@ -196,8 +206,11 @@ parallel: `ci-fpga` calls `./build ci vendor --kind fpga $AFFECTED`
 (Quartus synthesis only; fit and timing are nightly, captain decision,
 2026-10-19, #362) and uploads `workdir/ci/vendor-fpga.json` and each
 target's `fpga-synth/synthesis.json` as `ci-fpga-summary`, with
-the same checkout, Python pins and PR-base selection; push and dispatch run
-every target. With no target it succeeds after executing selection, rather
+the same checkout and Python pins. Its own selection step sets `AFFECTED`
+the same way (`--affected HEAD^1` on a pull request; on a push or dispatch,
+`./build metrics guard --pr-base main --select`, which selects the merge
+base for a data branch the guard passes and fails the job otherwise), so
+other pushes and dispatches run every target. With no target it succeeds after executing selection, rather
 than being skipped. `--kind asic` has no `ci.yml` job: the nightly runs it
 for every target, as an L2 check (captain decision, 2026-10-19, #362;
 [levels](../../bkm/devops.md#levels-and-budgets)).
