@@ -177,11 +177,13 @@ tests:
     seeds: [1951378203]
     timeout_s: 600
     params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
+  # Seed 119646981 (#429): the random phases never fill a class's header
+  # credits (a posted TLP short of data credits heads the queue).
   - name: credit_release_sweep
     module: tests.test_dll_fc
     testcase: credit_release
     top: pcie_dll_tb
-    seeds: [1]
+    seeds: [1, 119646981]
     timeout_s: 600
     params: {FC_RELEASE: 1}
   - name: tlp_bidir_sweep

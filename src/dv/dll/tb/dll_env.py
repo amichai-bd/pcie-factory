@@ -576,6 +576,7 @@ class Env:
         self.rel_q: dict[int, deque[tuple[int, int]]] = {0: deque(), 1: deque()}
         self.held = [[0, 0], [0, 0]]
         self.held_max = [[0, 0], [0, 0]]
+        self.held_max_random = None            # held_max before a directed tail (credit_release)
         self.rel_delay = 2                     # cycles after delivery, at least 2
         self.rel_p = 0.5                       # release probability per class and cycle
         self.rel_stall_until = 0               # no release before this cycle

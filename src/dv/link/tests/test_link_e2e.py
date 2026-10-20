@@ -300,7 +300,9 @@ async def e2e_mixed(dut):
     await env.drain()
     for inj in env.injectors:
         inj.rates.update(dict.fromkeys(inj.rates, 0.0))
-    await env.cycles(1500)
+    # A dropped or corrupted last UpdateFC of a class comes back only with
+    # the refresh, up to 2048 cycles after it was sent (#429).
+    await env.cycles(2500)
     stats = env.finish()
     for d in ("ab", "ba"):
         s, r = ends(env, d)
