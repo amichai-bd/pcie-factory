@@ -399,12 +399,14 @@ async def credits_infinite(dut):
 
 
 async def starve_rx_run(dut, schedule, *, release=None, count: int = 1500,
-                        drain: int = 60000) -> Env:
+                        drain: int = 60000, tail=None) -> Env:
     """The independent partner sends TLPs to the DUT, gated by the DUT's
     UpdateFCs; the DUT's upper layer follows ``schedule`` (cycles, take
     probability; below 1 only with every class finite), then takes all.
     With FC_RELEASE 1, ``release`` is the releaser's schedule (cycles,
-    release probability; 0 releases nothing), in parallel, then all."""
+    release probability; 0 releases nothing), in parallel, then all.
+    ``tail(env, partner, tlps)`` runs after that drain and appends what
+    it sends to ``tlps``; the final checks cover it."""
     seed = cocotb.RANDOM_SEED
     rng = random.Random(seed)
     partner = ptn.Partner("partner", seed=seed)
@@ -434,6 +436,8 @@ async def starve_rx_run(dut, schedule, *, release=None, count: int = 1500,
     env.rx_ready_p = 1.0
     await env.run_until(lambda: len(env.delivered) == len(tlps) and not partner.rbuf, drain,
                         "every TLP delivered and acknowledged")
+    if tail is not None:
+        await tail(env, partner, tlps)
     await env.run(200)
     if env.rel:
         assert not env.rel_q[0] and not env.rel_q[1], "TLPs left unreleased after the drain"
@@ -468,18 +472,63 @@ async def release_schedule(env: Env, schedule) -> None:
     env.rel_p, env.rel_stall_until = 1.0, 0
 
 
+async def hold_every_header(env: Env, partner: ptn.Partner, tlps: list[bytes]) -> None:
+    """The directed tail of ``credit_release``: the random phases reach a
+    full class only when a header limit happens to stop the partner's
+    in-order queue, and a posted TLP short of data credits at its head
+    stops every class behind it, so some seeds never get there (#429).
+    Here, with every credit back at the partner and every release held,
+    the partner sends header-only TLPs in order: FC_NPH reads, FC_PH
+    messages, then one TLP more of the last finite class. Only the header
+    limits stop that burst, so the upper layer holds every finite P and NP
+    header credit and the last TLP stays queued (the partner starved) until
+    the releases resume."""
+    kinds = {"NP": "MRd", "P": "Msg"}
+    fin = [cls for cls in ("NP", "P") if env.adv[cls][0]]
+    if not fin:
+        return
+    env.held_max_random = [list(h) for h in env.held_max]
+
+    def credits_back() -> bool:
+        return all(partner.avail(cls)[f] == env.adv[cls][f]
+                   for cls in fin for f in (0, 1) if env.adv[cls][f])
+    await env.run_until(credits_back, 4000, "every P and NP credit back at the partner")
+    env.rel_stall_until = 1 << 62
+    tag = len(tlps)
+    burst = [ptn.make_tlp(kinds[cls], 0, tag + k) for k, cls in
+             enumerate(c for c in fin for _ in range(env.adv[c][0]))]
+    extra = ptn.make_tlp(kinds[fin[-1]], 0, tag + len(burst))
+    for t in burst + [extra]:
+        partner.send(t)
+    full = len(tlps) + len(burst)
+
+    def held_full() -> bool:
+        return len(env.delivered) == full and all(
+            env.held[CLASSES.index(cls)][0] == env.adv[cls][0] for cls in fin)
+    await env.run_until(held_full, 4000, "every finite P and NP header credit held")
+    await env.run(500)
+    assert len(env.delivered) == full and partner.tx_queue == [extra], (
+        f"releases held: {len(env.delivered) - len(tlps)} of the burst's {len(burst) + 1} "
+        f"TLPs delivered, expected {len(burst)} (the last one starved)")
+    tlps.extend(burst + [extra])
+    env.rel_stall_until, env.rel_p = 0, 1.0
+    await env.run_until(lambda: len(env.delivered) == len(tlps) and not partner.rbuf, 4000,
+                        "the starved TLP delivered after the releases")
+
+
 @cocotb.test()
 async def credit_release(dut):
     """L1/L2, seeded, FC_RELEASE 1: credit starvation with delayed release.
     The partner sends as fast as the DUT's UpdateFCs allow; the DUT's upper
     layer takes every beat (and, with every class finite, also stalls the
     stream) but releases posted and non-posted credits late: in 30% of
-    cycles, none for 4000 cycles, 30%, none for 10000, then all. The
+    cycles, none for 4000 cycles, 30%, none for 10000, then all; then a
+    directed burst with every release held (``hold_every_header``). The
     receiver never overflows, the upper layer never holds more than the
-    DUT advertises and does hold all of a class's credits (the partner
-    starved), every TLP is delivered once and in order, and each release
-    is in an UpdateFC within the bound, cross-checked with the reference
-    and the architecture model."""
+    DUT advertises and does hold every finite P and NP header credit (the
+    partner starved), every TLP is delivered once and in order, and each
+    release is in an UpdateFC within the bound, cross-checked with the
+    reference and the architecture model."""
     phases = [(2000, 0.3), (4000, 0.0), (2000, 0.3), (10000, 0.0)]
 
     def rx(env: Env):
@@ -487,13 +536,18 @@ async def credit_release(dut):
         finite = all(v for cls in CLASSES for v in env.adv[cls])
         return phases if finite else [(sum(c for c, _ in phases), 1.0)]
 
-    env = await starve_rx_run(dut, rx, release=phases, count=600, drain=200000)
+    env = await starve_rx_run(dut, rx, release=phases, count=600, drain=200000,
+                              tail=hold_every_header)
+    finite = [CLASSES[c] for c in (0, 1) if env.adv[CLASSES[c]][0]]
     held_all = [CLASSES[c] for c in (0, 1) if env.adv[CLASSES[c]][0]
                 and env.held_max[c][0] == env.adv[CLASSES[c]][0]]
-    assert held_all, f"the upper layer never held all of a class's header credits {env.held_max}"
+    assert finite and held_all == finite, (
+        f"the upper layer held all header credits of {held_all}, expected every finite "
+        f"class of {finite}; held at most {env.held_max}")
     assert all(env.released), f"releases per class {env.released}"
-    dut._log.info("held at most %s (P, NP; header, data) of %s; %s releases; credits held "
-                  "in full: %s", env.held_max, env.adv, env.released, held_all)
+    dut._log.info("held at most %s (P, NP; header, data) of %s, %s in the random phases; "
+                  "%s releases; credits held in full: %s", env.held_max, env.adv,
+                  env.held_max_random, env.released, held_all)
 
 
 @cocotb.test()

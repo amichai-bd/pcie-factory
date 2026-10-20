@@ -90,11 +90,14 @@ tests:
     seeds: 3
     timeout_s: 900
     coverage_seeds: 2
+  # The four derived seeds in index order (the first is the coverage
+  # seed), then 1733523445 (#429): an UpdateFC-NP dropped as the traffic
+  # drains, so the credits return only with the refresh.
   - name: e2e_mixed_sweep
     module: tests.test_link_e2e
     testcase: e2e_mixed
     top: pcie_link_e2e_tb
-    seeds: 4
+    seeds: [1923595350, 94407872, 480894330, 1806626284, 1733523445]
     timeout_s: 900
 # Directed entries moved from level 1 to keep ci-gate inside its budget
 # (#272); level 1 keeps the error classes, the rollover, the minimum
