@@ -23,14 +23,17 @@ from regress.funcov import Covergroup
 CLK_NS = 10
 
 # Functional coverage (DV plan, Strategy): the beats held before each edge
-# against what happens at it, and resets with beats held.
+# against what happens at it, and resets with beats held. Nothing leaves an
+# empty stage and nothing enters a full one; and a held beat is offered, so
+# an edge that moves nothing with a beat held is a stall, never idle.
 COV = Covergroup("common_skid_stage")
 COV.coverpoint("held", bins=["none", "out", "out_skid"])
 COV.coverpoint("op", bins=["in", "out", "in_out", "stall", "idle"])
 COV.coverpoint("reset", bins=["held", "empty"])
 COV.cross("held_x_op", "held", "op",
           unreachable=[("none", "out"), ("none", "in_out"), ("none", "stall"),
-                       ("out_skid", "in"), ("out_skid", "in_out")])
+                       ("out_skid", "in"), ("out_skid", "in_out"),
+                       ("out", "idle"), ("out_skid", "idle")])
 
 
 class Stage:

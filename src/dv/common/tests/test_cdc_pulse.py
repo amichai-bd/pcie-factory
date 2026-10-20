@@ -19,11 +19,17 @@ from tb.cdc_env import (CLOCK_BINS, EdgeLog, GatedClock, clock_ratio, falling_ed
 
 # Functional coverage (DV plan, Strategy): the clock ratio class of each
 # pulse, and its spacing to the next one: back to back (one source cycle),
-# at the two-destination-period minimum, or wider.
+# at the two-destination-period minimum, or wider. Back to back needs a
+# source period of at least two destination periods (dst / src at most
+# 0.5), so not with a faster or near-equal source; with dst_fast_4x the
+# minimum is one source cycle, which counts as back to back. Those four
+# crosses are unreachable: left out, and a sample of one fails the test.
 COV = Covergroup("common_cdc_pulse")
 COV.coverpoint("clocks", bins=CLOCK_BINS)
 COV.coverpoint("spacing", bins=["back_to_back", "minimum", "wider"])
-COV.cross("clocks_x_spacing", "clocks", "spacing")
+COV.cross("clocks_x_spacing", "clocks", "spacing",
+          unreachable=[("src_fast_4x", "back_to_back"), ("src_fast", "back_to_back"),
+                       ("near_1to1", "back_to_back"), ("dst_fast_4x", "minimum")])
 # Asynchronous reset with both clocks stopped: while an output pulse is
 # high (held into the restart), or after the event has crossed (a pulse
 # wholly inside the stop when the source side is asynchronous too).

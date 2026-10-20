@@ -27,8 +27,17 @@ make them fire, so no test breaks them on purpose.
   edge at a tenth.
 - **Coverage:** covergroup `common_skid_stage`: the beats held before
   each edge (none, out, out and skid) crossed with what happens at it (a
-  beat in, a beat out, both, a stall, idle; the combinations the ready
-  rule forbids left out), and resets with beats held or empty.
+  beat in, a beat out, both, a stall, idle), and resets with beats held or
+  empty. Seven combinations are unreachable by construction and are
+  declared in the cross's `unreachable` list
+  ([regress SPEC](../../../tools/regress/SPEC.md#functional-coverage)), so
+  they are not bins and a sample of one fails the test: nothing leaves an
+  empty stage (`none` with `out`, `in_out` or `stall`); nothing enters a
+  full one, as `in_ready_o` is low (`out_skid` with `in` or `in_out`); and
+  a held beat is offered (`out_valid_o` high), so an edge that moves
+  nothing with a beat held is a stall, never idle (`out` or `out_skid`
+  with `idle`, [#232](https://github.com/amichai-bd/pcie-factory/issues/232)).
+  The derived seeds of L0 to L2 hit every other bin.
 - **In its consumers:** `tl`'s transmit output stage is this block, so the
   [`tl` DV plan](../tl/DV_PLAN.md#plan) entries exercise it at `tl`'s
   beat width and under the `core` entries.

@@ -220,8 +220,7 @@ def run(
     reused: dict[tuple[TestEntry, int], dict] = {}
     if cache is not None and verilator is not None and any(e.rerun_when for e, _ in all_runs):
         rules = load_rules(ctx.cfg_dir)
-        graph = Imports(units(ctx.src_root), (ctx.repo_root / rules.import_root).resolve(),
-                        rules.models)
+        graph = Imports(units(ctx.src_root), (ctx.repo_root / rules.import_root).resolve())
         for entry, seed in all_runs:
             if entry.rerun_when:
                 k = model_key(ctx, ips[entry.ip], entry, seed, verilator, graph, rules.shared_dv)
