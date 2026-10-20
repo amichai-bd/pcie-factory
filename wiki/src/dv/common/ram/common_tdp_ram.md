@@ -22,19 +22,37 @@ writing one word, one write and reads only.
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Two ports, read-first collisions within and across ports, disjoint-lane double write, lanes](../../../rtl/common/ram/common_tdp_ram.md#behavior) | `tdp_ram_contract` | 0 | 1 |
-| The same under random traffic, against the model | `tdp_ram_random` / `tdp_ram_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (255575359 and 372413573), pinned; 2000 cycles |
+| The same under random traffic, against the model | `tdp_ram_random` | 1 | seed 2017260969; 2000 cycles; unchanged parameters/backend |
 | [Parameter limits](../../../rtl/common/ram/common_tdp_ram.md#parameters) | `ram_param_limits` | 1 | shared with the family |
 | Random traffic, smallest RAM | `tdp_ram_long_min` | 2 | 2; 20000 cycles |
 | Random traffic, wide RAM with eight lanes | `tdp_ram_long_wide` | 2 | 2; 20000 cycles |
 
-**Level placement**
-([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
-level 1 of every IP, which `ci-gate` runs for a change to a shared
-package, was over its 1200 s CPU budget. `tdp_ram_random` runs its first
-seed in level 1; its further seeds run pinned and unchanged in its level 2
-`_sweep`, each seed with its coverage instrumentation, so the merged level
-0 to 2 runs are the same runs. The mutation evidence on this page names no
-seed for it, and was not rerun at the first seed alone.
+**Plain repeat removal (#461).** Each random entry below retains its L1
+configuration and assertion set. The removed `_sweep` rows collect no
+coverage (`coverage_seeds: 0`); every covered entry and every distinct
+geometry/backend remains. Extra random breadth and those rows' nightly
+rotations are trimmed.
+
+| Retained L1 entry | Seed | Parameters | Backend |
+| --- | --- | --- | --- |
+| `tdp_ram_random` | 2017260969 | WIDTH=16, ADDR_W=3, LANES=2 | `portable` |
+
+Known faults remain checked by directed contracts and lint, not by a
+sole removed random seed. `tests/test_ram.py::contract` / `directed`
+consume no outer testcase RNG: `Ram.word(addr, salt)` constructs fixed
+data independently. Historical seed-1 contract evidence below therefore
+has identical stimulus at the retained default seed; this is a source
+equivalence argument, not a newly measured mutant run.
+
+[PR #179](https://github.com/amichai-bd/pcie-factory/pull/179) records
+`tdp_ram_contract` seed 753250783 catching port b reading port a's
+address at cycle 8. Its separate seed-255575359 collision experiment
+edits the DV to permit illegal overlapping same-lane double writes and
+delays the model check: it proves RTL `a_no_write_collision`, not a
+normal legal-traffic random seed's unique RTL fault catch. The assertion
+and directed contract remain; that manual negative experiment remains
+reproducible with retained `tdp_ram_random --seed 255575359` in a scratch
+source copy. No assertion is waived or weakened.
 
 Mutation evidence ([#126](https://github.com/amichai-bd/pcie-factory/issues/126)),
 in a scratch copy: port `b` reading at `a_addr_i` fails `tdp_ram_contract`

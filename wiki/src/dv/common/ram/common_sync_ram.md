@@ -76,27 +76,41 @@ This strategy serves the whole RAM family; each block's plan links here.
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Read, write, read-first collision, disabled writes, lanes, one-edge latency](../../../rtl/common/ram/common_sync_ram.md#behavior): fill and read back every word, then directed steps | `sync_ram_contract` | 0 | 1 |
-| The same under random traffic, against the model | `sync_ram_random` / `sync_ram_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (976709618 and 591279688), pinned; 2000 cycles |
+| The same under random traffic, against the model | `sync_ram_random` | 1 | seed 1295013732; 2000 cycles; unchanged parameters/backend |
 | [Parameter limits](../../../rtl/common/ram/common_sync_ram.md#parameters) of every family block | `ram_param_limits` | 1 | 1; 30 lint runs |
 | Random traffic, smallest RAM | `sync_ram_long_min` | 2 | 2; 20000 cycles |
 | Random traffic, wide RAM with eight lanes | `sync_ram_long_wide` | 2 | 2; 20000 cycles |
 | [Intel backend](../../../rtl/common/ram/common_sync_ram.md#intel-backend) through the stub: read every edge, read-first collision, disabled writes, lanes | `sync_ram_intel_contract` | 0 | 1; `backend: fpga` |
-| Intel backend under random traffic, against the model | `sync_ram_intel_random` / `sync_ram_intel_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (1976089761 and 1824648475), pinned; 2000 cycles; `backend: fpga` |
+| Intel backend under random traffic, against the model | `sync_ram_intel_random` | 1 | seed 47156279; 2000 cycles; unchanged parameters/backend |
 | Intel backend at the `rc_tl` host memory shape (1024 x 32, four 8-bit lanes) | `sync_ram_intel_host_mem_shape` | 1 | 1; `backend: fpga` |
 | Intel backend: legal geometries lint with exactly the expected messages, illegal ones fail with the block's message; the stub accepts the `SINGLE_PORT` shape and rejects each rule alone | `ram_intel_lint`, `ram_intel_stub_rejects` | 0 | shared with [`common_sdp_ram`](common_sdp_ram.md#plan) |
 
-**Level placement:** the portable `sync_ram_random` keeps its first seed
-at level 1; its further seeds moved to the pinned level 2
-`sync_ram_random_sweep` under
-[#389](https://github.com/amichai-bd/pcie-factory/issues/389) to reduce the
-all-IP level 1 CPU cost. The Intel backend introduced by
-[#417](https://github.com/amichai-bd/pcie-factory/issues/417) follows the
-same placement: `sync_ram_intel_random` at level 1 and two pinned seeds in
-`sync_ram_intel_random_sweep` at level 2. Both sweeps set
-`coverage_seeds: 0`, so their additional seeds run without coverage
-instrumentation even in a coverage regression. The level 1 entries retain
-their configured coverage sampling. The Intel mutants below are caught by
-the directed contract or lint entries, independently of the random sweeps.
+**Plain repeat removal (#461).** Each random entry below retains its L1
+configuration and assertion set. The removed `_sweep` rows collect no
+coverage (`coverage_seeds: 0`); every covered entry and every distinct
+geometry/backend remains. Extra random breadth and those rows' nightly
+rotations are trimmed.
+
+| Retained L1 entry | Seed | Parameters | Backend |
+| --- | --- | --- | --- |
+| `sync_ram_random` | 1295013732 | WIDTH=16, ADDR_W=3, LANES=2 | `portable` |
+| `sync_ram_intel_random` | 47156279 | WIDTH=16, ADDR_W=3, LANES=2 | `fpga` |
+
+Known faults remain checked by directed contracts and lint, not by a
+sole removed random seed. `tests/test_ram.py::contract` / `directed`
+consume no outer testcase RNG: `Ram.word(addr, salt)` constructs fixed
+data independently. Historical seed-1 contract evidence below therefore
+has identical stimulus at the retained default seed; this is a source
+equivalence argument, not a newly measured mutant run.
+
+[PR #179](https://github.com/amichai-bd/pcie-factory/pull/179) records
+`sync_ram_contract` seed 1785294612 catching an ignored lane mask at
+cycle 20 and an extra read register at cycle 8; `ram_param_limits`
+570540821 catches the omitted LANES-divides-WIDTH check. For Intel,
+[PR #450](https://github.com/amichai-bd/pcie-factory/pull/450) records
+`sync_ram_intel_contract` seed 1795073312 catching byteena-all at cycle
+22 and rden-low at cycle 0; `ram_intel_lint` 1221219485 catches wrong
+same-port read-during-write. These L0/L1 entries remain unchanged.
 
 Mutation evidence ([#126](https://github.com/amichai-bd/pcie-factory/issues/126)),
 in a scratch copy: ignoring `wr_lanes_i` fails `sync_ram_contract` ("rd_data
