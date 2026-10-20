@@ -4,6 +4,11 @@ tests:
     testcase: smoke
     top: common_cdc_sync2
     timeout_s: 60
+  - name: sync2_dst_fast_min
+    module: tests.test_cdc_sync2
+    testcase: dst_fast_min
+    top: common_cdc_sync2
+    timeout_s: 60
   - name: pulse_smoke
     module: tests.test_cdc_pulse
     top: common_cdc_pulse
