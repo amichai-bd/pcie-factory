@@ -148,8 +148,8 @@ def run(repo_root: Path, config_path: str = CONFIG,
     slug = cfg.repo_slug or slug_from_remote(repo_root)
     words, slug_re = word_pattern(cfg.words), slug_pattern(slug)
     src = Path(src_root) if src_root is not None else Path(repo_root) / "src"
-    ids = ip_ids(src, repo_root) if src.is_dir() else ()
-    ips = ip_pattern(ids)
+    ids = ip_ids(src) if src.is_dir() else ()
+    ips = ip_pattern(ids, top_entries(repo_root))
     listed = [f for f in _git(repo_root, "ls-files", "-z", "--cached", "--others",
                                 "--exclude-standard").split("\0") if f]
     files = [f for f in sorted(set(listed)) if not f.startswith(EXEMPT)]
@@ -192,32 +192,43 @@ def run(repo_root: Path, config_path: str = CONFIG,
 #     <id>.py, or a last segment such as "die/<id>", is not one);
 #   - an IP selector: --ip <id>, --ip=<id>, or a `<id>:<test>` reference;
 #   - the id followed by "IP" or "sub-IP" ("<id> IP").
-# Ids equal to a top-level entry of the repository (such as its configuration
-# folder) are skipped: as path segments they name that entry, not the IP.
+# An id equal to a top-level entry of the repository (such as its
+# configuration folder) is skipped in the forms that also name that entry: a
+# path segment and a whole code span or quoted string ("cfg" as a path
+# argument). Its selector forms and "<id> IP" still count.
 
 
-def ip_ids(src_root: Path, repo_root: Path | None = None) -> tuple[str, ...]:
-    """Discovered IP ids, less those that equal a top-level repository entry."""
+def ip_ids(src_root: Path) -> tuple[str, ...]:
+    """The IP ids discovered from ``src_root``."""
     from build.ip import DiscoveryError, discover
     try:
-        ids = [ip.id for ip in discover(src_root)]
+        return tuple(ip.id for ip in discover(src_root))
     except DiscoveryError as exc:
         raise CheckConfigError(str(exc)) from None
-    top = set()
-    if repo_root is not None and Path(repo_root).is_dir():
-        top = {p.name for p in Path(repo_root).iterdir()}
-    return tuple(i for i in ids if i not in top)
 
 
-def ip_pattern(ids: tuple[str, ...]) -> re.Pattern | None:
-    """Matches an IP id used as an identifier; group ``id`` holds the id."""
+def top_entries(repo_root: Path | None) -> frozenset[str]:
+    """Names of the repository's top-level entries."""
+    if repo_root is None or not Path(repo_root).is_dir():
+        return frozenset()
+    return frozenset(p.name for p in Path(repo_root).iterdir())
+
+
+def ip_pattern(ids: tuple[str, ...], path_skip: frozenset[str] | set[str] = frozenset()
+               ) -> re.Pattern | None:
+    """Matches an IP id used as an identifier; group ``id`` holds the id.
+    Ids in ``path_skip`` (top-level entries) are left out of the forms that
+    also name a top-level entry: the whole span or string and the two
+    path-segment forms."""
     if not ids:
         return None
     alt = "|".join(re.escape(i) for i in sorted(ids, key=len, reverse=True))
+    paths = [i for i in ids if i not in path_skip]
+    palt = "|".join(re.escape(i) for i in sorted(paths, key=len, reverse=True)) or r"(?!)"
     forms = [
-        rf"(?P<q>[`'\"])(?P<id>{alt})(?P=q)",                      # whole span / string
-        rf"(?<![\w.-])(?P<id2>{alt})/",                             # leading segment
-        rf"(?<=/)(?P<id3>{alt})/",                                  # inner segment
+        rf"(?P<q>[`'\"])(?P<id>{palt})(?P=q)",                     # whole span / string
+        rf"(?<![\w.-])(?P<id2>{palt})/",                            # leading segment
+        rf"(?<=/)(?P<id3>{palt})/",                                 # inner segment
         rf"--ip[ =](?P<id4>{alt})\b",                               # selector
         rf"`(?P<id5>{alt}):\w",                                     # <id>:<test>
         rf"(?<![\w.-])(?P<id6>{alt})\s+(?:sub-)?IPs?\b",            # "<id> IP"

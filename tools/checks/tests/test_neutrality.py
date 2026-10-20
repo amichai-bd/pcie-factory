@@ -250,10 +250,16 @@ def test_ip_rule_respects_exempt_trees_and_slug(ip_repo):
     assert findings(ip_repo) == []
 
 
-def test_ip_id_equal_to_a_top_level_entry_is_skipped(ip_repo):
-    add_ip(ip_repo, "cfg")
-    write(ip_repo, "wiki/bkm/x.md", "edit cfg/checks.yaml and `bridge`\n")
-    assert findings(ip_repo) == ["wiki/bkm/x.md:1: IP id 'bridge' used as an identifier"]
+def test_ip_id_equal_to_a_top_level_entry_skips_only_entry_forms(ip_repo):
+    # As a path segment or a whole quoted string, "tools" names the top-level
+    # folder; its selector forms and "tools IP" still name the IP.
+    add_ip(ip_repo, "tools")
+    write(ip_repo, "wiki/bkm/x.md", "edit tools/ok.py, x/tools/y, load(root / \"tools\") "
+                                    "and `tools`\n`bridge`\n--ip tools\nrun `tools:test_a`\n"
+                                    "the tools IP\n")
+    assert findings(ip_repo) == [f"wiki/bkm/x.md:{n}: IP id '{i}' used as an identifier"
+                                 for n, i in ((2, "bridge"), (3, "tools"), (4, "tools"),
+                                              (5, "tools"))]
 
 
 def test_minified_contents_skip_only_the_ip_rule(ip_repo):

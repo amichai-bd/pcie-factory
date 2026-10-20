@@ -107,6 +107,25 @@ def test_package_contexts_fire(body, found):
     ("  assign q_o = {d_i[7:L.m], 2'b00};", [("L.m", "range")]),
     ("  assign q_o = {L.n{2'b01}};", [("L.n", "replication")]),
     ("  assign q_o = 8'((L.n)'(d_i));", [("L.n", "size cast")]),
+    ("  assign q_o = 8'(L.n'(d_i));", [("L.n", "size cast")]),      # unparenthesised
+    ("  assign q_o = 8'(xy_a_pkg::CFG . m '(d_i));", [("xy_a_pkg::CFG.m", "size cast")]),
+    # an instance's parameter values
+    ("  xy_a_sub #(.W(L.n), .D(4)) u_sub (.d_i(d_i), .q_o(q_o));",
+     [("L.n", "parameter value")]),
+    ("  xy_a_sub #(\n    .W (xy_a_pkg::CFG.m)\n  ) u_sub (.d_i(d_i));",
+     [("xy_a_pkg::CFG.m", "parameter value")]),
+    # unpacked dimensions and sizes without a ":"
+    ("  logic [7:0] mem [L.n];", [("L.n", "dimension")]),
+    ("  logic flags [4][L.m];", [("L.m", "dimension")]),
+    ("  localparam int unsigned T [L.n] = '{default: 0};", [("L.n", "dimension")]),
+    ("  xy_a_pkg::t_cfg tab [xy_a_pkg::CFG.n];", [("xy_a_pkg::CFG.n", "dimension")]),
+    # generate case item labels
+    ("  generate\n    case (P)\n      L.n: begin : g_a\n      end\n"
+     "      xy_a_pkg::CFG.m, 2: begin : g_b\n      end\n      default: begin : g_d\n"
+     "      end\n    endcase\n  endgenerate",
+     [("L.n", "generate case label"), ("xy_a_pkg::CFG.m", "generate case label")]),
+    ("  generate\n    case (P)\n      1: assign q_o = d_i;\n      L.m: assign q_o = '0;\n"
+     "    endcase\n  endgenerate", [("L.m", "generate case label")]),
 ])
 def test_module_contexts_fire(body, found):
     assert selects(mod(body), (pkg(""),)) == found
@@ -152,6 +171,15 @@ def test_package_negatives_pass(body):
     "  localparam logic [3:0] LN = L[3:0];",
     # an assignment pattern key is not a select
     "  localparam xy_a_pkg::t_cfg K = '{n: 4'd1, m: 4'd1};",
+    # a conditional index is not a range, and a package item is not a ":"
+    "  assign q_o = {7'd0, d_i[P > 0 ? L.n : 4'd0]};",
+    "  assign q_o = {7'd0, d_i[xy_a_pkg::W - L.n]};",
+    # an index in ordinary logic is not a dimension
+    "  logic [7:0] w;\n  assign w[L.n] = 1'b0;\n  always_comb begin\n    q_o = w;\n"
+    "    q_o[L.m] = d_i[L.n];\n  end",
+    # a procedural case label is ordinary logic
+    "  always_comb begin\n    q_o = d_i;\n    case (d_i[3:0])\n      L.n: q_o = '0;\n"
+    "      default: ;\n    endcase\n  end",
 ])
 def test_module_negatives_pass(body):
     assert selects(mod(body), (pkg(""),)) == []

@@ -16,10 +16,14 @@ A lexical scan on comment- and string-stripped text, in two steps:
 2. ``struct_param_selects`` finds, in one file, each member select
    ``NAME.member`` (or ``pkg::NAME.member``) of a struct-typed parameter that
    sits in a constant context: a localparam or parameter initialiser, a
+   parameter value of an instance (``#(.P(...))``), a
    `` `COMMON_ASSERT_PARAM`` argument, the header of a module-level
-   ``if``/``for``/``case`` (a generate construct), a range (a ``[...]`` with a
-   top-level ``:``, ``+:`` or ``-:``), a replication count (``{N{...}}``) or a
-   size cast (``(N)'(...)``, ``N'(...)``).
+   ``if``/``for``/``case`` or a generate ``case`` item label (a generate
+   construct), a range (a ``[...]`` with more top-level ``:`` than ``?``, so
+   ``+:``, ``-:`` and ``a:b`` but not a ``c ? x : y`` index), an unpacked
+   dimension or size of a declaration (``logic x [N]``), a replication count
+   (``{N{...}}``) or a size cast (``(N)'(...)``, or a select written
+   directly before ``'(``).
 
 A bare ``NAME`` resolves to the enclosing package's parameter, or to a
 module's own struct-typed parameter (declared with a ``pkg::type``); inside a
@@ -258,10 +262,12 @@ _ROUTINES = {"function": "endfunction", "task": "endtask"}
 _CASES = frozenset({"case", "casez", "casex"})
 
 
-def generate_headers(text: str) -> list[tuple[int, int]]:
-    """Spans of the parenthesized header of every module-level ``if``,
-    ``for`` and ``case`` (a generate construct, inside a ``generate`` region
-    or not, at any nesting depth), skipping process bodies and routines."""
+def generate_headers(text: str) -> list[tuple[int, int, str]]:
+    """(start, end, context) of the parenthesized header of every
+    module-level ``if``, ``for`` and ``case`` (a generate construct, inside a
+    ``generate`` region or not, at any nesting depth), and of each generate
+    ``case`` item label (``default`` excepted), skipping process bodies and
+    routines."""
     toks = [(m.group(), m.start()) for m in _TOKEN_RE.finditer(text)]
     n = len(toks)
 
@@ -290,9 +296,40 @@ def generate_headers(text: str) -> list[tuple[int, int]]:
             elif t == close:
                 depth -= 1
                 if depth == 0:
-                    return k + 1
+                    k += 1
+                    if k + 1 < n and toks[k][0] == ":" and toks[k + 1][0] != ":":
+                        k += 2  # end : label
+                    return k
             k += 1
         return n
+
+    def labels(j: int) -> None:
+        """Record the item labels of the generate case whose body starts at
+        token ``j``."""
+        while j < n and toks[j][0] != "endcase":
+            start = j
+            while j < n:
+                t = toks[j][0]
+                if t in _OPEN:
+                    j = group(j)
+                    continue
+                if t == "endcase":
+                    return
+                if t == ":":
+                    if j + 1 < n and toks[j + 1][0] == ":" and toks[j + 1][1] == toks[j][1] + 1:
+                        j += 2  # pkg::NAME
+                        continue
+                    break
+                j += 1
+            if j >= n:
+                return
+            if toks[start][0] != "default":
+                spans.append((toks[start][1], toks[j][1], "generate case label"))
+            j += 1
+            if j < n and toks[j][0] == "begin":
+                j = until(j, {"begin"}, "end")
+            else:
+                j = statement(j)
 
     def statement(k: int) -> int:
         while k < n and toks[k][0] in ("@", "#"):
@@ -343,24 +380,41 @@ def generate_headers(text: str) -> list[tuple[int, int]]:
         elif module and (t in ("if", "for") or t in _CASES):
             if k + 1 < n and toks[k + 1][0] == "(":
                 e = group(k + 1)
-                spans.append((toks[k + 1][1], toks[e - 1][1] + 1))
+                spans.append((toks[k + 1][1], toks[e - 1][1] + 1, "generate condition"))
+                if t in _CASES:
+                    labels(e)
                 k = e
                 continue
         k += 1
     return spans
 
 
-def _top_level(group: str, chars: str) -> bool:
-    """Whether ``group`` (with its brackets) has one of ``chars`` at depth 1."""
-    depth = 0
+def _is_range(group: str) -> bool:
+    """Whether the bracket group ``[...]`` is a range: more depth-1 ``:``
+    (``::`` excepted) than ``?``, so ``a:b``, ``+:`` and ``-:`` count and
+    a conditional index ``c ? x : y`` does not."""
+    group = group.replace("::", "  ")
+    depth, colons, questions = 0, 0, 0
     for c in group:
         if c in "([{":
             depth += 1
         elif c in ")]}":
             depth -= 1
-        elif c in chars and depth == 1:
-            return True
-    return False
+        elif depth == 1 and c == ":":
+            colons += 1
+        elif depth == 1 and c == "?":
+            questions += 1
+    return colons > questions
+
+
+# Words that can stand before a name and its "[" without declaring it.
+_NOT_DECL = _NOT_TYPES | frozenset({
+    "force", "release", "deassign", "wait", "disable", "posedge", "negedge", "or", "and",
+    "not", "inside", "dist", "with", "iff", "generate", "endgenerate", "endcase", "module",
+    "package", "endmodule", "endpackage", "endfunction", "function", "task", "typedef",
+    "genvar", "automatic", "static",
+})
+_DIM_RE = re.compile(rf"(?<![\w$.`'])({_ID}(?:\s*::\s*{_ID})?)(?:\s*\[[^\[\]]*\])*\s+{_ID}\s*(?=\[)")
 
 
 def constant_spans(text: str) -> list[tuple[int, int, str]]:
@@ -369,11 +423,23 @@ def constant_spans(text: str) -> list[tuple[int, int, str]]:
     for m in re.finditer(rf"`({_ID})\s*\(", text):
         if m.group(1) in PARAM_MACROS:
             spans.append((m.end() - 1, _balanced(text, m.end() - 1), m.group(1)))
-    spans += [(a, b, "generate condition") for a, b in generate_headers(text)]
+    for m in re.finditer(r"#\s*\(", text):
+        spans.append((m.end() - 1, _balanced(text, m.end() - 1), "parameter value"))
+    spans += generate_headers(text)
     for m in re.finditer(r"\[", text):
         end = _balanced(text, m.start())
-        if _top_level(text[m.start():end], ":"):
+        if _is_range(text[m.start():end]):
             spans.append((m.start(), end, "range"))
+    for m in _DIM_RE.finditer(text):
+        if m.group(1).split(":")[0].strip() in _NOT_DECL:
+            continue
+        k = m.end()
+        while k < len(text) and text[k] == "[":  # every unpacked dimension
+            end = _balanced(text, k)
+            spans.append((k, end, "dimension"))
+            k = end
+            while k < len(text) and text[k].isspace():
+                k += 1
     for m in re.finditer(r"(?<!')\{", text):
         end = _balanced(text, m.start())
         inner = re.match(r"\{([^,{}]+)\{", text[m.start():end])
@@ -450,6 +516,8 @@ def struct_param_selects(text: str, table: StructParams) -> list[tuple[int, str,
         if not hit:
             continue
         ctx = next((c for a, b, c in spans if a <= m.start() < b), None)
+        if not ctx and re.match(r"\s*'\s*\(", text[m.end():]):
+            ctx = "size cast"
         if ctx:
             ctx += "; its type is not resolved, so the rule fails closed" if closed else ""
             out.append((m.start(), re.sub(r"\s+", "", m.group()), ctx))
