@@ -113,7 +113,7 @@ and the inbound side
 | Check 7, [outbound routing](../../arch/rc/HAS.md#outbound-routing) by the header state: Secondary Bus Number (every bit), device, function; Memory Space Enable; the window edges for several windows, an empty one included; an `HDR_WR` routes the very next command | `routing` | 1 | 1 |
 | Check 1: an endpoint command while `dl_up_i` is 0 finishes `LINK_DOWN` whichever of checks 3 to 7 it fails, sending nothing; the same commands pass or finish `LOCAL_UR` with the link up; local commands, `HOST_*` included, unaffected; `dl_up_i` sampled at the take | `check1` | 1 | 1 |
 | Result beats: one beat in the cycle after the take, `last` 1; ready 0 until the beat's edge, 1 after it; `rsp_o` 0 between beats; `rst_i` silences them at once; nothing taken in reset | `result_beats` | 1 | 1 |
-| Random commands biased to the check edges, random `dl_up_i` (mostly 1, so endpoint commands are sent and completed), idle inputs and resets, against the model | `random_cmds` | 1 | 2; 3000 commands each |
+| Random commands biased to the check edges, random `dl_up_i` (mostly 1, so endpoint commands are sent and completed), idle inputs and resets, against the model | `random_cmds` / `random_cmds_extra_seeds` | 1 / 2 | [47070509] / [1976110523]; 3000 commands each; L1 seed instrumented, L2 seed plain |
 | [Requests](../../rtl/rc_tl/REQUESTER.md#requests) completing `OK`: every field of each TLP (Fmt and Type, Length, byte enables, Requester ID, tag, address, data), the tag rolling over after 32 non-posted requests and not stepped by `MEM_WR`, the Requester ID following the Primary Bus Number, `MEM_RD` of 1 to 32 DWs with legal byte enables and a zero-length read, the [timing](../../rtl/rc_tl/MAS.md#timing) of the request, of a `MEM_WR`'s beat and of data beats; again with the link stalling and receive gaps; `CPL_TIMEOUT_DIV` 1 | `req_success` | 1 | 1 |
 | [Completion statuses](../../rtl/rc_tl/REQUESTER.md#completion-matching): UR, CA, CRS for each op (CRS on `MEM_RD` is `BAD`, bit 6), reserved statuses `BAD`, poisoned `BAD` (bit 5, no data), status before poisoned; one beat in the cycle after the `eop`, with TD and gaps; the error record bit of each | `req_status` | 1 | 1 |
 | Every malformed row: a configuration read without data or with Length 2, a configuration write with data, a memory read without data, Byte Count off by one, 4096, or with bits 11:8 set, Lower Address wrong, data past the last DW, ending short off a 64-byte boundary; each also poisoned (malformed wins); the legal neighbours, a short completion on a 64-byte boundary (a split) and a zero-length read pass | `req_malformed` | 1 | 1 |
@@ -124,7 +124,7 @@ and the inbound side
 | [Link down](../../rtl/rc_tl/MAS.md#reset-and-link-down) with a request outstanding: before the grant, after the `sop`, mid-TLP (`CFG_WR`, `MEM_WR`), mid-completion after 1, 5 and 31 data beats and in a split read's second completion: `LINK_DOWN` on the last beat in the cycle after the first edge with `dl_up_i` 0, abandoned TLPs never finish; a late completion after link-up is unexpected; a completion cut by link down holds no timeout; the tag counts every `sop` taken; the error record and local commands unaffected | `req_link_down` | 1 | 1 |
 | [Transmit](../../rtl/rc_tl/REQUESTER.md#transmit) credits: each class's header and data credits at 0 hold exactly the requests of that class, 1 and all ones pass, completion credits and the other class never gate; credits falling after the grant do not stop the TLP | `req_credits` | 1 | 1 |
 | [Error record](../../rtl/rc_tl/MAS.md#error-record-and-q2-cases) and `ERR_*`: each requester event (bits 0 to 6) sets its bit; `ERR_RD` returns the record before its edge, bits 31:13 0; `ERR_CLR` clears the bits in `data`, any `first_be`; an event at an `ERR_CLR`'s edge wins; the `ERR_*` refusals (checks 3 and 6) change nothing; `rst_i` clears it | `err_record` | 1 | 1 |
-| Random endpoint commands with random answers (success, splits, statuses, poisoned, malformed, strays, duplicates, D7 failures, no answer), link stalls, receive gaps, credit outages, link drops and resets, against the model | `random_req` | 1 | 2; 1500 commands each |
+| Random endpoint commands with random answers (success, splits, statuses, poisoned, malformed, strays, duplicates, D7 failures, no answer), link stalls, receive gaps, credit outages, link drops and resets, against the model | `random_req` / `random_req_extra_seeds` | 1 / 2 | [169113172] / [2098415298]; 1500 commands each; L1 seed instrumented, L2 seed plain |
 | The [parameter checks](../../rtl/rc_tl/MAS.md#parameters): every `COMMON_ASSERT_PARAM` fires on illegal values, the overlap both ways; the boundaries pass | `param_limits` | 1 | 1 |
 | `HOST_RD` and `HOST_WR` ([host memory access](../../arch/rc/TL_SEQ.md#host-memory-access)): every offset bit below `HOST_MEM_ADDR_W` selects its own DW, every `first_be` merges its bytes, a zero `first_be` writes nothing; the refusals finish `LOCAL_UR` and change nothing: check 3 (`len` 0, 2 to 63), check 4 (bits 1:0 and every bit at or above `HOST_MEM_ADDR_W`), check 6 (every `last_be` not 0); `OK` with the link down; the uncontended [timing](../../rtl/rc_tl/MAS.md#timing) | `host_cmds` | 1 | 1 |
 | The same with 256 bytes of host memory at `0x300` | `host_cmds_aw8` | 1 | 1; `HOST_MEM_ADDR_W` 8 |
@@ -198,3 +198,19 @@ line point is keyed by file, line, column and kind, a toggle point by
 file, signal bit and direction (any copy). A point not hit is "another
 copy" when its key is hit anywhere in the run; the rest go by file and
 signal name as the rows list them.
+
+## Budget placement
+
+[#435](https://github.com/amichai-bd/pcie-factory/issues/435): Short directed
+acceptance and the first instrumented command/request seeds remain at L1.
+Their additional plain seeds run at L2 with unchanged parameters and testcase
+lengths.
+
+The combined levels keep the original testcases, parameters, seeds and
+per-seed coverage instrumentation; no coverage floor is raised or lowered.
+The PR records plain and coverage-instrumented CPU measurements separately.
+
+| Entry | Current placement |
+| --- | --- |
+| `random_cmds` / `random_cmds_extra_seeds` | L1 seeds [47070509]; coverage_seeds 1; L2 seeds [1976110523]; coverage_seeds 0 |
+| `random_req` / `random_req_extra_seeds` | L1 seeds [169113172]; coverage_seeds 1; L2 seeds [2098415298]; coverage_seeds 0 |

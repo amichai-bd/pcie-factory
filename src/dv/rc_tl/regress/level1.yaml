@@ -47,7 +47,7 @@ tests:
     module: tests.test_rc_tl_cmd
     testcase: random_cmds
     top: pcie_rc_tl_tb
-    seeds: 2
+    seeds: [47070509]
     timeout_s: 300
   # Requester: requests, completion statuses and checks, splits,
   # unexpected completions, the timeout, link down, credits, the error
@@ -115,7 +115,7 @@ tests:
     module: tests.test_rc_tl_req
     testcase: random_req
     top: pcie_rc_tl_tb
-    seeds: 2
+    seeds: [169113172]
     timeout_s: 600
     params: {CPL_TIMEOUT_DIV: 1024}
   # Inbound: HOST_*, posted writes, the completer, MSI capture, messages,
