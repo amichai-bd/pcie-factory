@@ -38,7 +38,13 @@ shows where each of their checks went.
     with its `sop` beat within the [HAS RX latency](../../arch/mac/HAS.md#targets)
     of the STP or SDP the shadow parsed (3 cycles, 4 from `[15:8]`; for a
     packet whose next two words arrive without an RxValid gap).
-    Every observed state change must be an arc of the HAS list. With the
+    Every observed state change must be an arc of the HAS list. The full
+    timestamped arc history is retained; wait predicates use the latest
+    timestamp per arc, with the same inclusive cutoff. The global cycle
+    count stays monotonic across resets, whose state changes are not arcs.
+    Simulator-free [harness unit tests](../../../../src/dv/mac/models/test_pcie_mac_harness.py)
+    compare the lookup with the original history scan over repeated arcs,
+    reset boundaries and explicit or default cutoffs. With the
     DUT as Loopback master, the shadow also checks that the pattern it
     gets back counts on without a break (no loopback error).
   - **Receive decoder:** `RxDecoder`, written from the
@@ -307,3 +313,16 @@ wrong half of the word fails `rx_idle_tail` at cycle 10278: a packet is
 delivered one edge before the shadow permits it. The separate
 `4_lane1_edb` bin distinguishes that short exception from ordinary lane-1
 traffic with the same numerical latency.
+
+### Fixed nightly recipes
+
+`arcs_timeouts_{downstream,upstream}`, `arcs_idle_rlock_{downstream,upstream}`,
+`control_full_{downstream,upstream}`, `dividers` and `train_spec` declare
+`seed_independent: true`: their episode paths and `Harness` consume no random
+values; `fresh()` uses fixed skew 0, delay 12 and link 0. Each retains its
+pinned coverage run, every timeout cycle and all assertions, including the
+255-timeout idle-loop check. Extra rotated copies would repeat identical
+stimulus. `smoke_n_fts_1` and `smoke_n_fts_255` still rotate because `_smoke`
+randomizes reset inputs; traffic, error and random-soak recipes also remain
+seeded. New randomness in a fixed recipe or its helpers requires removing
+that declaration.
