@@ -110,7 +110,7 @@ COV_PKT.coverpoint("tx_size", bins={"one_beat": 2, "short": range(4, 64),
 COV_PKT.coverpoint("rx_outcome", bins=["good", "nullify", "err"])
 COV_PKT.coverpoint("rx_kind", bins=["tlp", "dllp"])
 COV_PKT.coverpoint("rx_lane", bins=[0, 1])
-COV_PKT.coverpoint("rx_latency", bins=["3_lane0", "4_lane1", "4_lane0", "4_lane1_edb"])
+COV_PKT.coverpoint("rx_latency", bins=["3_lane0", "3_lane1", "4_lane1", "4_lane0", "4_lane1_edb"])
 COV_PKT.cross("rx_kind_x_lane", "rx_kind", "rx_lane")
 COV_PKT.coverpoint("rx_error", bins=["framing", "status", "cut_valid", "cut_elec_idle",
                                      "cut_rx_l0", "empty", "idle_tail", "idle_tail_out"])
@@ -633,7 +633,7 @@ class Harness:
             latency_bin = f"{latency}_lane{lane}"
             if getattr(want, "tail", False) and len(want.data) <= 2 and lane == 1:
                 latency_bin += "_edb"
-            assert latency_bin in ("3_lane0", "4_lane1", "4_lane0", "4_lane1_edb"), (
+            assert latency_bin in ("3_lane0", "3_lane1", "4_lane1", "4_lane0", "4_lane1_edb"), (
                 f"{where}: unexpected RX latency sample {latency_bin}")
             COV_PKT.sample(rx_latency=latency_bin)
         n = len(want.data)

@@ -98,7 +98,9 @@ shows where each of their checks went.
     Five cycles is the HAS's permitted lane-1 bound, not an exact latency
     reachable by this continuous one-beat stream. A dropped RxValid or
     electrical idle cuts the packet instead of delaying its EDB. An unexpected
-    latency sample fails instead of silently missing the bins. The latency
+    latency sample fails instead of silently missing the bins. `3_lane1`
+    also records short malformed packets that terminate before a full beat
+    (exercised by `rx_errors`), rather than silently losing those samples. The latency
     bound is one cycle longer only for a
     packet whose only beat ends with EDB in `[15:8]`
     ([HAS, Targets](../../arch/mac/HAS.md#targets)).
@@ -296,7 +298,8 @@ stimulus catches a mutant the old one missed ([mutation
 evidence](#mutation-evidence)).
 
 The L1 `rx_idle_tail` EDB exception checks require the measured latency
-bins to increment in both roles. Removing the deferred EDB wait therefore
-fails the explicit bin guard even if the result still satisfies the HAS's
-upper bound. The separate `4_lane1_edb` bin distinguishes that short
-exception from ordinary lane-1 traffic with the same numerical latency.
+bins to increment in both roles. Moving the deferred EDB wait to the
+wrong half of the word fails `rx_idle_tail` at cycle 10278: a packet is
+delivered one edge before the shadow permits it. The separate
+`4_lane1_edb` bin distinguishes that short exception from ordinary lane-1
+traffic with the same numerical latency.
