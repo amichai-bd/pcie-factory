@@ -183,19 +183,33 @@ None: every feature of the MAS has a test.
 
 Floors in [`level2.yaml`](../../../../src/dv/rc_seq/regress/level2.yaml),
 checked by every `--coverage` run that selects level 2 (the nightly runs
-levels 0 to 2): line 59.3, toggle 72.4, functional 100. Merged over levels
-0 to 2 ([#380](https://github.com/amichai-bd/pcie-factory/issues/380)):
-line 59.88% (106 of 177 points), toggle 72.93% (4758 of 6524), functional
+levels 0 to 2): line 58.7, toggle 72.4, functional 100. Merged over levels
+0 to 2 ([#380](https://github.com/amichai-bd/pcie-factory/issues/380),
+re-measured in [#426](https://github.com/amichai-bd/pcie-factory/issues/426)):
+line 59.22% (106 of 179 points), toggle 72.93% (4758 of 6524), functional
 100% (52 of 52 bins in `rc_seq_steps`, `rc_seq_jumps` and `rc_seq_run`).
 The code floors are the merged values less 0.5 points, rounded down to a
-tenth ([floor margin](../../../bkm/dv.md#coverage)). Verilator keeps one
+tenth ([floor margin](../../../bkm/dv.md#coverage)).
+
+**Line floor lowered from 59.3 to 58.7** in #426, as a
+[firstmate delegate decision](https://github.com/amichai-bd/pcie-factory/issues/426#issuecomment-6280644130).
+The reason is structural. [#379](https://github.com/amichai-bd/pcie-factory/issues/379)
+moved the ERRORS and SELFTEST two-pass builds into `prog_errors_final` and
+`prog_selftest_final`, which adds two function blocks
+(`pcie_rc_seq_pkg.sv` lines 793 and 800). They are called only for
+`localparam` values, so they run at elaboration and no simulation can reach
+them. The repository has no sanctioned way to exclude a point, and going back
+to `localparam` two-pass builds brings back Quartus Lite error 10742. The 106
+points hit are unchanged.
+
+Verilator keeps one
 copy of the ROM per `PROGRAM` (six), each a different constant image.
 
-The 71 line points not hit, by cause:
+The 73 line points not hit, by cause:
 
 | Cause | Points | Where |
 | --- | ---: | --- |
-| Elaboration only | 64 | `pcie_rc_seq_pkg.sv`: the step encoders (`step_*`), the program builders and `program_of`, called only for `localparam` values (the ROM image), which Verilator folds at elaboration. |
+| Elaboration only | 66 | `pcie_rc_seq_pkg.sv`: the step encoders (`step_*`), the program builders, the two-pass wrappers `prog_errors_final` and `prog_selftest_final` and `program_of`, called only for `localparam` values (the ROM image), which Verilator folds at elaboration. |
 | Hit in another `PROGRAM` copy | 5 | `pcie_rc_seq_rom.sv`: each image's copy reaches only its own arms. |
 | Unreachable by construction | 2 | The state machine's `default` arm (11 of 16 state codes are used) and the lane-disable branch of the result RAM's `common_sdp_ram` (`LANES` 1). |
 

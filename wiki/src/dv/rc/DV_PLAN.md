@@ -157,10 +157,10 @@ Floors in [`level2.yaml`](../../../../src/dv/rc/regress/level2.yaml),
 checked by every `--coverage` run that selects level 2 (the nightly runs
 levels 0 to 2): line 72.8, toggle 45.3 and, per covergroup, `rc_e2e_line`
 100, `rc_shell` 100, `rc_e2e_err` 84.1 and `rc_e2e_run` 63.4. Merged over
-levels 0 to 2 ([#380](https://github.com/amichai-bd/pcie-factory/issues/380)),
-over what `rc.rtl.f` reaches (`rc_tl`, `rc_seq`, `pcie_rc` and the whole
+levels 0 to 2 ([#380](https://github.com/amichai-bd/pcie-factory/issues/380),
+re-measured in [#426](https://github.com/amichai-bd/pcie-factory/issues/426)), over what `rc.rtl.f` reaches (`rc_tl`, `rc_seq`, `pcie_rc` and the whole
 `link` stack, the `gpio` adapter included; `core` is a DV-only source
-here): line 73.32% (3400 of 4637 points), toggle 45.88% (48923 of
+here): line 73.29% (3400 of 4639 points), toggle 45.88% (48923 of
 106620). The code floors are the merged values less 0.5 points, rounded
 down to a tenth ([floor margin](../../../bkm/dv.md#coverage)).
 
@@ -184,13 +184,13 @@ falls. Their bins not hit:
 **Code points.** Each point not hit was looked up in the merged coverage
 of the owning IP's own regression, levels 0 to 2 with `--coverage`, on the
 same tree (`rc_tl`, `rc_seq`, `gpio`, `link`, `dll`, `mac`, `pcs`, `phy`
-and the shared unit `common`). The 1237 line points not hit, by cause:
+and the shared unit `common`). The 1239 line points not hit, by cause:
 
 | Cause | Points | Where |
 | --- | ---: | --- |
 | Hit in another parameter set | 614 | The same point is hit in another copy of its block (the entries' `PROGRAM` and `LOWER` builds, the `CPL_TIMEOUT_DIV` 64 build, and the endpoint's `link` stack in `core`, which shares these files): `rc_seq` 148, `dll` 137, `mac` 130, `rc_tl` 130, the common blocks 48, `pcs` 21. |
 | Reached by the stacked IP's own DV | 500 | `mac` 231, `pcs` 60, `rc_seq` 60, `dll` 47, `gpio` 45, `rc_tl` 32, the common blocks 25: behaviour two compliant stacks on an error-free or injected line do not produce (the LTSSM's error, timeout and compliance exits, the power states `link` ties off, decoder and elastic-buffer extremes, as in the [`link` holes](../link/DV_PLAN.md#coverage-holes)), the `rc_tl` checks `core` never trips, `rc_seq`'s failure paths (every e2e program passes), and the adapter's error and restart branches. |
-| Not hit by the stacked IP's own DV either | 123 | The holes of the unit plans: `rc_seq` 70 (elaboration-only package functions, [`rc_seq` holes](../rc_seq/DV_PLAN.md#coverage-holes)), `mac` 44 (elaboration-only functions, [`mac` holes](../mac/DV_PLAN.md#coverage-holes)), `pcs` 4, `dll` 2 (`noroom`), `rc_tl` 2 ([`rc_tl` holes](../rc_tl/DV_PLAN.md#coverage-holes)), `gpio` 1 ([`gpio` holes](../gpio/DV_PLAN.md#coverage-holes)). |
+| Not hit by the stacked IP's own DV either | 125 | The holes of the unit plans: `rc_seq` 72 (elaboration-only package functions, [`rc_seq` holes](../rc_seq/DV_PLAN.md#coverage-holes)), `mac` 44 (elaboration-only functions, [`mac` holes](../mac/DV_PLAN.md#coverage-holes)), `pcs` 4, `dll` 2 (`noroom`), `rc_tl` 2 ([`rc_tl` holes](../rc_tl/DV_PLAN.md#coverage-holes)), `gpio` 1 ([`gpio` holes](../gpio/DV_PLAN.md#coverage-holes)). |
 
 The 57697 toggle points not hit, by cause:
 
