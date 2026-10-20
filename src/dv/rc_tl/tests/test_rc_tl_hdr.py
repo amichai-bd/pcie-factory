@@ -35,6 +35,13 @@ async def hdr_reset(dut):
     out of reset and again after a reset that follows writes to every DW."""
     env = Env(dut, int(cocotb.RANDOM_SEED or 0))
     await env.start()
+    await case_hdr_reset(env)
+
+
+async def case_hdr_reset(env: Env):
+    """Every header DW, indices 16 to 1023 included, reads its reset value,
+    out of reset and again after a reset that follows writes to every DW."""
+    dut = env.dut
     await check_reset_values(env, "after reset")
     for idx in range(16):
         await env.hdr_wr(idx, 0xFFFF_FFFF)
@@ -49,6 +56,13 @@ async def hdr_rw(dut):
     first_be enables, RO bits and indices 16 to 1023 ignore it."""
     env = Env(dut, int(cocotb.RANDOM_SEED or 0))
     await env.start()
+    await case_hdr_rw(env)
+
+
+async def case_hdr_rw(env: Env):
+    """Read and write of every field: RW bits take the data in the bytes
+    first_be enables, RO bits and indices 16 to 1023 ignore it."""
+    dut = env.dut
     const = constants(env)
     shadow = {idx: const.get(idx, 0) for idx in range(16)}
 
