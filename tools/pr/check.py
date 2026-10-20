@@ -468,7 +468,7 @@ def rule_neutrality(pr: Pr, neutral: Neutral) -> list[Finding]:
         hits = [w for _, w in nt.scan_text(path, neutral.words, None)] + \
                [w for _, w in nt.scan_ip_text(path, neutral.ips)]
         out += [Finding("neutrality", f"{path}: path names {w!r}") for w in hits]
-        if path.endswith((".min.js", ".min.css")):  # vendored, minified
+        if path.endswith(nt.MINIFIED):  # vendored, minified
             continue
         lines = (pr.added or {}).get(path, ())
         text = "\n".join(nt.blank_config_values(x) if path == nt.CONFIG else x
@@ -487,10 +487,10 @@ def load_neutral(repo_root: Path, src_root: Path) -> Neutral:
     from checks.common import CheckConfigError
     try:
         cfg = nt.load_config(repo_root)
-        ids = nt.ip_ids(src_root, repo_root) if Path(src_root).is_dir() else ()
+        ids = nt.ip_ids(src_root) if Path(src_root).is_dir() else ()
     except CheckConfigError as exc:
         raise PrError(str(exc)) from exc
-    return Neutral(nt.word_pattern(cfg.words), nt.ip_pattern(ids),
+    return Neutral(nt.word_pattern(cfg.words), nt.ip_pattern(ids, nt.top_entries(repo_root)),
                    nt.slug_pattern(cfg.repo_slug or nt.slug_from_remote(repo_root)))
 
 
