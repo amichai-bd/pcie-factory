@@ -28,6 +28,7 @@ from build import backends
 from build.filelist import resolve, synthesis_defines
 from build.ip import Context, Ip
 from build.logexcerpt import excerpt
+from build.logscrub import host_names, scrub
 
 from . import metrics as asic_metrics
 
@@ -487,9 +488,11 @@ def _section(log: Path, mark: int) -> str:
 
 def print_failure(ctx: Context, plan: Plan, step: str, text: str) -> None:
     """Every error line of a failed step's output (capped), then its tail,
-    with host paths redacted."""
+    with host paths redacted and the rest scrubbed as ``./build fpga``
+    scrubs its excerpt (other paths, names, addresses)."""
+    names = host_names()
     for line in excerpt(text, ERROR_RE, f"step {step} in {plan.flow_log}"):
-        print(redact(line, ctx), flush=True)
+        print(scrub(redact(line, ctx), {}, names), flush=True)
 
 
 def run(ctx: Context, plan: Plan, orfs: Orfs, timeout_s: float) -> tuple[int, dict]:

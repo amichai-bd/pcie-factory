@@ -95,6 +95,14 @@ and the ASIC flow keep the portable file.
   records it: the per-RAM rows of `metrics.json` (`resources.rams`: mode,
   clock mode, geometry, block count, mixed-port read-during-write mode),
   reported in the PR and in the block's MAS.
+- **Inferred RAMs are named.** Every `resources.rams` row that no explicit
+  backend built (a register array or constant Quartus turned into a RAM or
+  ROM) is named in the IP's FPGA page by its Quartus node name (the
+  `<node>` of its `<node>_rtl_<n>` instance) in a code span, with the
+  reason it may stay inferred. `./build fpga` fails a fit whose inferred
+  RAM the page does not name ([fpga tool spec](../tools/fpga/SPEC.md#inferred-rams)),
+  so a new inference is reviewed rather than passing under the known
+  warning 276020.
 
 ## Layers
 
@@ -178,16 +186,19 @@ list equal to this table, so add or remove a row and its ID together:
 | 292013 | LogicLock is only available with a subscription license | Lite edition; the flow uses no LogicLock regions. |
 | 169177 | Pins must meet requirements for 3.3, 3.0 and 2.5 V interfaces | Reported for 3.3-V LVTTL inputs that the board wires that way: the clock inputs `CLOCK_50` and `SMA_CLKIN`, `HSMC_CLKIN0` with JP6 at its default, and the expansion header `GPIO` pins with the header's I/O voltage jumper at its default (AN 447). |
 | 10036 | Object assigned a value but never read | A signal read only inside `COMMON_ASSERT*` arguments, which `SYNTHESIS` compiles out ([assertions](rtl.md#assertions)); Verilator lint, which sees the assertions, still reports a signal that nothing reads. |
-| 276020 | Inferred RAM node from synchronous design logic; pass-through logic added to match the read-during-write behavior | Quartus maps a register array to block RAM and adds bypass logic so that a read of the word being written returns what the RTL returns: behavior is preserved, and the added logic is inside the timing and resource results. A memory that must be block RAM with a defined collision uses the explicit backend instead ([layout, source backends](../project/layout.md#source-backends)). |
+| 276020 | Inferred RAM node from synchronous design logic; pass-through logic added to match the read-during-write behavior | Quartus maps a register array to block RAM and adds bypass logic so that a read of the word being written returns what the RTL returns: behavior is preserved, and the added logic is inside the timing and resource results. Each such RAM is named with its reason in the IP's FPGA page ([inferred RAMs](#intel-backends)), which the flow enforces. A memory that must be block RAM with a defined collision uses the explicit backend instead ([layout, source backends](../project/layout.md#source-backends)). |
 
 `./build fpga` records each step's warning IDs with their counts in
 `metrics.json` and, after a passing run, prints per step how many warnings
 are known and how many are unknown, then one line per unknown ID
-([fpga tool spec](../tools/fpga/SPEC.md#warnings)). That line is the only log
-content published besides a failure excerpt: the ID and its first message,
-with paths made relative to the checkout (other absolute paths cut to the
-file name), user and host names, e-mail and IP addresses replaced, and the
-text cut to 160 characters. The logs themselves stay on the host
+([fpga tool spec](../tools/fpga/SPEC.md#warnings)), marked `critical` for
+a critical warning. That line is the only log content published besides a
+failure excerpt: the ID and its first message, through the
+[log scrub](../tools/build/SPEC.md#log-scrub) (paths made relative to the
+checkout, other absolute paths cut to the file name, user and host names,
+e-mail, license-server, MAC and IP addresses replaced), cut to 160
+characters. The failure excerpt and every path the flow prints go through
+the same scrub. The logs themselves stay on the host
 ([publishability](wiki.md#publishability)).
 
 ## Review checklist
@@ -195,7 +206,8 @@ text cut to 160 characters. The logs themselves stay on the host
 - Inputs limited to `<ip>.rtl.f` (with the shared blocks' Intel backends
   selected), the wrapper, SDC and QSF Tcl.
 - Each RAM a consuming target fits is in the expected mode with the expected
-  M9K count, as the block's MAS records.
+  M9K count, as the block's MAS records; each inferred RAM is named with
+  its reason in the IP's FPGA page.
 - Every SDC exception has a reason.
 - Timing met on every clock, or the PR states the gap and the owning issue.
   PR CI runs synthesis only, so a change that can move timing or fit records
