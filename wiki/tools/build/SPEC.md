@@ -13,6 +13,7 @@ repository root (`python3 -B`) that adds `tools/` to `sys.path` and calls
 | `tools/build/slots.py` | Host [CPU slots](#cpu-slots) shared by every `sim` and `regress` run. |
 | `tools/build/cache.py` | The host [build cache](#build-cache): content-keyed builds and pass records. |
 | `tools/build/logexcerpt.py` | The [failure excerpt](#failure-excerpt) the vendor flows print for a failed step. |
+| `tools/build/logscrub.py` | The [log scrub](#log-scrub) applied to every vendor-flow line printed to a public job log. |
 | `tools/regress/` | Regression lists, selection and summary; see the [regress spec](../regress/SPEC.md). |
 | `tools/fpga/` | Quartus FPGA flow and report parsing; see the [fpga spec](../fpga/SPEC.md). |
 | `tools/labels/` | GitHub label standard, sync and check; see the [labels spec](../labels/SPEC.md). |
@@ -238,6 +239,10 @@ A test's status comes from `results.xml`:
 | `timeout` | The run exceeded `timeout_s` and was killed. |
 | `error` | The build failed, `results.xml` is missing, empty or unreadable (for example truncated), or the simulator exited nonzero without a recorded failure. |
 
+An entry with `expect_fatal: <label>` inverts this: its run passes only
+when the simulation stops on that assertion, and a clean finish or any
+other fatal fails it ([regress spec](../regress/SPEC.md#expected-fatal-stops)).
+
 ## CPU slots
 
 Several agents share one host. `--slots DIR` on `./build sim` and
@@ -383,7 +388,44 @@ messages reach the job log even when they are far from its end:
 3. `--- last <n> lines of <log> ---` and the last 30 lines.
 
 Each flow passes its tool's error pattern (in its own SPEC);
-`logexcerpt.py` knows no tool.
+`logexcerpt.py` knows no tool. Every excerpt line goes through the
+[log scrub](#log-scrub) before it is printed.
+
+## Log scrub
+
+CI job logs are public, so the vendor flows pass each line they print
+(commands, paths, failure excerpts, warning messages) through
+`logscrub.scrub(text, roots, names)`, in this order:
+
+1. Each root directory is replaced by its prefix, the longest root first:
+   the checkout by nothing (paths become relative to it), a workdir outside
+   the checkout by `<workdir>/`. A root on its own prints as `.` (or the
+   prefix without its slash).
+2. Any other absolute path is cut to `.../<file name>`: a POSIX path (not
+   after a word character, dot, tilde, slash, dash or `>`, so relative
+   paths and placeholders such as `<repo>/src` stay), a home-relative path
+   (`~/x`, `~user/x`), and a Windows drive (`C:\x`, `C:/x`) or UNC
+   (`\\server\share\x`) path, cut to `...\<file name>`. A path ends at
+   whitespace, a quote, a bracket, a comma or a semicolon.
+3. E-mail addresses become `<email>`; `x@host` without a domain (a
+   `port@host` license server, `user@host`) becomes `<host>`; MAC addresses
+   (six two-digit hex groups split by `:` or `-`) `<mac>`; IPv6 addresses
+   (eight groups, or groups on both sides of `::`) and IPv4 addresses
+   `<ip>`. A clock time (`12:34:56`), a Quartus hierarchy (`a:u_a|b:u_b`)
+   and `@(` are left alone.
+4. The machine's user and host names (`host_names()`: the login name, the
+   host name and its first label) become `<name>`, as whole words.
+5. Optionally, whitespace runs collapse to one space and the text is cut to
+   a limit, ending in `...`.
+
+Known limits, kept because closing them costs more than they leak:
+
+| Limit | Effect |
+| --- | --- |
+| Paths with spaces | Only the part before the first space is a path; the rest stays as relative text (`.../My Tools/bin/x` keeps `Tools/bin/x`). |
+| Relative paths | Kept as written; a `..` path that climbs out of the working directory shows the directory names it names. |
+| Names | Only this machine's user and host names are known; another person's or host's name in a message stays unless it is in an address or path. |
+| Addresses | IPv6 forms with fewer than two groups around `::`, or embedded in other words, are kept; a placeholder never needs a known address list. |
 
 ## Unit tests
 
@@ -411,6 +453,11 @@ shared blocks and shared unit (`units` adds it only with
 `dv/common/common.sim.f`; it owns the `common/` folders). `test_logexcerpt.py`
 covers the failure excerpt: error lines before the tail in log order, the
 cap with its count and cut note, exactly the cap, and no error lines.
+`test_logscrub.py` covers the log scrub: roots (longest first, a root on
+its own), cut absolute, home-relative, Windows and UNC paths, relative
+paths and placeholders kept, whole-word names, e-mail, `port@host`, MAC,
+IPv6 and IPv4 addresses, what is not an address (a clock time, a
+hierarchy, `@(`), the path-with-spaces limit, collapsing and the cut.
 `test_backends.py` covers `build.backends`: the repository configuration and
 its stand-ins, `cfg/backends.yaml` errors (shape, suffix, `dv_models`
 outside `dv/`, a shared suffix), backend naming (the portable file must

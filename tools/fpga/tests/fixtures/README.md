@@ -12,7 +12,7 @@ the parser together.
 | --- | --- |
 | `output_files/widget_board.map.summary` | Analysis and synthesis summary (`--synth-only`): plain counts, no totals and no device line |
 | `output_files/widget_board.fit.summary` | Fitter summary |
-| `output_files/widget_board.fit.rpt` | Fitter report: resource usage panel, a trimmed per-entity table (its `M9Ks` column must not be read as the block count) and a Fitter RAM Summary with one simple dual-port RAM (its columns follow the Quartus 25.1std Cyclone IV E panel; the first CI fit with RAMs (PR #276) filled every field) |
+| `output_files/widget_board.fit.rpt` | Fitter report: resource usage panel, a trimmed per-entity table (its `M9Ks` column must not be read as the block count) and a Fitter RAM Summary with two simple dual-port RAMs under `widget:u_widget`: `u_ram`, an explicit instance, and `hist_q_rtl_0`, a 64 x 8 array Quartus inferred (its columns follow the Quartus 25.1std Cyclone IV E panel; the first CI fit with RAMs (PR #276) filled every field, and the nightly fits name inferred RAMs `<node>_rtl_<n>`) |
 | `output_files/widget_board.sta.rpt` | Timing analyzer report: Fmax (slow models only, as Quartus prints), setup and hold summaries for three corners, recovery and removal summaries (one empty), the unconstrained paths summary, plus unrelated panels including one with blank rows |
 | `worst_path.txt` | Output of the generated `worst_path.tcl` |
 | `map_fail.log` | A failed `quartus_map` log: one `Critical Warning (…)` and three `Error (…)` messages more than 30 lines before the end, then the closing `Error:` summary block |

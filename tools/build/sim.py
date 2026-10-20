@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -471,9 +472,12 @@ def run_test(
     seed: int,
     timeout_s: float | None,
     built: Result | None = None,
+    expect_fatal: str | None = None,
 ) -> Result:
     """Run one already-built test with one seed; ``built`` is its build's
-    result (where the executable is, and the tree it was compiled from)."""
+    result (where the executable is, and the tree it was compiled from).
+    With ``expect_fatal`` (an assertion label) the run passes only when the
+    simulation stops on that assertion (:func:`expected_fatal`)."""
     tdir = test_dir(workdir, spec.ip, test, seed)
     if tdir.exists():
         shutil.rmtree(tdir)
@@ -490,7 +494,10 @@ def run_test(
     if code is None:
         return Result("timeout", runtime, log, f"timed out after {timeout_s}s")
     status, detail = parse_results(tdir / "results.xml")
-    if code != 0 and status == "pass":
+    if expect_fatal is not None:
+        text = log.read_text(errors="replace") if log.is_file() else ""
+        status, detail = expected_fatal(text, expect_fatal, status, detail)
+    elif code != 0 and status == "pass":
         status, detail = "error", f"simulator exited with {code}"
     if spec.coverage and built is not None and built.root:
         if not rebase_coverage(tdir / COVERAGE_DAT, built.root, str(tree_root(spec.ip))):
@@ -535,6 +542,39 @@ def parse_results(results_xml: Path) -> tuple[str, str]:
     if failed:
         return "fail", "failed: " + ", ".join(failed)
     return "pass", f"{len(cases)} case(s) passed"
+
+
+# Verilator's message when a simulation stops on a `$fatal`: the first one
+# ends the run. An assertion's adds "Assertion failed in <scope>.<label>".
+_FATAL_LINE = re.compile(r"%Fatal:")
+_FATAL_LABEL = re.compile(r"Assertion failed in ([A-Za-z0-9_$.\[\]]+)")
+
+
+def fatal_label(log_text: str) -> tuple[str | None, str | None]:
+    """The first ``%Fatal`` line of a sim log and the label of the assertion
+    it names (None for a fatal that is not an assertion's); (None, None)
+    when the simulation never stopped on a fatal."""
+    for line in log_text.splitlines():
+        if _FATAL_LINE.search(line):
+            m = _FATAL_LABEL.search(line)
+            return line.strip(), (m.group(1).rsplit(".", 1)[-1] if m else None)
+    return None, None
+
+
+def expected_fatal(log_text: str, label: str, status: str, detail: str) -> tuple[str, str]:
+    """The status of a run whose entry expects a stop on assertion
+    ``label`` (`expect_fatal`): `pass` only when the first fatal is that
+    assertion's; a clean finish, a test failure without a fatal or any
+    other fatal is a `fail`. A timeout is left as it is."""
+    if status == "timeout":
+        return status, detail
+    line, got = fatal_label(log_text)
+    if line is None:
+        how = "passed" if status == "pass" else f"ended without a fatal ({detail})"
+        return "fail", f"expected a stop on assertion {label}, but the run {how}"
+    if got != label:
+        return "fail", f"expected a stop on assertion {label}, but it stopped on: {line[:200]}"
+    return "pass", f"stopped on assertion {label} as expected"
 
 
 def _coverage_test_args(job: dict) -> dict:

@@ -23,11 +23,20 @@
 - **Functional coverage:** the `common_cdc_pulse` covergroup, sampled per
   pulse, bins the clock ratio as in the [sync2 plan](common_cdc_sync2.md#strategy)
   and the spacing to the next pulse (back to back, the minimum, wider),
-  crossed. Four cross bins are unreachable: back to back needs a source
-  period of at least two destination periods, so not with `src_fast_4x`,
-  `src_fast` or `near_1to1`; and with `dst_fast_4x` the minimum spacing is
-  one source cycle, which counts as back to back. The derived seeds of L0
-  to L2 hit every other bin. No coverage floor is set yet ([DV BKM](../../../../bkm/dv.md#coverage)).
+  crossed. Four combinations are unreachable by construction and are
+  declared in the cross's `unreachable` list ([regress SPEC](../../../../tools/regress/SPEC.md#functional-coverage)),
+  so they are not bins, and a sample of one fails the test
+  ([#232](https://github.com/amichai-bd/pcie-factory/issues/232)). The
+  minimum spacing is `ceil(2 * dst / src)` source cycles (at least one),
+  and back to back means one source cycle:
+  - `src_fast_4x,back_to_back`, `src_fast,back_to_back` and
+    `near_1to1,back_to_back`: back to back needs the minimum to be one
+    source cycle, so a source period of at least two destination periods
+    (`dst / src` at most 0.5); these bins all have `dst / src` above 0.8.
+  - `dst_fast_4x,minimum`: with `dst / src` at most 0.25 the minimum is
+    one source cycle, which the sample counts as back to back.
+
+  The derived seeds of L0 to L2 hit every other bin. No coverage floor is set yet ([DV BKM](../../../../bkm/dv.md#coverage)).
 - **Asynchronous reset:** `async_reset` (`DST_ASYNC_RESET` 1, with
   `SRC_ASYNC_RESET` 1 or 0) drives both clocks from clocks it can stop low
   (`GatedClock`). Both clocks stop, both resets rise, and `dst_pulse_o`

@@ -41,7 +41,21 @@ Classes (HAS error injection), on the next matching packet:
 ``replay_tlp``  the next replayed TLP (a sequence number not after the
                 newest seen), or with ``seq`` the next replay of that
                 TLP, gets an LCRC error
+``disparity``   one TLP data symbol sent in the other running-disparity
+                column: the bytes are intact and only the receiver's
+                decoder flags it (a disparity error)
 ========== ==========================================================
+
+The disparity class picks a header symbol and sends its code from the
+column of the other running disparity, a code the receiver decodes to the
+same byte with a disparity error. A symbol qualifies when that code is a
+disparity error at the output's running disparity (a neutral code is the
+same in both columns) and puts no comma and no run of six equal bits on
+the line with the code before it and any code after it; otherwise the
+next data symbol of the packet is tried. Running disparity then follows
+the sent code, at the injector's output as at the receiver, so nothing
+else changes on the line. A packet that ends before a symbol qualifies is
+counted in ``counts["disparity_missed"]``.
 
 Line tally (the throughput measurement, HAS throughput): with
 ``line_runs`` set to a list, every sent symbol outside a packet is
@@ -53,7 +67,8 @@ packet; with the sent view, every symbol on the line is accounted for.
 
 Level switches: ``drop_acks`` drops every Ack (the duplicate class),
 ``drop_tlps`` every TLP (the REPLAY_NUM rollover class). ``rates`` gives a
-per-packet probability for the first five classes.
+per-packet probability for the first five classes; the others are on
+request only.
 
 Uses the 8b/10b tables of the pcs architecture model and the scrambler of
 the mac architecture model (DV may import architecture models; arch BKM).
@@ -80,7 +95,7 @@ ACK, NAK = 0x00, 0x10
 SEQ_MOD = 4096
 TLP_CLASSES = ("lcrc", "corrupt_tlp", "drop_tlp")
 DLLP_CLASSES = ("corrupt_dllp", "drop_dllp")
-CLASSES = TLP_CLASSES + DLLP_CLASSES + ("nak", "replay_tlp")
+CLASSES = TLP_CLASSES + DLLP_CLASSES + ("nak", "replay_tlp", "disparity")
 
 
 def _max_run(code: int) -> int:
@@ -103,6 +118,35 @@ def _invalid_code(rd: int) -> int:
 
 INVALID = {-1: _invalid_code(-1), 1: _invalid_code(1)}
 
+# Every valid code sent at each running disparity (a code that may follow).
+CODES_AT = {rd: sorted({code for (_, _, r), (code, _) in code8b10b.ENCODE.items() if r == rd})
+            for rd in (-1, 1)}
+_COMMAS = (code8b10b.COMMA_MINUS, code8b10b.COMMA_PLUS)
+
+
+def _line_ok(prev: int, code: int, nxt: int) -> bool:
+    """No comma (7 bits) and no run of six equal bits on the line that
+    overlaps ``code``, sent between ``prev`` and ``nxt`` (bit 0 first)."""
+    seq = prev | code << 10 | nxt << 20
+    return (all((seq >> i) & 0x7F not in _COMMAS for i in range(4, 20))
+            and all((seq >> i) & 0x3F not in (0, 0x3F) for i in range(5, 20)))
+
+
+def disparity_code(byte: int, rd: int, prev: int | None) -> int | None:
+    """The code of data ``byte`` from the column of the other running
+    disparity, when the receiver at ``rd`` decodes it to ``byte`` with a
+    disparity error and it puts no comma or long run on the line after
+    ``prev`` and before any valid code; else None."""
+    if prev is None:
+        return None
+    code, _ = code8b10b.ENCODE[(byte, False, -rd)]
+    got, k, rd_out, code_err, disp_err = code8b10b.decode(code, rd)
+    if code_err or not disp_err or k or got != byte:
+        return None
+    if not all(_line_ok(prev, code, n) for n in CODES_AT[rd_out]):
+        return None
+    return code
+
 
 class _Sym:
     """One symbol in the look-ahead buffer."""
@@ -111,7 +155,7 @@ class _Sym:
     def __init__(self, code, k, byte, key, rd_in, rd_after, t_in):
         self.code, self.k, self.byte, self.key = code, k, byte, key
         self.rd_in, self.rd_after, self.t_in = rd_in, rd_after, t_in
-        self.mod = None                  # None, "idle", ("xor", v) or "invalid"
+        self.mod = None                  # None, "idle", ("xor", v), "invalid" or "disp"
 
     def plain(self) -> int:
         return self.byte if self.k or self.key is None else self.byte ^ self.key
@@ -124,7 +168,9 @@ class _Parser:
         self.emit = emit
         self.cur = None                  # [start, dllp, bytearray, err]
 
-    def symbol(self, t, k: bool, byte: int, invalid: bool = False) -> None:
+    def symbol(self, t, k: bool, byte: int, invalid: bool = False, err: bool = False) -> None:
+        if err and self.cur is not None and not k:   # flagged, the byte intact
+            self.cur[3] = True
         if invalid:
             if self.cur is not None:
                 self.cur[3] = True
@@ -169,11 +215,14 @@ class Injector:
         self.drop_acks = False
         self.drop_tlps = False
         self.replay_seq: int | None = None
-        self.counts = dict.fromkeys(CLASSES + ("drop_ack", "drop_tlp_window"), 0)
+        self.counts = dict.fromkeys(CLASSES + ("drop_ack", "drop_tlp_window",
+                                               "disparity_missed"), 0)
         self.buf: deque = deque()        # (ei, [sym, sym] or None, t_in)
         self.scr = mac_arch.Scrambler()
         self.rd_in = None                # transmitter's running disparity (None: unknown)
         self.rd_out = None
+        self.last_code: int | None = None   # the last code sent (None after electrical idle)
+        self.disp_pending = False        # a disparity error still looking for its symbol
         self.last_new = SEQ_MOD - 1      # newest TLP sequence number seen
         self.pkt = None                  # the packet entering: dict
         self.sent_parser = _Parser(self.on_sent)
@@ -318,6 +367,8 @@ class Injector:
                 action, cls = ("invalid", self.rng.randrange(2, 14)), "corrupt_tlp"
             elif self._take("drop_tlp"):
                 action, cls = ("drop",), "drop_tlp"
+            elif self._take("disparity"):
+                action, cls = ("disp", self.rng.randrange(2, 14)), "disparity"
         p["action"] = action
         if cls is not None:
             self.counts[cls] += 1
@@ -336,7 +387,7 @@ class Injector:
             s.mod = "idle"
             return
         if idx - 1 == a[1] and not s.k:      # idx 0 is the start symbol
-            s.mod = ("xor", a[2]) if a[0] == "xor" else "invalid"
+            s.mod = ("xor", a[2]) if a[0] == "xor" else a[0]   # "invalid" or "disp"
 
     # -- output ---------------------------------------------------------------
 
@@ -344,6 +395,8 @@ class Injector:
         ei, syms, _ = self.buf.popleft()
         if ei:
             self.rd_out = None
+            self.last_code = None
+            self._disp_end()
             self.out_parser.idle(t)
             return 0, True
         word = 0
@@ -356,6 +409,29 @@ class Injector:
         disparities agree; otherwise (and for every changed symbol)
         encoded at the output's running disparity."""
         rd = self.rd_out
+        if s.mod == "disp" or (self.disp_pending and s.mod is None and not s.k):
+            s.mod = None
+            code = disparity_code(s.byte, rd, self.last_code) if rd is not None else None
+            if code is None:
+                self.disp_pending = True     # try the packet's next data symbol
+            else:
+                self.disp_pending = False
+                self.out_parser.symbol(t, False, s.plain(), err=True)
+                self.rd_out = code8b10b.rd_after(code, rd)
+                self.last_code = code
+                return code
+        elif s.k:
+            self._disp_end()
+        code = self._encode_plain(s, t, rd)
+        self.last_code = code
+        return code
+
+    def _disp_end(self) -> None:
+        if self.disp_pending:
+            self.disp_pending = False
+            self.counts["disparity_missed"] += 1
+
+    def _encode_plain(self, s: _Sym, t, rd) -> int:
         if s.mod is None and rd == s.rd_in:
             self.rd_out = s.rd_after
             self.out_parser.symbol(t, s.k, s.plain())

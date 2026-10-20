@@ -124,6 +124,8 @@ below.
 | Memory | 28 / 432 M9K, 48848 memory bits, 16 RAMs, each simple dual port, single clock, old data on a mixed-port read during write. |
 | Worst setup path | `clk_core`, inside `tl`: the `cfg` completion former's descriptor queue head (`u_cf` `u_desc`, its RAM read register) to the `cc` former's descriptor read pointer (`u_cc` `u_desc` `rd_q`), through the transmit arbiter's eligibility and round robin; slack +1.065 ns. |
 
+**Inferred RAMs** ([FPGA BKM](../../../bkm/fpga.md#intel-backends)). Of the 16 RAMs, 15 are `common_sdp_ram` Intel backends; the one inferred is `end_q`, a 64 × 8 register array (`pcie_dll_tlp_tx` `u_tlp_tx`, the word after each held TLP) that Quartus maps to one M9K, adding pass-through logic so a read of the word being written returns what the RTL returns (known warning 276020). It stays inferred: behavior is preserved, the 512 bits fit one block, and nothing needs a defined collision, so it does not need the shared RAM block's explicit backend.
+
 **Closing 50 MHz.** The first fit (run 39141831879, at `9d9edbc`)
 reached 36.12 MHz on `clk_core` (setup slack -7.684 ns; `clk_rx`
 59.17 MHz): its worst path ran from the same descriptor queue head

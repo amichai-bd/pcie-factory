@@ -28,8 +28,9 @@ models: models
 # Directory, relative to the repository root, whose Python the DV imports at
 # run time (it is on sys.path in every simulation). `--affected` scans the
 # imports of each IP's DV and arch Python: a changed file it reaches here, or
-# another IP's arch or models module it imports by name, selects that IP at
-# every requested level, even when the change is also a global one.
+# a module of another IP's arch or DV folder (a model, a testbench
+# environment) it imports by bare name, selects that IP at every requested
+# level, even when the change is also a global one.
 import_root: tools
 
 # pytest paths, relative to the repository root, of the tools unit tests.

@@ -49,7 +49,16 @@ def src(tmp_path) -> Path:
     (root / "rtl" / "plain").mkdir(parents=True)
     (root / "rtl" / "plain" / "plain.rtl.f").write_text("plain.sv\n")
     (root / "rtl" / "plain" / "plain.sv").write_text("module plain; endmodule\n")
+    write_page(tmp_path, "The `hist_q` array is an inferred RAM: small, so kept inferred.\n")
     return root
+
+
+def write_page(tmp_path: Path, text: str) -> Path:
+    """The widget IP's FPGA page, ``wiki/src/fpga/widget/FPGA.md`` beside ``src/``."""
+    page = tmp_path / "wiki" / "src" / "fpga" / "widget" / "FPGA.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text(text)
+    return page
 
 
 def widget(src: Path) -> Ip:
@@ -58,6 +67,12 @@ def widget(src: Path) -> Ip:
 
 def make_plan(src: Path, tmp_path: Path, **kw) -> flow.Plan:
     return flow.plan(widget(src), tmp_path / "work", "de2_115", **kw)
+
+
+def run_plan(src: Path, tmp_path: Path, **kw) -> flow.Plan:
+    """A plan whose ``widget`` module has a backend, so the fixture fit's
+    ``u_ram`` row is the explicit backend's and ``hist_q`` the one inferred RAM."""
+    return make_plan(src, tmp_path, known=with_backend(src), **kw)
 
 
 # --------------------------------------------------------------------------
@@ -204,11 +219,9 @@ def test_plan_bad_part(src, tmp_path):
 # Configuration and discovery
 
 
-def write_cfg(d: Path, fpga_yaml: str, quartus_root: str = "") -> Path:
+def write_cfg(d: Path, fpga_yaml: str) -> Path:
     d.mkdir(parents=True, exist_ok=True)
     (d / "fpga.yaml").write_text(fpga_yaml)
-    (d / "host.yaml").write_text(
-        f"hosts:\n  omarchy:\n    quartus_root: {quartus_root}\n")
     return d
 
 
@@ -243,19 +256,39 @@ def test_find_quartus_order(tmp_path, monkeypatch):
     on_path = fake_exe(tmp_path / "a" / "bin" / "quartus_sh").parent
     env_root = tmp_path / "b"
     fake_exe(env_root / "bin" / "quartus_sh")
-    host_root = tmp_path / "c"
-    fake_exe(host_root / "bin" / "quartus_sh")
-    cfg = write_cfg(tmp_path / "cfg", "", str(host_root))
     monkeypatch.setenv("PATH", f"{on_path}{os.pathsep}/usr/bin:/bin")
     monkeypatch.setenv("QUARTUS_ROOTDIR", str(env_root))
-    assert flow.find_quartus(cfg) == on_path
+    assert flow.find_quartus() == (on_path, "PATH")
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
-    assert flow.find_quartus(cfg) == env_root / "bin"
+    assert flow.find_quartus() == (env_root / "bin", "$QUARTUS_ROOTDIR/bin")
+    monkeypatch.setenv("QUARTUS_ROOTDIR", str(tmp_path / "empty"))  # no quartus_sh there
+    assert flow.find_quartus() is None
+    assert "$QUARTUS_ROOTDIR is set" in flow.quartus_not_found()
     monkeypatch.delenv("QUARTUS_ROOTDIR")
-    assert flow.find_quartus(cfg) == host_root / "bin"
-    cfg = write_cfg(tmp_path / "cfg2", "")
-    assert flow.find_quartus(cfg) is None
-    assert "hosts.omarchy.quartus_root (empty)" in flow.quartus_not_found(cfg)
+    assert flow.find_quartus() is None
+    msg = flow.quartus_not_found()
+    assert "looked in PATH and $QUARTUS_ROOTDIR/bin" in msg and "is unset" in msg
+    assert "host.yaml" not in msg
+
+
+def test_find_quartus_never_reads_host_entries(tmp_path, monkeypatch):
+    # A host entry with a quartus_root (as the unsupported host once had) is
+    # not a place to look: only PATH and $QUARTUS_ROOTDIR are.
+    host_root = tmp_path / "c"
+    fake_exe(host_root / "bin" / "quartus_sh")
+    (tmp_path / "host.yaml").write_text(f"hosts:\n  old:\n    quartus_root: {host_root}\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    monkeypatch.delenv("QUARTUS_ROOTDIR", raising=False)
+    assert flow.find_quartus() is None
+    assert not hasattr(flow, "host_quartus_root")
+
+
+def test_repo_host_config_has_no_quartus_root():
+    # No tool reads a host's quartus_root, so cfg/host.yaml records none.
+    import yaml
+    hosts = yaml.safe_load((Path(flow.REPO_ROOT) / "cfg" / "host.yaml").read_text())["hosts"]
+    assert not any("quartus_root" in (h or {}) for h in hosts.values())
 
 
 # --------------------------------------------------------------------------
@@ -281,7 +314,7 @@ def fake_quartus(bin_dir: Path, fail: str | None = None, fail_body: str = "echo 
 
 
 def test_run_writes_metrics(src, tmp_path, capsys):
-    p = make_plan(src, tmp_path)
+    p = run_plan(src, tmp_path)
     assert flow.run(p, fake_quartus(tmp_path / "bin"), 30, None) == 0
     m = json.loads((p.out_dir / "metrics.json").read_text())
     assert m["ip"] == "widget" and m["board"] == "de2_115"
@@ -356,7 +389,7 @@ def test_run_step_failure_prints_every_error_line_then_tail(src, tmp_path, capsy
     assert [e.split(" (")[0] for e in errors] == ["Critical Warning"] + ["Error"] * 3
     assert not any(e in log_lines[-30:] for e in errors)
     out = capsys.readouterr().out.splitlines()
-    log = p.out_dir / "logs" / "map.log"
+    log = "<workdir>/widget/fpga/logs/map.log"  # relative, not the host path
     head = out.index(f"--- error lines in {log}: 4 ---")
     tail = out.index(f"--- last 30 lines of {log} ---")
     assert out[head + 1:head + 5] == errors
@@ -391,7 +424,7 @@ def test_run_lint_applies_waivers(src, tmp_path):
     (src / "lint_waivers.yaml").write_text(
         f"waivers:\n  - file: fpga/widget/{TOP}.sv\n    rule: SYNCASYNCNET\n"
         f"    match: \"'{TOP}.rst'\"\n    reason: test\n")
-    p = make_plan(src, tmp_path)
+    p = run_plan(src, tmp_path)
     lint = warning_verilator(tmp_path / "lintbin" / "verilator", src)
     assert flow.run(p, fake_quartus(tmp_path / "bin"), 30, lint) == 0
     m = json.loads((p.out_dir / "metrics.json").read_text())
@@ -406,7 +439,7 @@ def test_run_lint_bad_waiver_file_fails(src, tmp_path):
 
 
 def test_run_timing_not_met(src, tmp_path, monkeypatch):
-    p = make_plan(src, tmp_path)
+    p = run_plan(src, tmp_path)
     real = flow.reports.collect
 
     def failing(*a):
@@ -426,14 +459,104 @@ def test_run_step_timeout_kills_group(tmp_path):
     assert "timeout after" in (tmp_path / "slow.log").read_text()
 
 
-def test_run_classifies_known_warnings(src, tmp_path, capsys):
+def test_run_job_log_paths_are_relative(src, tmp_path, monkeypatch, capsys):
+    # The listed job-log lines (command, step result and log, metrics) carry
+    # no host path: the workdir is outside the checkout, so it prints as
+    # <workdir>/, and the Quartus directory is cut to the file name.
+    monkeypatch.setattr(flow, "host_names", lambda: ["ci-user"])
+    p = run_plan(src, tmp_path)
+    assert flow.run(p, fake_quartus(tmp_path / "bin"), 30, None) == 0
+    out = capsys.readouterr().out
+    assert str(tmp_path) not in out
+    assert f"[map] .../quartus_map {TOP} -c {TOP}" in out
+    assert "[map] pass (" in out and ") log: <workdir>/widget/fpga/logs/map.log" in out
+    assert "metrics: <workdir>/widget/fpga/metrics.json" in out
+    assert "ci-user" not in out  # the fixture's warning names the user
+
+
+def test_run_failure_excerpt_is_scrubbed(src, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(flow, "host_names", lambda: ["ci-user"])
     p = make_plan(src, tmp_path)
+    mail = "ci-user" + "@" + "example.org"
+    bin_dir = fake_quartus(tmp_path / "bin", fail="quartus_map", fail_body=(
+        f'echo "Error (10161): object not declared File: {src}/rtl/widget/widget.sv Line: 3"; '
+        f'echo "Error (292000): license 27000@licserver for ci-user, {mail}"; exit 3'))
+    assert flow.run(p, bin_dir, 30, None) == 1
+    out = capsys.readouterr().out
+    assert str(tmp_path) not in out and "ci-user" not in out and "licserver" not in out
+    assert ("Error (10161): object not declared File: .../widget.sv Line: 3") in out
+    assert "Error (292000): license <host> for <name>, <email>" in out
+
+
+def test_log_roots_checkout_relative():
+    root = Path(flow.REPO_ROOT)
+    assert flow.log_roots(root / "workdir") == {root: ""}
+    line = flow.public(f"project {root}/workdir/x/fpga log: {root}/workdir/x/fpga/logs/a.log",
+                       flow.log_roots(root / "workdir"), [])
+    assert line == "project workdir/x/fpga log: workdir/x/fpga/logs/a.log"
+    other = Path("/var/tmp/w")
+    assert flow.log_roots(other) == {root: "", other: "<workdir>/"}
+
+
+def ram(name: str) -> dict:
+    return {"name": name, "mode": "Simple Dual Port", "clock_mode": "Single Clock",
+            "port_a_depth": 64, "port_a_width": 8, "blocks": 1, "mixed_rdw": "Old data"}
+
+
+def test_classify_rams(tmp_path):
+    page = write_page(tmp_path, "| `end_q` array | inferred, small |\nThe ROM `WideOr0`.\n")
+    rows = [ram("top:u_top|blk:u_blk|ram:u_ram|altsyncram:g.u_ram|altsyncram_a:auto_generated|ALTSYNCRAM"),
+            ram("top:u_top|tx:u_tx|altsyncram:end_q_rtl_0|altsyncram_b:auto_generated|ALTSYNCRAM"),
+            ram("top:u_top|rom:u_rom|altsyncram:WideOr0_rtl_0|altsyncram_c:auto_generated|ALTSYNCRAM"),
+            ram("top:u_top|tx:u_tx|altsyncram:hist_q_rtl_1|altsyncram_d:auto_generated|ALTSYNCRAM"),
+            ram("top:u_top|vendor:u_v|ALTSYNCRAM"),
+            ram("top:u_top|ram:u_ram|altsyncram:mem_rtl_0|altsyncram_e:auto_generated|ALTSYNCRAM")]
+    got = flow.classify_rams(rows, {"ram"}, page)
+    assert [(r.inferred, r.node, r.named) for r in got] == [
+        (False, rows[0]["name"], True),         # under an explicit-backend module
+        (True, "end_q", True),                  # named in a table cell
+        (True, "WideOr0", True),                # a ROM, by its Quartus node name
+        (True, "hist_q", False),                # inferred, not on the page
+        (True, rows[4]["name"], False),         # no <node>_rtl_<n>: the whole name
+        (True, "mem", False)]                   # inferred even inside a backend module
+    # A missing page names nothing.
+    assert [r.named for r in flow.classify_rams(rows[1:2], set(), tmp_path / "none.md")] == [False]
+    assert flow.classify_rams([], set(), page) == []
+
+
+def test_run_fails_on_unnamed_inferred_ram(src, tmp_path, capsys):
+    write_page(tmp_path, "No RAM is named here; `hist` is not the node.\n")
+    p = run_plan(src, tmp_path)
+    assert flow.run(p, fake_quartus(tmp_path / "bin"), 30, None) == 1
+    assert (p.out_dir / "metrics.json").exists()  # metrics are still written
+    out = capsys.readouterr().out
+    assert "u_ram|altsyncram_k1d1:auto_generated|ALTSYNCRAM: Simple Dual Port" in out
+    assert "; explicit backend" in out
+    assert "; inferred hist_q, NOT NAMED in the FPGA page" in out
+    assert "rams: inferred RAM hist_q not named in .../FPGA.md" in out
+
+
+def test_run_names_inferred_rams(src, tmp_path, capsys):
+    p = run_plan(src, tmp_path)
+    assert flow.run(p, fake_quartus(tmp_path / "bin"), 30, None) == 0
+    out = capsys.readouterr().out
+    assert "; inferred hist_q, named in the FPGA page" in out and "rams:" not in out
+    # Without the backend, the u_ram row is an inference too, and unnamed.
+    p = make_plan(src, tmp_path)
+    assert flow.run(p, fake_quartus(tmp_path / "bin2"), 30, None) == 1
+
+
+def test_run_classifies_known_warnings(src, tmp_path, capsys):
+    p = run_plan(src, tmp_path)
     known = flow.load_config(Path(flow.REPO_ROOT) / "cfg")["known_warnings"]
     assert flow.run(p, fake_quartus(tmp_path / "bin"), 30, None, known) == 0
     out = capsys.readouterr().out
     assert "  warnings map: known 3, unknown 4 (closing line: 7)" in out
     unknown = [l for l in out.splitlines() if l.startswith("    unknown ")]
-    assert [l.split()[1] for l in unknown] == ["15610", "21074", "99999", "332012"]
+    assert [l.split(" (x")[0].split()[-1] for l in unknown] == ["15610", "21074", "99999", "332012"]
+    # Only the critical warning is marked as such.
+    assert [l for l in unknown if l.startswith("    unknown critical ")] == [
+        "    unknown critical 332012 (x1): Constraint file .../extra.sdc was not found"]
     assert all(len(l.split(": ", 1)[1]) <= flow.MESSAGE_CHARS for l in unknown)
     assert "/var/lib" not in out and "/opt/" not in out  # names: see test_sanitize_*
 
@@ -442,7 +565,8 @@ def test_warning_ids(tmp_path):
     ids, first = flow.warning_ids(FIX / "map_warnings.log")
     assert list(ids) == ["10036", "15610", "21074", "99999", "292013", "332012"]
     assert sum(ids.values()) == 7 == flow.quartus_warnings(FIX / "map_warnings.log")
-    assert first[10036].endswith('"dbg_q" assigned a value but never read')
+    assert first[10036][0].endswith('"dbg_q" assigned a value but never read')
+    assert [i for i, (_, critical) in first.items() if critical] == [332012]
     assert flow.warning_ids(tmp_path / "missing.log") == ({}, {})
     log = tmp_path / "x.log"
     log.write_text("Info (1): Warning (2): not a warning line\nWarning: no ID\n")
@@ -450,20 +574,21 @@ def test_warning_ids(tmp_path):
 
 
 ROOT = Path("/var/lib/ci/work/checkout")
+ROOTS = {ROOT: ""}
 NAMES = ["build-host-07", "ci-user"]
 
 
 def test_sanitize_paths_names_and_length():
     _, first = flow.warning_ids(FIX / "map_warnings.log")
-    msg = flow.sanitize(first[99999], ROOT, NAMES)
+    msg = flow.sanitize(first[99999][0], ROOTS, NAMES)
     assert msg.startswith("Settings written by <name> on <name> to .../widget_board.ini "
                           "and copied to workdir/widget/fpga/db/widget_board.ini")
     assert len(msg) == flow.MESSAGE_CHARS and msg.endswith("...")
     assert "/var" not in msg and "/opt" not in msg and "ci-user" not in msg
-    assert flow.sanitize(first[15610], ROOT, NAMES) == (
+    assert flow.sanitize(first[15610][0], ROOTS, NAMES) == (
         'No output dependent on input pin "key_i" File: '
         "src/fpga/widget/widget_board.sv Line: 4")
-    assert flow.sanitize(first[332012], ROOT, NAMES) == (
+    assert flow.sanitize(first[332012][0], ROOTS, NAMES) == (
         "Constraint file workdir/widget/fpga/extra.sdc was not found")
 
 
@@ -471,18 +596,18 @@ def test_sanitize_home_email_address():
     home = "/" + "home/" + "someone/proj/x.sv"  # built so the publishability scan never sees it
     mail = "someone" + "@" + "example.org"
     ip = ".".join(["10", "1", "2", "3"])
-    msg = flow.sanitize(f"at {home}({3}) by {mail} from {ip}, see widget.sv(4)", ROOT, [])
+    msg = flow.sanitize(f"at {home}({3}) by {mail} from {ip}, see widget.sv(4)", ROOTS, [])
     assert msg == "at .../x.sv(3) by <email> from <ip>, see widget.sv(4)"
-    assert flow.sanitize("a  b\tc", ROOT, []) == "a b c"
-    assert flow.sanitize("x" * 200, ROOT, [], limit=10) == "xxxxxxx..."
+    assert flow.sanitize("a  b\tc", ROOTS, []) == "a b c"
+    assert flow.sanitize("x" * 200, ROOTS, [], limit=10) == "xxxxxxx..."
     # A name is replaced only as a whole word.
-    assert flow.sanitize("ci-user ci-users xci-user", ROOT, ["ci-user"]) == "<name> ci-users xci-user"
+    assert flow.sanitize("ci-user ci-users xci-user", ROOTS, ["ci-user"]) == "<name> ci-users xci-user"
 
 
 def test_warning_lines_skip_quiet_steps():
     steps = {"project": {"warnings": 0, "warning_ids": {}},
              "fit": {"warnings": 1, "warning_ids": {"169177": 1}}}
-    assert flow.warning_lines(steps, frozenset({169177}), {}, ROOT, []) == [
+    assert flow.warning_lines(steps, frozenset({169177}), {}, ROOTS, []) == [
         "  warnings fit: known 1, unknown 0 (closing line: 1)"]
 
 
@@ -562,10 +687,29 @@ def test_cli_not_fpga_target(src, tmp_path, capsys):
 def test_cli_quartus_missing(src, tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
     monkeypatch.delenv("QUARTUS_ROOTDIR", raising=False)
-    monkeypatch.setattr(flow, "host_quartus_root", lambda cfg_dir: None)
     argv = ["fpga", "--src-root", str(src), "--workdir", str(tmp_path), "--ip", "widget"]
     assert main(argv) == 2
     assert "quartus_sh not found" in capsys.readouterr().err
+
+
+def test_cli_prints_where_quartus_was_found(src, tmp_path, monkeypatch, capsys):
+    bin_dir = fake_quartus(tmp_path / "bin")
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}/usr/bin:/bin")
+    monkeypatch.setattr("cli.main.sim.find_verilator", lambda: None)
+    argv = ["fpga", "--src-root", str(src), "--workdir", str(tmp_path / "w"), "--ip", "widget"]
+    main(argv)
+    out = capsys.readouterr().out
+    assert out.startswith("quartus: PATH\n")
+    assert "[widget] top widget_board, board de2_115, project <workdir>/widget/fpga" in out
+    assert str(tmp_path) not in out
+
+
+def test_cli_dry_run_paths_are_relative(src, tmp_path, capsys):
+    argv = ["fpga", "--src-root", str(src), "--workdir", str(tmp_path / "w"),
+            "--ip", "widget", "--dry-run"]
+    assert main(argv) == 0
+    out = capsys.readouterr().out
+    assert "project <workdir>/widget/fpga" in out and str(tmp_path) not in out
 
 
 def test_cli_requires_ip_or_all():

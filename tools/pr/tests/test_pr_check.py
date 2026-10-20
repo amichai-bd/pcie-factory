@@ -94,6 +94,12 @@ MUTANTS = [
      "Coverage floors deferred to issue #14.", "add 'Acceptance moved: #14"),
     ("keywords", "Closes #12. Part of epic #3.", "Implements #12.", "no 'Closes #<n>'"),
     ("validation", "\n## Validation\n", "\n## Checks\n", "no '## Validation' section"),
+    # HTML comments are stripped: commented-out evidence satisfies no rule.
+    ("seeds", "Seeds: per the crc32 seed rule.", "<!-- Seeds: per the crc32 seed rule. -->",
+     "no line states the seeds"),
+    ("not-run", "### Not run\nNone.\n", "<!--\n### Not run\nNone.\n-->\n",
+     "no '### Not run' subsection"),
+    ("levels", "L1 10/10 passed", "<!-- L1 10/10 passed -->", "no 'L1 <passed>/<total>' result"),
 ]
 
 
@@ -103,6 +109,30 @@ def test_each_rule_catches_its_mutant(rules, standard, rule, old, new, msg):
     findings, _ = run(rules, standard, GOOD.replace(old, new))
     assert rules_of(findings) == [rule], findings
     assert any(msg in f.message for f in findings), findings
+
+
+# (old text, new text): input forms the SPEC promises; each edit of the good
+# body must still pass every rule.
+FORMS = [
+    # Exactly what `./build regress` prints: `level<N>:` and a space-less `CPU 60.2s`.
+    ("L0 4/4 passed, CPU 20.5 s, wall 9 s; L1 10/10 passed, CPU 300.0 s, wall 120 s",
+     "level0: 4/4 passed, CPU 20.5s (budget 120s), test wall time 9.0s; "
+     "level1: 10/10 passed, CPU 300.0s (budget 1200s), test wall time 120.0s"),
+    ("--level 0 --level 1 --ip a", "--level=0 --level=1 --ip a"),
+    ("Seeds: per the crc32 seed rule.",
+     "Seeds: the [seed rule](wiki/tools/regress/SPEC.md#seeds)."),
+    # GitHub ignores closing keywords inside HTML comments (PR #444, #442):
+    # a commented keyword is neither a second close nor a closed parent.
+    ("Closes #12.", "Closes #12. <!-- fixes #13; part 2 closes #3 -->"),
+    # A comment may hold anything, even a stale SHA or a broken table.
+    ("### Not run", f"<!-- at {OTHER} | Command |\n-->\n### Not run"),
+]
+
+
+@pytest.mark.parametrize("old, new", FORMS)
+def test_promised_forms_pass(rules, standard, old, new):
+    assert GOOD.count(old) == 1, old
+    assert run(rules, standard, GOOD.replace(old, new)) == ([], [])
 
 
 def test_partial_pr_that_closes_its_parent(rules, standard):

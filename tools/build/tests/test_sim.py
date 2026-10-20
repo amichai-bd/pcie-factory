@@ -35,6 +35,34 @@ def test_parse_results(tmp_path):
     assert sim.parse_results(tmp_path / "t.xml")[0] == "error"  # truncated
 
 
+FATAL_LOG = """\
+   244.00ns INFO     cocotb.tb   cycle 28: the stall starts
+[248000] %Fatal: top.sv:359: Assertion failed in tb.u_dut.a_one: assertion a_one failed in tb.u_dut.a_one
+%Error: top.sv:359: Verilog $stop
+"""
+
+
+def test_fatal_label():
+    assert sim.fatal_label(FATAL_LOG) == (FATAL_LOG.splitlines()[1].strip(), "a_one")
+    assert sim.fatal_label("[10] %Fatal: top.sv:3: plain message\n")[1] is None
+    assert sim.fatal_label("all passed\n") == (None, None)
+
+
+def test_expected_fatal():
+    assert sim.expected_fatal(FATAL_LOG, "a_one", "fail", "failed: t") == (
+        "pass", "stopped on assertion a_one as expected")
+    status, detail = sim.expected_fatal(FATAL_LOG, "a_two", "fail", "failed: t")
+    assert status == "fail" and "stopped on: [248000] %Fatal" in detail
+    assert sim.expected_fatal("[10] %Fatal: top.sv:3: plain\n", "a_one", "error", "x")[0] == "fail"
+    assert sim.expected_fatal("ok\n", "a_one", "pass", "1 case(s) passed") == (
+        "fail", "expected a stop on assertion a_one, but the run passed")
+    assert sim.expected_fatal("ok\n", "a_one", "fail", "failed: t") == (
+        "fail", "expected a stop on assertion a_one, but the run ended without a fatal "
+        "(failed: t)")
+    assert sim.expected_fatal(FATAL_LOG, "a_one", "timeout", "timed out") == (
+        "timeout", "timed out")
+
+
 needs_proc = pytest.mark.skipif(not Path("/proc/self/stat").exists(), reason="needs /proc")
 
 
@@ -238,6 +266,20 @@ def test_e2e_pass_fail_timeout_and_build_error(fixture_src, tmp_path):
     assert fired.status in ("fail", "error"), fired.detail
     assert "en_low_in_reset failed" in fired.log.read_text()
 
+    # expect_fatal: only a stop on the named assertion passes.
+    def expect(name, case, label):
+        return sim.run_test(spec, work, verilator, name, "tests.test_negative", case, 1, 60,
+                            expect_fatal=label)
+    hit = expect("asrt_ok", "assertion_fires", "en_low_in_reset")
+    assert hit.status == "pass", (hit.detail, hit.log.read_text())
+    other = expect("asrt_other", "assertion_fires", "a_other")
+    assert other.status == "fail" and "stopped on:" in other.detail, other.detail
+    clean = sim.run_test(spec, work, verilator, "clean", "tests.test_counter", "counts", 1, 60,
+                         expect_fatal="en_low_in_reset")
+    assert clean.status == "fail" and clean.detail.endswith("but the run passed"), clean.detail
+    failed = expect("failed", "always_fails", "en_low_in_reset")
+    assert failed.status == "fail" and "ended without a fatal" in failed.detail, failed.detail
+
     hung = sim.run_test(spec, work, verilator, "hang", "tests.test_negative", "hangs", 1, 3)
     assert hung.status == "timeout"
     hang_dir = (work / "counter/hang/1").resolve()
@@ -285,6 +327,15 @@ def test_e2e_regress_cli_all_levels(fixture_src, tmp_path, capsys):
     assert main(argv) == 1
     summary = json.loads((work / "regress/summary.json").read_text())
     assert [(t["name"], t["seed"], t["status"]) for t in summary["tests"]] == [("neg", 9, "fail")]
+
+    # An expect_fatal entry passes only by stopping on its assertion.
+    for label, code in (("en_low_in_reset", 0), ("a_other", 1)):
+        (fixture_src / "dv/counter/regress/level0.yaml").write_text(
+            "tests:\n  - {name: fires, module: tests.test_negative, testcase: assertion_fires,"
+            f" top: counter, timeout_s: 60, expect_fatal: {label}, coverage_seeds: 0}}\n")
+        assert main(argv) == code
+        summary = json.loads((work / "regress/summary.json").read_text())
+        assert [t["status"] for t in summary["tests"]] == ["pass" if code == 0 else "fail"]
 
 
 @needs_sim

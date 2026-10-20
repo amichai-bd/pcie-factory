@@ -19,7 +19,8 @@ _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _MODULE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
 
 _REQUIRED = {"name", "module", "top", "timeout_s"}
-_OPTIONAL = {"testcase", "seeds", "params", "backend", "coverage_seeds", "rerun_when"}
+_OPTIONAL = {"testcase", "seeds", "params", "backend", "coverage_seeds", "rerun_when",
+             "expect_fatal"}
 # Values of `rerun_when` (wiki/tools/regress/SPEC.md, "Reuse of unchanged
 # model checks"): run again only when the models the entry checks change.
 RERUN_WHEN = ("models_change",)
@@ -43,6 +44,7 @@ class TestEntry:
     backend: str | None = None  # a cfg/backends.yaml flow kind (build.backends)
     coverage_seeds: int = 1  # with --coverage, how many of its runs are coverage runs
     rerun_when: str | None = None  # reuse a pass until this changes (RERUN_WHEN)
+    expect_fatal: str | None = None  # passes only by stopping on this assertion label
 
     @property
     def runs(self) -> int:
@@ -128,8 +130,19 @@ def parse_entry(raw, ip: str, level: int, where: str) -> TestEntry:
         if cov != 0:
             raise SchemaError(f"{where}: 'rerun_when' needs 'coverage_seeds: 0' (a reused "
                               "pass carries no coverage)")
+    fatal = raw.get("expect_fatal")
+    if fatal is not None:
+        if not isinstance(fatal, str) or not _IDENT_RE.match(fatal):
+            raise SchemaError(f"{where}: 'expect_fatal' must be an assertion label (an HDL "
+                              "identifier)")
+        if cov != 0:
+            raise SchemaError(f"{where}: 'expect_fatal' needs 'coverage_seeds: 0' (a run "
+                              "stopped by a fatal writes no coverage)")
+        if rerun is not None:
+            raise SchemaError(f"{where}: 'expect_fatal' cannot be combined with 'rerun_when' "
+                              "(an RTL change must rerun it)")
     return TestEntry(ip, level, name, module, top, float(timeout), testcase, seeds, dict(params),
-                     backend, cov, rerun)
+                     backend, cov, rerun, fatal)
 
 
 FLOOR_KEY = "coverage_floors"

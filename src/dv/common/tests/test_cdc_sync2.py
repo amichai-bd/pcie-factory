@@ -19,11 +19,15 @@ from tb.cdc_env import (CLOCK_BINS, EdgeLog, GatedClock, clock_ratio, falling_ed
                         random_periods, reset_step, start_clock)
 
 # Functional coverage (DV plan, Strategy): the clock ratio class of each
-# update, and how long the update was held, in destination periods.
+# update, and how long the update was held, in destination periods. An
+# update is held a whole number of source periods, so with a source period
+# of four or more destination periods (dst_fast_4x) every hold is at least
+# four of them: that cross is unreachable, left out, and a sample of it
+# fails the test.
 COV = Covergroup("common_cdc_sync2")
 COV.coverpoint("clocks", bins=CLOCK_BINS)
 COV.coverpoint("hold", bins={"min": lambda h: h < 3.0, "long": lambda h: h >= 3.0})
-COV.cross("clocks_x_hold", "clocks", "hold")
+COV.cross("clocks_x_hold", "clocks", "hold", unreachable=[("dst_fast_4x", "min")])
 # Asynchronous reset (ASYNC_RESET 1): asserted between edges of a running
 # clock, or with the clock stopped and released before it restarts or held
 # into the restart.
@@ -47,10 +51,12 @@ async def reset(dut):
     assert got == 0, f"after reset: dst_data_o expected 0 got {got:#x}"
 
 
-async def stream(dut, rng, src_period, dst_period, changes):
-    """Send ``changes`` one-bit updates; check that dst_data_o shows exactly
-    the sent sequence and each value two or three dst edges after it was
-    driven."""
+async def stream(dut, rng, src_period, dst_period, changes, extra=None):
+    """Send ``changes`` one-bit updates, each held the whole number of
+    source periods that covers two destination periods plus a random
+    extra under ``extra`` ps (default three destination periods); check
+    that dst_data_o shows exactly the sent sequence and each value two or
+    three dst edges after it was driven."""
     width = len(dut.src_data_i)
     dut._log.info("width %d, src period %d ps, dst period %d ps, %d changes",
                   width, src_period, dst_period, changes)
@@ -70,7 +76,8 @@ async def stream(dut, rng, src_period, dst_period, changes):
         value ^= 1 << rng.randrange(width)
         dut.src_data_i.value = value
         sent.append((now(), value))
-        hold = math.ceil((2 * dst_period + rng.randrange(3 * dst_period)) / src_period) * src_period
+        pad = rng.randrange(3 * dst_period if extra is None else extra)
+        hold = math.ceil((2 * dst_period + pad) / src_period) * src_period
         COV.sample(clocks=clock_ratio(src_period, dst_period), hold=hold / dst_period)
         await Timer(hold, "ps")
     await falling_edges(dut.dst_clk_i, 4)
@@ -102,6 +109,15 @@ async def smoke(dut):
     """L0: reset value, then directed updates at a fixed 3:5 clock ratio."""
     await start(dut, 10_000)
     await stream(dut, random.Random(1), 6_000, 10_000, 16)
+
+
+@cocotb.test()
+async def dst_fast_min(dut):
+    """L0: a destination 2.5 times faster, every update held one source
+    period, the shortest hold the MAS allows at that ratio (2.5 destination
+    periods, under three)."""
+    await start(dut, 4_000)
+    await stream(dut, random.Random(1), 10_000, 4_000, 16, extra=1)
 
 
 @cocotb.test()

@@ -151,6 +151,39 @@ async def e2e_tlp_errors(dut):
 
 
 @cocotb.test()
+async def e2e_disparity(dut):
+    """A running-disparity-only error on a TLP, each way (HAS, error
+    injection): one header symbol sent in the other disparity column, the
+    bytes intact, so only the receiving phy flags it. The receiver pulses
+    rcv_err_o, the phy flags the TLP on pkt_rx_err at its eop, and the dll
+    drops it as a Bad TLP and sends a Nak although its LCRC is good (HAS,
+    errors); the sender replays and the TLP is delivered once. A pkt_rx_err
+    lost between phy and dll in link would deliver the TLP with no Bad TLP
+    and no Nak."""
+    env = await up(dut)
+    for d in ("ab", "ba"):
+        s, r = ends(env, d)
+        inj = env.injectors[0 if d == "ab" else 1]
+        for _ in range(2):
+            rcv, done = r.rcv_err, inj.counts["disparity"]
+            t0, _ = await directed(env, d, "disparity")
+            why = trace(env, d, t0)
+            assert inj.counts["disparity_missed"] == 0, (
+                f"disparity on {d}: the TLP ended before a symbol qualified; {why}")
+            assert inj.counts["disparity"] == done + 1
+            assert r.rcv_err > rcv, f"disparity on {d}: no rcv_err_o at the receiver; {why}"
+            assert delta(r, BAD_TLP, t0) >= 1, (
+                f"disparity on {d}: no Bad TLP at the receiver for the flagged TLP (its bytes "
+                f"and LCRC intact): pkt_rx_err did not reach the dll; {why}")
+            assert len(naks(env, d, t0)) >= 1, f"disparity on {d}: no Nak; {why}"
+            assert delta(s, TIMEOUT, t0) == 0 and delta(r, BAD_DLLP, t0) == 0, (
+                f"disparity on {d}: expected a Nak-driven replay only; {why}")
+        COV_RECOVERY.sample(event="nak_sent")
+    await env.drain()
+    env.finish()
+
+
+@cocotb.test()
 async def e2e_dllp_errors(dut):
     """Corrupted DLLP (Bad DLLP) and dropped DLLP (no pulse), each way; the
     Nak class (a lost Nak and a corrupted TLP of the replay: one Nak only,

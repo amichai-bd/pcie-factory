@@ -41,21 +41,22 @@ inline `[a, b]` lists and `#` comments.
 | Omarchy | **Unsupported** (captain decision, #321): its runners lack the `wsl` label, so no job lands there (Arch Linux) | By hand; last report kept under `hosts.omarchy` in `cfg/host.yaml` |
 
 The Omarchy entries in `cfg/host.yaml` keep what the host agent last
-reported, as a record only (the host is unsupported); an entry not yet reported stays empty.
+reported, as a record only (the host is unsupported): no tool reads
+`hosts.omarchy`. An entry not yet reported stays empty.
 `venv: runner` means the runner service's own virtual environment (its
 `$VIRTUAL_ENV`, first on `PATH`); its path is not recorded. Quartus Lite and
-ORFS run on the self-hosted hosts only; Omarchy's are recorded here:
-Quartus Prime Lite `25.1std.0 Build 1129` at `/opt/intelFPGA_lite/25.1/quartus`
-(`quartus_root`, `quartus_version`), as printed by the fpga workflow's
-discovery step. `ci-gate` ran `./build specs fetch` there best effort, with
+ORFS run on the self-hosted hosts only; Omarchy's Quartus is recorded here:
+Quartus Prime Lite `25.1std.0 Build 1129` (`quartus_version`), as printed
+by the fpga workflow's discovery step; its install path is no longer kept,
+since nothing reads it. `ci-gate` ran `./build specs fetch` there best effort, with
 `pdftotext` 26.08.0 (`hosts.omarchy.pdftotext`, as the fetch step's log
-prints it). The [fpga tool](../fpga/SPEC.md#finding-quartus) falls back to
-`<quartus_root>/bin`.
+prints it).
 
 The WSL entries record versions only: its install paths are private to the
 host, so it puts Verilator 5.052 (built from the pinned tag) and Quartus
-Prime Lite `25.1std.0 Build 1129` on the runner `PATH` and needs no
-`quartus_root`. Its runner service runs in the `docker` group and has pulled
+Prime Lite `25.1std.0 Build 1129` on the runner `PATH`, where the
+[fpga tool](../fpga/SPEC.md#finding-quartus) finds it (`PATH`, then
+`$QUARTUS_ROOTDIR/bin`; no host entry is read). Its runner service runs in the `docker` group and has pulled
 the one `orfs_image` pin, recorded under `hosts.wsl` because the
 [asic tool](../asic/SPEC.md#orfs-runners) reads a single ORFS host entry.
 
