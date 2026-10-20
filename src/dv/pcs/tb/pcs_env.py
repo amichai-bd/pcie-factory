@@ -55,12 +55,12 @@ async def _frac_clock(sig, period_ps: float) -> None:
         sig.value = level
 
 
-def start_clocks(dut, rx_ppm: float = 0.0, rx_phase_ps: int = 0) -> float:
+def start_clocks(dut, rx_ppm: float = 0.0, rx_phase_ps: int = 0, tasks: list | None = None) -> float:
     """Start clk_i at 125 MHz and ser_rx_clk_i ``rx_ppm`` faster (positive)
     or slower; returns the RX period in ps."""
     dut.clk_i.value = 0
     dut.ser_rx_clk_i.value = 0
-    cocotb.start_soon(Clock(dut.clk_i, CLK_PS, unit="ps").start())
+    tx_task = cocotb.start_soon(Clock(dut.clk_i, CLK_PS, unit="ps").start())
     rx_period = CLK_PS / (1.0 + rx_ppm * 1e-6)
 
     async def rx():
@@ -68,7 +68,9 @@ def start_clocks(dut, rx_ppm: float = 0.0, rx_phase_ps: int = 0) -> float:
             await Timer(rx_phase_ps, "ps")
         await _frac_clock(dut.ser_rx_clk_i, rx_period)
 
-    cocotb.start_soon(rx())
+    rx_task = cocotb.start_soon(rx())
+    if tasks is not None:
+        tasks.extend((tx_task, rx_task))
     return rx_period
 
 
@@ -138,7 +140,7 @@ class EdgeLog:
     def __init__(self, clk) -> None:
         self.clk = clk
         self.times: list[int] = []
-        cocotb.start_soon(self._run())
+        self.task = cocotb.start_soon(self._run())
 
     async def _run(self) -> None:
         while True:

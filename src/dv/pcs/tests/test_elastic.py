@@ -30,6 +30,7 @@ from models.pcie_pcs_rx_check import ERROR_CODES, check_runs, check_skp_status
 from regress.funcov import Covergroup
 from tb.pcs_bench import regress_seed, seeded
 from tb.pcs_channel import Link, build_link
+from tb.pcs_sections import legacy_rng, section_runs
 from tb.pcs_rxbench import (COV_RX, CYCLE, RxBench, check_clean, check_idle, check_latency,
                             check_lock_latency, rd_settle_word, seeded_ppm)
 
@@ -103,6 +104,55 @@ async def eb_link(dut, kind: str, packets: int, interval: int, ppm: float,
     return stats
 
 
+async def eb_clean_sections(dut, ppm: float, specs) -> None:
+    """One reset and continuous locked line for compatible elastic corners.
+
+    The maximum-TLP section stays first, including its original payload,
+    phase draw and testcase name (the documented threshold mutant catches).
+    Later sections retain their original payload RNG/default seed; they
+    deliberately run without another reset, under the same fill/latency
+    monitor. Standalone testcase functions remain available for reproduction.
+    """
+    outer = regress_seed()
+    symbols, sections = [], []
+    first_rng = None
+    for name, seed, kind, packets, interval in specs:
+        seed = outer if seed is None else seed
+        rng, effective = legacy_rng(f"tests.test_elastic.{name}", seed)
+        dut._log.info("section %s outer seed %d effective seed %d ppm %+.1f",
+                      name, seed, effective, ppm)
+        lo = len(symbols)
+        part = tr.link_symbols(rng, kind, packets, interval)
+        if len(part) % 2:
+            part.append((0, 0))
+        symbols.extend(part)
+        sections.append((name, lo, len(symbols)))
+        if first_rng is None:
+            first_rng = rng
+    link = make_link(first_rng, symbols)
+    rx = RxBench(dut, first_rng, ppm)
+    try:
+        await rx.start(link, max_cycles=len(link.syms) // 2 + 4000)
+        await rx.run_line()
+        runs = check_clean(rx, link, "elastic_sections")
+        for name, lo, hi in sections:
+            stats = {}
+            count = check_skp_status(link.syms, section_runs(runs, lo, hi), name, stats)
+            assert count, f"{name}: no SKP sets checked"
+            adds = stats.get("add_slot0", 0) + stats.get("add_slot1", 0)
+            rems = stats.get("removed", 0) + stats.get("bare_com", 0)
+            assert (adds > rems if ppm < 0 else rems > adds), (
+                f"{name}: {adds} additions, {rems} removals at {ppm} ppm")
+            if name == "eb_dense":
+                want = ("add_slot0", "add_slot1") if ppm < 0 else ("removed", "bare_com")
+                assert all(stats.get(k) for k in want + ("back_to_back",)), (
+                    f"{name}: changes {stats}")
+            dut._log.info("section %s: %d sets, SKP changes %s", name, count, stats)
+            sample_changes(ppm, stats)
+    finally:
+        rx.close()
+
+
 def sign() -> int:
     return 1 if regress_seed() % 2 else -1
 
@@ -113,13 +163,22 @@ def sign() -> int:
 async def eb_tlp_m600(dut):
     """L1: maximum TLPs, the longest SKP interval, RX clock -600 ppm: SKP
     added after the COM, never an underflow, fill (latency) within target."""
-    await eb_link(dut, "tlp", 8, arch.SKP_INTERVAL_MAX, -600.0, "tlp_m600")
+    await eb_clean_sections(dut, -600.0, [
+        ("eb_tlp_m600", None, "tlp", 8, arch.SKP_INTERVAL_MAX),
+        ("eb_short_burst", 1, "short_burst", 8, arch.SKP_INTERVAL_MAX),
+        ("eb_stress_sizes", 2, "stress", 16, arch.SKP_INTERVAL_MAX),
+    ])
 
 
 @cocotb.test()
 async def eb_tlp_p600(dut):
     """L1: the same at +600 ppm: SKP removed, never an overflow."""
-    await eb_link(dut, "tlp", 8, arch.SKP_INTERVAL_MAX, 600.0, "tlp_p600")
+    dense_interval = random.Random(1).randrange(48, 97)
+    await eb_clean_sections(dut, 600.0, [
+        ("eb_tlp_p600", None, "tlp", 8, arch.SKP_INTERVAL_MAX),
+        ("eb_stress_sizes", 1, "stress", 16, arch.SKP_INTERVAL_MAX),
+        ("eb_dense", 1, "dense", 600, dense_interval),
+    ])
 
 
 @cocotb.test()
@@ -306,10 +365,12 @@ async def eb_overflow_leftover(dut):
             await Timer(round(CYCLE / (1.0 + ppm[0] * 1e-6) / 2), unit="ps")
             dut.ser_rx_clk_i.value = 1 - int(dut.ser_rx_clk_i.value)
 
-    def clocks(dut, _ppm, _phase):
+    def clocks(dut, _ppm, _phase, tasks=None):
         dut.clk_i.value = 0
-        cocotb.start_soon(Clock(dut.clk_i, CYCLE, unit="ps").start())
-        cocotb.start_soon(rx_clock())
+        owned = [cocotb.start_soon(Clock(dut.clk_i, CYCLE, unit="ps").start()),
+                 cocotb.start_soon(rx_clock())]
+        if tasks is not None:
+            tasks.extend(owned)
 
     rx = RxBench(dut, rng, ppm[0], fill_window=False)
     with patch("tb.pcs_rxbench.start_clocks", clocks):

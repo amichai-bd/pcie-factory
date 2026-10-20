@@ -104,7 +104,7 @@ class FillCheck:
         self.started = False
         self.lo, self.hi = 99, -1
         self.samples = 0
-        cocotb.start_soon(self._run())
+        self.task = cocotb.start_soon(self._run())
 
     async def _run(self) -> None:
         dut = self.dut
@@ -143,7 +143,7 @@ class ValidRule:
         self.checked = 0
         self.mid_word_ends = 0
         self.idle_tails = 0
-        cocotb.start_soon(self._run())
+        self.task = cocotb.start_soon(self._run())
 
     async def _run(self) -> None:
         dut = self.dut
@@ -183,8 +183,10 @@ class Recentre:
         self.holds = 0
         self.drops = 0
         eb = dut.u_elastic
-        cocotb.start_soon(self._count(dut.clk_i, dut.rst_i, eb.r_recentre, "holds"))
-        cocotb.start_soon(self._count(dut.ser_rx_clk_i, dut.rst_i, eb.w_drop, "drops"))
+        self.tasks = [
+            cocotb.start_soon(self._count(dut.clk_i, dut.rst_i, eb.r_recentre, "holds")),
+            cocotb.start_soon(self._count(dut.ser_rx_clk_i, dut.rst_i, eb.w_drop, "drops")),
+        ]
 
     async def _count(self, clk, rst, net, field: str) -> None:
         while True:
@@ -208,25 +210,40 @@ class RxBench:
         self.b: Bench | None = None
         self.chan: RxChannel | None = None
         self.link: Link | None = None
+        self.tasks: list = []
 
     async def start(self, link: Link | None = None, source: deque | None = None,
                     polarity: int = 0, max_cycles: int = 200_000, phase_ps: int | None = None,
                     lead: int = 96) -> None:
         dut = self.dut
         dut._log.info("RX clock %+.1f ppm", self.ppm)
-        start_clocks(dut, self.ppm, self.rng.randrange(CLK_PS) if phase_ps is None else phase_ps)
+        assert not self.tasks, "RxBench already started"
+        start_clocks(dut, self.ppm, self.rng.randrange(CLK_PS) if phase_ps is None else phase_ps,
+                     tasks=self.tasks)
         self.link = link
         self.chan = RxChannel(dut, self.rng, link.line if link else None, lead=lead,
                               source=source)
         self.fill = FillCheck(dut, lambda: self.chan.done)
         self.recentre = Recentre(dut)
         self.valid_rule = ValidRule(dut)
+        self.tasks.extend((self.chan.task, self.fill.task, self.valid_rule.task,
+                           *self.recentre.tasks))
         self.fill.on = self.fill_window
         self.b = Bench(dut, max_cycles, receive=True)
         self.b.tick = self._wrap(self.b.tick)
         await self.b.reset("rst_i", 8)
         self.b.mac.set(rx_polarity=polarity)
         await self.b.power(P0)
+
+    def close(self) -> None:
+        """Stop this fixture's clocks, channel and infinite monitors together.
+
+        A shared clean line needs only one fixture; this also makes its
+        ownership explicit on success and on a scoreboard failure.
+        """
+        for task in reversed(self.tasks):
+            task.cancel()
+        self.tasks.clear()
 
     def _wrap(self, tick):
         async def inner():
