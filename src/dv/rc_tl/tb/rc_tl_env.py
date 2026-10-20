@@ -330,11 +330,15 @@ class Env:
             msi_ready=applied["msi_ready_i"]))
         witness = self.random_req_witness
         if witness is not None:
-            witness["reset_cycles"] += int(bool(applied["rst_i"]))
-            witness["link_down_cycles"] += int(not applied["dl_up_i"])
-            witness["credit_outage_cycles"] += int(any(applied[name] == 0 for name in (
-                "fc_ph_avail_i", "fc_pd_avail_i", "fc_nph_avail_i", "fc_npd_avail_i")))
-            witness["event_mask"] |= o["events"]
+            if applied["rst_i"]:
+                witness["reset_cycles"] += 1
+            if not applied["dl_up_i"]:
+                witness["link_down_cycles"] += 1
+            if not (applied["fc_ph_avail_i"] and applied["fc_pd_avail_i"]
+                    and applied["fc_nph_avail_i"] and applied["fc_npd_avail_i"]):
+                witness["credit_outage_cycles"] += 1
+            if o["events"]:
+                witness["event_mask"] |= o["events"]
         beat, take = o["beat"], o["take"]
         where = f"cycle {self.cycle}"
         self.expect(where, "cmd_ready_o", o["cmd_ready"])
