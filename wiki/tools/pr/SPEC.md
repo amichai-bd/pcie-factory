@@ -92,7 +92,11 @@ CPU budgets are `budget_s` in `cfg/levels.yaml` (the
 ## Parsing
 
 - HTML comments are removed and fenced code blocks blanked before any rule
-  runs, so a pasted log can't satisfy or break a rule.
+  runs, so a pasted log can't satisfy or break a rule. This is right for
+  the keywords rule too: GitHub does not honour a closing keyword inside an
+  HTML comment. Checked on PR #444: with `closes #268` in plain text GitHub
+  listed #268 under the issues the PR may close, and with the same keyword
+  inside `<!-- -->` it did not.
 - The **Validation section** is the text under the `## Validation` heading,
   up to the next level-1 or level-2 heading. Every rule but keywords and
   labels reads only this section. Without it the body gets one
@@ -157,7 +161,8 @@ including a fenced log holding a closing keyword and a `## Validation` line;
 - each promised input form keeps `good.md` passing (`FORMS`): the
   `level<N>: P/T passed, CPU 60.2s` lines exactly as `./build regress`
   prints them, `--level=N`, the `#seeds` link to the seed rule, and an
-  HTML comment holding a stale SHA and a stray table header;
+  HTML comment holding a stale SHA and a stray table header, and one
+  holding closing keywords for a second issue and for the `Part of` parent;
 - stale SHA: the head cited twice passes; rescope: a declared
   `Acceptance moved:` line with the comment link passes, without it fails,
   and a `Part of` PR is never checked;

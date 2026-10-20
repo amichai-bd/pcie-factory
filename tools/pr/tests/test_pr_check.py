@@ -121,6 +121,9 @@ FORMS = [
     ("--level 0 --level 1 --ip a", "--level=0 --level=1 --ip a"),
     ("Seeds: per the crc32 seed rule.",
      "Seeds: the [seed rule](wiki/tools/regress/SPEC.md#seeds)."),
+    # GitHub ignores closing keywords inside HTML comments (PR #444, #442):
+    # a commented keyword is neither a second close nor a closed parent.
+    ("Closes #12.", "Closes #12. <!-- fixes #13; part 2 closes #3 -->"),
     # A comment may hold anything, even a stale SHA or a broken table.
     ("### Not run", f"<!-- at {OTHER} | Command |\n-->\n### Not run"),
 ]

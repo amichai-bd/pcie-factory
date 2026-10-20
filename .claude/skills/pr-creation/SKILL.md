@@ -82,8 +82,8 @@ reviewer's. The evidence items sit in the `## Validation` section.
   writes only `Part of #<n>`. No closing keyword (close, closes, closed, fix,
   fixes, fixed, resolve, resolves, resolved) stands next to any issue the
   body calls `Part of`, anywhere in the body, not even in a sentence like
-  "part 2 closes #<n>". Keywords inside code spans and code blocks are not
-  counted.
+  "part 2 closes #<n>". Keywords inside code spans, code blocks and HTML
+  comments are not counted (GitHub ignores a keyword in a comment too).
 - **(checked)** Head: an `At head <sha>` line with the full 40-character
   head SHA. Every result in the section ran at that SHA; if you commit
   again, rerun and update it. Never label a result with a SHA it did not run
