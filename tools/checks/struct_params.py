@@ -414,7 +414,39 @@ _NOT_DECL = _NOT_TYPES | frozenset({
     "package", "endmodule", "endpackage", "endfunction", "function", "task", "typedef",
     "genvar", "automatic", "static",
 })
-_DIM_RE = re.compile(rf"(?<![\w$.`'])({_ID}(?:\s*::\s*{_ID})?)(?:\s*\[[^\[\]]*\])*\s+{_ID}\s*(?=\[)")
+_DIM_RE = re.compile(rf"(?<![\w$.`'])({_ID}(?:\s*::\s*{_ID})?)(?:\s*\[[^\[\]]*\])*\s+{_ID}\s*(?=[\[,=;])")
+
+
+def unpacked_dimensions(text: str) -> list[tuple[int, int, str]]:
+    """Dimensions of every declarator, including comma continuations.
+
+    Initialisers can contain indexing and nested comma expressions; skip
+    them without treating their brackets as declaration dimensions.
+    """
+    spans = []
+    for m in _DIM_RE.finditer(text):
+        if m.group(1).split(":")[0].strip() in _NOT_DECL:
+            continue
+        k = m.end()
+        while k < len(text):
+            if text[k].isspace():
+                k += 1
+            elif text[k] == "[":
+                end = _balanced(text, k)
+                spans.append((k, end, "dimension"))
+                k = end
+            elif text[k] == "=":
+                k += 1
+                while k < len(text) and text[k] not in ",;":
+                    k = _balanced(text, k) if text[k] in "([{" else k + 1
+            elif text[k] == ",":
+                name = re.match(rf"\s*{_ID}\s*", text[k + 1:])
+                if not name:
+                    break
+                k += 1 + name.end()
+            else:
+                break
+    return spans
 
 
 def constant_spans(text: str) -> list[tuple[int, int, str]]:
@@ -430,16 +462,7 @@ def constant_spans(text: str) -> list[tuple[int, int, str]]:
         end = _balanced(text, m.start())
         if _is_range(text[m.start():end]):
             spans.append((m.start(), end, "range"))
-    for m in _DIM_RE.finditer(text):
-        if m.group(1).split(":")[0].strip() in _NOT_DECL:
-            continue
-        k = m.end()
-        while k < len(text) and text[k] == "[":  # every unpacked dimension
-            end = _balanced(text, k)
-            spans.append((k, end, "dimension"))
-            k = end
-            while k < len(text) and text[k].isspace():
-                k += 1
+    spans += unpacked_dimensions(text)
     for m in re.finditer(r"(?<!')\{", text):
         end = _balanced(text, m.start())
         inner = re.match(r"\{([^,{}]+)\{", text[m.start():end])

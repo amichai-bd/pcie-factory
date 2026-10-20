@@ -117,6 +117,11 @@ def test_package_contexts_fire(body, found):
     # unpacked dimensions and sizes without a ":"
     ("  logic [7:0] mem [L.n];", [("L.n", "dimension")]),
     ("  logic flags [4][L.m];", [("L.m", "dimension")]),
+    ("  logic a [4], b [L.n];", [("L.n", "dimension")]),
+    ("  logic a, b [L.n];", [("L.n", "dimension")]),
+    ("  logic a = f(1, 2), b [L.n][L.m];",
+     [("L.n", "dimension"), ("L.m", "dimension")]),
+    ("  logic a [4] = '{1, 2, 3, 4}, b [L.n];", [("L.n", "dimension")]),
     ("  localparam int unsigned T [L.n] = '{default: 0};", [("L.n", "dimension")]),
     ("  xy_a_pkg::t_cfg tab [xy_a_pkg::CFG.n];", [("xy_a_pkg::CFG.n", "dimension")]),
     # generate case item labels
@@ -174,6 +179,9 @@ def test_package_negatives_pass(body):
     # a conditional index is not a range, and a package item is not a ":"
     "  assign q_o = {7'd0, d_i[P > 0 ? L.n : 4'd0]};",
     "  assign q_o = {7'd0, d_i[xy_a_pkg::W - L.n]};",
+    # indices in declaration initialisers are ordinary logic too
+    "  logic a = d_i[L.n], b = d_i[L.m];",
+    "  logic a [4] = '{d_i[L.n], 0, 0, 0}, b = d_i[L.m];",
     # an index in ordinary logic is not a dimension
     "  logic [7:0] w;\n  assign w[L.n] = 1'b0;\n  always_comb begin\n    q_o = w;\n"
     "    q_o[L.m] = d_i[L.n];\n  end",
