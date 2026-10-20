@@ -528,7 +528,7 @@ def report(summary: dict, out=None, err=None) -> int:
     rot = summary.get("rotation")
     if rot:
         print(f"rotation {rot['key']}: {rot['passed']}/{rot['runs']} extra runs passed "
-              f"({rot['extra_seeds']} per level{rot['level']} entry), CPU {rot['cpu_s']:.1f}s "
+              f"({rot['extra_seeds']} per eligible level{rot['level']} entry), CPU {rot['cpu_s']:.1f}s "
               f"(budget {rot['budget_s']:.0f}s), {len(rot['skipped'])} not started", file=out)
         for t in summary["tests"]:
             if t.get("extra") and t["status"] != "pass":

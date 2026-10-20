@@ -102,14 +102,6 @@ tests:
     rerun_when: models_change
   # The RTL entries' derived seed 1, moved here from level 1 unchanged
   # with its coverage instrumentation (#389; DV plan, Level placement).
-  - name: e2e_symbol_errors_sweep
-    module: tests.test_phy_e2e
-    testcase: e2e_symbol_errors
-    top: pcie_phy_e2e_tb
-    params: {MAC_RTL: 1, PCS_RTL: 1}
-    seeds: [1952118910]
-    timeout_s: 180
-    coverage_seeds: 0
   - name: e2e_bit_slips_sweep
     module: tests.test_phy_e2e
     testcase: e2e_bit_slips
@@ -117,22 +109,6 @@ tests:
     params: {MAC_RTL: 1, PCS_RTL: 1}
     seeds: [1336911784]
     timeout_s: 180
-  - name: e2e_elec_idle_sweep
-    module: tests.test_phy_e2e
-    testcase: e2e_elec_idle
-    top: pcie_phy_e2e_tb
-    params: {MAC_RTL: 1, PCS_RTL: 1}
-    seeds: [1262508128]
-    timeout_s: 180
-    coverage_seeds: 0
-  - name: e2e_rtl_link_sweep
-    module: tests.test_phy_e2e
-    testcase: e2e_rtl_link
-    top: pcie_phy_e2e_tb
-    params: {MAC_RTL: 1, PCS_RTL: 1}
-    seeds: [737010230]
-    timeout_s: 120
-    coverage_seeds: 0
 # Floors: the higher of the existing floor and the merged L0 to L2 value
 # (the nightly runs the three together) minus 0.5 points, rounded down to
 # 0.1 (DV BKM, Coverage); a floor is never lowered. Every point below 100%

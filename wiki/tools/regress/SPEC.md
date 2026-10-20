@@ -213,7 +213,7 @@ change with `KEY`, so a run per key (the nightly passes its UTC date,
   requires a call-path audit in the owning DV plan: neither stimulus nor checks
   may consume randomness, including shared helpers. Other levels get none;
   pinned runs and their coverage selection are unchanged.
-- **How many:** `extra_seeds` per entry (`cfg/levels.yaml`), or
+- **How many:** `extra_seeds` per seed-dependent entry (`cfg/levels.yaml`), or
   `--extra-seeds N` (a count `>= 0`, only with `--rotate`).
 - **Derivation:** extra seed `j` of an entry is
   `crc32("rotate:<KEY>:<ip>:<name>:<j>") & 0x7fffffff` for j = 0, 1, ...,
@@ -249,7 +249,7 @@ change with `KEY`, so a run per key (the nightly passes its UTC date,
   stimulus.
 
 After the level totals the run prints
-`rotation <KEY>: <p>/<n> extra runs passed (<N> per level<L> entry), CPU <x>s (budget <b>s), <k> not started`.
+`rotation <KEY>: <p>/<n> extra runs passed (<N> per eligible level<L> entry), CPU <x>s (budget <b>s), <k> not started`.
 
 `cfg/levels.yaml` holds the rotation settings beside the level budgets;
 all three keys are required, and a missing or malformed section is an
@@ -258,7 +258,7 @@ error (exit 2) only when `--rotate` is given:
 ```yaml
 rotation:
   level: 2          # the level whose entries get extra seeds
-  extra_seeds: 1    # per entry, a count >= 0
+  extra_seeds: 1    # per eligible entry, a count >= 0
   budget_s: 3600    # CPU seconds of extra runs, > 0
 ```
 
