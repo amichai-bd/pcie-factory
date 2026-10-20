@@ -85,14 +85,18 @@ This strategy serves the whole RAM family; each block's plan links here.
 | Intel backend at the `rc_tl` host memory shape (1024 x 32, four 8-bit lanes) | `sync_ram_intel_host_mem_shape` | 1 | 1; `backend: fpga` |
 | Intel backend: legal geometries lint with exactly the expected messages, illegal ones fail with the block's message; the stub accepts the `SINGLE_PORT` shape and rejects each rule alone | `ram_intel_lint`, `ram_intel_stub_rejects` | 0 | shared with [`common_sdp_ram`](common_sdp_ram.md#plan) |
 
-**Level placement**
-([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
-level 1 of every IP, which `ci-gate` runs for a change to a shared
-package, was over its 1200 s CPU budget. `sync_ram_random` and
-`sync_ram_intel_random` run their first seed in level 1; their further
-seeds run pinned and unchanged in each entry's level 2 `_sweep`, each seed with its coverage instrumentation, so the merged level
-0 to 2 runs are the same runs. The mutation evidence on this page names no
-seed for it, and was not rerun at the first seed alone.
+**Level placement:** the portable `sync_ram_random` keeps its first seed
+at level 1; its further seeds moved to the pinned level 2
+`sync_ram_random_sweep` under
+[#389](https://github.com/amichai-bd/pcie-factory/issues/389) to reduce the
+all-IP level 1 CPU cost. The Intel backend introduced by
+[#417](https://github.com/amichai-bd/pcie-factory/issues/417) follows the
+same placement: `sync_ram_intel_random` at level 1 and two pinned seeds in
+`sync_ram_intel_random_sweep` at level 2. Both sweeps set
+`coverage_seeds: 0`, so their additional seeds run without coverage
+instrumentation even in a coverage regression. The level 1 entries retain
+their configured coverage sampling. The Intel mutants below are caught by
+the directed contract or lint entries, independently of the random sweeps.
 
 Mutation evidence ([#126](https://github.com/amichai-bd/pcie-factory/issues/126)),
 in a scratch copy: ignoring `wr_lanes_i` fails `sync_ram_contract` ("rd_data
