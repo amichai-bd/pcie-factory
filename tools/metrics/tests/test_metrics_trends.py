@@ -97,6 +97,45 @@ def test_mutant_score_and_worst_fmax():
     assert fmax.get(rec, "a") == 60
 
 
+def asic_wns(*values) -> list[dict]:
+    return [{"asic": {"ips": {"alpha": {"timing": {"wns_ns": v}}}}} for v in values]
+
+
+def test_negative_valued_series_alerts_on_a_more_negative_value():
+    # Higher is better for slack: -1.0 -> -1.5 is a 0.5 ns drop, beyond 0.2.
+    found = trends.alerts(asic_wns(-1.0, -1.5), {"asic_wns": 0.2})
+    assert keys(found) == [("alpha", "asic_wns", 1)]
+    assert (found[0].previous, found[0].value, found[0].change) == (-1.0, -1.5, -0.5)
+    # -1.75 -> -1.0 is an improvement and never alerts.
+    assert trends.drops(asic_wns(-1.75, -1.0), {"asic_wns": 0.2}) == []
+
+
+@pytest.mark.parametrize("key, nested, flat", [
+    ("fpga_fmax", {"timing": {"clocks": {"c": {"fmax_mhz": 50.0}}}}, {"fmax_mhz": 50.0}),
+    ("fpga_setup_slack", {"timing": {"worst_setup_slack_ns": 1.0}}, {"setup_slack_ns": 1.0}),
+    ("asic_wns", {"timing": {"wns_ns": -0.1}}, {"wns_ns": -0.1}),
+    ("asic_tns", {"timing": {"tns_ns": -0.1}}, {"tns_ns": -0.1}),
+])
+def test_legacy_flat_keys_are_read_like_the_tracker(key, nested, flat):
+    s = trends.SERIES[trends.KEYS.index(key)]
+    rec = lambda entry: {s.section: {"ips": {"alpha": entry}}}  # noqa: E731
+    assert s.get(rec(flat), "alpha") == s.get(rec(nested), "alpha")
+    # A flat record followed by a nested one 10 below compares across the two forms.
+    lower = json.loads(json.dumps(nested).replace(str(list(flat.values())[0]),
+                                                  str(list(flat.values())[0] - 10)))
+    assert keys(trends.alerts([rec(flat), rec(lower)], {key: 1.0})) == [("alpha", key, 1)]
+
+
+def test_nested_value_wins_over_a_flat_one():
+    s = trends.SERIES[trends.KEYS.index("asic_wns")]
+    rec = {"asic": {"ips": {"a": {"wns_ns": -5.0, "timing": {"wns_ns": -1.0}}}}}
+    assert s.get(rec, "a") == -1.0
+    fmax = trends.SERIES[trends.KEYS.index("fpga_fmax")]
+    # The tracker reads a flat fmax_mhz first; so does the series.
+    rec = {"fpga": {"ips": {"a": {"fmax_mhz": 70.0, "timing": {"clocks": {"c": {"fmax_mhz": 60.0}}}}}}}
+    assert fmax.get(rec, "a") == 70.0
+
+
 # ------------------------------------------------------- fixture history
 def test_fixture_history_alerts(cfg):
     history = records()

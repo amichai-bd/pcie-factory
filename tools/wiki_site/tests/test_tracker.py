@@ -984,3 +984,38 @@ def test_one_run_in_two_files_is_a_problem(tmp_path):
                                           "2026-09-02.json": rec, "2026-09-02T030000Z.json": rec}))
     assert len(problems) == 1 and "a second record of the run in 2026-09-02.json" in problems[0]
     assert len(chart_data((out / "tracker/details/index.html").read_text())["runs"]) == 1
+
+
+@pytest.mark.parametrize("entry", [
+    {"fmax_mhz": 50.0, "setup_slack_ns": 0.5, "wns_ns": -0.2, "tns_ns": -1.5},
+    {"timing": {"clocks": {"a": {"fmax_mhz": 80.0}, "b": {"fmax_mhz": 60.0}},
+                "worst_setup_slack_ns": 1.5, "wns_ns": -0.1, "tns_ns": -0.3}},
+    {"fmax_mhz": 70.0, "setup_slack_ns": 9.0, "wns_ns": -9.0, "tns_ns": -9.0,
+     "timing": {"clocks": {"a": {"fmax_mhz": 60.0}}, "worst_setup_slack_ns": 1.0,
+                "wns_ns": -0.4, "tns_ns": -0.8}},
+])
+def test_trend_series_read_the_same_value_as_the_charts(entry):
+    """The drop-alert series (metrics/trends.py) read every record the way the
+    tracker charts do, legacy flat keys included."""
+    charts = {m.key: m.get for m in tracker.FPGA + tracker.ASIC}
+    pairs = {"fpga_fmax": "fpga-fmax", "fpga_setup_slack": "fpga-slack",
+             "asic_wns": "asic-wns", "asic_tns": "asic-tns"}
+    for key, chart in pairs.items():
+        series = tracker.trends.SERIES[tracker.trends.KEYS.index(key)]
+        record = {series.section: {"ips": {"ip": entry}}}
+        assert series.get(record, "ip") == charts[chart](entry), key
+
+
+def test_metrics_import_is_this_repositorys_package(tmp_path):
+    """A same-named `metrics` module earlier on the path never shadows tools/metrics."""
+    import subprocess
+    decoy = tmp_path / "decoy"
+    (decoy / "metrics").mkdir(parents=True)
+    (decoy / "metrics" / "__init__.py").write_text("")
+    (decoy / "metrics" / "trends.py").write_text("DECOY = True\n")
+    tools = Path(tracker.__file__).resolve().parents[1]
+    code = ("import sys; sys.path.insert(0, %r); sys.path.insert(0, %r); import tracker; "
+            "print(tracker.trends.__file__)") % (str(tools / "wiki_site"), str(decoy))
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True,
+                         cwd=tmp_path).stdout.strip()
+    assert Path(out).resolve() == (tools / "metrics" / "trends.py").resolve()

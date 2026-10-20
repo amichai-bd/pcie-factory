@@ -200,6 +200,13 @@ file. The record schema is owned by the
 metrics tool SPEC, `wiki/tools/metrics/SPEC.md` (#15); this section owns how
 the site reads it.
 
+The tracker imports shared trend semantics from this repository's
+`tools/metrics/trends.py`. It puts `tools/` first on the Python import path
+before that import, both when run as a script and when imported, so an
+unrelated `metrics` package earlier on the path cannot shadow it. Chart
+values and alert series follow the same legacy-field fallback precedence
+specified in [metrics trends](../metrics/SPEC.md#trends).
+
 **Inputs.**
 
 | File | Holds |
@@ -388,4 +395,11 @@ every change.
 | [`tools/wiki_site/tracker.py`](../../../tools/wiki_site/tracker.py) | Tracker rendering. |
 | [`tools/wiki_site/theme/`](../../../tools/wiki_site/theme/) | CSS, JS (`wiki.js`, `tracker.js`), vendored Mermaid and Chart.js, provenance. |
 | [`tools/wiki_site/tests/`](../../../tools/wiki_site/tests/) | Unit tests (pytest); synthetic tracker records in `fixtures/tracker/`; the drop-alert tests reuse the metrics trend history (`tools/metrics/tests/fixtures/trends/`): alerts on the landing, details and IP pages, an earlier drop kept as history, a flat history, retired and coverage-only IPs, and a missing or invalid configuration; the run axis: a date-named record on a commit outside the landing window plus three runs on one day (two on one commit), every run a point on the details, landing and IP pages and a row in the data table, the newest run as the snapshot, drops between consecutive same-day runs, more runs than table rows, and one run in two files reported. |
+
+`test_metrics_import_is_this_repositorys_package` places a decoy `metrics`
+package first on the path in a fresh Python process and checks that the
+tracker loads this repository's trends module.
+`test_trend_series_read_the_same_value_as_the_charts` checks chart/alert
+agreement for legacy flat fields, nested timing fields and records carrying
+both forms, including their fallback precedence.
 | [`.github/workflows/pages.yml`](../../../.github/workflows/pages.yml) | Build and deploy workflow. |

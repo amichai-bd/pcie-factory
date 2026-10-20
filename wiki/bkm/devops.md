@@ -286,8 +286,9 @@ runs on pull requests to `main`,
 pushes to `main` and manual dispatch:
 
 1. The data guard: a `nightly/` branch may change only
-   `wiki/tracker/data/**` ([metrics spec](../tools/metrics/SPEC.md#guard)).
-   Other branches pass at once.
+   `wiki/tracker/data/**`, by adding valid run records and growing the
+   series ([metrics spec](../tools/metrics/SPEC.md#guard)). Other branches
+   pass at once.
 2. `./build specs fetch`, best effort (`continue-on-error`, 3 minutes), so the
    spec-cache check sees the reference documents; then `./build check`
    and `./build wiki build --strict`.
@@ -323,7 +324,13 @@ stays the control for writers
 ([CI spec](../tools/ci/SPEC.md#build-ci-status)). Any writer can dispatch
 `ci.yml` on any `nightly/*` ref, and the status binds to the tested commit,
 not to a PR or its base
-([what a status vouches for](../tools/ci/SPEC.md#the-workflow)).
+([what a status vouches for](../tools/ci/SPEC.md#the-workflow)). That
+dispatched gate is proportionate to the data: once the guard has proved,
+against the PR's base, that the branch changes only valid data files, the
+unit, regression and FPGA steps select nothing, and the checks
+(publishability included) and the strict wiki build (the tracker rendered
+from the new data) decide it. A mixed change fails the guard, and with it
+`ci-gate` ([metrics spec](../tools/metrics/SPEC.md#workflows)).
 
 **Review is process, not enforcement.** Branch protection on `main`
 requires `ci-gate` only, with no required approving reviews. The
@@ -347,6 +354,7 @@ the exact selection.
 | Shared DV helpers under `src/dv/common/` (reached by no filelist) | All IPs |
 | A sub-IP's or integrated IP's models under `src/dv/<id>/models/` | That IP and every ancestor IP (every IP whose `.rtl.f` reaches it) |
 | Push to `main`, manual dispatch | All IPs |
+| Dispatch on a `nightly/` branch that passes the data guard (data files only) | Checks and the strict wiki build only |
 | Docs only (wiki, README, skills) | Checks and the strict wiki build only |
 
 A sub-IP is an IP in its own right: a change inside its folders
@@ -404,9 +412,11 @@ permissions and data PR mechanics:
 4. A data PR from branch `nightly/<date>`, labelled `type:data`, under the
    permanent exception in [`CLAUDE.md`](../../CLAUDE.md#flow): the data
    guard in `ci-gate` fails it if it touches anything outside
-   `wiki/tracker/data/**`, and it auto-merges after `ci-gate` (the
-   dispatched gate's result, posted as the `ci-gate` commit status). Each
-   night's data PR closes any older open one.
+   `wiki/tracker/data/**` or removes or malforms data, and it auto-merges
+   after `ci-gate` (the dispatched gate's result, posted as the `ci-gate`
+   commit status). No run's record is lost: while a data PR is open, the
+   next run commits on top of it, and any other open data PR is carried
+   into it and closed ([stage](../tools/metrics/SPEC.md#stage)).
 5. On failure, open or update the single `nightly-red` issue, naming the
    failed steps (a full-L2 failure, a coverage-floor miss or a failing
    extra seed fails `regress`), the commits since the last green nightly,
