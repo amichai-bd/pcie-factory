@@ -325,19 +325,22 @@ e2e test about twice as slow as a plain one (`e2e_rtl_link`: 8.2 s against
 
 ## Gaps
 
-| Feature | Owning issue |
-| --- | --- |
-| One layer RTL and the other a model (step 2 above): not planned in M1 ([ruling on #86](https://github.com/amichai-bd/pcie-factory/issues/86#issuecomment-6197199773)) | [#194](https://github.com/amichai-bd/pcie-factory/issues/194) (post-M1) |
+None. The mixed-layer runs of step 2 are implemented in
+[#437](https://github.com/amichai-bd/pcie-factory/issues/437).
 
 ## Mutation evidence
 
-Each mutant was applied in the issue worktree and run with
-`./build sim --ip phy --test <entry>` at the entry's regression seed. Each
-mutant fails, and the unmutated RTL passes; each mutant was reverted
-afterwards.
+Each mutant was applied in the issue worktree or a disposable source copy
+under `workdir/`, and run with `./build sim --ip phy --test <entry>`
+(the source copies also pass `--src-root` and a separate `--workdir`).
+Each mutant fails, and the unmutated RTL passes; no mutant enters the
+committed RTL.
 
 | Block | Mutant | Entry, seed | Result |
 | --- | --- | --- | --- |
+| mac training | Minimum Polling TS1 count 1024 to 512 | `e2e_mixed_mac_rtl`, 1708965401 | Training takes 37.320 us, below the required 65.536 us. |
+| pcs encoding | Alternate-seven selection forced low | `e2e_mixed_pcs_rtl`, 497582220 | Training never reaches L0 within 40000 cycles; both ports remain at 0x04. |
+| mac receive | Treat a high-half EDB outside a packet as an immediate receiver error, including after Rx_L0 has ended | `e2e_power`, 2093394178 | At 130520.60 ns the continuous power-transition check sees one receiver error on port b. The baseline observes three real PCS idle tails with zero errors. |
 | pcs loopback (the slave's echo path) | `enc_in` in loopback flips bit 0 of each echoed data byte of 80h or more: `sym0.data ^ {7'd0, !sym0.k && sym0.data[7]}`. The training sets' data bytes are all below 80h, so the master still reaches Loopback.Active | `e2e_loopback`, 74580909 | Fails on the echo scoreboard at port a's cycle 11431 (master a): echo symbol 182 of 3999, expected the sent data symbol 792, 80h, observed 81h. Before #198 (no echo check), the same entry passes with this mutant. |
 | mac ordered sets (the master's pattern) | The pattern count never advances (`pat_d = pat_q`), so every pattern word is the same two bytes | `e2e_loopback`, 74580909 | Fails on the echo scoreboard: expected at least 3800 pattern symbols echoed, observed 1971 of 3999 received. The echo still matches what was sent; only the traffic check fails. |
 
@@ -346,10 +349,8 @@ afterwards.
 `level2.yaml` sets, per the [DV BKM](../../../bkm/dv.md#coverage), line
 78.7%, toggle 75.2% and functional 100%: the merged level 0 to 2 values
 (79.27%, 75.77%, 100%) less the BKM margin. Functional 100% holds every
-bin of every `phy_e2e_*` covergroup, `phy_e2e_layers` included; its `stack`
-coverpoint has only the two planned choices, so the post-M1 gap
-([#194](https://github.com/amichai-bd/pcie-factory/issues/194)) adds no
-bin. It replaces the per-covergroup floors of `phy_e2e_run`, `_events`,
+bin of every `phy_e2e_*` covergroup, including all four combinations in
+`phy_e2e_layers.mac_x_pcs` and the observed power idle-tail bin. It replaces the per-covergroup floors of `phy_e2e_run`, `_events`,
 `_packets`, `_control` and `_power`, which it implies.
 
 ## Coverage holes
