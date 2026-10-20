@@ -78,4 +78,4 @@ tests:
 # Functional 100 must hold every bin of rc_seq_jumps, rc_seq_run and
 # rc_seq_steps; a renamed or undeclared covergroup leaves the total, so keep
 # this list.
-coverage_floors: {line: 58.7, toggle: 72.4, functional: 100}
+coverage_floors: {line: 58.7, toggle: 80, functional: 100}

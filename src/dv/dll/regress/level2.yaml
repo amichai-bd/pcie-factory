@@ -272,4 +272,4 @@ tests:
 # dll_fc_rx, dll_fc_tx, dll_malformed, dll_rbuf, dll_replay, dll_reset,
 # dll_rx_stream, dll_tlp_rx, dll_tlp_tx, dll_tx_tail and dll_updatefc_tx; a
 # renamed or undeclared covergroup leaves the total, so keep this list.
-coverage_floors: {line: 98.5, toggle: 77.0, functional: 100}
+coverage_floors: {line: 98.9, toggle: 85.4, functional: 100}

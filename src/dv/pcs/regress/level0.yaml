@@ -38,4 +38,4 @@ tests:
     seeds: [1]
     timeout_s: 120
 # Floors at the L0 values.
-coverage_floors: {line: 87, toggle: 87, functional: {pcs_align_lock: 100}}
+coverage_floors: {line: 88, toggle: 87.2, functional: {pcs_align_lock: 100}}

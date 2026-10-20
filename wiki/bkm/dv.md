@@ -215,8 +215,8 @@ helper's API, outputs and floor rules).
   once the IP's DV plan has no gaps (for a per-covergroup floor, once the
   plan rows that covergroup covers have none), at or just below the merged
   value that level's runs reach (usually in `level2.yaml`, which the nightly runs).
-  Raise a floor when coverage improves; lowering one needs a reason in the
-  PR, like a budget.
+  Raise a floor when coverage improves; lowering one requires a captain
+  decision recorded with its reason in the PR.
 - **Floor margin.** Set a line or toggle floor to the higher of its
   existing value and the merged value less 0.5 points, rounded down to a
   tenth of a percent (86.28% gives 85.7): a floor is never lowered to fit

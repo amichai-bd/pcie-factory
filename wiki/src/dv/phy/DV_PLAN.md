@@ -340,8 +340,8 @@ afterwards.
 ## Coverage floors
 
 `level2.yaml` sets, per the [DV BKM](../../../bkm/dv.md#coverage), line
-78.7%, toggle 75.2% and functional 100%: the merged level 0 to 2 values
-(79.27%, 75.77%, 100%) less the BKM margin. Functional 100% holds every
+91.4%, toggle 87.9% and functional 100%: the merged source level 0 to 2 values
+(91.99%, 88.40%, 100%) less the BKM margin. Functional 100% holds every
 bin of every `phy_e2e_*` covergroup, `phy_e2e_layers` included; its `stack`
 coverpoint has only the two planned choices, so the post-M1 gap
 ([#194](https://github.com/amichai-bd/pcie-factory/issues/194)) adds no
@@ -349,6 +349,26 @@ bin. It replaces the per-covergroup floors of `phy_e2e_run`, `_events`,
 `_packets`, `_control` and `_power`, which it implies.
 
 ## Coverage holes
+
+Line and toggle floors use the
+[by-source union](../../../tools/regress/SPEC.md#coverage): each source point
+counts once and is covered if any instance covers it. Functional coverage
+is unchanged. The source remeasurement for
+[#228](https://github.com/amichai-bd/pcie-factory/issues/228) uses
+[nightly 39384846565](https://github.com/amichai-bd/pcie-factory/actions/runs/39384846565).
+Separately measured low-level runs supply their own floors.
+
+| Selected levels | Source line | Source toggle | Line / toggle floors |
+| --- | --- | --- | --- |
+| L0+L1+L2 | 919/999 (91.99%) | 7790/8812 (88.40%) | 91.4 / 87.9 |
+
+### Per-instance diagnostic baseline
+
+The counts and prior floor values below describe the original per-instance
+view at the revisions cited. Current code floors use the source table above.
+A point hit in another parameter set or instance is covered in the source
+union; the other reviewed causes remain diagnostic explanations, without
+adding a waiver.
 
 The phy's code coverage counts the whole stack: `phy.rtl.f` reaches the
 mac and pcs RTL. Merged over levels 0 to 2 (the nightly run), 345 of the
