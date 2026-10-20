@@ -78,7 +78,11 @@ def test_guard_bad_revision(repo, capsys):
 @pytest.mark.parametrize("files, why", [
     ({R1: "not json\n"}, "not JSON"),
     ({R1: json.dumps({"schema_version": 2, "meta": {"generated_at": "2026-01-03T00:00:00Z"}})}, "schema 1"),
+    ({R1: json.dumps({"schema_version": True, "meta": {"generated_at": "2026-01-03T00:00:00Z"}})}, "schema 1"),
+    ({R1: json.dumps({"schema_version": 1.0, "meta": {"generated_at": "2026-01-03T00:00:00Z"}})}, "schema 1"),
     ({R1: json.dumps({"schema_version": 1, "meta": {}})}, "generated_at"),
+    ({R1: json.dumps({"schema_version": 1, "meta": {"generated_at": "2026-02-30T00:00:00Z"}})}, "invalid meta.generated_at"),
+    ({R1: json.dumps({"schema_version": 1, "meta": {"generated_at": "2026-01-03T25:00:00Z"}})}, "invalid meta.generated_at"),
     ({"wiki/tracker/data/2026-01-03.json": rec()}, "not a run record"),
     ({"wiki/tracker/data/sub/2026-01-03T000000Z.json": rec()}, "not a run record"),
     ({"wiki/tracker/data/notes.md": "x\n"}, "not a run record"),

@@ -418,7 +418,7 @@ each offending path and exits 1:
 
 | Path in `data_dir/` | Allowed change |
 | --- | --- |
-| `<date>T<HHMMSS>Z.json` (a run name of `collect`, directly in `data_dir/`) | Added (never modified or deleted), a JSON object with `schema_version` `1` and `meta.generated_at` a UTC `YYYY-MM-DDTHH:MM:SSZ`. |
+| `<date>T<HHMMSS>Z.json` (a run name of `collect`, directly in `data_dir/`) | Added (never modified or deleted), a JSON object with integer `schema_version` `1` (neither boolean nor float) and `meta.generated_at` a valid calendar date and time in UTC `YYYY-MM-DDTHH:MM:SSZ`. |
 | `commits.jsonl` | Every line a JSON object with a string `sha`, no `sha` twice, and every `sha` of the merge base's file still present. |
 | Anything else, or any deletion | Never. |
 

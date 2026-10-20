@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 
 from .config import Config, MetricsError
@@ -51,11 +52,16 @@ def _record_problem(text: bytes) -> str | None:
         rec = json.loads(text.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         return f"not JSON ({exc.__class__.__name__})"
-    if not isinstance(rec, dict) or rec.get("schema_version") != 1:
+    if (not isinstance(rec, dict) or type(rec.get("schema_version")) is not int
+            or rec["schema_version"] != 1):
         return "not a schema 1 record"
     meta = rec.get("meta")
     if not isinstance(meta, dict) or not _TIME.match(str(meta.get("generated_at"))):
         return "no meta.generated_at"
+    try:
+        datetime.strptime(meta["generated_at"], "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return "invalid meta.generated_at"
     return None
 
 
