@@ -169,6 +169,103 @@ def test_slug_from_remote_forms(repo):
         assert neutrality.slug_from_remote(repo) == "o/r"
 
 
+# --- IP ids used as identifiers (#311) ---------------------------------------
+# The placeholder IP id "bridge" is an ordinary English word, like the real ids
+# that motivated the rule; it comes from discovery, never from the tool.
+
+# The sentence a review found in a tools/ fixture README (#306), with the real
+# IP id replaced by the placeholder.
+SENTENCE_306 = ("the first CI fit with RAMs (`bridge` on PR #276) filled every field")
+
+
+def add_ip(repo: Path, ip: str) -> None:
+    write(repo, f"src/rtl/{ip}/{ip}.rtl.f", f"{ip}.sv\n")
+    write(repo, f"src/rtl/{ip}/{ip}.sv", "module m; endmodule\n")
+
+
+@pytest.fixture
+def ip_repo(repo) -> Path:
+    add_ip(repo, "bridge")
+    return repo
+
+
+def test_306_fixture_sentence_is_flagged(ip_repo):
+    write(ip_repo, "tools/fpga/tests/fixtures/README.md", SENTENCE_306 + "\n")
+    assert findings(ip_repo) == [
+        "tools/fpga/tests/fixtures/README.md:1: IP id 'bridge' used as an identifier"]
+    r = neutrality.run(ip_repo)
+    assert "1 IP id(s) as identifiers" in r.checked
+
+
+@pytest.mark.parametrize("text", [
+    "`bridge`", "'bridge'", '"bridge"',                 # whole code span or quoted string
+    "see bridge/README.md", "src/rtl/bridge/x.sv",      # leading and inner path segment
+    "./build sim --ip bridge", "--ip=bridge",           # IP selector
+    "run `bridge:test_reset`",                          # <id>:<test>
+    "the bridge IP", "the bridge sub-IP", "two bridge IPs",
+])
+def test_identifier_forms_are_flagged(ip_repo, text):
+    write(ip_repo, "wiki/bkm/x.md", text + "\n")
+    assert findings(ip_repo) == ["wiki/bkm/x.md:1: IP id 'bridge' used as an identifier"]
+
+
+# Ordinary English use passes by design: the rule is identifier-scoped. A
+# capitalized "Bridge IP" also passes (ids are lower-case and matched
+# case-sensitively); that is a documented limit, left to review.
+@pytest.mark.parametrize("text", [
+    "the bridge layer forwards packets",                # prose
+    "a bridge between two clock domains",
+    "`bridge layer`", "`bridges`", "`bridge_x`",        # a longer span is not the id
+    "tools/bridge.py", "die/bridge",                    # a file stem, a last segment
+    "Bridge IP",                                        # capitalized: passes by design
+    "--ipx bridge",
+])
+def test_plain_english_passes(ip_repo, text):
+    write(ip_repo, "wiki/bkm/x.md", text + "\n")
+    assert findings(ip_repo) == []
+
+
+def test_ip_names_in_paths_are_flagged(ip_repo):
+    write(ip_repo, "tools/bridge/util.py", "")
+    write(ip_repo, "tools/bridge.py", "")  # a file stem is not a path segment
+    assert findings(ip_repo) == ["tools/bridge/util.py: path names IP id 'bridge'"]
+
+
+def test_ip_ids_come_from_discovery(repo):
+    write(repo, "wiki/bkm/x.md", SENTENCE_306 + "\n")
+    assert findings(repo) == []  # no IP named "bridge" under src/
+    add_ip(repo, "bridge")
+    assert findings(repo) == ["wiki/bkm/x.md:1: IP id 'bridge' used as an identifier"]
+    other = repo.parent / "elsewhere"
+    add_ip(other, "valve")  # an explicit source root replaces <repo>/src
+    write(repo, "wiki/bkm/x.md", "`valve` and `bridge`\n")
+    assert neutrality.run(repo, src_root=other / "src").findings == [
+        "wiki/bkm/x.md:1: IP id 'valve' used as an identifier"]
+
+
+def test_ip_rule_respects_exempt_trees_and_slug(ip_repo):
+    write(ip_repo, "wiki/src/bridge/MAS.md", "`bridge`\n")
+    write(ip_repo, "wiki/tracker/data/x.json", '{"bridge": 1}\n')
+    write(ip_repo, "README.md", "https://github.com/someone/frobnitz-factory\n")
+    assert findings(ip_repo) == []
+
+
+def test_ip_id_equal_to_a_top_level_entry_is_skipped(ip_repo):
+    add_ip(ip_repo, "cfg")
+    write(ip_repo, "wiki/bkm/x.md", "edit cfg/checks.yaml and `bridge`\n")
+    assert findings(ip_repo) == ["wiki/bkm/x.md:1: IP id 'bridge' used as an identifier"]
+
+
+def test_minified_contents_skip_only_the_ip_rule(ip_repo):
+    write(ip_repo, "tools/site/vendor/lib.min.js", 'a("bridge");frobnitz\n')
+    write(ip_repo, "tools/site/vendor/lib.min.css", '.x{content:"bridge"}\n')
+    write(ip_repo, "tools/bridge/lib.min.js", "")
+    assert findings(ip_repo) == [
+        "tools/bridge/lib.min.js: path names IP id 'bridge'",
+        "tools/site/vendor/lib.min.js:1: 'frobnitz'",
+    ]
+
+
 def test_real_config_and_repository_is_neutral():
     cfg = neutrality.load_config(REPO_ROOT)
     assert len(set(cfg.words)) == len(cfg.words) >= 5  # target, protocol and terms

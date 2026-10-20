@@ -157,7 +157,7 @@ and the ROM's and top's parameter checks used it. They now build both
 passes inside one function and take `t_prog`'s fields by part-select
 ([`rc_seq` MAS, Programs in the package](../../rtl/rc_seq/MAS.md#microarchitecture)).
 The limit is a row of the [FPGA BKM's known limits](../../../bkm/fpga.md#known-quartus-limits);
-its style-check rule is owned by [#418](https://github.com/amichai-bd/pcie-factory/issues/418).
+its style-check rule `struct-param-select` ([#418](https://github.com/amichai-bd/pcie-factory/issues/418), delivered under [#439](https://github.com/amichai-bd/pcie-factory/issues/439)) now rejects the construct in `./build check`.
 The 32768-bit program images themselves elaborate (map about 4 minutes).
 
 **Quartus warnings.** Fit: 169177 and 292013, both

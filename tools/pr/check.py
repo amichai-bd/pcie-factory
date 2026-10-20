@@ -468,7 +468,7 @@ def rule_neutrality(pr: Pr, neutral: Neutral) -> list[Finding]:
         hits = [w for _, w in nt.scan_text(path, neutral.words, None)] + \
                [w for _, w in nt.scan_ip_text(path, neutral.ips)]
         out += [Finding("neutrality", f"{path}: path names {w!r}") for w in hits]
-        if path.endswith((".min.js", ".min.css")):  # vendored, minified
+        if path.endswith(nt.MINIFIED):  # vendored, minified
             continue
         lines = (pr.added or {}).get(path, ())
         text = "\n".join(nt.blank_config_values(x) if path == nt.CONFIG else x

@@ -207,7 +207,8 @@ def test_every_rule_is_tested_and_documented():
               "vocabulary-include", "cdc-cell-macro", "system-task", "local-define",
               "sampled-value", "clocking-block", "object-macro", "assert-label",
               "bare-generate", "inline-genvar", "pattern-key-name", "pattern-context",
-              "method-member-name", "port-index-constant"}
+              "method-member-name", "port-index-constant",
+              "struct-param-select"}  # fired in test_struct_params.py
     assert tested == set(RULES)
     spec = (Path(__file__).resolve().parents[3] / "wiki/tools/checks/SPEC.md").read_text()
     for rule, (anchor, _) in RULES.items():

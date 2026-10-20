@@ -72,7 +72,7 @@ workdir/                    all generated output, ignored
 | Filelists: every path resolves, no duplicate after flattening, no orphan RTL; every IP has its DV filelists and three valid level files | [layout](../project/layout.md#per-ip-files) |
 | Wiki mirror: `wiki/src/` has every IP's required pages and no folder without a `src/` counterpart | [wiki BKM](wiki.md#page-set) |
 | Flow inputs: `src/fpga/<ip>/` and `src/asic/<ip>/` pass the FPGA and ASIC flows' `--dry-run` validation, without the vendor tools | [checks spec](../tools/checks/SPEC.md#flow-input-check) |
-| Neutrality: the word list in `cfg/checks.yaml`, with the scope and exemptions set by the contract | [`CLAUDE.md`](../../CLAUDE.md#design-neutrality) |
+| Neutrality: the word list in `cfg/checks.yaml`, and the IP ids discovered from `src/` used as identifiers, with the scope and exemptions set by the contract | [`CLAUDE.md`](../../CLAUDE.md#design-neutrality) |
 | Citations: no long block quotes or quoted runs, and the citation form, in `src/` and `wiki/src/` (a heuristic; review is the main control) | [wiki BKM](wiki.md#citations) |
 | Publishability: no keys, tokens, URL credentials, IP addresses, home paths or personal email addresses in any file, with reviewed exemptions in `cfg/checks.yaml` | [wiki BKM](wiki.md#publishability) |
 | Spec cache: no PDF, no copy of a cached reference document or its text, and no run of its text longer than a quote, in any file; every listed document on the references page | [wiki BKM](wiki.md#citations) |

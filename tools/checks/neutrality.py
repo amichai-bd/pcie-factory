@@ -7,6 +7,10 @@ matches any run of spaces, ``-`` and ``_``, including none (``widget bus``
 also matches ``widgetbus``). File paths are scanned as well as contents;
 binary files (a NUL byte) are skipped.
 
+It also scans the same files for the IP ids discovered from ``src/`` used
+as identifiers (see ``ip_pattern``), so that a bare IP name that is also an
+ordinary word is caught only where it names the IP.
+
 Exemptions:
 - the trees the contract names: ``src/``, ``wiki/src/``, ``wiki/tracker/data/``
   (hard-coded, not configurable, so a config line cannot widen them);
@@ -15,7 +19,10 @@ Exemptions:
   boundary on both sides;
 - in ``cfg/checks.yaml`` only the ``words`` list and the ``repo_slug`` value
   are blanked before scanning; its comments and every other line are scanned
-  like any other file.
+  like any other file;
+- the contents (not the path) of vendored minified files (``*.min.js``,
+  ``*.min.css``) for the IP-identifier rule only; the word list still scans
+  them.
 """
 
 from __future__ import annotations
@@ -34,6 +41,10 @@ CONFIG = "cfg/checks.yaml"
 EXEMPT = ("src/", "wiki/src/", "wiki/tracker/data/")
 # Top-level sections of cfg/checks.yaml; each check validates its own.
 SECTIONS = {"neutrality", "citation", "publishability", "spec_cache", "layout"}
+# Vendored minified files: their contents are third-party code whose short
+# quoted strings collide with IP ids, so only the IP-identifier rule skips
+# them (the word list still scans them); their paths are still scanned.
+MINIFIED = (".min.js", ".min.css")
 
 _WORDS_LINE = re.compile(r"^\s*words\s*:\s*(\[[^\]\n]*\])", re.MULTILINE)
 _SLUG_LINE = re.compile(r"^\s*repo_slug\s*:\s*(\S+)", re.MULTILINE)
@@ -128,10 +139,17 @@ def scan_text(text: str, words: re.Pattern, slug: re.Pattern | None) -> list[tup
     return hits
 
 
-def run(repo_root: Path, config_path: str = CONFIG) -> CheckResult:
+def run(repo_root: Path, config_path: str = CONFIG,
+        src_root: Path | None = None) -> CheckResult:
+    """Scan for design-target words, and for IP ids discovered from
+    ``src_root`` (default ``<repo_root>/src``; none when it is missing) used
+    as identifiers."""
     cfg = load_config(repo_root, config_path)
     slug = cfg.repo_slug or slug_from_remote(repo_root)
     words, slug_re = word_pattern(cfg.words), slug_pattern(slug)
+    src = Path(src_root) if src_root is not None else Path(repo_root) / "src"
+    ids = ip_ids(src, repo_root) if src.is_dir() else ()
+    ips = ip_pattern(ids)
     listed = [f for f in _git(repo_root, "ls-files", "-z", "--cached", "--others",
                                 "--exclude-standard").split("\0") if f]
     files = [f for f in sorted(set(listed)) if not f.startswith(EXEMPT)]
@@ -139,6 +157,8 @@ def run(repo_root: Path, config_path: str = CONFIG) -> CheckResult:
     for f in files:
         for _, w in scan_text(f, words, None):
             result.findings.append(f"{f}: path contains {w!r}")
+        for _, w in scan_ip_text(f, ips):
+            result.findings.append(f"{f}: path names IP id {w!r}")
         p = Path(repo_root) / f
         if not p.is_file():  # deleted in the working tree, or a submodule
             continue
@@ -150,14 +170,20 @@ def run(repo_root: Path, config_path: str = CONFIG) -> CheckResult:
             text = blank_config_values(text)
         for n, w in scan_text(text, words, slug_re):
             result.findings.append(f"{f}:{n}: {w!r}")
+        if f.endswith(MINIFIED):
+            continue
+        for n, w in scan_ip_text(text, ips, slug_re):
+            result.findings.append(f"{f}:{n}: IP id {w!r} used as an identifier")
     result.checked = (f"{len(files)} file(s) (tracked and untracked, not ignored) outside "
                       f"{', '.join(EXEMPT)}; {len(cfg.words)} word(s); "
+                      f"{len(ids)} IP id(s) as identifiers; "
                       f"slug exempt in URLs: {slug or 'none'}")
     return result
 
 
 # --- IP names used as identifiers (#311, #325) --------------------------------
 #
+# Used by run() on the whole repository and by ./build pr check on a diff.
 # IP ids are discovered from src/ and many are ordinary words, so a bare
 # substring match would flag plain English. An id counts only where it is
 # used as an identifier:
