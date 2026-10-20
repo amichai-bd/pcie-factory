@@ -123,4 +123,4 @@ tests:
 # Functional 100 must hold every bin of core_e2e_enum, core_e2e_err,
 # core_e2e_irq, core_e2e_traffic and core_smoke; a renamed or undeclared
 # covergroup leaves the total, so keep this list.
-coverage_floors: {line: 75.3, toggle: 44.1, functional: 100}
+coverage_floors: {line: 88, toggle: 69.1, functional: 100}

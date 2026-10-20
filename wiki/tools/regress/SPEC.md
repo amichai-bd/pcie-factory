@@ -349,6 +349,10 @@ when it finishes, even if it selected no tests:
       "runs": 1, "dat_files": 1, "funcov_files": 1, "dir": "a/coverage",
       "line": {"covered": 15, "total": 15, "pct": 100.0},
       "toggle": {"covered": 218, "total": 228, "pct": 95.61},
+      "by_source": {"line": {"covered": 15, "total": 15, "pct": 100.0},
+                    "toggle": {"covered": 218, "total": 228, "pct": 95.61}},
+      "by_instance": {"line": {"covered": 20, "total": 30, "pct": 66.67},
+                      "toggle": {"covered": 300, "total": 456, "pct": 65.79}},
       "functional": {"covered": 14, "total": 19, "pct": 73.68, "uncovered": 5,
                      "groups": {"a_ctrl": {"covered": 14, "total": 19, "pct": 73.68}}},
       "floors": {"line": 90.0, "covergroups": {"a_ctrl": 70.0}},
@@ -389,8 +393,10 @@ The fields mean the following:
 - `coverage` is `null` without `--coverage`. Otherwise it holds, per
   selected IP, the passing runs merged (`runs`) and the files found, each
   metric's `covered`, `total` and `pct` (2 decimals; `null` with no
-  points), the same per covergroup under `functional.groups`, the floors
-  that applied (per-covergroup functional floors under
+  points). `line` and `toggle` alias the `by_source` view, used by floors
+  and the printed table; `by_instance` retains the original full-key view.
+  Functional coverage retains the same per-covergroup counts under
+  `functional.groups`. The entry also records the floors that applied (per-covergroup functional floors under
   `floors.covergroups`), the floor failure messages and the merge warnings;
   `coverage.passed` is false when any IP missed a floor. When the coverage
   could not be merged, `coverage` is `{"error": "<message>"}` instead and
@@ -452,12 +458,41 @@ does) are left out
 of the table and the floors; `merged.dat` and `merged.info` still hold
 them. A point is attributed to the file Verilator reports, so an
 `` `include``d file counts unless it is itself a DV-only source. Verilator
-keeps one set of points per parameterization of a module (the point's
-`page`), so a module built with several parameter sets, in one build or
-across the IP's builds, counts each set; a set whose builds run few tests
-lowers the metric. A metric
-with no points (for example, no test samples a covergroup) is reported
-`n/a`.
+keeps separate point keys for elaborated instances and parameterizations
+(`h` and `page`). The summary retains those full keys as the `by_instance`
+counts. The `by_source` view groups keys by resolved source file (`f`),
+line (`l`), column (`n`), point type (`t`) and source object. A source
+point is covered if any of its instances has a positive count. The statement
+span annotation (`S`), hierarchy and parameterization do not create
+additional source points. Different columns and line/branch types remain
+distinct. For line and branch points the object (`o`) keeps the branch
+outcome. For toggle points, Verilator may put generated scopes inside `o`
+(`g[0].q`, `g[1].q`) as well as in `h`. The reader finds the declaration
+identifier at `f/l/n` in the matching compiled source and, when that name
+appears exactly once as an object component, discards only the prefix
+before it. The declared signal name, every struct member, array/bit index
+and transition direction remain. Thus `g[0].q[0].field:0->1` and
+`g[1].q[0].field:0->1` count once; `q[1].field:0->1` or the opposite
+transition still counts separately. Wider parameterizations contribute
+additional bits without recounting existing bits.
+
+**Conservative fallback.** When the matching source is unavailable, the
+location does not identify a plain declaration name, or that name appears
+more than once in `o`, the full object is retained. In particular, a scope
+and signal both named `q` (`q[0].q`) are ambiguous with an array element's
+struct member, so the reader does not conflate them. Such points may still
+count separately by generated scope; hierarchy and parameterization in
+`h/page` never create duplicates. Escaped identifiers also retain the full
+object. Source files are read once per metrics calculation, not once per
+point.
+
+`line` and `toggle` in the summary and printed table are the by-source
+counts, and their floors use that view. `by_source` and `by_instance`
+each contain both metrics with covered, total and percentage fields.
+Functional coverage is unchanged. The raw `merged.dat` retains every
+original key for instance-level annotation; `merged.info` generation is
+unchanged. A metric with no
+points is reported `n/a`.
 
 **Table.** After the level totals, the run prints one row per selected IP:
 
@@ -475,6 +510,14 @@ Python testbench dominates. Type-strict bins raised the cost of one sample
 from about 0.8 µs to 1.2 µs, which kept the same run's CPU time within
 noise (75 to 79 s on another host, two runs each). Larger designs pay more for toggle coverage;
 re-measure when the nightly budget gets tight.
+
+The coverage unit tests use two parameterizations with disjoint hits to
+prove source union and the preserved per-instance counts. They keep
+separate branch outcomes, source columns, files, signal names, bit indices
+and transition directions, test a bit present only in the wider instance,
+show floors use the source view while raw annotation keys remain, and
+check generated scopes against struct arrays, separate bit transitions,
+missing sources and scope/declaration name collisions.
 
 ### Coverage floors
 
@@ -495,7 +538,9 @@ coverage_floors: {line: 90, functional: {a_arcs: 100, a_data: 80}}
   only `line`, `toggle` and `functional`. A per-covergroup mapping is
   non-empty and its names follow the covergroup name rule. Anything else is
   a validation error (exit code 2), like a bad test entry.
-- **Aggregation.** Every bin counts once, coverpoint and cross bins alike,
+- **Aggregation.** Line and toggle floors count source points, covered by
+  any elaborated instance or parameterization, as above. Every functional
+  bin counts once, coverpoint and cross bins alike,
   whatever its hit count. A number for `functional` applies to all of the
   IP's covergroups combined: covered bins of every covergroup over all
   their bins. A per-covergroup floor applies to that covergroup's bins

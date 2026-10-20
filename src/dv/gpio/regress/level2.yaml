@@ -93,4 +93,4 @@ tests:
 # Functional 100 must hold every bin of gpio_config, gpio_link,
 # gpio_rx_table and gpio_slot; a renamed or undeclared covergroup leaves the
 # total, so keep this list.
-coverage_floors: {line: 91.0, toggle: 91.7, functional: 100}
+coverage_floors: {line: 98.7, toggle: 96.2, functional: 100}

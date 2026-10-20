@@ -33,4 +33,4 @@ tests:
 # Functional 100 must hold every bin of rc_tl_cmd, rc_tl_cpl, rc_tl_cplr,
 # rc_tl_host, rc_tl_inb, rc_tl_req and rc_tl_reset; a renamed or undeclared
 # covergroup leaves the total, so keep this list.
-coverage_floors: {line: 91.4, toggle: 65.5, functional: 100}
+coverage_floors: {line: 98.7, toggle: 90.9, functional: 100}

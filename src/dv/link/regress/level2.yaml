@@ -201,4 +201,4 @@ tests:
 # Functional 100 must hold every bin of link_e2e_config, link_e2e_control,
 # link_e2e_credit, link_e2e_inject, link_e2e_recovery and link_e2e_traffic;
 # a renamed or undeclared covergroup leaves the total, so keep this list.
-coverage_floors: {line: 90.7, toggle: 76.5, functional: 100}
+coverage_floors: {line: 90.7, toggle: 82.8, functional: 100}

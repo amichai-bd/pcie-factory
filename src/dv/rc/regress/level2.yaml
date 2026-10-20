@@ -53,6 +53,6 @@ tests:
 # fixed in rc_seq's ROM, a later change could reshape the cross to the
 # drawn pairs so that its floor can be 100.
 coverage_floors:
-  line: 72.8
-  toggle: 45.3
+  line: 83.1
+  toggle: 66.5
   functional: {rc_e2e_err: 84.1, rc_e2e_line: 100, rc_e2e_run: 63.4, rc_shell: 100}

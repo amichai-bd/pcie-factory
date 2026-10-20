@@ -42,4 +42,4 @@ tests:
 # Functional 100 must hold every bin of cfg_access, cfg_err, cfg_irq,
 # cfg_msg, cfg_power and cfg_slot_power; a renamed or undeclared covergroup
 # leaves the total, so keep this list.
-coverage_floors: {line: 97.4, toggle: 64.4, functional: 100}
+coverage_floors: {line: 99.5, toggle: 84.4, functional: 100}

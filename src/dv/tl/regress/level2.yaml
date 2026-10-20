@@ -63,4 +63,4 @@ tests:
 # Functional 100 must hold every bin of tl_cpl, tl_rx_order, tl_rx_outcome,
 # tl_rx_slot_power and tl_tx; a renamed or undeclared covergroup leaves the
 # total, so keep this list.
-coverage_floors: {line: 97.2, toggle: 77.8, functional: 100}
+coverage_floors: {line: 98.4, toggle: 91.2, functional: 100}

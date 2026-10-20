@@ -172,6 +172,26 @@ the coverage floors are set ([#294](https://github.com/amichai-bd/pcie-factory/i
 
 ## Coverage holes
 
+Line and toggle floors use the
+[by-source union](../../../tools/regress/SPEC.md#coverage): each source point
+counts once and is covered if any instance covers it. Functional coverage
+is unchanged. The source remeasurement for
+[#228](https://github.com/amichai-bd/pcie-factory/issues/228) uses
+[nightly 39384846565](https://github.com/amichai-bd/pcie-factory/actions/runs/39384846565).
+Separately measured low-level runs supply their own floors.
+
+| Selected levels | Source line | Source toggle | Line / toggle floors |
+| --- | --- | --- | --- |
+| L0+L1+L2 | 266/266 (100.00%) | 9954/11724 (84.90%) | 99.5 / 84.4 |
+
+### Per-instance diagnostic baseline
+
+The counts and prior floor values below describe the original per-instance
+view at the revisions cited. Current code floors use the source table above.
+A point hit in another parameter set or instance is covered in the source
+union; the other reviewed causes remain diagnostic explanations, without
+adding a waiver.
+
 Floors in [`level2.yaml`](../../../../src/dv/cfg/regress/level2.yaml),
 checked by every `--coverage` run that selects level 2 (the nightly runs
 levels 0 to 2): line 97.4, toggle 64.4, functional 100. Merged over levels
