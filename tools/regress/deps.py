@@ -2,9 +2,10 @@
 
 No filelist shows these dependencies: a DV test imports helpers from the
 import root of ``cfg/ci.yaml`` (``import_root``, the tools on ``sys.path``
-in every simulation), and an IP's DV or architecture model may import
-another IP's architecture model or reference models by bare module name
-(each such folder is put on ``sys.path`` by path). ``Imports.reach`` follows
+in every simulation), and an IP's DV or architecture model may import any
+Python module of another IP's DV or arch folder by bare module name (an
+architecture model, a reference model, a shared testbench environment; the
+importer puts that folder on ``sys.path`` by path). ``Imports.reach`` follows
 those imports, transitively, from every Python file of an IP's DV and arch
 folders, so ``--affected`` can select the IP when a file it reaches changes
 (wiki/tools/regress/SPEC.md#selection).
@@ -63,11 +64,18 @@ def imported_names(path: Path, package: str = "") -> set[str]:
     return out
 
 
-class Imports:
-    """The import graph of the import root and of every IP's flat model
-    folders (``arch/<ip>/`` and ``dv/<ip>/<models>/``)."""
+def _bare_module(path: Path) -> bool:
+    """True for a module another folder may import by bare name: not a test
+    file, a package ``__init__`` or a pytest ``conftest``."""
+    return not path.name.startswith("test_") and path.stem not in ("__init__", "conftest")
 
-    def __init__(self, ips: list[Ip], import_root: Path, models: str) -> None:
+
+class Imports:
+    """The import graph of the import root and of the Python of every IP's
+    DV and arch folders (``dv/<ip>/`` and ``arch/<ip>/``, any depth), whose
+    modules are imported by bare name."""
+
+    def __init__(self, ips: list[Ip], import_root: Path) -> None:
         self.root = Path(import_root)
         self.dotted: dict[str, Path] = {}      # import-root module name -> file
         self.package: dict[Path, str] = {}     # import-root file -> its package
@@ -79,12 +87,12 @@ class Imports:
             if parts:
                 self.dotted[".".join(parts)] = p
                 self.package[p] = ".".join(parts if rel.name == "__init__" else parts[:-1])
-        self.bare: dict[str, set[Path]] = defaultdict(set)  # module name -> model files
-        for ip in ips:
-            for d in (ip.dir(ARCH), ip.dv_dir / models):
-                for p in sorted(d.glob("*.py")) if d.is_dir() else ():
-                    if not p.name.startswith("test_"):
-                        self.bare[p.stem].add(p.resolve())
+        self.bare: dict[str, set[Path]] = defaultdict(set)  # module name -> IP files
+        self.ip_dirs = sorted({d.resolve() for ip in ips for d in (ip.dv_dir, ip.dir(ARCH))})
+        for d in self.ip_dirs:
+            for p in _py_files(d):
+                if _bare_module(p):
+                    self.bare[p.stem].add(p.resolve())
         self._names: dict[Path, set[str]] = {}
 
     def _resolve(self, name: str) -> set[Path]:
@@ -123,19 +131,17 @@ class Imports:
             names |= self._names[path]
         return seen, names
 
-    def module_name(self, path: Path, models: str) -> str | None:
+    def module_name(self, path: Path) -> str | None:
         """The name a changed file is imported by: its dotted name under the
-        import root, or its stem in an arch or models folder."""
+        import root, or its stem in an IP's DV or arch folder (any depth)."""
         path = Path(path)
+        if path.suffix != ".py":
+            return None
         try:
             rel = path.relative_to(self.root).with_suffix("")
         except ValueError:
-            parts = path.parts
-            if path.suffix == ".py" and len(parts) >= 3 and (
-                    parts[-3] == ARCH or parts[-2] == models):
+            if _bare_module(path) and any(d in path.parents for d in self.ip_dirs):
                 return path.stem
-            return None
-        if path.suffix != ".py":
             return None
         parts = rel.parts[:-1] if rel.name == "__init__" else rel.parts
         return ".".join(parts) or None

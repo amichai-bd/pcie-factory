@@ -21,8 +21,10 @@ Checks, all from the HAS (checks): one ``Scoreboard`` per direction (every
 TLP accepted on one end's upper stream is the next delivered on the other,
 byte for byte; drained at the end); the error pulses (DL protocol error,
 Malformed TLP and Receiver overflow never); the link (``link_up_o`` 1 and
-DL_Active once reached); credits available never above the far end's
-advertisement, and back at it when drained; in the release configuration,
+DL_Active once reached); each credits-available output never above the
+far end's advertisement less the credits of its class still in flight
+(consumed by this end's accepted TLPs and not yet delivered at the far
+end, so not yet returnable), and back at the advertisement when drained; in the release configuration,
 an upper layer that never holds more unreleased credits than its own end
 advertises (the dll credit-release port); liveness (no TLP delivered
 for 20000 cycles while any is outstanding fails); reset values while
@@ -101,7 +103,8 @@ COV_CONFIG.coverpoint("ppm", bins={"zero": 0, "pos_600": 600, "neg_600": -600,
 
 COV_INJECT = Covergroup("link_e2e_inject")
 INJECT_BINS = ("lcrc", "corrupt_tlp", "drop_tlp", "corrupt_dllp", "drop_dllp", "nak",
-               "replay_tlp", "duplicate", "rollover", "line_flip", "line_slip", "line_idle")
+               "replay_tlp", "disparity", "duplicate", "rollover", "line_flip", "line_slip",
+               "line_idle")
 COV_INJECT.coverpoint("cls", bins={c: c for c in INJECT_BINS})
 COV_INJECT.coverpoint("dir", bins={"a_to_b": "ab", "b_to_a": "ba"})
 COV_INJECT.cross("cls_x_dir", "cls", "dir")
@@ -304,6 +307,14 @@ class LinkEnd:
         self.not_l0: list[list[int]] = []          # [left, back] in ps, live only
         self.l0_leaves = 0
         self.avail = [0] * 6
+        # Per fc_*_avail_o field: the credits of the TLPs this end accepted
+        # that the far end has not yet delivered (HAS checks, credits).
+        self.in_flight = [0] * 6
+        # The accepted TLPs not yet delivered, in order: (epoch, header
+        # field, data field, data credits). A link-down of this end starts a
+        # new epoch; a TLP of an older one leaves in_flight untouched.
+        self.flight: deque = deque()
+        self.epoch = 0
         self.ack = BoundaryAck(self.name)
         self.violations: list[str] = []
         for name in ("tlp_tx_valid_i", "tlp_tx_data_i", "tlp_tx_sop_i", "tlp_tx_eop_i",
@@ -426,8 +437,13 @@ class LinkEnd:
                                        f"expected {want}, observed {got}")
 
     def _credits(self) -> None:
-        """Credits available never exceed the far end's advertisement; an
-        infinite field shows all ones."""
+        """Per class and field, credits available never exceed the far
+        end's advertisement less the credits still in flight: consumed when
+        this end accepted a TLP's sop (the output changes in the next cycle,
+        the one sampled here) and returnable only once the far end delivers
+        that TLP's eop. An infinite field shows all ones. A swap or
+        mis-wire of the per-class outputs shows one class's count while the
+        other class's credits are in flight."""
         far = self.env.ends[1 - self.env.ends.index(self)].fc
         for i, port in enumerate(FC_PORTS):
             v = self.rd[port]()
@@ -437,9 +453,15 @@ class LinkEnd:
                 if v != top:
                     self.violations.append(f"end {self.name} cycle {self.cycle}: {port} {v}, "
                                            f"expected all ones (infinite)")
-            elif v > far[i]:
-                self.violations.append(f"end {self.name} cycle {self.cycle}: {port} {v} above "
-                                       f"the {far[i]} the far end advertises")
+            elif v + self.in_flight[i] > far[i]:
+                self.violations.append(f"end {self.name} cycle {self.cycle}: {port} {v} with "
+                                       f"{self.in_flight[i]} credits of its class in flight, "
+                                       f"above the {far[i]} the far end advertises")
+
+    def credits_of(self, tlp: bytes) -> tuple[int, int, int]:
+        """(header field, data field, data credits) of ``tlp`` in FC_PORTS."""
+        c = CLASS_FIELDS.index(ptn.tlp_class(tlp))
+        return 2 * c, 2 * c + 1, ptn.tlp_credits(tlp)[1]
 
     def _hold(self, n: int, tlp: bytes) -> None:
         """Release configuration: a delivered posted or non-posted TLP is
@@ -571,6 +593,10 @@ class LinkEnd:
             return
         if self.pos == 0:
             self.env.sb[self.dir].accept(self.cur)
+            h, d, data = self.credits_of(self.cur)
+            self.in_flight[h] += 1
+            self.in_flight[d] += data
+            self.flight.append((self.epoch, h, d, data))
         self.pos += 1
         if self.pos == len(self.cur) // 4:
             self.cur = None
@@ -704,6 +730,8 @@ class Env:
         if end.not_l0 and end.not_l0[-1][1] is None:
             end.not_l0[-1][1] = t
         end.ack.reset()
+        end.in_flight = [0] * 6          # the credit counters restart at the relink
+        end.epoch += 1
         end.cur = None
         end.rx_beats = []
         for q in end.rel_q:
@@ -712,12 +740,19 @@ class Env:
         if self.down_since is None:
             self.down_since = t
         if not any(e.live for e in self.ends):
+            for e in self.ends:
+                e.flight.clear()             # nothing accepted is delivered any more
             for sb in self.sb.values():
                 sb.lost += sb.outstanding()
                 sb.delivered = len(sb.accepted)
 
     def delivered(self, end: LinkEnd, tlp: bytes, n: int) -> None:
         self.sb["ba" if end.name == "a" else "ab"].deliver(tlp, n)
+        sender = self.ends[1 - self.ends.index(end)]
+        epoch, h, d, data = sender.flight.popleft()
+        if epoch == sender.epoch:        # accepted since the sender's last link-down
+            sender.in_flight[h] -= 1
+            sender.in_flight[d] -= data
 
     # -- running ------------------------------------------------------------------
 

@@ -82,6 +82,31 @@ def test_arch_change_runs_the_ip_suites(repo):
     assert got[0].reason == "changed: src/arch/counter/xy_counter_arch.py"
 
 
+def test_imported_arch_model_change_runs_the_importers_perf(repo):
+    # An IP's arch model imports another IP's arch model by bare name (on
+    # sys.path by path): a change confined to the imported model runs the
+    # importer's perf scenarios, found by the import scan of src/.
+    (repo / "src/arch/counter_inc").mkdir(parents=True)
+    (repo / "src/arch/counter_inc/xy_inc_arch.py").write_text("STEP = 1\n")
+    (repo / "src/arch/counter/xy_counter_arch.py").write_text(
+        "import xy_inc_arch\n\ndef perf(workload, seed):\n    return {'x': 1}\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "import")
+    git(repo, "branch", "-f", "main", "HEAD")
+    rel = "src/arch/counter_inc/xy_inc_arch.py"
+    (repo / rel).write_text("STEP = 2\n")
+    got = {s.name: s.reason for s in unit.plan(ctx(repo), RULES, "main")}
+    assert got["perf:counter"] == f"imports: {rel}"
+    assert got["arch:counter"] == f"imports: {rel}"
+    # Without the import the change selects only its owner.
+    (repo / "src/arch/counter/xy_counter_arch.py").write_text(
+        "def perf(workload, seed):\n    return {'x': 1}\n")
+    git(repo, "commit", "-qam", "drop import")
+    git(repo, "branch", "-f", "main", "HEAD")
+    (repo / rel).write_text("STEP = 3\n")
+    assert names(unit.plan(ctx(repo), RULES, "main")) == ["models:counter_inc"]
+
+
 def test_arch_suites_run_and_perf_writes_its_result(repo, capsys):
     suites = [s for s in unit.plan(ctx(repo), RULES, None) if s.name.split(":")[0] in
               ("arch", "perf")]

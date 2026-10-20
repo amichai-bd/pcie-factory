@@ -8,6 +8,7 @@ import regress.run as regress
 from build.ip import REPO_ROOT, Context, discover, units
 from ci.config import load_rules
 from regress.affected import GitError, changed_files, select_affected, select_affected_levels
+from regress.deps import imported_names
 
 # The real rules, so these tests pin the behavior cfg/ci.yaml configures.
 RULES = load_rules(REPO_ROOT / "cfg")
@@ -354,6 +355,72 @@ def test_other_ips_arch_model_import_selects_the_importer(repo):
     got = affected(repo)
     assert got["counter"] == "changed: src/arch/counter/counter_util.py"
     assert got["counter_inc"] == "imports: src/arch/counter/counter_util.py"
+
+
+def test_other_ips_testbench_module_import_selects_the_importer(repo):
+    # One IP's DV reuses a Python testbench module of another IP's DV (not a
+    # reference model) by bare name, putting that folder on sys.path by path:
+    # a change confined to that module selects both IPs at every level.
+    (repo / "src/dv/counter/tb").mkdir(parents=True)
+    (repo / "src/dv/counter/tb/__init__.py").write_text("")
+    (repo / "src/dv/counter/tb/counter_env.py").write_text("import counter_helper\n")
+    (repo / "src/dv/counter/tb/counter_helper.py").write_text("Y = 1\n")
+    (repo / "src/dv/counter_inc/tb").mkdir(parents=True)
+    (repo / "src/dv/counter_inc/tb/inc_env.py").write_text("import counter_env as base\n")
+    commit_all(repo)
+    rel = "src/dv/counter/tb/counter_env.py"
+    (repo / rel).write_text("import counter_helper\nX = 2\n")
+    got = affected_levels(repo)
+    assert got == {"counter": (f"changed: {rel}", None), "counter_inc": (f"imports: {rel}", None)}
+    git(repo, "checkout", "-q", "--", ".")
+    helper = "src/dv/counter/tb/counter_helper.py"  # reached through counter_env
+    (repo / helper).write_text("Y = 2\n")
+    assert affected(repo)["counter_inc"] == f"imports: {helper}"
+    git(repo, "checkout", "-q", "--", ".")
+    (repo / rel).unlink()  # a deleted module still selects its importer
+    assert affected(repo)["counter_inc"] == f"imports: {rel}"
+
+
+def test_testbench_package_init_and_tests_are_not_bare_modules(repo):
+    # A package __init__ and a test file are never imported by bare name, so
+    # changing them selects only their owner, even if a name matches.
+    (repo / "src/dv/counter/tb").mkdir(parents=True)
+    (repo / "src/dv/counter/tb/__init__.py").write_text("")
+    (repo / "src/dv/counter_inc/tb").mkdir(parents=True)
+    (repo / "src/dv/counter_inc/tb/inc_env.py").write_text("import __init__\nimport test_counter\n")
+    commit_all(repo)
+    for rel in ("src/dv/counter/tb/__init__.py", "src/dv/counter/tests/test_counter.py"):
+        (repo / rel).write_text("# x\n")
+        assert affected(repo) == {"counter": f"changed: {rel}"}
+        git(repo, "checkout", "-q", "--", ".")
+
+
+def test_repo_cross_ip_dv_imports_select_the_importer(tmp_path):
+    """On the repository's own src/ (IPs discovered, never named): for every
+    module of one IP's DV or arch folder that another IP's DV or arch Python
+    imports by bare name (found here by a plain scan of top-level import
+    names), a change confined to that module selects the importer."""
+    r = tmp_path / "repo"
+    r.mkdir()
+    shutil.copytree(REPO_ROOT / "src", r / "src", ignore=shutil.ignore_patterns("__pycache__"))
+    ips = units(r / "src")
+    files = {ip.id: sorted(p for d in (ip.dv_dir, ip.dir("arch")) if d.is_dir()
+                           for p in d.rglob("*.py") if "__pycache__" not in p.parts)
+             for ip in ips}
+    pairs = []
+    for importer in ips:
+        names = {n.split(".")[0] for f in files[importer.id] for n in imported_names(f)}
+        for owner in ips:
+            if owner.id != importer.id:
+                pairs += [(importer.id, owner.id, f) for f in files[owner.id]
+                          if f.stem in names and not f.name.startswith("test_")
+                          and f.stem not in ("__init__", "conftest")]
+    if not pairs:
+        pytest.skip("no IP imports another IP's DV or arch Python")
+    for importer, owner, f in pairs:
+        rel = f.relative_to(r).as_posix()
+        got = select_affected(ips, r, [rel], r / "src", RULES)
+        assert owner in got and importer in got, (rel, importer)
 
 
 def test_ci_unit_reasons_never_name_levels(repo):
