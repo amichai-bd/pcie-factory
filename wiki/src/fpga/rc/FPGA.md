@@ -126,28 +126,32 @@ power-on counter, `rst_q`, two 2-flop synchronizers, the start flop and
 ## Results
 
 For information only (synthesis evidence, no board): the nightly tracker
-owns the live figures. This is the first fit, `fpga` workflow run
-39328627425 at `9114f49`, Quartus Prime Lite 25.1std.0, slow and fast
-models.
+owns the live figures. This is the fit with the host memory in M9K,
+`fpga` workflow run 39373371520 at `09b41c4`
+([#417](https://github.com/amichai-bd/pcie-factory/issues/417)), Quartus
+Prime Lite 25.1std.0, slow and fast models.
 
 | Item | Result |
 | --- | --- |
-| `clk_core` (50 MHz) | Met: setup slack +2.488 ns, hold +0.115 ns, Fmax 57.10 MHz. |
-| `clk_gpio_rx` (25 MHz) | Met: setup slack +16.984 ns, hold +0.198 ns, recovery +13.982 ns, removal +0.528 ns, Fmax 187.72 MHz. |
+| `clk_core` (50 MHz) | Met: setup slack +3.813 ns, hold +0.141 ns, Fmax 61.78 MHz. |
+| `clk_gpio_rx` (25 MHz) | Met: setup slack +17.366 ns, hold +0.201 ns, recovery +15.008 ns, removal +0.800 ns, Fmax 167.59 MHz. |
 | Unconstrained paths | 0. |
-| Logic elements | 48243 / 114480. |
-| Registers | 35699. |
-| Memory | 11 / 432 M9K, 45704 memory bits, 8 RAMs: 7 simple dual port, single clock, old data on a mixed-port read during write; and the `rc_seq` ROM, 256 words narrowed by synthesis to 57 bits, 2 M9K. |
+| Logic elements | 6440 / 114480. |
+| Registers | 2899. |
+| Memory | 15 / 432 M9K, 78472 memory bits, 9 RAMs: 7 simple dual port, single clock, old data on a mixed-port read during write; the `rc_tl` host memory, single port, 1024 x 32, 4 M9K; and the `rc_seq` ROM, 256 words narrowed by synthesis to 57 bits, 2 M9K. |
 | Pins | 35. |
-| Worst setup path | `clk_core`: the `dll` control state (`u_dll` `u_ctrl` `state_q.st`) to `rc_tl`'s host memory read data (`u_mem` `u_ram` `rd_data_o`); slack +2.488 ns. |
+| Worst setup path | `clk_core`: the `dll` flow-control state (`u_dll` `u_fc` `alloc_q`) to the `dll` TX path (`u_tlp_tx` `rt_q`); slack +3.813 ns. |
 
-**Host memory in registers.** The `rc_tl` host memory, a 4 KiB
-[`common_sync_ram`](../../rtl/common/ram/common_sync_ram.md) with byte
-lanes, is not one of the RAMs above: Quartus builds it from logic, about
-32768 of the registers, and it ends the worst path. The build still fits
-with timing met; mapping it to M9K is a change to the shared RAM block
-(an Intel backend), owned by [#417](https://github.com/amichai-bd/pcie-factory/issues/417) and recorded in the block's
-[MAS](../../rtl/common/ram/common_sync_ram.md#microarchitecture).
+**Host memory in M9K.** The `rc_tl` host memory, a 4 KiB
+[`common_sync_ram`](../../rtl/common/ram/common_sync_ram.md) with four
+byte lanes, maps to 4 M9K in single-port mode through the block's
+[Intel backend](../../rtl/common/ram/common_sync_ram.md#intel-backend),
+which the FPGA flow selects. In the first fit (`fpga` workflow run
+39328627425 at `9114f49`, the portable inferred RAM) Quartus built it from
+logic: 35699 registers and 48243 logic elements in all, and its read data
+(`u_mem` `u_ram` `rd_data_o`) ended the worst `clk_core` path at slack
++2.488 ns. With the backend the build has 32800 fewer registers and 41803
+fewer logic elements.
 
 **Quartus elaboration.** The first runs showed that Quartus Lite rejects a
 member select of a struct localparam in a constant expression (error
