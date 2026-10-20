@@ -227,6 +227,12 @@ tests:
     top: pcie_pcs
     seeds: [1]
     timeout_s: 300
+  - name: eb_overflow_leftover
+    module: tests.test_elastic
+    testcase: eb_overflow_leftover
+    top: pcie_pcs
+    seeds: [1]
+    timeout_s: 300
   - name: eb_underflow
     module: tests.test_elastic
     testcase: eb_underflow

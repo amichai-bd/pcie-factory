@@ -90,9 +90,8 @@
   flight after the recovery are skipped, and one delivered late fails as
   out of order.
 - **Functional coverage:** `phy_e2e_layers` (mac, pcs and channel, each
-  `model` or `rtl`; `stack`: `all_model` or `all_rtl`, mac and pcs as one
-  choice, because the mixed choices of step 2 are not planned in M1, see
-  below; `tx_scrambler`: the mac
+  `model` or `rtl`, with all four combinations in `mac_x_pcs`;
+  `tx_scrambler`: the mac
   model's own, the block's cycle model, or `rtl` when the mac layer is RTL;
   `tx_encoder`: the same for the pcs stand-in; sampled once the pair
   has trained), the coverage hook that
@@ -105,7 +104,18 @@
   usp_requests_ignored, polarity, reset_single, each sampled when its check
   passes); `phy_e2e_power` (l0s, l1, l2, loopback; hit by `e2e_power` and
   `e2e_loopback`, enabled with
-  [#182](https://github.com/amichai-bd/pcie-factory/issues/182)). The run log also names the layers.
+  [#182](https://github.com/amichai-bd/pcie-factory/issues/182));
+  `idle_tail` requires an observed valid high-half EDB followed by electrical
+  idle on the public PIPE pins. `e2e_power` lets clock compensation change
+  packing before entry and requires at least one such tail. It observes a
+  low-half final SKP followed by data, starts a long upstream packet, then
+  requests upstream L1 and peer L0s. The packet prevents upstream from
+  leaving Rx_L0 before the peer's idle tail arrives; the test asserts that
+  busy state at the tail and verifies the packet is delivered losslessly.
+  Requests are then withdrawn and both ports retrained before the ordinary
+  idle power phases. Throughout, it checks that
+  cumulative receiver errors remain zero across L0s, L1 and L2 entry and
+  exit. The run log also names the layers.
 - **RTL by default:** every acceptance entry runs both layers as RTL
   (`MAC_RTL` 1, `PCS_RTL` 1). Each model-only copy, `<name>_model`, runs
   the same testcase with the models as a fast reference.
@@ -138,10 +148,13 @@ echoes them on `cfg_*_o` and the environment builds the ports from them.
 | pcs | `PCS_RTL` | `PcsModel` | `pcie_pcs` inside `u_a`/`u_b` |
 | channel | `CHAN_RTL` | `Channel` in Python: offset, impairments | One register per direction in the top: ideal, no Python per cycle; needs `PCS_RTL` 1 |
 
-The RTL side of mac and pcs is the whole `pcie_phy` instance, so the two
-switch together (the environment rejects a mixed choice). With both at 1,
-the environment drives the instance pins through `RtlPort`, which has the
-same interface as the model port. A beat that `RtlPort` offers at a
+The top instantiates the two layers independently inside `u_a`/`u_b`,
+with the same direct PIPE connections as `pcie_phy` when both are RTL.
+The PIPE nets are also top ports: `MacRtl` joins RTL mac to `PcsModel`,
+and `PcsRtl` joins `pcie_mac_arch.Mac` to RTL pcs. The adapters sample
+registered outputs at falling edges and drive the model's next PIPE word
+before the following rising edge. `RtlPort` drives both RTL layers.
+A beat that `RtlPort` offers at a
 falling edge is taken at the next rising edge if `pkt_tx_ready_o`, read at
 that same falling edge, is 1. Ready depends on the MAC state and
 `rst_i`, not on valid, so it holds from one rising edge to the next. Every mac and pcs block runs inside its RTL layer. In
@@ -209,22 +222,19 @@ delivers the hooks, the cycle-model runs and this recipe):
    as the reference. `CHAN_RTL: 1` runs over an ideal channel, minus the
    impairments: `e2e_rtl_link_chan`, `e2e_targets` and
    `e2e_link_up_spec`.
-2. **One layer RTL, the other a model: not planned in M1** ([ruling on #86](https://github.com/amichai-bd/pcie-factory/issues/86#issuecomment-6197199773); post-M1:
-   [#194](https://github.com/amichai-bd/pcie-factory/issues/194)). The full RTL stack and the full model stack are both run, so
-   the mixed choices add debug value but no acceptance value. The
-   `mac x pcs` cross of `phy_e2e_layers`, with its two mixed bins, became
-   the `stack` coverpoint with `all_model` and `all_rtl` only. The recipe,
-   kept for [#194](https://github.com/amichai-bd/pcie-factory/issues/194): with `mac.rtl.f` and `pcs.rtl.f`
-   reached from `phy.rtl.f`, add per-port `pcie_mac` and `pcie_pcs`
-   instances to the top behind the parameters, with their PIPE nets as top
-   ports, and a `MacRtl` or `PcsRtl` port in the environment that moves
-   `PipeTx`/`PipeRx` (the PIPE objects of the mac model) to and from those
-   pins; then drop the mixed-choice check.
+2. **One layer RTL, the other a model: complete**
+   ([#437](https://github.com/amichai-bd/pcie-factory/issues/437)).
+   `e2e_mixed_mac_rtl` and `e2e_mixed_pcs_rtl` run in level 1. Each trains
+   from reset, checks the link-up and training-time bounds, then checks
+   mixed packets, DLLPs and nullified TLPs losslessly in both directions.
+   `mac_x_pcs` records both mixed combinations only after successful
+   training, alongside the all-model and all-RTL combinations.
 
 ## Plan
 
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
+| Independent layers through PIPE: train within the HAS bounds, then mixed packets, DLLPs and nullified TLPs both ways, zero receiver errors | `e2e_mixed_mac_rtl`, `e2e_mixed_pcs_rtl` | 1 | 1 each; only the named layer RTL; channel model, downstream first, +300 ppm |
 | [Link-up](../../arch/phy/HAS.md#link-up-and-requests), [packet stream](../../arch/phy/HAS.md#packet-stream) both ways, a symbol-error burst and a directed retrain, all models | `e2e_smoke` | 0 | 1; dsp first, b +300 ppm |
 | The RTL stack, channel model. RTL path: `cfg_*_o` echo, `RtlPort` for both instances, `rst_i` and `port_role_i` through reset per role. [Reset values](../../arch/phy/HAS.md#clocks-and-resets) with the upper-layer inputs random. [Link-up](../../arch/phy/HAS.md#link-up-and-requests) to L0, then 16 packets each way, lossless. Both ports reset while packets flow, once together and once with b up to 64 cycles later: reset values held, back to L0, and 8 packets each way lossless after each | `e2e_rtl_link` / `e2e_rtl_link_sweep` | 1 / 2 | derived seed 0 / its derived seed 1 (737010230) pinned; `MAC_RTL` 1, `PCS_RTL` 1; usp first, -300 ppm |
 | The same over the RTL channel (the top joins the lines; the environment steps only the ports) | `e2e_rtl_link_chan` | 0 | 1; `MAC_RTL` 1, `PCS_RTL` 1, `CHAN_RTL` 1 |
@@ -307,7 +317,7 @@ e2e test about twice as slow as a plain one (`e2e_rtl_link`: 8.2 s against
 
 | Feature | Testcase |
 | --- | --- |
-| [Power states](../../arch/phy/HAS.md#link-up-and-requests). L0s: both transmitters reach Tx_L0s.Idle within `L0S_IDLE_CYCLES` + 16 cycles of the request, a packet leaves L0s within 2·N_FTS + 16, and traffic is lossless. L1: entry within 64 cycles, `link_up_o` high, exit through Recovery within 4 µs. L2: entry within 64 cycles, exit through Detect within 100 µs. Lossless after each | `e2e_power` |
+| [Power states](../../arch/phy/HAS.md#link-up-and-requests). L0s: both transmitters reach Tx_L0s.Idle within `L0S_IDLE_CYCLES` + 16 cycles of the request, a packet leaves L0s within 2·N_FTS + 16, and traffic is lossless. L1: entry within 64 cycles, `link_up_o` high, exit through Recovery within 4 µs. L2: entry within 64 cycles, exit through Detect within 100 µs. Lossless after each; zero cumulative receiver errors across every entry and exit, including idle tails | `e2e_power` |
 | Loopback from each port as master, with packets flowing into the entry: both reach Loopback.Active with `link_up_o` low, then Detect and back to L0, lossless after. In Loopback.Active, the master's data pattern is echoed by the slave, and the [loopback echo scoreboard](#strategy) checks that every symbol is the master's own, in order and unchanged. At least 1.9 pattern symbols per held cycle (3800 in 2000 cycles) must come back. A packet of the master's own delivered back to it fails the packet scoreboard, either as not sent by the far port or as corrupted. Before #182, a packet looped back in an earlier run was delivered in L0 after the master trained against its own echo. This was not a mac defect ([#192](https://github.com/amichai-bd/pcie-factory/issues/192)); the mac HAS states the rule since [#193](https://github.com/amichai-bd/pcie-factory/pull/193). The echo check was added in [#198](https://github.com/amichai-bd/pcie-factory/issues/198) | `e2e_loopback` |
 
 ### Removed checks
@@ -321,19 +331,22 @@ e2e test about twice as slow as a plain one (`e2e_rtl_link`: 8.2 s against
 
 ## Gaps
 
-| Feature | Owning issue |
-| --- | --- |
-| One layer RTL and the other a model (step 2 above): not planned in M1 ([ruling on #86](https://github.com/amichai-bd/pcie-factory/issues/86#issuecomment-6197199773)) | [#194](https://github.com/amichai-bd/pcie-factory/issues/194) (post-M1) |
+None. The mixed-layer runs of step 2 are implemented in
+[#437](https://github.com/amichai-bd/pcie-factory/issues/437).
 
 ## Mutation evidence
 
-Each mutant was applied in the issue worktree and run with
-`./build sim --ip phy --test <entry>` at the entry's regression seed. Each
-mutant fails, and the unmutated RTL passes; each mutant was reverted
-afterwards.
+Each mutant was applied in the issue worktree or a disposable source copy
+under `workdir/`, and run with `./build sim --ip phy --test <entry>`
+(the source copies also pass `--src-root` and a separate `--workdir`).
+Each mutant fails, and the unmutated RTL passes; no mutant enters the
+committed RTL.
 
 | Block | Mutant | Entry, seed | Result |
 | --- | --- | --- | --- |
+| mac training | Minimum Polling TS1 count 1024 to 512 | `e2e_mixed_mac_rtl`, 1708965401 | Training takes 37.320 us, below the required 65.536 us. |
+| pcs encoding | Alternate-seven selection forced low | `e2e_mixed_pcs_rtl`, 497582220 | Training never reaches L0 within 40000 cycles; both ports remain at 0x04. |
+| mac receive | Restore the original immediate `ferr` assignment for a high-half EDB outside a packet, retaining the `ctl_i.rx_l0` guard, instead of deferring `tail_ferr` | `e2e_power`, 2093394178 | At 130716 ns the continuous power-transition check sees one receiver error on port a. The baseline observes the real PCS idle tail while upstream is still busy in Rx_L0 and completes all power phases with zero errors. |
 | pcs loopback (the slave's echo path) | `enc_in` in loopback flips bit 0 of each echoed data byte of 80h or more: `sym0.data ^ {7'd0, !sym0.k && sym0.data[7]}`. The training sets' data bytes are all below 80h, so the master still reaches Loopback.Active | `e2e_loopback`, 74580909 | Fails on the echo scoreboard at port a's cycle 11431 (master a): echo symbol 182 of 3999, expected the sent data symbol 792, 80h, observed 81h. Before #198 (no echo check), the same entry passes with this mutant. |
 | mac ordered sets (the master's pattern) | The pattern count never advances (`pat_d = pat_q`), so every pattern word is the same two bytes | `e2e_loopback`, 74580909 | Fails on the echo scoreboard: expected at least 3800 pattern symbols echoed, observed 1971 of 3999 received. The echo still matches what was sent; only the traffic check fails. |
 
@@ -342,10 +355,8 @@ afterwards.
 `level2.yaml` sets, per the [DV BKM](../../../bkm/dv.md#coverage), line
 78.7%, toggle 75.2% and functional 100%: the merged level 0 to 2 values
 (79.27%, 75.77%, 100%) less the BKM margin. Functional 100% holds every
-bin of every `phy_e2e_*` covergroup, `phy_e2e_layers` included; its `stack`
-coverpoint has only the two planned choices, so the post-M1 gap
-([#194](https://github.com/amichai-bd/pcie-factory/issues/194)) adds no
-bin. It replaces the per-covergroup floors of `phy_e2e_run`, `_events`,
+bin of every `phy_e2e_*` covergroup, including all four combinations in
+`phy_e2e_layers.mac_x_pcs` and the observed power idle-tail bin. It replaces the per-covergroup floors of `phy_e2e_run`, `_events`,
 `_packets`, `_control` and `_power`, which it implies.
 
 ## Coverage holes

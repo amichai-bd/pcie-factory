@@ -13,8 +13,7 @@ channel    ``Channel`` (models/): ppm through   one register per direction in
            the clocks, slips, flips, idle       the top (ideal)
 =========  ===================================  ==============================
 
-mac and pcs switch together until the stack RTL exposes PIPE (the DV plan
-has the per-layer recipe). The clocks: ``a_clk_i`` runs at 125 MHz,
+Each layer switches independently through the top-level PIPE pins. The clocks: ``a_clk_i`` runs at 125 MHz,
 ``b_clk_i`` ``ppm`` off it with period 8 ns x (1 + ppm 1e-6), so a
 positive ppm makes b the slower clock (dithered to the picosecond, so the
 average offset is exact), and each port's ``ser_rx_clk_i`` is the far
@@ -77,10 +76,7 @@ LAYERS = ("mac", "pcs", "channel")
 COV_LAYERS = Covergroup("phy_e2e_layers")
 for _layer in LAYERS:
     COV_LAYERS.coverpoint(_layer, bins={"model": "model", "rtl": "rtl"})
-# mac and pcs as one choice: both models or both RTL. The mixed choices
-# (DV plan step 2) are not planned in M1 (firstmate ruling on #86;
-# post-M1 #194), so this coverpoint replaces the mac x pcs cross.
-COV_LAYERS.coverpoint("stack", bins={"all_model": "model", "all_rtl": "rtl"})
+COV_LAYERS.cross("mac_x_pcs", "mac", "pcs")
 # Block-level swaps inside a model layer (the DV plan's switch table).
 COV_LAYERS.coverpoint("tx_scrambler", bins={"mac_model": "mac_model", "block_model": "block_model",
                                              "rtl": "rtl"})
@@ -105,6 +101,7 @@ COV_CONTROL.coverpoint("event", bins={n: n for n in (
     "retrain", "hot_reset", "disable", "usp_requests_ignored", "polarity", "reset_single")})
 COV_POWER = Covergroup("phy_e2e_power")
 COV_POWER.coverpoint("state", bins={n: n for n in ("l0s", "l1", "l2", "loopback")})
+COV_POWER.coverpoint("idle_tail", bins=["observed"])
 
 # Reset values of pcie_phy's outputs, held while rst_i is high
 # (wiki/src/arch/phy/HAS.md#clocks-and-resets); ltssm_state_o 0 is
@@ -360,6 +357,8 @@ class RtlPort:
         self._code = 0
         self._up = False
         self._rcv = 0
+        self.idle_tails = 0
+        self._pipe_tail = False
         self._retrain = False
         self.req = dict.fromkeys(REQUESTS, 0)   # level requests, driven outside reset
         self.trace = False                 # log beats and frame starts with times
@@ -419,6 +418,15 @@ class RtlPort:
         self._code = rd["ltssm_state_o"]()
         self._up = bool(rd["link_up_o"]())
         self._rcv += rd["rcv_err_o"]()
+        # A valid high-half EDB followed by electrical idle is the PCS's
+        # synthetic idle tail. Observe public PIPE pins, never internals.
+        if rd["pipe_rx_elec_idle_o"]():
+            if self._pipe_tail:
+                self.idle_tails += 1
+            self._pipe_tail = False
+        elif rd["pipe_rx_valid_o"]():
+            self._pipe_tail = (rd["pipe_rx_datak_o"]() & 2 != 0
+                               and rd["pipe_rx_data_o"]() >> 8 == code8b10b.K_EDB)
         word, ei = rd["ser_tx_data_o"](), bool(rd["ser_tx_elec_idle_o"]())
         if self.trace and not ei and (word & 0x3FF) in FRAME_START_CODES:
             self.tx_starts.append((self.edges, t_rise))
@@ -510,6 +518,90 @@ class RtlPort:
             self.req[name] = int(v)
 
 
+# PIPE adapters sample registered RTL outputs at the falling edge, then
+# drive the model's next word before the following rising edge.
+class MacRtl(RtlPort):
+    """RTL mac with the PCS stand-in, exposing the same packet/line protocol."""
+
+    def __init__(self, *args, **kw):
+        super().__init__(*args, **kw)
+        self.pcs = stack.PcsModel()
+        self._drive_rx()
+
+    def _drive_rx(self):
+        rx = self.pcs.out
+        for name, value in {"rx_data": rx.syms[0][1] | rx.syms[1][1] << 8,
+                            "rx_datak": rx.syms[0][0] | rx.syms[1][0] << 1,
+                            "rx_valid": rx.valid, "phy_status": rx.phy_status,
+                            "rx_elec_idle": rx.elec_idle, "rx_status": rx.status}.items():
+            self.wr(f"pipe_{name}_i", int(value))
+
+    def core_edge(self, rxdet):
+        rd = lambda n: self.rd[f"pipe_{n}_o"]()
+        data, datak = rd("tx_data"), rd("tx_datak")
+        tx = stack.mac_arch.PipeTx(
+            syms=((datak & 1, data & 255), (datak >> 1, data >> 8)),
+            reset_n=bool(rd("reset_n")), elec_idle=bool(rd("tx_elec_idle")),
+            detect_rx=bool(rd("tx_detect_rx")), compliance=bool(rd("tx_compliance")),
+            polarity=bool(rd("rx_polarity")), power_down=rd("power_down"))
+        super().core_edge(rxdet)
+        line = self.pcs.core_edge(self.rst, tx, rxdet)
+        self._drive_rx()
+        return line
+
+    def rx_edge(self, word, ei):
+        self.pcs.rx_edge(self.rst, word, ei)
+
+
+class PcsRtl(ModelPort):
+    """MAC architecture model over RTL PCS through the public PIPE pins."""
+
+    kind = "mixed"
+
+    def __init__(self, dut, prefix, role, rng=None, timeout_div=1024, err_timeout_div=1):
+        super().__init__(role, timeout_div, err_timeout_div=err_timeout_div)
+        self.pcs = _PcsPins(dut, prefix, role)
+
+    def core_edge(self, rxdet):
+        self.pcs.sample()
+        return super().core_edge(rxdet)
+
+
+class _PcsPins:
+    """The PCS model's lower-side interface implemented by RTL pin access."""
+
+    def __init__(self, dut, prefix, role):
+        self.pins = RtlPort(dut, prefix, role)
+        self.out = stack.mac_arch.PipeRx()
+        self.pins.wr("rst_i", 1)
+
+    def sample(self):
+        rd = lambda n: self.pins.rd[f"pipe_{n}_o"]()
+        data, datak = rd("rx_data"), rd("rx_datak")
+        self.out = stack.mac_arch.PipeRx(
+            syms=((datak & 1, data & 255), (datak >> 1, data >> 8)),
+            valid=bool(rd("rx_valid")), elec_idle=bool(rd("rx_elec_idle")),
+            status=rd("rx_status"), phy_status=bool(rd("phy_status")))
+
+    def core_edge(self, rst, tx, rxdet):
+        p = self.pins
+        line = (p.rd["ser_tx_data_o"](), bool(p.rd["ser_tx_elec_idle_o"]()))
+        p.wr("rst_i", int(rst))
+        p.wr("ser_tx_rxdet_i", int(rxdet))
+        for name, value in {"reset_n": tx.reset_n,
+                            "tx_data": tx.syms[0][1] | tx.syms[1][1] << 8,
+                            "tx_datak": tx.syms[0][0] | tx.syms[1][0] << 1,
+                            "tx_detect_rx": tx.detect_rx, "tx_elec_idle": tx.elec_idle,
+                            "tx_compliance": tx.compliance, "rx_polarity": tx.polarity,
+                            "power_down": tx.power_down}.items():
+            p.wr(f"pipe_{name}_i", int(value))
+        return line
+
+    def rx_edge(self, rst, word, ei):
+        self.pins.wr("ser_rx_data_i", word)
+        self.pins.wr("ser_rx_elec_idle_i", int(ei))
+
+
 # ------------------------------------------------------------- clocks
 
 async def ppm_clock(sig, ppm: float, phase_ps: int) -> None:
@@ -563,18 +655,14 @@ class Env:
         # block inside it (the DV plan's step 0).
         # Sampled once the pair has trained (train()), so a bin means the
         # layer ran, not only that it was built.
-        self._cov_layers: dict | None = dict(self.layers, stack=self.layers["mac"],
+        self._cov_layers: dict | None = dict(self.layers,
                                 tx_scrambler="rtl" if self.layers["mac"] == "rtl" else tx_scrambler,
                                 tx_encoder="rtl" if self.layers["pcs"] == "rtl" else tx_encoder)
         COV_RUN.sample(a_role=a_role, ppm=ppm)
         roles = (a_role, stack.other(a_role))
-        if self.layers["mac"] != self.layers["pcs"]:
-            raise NotImplementedError(
-                "mac and pcs switch together until the stack RTL exposes PIPE "
-                "(wiki/src/dv/phy/DV_PLAN.md, model-to-RTL switch plan)")
         if self.layers["channel"] == "rtl" and self.layers["pcs"] == "model":
             raise ValueError("an RTL channel needs the pcs as RTL (CHAN_RTL needs PCS_RTL)")
-        if self.layers["mac"] == "model":
+        if self.layers["mac"] == self.layers["pcs"] == "model":
             ports = [ModelPort(r, self.timeout_div, err_timeout_div=self.err_timeout_div,
                                tx_scrambler=(pcie_mac_scrambler_model.WordScrambler()
                                              if tx_scrambler == "block_model" else None),
@@ -584,8 +672,11 @@ class Env:
         else:
             if (tx_scrambler, tx_encoder) != ("mac_model", "pcs_model"):
                 raise ValueError("block swaps apply only inside the model layers")
-            ports = [RtlPort(dut, f"{p}_", r, random.Random(self.rng.getrandbits(32)))
-                     for p, r in zip("ab", roles)]
+            cls = (RtlPort if self.layers["mac"] == self.layers["pcs"] else
+                   MacRtl if self.layers["mac"] == "rtl" else PcsRtl)
+            ports = [cls(dut, f"{p}_", r, random.Random(self.rng.getrandbits(32)),
+                         **({"timeout_div": self.timeout_div, "err_timeout_div": self.err_timeout_div}
+                            if cls is PcsRtl else {})) for p, r in zip("ab", roles)]
         skew = self.rng.randrange(skew_max + 1)
         self.bench = stack.Bench(ports, self.rng, delay_words,
                                  release=(stack.RESET_CYCLES, stack.RESET_CYCLES + skew))
@@ -823,7 +914,7 @@ class Env:
 
     def final_checks(self) -> None:
         for i, p in enumerate(self.ports):
-            if isinstance(p, ModelPort):
+            if hasattr(p, "pcs") and hasattr(p.pcs, "stats"):
                 st = p.pcs.stats
                 assert st["overflow"] == 0, f"port {'ab'[i]}: elastic buffer overflowed {st['overflow']} times"
                 self.log.info("port %s pcs: %s", "ab"[i], st)

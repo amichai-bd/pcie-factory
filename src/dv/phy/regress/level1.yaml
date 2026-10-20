@@ -87,3 +87,15 @@ tests:
     top: pcie_phy_e2e_tb
     params: {MAC_RTL: 1, PCS_RTL: 1}
     timeout_s: 120
+  - name: e2e_mixed_mac_rtl
+    module: tests.test_phy_e2e
+    testcase: e2e_mixed
+    top: pcie_phy_e2e_tb
+    params: {MAC_RTL: 1, PCS_RTL: 0}
+    timeout_s: 300
+  - name: e2e_mixed_pcs_rtl
+    module: tests.test_phy_e2e
+    testcase: e2e_mixed
+    top: pcie_phy_e2e_tb
+    params: {MAC_RTL: 0, PCS_RTL: 1}
+    timeout_s: 300
