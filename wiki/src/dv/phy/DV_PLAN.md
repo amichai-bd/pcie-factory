@@ -107,7 +107,13 @@
   [#182](https://github.com/amichai-bd/pcie-factory/issues/182));
   `idle_tail` requires an observed valid high-half EDB followed by electrical
   idle on the public PIPE pins. `e2e_power` lets clock compensation change
-  packing before entry and requires at least one such tail, while checking
+  packing before entry and requires at least one such tail. It observes a
+  low-half final SKP followed by data, starts a long upstream packet, then
+  requests upstream L1 and peer L0s. The packet prevents upstream from
+  leaving Rx_L0 before the peer's idle tail arrives; the test asserts that
+  busy state at the tail and verifies the packet is delivered losslessly.
+  Requests are then withdrawn and both ports retrained before the ordinary
+  idle power phases. Throughout, it checks that
   cumulative receiver errors remain zero across L0s, L1 and L2 entry and
   exit. The run log also names the layers.
 - **RTL by default:** every acceptance entry runs both layers as RTL
@@ -340,7 +346,7 @@ committed RTL.
 | --- | --- | --- | --- |
 | mac training | Minimum Polling TS1 count 1024 to 512 | `e2e_mixed_mac_rtl`, 1708965401 | Training takes 37.320 us, below the required 65.536 us. |
 | pcs encoding | Alternate-seven selection forced low | `e2e_mixed_pcs_rtl`, 497582220 | Training never reaches L0 within 40000 cycles; both ports remain at 0x04. |
-| mac receive | Treat a high-half EDB outside a packet as an immediate receiver error, including after Rx_L0 has ended | `e2e_power`, 2093394178 | At 130520.60 ns the continuous power-transition check sees one receiver error on port b. The baseline observes three real PCS idle tails with zero errors. |
+| mac receive | Restore the original immediate `ferr` assignment for a high-half EDB outside a packet, retaining the `ctl_i.rx_l0` guard, instead of deferring `tail_ferr` | `e2e_power`, 2093394178 | At 130716 ns the continuous power-transition check sees one receiver error on port a. The baseline observes the real PCS idle tail while upstream is still busy in Rx_L0 and completes all power phases with zero errors. |
 | pcs loopback (the slave's echo path) | `enc_in` in loopback flips bit 0 of each echoed data byte of 80h or more: `sym0.data ^ {7'd0, !sym0.k && sym0.data[7]}`. The training sets' data bytes are all below 80h, so the master still reaches Loopback.Active | `e2e_loopback`, 74580909 | Fails on the echo scoreboard at port a's cycle 11431 (master a): echo symbol 182 of 3999, expected the sent data symbol 792, 80h, observed 81h. Before #198 (no echo check), the same entry passes with this mutant. |
 | mac ordered sets (the master's pattern) | The pattern count never advances (`pat_d = pat_q`), so every pattern word is the same two bytes | `e2e_loopback`, 74580909 | Fails on the echo scoreboard: expected at least 3800 pattern symbols echoed, observed 1971 of 3999 received. The echo still matches what was sent; only the traffic check fails. |
 

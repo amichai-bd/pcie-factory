@@ -8,12 +8,13 @@ and check a lossless phase after it. ``ppm`` is port b's clock offset from
 port a's; "dsp first" means port a is the downstream port.
 """
 
+import binascii
 import random
 
 import cocotb
 from cocotb.triggers import ClockCycles
 
-from tb.phy_e2e_env import COV_CONTROL, COV_POWER, RECOVERY_CODES, Env, LoopbackScoreboard
+from tb.phy_e2e_env import COV_CONTROL, COV_POWER, L0_CODE, RECOVERY_CODES, Env, LoopbackScoreboard, code8b10b
 
 
 def seed() -> int:
@@ -318,8 +319,9 @@ async def e2e_power(dut):
     # Allow clock compensation to change symbol parity before the EIOS:
     # a real PCS idle tail must be observed, not only its even-word case.
     tails_before = sum(p.idle_tails for p in env.ports)
+    await env.settle(5000)
+    await busy_upstream_idle_tail(env)
     # ---- L0s
-    await env.settle(4000)
     for p in env.ports:
         p.request(pm_state=1)
     n = await poll_until(env, lambda: all(tx_l0s(p.code) == 2 and rx_l0s(p.code) == 2 for p in env.ports),
@@ -716,3 +718,38 @@ async def e2e_mixed(dut):
     await env.lossless(16, mix="dllp")
     await env.lossless(8, mix="tlp_nullified")
     env.final_checks()
+
+
+async def busy_upstream_idle_tail(env):
+    """Hold upstream in Rx_L0 while the peer enters L0s with odd packing."""
+    a, b = env.ports
+    assert a.role == "upstream"
+    await env.until(lambda: a.rd["pipe_rx_valid_o"]()
+                    and a.rd["pipe_rx_datak_o"]() == 1
+                    and (a.rd["pipe_rx_data_o"]() & 0xff) == code8b10b.K_SKP,
+                    20000, "odd packing after a real SKP correction", poll=1)
+    # Keep upstream TX occupied longer than the peer's 256-cycle L0s timer.
+    body = (env.seq[0] & 0xffff).to_bytes(2, "little") + env.rng.randbytes(12 + 4 * 512)
+    packet = (False, body + binascii.crc32(body).to_bytes(4, "little"), False)
+    env.seq[0] += 1
+    env.sb[0].add(packet)
+    a.tx_starts.clear()
+    a.trace = True
+    a.send(*packet)
+    await env.until(lambda: bool(a.tx_starts), 64, "busy upstream packet on the line", poll=1)
+    before = a.idle_tails
+    a.request(pm_state=2)
+    b.request(pm_state=1)
+    await env.until(lambda: a.idle_tails > before, L0S_IDLE_CYCLES + 64,
+                    "upstream sees a real PCS tail while its L1 wait is blocked", poll=1)
+    assert not a.tx_idle() and a.code == L0_CODE, (
+        f"tail did not arrive while upstream remained busy in Rx_L0: {a.code:#x}")
+    env.log.info("busy upstream: observed tail before L1 wait, code %#x", a.code)
+    await env.drain()
+    env.sb[0].check_lossless()
+    for p in env.ports:
+        p.request(pm_state=0)
+        p.retrain()
+    await env.until(env.bench.both_l0, 40000, "busy upstream episode: recover to L0", poll=1)
+    a.trace = False
+    await env.lossless(8)
