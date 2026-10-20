@@ -238,6 +238,10 @@ A test's status comes from `results.xml`:
 | `timeout` | The run exceeded `timeout_s` and was killed. |
 | `error` | The build failed, `results.xml` is missing, empty or unreadable (for example truncated), or the simulator exited nonzero without a recorded failure. |
 
+An entry with `expect_fatal: <label>` inverts this: its run passes only
+when the simulation stops on that assertion, and a clean finish or any
+other fatal fails it ([regress spec](../regress/SPEC.md#expected-fatal-stops)).
+
 ## CPU slots
 
 Several agents share one host. `--slots DIR` on `./build sim` and

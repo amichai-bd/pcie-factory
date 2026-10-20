@@ -36,6 +36,7 @@ tests:
     backend: fpga             # optional; build with that flow's source backends
     coverage_seeds: 1         # optional, default 1; see Coverage
     rerun_when: models_change # optional; see Reuse of unchanged model checks
+    expect_fatal: a_label     # optional; see Expected fatal stops
 coverage_floors:              # optional; see Coverage floors
   line: 90
 ```
@@ -51,6 +52,7 @@ coverage_floors:              # optional; see Coverage floors
 | `params` | no | Mapping from identifier to int or string, passed as `-G` overrides. |
 | `coverage_seeds` | no | Count from `0` to the entry's number of runs, default `1`: with `--coverage`, the first that many of its seeds (in the entry's own order: list order, or derived seeds 0, 1, ...) run on the coverage build and the rest on the plain build ([coverage](#coverage)). `0`: never a coverage run. |
 | `rerun_when` | no | `models_change`: a passing run is reused until the models it checks change ([reuse](#reuse-of-unchanged-model-checks)). Requires `coverage_seeds: 0`. |
+| `expect_fatal` | no | An assertion label (HDL identifier): the run passes only when the simulation stops on that assertion ([expected fatal stops](#expected-fatal-stops)). Requires `coverage_seeds: 0` and no `rerun_when`. |
 | `backend` | no | A flow kind of `cfg/backends.yaml` (an identifier; checked when building). The build swaps each source that has that flow's [backend file](../../project/layout.md#source-backends) beside it for that file and appends the kind's `dv_models`, so the same tests run on the backend. An unknown kind is a build `error`. |
 
 These validation rules apply:
@@ -162,8 +164,13 @@ places:
   the deterministic seed `crc32("<ip>:<name>:<i>") & 0x7fffffff`, so
   repeated regressions and `./build sim` use the same seeds. Renaming an IP
   (its id) changes its derived seeds; pin a list to keep them.
-- **A list:** `seeds: [a, b, ...]` runs exactly those seeds, in sorted order
-  in the output.
+- **A list:** `seeds: [a, b, ...]` runs exactly those seeds. Its order is
+  meaningful: the first `coverage_seeds` seeds of the list, in list order,
+  are the coverage runs ([coverage](#coverage)), and `./build sim` without
+  `--seed` runs the first one. The order of the result lines and of the
+  summary is unrelated to it. Reordering a list is therefore a change: it
+  can move a seed into or out of the coverage runs and so change the
+  merged coverage and the floors.
 - **`--seed S`:** replaces either form with `S, S+1, ...`, using the same
   number of runs.
 
@@ -231,6 +238,36 @@ rotation:
 
 The [DevOps BKM](../../bkm/devops.md#nightly) owns the values and how they
 fit the nightly window.
+
+## Expected fatal stops
+
+An entry with `expect_fatal: <label>` is a negative test of an assertion:
+it shows that the assertion fires, for example one guarding an obligation
+of the neighbouring layer that legal stimulus never breaks. Its run's
+status ([build spec](../build/SPEC.md#simulation-build-sim)) is decided
+from the simulator log (`sim.log`), not from `results.xml`:
+
+- `pass` when the first `%Fatal` line of the log is Verilator's message
+  for a failed assertion whose scope ends in `<label>`
+  (`%Fatal: <file>:<line>: Assertion failed in <scope>.<label>: ...`);
+  the detail reads `stopped on assertion <label> as expected`;
+- `fail` when the run finished without a fatal (a clean pass or a test
+  failure), the detail naming which, or when its first `%Fatal` is any
+  other fatal (another assertion, a bare `$fatal`), the detail quoting it;
+- `timeout` as for any run.
+
+`./build sim` applies the same rule to the entry. Such an entry needs
+`coverage_seeds: 0` (a run stopped by a fatal writes no coverage file),
+and it cannot carry `rerun_when` (its result depends on the RTL, which
+reuse ignores). The test itself should fail if it reaches its end, so a
+stop that never comes is a failure even without this rule.
+
+Tests: `tools/build/tests/test_sim.py` (`test_fatal_label`,
+`test_expected_fatal`; in `test_e2e_pass_fail_timeout_and_build_error` the
+fixture's labelled assertion passes, another label, a clean pass and a
+test failure fail; in `test_e2e_regress_cli_all_levels` an entry passes
+on its label and fails on another) and `test_schema.py` (the key's
+validation).
 
 ## Execution
 

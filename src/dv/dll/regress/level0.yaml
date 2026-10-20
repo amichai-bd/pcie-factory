@@ -69,3 +69,11 @@ tests:
     testcase: timer_edge
     top: pcie_dll_tb
     timeout_s: 120
+  # Negative: passes only when a_rx_never_stall stops the simulation.
+  - name: rx_never_stall_fatal
+    module: tests.test_dll_rx
+    testcase: rx_never_stall_fatal
+    top: pcie_dll_tb
+    timeout_s: 120
+    expect_fatal: a_rx_never_stall
+    coverage_seeds: 0

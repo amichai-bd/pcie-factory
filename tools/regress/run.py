@@ -276,7 +276,7 @@ def run(
         else:
             res = sim.run_test(
                 spec, ctx.workdir, verilator, entry.name, entry.module,
-                entry.testcase, seed, entry.timeout_s, b,
+                entry.testcase, seed, entry.timeout_s, b, entry.expect_fatal,
             )
             if res.status == "pass" and run_item in keys and cache is not None:
                 cache.record_pass(keys[run_item], {
