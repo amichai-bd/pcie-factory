@@ -32,12 +32,19 @@
   update, bins the clock ratio (`dst` period / `src` period: source 4x or
   more faster, faster, near 1:1 within 1.25, destination faster, 4x or more
   faster) and the hold (under three or at least three `dst_clk_i` periods),
-  crossed. `dst_fast_4x,min` is unreachable: a source period of four or
-  more destination periods holds every update at least four of them.
-  `dst_fast,min` is reachable but rare, and the derived seeds miss it: it
-  needs a source period in [1.25, 1.5) or [2, 3) destination periods (a
-  whole number of source periods under three destination periods, but at
-  least two). The derived seeds hit every other bin. The
+  crossed. Updates are held a whole number of source periods. So
+  `dst_fast_4x,min` is unreachable by construction: a source period of
+  four or more destination periods holds every update at least four of
+  them. It is declared in the cross's `unreachable` list
+  ([regress SPEC](../../../../tools/regress/SPEC.md#functional-coverage)),
+  so it is not a bin, and a sample of it fails the test
+  ([#232](https://github.com/amichai-bd/pcie-factory/issues/232)).
+  `dst_fast,min` is reachable but rare at random: it needs a source
+  period in [1.25, 1.5) or [2, 3) destination periods (a whole number of
+  source periods under three destination periods, but at least two), and
+  the derived seeds miss it. The directed L0 entry `sync2_dst_fast_min`
+  hits it on every update: a source period of 2.5 destination periods,
+  each update held one source period. The derived seeds hit every other bin. The
   pulse and FIFO plans reuse the same ratio bins (`CLOCK_BINS` in
   `tb/cdc_env.py`). No coverage floor is set yet
   ([DV BKM](../../../../bkm/dv.md#coverage)).
@@ -62,6 +69,7 @@
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Reset](../../../rtl/common/cdc/common_cdc_sync2.md#behavior): zero output in reset with all-ones input; transfer at a fixed 3:5 ratio | `sync2_smoke` | 0 | 1; `WIDTH` 1, 16 updates |
+| [Transfer](../../../rtl/common/cdc/common_cdc_sync2.md#behavior) with a faster destination at the shortest hold (one source period, 2.5 destination periods) | `sync2_dst_fast_min` | 0 | 1; `WIDTH` 1, 16 updates, fixed 5:2 ratio |
 | [Transfer](../../../rtl/common/cdc/common_cdc_sync2.md#behavior): Gray sequence and latency at random ratios | `sync2_random` / `sync2_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (1836129780 and 1954040910), pinned; `WIDTH` 4, 200 updates, ratio up to 8:1; coverage on the same seeds as before |
 | [Transfer](../../../rtl/common/cdc/common_cdc_sync2.md#behavior), long and wide | `sync2_long` | 2 | 8; `WIDTH` 8, 2000 updates, ratio up to 16:1; coverage on the first 8 (`coverage_seeds`) |
 | [Asynchronous reset](../../../rtl/common/cdc/common_cdc_sync2.md#behavior): assertion with no edge (time zero, running clock, stopped clock), a pulse inside a stop, synchronous release two edges before the source value | `sync2_arst` / `sync2_arst_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (1313951933), pinned; `WIDTH` 4, `RESET_VALUE` 9, `ASYNC_RESET` 1, ratio up to 8:1 |
@@ -76,7 +84,7 @@ instrumentation, so the merged level 0 to 2 runs are the same runs. The
 mutation evidence on this page names no seed for these entries, and was
 not rerun at the first seed alone.
 
-Every [interface](../../../rtl/common/cdc/common_cdc_sync2.md#interfaces) port is exercised by all three entries.
+Every [interface](../../../rtl/common/cdc/common_cdc_sync2.md#interfaces) port is exercised by every entry.
 A nonzero `RESET_VALUE`, and the `COMMON_METAFLOP`, `COMMON_METAFLOP_VAL`
 and `COMMON_METAFLOP_ARST` wrappers, are covered by the
 [macro plan](../common_macros.md) (`macros_contract`, `macros_random`).

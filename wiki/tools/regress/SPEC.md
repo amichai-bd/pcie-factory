@@ -126,16 +126,30 @@ Three rules decide which tests run:
   - The IP's DV or arch Python **imports** a changed file, directly or
     through other files: a module under the `import_root` of
     `cfg/ci.yaml` (`import pkg.mod`, `from pkg import mod`; a package's
-    `__init__.py` counts), or a module of another IP's `arch/<ip>/` or
-    `dv/<ip>/<models>/` folder imported by its bare name. Imports are read
-    with `ast` (constant `import_module` and `__import__` names too;
-    relative imports resolve inside their package); the scan follows
-    import-root and model files transitively, skips `tests/` folders under
-    the import root, and also matches a deleted module by name. The reason
-    reads `imports: <path>`, and the IP runs every requested level even when
-    the change is also global. No filelist shows these imports, so without
-    the scan a helper change that only a level-1 test exercises, or another
-    IP's model change, would not run that IP's tests.
+    `__init__.py` counts), or a module anywhere under another IP's
+    `arch/<ip>/` or `dv/<ip>/` folder (an architecture or reference model,
+    a shared testbench environment such as `dv/<ip>/tb/<name>.py`) imported
+    by its bare name, as an importer that puts that folder on `sys.path`
+    does. A `test_*.py`, `conftest.py` or package `__init__.py` there is
+    never a bare module. Imports are read with `ast` (constant
+    `import_module` and `__import__` names too; relative imports resolve
+    inside their package); the scan follows import-root and IP files
+    transitively, skips `tests/` folders under the import root, and also
+    matches a deleted module by name. The reason reads `imports: <path>`,
+    and the IP runs every requested level even when the change is also
+    global. No filelist shows these imports, so without the scan a helper
+    change that only a level-1 test exercises, or another IP's model or
+    testbench change, would not run that IP's tests.
+
+Tests: `tools/regress/tests/test_affected.py`, against the real
+`cfg/ci.yaml`: every rule above on fixture git trees, including another
+IP's testbench module imported by bare name (changed, reached through it,
+or deleted) and package `__init__` and test files never matching by name
+(`test_other_ips_testbench_module_import_selects_the_importer`,
+`test_testbench_package_init_and_tests_are_not_bare_modules`), and on the
+repository's own `src/` (IPs discovered, never named): every module one
+IP's DV or arch Python imports from another IP by bare name selects the
+importer (`test_repo_cross_ip_dv_imports_select_the_importer`).
 
 The command prints each selected IP with the reason it was selected, or
 `no IPs selected`. An empty selection passes, which is right for a
@@ -575,7 +589,7 @@ on the same host while none of its inputs changed (#327):
   `dv/<ip>/` and `arch/<ip>/` folders (tests, testbench, regression lists,
   models), every file their Python imports (the
   [import scan](#selection) of `--affected`: the import root and other
-  IPs' arch and models modules), the `shared_dv` folders of
+  IPs' arch and DV modules), the `shared_dv` folders of
   `cfg/ci.yaml`, and the simulation driver `tools/build/*.py`. RTL is not
   in the key: the rule is only for entries that run no RTL.
 - **Record:** a passing run writes `<cache>/passes/<key>.json` in the
