@@ -93,6 +93,13 @@ tests:
     params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
     backend: fpga
     timeout_s: 60
+  - name: sync_ram_intel_contract
+    module: tests.test_ram
+    testcase: contract
+    top: common_sync_ram
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    backend: fpga
+    timeout_s: 60
   - name: ram_intel_lint
     module: tests.test_ram_backends
     testcase: intel_lint
