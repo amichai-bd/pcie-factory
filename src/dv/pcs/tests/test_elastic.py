@@ -17,6 +17,10 @@ reported as the RECEIVE.md rules say.
 from __future__ import annotations
 
 import random
+from unittest.mock import patch
+
+from cocotb.clock import Clock
+from cocotb.triggers import Timer
 
 import cocotb
 
@@ -37,7 +41,7 @@ COV_EB.coverpoint("ppm", bins={
 COV_EB.coverpoint("change", bins=["add_slot0", "add_slot1", "removed", "bare_com",
                                   "back_to_back"])
 COV_EB.coverpoint("event", bins=["overflow", "underflow", "recentre_slow", "recentre_fast",
-                                 "lock_start", "reset_restart", "pipe_reset"])
+                                 "lock_start", "reset_restart", "pipe_reset", "overflow_leftover"])
 # Corrections per offset class: only the reachable direction of each (a
 # slow RX clock needs additions, a fast one removals).
 COV_EB.coverpoint("offset_correction", bins={
@@ -280,6 +284,60 @@ async def eb_overflow(dut):
     """L1: RX clock 2% fast with no SKP: words are lost, RxStatus 5 on the
     first word after each loss, the rest in order."""
     await flow_error(dut, 20_000.0, True)
+
+
+@cocotb.test()
+async def eb_overflow_leftover(dut):
+    """One read-side SKP addition creates odd packing; then a fast RX
+    clock and data without SKPs fill the FIFO. The first lost word must
+    still report overflow when it follows the held leftover symbol.
+    Both clock offsets deliberately exceed the normal clock target."""
+    rng = seeded(dut)
+    # The slow-clock training drains to the addition threshold before the
+    # single SKP set. No later COM/SKP can change the resulting odd packing.
+    syms = tr.packet_stream(rng, [0], 0, 10**9, lead_ts=24)
+    syms += [(0, rng.randrange(256)) for _ in range(12000)]
+    link = make_link(rng, syms)
+    ppm = [-10000.0]
+
+    async def rx_clock():
+        dut.ser_rx_clk_i.value = 0
+        while True:
+            await Timer(round(CYCLE / (1.0 + ppm[0] * 1e-6) / 2), unit="ps")
+            dut.ser_rx_clk_i.value = 1 - int(dut.ser_rx_clk_i.value)
+
+    def clocks(dut, _ppm, _phase):
+        dut.clk_i.value = 0
+        cocotb.start_soon(Clock(dut.clk_i, CYCLE, unit="ps").start())
+        cocotb.start_soon(rx_clock())
+
+    rx = RxBench(dut, rng, ppm[0], fill_window=False)
+    with patch("tb.pcs_rxbench.start_clocks", clocks):
+        await rx.start(link, max_cycles=len(syms) // 2 + 4000, phase_ps=0)
+    while len(rx.words) < 1000 and not any(w.valid and w.status == 1 for w in rx.words):
+        await rx.b.tick()
+    adds = [w for w in rx.words if w.valid and w.status == 1]
+    assert len(adds) == 1, "startup never created one SKP addition"
+    assert not any(w.status in (4, 5, 6, 7) for w in rx.words), \
+        "startup had a receive error before the clock speed change"
+    ppm[0] = 20000.0
+    rx.ppm = ppm[0]
+    await rx.run_line()
+    ovf = [w.t for w in rx.words if w.status == 5]
+    assert len(ovf) >= 2, "odd-packed fast-clock data produced no overflow reports"
+    assert sum(w.valid and w.status == 1 for w in rx.words) == 1, \
+        "another SKP addition changed packing after startup"
+
+    def lost(t0, t):
+        return any(t - 24 * CYCLE <= o <= t + 24 * CYCLE for o in ovf)
+
+    runs = check_runs(link.syms, rx.words, where="overflow_leftover", slip_possible=lost,
+                      resync=True, arrival=rx.arrival)
+    for run in runs:
+        for a, b in run.resyncs:
+            assert lost(a, a), f"unreported odd-packed loss at {a} ps"
+    COV_EB.sample(event="overflow_leftover")
+    dut._log.info("odd packing: one SKP addition, %d overflow reports", len(ovf))
 
 
 @cocotb.test()

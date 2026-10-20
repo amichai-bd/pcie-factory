@@ -416,7 +416,9 @@ The L0 step, in the model's order:
 - **Receive sub-machine, timed arcs.** `Rx_L0s.Entry` to `.Idle` 3 cycles
   after entry; `.Idle` to `.FTS` on EI exit (electrical idle since
   `.Entry`, then not); in `.FTS` the timeout, the smaller of 2 x `N_FTS` +
-  32 and 4 x `N_FTS` + 12 cycles, is latched (`rx_cnt`, `rx_fts_to`).
+  32 and 4 x `N_FTS` + 12 cycles, is a combinational comparison against
+  the saturating `rx_cnt`. It remains asserted while `.FTS` waits for the
+  transmitter, so no separate timeout latch is needed.
 - **Main exit conditions.** Recovery: the FTS timeout, a TS or electrical
   idle without an EIOS in `Rx_L0`, the directed requests, a retrain, or the
   upstream wait withdrawn with the transmitter idle 3 cycles. L1 or L2:

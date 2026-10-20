@@ -474,7 +474,6 @@ package pcie_mac_pkg;
     logic                 fts_skp;       // Tx_L0s.FTS: the closing SKP started
     logic [L0S_CNT_W-1:0] idle_cnt;      // Tx_L0: cycles without traffic, saturating
     logic [RX_CNT_W-1:0]  rx_cnt;        // cycles since the receive sub-machine moved
-    logic                 rx_fts_to;     // the Rx_L0s.FTS timeout expired
     logic                 sub_ei_seen;   // electrical idle since Rx_L0s.Entry
     logic                 sub_ei_exit;   // ... and left since (EI exit)
     logic                 main_ei_seen;  // electrical idle since state entry

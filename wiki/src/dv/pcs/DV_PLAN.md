@@ -66,7 +66,7 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
     `clk_i` cycle, as an observation net, from the buffer's start until the
     line ends, outside `rst_i`. The window holds only within the targets,
     so each test enables it: every receive test, the lock tests and the
-    decode-free traffic tests run with it on; `eb_overflow`, `eb_underflow`
+    decode-free traffic tests run with it on; `eb_overflow`, `eb_overflow_leftover`, `eb_underflow`
     (2% offset, no SKP) and `eb_stress` (4000 ppm) leave it off, as they
     drive the buffer past its window on purpose;
   - **lock start and the lock target** after every loss of lock: the run
@@ -119,7 +119,7 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
   | `pcs_align_relock` | Lock from hunting, same-cycle relock, relock to hunting, idle drop, reset drop. |
   | `pcs_align_eios` | The RX bit phase (0 to 19) of the word boundary where the line goes idle after an EIOS. |
   | `pcs_align_impairments` | Slips in TS1, FTS and packet traffic by direction, on a SKP set's COM and SKP, close slip pairs; flips in TS1 and packets. |
-  | `pcs_elastic` | Offset classes, SKP changes (addition after a COM in either half of a word, removal, bare COM, back-to-back sets), events (overflow, underflow, recentring both ways, lock start, rst_i and pipe_reset_ni with traffic), the correction each offset class needs. |
+  | `pcs_elastic` | Offset classes, SKP changes (addition after a COM in either half of a word, removal, bare COM, back-to-back sets), events (overflow, overflow with an odd leftover, underflow, recentring both ways, lock start, rst_i and pipe_reset_ni with traffic), the correction each offset class needs. |
   | `pcs_rx`, `pcs_rx_status` | Every receive RxStatus code, offset signs, scenarios and relock causes; each code within the targets with the offset that produces it; electrical idle in order (`ei_order`: a gap checked, a whole EIOS, an idle tail). |
 
 - **Coverage floors** (each level's file; floors apply to the merged
@@ -169,6 +169,7 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
 | [Electrical idle in order](../../arch/pcs/RECEIVE.md#electrical-idle): an EIOS before each of eight 1500-symbol idle gaps at ±600 ppm, the SKP corrections changing the word parity between gaps: the whole EIOS under RxValid before RxElecIdle, idle tails (EIOS ending in the first half of a word) reach PIPE; non-vacuous: every gap's EIOS checked whole and at least one idle tail per run | `rx_eios_idle` / `rx_eios_idle_sweep` | 1 / 2 | [1, 2] / [3..8]; odd seeds fast |
 | [EIOS completion](../../arch/pcs/RECEIVE.md#comma-alignment-and-symbol-lock): an EIOS before idle at every RX bit phase 0 to 19 of the transmitter's word boundary (filler bits), at +300 or -300 ppm: all 20 EIOS whole under RxValid before RxElecIdle (at phases 10 to 19 the last IDL starts in the idle-flagged word) | `rx_eios_phases` | 1 | [1, 2]; odd seeds fast |
 | Lock start after twelve 1500-symbol idle gaps in 120 packets: every run starts at its comma or the symbol before it, within the lock target; recentring required as in `eb_idle_*` | `eb_lock_start` / `eb_lock_start_sweep` | 1 / 2 | [1, 2] / [3..10]; odd seeds fast |
+| Overflow after one slow-clock SKP addition creates a leftover, then +2% data-only clock offset: every lost word still reports RxStatus 5 | `eb_overflow_leftover` | 1 | [1] |
 | Overflow at +2% with no SKP: RxStatus 5 on the first word after each loss, the rest in order | `eb_overflow` | 1 | [1] |
 | Underflow at -2% with no SKP: RxStatus 6, EDB EDB as K, RxValid 0, nothing lost, no error after an underflow word (the decoder's RD held across it) | `eb_underflow` | 1 | [1] |
 | Outside the targets at ±4000 ppm with long packets: overflow (RxStatus 5) or underflow (RxStatus 6, EDB EDB, RxValid 0) | `eb_stress` | 1 | [1, 2] |
@@ -250,7 +251,7 @@ Every check of the removed leaf testbenches, and where it is now.
 | `lock_start_m600`, `lock_start_p600` | No locked word packed with an unlocked symbol | `eb_lock_start` (every run starts at its comma or the symbol before it), also in `rx_elec_idle_gaps` and every lock test |
 | `relock_generation` | Generation carried per word through same-cycle relocks | `rx_slips_training` (same-cycle relocks; the error counter re-arms on the generation, so the next slip is answered) |
 | `thresholds_swing`, `thresholds_m600`, their sweep | Removal exactly at a seen fill of 9, addition exactly at 7, both sides of each threshold | RTL assertions `a_fill_high_at_9` (fill high, the write side's removal condition, exactly at 9 or more), `a_add_at_7_or_less` and `a_add_when_due` (an addition only at 7 or less, and every possible one made there), live in every test; additions and removals in the right direction (`eb_*`); `FillCheck` |
-| `pause_corners`, its sweep | Write pauses, bare COM, back-to-back sets, removal reported on the next word, overflow and underflow mixed with SKP changes | Bare COM, back-to-back sets: `eb_dense`; overflow and underflow: `eb_overflow`, `eb_underflow`, `eb_stress`. Write pauses and the next-word removal report are [gaps](#gaps) |
+| `pause_corners`, its sweep | Write pauses, bare COM, back-to-back sets, removal reported on the next word, overflow and underflow mixed with SKP changes | Bare COM, back-to-back sets: `eb_dense`; overflow and underflow: `eb_overflow`, `eb_overflow_leftover`, `eb_underflow`, `eb_stress`. Write pauses and the next-word removal report are [gaps](#gaps) |
 | `overflow`, `underflow` | Losses flagged; underflow words, nothing lost | `eb_overflow`, `eb_underflow` |
 | `reset_restart` | Reset with traffic in flight, clean restart | `rx_reset_traffic` (`rst_i` and `pipe_reset_ni`), `rx_lock_controls` |
 | `long_m600`, `long_p600`, `long_random`, `long_stress`, `long_idle` | Long runs | `eb_long_tlp`, `eb_long_random`, `eb_long_stress`, `eb_long_idle` |
@@ -285,6 +286,7 @@ slow-clock seeds.
 | Elastic buffer | No addition after a COM in the first slot | `eb_tlp_m600` | `eb_dense` seed 1, `rx_ppm` seed 1 (fast RX clocks) |
 | Elastic buffer | No read-side recentring (`r_recentre` 0) | `eb_idle_m600` seed 1, `eb_lock_start` seed 2, `eb_long_idle` seed 2, `rx_elec_idle_gaps` seed 2: the visible fill falls below 4 (`FillCheck`) before the hold count is checked | - |
 | Elastic buffer | No write-side recentring (`w_drop` 0) | `eb_idle_p600` seed 1, `eb_lock_start` seed 1, `eb_long_idle` seed 1 (the visible fill rises above 12, `FillCheck`); `rx_elec_idle_gaps` seed 1 (first locked word past the lock target) | - |
+| Elastic buffer | Second output symbol overflow flag ignored (`ovf` from `o0.ovf` only) | `eb_overflow_leftover` seed 1: no overflow reports after the forced odd packing (0 reports, requires at least 2) | - |
 | Elastic buffer | Overflow flag never set | `eb_overflow`, `eb_stress` | - |
 | Elastic buffer | Addition threshold at 6 (`EB_LOW` 6) | `eb_tlp_m600`, `eb_short_burst`, `eb_dense_sweep` seed 2 (`a_add_when_due`) | - |
 | Elastic buffer | Fill high at 10 (`EB_HIGH` 10) | `eb_tlp_p600` (`a_fill_high_at_9`) | `eb_dense` seed 1, `rx_ppm` seed 1: on a fast clock with no addition the visible fill stays even and skips 9 |
@@ -344,6 +346,21 @@ Separately measured low-level runs supply their own floors.
 | L0+L1 | 390/393 (99.24%) | 3307/3378 (97.90%) | 99 / 97.3 |
 | L0+L1+L2 | 390/393 (99.24%) | 3309/3378 (97.96%) | 99 / 97.5 |
 
+These measurements precede the #437 test addition and remain the
+conservative floor basis; final integrated coverage remeasures the union.
+
+`eb_overflow_leftover` closes the four
+`c1.ovf`/`o1.ovf` toggle holes: 24 TS1 sets at -10000 ppm drain the
+buffer until its single SKP set causes exactly one read-side addition.
+The RX clock then switches to +20000 ppm for plain data with no further
+SKP sets. The addition leaves an odd symbol pending; that parity remains
+while the faster writer fills and overflows the FIFO. At seed 1, both
+0-to-1 and 1-to-0 transitions of each field occur 107 times, with 107
+overflow reports on PIPE. The test checks the addition, requires multiple
+overflow reports, and checks all stream losses occur near those reports.
+These offsets deliberately exceed the normal targets; no fill-window
+waiver is added for normal traffic.
+
 ### Per-instance diagnostic baseline
 
 The counts and prior floor values below describe the original per-instance
@@ -352,8 +369,8 @@ A point hit in another parameter set or instance is covered in the source
 union; the other reviewed causes remain diagnostic explanations, without
 adding a waiver.
 
-Merged over levels 0 to 2 (the nightly run), 3 of the 391 line points and
-64 of the 3300 toggle points are not hit. Every hole, by cause:
+The remaining causes from that baseline are listed below; the four
+overflow-leftover holes above are closed.
 
 | Cause | Line | Toggle | Points |
 | --- | ---: | ---: | --- |
@@ -361,4 +378,3 @@ Merged over levels 0 to 2 (the nightly run), 3 of the 391 line points and
 | Tool artefact | 2 | 0 | The two early `return` branches of `eios_step` (package): Verilator never counts a branch whose body is a function `return`; the block count less the fall-through count gives their hits, and every EIOS check (`rx_eios_*`) depends on them. |
 | Constant by design | 0 | 30 | `edb` in the encoder symbol (the EDB code); the elastic buffer's `ser_rx_valid_i` (tied 1, see [gaps](#gaps)); the per-symbol `ovf` fields that are tied 0 (`w_new0`, `w_new1`, `head1`, the held and leftover slots; a word's overflow travels in `pend_ovf` and the head word's flag); `sync_d[0]` of the RX reset synchronizer (its input, a constant). |
 | Unreachable by construction | 0 | 28 | Counter top bits: the holdoff counters (loaded with 7, or 8 and decremented first), `clean_cnt[3]` (the decay restarts at 8), `ready_cnt_d[4]` (16 is only the reset value); the visible fill's top bit and those of the symbol fill (`vis[4]`, `dst_fill_o[4]`, `fill[5]`, `eb_fill[5]`, `fill_o[5]`: the reader sees the write pointer two to three RX cycles late and pops a word each cycle meanwhile, so it never sees all 16 words, even when the writer overflows in `eb_overflow`); `c0.rem` and `o0.rem` (a removal flag is acted on while its COM is in the second slot, and `rem_ack` clears it before the SKP reaches the first). |
-| Not reached | 0 | 4 | `c1.ovf`, `o1.ovf`: an overflowed word at the head while a leftover symbol is pending. Not reached by `eb_stress` at +4000 ppm (20 seeds tried) nor by an overflow experiment with dense SKP removals at +15000 to +35000 ppm (14 seeds, hundreds of overflow words). Cost: no stimulus within the HAS ppm and SKP targets is known to reach it, and 34 seeds outside them (above) did not; finding one is an open search. Owner: [#223](https://github.com/amichai-bd/pcie-factory/issues/223). The RxStatus 5 report itself is checked in `eb_overflow` and `eb_stress`. |
