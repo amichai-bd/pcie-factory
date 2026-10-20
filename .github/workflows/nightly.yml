@@ -6,8 +6,9 @@
 #            FPGA flow, ASIC synthesis-only check, full ASIC flow (unless ASIC_PAUSED),
 #            metrics files, trend drop alerts in the job summary
 #   publish  contents/pull-requests/actions write: commits ONLY the data files
-#            (commits.jsonl and this run's <date>T<HHMMSS>Z.json record) on
-#            nightly/<date>, opens the type:data PR, dispatches ci-gate on it
+#            (commits.jsonl and this run's <date>T<HHMMSS>Z.json record) on top
+#            of the open data PR, else on a new nightly/<date>, opens or updates
+#            the type:data PR, dispatches ci-gate on it
 #   report   issues write, actions read: opens/updates/closes the single nightly-red issue,
 #            naming the failed steps, the commits since the last green nightly and
 #            each failed regression run with its exact seed (rotated extra seeds marked)
@@ -189,7 +190,10 @@ jobs:
             --step "asic=${{ steps.asic.outputs.result || 'fail' }}"
 
       # Per-IP drop alerts of tonight's record against the committed history
-      # (wiki/tools/metrics/SPEC.md#trends), in the job summary.
+      # (wiki/tools/metrics/SPEC.md#trends), in the job summary. Deliberately
+      # no continue-on-error: alerts never fail the command, so a failure is
+      # a broken tool or configuration and reports the night red; the upload
+      # and publish still run on the collected data.
       - name: Trend drop alerts
         if: ${{ !cancelled() && steps.collect.outcome == 'success' }}
         run: |
@@ -253,50 +257,66 @@ jobs:
           name: nightly-data
           path: workdir/nightly-data
 
-      - name: Commit the data files on nightly/<date> and open the data PR
+      # Never loses a record (wiki/tools/metrics/SPEC.md#stage): an open data
+      # PR into the base is continued (this run's record on top of its head),
+      # any other open one is carried in and closed, commits.jsonl is merged
+      # by commit. A push that loses a race with the open PR's auto-merge
+      # stages again on the new base.
+      - name: Commit the data files on the data branch and open or update the data PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DATE: ${{ needs.nightly.outputs.date }}
           REPO: ${{ github.repository }}
-          OWNER: ${{ github.repository_owner }}
+          # Data-only commits use the GitHub Actions bot identity (data_author).
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
         run: |
           set -euo pipefail
           case "$BASE" in (*[!A-Za-z0-9._/-]*|"") echo "::error::invalid base branch"; exit 1;; esac
           # A test dispatch against another base gets its own branch, so it
-          # never force-pushes over the day's real data PR head.
-          if [ "$BASE" = main ]; then branch="nightly/$DATE"; else branch="nightly/$DATE-${BASE//\//-}"; fi
+          # never touches the day's real data PR.
+          if [ "$BASE" = main ]; then new="nightly/$DATE"; else new="nightly/$DATE-${BASE//\//-}"; fi
           data_dir=$(python3 -c 'import yaml; print(yaml.safe_load(open("cfg/metrics.yaml"))["data_dir"])')
-          git fetch --quiet origin "$BASE"
-          git worktree prune
-          git worktree add --quiet -B "$branch" workdir/data-branch "origin/$BASE"
-          mkdir -p "workdir/data-branch/$data_dir"
-          cp workdir/nightly-data/* "workdir/data-branch/$data_dir/"
-          git -C workdir/data-branch add -- "$data_dir"
-          if git -C workdir/data-branch diff --cached --quiet; then
-            echo "no data change against $BASE; nothing to publish"; exit 0
-          fi
-          # Data-only commits use the GitHub Actions bot identity.
-          git -C workdir/data-branch -c user.name="github-actions[bot]" \
-            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit --quiet -m "nightly: metrics for $DATE"
-          # The ci-gate data guard, run here from this trusted checkout.
-          ./build metrics guard --branch "$branch" --base "origin/$BASE" --head "$branch"
           auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
           echo "::add-mask::$auth"
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
-            push --force origin "refs/heads/$branch:refs/heads/$branch"
-
-          # Older data PRs would conflict on commits.jsonl: close them.
-          gh api "repos/$REPO/pulls?state=open&base=$BASE&per_page=100" \
-            --jq '.[] | select(.head.ref | startswith("nightly/")) | "\(.number) \(.head.ref)"' |
-          while read -r old ref; do
-            [ "$ref" = "$branch" ] && continue
-            gh api --silent -X POST "repos/$REPO/issues/$old/comments" -f body="Superseded by the data PR for $DATE ($branch); closing."
-            gh api --silent -X PATCH "repos/$REPO/pulls/$old" -f state=closed
-            echo "closed superseded data PR #$old ($ref)"
+          out() { sed -n "s/^$1=//p" workdir/stage.env; }
+          published=
+          for attempt in 1 2 3; do
+            ./build metrics stage --base "$BASE" --branch "$new" --data workdir/nightly-data \
+              --worktree workdir/data-branch --message "nightly: metrics for $DATE" --out workdir/stage.env
+            if [ "$(out changed)" != true ]; then echo "no data change against $BASE; nothing to publish"; exit 0; fi
+            branch=$(out branch); mode=$(out mode); number=$(out number); sha=$(out sha)
+            # The ci-gate data guard, run here from this trusted checkout.
+            ./build metrics guard --branch "$branch" --base "origin/$BASE" --head "$sha"
+            # A new branch starts from the base tip (force: a merged branch of
+            # the same name may remain); a continued one only moves forward.
+            force=; [ "$mode" = new ] && force=--force
+            if ! git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" \
+                push $force origin "$sha:refs/heads/$branch"; then
+              echo "::warning::push to $branch rejected (attempt $attempt); staging again"; continue
+            fi
+            if [ "$mode" = new ]; then published=1; break; fi
+            # Still open at our commit? Otherwise auto-merge took the older
+            # head first: stage again on the new base.
+            if [ "$(gh api "repos/$REPO/pulls/$number" --jq '"\(.state) \(.head.sha)"')" = "open $sha" ]; then
+              published=1; break
+            fi
+            echo "::warning::data PR #$number merged or closed before this push (attempt $attempt); staging again"
           done
+          [ -n "$published" ] || { echo "::error::could not publish the data after 3 attempts"; exit 1; }
 
-          number=$(gh api "repos/$REPO/pulls?head=$OWNER:$branch&state=open" --jq '.[0].number // empty')
+          # Other open data PRs were carried into this branch: close them.
+          for old in $(out carried); do
+            gh api --silent -X POST "repos/$REPO/issues/$old/comments" -f body="Its records are carried into the data branch $branch by $GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID; closing."
+            gh api --silent -X PATCH "repos/$REPO/pulls/$old" -f state=closed
+            echo "closed data PR #$old, carried into $branch"
+          done
+          if [ "$mode" = continue ]; then
+            gh api --silent -X POST "repos/$REPO/issues/$number/comments" -f body="Run $GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID added its record for $DATE ($sha)."
+          fi
+
           if [ -z "$number" ]; then
             body="Nightly metrics for $DATE: changes only \`$data_dir/**\`. Opened by the nightly workflow under the data-PR exception in CLAUDE.md; no issue or reviewer. Run: $GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID"
             if ! number=$(gh api -X POST "repos/$REPO/pulls" -f title="nightly: metrics for $DATE" \

@@ -27,8 +27,11 @@ from html import escape
 from pathlib import Path
 from urllib.parse import quote
 
-if str(Path(__file__).resolve().parents[1]) not in sys.path:  # tools/, when run as a script
-    sys.path.append(str(Path(__file__).resolve().parents[1]))
+# tools/ first on the path, so `metrics` is always this repository's package,
+# never a same-named module earlier on sys.path (run as a script or imported).
+_TOOLS = str(Path(__file__).resolve().parents[1])
+if not sys.path or sys.path[0] != _TOOLS:
+    sys.path.insert(0, _TOOLS)
 from metrics import trends  # noqa: E402  per-IP trend series and the drop rule
 
 SUPPORTED_SCHEMAS = (1,)

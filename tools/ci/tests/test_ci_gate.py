@@ -70,3 +70,24 @@ def test_every_workflow_job_runs_only_on_the_wsl_host():
         assert jobs, path.name
         for name, job in jobs.items():
             assert job["runs-on"] == WSL_RUNNER, f"{path.name}: {name}"
+
+
+def test_selection_comes_from_the_data_guard_only():
+    """Both work jobs select per event: HEAD^1 on a pull request; on a push or
+    dispatch everything, unless the data guard proves a data-only nightly
+    branch and selects its merge base (wiki/tools/ci/SPEC.md#the-workflow).
+    No job-level AFFECTED, so a branch name alone never selects anything."""
+    jobs = yaml.safe_load((REPO_ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+    for name in ("ci-tests", "ci-fpga"):
+        job = jobs[name]
+        assert "AFFECTED" not in (job.get("env") or {}), name
+        runs = [s.get("run", "") for s in job["steps"]]
+        select = next(i for i, r in enumerate(runs) if "--select" in r)
+        script = runs[select]
+        assert 'echo "AFFECTED=--affected HEAD^1" >> "$GITHUB_ENV"' in script
+        assert 'echo "AFFECTED=" >> "$GITHUB_ENV"' in script
+        assert ('./build metrics guard --branch "$GITHUB_REF_NAME" --pr-base main '
+                '--select "$GITHUB_ENV"') in script
+        assert script.index('"AFFECTED="') < script.index("--select")  # the guard alone overrides
+        assert all("$AFFECTED" not in r for r in runs[:select]), name
+        assert any("$AFFECTED" in r for r in runs[select + 1:]), name
