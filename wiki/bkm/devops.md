@@ -350,7 +350,7 @@ the exact selection.
 | An IP's own files: under `src/<kind>/<ip>/` for any kind | That IP |
 | A file reached through `-F` from an IP's filelists | That IP |
 | `tools/**`, `cfg/**` or the `build` launcher | All IPs, level 0 only (with the tools unit tests); an IP another row selects keeps every level |
-| A file the IP's DV or arch Python imports, directly or through other files: under the import root (`import_root`, the tools on `sys.path` in simulations), or another IP's arch or models module imported by name | That IP, every level (found by an import scan; no filelist shows these) |
+| A file the IP's DV or arch Python imports, directly or through other files: under the import root (`import_root`, the tools on `sys.path` in simulations), or a module of another IP's arch or DV folder (a model, a testbench environment) imported by bare name | That IP, every level (found by an import scan; no filelist shows these) |
 | Shared DV helpers under `src/dv/common/` (reached by no filelist) | All IPs |
 | A sub-IP's or integrated IP's models under `src/dv/<id>/models/` | That IP and every ancestor IP (every IP whose `.rtl.f` reaches it) |
 | Push to `main`, manual dispatch | All IPs |
