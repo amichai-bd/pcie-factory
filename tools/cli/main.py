@@ -89,7 +89,7 @@ def cmd_sim(ctx: Context, args) -> int:
     if built.status != "pass":
         return 1
     res = sim.run_test(spec, ctx.workdir, verilator, entry.name, entry.module,
-                       entry.testcase, seed, entry.timeout_s, built)
+                       entry.testcase, seed, entry.timeout_s, built, entry.expect_fatal)
     print(f"{ip.id}:{entry.name} seed={seed} {res.status.upper()} "
           f"({res.runtime_s:.1f}s) {res.detail}")
     print(f"log: {res.log}")

@@ -55,6 +55,11 @@ def test_all_fields():
         ({"coverage_seeds": True}, "'coverage_seeds' must be a count"),
         ({"rerun_when": "always"}, "'rerun_when' must be one of"),
         ({"rerun_when": "models_change"}, "needs 'coverage_seeds: 0'"),
+        ({"expect_fatal": "a-b", "coverage_seeds": 0}, "'expect_fatal' must be an assertion label"),
+        ({"expect_fatal": 3, "coverage_seeds": 0}, "'expect_fatal' must be an assertion label"),
+        ({"expect_fatal": "a_x"}, "'expect_fatal' needs 'coverage_seeds: 0'"),
+        ({"expect_fatal": "a_x", "coverage_seeds": 0, "rerun_when": "models_change"},
+         "'expect_fatal' cannot be combined with 'rerun_when'"),
     ],
 )
 def test_entry_errors(change, message):
@@ -74,6 +79,12 @@ def test_coverage_seeds_and_rerun_when():
     assert e.coverage_seeds == 3 and e.rerun_when is None
     e = parse_entry(dict(GOOD, coverage_seeds=0, rerun_when="models_change"), "a", 0, "w")
     assert (e.coverage_seeds, e.rerun_when) == (0, "models_change")
+
+
+def test_expect_fatal():
+    assert parse_entry(dict(GOOD), "a", 0, "w").expect_fatal is None
+    e = parse_entry(dict(GOOD, expect_fatal="a_x", coverage_seeds=0), "a", 0, "w")
+    assert (e.expect_fatal, e.coverage_seeds) == ("a_x", 0)
 
 
 def test_errors_name_the_test():

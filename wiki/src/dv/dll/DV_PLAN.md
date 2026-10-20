@@ -121,10 +121,12 @@
 - **Never-stall assertion:** `a_rx_never_stall` (the upper layer holds
   `tlp_rx_ready_i` at 1 while `dl_up_o` is 1 when a class is infinite)
   holds in every run, since the upper layer stalls only with every class
-  finite. Its negative check, default credits and `tlp_rx_ready_i` 0 in
-  DL_Active, stops the simulation on the assertion; a regression entry
-  cannot expect a fatal stop, so it is a one-off run recorded in the
-  [#213](https://github.com/amichai-bd/pcie-factory/issues/213) PR.
+  finite. Its negative check is the level-0 entry `rx_never_stall_fatal`:
+  default credits and `tlp_rx_ready_i` 0 from DL_Active must stop the
+  simulation on the assertion within 4 cycles. The entry's `expect_fatal`
+  ([regress spec](../../../tools/regress/SPEC.md#expected-fatal-stops))
+  makes it pass only on that stop, so a clean finish or any other fatal
+  fails it.
 - **Partner model:** its pytest unit tests run in `./build ci unit`, not
   as a regression entry ([partner page](PARTNER.md#unit-tests)).
 - **Partner credits:** the TLP transmit entries of #212 run with the
@@ -211,6 +213,7 @@ into a model or the RTL silently.
 | [Control states](../../arch/dll/HAS.md#data-link-control-states) and [initialisation](../../arch/dll/FLOW_CONTROL.md#initialisation) by hand: groups and 128-cycle resend, recording, ignored DLLPs, FC_INIT2 ends, entry UpdateFC, [credits available](../../arch/dll/HAS.md#credits-available), UpdateFC limits, link down from each state | `fc_init_directed` | 0 | 1 |
 | [A started DLLP finished across a link-down](../../arch/dll/HAS.md#reset-values), two and one beats left, and all three when the `sop` is taken at the edge that samples `link_up_i` 0; an offered one withdrawn; clean restart | `link_down_mid_dllp` | 0 | 1 |
 | [Receiving TLPs](../../arch/dll/RETRY.md#receiving-tlps) by hand: discarded in DL_Inactive and FC_INIT1; a bad TLP's Nak held in FC_INIT2; a good TLP ends FC_INIT2; every class and size, 3- and 4-DW headers, gaps and back to back; duplicates with an Ack at once (D = 2048 too); ahead (D = 1, 2047) with one Nak per NAK_SCHEDULED; bad LCRC, flagged, too short, nullified, EDB without the inverse; each malformed kind, packets beyond the beat counter; [digests](../../arch/dll/HAS.md#receive) (TD 1) delivered with the TLP, 3- and 4-DW headers, the largest TLP of 37 DWs, and malformed without the digest, with a 132-byte payload, or a DW too many with TD 0; link down while a TLP arrives and while one is delivered. [Ack timer](../../arch/dll/RETRY.md#ack-and-nak-scheduling): 35 cycles on an idle stream ([MAS, timing](../../rtl/dll/MAS.md#timing)); Nak and duplicate Ack within 7; [receive latency](../../arch/dll/HAS.md#targets) within 4 | `rx_directed` | 0 | 1 |
+| [The upper layer never stalls](../../arch/dll/HAS.md#receive) when a class is infinite: `tlp_rx_ready_i` 0 in DL_Active with the default credits stops the run on `a_rx_never_stall` (negative, `expect_fatal`) | `rx_never_stall_fatal` | 0 | 1; passes only on that fatal stop |
 | [Transmit accounting](../../arch/dll/FLOW_CONTROL.md#transmit-accounting): the gate for every class and field, at exactly half the range and one past it, after limits beyond half the range, with infinite fields; CREDITS_CONSUMED wrapping; credits available; cleared by link-down mid-TLP | `fc_tx_gate` | 1 | 1; hand-driven far end that acknowledges every TLP |
 | [Receive accounting](../../arch/dll/FLOW_CONTROL.md#receive-accounting) on real TLPs from a hand-driven far end that replays: stored, malformed (credits returned at once, none under 4 bytes), returns at the delivered `eop`; [UpdateFC](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling) on returns, in FC_INIT2 (entry value) and DL_Active, its value, cause, round robin and latency; refreshes; link down; default credits | `fc_rx_accounting` | 0 | 1 |
 | The same, every class finite, the upper layer slow and stalling: the [overflow check](../../arch/dll/FLOW_CONTROL.md#receive-buffer), Receiver overflow, no Ack or Nak, the TLPs behind arriving ahead | `fc_rx_accounting_finite` / `fc_rx_accounting_finite_sweep` | 1 / 2 | derived seed 0 / its derived seed 1 (1892473378) pinned; coverage on both |
@@ -487,8 +490,8 @@ the first failing entry named. Every level-0 entry passes each of them.
 | Top | A non-posted release's data count dropped (data 0) | `credit_release` (L1) | UpdateFC-NP carries data 8, expected 9 (cycle 113). |
 
 `a_rel_data_max` is live: a one-off run of `credit_release` with the
-releaser driving a data count of 9 stops on it at the first release (a
-regression entry cannot expect a fatal stop, as for `a_rx_never_stall`).
+releaser driving a data count of 9 stops on it at the first release (not yet an `expect_fatal` entry like
+`rx_never_stall_fatal`).
 `a_rel_tied` is shown live by the `link` mutant that drops `FC_RELEASE`.
 
 ### Digest mutants

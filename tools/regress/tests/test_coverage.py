@@ -243,7 +243,8 @@ def fake_run(fixture_src, tmp_path, monkeypatch, fake_tool, levels, floors_text=
     monkeypatch.setattr(sim, "_run_child", lambda phase, job, log, timeout_s: (0, 0.1, 0.05))
     specs = []
 
-    def run_test(spec, workdir, verilator, test, module, testcase, seed, timeout_s, built=None):
+    def run_test(spec, workdir, verilator, test, module, testcase, seed, timeout_s, built=None,
+                 expect_fatal=None):
         specs.append(spec)
         d = sim.test_dir(workdir, spec.ip, test, seed)
         dat(d / sim.COVERAGE_DAT, point("line", 1, 1), point("line", 2, 1), point("line", 3, 0))

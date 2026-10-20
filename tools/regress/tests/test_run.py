@@ -180,7 +180,8 @@ def _fake_children(monkeypatch, ran):
     monkeypatch.setattr(sim, "tool_ident", lambda v: {"verilator": "fake"})
     monkeypatch.setattr(sim, "_run_child", lambda phase, job, log, timeout_s: (0, 0.1, 0.05))
 
-    def run_test(spec, workdir, verilator, test, module, testcase, seed, timeout_s, built=None):
+    def run_test(spec, workdir, verilator, test, module, testcase, seed, timeout_s, built=None,
+                 expect_fatal=None):
         ran.append((test, seed, spec.coverage))
         d = sim.test_dir(workdir, spec.ip, test, seed)
         d.mkdir(parents=True, exist_ok=True)

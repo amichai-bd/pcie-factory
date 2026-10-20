@@ -169,6 +169,13 @@ the same PR, and vice versa.
   invariants; the test owns the observable pass condition.
 - Each test checks something it could fail on: include a negative or
   after-drain check where a pass could otherwise be vacuous.
+- An assertion that guards an obligation of the neighbouring layer, which
+  legal stimulus never breaks, is shown live by a committed negative
+  entry: the test breaks the obligation, fails if it reaches its end, and
+  the entry's `expect_fatal: <label>` passes it only when the simulation
+  stops on that assertion
+  ([regress SPEC](../tools/regress/SPEC.md#expected-fatal-stops)), never
+  by an uncommitted one-off run.
 - Warnings fail unless a reviewed waiver explains them.
 
 ## Test value

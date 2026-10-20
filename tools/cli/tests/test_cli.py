@@ -114,7 +114,8 @@ def test_sim_default_seed_is_first_regression_seed(fixture_src, tmp_path, monkey
     monkeypatch.setattr(sim, "find_verilator", lambda: Path("/fake/verilator"))
     monkeypatch.setattr(sim, "build", lambda *a: sim.Result("pass", 0.0, Path("b.log")))
 
-    def fake_run_test(spec, workdir, verilator, test, module, testcase, seed, timeout_s, built=None):
+    def fake_run_test(spec, workdir, verilator, test, module, testcase, seed, timeout_s, built=None,
+                 expect_fatal=None):
         used.append(seed)
         return sim.Result("pass", 0.0, Path("s.log"))
 
