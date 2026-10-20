@@ -310,6 +310,11 @@ class LinkEnd:
         # Per fc_*_avail_o field: the credits of the TLPs this end accepted
         # that the far end has not yet delivered (HAS checks, credits).
         self.in_flight = [0] * 6
+        # The accepted TLPs not yet delivered, in order: (epoch, header
+        # field, data field, data credits). A link-down of this end starts a
+        # new epoch; a TLP of an older one leaves in_flight untouched.
+        self.flight: deque = deque()
+        self.epoch = 0
         self.ack = BoundaryAck(self.name)
         self.violations: list[str] = []
         for name in ("tlp_tx_valid_i", "tlp_tx_data_i", "tlp_tx_sop_i", "tlp_tx_eop_i",
@@ -591,6 +596,7 @@ class LinkEnd:
             h, d, data = self.credits_of(self.cur)
             self.in_flight[h] += 1
             self.in_flight[d] += data
+            self.flight.append((self.epoch, h, d, data))
         self.pos += 1
         if self.pos == len(self.cur) // 4:
             self.cur = None
@@ -725,6 +731,7 @@ class Env:
             end.not_l0[-1][1] = t
         end.ack.reset()
         end.in_flight = [0] * 6          # the credit counters restart at the relink
+        end.epoch += 1
         end.cur = None
         end.rx_beats = []
         for q in end.rel_q:
@@ -734,7 +741,7 @@ class Env:
             self.down_since = t
         if not any(e.live for e in self.ends):
             for e in self.ends:
-                e.in_flight = [0] * 6
+                e.flight.clear()             # nothing accepted is delivered any more
             for sb in self.sb.values():
                 sb.lost += sb.outstanding()
                 sb.delivered = len(sb.accepted)
@@ -742,9 +749,10 @@ class Env:
     def delivered(self, end: LinkEnd, tlp: bytes, n: int) -> None:
         self.sb["ba" if end.name == "a" else "ab"].deliver(tlp, n)
         sender = self.ends[1 - self.ends.index(end)]
-        h, d, data = sender.credits_of(tlp)
-        sender.in_flight[h] -= 1
-        sender.in_flight[d] -= data
+        epoch, h, d, data = sender.flight.popleft()
+        if epoch == sender.epoch:        # accepted since the sender's last link-down
+            sender.in_flight[h] -= 1
+            sender.in_flight[d] -= data
 
     # -- running ------------------------------------------------------------------
 

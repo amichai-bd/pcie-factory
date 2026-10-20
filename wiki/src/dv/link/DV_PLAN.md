@@ -66,9 +66,10 @@ flowchart LR
   disparity error. A symbol qualifies when that code is a disparity error
   at the output's running disparity and makes no comma or run of six equal
   bits with its neighbours; otherwise the next data symbol of the TLP is
-  tried, and a TLP that ends first is counted as missed. It records the sent and delivered views and
-  the injection log, timed at the `link` ports (sent at the transmitter's
-  output, delivered plus the channel delay to the receiver's input).
+  tried, and a TLP that ends first is counted as missed. It records the
+  sent and delivered views and the injection log, timed at the `link`
+  ports (sent at the transmitter's output, delivered plus the channel
+  delay to the receiver's input).
 - **Channel:** the `phy` e2e's
   [`pcie_phy_channel_model.py`](../../../../src/dv/phy/models/pcie_phy_channel_model.py),
   4 words of delay, for the line impairments (bit flips, slips, electrical
@@ -196,6 +197,10 @@ error classes, the disparity-only error (the only catch of the `phy`'s
 `pkt_rx_err` lost in `link`, [#436 mutants](#per-class-credit-and-disparity-mutants)),
 the rollover and its retrain, the minimum credits (the
 configuration that starves both ends hardest) and the throughput screen.
+`e2e_disparity` costs 4.5 s of CPU at its seed 1992110143 (#436), against
+the all-IP level 1 of 1140 to 1172 s in the 1200 s budget
+([#435](https://github.com/amichai-bd/pcie-factory/issues/435)); as the
+only catch of that mutant it stays in level 1 whatever its cost.
 `e2e_line`, `e2e_mixed`, `e2e_hot_reset` and the other three credit
 configurations moved to level 2: each re-checks a path that a unit DV
 already covers at its own level 1 (line impairments and control requests
@@ -336,7 +341,7 @@ equal, and no injected error reached the `dll` with its bytes intact.
 | Mutant in `pcie_link` | First failing entry | Result |
 | --- | --- | --- |
 | `fc_ph_avail_o` and `fc_nph_avail_o` swapped at the `dll` | `e2e_smoke` (L0) | End a, cycle 10401: `fc_ph_avail_o` 8 with 1 posted header credit in flight, above the 8 advertised. `e2e_credits_minimum` (L1) and `e2e_credits_asymmetric` (L2) fail it the same way (1 of 1 advertised; 8 of 8 at cycle 10433). |
-| The `phy`'s `pkt_rx_err_o` not connected (`pkt_rx_err` 0 at `LOWER` 0) | `e2e_disparity` (L1) | The first disparity-only error on `ab` (TLP seq 1, cycle 10471): no Bad TLP at b and no Nak. Every other level 0 and 1 entry passes it. |
+| The `phy`'s `pkt_rx_err_o` not connected (`pkt_rx_err` 0 at `LOWER` 0) | `e2e_disparity` (L1) | The first disparity-only error on `ab` (TLP seq 1, cycle 10471): no Bad TLP at b and no Nak. Every other `link` level 0 and 1 entry passes it (all 11 run against it, the PR evidence of #436). |
 | The `dll`'s `pkt_rx_err_i` tied to 0 | `e2e_disparity` (L1) | As above; `gpio_damage` (L1) also fails it (the adapter's error eop, as M24 below). `e2e_smoke` passes it. |
 
 ## GPIO lower layer
