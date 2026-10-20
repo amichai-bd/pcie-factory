@@ -35,19 +35,28 @@ assertions stay quiet.
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Fall-through, capacity, pop and refill, drain, reset](../../../rtl/common/ram/common_sdp_ram_fifo.md#behavior) | `sdp_ram_fifo_contract` | 0 | 1; 8 x 4 |
-| The same under random traffic, against the model | `sdp_ram_fifo_random` / `sdp_ram_fifo_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (1044357706 and 657912816), pinned; 3000 cycles; 16 x 8 |
-| Random traffic, smallest queue (1 bit, two RAM entries) | `sdp_ram_fifo_random_min` / `sdp_ram_fifo_random_min_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (1130685727), pinned; 3000 cycles; 1 x 2 |
+| The same under random traffic, against the model | `sdp_ram_fifo_random` | 1 | seed 1228444380; same configuration and assertion set |
+| Random traffic, smallest queue (1 bit, two RAM entries) | `sdp_ram_fifo_random_min` | 1 | seed 878957961; same configuration and assertion set |
 | Model rules | (model unit test) | - | `python3 -m pytest src/dv/common/models` |
 
-**Level placement**
-([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
-level 1 of every IP, which `ci-gate` runs for a change to a shared
-package, was over its 1200 s CPU budget. `sdp_ram_fifo_random` and
-`sdp_ram_fifo_random_min` run their first seed in level 1; their further
-seeds run pinned and unchanged in each entry's level 2 `_sweep`, each seed
-with its coverage instrumentation, so the merged level 0 to 2 runs are the
-same runs. The mutation evidence on this page names no seed for these
-entries, and was not rerun at the first seed alone.
+**Plain extra-seed removal (#461).** The following L1 entries retain
+the same executable, top, parameters and backend as their removed plain
+L2 repeats. Each extra seed had `coverage_seeds: 0`; every coverage-enabled
+entry remains. This trims random breadth and the removed rows' nightly
+rotations, without changing collected coverage inputs or any checker.
+
+| Retained L1 entry | Seed | Configuration |
+| --- | --- | --- |
+| `sdp_ram_fifo_random` | 1228444380 | `common_sdp_ram_fifo`, WIDTH=16, ADDR_W=3, `portable` |
+| `sdp_ram_fifo_random_min` | 878957961 | `common_sdp_ram_fifo`, WIDTH=1, ADDR_W=1, `portable` |
+
+All five recorded queue mutants Q1–Q5 are already caught by retained
+L0 `sdp_ram_fifo_contract` seed 763099539 in [PR #390](https://github.com/amichai-bd/pcie-factory/pull/390):
+no refill at pop (cycle 7), pop never empties head (18), full one entry
+early (4), empty ignoring RAM (0), RAM-used off by head (1). Q4 is
+shared-unit-only, so the contract entry remains. Its directed sequence
+and fixed per-index data patterns do not depend on the outer seed. The
+removed random seeds add no recorded sole fault catch.
 
 Mutation evidence ([#385](https://github.com/amichai-bd/pcie-factory/issues/385)):
 the PR records the mutants of the moved queue and which entries, here

@@ -43,18 +43,31 @@ than a `sop`, so a tracker that reads them there fails.
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Beat numbers, header DW enables, last header DW, saturation, reset](../../rtl/common/common_tlp_rx_track.md#behavior) | `tlp_rx_track_contract` | 0 | 1 |
-| The same under random TLPs and gaps, against the model | `tlp_rx_track_random` / `tlp_rx_track_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (489432863 and 69564069), pinned; 300 TLPs |
+| The same under random TLPs and gaps, against the model | `tlp_rx_track_random` | 1 | seed 1781208969; same configuration and assertion set |
 | [Whole-TLP contract assertions](../../rtl/common/common_tlp_rx_track.md#behavior) | `framing_*` (no level) | - | by hand, from a scratch level list |
 | Model rules | (model unit test) | - | `python3 -m pytest src/dv/common/models` |
 
-**Level placement**
-([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
-level 1 of every IP, which `ci-gate` runs for a change to a shared
-package, was over its 1200 s CPU budget. `tlp_rx_track_random` runs its
-first seed in level 1; its further seeds run pinned and unchanged in its
-level 2 `_sweep`, each seed with its coverage instrumentation, so the
-merged level 0 to 2 runs are the same runs. The mutation evidence on this
-page names no seed for it, and was not rerun at the first seed alone.
+**Plain extra-seed removal (#461).** The following L1 entries retain
+the same executable, top, parameters and backend as their removed plain
+L2 repeats. Each extra seed had `coverage_seeds: 0`; every coverage-enabled
+entry remains. This trims random breadth and the removed rows' nightly
+rotations, without changing collected coverage inputs or any checker.
+
+| Retained L1 entry | Seed | Configuration |
+| --- | --- | --- |
+| `tlp_rx_track_random` | 1781208969 | `common_tlp_rx_track_fixture`, default parameters, `portable` |
+
+Retained L0 `tlp_rx_track_contract` seed 2003108926 catches every
+non-equivalent recorded tracker mutant in [PR #402](https://github.com/amichai-bd/pcie-factory/pull/402):
+T1 saturation wraps (cycle 91), T2 sop counts no beat (1), T3 header end
+ignores 4-DW (4), T5 DW1 enabled late (1), T6 DW2 enabled late (2), T7
+header size sampled every beat (5), T8 busy not cleared at eop (3), T9
+header end early (1), T10 sop while take low opens (22), T11 eop while
+take low closes (23). T1/T10/T11 have no listed `tl` catch; their
+shared-unit contract remains. T4 differs only on forbidden framing and
+is equivalent. The directed contract consumes no RNG. The manually run
+framing-assertion negative cases remain available outside level lists.
+The removed random seeds add no recorded sole fault catch.
 
 Mutation evidence ([#400](https://github.com/amichai-bd/pcie-factory/issues/400)):
 the PR records the mutants of the moved tracker and which entries, here

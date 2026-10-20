@@ -245,45 +245,6 @@ tests:
     coverage_seeds: 0
     params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
     timeout_s: 120
-  - name: sdp_ram_fifo_random_sweep
-    module: tests.test_sdp_ram_fifo
-    testcase: random_ops
-    top: common_sdp_ram_fifo
-    seeds: [1044357706, 657912816]
-    coverage_seeds: 0
-    params: {WIDTH: 16, ADDR_W: 3}
-    timeout_s: 120
-  - name: sdp_ram_fifo_random_min_sweep
-    module: tests.test_sdp_ram_fifo
-    testcase: random_ops
-    top: common_sdp_ram_fifo
-    seeds: [1130685727]
-    coverage_seeds: 0
-    params: {WIDTH: 1, ADDR_W: 1}
-    timeout_s: 120
-  - name: skid_stage_random_sweep
-    module: tests.test_skid_stage
-    testcase: random_ops
-    top: common_skid_stage
-    seeds: [285127183, 167240629]
-    coverage_seeds: 0
-    params: {WIDTH: 16}
-    timeout_s: 120
-  - name: skid_stage_random_min_sweep
-    module: tests.test_skid_stage
-    testcase: random_ops
-    top: common_skid_stage
-    seeds: [268928640]
-    coverage_seeds: 0
-    params: {WIDTH: 1}
-    timeout_s: 120
-  - name: tlp_rx_track_random_sweep
-    module: tests.test_tlp_rx_track
-    testcase: random_tlps
-    top: common_tlp_rx_track_fixture
-    seeds: [489432863, 69564069]
-    coverage_seeds: 0
-    timeout_s: 120
   - name: tdp_ram_random_sweep
     module: tests.test_ram
     testcase: random_ops
