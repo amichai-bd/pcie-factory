@@ -274,3 +274,11 @@ line point is keyed by file, line, column and kind, a toggle point by
 file, signal bit and direction (any copy). A point not hit is "another
 copy" when its key is hit anywhere in the run; the rest go by file and
 signal name as the rows list them.
+
+`req_timeout_div1` declares `seed_independent: true`: its fixed reset and
+three local header writes consume no RNG draws. With TX ready fixed high,
+no receive traffic, no hooks and endpoint answering disabled before the
+configuration read, its timeout wait and final error read are deterministic.
+The pinned run retains all 2²¹ cycles, exact S+N timing, result status/data
+and error-bit checks; a rotated seed would repeat those checks unchanged.
+Any future randomized stimulus in that call path must remove the declaration.
