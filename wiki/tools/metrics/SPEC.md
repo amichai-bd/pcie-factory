@@ -405,7 +405,7 @@ from a design change (−0.43, −0.20, +1.41 and +5.91 MHz). The worst clock of
 every IP is its slow core clock, between 50 and 57 MHz, where 2 MHz is 3.5 to
 4 %, so a relative threshold would act the same way for now and the
 threshold stays absolute. The re-check on two weeks of history (from
-2026-10-28) is owned by #441.
+2026-10-28) is owned by #452.
 
 ## `guard`
 

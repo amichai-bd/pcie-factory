@@ -118,6 +118,14 @@ def test_back_to_back_runs_both_reach_the_branch(env, cfg, tmp_path):
     assert [x["sha"] for x in lines] == ["a0", "a1", "a2"]  # no duplicate
     assert lines[0]["ci"] == {"status": "ok"}  # the later run's line wins
     assert guard.run(local, second["branch"], "origin/main", second["sha"], cfg)[0] is True
+    # Complete delivery, as a data PR's squash merge does: neither record
+    # nor a series line may disappear when the combined branch reaches main.
+    git(local, "checkout", "-q", "main")
+    git(local, "merge", "--squash", second["sha"])
+    git(local, "commit", "-q", "-m", "nightly: merge overlapping runs")
+    git(local, "push", "-q", "origin", "main")
+    assert files_on(origin, "main") == [R1, R2, "commits.jsonl", "old.json"]
+    assert series_on(origin, "main") == lines
 
 
 def test_other_open_data_prs_are_carried(env, cfg, tmp_path):
