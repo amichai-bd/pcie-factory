@@ -11,7 +11,7 @@ from pathlib import Path
 
 from build.ip import Context, DiscoveryError, discover
 
-from . import commits, github, guard, red, record, trends
+from . import commits, github, guard, red, record, stage, trends
 from .config import MetricsError, load
 from .gh import Gh, resolve_repo
 from .tree import TreeReader
@@ -45,10 +45,27 @@ def add_args(p: argparse.ArgumentParser) -> None:
                    "the series (default: HEAD)")
     s.add_argument("--no-ci", action="store_true", help="skip the ci-gate run lookup")
     s.add_argument("--limit", type=int, help="add at most this many commits")
-    g = act.add_parser("guard", help="fail when a nightly branch changes other paths")
+    g = act.add_parser("guard", parents=[repo],
+                       help="fail when a nightly branch changes anything but valid data files")
     g.add_argument("--branch", required=True, help="head branch name of the change")
-    g.add_argument("--base", required=True, help="base revision (diffed from the merge base)")
+    gb = g.add_mutually_exclusive_group(required=True)
+    gb.add_argument("--base", help="base revision (diffed from the merge base)")
+    gb.add_argument("--pr-base", metavar="DEFAULT",
+                    help="base: origin/<base of the branch's open PR into DEFAULT, else of any "
+                         "open PR, else DEFAULT>, fetched first (only for a data branch)")
     g.add_argument("--head", default="HEAD", help="head revision (default: HEAD)")
+    g.add_argument("--select", metavar="FILE",
+                   help="on a data branch that passes, append 'AFFECTED=--affected <merge base>' "
+                        "to FILE (the CI job's $GITHUB_ENV)")
+    st = act.add_parser("stage", parents=[repo],
+                        help="commit a run's data files on the data branch, continuing the open data PR")
+    st.add_argument("--base", required=True, help="base branch of the data PR")
+    st.add_argument("--branch", required=True, help="data branch to create when no data PR is open")
+    st.add_argument("--data", required=True, metavar="DIR", help="this run's data files")
+    st.add_argument("--worktree", required=True, metavar="DIR", help="where to build the branch")
+    st.add_argument("--message", required=True, help="commit message")
+    st.add_argument("--out", metavar="FILE",
+                    help="write the outputs (branch, mode, number, carried, changed, sha) as KEY=VALUE lines")
     t = act.add_parser("trends", help="print the per-IP drop alerts of the latest nightly record")
     t.add_argument("--dir", action="append", default=[], metavar="DIR",
                    help="directory of nightly records; repeatable, a later one wins on "
@@ -218,6 +235,59 @@ def trend_alerts(ctx: Context, args) -> int:
     return 0
 
 
+_REF = re.compile(r"^[A-Za-z0-9._/-]+$")
+
+
+def pr_base(gh, branch: str, default: str) -> str:
+    """The base branch of ``branch``'s open PR into ``default``, else of any
+    open PR from it, else ``default``."""
+    owner = gh.repo.split("/")[0]
+    pulls = gh.paginate(f"repos/{gh.repo}/pulls?state=open&head={owner}:{branch}")
+    bases = [p.get("base", {}).get("ref") for p in pulls if isinstance(p, dict)]
+    bases = [b for b in bases if isinstance(b, str) and _REF.match(b)]
+    return default if default in bases or not bases else bases[0]
+
+
+def guard_cmd(ctx: Context, args, gh_factory=Gh) -> int:
+    cfg = load(ctx.cfg_dir)
+    base, select = args.base, getattr(args, "select", None)
+    if getattr(args, "pr_base", None) is not None:
+        if not args.branch.startswith(cfg.branch_prefix):
+            print(f"branch {args.branch!r} is not a {cfg.branch_prefix} branch; nothing to guard")
+            return 0
+        name = pr_base(gh_factory(resolve_repo(getattr(args, "repo", None), ctx.repo_root)), args.branch, args.pr_base)
+        if not _REF.match(name) or name.startswith("-"):
+            raise MetricsError(f"invalid base branch {name!r}")
+        try:  # a shallow CI checkout needs the history for the merge base
+            guard.git(ctx.repo_root, "fetch", "--quiet", "--unshallow", "origin")
+        except MetricsError:
+            pass  # already complete
+        guard.git(ctx.repo_root, "fetch", "--quiet", "origin",
+                  f"+refs/heads/{name}:refs/remotes/origin/{name}")
+        base = f"origin/{name}"
+        print(f"base: {base}")
+    passed, lines, merge_base = guard.run(ctx.repo_root, args.branch, base, args.head, cfg)
+    print("\n".join(lines))
+    if passed and merge_base and select:
+        with open(select, "a", encoding="utf-8") as f:
+            f.write(f"AFFECTED=--affected {merge_base}\n")
+        print(f"selection: only data files changed; unit, regression and vendor selection "
+              f"run with --affected {merge_base}")
+    return 0 if passed else 1
+
+
+def stage_cmd(ctx: Context, args, gh_factory=Gh) -> int:
+    cfg = load(ctx.cfg_dir)
+    gh = gh_factory(resolve_repo(args.repo, ctx.repo_root))
+    out = stage.stage(ctx.repo_root, gh, cfg, args.base, args.branch, Path(args.data),
+                      Path(args.worktree).resolve(), args.message)
+    text = "".join(f"{k}={v}\n" for k, v in out.items())
+    print(text, end="")
+    if args.out:
+        Path(args.out).write_text(text, encoding="utf-8")
+    return 0
+
+
 def run(ctx: Context, args) -> int:
     try:
         if args.action == "collect":
@@ -227,11 +297,9 @@ def run(ctx: Context, args) -> int:
         if args.action == "trends":
             return trend_alerts(ctx, args)
         if args.action == "guard":
-            cfg = load(ctx.cfg_dir)
-            files = guard.changed_files(ctx.repo_root, args.base, args.head)
-            passed, lines = guard.check(args.branch, files, cfg)
-            print("\n".join(lines))
-            return 0 if passed else 1
+            return guard_cmd(ctx, args)
+        if args.action == "stage":
+            return stage_cmd(ctx, args)
         gh = Gh(resolve_repo(args.repo, ctx.repo_root))
         steps = _steps(args.step) if args.step else None
         action, numbers = red.sync(gh, args.outcome, args.run_url, args.head, steps,

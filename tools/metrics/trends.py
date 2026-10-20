@@ -110,11 +110,25 @@ def _ip(record, section: str, ip: str):
     return entry if isinstance(entry, dict) else None
 
 
-def _at(section: str, path: str):
-    return lambda record, ip: _num(_dig(_ip(record, section, ip), path))
+def _at(section: str, *paths: str):
+    """The first path, in order, that holds a number; the later ones are the
+    legacy flat keys the tracker charts also read."""
+    def get(record, ip):
+        entry = _ip(record, section, ip)
+        for path in paths:
+            v = _num(_dig(entry, path))
+            if v is not None:
+                return v
+        return None
+    return get
 
 
 def _worst_fmax(record, ip):
+    """A legacy flat `fmax_mhz`, else the lowest `timing.clocks.*.fmax_mhz`
+    (the tracker's rule)."""
+    flat = _num(_dig(_ip(record, "fpga", ip), "fmax_mhz"))
+    if flat is not None:
+        return flat
     clocks = _dig(_ip(record, "fpga", ip), "timing.clocks")
     vals = [_num(_dig(c, "fmax_mhz")) for c in clocks.values()] if isinstance(clocks, dict) else []
     vals = [v for v in vals if v is not None]
@@ -145,9 +159,9 @@ SERIES = (
     Series("coverage_functional", "Functional coverage", "%", "coverage", _at("coverage", "functional.pct")),
     Series("mutant_score", "Mutant score", "%", "mutants", lambda r, ip: mutant_score(_ip(r, "mutants", ip))),
     Series("fpga_fmax", "FPGA Fmax, worst clock", "MHz", "fpga", _worst_fmax),
-    Series("fpga_setup_slack", "FPGA worst setup slack", "ns", "fpga", _at("fpga", "timing.worst_setup_slack_ns")),
-    Series("asic_wns", "ASIC WNS", "ns", "asic", _at("asic", "timing.wns_ns")),
-    Series("asic_tns", "ASIC TNS", "ns", "asic", _at("asic", "timing.tns_ns")),
+    Series("fpga_setup_slack", "FPGA worst setup slack", "ns", "fpga", _at("fpga", "timing.worst_setup_slack_ns", "setup_slack_ns")),
+    Series("asic_wns", "ASIC WNS", "ns", "asic", _at("asic", "timing.wns_ns", "wns_ns")),
+    Series("asic_tns", "ASIC TNS", "ns", "asic", _at("asic", "timing.tns_ns", "tns_ns")),
 )
 KEYS = tuple(s.key for s in SERIES)
 

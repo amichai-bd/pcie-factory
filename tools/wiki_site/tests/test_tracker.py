@@ -126,25 +126,25 @@ def test_compare_uses_points_at_least_7_and_30_days_back(tmp_path):
 def test_per_ip_pages_and_sidebar(tmp_path):
     problems, out = build(tree(tmp_path, fixtures=True))
     assert problems == []
-    for ip in ("alpha", "beta", "beta/core"):
+    for ip in ("alpha", "beta", "beta/sub"):
         page = (out / f"tracker/ip/{ip}/index.html").read_text()
         assert "<h1" in page and f"{ip} metrics" in page
         assert chart_data(page)["charts"]["ip-loc"]["series"]
-    core = (out / "tracker/ip/beta/core/index.html").read_text()
-    assert 'href="../../../index.html">metrics tracker</a>' in core
-    assert 'href="../../index.html">all IPs</a>' in core
-    assert "No FPGA metrics yet for this IP." in core  # fixtures give beta/core no FPGA data
+    sub = (out / "tracker/ip/beta/sub/index.html").read_text()
+    assert 'href="../../../index.html">metrics tracker</a>' in sub
+    assert 'href="../../index.html">all IPs</a>' in sub
+    assert "No FPGA metrics yet for this IP." in sub  # fixtures give beta/sub no FPGA data
     alpha = (out / "tracker/ip/alpha/index.html").read_text()
     assert "fpga-le" in alpha and "asic-wns" in alpha
     index = (out / "tracker/ip/index.html").read_text()
-    assert 'href="beta/core/index.html">beta/core</a>' in index
+    assert 'href="beta/sub/index.html">beta/sub</a>' in index
     landing = (out / "tracker/index.html").read_text()
-    assert 'href="ip/beta/core/index.html">beta/core →</a>' in landing
+    assert 'href="ip/beta/sub/index.html">beta/sub →</a>' in landing
     # sidebar: Per-IP metrics folder under the tracker, every IP page listed
     site = wiki_site.Site(tmp_path, SHA, URL)
     nav = site.nav_pages()
     assert nav.index("wiki/tracker/index.md") < nav.index("wiki/tracker/ip/index.md")
-    assert {"wiki/tracker/ip/alpha/index.md", "wiki/tracker/ip/beta/core/index.md"} <= set(nav)
+    assert {"wiki/tracker/ip/alpha/index.md", "wiki/tracker/ip/beta/sub/index.md"} <= set(nav)
 
 
 def test_ip_page_asic_per_clock_trends(tmp_path):
@@ -153,12 +153,12 @@ def test_ip_page_asic_per_clock_trends(tmp_path):
     rec["meta"]["generated_at"] = "2026-10-09T03:00:00Z"  # another run
     rec["asic"]["ips"]["beta"]["timing"]["clocks"] = {
         "rx_side": {"setup_ws_ns": 1.5, "wns_ns": 0.0, "tns_ns": 0.0},
-        "core": {"setup_ws_ns": -0.25, "wns_ns": -0.25, "tns_ns": -3.0}}
+        "app": {"setup_ws_ns": -0.25, "wns_ns": -0.25, "tns_ns": -3.0}}
     problems, out = build(tree(tmp_path, {"2026-10-09.json": json.dumps(rec)}, fixtures=True))
     assert problems == []
     charts = chart_data((out / "tracker/ip/beta/index.html").read_text())["charts"]
     wns, tns = charts["ip-asic-clock-wns"]["series"], charts["ip-asic-clock-tns"]["series"]
-    assert [s["label"] for s in wns] == ["core", "rx_side"]
+    assert [s["label"] for s in wns] == ["app", "rx_side"]
     assert wns[0]["points"][-1][1] == -0.25 and wns[1]["points"][-1][1] == 0.0
     assert tns[0]["points"][-1][1] == -3.0 and len(wns[0]["points"]) == 1
     alpha = chart_data((out / "tracker/ip/alpha/index.html").read_text())["charts"]
@@ -185,7 +185,7 @@ def test_tracker_is_its_own_tab(tmp_path):
     other = (out / "other.html").read_text()
     assert tabs.format(w=on, t="", r="") in other
     assert "tracker/" not in menu(other)  # the wiki sidebar does not list the tracker
-    for page, r in (("tracker/index.html", "../"), ("tracker/ip/beta/core/index.html", "../../../../")):
+    for page, r in (("tracker/index.html", "../"), ("tracker/ip/beta/sub/index.html", "../../../../")):
         html = (out / page).read_text()
         assert tabs.format(w="", t=on, r=r) in html
         assert '<nav class="sidebar-tabs" aria-label="Site sections">' in html  # phone drawer copy
@@ -984,3 +984,38 @@ def test_one_run_in_two_files_is_a_problem(tmp_path):
                                           "2026-09-02.json": rec, "2026-09-02T030000Z.json": rec}))
     assert len(problems) == 1 and "a second record of the run in 2026-09-02.json" in problems[0]
     assert len(chart_data((out / "tracker/details/index.html").read_text())["runs"]) == 1
+
+
+@pytest.mark.parametrize("entry", [
+    {"fmax_mhz": 50.0, "setup_slack_ns": 0.5, "wns_ns": -0.2, "tns_ns": -1.5},
+    {"timing": {"clocks": {"a": {"fmax_mhz": 80.0}, "b": {"fmax_mhz": 60.0}},
+                "worst_setup_slack_ns": 1.5, "wns_ns": -0.1, "tns_ns": -0.3}},
+    {"fmax_mhz": 70.0, "setup_slack_ns": 9.0, "wns_ns": -9.0, "tns_ns": -9.0,
+     "timing": {"clocks": {"a": {"fmax_mhz": 60.0}}, "worst_setup_slack_ns": 1.0,
+                "wns_ns": -0.4, "tns_ns": -0.8}},
+])
+def test_trend_series_read_the_same_value_as_the_charts(entry):
+    """The drop-alert series (metrics/trends.py) read every record the way the
+    tracker charts do, legacy flat keys included."""
+    charts = {m.key: m.get for m in tracker.FPGA + tracker.ASIC}
+    pairs = {"fpga_fmax": "fpga-fmax", "fpga_setup_slack": "fpga-slack",
+             "asic_wns": "asic-wns", "asic_tns": "asic-tns"}
+    for key, chart in pairs.items():
+        series = tracker.trends.SERIES[tracker.trends.KEYS.index(key)]
+        record = {series.section: {"ips": {"ip": entry}}}
+        assert series.get(record, "ip") == charts[chart](entry), key
+
+
+def test_metrics_import_is_this_repositorys_package(tmp_path):
+    """A same-named `metrics` module earlier on the path never shadows tools/metrics."""
+    import subprocess
+    decoy = tmp_path / "decoy"
+    (decoy / "metrics").mkdir(parents=True)
+    (decoy / "metrics" / "__init__.py").write_text("")
+    (decoy / "metrics" / "trends.py").write_text("DECOY = True\n")
+    tools = Path(tracker.__file__).resolve().parents[1]
+    code = ("import sys; sys.path.insert(0, %r); sys.path.insert(0, %r); import tracker; "
+            "print(tracker.trends.__file__)") % (str(tools / "wiki_site"), str(decoy))
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True,
+                         cwd=tmp_path).stdout.strip()
+    assert Path(out).resolve() == (tools / "metrics" / "trends.py").resolve()

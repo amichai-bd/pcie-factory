@@ -234,13 +234,14 @@ and simulation.
   Verilator accepts (style rule `port-index-constant`). Assign the select to a
   named net and connect the net.
 - **Struct localparams** are never member-selected in a constant expression
-  (a localparam initialiser, a parameter check, a generate condition):
-  Quartus Lite rejects `A.m` there with `Error (10742)` (hierarchical
-  identifier), which Verilator accepts (style rule pending,
-  [#418](https://github.com/amichai-bd/pcie-factory/issues/418)). Select
-  the member inside a function, from a local or an argument (a two-pass
-  build runs both passes in one function), or part-select the packed
-  struct (`A[15:0]`) with a parameter check on its layout.
+  (a localparam initialiser, a parameter check, a generate condition, a
+  range, a replication count or a size cast): Quartus Lite rejects `A.m`
+  there with `Error (10742)` (hierarchical identifier), which Verilator
+  accepts (style rule `struct-param-select`); the same select in ordinary
+  logic is accepted. Select the member inside a function, from a local or
+  an argument (a two-pass build runs both passes in one function), or
+  part-select the packed struct (`A[15:0]`) with a parameter check on its
+  layout.
 - **Macros** are only the vocabulary's: a design file defines none.
 - **No functions with side effects, no tasks** in RTL. Pure helper functions
   live in the owning package.
