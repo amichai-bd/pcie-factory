@@ -7,22 +7,27 @@
 // run their contract tests (cfg/backends.yaml dv_models). It carries the
 // vendor module name, so the file is named after it.
 //
-// Elaboration rejects every parameter set outside the one shape the
-// backends request: single-clock DUAL_PORT on a Cyclone IV E M9K, port B
-// read-only and as wide and deep as port A, both on CLOCK0, unregistered
-// outputs, mixed-port OLD_DATA, clock enables bypassed, no image, no power-up
+// Elaboration rejects every parameter set outside the two shapes the
+// backends request, both single-clock on a Cyclone IV E M9K with
+// unregistered outputs, port A clock enables bypassed, no image, no power-up
 // randomization, and either no byte enables (width_byteena_a and byte_size
 // not given, as a one-lane backend leaves them) or 8- or 9-bit byte enables
-// with width_a = width_byteena_a * byte_size (Quartus Error 272006). A check at
-// every edge rejects a vendor input the backend must tie that is not tied
-// inactive. Its behavior is the contract's (a read samples the pre-edge
-// word; rden_b low holds q_b), never a claim about the vendor block: only
-// Quartus fitter evidence proves the mapping.
+// with width_a = width_byteena_a * byte_size (Quartus Error 272006):
+// - DUAL_PORT (common_sdp_ram): port B read-only and as wide and deep as
+//   port A, on CLOCK0 with its clock enables bypassed, mixed-port OLD_DATA,
+//   port A's read-during-write mode not given;
+// - SINGLE_PORT (common_sync_ram): port A reads and writes, same-port
+//   OLD_DATA, every port B parameter and the mixed-port mode not given.
+// A check at every edge rejects a vendor input the backend must tie that is
+// not tied inactive. Its behavior is the contract's (a read samples the
+// pre-edge word; in DUAL_PORT, rden_b low holds q_b), never a claim about
+// the vendor block: only Quartus fitter evidence proves the mapping.
 //
 // Provenance: adapted from nand2anything
 // src/common/dv/memory/n2a_altsyncram_port_stub.sv (commit
 // 8bb70d248d4755d7510fb2c0ec6487a5e05dec41), adapted with the owner's
-// permission. Reduced to the DUAL_PORT shape, retargeted to Cyclone IV E,
+// permission. Reduced to the DUAL_PORT and SINGLE_PORT shapes, retargeted
+// to Cyclone IV E,
 // byte enables added, the lint pragmas dropped, the rejections made
 // elaboration-time so that lint reports them.
 module altsyncram #(
@@ -45,6 +50,7 @@ module altsyncram #(
   parameter string rdcontrol_reg_b                    = "CLOCK1",
   parameter string outdata_reg_b                      = "UNREGISTERED",
   parameter string read_during_write_mode_mixed_ports = "DONT_CARE",
+  parameter string read_during_write_mode_port_a      = "NEW_DATA_NO_NBE_READ",
   parameter string clock_enable_input_a               = "NORMAL",
   parameter string clock_enable_output_a              = "NORMAL",
   parameter string clock_enable_input_b               = "NORMAL",
@@ -79,11 +85,12 @@ module altsyncram #(
 );
 
   localparam bit BYTE_ENABLES = width_byteena_a > 1;
+  localparam bit SINGLE       = operation_mode == "SINGLE_PORT";
   localparam int BYTE_W       = (byte_size < 1) ? 1 : byte_size;
 
   // One generate block per rule; the message names the rule.
-  if (operation_mode != "DUAL_PORT") begin : g_mode
-    $fatal(1, "altsyncram stub: operation_mode must be DUAL_PORT");
+  if (operation_mode != "DUAL_PORT" && operation_mode != "SINGLE_PORT") begin : g_mode
+    $fatal(1, "altsyncram stub: operation_mode must be DUAL_PORT or SINGLE_PORT");
   end
   if (intended_device_family != "Cyclone IV E") begin : g_family
     $fatal(1, "altsyncram stub: intended_device_family must be Cyclone IV E");
@@ -97,8 +104,12 @@ module altsyncram #(
   if (width_a < 1 || widthad_a < 1 || numwords_a != (1 << widthad_a)) begin : g_geometry
     $fatal(1, "altsyncram stub: numwords_a must be 2**widthad_a and width_a at least 1");
   end
-  if (width_b != width_a || widthad_b != widthad_a || numwords_b != numwords_a) begin : g_port_b
+  if (!SINGLE && (width_b != width_a || widthad_b != widthad_a
+                  || numwords_b != numwords_a)) begin : g_port_b
     $fatal(1, "altsyncram stub: port B must match port A (no mixed widths)");
+  end
+  if (SINGLE && (width_b != 1 || widthad_b != 1 || numwords_b != 0)) begin : g_port_b_unset
+    $fatal(1, "altsyncram stub: SINGLE_PORT leaves the port B geometry unset");
   end
   if ((BYTE_ENABLES || byte_size != 0) && !((byte_size == 8 || byte_size == 9)
                                            && width_a == width_byteena_a * byte_size)) begin : g_byteena_a
@@ -110,15 +121,20 @@ module altsyncram #(
   if (outdata_reg_a != "UNREGISTERED" || outdata_reg_b != "UNREGISTERED") begin : g_outdata
     $fatal(1, "altsyncram stub: outputs must be UNREGISTERED (one-edge read latency)");
   end
-  if (address_reg_b != "CLOCK0" || rdcontrol_reg_b != "CLOCK0") begin : g_clock_b
-    $fatal(1, "altsyncram stub: port B must register on CLOCK0 (single clock)");
+  if (SINGLE ? (address_reg_b != "CLOCK1" || rdcontrol_reg_b != "CLOCK1")
+             : (address_reg_b != "CLOCK0" || rdcontrol_reg_b != "CLOCK0")) begin : g_clock_b
+    $fatal(1, "altsyncram stub: port B must register on CLOCK0 (single clock), or stay unset in SINGLE_PORT");
   end
-  if (read_during_write_mode_mixed_ports != "OLD_DATA") begin : g_mixed_rdw
-    $fatal(1, "altsyncram stub: read_during_write_mode_mixed_ports must be OLD_DATA");
+  if (read_during_write_mode_mixed_ports != (SINGLE ? "DONT_CARE" : "OLD_DATA")) begin : g_mixed_rdw
+    $fatal(1, "altsyncram stub: read_during_write_mode_mixed_ports must be OLD_DATA, or unset in SINGLE_PORT");
+  end
+  if (read_during_write_mode_port_a != (SINGLE ? "OLD_DATA" : "NEW_DATA_NO_NBE_READ")) begin : g_port_a_rdw
+    $fatal(1, "altsyncram stub: read_during_write_mode_port_a must be OLD_DATA in SINGLE_PORT, unset in DUAL_PORT");
   end
   if (clock_enable_input_a != "BYPASS" || clock_enable_output_a != "BYPASS"
-      || clock_enable_input_b != "BYPASS" || clock_enable_output_b != "BYPASS") begin : g_clock_enable
-    $fatal(1, "altsyncram stub: clock enables must be BYPASS");
+      || clock_enable_input_b != (SINGLE ? "NORMAL" : "BYPASS")
+      || clock_enable_output_b != (SINGLE ? "NORMAL" : "BYPASS")) begin : g_clock_enable
+    $fatal(1, "altsyncram stub: clock enables must be BYPASS (port B's unset in SINGLE_PORT)");
   end
   if (init_file != "UNUSED") begin : g_init_file
     $fatal(1, "altsyncram stub: init_file must be UNUSED");
@@ -127,17 +143,19 @@ module altsyncram #(
     $fatal(1, "altsyncram stub: power_up_uninitialized must be FALSE");
   end
 
-  // The vendor inputs the backend ties must be inactive at every edge.
+  // The vendor inputs the backend ties must be inactive at every edge; in
+  // SINGLE_PORT also rden_b, which Intel-generated wrappers tie high.
   logic ties_ok;
   assign ties_ok = wren_b == 1'b0 && rden_a == 1'b1 && clock1 == 1'b1
                    && {clocken0, clocken1, clocken2, clocken3} == 4'hf
                    && {aclr0, aclr1, addressstall_a, addressstall_b} == 4'h0
-                   && byteena_b == {width_byteena_b{1'b1}};
+                   && byteena_b == {width_byteena_b{1'b1}}
+                   && (!SINGLE || rden_b == 1'b1);
 
   logic [width_a-1:0] mem_q [numwords_a];
 
-  // Port A writes the enabled bytes (or the whole word) after port B has
-  // sampled the pre-edge word: read-first, as OLD_DATA defines.
+  // Port A writes the enabled bytes (or the whole word) after the read port
+  // has sampled the pre-edge word: read-first, as OLD_DATA defines.
   always_ff @(posedge clock0) begin
     if (!ties_ok) begin
       $fatal(1, "altsyncram stub: an unused vendor input is not tied inactive");
@@ -149,17 +167,29 @@ module altsyncram #(
         end
       end
     end
-    if (rden_b) begin
-      q_b <= mem_q[address_b];
-    end
   end
 
-  // Absent in DUAL_PORT mode.
-  assign q_a       = '0;
+  // The read port: port A every edge (rden_a is tied high) in SINGLE_PORT,
+  // port B under rden_b in DUAL_PORT; the other port's output is absent.
+  if (SINGLE) begin : g_read_a
+    always_ff @(posedge clock0) begin
+      q_a <= mem_q[address_a];
+    end
+    assign q_b = '0;
+  end else begin : g_read_b
+    always_ff @(posedge clock0) begin
+      if (rden_b) begin
+        q_b <= mem_q[address_b];
+      end
+    end
+    assign q_a = '0;
+  end
+
   assign eccstatus = '0;
-  // data_b is absent too; byteena_a is unused with full-word writes.
+  // data_b is absent (and address_b in SINGLE_PORT); byteena_a is unused
+  // with full-word writes.
   logic unused_inputs;
-  assign unused_inputs = ^{data_b, byteena_a};
+  assign unused_inputs = ^{data_b, address_b, byteena_a};
 
 endmodule
 

@@ -301,6 +301,15 @@ tests:
     params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
     backend: fpga
     timeout_s: 120
+  - name: sync_ram_intel_random_sweep
+    module: tests.test_ram
+    testcase: random_ops
+    top: common_sync_ram
+    seeds: [1976089761, 1824648475]
+    coverage_seeds: 0
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    backend: fpga
+    timeout_s: 120
   - name: sdp_ram_sky130_random_sweep
     module: tests.test_ram
     testcase: random_ops

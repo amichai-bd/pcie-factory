@@ -148,6 +148,20 @@ tests:
     params: {WIDTH: 34, ADDR_W: 9, LANES: 1}
     backend: fpga
     timeout_s: 120
+  - name: sync_ram_intel_random
+    module: tests.test_ram
+    testcase: random_ops
+    top: common_sync_ram
+    params: {WIDTH: 16, ADDR_W: 3, LANES: 2}
+    backend: fpga
+    timeout_s: 120
+  - name: sync_ram_intel_host_mem_shape
+    module: tests.test_ram
+    testcase: contract
+    top: common_sync_ram
+    params: {WIDTH: 32, ADDR_W: 10, LANES: 4}
+    backend: fpga
+    timeout_s: 120
   - name: sdp_ram_sky130_random
     module: tests.test_ram
     testcase: random_ops
