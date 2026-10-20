@@ -158,7 +158,8 @@ def model_key(ctx: Context, ip: Ip, entry: TestEntry, seed: int, verilator: Path
     """The key of a ``rerun_when: models_change`` run: the entry and seed,
     the tool versions, every file of the IP's DV and arch folders (tests,
     testbench, models), every model or import-root file their Python
-    imports, the shared DV folders and the simulation driver. RTL is not
+    imports (every DV, arch or import-root file), the shared DV folders and
+    the simulation driver. RTL is not
     in it: such an entry runs the models only (wiki/tools/regress/SPEC.md,
     "Reuse of unchanged model checks")."""
     h = build_cache.Hasher(sim.tree_root(ip))

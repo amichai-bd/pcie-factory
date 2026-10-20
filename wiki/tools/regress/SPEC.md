@@ -141,12 +141,20 @@ Three rules decide which tests run:
     and the IP runs every requested level even when the change is also
     global. No filelist shows these imports, so without the scan a helper
     change that only a level-1 test exercises, or another IP's model or
-    testbench change, would not run that IP's tests.
+    testbench change, would not run that IP's tests. The bare-name match
+    goes by file stem alone, which has known limits: two IPs with modules
+    of the same stem, or a stem equal to a standard-library or third-party
+    module name (an importer's `import json` matching an IP's `json.py`),
+    over-select, since every file of that stem counts as imported; and a
+    dotted package import of another IP's testbench (`import tb.env` with
+    that IP's `dv/<ip>/` on the path) is not followed, so it selects
+    nothing.
 
 Tests: `tools/regress/tests/test_affected.py`, against the real
 `cfg/ci.yaml`: every rule above on fixture git trees, including another
 IP's testbench module imported by bare name (changed, reached through it,
-or deleted) and package `__init__` and test files never matching by name
+or deleted) and package `__init__`, `conftest.py` and test files never
+matching by name
 (`test_other_ips_testbench_module_import_selects_the_importer`,
 `test_testbench_package_init_and_tests_are_not_bare_modules`), and on the
 repository's own `src/` (IPs discovered, never named): every module one
