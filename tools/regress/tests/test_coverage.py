@@ -104,6 +104,49 @@ def test_source_identity_ignores_elaboration_span_but_keeps_columns(tmp_path):
     assert cov.code_metrics(points, by_source=False)["line"] == {"covered": 1, "total": 3}
 
 
+def test_generated_scope_union_keeps_struct_arrays_bits_and_directions(tmp_path):
+    src = tmp_path / "shape.sv"
+    declaration = "  payload_t q [2];"
+    src.write_text(declaration + "\n")
+    column = declaration.index("q") + 1
+    def p(obj, hits):
+        return point("toggle", 1, hits, obj, str(src)).replace(
+            "\x01t\x02", f"\x01n\x02{column}\x01t\x02")
+    path = dat(tmp_path / "c.dat",
+               p("g[0].q[0].field[0]:0->1", 0),
+               p("g[1].q[0].field[0]:0->1", 1),
+               p("g[0].q[0].field[0]:1->0", 0),
+               p("g[0].q[0].field[1]:0->1", 0),
+               p("g[0].q[1].field[0]:0->1", 0),
+               p("g[0].q[0].other[0]:0->1", 0),
+               # A different signal never becomes q merely by sharing a
+               # malformed source location: absence of the anchor is safe.
+               p("g[0].other:0->1", 0))
+    points = cov.parse_dat(path)
+    assert cov.code_metrics(points)["toggle"] == {"covered": 1, "total": 6}
+    assert cov.code_metrics(points, by_source=False)["toggle"] == {"covered": 1, "total": 7}
+
+
+@pytest.mark.parametrize("declaration,obj0,obj1", [
+    # A scope and its signal have the same name: do not guess which q is
+    # hierarchy, as q[0].q can also be an array element's struct member.
+    ("logic q;", "q[0].q:0->1", "q[1].q:0->1"),
+    ("payload_t q [2];", "q[0].q.field:0->1", "q[1].q.field:0->1"),
+    (None, "g[0].q:0->1", "g[1].q:0->1"),
+])
+def test_ambiguous_or_unavailable_source_retains_objects(tmp_path, declaration, obj0, obj1):
+    src = tmp_path / "shape.sv"
+    column = 1
+    if declaration is not None:
+        src.write_text(declaration + "\n")
+        column = declaration.index("q") + 1
+    rows = [point("toggle", 1, hits, obj, str(src)).replace(
+                "\x01t\x02", f"\x01n\x02{column}\x01t\x02")
+            for obj, hits in ((obj0, 0), (obj1, 1))]
+    assert cov.code_metrics(cov.parse_dat(dat(tmp_path / "c.dat", *rows)))["toggle"] == \
+        {"covered": 1, "total": 2}
+
+
 def test_find_tool(tmp_path, fake_tool):
     assert cov.find_tool(fake_tool.parent / "verilator") == fake_tool
     with pytest.raises(cov.CoverageError, match="verilator_coverage not found"):

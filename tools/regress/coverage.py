@@ -13,6 +13,7 @@ wiki/tools/regress/SPEC.md#coverage.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -63,16 +64,34 @@ def point_type(key: str) -> str | None:
     return point_field(key, "t")
 
 
-def source_point(key: str) -> tuple:
+def source_point(key: str, source_lines: dict[str, list[str]] | None = None) -> tuple:
     """Source identity, independent of instance hierarchy and parameters.
 
-    Verilator's f/l/n locate a statement or signal declaration. The type
-    and object distinguish statement/branch outcomes and each signal bit's
-    transition direction. page and h identify elaborations; S annotates the
-    lines a statement spans and is not another source point.
+    For generated signals Verilator includes scope names in o as well as h.
+    Anchor o at the declaration identifier at f/l/n, keeping all following
+    struct members, array/bit indices and transition direction. Missing or
+    ambiguous anchors retain o unchanged rather than merging real signals.
     """
-    return (str(Path(point_field(key, "f") or "").resolve()),
-            *(point_field(key, field) for field in ("l", "n", "t", "o")))
+    file = str(Path(point_field(key, "f") or "").resolve())
+    line, column, kind, obj = (point_field(key, f) for f in ("l", "n", "t", "o"))
+    if kind == "toggle" and obj and "." in obj:
+        lines = {} if source_lines is None else source_lines
+        if file not in lines:
+            try:
+                lines[file] = Path(file).read_text().splitlines()
+            except (OSError, UnicodeError):
+                lines[file] = []
+        try:
+            row, col = int(line), int(column)
+            text = lines[file][row - 1][col - 1:] if row > 0 and col > 0 else ""
+        except (TypeError, ValueError, IndexError):
+            text = ""
+        name = re.match(r"[A-Za-z_$][A-Za-z0-9_$]*", text)
+        if name:
+            anchors = list(re.finditer(rf"(?:^|\.)({re.escape(name[0])})(?=[.\[:])", obj))
+            if len(anchors) == 1:
+                obj = obj[anchors[0].start(1):]
+    return file, line, column, kind, obj
 
 
 def code_metrics(points: dict[str, int], exclude: frozenset[Path] = frozenset(),
@@ -81,11 +100,12 @@ def code_metrics(points: dict[str, int], exclude: frozenset[Path] = frozenset(),
     Leave out points whose source file is in ``exclude`` in either view.
     """
     grouped: dict[tuple | str, tuple[str, bool]] = {}
+    source_lines: dict[str, list[str]] = {}
     for key, count in points.items():
         metric = POINT_TYPES.get(point_type(key) or "")
-        if not metric or Path(point_field(key, "f") or "").resolve() in exclude:
+        if not metric or (exclude and Path(point_field(key, "f") or "").resolve() in exclude):
             continue
-        identity = source_point(key) if by_source else key
+        identity = source_point(key, source_lines) if by_source else key
         grouped[identity] = (metric, count > 0 or grouped.get(identity, (metric, False))[1])
     out = {m: {"covered": 0, "total": 0} for m in ("line", "toggle")}
     for metric, covered in grouped.values():

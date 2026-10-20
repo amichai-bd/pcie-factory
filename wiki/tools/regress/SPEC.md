@@ -461,19 +461,37 @@ them. A point is attributed to the file Verilator reports, so an
 keeps separate point keys for elaborated instances and parameterizations
 (`h` and `page`). The summary retains those full keys as the `by_instance`
 counts. The `by_source` view groups keys by resolved source file (`f`),
-line (`l`), column (`n`), point type (`t`) and object (`o`). A source point
-is covered if any of its instances has a positive count. The statement
+line (`l`), column (`n`), point type (`t`) and source object. A source
+point is covered if any of its instances has a positive count. The statement
 span annotation (`S`), hierarchy and parameterization do not create
 additional source points. Different columns and line/branch types remain
-distinct; `o` preserves branch outcomes and each signal name, bit index
-and transition direction. Wider parameterizations contribute additional
-bits without recounting bits already present in narrower ones.
+distinct. For line and branch points the object (`o`) keeps the branch
+outcome. For toggle points, Verilator may put generated scopes inside `o`
+(`g[0].q`, `g[1].q`) as well as in `h`. The reader finds the declaration
+identifier at `f/l/n` in the matching compiled source and, when that name
+appears exactly once as an object component, discards only the prefix
+before it. The declared signal name, every struct member, array/bit index
+and transition direction remain. Thus `g[0].q[0].field:0->1` and
+`g[1].q[0].field:0->1` count once; `q[1].field:0->1` or the opposite
+transition still counts separately. Wider parameterizations contribute
+additional bits without recounting existing bits.
+
+**Conservative fallback.** When the matching source is unavailable, the
+location does not identify a plain declaration name, or that name appears
+more than once in `o`, the full object is retained. In particular, a scope
+and signal both named `q` (`q[0].q`) are ambiguous with an array element's
+struct member, so the reader does not conflate them. Such points may still
+count separately by generated scope; hierarchy and parameterization in
+`h/page` never create duplicates. Escaped identifiers also retain the full
+object. Source files are read once per metrics calculation, not once per
+point.
 
 `line` and `toggle` in the summary and printed table are the by-source
 counts, and their floors use that view. `by_source` and `by_instance`
 each contain both metrics with covered, total and percentage fields.
-Functional coverage is unchanged. The raw `merged.dat` and `merged.info`
-retain every original key for instance-level annotation. A metric with no
+Functional coverage is unchanged. The raw `merged.dat` retains every
+original key for instance-level annotation; `merged.info` generation is
+unchanged. A metric with no
 points is reported `n/a`.
 
 **Table.** After the level totals, the run prints one row per selected IP:
@@ -497,7 +515,9 @@ The coverage unit tests use two parameterizations with disjoint hits to
 prove source union and the preserved per-instance counts. They keep
 separate branch outcomes, source columns, files, signal names, bit indices
 and transition directions, test a bit present only in the wider instance,
-and show floors use the source view while raw annotation keys remain.
+show floors use the source view while raw annotation keys remain, and
+check generated scopes against struct arrays, separate bit transitions,
+missing sources and scope/declaration name collisions.
 
 ### Coverage floors
 
