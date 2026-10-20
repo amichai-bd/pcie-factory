@@ -60,7 +60,13 @@ flowchart LR
   [class](../../arch/link/HAS.md#error-injection) per packet (on request,
   at a per-packet rate, or by the level switches that drop every Ack or
   every TLP), and re-encodes with its own running disparity, so nothing
-  else changes on the line. It records the sent and delivered views and
+  else changes on the line. The disparity-only class, on request, sends
+  one TLP header symbol as the same byte's code from the other
+  running-disparity column: the receiver decodes the byte intact with a
+  disparity error. A symbol qualifies when that code is a disparity error
+  at the output's running disparity and makes no comma or run of six equal
+  bits with its neighbours; otherwise the next data symbol of the TLP is
+  tried, and a TLP that ends first is counted as missed. It records the sent and delivered views and
   the injection log, timed at the `link` ports (sent at the transmitter's
   output, delivered plus the channel delay to the receiver's input).
 - **Channel:** the `phy` e2e's
@@ -77,9 +83,12 @@ flowchart LR
   - `link_up_o` 1 and `dl_state_o` DL_Active from the first DL_Active on
     (unless a test requests a link-down); in L0 `ltssm_state_o` is exactly
     `0x20`, never an L0s sub-state ([power states](../../arch/link/HAS.md#power-states));
-  - each `fc_*_avail_o` in DL_Active at most the far end's advertisement,
+  - each finite `fc_*_avail_o` in DL_Active, per class and field, at most
+    the far end's advertisement less the credits of its class in flight:
+    the end's TLPs accepted (counted from the cycle after the `sop`) and
+    not yet delivered (`eop` taken) at the far end, so not yet returnable;
     all ones for an infinite field, and back at the advertisement once
-    drained;
+    drained ([#436](https://github.com/amichai-bd/pcie-factory/issues/436));
   - liveness: 20000 cycles with nothing delivered while a TLP is
     outstanding fails;
   - reset values while `rst_i` is high, and the `dll` outputs at theirs
@@ -124,6 +133,8 @@ flowchart LR
 - **Directed classes:** the tests inject one class at a time with traffic
   both ways and check its pulses from the HAS: Bad TLP (and `rcv_err_o`
   for an invalid symbol) and a Nak for an LCRC error or a corrupted TLP;
+  `rcv_err_o`, Bad TLP and a Nak for a disparity-only error, whose bytes
+  and LCRC are intact;
   a dropped TLP gives Bad TLP and a Nak when a TLP follows, the sender's
   replay timeout when it was the last; Bad DLLP for a corrupted DLLP and
   no pulse for a dropped one; one Nak and at least two replay timeouts
@@ -141,7 +152,9 @@ flowchart LR
 - **Model unit tests:** [`test_pcie_link_injector_model.py`](../../../../src/dv/link/models/test_pcie_link_injector_model.py)
   checks the injector against a reference transmitter and a strict
   decoder (pass-through bit exact, each class, running disparity and the
-  scrambler kept);
+  scrambler kept; the disparity-only class gives exactly one disparity
+  error and no code error, every byte as sent, the hit TLP alone flagged,
+  commas only where the transmitter sent them and no run over five);
   [`test_pcie_link_throughput_model.py`](../../../../src/dv/link/models/test_pcie_link_throughput_model.py)
   checks the line tally and the attribution on a stream of known content
   (every symbol attributed, windows and straddling packets); the partner's passive mode has its own
@@ -157,6 +170,7 @@ their own top ([GPIO lower layer](#gpio-lower-layer)).
 | --- | --- | --- | --- |
 | [Stack wiring](../../arch/link/HAS.md#stack-wiring) and [reset values](../../arch/link/HAS.md#reset-values): reset, link-up to DL_Active at both ends, 60 TLPs of the mix each way, every check, error-free | `e2e_smoke` | 0 | 1 |
 | [Error injection](../../arch/link/HAS.md#error-injection): LCRC error, corrupted TLP, dropped TLP (with a TLP behind it, and as the last), each way, with their pulses | `e2e_tlp_errors` | 1 | 1 |
+| [Errors](../../arch/link/HAS.md#errors): a disparity-only error on a TLP, twice each way: `rcv_err_o`, Bad TLP and a Nak at the receiver with the bytes and LCRC intact (the `phy`'s `pkt_rx_err` through `link`), no replay timeout, delivered once | `e2e_disparity` | 1 | 1 |
 | Corrupted and dropped DLLP, the Nak class and the duplicate class, each way, with their pulses | `e2e_dllp_errors` | 1 | 1 |
 | [REPLAY_NUM rollover](../../arch/link/HAS.md#error-injection), each way: 4 timeouts, 1 rollover, the retrain through the `retrain_req` OR, traffic resumes | `e2e_rollover` | 1 | 1 |
 | [`REPLAY_TIMEOUT`](../../arch/link/HAS.md#parameters) passed to both `dll`s, each way: one maximum-payload TLP with the reverse line's Acks dropped; the `dl_err_o` timeout pulse `REPLAY_TIMEOUT` + 1 cycles after the TLP's `eop` at the `dll`-to-`phy` boundary (the bench samples the pulse one cycle after it is set), one timeout, no pulse at the receiver, delivered once | `e2e_replay_timeout` | 1 | 1; `REPLAY_TIMEOUT` 1400 |
@@ -178,7 +192,9 @@ their own top ([GPIO lower layer](#gpio-lower-layer)).
 Level 1 is what `ci-gate` runs for every change that reaches `link`
 (`dll`, `phy`, `mac`, `pcs` and some shared blocks), so it keeps the
 fastest entries that discriminate the stack wiring: the TLP and DLLP
-error classes, the rollover and its retrain, the minimum credits (the
+error classes, the disparity-only error (the only catch of the `phy`'s
+`pkt_rx_err` lost in `link`, [#436 mutants](#per-class-credit-and-disparity-mutants)),
+the rollover and its retrain, the minimum credits (the
 configuration that starves both ends hardest) and the throughput screen.
 `e2e_line`, `e2e_mixed`, `e2e_hot_reset` and the other three credit
 configurations moved to level 2: each re-checks a path that a unit DV
@@ -306,6 +322,23 @@ seed; `e2e_smoke` passes it.
 | --- | --- | --- |
 | 356 passed to the `dll`, not `REPLAY_TIMEOUT` | `e2e_replay_timeout` (L1) | Timeout 357 cycles after the `eop` on `ab`, expected 1401. |
 
+### Per-class credit and disparity mutants
+
+[#436](https://github.com/amichai-bd/pcie-factory/issues/436) (from #317
+and #302): run on the final RTL, one at a time at each entry's first seed.
+Before #436 the first survived `e2e_smoke` and `e2e_credits_minimum`
+(found on [#315](https://github.com/amichai-bd/pcie-factory/pull/315)),
+and the `phy`'s `pkt_rx_err` lost in `link` survived every entry (the
+[#298](https://github.com/amichai-bd/pcie-factory/pull/298) review): no
+check told the per-class outputs apart while their advertisements are
+equal, and no injected error reached the `dll` with its bytes intact.
+
+| Mutant in `pcie_link` | First failing entry | Result |
+| --- | --- | --- |
+| `fc_ph_avail_o` and `fc_nph_avail_o` swapped at the `dll` | `e2e_smoke` (L0) | End a, cycle 10401: `fc_ph_avail_o` 8 with 1 posted header credit in flight, above the 8 advertised. `e2e_credits_minimum` (L1) and `e2e_credits_asymmetric` (L2) fail it the same way (1 of 1 advertised; 8 of 8 at cycle 10433). |
+| The `phy`'s `pkt_rx_err_o` not connected (`pkt_rx_err` 0 at `LOWER` 0) | `e2e_disparity` (L1) | The first disparity-only error on `ab` (TLP seq 1, cycle 10471): no Bad TLP at b and no Nak. Every other level 0 and 1 entry passes it. |
+| The `dll`'s `pkt_rx_err_i` tied to 0 | `e2e_disparity` (L1) | As above; `gpio_damage` (L1) also fails it (the adapter's error eop, as M24 below). `e2e_smoke` passes it. |
+
 ## GPIO lower layer
 
 The [lower layer](../../arch/link/HAS.md#lower-layer) at `LOWER` 1
@@ -382,7 +415,6 @@ The adapter's own mutants are in the [gpio unit DV plan](../gpio/DV_PLAN.md#muta
 
 | Feature | Owning issue |
 | --- | --- |
-| The `link` wiring of `pkt_rx_err`: a packet the `phy` flags with its bytes intact (a running-disparity-only error) is undetected by the current injector, so a tie-off of `pkt_rx_err` in `pcie_link` survives every entry (it is caught inside the `dll` by `crc16_kat`) | [#302](https://github.com/amichai-bd/pcie-factory/issues/302) |
 | The `ltssm_state_o` to `pkt_tx_valid` path on the FPGA and ASIC timing reports ([MAS timing](../../rtl/link/MAS.md#timing)) | [#218](https://github.com/amichai-bd/pcie-factory/issues/218), [#219](https://github.com/amichai-bd/pcie-factory/issues/219) |
 
 ## Coverage holes
@@ -400,8 +432,11 @@ the 90.2 of [#217](https://github.com/amichai-bd/pcie-factory/issues/217)
 ([firstmate decision on #360](https://github.com/amichai-bd/pcie-factory/issues/360#issuecomment-6267113561):
 the captain decision's "unchanged" means not lowered), and the toggle
 floor is lowered as below. The remaining gaps add no
-simulation stimulus that could lower them: #302 adds an injector class,
-and #218 and #219 are timing reports. A future entry with a new parameter
+simulation stimulus that could lower them: #218 and #219 are timing
+reports. [#436](https://github.com/amichai-bd/pcie-factory/issues/436)
+added the disparity-only class to `link_e2e_inject` (the class bin and its
+cross with each direction: 3 bins, 88 in all), each hit by `e2e_disparity`
+(level 1), and no parameter set. A future entry with a new parameter
 set (a new `CREDITS`, `REPLAY_TIMEOUT` or other parameter value)
 re-measures the floors in the same PR.
 
