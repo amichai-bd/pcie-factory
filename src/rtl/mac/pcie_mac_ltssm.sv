@@ -607,7 +607,7 @@ module pcie_mac_ltssm #(
   // latched (l0_exit). L1 and L2 entry need the request and a received EIOS;
   // the upstream port first sends its EIOS and waits in L0 (pm_wait).
   common_pkg::t_l0s_sub rx_sub_x, tx_sub_x;   // the sub-states after this step's arcs
-  logic          rx_fts_to_c;                 // the Rx_L0s.FTS timeout expired (latched)
+  logic          rx_fts_to_c;                 // the Rx_L0s.FTS timeout expired (counter saturates)
   logic          eios_pm;                     // L1 or L2 requested and an EIOS received
   logic          pm_wait_done;                // upstream wait withdrawn, transmitter idle 3 cycles
   logic          l0_to_rlock, l0_to_pm, pm_wait_go, l0_exit_c, l0_pending, l0_blocked;
@@ -650,7 +650,7 @@ module pcie_mac_ltssm #(
   // to FTS on EI exit, the FTS timeout.
   always_comb begin
     rx_sub_x    = rx_sub_e;
-    rx_fts_to_c = !rx_moved_e && r_q.pm.rx_fts_to;
+    rx_fts_to_c = 1'b0;
     if (in_l0) begin
       if (rx_sub_e == common_pkg::L0S_SUB_ENTRY && rx_age >= RX_ENTRY_TO) begin
         rx_sub_x = common_pkg::L0S_SUB_IDLE;
@@ -988,7 +988,6 @@ module pcie_mac_ltssm #(
     r_d.pm.fts_skp      = fts_skp_c;
     r_d.pm.idle_cnt     = idle_cnt_c;
     r_d.pm.rx_cnt       = rx_age;
-    r_d.pm.rx_fts_to    = rx_fts_to_c;
     r_d.pm.sub_ei_seen  = sub_ei_seen_c;
     r_d.pm.sub_ei_exit  = sub_ei_exit_c;
     r_d.pm.main_ei_seen = main_ei_seen_c;
@@ -1042,7 +1041,6 @@ module pcie_mac_ltssm #(
       r_d.pm.main_ei_exit = 1'b0;
       r_d.pm.idle_cnt     = '0;
       r_d.pm.rx_cnt       = '0;
-      r_d.pm.rx_fts_to    = 1'b0;
       r_d.pm.sub_ei_seen  = 1'b0;
       r_d.pm.sub_ei_exit  = 1'b0;
       r_d.run_hr        = '0;

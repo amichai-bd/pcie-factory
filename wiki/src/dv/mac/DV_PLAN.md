@@ -90,7 +90,18 @@ shows where each of their checks went.
     receive error kind (framing, RxStatus, cut by RxValid, electrical idle
     or leaving `Rx_L0`, empty packet, the PCS's idle tail inside a packet
     and outside one), and the receive latency per lane (3 from `[7:0]`, 4
-    from `[15:8]`). The latency bound is one cycle longer only for a
+    from `[15:8]`), including explicit EDB exception bins `4_lane0` and
+    `4_lane1_edb`, exercised and required to increment by `rx_idle_tail`
+    in level 1. Both one-beat exceptions take four cycles: a lane-1 start
+    followed by EDB in `[15:8]` has only one data byte; its EDB lands in
+    the next word, like the two-byte lane-0 case, and both wait one word.
+    Five cycles is the HAS's permitted lane-1 bound, not an exact latency
+    reachable by this continuous one-beat stream. A dropped RxValid or
+    electrical idle cuts the packet instead of delaying its EDB. An unexpected
+    latency sample fails instead of silently missing the bins. `3_lane1`
+    also records short malformed packets that terminate before a full beat
+    (exercised by `rx_errors`), rather than silently losing those samples. The latency
+    bound is one cycle longer only for a
     packet whose only beat ends with EDB in `[15:8]`
     ([HAS, Targets](../../arch/mac/HAS.md#targets)).
   - Floors: level 1 holds `mac_os_tx`, `mac_os_rx` and `mac_frame` at
@@ -294,12 +305,23 @@ entries), so most holes are copies. Every hole, by cause:
 | Not reached: cost | 5 | 40 | The LTSSM timer's saturation and its bits 21 and 22: a dwell of 2^21 cycles (16.8 ms) needs the 24 or 48 ms timeouts at divider 1, over a quarter of an hour of simulation each; the dividers entries check the same timeouts scaled. |
 
 [#90](https://github.com/amichai-bd/pcie-factory/issues/90) closed with
-tests: the `Rx_L0s.FTS` timeout held while `Tx_L0s.FTS` runs (`arcs_quick`; the timeout flag `rx_fts_to` now toggles), 64 or more FTS sent
+tests: the `Rx_L0s.FTS` timeout held while `Tx_L0s.FTS` runs (`arcs_quick`; the saturating receive counter keeps the timeout comparison asserted), 64 or more FTS sent
 (`smoke_n_fts_255`), a SKP credit past 4096 (`traffic_long`), and in
 `rx_idle_tail` a stray EDB in `[15:8]` as the receiver leaves `Rx_L0` and
 a 3-byte DLLP ending in the receive queue's second slot; each new
 stimulus catches a mutant the old one missed ([mutation
 evidence](#mutation-evidence)).
+
+The L1 `rx_idle_tail` also sends a two-byte TLP in each role, checks its
+lossless arrival at the partner and requires `tx_size.one_beat` to increment.
+This makes the existing 100% L1 frame floor independent of random sizes.
+
+The L1 `rx_idle_tail` EDB exception checks require the measured latency
+bins to increment in both roles. Moving the deferred EDB wait to the
+wrong half of the word fails `rx_idle_tail` at cycle 10278: a packet is
+delivered one edge before the shadow permits it. The separate
+`4_lane1_edb` bin distinguishes that short exception from ordinary lane-1
+traffic with the same numerical latency.
 
 ## Budget placement
 
