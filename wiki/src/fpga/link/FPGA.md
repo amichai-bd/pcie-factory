@@ -141,7 +141,8 @@ to the PR's final head, whose own `ci-fpga` run reproduces it (PR #276).
 
 Both `dll` buffers are in M9K through the Intel backend's one-lane form, so
 neither is in registers. The fourth M9K is not a `common_sdp_ram`: Quartus
-infers the TX path's 64-entry `end_q` array as a RAM.
+infers the TX path's 64-entry `end_q` array as a RAM, the one inferred RAM
+([FPGA BKM](../../../bkm/fpga.md#intel-backends)): a 64 × 8 register array (`pcie_dll_tlp_tx` `u_tlp_tx`, the word after each held TLP) that Quartus maps to one M9K, adding pass-through logic so a read of the word being written returns what the RTL returns (known warning 276020). It stays inferred: behavior is preserved, the 512 bits fit one block, and nothing needs a defined collision, so it does not need the shared RAM block's explicit backend.
 
 **`dll` rollover path.** `ltssm_state_o` → `pkt_tx_valid` → `phy` is a
 `clk_core` path, so its slack is at least the clock's worst, +1.150 ns. The

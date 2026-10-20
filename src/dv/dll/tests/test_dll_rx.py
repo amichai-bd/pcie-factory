@@ -14,6 +14,7 @@ from __future__ import annotations
 import random
 
 import cocotb
+from cocotb.triggers import ClockCycles
 
 from tb.dll_env import (ACK_BOUND, ACTIVE, CLASSES, INACTIVE, INIT1, INIT2, Env, arch,
                         arch_partner_traffic, ptn, raw_dllp)
@@ -450,3 +451,22 @@ async def rx_seq_wrap(dut):
     """L2: 4200 short TLPs with light errors, so NEXT_RCV_SEQ wraps past
     4095 with duplicates and Naks around it."""
     await partner_run(dut, errors=LIGHT_ERRORS, count=4200, max_dw=1, limit=400000)
+
+
+@cocotb.test()
+async def rx_never_stall_fatal(dut):
+    """L0 negative, expected to stop the simulation: with the default
+    credits (completions infinite) the upper layer drops tlp_rx_ready_i in
+    DL_Active, which the HAS forbids; ``a_rx_never_stall`` must stop the
+    run at once. The regression entry expects that fatal stop
+    (``expect_fatal``); finishing this function is a failure."""
+    env = Env(dut, cocotb.RANDOM_SEED)
+    await env.start()
+    assert any(v == 0 for c in CLASSES for v in env.adv[c]), \
+        "the default credits have no infinite class"
+    await bring_up(env)
+    dut._log.info("cycle %d: DL_Active; the upper layer drops tlp_rx_ready_i", env.cycle)
+    dut.tlp_rx_ready_i.value = 0
+    await ClockCycles(dut.clk_i, 4)
+    raise AssertionError("a_rx_never_stall did not stop the simulation within 4 cycles of a "
+                         "stall in DL_Active with a class infinite")

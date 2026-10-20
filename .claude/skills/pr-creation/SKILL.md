@@ -82,8 +82,8 @@ reviewer's. The evidence items sit in the `## Validation` section.
   writes only `Part of #<n>`. No closing keyword (close, closes, closed, fix,
   fixes, fixed, resolve, resolves, resolved) stands next to any issue the
   body calls `Part of`, anywhere in the body, not even in a sentence like
-  "part 2 closes #<n>". Keywords inside code spans and code blocks are not
-  counted.
+  "part 2 closes #<n>". Keywords inside code spans, code blocks and HTML
+  comments are not counted (GitHub ignores a keyword in a comment too).
 - **(checked)** Head: an `At head <sha>` line with the full 40-character
   head SHA. Every result in the section ran at that SHA; if you commit
   again, rerun and update it. Never label a result with a SHA it did not run
@@ -108,7 +108,11 @@ reviewer's. The evidence items sit in the `## Validation` section.
   exempt, though the reviewer may still ask a new entry for a mutant) has a table whose header names a `Mutant` column, with its
   separator row and one row per mutant of the changed code: what was
   changed, the entry and seed, and where and how it failed (cycle and
-  message).
+  message). A `src/dv/` change that no mutant can meaningfully
+  exercise (a regression entry moved between levels, a filelist reorder)
+  writes one row whose result is `no meaningful mutant: <reason>`, for
+  example `| none | - | - | no meaningful mutant: entry moved from L1 to L2, no
+  code changed |`; whether the reason holds is the reviewer's judgment.
 - **(checked)** Not run: a `### Not run` subsection listing anything cut or
   not rerun with the reason, or `None.`.
 - **(checked)** Stale SHA: no result in the section is labelled with
@@ -162,9 +166,12 @@ verify:
 
 `./build pr check` must pass on the current head before the firstmate
 spawns a reviewer and before the PR is marked ready. Rerun it after every
-push and body edit. Fix the body or the evidence, never the check; a rule
-that is wrong for a PR is a finding against this skill and the tool, fixed
-in its own issue.
+push and body edit. Fix the body or the evidence, never the check. When a
+rule is wrong for a PR (it rejects evidence the skill allows), never bypass
+it: either fix the tool, its SPEC, `cfg/pr.yaml` and this skill in the
+blocked PR's issue (in scope there, with a unit test), or report it to the
+firstmate, who asks the captain to decide
+([captain decisions](../firstmate/SKILL.md#captain-decisions)).
 
 Fix mismatches with `update_pull_request` (or `gh pr edit`) and read back
 again. If the head moved, rerun section 1 and update the body.

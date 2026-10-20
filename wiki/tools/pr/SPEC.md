@@ -72,6 +72,8 @@ its path is scanned. A failing `gh` call exits 2 with its last error line.
 
 ## Configuration: `cfg/pr.yaml`
 
+The full file, with its comments shortened:
+
 ```yaml
 mutation_paths: [src/rtl/, src/dv/]          # changed files that need a mutation table
 mutation_exempt: ["src/dv/*/regress/level*.yaml"]   # ...except a change confined to these (fnmatch; may be [])
@@ -79,6 +81,7 @@ seeded_commands: ["./build regress", "./build sim"]
 versions:                                     # command substring -> tools whose version is required
   - {when: "pytest", need: [Python, pytest]}
   - {when: "./build regress", need: [Verilator, cocotb, Python]}
+  - {when: "./build sim", need: [Verilator, cocotb, Python]}
 ```
 
 The keys are exactly these four; each list but `mutation_exempt` is
@@ -89,7 +92,11 @@ CPU budgets are `budget_s` in `cfg/levels.yaml` (the
 ## Parsing
 
 - HTML comments are removed and fenced code blocks blanked before any rule
-  runs, so a pasted log can't satisfy or break a rule.
+  runs, so a pasted log can't satisfy or break a rule. This is right for
+  the keywords rule too: GitHub does not honour a closing keyword inside an
+  HTML comment. Checked on PR #444: with `closes #268` in plain text GitHub
+  listed #268 under the issues the PR may close, and with the same keyword
+  inside `<!-- -->` it did not.
 - The **Validation section** is the text under the `## Validation` heading,
   up to the next level-1 or level-2 heading. Every rule but keywords and
   labels reads only this section. Without it the body gets one
@@ -148,8 +155,14 @@ including a fenced log holding a closing keyword and a `## Validation` line;
 `partial.md`, a `Part of`-only docs PR) and never touches the network:
 
 - each rule is pinned by at least one mutation of `good.md` that must raise
-  exactly that rule with its message (25 cases), plus a head mismatch and a
-  `Part of`-only PR that also closes its parent;
+  exactly that rule with its message (28 cases, three of them evidence
+  moved into an HTML comment, which satisfies no rule), plus a head
+  mismatch and a `Part of`-only PR that also closes its parent;
+- each promised input form keeps `good.md` passing (`FORMS`): the
+  `level<N>: P/T passed, CPU 60.2s` lines exactly as `./build regress`
+  prints them, `--level=N`, the `#seeds` link to the seed rule, and an
+  HTML comment holding a stale SHA and a stray table header, and one
+  holding closing keywords for a second issue and for the `Part of` parent;
 - stale SHA: the head cited twice passes; rescope: a declared
   `Acceptance moved:` line with the comment link passes, without it fails,
   and a `Part of` PR is never checked;

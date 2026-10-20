@@ -124,7 +124,11 @@ the unit tests drive with a fake ORFS.
    `flow.log`, labelled `step <step> in <flow.log>`: every error
    line (OpenROAD `[ERROR <code>]`, Yosys `ERROR:`, OpenSTA `Error:`, make
    `make[<n>]: *** … Error <n>`), at most 50 with the total count, then the
-   last 30 lines.
+   last 30 lines. Each line has its host paths redacted (`<repo>`, `<src>`,
+   `<workdir>`) and then goes through the
+   [log scrub](../build/SPEC.md#log-scrub), which cuts any other absolute
+   path (inside the container too) and replaces user and host names and
+   addresses.
 6. Parse the reports and write `metrics.json` and `worst_path.txt`, also on
    failure.
 
@@ -247,7 +251,7 @@ docker version, the local ORFS images (name, tag, digest) and where
 `openroad`, `yosys` and `klayout` are on `PATH`. The `asic-metrics` artifact
 (14-day retention) holds only `metrics.json` and `worst_path.txt` per IP
 (from `asic/`, or `asic-study/<period>ns/` for a study),
-never raw ORFS reports or logs; the redacted failure excerpt printed to the
+never raw ORFS reports or logs; the redacted and scrubbed failure excerpt printed to the
 job log is the only part of `flow.log` that leaves the host. The job keeps the fork guard (`if:` requires
 a non-`pull_request` event or a head repository equal to this one), so fork
 code never runs on the self-hosted host if a trigger is added later.
@@ -263,7 +267,7 @@ metrics collector tests prove studies cannot populate the nightly ASIC record.
 
 | Test file | Proves |
 | --- | --- |
-| `test_asic_flow.py` | `config.mk` generation (filelist order, include dirs, defines with `SYNTHESIS`, nickname and output path from the IP id, determinism); `.mk` validation (including `override`, `define`, the ORFS directory variables and `ASIC_INPUT_DIR`); `ASIC_INPUT_DIR` exported before the `.mk`; source backends (a `sky130` backend file replacing its portable file in place, no swap without one, another flow's backend ignored, a listed backend file exiting 2); SDC count; ORFS settings (digest required, `ORFS_IMAGE` ignored, cores, overrides); docker hardening flags and mounts; unique container names; step commands; `--dry-run`; and a full run against `fixtures/fake_orfs` (a fake `env.sh`, `make`, `openroad`, `yosys`): pass, step failure, timeout, SIGTERM, missing metrics; a failing step that prints the hand-made `fixtures/flow_fail.log` (its error lines more than 30 lines before the end) shows every error line, redacted, before the tail, and one without error lines says `none matched`; and, for the `clocks` step, an empty `clocks` (`incomplete: missing timing.clocks`), a failing step (`clocks: fail (exit 3)`) and a hanging one cut by the run budget (`clocks: timeout after <S>s`), each exit 1 with fanout and depth kept and, where the clocks are missing, the cause in `warnings`. |
+| `test_asic_flow.py` | `config.mk` generation (filelist order, include dirs, defines with `SYNTHESIS`, nickname and output path from the IP id, determinism); `.mk` validation (including `override`, `define`, the ORFS directory variables and `ASIC_INPUT_DIR`); `ASIC_INPUT_DIR` exported before the `.mk`; source backends (a `sky130` backend file replacing its portable file in place, no swap without one, another flow's backend ignored, a listed backend file exiting 2); SDC count; ORFS settings (digest required, `ORFS_IMAGE` ignored, cores, overrides); docker hardening flags and mounts; unique container names; step commands; `--dry-run`; and a full run against `fixtures/fake_orfs` (a fake `env.sh`, `make`, `openroad`, `yosys`): pass, step failure, timeout, SIGTERM, missing metrics; a failing step that prints the hand-made `fixtures/flow_fail.log` (its error lines more than 30 lines before the end) shows every error line, redacted, before the tail, and one without error lines says `none matched`; a failure excerpt with a workdir path, a container path, a user name and an e-mail address prints them redacted and scrubbed; and, for the `clocks` step, an empty `clocks` (`incomplete: missing timing.clocks`), a failing step (`clocks: fail (exit 3)`) and a hanging one cut by the run budget (`clocks: timeout after <S>s`), each exit 1 with fanout and depth kept and, where the clocks are missing, the cause in `warnings`. |
 | `test_asic_metrics.py` | Each parser, the worst path as the least slack of a multi-group section (and not of a later section), each clock's worst paths, the peak memory (largest step, absent or malformed lines, in the summary), the per-clock slacks (sorted, `wns_ns`, non-numbers dropped; missing, empty or malformed `clocks` alone makes the run `incomplete`, with a warning naming the cause) and the worst-path summary on the fixture reports in `fixtures/orfs/` and on malformed or empty input. |
 
 `fixtures/orfs/` holds report files cut from a real run of the pinned image

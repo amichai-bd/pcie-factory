@@ -82,7 +82,10 @@ stale SHAs, command table, versions, seeds, per-level results and CPU
 against budgets, mutation table, `### Not run`, keywords and rescoped
 `Closes`, neutrality of the diff, labels). Cite it in the verdict
 (`pr check: evidence OK @<sha>`); a missing or stale output, or any `error:`
-line in it, is a blocking finding. Then audit what it cannot judge: that the
+line in it, is a blocking finding. A passing check is not a waiver: a format
+discrepancy against the [pr-creation](../pr-creation/SKILL.md#2-compose-the-body)
+rules that the checker missed is still a finding (name the rule, and it is
+also a finding against the tool). Then audit what it cannot judge: that the
 recorded evidence is plausible, covers the required levels for the affected
 IPs, and that each mutant and result actually supports the claim.
 

@@ -382,14 +382,18 @@ def test_other_ips_testbench_module_import_selects_the_importer(repo):
 
 
 def test_testbench_package_init_and_tests_are_not_bare_modules(repo):
-    # A package __init__ and a test file are never imported by bare name, so
-    # changing them selects only their owner, even if a name matches.
+    # A package __init__, a pytest conftest and a test file are never
+    # imported by bare name, so changing them selects only their owner, even
+    # if a name matches.
     (repo / "src/dv/counter/tb").mkdir(parents=True)
     (repo / "src/dv/counter/tb/__init__.py").write_text("")
+    (repo / "src/dv/counter/tb/conftest.py").write_text("")
     (repo / "src/dv/counter_inc/tb").mkdir(parents=True)
-    (repo / "src/dv/counter_inc/tb/inc_env.py").write_text("import __init__\nimport test_counter\n")
+    (repo / "src/dv/counter_inc/tb/inc_env.py").write_text(
+        "import __init__\nimport conftest\nimport test_counter\n")
     commit_all(repo)
-    for rel in ("src/dv/counter/tb/__init__.py", "src/dv/counter/tests/test_counter.py"):
+    for rel in ("src/dv/counter/tb/__init__.py", "src/dv/counter/tb/conftest.py",
+                "src/dv/counter/tests/test_counter.py"):
         (repo / rel).write_text("# x\n")
         assert affected(repo) == {"counter": f"changed: {rel}"}
         git(repo, "checkout", "-q", "--", ".")
