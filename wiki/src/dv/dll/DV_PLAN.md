@@ -215,7 +215,7 @@ into a model or the RTL silently.
 | [Receiving TLPs](../../arch/dll/RETRY.md#receiving-tlps) by hand: discarded in DL_Inactive and FC_INIT1; a bad TLP's Nak held in FC_INIT2; a good TLP ends FC_INIT2; every class and size, 3- and 4-DW headers, gaps and back to back; duplicates with an Ack at once (D = 2048 too); ahead (D = 1, 2047) with one Nak per NAK_SCHEDULED; bad LCRC, flagged, too short, nullified, EDB without the inverse; each malformed kind, packets beyond the beat counter; [digests](../../arch/dll/HAS.md#receive) (TD 1) delivered with the TLP, 3- and 4-DW headers, the largest TLP of 37 DWs, and malformed without the digest, with a 132-byte payload, or a DW too many with TD 0; link down while a TLP arrives and while one is delivered. [Ack timer](../../arch/dll/RETRY.md#ack-and-nak-scheduling): 35 cycles on an idle stream ([MAS, timing](../../rtl/dll/MAS.md#timing)); Nak and duplicate Ack within 7; [receive latency](../../arch/dll/HAS.md#targets) within 4 | `rx_directed` | 0 | 1 |
 | [The upper layer never stalls](../../arch/dll/HAS.md#receive) when a class is infinite: `tlp_rx_ready_i` 0 in DL_Active with the default credits stops the run on `a_rx_never_stall` (negative, `expect_fatal`) | `rx_never_stall_fatal` | 0 | 1; passes only on that fatal stop |
 | [Transmit accounting](../../arch/dll/FLOW_CONTROL.md#transmit-accounting): the gate for every class and field, at exactly half the range and one past it, after limits beyond half the range, with infinite fields; CREDITS_CONSUMED wrapping; credits available; cleared by link-down mid-TLP | `fc_tx_gate` | 1 | 1; hand-driven far end that acknowledges every TLP |
-| [Receive accounting](../../arch/dll/FLOW_CONTROL.md#receive-accounting) on real TLPs from a hand-driven far end that replays: stored, malformed (credits returned at once, none under 4 bytes), returns at the delivered `eop`; [UpdateFC](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling) on returns, in FC_INIT2 (entry value) and DL_Active, its value, cause, round robin and latency; refreshes; link down; default credits | `fc_rx_accounting` | 0 | 1 |
+| [Receive accounting](../../arch/dll/FLOW_CONTROL.md#receive-accounting) on real TLPs from a hand-driven far end that replays: stored, malformed (credits returned at once, none under 4 bytes), returns at the delivered `eop`; [UpdateFC](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling) on returns, in FC_INIT2 (entry value) and DL_Active, its value, cause, round robin and latency; refreshes; link down; default credits | `fc_rx_accounting` | 1 | 1 |
 | The same, every class finite, the upper layer slow and stalling: the [overflow check](../../arch/dll/FLOW_CONTROL.md#receive-buffer), Receiver overflow, no Ack or Nak, the TLPs behind arriving ahead | `fc_rx_accounting_finite` / `fc_rx_accounting_finite_sweep` | 1 / 2 | derived seed 0 / its derived seed 1 (1892473378) pinned; coverage on both |
 | The same, every class infinite (the reserve; UpdateFC all 0) | `fc_rx_accounting_infinite` / `fc_rx_accounting_infinite_sweep` | 1 / 2 | derived seed 0 / its derived seed 1 (1163266549) pinned, no coverage run |
 | [Credits target](../../arch/dll/HAS.md#targets), transmit side: starvation and recovery with the partner's upper layer taking 30%, stalling 4000 cycles, taking 30%, stalling 10000 cycles, then taking all; no overflow at the partner's receive-side check; arch model against a fresh partner | `credit_starve` / `credit_starve_sweep` | 1 / 2 | 0 / 1 to 3 (partner credits: three all finite, one default; with the default, seed 2, the partner stalls with completions infinite, outside the HAS obligation and the Credits target's every-class-finite wording, which binds the `dll`'s upper layer; the partner's store is unbounded and only the DUT's gate is under test); coverage on seeds 0 to 2 |
@@ -271,13 +271,19 @@ below is first caught by them, and the transmit and replay paths they load
 stay under `ci-gate` through `lcrc_kat`, `rbuf_full`, `tlp_partner` and
 `tlp_bidir`.
 
-The other directed entries stay in level 0
+The other short directed entries stay in level 0
 ([#325](https://github.com/amichai-bd/pcie-factory/issues/325)): each takes
 about 1 to 5 s of CPU, and they are the quickest catch of a broken block
 (most mutants in the table below are first caught there), so a change that
 breaks the CRC, the control states, transmit, replay or receive fails in the
 first minutes of `ci-gate`, and a factory-only change, which runs level 0 of
 every IP, still exercises each block.
+
+`fc_rx_accounting` runs at L1 under
+[#435](https://github.com/amichai-bd/pcie-factory/issues/435): it is a
+functional receive-accounting check rather than a build smoke. Its recorded
+mutant catches remain in the gate, as does `credit_starve_rx`, whose
+exact-full receiver-overflow mutant has no recorded alternative catch.
 
 `fc_tx_gate` runs in level 1, not 0
 ([#325](https://github.com/amichai-bd/pcie-factory/issues/325)): level 0
@@ -668,3 +674,18 @@ bodies and `u_tx` `body`, `tx_q.pkt` and `tx_d.pkt` (DLLP format); the
 fill's top bits (buffer full); the `u_fc` `alloc*`, `rcvd*`, `sent`,
 `upd`, `used` and `lim_*` fields (counter top bits); then the named
 transmit-block bits, `wr_lanes_i` and `hold_left`.
+
+## Budget placement
+
+[#435](https://github.com/amichai-bd/pcie-factory/issues/435): The
+receive-accounting functional test moves from L0 to L1; its seed and
+instrumentation do not change. Short block smoke remains at L0, and the
+receive-accounting and overflow mutants remain covered at L1.
+
+The combined levels keep the original testcases, parameters, seeds and
+per-seed coverage instrumentation; no coverage floor is raised or lowered.
+The PR records plain and coverage-instrumented CPU measurements separately.
+
+| Entry | Current placement |
+| --- | --- |
+| `fc_rx_accounting` | L1; unchanged seeds, parameters and instrumentation |

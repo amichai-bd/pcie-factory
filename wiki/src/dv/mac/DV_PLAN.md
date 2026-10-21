@@ -125,13 +125,13 @@ shows where each of their checks went.
 | [Reset values](../../arch/mac/HAS.md#reset-values) with every input toggling; training to L0; the scrambler's [known answer](../../arch/mac/SYMBOLS.md#scrambling) on the line after a SKP; a TLP, a DLLP and a nullified TLP each way; a retrain each way; reset with a packet half accepted (`pkt_tx_ready_o` falls at once), then a clean packet; both roles | `smoke` | 0 | 1 |
 | [Core arcs without an error-path timeout](../../arch/mac/ARCS.md), both roles: retrain by request, received TS and electrical idle; no receiver; Configuration walks to the PAD and renumbering exits; RcvrCfg's mismatching TS1; Recovery.Idle's lane PAD; Polling.Compliance in and out; an upstream port learning link 255. [Power states](../../arch/mac/ARCS.md#l0s-sub-machines) (`ep_power`): transmit and receive L0s left by a packet each way (EIOS, P0s, FTS, the closing SKP), a retrain in `Rx_L0s.Idle` and one in `Rx_L0s.Entry` (the exit latched until `.Idle`), the `Rx_L0s.FTS` timeout with the DUT's transmitter in `Tx_L0s.Idle` (the Recovery exit held while `Tx_L0s.FTS` sends its FTS; partner `fts_extra` 200 + 2 x N_FTS, so its SKP never ends `Rx_L0s.FTS` first), L1 requested after an EIOS already started receive L0s (the upstream port still sends its EIOS first), L1 and L2 entered by both requests and left by request 0, the upstream wait for L1 withdrawn | `arcs_quick` | 1 | 1; 43 of 53 arcs per role, every power arc |
 | [Polarity](../../arch/mac/ARCS.md#detect-and-polling): set once in Polling, cleared in Detect.Quiet, packets on an inverted wire | `polarity` | 1 | 1 |
-| [Transmit and receive streams](../../arch/mac/HAS.md#transmit): random TLPs (to 512 bytes, some past the SKP interval) and DLLPs both ways, nullified ones, gaps, lane shifts, DUT retrains inside packets (aborts); SKP deferral and back-to-back SKP | `traffic` | 1 | 3; coverage on the first 2 |
+| [Transmit and receive streams](../../arch/mac/HAS.md#transmit): random TLPs (to 512 bytes, some past the SKP interval) and DLLPs both ways, nullified ones, gaps, lane shifts, DUT retrains inside packets (aborts); SKP deferral and back-to-back SKP | `traffic` / `traffic_extra_seeds` | 1 / 2 | [1783640295, 492241009] / [73290187]; both L1 seeds instrumented, L2 seed plain |
 | The same, longer, the long TLPs up to the largest (4122 bytes), whose SKP deferral takes the SKP credit past 4096 | `traffic_long` | 2 | 2: 1214372279 and 644855963 ([seeds](#seeds-and-coverage-runs)) |
 | [Abort by a bubble](../../arch/mac/HAS.md#transmit): EDB, the rest taken and discarded, later packets intact | `tx_bubble` | 1 | 1; symbol comparison stops at the bubble |
-| [Receive rules](../../arch/mac/SYMBOLS.md#receive): crafted streams in L0 with every malformed case, empty packets, RxValid drops (a framing error inside a packet), RxStatus errors, either lane; electrical idle, a retrain inside a packet and during a resync | `rx_errors` | 1 | 2 |
+| [Receive rules](../../arch/mac/SYMBOLS.md#receive): crafted streams in L0 with every malformed case, empty packets, RxValid drops (a framing error inside a packet), RxStatus errors, either lane; electrical idle, a retrain inside a packet and during a resync | `rx_errors` / `rx_errors_extra_seeds` | 1 / 2 | [1906893083] / [112185741]; L1 seed instrumented, L2 seed plain |
 | [Idle tail](../../arch/mac/HAS.md#receive) (#197), directed, both roles, outcomes from the HAS: a nullified TLP then idle data stays nullified with no error; the same symbols then electrical idle (idle mid-TLP, no EIOS) end bad with exactly one receiver error, as does the cut one symbol earlier; a received EDB in `[15:8]` outside a packet is one framing error, then resync, and without resync when a retrain 0 to 2 cycles later takes the receiver out of `Rx_L0` as the next word arrives (#90); a 3-byte DLLP from `[15:8]`, whose end is the second beat pushed in its word (the receive queue's second slot), is one bad DLLP with one receiver error (#90); an EIOS ending in an idle tail starts receive L0s with no error. Upstream: an EIOS with an idle tail in `Rx_L0` while L1 is requested and the DUT's own packet keeps its wait from starting gives no error (asserted still in L0 with `Rx_L0` and the packet open), then L1 | `rx_idle_tail` | 1 | 1; deterministic; fails on the pre-fix RTL and model |
 | The same, more seeds | `rx_errors_long` | 2 | 6 |
-| [Received TS fields and events](../../arch/mac/SYMBOLS.md#ts1-and-ts2): every link, lane and N_FTS byte, PAD, each control bit, TS2, both lanes; EIOS and FTS at both lanes; K link and lane fields, K, unknown and mismatched identifiers, a TS cut by COM; inverted TS1 and TS2 at both lanes | `ts_fields` | 1 | 2 |
+| [Received TS fields and events](../../arch/mac/SYMBOLS.md#ts1-and-ts2): every link, lane and N_FTS byte, PAD, each control bit, TS2, both lanes; EIOS and FTS at both lanes; K link and lane fields, K, unknown and mismatched identifiers, a TS cut by COM; inverted TS1 and TS2 at both lanes | `ts_fields` / `ts_fields_extra_seeds` | 1 / 2 | [648699848] / [1370320734]; L1 seed instrumented, L2 seed plain |
 | Random partner resets, mutes, freezes, retrains, wrong TS fields and N_FTS, inverted wire, symbol errors, power requests on either side (L0s, L1, L2, mixed) with traffic, both roles | `random_soak` | 2 | 2; coverage on both |
 | [Every core and power arc, timeouts included](../../arch/mac/ARCS.md), downstream, but the two only the `idle_to_rlock` loop reaches: the level-1 recipes and every error-path timeout in one run, all those arcs required in it | `arcs_timeouts_downstream` | 2 | 1 |
 | The same, upstream | `arcs_timeouts_upstream` | 2 | 1 |
@@ -145,7 +145,8 @@ shows where each of their checks went.
 | A following Hot Reset's dwell restarted at the timeout's boundary (the registered timeout, [MAS, Timing](../../rtl/mac/MAS.md#timing)), upstream: a line hook captures a TS1 with Hot Reset from the partner, sends idle data, and plays that TS1 so the restart falls in the step with timer `limit - 3`, `limit - 2` and `limit - 1`; a first restart measures the line-to-restart delay, and each restart must land on its step; then the dwell times out to Detect.Quiet (`mac_hr_dwell`) | `hr_dwell_boundary` | 1 | 1 |
 | Every control-state arc, downstream: the above, plus following Hot Reset and Disabled on partner TS1 with the bit (the dwell restarted while they arrive; Disabled's timeout with no EIOS) and the Loopback master's entry timeout | `control_full_downstream` | 2 | 1 |
 | The same, upstream | `control_full_upstream` | 2 | 1 |
-| [Disable Scrambling](../../arch/mac/SYMBOLS.md#scrambling): the partner's TS2 carry it; idle and packets unscrambled from Configuration.Idle, kept through Recovery, cleared in Detect.Quiet; both roles, 12- and 1-cycle lines; a crafted line where the first word in Configuration.Idle is already unscrambled idle (the test fails if no offset reaches that case) | `no_scramble` | 1 | 1 |
+| [Disable Scrambling](../../arch/mac/SYMBOLS.md#scrambling): the partner's TS2 carry it; idle and packets unscrambled from Configuration.Idle, kept through Recovery, cleared in Detect.Quiet; both roles, 12- and 1-cycle lines; a crafted line where the first word in Configuration.Idle is already unscrambled idle (the test fails if no offset reaches that case) | `no_scramble` | 2 | 1 |
+| [First unscrambled Configuration.Idle word](../../arch/mac/SYMBOLS.md#scrambling): offset 4, both roles; the shadow must witness the boundary, and every received symbol is checked | `no_scramble_edge` | 1 | [9068861]; directed boundary, full offset sweep in `no_scramble` at L2 |
 
 **Level placement** ([#272](https://github.com/amichai-bd/pcie-factory/issues/272)):
 `random_soak` runs in level 2. Level 1 is what `ci-gate` runs for every
@@ -153,11 +154,20 @@ change that reaches `mac`, `phy` or `link`, and `random_soak` was about
 45 s of its CPU. It is a soak by design (random impairments and power
 requests over two seeds), and the arcs, control states and streams it
 mixes keep their directed level 1 entries (`arcs_quick`, `control_quick`,
-`traffic`, `ts_fields`, `rx_errors`). `no_scramble` stays in level 1 (48.2 s of CPU): it
-is the one discriminating entry for Disable Scrambling and the only catch
-of its mutant below, so that kill stays in the merge gate. The merged
-level 0 to 2 coverage is unchanged, and the level 1 covergroup floors
-(`mac_os_tx`, `mac_os_rx`, `mac_frame`) still pass on levels 0 and 1.
+`traffic`, `ts_fields`, `rx_errors`). Under
+[#435](https://github.com/amichai-bd/pcie-factory/issues/435), the unchanged
+full `no_scramble` recipe runs at L2. L1 keeps `no_scramble_edge`, which
+checks offset 4 in both roles and requires the shadow to observe the first
+unscrambled Configuration.Idle word. It preserves the registered-flag
+mutant catch: substituting `r_q.scr_off` for `r_d.scr_off` fails downstream
+at cycle 10334, expected state 0x20, observed 0x0d. The focused recipe
+measured 9.1 s against 73.8 s for the full recipe; these are development
+measurements, not a claim about the current all-IP budget margin. The
+original full recipe, seeds and coverage instrumentation remain at L2.
+The earlier #272 measurement of the full recipe was 48.2 s of CPU. The
+focused entry adds a gate run without replacing any original full-recipe
+run. The L1 covergroup floors (`mac_os_tx`, `mac_os_rx`, `mac_frame`) remain
+required and are not lowered.
 
 **The full arc entries, split** ([#327](https://github.com/amichai-bd/pcie-factory/issues/327)).
 `arcs_full_downstream` and `arcs_full_upstream` were about 16 minutes of
@@ -185,7 +195,7 @@ about 4.2 million, and is the level's longest entry.
 the catch of the SKP-credit mutant below, and 1214372279 (derived seed 0).
 On the merged level 0 to 2 coverage of `005836f` the two cut seeds hit no
 point or bin the other runs miss. `--coverage` instruments each entry's
-first seed only, except `traffic` (its second seed reaches a point the
+first seed only (extra-seed entries are plain), except `traffic` (its second seed reaches a point the
 first does not) and `random_soak` (its second seed, five points), so the
 merged coverage is unchanged point for point; a mac coverage build runs
 about 19% slower than a plain one (`arcs_quick`: 35.6 s against 30.0 s of
@@ -215,6 +225,11 @@ is the every-cycle comparison above; "decoder" the receive decoder.
 | `smoke` (mac shell) | Reset values with toggling inputs | `smoke` |
 
 ## Mutation evidence
+
+The recorded tables below retain the entry names and levels used when
+the mutants were measured. The plan and Budget placement section give the
+current split-entry names and levels; retained gate catches are described
+there.
 
 Each mutant was built in a scratch copy of the tree and run against the
 listed entry; each fails, and the unmutated RTL passes. Each entry runs its first regression seed (`arcs_quick` 1797099791, `smoke` 1824675579, `smoke_n_fts_1` 1972127776, `smoke_n_fts_255` 908217547, and so on, as listed in the regression files).
@@ -307,3 +322,21 @@ wrong half of the word fails `rx_idle_tail` at cycle 10278: a packet is
 delivered one edge before the shadow permits it. The separate
 `4_lane1_edb` bin distinguishes that short exception from ordinary lane-1
 traffic with the same numerical latency.
+
+## Budget placement
+
+[#435](https://github.com/amichai-bd/pcie-factory/issues/435): traffic retains
+both instrumented seeds at L1; only its third plain seed moves. rx_errors and
+ts_fields retain their first instrumented seed, with the additional plain seed
+at L2. The new focused no_scramble_edge preserves the registered-flag mutant
+in L1; the original full no_scramble test remains unchanged at L2.
+
+The combined levels keep the original testcases, parameters, seeds and
+per-seed coverage instrumentation; no coverage floor is raised or lowered.
+The PR records plain and coverage-instrumented CPU measurements separately.
+
+| Entry | Current placement |
+| --- | --- |
+| `traffic` / `traffic_extra_seeds` | L1 seeds [1783640295, 492241009]; coverage_seeds 2; L2 seeds [73290187]; coverage_seeds 0 |
+| `rx_errors` / `rx_errors_extra_seeds` | L1 seeds [1906893083]; coverage_seeds 1; L2 seeds [112185741]; coverage_seeds 0 |
+| `ts_fields` / `ts_fields_extra_seeds` | L1 seeds [648699848]; coverage_seeds 1; L2 seeds [1370320734]; coverage_seeds 0 |

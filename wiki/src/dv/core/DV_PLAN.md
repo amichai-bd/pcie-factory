@@ -103,7 +103,7 @@ stated; each brings the link up and enumerates first.
 | Goal items 5, 6, completion timeout: rc failed between 16P and 17P, Transactions Pending meanwhile, ERR_NONFATAL, Non-Fatal Error Detected; the late completion unexpected (ERR_COR); Correctable Error Detected after it; Completion Timeout Disable and the fresh timeout | `e2e_cpl_timeout` (level 1), `e2e_cpl_timeout_div64` | 1, 2 | 1; `CPL_TIMEOUT_DIV` 64 |
 | Goal item 6, other errors: malformed (ERR_FATAL), poisoned request (dropped, Detected Parity Error), poisoned completion (rc failed, Master Data Parity Error), UR and CA completions (Received Master and Target Abort, no message) | `e2e_errors` (level 1), `e2e_errors_sweep` | 1, 2 | 1; 2 |
 | [Link to cfg](../../arch/core/TL_CFG.md#link-to-cfg): line bit flips under traffic give `rcv_err_o` and `dl_err_o`, Correctable Error Detected and ERR_COR only, data lossless; then each wire alone: a flip on the idle line (`rcv_err_o` only) and a substituted data symbol in a TLP (`dl_err_o` Bad TLP only) | `e2e_link_errors` | 1 | 1 |
-| [Throughput targets](../../arch/core/HAS.md#targets), screen: 300 host writes | `e2e_throughput_short` | 1 | 1 |
+| [Throughput targets](../../arch/core/HAS.md#targets), screen: 300 host writes | `e2e_throughput_short` | 2 | 1 |
 | Throughput targets: host writes, application writes (2000 of 128 bytes), host reads, application reads, both ways (1000) | `e2e_throughput_host_write`, `e2e_throughput_app_write`, `e2e_throughput_host_read`, `e2e_throughput_app_read`, `e2e_throughput_bidir` | 2 | 1 each |
 | [Outside D0](../../arch/core/HAS.md#decisions): UR for BAR0, no `rq` request, interrupt pending, no message; back in D0 all resume, configuration kept | `e2e_d3hot` | 2 | 1 |
 | [Link down](../../arch/core/HAS.md#link-down): Hot Reset with traffic in flight and Max_Payload_Size and Max_Read_Request_Size written to other values first (the status outputs follow them), outputs and configuration space at reset values, enumerated again and working; again from D3hot with interrupts resolving back to back (every gated output at its reset value from the first cycle `dl_up_o` is 0) | `e2e_link_down` | 1 | 1 |
@@ -277,3 +277,17 @@ is hit in the merged coverage of the IP that owns the file (`link` for
 either" when it is a point there but not hit, and "the stack's own nets"
 when the IPs' runs have no such point.
 
+## Budget placement
+
+[#435](https://github.com/amichai-bd/pcie-factory/issues/435): The throughput
+screen is a performance check and runs at L2 with the full throughput entries.
+Directed transaction, completion, interrupt and error acceptance remains at
+L1.
+
+The combined levels keep the original testcases, parameters, seeds and
+per-seed coverage instrumentation; no coverage floor is raised or lowered.
+The PR records plain and coverage-instrumented CPU measurements separately.
+
+| Entry | Current placement |
+| --- | --- |
+| `e2e_throughput_short` | L2; unchanged seeds, parameters and instrumentation |

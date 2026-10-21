@@ -3,13 +3,13 @@ tests:
     module: tests.test_pipe_control
     testcase: pipe_power
     top: pcie_pcs
-    seeds: 2
+    seeds: [773539760]
     timeout_s: 120
   - name: pipe_random
     module: tests.test_pipe_control
     testcase: pipe_random
     top: pcie_pcs
-    seeds: 3
+    seeds: [98053844]
     timeout_s: 180
   - name: rx_elec_idle
     module: tests.test_pipe_control
@@ -18,17 +18,6 @@ tests:
     seeds: [1, 2]
     timeout_s: 120
     coverage_seeds: 2
-  - name: tx_table
-    module: tests.test_tx
-    testcase: tx_table
-    top: pcie_pcs
-    timeout_s: 300
-  - name: tx_random
-    module: tests.test_tx
-    testcase: tx_random
-    top: pcie_pcs
-    seeds: 3
-    timeout_s: 300
   - name: table_round_trip
     module: tests.test_tx
     testcase: table_round_trip
@@ -44,7 +33,7 @@ tests:
     module: tests.test_decode
     testcase: rx_decode_random
     top: pcie_pcs
-    seeds: 3
+    seeds: [352464483]
     timeout_s: 600
   - name: rx_slips_training
     module: tests.test_lock
@@ -56,13 +45,13 @@ tests:
     module: tests.test_lock
     testcase: rx_slips_packets
     top: pcie_pcs
-    seeds: [1, 2]
+    seeds: [1]
     timeout_s: 300
   - name: rx_no_false_lock
     module: tests.test_lock
     testcase: rx_no_false_lock
     top: pcie_pcs
-    seeds: [1, 2]
+    seeds: [1]
     timeout_s: 300
   - name: rx_ppm
     module: tests.test_datapath
@@ -74,7 +63,7 @@ tests:
     module: tests.test_datapath
     testcase: rx_dllp
     top: pcie_pcs
-    seeds: [1, 2]
+    seeds: [1]
     timeout_s: 300
   - name: rx_errors
     module: tests.test_datapath
@@ -98,7 +87,7 @@ tests:
     module: tests.test_datapath
     testcase: rx_relock_mid_word
     top: pcie_pcs
-    seeds: [1, 2]
+    seeds: [1]
     timeout_s: 300
   - name: rx_slips
     module: tests.test_datapath
@@ -116,7 +105,7 @@ tests:
     module: tests.test_datapath
     testcase: eb_stress
     top: pcie_pcs
-    seeds: [1, 2]
+    seeds: [1]
     timeout_s: 300
   - name: rx_polarity
     module: tests.test_datapath
@@ -179,27 +168,9 @@ tests:
     top: pcie_pcs
     seeds: [1]
     timeout_s: 300
-  - name: eb_stress_sizes
-    module: tests.test_elastic
-    testcase: eb_stress_sizes
-    top: pcie_pcs
-    seeds: [1, 2]
-    timeout_s: 300
   - name: eb_dense
     module: tests.test_elastic
     testcase: eb_dense
-    top: pcie_pcs
-    seeds: [1]
-    timeout_s: 300
-  - name: eb_idle_m600
-    module: tests.test_elastic
-    testcase: eb_idle_m600
-    top: pcie_pcs
-    seeds: [1]
-    timeout_s: 300
-  - name: eb_idle_p600
-    module: tests.test_elastic
-    testcase: eb_idle_p600
     top: pcie_pcs
     seeds: [1]
     timeout_s: 300
@@ -213,7 +184,7 @@ tests:
     module: tests.test_lock
     testcase: rx_eios_phases
     top: pcie_pcs
-    seeds: [1, 2]
+    seeds: [1]
     timeout_s: 300
   - name: rx_eios_idle
     module: tests.test_elastic

@@ -185,7 +185,7 @@ their own top ([GPIO lower layer](#gpio-lower-layer)).
 | Disabled and Loopback passed through | `e2e_disable`, `e2e_loopback` | 2 | 1 each |
 | Soak: random classes, line flips and credit stalls together, 1000 TLPs each way, ppm from the seed, in every credit configuration; in the release configuration the stalls are release stalls (half the cycles release, none in the stall windows, scheduled as the receive stalls are) | `e2e_soak_default`, `e2e_soak_minimum`, `e2e_soak_finite`, `e2e_soak_infinite`, `e2e_soak_asymmetric`, `e2e_soak_release` | 2 | 3, 2, 3, 1, 2, 1; `CREDITS` 0 to 5; coverage on the first 2, 2, 1, 1, 2, 1 ([seeds](#seeds-and-coverage-runs)) |
 | The same soak on the `REPLAY_TIMEOUT` 1400 build of `e2e_replay_timeout`: default credits, the losses recovered through Naks or the raised timer | `e2e_soak_replay_timeout` | 2 | 1; `REPLAY_TIMEOUT` 1400; coverage on the first 1 |
-| [Throughput](../../arch/link/HAS.md#throughput), one way, screen: 400 128-byte memory writes a to b against the 0.85 target (more start and drain in the window than 2000 TLPs, so stricter), every line symbol attributed | `e2e_throughput_short` | 1 | 1 |
+| [Throughput](../../arch/link/HAS.md#throughput), one way, screen: 400 128-byte memory writes a to b against the 0.85 target (more start and drain in the window than 2000 TLPs, so stricter), every line symbol attributed | `e2e_throughput_short` | 2 | 1 |
 | [Throughput targets](../../arch/link/HAS.md#targets): 2000 128-byte memory writes one way (0.85) and each way (0.76 per direction), every line symbol attributed; each seed draws the start against the SKP schedule (within one SKP interval) and, both ways, b's start against a's (within one TLP time) | `e2e_throughput_oneway`, `e2e_throughput_bidir` | 2 | 1 and 2 |
 | Seed sweeps of the directed and mixed tests | `e2e_tlp_errors_sweep`, `e2e_dllp_errors_sweep`, `e2e_rollover_sweep`, `e2e_line_sweep`, `e2e_mixed_sweep` | 2 | 2, 2, 2, 3, 5 (`e2e_mixed_sweep`: its four derived seeds and 1733523445, an UpdateFC-NP dropped as the traffic drains, [#429](https://github.com/amichai-bd/pcie-factory/issues/429)); coverage on the first 1, 1, 2, 2, 1 |
 
@@ -196,7 +196,9 @@ fastest entries that discriminate the stack wiring: the TLP and DLLP
 error classes, the disparity-only error (the only catch of the `phy`'s
 `pkt_rx_err` lost in `link`, [#436 mutants](#per-class-credit-and-disparity-mutants)),
 the rollover and its retrain, the minimum credits (the
-configuration that starves both ends hardest) and the throughput screen.
+configuration that starves both ends hardest). The throughput screen runs
+at L2 as a performance measurement; the wiring-discriminating entries stay
+in the gate.
 `e2e_disparity` costs 4.5 s of CPU at its seed 1992110143 (#436), against
 the all-IP level 1 of 1140 to 1172 s in the 1200 s budget
 ([#435](https://github.com/amichai-bd/pcie-factory/issues/435)); as the
@@ -588,3 +590,18 @@ contain `fts`, `pm`, `l0s`, `rx_sub`, `tx_sub`, `power_down`, `pd`,
 `tx_mode`, `l0_exit`, `rx_moved`, `rx_age`, `pend`, `ei_cycles` or
 `q_old` to the power row, the others (with the common CDC blocks inside
 the `phy`) to the last row.
+
+## Budget placement
+
+[#435](https://github.com/amichai-bd/pcie-factory/issues/435): The throughput
+screen is a performance check at L2. The discriminating packet-error,
+rollover, credit and disparity checks remain in the gate, including the sole
+disparity-mutant catch.
+
+The combined levels keep the original testcases, parameters, seeds and
+per-seed coverage instrumentation; no coverage floor is raised or lowered.
+The PR records plain and coverage-instrumented CPU measurements separately.
+
+| Entry | Current placement |
+| --- | --- |
+| `e2e_throughput_short` | L2; unchanged seeds, parameters and instrumentation |

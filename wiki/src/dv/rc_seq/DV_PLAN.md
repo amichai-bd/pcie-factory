@@ -95,8 +95,8 @@ row names another.
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | A passing `SELFTEST` run, start held through reset, the result holding | `smoke` | 0 | 1 |
-| [Every op](../../rtl/rc_seq/MAS.md#commands), every `JUMP` condition taken and not taken, a `REQ` of every tl-seq op and two undefined ones, the 32-DW read, an MSI, Hot Reset, on random latencies | `selftest` | 1 | 2; two runs each |
-| `EXPECT` mismatch and data `JUMP` turns: every `EXPECT` and data `JUMP` fault of `SELFTEST` (a wrong bit in a 1-DW read, a beat of the 32-DW read, the MSI capture's data or offset) | `expect_mismatch` | 1 | 1; 101 runs |
+| [Every op](../../rtl/rc_seq/MAS.md#commands), every `JUMP` condition taken and not taken, a `REQ` of every tl-seq op and two undefined ones, the 32-DW read, an MSI, Hot Reset, on random latencies | `selftest` / `selftest_extra_seeds` | 1 / 2 | [1338781849] / [952827919]; two runs each; L1 seed instrumented, L2 seed plain |
+| `EXPECT` mismatch and data `JUMP` turns: every `EXPECT` and data `JUMP` fault of `SELFTEST` (a wrong bit in a 1-DW read, a beat of the 32-DW read, the MSI capture's data or offset) | `expect_mismatch` | 2 | 1; 101 runs |
 | `REQ` `chk`: every `chk` 1 `REQ` of `SELFTEST` answered with another status fails there, each status answered where another is expected; `chk` 0 does not fail | `status_mismatch` | 1 | 1; 73 runs |
 | Wait bounds: `WAIT_LINK`, `WAIT_MSI`, `HOT_RESET` with the condition first at cycle 0, T (pass) and T + 1 (fail at the step); the Hot Reset request's length and its fall as a run fails | `wait_bounds` | 1 | 1; nine runs |
 | `FAIL`, reserved ops 0x07 and 0x0F, conditions 5 and 7, the FAIL padding past the program, a `pc` above the ROM (`fail_step_o` 0x0123) | `jump_traps` | 1 | 1; seven runs |
@@ -115,7 +115,7 @@ row names another.
 | The same for `MMIO`, `DMA_MSI` and `ERRORS`: each program's random fault sample under `ci-gate` | `program_random_mmio` / `program_random_mmio_sweep`, `program_random_dma_msi` / `program_random_dma_msi_sweep`, `program_random_errors` / `program_random_errors_sweep` | 1 / 2 | derived seed 0 / derived seed 1, pinned (298234656, 1770673933, 1956525912); three stand-in seeds per entry seed |
 
 **Level placement.** L2 widens the stand-in seeds and fault choices and
-holds the two long timeouts, `timeouts_enum` (about 40 s, the simulator
+holds `expect_mismatch` (the exhaustive SELFTEST fault campaign) and the two long timeouts, `timeouts_enum` (about 40 s, the simulator
 running 25 000 000 cycles freely) and `timeouts_dma_msi`.
 
 Every-fault runs ([#389](https://github.com/amichai-bd/pcie-factory/issues/389)):
@@ -144,7 +144,7 @@ fails as #396 recorded:
 
 | Mutant | First catch in levels 0 and 1 | Level 2 catch |
 | --- | --- | --- |
-| M8 `chk` ignored, status always checked (interpreter) | `smoke` (level 0, seed 1467269013, cycle 779); in level 1 `expect_mismatch` (seed 1878443167) first, and also `loop_limit`, `program_random_errors`, `selftest`, `start_reset`, `status_mismatch`, `wait_bounds` | `program_errors` |
+| M8 `chk` ignored, status always checked (interpreter) | `smoke` (level 0, seed 1467269013, cycle 779); historically in level 1 `expect_mismatch` (seed 1878443167; now L2) first, and also `loop_limit`, `program_random_errors`, `selftest`, `start_reset`, `status_mismatch`, `wait_bounds` | `program_errors` |
 | M18 `MMIO` image: M3 reads BAR0 + 0x3C | `program_random_mmio` (seed 1723958198, cycle 917) | `program_mmio` |
 | M19 `ERRORS` image: R2 targets swapped | `program_random_errors` (seed 60360654, cycle 1992) | `program_errors` |
 | M20 `DMA_MSI` image: D3 checks R[0] only | none: level 2 only | `program_dma_msi` (seed 898750186, cycle 49322) |
@@ -229,3 +229,19 @@ line point is keyed by file, line, column and kind, a toggle point by
 file, signal bit and direction (any copy). A point not hit is "another
 copy" when its key is hit anywhere in the run; the rest go by file and
 signal name as the rows list them.
+
+## Budget placement
+
+[#435](https://github.com/amichai-bd/pcie-factory/issues/435): SELFTEST keeps
+one instrumented seed at L1 and its additional plain seed at L2. The
+exhaustive expect_mismatch campaign runs at L2; its recorded interpreter
+mutant also has the smoke catch at L0 and other retained L1 catches.
+
+The combined levels keep the original testcases, parameters, seeds and
+per-seed coverage instrumentation; no coverage floor is raised or lowered.
+The PR records plain and coverage-instrumented CPU measurements separately.
+
+| Entry | Current placement |
+| --- | --- |
+| `selftest` / `selftest_extra_seeds` | L1 seeds [1338781849]; coverage_seeds 1; L2 seeds [952827919]; coverage_seeds 0 |
+| `expect_mismatch` | L2; unchanged seeds, parameters and instrumentation |

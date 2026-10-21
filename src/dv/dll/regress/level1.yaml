@@ -162,3 +162,8 @@ tests:
     top: pcie_dll_tb
     timeout_s: 300
     params: {REPLAY_TIMEOUT: 1400}
+  - name: fc_rx_accounting
+    module: tests.test_dll_fc
+    testcase: fc_rx_accounting
+    top: pcie_dll_tb
+    timeout_s: 300
