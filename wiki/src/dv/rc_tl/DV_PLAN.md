@@ -140,7 +140,7 @@ and the inbound side
 | Host memory filled with a seeded pattern, then random inbound traffic of every kind (writes, reads up to 300 DWs, MSIs, messages, Unsupported Requests, malformed, any Fmt and Type, poisoned, TD, 4-DW headers) mixed with `HOST_*`, local and endpoint commands, link stalls, receive gaps, credit outages (completion credits included), Bus Master Enable changes, `msi_ready_i` at random, link drops and resets, against the model | `random_inb` | 1 | 1; 700 TLPs |
 | The same with 256 bytes of host memory at `0xF00` (requests past its end) and `FC_NPH` 1 | `random_inb_aw8` | 1 | 1; 700 TLPs |
 | Long random commands | `random_long` | 2 | 2; 30000 commands each |
-| Long random endpoint commands, as `random_req` | `random_req_long` | 2 | 2; trial 10000 commands each (previously 20000) |
+| Long random endpoint commands, as `random_req` | `random_req_long` | 2 | 2; 10000 commands each |
 | The completion timeout at the FPGA value, N = 2^21 cycles | `req_timeout_div1` | 2 | 1; `CPL_TIMEOUT_DIV` 1 |
 | Long random inbound traffic, as `random_inb` | `random_inb_long` | 2 | 2; 12000 TLPs each |
 
@@ -186,20 +186,22 @@ coverage groups and accumulated observations are not reset. Coverage is written
 once for the whole contract and retains the union of its phases. Shared-state
 execution changes tag values and sample multiplicities; merged coverage points,
 bins and relevant fault catches must be checked independently, not inferred
-from keeping the assertions. No runtime saving is claimed before CI measurement.
+from keeping the assertions. Runtime evidence is recorded in the delivery PR.
 
-### Long requester depth trial (#461)
+### Long requester depth
 
 `random_req_long` keeps its testcase identity, both original entry seeds and
-`CPL_TIMEOUT_DIV` 1024, but tries 10000 commands per seed instead of 20000.
+`CPL_TIMEOUT_DIV` 1024, and runs 10000 commands per seed instead of the earlier 20000.
 This halves stochastic depth; it is not an equivalent-depth campaign. The
 fixed timing bounds, all per-cycle model comparisons, command/result checks,
 original L1 status assertion and final 16-cycle drain remain unchanged. There
 is no shortening of `req_timeout_div1` or of either directed timeout recipe.
-Paired CI must compare the old and new per-seed and merged covered code-point
-and functional-bin sets; percentages alone cannot justify this trial. Preserve
-existing floors and relevant fault catches, and revert shortening if a unique
-obligation is lost. Runtime saving remains unmeasured pending that comparison.
+The [paired comparison](https://github.com/amichai-bd/pcie-factory/actions/runs/39449165457)
+retains all 6542 hit RTL instance points and 170 functional bins for the
+covered seed 857203241; merged requester coverage also loses no points or
+bins. Both pinned seeds and the rotated seed satisfy every executed-event
+witness. This evidence supports the shorter depth, but does not establish
+equivalent stochastic exploration. Existing floors and timeout bounds remain.
 
 Long-only counters record answer categories only when the endpoint executes
 its plan: good, status, poisoned, malformed, stray, duplicate, D7 and no answer.
@@ -221,7 +223,7 @@ a simulator. A fresh-process import check also loads the standalone requester
 module with only the simulation's DV and tool paths, so witness imports cannot
 depend on an earlier contract importing the environment. These unit tests
 support reproducibility and non-vacuity; they do
-not replace the pending CI coverage comparison or known-fault experiments.
+not replace CI coverage comparisons or known-fault experiments.
 
 **Level placement.** `random_req_long` and `random_inb_long` are long
 random tests and `req_timeout_div1` a long one (2^21 cycles of one wait);
