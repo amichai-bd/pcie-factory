@@ -164,6 +164,7 @@ class Env:
     def __init__(self, dut, seed: int = 0) -> None:
         self.dut = dut
         self.rng = random.Random(seed)
+        self.random_req_witness = None  # enabled only by the long requester campaign
         self.p = Params()
         self.m = RcTl(self.p)
         self.ep = Endpoint()
@@ -327,6 +328,17 @@ class Env:
             fc_nph=applied["fc_nph_avail_i"], fc_npd=applied["fc_npd_avail_i"],
             fc_cplh=applied["fc_cplh_avail_i"], fc_cpld=applied["fc_cpld_avail_i"],
             msi_ready=applied["msi_ready_i"]))
+        witness = self.random_req_witness
+        if witness is not None:
+            if applied["rst_i"]:
+                witness["reset_cycles"] += 1
+            if not applied["dl_up_i"]:
+                witness["link_down_cycles"] += 1
+            if not (applied["fc_ph_avail_i"] and applied["fc_pd_avail_i"]
+                    and applied["fc_nph_avail_i"] and applied["fc_npd_avail_i"]):
+                witness["credit_outage_cycles"] += 1
+            if o["events"]:
+                witness["event_mask"] |= o["events"]
         beat, take = o["beat"], o["take"]
         where = f"cycle {self.cycle}"
         self.expect(where, "cmd_ready_o", o["cmd_ready"])
@@ -414,6 +426,11 @@ class Env:
 
     def sample(self, c: Cmd, check: int, beats: list[Rsp], dl_up: int, cpls: int) -> None:
         status = beats[-1].status
+        if self.random_req_witness is not None and c.op == MEM_RD and check == 0:
+            if status == OK and cpls >= 2:
+                self.random_req_witness["split_success"] += 1
+            if status != OK and len(beats) > 1:
+                self.random_req_witness["partial_failure"] += 1
         kw = {"op": op_bin(c.op), "check": check, "status": status}
         if c.op in ENDPOINT_OPS:
             kw["dl_up"] = dl_up

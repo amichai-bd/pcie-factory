@@ -97,7 +97,7 @@ reads them at the offer, with a self-test. No other disagreement is open.
 | [BAR2](../../arch/cfg/CAPS.md#bar2): table fields by byte enable, address bits 1:0, mask reset 1, pending bits read-only, other offsets 0, table kept and masks reset by a reset | `bar2_map` | 1 | 1 |
 | The same with 64 vectors (both pending-bit DWs) | `bar2_map_64` | 1 | 1 |
 | [Targets](../../arch/cfg/HAS.md#targets) enumeration: IDs, capability walk, BAR sizing and assignment, enables, an MSI and an MSI-X interrupt (pending first) | `enumeration` | 1 | 1 |
-| The same with other parameters (BAR0 1 MiB, one vector, set IDs) | `enumeration_params` / `enumeration_params_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (1585370101), pinned |
+| The same with other parameters (BAR0 1 MiB, one vector, set IDs) | `enumeration_params` | 1 | seed 695853923 |
 | [Errors](../../arch/cfg/HAS.md#errors): every event under 11 enable sets, status bits, message decision, UR gate, Signaled System Error, RW1C by byte | `error_table` | 1 | 1 |
 | [Messages](../../arch/cfg/HAS.md#messages): priority, merging (same cycle and into a held offer), no message outside D0 (each event), an offered error withdrawn by D3hot | `error_messages` | 1 | 1 |
 | [Interrupts](../../arch/cfg/HAS.md#interrupts) under MSI: dropped with no mode, 32- and 64-bit writes, pending while not allowed and merged, MSI Enable clears the flag, D3hot | `irq_msi` | 1 | 1 |
@@ -112,14 +112,12 @@ reads them at the offer, with a self-test. No other disagreement is open.
 **Level placement.** Level 0 holds the smoke test only. The `random_long`
 entries are level 2 as soaks (longer runs of `random_ops`, which level 1
 runs with two seeds and level 2 with a third, in `random_ops_sweep`).
-Since [#389](https://github.com/amichai-bd/pcie-factory/issues/389) (the
-full level 1 of every IP was over its 1200 s CPU budget), level 1 runs
-`enumeration_params` at its derived seed 0, with seed 1 pinned in
-`enumeration_params_sweep`, and `random_ops` at the two seeds the mutant
-table names (179094473 and 329618035), with its derived seed 0 pinned in
-`random_ops_sweep`. Each seed keeps its coverage instrumentation, so the
-merged level 0 to 2 runs are the same runs, and every mutant below is
-still caught in level 1 at the seed it names.
+Level 1 keeps `enumeration_params` seed 695853923. Its extra plain seed
+1585370101 is removed in #461: it runs the same parameterized enumeration
+assertions, contributes no collected coverage and catches no recorded mutant.
+`random_ops` retains seeds 179094473 and 329618035 (M20's catch); its covered
+`random_ops_sweep` seed 1688380133 and all long parameter variants remain.
+Every mutation-table catch stays at its recorded seed.
 
 ## Mutation evidence
 

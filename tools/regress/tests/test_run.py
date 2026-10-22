@@ -293,6 +293,24 @@ def test_rotation_adds_extra_runs_on_the_rotation_level_only(fixture_src, tmp_pa
     assert regress.select(ctx, [2], ["counter_inc"], rotation=rot()).extra == []
 
 
+def test_seed_independent_keeps_pinned_coverage_and_other_rotation(fixture_src, tmp_path):
+    path = fixture_src / "dv/counter/regress/level2.yaml"
+    path.write_text("""tests:
+  - {name: fixed, module: tests.t, top: counter, timeout_s: 10,
+     seeds: [73], seed_independent: true}
+  - {name: random, module: tests.t, top: counter, timeout_s: 10, seeds: [81]}
+""")
+    ctx = ctx_for(fixture_src, tmp_path)
+    plain = regress.select(ctx, [2])
+    for key in ("night-one", "night-two"):
+        selected = regress.select(ctx, [2], rotation=rot(key=key, n=3))
+        assert selected.runs == plain.runs
+        assert [(e.name, seed, e.coverage_seeds) for e, seed in selected.runs] == [
+            ("fixed", 73, 1), ("random", 81, 1)]
+        assert len(selected.extra) == 3
+        assert all(e.name == "random" and seed != 81 for e, seed in selected.extra)
+
+
 def test_load_rotation(tmp_path):
     from build.ip import REPO_ROOT as root
     r = load_rotation(root / "cfg", "2026-10-18")

@@ -14,6 +14,7 @@ tests:
     params: {CPL_TIMEOUT_DIV: 1024}
   # The completion timeout at the FPGA value, CPL_TIMEOUT_DIV 1: 2**21 cycles.
   - name: req_timeout_div1
+    seed_independent: true
     module: tests.test_rc_tl_req
     testcase: timeout_once
     top: pcie_rc_tl_tb

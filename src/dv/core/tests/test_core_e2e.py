@@ -11,6 +11,9 @@ shadows every configuration read and error message; the tests add the
 expectations of the core, tl and cfg HAS pages on top.
 """
 
+import hashlib
+import os
+import random
 import sys
 from pathlib import Path
 
@@ -41,8 +44,8 @@ def seed() -> int:
     return cocotb.RANDOM_SEED
 
 
-async def up(dut, host_kw=None) -> Env:
-    env = Env(dut, seed(), host_kw=host_kw)
+async def up(dut, host_kw=None, test_seed=None) -> Env:
+    env = Env(dut, seed() if test_seed is None else test_seed, host_kw=host_kw)
     env.start()
     await env.link_up()
     return env
@@ -116,7 +119,7 @@ def msgs(env: Env, since: int) -> list[int]:
 
 
 def tl_errs(env: Env, bit: int) -> int:
-    return env.tl_err_count[bit]
+    return env.tl_err_count[bit] - getattr(env, "phase_tl_baseline", [0] * 9)[bit]
 
 
 async def host_mem_read(env: Env, addr: int, n: int) -> hm.Request:
@@ -130,13 +133,11 @@ async def app_wait(env: Env, items, limit: int = 50_000) -> None:
 
 # ------------------------------------------------------------------- L1
 
-@cocotb.test()
-async def e2e_enumeration(dut):
+async def phase_e2e_enumeration(env):
     """Goal item 4: the host reads the IDs, walks the capabilities, sizes and
     assigns both BARs, enables memory space and bus mastering, captures a
     Set_Slot_Power_Limit, then configures MSI and MSI-X and receives an
     interrupt through each (every MSI-X vector)."""
-    env = await up(dut)
     t0 = env.cycle
     dev = await enumerate_ep(env)
     env.log.info("enumerated in %d cycles", env.cycle - t0)
@@ -182,13 +183,18 @@ async def e2e_enumeration(dut):
 
 
 @cocotb.test()
-async def e2e_bar_traffic(dut):
+async def e2e_enumeration(dut):
+    """Standalone recipe; L1 shares its fixture in the acceptance scenario."""
+    env = await up(dut)
+    await phase_e2e_enumeration(env)
+
+
+async def phase_e2e_bar_traffic(env):
     """Goal item 5, host side: memory writes and reads to BAR0 of every size
     and alignment, reads split into several completions (the HAS splitting
     examples), a zero-length read, with the application stalling cq; every
     read returns the data written before it."""
-    env = await up(dut)
-    dev = await enumerate_ep(env)
+    dev = env.dev
     h, rng = env.host.model, env.rng
     env.app.cq_ready_p = 0.7
     size = 1 << env.bar0_addr_w
@@ -236,13 +242,18 @@ async def e2e_bar_traffic(dut):
 
 
 @cocotb.test()
-async def e2e_bus_master(dut):
+async def e2e_bar_traffic(dut):
+    """Standalone recipe; L1 shares its fixture in the acceptance scenario."""
+    env = await up(dut)
+    await enumerate_ep(env)
+    await phase_e2e_bar_traffic(env)
+
+
+async def phase_e2e_bus_master(env):
     """Goal item 5, application side: rq writes to host memory with 3-DW and
     4-DW headers, then rq reads of the same bytes, up to eight outstanding,
     answered with the fewest completions and then one per 64-byte block;
     the application stalls rc."""
-    env = await up(dut)
-    await enumerate_ep(env)
     h, app, rng = env.host.model, env.app, env.rng
     app.rc_ready_p = 0.7
     for split in ("fewest", "rcb"):
@@ -277,14 +288,20 @@ async def e2e_bus_master(dut):
 
 
 @cocotb.test()
-async def e2e_msi(dut):
+async def e2e_bus_master(dut):
+    """Standalone recipe; L1 shares its fixture in the acceptance scenario."""
+    env = await up(dut)
+    await enumerate_ep(env)
+    await phase_e2e_bus_master(env)
+
+
+async def phase_e2e_msi(env):
     """Interrupt ordering and pending under MSI: four 128-byte rq writes,
     then an interrupt raised as soon as the last is taken, whose write
     reaches the host after the data; with bus mastering off a request is
     pending and its write follows once bus mastering is enabled; repeated
     requests while pending give one write."""
-    env = await up(dut)
-    dev = await enumerate_ep(env)
+    dev = env.dev
     h, app, rng = env.host.model, env.app, env.rng
     await env.run(h.setup_msi(dev, MSI_ADDR, 0x1234), what="MSI set-up")
     env.irq_mode = "msi"
@@ -319,14 +336,21 @@ async def e2e_msi(dut):
 
 
 @cocotb.test()
-async def e2e_msix(dut):
+async def e2e_msi(dut):
+    """Standalone recipe; L1 shares its fixture in the acceptance scenario."""
+    env = await up(dut)
+    await enumerate_ep(env)
+    await phase_e2e_msi(env)
+
+
+async def phase_e2e_msix(env):
     """MSI-X masking and pending bits: with every vector masked each request
     pends and sets its bit, read through BAR2; each unmask sends one write
     and clears its bit; Function Mask pends unmasked vectors too; unmasked
     requests go out at once."""
-    env = await up(dut)
-    dev = await enumerate_ep(env)
+    dev = env.dev
     h, app, rng = env.host.model, env.app, env.rng
+    irq0 = len(h.interrupts)
     n = env.msix_n
     vecs = {v: (MSI_ADDR + 8 * v, 0x5000 + v) for v in range(n)}
     await env.run(h.setup_msix(dev, vecs, unmask=False), what="MSI-X set-up, masked")
@@ -338,15 +362,17 @@ async def e2e_msix(dut):
     pba = await env.run(h.read_msix_pba(dev), what="PBA read")
     want = sum(1 << v for v in pick)
     assert pba == want, f"PBA {pba:#x}, expected {want:#x}"
-    assert not h.interrupts, "an interrupt went out for a masked vector"
+    assert len(h.interrupts) == irq0, "an interrupt went out for a masked vector"
     order = list(pick)
     rng.shuffle(order)
     for v in order:
+        before = len(h.interrupts)
         h.msix_mask(dev, v, False)
-        await env.until(lambda: h.interrupts and h.interrupts[-1].vector == v, 2000,
+        await env.until(lambda: len(h.interrupts) == before + 1
+                        and h.interrupts[-1].vector == v, 2000,
                         f"vector {v} after unmask")
         COV_IRQ.sample(pending_sent="msix")
-    got = [i.vector for i in h.interrupts]
+    got = [i.vector for i in h.interrupts[irq0:]]
     assert got == order, f"interrupts {got}, expected one per unmask in order {order}"
     pba = await env.run(h.read_msix_pba(dev), what="PBA read")
     assert pba == 0, f"PBA {pba:#x} after every unmask, expected 0"
@@ -375,15 +401,21 @@ async def e2e_msix(dut):
 
 
 @cocotb.test()
-async def e2e_unsupported(dut):
+async def e2e_msix(dut):
+    """Standalone recipe; L1 shares its fixture in the acceptance scenario."""
+    env = await up(dut)
+    await enumerate_ep(env)
+    await phase_e2e_msix(env)
+
+
+async def phase_e2e_unsupported(env):
     """Unsupported Request (goal items 5, 6): an I/O read, a memory read past
     the BARs, a memory write hitting no BAR, Type 0 configuration reads to
     function 1 and a Type 1 read: UR completions for the non-posted ones,
     Unsupported Request Detected, ERR_COR (advisory) and ERR_NONFATAL with
     reporting on, nothing with it off, and BAR0 still served; a BAR0 read
     with Memory Space Enable 0 is an Unsupported Request too."""
-    env = await up(dut)
-    dev = await enumerate_ep(env)
+    dev = env.dev
     h = env.host.model
     base = dev.bars[0].base
     past = dev.bars[2].base + 4096                 # past the last BAR
@@ -440,15 +472,20 @@ async def e2e_unsupported(dut):
 
 
 @cocotb.test()
-async def e2e_cpl_timeout(dut):
+async def e2e_unsupported(dut):
+    """Standalone recipe; L1 shares its fixture in the acceptance scenario."""
+    env = await up(dut)
+    await enumerate_ep(env)
+    await phase_e2e_unsupported(env)
+
+
+async def phase_e2e_cpl_timeout(env):
     """Completion timeout (goal items 5, 6): an rq read the host never
     answers ends with rc status failed after the tl timeout, with Device
     Status Transactions Pending 1 meanwhile, ERR_NONFATAL and Non-Fatal
     Error Detected; its late completion is unexpected (ERR_COR, advisory);
     with Completion Timeout Disable set the read waits, and gets a fresh
     timeout when the bit clears; other reads complete meanwhile."""
-    env = await up(dut)
-    await enumerate_ep(env)
     await enable_reporting(env)
     h, app = env.host.model, env.app
     tmo = env.cpl_timeout
@@ -505,15 +542,21 @@ async def e2e_cpl_timeout(dut):
 
 
 @cocotb.test()
-async def e2e_errors(dut):
+async def e2e_cpl_timeout(dut):
+    """Standalone recipe; L1 shares its fixture in the acceptance scenario."""
+    env = await up(dut)
+    await enumerate_ep(env)
+    await phase_e2e_cpl_timeout(env)
+
+
+async def phase_e2e_errors(env):
     """The other error classes of goal item 6: a malformed request
     (ERR_FATAL), a poisoned write to BAR0 (dropped, Detected Parity Error,
     ERR_NONFATAL), a poisoned completion to an rq read (rc failed, Master
     Data Parity Error with Parity Error Response on), Unsupported Request
     and Completer Abort completions (Received Master and Target Abort, no
     message); BAR0 and rq still work."""
-    env = await up(dut)
-    dev = await enumerate_ep(env)
+    dev = env.dev
     await enable_reporting(env, per=True)
     h, app = env.host.model, env.app
     base = dev.bars[0].base
@@ -541,8 +584,9 @@ async def e2e_errors(dut):
     m0 = len(h.messages)
     addr = HOST_MEM + 0x400
     env.host.drop_rd = lambda t: t.address == addr
+    dropped0 = len(env.host.dropped)
     r = app.read(addr, 32)
-    await env.until(lambda: env.host.dropped, 2000, "read to poison")
+    await env.until(lambda: len(env.host.dropped) > dropped0, 2000, "read to poison")
     t = env.host.dropped[-1]
     h.send_request(ht.completion(HOST_RID, t.requester_id, t.tag, ht.CPL_SC, 32, addr & 0x7F,
                                  bytes(32), ep=1))
@@ -585,7 +629,14 @@ async def e2e_errors(dut):
 
 
 @cocotb.test()
-async def e2e_link_errors(dut):
+async def e2e_errors(dut):
+    """Standalone recipe; L1 shares its fixture in the acceptance scenario."""
+    env = await up(dut)
+    await enumerate_ep(env)
+    await phase_e2e_errors(env)
+
+
+async def phase_e2e_link_errors(env):
     """Link errors into cfg (TL_CFG, link to cfg): bit flips on the host to
     ep line make the ep link pulse rcv_err_o and dl_err_o (Bad TLP or Bad
     DLLP), correctable errors: Correctable Error Detected and ERR_COR with
@@ -593,13 +644,14 @@ async def e2e_link_errors(dut):
     lossless (the link replays). Then each wire alone: a flip on the idle
     line (rcv_err_o only) and a data symbol replaced by another valid one
     inside a packet (dl_err_o Bad TLP or Bad DLLP only), each correctable."""
-    env = await up(dut)
-    dev = await enumerate_ep(env)
+    dev = env.dev
     await enable_reporting(env)
     h, rng = env.host.model, env.rng
     base = dev.bars[0].base
+    dut = env.dut
     env.allow_link_errors = True
     m0 = len(h.messages)
+    link0 = len(env.link_err_log)
     data = bytes(rng.getrandbits(8) for _ in range(1024))
     h.mem_write(base, data)
     for k in range(4):
@@ -607,7 +659,7 @@ async def e2e_link_errors(dut):
         env.wr("line_flip_i", 1 << rng.randrange(20))
         await env.cycles(1)
         env.wr("line_flip_i", 0)
-    await env.until(lambda: env.link_err_log, 2000, "a link error pulse")
+    await env.until(lambda: len(env.link_err_log) > link0, 2000, "a link error pulse")
     await env.drain()
     env.allow_link_errors = False
     r = await host_mem_read(env, base, 1024)
@@ -680,6 +732,14 @@ async def e2e_link_errors(dut):
     assert set(msgs(env, m0)) == {ht.MSG_ERR_COR}, [hex(c) for c in msgs(env, m0)]
     await env.drain()
     env.finish()
+
+
+@cocotb.test()
+async def e2e_link_errors(dut):
+    """Fresh link state preserves the line-error/replay alignment scenario."""
+    env = await up(dut)
+    await enumerate_ep(env)
+    await phase_e2e_link_errors(env)
 
 
 # ------------------------------------------------------------------- L2
@@ -1003,3 +1063,71 @@ async def e2e_soak(dut):
     assert len(h.interrupts) == irqs, f"{len(h.interrupts)} interrupts for {irqs} requests"
     assert bytes(app.bar0) == bytes(mirror)
     env.finish()
+
+
+# Preserve each original regression seed and cocotb testcase fullname hash.
+_FUNCTIONAL_SEEDS = {
+    "e2e_enumeration": 914163979, "e2e_bar_traffic": 652310872,
+    "e2e_bus_master": 1262466201, "e2e_msi": 934478017, "e2e_msix": 293482275,
+}
+_ERROR_SEEDS = {
+    "e2e_unsupported": 116918796, "e2e_cpl_timeout": 2115626119,
+    "e2e_errors": 904842732,
+}
+
+
+def scenario_seed(name, seeds):
+    base = seeds[name] + int(os.environ["COCOTB_RANDOM_SEED"]) - next(iter(seeds.values()))
+    return base + int(hashlib.sha1(f"{__name__}.{name}".encode()).hexdigest(), 16)
+
+
+def scenario_rng(env, name, seeds):
+    value = scenario_seed(name, seeds)
+    rng = random.Random(value)
+    env.app.rng.seed(rng.getrandbits(32))  # The sole Env-construction draw.
+    env.rng.setstate(rng.getstate())
+    env.log.info("acceptance phase %s: original effective seed %d", name, value)
+    env.app.cq_ready_p = env.app.rc_ready_p = 1.0
+    env.app.cc_latency = (1, 24)
+    env.app.cc_gap_p = env.app.rq_gap_p = 0.1
+    env.host.model.cpl_split = "fewest"
+
+
+@cocotb.test()
+async def e2e_functional(dut):
+    """One training/enumeration: BAR, bus-master and interrupt contracts."""
+    name = "e2e_enumeration"
+    value = scenario_seed(name, _FUNCTIONAL_SEEDS)
+    env = await up(dut, test_seed=value)
+    env.log.info("acceptance phase %s: original effective seed %d", name, value)
+    await phase_e2e_enumeration(env)
+    env.log.info("acceptance phase %s: all checks passed", name)
+    for name, phase in (("e2e_bar_traffic", phase_e2e_bar_traffic),
+                        ("e2e_bus_master", phase_e2e_bus_master),
+                        ("e2e_msi", phase_e2e_msi), ("e2e_msix", phase_e2e_msix)):
+        await env.drain()
+        scenario_rng(env, name, _FUNCTIONAL_SEEDS)
+        await phase(env)
+        env.log.info("acceptance phase %s: all checks passed", name)
+
+
+@cocotb.test()
+async def e2e_error_paths(dut):
+    """One training/enumeration, with isolated error observations per phase."""
+    name = "e2e_unsupported"
+    env = await up(dut, test_seed=scenario_seed(name, _ERROR_SEEDS))
+    await enumerate_ep(env)
+    for name, phase in (("e2e_unsupported", phase_e2e_unsupported),
+                        ("e2e_cpl_timeout", phase_e2e_cpl_timeout),
+                        ("e2e_errors", phase_e2e_errors)):
+        await env.drain()
+        scenario_rng(env, name, _ERROR_SEEDS)
+        env.phase_tl_baseline = list(env.tl_err_count)
+        # Restore the original fresh-enumeration reporting state without
+        # resetting the link or repeating enumeration. Status bits are W1C.
+        ctl = await cfg_rd(env, DEVCTL)
+        await cfg_wr(env, DEVCTL, (ctl & 0xffff & ~DC_ALL) | (0xf << 16))
+        await cfg_wr(env, CFG_COMMAND, CMD_MSE | CMD_BME | STS_MDPE | STS_RTA
+                     | STS_RMA | STS_SSE | STS_DPE)
+        await phase(env)
+        env.log.info("acceptance phase %s: all checks passed", name)

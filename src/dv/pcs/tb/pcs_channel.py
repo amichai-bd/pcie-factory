@@ -135,7 +135,7 @@ class RxChannel:
         self.done = False
         dut.ser_rx_elec_idle_i.value = 1
         dut.ser_rx_data_i.value = 0
-        cocotb.start_soon(self._run())
+        self.task = cocotb.start_soon(self._run())
 
     def time_of_bit(self, bit: int) -> int:
         """When the word holding line bit ``bit`` was sampled."""

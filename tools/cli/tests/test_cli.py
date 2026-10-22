@@ -40,7 +40,7 @@ def test_regress_rotation_dry_run(fixture_src, tmp_path, capsys):
             "--level", "2", "--ip", "counter", "--dry-run"]
     assert main(base + ["--rotate", "2026-10-18", "--extra-seeds", "1"]) == 0
     out = capsys.readouterr().out
-    assert "[rotate] key 2026-10-18: 1 extra seed(s) per level2 entry, 1 run(s)" in out
+    assert "[rotate] key 2026-10-18: 1 extra seed(s) per eligible level2 entry, 1 run(s)" in out
     assert len([ln for ln in out.splitlines() if ln.endswith("(extra)")]) == 1
     assert main(base + ["--extra-seeds", "1"]) == 2
     assert "--extra-seeds needs --rotate KEY" in capsys.readouterr().err

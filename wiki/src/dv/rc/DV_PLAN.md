@@ -103,21 +103,36 @@ renumbered: still an error at the receiver, never fixed
 | --- | --- | --- | --- |
 | [Reset values](../../arch/rc/HAS.md#clocks-and-reset); no run, no link against noise | `smoke` | 0 | 1; 512 cycles, two resets |
 | Goal item 4, [enumeration](../../rtl/rc_seq/PROGRAMS.md#enumeration) (`ENUM`): Type 1 header, IDs, capability walk, every BAR sized and assigned, enables, MSI; the shadow learns the function, its BARs and MSI; the `cfg` shadow compares all 18 configuration reads | `e2e_enum` | 1 | 1 |
-| Goal item 5, [MMIO](../../rtl/rc_seq/PROGRAMS.md#mmio) (`MMIO`), with the two reads' completions split on the line; `rc_seq` checks the data, the shadow the reassembly | `e2e_mmio` / `e2e_mmio_sweep` | 1 / 2 | 1 / 3 |
-| Goal item 6, [DMA and MSI](../../rtl/rc_seq/PROGRAMS.md#dma-and-msi) (`DMA_MSI`): one doorbell, 64 bytes each way, the MSI captured | `e2e_dma_msi` / `e2e_dma_msi_sweep` | 1 / 2 | 1 / 3 |
+| Goal item 5, [MMIO](../../rtl/rc_seq/PROGRAMS.md#mmio) (`MMIO`), with the two reads' completions split on the line; `rc_seq` checks the data, the shadow the reassembly | `e2e_mmio` | 1 | 1 |
+| Goal item 6, [DMA and MSI](../../rtl/rc_seq/PROGRAMS.md#dma-and-msi) (`DMA_MSI`): one doorbell, 64 bytes each way, the MSI captured | `e2e_dma_msi` | 1 | 1 |
 | Goal item 7, [errors and recovery](../../rtl/rc_seq/PROGRAMS.md#errors-and-recovery) (`ERRORS`, `CPL_TIMEOUT_DIV` 64): Unsupported Requests (bits 0, 7, 8), outbound refusals, an inbound Unsupported Request (bit 11), the MSI past a full capture (bit 12), completion timeout (bit 3), Hot Reset and a link down (the line cut during R12), each followed by re-enumeration and traffic | `e2e_errors` / `e2e_errors_sweep` | 1 / 2 | 1 / 3 |
-| Goal item 7, [injected errors](../../rtl/rc_seq/PROGRAMS.md#injected-errors) (`INJECT`): Completer Abort (bit 1), poisoned (5), malformed (6) and unexpected (4) completions, ERR_FATAL from a malformed request toward `core` (9); the shadow reports exactly the three endpoint-side rule breaks | `e2e_inject` / `e2e_inject_sweep` | 1 / 2 | 1 / 3 |
+| Goal item 7, [injected errors](../../rtl/rc_seq/PROGRAMS.md#injected-errors) (`INJECT`): Completer Abort (bit 1), poisoned (5), malformed (6) and unexpected (4) completions, ERR_FATAL from a malformed request toward `core` (9); the shadow reports exactly the three endpoint-side rule breaks | `e2e_inject` | 1 | 1 |
 | Goal item 7, link errors with replay: `MMIO` with the injector on both directions (LCRC errors, corrupted and dropped TLPs and DLLPs, from link-up); at least three TLPs hit, `dl_err_o` pulses, no link down, the run passes and the shadow sees every TLP once and in order | `e2e_link_errors` / `e2e_link_errors_sweep` | 1 / 2 | 1 / 4 |
 | Goal item 9, the board build ([#378](https://github.com/amichai-bd/pcie-factory/issues/378)): `rc` and `core` both at `LOWER` 1 over the GPIO adapter, `ENUM` (as `e2e_enum`) and `MMIO` (enumeration, BAR0 writes and reads, nothing rewritten on the line), the host model shadow and the `cfg` shadow attached; error-free, no link down, both stacks up at `0x20` with their serial lines idle (the `core` and `rc` `LOWER` wiring) | `board_enum`, `board_mmio` | 1 | 1 each; `LOWER` 1 |
 
 **Level placement.** Every program runs in a few seconds of wall time at
 `TIMEOUT_DIV` and `ERR_TIMEOUT_DIV` 1024 (`ENUM` about 13 000 cycles,
 `ERRORS` about 90 000), so every acceptance case is level 1; level 2
-holds seed sweeps. The board-build entries take 1.01 s (`board_enum`, `ENUM` about 7 800 cycles) and 1.07 s (`board_mmio`, `MMIO` 12 400 over the adapter) of CPU ([#406](https://github.com/amichai-bd/pcie-factory/pull/406) regression summary, "L1 CPU for #404"). **ERRORS:** the cut line brings both ends to Detect one
+holds the error and replay seed sweeps. The board-build entries take 1.01 s (`board_enum`, `ENUM` about 7 800 cycles) and 1.07 s (`board_mmio`, `MMIO` 12 400 over the adapter) of CPU ([#406](https://github.com/amichai-bd/pcie-factory/pull/406) regression summary, "L1 CPU for #404"). **ERRORS:** the cut line brings both ends to Detect one
 floored Recovery timeout later (16384 cycles), which must fall inside
 `rc_tl`'s completion timeout or R12's outstanding read ends `TIMEOUT`;
 its entries set `CPL_TIMEOUT_DIV` 64 (32768 cycles), the
 [programs page](../../rtl/rc_seq/PROGRAMS.md#boundary) records the rule.
+
+**Seed breadth (#461).** MMIO, DMA/MSI and injected-error seed sweeps are
+removed; their level-1 tests retain the same testcases, top and parameters
+(`PROGRAM` 1, 2 and 5), all directed checks and their original seeds
+1767327733, 1521184950 and 2076889066. The retained first seeds caught M2,
+M3/M4 and M7/M9 below. This reduces random traffic/timing breadth by nine
+pinned runs and three nightly rotations; it does not make those scenarios
+deterministic. In the [paired run](https://github.com/amichai-bd/pcie-factory/actions/runs/39449165457)
+at `a80fc50`, their covered runs add no positive RTL instance points,
+normalized source points or functional bins beyond the retained L0/L1
+union. The three entries account for 38.498 CPU seconds in that run,
+including rotations; this is a checkpoint measurement, not a projected
+whole-suite saving. Keep `e2e_errors_sweep` and `e2e_link_errors_sweep`:
+removing those too loses 130 instance points and 111 normalized source
+points, despite retaining all functional bins. Coverage floors stay unchanged.
 
 **Mutants** (#377, one per [Q2](../../arch/rc/HAS.md#q2-observability)
 area and the integration; each a deliberate RTL bug, run serially, the
