@@ -5,6 +5,7 @@
 # host, and none is a coverage run (DV plan, Level placement; #327).
 tests:
   - name: e2e_link_up_spec
+    seed_independent: true
     module: tests.test_phy_e2e
     testcase: e2e_link_up_spec
     top: pcie_phy_e2e_tb

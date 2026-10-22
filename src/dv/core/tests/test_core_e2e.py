@@ -736,7 +736,7 @@ async def phase_e2e_link_errors(env):
 
 @cocotb.test()
 async def e2e_link_errors(dut):
-    """Standalone recipe; L1 shares its fixture in the acceptance scenario."""
+    """Fresh link state preserves the line-error/replay alignment scenario."""
     env = await up(dut)
     await enumerate_ep(env)
     await phase_e2e_link_errors(env)
@@ -1072,7 +1072,7 @@ _FUNCTIONAL_SEEDS = {
 }
 _ERROR_SEEDS = {
     "e2e_unsupported": 116918796, "e2e_cpl_timeout": 2115626119,
-    "e2e_errors": 904842732, "e2e_link_errors": 830112853,
+    "e2e_errors": 904842732,
 }
 
 
@@ -1119,7 +1119,7 @@ async def e2e_error_paths(dut):
     await enumerate_ep(env)
     for name, phase in (("e2e_unsupported", phase_e2e_unsupported),
                         ("e2e_cpl_timeout", phase_e2e_cpl_timeout),
-                        ("e2e_errors", phase_e2e_errors), ("e2e_link_errors", phase_e2e_link_errors)):
+                        ("e2e_errors", phase_e2e_errors)):
         await env.drain()
         scenario_rng(env, name, _ERROR_SEEDS)
         env.phase_tl_baseline = list(env.tl_err_count)

@@ -90,10 +90,14 @@ L1 `e2e_functional` shares one training/enumeration episode across the
 original enumeration, BAR, bus-master, MSI and MSI-X checks. Both interrupt
 table/address/data programs remain; interrupt ledgers use phase boundaries,
 and application stall/latency settings are restored. `e2e_error_paths`
-shares another training/enumeration episode across unsupported, timeout,
-error-status and link-error phases. It restores reporting controls and clears
+shares another training/enumeration episode across unsupported, timeout and
+error-status phases. It restores reporting controls and clears
 W1C status before each phase; raw histories remain intact and exact error
-counts use phase baselines. Destructive link-down and throughput stay separate.
+counts use phase baselines. Link-error injection stays in standalone
+`e2e_link_errors` with its original seed 830112853: its fresh link sequence,
+replay-buffer and symbol-disparity state are part of the scenario. Sharing
+that fixture changes the fault alignment even with the same random draws.
+Destructive link-down and throughput also stay separate.
 Each phase logs its original name and effective seed. At the pinned bundle
 seed, stimulus uses the original regression seed plus cocotb 2.1's SHA1 of
 the original testcase fullname; another bundle seed shifts every phase by
@@ -120,7 +124,7 @@ stated; each brings the link up and enumerates first.
 | Goal items 5, 6, [Unsupported Request](../../arch/core/HAS.md#request-routing): I/O read, read past the BARs, write hitting no BAR, Type 0 read to function 1, Type 1 read; UR completions, Unsupported Request Detected, ERR_COR and ERR_NONFATAL with reporting on, none off, Signaled System Error, BAR0 still served; a BAR0 read with Memory Space Enable 0 | `e2e_error_paths` (phase `e2e_unsupported`) | 1 | 1 |
 | Goal items 5, 6, completion timeout: rc failed between 16P and 17P, Transactions Pending meanwhile, ERR_NONFATAL, Non-Fatal Error Detected; the late completion unexpected (ERR_COR); Correctable Error Detected after it; Completion Timeout Disable and the fresh timeout | `e2e_error_paths` (phase `e2e_cpl_timeout`) (level 1), `e2e_cpl_timeout_div64` | 1, 2 | 1; `CPL_TIMEOUT_DIV` 64 |
 | Goal item 6, other errors: malformed (ERR_FATAL), poisoned request (dropped, Detected Parity Error), poisoned completion (rc failed, Master Data Parity Error), UR and CA completions (Received Master and Target Abort, no message) | `e2e_error_paths` (phase `e2e_errors`) (level 1), `e2e_errors_sweep` | 1, 2 | 1; 2 |
-| [Link to cfg](../../arch/core/TL_CFG.md#link-to-cfg): line bit flips under traffic give `rcv_err_o` and `dl_err_o`, Correctable Error Detected and ERR_COR only, data lossless; then each wire alone: a flip on the idle line (`rcv_err_o` only) and a substituted data symbol in a TLP (`dl_err_o` Bad TLP only) | `e2e_error_paths` (phase `e2e_link_errors`) | 1 | 1 |
+| [Link to cfg](../../arch/core/TL_CFG.md#link-to-cfg): line bit flips under traffic give `rcv_err_o` and `dl_err_o`, Correctable Error Detected and ERR_COR only, data lossless; then each wire alone: a flip on the idle line (`rcv_err_o` only) and a substituted data symbol in a TLP (`dl_err_o` Bad TLP only) | `e2e_link_errors` | 1 | 1 |
 | [Throughput targets](../../arch/core/HAS.md#targets), screen: 300 host writes | `e2e_throughput_short` | 1 | 1 |
 | Throughput targets: host writes, application writes (2000 of 128 bytes), host reads, application reads, both ways (1000) | `e2e_throughput_host_write`, `e2e_throughput_app_write`, `e2e_throughput_host_read`, `e2e_throughput_app_read`, `e2e_throughput_bidir` | 2 | 1 each |
 | [Outside D0](../../arch/core/HAS.md#decisions): UR for BAR0, no `rq` request, interrupt pending, no message; back in D0 all resume, configuration kept | `e2e_d3hot` | 2 | 1 |
