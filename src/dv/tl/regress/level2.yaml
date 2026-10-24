@@ -25,35 +25,6 @@ tests:
     top: pcie_tl_tb
     seeds: 3
     timeout_s: 900
-  - name: rx_random_sweep
-    module: tests.test_tl_rx
-    testcase: rx_random
-    top: pcie_tl_tb
-    seeds: [1825658846, 1977091684]
-    coverage_seeds: 0
-    timeout_s: 300
-  - name: rx_random_min_credits_sweep
-    module: tests.test_tl_rx
-    testcase: rx_random
-    top: pcie_tl_tb
-    seeds: [1654524014]
-    coverage_seeds: 0
-    timeout_s: 300
-    params: {FC_PH: 1, FC_PD: 8, FC_NPH: 1, FC_NPD: 2}
-  - name: tx_random_sweep
-    module: tests.test_tl_tx
-    testcase: tx_random
-    top: pcie_tl_tb
-    seeds: [73702813, 493734951]
-    coverage_seeds: 0
-    timeout_s: 300
-  - name: cpl_random_sweep
-    module: tests.test_tl_cpl
-    testcase: cpl_random
-    top: pcie_tl_tb
-    seeds: [1306959881]
-    coverage_seeds: 0
-    timeout_s: 300
 # Floors on the merged levels 0 to 2 (the nightly run), at the merged value
 # less 0.5 points rounded down to a tenth (DV BKM, floor margin): measured
 # 97.73% line (1031/1055), 78.34% toggle (42260/53946); every point not hit

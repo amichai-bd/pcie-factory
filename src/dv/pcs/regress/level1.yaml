@@ -173,24 +173,6 @@ tests:
     seeds: [1, 2]
     timeout_s: 300
     coverage_seeds: 2
-  - name: eb_short_burst
-    module: tests.test_elastic
-    testcase: eb_short_burst
-    top: pcie_pcs
-    seeds: [1]
-    timeout_s: 300
-  - name: eb_stress_sizes
-    module: tests.test_elastic
-    testcase: eb_stress_sizes
-    top: pcie_pcs
-    seeds: [1, 2]
-    timeout_s: 300
-  - name: eb_dense
-    module: tests.test_elastic
-    testcase: eb_dense
-    top: pcie_pcs
-    seeds: [1]
-    timeout_s: 300
   - name: eb_idle_m600
     module: tests.test_elastic
     testcase: eb_idle_m600

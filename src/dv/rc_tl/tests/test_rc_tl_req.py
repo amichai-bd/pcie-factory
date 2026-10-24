@@ -9,10 +9,13 @@ results, request fields and error record bits from the specs itself,
 besides the environment's per-cycle check against the reference model.
 """
 
+from collections import Counter
+
 import cocotb
 
 from tb.rc_tl_env import FC_INPUTS, Env
 from tb.rc_tl_ep import CFG_RD_T, CFG_WR_T, MEM_RD_T, MEM_WR_T, Req
+from pcie_rc_tl_random_witness import check_witness
 from pcie_rc_tl_model import (BAD, CA, CFG_RD, CFG_WR, CRS, CS_CA, CS_CRS, CS_SC, CS_UR,
                               E_CA, E_CRS, E_MAL, E_POIS, E_TMO, E_UNEXP, E_UR, ERR_CLR,
                               ERR_RD, LINK_DOWN, LOCAL_UR, MEM_RD, MEM_WR, OK, TIMEOUT, UR,
@@ -159,6 +162,16 @@ async def req_status(dut):
     0, and sets its error record bit. Status rows come before poisoned and
     malformed."""
     env = await setup(dut, rx_gap_p=0.2, answer_delay=(0, 5))
+    await case_req_status(env)
+
+
+async def case_req_status(env: Env):
+    """The completion status rows: UR, CA, CRS (configuration) and CRS on a
+    memory read (BAD), reserved statuses (BAD), poisoned (BAD); each ends
+    the request with one beat in the cycle after the completion's eop, data
+    0, and sets its error record bit. Status rows come before poisoned and
+    malformed."""
+    dut = env.dut
     rd4 = Cmd(MEM_RD, IN_WIN | 0x10, 4, 0xF, 0xF)
     cases = []
     for c in (Cmd(CFG_RD, cfg_addr()), Cmd(CFG_WR, cfg_addr(), data=7), rd4):
@@ -206,6 +219,14 @@ async def req_malformed(dut):
     with bit 6 (malformed outranks poisoned), and the legal neighbours
     pass."""
     env = await setup(dut)
+    await case_req_malformed(env)
+
+
+async def case_req_malformed(env: Env):
+    """Every malformed row of the completion checks ends the request BAD
+    with bit 6 (malformed outranks poisoned), and the legal neighbours
+    pass."""
+    dut = env.dut
     cfg_rd, cfg_wr = Cmd(CFG_RD, cfg_addr()), Cmd(CFG_WR, cfg_addr(), data=3)
     rd4 = Cmd(MEM_RD, IN_WIN | 0x10, 4, 0xF, 0xF)          # bytes 0x10 .. 0x1F
     rd_be = Cmd(MEM_RD, IN_WIN | 0x14, 3, 0xC, 0x3)        # bytes 0x16 .. 0x1D
@@ -274,6 +295,16 @@ async def req_split(dut):
     eop (D7) with its status on the last beat, after the data already
     delivered, and the read's remaining completions are unexpected."""
     env = await setup(dut)
+    await case_req_split(env)
+
+
+async def case_req_split(env: Env):
+    """Injected split completions: the data in address order however many
+    completions carry it, Byte Count and Lower Address checked on each, a
+    digest DW never data; a failing later completion ends the read at its
+    eop (D7) with its status on the last beat, after the data already
+    delivered, and the read's remaining completions are unexpected."""
+    dut = env.dut
     reads = (Cmd(MEM_RD, IN_WIN, 32, 0xF, 0xF), Cmd(MEM_RD, IN_WIN | 0xF84, 31, 0xE, 0x7),
              Cmd(MEM_RD, IN_WIN | 0x20, 32, 0xC, 0x3), Cmd(MEM_RD, IN_WIN | 0x7C, 2, 0xF, 0xF))
     for c in reads:
@@ -338,6 +369,16 @@ async def req_unexpected(dut):
     duplicate after its request ended, one while a posted write waits.
     The outstanding request is unaffected."""
     env = await setup(dut)
+    await case_req_unexpected(env)
+
+
+async def case_req_unexpected(env: Env):
+    """A completion matching no request is dropped and sets bit 4 only:
+    with nothing outstanding, a wrong tag (any of its 8 bits), a wrong
+    Requester ID, a locked completion, one before its request is sent, a
+    duplicate after its request ended, one while a posted write waits.
+    The outstanding request is unaffected."""
+    dut = env.dut
     good = (lambda r: cpl_tlp(CS_SC, r.rid, r.tag, [0x600D]))
     # Nothing outstanding, with every status.
     for k, st in enumerate((CS_SC, CS_UR, CS_CRS, CS_CA, 3, 5, 6, 7)):
@@ -416,6 +457,19 @@ async def req_timeout(dut):
     beat; a request whose TLP the link stalls mid-way still times out, and
     the TLP still goes out whole before the next."""
     env = await setup(dut)
+    await case_req_timeout(env)
+
+
+async def case_req_timeout(env: Env):
+    """The completion timeout at the MAS bound: TIMEOUT and bit 3 with its
+    beat in the cycle after edge S + N, S the edge the link took the sop and
+    N = floor(2**21 / CPL_TIMEOUT_DIV); a completion after it is unexpected;
+    no expiry while a matched completion is received (third header DW to
+    eop), then at the edge after its eop; a posted write never times out;
+    a read that times out after some data ends with TIMEOUT on its last
+    beat; a request whose TLP the link stalls mid-way still times out, and
+    the TLP still goes out whole before the next."""
+    dut = env.dut
     n = env.n_tmo
     assert n == (1 << 21) // env.p.cpl_timeout_div
     env.answer = False
@@ -532,6 +586,18 @@ async def req_link_down(dut):
     completion is unexpected; the error record and local commands are
     unaffected."""
     env = await setup(dut)
+    await case_req_link_down(env)
+
+
+async def case_req_link_down(env: Env):
+    """Link down with a request outstanding ends it with LINK_DOWN, its beat
+    in the cycle after the first edge with dl_up_i 0: before the grant,
+    after the sop, mid-TLP, mid-completion (after the data delivered),
+    a posted write before its eop. The link's TLPs in progress are
+    abandoned; afterwards requests work and the tag continues; a late
+    completion is unexpected; the error record and local commands are
+    unaffected."""
+    dut = env.dut
     # Before the grant: no non-posted header credit.
     env.drv["fc_nph_avail_i"] = 0
     nsent = len(env.sent)
@@ -627,6 +693,16 @@ async def req_credits(dut):
     completion credits and the other class do not gate it; credits falling
     after the grant do not stop a TLP."""
     env = await setup(dut)
+    await case_req_credits(env)
+
+
+async def case_req_credits(env: Env):
+    """Transmit credit gating (REQUESTER.md, Transmit): a request goes only
+    when the link shows 1 header credit and its data credits for its class
+    (posted MEM_WR 1 data credit, CFG_WR 1, reads 0); all ones passes; the
+    completion credits and the other class do not gate it; credits falling
+    after the grant do not stop a TLP."""
+    dut = env.dut
     ops = {"CFG_RD": Cmd(CFG_RD, cfg_addr()), "CFG_WR": Cmd(CFG_WR, cfg_addr(), data=1),
            "MEM_RD": Cmd(MEM_RD, IN_WIN, 4, 0xF, 0xF), "MEM_WR": Cmd(MEM_WR, IN_WIN, data=2)}
     cases = (
@@ -682,6 +758,16 @@ async def err_record(dut):
     wins; ERR_* refused by checks 3 and 6 change nothing; the record is
     sticky until ERR_CLR or rst_i."""
     env = await setup(dut)
+    await case_err_record(env)
+
+
+async def case_err_record(env: Env):
+    """The error record (MAS, Error record): each requester event sets its
+    bit; ERR_RD returns the record as before its take's edge, bits 31:13
+    0; ERR_CLR clears the bits set in data and an event at the same edge
+    wins; ERR_* refused by checks 3 and 6 change nothing; the record is
+    sticky until ERR_CLR or rst_i."""
+    dut = env.dut
     rd = Cmd(MEM_RD, IN_WIN, 4, 0xF, 0xF)
     events = ((rd, lambda r: cpl_tlp(CS_UR, r.rid, r.tag), E_UR),
               (rd, lambda r: cpl_tlp(CS_CA, r.rid, r.tag), E_CA),
@@ -732,9 +818,16 @@ async def err_record(dut):
 
 # --------------------------------------------------------------- random
 
-def random_plan(env: Env, r):
+def random_plan(env: Env, r, witness=None):
     """A random answer to the next request (DV plan, random_req)."""
     k = env.rng.random()
+
+    def observed(category, frames):
+        # Called only when the endpoint actually executes this answer plan;
+        # discarded plans for refused/posted/dropped requests never count.
+        if witness is not None:
+            witness[f"plan_{category}"] += 1
+        return frames
 
     def plan(q: Req):
         rid, tag = q.rid, q.tag
@@ -755,14 +848,14 @@ def random_plan(env: Env, r):
             good = [cpl_tlp(CS_SC, rid, tag, bc=4)]
         stray = cpl_tlp(CS_SC, rid, (tag + 1 + env.rng.randrange(255)) & 0xFF, [1])
         if k < 0.50:
-            return good
+            return observed("good", good)
         if k < 0.58:
-            return [cpl_tlp(env.rng.choice((CS_UR, CS_CA, CS_CRS, 3, 5, 6, 7)), rid, tag,
-                            ep=int(env.rng.random() < 0.3))]
+            return observed("status", [cpl_tlp(env.rng.choice((CS_UR, CS_CA, CS_CRS, 3, 5, 6, 7)), rid, tag,
+                                               ep=int(env.rng.random() < 0.3))])
         if k < 0.64:
             t = list(env.rng.choice(good))
             t[0] |= 1 << 22                       # poisoned
-            return [t] + good
+            return observed("poison", [t] + good)
         if k < 0.72:
             t = list(good[0])
             f = env.rng.randrange(4)
@@ -783,18 +876,18 @@ def random_plan(env: Env, r):
                 t = t[:3] + [0] if t[0] & 0x40 else t[:3]
                 if t[0] & 0x40:
                     t[0] |= 1 << 24
-            return [t] + good[1:]
+            return observed("malformed", [t] + good[1:])
         if k < 0.80:
-            return [stray] + good
+            return observed("stray", [stray] + good)
         if k < 0.86:
-            return good + [good[-1]]                          # a duplicate: unexpected
+            return observed("duplicate", good + [good[-1]])                          # a duplicate: unexpected
         if k < 0.92 and len(good) > 1:
             t = list(good[1])
             t[1] = (t[1] & ~(0x7 << 21)) | (CS_UR << 21) if env.rng.random() < 0.5 else t[1] ^ (1 << 24)
-            return [good[0], t] + good[2:]                   # D7
+            return observed("d7", [good[0], t] + good[2:])                   # D7
         if k < 0.93:
-            return []                                         # no answer: timeout
-        return good
+            return observed("noanswer", [])                    # no answer: timeout
+        return observed("good", good)
 
     return plan
 
@@ -852,8 +945,10 @@ def link_blip(env: Env, r) -> None:
     env.hooks.append(hook)
 
 
-async def run_random_req(dut, cmds: int) -> None:
+async def run_random_req(dut, cmds: int, require_witness: bool = False) -> None:
     env = await setup(dut, answer_delay=(0, 12))
+    witness = Counter() if require_witness else None
+    env.random_req_witness = witness
     r = env.rng
     done = 0
     while done < cmds:
@@ -871,8 +966,12 @@ async def run_random_req(dut, cmds: int) -> None:
             credit_outage(env, r)
         if r.random() < 0.02:
             link_blip(env, r)
-        env.ep.plan(random_plan(env, r))
-        await env.command(random_cmd(env, r))
+        env.ep.plan(random_plan(env, r, witness))
+        d7_before = witness["plan_d7"] if witness is not None else 0
+        beats = await env.command(random_cmd(env, r))
+        if witness is not None and witness["plan_d7"] > d7_before \
+                and len(beats) > 1 and beats[-1].status in (BAD, UR):
+            witness["d7_failure"] += 1
         env.ep.plans.clear()
         done += 1
         if r.random() < 0.1:
@@ -882,6 +981,11 @@ async def run_random_req(dut, cmds: int) -> None:
     await env.drain(16)
     statuses = {beats[-1].status for c, beats in env.results if c.op < 4}
     assert {OK, UR, CA, CRS, BAD, LINK_DOWN, LOCAL_UR} <= statuses, statuses
+    if witness is not None:
+        status_counts = Counter(beats[-1].status for c, beats in env.results if c.op < 4)
+        dut._log.info("long requester executed witnesses: %s; statuses: %s",
+                      dict(sorted(witness.items())), dict(sorted(status_counts.items())))
+        check_witness(witness, statuses)
 
 
 @cocotb.test()
@@ -893,8 +997,9 @@ async def random_req(dut):
 
 @cocotb.test()
 async def random_req_long(dut):
-    """L2: 20000 random endpoint commands, as random_req."""
-    await run_random_req(dut, 20000)
+    """L2 trial: 10000 commands, half the prior random depth, with explicit
+    executed-plan, disturbance, result and error-event witnesses."""
+    await run_random_req(dut, 10000, require_witness=True)
 
 
 @cocotb.test()

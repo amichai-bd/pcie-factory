@@ -102,7 +102,7 @@ and the inbound side
 
 ## Plan
 
-| Feature | Entry `name` | Level | Seeds / note |
+| Feature | Scenario / entry (mapping below) | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Reset values](../../rtl/rc_tl/MAS.md#reset-and-link-down) and the front end under random inputs and commands, two resets | `smoke` | 0 | 1; 128 cycles |
 | [Type 1 header](../../rtl/rc_tl/MAS.md#type-1-header) reset values, every DW 0 to 1023, again after a reset that follows writes | `hdr_reset` | 1 | 1; default IDs |
@@ -140,9 +140,90 @@ and the inbound side
 | Host memory filled with a seeded pattern, then random inbound traffic of every kind (writes, reads up to 300 DWs, MSIs, messages, Unsupported Requests, malformed, any Fmt and Type, poisoned, TD, 4-DW headers) mixed with `HOST_*`, local and endpoint commands, link stalls, receive gaps, credit outages (completion credits included), Bus Master Enable changes, `msi_ready_i` at random, link drops and resets, against the model | `random_inb` | 1 | 1; 700 TLPs |
 | The same with 256 bytes of host memory at `0xF00` (requests past its end) and `FC_NPH` 1 | `random_inb_aw8` | 1 | 1; 700 TLPs |
 | Long random commands | `random_long` | 2 | 2; 30000 commands each |
-| Long random endpoint commands, as `random_req` | `random_req_long` | 2 | 2; 20000 commands each |
+| Long random endpoint commands, as `random_req` | `random_req_long` | 2 | 2; 10000 commands each |
 | The completion timeout at the FPGA value, N = 2^21 cycles | `req_timeout_div1` | 2 | 1; `CPL_TIMEOUT_DIV` 1 |
 | Long random inbound traffic, as `random_inb` | `random_inb_long` | 2 | 2; 12000 TLPs each |
+
+### Shared directed contracts (#461)
+
+The directed scenario names in the feature rows above identify the original
+assertion recipes. Level 1 executes the following contracts; each owns one
+clock and a live environment across its named phases. All original directed
+assertions remain in `case_*` helpers. The individual decorated adapters are
+retained for comparison; they are not additional configured regression runs.
+
+| Configured entry | Named phases, in execution order |
+| --- | --- |
+| `header_contract` | `hdr_reset`, `hdr_rw` |
+| `frontend_contract` | `cmd_checks`, `byte_enables`, `check1` |
+| `request_completion_contract` | `req_status`, `req_malformed`, `req_split`, `req_unexpected` |
+| `request_lifecycle_contract` | `req_timeout`, `req_link_down`, `req_credits`, `err_record` |
+| `host_memory_contract` | `host_cmds`, `inb_write`, `inb_read` |
+| `inbound_classification_contract` | `inb_msg`, `inb_malformed`, `msi_capture` |
+| `inbound_order_reset_contract` | `inb_order`, `inb_link_down` |
+| `host_aw8_contract` | `host_cmds_aw8` (`host_cmds` recipe), `inb_host_edge` |
+
+This changes 34 configured L1 entries / 36 pinned simulator runs to 19 / 21,
+while retaining 36 logical scenario/seed runs. It removes 15 simulator
+startups, initial reset sequences and separate clock fixtures. Phases share
+routing configuration and host/model state; changed routing fields are restored
+only when needed. Before each phase, the receive path drains, no request or
+endpoint plan may remain, and the error record must be clean. Each phase keeps
+its own error, boundary, timing and non-vacuity assertions. Explicit reset
+checks inside recipes remain actual resets. Reset-route `routing`, fresh-tag
+`req_success`, reset-ready `result_beats`, parameter variants and random
+campaigns stay separate; the global level budget is unchanged. Contract timeout
+bounds sum the original phase bounds.
+
+The helper logs each phase's original fully qualified name, regression seed,
+actual RNG seed and begin/pass cycle. At a contract's default pinned seed, each
+phase uses its original CRC-derived entry seed plus cocotb's SHA1 offset for
+its original fully qualified testcase. `host_cmds_aw8` retains its distinct
+entry seed with the `host_cmds` testcase identity. A non-default contract seed
+XOR-perturbs every original entry seed, so rotated runs explore new stimulus.
+Only the environment RNG is replaced between phases; global cocotb RNG state,
+coverage groups and accumulated observations are not reset. Coverage is written
+once for the whole contract and retains the union of its phases. Shared-state
+execution changes tag values and sample multiplicities; merged coverage points,
+bins and relevant fault catches must be checked independently, not inferred
+from keeping the assertions. Runtime evidence is recorded in the delivery PR.
+
+### Long requester depth
+
+`random_req_long` keeps its testcase identity, both original entry seeds and
+`CPL_TIMEOUT_DIV` 1024, and runs 10000 commands per seed instead of the earlier 20000.
+This halves stochastic depth; it is not an equivalent-depth campaign. The
+fixed timing bounds, all per-cycle model comparisons, command/result checks,
+original L1 status assertion and final 16-cycle drain remain unchanged. There
+is no shortening of `req_timeout_div1` or of either directed timeout recipe.
+The [paired comparison](https://github.com/amichai-bd/pcie-factory/actions/runs/39449165457)
+retains all 6542 hit RTL instance points and 170 functional bins for the
+covered seed 857203241; merged requester coverage also loses no points or
+bins. Both pinned seeds and the rotated seed satisfy every executed-event
+witness. This evidence supports the shorter depth, but does not establish
+equivalent stochastic exploration. Existing floors and timeout bounds remain.
+
+Long-only counters record answer categories only when the endpoint executes
+its plan: good, status, poisoned, malformed, stray, duplicate, D7 and no answer.
+Discarded plans do not count. Applied input cycles witness reset, link down and
+zero transmit credits; completed results witness successful split completions
+and an executed D7 plan ending `BAD` or `UR` after partial data. The campaign
+requires each witness, all eight
+endpoint-result statuses including `TIMEOUT`, and observed requester error
+events 0 to 6. It logs all counts and status multiplicities before checking
+them. Observers consume no RNG calls; the L1 campaign retains its original
+assertions without these additional long-only requirements.
+
+`models/test_rc_tl_scenario_seeds.py` checks original golden RNG identities,
+parameter-entry versus testcase identity and deterministic seed rotation.
+`models/test_rc_tl_random_witness.py` rejects each absent plan/phase/status and
+missing requester error events; it compares observed versus unobserved answer
+frames and RNG states over 512 seeds, exercising every plan category without
+a simulator. A fresh-process import check also loads the standalone requester
+module with only the simulation's DV and tool paths, so witness imports cannot
+depend on an earlier contract importing the environment. These unit tests
+support reproducibility and non-vacuity; they do
+not replace CI coverage comparisons or known-fault experiments.
 
 **Level placement.** `random_req_long` and `random_inb_long` are long
 random tests and `req_timeout_div1` a long one (2^21 cycles of one wait);
@@ -218,3 +299,11 @@ line point is keyed by file, line, column and kind, a toggle point by
 file, signal bit and direction (any copy). A point not hit is "another
 copy" when its key is hit anywhere in the run; the rest go by file and
 signal name as the rows list them.
+
+`req_timeout_div1` declares `seed_independent: true`: its fixed reset and
+three local header writes consume no RNG draws. With TX ready fixed high,
+no receive traffic, no hooks and endpoint answering disabled before the
+configuration read, its timeout wait and final error read are deterministic.
+The pinned run retains all 2²¹ cycles, exact S+N timing, result status/data
+and error-bit checks; a rotated seed would repeat those checks unchanged.
+Any future randomized stimulus in that call path must remove the declaration.

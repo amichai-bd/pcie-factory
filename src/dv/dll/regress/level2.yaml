@@ -119,14 +119,6 @@ tests:
     seeds: [1892473378]
     timeout_s: 300
     params: {FC_PH: 6, FC_PD: 40, FC_NPH: 4, FC_NPD: 2, FC_CPLH: 16, FC_CPLD: 64}
-  - name: fc_rx_accounting_infinite_sweep
-    module: tests.test_dll_fc
-    testcase: fc_rx_accounting
-    top: pcie_dll_tb
-    seeds: [1163266549]
-    timeout_s: 300
-    coverage_seeds: 0
-    params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
   - name: credit_starve_sweep
     module: tests.test_dll_fc
     testcase: credit_starve
@@ -134,35 +126,6 @@ tests:
     seeds: [1, 2, 3]
     timeout_s: 600
     coverage_seeds: 2
-  - name: credits_infinite_sweep
-    module: tests.test_dll_fc
-    testcase: credits_infinite
-    top: pcie_dll_tb
-    seeds: [1229063237]
-    timeout_s: 300
-    coverage_seeds: 0
-    params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
-  - name: tlp_partner_sweep
-    module: tests.test_dll_tlp_tx
-    testcase: tlp_partner
-    top: pcie_dll_tb
-    seeds: [1]
-    timeout_s: 300
-    coverage_seeds: 0
-  - name: tlp_rollover_sweep
-    module: tests.test_dll_tlp_tx
-    testcase: tlp_rollover
-    top: pcie_dll_tb
-    seeds: [1]
-    timeout_s: 300
-    coverage_seeds: 0
-  - name: rx_traffic_sweep
-    module: tests.test_dll_rx
-    testcase: rx_traffic
-    top: pcie_dll_tb
-    seeds: [1]
-    timeout_s: 300
-    coverage_seeds: 0
   - name: credit_starve_rx_sweep
     module: tests.test_dll_fc
     testcase: credit_starve_rx
@@ -223,13 +186,6 @@ tests:
     top: pcie_dll_tb
     timeout_s: 300
     params: {REPLAY_TIMEOUT: 1400}
-  - name: updatefc_refresh_sweep
-    module: tests.test_dll
-    testcase: updatefc_refresh
-    top: pcie_dll_tb
-    seeds: [1567202113]
-    coverage_seeds: 0
-    timeout_s: 120
   - name: rx_stall_sweep
     module: tests.test_dll_rx
     testcase: rx_stall

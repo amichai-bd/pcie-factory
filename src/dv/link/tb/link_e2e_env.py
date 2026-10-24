@@ -154,12 +154,15 @@ class Scoreboard:
         self.delivered = 0
         self.lost = 0                   # dropped at a requested link-down (HAS, stack wiring)
         self.last_delivery = 0          # cycle of the receiving end
+        self.pending_since: int | None = None  # receiver cycle: busy start / last progress
         # The throughput window (HAS checks): first accepted to last delivered, ps.
         self.first_accept_t: int | None = None
         self.last_deliver_t = 0
         self.payload = 0                # payload bytes delivered
 
-    def accept(self, tlp: bytes) -> None:
+    def accept(self, tlp: bytes, rx_cycle: int) -> None:
+        if not self.outstanding():
+            self.pending_since = rx_cycle
         if self.first_accept_t is None:
             self.first_accept_t = now_ps()
         self.accepted.append(tlp)
@@ -177,6 +180,7 @@ class Scoreboard:
             "reordered or corrupted")
         self.delivered += 1
         self.last_delivery = cycle
+        self.pending_since = cycle if self.outstanding() else None
         self.last_deliver_t = now_ps()
         self.payload += payload_bytes(tlp)
 
@@ -592,7 +596,8 @@ class LinkEnd:
                         COV_CREDIT.sample(starved=cls)
             return
         if self.pos == 0:
-            self.env.sb[self.dir].accept(self.cur)
+            rx = self.env.ends[1 - self.env.ends.index(self)]
+            self.env.sb[self.dir].accept(self.cur, rx.cycle)
             h, d, data = self.credits_of(self.cur)
             self.in_flight[h] += 1
             self.in_flight[d] += data
@@ -745,6 +750,7 @@ class Env:
             for sb in self.sb.values():
                 sb.lost += sb.outstanding()
                 sb.delivered = len(sb.accepted)
+                sb.pending_since = None
 
     def delivered(self, end: LinkEnd, tlp: bytes, n: int) -> None:
         self.sb["ba" if end.name == "a" else "ab"].deliver(tlp, n)
@@ -787,12 +793,10 @@ class Env:
             return
         for d, sb in self.sb.items():
             rx = self.ends[1] if d == "ab" else self.ends[0]
-            if sb.outstanding() and rx.cycle - max(sb.last_delivery, self._live_from) > LIVENESS:
+            if sb.pending_since is not None and rx.cycle - sb.pending_since > LIVENESS:
                 end.violations.append(f"liveness: {d} delivered nothing for {LIVENESS} cycles "
                                       f"with {sb.outstanding()} TLPs outstanding")
-                sb.last_delivery = rx.cycle
-
-    _live_from = 0
+                sb.pending_since = rx.cycle
 
     async def until(self, cond, limit: int, what: str, poll: int = 16) -> int:
         """Wait in a's cycles until ``cond()``; fail past ``limit``."""
@@ -820,7 +824,6 @@ class Env:
     async def link_up(self, limit: int = 40_000) -> int:
         """Both ends from reset to DL_Active."""
         n = await self.until(lambda: all(e.live for e in self.ends), limit, "both ends DL_Active")
-        self._live_from = self.ends[0].cycle
         self.log.info("both ends DL_Active at a cycle %d (a reached it at %s, b at %s)",
                       self.ends[0].cycle, self.active_at[0], self.active_at[1])
         return n

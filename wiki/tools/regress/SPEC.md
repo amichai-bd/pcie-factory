@@ -51,6 +51,7 @@ coverage_floors:              # optional; see Coverage floors
 | `seeds` | no | Either a **count** `N >= 1` (default `1`) or an explicit **list** of distinct integers in `[0, 2**31)`. |
 | `params` | no | Mapping from identifier to int or string, passed as `-G` overrides. |
 | `coverage_seeds` | no | Count from `0` to the entry's number of runs, default `1`: with `--coverage`, the first that many of its seeds (in the entry's own order: list order, or derived seeds 0, 1, ...) run on the coverage build and the rest on the plain build ([coverage](#coverage)). `0`: never a coverage run. |
+| `seed_independent` | no | Boolean, default `false`. Fixed stimulus and checks independent of the seed; requires exactly one pinned seed and adds no rotated seeds. The owning DV plan documents the audited call paths. |
 | `rerun_when` | no | `models_change`: a passing run is reused until the models it checks change ([reuse](#reuse-of-unchanged-model-checks)). Requires `coverage_seeds: 0`. |
 | `expect_fatal` | no | An assertion label (HDL identifier): the run passes only when the simulation stops on that assertion ([expected fatal stops](#expected-fatal-stops)). Requires `coverage_seeds: 0` and no `rerun_when`. |
 | `backend` | no | A flow kind of `cfg/backends.yaml` (an identifier; checked when building). The build swaps each source that has that flow's [backend file](../../project/layout.md#source-backends) beside it for that file and appends the kind's `dv_models`, so the same tests run on the backend. An unknown kind is a build `error`. |
@@ -208,8 +209,11 @@ change with `KEY`, so a run per key (the nightly passes its UTC date,
 
 - **Which entries:** every selected entry of the rotation `level`
   (`cfg/levels.yaml`, below; `2`, the full test) when that level is
-  selected. Other levels get none; the pinned runs are unchanged.
-- **How many:** `extra_seeds` per entry (`cfg/levels.yaml`), or
+  selected, except entries declaring `seed_independent: true`. That declaration
+  requires a call-path audit in the owning DV plan: neither stimulus nor checks
+  may consume randomness, including shared helpers. Other levels get none;
+  pinned runs and their coverage selection are unchanged.
+- **How many:** `extra_seeds` per seed-dependent entry (`cfg/levels.yaml`), or
   `--extra-seeds N` (a count `>= 0`, only with `--rotate`).
 - **Derivation:** extra seed `j` of an entry is
   `crc32("rotate:<KEY>:<ip>:<name>:<j>") & 0x7fffffff` for j = 0, 1, ...,
@@ -245,7 +249,7 @@ change with `KEY`, so a run per key (the nightly passes its UTC date,
   stimulus.
 
 After the level totals the run prints
-`rotation <KEY>: <p>/<n> extra runs passed (<N> per level<L> entry), CPU <x>s (budget <b>s), <k> not started`.
+`rotation <KEY>: <p>/<n> extra runs passed (<N> per eligible level<L> entry), CPU <x>s (budget <b>s), <k> not started`.
 
 `cfg/levels.yaml` holds the rotation settings beside the level budgets;
 all three keys are required, and a missing or malformed section is an
@@ -254,7 +258,7 @@ error (exit 2) only when `--rotate` is given:
 ```yaml
 rotation:
   level: 2          # the level whose entries get extra seeds
-  extra_seeds: 1    # per entry, a count >= 0
+  extra_seeds: 1    # per eligible entry, a count >= 0
   budget_s: 3600    # CPU seconds of extra runs, > 0
 ```
 
@@ -708,6 +712,8 @@ testbench change and the cache off rerun;
 determinism, a new key rotates, N gives a prefix;
 `test_rotated_seeds_skip_pinned_seeds`;
 `test_rotation_adds_extra_runs_on_the_rotation_level_only`;
+`test_seed_independent_keeps_pinned_coverage_and_other_rotation`: fixed recipes
+retain pinned coverage runs while genuinely seeded recipes still rotate;
 `test_load_rotation`: the `cfg/levels.yaml` section and every malformed
 case; `test_extra_runs_are_plain_marked_and_outside_the_level_totals`;
 `test_rotation_budget_stops_starting_extra_runs`;

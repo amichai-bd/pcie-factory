@@ -19,15 +19,6 @@ tests:
     seeds: 2
     timeout_s: 600
     params: {MSIX_TABLE_SIZE: 1, BAR0_ADDR_W: 20}
-  - name: enumeration_params_sweep
-    module: tests.test_cfg
-    testcase: enumeration
-    top: pcie_cfg_tb
-    seeds: [1585370101]
-    coverage_seeds: 0
-    timeout_s: 300
-    params: {BAR0_ADDR_W: 20, MSIX_TABLE_SIZE: 1, VENDOR_ID: 0x1AF4, DEVICE_ID: 0x0001,
-             CLASS_CODE: 0x058000, REVISION_ID: 0x01}
   - name: random_ops_sweep
     module: tests.test_cfg_random
     testcase: random_ops

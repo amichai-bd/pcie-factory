@@ -9,6 +9,8 @@ boundary Ack latency and the partner's passive checker. The directed
 tests also check each injected class's expected pulses (HAS, checks).
 """
 
+import hashlib
+import os
 import random
 import sys
 from pathlib import Path
@@ -30,8 +32,8 @@ def seed() -> int:
     return cocotb.RANDOM_SEED
 
 
-async def up(dut, **kw) -> Env:
-    env = Env(dut, seed(), **kw)
+async def up(dut, test_seed=None, **kw) -> Env:
+    env = Env(dut, seed() if test_seed is None else test_seed, **kw)
     env.start()
     await env.link_up()
     return env
@@ -113,13 +115,11 @@ async def e2e_smoke(dut):
 
 # ------------------------------------------------------- error classes
 
-@cocotb.test()
-async def e2e_tlp_errors(dut):
+async def phase_e2e_tlp_errors(env):
     """LCRC error, corrupted TLP and dropped TLP, each way: Bad TLP (and
     rcv_err for an invalid symbol) at the receiver and replay; a dropped
     TLP with a TLP behind it gives Bad TLP and a Nak, the last TLP of a
     burst the sender's replay timeout."""
-    env = await up(dut)
     for d in ("ab", "ba"):
         s, r = ends(env, d)
         for cls in ("lcrc", "corrupt_tlp"):
@@ -151,7 +151,13 @@ async def e2e_tlp_errors(dut):
 
 
 @cocotb.test()
-async def e2e_disparity(dut):
+async def e2e_tlp_errors(dut):
+    """Standalone recipe; L1 shares its fixture in the acceptance scenario."""
+    env = await up(dut)
+    await phase_e2e_tlp_errors(env)
+
+
+async def phase_e2e_disparity(env):
     """A running-disparity-only error on a TLP, each way (HAS, error
     injection): one header symbol sent in the other disparity column, the
     bytes intact, so only the receiving phy flags it. The receiver pulses
@@ -160,7 +166,6 @@ async def e2e_disparity(dut):
     errors); the sender replays and the TLP is delivered once. A pkt_rx_err
     lost between phy and dll in link would deliver the TLP with no Bad TLP
     and no Nak."""
-    env = await up(dut)
     for d in ("ab", "ba"):
         s, r = ends(env, d)
         inj = env.injectors[0 if d == "ab" else 1]
@@ -184,12 +189,17 @@ async def e2e_disparity(dut):
 
 
 @cocotb.test()
-async def e2e_dllp_errors(dut):
+async def e2e_disparity(dut):
+    """Standalone recipe; L1 shares its fixture in the acceptance scenario."""
+    env = await up(dut)
+    await phase_e2e_disparity(env)
+
+
+async def phase_e2e_dllp_errors(env):
     """Corrupted DLLP (Bad DLLP) and dropped DLLP (no pulse), each way; the
     Nak class (a lost Nak and a corrupted TLP of the replay: one Nak only,
     the replay timeout twice); the duplicate class (Acks dropped until the
     sender replays: no pulse at the receiver)."""
-    env = await up(dut)
     for d in ("ab", "ba"):
         s, r = ends(env, d)
         t0, _ = await directed(env, d, "corrupt_dllp")
@@ -234,12 +244,17 @@ async def e2e_dllp_errors(dut):
 
 
 @cocotb.test()
-async def e2e_rollover(dut):
+async def e2e_dllp_errors(dut):
+    """Standalone recipe; L1 shares its fixture in the acceptance scenario."""
+    env = await up(dut)
+    await phase_e2e_dllp_errors(env)
+
+
+async def phase_e2e_rollover(env):
     """Every TLP one way dropped until the sender rolls REPLAY_NUM over:
     exactly 4 replay timeouts and 1 rollover at the sender, no Bad TLP at
     the receiver, a retrain (both ends leave L0 and return, link_up_o and
     DL_Active kept), then traffic resumes and drains. Each way."""
-    env = await up(dut)
     for d in ("ab", "ba"):
         s, r = ends(env, d)
         inj = env.injectors[0 if d == "ab" else 1]
@@ -259,6 +274,13 @@ async def e2e_rollover(dut):
         assert delta(r, BAD_TLP, t0) == 0, f"rollover on {d}: Bad TLP at the receiver"
     await env.drain()
     env.finish()
+
+
+@cocotb.test()
+async def e2e_rollover(dut):
+    """Standalone recipe; L1 shares its fixture in the acceptance scenario."""
+    env = await up(dut)
+    await phase_e2e_rollover(env)
 
 
 @cocotb.test()
@@ -558,7 +580,7 @@ THROUGHPUT_TLPS = 2000
 MWR_DW = 32                          # 128-byte payload, 3-DW header: 140 bytes
 
 
-async def throughput(dut, both: bool, n: int = THROUGHPUT_TLPS):
+async def throughput(dut, both: bool, n: int = THROUGHPUT_TLPS, env=None, rng_seed=None):
     """The HAS throughput measurement: ``n`` 128-byte MWr one way (a to b)
     or each way. Checks the delivered payload efficiency per direction
     against the HAS target, exactly, and attributes every symbol on each
@@ -566,7 +588,8 @@ async def throughput(dut, both: bool, n: int = THROUGHPUT_TLPS):
     TLP header and framing, Ack, UpdateFC, SKP, idle and the rest; the
     attribution must close on the window. Lossless and error-free (every
     final check, no error pulse, no exit from L0)."""
-    env = await up(dut)
+    if env is None:
+        env = await up(dut)
     assert env.ppm == 0 and env.credits == "default", "the HAS measures at 0 ppm, default credits"
     for e in env.ends:
         e.valid_p = 1.0                  # the upper layer never waits (HAS checks)
@@ -575,7 +598,7 @@ async def throughput(dut, both: bool, n: int = THROUGHPUT_TLPS):
     # The seed moves the traffic against the SKP schedules (a start within
     # one SKP interval) and, both ways, b's first TLP against a's (within
     # one TLP time), so seeds line the items up differently.
-    rng = random.Random(seed() ^ 0x7A9)
+    rng = random.Random((seed() if rng_seed is None else rng_seed) ^ 0x7A9)
     await env.cycles(rng.randrange(arch.SKP_INTERVAL_MIN // 2))
     t_start = now_ps()
     dirs = ("ab", "ba") if both else ("ab",)
@@ -657,3 +680,57 @@ async def e2e_throughput_short(dut):
     against the same 0.85. Fewer TLPs put more of the start and drain in
     the window, so this is stricter than the HAS run, never looser."""
     await throughput(dut, both=False, n=400)
+
+
+# Original regression seeds; each phase keeps its old cocotb fullname hash.
+_ACCEPTANCE_SEEDS = {
+    "e2e_throughput_short": 1358307490,
+    "e2e_tlp_errors": 565541654,
+    "e2e_dllp_errors": 2043837992,
+    "e2e_disparity": 1992110143,
+    "e2e_rollover": 1835251897,
+}
+
+
+def acceptance_seed(name):
+    base = _ACCEPTANCE_SEEDS[name]
+    base += int(os.environ["COCOTB_RANDOM_SEED"]) - _ACCEPTANCE_SEEDS["e2e_throughput_short"]
+    return base + int(hashlib.sha1(f"{__name__}.{name}".encode()).hexdigest(), 16)
+
+
+def acceptance_rng(env, name):
+    """Restore the original recipe's independent payload/driver streams."""
+    value = acceptance_seed(name)
+    rng = random.Random(value)
+    for end in env.ends:
+        end.rng.seed(rng.getrandbits(32))
+    rng.randrange(64)  # Env's original reset-release skew draw.
+    for inj, channel in zip(env.injectors, env.channels):
+        inj.rng.seed(rng.getrandbits(32))
+        channel.rng.seed(rng.getrandbits(32))
+    env.rng.setstate(rng.getstate())
+    env.log.info("acceptance phase %s: original effective seed %d", name, value)
+    return value
+
+
+@cocotb.test()
+async def e2e_acceptance(dut):
+    """One training episode: pristine throughput, then every error class."""
+    name = "e2e_throughput_short"
+    env = await up(dut, test_seed=acceptance_seed(name))
+    # Throughput must precede injected errors: assert_quiet checks totals.
+    value = acceptance_seed(name)
+    probabilities = [end.valid_p for end in env.ends]
+    env.log.info("acceptance phase %s: original effective seed %d", name, value)
+    await throughput(dut, both=False, n=400, env=env, rng_seed=value)
+    env.log.info("acceptance phase %s: all checks passed", name)
+    for end, probability in zip(env.ends, probabilities):
+        end.valid_p = probability
+    for name, phase in (("e2e_tlp_errors", phase_e2e_tlp_errors),
+                        ("e2e_dllp_errors", phase_e2e_dllp_errors),
+                        ("e2e_disparity", phase_e2e_disparity),
+                        ("e2e_rollover", phase_e2e_rollover)):
+        await env.drain()
+        acceptance_rng(env, name)
+        await phase(env)
+        env.log.info("acceptance phase %s: all checks passed", name)

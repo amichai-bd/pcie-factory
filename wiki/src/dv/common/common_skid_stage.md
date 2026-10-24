@@ -47,19 +47,31 @@ make them fire, so no test breaks them on purpose.
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [No-gap stream, skid fill and ready, held beat, new flag, drain, reset](../../rtl/common/common_skid_stage.md#behavior) | `skid_stage_contract` | 0 | 1; `WIDTH` 8 |
-| The same under random traffic, against the model | `skid_stage_random` / `skid_stage_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (285127183 and 167240629), pinned; 3000 cycles; `WIDTH` 16 |
-| Random traffic, one-bit beats | `skid_stage_random_min` / `skid_stage_random_min_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (268928640), pinned; 3000 cycles; `WIDTH` 1 |
+| The same under random traffic, against the model | `skid_stage_random` | 1 | seed 1744405145; same configuration and assertion set |
+| Random traffic, one-bit beats | `skid_stage_random_min` | 1 | seed 1728099862; same configuration and assertion set |
 | Model rules | (model unit test) | - | `python3 -m pytest src/dv/common/models` |
 
-**Level placement**
-([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
-level 1 of every IP, which `ci-gate` runs for a change to a shared
-package, was over its 1200 s CPU budget. `skid_stage_random` and
-`skid_stage_random_min` run their first seed in level 1; their further
-seeds run pinned and unchanged in each entry's level 2 `_sweep`, each seed
-with its coverage instrumentation, so the merged level 0 to 2 runs are the
-same runs. The mutation evidence on this page names no seed for these
-entries, and was not rerun at the first seed alone.
+**Plain extra-seed removal (#461).** The following L1 entries retain
+the same executable, top, parameters and backend as their removed plain
+L2 repeats. Each extra seed had `coverage_seeds: 0`; every coverage-enabled
+entry remains. This trims random breadth and the removed rows' nightly
+rotations, without changing collected coverage inputs or any checker.
+
+| Retained L1 entry | Seed | Configuration |
+| --- | --- | --- |
+| `skid_stage_random` | 1744405145 | `common_skid_stage`, WIDTH=16, `portable` |
+| `skid_stage_random_min` | 1728099862 | `common_skid_stage`, WIDTH=1, `portable` |
+
+All ten recorded stage mutants S1–S10 are caught by retained L0
+`skid_stage_contract` seed 1036188790 in [PR #402](https://github.com/amichai-bd/pcie-factory/pull/402):
+ready ignoring skid (cycle 9), skid skipped (10), held never set (9),
+output valid not reset (20), skid not emptied (10), take ignoring ready
+(8), new ignoring held (9), skid overwritten by an unaccepted beat (17),
+no refill at take (2), held set on empty stall (19). S3/S7 have no listed
+`tl` catch; their shared-unit contract remains. Its directed sequence and
+fixed data patterns do not depend on the outer seed. The #445 coverage
+classification mutant also remains caught by this contract at the same
+seed (135 ns). The removed random seeds add no recorded sole fault catch.
 
 Mutation evidence ([#400](https://github.com/amichai-bd/pcie-factory/issues/400)):
 the PR records the mutants of the moved stage and which entries, here and

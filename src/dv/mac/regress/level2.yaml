@@ -1,47 +1,55 @@
 tests:
   - name: arcs_timeouts_downstream
+    seed_independent: true
     module: tests.test_mac
     testcase: arcs_timeouts_downstream
     top: pcie_mac_tb
     timeout_s: 3600
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
   - name: arcs_timeouts_upstream
+    seed_independent: true
     module: tests.test_mac
     testcase: arcs_timeouts_upstream
     top: pcie_mac_tb
     timeout_s: 3600
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
   - name: arcs_idle_rlock_downstream
+    seed_independent: true
     module: tests.test_mac
     testcase: arcs_idle_rlock_downstream
     top: pcie_mac_tb
     timeout_s: 3600
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
   - name: arcs_idle_rlock_upstream
+    seed_independent: true
     module: tests.test_mac
     testcase: arcs_idle_rlock_upstream
     top: pcie_mac_tb
     timeout_s: 3600
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
   - name: control_full_downstream
+    seed_independent: true
     module: tests.test_mac
     testcase: control_full_downstream
     top: pcie_mac_tb
     timeout_s: 3600
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
   - name: control_full_upstream
+    seed_independent: true
     module: tests.test_mac
     testcase: control_full_upstream
     top: pcie_mac_tb
     timeout_s: 3600
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
   - name: dividers
+    seed_independent: true
     module: tests.test_mac
     testcase: dividers
     top: pcie_mac_tb
     timeout_s: 1200
     params: {TIMEOUT_DIV: 256, ERR_TIMEOUT_DIV: 128}
   - name: train_spec
+    seed_independent: true
     module: tests.test_mac
     testcase: train_spec
     top: pcie_mac_tb

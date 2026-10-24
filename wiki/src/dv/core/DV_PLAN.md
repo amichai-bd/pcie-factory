@@ -84,6 +84,28 @@ record [0004](../../decisions/0004-m3-grill.md#goal).
   plans) and line impairments and ppm offsets (`link`); what the stacked
   IPs' code leaves uncovered here is in [Coverage holes](#coverage-holes).
 
+### Shared L1 scenarios
+
+L1 `e2e_functional` shares one training/enumeration episode across the
+original enumeration, BAR, bus-master, MSI and MSI-X checks. Both interrupt
+table/address/data programs remain; interrupt ledgers use phase boundaries,
+and application stall/latency settings are restored. `e2e_error_paths`
+shares another training/enumeration episode across unsupported, timeout and
+error-status phases. It restores reporting controls and clears
+W1C status before each phase; raw histories remain intact and exact error
+counts use phase baselines. Link-error injection stays in standalone
+`e2e_link_errors` with its original seed 830112853: its fresh link sequence,
+replay-buffer and symbol-disparity state are part of the scenario. Sharing
+that fixture changes the fault alignment even with the same random draws.
+Destructive link-down and throughput also stay separate.
+Each phase logs its original name and effective seed. At the pinned bundle
+seed, stimulus uses the original regression seed plus cocotb 2.1's SHA1 of
+the original testcase fullname; another bundle seed shifts every phase by
+the same amount. Random generators are restored without starting another
+clock or driver. Covergroups remain the same module-level instances, and
+all phase final checks remain active.
+
+
 ## Plan
 
 Entries run on `pcie_core_e2e_tb` with the HAS default parameters unless
@@ -92,16 +114,16 @@ stated; each brings the link up and enumerates first.
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Reset values](../../arch/core/HAS.md#reset), elaboration | `smoke` | 0 | 1; `pcie_core` top, 128 cycles |
-| Goal item 4, [enumeration](../../arch/core/HAS.md#targets): IDs, capability list (PM, MSI, MSI-X, PCI Express), BAR0 and BAR2 sized and assigned, no other BAR or ROM, enables and status outputs, Set_Slot_Power_Limit captured ([#309](https://github.com/amichai-bd/pcie-factory/issues/309)), an interrupt dropped with no mode, one MSI, one MSI-X write per vector | `e2e_enumeration` | 1 | 1 |
+| Goal item 4, [enumeration](../../arch/core/HAS.md#targets): IDs, capability list (PM, MSI, MSI-X, PCI Express), BAR0 and BAR2 sized and assigned, no other BAR or ROM, enables and status outputs, Set_Slot_Power_Limit captured ([#309](https://github.com/amichai-bd/pcie-factory/issues/309)), an interrupt dropped with no mode, one MSI, one MSI-X write per vector | `e2e_functional` (phase `e2e_enumeration`) | 1 | 1 |
 | The same with `BAR0_ADDR_W` 20, `MSIX_TABLE_SIZE` 64 and non-zero IDs | `e2e_enumeration_max` | 2 | 1 |
-| Goal item 5, BAR0 traffic: the HAS [splitting examples](../../arch/tl/COMPLETIONS.md#splitting) with their completion counts, a zero-length read, random writes and reads up to 600 bytes with `cq` stalled 30% | `e2e_bar_traffic` | 1 | 1 |
+| Goal item 5, BAR0 traffic: the HAS [splitting examples](../../arch/tl/COMPLETIONS.md#splitting) with their completion counts, a zero-length read, random writes and reads up to 600 bytes with `cq` stalled 30% | `e2e_functional` (phase `e2e_bar_traffic`) | 1 | 1 |
 | The same, more seeds; with the minimum credits (`FC_PH` 1, `FC_PD` 8, `FC_NPH` 1, `FC_NPD` 2), the [credit release](../../arch/core/HAS.md#credits) gating the host | `e2e_bar_traffic_sweep`, `e2e_bar_traffic_min_credits` | 2 | 3; 1 |
-| Goal item 5, bus master: `rq` writes with 3-DW and 4-DW headers, `rq` reads of them, eight outstanding, completions fewest and per 64 bytes, `rc` stalled 30% | `e2e_bus_master` (level 1), `e2e_bus_master_sweep` | 1, 2 | 1; 3 |
-| [MSI](../../arch/core/APP.md#interrupts): the write after the data written before it (six rounds of four 128-byte writes), pending with bus mastering off, merged requests, sent on enable | `e2e_msi` | 1 | 1 |
-| MSI-X: masked vectors pend and show in the PBA, one write per unmask clearing its bit, Function Mask, unmasked writes at once | `e2e_msix` (level 1), `e2e_msix_sweep`, `e2e_msix_max` (64 vectors) | 1, 2 | 1; 2; 1 |
-| Goal items 5, 6, [Unsupported Request](../../arch/core/HAS.md#request-routing): I/O read, read past the BARs, write hitting no BAR, Type 0 read to function 1, Type 1 read; UR completions, Unsupported Request Detected, ERR_COR and ERR_NONFATAL with reporting on, none off, Signaled System Error, BAR0 still served; a BAR0 read with Memory Space Enable 0 | `e2e_unsupported` | 1 | 1 |
-| Goal items 5, 6, completion timeout: rc failed between 16P and 17P, Transactions Pending meanwhile, ERR_NONFATAL, Non-Fatal Error Detected; the late completion unexpected (ERR_COR); Correctable Error Detected after it; Completion Timeout Disable and the fresh timeout | `e2e_cpl_timeout` (level 1), `e2e_cpl_timeout_div64` | 1, 2 | 1; `CPL_TIMEOUT_DIV` 64 |
-| Goal item 6, other errors: malformed (ERR_FATAL), poisoned request (dropped, Detected Parity Error), poisoned completion (rc failed, Master Data Parity Error), UR and CA completions (Received Master and Target Abort, no message) | `e2e_errors` (level 1), `e2e_errors_sweep` | 1, 2 | 1; 2 |
+| Goal item 5, bus master: `rq` writes with 3-DW and 4-DW headers, `rq` reads of them, eight outstanding, completions fewest and per 64 bytes, `rc` stalled 30% | `e2e_functional` (phase `e2e_bus_master`) (level 1), `e2e_bus_master_sweep` | 1, 2 | 1; 3 |
+| [MSI](../../arch/core/APP.md#interrupts): the write after the data written before it (six rounds of four 128-byte writes), pending with bus mastering off, merged requests, sent on enable | `e2e_functional` (phase `e2e_msi`) | 1 | 1 |
+| MSI-X: masked vectors pend and show in the PBA, one write per unmask clearing its bit, Function Mask, unmasked writes at once | `e2e_functional` (phase `e2e_msix`) (level 1), `e2e_msix_sweep`, `e2e_msix_max` (64 vectors) | 1, 2 | 1; 2; 1 |
+| Goal items 5, 6, [Unsupported Request](../../arch/core/HAS.md#request-routing): I/O read, read past the BARs, write hitting no BAR, Type 0 read to function 1, Type 1 read; UR completions, Unsupported Request Detected, ERR_COR and ERR_NONFATAL with reporting on, none off, Signaled System Error, BAR0 still served; a BAR0 read with Memory Space Enable 0 | `e2e_error_paths` (phase `e2e_unsupported`) | 1 | 1 |
+| Goal items 5, 6, completion timeout: rc failed between 16P and 17P, Transactions Pending meanwhile, ERR_NONFATAL, Non-Fatal Error Detected; the late completion unexpected (ERR_COR); Correctable Error Detected after it; Completion Timeout Disable and the fresh timeout | `e2e_error_paths` (phase `e2e_cpl_timeout`) (level 1), `e2e_cpl_timeout_div64` | 1, 2 | 1; `CPL_TIMEOUT_DIV` 64 |
+| Goal item 6, other errors: malformed (ERR_FATAL), poisoned request (dropped, Detected Parity Error), poisoned completion (rc failed, Master Data Parity Error), UR and CA completions (Received Master and Target Abort, no message) | `e2e_error_paths` (phase `e2e_errors`) (level 1), `e2e_errors_sweep` | 1, 2 | 1; 2 |
 | [Link to cfg](../../arch/core/TL_CFG.md#link-to-cfg): line bit flips under traffic give `rcv_err_o` and `dl_err_o`, Correctable Error Detected and ERR_COR only, data lossless; then each wire alone: a flip on the idle line (`rcv_err_o` only) and a substituted data symbol in a TLP (`dl_err_o` Bad TLP only) | `e2e_link_errors` | 1 | 1 |
 | [Throughput targets](../../arch/core/HAS.md#targets), screen: 300 host writes | `e2e_throughput_short` | 1 | 1 |
 | Throughput targets: host writes, application writes (2000 of 128 bytes), host reads, application reads, both ways (1000) | `e2e_throughput_host_write`, `e2e_throughput_app_write`, `e2e_throughput_host_read`, `e2e_throughput_app_read`, `e2e_throughput_bidir` | 2 | 1 each |
@@ -144,6 +166,11 @@ stack, functional 100% (62 of 62 bins); at levels 0 to 2 and the floors,
 [Coverage holes](#coverage-holes).
 
 ## Mutation evidence
+
+The following cycle/seed results are historical standalone-recipe evidence.
+Those testcase wrappers remain for the named L2 sweeps; the shared L1
+scenarios above retain their corresponding phases and assertions. These
+are not new measurements of the consolidated scenarios.
 
 Each mutant is one deliberate change to `pcie_core.sv`, the only RTL this
 plan owns; the entries ran in level order and the first failing one is

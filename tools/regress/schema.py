@@ -20,7 +20,7 @@ _MODULE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
 
 _REQUIRED = {"name", "module", "top", "timeout_s"}
 _OPTIONAL = {"testcase", "seeds", "params", "backend", "coverage_seeds", "rerun_when",
-             "expect_fatal"}
+             "expect_fatal", "seed_independent"}
 # Values of `rerun_when` (wiki/tools/regress/SPEC.md, "Reuse of unchanged
 # model checks"): run again only when the models the entry checks change.
 RERUN_WHEN = ("models_change",)
@@ -45,6 +45,8 @@ class TestEntry:
     coverage_seeds: int = 1  # with --coverage, how many of its runs are coverage runs
     rerun_when: str | None = None  # reuse a pass until this changes (RERUN_WHEN)
     expect_fatal: str | None = None  # passes only by stopping on this assertion label
+
+    seed_independent: bool = False  # fixed stimulus; no extra rotated seeds
 
     @property
     def runs(self) -> int:
@@ -141,8 +143,13 @@ def parse_entry(raw, ip: str, level: int, where: str) -> TestEntry:
         if rerun is not None:
             raise SchemaError(f"{where}: 'expect_fatal' cannot be combined with 'rerun_when' "
                               "(an RTL change must rerun it)")
+    independent = raw.get("seed_independent", False)
+    if not isinstance(independent, bool):
+        raise SchemaError(f"{where}: 'seed_independent' must be a boolean")
+    if independent and runs != 1:
+        raise SchemaError(f"{where}: 'seed_independent' requires exactly one pinned seed")
     return TestEntry(ip, level, name, module, top, float(timeout), testcase, seeds, dict(params),
-                     backend, cov, rerun, fatal)
+                     backend, cov, rerun, fatal, independent)
 
 
 FLOOR_KEY = "coverage_floors"

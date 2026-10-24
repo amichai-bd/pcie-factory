@@ -161,9 +161,9 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
 | SKP addition at -600 ppm, maximum TLPs, SKP every 1538; removal at +600 ppm | `eb_tlp_m600`, `eb_tlp_p600` | 1 | [1] each |
 | Random sizes, SKP sets of one to five SKPs, random interval, at -300 and +300 ppm | `eb_random_m300`, `eb_random_p300` | 1 | [1] each |
 | The same at a seeded offset within ±600 ppm | `eb_random_offset` / `eb_random_offset_sweep` | 1 / 2 | [1, 2], coverage on both / [3..6] |
-| A burst one SKP set short, then a maximum TLP, at -600 ppm (#73 sign-off case) | `eb_short_burst` / `eb_short_burst_sweep` | 1 / 2 | [1] / [2, 3] |
-| Sizes that strand corrections at ±600 ppm | `eb_stress_sizes` | 1 | [1, 2]: fast, slow |
-| Dense SKP sets (one to five SKPs every 48 to 96 symbols) at ±600 ppm: additions after a COM in either half of a word, removals leaving a bare COM, sets back to back | `eb_dense` / `eb_dense_sweep` | 1 / 2 | [1] / [2..8] |
+| A burst one SKP set short, then a maximum TLP, at -600 ppm (#73 sign-off case) | `eb_tlp_m600` short-burst section / `eb_short_burst_sweep` | 1 / 2 | original short-burst seed 1 / [2, 3] |
+| Sizes that strand corrections at ±600 ppm | `eb_tlp_p600` / `eb_tlp_m600` stress sections | 1 | original stress seeds 1 / 2: fast, slow |
+| Dense SKP sets (one to five SKPs every 48 to 96 symbols) at ±600 ppm: additions after a COM in either half of a word, removals leaving a bare COM, sets back to back | `eb_tlp_p600` dense section / `eb_dense_sweep` | 1 / 2 | original dense seed 1 / [2..8] |
 | Recentring through two 6000-symbol electrical-idle gaps in 60 packets at -600 ppm (read side holds) and +600 ppm (write side drops); non-vacuous: `Recentre` counts the MAS observation nets `r_recentre` (read-side hold) and `w_drop` (write-side drop), and the test requires a hold at -600 ppm and a drop at +600 ppm | `eb_idle_m600`, `eb_idle_p600` | 1 | [1] each |
 | A relock end inside a PIPE word: close bit-error pairs at ±600 ppm, the SKP corrections leaving an odd word parity at some relocks; that word (last locked symbol, then an unlocked one) leaves with RxValid 0, and at least one occurs (`ValidRule`) | `rx_relock_mid_word` | 1 | [1, 2]; odd seeds fast |
 | [Electrical idle in order](../../arch/pcs/RECEIVE.md#electrical-idle): an EIOS before each of eight 1500-symbol idle gaps at ±600 ppm, the SKP corrections changing the word parity between gaps: the whole EIOS under RxValid before RxElecIdle, idle tails (EIOS ending in the first half of a word) reach PIPE; non-vacuous: every gap's EIOS checked whole and at least one idle tail per run | `rx_eios_idle` / `rx_eios_idle_sweep` | 1 / 2 | [1, 2] / [3..8]; odd seeds fast |
@@ -187,7 +187,7 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
 
 **Level placement** ([#272](https://github.com/amichai-bd/pcie-factory/issues/272)):
 `rx_ppm`, `rx_slips`, `rx_close_errors`, `rx_errors`, `rx_error_bursts`,
-`rx_slips_training`, `eb_dense` and `rx_reset_traffic` run seed 1 (fast
+`rx_slips_training`, the dense section and `rx_reset_traffic` run seed 1 (fast
 RX clock) in level 1, and their seed 2 (slow RX clock) moved into the
 entry's level 2 sweep, so the merged level 0 to 2 runs are the same runs.
 The slow clock stays in level 1 through the entries that keep both seeds.
@@ -196,6 +196,39 @@ level 1: `eb_lock_start`, `rx_elec_idle_gaps` and `rx_eios_idle` (the
 read-side lock-start drop and the recentring hold), and `eb_random_offset`
 (the `pcs_elastic` floor of level 1, whose random addition bin only seed 2
 reaches on levels 0 and 1).
+
+**Continuous elastic sections (#461).** `eb_tlp_m600` and `eb_tlp_p600`
+keep their names, outer seed 1 and maximum-TLP section first, preserving
+that section's cocotb 2.1 RNG (`outer seed + SHA1(original fully qualified
+test name)`), original phase draw and ±600 ppm threshold-fault stimulus.
+Each owns one `RxBench`, channel, clock pair and set of monitors. The
+slow line continues with the original `eb_short_burst` seed 1 and
+`eb_stress_sizes` seed 2 payloads; the fast line continues with
+`eb_stress_sizes` seed 1 and `eb_dense` seed 1 payloads. Original packet
+counts, SKP intervals and parity-selected directions remain. This replaces
+three L1 rows/four simulator starts with sections sharing one reset and
+continuous symbol lock per clock direction. Later sections intentionally
+start from the preceding section's fill/disparity, not a new reset/phase.
+
+The global oracle checks the complete concatenated stream, boundary words,
+one lock, every delivered symbol, every SKP status, visible fill 4..12,
+latency ≤12 cycles and absence of overflow/underflow. Each section also
+checks nonzero SKP-set coverage and its own additions>removals or
+removals>additions; the fast dense section independently requires removal,
+bare COM and back-to-back sets. Local statistics omit boundary-straddling
+words, which remain in the global check. `RxBench.close()` cancels its
+owned clocks, channel and monitors even when a check fails; scenarios are
+not invoked as sequential old testcase coroutines. Data-path slip/relock,
+error-count, electrical-idle and both-seed mutant checks are unchanged.
+L2 dense/short-burst sweeps keep their original standalone functions/seeds.
+
+Logs name each original testcase, outer seed and effective RNG seed, with
+per-section SKP statistics. Reproduce the L1 sections with
+`./build sim --ip pcs --test eb_tlp_m600 --seed 1` or `eb_tlp_p600`.
+The historical mutation table below names original catches; maximum-TLP
+first catches keep the same initial stimulus. New continuous sections need
+remote source/functional-floor validation; prior isolated coverage values
+are historical, not a claim for the new stream.
 
 **Seeds and coverage runs** ([#327](https://github.com/amichai-bd/pcie-factory/issues/327)).
 The long random entries `rx_align_long` (8 to 4 seeds), `tx_random_long`
@@ -244,14 +277,14 @@ Every check of the removed leaf testbenches, and where it is now.
 | `no_false_lock` (aligner) | Data at 20 offsets, idle noise, unflagged noise then recovery; the lowest comma offset wins | `rx_no_false_lock`, with a directed window holding commas at two symbol boundaries, checked by the RTL assertion `a_lock_at_lowest_comma` |
 | `long_random` (aligner) | 40 mixed segments, every check | `rx_align_long` |
 | Aligner model unit tests and assertions | The cycle model; offset range, no lock from idle, relock drops lock, generation flips only on lock, lock word holds a comma | Kept: [`test_pcie_pcs_align_model.py`](../../../../src/dv/pcs/models/test_pcie_pcs_align_model.py); the assertions in the RTL |
-| `smoke` (elastic buffer) | Reset, RX reset timing, start at fill 8, lossless, SKP sets of 1 to 5 | Lossless and sets of 1 to 5: `eb_random_*`, `eb_dense`; start at fill 8: RTL assertion `a_start_at_8` in every test. RX reset timing is a [gap](#gaps) |
+| `smoke` (elastic buffer) | Reset, RX reset timing, start at fill 8, lossless, SKP sets of 1 to 5 | Lossless and sets of 1 to 5: `eb_random_*`, `eb_tlp_p600` dense section; start at fill 8: RTL assertion `a_start_at_8` in every test. RX reset timing is a [gap](#gaps) |
 | `ppm_m600`, `ppm_m300`, `ppm_p300`, `ppm_p600`, `random_offset` (elastic buffer) | Additions or removals per offset, fill 4 to 12 | `eb_tlp_m600`, `eb_random_m300`, `eb_random_p300`, `eb_tlp_p600`, `eb_random_offset`; fill 4 to 12 by `FillCheck` in every receive test within the targets |
-| `short_burst_m600`, `stress_sizes` | The reviewer's case; stranding sizes | `eb_short_burst`, `eb_stress_sizes` |
+| `short_burst_m600`, `stress_sizes` | The reviewer's case; stranding sizes | Short-burst/stress sections of `eb_tlp_m600`, stress section of `eb_tlp_p600` |
 | `idle_m600`, `idle_p600` | Recentring, with the leaf's non-vacuity assertion (a read-side hold at -600 ppm, a write-side drop at +600 ppm), 60 packets | `eb_idle_m600`, `eb_idle_p600` (holds and drops counted on `r_recentre` and `w_drop`) |
 | `lock_start_m600`, `lock_start_p600` | No locked word packed with an unlocked symbol | `eb_lock_start` (every run starts at its comma or the symbol before it), also in `rx_elec_idle_gaps` and every lock test |
 | `relock_generation` | Generation carried per word through same-cycle relocks | `rx_slips_training` (same-cycle relocks; the error counter re-arms on the generation, so the next slip is answered) |
 | `thresholds_swing`, `thresholds_m600`, their sweep | Removal exactly at a seen fill of 9, addition exactly at 7, both sides of each threshold | RTL assertions `a_fill_high_at_9` (fill high, the write side's removal condition, exactly at 9 or more), `a_add_at_7_or_less` and `a_add_when_due` (an addition only at 7 or less, and every possible one made there), live in every test; additions and removals in the right direction (`eb_*`); `FillCheck` |
-| `pause_corners`, its sweep | Write pauses, bare COM, back-to-back sets, removal reported on the next word, overflow and underflow mixed with SKP changes | Bare COM, back-to-back sets: `eb_dense`; overflow and underflow: `eb_overflow`, `eb_overflow_leftover`, `eb_underflow`, `eb_stress`. Write pauses and the next-word removal report are [gaps](#gaps) |
+| `pause_corners`, its sweep | Write pauses, bare COM, back-to-back sets, removal reported on the next word, overflow and underflow mixed with SKP changes | Bare COM, back-to-back sets: `eb_tlp_p600` dense section; overflow and underflow: `eb_overflow`, `eb_overflow_leftover`, `eb_underflow`, `eb_stress`. Write pauses and the next-word removal report are [gaps](#gaps) |
 | `overflow`, `underflow` | Losses flagged; underflow words, nothing lost | `eb_overflow`, `eb_underflow` |
 | `reset_restart` | Reset with traffic in flight, clean restart | `rx_reset_traffic` (`rst_i` and `pipe_reset_ni`), `rx_lock_controls` |
 | `long_m600`, `long_p600`, `long_random`, `long_stress`, `long_idle` | Long runs | `eb_long_tlp`, `eb_long_random`, `eb_long_stress`, `eb_long_idle` |

@@ -49,6 +49,12 @@ async def cmd_checks(dut):
     env = Env(dut, seed())
     await env.start()
     await open_routes(env)
+    await case_cmd_checks(env)
+
+
+async def case_cmd_checks(env: Env):
+    """Checks 2 to 5, each with refusals and the passing neighbours."""
+    dut = env.dut
     # Check 2: op 10 to 15 refused, with the link down and up.
     for op in range(10, 16):
         await env.expect_cmd(Cmd(op), REFUSED, dl_up=0)
@@ -111,6 +117,13 @@ async def byte_enables(dut):
     env = Env(dut, seed())
     await env.start()
     await open_routes(env)
+    await case_byte_enables(env)
+
+
+async def case_byte_enables(env: Env):
+    """Check 6, every first_be and last_be of every op with len 1 (ERR_*
+    included), and of MEM_RD with len 2 (both QW alignments), 3 and 32."""
+    dut = env.dut
     addr = {CFG_RD: cfg_addr(), CFG_WR: cfg_addr(), MEM_RD: IN_WIN, MEM_WR: IN_WIN,
             HDR_RD: 0x2C, HDR_WR: 0x2C, HOST_RD: 0, HOST_WR: 0, ERR_RD: 0, ERR_CLR: 0}
     pass_status = {CFG_RD: PASS, CFG_WR: PASS, MEM_RD: PASS, MEM_WR: PASS,
@@ -199,6 +212,16 @@ async def check1(dut):
     env = Env(dut, seed())
     await env.start()
     await open_routes(env)
+    await case_check1(env)
+
+
+async def case_check1(env: Env):
+    """Check 1: an endpoint command taken while dl_up_i is 0 finishes
+    LINK_DOWN at once, whichever of checks 2 to 7 it would fail, and sends
+    nothing; with the link up the same commands pass or finish LOCAL_UR.
+    Local commands, HOST_* included, are unaffected by the link. dl_up_i is
+    sampled at the take."""
+    dut = env.dut
     env.toggle_idle = True
     good = (Cmd(CFG_RD, cfg_addr()), Cmd(CFG_WR, cfg_addr(), data=0x1234),
             Cmd(MEM_RD, IN_WIN, 32, 0xF, 0xF), Cmd(MEM_WR, IN_WIN, data=0xFFFF_FFFF))
