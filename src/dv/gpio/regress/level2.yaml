@@ -54,11 +54,14 @@ tests:
     top: pcie_gpio_tb
     params: {RATIO: 2}
     timeout_s: 600
+  # Derived seed 0, then 1331881895 (#468): b reset inside a sop slot,
+  # which a completes with b's first transfer after the restart.
   - name: restart_double
     module: tests.test_gpio
     testcase: restart
     top: pcie_gpio_tb
     params: {RATIO: 2}
+    seeds: [79652860, 1331881895]
     timeout_s: 600
   - name: hot_reset_half
     module: tests.test_gpio

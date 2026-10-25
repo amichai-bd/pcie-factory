@@ -142,19 +142,23 @@ tests:
     seeds: [1562228821]
     coverage_seeds: 0
     timeout_s: 120
+  # Then 655947418 (#468): a source slower than about three destination
+  # periods, so the output pulse rises and falls inside the event's half
+  # source cycle.
   - name: pulse_arst_sweep
     module: tests.test_cdc_pulse
     testcase: async_reset
     top: common_cdc_pulse
-    seeds: [1141078041]
+    seeds: [1141078041, 655947418]
     coverage_seeds: 0
     params: {SRC_ASYNC_RESET: 1, DST_ASYNC_RESET: 1}
     timeout_s: 120
+  # Then 685395726 and 7198009 (#468), as for pulse_arst_sweep.
   - name: pulse_arst_dst_sweep
     module: tests.test_cdc_pulse
     testcase: async_reset
     top: common_cdc_pulse
-    seeds: [391930980]
+    seeds: [391930980, 685395726, 7198009]
     coverage_seeds: 0
     params: {DST_ASYNC_RESET: 1}
     timeout_s: 120

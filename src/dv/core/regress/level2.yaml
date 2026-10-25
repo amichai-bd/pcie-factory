@@ -68,11 +68,14 @@ tests:
              SUBSYS_VENDOR_ID: 24175, SUBSYS_ID: 28801, CLASS_CODE: 360448, REVISION_ID: 90}
     seeds: 2
     timeout_s: 1200
+  # Derived seed 0, then 2047883931 (#468): a BAR0 write passes an
+  # outstanding read of the same bytes.
   - name: e2e_bar_traffic_min_credits
     module: tests.test_core_e2e
     testcase: e2e_bar_traffic
     top: pcie_core_e2e_tb
     params: {FC_PH: 1, FC_PD: 8, FC_NPH: 1, FC_NPD: 2}
+    seeds: [1443202114, 2047883931]
     timeout_s: 600
   - name: e2e_soak_min_credits
     module: tests.test_core_e2e

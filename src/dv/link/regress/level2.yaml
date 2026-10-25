@@ -102,10 +102,13 @@ tests:
 # Directed entries moved from level 1 to keep ci-gate inside its budget
 # (#272); level 1 keeps the error classes, the rollover, the minimum
 # credits and the throughput screen.
+  # Derived seed 0, then 1272327024 (#468): a new TLP cut before its
+  # sequence number as the sender leaves L0, then the next new one.
   - name: e2e_line
     module: tests.test_link_e2e
     testcase: e2e_line
     top: pcie_link_e2e_tb
+    seeds: [312295211, 1272327024]
     timeout_s: 600
   - name: e2e_mixed
     module: tests.test_link_e2e

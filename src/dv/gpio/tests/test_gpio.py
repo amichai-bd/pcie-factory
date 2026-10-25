@@ -247,7 +247,9 @@ async def restart(dut):
     watchdog, then both together. Each time both ends go down exactly once
     (a reset end counts its own down), come back up, and the traffic
     resumes: packets taken whole after the restart are delivered in order;
-    packets in flight at the reset may be lost or cut."""
+    packets in flight at the reset may be lost or cut, and the one on the
+    pins at a sender reset may arrive damaged (one damaged slot, LINK_UP.md
+    convergence; the scoreboard allows one per sender reset)."""
     env = await up(dut)
     for sb in env.sb.values():
         sb.allow_loss = True
