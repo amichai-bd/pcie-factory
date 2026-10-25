@@ -25,13 +25,14 @@ tests:
     top: pcie_rc_tl_tb
     seeds: 2
     timeout_s: 3600
-# Coverage floors (#380), levels 0 to 2 merged, the code floors the merged
-# value less 0.5 points rounded down to a tenth (DV BKM, floor margin):
-# measured 91.91% line (943/1026), 66.00% toggle (31793/48168); every point
-# not hit has a reason in the DV plan (Coverage holes). An entry with a new
-# parameter set, or an RTL change that adds state, re-measures these floors
-# in the same PR.
+# Coverage floors (#380), levels 0 to 2 merged, by source (#228): the
+# merged value less 0.5 points rounded down to a tenth, never below the
+# existing floor (DV BKM, floor margin): 99.26% line (403/406) and 91.43%
+# toggle (13781/15072). The per-instance figures behind the earlier floors
+# are in the DV plan (Coverage holes), where every point not hit has a
+# reason. An entry with a new parameter set, or an RTL change that adds
+# state, re-measures these floors in the same PR.
 # Functional 100 must hold every bin of rc_tl_cmd, rc_tl_cpl, rc_tl_cplr,
 # rc_tl_host, rc_tl_inb, rc_tl_req and rc_tl_reset; a renamed or undeclared
 # covergroup leaves the total, so keep this list.
-coverage_floors: {line: 91.4, toggle: 65.5, functional: 100}
+coverage_floors: {line: 98.7, toggle: 90.9, functional: 100}

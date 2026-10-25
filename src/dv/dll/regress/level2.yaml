@@ -216,16 +216,16 @@ tests:
     coverage_seeds: 3
     timeout_s: 300
     params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
-# Floors on the merged levels 0 to 2 (the nightly run), at the merged value
-# less 0.5 points rounded down to a tenth (DV BKM, floor margin): line 98.5
-# from 99.07% (637/643) and toggle 77.0 from 77.57% (19987/25768), both
-# raised by #401 once the REPLAY_TIMEOUT 1400 entries above reached that
-# build's copies; toggle was lowered from 80.0 by captain decision on #354
-# for the FC_RELEASE parameter copies and tie-off (DV plan, Coverage
-# holes); every point not hit has a reason in the DV plan (Coverage holes).
+# Floors on the merged levels 0 to 2 (the nightly run), by source (#228):
+# the merged value less 0.5 points rounded down to a tenth, never below
+# the existing floor (DV BKM, floor margin): 99.50% line (396/398) and
+# 85.93% toggle (8810/10252). The earlier per-instance floors (line 98.5
+# and toggle 77.0, raised by #401; toggle lowered from 80.0 by captain
+# decision on #354) are in the DV plan (Coverage holes), where every point
+# not hit has a reason.
 # Functional 100 must hold every bin of dll_acknak_rx, dll_acknak_tx,
 # dll_digest, dll_dl_states, dll_dllp_rx, dll_dllp_tx, dll_fc_init,
 # dll_fc_rx, dll_fc_tx, dll_malformed, dll_rbuf, dll_replay, dll_reset,
 # dll_rx_stream, dll_tlp_rx, dll_tlp_tx, dll_tx_tail and dll_updatefc_tx; a
 # renamed or undeclared covergroup leaves the total, so keep this list.
-coverage_floors: {line: 98.5, toggle: 77.0, functional: 100}
+coverage_floors: {line: 98.9, toggle: 85.4, functional: 100}

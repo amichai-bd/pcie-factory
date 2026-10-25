@@ -113,11 +113,11 @@ shows where each of their checks went.
   - Floors: level 1 holds `mac_os_tx`, `mac_os_rx` and `mac_frame` at
     100% (reached by levels 0 and 1); level 2 holds functional coverage at
     100% (all six covergroups, so all 64 arcs of the HAS list in each
-    role), line at 86% and toggle at 78.2%, per the
+    role), line at 93.3% and toggle at 93.8%, per the
     [DV BKM](../../../bkm/dv.md#coverage) rule (the existing floor or the
     merged level 0 to 2 value less 0.5 points, the higher): the merged
-    values are 86.34% and 78.78%, so the line floor, kept at 86, leaves
-    0.34 points (7 line points) of margin. Every point left is in [coverage holes](#coverage-holes).
+    source values are 93.89% and 94.34%, leaving the prescribed
+    margin. Every point left is in [coverage holes](#coverage-holes).
 - **Model unit tests** without a simulator: the architecture model's
   self-tests (`./build arch --ip mac`) and the scrambler's word model
   ([`models/`](../../../../src/dv/mac/models/), also the `phy` e2e's
@@ -277,6 +277,29 @@ None: every feature of the HAS has a test, and every arc of the HAS list
 is covered in each port role.
 
 ## Coverage holes
+
+Line and toggle floors use the
+[by-source union](../../../tools/regress/SPEC.md#coverage): each source point
+counts once and is covered if any instance covers it. Functional coverage
+is unchanged. The source remeasurement for
+[#228](https://github.com/amichai-bd/pcie-factory/issues/228) is one
+level 0 to 2 `--coverage` run of the IP's entries after the
+[#462](https://github.com/amichai-bd/pcie-factory/pull/462) regression
+changes, recorded in [PR #455](https://github.com/amichai-bd/pcie-factory/pull/455).
+The run's per-instance counts equal the main nightly's (1644/1890 line,
+14565/18386 toggle).
+
+| Selected levels | Source line | Source toggle | Line / toggle floors |
+| --- | --- | --- | --- |
+| L0+L1+L2 | 569/606 (93.89%) | 4832/5122 (94.34%) | 93.3 / 93.8 |
+
+### Per-instance diagnostic baseline
+
+The counts and prior floor values below describe the original per-instance
+view at the revisions cited. Current code floors use the source table above.
+A point hit in another parameter set or instance is covered in the source
+union; the other reviewed causes remain diagnostic explanations, without
+adding a waiver.
 
 Merged over levels 0 to 2 (the nightly run), 290 of the 2123 line points
 and 3703 of the 17454 toggle points are not hit. Verilator counts each

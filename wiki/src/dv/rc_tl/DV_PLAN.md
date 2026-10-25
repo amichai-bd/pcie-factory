@@ -238,14 +238,36 @@ None: every feature of the MAS and its pages has a test.
 
 ## Coverage holes
 
-Floors in [`level2.yaml`](../../../../src/dv/rc_tl/regress/level2.yaml),
-checked by every `--coverage` run that selects level 2 (the nightly runs
-levels 0 to 2): line 91.4, toggle 65.5, functional 100. Merged over levels
+Line and toggle floors use the
+[by-source union](../../../tools/regress/SPEC.md#coverage): each source point
+counts once and is covered if any instance covers it. Functional coverage
+is unchanged. The source remeasurement for
+[#228](https://github.com/amichai-bd/pcie-factory/issues/228) is one
+level 0 to 2 `--coverage` run of the IP's entries after the
+[#462](https://github.com/amichai-bd/pcie-factory/pull/462) regression
+changes, recorded in [PR #455](https://github.com/amichai-bd/pcie-factory/pull/455).
+Separately measured low-level runs supply their own floors.
+
+| Selected levels | Source line | Source toggle | Line / toggle floors |
+| --- | --- | --- | --- |
+| L0+L1+L2 | 403/406 (99.26%) | 13781/15072 (91.43%) | 98.7 / 90.9 |
+
+### Per-instance diagnostic baseline
+
+The counts and prior floor values below describe the original per-instance
+view at the revisions cited. Current code floors use the source table above.
+A point hit in another parameter set or instance is covered in the source
+union; the other reviewed causes remain diagnostic explanations, without
+adding a waiver.
+
+Before #228 the per-instance floors in [`level2.yaml`](../../../../src/dv/rc_tl/regress/level2.yaml)
+(checked by every `--coverage` run that selects level 2) were: line 91.4,
+toggle 65.5, functional 100. Merged over levels
 0 to 2 ([#380](https://github.com/amichai-bd/pcie-factory/issues/380)):
 line 91.91% (943 of 1026 points), toggle 66.00% (31793 of 48168),
 functional 100% (344 of 344 bins in `rc_tl_cmd`, `rc_tl_req`, `rc_tl_cpl`,
 `rc_tl_inb`, `rc_tl_cplr`, `rc_tl_host` and `rc_tl_reset`). The code
-floors are the merged values less 0.5 points, rounded down to a tenth
+floors were the merged values less 0.5 points, rounded down to a tenth
 ([floor margin](../../../bkm/dv.md#coverage)). Verilator keeps one copy
 of each block per parameter set: the default, the IDs of `hdr_reset_ids`,
 `CPL_TIMEOUT_DIV` 1024 and 1000, and the host memories of the `*_aw8`,

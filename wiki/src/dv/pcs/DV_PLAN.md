@@ -123,13 +123,13 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
   | `pcs_rx`, `pcs_rx_status` | Every receive RxStatus code, offset signs, scenarios and relock causes; each code within the targets with the offset that produces it; electrical idle in order (`ei_order`: a gap checked, a whole EIOS, an idle tail). |
 
 - **Coverage floors** (each level's file; floors apply to the merged
-  levels selected): L0 line 87, toggle 87, `pcs_align_lock` 100; L1 (with
-  L0, as in `ci-gate`) line 99, toggle 97 and every covergroup but `pcs_rx`
+  levels selected): L0 line 88, toggle 87.2, `pcs_align_lock` 100; L1 (with
+  L0, as in `ci-gate`) line 99, toggle 97.5 and every covergroup but `pcs_rx`
   at 100; L2 (L0 to L2, as nightly) line 99, toggle 97.5, functional
   100, per the [DV BKM](../../../bkm/dv.md#coverage) rule (the existing
   floor or the merged value less 0.5 points, the higher): the merged
-  values are 99.23% and 98.06%, so the line floor, kept at 99, leaves
-  0.23 points (under one line point) of margin. Every point left is in
+  source values are 99.24% and 98.08%, so the line floor, kept at 99, leaves
+  0.24 points (under one line point) of margin. Every point left is in
   [coverage holes](#coverage-holes).
 
 ## Plan
@@ -365,8 +365,26 @@ stays covered as stated; none is dropped silently.
 
 ## Coverage holes
 
-The nightly merges levels 0 to 2; its remaining line and toggle holes
-are accounted for below. `eb_overflow_leftover` closes the four
+Line and toggle floors use the
+[by-source union](../../../tools/regress/SPEC.md#coverage): each source point
+counts once and is covered if any instance covers it. Functional coverage
+is unchanged. The source remeasurement for
+[#228](https://github.com/amichai-bd/pcie-factory/issues/228) is one
+level 0 to 2 `--coverage` run of the IP's entries after the
+[#462](https://github.com/amichai-bd/pcie-factory/pull/462) regression
+changes, recorded in [PR #455](https://github.com/amichai-bd/pcie-factory/pull/455).
+Separately measured low-level runs supply their own floors.
+
+| Selected levels | Source line | Source toggle | Line / toggle floors |
+| --- | --- | --- | --- |
+| L0 | 348/393 (88.55%) | 2963/3378 (87.71%) | 88 / 87.2 |
+| L0+L1 | 390/393 (99.24%) | 3311/3378 (98.02%) | 99 / 97.5 |
+| L0+L1+L2 | 390/393 (99.24%) | 3313/3378 (98.08%) | 99 / 97.5 |
+
+Each row is its own run of the selected levels, so each level's floor
+comes from the levels that check it.
+
+`eb_overflow_leftover` closes the four
 `c1.ovf`/`o1.ovf` toggle holes: 24 TS1 sets at -10000 ppm drain the
 buffer until its single SKP set causes exactly one read-side addition.
 The RX clock then switches to +20000 ppm for plain data with no further
@@ -378,7 +396,16 @@ overflow reports, and checks all stream losses occur near those reports.
 These offsets deliberately exceed the normal targets; no fill-window
 waiver is added for normal traffic.
 
-Every remaining hole, by cause:
+### Per-instance diagnostic baseline
+
+The counts and prior floor values below describe the original per-instance
+view at the revisions cited. Current code floors use the source table above.
+A point hit in another parameter set or instance is covered in the source
+union; the other reviewed causes remain diagnostic explanations, without
+adding a waiver.
+
+The remaining causes from that baseline are listed below; the four
+overflow-leftover holes above are closed.
 
 | Cause | Line | Toggle | Points |
 | --- | ---: | ---: | --- |

@@ -150,13 +150,35 @@ The `link` and `replay_timeout` mutants are in the
 
 ## Coverage holes
 
-Floors in [`level2.yaml`](../../../../src/dv/gpio/regress/level2.yaml),
-checked by every `--coverage` run that selects level 2 (the nightly runs
-levels 0 to 2): line 91.0, toggle 91.7, functional 100. Merged over levels
+Line and toggle floors use the
+[by-source union](../../../tools/regress/SPEC.md#coverage): each source point
+counts once and is covered if any instance covers it. Functional coverage
+is unchanged. The source remeasurement for
+[#228](https://github.com/amichai-bd/pcie-factory/issues/228) is one
+level 0 to 2 `--coverage` run of the IP's entries after the
+[#462](https://github.com/amichai-bd/pcie-factory/pull/462) regression
+changes, recorded in [PR #455](https://github.com/amichai-bd/pcie-factory/pull/455).
+Separately measured low-level runs supply their own floors.
+
+| Selected levels | Source line | Source toggle | Line / toggle floors |
+| --- | --- | --- | --- |
+| L0+L1+L2 | 260/262 (99.24%) | 2186/2260 (96.73%) | 98.7 / 96.2 |
+
+### Per-instance diagnostic baseline
+
+The counts and prior floor values below describe the original per-instance
+view at the revisions cited. Current code floors use the source table above.
+A point hit in another parameter set or instance is covered in the source
+union; the other reviewed causes remain diagnostic explanations, without
+adding a waiver.
+
+Before #228 the per-instance floors in [`level2.yaml`](../../../../src/dv/gpio/regress/level2.yaml)
+(checked by every `--coverage` run that selects level 2) were: line 91.0,
+toggle 91.7, functional 100. Merged over levels
 0 to 2 ([#380](https://github.com/amichai-bd/pcie-factory/issues/380)):
 line 91.53% (595 of 650 points), toggle 92.23% (4302 of 4664), functional
 100% (99 of 99 bins in `gpio_config`, `gpio_slot`, `gpio_rx_table` and
-`gpio_link`). The code floors are the merged values less 0.5 points,
+`gpio_link`). The code floors were the merged values less 0.5 points,
 rounded down to a tenth ([floor margin](../../../bkm/dv.md#coverage)).
 Verilator keeps one copy of each block per `CLK_DIV` (2, 4 and 64; the
 ratio only moves b's clock), and the copies at 4 and 64 run only

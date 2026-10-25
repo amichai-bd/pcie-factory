@@ -432,13 +432,35 @@ coverage floors are set ([#294](https://github.com/amichai-bd/pcie-factory/issue
 
 ## Coverage holes
 
-Floors in [`level2.yaml`](../../../../src/dv/tl/regress/level2.yaml),
-checked by every `--coverage` run that selects level 2 (the nightly runs
-levels 0 to 2): line 97.2, toggle 77.8, functional 100. Merged over levels
+Line and toggle floors use the
+[by-source union](../../../tools/regress/SPEC.md#coverage): each source point
+counts once and is covered if any instance covers it. Functional coverage
+is unchanged. The source remeasurement for
+[#228](https://github.com/amichai-bd/pcie-factory/issues/228) is one
+level 0 to 2 `--coverage` run of the IP's entries after the
+[#462](https://github.com/amichai-bd/pcie-factory/pull/462) regression
+changes, recorded in [PR #455](https://github.com/amichai-bd/pcie-factory/pull/455).
+Separately measured low-level runs supply their own floors.
+
+| Selected levels | Source line | Source toggle | Line / toggle floors |
+| --- | --- | --- | --- |
+| L0+L1+L2 | 551/557 (98.92%) | 22320/24340 (91.70%) | 98.4 / 91.2 |
+
+### Per-instance diagnostic baseline
+
+The counts and prior floor values below describe the original per-instance
+view at the revisions cited. Current code floors use the source table above.
+A point hit in another parameter set or instance is covered in the source
+union; the other reviewed causes remain diagnostic explanations, without
+adding a waiver.
+
+Before #228 the per-instance floors in [`level2.yaml`](../../../../src/dv/tl/regress/level2.yaml)
+(checked by every `--coverage` run that selects level 2) were: line 97.2,
+toggle 77.8, functional 100. Merged over levels
 0 to 2 ([#294](https://github.com/amichai-bd/pcie-factory/issues/294)):
 line 97.73% (1031 of 1055 points), toggle 78.34% (42260 of 53946),
 functional 100% (124 of 124 bins in the five covergroups the level file
-names). The line and toggle floors are the merged values less 0.5 points,
+names). The line and toggle floors were the merged values less 0.5 points,
 rounded down to a tenth ([floor margin](../../../bkm/dv.md#coverage)).
 Measured with the transmit output stage of
 [#295](https://github.com/amichai-bd/pcie-factory/issues/295) (12 line
