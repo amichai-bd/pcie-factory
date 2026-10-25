@@ -59,7 +59,11 @@ waits), or when the sender's link-down follows it (the link-down ends the
 sender's epoch, so the short replay is its last). A TLP may be cut short on the line (``err``
 in the sent view) only when it ends within ``cut_slack`` cycles of the
 sender's out-of-L0 range or link-down (the phy cuts a packet when the
-LTSSM leaves L0).
+LTSSM leaves L0). A TLP cut before its sequence number is read is
+judged by the same window; when the next readable TLP is one past the
+last new one, the unread TLP was that new one (the sender used its
+sequence number), and its credits are charged at its first readable
+replay.
 
 ``link_down(name, t)`` starts a new epoch for that end (its state restarts
 in DL_Inactive). ``exempt(start, end, why)`` marks a time range in which the Ack timing
@@ -253,6 +257,8 @@ class PassiveChecker:
         replay = None                   # [last seq on the line, newest sent at start]
         last_start = None               # start of the previous TLP on the line
         last_end = None                 # and its end
+        unread = 0                      # TLPs cut too short to read since the last readable
+        uncharged = set()               # new TLPs whose only first transmission was unread
         for t, _, kind, p in events:
             if kind == "dllp":
                 typ = p.data[0]
@@ -284,8 +290,27 @@ class PassiveChecker:
             # number and credits count, as far as its bytes tell.
             if len(p.data) < 2:
                 self._count(f"cut_unread_{d}")
+                if not self._cut_ok(d, p):
+                    self._violate("sequence", d, t, "a TLP cut short on the line while the "
+                                  "sender was in L0 (no retrain or link-down near it)")
+                unread += 1
                 continue
             s, tlp = _seq(p.data), (p.data[2:] if p.err else p.data[2:-4])
+            # A TLP cut before its sequence number may have been the next new
+            # one: the sender counts it as sent and goes on with the next
+            # (#468). Infer it only when this TLP is that many past it; its
+            # credits are charged at its first readable replay.
+            if unread and s != next_new and 0 < (s - next_new) % SEQ_MOD <= unread:
+                if replay is not None and not self._replay_done(replay, ackd):
+                    self._violate("sequence", d, t, f"new TLP {next_new} (cut unread) before "
+                                  f"the replay from {replay[0]} to {replay[1]} completed")
+                replay = None
+                while next_new != s:
+                    uncharged.add(next_new)
+                    self._count(f"new_{d}")
+                    self._count(f"new_unread_{d}")
+                    next_new = (next_new + 1) % SEQ_MOD
+            unread = 0
             self._count(f"tlp_{d}")
             if p.err:
                 self._count(f"cut_{d}")
@@ -314,6 +339,9 @@ class PassiveChecker:
                               f"sent and unacknowledged ({(early + 1) % SEQ_MOD} to {newest})")
                 continue
             self._count(f"replayed_{d}")
+            if s in uncharged:
+                uncharged.discard(s)
+                self._credit(d, t, s, tlp, limit, infinite, consumed)
             if replay is not None and _ahead(s, replay[0]) and not _ahead(s, replay[1]) \
                     and all(not _ahead(q, ackd) for q in self._between(replay[0], s)):
                 replay[0] = s           # in order; any skipped TLP was acknowledged
@@ -331,6 +359,8 @@ class PassiveChecker:
                               f"unacknowledged TLP, {oldest_early} to {oldest_late}")
             self._count(f"replays_{d}")
             replay = [s, newest]
+        if uncharged:                   # never seen readable again
+            self._count(f"credit_unread_{d}", len(uncharged))
 
     @staticmethod
     def _between(a: int, b: int) -> list[int]:
