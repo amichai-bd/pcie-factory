@@ -263,8 +263,11 @@ class End:
         if self.cur is not None and self.pos:
             self.cur.clean = False
         self.cur, self.dropping = None, 0
-        for p in self.sent[self.env.sb[self.dir].next:]:
+        sb = self.env.sb[self.dir]
+        for p in self.sent[sb.next:]:
             p.maybe_lost = True      # buffered (lost) or already on the wire (delivered)
+        if len(self.sent) > sb.next:
+            sb.damage_ok += 1        # the one on the pins may arrive damaged
 
     # -- transmit driver -------------------------------------------------------
 
@@ -566,6 +569,8 @@ class Scoreboard:
         self.allow_cut = False           # packets may arrive cut (error eop)
         self.injected: deque = deque()   # (beats, dllp) forged on the wire, delivered good
         self.lost_ok = 0                 # losses allowed before the run turned strict
+        self.damage_ok = 0               # sender resets with a packet outstanding
+        self.damaged = 0
         self.violations: list[str] = []
 
     def deliver(self, beats: list[int], dllp: bool, err: bool, n: int) -> None:
@@ -592,6 +597,15 @@ class Scoreboard:
                 i = len(sent)
                 break
             i += 1
+        if i >= len(sent) and self.damage_ok:
+            i = self._damaged(beats, dllp)
+            if i is not None:
+                self.damage_ok -= 1
+                self.damaged += 1
+                self.lost += sum(1 for p in sent[self.next:i] if p.clean and not p.maybe_lost)
+                self.next = i + 1
+                return
+            i = len(sent)
         if i >= len(sent):
             want = next((p.beats[:4] for p in sent[self.next:] if p.clean), None)
 
@@ -604,9 +618,25 @@ class Scoreboard:
         self.next = i + 1
         self.good += 1
 
+    def _damaged(self, beats: list[int], dllp: bool) -> int | None:
+        """A sender reset cuts the slot on the pins short: the receiver
+        completes it with the first transfers sent after the restart, one
+        damaged slot (LINK_UP.md, a single damaged slot), so the packet
+        outstanding at the reset may arrive with its last delivered beat
+        damaged and its code turned into an eop (#468). The index of the
+        first outstanding packet it can be, or None."""
+        sent = self.sender.sent
+        for i in range(self.next, len(sent)):
+            p = sent[i]
+            if (p.maybe_lost and p.dllp == dllp and len(beats) <= len(p.beats)
+                    and p.beats[:len(beats) - 1] == beats[:-1]):
+                return i
+        return None
+
     def strict(self) -> None:
         """From now on nothing may be lost; earlier losses and cuts stay."""
         self.allow_loss, self.allow_cut, self.lost_ok = False, True, self.lost
+        self.damage_ok = 0
 
     def outstanding(self) -> int:
         sent = self.sender.sent

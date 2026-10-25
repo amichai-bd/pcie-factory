@@ -210,19 +210,29 @@ async def async_reset(dut):
     await quiet("after the first release")
 
     # Both clocks stopped while the output pulse is high; reset held into
-    # the restart and released synchronously.
+    # the restart and released synchronously. The pulse is watched from the
+    # falling src_clk_i edge that drives the event, not the one that ends
+    # it: with the source slower than about three destination periods, the
+    # output pulse rises and falls inside that half source cycle (#468).
     n = len(highs)
     await FallingEdge(dut.src_clk_i)
     dut.src_pulse_i.value = 1
-    await FallingEdge(dut.src_clk_i)
-    dut.src_pulse_i.value = 0
-    for _ in range(8):
+
+    async def end_event():
+        await FallingEdge(dut.src_clk_i)
+        dut.src_pulse_i.value = 0
+
+    ended = cocotb.start_soon(end_event())
+    # 8 dst_clk_i edges after the rising src_clk_i edge that samples it.
+    limit = 8 + math.ceil((src - src // 2) / dst)
+    for _ in range(limit):
         await FallingEdge(dut.dst_clk_i)
         if int(dut.dst_pulse_o.value):
             break
     else:
-        raise AssertionError("no dst_pulse_o pulse within 8 dst_clk_i edges")
+        raise AssertionError("no dst_pulse_o pulse within 8 dst_clk_i edges of the event")
     dclk.halt()  # just after the falling edge that saw the pulse high
+    await ended
     await sclk.stop()
     await Timer(random.randrange(1, 3 * dst), "ps")
     assert int(dut.dst_pulse_o.value) == 1, "dst_pulse_o changed with dst_clk_i stopped"

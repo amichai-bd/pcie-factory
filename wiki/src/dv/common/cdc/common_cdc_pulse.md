@@ -41,7 +41,9 @@
   `SRC_ASYNC_RESET` 1 or 0) drives both clocks from clocks it can stop low
   (`GatedClock`). Both clocks stop, both resets rise, and `dst_pulse_o`
   must be low in that same time step: once while an output pulse is high
-  (the reset is then held into the restart and released at a falling edge
+  (watched from the source edge that drives the event, since with a source
+  slower than about three destination periods the pulse comes and goes
+  inside the event's half source cycle; the reset is then held into the restart and released at a falling edge
   of each clock), once after an event has fully crossed (toggle and both
   destination flops at one; with `SRC_ASYNC_RESET` 1 the reset is a pulse
   wholly inside the stop, with 0 the source reset is held over a source
@@ -61,8 +63,8 @@
 | [Transfer](../../../rtl/common/cdc/common_cdc_pulse.md#behavior) at random ratios and spacing | `pulse_random` / `pulse_random_sweep` | 1 / 2 | derived seed 0 / derived seeds 1 and 2 (313476785 and 195434251), pinned; 100 pulses, ratio up to 8:1 |
 | [Transfer](../../../rtl/common/cdc/common_cdc_pulse.md#behavior) near 1:1, every launch offset | `pulse_near_1to1` / `pulse_near_1to1_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (1562228821), pinned; 200 pulses, ratio 1:1 to 1.2:1 either way |
 | [Transfer](../../../rtl/common/cdc/common_cdc_pulse.md#behavior), long, mostly minimum spacing | `pulse_long` | 2 | 8; 1000 pulses, ratio up to 16:1; coverage on the first 6 (`coverage_seeds`) |
-| [Asynchronous side](../../../rtl/common/cdc/common_cdc_pulse.md#behavior), both sides: assertion with the clocks stopped, a pulse inside the stop, no spurious pulse, transfer after | `pulse_arst` / `pulse_arst_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (1141078041), pinned; `SRC_ASYNC_RESET` 1, `DST_ASYNC_RESET` 1, ratio up to 8:1 |
-| [Asynchronous side](../../../rtl/common/cdc/common_cdc_pulse.md#behavior), destination only (the `COMMON_PULSE_SYNC_ARST` configuration) | `pulse_arst_dst` / `pulse_arst_dst_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (391930980), pinned; `DST_ASYNC_RESET` 1, ratio up to 8:1 |
+| [Asynchronous side](../../../rtl/common/cdc/common_cdc_pulse.md#behavior), both sides: assertion with the clocks stopped, a pulse inside the stop, no spurious pulse, transfer after | `pulse_arst` / `pulse_arst_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (1141078041), then 655947418 ([#468](https://github.com/amichai-bd/pcie-factory/issues/468): a source slower than about three destination periods), pinned; `SRC_ASYNC_RESET` 1, `DST_ASYNC_RESET` 1, ratio up to 8:1 |
+| [Asynchronous side](../../../rtl/common/cdc/common_cdc_pulse.md#behavior), destination only (the `COMMON_PULSE_SYNC_ARST` configuration) | `pulse_arst_dst` / `pulse_arst_dst_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (391930980), then 685395726 and 7198009 (#468, as above), pinned; `DST_ASYNC_RESET` 1, ratio up to 8:1 |
 
 **Level placement**
 ([#389](https://github.com/amichai-bd/pcie-factory/issues/389)): the full
