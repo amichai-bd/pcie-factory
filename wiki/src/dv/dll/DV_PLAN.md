@@ -357,7 +357,13 @@ schedule ends, and the first 300 TLPs and the per-phase deliveries are the
 same as at 1500. `credits_infinite_rx` sends 500, not 1500. What goes is
 the full-rate drain of the rest. Each testcase's `_full` form keeps 1500
 TLPs in level 2: `credit_starve_rx_full` and `credits_infinite_rx_full`
-at the level 1 seeds, and the `_sweep` entries at theirs. Both level 1
+at the level 1 seeds, and the `_sweep` entries at theirs. A `_full`
+testcase takes the test seed cocotb gives the original testcase (cocotb
+derives it from the full test name), so the `_full` entries reproduce the
+former level 1 runs exactly: the same bins and hit code points, compared
+run against run on coverage builds. The shorter level 1 runs reach the
+same bins; the code points they no longer reach (283 and 145, counter
+high bits) are the `_full` runs'. Both level 1
 mutants were rerun on the shorter runs and are still caught there: the
 exact-full overflow check (27 Receiver overflows) and the 8-credit data
 reserve (15, was 27).

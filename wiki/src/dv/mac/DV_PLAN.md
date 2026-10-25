@@ -183,7 +183,9 @@ retraining that the next walk's or `ep_compliance`'s fresh reset ends,
 up to 58000 cycles of it. Every walk, exit and arc stays: per role the set
 of arcs reached is the same as with `QUICK`, compared run against run, and
 the ten `arcs_quick` mutants below are still caught at the same or nearby
-cycles. The test went from 492183 to about 394000 checked cycles. Level 2
+cycles, and its bins and hit code points are the same, compared run
+against run on coverage builds. The test went from 492183 to 282133
+checked cycles. Level 2
 still runs `QUICK` with every settle, in `arcs_timeouts_*` and
 `smoke_arcs`.
 
