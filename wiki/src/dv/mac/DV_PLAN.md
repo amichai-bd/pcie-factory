@@ -282,12 +282,12 @@ Line and toggle floors use the
 [by-source union](../../../tools/regress/SPEC.md#coverage): each source point
 counts once and is covered if any instance covers it. Functional coverage
 is unchanged. The source remeasurement for
-[#228](https://github.com/amichai-bd/pcie-factory/issues/228) uses
-[nightly 39384846565](https://github.com/amichai-bd/pcie-factory/actions/runs/39384846565).
-The MAC totals are refreshed from the final #437 raw coverage artifact,
-[targeted probe 39393402800](https://github.com/amichai-bd/pcie-factory/actions/runs/39393402800),
-at source `b759414`; the source parser reproduces the original instance
-counts and the raised code floors remain unchanged.
+[#228](https://github.com/amichai-bd/pcie-factory/issues/228) is one
+level 0 to 2 `--coverage` run of the IP's entries after the
+[#462](https://github.com/amichai-bd/pcie-factory/pull/462) regression
+changes, recorded in [PR #455](https://github.com/amichai-bd/pcie-factory/pull/455).
+The run's per-instance counts equal the main nightly's (1644/1890 line,
+14565/18386 toggle).
 
 | Selected levels | Source line | Source toggle | Line / toggle floors |
 | --- | --- | --- | --- |

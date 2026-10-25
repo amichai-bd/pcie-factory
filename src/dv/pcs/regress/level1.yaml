@@ -231,5 +231,5 @@ tests:
 # pcs_rx needs the L2 scenarios.
 coverage_floors:
   line: 99
-  toggle: 97.3
+  toggle: 97.5
   functional: {pcs_align_eios: 100, pcs_align_impairments: 100, pcs_align_lock: 100, pcs_align_relock: 100, pcs_dec_class: 100, pcs_dec_rd_unknown: 100, pcs_dec_recovery: 100, pcs_elastic: 100, pcs_pipe_control: 100, pcs_pipe_power: 100, pcs_rx_codes: 100, pcs_rx_elec_idle: 100, pcs_rx_status: 100, pcs_tx_codes: 100, pcs_tx_controls: 100}

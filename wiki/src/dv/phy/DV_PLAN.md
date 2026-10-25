@@ -353,8 +353,8 @@ committed RTL.
 ## Coverage floors
 
 `level2.yaml` sets, per the [DV BKM](../../../bkm/dv.md#coverage), line
-91.4%, toggle 87.9% and functional 100%: the merged source level 0 to 2 values
-(91.99%, 88.40%, 100%) less the BKM margin. Functional 100% holds every
+91.5%, toggle 88.2% and functional 100%: the merged source level 0 to 2 values
+(92.09%, 88.74%, 100%) less the BKM margin. Functional 100% holds every
 bin of every `phy_e2e_*` covergroup, including all four combinations in
 `phy_e2e_layers.mac_x_pcs` and the observed power idle-tail bin. It replaces
 the per-covergroup floors of `phy_e2e_run`, `_events`,
@@ -366,13 +366,15 @@ Line and toggle floors use the
 [by-source union](../../../tools/regress/SPEC.md#coverage): each source point
 counts once and is covered if any instance covers it. Functional coverage
 is unchanged. The source remeasurement for
-[#228](https://github.com/amichai-bd/pcie-factory/issues/228) uses
-[nightly 39384846565](https://github.com/amichai-bd/pcie-factory/actions/runs/39384846565).
+[#228](https://github.com/amichai-bd/pcie-factory/issues/228) is one
+level 0 to 2 `--coverage` run of the IP's entries after the
+[#462](https://github.com/amichai-bd/pcie-factory/pull/462) regression
+changes, recorded in [PR #455](https://github.com/amichai-bd/pcie-factory/pull/455).
 Separately measured low-level runs supply their own floors.
 
 | Selected levels | Source line | Source toggle | Line / toggle floors |
 | --- | --- | --- | --- |
-| L0+L1+L2 | 919/999 (91.99%) | 7790/8812 (88.40%) | 91.4 / 87.9 |
+| L0+L1+L2 | 920/999 (92.09%) | 7543/8500 (88.74%) | 91.5 / 88.2 |
 
 ### Per-instance diagnostic baseline
 

@@ -124,11 +124,11 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
 
 - **Coverage floors** (each level's file; floors apply to the merged
   levels selected): L0 line 88, toggle 87.2, `pcs_align_lock` 100; L1 (with
-  L0, as in `ci-gate`) line 99, toggle 97.3 and every covergroup but `pcs_rx`
+  L0, as in `ci-gate`) line 99, toggle 97.5 and every covergroup but `pcs_rx`
   at 100; L2 (L0 to L2, as nightly) line 99, toggle 97.5, functional
   100, per the [DV BKM](../../../bkm/dv.md#coverage) rule (the existing
   floor or the merged value less 0.5 points, the higher): the merged
-  source values are 99.24% and 97.96%, so the line floor, kept at 99, leaves
+  source values are 99.24% and 98.08%, so the line floor, kept at 99, leaves
   0.24 points (under one line point) of margin. Every point left is in
   [coverage holes](#coverage-holes).
 
@@ -369,18 +369,20 @@ Line and toggle floors use the
 [by-source union](../../../tools/regress/SPEC.md#coverage): each source point
 counts once and is covered if any instance covers it. Functional coverage
 is unchanged. The source remeasurement for
-[#228](https://github.com/amichai-bd/pcie-factory/issues/228) uses
-[nightly 39384846565](https://github.com/amichai-bd/pcie-factory/actions/runs/39384846565).
+[#228](https://github.com/amichai-bd/pcie-factory/issues/228) is one
+level 0 to 2 `--coverage` run of the IP's entries after the
+[#462](https://github.com/amichai-bd/pcie-factory/pull/462) regression
+changes, recorded in [PR #455](https://github.com/amichai-bd/pcie-factory/pull/455).
 Separately measured low-level runs supply their own floors.
 
 | Selected levels | Source line | Source toggle | Line / toggle floors |
 | --- | --- | --- | --- |
 | L0 | 348/393 (88.55%) | 2963/3378 (87.71%) | 88 / 87.2 |
-| L0+L1 | 390/393 (99.24%) | 3307/3378 (97.90%) | 99 / 97.3 |
-| L0+L1+L2 | 390/393 (99.24%) | 3309/3378 (97.96%) | 99 / 97.5 |
+| L0+L1 | 390/393 (99.24%) | 3311/3378 (98.02%) | 99 / 97.5 |
+| L0+L1+L2 | 390/393 (99.24%) | 3313/3378 (98.08%) | 99 / 97.5 |
 
-These measurements precede the #437 test addition and remain the
-conservative floor basis; final integrated coverage remeasures the union.
+Each row is its own run of the selected levels, so each level's floor
+comes from the levels that check it.
 
 `eb_overflow_leftover` closes the four
 `c1.ovf`/`o1.ovf` toggle holes: 24 TS1 sets at -10000 ppm drain the

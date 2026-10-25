@@ -436,8 +436,10 @@ Line and toggle floors use the
 [by-source union](../../../tools/regress/SPEC.md#coverage): each source point
 counts once and is covered if any instance covers it. Functional coverage
 is unchanged. The source remeasurement for
-[#228](https://github.com/amichai-bd/pcie-factory/issues/228) uses
-[nightly 39384846565](https://github.com/amichai-bd/pcie-factory/actions/runs/39384846565).
+[#228](https://github.com/amichai-bd/pcie-factory/issues/228) is one
+level 0 to 2 `--coverage` run of the IP's entries after the
+[#462](https://github.com/amichai-bd/pcie-factory/pull/462) regression
+changes, recorded in [PR #455](https://github.com/amichai-bd/pcie-factory/pull/455).
 Separately measured low-level runs supply their own floors.
 
 | Selected levels | Source line | Source toggle | Line / toggle floors |
