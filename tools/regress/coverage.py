@@ -13,6 +13,7 @@ wiki/tools/regress/SPEC.md#coverage.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -63,17 +64,53 @@ def point_type(key: str) -> str | None:
     return point_field(key, "t")
 
 
-def code_metrics(points: dict[str, int], exclude: frozenset[Path] = frozenset()) -> dict[str, dict]:
-    """Covered and total points per code metric, leaving out points whose
-    source file (the ``f`` field, resolved) is in ``exclude``."""
-    out = {m: {"covered": 0, "total": 0} for m in ("line", "toggle")}
+def source_point(key: str, source_lines: dict[str, list[str]] | None = None) -> tuple:
+    """Source identity, independent of instance hierarchy and parameters.
+
+    For generated signals Verilator includes scope names in o as well as h.
+    Anchor o at the declaration identifier at f/l/n, keeping all following
+    struct members, array/bit indices and transition direction. Missing or
+    ambiguous anchors retain o unchanged rather than merging real signals.
+    """
+    file = str(Path(point_field(key, "f") or "").resolve())
+    line, column, kind, obj = (point_field(key, f) for f in ("l", "n", "t", "o"))
+    if kind == "toggle" and obj and "." in obj:
+        lines = {} if source_lines is None else source_lines
+        if file not in lines:
+            try:
+                lines[file] = Path(file).read_text().splitlines()
+            except (OSError, UnicodeError):
+                lines[file] = []
+        try:
+            row, col = int(line), int(column)
+            text = lines[file][row - 1][col - 1:] if row > 0 and col > 0 else ""
+        except (TypeError, ValueError, IndexError):
+            text = ""
+        name = re.match(r"[A-Za-z_$][A-Za-z0-9_$]*", text)
+        if name:
+            anchors = list(re.finditer(rf"(?:^|\.)({re.escape(name[0])})(?=[.\[:])", obj))
+            if len(anchors) == 1:
+                obj = obj[anchors[0].start(1):]
+    return file, line, column, kind, obj
+
+
+def code_metrics(points: dict[str, int], exclude: frozenset[Path] = frozenset(),
+                 *, by_source: bool = True) -> dict[str, dict]:
+    """Source points (or full per-instance keys), covered by any instance.
+    Leave out points whose source file is in ``exclude`` in either view.
+    """
+    grouped: dict[tuple | str, tuple[str, bool]] = {}
+    source_lines: dict[str, list[str]] = {}
     for key, count in points.items():
         metric = POINT_TYPES.get(point_type(key) or "")
-        if metric and exclude and Path(point_field(key, "f") or "").resolve() in exclude:
+        if not metric or (exclude and Path(point_field(key, "f") or "").resolve() in exclude):
             continue
-        if metric:
-            out[metric]["total"] += 1
-            out[metric]["covered"] += count > 0
+        identity = source_point(key, source_lines) if by_source else key
+        grouped[identity] = (metric, count > 0 or grouped.get(identity, (metric, False))[1])
+    out = {m: {"covered": 0, "total": 0} for m in ("line", "toggle")}
+    for metric, covered in grouped.values():
+        out[metric]["total"] += 1
+        out[metric]["covered"] += covered
     return out
 
 
@@ -109,14 +146,22 @@ def merge_ip(ip_dir: Path, test_dirs: list[Path], tool: Path | None,
                          + ", ".join(f"{d.parent.name}/{d.name}" for d in no_dat[:5])
                          + (", ..." if len(no_dat) > 5 else "")] if no_dat else []
     code = {m: {"covered": 0, "total": 0} for m in ("line", "toggle")}
+    instance_code = code
     if dats:
         if tool is None:
             raise CoverageError("verilator_coverage is needed to merge coverage.dat files")
         merged = ip_dir / "merged.dat"
         merge_dat(tool, dats, merged)
-        code = code_metrics(parse_dat(merged), exclude)
+        points = parse_dat(merged)
+        code = code_metrics(points, exclude)
+        instance_code = code_metrics(points, exclude, by_source=False)
     for m in ("line", "toggle"):
         entry[m] = {**code[m], "pct": _round(pct(code[m]["covered"], code[m]["total"]))}
+    entry["by_source"] = {m: entry[m] for m in ("line", "toggle")}
+    entry["by_instance"] = {
+        m: {**instance_code[m], "pct": _round(pct(instance_code[m]["covered"],
+                                                 instance_code[m]["total"]))}
+        for m in ("line", "toggle")}
     merged_f = funcov.merge([funcov.load(p) for p in fcov])
     fsum = funcov.summarize(merged_f)
     (ip_dir / "functional.json").write_text(

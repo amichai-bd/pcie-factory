@@ -208,15 +208,37 @@ Removed after the first run: a gate on `irq_ready_o`, which survived because `cf
 
 ## Coverage holes
 
-Floors in [`level2.yaml`](../../../../src/dv/core/regress/level2.yaml),
-checked by every `--coverage` run that selects level 2 (the nightly runs
-levels 0 to 2): line 75.3, toggle 44.1, functional 100. Merged over levels
+Line and toggle floors use the
+[by-source union](../../../tools/regress/SPEC.md#coverage): each source point
+counts once and is covered if any instance covers it. Functional coverage
+is unchanged. The source remeasurement for
+[#228](https://github.com/amichai-bd/pcie-factory/issues/228) is one
+level 0 to 2 `--coverage` run of the IP's entries after the
+[#462](https://github.com/amichai-bd/pcie-factory/pull/462) regression
+changes, recorded in [PR #455](https://github.com/amichai-bd/pcie-factory/pull/455).
+Separately measured low-level runs supply their own floors.
+
+| Selected levels | Source line | Source toggle | Line / toggle floors |
+| --- | --- | --- | --- |
+| L0+L1+L2 | 1956/2209 (88.55%) | 39521/56340 (70.15%) | 88 / 69.6 |
+
+### Per-instance diagnostic baseline
+
+The counts and prior floor values below describe the original per-instance
+view at the revisions cited. Current code floors use the source table above.
+A point hit in another parameter set or instance is covered in the source
+union; the other reviewed causes remain diagnostic explanations, without
+adding a waiver.
+
+Before #228 the per-instance floors in [`level2.yaml`](../../../../src/dv/core/regress/level2.yaml)
+(checked by every `--coverage` run that selects level 2) were: line 75.3,
+toggle 44.1, functional 100. Merged over levels
 0 to 2 ([#294](https://github.com/amichai-bd/pcie-factory/issues/294)),
 over the whole stack that `core.rtl.f` reaches (the endpoint `pcie_core`
 and the bench's host `pcie_link`): line 75.88% (4168 of 5493 points),
 toggle 44.63% (77783 of 174278), functional 100% (62 of 62 bins in the
 five covergroups the level file names), with `tl`'s transmit output stage
-([#295](https://github.com/amichai-bd/pcie-factory/issues/295)). The line and toggle floors are
+([#295](https://github.com/amichai-bd/pcie-factory/issues/295)). The line and toggle floors were
 the merged values less 0.5 points, rounded down to a tenth
 ([floor margin](../../../bkm/dv.md#coverage)).
 
@@ -236,7 +258,7 @@ points it does not hit.
 **Re-measured for [#416](https://github.com/amichai-bd/pcie-factory/issues/416)**
 on `3ec1037` and again on `fe5b43f` (levels 0 to 2, `--coverage`, the same
 figures): line 75.84% (4172 of 5501), toggle 44.59% (78118 of 175198),
-functional 100% (62 of 62). Both floors hold and stay: the merged value
+functional 100% (62 of 62). Both floors held and stayed: the merged value
 less 0.5 points gives 75.3 and 44.0. The `core` builds use neither
 `REPLAY_TIMEOUT` nor `LOWER` 1, so they add no parameter-set copy. The
 tables below are re-sorted on `fe5b43f` by the rule at their end. Against

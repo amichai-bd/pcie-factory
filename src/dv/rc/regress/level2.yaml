@@ -15,13 +15,15 @@ tests:
     params: {PROGRAM: 1}
     seeds: 4
     timeout_s: 600
-# Coverage floors (#380), levels 0 to 2 merged, the code floors the merged
-# value less 0.5 points rounded down to a tenth (DV BKM, floor margin):
-# measured 73.32% line (3400/4637), 45.88% toggle (48923/106620) over what
-# rc.rtl.f reaches (rc_tl, rc_seq and the link stack; core is DV-only here);
-# every point not hit has a reason in the DV plan (Coverage holes). An
-# entry with a new parameter set, or an RTL change in the stack that adds
-# state, re-measures these floors in the same PR.
+# Coverage floors (#380), levels 0 to 2 merged, by source (#228): the
+# merged value less 0.5 points rounded down to a tenth, never below the
+# existing floor (DV BKM, floor margin): 83.60% line (1800/2153) and
+# 67.07% toggle (26465/39460) over what rc.rtl.f reaches (rc_tl, rc_seq
+# and the link stack; core is DV-only here). The per-instance figures
+# behind the earlier floors are in the DV plan (Coverage holes), where
+# every point not hit has a reason. An entry with a new parameter set, or
+# an RTL change in the stack that adds state, re-measures these floors in
+# the same PR.
 # Functional floors per covergroup, rc's own only: the e2e also samples
 # core's core_e2e_* groups through the reused endpoint model, which hold
 # core's floors in its own level file, not here. rc_e2e_line and rc_shell
@@ -32,6 +34,6 @@ tests:
 # fixed in rc_seq's ROM, a later change could reshape the cross to the
 # drawn pairs so that its floor can be 100.
 coverage_floors:
-  line: 72.8
-  toggle: 45.3
+  line: 83.1
+  toggle: 66.5
   functional: {rc_e2e_err: 84.1, rc_e2e_line: 100, rc_e2e_run: 63.4, rc_shell: 100}

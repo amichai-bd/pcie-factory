@@ -225,6 +225,6 @@ tests:
 # (the nightly runs the three together) minus 0.5 points, rounded down to
 # 0.1 (DV BKM, Coverage); a floor is never lowered. Every point below 100%
 # has a reason in the DV plan (#90).
-# Measured 99.23% line (the existing 99 kept, 0.23 points of margin),
-# 98.06% toggle.
+# Measured source union 99.24% line (the existing 99 kept, 0.24 points
+# of margin), 98.08% toggle (#228).
 coverage_floors: {line: 99, toggle: 97.5, functional: 100}

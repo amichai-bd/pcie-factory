@@ -189,19 +189,19 @@ tests:
     top: pcie_link_gpio_tb
     timeout_s: 600
     coverage_seeds: 0
-# Floors on the merged levels 0 to 2 (the nightly run), at the merged value
-# less 0.5 points rounded down to a tenth (DV BKM, floor margin), measured
-# for #360: line 90.7 from 91.27% (1485/1627), raised from 90.2 by
-# firstmate decision on #360; toggle 76.5 from 77.10% (28955/37556),
-# lowered from 79.8 by captain decision on #360 for the FC_RELEASE
-# parameter copies, the tied-off release ports and the CDC copies under a
-# second name (DV plan, Coverage holes); every point not hit has a reason
-# in the DV plan (Coverage holes). Re-measured for #416 with the
-# REPLAY_TIMEOUT 1400 copies and e2e_soak_replay_timeout: line 90.94%
-# (1566/1722), toggle 76.85% (31940/41564), so both floors stay. An entry
-# with a new parameter set (a new CREDITS, REPLAY_TIMEOUT or other value)
+# Floors on the merged levels 0 to 2 (the nightly run), by source (#228):
+# the merged value less 0.5 points rounded down to a tenth, never below
+# the existing floor (DV BKM, floor margin), except as stated. Line 89.6
+# from 90.13% (1260/1398), lowered from 90.7 by captain decision on #228
+# (https://github.com/amichai-bd/pcie-factory/issues/228#issuecomment-6394848631):
+# counting each source line once, not once per parameter copy, lowers the
+# percentage although no reachable line loses coverage. Toggle 82.8 from
+# 83.34% (16312/19572). The earlier per-instance floors (#360, re-measured
+# for #416; toggle lowered by captain decision on #360) are in the DV plan
+# (Coverage holes), where every point not hit has a reason. An entry with
+# a new parameter set (a new CREDITS, REPLAY_TIMEOUT or other value)
 # re-measures these floors in the same PR.
 # Functional 100 must hold every bin of link_e2e_config, link_e2e_control,
 # link_e2e_credit, link_e2e_inject, link_e2e_recovery and link_e2e_traffic;
 # a renamed or undeclared covergroup leaves the total, so keep this list.
-coverage_floors: {line: 90.7, toggle: 76.5, functional: 100}
+coverage_floors: {line: 89.6, toggle: 82.8, functional: 100}

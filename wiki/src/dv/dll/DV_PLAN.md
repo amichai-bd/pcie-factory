@@ -582,12 +582,34 @@ its entries are on the `link` bench and add nothing to this one.
 
 ## Coverage holes
 
-Floors in [`level2.yaml`](../../../../src/dv/dll/regress/level2.yaml),
-checked by every `--coverage` run that selects level 2 (the nightly runs
-levels 0 to 2): line 98.5, toggle 77.0, functional 100. Merged over levels
+Line and toggle floors use the
+[by-source union](../../../tools/regress/SPEC.md#coverage): each source point
+counts once and is covered if any instance covers it. Functional coverage
+is unchanged. The source remeasurement for
+[#228](https://github.com/amichai-bd/pcie-factory/issues/228) is one
+level 0 to 2 `--coverage` run of the IP's entries after the
+[#462](https://github.com/amichai-bd/pcie-factory/pull/462) regression
+changes, recorded in [PR #455](https://github.com/amichai-bd/pcie-factory/pull/455).
+Separately measured low-level runs supply their own floors.
+
+| Selected levels | Source line | Source toggle | Line / toggle floors |
+| --- | --- | --- | --- |
+| L0+L1+L2 | 396/398 (99.50%) | 8810/10252 (85.93%) | 98.9 / 85.4 |
+
+### Per-instance diagnostic baseline
+
+The counts and prior floor values below describe the original per-instance
+view at the revisions cited. Current code floors use the source table above.
+A point hit in another parameter set or instance is covered in the source
+union; the other reviewed causes remain diagnostic explanations, without
+adding a waiver.
+
+Before #228 the per-instance floors in [`level2.yaml`](../../../../src/dv/dll/regress/level2.yaml)
+(checked by every `--coverage` run that selects level 2) were: line 98.5,
+toggle 77.0, functional 100. Merged over levels
 0 to 2 ([#401](https://github.com/amichai-bd/pcie-factory/issues/401)): line 99.07% (637 of 643 line and branch points), toggle
 77.57% (19987 of 25768), functional 100% (221 of 221 bins in the 18
-covergroups the level file names). Both code floors are the merged value
+covergroups the level file names). Both code floors were the merged value
 less 0.5 points, rounded down to a tenth
 ([floor margin](../../../bkm/dv.md#coverage)), raised by [#401](https://github.com/amichai-bd/pcie-factory/issues/401) from
 98.4 and 76.4.

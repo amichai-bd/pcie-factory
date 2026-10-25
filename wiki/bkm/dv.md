@@ -206,12 +206,17 @@ helper's API, outputs and floor rules).
   reason; never a bin to delete silently. An unreachable cross combination
   is declared with the cross's `unreachable` list, which fails the test if
   it is ever hit ([regress SPEC](../tools/regress/SPEC.md#functional-coverage)).
+- **Code points count once per source location.** Line and toggle floors
+  use the by-source union: a point covered in any instance or parameter
+  set is covered. The per-instance view remains available for diagnosis;
+  functional bins keep their existing union rule
+  ([regress SPEC](../tools/regress/SPEC.md#coverage)).
 - **Floors are optional and per IP.** Add `coverage_floors` to a level file
   once the IP's DV plan has no gaps (for a per-covergroup floor, once the
   plan rows that covergroup covers have none), at or just below the merged
   value that level's runs reach (usually in `level2.yaml`, which the nightly runs).
-  Raise a floor when coverage improves; lowering one needs a reason in the
-  PR, like a budget.
+  Raise a floor when coverage improves; lowering one requires a captain
+  decision recorded with its reason in the PR.
 - **Floor margin.** Set a line or toggle floor to the higher of its
   existing value and the merged value less 0.5 points, rounded down to a
   tenth of a percent (86.28% gives 85.7): a floor is never lowered to fit

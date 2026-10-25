@@ -185,14 +185,45 @@ None: every feature of the MAS has a test.
 
 ## Coverage holes
 
-Floors in [`level2.yaml`](../../../../src/dv/rc_seq/regress/level2.yaml),
-checked by every `--coverage` run that selects level 2 (the nightly runs
-levels 0 to 2): line 58.7, toggle 72.4, functional 100. Merged over levels
+Line and toggle floors use the
+[by-source union](../../../tools/regress/SPEC.md#coverage): each source point
+counts once and is covered if any instance covers it. Functional coverage
+is unchanged. The source remeasurement for
+[#228](https://github.com/amichai-bd/pcie-factory/issues/228) is one
+level 0 to 2 `--coverage` run of the IP's entries after the
+[#462](https://github.com/amichai-bd/pcie-factory/pull/462) regression
+changes, recorded in [PR #455](https://github.com/amichai-bd/pcie-factory/pull/455).
+Separately measured low-level runs supply their own floors.
+
+| Selected levels | Source line | Source toggle | Line / toggle floors |
+| --- | --- | --- | --- |
+| L0+L1+L2 | 96/164 (58.54%) | 1953/2424 (80.57%) | 58.0 / 80 |
+
+**Line floor lowered from 58.7 to 58.0** by
+[captain decision on #228](https://github.com/amichai-bd/pcie-factory/issues/228#issuecomment-6394848631):
+the by-source measurement less 0.5 points. The reason is structural:
+counting each source line once, instead of once per parameter copy,
+gives a lower percentage although no reachable line loses coverage.
+The 15 duplicate instance points the source view drops (10 covered)
+were better covered than the rest.
+Every other code floor of the IP was raised on the new basis.
+
+### Per-instance diagnostic baseline
+
+The counts and prior floor values below describe the original per-instance
+view at the revisions cited. Current code floors use the source table above.
+A point hit in another parameter set or instance is covered in the source
+union; the other reviewed causes remain diagnostic explanations, without
+adding a waiver.
+
+Before #228 the per-instance floors in [`level2.yaml`](../../../../src/dv/rc_seq/regress/level2.yaml)
+(checked by every `--coverage` run that selects level 2) were: line 58.7,
+toggle 72.4, functional 100. Merged over levels
 0 to 2 ([#380](https://github.com/amichai-bd/pcie-factory/issues/380),
 re-measured in [#426](https://github.com/amichai-bd/pcie-factory/issues/426)):
 line 59.22% (106 of 179 points), toggle 72.93% (4758 of 6524), functional
 100% (52 of 52 bins in `rc_seq_steps`, `rc_seq_jumps` and `rc_seq_run`).
-The code floors are the merged values less 0.5 points, rounded down to a
+The code floors were the merged values less 0.5 points, rounded down to a
 tenth ([floor margin](../../../bkm/dv.md#coverage)).
 
 **Line floor lowered from 59.3 to 58.7** in #426, as a

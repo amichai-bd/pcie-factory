@@ -135,8 +135,9 @@ tests:
 # (the nightly runs the three together) minus 0.5 points, rounded down to
 # 0.1 (DV BKM, Coverage); a floor is never lowered. Every point below 100%
 # has a reason in the DV plan (#90).
-# Measured 79.27% line, 75.77% toggle. Functional 100 must hold every bin
-# of phy_e2e_layers, phy_e2e_run, phy_e2e_events, phy_e2e_packets,
-# phy_e2e_control and phy_e2e_power; a renamed or undeclared covergroup
-# leaves the total, so keep this list.
-coverage_floors: {line: 78.7, toggle: 75.2, functional: 100}
+# Measured source union (#228): 92.09% line (920/999), 88.74% toggle
+# (7543/8500). Functional 100 must hold every bin of phy_e2e_layers,
+# phy_e2e_run, phy_e2e_events, phy_e2e_packets, phy_e2e_control and
+# phy_e2e_power; a renamed or undeclared covergroup leaves the total, so
+# keep this list.
+coverage_floors: {line: 91.5, toggle: 88.2, functional: 100}
