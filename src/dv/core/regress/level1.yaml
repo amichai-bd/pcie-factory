@@ -1,7 +1,7 @@
 # The core back-to-back e2e against the independent host model, default
 # parameters (wiki/src/dv/core/DV_PLAN.md): the issue's acceptance tests,
-# the link-to-cfg wiring, link down (the core's own reset gate) and a
-# throughput screen.
+# the link-to-cfg wiring and link down (the core's own reset gate). The
+# throughput screen runs at level 2 (budget placement in the DV plan).
 tests:
   - name: e2e_functional
     module: tests.test_core_e2e
@@ -14,11 +14,6 @@ tests:
     testcase: e2e_error_paths
     top: pcie_core_e2e_tb
     seeds: [116918796]
-    timeout_s: 600
-  - name: e2e_throughput_short
-    module: tests.test_core_e2e
-    testcase: e2e_throughput_short
-    top: pcie_core_e2e_tb
     timeout_s: 600
   # Line corruption depends on the fresh link sequence/disparity state.
   - name: e2e_link_errors

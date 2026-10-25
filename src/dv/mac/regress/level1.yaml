@@ -15,7 +15,7 @@ tests:
     module: tests.test_mac
     testcase: traffic
     top: pcie_mac_tb
-    seeds: 3
+    seeds: [1783640295, 492241009]
     timeout_s: 600
     coverage_seeds: 2
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
@@ -29,7 +29,7 @@ tests:
     module: tests.test_mac
     testcase: rx_errors
     top: pcie_mac_tb
-    seeds: 2
+    seeds: [1906893083]
     timeout_s: 600
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
   - name: rx_idle_tail
@@ -42,7 +42,7 @@ tests:
     module: tests.test_mac
     testcase: ts_fields
     top: pcie_mac_tb
-    seeds: 2
+    seeds: [648699848]
     timeout_s: 600
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
   - name: control_quick
@@ -57,10 +57,12 @@ tests:
     top: pcie_mac_tb
     timeout_s: 600
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
-  - name: no_scramble
+  - name: no_scramble_edge
+    seed_independent: true
     module: tests.test_mac
-    testcase: no_scramble
+    testcase: no_scramble_edge
     top: pcie_mac_tb
+    seeds: [9068861]
     timeout_s: 600
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
 coverage_floors: {functional: {mac_os_tx: 100, mac_os_rx: 100, mac_frame: 100}}

@@ -1429,7 +1429,7 @@ class RawLine:
                            phy_status=rx.phy_status)
 
 
-async def scr_off_first_word(h, role):
+async def scr_off_first_word(h, role, offsets=range(8)):
     """Disable Scrambling applies on receive from the first word the step
     after Configuration.Idle entry takes. A crafted line, the partner
     frozen: from Lanenum.Accept, TS1 to Complete, one TS2 with the bit
@@ -1441,7 +1441,7 @@ async def scr_off_first_word(h, role):
     ends in a fresh reset."""
     hit = False
     nts = lambda ident, ctl=0: ts_syms(link=0, lane=0, ctl=ctl, ident=ident)  # noqa: E731
-    for o in range(8):
+    for o in offsets:
         await h.fresh(role)
         await h.run_until(h.in_state(arch.LNA), LIMIT)
         h.partner.inject.freeze = True
@@ -1455,6 +1455,7 @@ async def scr_off_first_word(h, role):
             await h.step()
             sh = h.shadow
             if sh.state == arch.CI and sh.now == sh.entered + 1 and sh.idle_sent_after == 2:
+                h.log.info("Disable Scrambling first-word witness: role=%s offset=%d", role, o)
                 hit = True
         assert h.shadow.scr_off, f"{role}: scrambling on after the crafted TS2"
         h.line_hook = None
@@ -1464,7 +1465,7 @@ async def scr_off_first_word(h, role):
 
 @cocotb.test()
 async def no_scramble(dut):
-    """L1: the partner sends Disable Scrambling in its TS2 in
+    """L2: the partner sends Disable Scrambling in its TS2 in
     Configuration.Complete: from Configuration.Idle both ports send idle
     and packets unscrambled (the shadow checks every symbol), through a
     retrain; Detect.Quiet enables scrambling again. Both roles, each with
@@ -1499,3 +1500,20 @@ async def no_scramble(dut):
         assert not h.shadow.scr_off
     for role in arch.ROLES:
         await scr_off_first_word(h, role)
+
+
+@cocotb.test()
+async def no_scramble_edge(dut):
+    """L1: first Configuration.Idle receive word, both roles.
+
+    Offset 4 places the final TS2 against the first unscrambled idle word.
+    scr_off_first_word requires the shadow to witness that exact boundary;
+    the original full test keeps all eight offsets and broad sweeps at L2.
+    Seed-independent: Harness, fresh() (fixed skew, delay and link) and
+    scr_off_first_word draw no random values, so the offset that reaches
+    the boundary is the same on every seed.
+    """
+    h = Harness(dut)
+    await h.start()
+    for role in arch.ROLES:
+        await scr_off_first_word(h, role, offsets=(4,))

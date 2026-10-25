@@ -125,6 +125,16 @@ speed up tests, never to raise the budget silently.
 Measured for #166 with all IPs: L1 356.7 s of CPU against 600 s
 (134 tests at `32bb298`); L0 41.8 s against 120 s.
 
+**Budget basis: the plain build** (captain decision on
+[#435](https://github.com/amichai-bd/pcie-factory/issues/435#issuecomment-6394848460),
+2026-10-25). The L0 (120 s) and L1 (1200 s) budgets apply to the plain
+build `ci-gate` runs, without `--coverage`; a level meets its budget, and
+its margin is measured, on that build. The nightly runs L0 and L1 with
+coverage instrumentation, which costs more CPU; those figures are reported
+in its summary but not budgeted, and a coverage-build overrun of L0 or L1
+is no reason to move tests. The L2 budget stays sized on the nightly's
+coverage build.
+
 The L1 and L2 budgets were raised on 2026-10-18 (captain decision on
 [#272](https://github.com/amichai-bd/pcie-factory/issues/272#issuecomment-6242089772))
 after speed-ups and rebalancing: measured with all IPs and coverage at

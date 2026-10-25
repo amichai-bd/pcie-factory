@@ -25,6 +25,24 @@ tests:
     top: pcie_rc_tl_tb
     seeds: 2
     timeout_s: 3600
+  - name: random_cmds_extra_seeds
+    module: tests.test_rc_tl_cmd
+    testcase: random_cmds
+    top: pcie_rc_tl_tb
+    seeds:
+    - 1976110523
+    timeout_s: 300
+    coverage_seeds: 0
+  - name: random_req_extra_seeds
+    module: tests.test_rc_tl_req
+    testcase: random_req
+    top: pcie_rc_tl_tb
+    seeds:
+    - 2098415298
+    timeout_s: 600
+    params:
+      CPL_TIMEOUT_DIV: 1024
+    coverage_seeds: 0
 # Coverage floors (#380), levels 0 to 2 merged, by source (#228): the
 # merged value less 0.5 points rounded down to a tenth, never below the
 # existing floor (DV BKM, floor margin): 99.26% line (403/406) and 91.43%

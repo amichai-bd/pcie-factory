@@ -143,20 +143,20 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
 | [Decoder](../../rtl/pcs/MAS.md#decoder): commas at the RD and at the other RD (RxStatus 7), code errors as EDB EDB K (RxStatus 4), `pipe_reset_ni` leaves the RD unknown | `rx_decode_smoke` | 0 | 1; exact timing |
 | [Aligner](../../rtl/pcs/MAS.md#aligner): lock from every bit offset 0 to 19, both comma forms, after electrical idle: one run each, intact from its comma, within the lock target | `rx_lock_offsets` | 0 | [1]; 40 locks |
 | One-word electrical-idle pulses at the eight phases of the TS1 COM period (the window holding the idle word never locks), `rst_i` with traffic in flight (lock and data return at the next comma) | `rx_lock_controls` | 0 | [1] |
-| [PowerDown](../../arch/pcs/PIPE_CONTROL.md#powerdown): every arc acknowledged after 4 cycles, transmitter idle outside P0, no beacon in P2 | `pipe_power` | 1 | 2 |
-| PIPE control and the transmit path under random legal MAC sequences | `pipe_random` / `pipe_random_long` | 1 / 2 | 3; 60 operations / 6; 400 |
+| [PowerDown](../../arch/pcs/PIPE_CONTROL.md#powerdown): every arc acknowledged after 4 cycles, transmitter idle outside P0, no beacon in P2 | `pipe_power` / `pipe_power_extra_seeds` | 1 / 2 | [773539760] / [1495037734]; coverage on the L1 seed only |
+| PIPE control and the transmit path under random legal MAC sequences | `pipe_random` / `pipe_random_extra_seeds` / `pipe_random_long` | 1 / 2 | [98053844] / [1927224898, 1809207288] / 6; 60 operations for the first two entries, 400 for the long run; extra seeds plain |
 | [RxElecIdle](../../arch/pcs/PIPE_CONTROL.md#receive-status-signals) with the received words: every change, in order, 1 to 12 `clk_i` edges (the RX latency target) after the RX edge that registered it (measured: at most 10) | `rx_elec_idle` | 1 | [1, 2]: fast, slow; coverage on both |
 | Every data byte and K-flagged byte at RD- and RD+ in both lanes through PIPE TX, back to back and with TxElecIdle between words; fails on a hole in `pcs_tx_codes` or the EDB and RD-hold bins | `tx_table` | 1 | 1; 5120 words twice |
-| Random transmit traffic with TxCompliance, idle gaps, unsupported K and resets of both kinds with words in flight, every word against the model | `tx_random` / `tx_random_long` | 1 / 2 | 3; 5000 cycles / 4; 100000 |
+| Random transmit traffic with TxCompliance, idle gaps, unsupported K and resets of both kinds with words in flight, every word against the model | `tx_random` / `tx_random_extra_seeds` / `tx_random_long` | 2 | [1667229892] / [341366866, 223447528] / 4; 5000 cycles for the first two entries, 100000 for the long run; extra seeds plain |
 | Every symbol at both RDs in both lanes through PIPE TX, the line and PIPE RX, intact, no error; fails on a hole in `pcs_rx_codes` | `table_round_trip` | 1 | [1] |
 | All 1024 codes through the ports: each lane at RD- and RD+, lane 0 at an unknown RD (polarity change), the RD each leaves (probe); both lanes unlocked (line in idle, data and K); class counts 268, 196, 560 at a known RD and 464, 560 at an unknown one; no error on the first locked word after the unlocked run although its COM would be a disparity error at the RD the unlocked symbols left | `rx_decode_table` | 1 | 1; about 100000 words, exact timing |
-| Random encoded traffic with bit errors, random codes, partner RD slips, RxPolarity changes (single-word pulses among them) and `pipe_reset_ni` pulses, every PIPE word against the decoder model | `rx_decode_random` / `rx_decode_random_long` | 1 / 2 | 3; 20000 words / 2; 200000 |
+| Random encoded traffic with bit errors, random codes, partner RD slips, RxPolarity changes (single-word pulses among them) and `pipe_reset_ni` pulses, every PIPE word against the decoder model | `rx_decode_random` / `rx_decode_random_extra_seeds` / `rx_decode_random_long` | 1 / 2 | [352464483] / [1644502773, 2064404303] / 2; 20000 words for the first two entries, 200000 for the long run; extra seeds plain |
 | Bit slips in numbered TS1 and in FTS traffic, on SKP sets, slip pairs 2 to 90 symbols apart; isolated flips keep lock; every slip answered (no errored word later than 48 cycles after it), the data intact once lock is retaken in the same cycle or at the next comma | `rx_slips_training` / `rx_slips_training_sweep` | 1 / 2 | [1] / [2..6]; up to 300 ppm |
-| Bit slips in packet traffic and on its SKP sets; flips in packets keep lock | `rx_slips_packets` | 1 | [1, 2] |
-| No false lock: encoded data at every bit offset and idle noise never give RxValid; unflagged noise may lock falsely and the true boundary follows | `rx_no_false_lock` | 1 | [1, 2] |
+| Bit slips in packet traffic and on its SKP sets; flips in packets keep lock | `rx_slips_packets` / `rx_slips_packets_extra_seeds` | 1 / 2 | [1] / [2]; first seed instrumented, extra seed plain |
+| No false lock: encoded data at every bit offset and idle noise never give RxValid; unflagged noise may lock falsely and the true boundary follows | `rx_no_false_lock` / `rx_no_false_lock_extra_seeds` | 1 / 2 | [1] / [2]; first seed instrumented, extra seed plain |
 | Long mixed traffic (training, packets) with slips, flips and idle gaps at up to ±600 ppm, every check | `rx_align_long` | 2 | 4; 40 segments |
 | [Elastic buffer](../../arch/pcs/RECEIVE.md#elastic-buffer) at 300 to 600 ppm, random packets, SKP every 1180: lossless, one lock, SKP sets within the rules, RX latency at most 12 | `rx_ppm` / `rx_ppm_sweep` | 1 / 2 | [1] / [2..8]; odd seeds fast |
-| The same with back-to-back DLLPs | `rx_dllp` | 1 | [1, 2] |
+| The same with back-to-back DLLPs | `rx_dllp` / `rx_dllp_extra_seeds` | 1 / 2 | [1] / [2]; first seed instrumented, extra seed plain |
 | The same with maximum TLPs (4122 bytes), SKP every 1538, 550 to 600 ppm | `rx_max_tlp` | 2 | [1..4] |
 | SKP addition at -600 ppm, maximum TLPs, SKP every 1538; removal at +600 ppm | `eb_tlp_m600`, `eb_tlp_p600` | 1 | [1] each |
 | Random sizes, SKP sets of one to five SKPs, random interval, at -300 and +300 ppm | `eb_random_m300`, `eb_random_p300` | 1 | [1] each |
@@ -165,14 +165,14 @@ The blocks are described in the [MAS](../../rtl/pcs/MAS.md).
 | Sizes that strand corrections at ±600 ppm | `eb_tlp_p600` / `eb_tlp_m600` stress sections | 1 | original stress seeds 1 / 2: fast, slow |
 | Dense SKP sets (one to five SKPs every 48 to 96 symbols) at ±600 ppm: additions after a COM in either half of a word, removals leaving a bare COM, sets back to back | `eb_tlp_p600` dense section / `eb_dense_sweep` | 1 / 2 | original dense seed 1 / [2..8] |
 | Recentring through two 6000-symbol electrical-idle gaps in 60 packets at -600 ppm (read side holds) and +600 ppm (write side drops); non-vacuous: `Recentre` counts the MAS observation nets `r_recentre` (read-side hold) and `w_drop` (write-side drop), and the test requires a hold at -600 ppm and a drop at +600 ppm | `eb_idle_m600`, `eb_idle_p600` | 1 | [1] each |
-| A relock end inside a PIPE word: close bit-error pairs at ±600 ppm, the SKP corrections leaving an odd word parity at some relocks; that word (last locked symbol, then an unlocked one) leaves with RxValid 0, and at least one occurs (`ValidRule`) | `rx_relock_mid_word` | 1 | [1, 2]; odd seeds fast |
+| A relock end inside a PIPE word: close bit-error pairs at ±600 ppm, the SKP corrections leaving an odd word parity at some relocks; that word (last locked symbol, then an unlocked one) leaves with RxValid 0, and at least one occurs (`ValidRule`) | `rx_relock_mid_word` / `rx_relock_mid_word_extra_seeds` | 1 / 2 | [1] / [2]; first seed instrumented, extra seed plain |
 | [Electrical idle in order](../../arch/pcs/RECEIVE.md#electrical-idle): an EIOS before each of eight 1500-symbol idle gaps at ±600 ppm, the SKP corrections changing the word parity between gaps: the whole EIOS under RxValid before RxElecIdle, idle tails (EIOS ending in the first half of a word) reach PIPE; non-vacuous: every gap's EIOS checked whole and at least one idle tail per run | `rx_eios_idle` / `rx_eios_idle_sweep` | 1 / 2 | [1, 2] / [3..8]; odd seeds fast |
-| [EIOS completion](../../arch/pcs/RECEIVE.md#comma-alignment-and-symbol-lock): an EIOS before idle at every RX bit phase 0 to 19 of the transmitter's word boundary (filler bits), at +300 or -300 ppm: all 20 EIOS whole under RxValid before RxElecIdle (at phases 10 to 19 the last IDL starts in the idle-flagged word) | `rx_eios_phases` | 1 | [1, 2]; odd seeds fast |
+| [EIOS completion](../../arch/pcs/RECEIVE.md#comma-alignment-and-symbol-lock): an EIOS before idle at every RX bit phase 0 to 19 of the transmitter's word boundary (filler bits), at +300 or -300 ppm: all 20 EIOS whole under RxValid before RxElecIdle (at phases 10 to 19 the last IDL starts in the idle-flagged word) | `rx_eios_phases` / `rx_eios_phases_extra_seeds` | 1 / 2 | [1] / [2]; first seed instrumented, extra seed plain |
 | Lock start after twelve 1500-symbol idle gaps in 120 packets: every run starts at its comma or the symbol before it, within the lock target; recentring required as in `eb_idle_*` | `eb_lock_start` / `eb_lock_start_sweep` | 1 / 2 | [1, 2] / [3..10]; odd seeds fast |
 | Overflow after one slow-clock SKP addition creates a leftover, then +2% data-only clock offset: every lost word still reports RxStatus 5 | `eb_overflow_leftover` | 1 | [1] |
 | Overflow at +2% with no SKP: RxStatus 5 on the first word after each loss, the rest in order | `eb_overflow` | 1 | [1] |
 | Underflow at -2% with no SKP: RxStatus 6, EDB EDB as K, RxValid 0, nothing lost, no error after an underflow word (the decoder's RD held across it) | `eb_underflow` | 1 | [1] |
-| Outside the targets at ±4000 ppm with long packets: overflow (RxStatus 5) or underflow (RxStatus 6, EDB EDB, RxValid 0) | `eb_stress` | 1 | [1, 2] |
+| Outside the targets at ±4000 ppm with long packets: overflow (RxStatus 5) or underflow (RxStatus 6, EDB EDB, RxValid 0) | `eb_stress` / `eb_stress_extra_seeds` | 1 / 2 | [1] / [2]; first seed instrumented, extra seed plain |
 | Reset with traffic in flight: `rst_i` (lock returns at a comma within the lock target, intact) and `pipe_reset_ni` (RxValid low, the stream resumes with the RD unknown, nothing out of order) | `rx_reset_traffic` / `rx_reset_traffic_sweep` | 1 / 2 | [1] / [2..6] |
 | Long runs: forty maximum TLPs, 1200 random packets, 60 packets of stranding sizes or short bursts, three 20000-symbol idle gaps in 300 packets (recentring required as in `eb_idle_*`) | `eb_long_tlp`, `eb_long_random`, `eb_long_stress`, `eb_long_idle` | 2 | [1..4] (two per sign; odd seeds fast), 3, [1..4] (two per sign), [1..4] |
 | [Polarity](../../arch/pcs/RECEIVE.md#decode-and-rxstatus): an inverted lane with RxPolarity 1 is intact | `rx_polarity` | 1 | [1] |
@@ -292,6 +292,11 @@ Every check of the removed leaf testbenches, and where it is now.
 
 ## Mutation evidence
 
+Each row names the entry and seed that caught the mutant when it was
+measured. Where [#435](https://github.com/amichai-bd/pcie-factory/issues/435)
+moved that run to level 2, the row says so in place; every mutant keeps a
+catch in level 0 or 1.
+
 Each mutant was built in a scratch copy of `src/` (`./build sim
 --src-root <copy>`) and run against the listed entries at their first
 regression seed (or the seed named); the unmutated RTL passes all of them.
@@ -303,9 +308,9 @@ slow-clock seeds.
 
 | Block | Mutant | Caught by | Not caught by |
 | --- | --- | --- | --- |
-| Encoder | A7 rule dropped at RD+ | `tx_table`, `tx_random`, `table_round_trip` | - |
-| Encoder | TxCompliance ignored | `tx_smoke`, `tx_table`, `tx_random`, `pipe_random` | - |
-| Encoder | Lane 1 encoded at lane 0's RD, not the RD between the symbols (`u_sym1.rd_i` from `rd_lane0`) | `tx_smoke`, `tx_table`, `tx_random`, `table_round_trip`, `pipe_random`, `round_trip` (RTL assertion `a_lane1_disparity`; seeds 2061514873, 767703684, 1667229892, 1, 98053844, 1 fail at 272, 288, 288, 256, 416 and 256 ns) | - |
+| Encoder | A7 rule dropped at RD+ | `tx_table`, `tx_random` (L2 since #435), `table_round_trip` | - |
+| Encoder | TxCompliance ignored | `tx_smoke`, `tx_table`, `tx_random` (L2 since #435), `pipe_random` | - |
+| Encoder | Lane 1 encoded at lane 0's RD, not the RD between the symbols (`u_sym1.rd_i` from `rd_lane0`) | `tx_smoke`, `tx_table`, `tx_random` (L2 since #435), `table_round_trip`, `pipe_random`, `round_trip` (RTL assertion `a_lane1_disparity`; seeds 2061514873, 767703684, 1667229892, 1, 98053844, 1 fail at 272, 288, 288, 256, 416 and 256 ns) | - |
 | Decoder | Disparity errors not flagged | `rx_decode_smoke`, `rx_decode_table`, `rx_decode_random` | - |
 | Decoder | A polarity change keeps the RD known | `rx_decode_table`, `rx_decode_random`, `rx_polarity_toggle` | - |
 | Decoder | The RD stays known after an unlocked word | `rx_smoke`, `rx_decode_table`, `rx_elec_idle_gaps` (RTL assertion `a_rd_unknown_after_unlocked`) | - |
@@ -326,11 +331,11 @@ slow-clock seeds.
 | Elastic buffer | Start at 10 (`EB_NOMINAL` 10) | `rx_smoke`, `eb_tlp_m600` (`a_start_at_8`) | - |
 | Elastic buffer | Removal of a second-slot COM's SKP not reported (`r_rem1` dropped) | `eb_tlp_p600`, `eb_dense` | `rx_ppm` seed 1 |
 | Top | Relock at 2 errored words | `rx_errors`, `rx_error_bursts`, `rx_decode_table` | - |
-| Top | RxValid from symbol 0's lock alone | `rx_relock_mid_word` seeds 1 and 2, `rx_close_errors` seed 1 and `rx_close_errors_sweep` seed 2, `rx_slips` seed 1 (`ValidRule`: RxValid 1 on a word whose second symbol lost lock by a relock) | `eb_idle_m600` seed 1 (its lock ends are before idle, now valid idle tails) |
+| Top | RxValid from symbol 0's lock alone | `rx_relock_mid_word` seeds 1 and 2 (seed 2 in L2 `rx_relock_mid_word_extra_seeds` since #435), `rx_close_errors` seed 1 and `rx_close_errors_sweep` seed 2, `rx_slips` seed 1 (`ValidRule`: RxValid 1 on a word whose second symbol lost lock by a relock) | `eb_idle_m600` seed 1 (its lock ends are before idle, now valid idle tails) |
 | Aligner | Lock dropped on the idle word itself (`idle_q` in `keep`, the rule before #182) | `rx_eios_idle` seeds 1 and 2, `eb_idle_m600` seed 1, `rx_elec_idle_gaps` seed 1 (the last symbol before the gap never leaves under RxValid) | - |
 | Top | No idle tail (`word_tail` 0) | `rx_eios_idle` seeds 1 and 2, `eb_idle_m600` seed 1 (`ValidRule` fires first: RxValid 0 on a word its lock tags make an idle tail; without it, the EIOS's last symbol is lost) | `rx_elec_idle_gaps` seed 1 |
-| Aligner | No EIOS completion (`tail` 0) | `rx_eios_phases` seeds 1 and 2 (the EIOS not whole before idle at a phase of 10 to 19) | `rx_eios_idle` seed 1, `eb_idle_m600` seed 1 (phase 0) |
-| Elastic buffer | Recentring hold on the head word's lock (`head0` instead of `c0`, the rule before #182) | `rx_eios_idle` seed 2, `eb_idle_m600` seed 1, `eb_lock_start` seed 2, `rx_elec_idle_gaps` seed 2 (a locked leftover held behind an unlocked head splits a run before idle) | `rx_eios_idle` seed 1, `rx_eios_phases` seed 2 |
+| Aligner | No EIOS completion (`tail` 0) | `rx_eios_phases` seeds 1 and 2 (seed 2 in L2 `rx_eios_phases_extra_seeds` since #435) (the EIOS not whole before idle at a phase of 10 to 19) | `rx_eios_idle` seed 1, `eb_idle_m600` seed 1 (phase 0) |
+| Elastic buffer | Recentring hold on the head word's lock (`head0` instead of `c0`, the rule before #182) | `rx_eios_idle` seed 2, `eb_idle_m600` seed 1, `eb_lock_start` seed 2, `rx_elec_idle_gaps` seed 2 (a locked leftover held behind an unlocked head splits a run before idle) | `rx_eios_idle` seed 1, `rx_eios_phases` seed 2 (L2 since #435) |
 | Top | RxElecIdle straight from `ser_rx_elec_idle_i` (a fast path, the defect of #182) | `rx_eios_idle` seed 1, `rx_eios_phases` seed 1, `eb_idle_m600` seed 1 (RxValid 1 with RxElecIdle 1), `rx_elec_idle` seed 1 (out of order) | - |
 | Top | RxElecIdle from symbol 1's idle flag (one symbol early) | `rx_eios_idle` seeds 1 and 2, `eb_idle_m600` seed 1 (RxValid 1 with RxElecIdle 1 on an idle tail) | `rx_elec_idle_gaps` seed 1 |
 | Elastic buffer | One lock tag per FIFO word (the rule before #182) | `rx_eios_idle` seed 1 (an EIOS split across two FIFO words loses its last IDL) | `rx_eios_idle` seed 2, `eb_idle_m600` seed 1, `rx_elec_idle_gaps` seed 1 |
@@ -413,3 +418,34 @@ overflow-leftover holes above are closed.
 | Tool artefact | 2 | 0 | The two early `return` branches of `eios_step` (package): Verilator never counts a branch whose body is a function `return`; the block count less the fall-through count gives their hits, and every EIOS check (`rx_eios_*`) depends on them. |
 | Constant by design | 0 | 30 | `edb` in the encoder symbol (the EDB code); the elastic buffer's `ser_rx_valid_i` (tied 1, see [gaps](#gaps)); the per-symbol `ovf` fields that are tied 0 (`w_new0`, `w_new1`, `head1`, the held and leftover slots; a word's overflow travels in `pend_ovf` and the head word's flag); `sync_d[0]` of the RX reset synchronizer (its input, a constant). |
 | Unreachable by construction | 0 | 28 | Counter top bits: the holdoff counters (loaded with 7, or 8 and decremented first), `clean_cnt[3]` (the decay restarts at 8), `ready_cnt_d[4]` (16 is only the reset value); the visible fill's top bit and those of the symbol fill (`vis[4]`, `dst_fill_o[4]`, `fill[5]`, `eb_fill[5]`, `fill_o[5]`: the reader sees the write pointer two to three RX cycles late and pops a word each cycle meanwhile, so it never sees all 16 words, even when the writer overflows in `eb_overflow`); `c0.rem` and `o0.rem` (a removal flag is acted on while its COM is in the second slot, and `rem_ack` clears it before the SKP reaches the first). |
+
+## Budget placement
+
+[#435](https://github.com/amichai-bd/pcie-factory/issues/435) moves extra
+seeds only: each entry below keeps its first seed (with its coverage run)
+in L1, and its further seeds run in L2, plain, in an `_extra_seeds` entry
+with the same testcase, parameters and seed values, so no run is dropped.
+The exception is `tx_random`, whose three seeds all run in L2 (its first
+seed keeps its coverage run there); its encoder mutants keep their L1
+catches in `tx_smoke`, `tx_table`, `table_round_trip` and `pipe_random`.
+Every directed entry stays in L1, including `tx_table`, `eb_idle_m600` and
+`eb_idle_p600` (captain decision on
+[#435](https://github.com/amichai-bd/pcie-factory/issues/435#issuecomment-6394848460)):
+local CPU 1.8 s, 2.4 s and 2.5 s (`./build regress --level 1 --ip pcs
+--jobs 4`, 4-CPU development host). No coverage floor is raised or lowered.
+
+Seeds of a count entry are derived, `crc32("pcs:<name>:<i>")`, and the
+index *i* is given; list entries name their seeds directly.
+
+| Entry | L1 seed (index) | L2 `_extra_seeds` (index) |
+| --- | --- | --- |
+| `pipe_power` | 773539760 (0) | 1495037734 (1) |
+| `pipe_random` | 98053844 (0) | 1927224898 (1), 1809207288 (2) |
+| `tx_random` | none: 1667229892 (0) in L2 `tx_random` | 341366866 (1), 223447528 (2) |
+| `rx_decode_random` | 352464483 (0) | 1644502773 (1), 2064404303 (2) |
+| `rx_slips_packets` | 1 | 2 |
+| `rx_no_false_lock` | 1 | 2 |
+| `rx_dllp` | 1 | 2 |
+| `rx_relock_mid_word` | 1 | 2 |
+| `eb_stress` | 1 | 2 |
+| `rx_eios_phases` | 1 | 2 |

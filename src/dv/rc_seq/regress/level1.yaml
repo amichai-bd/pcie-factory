@@ -4,13 +4,7 @@ tests:
     testcase: selftest
     top: pcie_rc_seq
     params: {PROGRAM: 4}
-    seeds: 2
-    timeout_s: 300
-  - name: expect_mismatch
-    module: tests.test_rc_seq
-    testcase: expect_mismatch
-    top: pcie_rc_seq
-    params: {PROGRAM: 4}
+    seeds: [1338781849]
     timeout_s: 300
   - name: status_mismatch
     module: tests.test_rc_seq

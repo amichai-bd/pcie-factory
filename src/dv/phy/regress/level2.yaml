@@ -110,6 +110,27 @@ tests:
     params: {MAC_RTL: 1, PCS_RTL: 1}
     seeds: [1336911784]
     timeout_s: 180
+  - name: e2e_scrambler_block
+    module: tests.test_phy_e2e
+    testcase: e2e_scrambler_block
+    top: pcie_phy_e2e_tb
+    timeout_s: 180
+  - name: e2e_encoder_block
+    module: tests.test_phy_e2e
+    testcase: e2e_encoder_block
+    top: pcie_phy_e2e_tb
+    timeout_s: 180
+  - name: e2e_smoke
+    module: tests.test_phy_e2e
+    testcase: e2e_smoke
+    top: pcie_phy_e2e_tb
+    timeout_s: 120
+  - name: e2e_targets
+    module: tests.test_phy_e2e
+    testcase: e2e_targets
+    top: pcie_phy_e2e_tb
+    params: {MAC_RTL: 1, PCS_RTL: 1, CHAN_RTL: 1}
+    timeout_s: 300
 # Floors: the higher of the existing floor and the merged L0 to L2 value
 # (the nightly runs the three together) minus 0.5 points, rounded down to
 # 0.1 (DV BKM, Coverage); a floor is never lowered. Every point below 100%

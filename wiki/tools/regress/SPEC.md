@@ -741,6 +741,18 @@ run prints `warning: levelN CPU time Xs (the sum of its tests' CPU time)
 exceeds its budget of Ys` to stderr and sets `over_budget` in the summary.
 The per-level line prints both numbers, `levelN: P/T passed, CPU Xs
 (budget Ys), test wall time Zs`. The warning doesn't change the exit code.
+The budget-policy decision in
+[#435](https://github.com/amichai-bd/pcie-factory/issues/435) retains this
+warning: every selected check still runs to completion, and functional
+failures and coverage-floor misses retain their failing exit codes. A budget
+overrun is recorded for regression-list rebalancing rather than truncating the
+verification set. CI evidence reports the plain gate and coverage-instrumented
+measurements separately; their CPU costs differ. The L0 and L1 budgets apply
+to the plain build (captain decision on
+[#435](https://github.com/amichai-bd/pcie-factory/issues/435#issuecomment-6394848460)):
+the check is the same with `--coverage`, so a coverage run of L0 or L1 can
+print the warning and set `over_budget`, and that figure is reported, not
+budgeted.
 Why CPU time and why a warning: the
 [DevOps BKM](../../bkm/devops.md#levels-and-budgets).
 

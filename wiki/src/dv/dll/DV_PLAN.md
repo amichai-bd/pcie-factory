@@ -215,7 +215,7 @@ into a model or the RTL silently.
 | [Receiving TLPs](../../arch/dll/RETRY.md#receiving-tlps) by hand: discarded in DL_Inactive and FC_INIT1; a bad TLP's Nak held in FC_INIT2; a good TLP ends FC_INIT2; every class and size, 3- and 4-DW headers, gaps and back to back; duplicates with an Ack at once (D = 2048 too); ahead (D = 1, 2047) with one Nak per NAK_SCHEDULED; bad LCRC, flagged, too short, nullified, EDB without the inverse; each malformed kind, packets beyond the beat counter; [digests](../../arch/dll/HAS.md#receive) (TD 1) delivered with the TLP, 3- and 4-DW headers, the largest TLP of 37 DWs, and malformed without the digest, with a 132-byte payload, or a DW too many with TD 0; link down while a TLP arrives and while one is delivered. [Ack timer](../../arch/dll/RETRY.md#ack-and-nak-scheduling): 35 cycles on an idle stream ([MAS, timing](../../rtl/dll/MAS.md#timing)); Nak and duplicate Ack within 7; [receive latency](../../arch/dll/HAS.md#targets) within 4 | `rx_directed` | 0 | 1 |
 | [The upper layer never stalls](../../arch/dll/HAS.md#receive) when a class is infinite: `tlp_rx_ready_i` 0 in DL_Active with the default credits stops the run on `a_rx_never_stall` (negative, `expect_fatal`) | `rx_never_stall_fatal` | 0 | 1; passes only on that fatal stop |
 | [Transmit accounting](../../arch/dll/FLOW_CONTROL.md#transmit-accounting): the gate for every class and field, at exactly half the range and one past it, after limits beyond half the range, with infinite fields; CREDITS_CONSUMED wrapping; credits available; cleared by link-down mid-TLP | `fc_tx_gate` | 1 | 1; hand-driven far end that acknowledges every TLP |
-| [Receive accounting](../../arch/dll/FLOW_CONTROL.md#receive-accounting) on real TLPs from a hand-driven far end that replays: stored, malformed (credits returned at once, none under 4 bytes), returns at the delivered `eop`; [UpdateFC](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling) on returns, in FC_INIT2 (entry value) and DL_Active, its value, cause, round robin and latency; refreshes; link down; default credits | `fc_rx_accounting` | 0 | 1 |
+| [Receive accounting](../../arch/dll/FLOW_CONTROL.md#receive-accounting) on real TLPs from a hand-driven far end that replays: stored, malformed (credits returned at once, none under 4 bytes), returns at the delivered `eop`; [UpdateFC](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling) on returns, in FC_INIT2 (entry value) and DL_Active, its value, cause, round robin and latency; refreshes; link down; default credits | `fc_rx_accounting` | 1 | 1 |
 | The same, every class finite, the upper layer slow and stalling: the [overflow check](../../arch/dll/FLOW_CONTROL.md#receive-buffer), Receiver overflow, no Ack or Nak, the TLPs behind arriving ahead | `fc_rx_accounting_finite` / `fc_rx_accounting_finite_sweep` | 1 / 2 | derived seed 0 / its derived seed 1 (1892473378) pinned; coverage on both |
 | The same, every class infinite (the reserve; UpdateFC all 0) | `fc_rx_accounting_infinite` | 1 | seed 844183907; retained assertions unchanged |
 | [Credits target](../../arch/dll/HAS.md#targets), transmit side: starvation and recovery with the partner's upper layer taking 30%, stalling 4000 cycles, taking 30%, stalling 10000 cycles, then taking all; no overflow at the partner's receive-side check; arch model against a fresh partner | `credit_starve` / `credit_starve_sweep` | 1 / 2 | 0 / 1 to 3 (partner credits: three all finite, one default; with the default, seed 2, the partner stalls with completions infinite, outside the HAS obligation and the Credits target's every-class-finite wording, which binds the `dll`'s upper layer; the partner's store is unbounded and only the DUT's gate is under test); coverage on seeds 0 to 2 |
@@ -271,13 +271,19 @@ below is first caught by them, and the transmit and replay paths they load
 stay under `ci-gate` through `lcrc_kat`, `rbuf_full`, `tlp_partner` and
 `tlp_bidir`.
 
-The other directed entries stay in level 0
+The other short directed entries stay in level 0
 ([#325](https://github.com/amichai-bd/pcie-factory/issues/325)): each takes
 about 1 to 5 s of CPU, and they are the quickest catch of a broken block
 (most mutants in the table below are first caught there), so a change that
 breaks the CRC, the control states, transmit, replay or receive fails in the
 first minutes of `ci-gate`, and a factory-only change, which runs level 0 of
 every IP, still exercises each block.
+
+`fc_rx_accounting` runs at L1 under
+[#435](https://github.com/amichai-bd/pcie-factory/issues/435): it is a
+functional receive-accounting check rather than a build smoke. Its recorded
+mutant catches remain in the gate, as does `credit_starve_rx`, whose
+exact-full receiver-overflow mutant has no recorded alternative catch.
 
 `fc_tx_gate` runs in level 1, not 0
 ([#325](https://github.com/amichai-bd/pcie-factory/issues/325)): level 0
@@ -463,22 +469,22 @@ gate in front of the real transmit path), each with `src/` clean.
 | Package | Gate ignores the TLP's own data credits | `fc_init_directed` | Gate 1 for an NP TLP needing 105 data credits with a limit of 40 (rule and arch 0). |
 | Package | Gate ignores an infinite data field's flag | `fc_init_directed` | Gate 0 for a P TLP with P data infinite (rule and arch 1). |
 | Flow control | A taken `sop` consumes nothing | `fc_tx_gate` (L1) | The boundary write refused: the DUT's headroom is not the consumed credits'. |
-| Package | Data credits rounded down (`tlp_credit`) | `fc_rx_accounting` | UpdateFC-P carries data 32, CREDITS_ALLOCATED is 33. |
+| Package | Data credits rounded down (`tlp_credit`) | `fc_rx_accounting` (L1 since #435; measured at L0) | UpdateFC-P carries data 32, CREDITS_ALLOCATED is 33. |
 | Package | Messages counted as non-posted (`tlp_credit`) | `fc_init_directed` | Gate 0 for a message header with P credits free (rule and arch 1). |
-| Package | Length 0 not read as 1024 DWs | `fc_rx_accounting` | Gate 1 for a P header needing 256 data credits with a limit of 32 (rule and arch 0). |
+| Package | Length 0 not read as 1024 DWs | `fc_rx_accounting` (L1 since #435; measured at L0) | Gate 1 for a P header needing 256 data credits with a limit of 32 (rule and arch 0). |
 | Package | Overflow check: exactly filling the free credits overflows | `credit_starve_rx` (L1) | Receiver overflow with a compliant partner. |
 | Flow control | No Receiver overflow pulse | `fc_rx_accounting_finite` (L1) | 0 pulses, the reference 16. |
-| Flow control | A malformed TLP's credits not added to CREDITS_ALLOCATED | `fc_rx_accounting` | Credits returned for P not sent within 20 cycles; an UpdateFC out of round-robin order. |
-| Flow control | A malformed TLP not added to CREDITS_RECEIVED | `fc_rx_accounting` | Stops on `a_free_within_space`. |
-| Flow control | Credits of a TLP taken upward not returned | `fc_rx_accounting` | 94 TLPs never accepted: the far end runs out of credits. |
-| Flow control | No UpdateFC on returned credits | `fc_rx_accounting` | P credits returned at cycle 35 not sent within 20 cycles. |
-| Flow control | The P value sent not recorded (P stays due) | `fc_rx_accounting` | UpdateFC-P offered with no class due. |
+| Flow control | A malformed TLP's credits not added to CREDITS_ALLOCATED | `fc_rx_accounting` (L1 since #435; measured at L0) | Credits returned for P not sent within 20 cycles; an UpdateFC out of round-robin order. |
+| Flow control | A malformed TLP not added to CREDITS_RECEIVED | `fc_rx_accounting` (L1 since #435; measured at L0) | Stops on `a_free_within_space`. |
+| Flow control | Credits of a TLP taken upward not returned | `fc_rx_accounting` (L1 since #435; measured at L0) | 94 TLPs never accepted: the far end runs out of credits. |
+| Flow control | No UpdateFC on returned credits | `fc_rx_accounting` (L1 since #435; measured at L0) | P credits returned at cycle 35 not sent within 20 cycles. |
+| Flow control | The P value sent not recorded (P stays due) | `fc_rx_accounting` (L1 since #435; measured at L0) | UpdateFC-P offered with no class due. |
 | Flow control | An infinite field's internal count sent instead of 0 | `fc_init_directed` | UpdateFC-Cpl `a0020018ef48`, expected `a00000001fd2`. |
-| Flow control | Round robin ignores the pointer (P first) | `fc_rx_accounting` | UpdateFC-P sent with Cpl first in round-robin order. |
+| Flow control | Round robin ignores the pointer (P first) | `fc_rx_accounting` (L1 since #435; measured at L0) | UpdateFC-P sent with Cpl first in round-robin order. |
 | Flow control | CREDITS_ALLOCATED cleared to 0 in DL_Inactive | `fc_init_directed` | Entry UpdateFC-P `80000000c91d`, expected the advertisement 8, 32. |
 | Flow control | CREDITS_CONSUMED not cleared in DL_Inactive | `fc_tx_gate` (L1) | P credits available (137, 3850) after the restart, expected (2, 8). |
 | Package | Credits available ignore CREDITS_CONSUMED (headers) | `fc_tx_gate` (L1) | P credits available (6, 12), expected (5, 12). |
-| Flow control | A stored TLP not added to CREDITS_RECEIVED | `fc_rx_accounting` | Stops on `a_free_within_space`. |
+| Flow control | A stored TLP not added to CREDITS_RECEIVED | `fc_rx_accounting` (L1 since #435; measured at L0) | Stops on `a_free_within_space`. |
 | Package | Infinite-field data reserve 8 credits, not 24 (too small) | `credits_infinite_rx` (L1, seed 55090061) | 27 Receiver overflows with a compliant partner. |
 
 An UpdateFC that writes an infinite field's stored limit is not a mutant
@@ -709,3 +715,18 @@ bodies and `u_tx` `body`, `tx_q.pkt` and `tx_d.pkt` (DLLP format); the
 fill's top bits (buffer full); the `u_fc` `alloc*`, `rcvd*`, `sent`,
 `upd`, `used` and `lim_*` fields (counter top bits); then the named
 transmit-block bits, `wr_lanes_i` and `hold_left`.
+
+## Budget placement
+
+[#435](https://github.com/amichai-bd/pcie-factory/issues/435): The
+receive-accounting functional test moves from L0 to L1; its seed and
+instrumentation do not change. Short block smoke remains at L0, and the
+receive-accounting and overflow mutants remain covered at L1.
+
+The combined levels keep the original testcases, parameters, seeds and
+per-seed coverage instrumentation; no coverage floor is raised or lowered.
+The PR records plain and coverage-instrumented CPU measurements separately.
+
+| Entry | Current placement |
+| --- | --- |
+| `fc_rx_accounting` | L1 (from L0); seed 1837497896 (derived index 0), unchanged parameters and coverage run |

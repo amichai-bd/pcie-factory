@@ -43,6 +43,22 @@ tests:
     top: pcie_rc_seq
     params: {PROGRAM: 3}
     timeout_s: 300
+  - name: selftest_extra_seeds
+    module: tests.test_rc_seq
+    testcase: selftest
+    top: pcie_rc_seq
+    params:
+      PROGRAM: 4
+    seeds:
+    - 952827919
+    timeout_s: 300
+    coverage_seeds: 0
+  - name: expect_mismatch
+    module: tests.test_rc_seq
+    testcase: expect_mismatch
+    top: pcie_rc_seq
+    params: {PROGRAM: 4}
+    timeout_s: 300
 # Coverage floors (#380), levels 0 to 2 merged, by source (#228): the
 # merged value less 0.5 points rounded down to a tenth, never below the
 # existing floor (DV BKM, floor margin), except as stated. Line 58.0 from
