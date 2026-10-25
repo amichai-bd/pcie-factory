@@ -9,6 +9,9 @@ results, request fields and error record bits from the specs itself,
 besides the environment's per-cycle check against the reference model.
 """
 
+import hashlib
+import os
+import random
 from collections import Counter
 
 import cocotb
@@ -990,8 +993,22 @@ async def run_random_req(dut, cmds: int, require_witness: bool = False) -> None:
 
 @cocotb.test()
 async def random_req(dut):
-    """L1: 1500 random endpoint commands with random answers, link stalls,
-    receive gaps, credit outages, link drops and resets, against the model."""
+    """L1: 750 random endpoint commands with random answers, link stalls,
+    receive gaps, credit outages, link drops and resets, against the model
+    (#435: half the depth of ``random_req_full``, every check kept)."""
+    await run_random_req(dut, 750)
+
+
+@cocotb.test()
+async def random_req_full(dut):
+    """L2: the same at the full depth, 1500 commands, with the stimulus of
+    ``random_req``: the test seed cocotb gives that testcase (the regression
+    seed plus the SHA1 of its full name) as ``cocotb.RANDOM_SEED`` and
+    Python's ``random`` seed."""
+    seed = int(os.environ["COCOTB_RANDOM_SEED"]) \
+        + int(hashlib.sha1(f"{__name__}.random_req".encode()).hexdigest(), 16)
+    cocotb.RANDOM_SEED = seed
+    random.seed(seed)
     await run_random_req(dut, 1500)
 
 

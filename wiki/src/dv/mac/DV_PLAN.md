@@ -129,7 +129,7 @@ shows where each of their checks went.
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Reset values](../../arch/mac/HAS.md#reset-values) with every input toggling; training to L0; the scrambler's [known answer](../../arch/mac/SYMBOLS.md#scrambling) on the line after a SKP; a TLP, a DLLP and a nullified TLP each way; a retrain each way; reset with a packet half accepted (`pkt_tx_ready_o` falls at once), then a clean packet; both roles | `smoke` | 0 | 1 |
-| [Core arcs without an error-path timeout](../../arch/mac/ARCS.md), both roles: retrain by request, received TS and electrical idle; no receiver; Configuration walks to the PAD and renumbering exits; RcvrCfg's mismatching TS1; Recovery.Idle's lane PAD; Polling.Compliance in and out; an upstream port learning link 255. [Power states](../../arch/mac/ARCS.md#l0s-sub-machines) (`ep_power`): transmit and receive L0s left by a packet each way (EIOS, P0s, FTS, the closing SKP), a retrain in `Rx_L0s.Idle` and one in `Rx_L0s.Entry` (the exit latched until `.Idle`), the `Rx_L0s.FTS` timeout with the DUT's transmitter in `Tx_L0s.Idle` (the Recovery exit held while `Tx_L0s.FTS` sends its FTS; partner `fts_extra` 200 + 2 x N_FTS, so its SKP never ends `Rx_L0s.FTS` first), L1 requested after an EIOS already started receive L0s (the upstream port still sends its EIOS first), L1 and L2 entered by both requests and left by request 0, the upstream wait for L1 withdrawn | `arcs_quick` | 1 | 1; 43 of 53 arcs per role, every power arc |
+| [Core arcs without an error-path timeout](../../arch/mac/ARCS.md), both roles: retrain by request, received TS and electrical idle; no receiver; Configuration walks to the PAD and renumbering exits; RcvrCfg's mismatching TS1; Recovery.Idle's lane PAD; Polling.Compliance in and out; an upstream port learning link 255. [Power states](../../arch/mac/ARCS.md#l0s-sub-machines) (`ep_power`): transmit and receive L0s left by a packet each way (EIOS, P0s, FTS, the closing SKP), a retrain in `Rx_L0s.Idle` and one in `Rx_L0s.Entry` (the exit latched until `.Idle`), the `Rx_L0s.FTS` timeout with the DUT's transmitter in `Tx_L0s.Idle` (the Recovery exit held while `Tx_L0s.FTS` sends its FTS; partner `fts_extra` 200 + 2 x N_FTS, so its SKP never ends `Rx_L0s.FTS` first), L1 requested after an EIOS already started receive L0s (the upstream port still sends its EIOS first), L1 and L2 entered by both requests and left by request 0, the upstream wait for L1 withdrawn | `arcs_quick` | 1 | 1; 43 of 53 arcs per role, every power arc; without the redundant settling (level 1 settling below, #435) |
 | [Polarity](../../arch/mac/ARCS.md#detect-and-polling): set once in Polling, cleared in Detect.Quiet, packets on an inverted wire | `polarity` | 1 | 1 |
 | [Transmit and receive streams](../../arch/mac/HAS.md#transmit): random TLPs (to 512 bytes, some past the SKP interval) and DLLPs both ways, nullified ones, gaps, lane shifts, DUT retrains inside packets (aborts); SKP deferral and back-to-back SKP | `traffic` / `traffic_extra_seeds` | 1 / 2 | [1783640295, 492241009] / [73290187]; both L1 seeds instrumented, L2 seed plain |
 | The same, longer, the long TLPs up to the largest (4122 bytes), whose SKP deferral takes the SKP credit past 4096 | `traffic_long` | 2 | 2: 1214372279 and 644855963 ([seeds](#seeds-and-coverage-runs)) |
@@ -174,6 +174,20 @@ The earlier #272 measurement of the full recipe was 48.2 s of CPU. The
 focused entry adds a gate run without replacing any original full-recipe
 run. The L1 covergroup floors (`mac_os_tx`, `mac_os_rx`, `mac_frame`) remain
 required and are not lowered.
+
+**Level 1 settling** ([#435](https://github.com/amichai-bd/pcie-factory/issues/435)).
+`arcs_quick` runs `QUICK_L1`: the recipes of `QUICK` in the same order,
+but the Configuration walks are not settled back to L0 except the last,
+and Recovery.Idle's lane PAD is not settled. Each of those settles is a
+retraining that the next walk's or `ep_compliance`'s fresh reset ends,
+up to 58000 cycles of it. Every walk, exit and arc stays: per role the set
+of arcs reached is the same as with `QUICK`, compared run against run, and
+the ten `arcs_quick` mutants below are still caught at the same or nearby
+cycles, and its bins and hit code points are the same, compared run
+against run on coverage builds. The test went from 492183 to 282133
+checked cycles. Level 2
+still runs `QUICK` with every settle, in `arcs_timeouts_*` and
+`smoke_arcs`.
 
 **The full arc entries, split** ([#327](https://github.com/amichai-bd/pcie-factory/issues/327)).
 `arcs_full_downstream` and `arcs_full_upstream` were about 16 minutes of

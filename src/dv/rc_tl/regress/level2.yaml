@@ -33,9 +33,19 @@ tests:
     - 1976110523
     timeout_s: 300
     coverage_seeds: 0
+  # The level 1 random_req runs 750 commands (#435); random_req_full runs
+  # its seed at the full 1500, as random_req_extra_seeds does its own.
+  - name: random_req_full
+    module: tests.test_rc_tl_req
+    testcase: random_req_full
+    top: pcie_rc_tl_tb
+    seeds: [169113172]
+    timeout_s: 600
+    params:
+      CPL_TIMEOUT_DIV: 1024
   - name: random_req_extra_seeds
     module: tests.test_rc_tl_req
-    testcase: random_req
+    testcase: random_req_full
     top: pcie_rc_tl_tb
     seeds:
     - 2098415298
