@@ -25,12 +25,13 @@ tests:
     top: pcie_tl_tb
     seeds: 3
     timeout_s: 900
-# Floors on the merged levels 0 to 2 (the nightly run), at the merged value
-# less 0.5 points rounded down to a tenth (DV BKM, floor margin): measured
-# 97.73% line (1031/1055), 78.34% toggle (42260/53946); every point not hit
-# has a reason in the DV plan (Coverage holes). An entry with a new
-# parameter set, or an RTL change that adds state, re-measures these floors
-# in the same PR.
+# Floors on the merged levels 0 to 2 (the nightly run), by source (#228):
+# the merged value less 0.5 points rounded down to a tenth, never below
+# the existing floor (DV BKM, floor margin): 98.92% line (551/557) and
+# 91.70% toggle (22320/24340). The per-instance figures behind the earlier
+# floors are in the DV plan (Coverage holes), where every point not hit
+# has a reason. An entry with a new parameter set, or an RTL change that
+# adds state, re-measures these floors in the same PR.
 # Functional 100 must hold every bin of tl_cpl, tl_rx_order, tl_rx_outcome,
 # tl_rx_slot_power and tl_tx; a renamed or undeclared covergroup leaves the
 # total, so keep this list.

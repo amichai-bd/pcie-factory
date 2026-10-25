@@ -454,13 +454,13 @@ A point hit in another parameter set or instance is covered in the source
 union; the other reviewed causes remain diagnostic explanations, without
 adding a waiver.
 
-Floors in [`level2.yaml`](../../../../src/dv/tl/regress/level2.yaml),
-checked by every `--coverage` run that selects level 2 (the nightly runs
-levels 0 to 2): line 97.2, toggle 77.8, functional 100. Merged over levels
+Before #228 the per-instance floors in [`level2.yaml`](../../../../src/dv/tl/regress/level2.yaml)
+(checked by every `--coverage` run that selects level 2) were: line 97.2,
+toggle 77.8, functional 100. Merged over levels
 0 to 2 ([#294](https://github.com/amichai-bd/pcie-factory/issues/294)):
 line 97.73% (1031 of 1055 points), toggle 78.34% (42260 of 53946),
 functional 100% (124 of 124 bins in the five covergroups the level file
-names). The line and toggle floors are the merged values less 0.5 points,
+names). The line and toggle floors were the merged values less 0.5 points,
 rounded down to a tenth ([floor margin](../../../bkm/dv.md#coverage)).
 Measured with the transmit output stage of
 [#295](https://github.com/amichai-bd/pcie-factory/issues/295) (12 line

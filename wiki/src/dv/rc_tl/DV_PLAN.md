@@ -260,14 +260,14 @@ A point hit in another parameter set or instance is covered in the source
 union; the other reviewed causes remain diagnostic explanations, without
 adding a waiver.
 
-Floors in [`level2.yaml`](../../../../src/dv/rc_tl/regress/level2.yaml),
-checked by every `--coverage` run that selects level 2 (the nightly runs
-levels 0 to 2): line 91.4, toggle 65.5, functional 100. Merged over levels
+Before #228 the per-instance floors in [`level2.yaml`](../../../../src/dv/rc_tl/regress/level2.yaml)
+(checked by every `--coverage` run that selects level 2) were: line 91.4,
+toggle 65.5, functional 100. Merged over levels
 0 to 2 ([#380](https://github.com/amichai-bd/pcie-factory/issues/380)):
 line 91.91% (943 of 1026 points), toggle 66.00% (31793 of 48168),
 functional 100% (344 of 344 bins in `rc_tl_cmd`, `rc_tl_req`, `rc_tl_cpl`,
 `rc_tl_inb`, `rc_tl_cplr`, `rc_tl_host` and `rc_tl_reset`). The code
-floors are the merged values less 0.5 points, rounded down to a tenth
+floors were the merged values less 0.5 points, rounded down to a tenth
 ([floor margin](../../../bkm/dv.md#coverage)). Verilator keeps one copy
 of each block per parameter set: the default, the IDs of `hdr_reset_ids`,
 `CPL_TIMEOUT_DIV` 1024 and 1000, and the host memories of the `*_aw8`,

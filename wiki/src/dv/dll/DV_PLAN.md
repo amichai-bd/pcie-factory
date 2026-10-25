@@ -598,12 +598,12 @@ A point hit in another parameter set or instance is covered in the source
 union; the other reviewed causes remain diagnostic explanations, without
 adding a waiver.
 
-Floors in [`level2.yaml`](../../../../src/dv/dll/regress/level2.yaml),
-checked by every `--coverage` run that selects level 2 (the nightly runs
-levels 0 to 2): line 98.5, toggle 77.0, functional 100. Merged over levels
+Before #228 the per-instance floors in [`level2.yaml`](../../../../src/dv/dll/regress/level2.yaml)
+(checked by every `--coverage` run that selects level 2) were: line 98.5,
+toggle 77.0, functional 100. Merged over levels
 0 to 2 ([#401](https://github.com/amichai-bd/pcie-factory/issues/401)): line 99.07% (637 of 643 line and branch points), toggle
 77.57% (19987 of 25768), functional 100% (221 of 221 bins in the 18
-covergroups the level file names). Both code floors are the merged value
+covergroups the level file names). Both code floors were the merged value
 less 0.5 points, rounded down to a tenth
 ([floor margin](../../../bkm/dv.md#coverage)), raised by [#401](https://github.com/amichai-bd/pcie-factory/issues/401) from
 98.4 and 76.4.

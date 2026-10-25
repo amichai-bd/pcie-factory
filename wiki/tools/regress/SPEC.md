@@ -465,7 +465,12 @@ them. A point is attributed to the file Verilator reports, so an
 keeps separate point keys for elaborated instances and parameterizations
 (`h` and `page`). The summary retains those full keys as the `by_instance`
 counts. The `by_source` view groups keys by resolved source file (`f`),
-line (`l`), column (`n`), point type (`t`) and source object. A source
+line (`l`), column (`n`), point type (`t`) and source object. File
+identity is the path as Verilator recorded it in `f`, resolved (symbolic
+links and `..` removed, a relative path taken against the `./build` process's
+working directory); it is not compared by content, so two builds that
+record one file through paths resolving to different places keep separate
+points, which can only overcount. A source
 point is covered if any of its instances has a positive count. The statement
 span annotation (`S`), hierarchy and parameterization do not create
 additional source points. Different columns and line/branch types remain

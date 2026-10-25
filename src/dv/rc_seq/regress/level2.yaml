@@ -43,15 +43,20 @@ tests:
     top: pcie_rc_seq
     params: {PROGRAM: 3}
     timeout_s: 300
-# Coverage floors (#380), levels 0 to 2 merged, the code floors the merged
-# value less 0.5 points rounded down to a tenth (DV BKM, floor margin):
-# measured 59.22% line (106/179, #426), 72.93% toggle (4758/6524); every
-# point not hit has a reason in the DV plan (Coverage holes). The line floor
-# was lowered from 59.3 to 58.7 in #426 (firstmate delegate decision): #413
-# added two elaboration-only function blocks that no test can reach. A new program, an entry
-# with a new parameter set, or an RTL change that adds state re-measures
-# these floors in the same PR.
+# Coverage floors (#380), levels 0 to 2 merged, by source (#228): the
+# merged value less 0.5 points rounded down to a tenth, never below the
+# existing floor (DV BKM, floor margin), except as stated. Line 58.0 from
+# 58.54% (96/164), lowered from 58.7 by captain decision on #228
+# (https://github.com/amichai-bd/pcie-factory/issues/228#issuecomment-6394848631):
+# counting each source line once, not once per parameter copy, lowers the
+# percentage although no reachable line loses coverage. Toggle 80 from
+# 80.57% (1953/2424). The line floor was lowered from 59.3 to 58.7 in #426
+# (firstmate delegate decision): #413 added two elaboration-only function
+# blocks that no test can reach. The per-instance figures are in the DV
+# plan (Coverage holes), where every point not hit has a reason. A new
+# program, an entry with a new parameter set, or an RTL change that adds
+# state re-measures these floors in the same PR.
 # Functional 100 must hold every bin of rc_seq_jumps, rc_seq_run and
 # rc_seq_steps; a renamed or undeclared covergroup leaves the total, so keep
 # this list.
-coverage_floors: {line: 58.7, toggle: 80, functional: 100}
+coverage_floors: {line: 58.0, toggle: 80, functional: 100}

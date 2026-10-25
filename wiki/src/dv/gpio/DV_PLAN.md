@@ -172,13 +172,13 @@ A point hit in another parameter set or instance is covered in the source
 union; the other reviewed causes remain diagnostic explanations, without
 adding a waiver.
 
-Floors in [`level2.yaml`](../../../../src/dv/gpio/regress/level2.yaml),
-checked by every `--coverage` run that selects level 2 (the nightly runs
-levels 0 to 2): line 91.0, toggle 91.7, functional 100. Merged over levels
+Before #228 the per-instance floors in [`level2.yaml`](../../../../src/dv/gpio/regress/level2.yaml)
+(checked by every `--coverage` run that selects level 2) were: line 91.0,
+toggle 91.7, functional 100. Merged over levels
 0 to 2 ([#380](https://github.com/amichai-bd/pcie-factory/issues/380)):
 line 91.53% (595 of 650 points), toggle 92.23% (4302 of 4664), functional
 100% (99 of 99 bins in `gpio_config`, `gpio_slot`, `gpio_rx_table` and
-`gpio_link`). The code floors are the merged values less 0.5 points,
+`gpio_link`). The code floors were the merged values less 0.5 points,
 rounded down to a tenth ([floor margin](../../../bkm/dv.md#coverage)).
 Verilator keeps one copy of each block per `CLK_DIV` (2, 4 and 64; the
 ratio only moves b's clock), and the copies at 4 and 64 run only

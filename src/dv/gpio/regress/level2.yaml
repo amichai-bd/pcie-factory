@@ -87,12 +87,13 @@ tests:
     top: pcie_gpio_tb
     params: {RATIO: 2}
     timeout_s: 600
-# Coverage floors (#380), levels 0 to 2 merged, the code floors the merged
-# value less 0.5 points rounded down to a tenth (DV BKM, floor margin):
-# measured 91.53% line (595/650), 92.23% toggle (4302/4664); every point not
-# hit has a reason in the DV plan (Coverage holes). An entry with a new
-# parameter set (a new CLK_DIV), or an RTL change that adds state,
-# re-measures these floors in the same PR.
+# Coverage floors (#380), levels 0 to 2 merged, by source (#228): the
+# merged value less 0.5 points rounded down to a tenth, never below the
+# existing floor (DV BKM, floor margin): 99.24% line (260/262) and 96.73%
+# toggle (2186/2260). The per-instance figures behind the earlier floors
+# are in the DV plan (Coverage holes), where every point not hit has a
+# reason. An entry with a new parameter set (a new CLK_DIV), or an RTL
+# change that adds state, re-measures these floors in the same PR.
 # Functional 100 must hold every bin of gpio_config, gpio_link,
 # gpio_rx_table and gpio_slot; a renamed or undeclared covergroup leaves the
 # total, so keep this list.

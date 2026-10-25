@@ -192,13 +192,13 @@ A point hit in another parameter set or instance is covered in the source
 union; the other reviewed causes remain diagnostic explanations, without
 adding a waiver.
 
-Floors in [`level2.yaml`](../../../../src/dv/cfg/regress/level2.yaml),
-checked by every `--coverage` run that selects level 2 (the nightly runs
-levels 0 to 2): line 97.4, toggle 64.4, functional 100. Merged over levels
+Before #228 the per-instance floors in [`level2.yaml`](../../../../src/dv/cfg/regress/level2.yaml)
+(checked by every `--coverage` run that selects level 2) were: line 97.4,
+toggle 64.4, functional 100. Merged over levels
 0 to 2 ([#294](https://github.com/amichai-bd/pcie-factory/issues/294)):
 line 97.92% (1038 of 1060 points), toggle 64.94% (25020 of 38528),
 functional 100% (148 of 148 bins in the six covergroups the level file
-names). The line and toggle floors are the merged values less 0.5 points,
+names). The line and toggle floors were the merged values less 0.5 points,
 rounded down to a tenth ([floor margin](../../../bkm/dv.md#coverage)).
 
 Verilator keeps one copy of each block per parameter set, so the six

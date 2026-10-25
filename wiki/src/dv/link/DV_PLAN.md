@@ -460,9 +460,16 @@ Separately measured low-level runs supply their own floors.
 
 | Selected levels | Source line | Source toggle | Line / toggle floors |
 | --- | --- | --- | --- |
-| L0+L1+L2 | 1260/1398 (90.13%) | 16312/19572 (83.34%) | 90.7 / 82.8 |
+| L0+L1+L2 | 1260/1398 (90.13%) | 16312/19572 (83.34%) | 89.6 / 82.8 |
 
-The retained line floor is above this source measurement. Issue #228 awaits the captain's decision on resetting it to 89.6%; no reduction is applied.
+**Line floor lowered from 90.7 to 89.6** by
+[captain decision on #228](https://github.com/amichai-bd/pcie-factory/issues/228#issuecomment-6394848631):
+the by-source measurement less 0.5 points. The reason is structural:
+counting each source line once, instead of once per parameter copy,
+gives a lower percentage although no reachable line loses coverage.
+The 324 duplicate instance points the source view drops (306 covered)
+were better covered than the rest.
+Every other code floor of the IP was raised on the new basis.
 
 ### Per-instance diagnostic baseline
 
@@ -472,19 +479,19 @@ A point hit in another parameter set or instance is covered in the source
 union; the other reviewed causes remain diagnostic explanations, without
 adding a waiver.
 
-Floors in [`level2.yaml`](../../../../src/dv/link/regress/level2.yaml),
-checked by every `--coverage` run that selects level 2 (the nightly runs
-levels 0 to 2): line 90.7, toggle 76.5, functional 100. Merged over levels
+Before #228 the per-instance floors in [`level2.yaml`](../../../../src/dv/link/regress/level2.yaml)
+(checked by every `--coverage` run that selects level 2) were: line 90.7,
+toggle 76.5, functional 100. Merged over levels
 0 to 2 ([#360](https://github.com/amichai-bd/pcie-factory/issues/360)),
 over the whole stack that `link.rtl.f` reaches: line 91.27% (1485 of 1627
 points), toggle 77.10% (28955 of 37556), functional 100% (85 of 85 bins in
-the six covergroups the level file names). Both code floors are the
+the six covergroups the level file names). Both code floors were the
 merged value less 0.5 points, rounded down to a tenth
-([floor margin](../../../bkm/dv.md#coverage)): the line floor rises from
+([floor margin](../../../bkm/dv.md#coverage)): the line floor rose from
 the 90.2 of [#217](https://github.com/amichai-bd/pcie-factory/issues/217)
 ([firstmate decision on #360](https://github.com/amichai-bd/pcie-factory/issues/360#issuecomment-6267113561):
 the captain decision's "unchanged" means not lowered), and the toggle
-floor is lowered as below. The remaining gaps add no
+floor was lowered as below. The remaining gaps add no
 simulation stimulus that could lower them: #218 and #219 are timing
 reports. [#436](https://github.com/amichai-bd/pcie-factory/issues/436)
 added the disparity-only class to `link_e2e_inject` (the class bin and its
@@ -507,7 +514,7 @@ copies. Without a re-measurement the merged toggle fell to 75.02% (31181 of
 41564) and missed the 76.5 floor; line was 90.88% (1565 of 1722).
 `e2e_soak_replay_timeout` runs that build with soak traffic and gives
 toggle 76.85% (31940 of 41564, +759, all in the new copies), line 90.94%
-(1566 of 1722) and functional 100% (85 of 85). Both floors stay: the
+(1566 of 1722) and functional 100% (85 of 85). Both floors stayed: the
 merged value less 0.5 points (90.4 and 76.3) is below them, and a floor
 is never lowered to fit the margin. The points added since #360, by cause:
 

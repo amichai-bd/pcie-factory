@@ -190,15 +190,15 @@ A point hit in another parameter set or instance is covered in the source
 union; the other reviewed causes remain diagnostic explanations, without
 adding a waiver.
 
-Floors in [`level2.yaml`](../../../../src/dv/rc/regress/level2.yaml),
-checked by every `--coverage` run that selects level 2 (the nightly runs
-levels 0 to 2): line 72.8, toggle 45.3 and, per covergroup, `rc_e2e_line`
+Before #228 the per-instance floors in [`level2.yaml`](../../../../src/dv/rc/regress/level2.yaml)
+(checked by every `--coverage` run that selects level 2) were: line 72.8,
+toggle 45.3 and, per covergroup, `rc_e2e_line`
 100, `rc_shell` 100, `rc_e2e_err` 84.1 and `rc_e2e_run` 63.4. Merged over
 levels 0 to 2 ([#380](https://github.com/amichai-bd/pcie-factory/issues/380),
 re-measured in [#426](https://github.com/amichai-bd/pcie-factory/issues/426)), over what `rc.rtl.f` reaches (`rc_tl`, `rc_seq`, `pcie_rc` and the whole
 `link` stack, the `gpio` adapter included; `core` is a DV-only source
 here): line 73.29% (3400 of 4639 points), toggle 45.88% (48923 of
-106620). The code floors are the merged values less 0.5 points, rounded
+106620). The code floors were the merged values less 0.5 points, rounded
 down to a tenth ([floor margin](../../../bkm/dv.md#coverage)).
 
 **Functional floors per covergroup.** The e2e reuses the core e2e's
