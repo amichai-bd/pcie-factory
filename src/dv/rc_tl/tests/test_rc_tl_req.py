@@ -990,8 +990,15 @@ async def run_random_req(dut, cmds: int, require_witness: bool = False) -> None:
 
 @cocotb.test()
 async def random_req(dut):
-    """L1: 1500 random endpoint commands with random answers, link stalls,
-    receive gaps, credit outages, link drops and resets, against the model."""
+    """L1: 750 random endpoint commands with random answers, link stalls,
+    receive gaps, credit outages, link drops and resets, against the model
+    (#435: half the depth of ``random_req_full``, every check kept)."""
+    await run_random_req(dut, 750)
+
+
+@cocotb.test()
+async def random_req_full(dut):
+    """L2: the same at the full depth, 1500 commands."""
     await run_random_req(dut, 1500)
 
 

@@ -451,6 +451,10 @@ async def starve_rx_run(dut, schedule, *, release=None, count: int = 1500,
     return env
 
 
+# The receive-side starvation schedule: (cycles, take probability).
+STARVE_RX = [(2000, 0.3), (4000, 0.0), (2000, 0.3), (10000, 0.0)]
+
+
 @cocotb.test()
 async def credit_starve_rx(dut):
     """L1, seeded: the credits target on the receive side, every class
@@ -458,8 +462,16 @@ async def credit_starve_rx(dut):
     cycles, takes 30%, stalls 10000 cycles, then takes all, while the
     partner sends as fast as the DUT's UpdateFCs allow: no Receiver
     overflow, every TLP delivered once and in order, every UpdateFC
-    checked, cross-checked with the reference and the architecture model."""
-    await starve_rx_run(dut, [(2000, 0.3), (4000, 0.0), (2000, 0.3), (10000, 0.0)])
+    checked, cross-checked with the reference and the architecture model.
+    300 TLPs (#435): the schedule delivers under 100, so the partner is
+    still credit-bound when it ends; ``credit_starve_rx_full`` sends 1500."""
+    await starve_rx_run(dut, STARVE_RX, count=300)
+
+
+@cocotb.test()
+async def credit_starve_rx_full(dut):
+    """L2: ``credit_starve_rx`` at the full depth, 1500 TLPs."""
+    await starve_rx_run(dut, STARVE_RX, count=1500)
 
 
 async def release_schedule(env: Env, schedule) -> None:
@@ -553,5 +565,12 @@ async def credit_release(dut):
 @cocotb.test()
 async def credits_infinite_rx(dut):
     """L1, seeded: the same with every DUT class infinite and an upper
-    layer that never stalls (HAS, receive): no overflow of the reserve."""
-    await starve_rx_run(dut, [(6000, 1.0)])
+    layer that never stalls (HAS, receive): no overflow of the reserve.
+    500 TLPs (#435); ``credits_infinite_rx_full`` sends 1500."""
+    await starve_rx_run(dut, [(6000, 1.0)], count=500)
+
+
+@cocotb.test()
+async def credits_infinite_rx_full(dut):
+    """L2: ``credits_infinite_rx`` at the full depth, 1500 TLPs."""
+    await starve_rx_run(dut, [(6000, 1.0)], count=1500)

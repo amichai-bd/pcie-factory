@@ -220,8 +220,8 @@ into a model or the RTL silently.
 | The same, every class infinite (the reserve; UpdateFC all 0) | `fc_rx_accounting_infinite` | 1 | seed 844183907; retained assertions unchanged |
 | [Credits target](../../arch/dll/HAS.md#targets), transmit side: starvation and recovery with the partner's upper layer taking 30%, stalling 4000 cycles, taking 30%, stalling 10000 cycles, then taking all; no overflow at the partner's receive-side check; arch model against a fresh partner | `credit_starve` / `credit_starve_sweep` | 1 / 2 | 0 / 1 to 3 (partner credits: three all finite, one default; with the default, seed 2, the partner stalls with completions infinite, outside the HAS obligation and the Credits target's every-class-finite wording, which binds the `dll`'s upper layer; the partner's store is unbounded and only the DUT's gate is under test); coverage on seeds 0 to 2 |
 | The same, partner and DUT all infinite: the gate never refuses | `credits_infinite` | 1 | seed 1044722899; partner stalls despite infinite advertisements, outside the HAS upper-layer obligation; partner store unbounded, only DUT gate under test ([partner](PARTNER.md#interface)) |
-| Credits target, receive side: every DUT class finite, its upper layer taking 30%, stalling 4000, taking 30%, stalling 10000 cycles, the partner sending 1500 TLPs as the UpdateFCs allow: no Receiver overflow, all delivered once and in order | `credit_starve_rx` / `credit_starve_rx_sweep` | 1 / 2 | derived seed 0 / its derived seed 1 (1229081417) pinned; every `FC_*` finite; coverage on both |
-| The same, every DUT class infinite, the upper layer never stalling | `credits_infinite_rx` / `credits_infinite_rx_sweep` | 1 / 2 | its derived seed 1 (55090061, the data-reserve mutant's catch) / its derived seed 0 (1951378203), both pinned; coverage on both |
+| Credits target, receive side: every DUT class finite, its upper layer taking 30%, stalling 4000, taking 30%, stalling 10000 cycles, the partner sending 1500 TLPs as the UpdateFCs allow (300 at level 1, #435): no Receiver overflow, all delivered once and in order | `credit_starve_rx` / `credit_starve_rx_full`, `credit_starve_rx_sweep` | 1 / 2 | derived seed 0 (1044741087), 300 TLPs / the same seed pinned, and its derived seed 1 (1229081417) pinned, 1500 TLPs; every `FC_*` finite; coverage on all three |
+| The same, every DUT class infinite, the upper layer never stalling | `credits_infinite_rx` / `credits_infinite_rx_full`, `credits_infinite_rx_sweep` | 1 / 2 | its derived seed 1 (55090061, the data-reserve mutant's catch), 500 TLPs / the same seed, and its derived seed 0 (1951378203), 1500 TLPs, all pinned; coverage on all three |
 | [Credit release](../../arch/dll/HAS.md#credit-release), [Credits target](../../arch/dll/HAS.md#targets) with `FC_RELEASE` 1: default credits, the upper layer taking every beat but releasing in 30% of cycles, none for 4000, 30%, none for 10000 cycles, then all; the partner sending 600 TLPs as the UpdateFCs allow; then, every release held, a directed burst of header-only TLPs (NP reads, posted messages, one more) that only the header limits stop, since the random phases fill a class only when a header limit stops the partner's in-order queue ([#429](https://github.com/amichai-bd/pcie-factory/issues/429)): no Receiver overflow, never more held than advertised, every finite P and NP header credit held with the burst's last TLP starved until the releases resume, every TLP once and in order, every release's UpdateFC within 20 cycles; reference and arch shadow | `credit_release` / `credit_release_sweep` | 1 / 2 | 0 / 1 and 119646981 (its random phases hold at most 7 of 8 P and 4 of 8 NP headers, [#429](https://github.com/amichai-bd/pcie-factory/issues/429)); `FC_RELEASE` 1; coverage on both: seed 1 alone reaches 22 toggle points that no other run reaches, the posted data counters' bits 10:9 in the `FC_RELEASE` 1 credit block (allocated, sent and UpdateFC values passing 1024 credits) ([#354](https://github.com/amichai-bd/pcie-factory/issues/354)) |
 | The same at the smallest legal credits, every class finite: the stream stalls on the same schedule as the releases | `credit_release_smallest` | 2 | 2 derived |
 | The transmit accounting of `fc_tx_gate` in the `FC_RELEASE` 1 build, whose credit block is its own specialization, with the releaser running ([#354](https://github.com/amichai-bd/pcie-factory/issues/354)) | `fc_tx_gate_release` | 2 | 0; `FC_RELEASE` 1 |
@@ -348,6 +348,20 @@ advertisement each, 0, 1 and 2, so level 1 still runs three of the four;
 each entry's other three seeds run in its `_sweep`. Level 1 of `dll` is
 now 23 runs.
 
+**Shorter receive-side credit runs
+([#435](https://github.com/amichai-bd/pcie-factory/issues/435)).** Level 1
+shortens its two receive-side credit runs, with the same schedule, checks
+and seed. `credit_starve_rx` sends 300 TLPs, not 1500: its starvation
+schedule delivers 89, so the partner is still credit-bound when the
+schedule ends, and the first 300 TLPs and the per-phase deliveries are the
+same as at 1500. `credits_infinite_rx` sends 500, not 1500. What goes is
+the full-rate drain of the rest. Each testcase's `_full` form keeps 1500
+TLPs in level 2: `credit_starve_rx_full` and `credits_infinite_rx_full`
+at the level 1 seeds, and the `_sweep` entries at theirs. Both level 1
+mutants were rerun on the shorter runs and are still caught there: the
+exact-full overflow check (27 Receiver overflows) and the 8-credit data
+reserve (15, was 27).
+
 **Plain repeat removal (#461).** Six plain L2 repeats are removed; each
 retains the same configuration and assertions in L1:
 
@@ -472,7 +486,7 @@ gate in front of the real transmit path), each with `src/` clean.
 | Package | Data credits rounded down (`tlp_credit`) | `fc_rx_accounting` (L1 since #435; measured at L0) | UpdateFC-P carries data 32, CREDITS_ALLOCATED is 33. |
 | Package | Messages counted as non-posted (`tlp_credit`) | `fc_init_directed` | Gate 0 for a message header with P credits free (rule and arch 1). |
 | Package | Length 0 not read as 1024 DWs | `fc_rx_accounting` (L1 since #435; measured at L0) | Gate 1 for a P header needing 256 data credits with a limit of 32 (rule and arch 0). |
-| Package | Overflow check: exactly filling the free credits overflows | `credit_starve_rx` (L1) | Receiver overflow with a compliant partner. |
+| Package | Overflow check: exactly filling the free credits overflows | `credit_starve_rx` (L1) | Receiver overflow with a compliant partner (27 at the 300 TLPs of level 1, #435). |
 | Flow control | No Receiver overflow pulse | `fc_rx_accounting_finite` (L1) | 0 pulses, the reference 16. |
 | Flow control | A malformed TLP's credits not added to CREDITS_ALLOCATED | `fc_rx_accounting` (L1 since #435; measured at L0) | Credits returned for P not sent within 20 cycles; an UpdateFC out of round-robin order. |
 | Flow control | A malformed TLP not added to CREDITS_RECEIVED | `fc_rx_accounting` (L1 since #435; measured at L0) | Stops on `a_free_within_space`. |
@@ -485,7 +499,7 @@ gate in front of the real transmit path), each with `src/` clean.
 | Flow control | CREDITS_CONSUMED not cleared in DL_Inactive | `fc_tx_gate` (L1) | P credits available (137, 3850) after the restart, expected (2, 8). |
 | Package | Credits available ignore CREDITS_CONSUMED (headers) | `fc_tx_gate` (L1) | P credits available (6, 12), expected (5, 12). |
 | Flow control | A stored TLP not added to CREDITS_RECEIVED | `fc_rx_accounting` (L1 since #435; measured at L0) | Stops on `a_free_within_space`. |
-| Package | Infinite-field data reserve 8 credits, not 24 (too small) | `credits_infinite_rx` (L1, seed 55090061) | 27 Receiver overflows with a compliant partner. |
+| Package | Infinite-field data reserve 8 credits, not 24 (too small) | `credits_infinite_rx` (L1, seed 55090061) | 27 Receiver overflows with a compliant partner; 15 at the 500 TLPs of level 1 (#435). |
 
 An UpdateFC that writes an infinite field's stored limit is not a mutant
 that can be caught: an infinite field shows all ones from its flag,

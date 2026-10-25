@@ -410,17 +410,19 @@ async def rx_epoch_wrap(dut):
     their completions and the rq read the transmit cc, cf and np lines,
     which an rq write steps (MAS, transmit lines): all six epoch counters
     pass their wrap in 520 rounds. The environment checks the order and
-    every release in every cycle."""
+    every release in every cycle. The read leaves about 24 cycles into a
+    round, so the check at cycle 50 has margin, and the BAR0 write is held
+    to cycle 80 (#435: was 120 and 200, the same check)."""
     env = await tl_env.started(dut, cocotb.RANDOM_SEED)
     b0, b2 = env.regs.bar0_base, env.regs.bar2_base
     rounds = 520
     for i in range(rounds):
         env.reg_stall_until = env.cycle + 20
-        env.cq_stall_until = env.cycle + 200
+        env.cq_stall_until = env.cycle + 80
         env.send(ref.memory(True, b2 + 4 * (i % 16), 1, 0xF, 0))
         env.send(ref.config(False, 0x10 + (i % 4), tag=i & 0xFF))
         env.send(ref.memory(True, b0 + 0x100 + 4 * (i % 32), 1, 0xF, 0))
-        await env.run(120)
+        await env.run(50)
         if env.cfg_jobs or not env.cq_writes:
             raise TlError(f"round {i}: the configuration read waited for a later BAR0 write")
         await env.drain()

@@ -126,16 +126,33 @@ tests:
     seeds: [1, 2, 3]
     timeout_s: 600
     coverage_seeds: 2
+  # The level 1 credit_starve_rx and credits_infinite_rx send 300 and 500
+  # TLPs (#435); these run their testcases at the full 1500, the _full
+  # entries at the level 1 seed, the sweeps at their own.
+  - name: credit_starve_rx_full
+    module: tests.test_dll_fc
+    testcase: credit_starve_rx_full
+    top: pcie_dll_tb
+    seeds: [1044741087]
+    timeout_s: 600
+    params: {FC_PH: 8, FC_PD: 32, FC_NPH: 8, FC_NPD: 8, FC_CPLH: 8, FC_CPLD: 32}
   - name: credit_starve_rx_sweep
     module: tests.test_dll_fc
-    testcase: credit_starve_rx
+    testcase: credit_starve_rx_full
     top: pcie_dll_tb
     seeds: [1229081417]
     timeout_s: 600
     params: {FC_PH: 8, FC_PD: 32, FC_NPH: 8, FC_NPD: 8, FC_CPLH: 8, FC_CPLD: 32}
+  - name: credits_infinite_rx_full
+    module: tests.test_dll_fc
+    testcase: credits_infinite_rx_full
+    top: pcie_dll_tb
+    seeds: [55090061]
+    timeout_s: 600
+    params: {FC_PH: 0, FC_PD: 0, FC_NPH: 0, FC_NPD: 0, FC_CPLH: 0, FC_CPLD: 0}
   - name: credits_infinite_rx_sweep
     module: tests.test_dll_fc
-    testcase: credits_infinite_rx
+    testcase: credits_infinite_rx_full
     top: pcie_dll_tb
     seeds: [1951378203]
     timeout_s: 600

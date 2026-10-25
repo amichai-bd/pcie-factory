@@ -205,16 +205,28 @@ async def ep_polling_timeouts(h, role):
         await settle(h)
 
 
-async def ep_cfg_walks(h, role):
-    cases = ((arch.LWA, TS1_PAD, arch.DQ), (arch.LNW, TS1_PAD, arch.DQ),
+CFG_WALKS = ((arch.LWA, TS1_PAD, arch.DQ), (arch.LNW, TS1_PAD, arch.DQ),
              (arch.LNA, {"kind": "TS1", "link": 0, "lane": 1}, arch.LNW),
              (arch.LNA, TS1_PAD, arch.DQ))
-    for st, then, to in cases:
+
+
+async def ep_cfg_walks(h, role, settle_each=True):
+    """Each walk from a fresh reset, then settled to L0 (level 2). With
+    ``settle_each`` false (level 1, #435) only the last walk is settled:
+    the next walk's fresh reset ends each of the others, so every walk and
+    its arc stay and only the retraining between walks goes."""
+    for i, (st, then, to) in enumerate(CFG_WALKS):
         await h.fresh(role)
         await h.run_until(h.in_state(arch.LWS), LIMIT)
         script(h.partner, walk(role, st), then)
         await h.run_until(took(h, st, to), LIMIT, f"{st} to {to}")
-        await settle(h)
+        if settle_each or i == len(CFG_WALKS) - 1:
+            await settle(h)
+
+
+async def ep_cfg_walks_quick(h, role):
+    """``ep_cfg_walks`` for level 1: only the last walk settled."""
+    await ep_cfg_walks(h, role, settle_each=False)
 
 
 async def ep_cfg_timeouts(h, role):
@@ -266,13 +278,20 @@ async def ep_rcvrcfg_timeout(h, role):
     await settle(h)
 
 
-async def ep_ridle_lanepad(h, role):
+async def ep_ridle_lanepad(h, role, settle_after=True):
     t = h.now
     await _partner_frozen_in(h, role, arch.RC)
     await h.run_until(h.in_state(arch.RI), LIMIT)
     h.partner.inject.ts = {"kind": "TS1", "lane": None}
     await h.run_until(took(h, arch.RI, arch.LWS, t), LIMIT, "Recovery.Idle to Configuration")
-    await settle(h)
+    if settle_after:
+        await settle(h)
+
+
+async def ep_ridle_lanepad_quick(h, role):
+    """``ep_ridle_lanepad`` for level 1 (#435): not settled, as the next
+    recipe in ``QUICK_L1`` (``ep_compliance``) starts from a fresh reset."""
+    await ep_ridle_lanepad(h, role, settle_after=False)
 
 
 async def ep_ridle_timeout(h, role):
@@ -403,6 +422,11 @@ async def ep_power(h, role):
 # error-path timeouts.
 QUICK = (ep_normal, ep_upstream_link, ep_no_receiver, ep_cfg_walks, ep_rcvrcfg_mism,
          ep_ridle_lanepad, ep_compliance, ep_power)
+# Level 1 (arcs_quick, #435): the same recipes and arcs without the
+# settling that a following fresh reset makes redundant; level 2 runs QUICK
+# itself (arcs_timeouts_*, smoke_arcs).
+QUICK_L1 = (ep_normal, ep_upstream_link, ep_no_receiver, ep_cfg_walks_quick, ep_rcvrcfg_mism,
+            ep_ridle_lanepad_quick, ep_compliance, ep_power)
 TIMEOUTS = (ep_polling_timeouts, ep_cfg_timeouts, ep_rcvrlock_timeouts,
             ep_rcvrcfg_timeout, ep_ridle_timeout)
 
@@ -730,7 +754,7 @@ async def smoke_arcs(dut):
 @cocotb.test()
 async def arcs_quick(dut):
     """L1: the recipes without an error-path timeout, both port roles."""
-    await run_arcs(dut, arch.ROLES, QUICK, False)
+    await run_arcs(dut, arch.ROLES, QUICK_L1, False)
 
 
 # The arcs only the idle_to_rlock loop reaches: the 255th Idle timeout
