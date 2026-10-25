@@ -232,10 +232,10 @@ is the every-cycle comparison above; "decoder" the receive decoder.
 
 ## Mutation evidence
 
-The recorded tables below retain the entry names and levels used when
-the mutants were measured. The plan and Budget placement section give the
-current split-entry names and levels; retained gate catches are described
-there.
+Each row names the entry and seed that caught the mutant when it was
+measured. Where [#435](https://github.com/amichai-bd/pcie-factory/issues/435)
+moved that run to level 2, the row says so in place, with the level 1 entry
+that keeps the catch in the gate.
 
 Each mutant was built in a scratch copy of the tree and run against the
 listed entry; each fails, and the unmutated RTL passes. Each entry runs its first regression seed (`arcs_quick` 1797099791, `smoke` 1824675579, `smoke_n_fts_1` 1972127776, `smoke_n_fts_255` 908217547, and so on, as listed in the regression files).
@@ -258,7 +258,7 @@ listed entry; each fails, and the unmutated RTL passes. Each entry runs its firs
 | LTSSM | The registered timeout ignores a following Hot Reset's restart (`timeout_d` without `!timer_restart`) | `hr_dwell_boundary` | Stops on `a_timeout_matches` at 88,496 ns (seed 1096319065), at the `limit - 2` restart. `control_full_downstream` passes: its restarts never fall on that step. |
 | LTSSM | The registered timeout ignores the arc (`timeout_d` without `!go`) | `smoke` | Stops on `a_timeout_matches` at 12,184 ns (seed 1824675579). |
 | LTSSM | Disabled sends 8 TS1, not 16 | `control_quick` | Fails at cycle 21869: EIOS symbols (COM, IDL) sent where the shadow sends a TS1 (COM, link 0). |
-| LTSSM | Receive Disable Scrambling from the registered flag (one word late) | `no_scramble` | Fails at cycle 10334 on the crafted line: `ltssm_state_o` 0x0D, the shadow already in L0 (0x20). Without the crafted line no partner timing reaches the case. |
+| LTSSM | Receive Disable Scrambling from the registered flag (one word late) | `no_scramble` (seed 9068861; L2 since #435); in level 1 `no_scramble_edge` (seed 9068861, #435) | Fails at cycle 10334 on the crafted line: `ltssm_state_o` 0x0D, the shadow already in L0 (0x20); `no_scramble_edge` fails the same way at the same cycle, and the unmutated RTL passes it. Without the crafted line no partner timing reaches the case. |
 | LTSSM | Recovery.Idle: Disabled requested wins over Hot Reset requested | `control_quick` | Fails at cycle 34377: `ltssm_state_o` 0x18 (Disabled), the shadow in Hot Reset (0x19). |
 | LTSSM | Recovery.Idle takes `hot_reset_req_i` in the upstream role | `control_quick` | Fails at cycle 37435: `ltssm_state_o` 0x19, the shadow in Recovery.Idle (0x12) (`ep_upstream_ignores`). |
 | Ordered sets | The loopback pattern counts by 1 per word, not 2 | `control_quick` | Fails at cycle 19168: pattern (01h, 02h) sent, the shadow (02h, 03h). |
@@ -275,13 +275,13 @@ listed entry; each fails, and the unmutated RTL passes. Each entry runs its firs
 | Frame | The second beat pushed in a word loses its `dllp` flag (`push_b.dllp` forced 0) | `rx_idle_tail` | Fails at cycle 12571 (downstream): `dllp changed inside a packet` on the 3-byte DLLP. Passed `rx_idle_tail` before #90, and no entry reached the case. |
 | Frame | The deferred framing error of an EDB in `[15:8]` dropped when the receiver has left `Rx_L0` (`ferr = rx_l0`) | `rx_idle_tail` | Fails at cycle 12006 (downstream): `rcv_err_o` 0, the shadow 1, in Recovery.RcvrLock. Passed before #90. |
 | LTSSM | Transmit L0s entry one idle cycle late (`idle_cnt` > `L0S_IDLE_CYCLES`) | `arcs_quick` | Fails at cycle 26959: `ltssm_state_o` 0x21, the shadow 0x25 (`Tx_L0s.Entry`). |
-| Frame | An EDB in `[15:8]` ends the packet at once (no wait for the next word; the pre-#197 rule) | `rx_idle_tail`; `rx_errors` | Fail at cycle 10287 (`rx_idle_tail`), 10408 (`rx_errors` seed 112185741) and 10701 (seed 1906893083): a packet delivered nullified that the shadow had not yet got. |
+| Frame | An EDB in `[15:8]` ends the packet at once (no wait for the next word; the pre-#197 rule) | `rx_idle_tail`; `rx_errors` | Fail at cycle 10287 (`rx_idle_tail`), 10408 (`rx_errors` seed 112185741, L2 `rx_errors_extra_seeds` since #435) and 10701 (seed 1906893083, level 1): a packet delivered nullified that the shadow had not yet got. |
 | Frame | The waiting beat keeps its flags when the next word is not received | `rx_idle_tail` | Fails at cycle 10583: `rcv_err_o` 0, the shadow 1 (idle mid-TLP). |
 | Frame | The waiting beat is cut but raises no framing error | `rx_idle_tail` | Fails at cycle 10583: `rcv_err_o` 0, the shadow 1. |
 | Frame | The deferred framing error outside a packet raised even when the next word is not received | `rx_idle_tail` | Fails at cycle 11753 (upstream): `rcv_err_o` 1, the shadow 0 (the EIOS tail; issue case 2). |
-| Frame | The deferred framing error outside a packet never raised | `rx_idle_tail`; `rx_errors` | Fail at cycle 11156 (`rx_idle_tail`), 11401 and 10972 (`rx_errors` seeds 112185741, 1906893083): `rcv_err_o` 0, the shadow 1. |
-| Frame | A cut by RxValid or electrical idle in `Rx_L0` raises no framing error | `rx_idle_tail`; `rx_errors` | Fail at cycle 10873 (`rx_idle_tail`, the even cut), 10666 and 10706 (`rx_errors` seeds 112185741, 1906893083): `rcv_err_o` 0, the shadow 1. |
-| Frame | The deferred framing error sets no resync | `rx_idle_tail` | Fails at cycle 11441: `rcv_err_o` 1, the shadow 0 (the data symbol a word after the EDB). `rx_errors` seeds 112185741 and 1906893083 pass it. |
+| Frame | The deferred framing error outside a packet never raised | `rx_idle_tail`; `rx_errors` | Fail at cycle 11156 (`rx_idle_tail`), 11401 and 10972 (`rx_errors` seeds 112185741, L2 `rx_errors_extra_seeds` since #435, and 1906893083, level 1): `rcv_err_o` 0, the shadow 1. |
+| Frame | A cut by RxValid or electrical idle in `Rx_L0` raises no framing error | `rx_idle_tail`; `rx_errors` | Fail at cycle 10873 (`rx_idle_tail`, the even cut), 10666 and 10706 (`rx_errors` seeds 112185741, L2 `rx_errors_extra_seeds` since #435, and 1906893083, level 1): `rcv_err_o` 0, the shadow 1. |
+| Frame | The deferred framing error sets no resync | `rx_idle_tail` | Fails at cycle 11441: `rcv_err_o` 1, the shadow 0 (the data symbol a word after the EDB). `rx_errors` seeds 112185741 (L2 since #435) and 1906893083 pass it. |
 | LTSSM | The upstream port enters L1 without its own EIOS first (no `pm_wait` needed) | `arcs_quick` | Fails at cycle 29515 (upstream): `ltssm_state_o` 0x30 (L1.Entry), the shadow still in L0 (0x22) sending its EIOS; caught by the `ep_power` recipe that requests L1 after an EIOS already started receive L0s. |
 | LTSSM | `idle_to_rlock` saturates at 254 (Recovery.Idle's timeout goes to Detect.Quiet one timeout early) | `arcs_idle_rlock_downstream`; `arcs_idle_rlock_upstream` (#327) | Fail at cycles 4237619 and 4237624: `ltssm_state_o` 0x00 (Detect.Quiet), the shadow in Recovery.RcvrLock (0x10) for the 255th timeout. `arcs_timeouts_*` pass: the loop is the only entry that reaches the count. |
 | LTSSM | Recovery.RcvrLock's timeout without a received TS goes to Configuration.Linkwidth.Start, not Detect.Quiet (`ts_rx_any_c` ignored) | `arcs_timeouts_downstream`; `arcs_timeouts_upstream` (#327) | Fail at cycles 84791 and 117907: `ltssm_state_o` 0x08, the shadow in Detect.Quiet (0x00), in `ep_rcvrlock_timeouts` with the partner frozen. |
@@ -334,7 +334,11 @@ traffic with the same numerical latency.
 `arcs_timeouts_{downstream,upstream}`, `arcs_idle_rlock_{downstream,upstream}`,
 `control_full_{downstream,upstream}`, `dividers` and `train_spec` declare
 `seed_independent: true`: their episode paths and `Harness` consume no random
-values; `fresh()` uses fixed skew 0, delay 12 and link 0. Each retains its
+values; `fresh()` uses fixed skew 0, delay 12 and link 0. So does the L1
+`no_scramble_edge` (#435): `scr_off_first_word` and its crafted line
+(`RawLine`, `ts_syms`) draw nothing either, so offset 4 meets the first
+unscrambled Configuration.Idle word on every seed, and the test fails if
+the shadow does not witness it. Each retains its
 pinned coverage run, every timeout cycle and all assertions, including the
 255-timeout idle-loop check. Extra rotated copies would repeat identical
 stimulus. `smoke_n_fts_1` and `smoke_n_fts_255` still rotate because `_smoke`
@@ -344,18 +348,21 @@ that declaration.
 
 ## Budget placement
 
-[#435](https://github.com/amichai-bd/pcie-factory/issues/435): traffic retains
-both instrumented seeds at L1; only its third plain seed moves. rx_errors and
-ts_fields retain their first instrumented seed, with the additional plain seed
-at L2. The new focused no_scramble_edge preserves the registered-flag mutant
-in L1; the original full no_scramble test remains unchanged at L2.
+[#435](https://github.com/amichai-bd/pcie-factory/issues/435) moves extra
+seeds only: each entry below keeps its first seed (or two, for `traffic`)
+with its coverage runs in L1, and its further seeds run in L2, plain, in an
+`_extra_seeds` entry with the same testcase, parameters and seed values. The
+full `no_scramble` recipe (all eight crafted-line offsets) runs in L2,
+unchanged; L1 adds `no_scramble_edge`, which keeps the registered-flag
+mutant catch in the gate (see [Mutation evidence](#mutation-evidence)). No
+coverage floor is raised or lowered.
 
-The combined levels keep the original testcases, parameters, seeds and
-per-seed coverage instrumentation; no coverage floor is raised or lowered.
-The PR records plain and coverage-instrumented CPU measurements separately.
+Seeds of a count entry are derived, `crc32("mac:<name>:<i>")`, and the
+index *i* is given. `no_scramble_edge` pins `no_scramble`'s derived seed 0.
 
-| Entry | Current placement |
-| --- | --- |
-| `traffic` / `traffic_extra_seeds` | L1 seeds [1783640295, 492241009]; coverage_seeds 2; L2 seeds [73290187]; coverage_seeds 0 |
-| `rx_errors` / `rx_errors_extra_seeds` | L1 seeds [1906893083]; coverage_seeds 1; L2 seeds [112185741]; coverage_seeds 0 |
-| `ts_fields` / `ts_fields_extra_seeds` | L1 seeds [648699848]; coverage_seeds 1; L2 seeds [1370320734]; coverage_seeds 0 |
+| Entry | L1 seeds (index) | L2 `_extra_seeds` (index) | Recorded catches on the L1 seed |
+| --- | --- | --- | --- |
+| `traffic` | 1783640295 (0), 492241009 (1); coverage on both | 73290187 (2) | - |
+| `rx_errors` | 1906893083 (0) | 112185741 (1) | No `valid_i` hold; resync kept; the three EDB and framing-error rows |
+| `ts_fields` | 648699848 (0) | 1370320734 (1) | Received N_FTS from the data-rate symbol |
+| `no_scramble_edge` | 9068861 (`no_scramble` index 0) | - (`no_scramble` itself in L2) | Registered Disable Scrambling flag |

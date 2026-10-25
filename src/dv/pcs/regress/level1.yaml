@@ -18,6 +18,11 @@ tests:
     seeds: [1, 2]
     timeout_s: 120
     coverage_seeds: 2
+  - name: tx_table
+    module: tests.test_tx
+    testcase: tx_table
+    top: pcie_pcs
+    timeout_s: 300
   - name: table_round_trip
     module: tests.test_tx
     testcase: table_round_trip
@@ -162,6 +167,18 @@ tests:
     seeds: [1, 2]
     timeout_s: 300
     coverage_seeds: 2
+  - name: eb_idle_m600
+    module: tests.test_elastic
+    testcase: eb_idle_m600
+    top: pcie_pcs
+    seeds: [1]
+    timeout_s: 300
+  - name: eb_idle_p600
+    module: tests.test_elastic
+    testcase: eb_idle_p600
+    top: pcie_pcs
+    seeds: [1]
+    timeout_s: 300
   - name: eb_lock_start
     module: tests.test_elastic
     testcase: eb_lock_start

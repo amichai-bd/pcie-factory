@@ -697,7 +697,12 @@ warning: every selected check still runs to completion, and functional
 failures and coverage-floor misses retain their failing exit codes. A budget
 overrun is recorded for regression-list rebalancing rather than truncating the
 verification set. CI evidence reports the plain gate and coverage-instrumented
-measurements separately; their CPU costs differ.
+measurements separately; their CPU costs differ. The L0 and L1 budgets apply
+to the plain build (captain decision on
+[#435](https://github.com/amichai-bd/pcie-factory/issues/435#issuecomment-6394848460)):
+the check is the same with `--coverage`, so a coverage run of L0 or L1 can
+print the warning and set `over_budget`, and that figure is reported, not
+budgeted.
 Why CPU time and why a warning: the
 [DevOps BKM](../../bkm/devops.md#levels-and-budgets).
 

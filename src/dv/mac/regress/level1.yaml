@@ -58,6 +58,7 @@ tests:
     timeout_s: 600
     params: {TIMEOUT_DIV: 1024, ERR_TIMEOUT_DIV: 1024}
   - name: no_scramble_edge
+    seed_independent: true
     module: tests.test_mac
     testcase: no_scramble_edge
     top: pcie_mac_tb

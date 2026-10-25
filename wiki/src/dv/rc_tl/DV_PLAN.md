@@ -301,5 +301,5 @@ The PR records plain and coverage-instrumented CPU measurements separately.
 
 | Entry | Current placement |
 | --- | --- |
-| `random_cmds` / `random_cmds_extra_seeds` | L1 seeds [47070509]; coverage_seeds 1; L2 seeds [1976110523]; coverage_seeds 0 |
-| `random_req` / `random_req_extra_seeds` | L1 seeds [169113172]; coverage_seeds 1; L2 seeds [2098415298]; coverage_seeds 0 |
+| `random_cmds` / `random_cmds_extra_seeds` | L1 seed 47070509 (derived index 0), coverage run; L2 seed 1976110523 (index 1), plain |
+| `random_req` / `random_req_extra_seeds` | L1 seed 169113172 (derived index 0), coverage run; L2 seed 2098415298 (index 1), plain |

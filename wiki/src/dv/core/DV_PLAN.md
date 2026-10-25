@@ -317,4 +317,4 @@ The PR records plain and coverage-instrumented CPU measurements separately.
 
 | Entry | Current placement |
 | --- | --- |
-| `e2e_throughput_short` | L2; unchanged seeds, parameters and instrumentation |
+| `e2e_throughput_short` | L2; seed 317652435 (derived index 0), unchanged parameters and coverage run |

@@ -247,5 +247,5 @@ The PR records plain and coverage-instrumented CPU measurements separately.
 
 | Entry | Current placement |
 | --- | --- |
-| `selftest` / `selftest_extra_seeds` | L1 seeds [1338781849]; coverage_seeds 1; L2 seeds [952827919]; coverage_seeds 0 |
-| `expect_mismatch` | L2; unchanged seeds, parameters and instrumentation |
+| `selftest` / `selftest_extra_seeds` | L1 seed 1338781849 (derived index 0), coverage run; L2 seed 952827919 (index 1), plain |
+| `expect_mismatch` | L2; seed 1878443167 (derived index 0), unchanged parameters and coverage run |

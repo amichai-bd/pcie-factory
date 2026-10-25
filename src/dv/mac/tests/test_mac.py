@@ -1465,7 +1465,7 @@ async def scr_off_first_word(h, role, offsets=range(8)):
 
 @cocotb.test()
 async def no_scramble(dut):
-    """L1: the partner sends Disable Scrambling in its TS2 in
+    """L2: the partner sends Disable Scrambling in its TS2 in
     Configuration.Complete: from Configuration.Idle both ports send idle
     and packets unscrambled (the shadow checks every symbol), through a
     retrain; Detect.Quiet enables scrambling again. Both roles, each with
@@ -1509,6 +1509,9 @@ async def no_scramble_edge(dut):
     Offset 4 places the final TS2 against the first unscrambled idle word.
     scr_off_first_word requires the shadow to witness that exact boundary;
     the original full test keeps all eight offsets and broad sweeps at L2.
+    Seed-independent: Harness, fresh() (fixed skew, delay and link) and
+    scr_off_first_word draw no random values, so the offset that reaches
+    the boundary is the same on every seed.
     """
     h = Harness(dut)
     await h.start()
