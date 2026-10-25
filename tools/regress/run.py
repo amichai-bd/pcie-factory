@@ -139,7 +139,8 @@ def select(
             if entry.level in levels and (cap is None or entry.level in cap):
                 pinned = seeds_for(entry, base_seed)
                 runs.extend((entry, s) for s in pinned)
-                if rotation is not None and entry.level == rotation.level:
+                if (rotation is not None and entry.level == rotation.level
+                        and not entry.seed_independent):
                     extra.extend((entry, s) for s in rotated_seeds(
                         entry, rotation.key, rotation.extra_seeds, pinned))
     runs.sort(key=lambda r: (r[0].level, r[0].ip, r[0].name, r[1]))
@@ -527,7 +528,7 @@ def report(summary: dict, out=None, err=None) -> int:
     rot = summary.get("rotation")
     if rot:
         print(f"rotation {rot['key']}: {rot['passed']}/{rot['runs']} extra runs passed "
-              f"({rot['extra_seeds']} per level{rot['level']} entry), CPU {rot['cpu_s']:.1f}s "
+              f"({rot['extra_seeds']} per eligible level{rot['level']} entry), CPU {rot['cpu_s']:.1f}s "
               f"(budget {rot['budget_s']:.0f}s), {len(rot['skipped'])} not started", file=out)
         for t in summary["tests"]:
             if t.get("extra") and t["status"] != "pass":

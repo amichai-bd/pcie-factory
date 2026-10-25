@@ -1,29 +1,13 @@
 # Default credits (CREDITS 0) unless an entry sets CREDITS: the error
 # classes and the rollover on the HAS default configuration, the minimum
-# credits (tb/pcie_link_e2e_tb.sv). The throughput screen and the other
-# directed entries run in level 2 (DV plan; #272, #435).
+# credits (tb/pcie_link_e2e_tb.sv) and the throughput screen. The other
+# directed entries run in level 2 (#272).
 tests:
-  - name: e2e_tlp_errors
+  - name: e2e_acceptance
     module: tests.test_link_e2e
-    testcase: e2e_tlp_errors
+    testcase: e2e_acceptance
     top: pcie_link_e2e_tb
-    timeout_s: 600
-  - name: e2e_dllp_errors
-    module: tests.test_link_e2e
-    testcase: e2e_dllp_errors
-    top: pcie_link_e2e_tb
-    timeout_s: 600
-  # A running-disparity-only error each way (#436): the phy's pkt_rx_err
-  # through link to the dll.
-  - name: e2e_disparity
-    module: tests.test_link_e2e
-    testcase: e2e_disparity
-    top: pcie_link_e2e_tb
-    timeout_s: 600
-  - name: e2e_rollover
-    module: tests.test_link_e2e
-    testcase: e2e_rollover
-    top: pcie_link_e2e_tb
+    seeds: [1358307490]
     timeout_s: 600
   - name: e2e_credits_minimum
     module: tests.test_link_e2e

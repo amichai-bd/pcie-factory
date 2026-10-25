@@ -112,7 +112,7 @@ row names another.
 | `SELFTEST` with random latencies and one random fault (expect, status, wait bound) or none | `selftest_random` | 2 | 4; six runs each |
 | Each M4 program over more stand-in seeds, passing, then six random faults of any kind (`PROGRAM` 0 to 3) | `program_random_enum` | 2 | 2; three stand-in seeds per entry seed |
 | [`INJECT`](../../rtl/rc_seq/PROGRAMS.md#injected-errors): the stand-in answers the first traffic of each injected offset as the e2e's line makes it (Completer Abort, `BAD` twice, a stale copy setting bit 4, ERR_FATAL), then three stand-in seeds passing and six random faults each (`PROGRAM` 5) | `program_random_inject` | 1 | derived seed 0; three stand-in seeds |
-| The same for `MMIO`, `DMA_MSI` and `ERRORS`: each program's random fault sample under `ci-gate` | `program_random_mmio` / `program_random_mmio_sweep`, `program_random_dma_msi` / `program_random_dma_msi_sweep`, `program_random_errors` / `program_random_errors_sweep` | 1 / 2 | derived seed 0 / derived seed 1, pinned (298234656, 1770673933, 1956525912); three stand-in seeds per entry seed |
+| The same for `MMIO`, `DMA_MSI` and `ERRORS`: each program's random fault sample under `ci-gate` | `program_random_mmio`, `program_random_dma_msi`, `program_random_errors` | 1 | seeds 1723958198, 512583579, 60360654 respectively; three stand-in seeds per entry seed |
 
 **Level placement.** L2 widens the stand-in seeds and fault choices and
 holds `expect_mismatch` (the exhaustive SELFTEST fault campaign) and the two long timeouts, `timeouts_enum` (about 40 s, the simulator
@@ -131,9 +131,13 @@ level 2, unchanged and at the same seeds. Each of those three programs
 keeps a random fault sample in level 1, so every program still runs under
 `ci-gate`: derived seed 0 of `program_random_mmio`,
 `program_random_dma_msi` and `program_random_errors` (three stand-in
-seeds, each passing, then six random faults), with their derived seed 1
-pinned in the entry's level 2 `_sweep`. The merged level 0 to 2 runs are
-the same runs, with the same coverage instrumentation. The model unit
+seeds, each passing, then six random faults), with the same configuration
+and assertions. #461 removes their plain
+extra-seed `_sweep` entries (298234656, 1770673933, 1956525912); these
+collect no coverage and catch no recorded sole mutant. The retained seeds
+are 1723958198, 512583579 and 60360654 respectively. Covered entries and
+coverage instrumentation remain unchanged. This trims extra random breadth,
+including the removed rows' nightly rotations. The model unit
 tests stay in pytest (`./build ci unit`), among them the reachability of
 every `EXPECT` and every `chk` 1 `REQ` of every image.
 

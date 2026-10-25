@@ -37,6 +37,10 @@ def test_all_fields():
         ({"module": "tests/test_x.py"}, "dotted Python module"),
         ({"top": "1top"}, "HDL module name"),
         ({"testcase": "a.b"}, "Python function name"),
+        ({"seed_independent": "true"}, "'seed_independent' must be a boolean"),
+        ({"seed_independent": 1}, "'seed_independent' must be a boolean"),
+        ({"seed_independent": True, "seeds": 2}, "requires exactly one pinned seed"),
+        ({"seed_independent": True, "seeds": [1, 2]}, "requires exactly one pinned seed"),
         ({"seeds": 0}, "'seeds'"),
         ({"seeds": True}, "'seeds'"),
         ({"seeds": []}, "'seeds' list"),
@@ -166,3 +170,9 @@ def test_budget_errors(tmp_path, text, message):
     (tmp_path / "levels.yaml").write_text(text)
     with pytest.raises(SchemaError, match=message):
         load_budgets(tmp_path)
+
+
+def test_seed_independent():
+    assert not parse_entry(dict(GOOD), "a", 2, "w").seed_independent
+    entry = parse_entry(dict(GOOD, seed_independent=True, seeds=[73]), "a", 2, "w")
+    assert entry.seed_independent and entry.seeds == (73,) and entry.coverage_seeds == 1

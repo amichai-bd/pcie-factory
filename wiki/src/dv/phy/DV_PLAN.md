@@ -236,19 +236,19 @@ delivers the hooks, the cycle-model runs and this recipe):
 | --- | --- | --- | --- |
 | Independent layers through PIPE: train within the HAS bounds, then mixed packets, DLLPs and nullified TLPs both ways, zero receiver errors | `e2e_mixed_mac_rtl`, `e2e_mixed_pcs_rtl` | 1 | 1 each; only the named layer RTL; channel model, downstream first, +300 ppm |
 | [Link-up](../../arch/phy/HAS.md#link-up-and-requests), [packet stream](../../arch/phy/HAS.md#packet-stream) both ways, a symbol-error burst and a directed retrain, all models | `e2e_smoke` | 2 | 1; dsp first, b +300 ppm |
-| The RTL stack, channel model. RTL path: `cfg_*_o` echo, `RtlPort` for both instances, `rst_i` and `port_role_i` through reset per role. [Reset values](../../arch/phy/HAS.md#clocks-and-resets) with the upper-layer inputs random. [Link-up](../../arch/phy/HAS.md#link-up-and-requests) to L0, then 16 packets each way, lossless. Both ports reset while packets flow, once together and once with b up to 64 cycles later: reset values held, back to L0, and 8 packets each way lossless after each | `e2e_rtl_link` / `e2e_rtl_link_sweep` | 2 | derived seed 0 / its derived seed 1 (737010230) pinned; `MAC_RTL` 1, `PCS_RTL` 1; usp first, -300 ppm |
+| The RTL stack, channel model. RTL path: `cfg_*_o` echo, `RtlPort` for both instances, `rst_i` and `port_role_i` through reset per role. [Reset values](../../arch/phy/HAS.md#clocks-and-resets) with the upper-layer inputs random. [Link-up](../../arch/phy/HAS.md#link-up-and-requests) to L0, then 16 packets each way, lossless. Both ports reset while packets flow, once together and once with b up to 64 cycles later: reset values held, back to L0, and 8 packets each way lossless after each | `e2e_rtl_link` | 2 | seed 1558893216; `MAC_RTL` 1, `PCS_RTL` 1; usp first, -300 ppm |
 | The same over the RTL channel (the top joins the lines; the environment steps only the ports) | `e2e_rtl_link_chan` | 0 | 1; `MAC_RTL` 1, `PCS_RTL` 1, `CHAN_RTL` 1 |
 | [Lossless](../../arch/phy/HAS.md#targets) at ±600 ppm and ±300 ppm, each port-role order: random mix, TLPs up to 1046 bytes, DLLPs; link-up with up to 2000 cycles of reset skew within 100 µs and training 65.536 to 80 µs ([targets](../../arch/phy/HAS.md#targets), `TIMEOUT_DIV` 1024) | `e2e_dsp_first_pos600`, `e2e_usp_first_neg600` (RTL, level 1); `e2e_dsp_first_neg300`, `e2e_usp_first_pos300` (RTL, level 2); all four `_model` counterparts (level 2) | 1 / 2 | 1 each |
-| Symbol errors each way: flagged or lost packets only, directed Recovery, lossless after | `e2e_symbol_errors` (RTL, level 1), `e2e_symbol_errors_sweep` (RTL, level 2), `e2e_symbol_errors_model` (level 2) | 1, 2 | RTL: derived seed 0 / its derived seed 1 (1952118910) pinned; model: 2; usp first, +600 ppm |
+| Symbol errors each way: flagged or lost packets only, directed Recovery, lossless after | `e2e_symbol_errors` (RTL, level 1), `e2e_symbol_errors_model` (level 2) | 1, 2 | RTL: seed 56477928; model: 2; usp first, +600 ppm |
 | Bit slips each way: relock, directed Recovery, lossless after | `e2e_bit_slips` (RTL, level 1), `e2e_bit_slips_sweep` (RTL, level 2), `e2e_bit_slips_model` (level 2) | 1, 2 | RTL: derived seed 0 / its derived seed 1 (1336911784) pinned; model: 2; dsp first, -600 ppm; coverage on both RTL seeds |
-| Electrical-idle dropout each way: Recovery on its own, lossless after | `e2e_elec_idle` (RTL, level 1), `e2e_elec_idle_sweep` (RTL, level 2), `e2e_elec_idle_model` (level 2) | 1, 2 | RTL: derived seed 0 / its derived seed 1 (1262508128) pinned; model: 2; usp first, +300 ppm |
+| Electrical-idle dropout each way: Recovery on its own, lossless after | `e2e_elec_idle` (RTL, level 1), `e2e_elec_idle_model` (level 2) | 1, 2 | RTL: seed 1011312886; model: 2; usp first, +300 ppm |
 | Transmit scrambling by the `pcie_mac_scrambler` block (its cycle model) on both ports: train, lossless, an idle dropout, lossless | `e2e_scrambler_block` | 2 | 1; models; dsp first, -300 ppm |
 | 8b/10b transmit by the `pcs` encoder block (its cycle model) on both ports: train, lossless, a bit slip each way, lossless | `e2e_encoder_block` | 2 | 1; models; usp first, +600 ppm |
 | A port reset alone while packets flow, a then b: reset values held, the partner leaves L0 through Recovery's divided timeout, both back in L0, lossless after | `e2e_reset_single` | 2 | 1; RTL, `ERR_TIMEOUT_DIV` 1024; dsp first, +300 ppm |
 | [Link control](../../arch/phy/HAS.md#link-up-and-requests): `retrain_req_i` on each port (Recovery and back within 4 µs, `link_up_o` high); `hot_reset_req_i` and `disable_req_i` on the upstream port ignored for 4000 cycles with traffic; Hot Reset and Disabled from the downstream port while packets flow (both ports in the state with `link_up_o` low while held, Detect, back to L0); lossless after each | `e2e_control` | 2 | 1; RTL, `ERR_TIMEOUT_DIV` 1024; usp first, +300 ppm |
 | [Polarity](../../arch/phy/PIPE.md#handshakes): the a-to-b lane inverted from reset; b sets RxPolarity in training, link-up targets, lossless, then a reset of both ports and lossless | `e2e_polarity` | 1 | 1; RTL; dsp first, -300 ppm |
 | [Targets](../../arch/phy/HAS.md#targets) on the RTL over the RTL channel at +600 ppm, each way. Throughput, with 160 back-to-back 274-byte TLPs and 600 DLLPs: the HAS floor 2n/(n+2)·1176/1180 (1.979 and 1.495, ≥ 1.97 and 1.49), checked free of the window's SKP phase. The cycles without a beat must be exactly one framing cycle per packet boundary plus two per SKP ordered set sent, and the SKP ordered sets no more than the 1180-symbol schedule allows in the window. TX latency of every packet exactly 2 cycles ([MAS](../../rtl/phy/MAS.md#timing)), ≤ 6. RX latency ≤ 16 | `e2e_targets` | 1 | 1; RTL, `CHAN_RTL` 1; dsp first |
-| [Link-up](../../arch/phy/HAS.md#targets) at `TIMEOUT_DIV` 1, simultaneous reset: release to `link_up_o` within 12.0 to 12.2 ms and training within 65.536 to 80 µs, on simulator clocks with no Python per cycle (about 3 minutes with coverage, so L2) | `e2e_link_up_spec` | 2 | 1; RTL, `CHAN_RTL` 1, `TIMEOUT_DIV` 1 |
+| [Link-up](../../arch/phy/HAS.md#targets) at `TIMEOUT_DIV` 1, simultaneous reset: release to `link_up_o` within 12.0 to 12.2 ms and training within 65.536 to 80 µs, on simulator clocks with no Python per cycle (about 3 minutes with coverage, so L2) | `e2e_link_up_spec` | 2 | 1; seed-independent fixed clocks, reset and inputs; RTL, `CHAN_RTL` 1, `TIMEOUT_DIV` 1 |
 | Soak: offset from the seed in ±600 ppm, reset skew up to 2000 cycles with the link-up targets, six random impairments between lossless phases, TLPs up to 4118 bytes (a 4096-byte payload) | `e2e_soak_dsp_first`, `e2e_soak_usp_first` (RTL); the same names with `_model` | 2 | RTL 3 (dsp first) and 2 (usp first), coverage on every one; models 2 each ([seeds](#seeds-and-coverage-runs)) |
 
 **Level placement** ([#272](https://github.com/amichai-bd/pcie-factory/issues/272),
@@ -261,7 +261,7 @@ idle, polarity, throughput targets, power and loopback. The loopback entry
 keeps both recorded echo-mutant catches in the gate.
 
 L2 holds the additional ±300 ppm role scenarios, the channel-model
-`e2e_rtl_link` and its sweep, and `e2e_control`, which re-checks the
+`e2e_rtl_link`, and `e2e_control`, which re-checks the
 control-state behavior covered by MAC L1 tests. The single-port reset scenario
 also stays at L2: the L0 RTL-channel recipe covers reset values and recovery
 after both ports reset with traffic, while its single-port divided-timeout
@@ -272,12 +272,17 @@ For historical comparison, #272 measured `e2e_reset_single` at about
 70 s of CPU and `e2e_rtl_link` at about 44 s for its then two seeds
 (before #389).
 
-**Seed placement** ([#389](https://github.com/amichai-bd/pcie-factory/issues/389)).
-That change pinned derived seed 1 of `e2e_rtl_link`, `e2e_symbol_errors`,
-`e2e_bit_slips` and `e2e_elec_idle` in their L2 `_sweep` entries while
-keeping derived seed 0 at L1. Under #435 both `e2e_rtl_link` seeds run at
-L2; the other three retain their gate seed at L1. Instrumentation is
-unchanged, including the 54 points reached by `e2e_bit_slips_sweep`.
+**RTL seed placement (#461, #435).** Level 1 retains `e2e_symbol_errors`
+seed 56477928 and `e2e_elec_idle` 1011312886 with unchanged configuration,
+both-direction assertions and reset/recovery checks; `e2e_rtl_link` keeps its
+seed 1558893216 and configuration but runs at L2 under #435. Their plain
+extra-seed `_sweep` entries are removed (#461): no mutation-table row names
+these scenarios, and these seeds add no collected coverage. This trims
+random breadth and the removed rows' nightly rotations. The separate
+model-only copies remain. `e2e_bit_slips` keeps its L1 seed and covered
+`e2e_bit_slips_sweep` seed 1336911784, which contributes 54 unique points.
+Every covered L2 entry, layer/role/clock-offset variant and the recorded
+`e2e_loopback` fault seed 74580909 remains.
 
 **Model-only copies run on a rule** ([#327](https://github.com/amichai-bd/pcie-factory/issues/327)).
 The nine `_model` entries of level 2 (the two soaks and the seven scenario

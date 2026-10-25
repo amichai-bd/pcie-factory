@@ -171,6 +171,18 @@ async def host_cmds(dut):
     uncontended HOST_WR is one cycle after the take's beat cycle, a
     HOST_RD's two."""
     env = await setup(dut)
+    await case_host_cmds(env)
+
+
+async def case_host_cmds(env: Env):
+    """HOST_RD and HOST_WR (TL_SEQ.md, Host memory access; MAS, Commands):
+    every first_be merges its bytes; every offset bit below HOST_MEM_ADDR_W
+    selects its own DW; the refusals (check 3, check 4 for every bit at or
+    above HOST_MEM_ADDR_W and bits 1:0, check 6) finish LOCAL_UR and change
+    nothing; HOST_* finish OK with the link down; the beat of an
+    uncontended HOST_WR is one cycle after the take's beat cycle, a
+    HOST_RD's two."""
+    dut = env.dut
     w = env.p.host_mem_addr_w
     # Every offset bit: each power-of-two offset holds its own value.
     for b in range(2, w):
@@ -233,6 +245,19 @@ async def inb_write(dut):
     4 GiB (bit 11 each); poisoned (bit 5 only), poisoned and Unsupported
     (bit 11 only)."""
     env = await setup(dut)
+    await case_inb_write(env)
+
+
+async def case_inb_write(env: Env):
+    """Posted writes to host memory (INBOUND.md, Receive checks; rc HAS,
+    Inbound routing): every Length 1 to 32 at several offsets, the lanes by
+    First BE, all four, then Last BE, a zero-length write, a digest DW not
+    written, a 4-DW header below 4 GiB served; each released in the cycle
+    after its eop with its data credits. Not written, released: Bus Master
+    Enable 0, inside the window, outside host memory, a 4-DW address above
+    4 GiB (bit 11 each); poisoned (bit 5 only), poisoned and Unsupported
+    (bit 11 only)."""
+    dut = env.dut
     mem: dict[int, int] = {}
     await fill_host(env, mem)
     r = env.rng
@@ -319,6 +344,21 @@ async def inb_read(dut):
     requests (Byte Count 4, Lower Address 0), poisoned reads (bit 5, not
     11); each non-posted request released with its data credits."""
     env = await setup(dut)
+    await case_inb_read(env)
+
+
+async def case_inb_read(env: Env):
+    """The completer (INBOUND.md, Completer): host memory reads of 1 to 64
+    DWs at every alignment in a 64-byte block, of 1024 DWs (Byte Count 0),
+    a zero-length read; each split on the read completion boundary with
+    its Byte Count, Lower Address, bytes outside F and L 0, TC, Attr,
+    Requester ID and Tag of the request and the Completer ID from the
+    Primary Bus Number; Unsupported Request completions for Bus Master
+    Enable 0, the window, outside host memory, above 4 GiB (Byte Count T,
+    Lower Address B), a locked read (CplLk), configuration, I/O and atomic
+    requests (Byte Count 4, Lower Address 0), poisoned reads (bit 5, not
+    11); each non-posted request released with its data credits."""
+    dut = env.dut
     mem: dict[int, int] = {}
     await fill_host(env, mem)
     r = env.rng
@@ -398,6 +438,19 @@ async def msi_capture(dut):
     captured, every DMA write before it is in host memory. Not captured:
     Bus Master Enable 0, 2 DWs, a read (Unsupported Requests, bit 11)."""
     env = await setup(dut)
+    await case_msi_capture(env)
+
+
+async def case_msi_capture(env: Env):
+    """The MSI capture (INBOUND.md, MSI capture; TL_SEQ.md): a 1-DW write
+    into the window is captured at its eop, offset address bits 11:2, data
+    as received whatever its byte enables, in arrival order; four held, a
+    fifth and sixth dropped with bit 12; a take at the edge a capture
+    arrives full makes room; msi_valid_o never follows msi_ready_i within a
+    cycle; captures survive link down and empty on rst_i; when one is
+    captured, every DMA write before it is in host memory. Not captured:
+    Bus Master Enable 0, 2 DWs, a read (Unsupported Requests, bit 11)."""
+    dut = env.dut
     caps = [(0, 0x1111_1111, 0xF), (1023, 0x2222_2222, 0x0), (0x155, 0xDEAD_BEEF, 0x3),
             (0x2AA, 0x0BAD_F00D, 0x8)]
     for k, (off, data, be) in enumerate(caps):
@@ -479,6 +532,17 @@ async def inb_msg(dut):
     poisoned, bit 5 only; Bus Master Enable 0 does not gate them; each is
     released in the cycle after its eop with its data credits."""
     env = await setup(dut)
+    await case_inb_msg(env)
+
+
+async def case_inb_msg(env: Env):
+    """Messages (INBOUND.md, Receive checks; rc HAS, Inbound routing):
+    ERR_COR, ERR_NONFATAL and ERR_FATAL set bits 7, 8 and 9, any other code
+    bit 10, with any routing subfield and with data; a TC-0 code with TC
+    not 0 is malformed (bit 6), another code with TC not 0 is not;
+    poisoned, bit 5 only; Bus Master Enable 0 does not gate them; each is
+    released in the cycle after its eop with its data credits."""
+    dut = env.dut
     cases = [(msg(0x30), bit(E_COR)), (msg(0x31, 0b100), bit(E_NONFATAL)),
              (msg(0x33, 0b011), bit(E_FATAL)), (msg(0x30, data=[1, 2, 3, 4, 5]), bit(E_COR)),
              (msg(0x7E, tc=5), bit(E_MSG)), (msg(0x7F, data=[1]), bit(E_MSG)),
@@ -514,6 +578,18 @@ async def inb_malformed(dut):
     the dll counted (a completion kind not), a non-posted one through the
     queue, with no completion. The legal neighbours are not malformed."""
     env = await setup(dut)
+    await case_inb_malformed(env)
+
+
+async def case_inb_malformed(env: Env):
+    """The receive checks (INBOUND.md, step 1 and 3 to 6): every Fmt and
+    Type pair that is no kind (TLP.md, Kinds) is malformed, bit 6, and so
+    are the memory byte-enable breaks, a request crossing 4 KiB, a
+    configuration or I/O request with Length, Last BE, TC or Attr wrong;
+    malformed outranks poisoned; each is dropped and released by the class
+    the dll counted (a completion kind not), a non-posted one through the
+    queue, with no completion. The legal neighbours are not malformed."""
+    dut = env.dut
     await fill_host(env)
     mal = []
     for fmt in range(8):
@@ -562,6 +638,15 @@ async def inb_host_edge(dut):
     one straddling its end (inside one 4 KiB block) is an Unsupported
     Request, nothing written."""
     env = await setup(dut)
+    await case_inb_host_edge(env)
+
+
+async def case_inb_host_edge(env: Env):
+    """Host memory smaller than 4 KiB (rc HAS, Inbound routing: entirely
+    inside host memory): a write or read ending on its last DW is served,
+    one straddling its end (inside one 4 KiB block) is an Unsupported
+    Request, nothing written."""
+    dut = env.dut
     base, size = env.p.host_mem_base, host_size(env)
     assert size < 0x1000 and (base + size) & 0xFFF, "needs a small host memory inside a 4 KiB block"
     end = base + size
@@ -595,6 +680,20 @@ async def inb_order(dut):
     32-DW writes and long reads, every HOST_* finishes within 34 cycles of
     asking for host memory (the RTL asserts the bound on every access)."""
     env = await setup(dut)
+    await case_inb_order(env)
+
+
+async def case_inb_order(env: Env):
+    """Ordering and transmit priority (INBOUND.md, Host memory; REQUESTER.md,
+    Transmit): a DMA write lands before a later read's completion and a
+    later HOST_RD; a requester posted write waiting for credits holds a
+    completion back, then goes first; a completion goes before a requester
+    non-posted request; a non-posted request waiting for credits does not
+    block a completion, and a completion waiting for completion credits
+    lets a non-posted request go. Forward progress: under back-to-back
+    32-DW writes and long reads, every HOST_* finishes within 34 cycles of
+    asking for host memory (the RTL asserts the bound on every access)."""
+    dut = env.dut
     for dw in range(64):
         await host_wr(env, dw << 2, 0)
     # A write, then a read of the same DWs: the completion carries the write.
@@ -697,6 +796,16 @@ async def inb_link_down(dut):
     captures, host memory and the error record stay; after link-up new
     requests are served."""
     env = await setup(dut, rx_gap_p=0.0)
+    await case_inb_link_down(env)
+
+
+async def case_inb_link_down(env: Env):
+    """Link down (MAS, Reset and link down): every non-posted request held
+    is dropped with no completion and no release; a completion being sent
+    is abandoned; a write cut by link down keeps the DWs already taken;
+    captures, host memory and the error record stay; after link-up new
+    requests are served."""
+    dut = env.dut
     for dw in range(64):
         await host_wr(env, dw << 2, 0x100 + dw)
     await send(env, mem_wr(MSI, [0x99]), msg(0x30))

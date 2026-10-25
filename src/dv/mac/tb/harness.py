@@ -320,6 +320,7 @@ class Dut:
     def __init__(self) -> None:
         self.state, self.tx_sub, self.rx_sub = arch.DQ, arch.TOFF, arch.ROFF
         self.arcs: list[tuple[int, str, str]] = []
+        self.latest_arc: dict[tuple[str, str], int] = {}
         self.role = "downstream"
         self.dsp = True
         self.link_up = False
@@ -743,6 +744,7 @@ class Harness:
                 path = [old, mids[0], new]
             for x, y in zip(path, path[1:]):
                 a.arcs.append((self.now, x, y))
+                a.latest_arc[x, y] = self.now
                 COV_ARCS.sample(arc=(x, y), port_role=self.role)
         if a.state != main:
             self._control_cov(a.state, main)
@@ -828,7 +830,12 @@ class Harness:
 
     def took(self, a: str, b: str, after: int | None = None):
         after = self.t0 if after is None else after
-        return lambda h: any(f == a and t == b and c >= after for c, f, t in h.a.arcs)
+
+        def observed(h):
+            cycle = h.a.latest_arc.get((a, b))
+            return cycle is not None and cycle >= after
+
+        return observed
 
     def in_state(self, s: str):
         return lambda h: h.a.state == s

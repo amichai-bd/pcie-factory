@@ -186,13 +186,6 @@ tests:
     top: pcie_link_gpio_tb
     timeout_s: 600
     coverage_seeds: 0
-  - name: e2e_throughput_short
-    module: tests.test_link_e2e
-    testcase: e2e_throughput_short
-    top: pcie_link_e2e_tb
-    timeout_s: 600
-  # REPLAY_TIMEOUT through link (#384), at 1400: a raised value (the GPIO
-  # build now runs at 3214, link HAS replay timeout at LOWER 1).
 # Floors on the merged levels 0 to 2 (the nightly run), at the merged value
 # less 0.5 points rounded down to a tenth (DV BKM, floor margin), measured
 # for #360: line 90.7 from 91.27% (1485/1627), raised from 90.2 by

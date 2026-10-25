@@ -111,7 +111,7 @@ def cmd_regress(ctx: Context, args) -> int:
         print("no IPs selected")
     if rotation is not None:
         print(f"[rotate] key {rotation.key}: {rotation.extra_seeds} extra seed(s) per "
-              f"level{rotation.level} entry, {len(selection.extra)} run(s), plain builds, "
+              f"eligible level{rotation.level} entry, {len(selection.extra)} run(s), plain builds, "
               f"budget {rotation.budget_s:.0f}s of CPU")
     if args.dry_run:
         for entry, seed in selection.runs:
@@ -292,10 +292,10 @@ def _regress_args(p: argparse.ArgumentParser) -> None:
                         "and check the floors")
     p.add_argument("--rotate", metavar="KEY",
                    help="also run extra seeds derived from KEY (a date or run id) on each "
-                        "entry of the rotation level (cfg/levels.yaml rotation), within its "
+                        "seed-dependent entry of the rotation level (cfg/levels.yaml rotation), within its "
                         "CPU budget and without coverage")
     p.add_argument("--extra-seeds", type=int, metavar="N",
-                   help="extra seeds per entry with --rotate (default: cfg/levels.yaml)")
+                   help="extra seeds per eligible entry with --rotate (default: cfg/levels.yaml)")
     p.add_argument("--dry-run", action="store_true", help="print the selection only")
     p.add_argument("--slots", metavar="DIR",
                    help="host CPU slot directory shared with other runs: each build and test "

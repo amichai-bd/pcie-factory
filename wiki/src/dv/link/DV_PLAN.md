@@ -90,8 +90,12 @@ flowchart LR
     not yet delivered (`eop` taken) at the far end, so not yet returnable;
     all ones for an infinite field, and back at the advertisement once
     drained ([#436](https://github.com/amichai-bd/pcie-factory/issues/436));
-  - liveness: 20000 cycles with nothing delivered while a TLP is
-    outstanding fails;
+  - liveness: more than 20000 receiver cycles with nothing delivered
+    while a TLP is continuously outstanding fails. An empty-to-busy
+    transition starts the timer at acceptance, excluding prior idle time;
+    another acceptance cannot refresh it while work remains outstanding.
+    Each delivery restarts it only for remaining work, and draining or an
+    expected link-down clears it;
   - reset values while `rst_i` is high, and the `dll` outputs at theirs
     while `link_up_o` is 0 ([reset values](../../arch/link/HAS.md#reset-values));
   - Ack latency at each end's `dll`-to-`phy` boundary, on the tapped nets:
@@ -161,6 +165,22 @@ flowchart LR
   (every symbol attributed, windows and straddling packets); the partner's passive mode has its own
   ([passive mode unit tests](../dll/PASSIVE.md#unit-tests)).
 
+### Shared L1 scenarios
+
+L1 `e2e_acceptance` trains one pair once, measures pristine 400-TLP
+throughput first, then runs every TLP-error, DLLP-error, disparity and rollover
+phase. Each phase drains and retains its original checks: pulse deltas,
+Naks, replay counts, non-vacuous injections and line attribution. Driver
+probabilities return to their original defaults after throughput. Standalone
+recipes remain available for L2 sweeps.
+Each phase logs its original name and effective seed. At the pinned bundle
+seed, stimulus uses the original regression seed plus cocotb 2.1's SHA1 of
+the original testcase fullname; another bundle seed shifts every phase by
+the same amount. Random generators are restored without starting another
+clock or driver. Covergroups remain the same module-level instances, and
+all phase final checks remain active.
+
+
 ## Plan
 
 All entries run on `pcie_link_e2e_tb`; credits are the default
@@ -170,10 +190,10 @@ their own top ([GPIO lower layer](#gpio-lower-layer)).
 | Feature | Entry `name` | Level | Seeds / note |
 | --- | --- | --- | --- |
 | [Stack wiring](../../arch/link/HAS.md#stack-wiring) and [reset values](../../arch/link/HAS.md#reset-values): reset, link-up to DL_Active at both ends, 60 TLPs of the mix each way, every check, error-free | `e2e_smoke` | 0 | 1 |
-| [Error injection](../../arch/link/HAS.md#error-injection): LCRC error, corrupted TLP, dropped TLP (with a TLP behind it, and as the last), each way, with their pulses | `e2e_tlp_errors` | 1 | 1 |
-| [Errors](../../arch/link/HAS.md#errors): a disparity-only error on a TLP, twice each way: `rcv_err_o`, Bad TLP and a Nak at the receiver with the bytes and LCRC intact (the `phy`'s `pkt_rx_err` through `link`), no replay timeout, delivered once | `e2e_disparity` | 1 | 1 |
-| Corrupted and dropped DLLP, the Nak class and the duplicate class, each way, with their pulses | `e2e_dllp_errors` | 1 | 1 |
-| [REPLAY_NUM rollover](../../arch/link/HAS.md#error-injection), each way: 4 timeouts, 1 rollover, the retrain through the `retrain_req` OR, traffic resumes | `e2e_rollover` | 1 | 1 |
+| [Error injection](../../arch/link/HAS.md#error-injection): LCRC error, corrupted TLP, dropped TLP (with a TLP behind it, and as the last), each way, with their pulses | `e2e_acceptance` (phase `e2e_tlp_errors`) | 1 | 1 |
+| [Errors](../../arch/link/HAS.md#errors): a disparity-only error on a TLP, twice each way: `rcv_err_o`, Bad TLP and a Nak at the receiver with the bytes and LCRC intact (the `phy`'s `pkt_rx_err` through `link`), no replay timeout, delivered once | `e2e_acceptance` (phase `e2e_disparity`) | 1 | 1 |
+| Corrupted and dropped DLLP, the Nak class and the duplicate class, each way, with their pulses | `e2e_acceptance` (phase `e2e_dllp_errors`) | 1 | 1 |
+| [REPLAY_NUM rollover](../../arch/link/HAS.md#error-injection), each way: 4 timeouts, 1 rollover, the retrain through the `retrain_req` OR, traffic resumes | `e2e_acceptance` (phase `e2e_rollover`) | 1 | 1 |
 | [`REPLAY_TIMEOUT`](../../arch/link/HAS.md#parameters) passed to both `dll`s, each way: one maximum-payload TLP with the reverse line's Acks dropped; the `dl_err_o` timeout pulse `REPLAY_TIMEOUT` + 1 cycles after the TLP's `eop` at the `dll`-to-`phy` boundary (the bench samples the pulse one cycle after it is set), one timeout, no pulse at the receiver, delivered once | `e2e_replay_timeout` | 1 | 1; `REPLAY_TIMEOUT` 1400 |
 | Line impairments each way: flips, a slip, an electrical-idle dropout of 200 to 1000 cycles | `e2e_line` | 2 | 1 |
 | Every per-packet class at random both ways, ±600 ppm; Bad TLP and Bad DLLP at least the corruptions; drained, every credit back at the far end's advertisement after 2500 quiet cycles, past the 2048-cycle UpdateFC refresh that replaces a lost last UpdateFC ([#429](https://github.com/amichai-bd/pcie-factory/issues/429)) | `e2e_mixed` | 2 | 1 |
@@ -185,7 +205,7 @@ their own top ([GPIO lower layer](#gpio-lower-layer)).
 | Disabled and Loopback passed through | `e2e_disable`, `e2e_loopback` | 2 | 1 each |
 | Soak: random classes, line flips and credit stalls together, 1000 TLPs each way, ppm from the seed, in every credit configuration; in the release configuration the stalls are release stalls (half the cycles release, none in the stall windows, scheduled as the receive stalls are) | `e2e_soak_default`, `e2e_soak_minimum`, `e2e_soak_finite`, `e2e_soak_infinite`, `e2e_soak_asymmetric`, `e2e_soak_release` | 2 | 3, 2, 3, 1, 2, 1; `CREDITS` 0 to 5; coverage on the first 2, 2, 1, 1, 2, 1 ([seeds](#seeds-and-coverage-runs)) |
 | The same soak on the `REPLAY_TIMEOUT` 1400 build of `e2e_replay_timeout`: default credits, the losses recovered through Naks or the raised timer | `e2e_soak_replay_timeout` | 2 | 1; `REPLAY_TIMEOUT` 1400; coverage on the first 1 |
-| [Throughput](../../arch/link/HAS.md#throughput), one way, screen: 400 128-byte memory writes a to b against the 0.85 target (more start and drain in the window than 2000 TLPs, so stricter), every line symbol attributed | `e2e_throughput_short` | 2 | 1 |
+| [Throughput](../../arch/link/HAS.md#throughput), one way, screen: 400 128-byte memory writes a to b against the 0.85 target (more start and drain in the window than 2000 TLPs, so stricter), every line symbol attributed | `e2e_acceptance` (phase `e2e_throughput_short`) | 1 | 1 |
 | [Throughput targets](../../arch/link/HAS.md#targets): 2000 128-byte memory writes one way (0.85) and each way (0.76 per direction), every line symbol attributed; each seed draws the start against the SKP schedule (within one SKP interval) and, both ways, b's start against a's (within one TLP time) | `e2e_throughput_oneway`, `e2e_throughput_bidir` | 2 | 1 and 2 |
 | Seed sweeps of the directed and mixed tests | `e2e_tlp_errors_sweep`, `e2e_dllp_errors_sweep`, `e2e_rollover_sweep`, `e2e_line_sweep`, `e2e_mixed_sweep` | 2 | 2, 2, 2, 3, 5 (`e2e_mixed_sweep`: its four derived seeds and 1733523445, an UpdateFC-NP dropped as the traffic drains, [#429](https://github.com/amichai-bd/pcie-factory/issues/429)); coverage on the first 1, 1, 2, 2, 1 |
 
@@ -196,10 +216,8 @@ fastest entries that discriminate the stack wiring: the TLP and DLLP
 error classes, the disparity-only error (the only catch of the `phy`'s
 `pkt_rx_err` lost in `link`, [#436 mutants](#per-class-credit-and-disparity-mutants)),
 the rollover and its retrain, the minimum credits (the
-configuration that starves both ends hardest). The throughput screen runs
-at L2 as a performance measurement; the wiring-discriminating entries stay
-in the gate.
-`e2e_disparity` costs 4.5 s of CPU at its seed 1992110143 (#436), against
+configuration that starves both ends hardest) and the throughput screen.
+The original standalone `e2e_disparity` costs 4.5 s of CPU at its seed 1992110143 (#436), against
 the all-IP level 1 of 1140 to 1172 s in the 1200 s budget
 ([#435](https://github.com/amichai-bd/pcie-factory/issues/435)); as the
 only catch of that mutant it stays in level 1 whatever its cost.
@@ -331,6 +349,10 @@ seed; `e2e_smoke` passes it.
 
 ### Per-class credit and disparity mutants
 
+Historical standalone-recipe evidence follows; the shared L1 scenario
+retains these phases, while the old testcase wrappers remain for L2 sweeps.
+The listed cycles are not new consolidated-scenario measurements.
+
 [#436](https://github.com/amichai-bd/pcie-factory/issues/436) (from #317
 and #302): run on the final RTL, one at a time at each entry's first seed.
 Before #436 the first survived `e2e_smoke` and `e2e_credits_minimum`
@@ -442,7 +464,7 @@ floor is lowered as below. The remaining gaps add no
 simulation stimulus that could lower them: #218 and #219 are timing
 reports. [#436](https://github.com/amichai-bd/pcie-factory/issues/436)
 added the disparity-only class to `link_e2e_inject` (the class bin and its
-cross with each direction: 3 bins, 88 in all), each hit by `e2e_disparity`
+cross with each direction: 3 bins, 88 in all), each hit by `e2e_acceptance` (phase `e2e_disparity`)
 (level 1), and no parameter set. A future entry with a new parameter
 set (a new `CREDITS`, `REPLAY_TIMEOUT` or other parameter value)
 re-measures the floors in the same PR.
@@ -590,18 +612,3 @@ contain `fts`, `pm`, `l0s`, `rx_sub`, `tx_sub`, `power_down`, `pd`,
 `tx_mode`, `l0_exit`, `rx_moved`, `rx_age`, `pend`, `ei_cycles` or
 `q_old` to the power row, the others (with the common CDC blocks inside
 the `phy`) to the last row.
-
-## Budget placement
-
-[#435](https://github.com/amichai-bd/pcie-factory/issues/435): The throughput
-screen is a performance check at L2. The discriminating packet-error,
-rollover, credit and disparity checks remain in the gate, including the sole
-disparity-mutant catch.
-
-The combined levels keep the original testcases, parameters, seeds and
-per-seed coverage instrumentation; no coverage floor is raised or lowered.
-The PR records plain and coverage-instrumented CPU measurements separately.
-
-| Entry | Current placement |
-| --- | --- |
-| `e2e_throughput_short` | L2; unchanged seeds, parameters and instrumentation |

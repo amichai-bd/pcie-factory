@@ -217,21 +217,21 @@ into a model or the RTL silently.
 | [Transmit accounting](../../arch/dll/FLOW_CONTROL.md#transmit-accounting): the gate for every class and field, at exactly half the range and one past it, after limits beyond half the range, with infinite fields; CREDITS_CONSUMED wrapping; credits available; cleared by link-down mid-TLP | `fc_tx_gate` | 1 | 1; hand-driven far end that acknowledges every TLP |
 | [Receive accounting](../../arch/dll/FLOW_CONTROL.md#receive-accounting) on real TLPs from a hand-driven far end that replays: stored, malformed (credits returned at once, none under 4 bytes), returns at the delivered `eop`; [UpdateFC](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling) on returns, in FC_INIT2 (entry value) and DL_Active, its value, cause, round robin and latency; refreshes; link down; default credits | `fc_rx_accounting` | 1 | 1 |
 | The same, every class finite, the upper layer slow and stalling: the [overflow check](../../arch/dll/FLOW_CONTROL.md#receive-buffer), Receiver overflow, no Ack or Nak, the TLPs behind arriving ahead | `fc_rx_accounting_finite` / `fc_rx_accounting_finite_sweep` | 1 / 2 | derived seed 0 / its derived seed 1 (1892473378) pinned; coverage on both |
-| The same, every class infinite (the reserve; UpdateFC all 0) | `fc_rx_accounting_infinite` / `fc_rx_accounting_infinite_sweep` | 1 / 2 | derived seed 0 / its derived seed 1 (1163266549) pinned, no coverage run |
+| The same, every class infinite (the reserve; UpdateFC all 0) | `fc_rx_accounting_infinite` | 1 | seed 844183907; retained assertions unchanged |
 | [Credits target](../../arch/dll/HAS.md#targets), transmit side: starvation and recovery with the partner's upper layer taking 30%, stalling 4000 cycles, taking 30%, stalling 10000 cycles, then taking all; no overflow at the partner's receive-side check; arch model against a fresh partner | `credit_starve` / `credit_starve_sweep` | 1 / 2 | 0 / 1 to 3 (partner credits: three all finite, one default; with the default, seed 2, the partner stalls with completions infinite, outside the HAS obligation and the Credits target's every-class-finite wording, which binds the `dll`'s upper layer; the partner's store is unbounded and only the DUT's gate is under test); coverage on seeds 0 to 2 |
-| The same, partner and DUT all infinite: the gate never refuses | `credits_infinite` / `credits_infinite_sweep` | 1 / 2 | derived seed 0 / its derived seed 1 (1229063237) pinned, no coverage run; the partner's upper layer stalls although it advertises infinite credits, outside the HAS upper-layer obligation: the partner's store is unbounded ([partner page](PARTNER.md#interface)) and only the DUT's gate is under test |
+| The same, partner and DUT all infinite: the gate never refuses | `credits_infinite` | 1 | seed 1044722899; partner stalls despite infinite advertisements, outside the HAS upper-layer obligation; partner store unbounded, only DUT gate under test ([partner](PARTNER.md#interface)) |
 | Credits target, receive side: every DUT class finite, its upper layer taking 30%, stalling 4000, taking 30%, stalling 10000 cycles, the partner sending 1500 TLPs as the UpdateFCs allow: no Receiver overflow, all delivered once and in order | `credit_starve_rx` / `credit_starve_rx_sweep` | 1 / 2 | derived seed 0 / its derived seed 1 (1229081417) pinned; every `FC_*` finite; coverage on both |
 | The same, every DUT class infinite, the upper layer never stalling | `credits_infinite_rx` / `credits_infinite_rx_sweep` | 1 / 2 | its derived seed 1 (55090061, the data-reserve mutant's catch) / its derived seed 0 (1951378203), both pinned; coverage on both |
 | [Credit release](../../arch/dll/HAS.md#credit-release), [Credits target](../../arch/dll/HAS.md#targets) with `FC_RELEASE` 1: default credits, the upper layer taking every beat but releasing in 30% of cycles, none for 4000, 30%, none for 10000 cycles, then all; the partner sending 600 TLPs as the UpdateFCs allow; then, every release held, a directed burst of header-only TLPs (NP reads, posted messages, one more) that only the header limits stop, since the random phases fill a class only when a header limit stops the partner's in-order queue ([#429](https://github.com/amichai-bd/pcie-factory/issues/429)): no Receiver overflow, never more held than advertised, every finite P and NP header credit held with the burst's last TLP starved until the releases resume, every TLP once and in order, every release's UpdateFC within 20 cycles; reference and arch shadow | `credit_release` / `credit_release_sweep` | 1 / 2 | 0 / 1 and 119646981 (its random phases hold at most 7 of 8 P and 4 of 8 NP headers, [#429](https://github.com/amichai-bd/pcie-factory/issues/429)); `FC_RELEASE` 1; coverage on both: seed 1 alone reaches 22 toggle points that no other run reaches, the posted data counters' bits 10:9 in the `FC_RELEASE` 1 credit block (allocated, sent and UpdateFC values passing 1024 credits) ([#354](https://github.com/amichai-bd/pcie-factory/issues/354)) |
 | The same at the smallest legal credits, every class finite: the stream stalls on the same schedule as the releases | `credit_release_smallest` | 2 | 2 derived |
 | The transmit accounting of `fc_tx_gate` in the `FC_RELEASE` 1 build, whose credit block is its own specialization, with the releaser running ([#354](https://github.com/amichai-bd/pcie-factory/issues/354)) | `fc_tx_gate_release` | 2 | 0; `FC_RELEASE` 1 |
 | [Receive accounting](../../arch/dll/FLOW_CONTROL.md#credit-release) with releases: P and NP returns on release, completions and malformed TLPs at once, an infinite NP data field freed at delivery (40 configuration writes past the reserve), releases in FC_INIT2 (the `phy` stand-in stalled so the InitFC2 group cannot complete; at least 2 per link-up) in the entry UpdateFC, link down dropping what is held | `fc_rx_accounting_release` | 1 | 1 derived; NP data infinite, `FC_RELEASE` 1 |
-| [UpdateFC refresh](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling), round robin, with ready stalls | `updatefc_refresh` / `updatefc_refresh_sweep` | 1 / 2 | derived seed 0 / derived seed 1 (1567202113), pinned; two 2048-cycle periods |
+| [UpdateFC refresh](../../arch/dll/FLOW_CONTROL.md#updatefc-scheduling), round robin, with ready stalls | `updatefc_refresh` | 1 | seed 711896023; two 2048-cycle periods |
 | Link-up against the partner, default DUT credits, [init target](../../arch/dll/HAS.md#targets) 200 cycles; cross-check | `link_up` / `link_up_sweep` | 1 / 2 | 0 / 1, 2 and 3 (the seed picks one of the four partner advertisements; level 1 runs advertisement 0 here, 1 in `link_up_cpl_finite` and 2 in `link_up_infinite`); 6 link-ups each |
 | The same, DUT completions finite | `link_up_cpl_finite` / `link_up_cpl_finite_sweep` | 1 / 2 | 1 / 0, 2 and 3; `FC_CPLH` 16, `FC_CPLD` 64; coverage on the same seeds as before |
 | The same, DUT all infinite | `link_up_infinite` / `link_up_infinite_sweep` | 1 / 2 | 2 / 0, 1 and 3; every `FC_*` 0; coverage on the same seeds as before |
 | Link-up with stalls, gaps and DLLP errors both ways (5% corrupted, 3% dropped, 2% flagged by the partner; 5% lost at it), target 4500 cycles | `link_up_stress` / `link_up_stress_sweep` | 1 / 2 | 0 / 1 |
-| 300 random TLPs from the partner within the DUT's credits, a quarter with a digest (in every partner entry of `test_dll_rx`), error-free: delivered once and in order, digests included; [Ack latency](../../arch/dll/HAS.md#targets) within 118 cycles, receive latency within 4; cross-checks | `rx_traffic` / `rx_traffic_sweep` | 1 / 2 | 0 / 1, no coverage run |
+| 300 random TLPs from the partner within the DUT's credits, a quarter with a digest (in every partner entry of `test_dll_rx`), error-free: delivered once and in order, digests included; [Ack latency](../../arch/dll/HAS.md#targets) within 118 cycles, receive latency within 4; cross-checks | `rx_traffic` | 1 | seed 0; retained assertions unchanged |
 | The same with the partner's TLPs dropped 2%, corrupted 3%, nullified 2%, flagged 2%, its DLLPs corrupted 3%, and 15% of the DUT's Acks and Naks lost (replays, duplicates): no bad TLP delivered | `rx_errors` | 1 | 0; seeds 1 and 2 in `rx_errors_sweep` |
 | The same, DUT all infinite | `rx_errors_infinite` | 1 | 0; every `FC_*` 0 |
 | The same, wide sweep | `rx_errors_sweep` | 2 | its 8 derived seeds pinned, then 1 and 2 from `rx_errors`; coverage on the first 6 (`coverage_seeds`) |
@@ -251,12 +251,12 @@ into a model or the RTL silently.
 | [Replay-buffer](../../arch/dll/RETRY.md#replay-buffer) back-pressure on the upper stream: 6 maximum TLPs, the 1024-byte boundary (1022 taken, 1026 refused), room freed by an Ack | `rbuf_full` | 0 | 1 |
 | [A started TLP finished across a link-down](../../arch/dll/HAS.md#reset-values), the TLP being taken abandoned, sequence numbers from 0 after the relink; an offered TLP withdrawn | `link_down_mid_tlp` | 0 | 1 |
 | The same at `REPLAY_TIMEOUT` 1400: the abort and the flush of its transmit block, the wider replay timer included ([#401](https://github.com/amichai-bd/pcie-factory/issues/401)) | `link_down_mid_tlp_slow` | 2 | 1 derived; `REPLAY_TIMEOUT` 1400 |
-| TLPs to the partner, error-free, stalls and gaps: delivered once and in order, no replay | `tlp_partner` / `tlp_partner_sweep` | 1 / 2 | 0 / 1, no coverage run |
+| TLPs to the partner, error-free, stalls and gaps: delivered once and in order, no replay | `tlp_partner` | 1 | seed 0; retained assertions unchanged |
 | [Slow lower layers](../../arch/dll/RETRY.md#slow-lower-layers) at `REPLAY_TIMEOUT` 1400: the stand-in's line delay at 300 cycles each way, so a maximum-payload TLP (4-DW header, 128 bytes) is acknowledged 634 cycles after its `eop`, with no timeout and no replay; then every partner DLLP dropped: the timeout exactly 1400 cycles after the second TLP's `eop`, that TLP replayed once, both delivered once; replay counts equal the shadow's | `replay_timeout_slow` | 1 | 1; `REPLAY_TIMEOUT` 1400 |
 | TLPs to the partner with its fault hooks: Nak'd, lost, lost and damaged Acks, forced Naks, Ack delays past the timeout (each window one 200-cycle period at the default timeout, one more per 200 cycles a larger `REPLAY_TIMEOUT` adds); then an Ack-loss window, every partner DLLP dropped while one more TLP goes out, in which the timer must expire (a Nak in a delay window restarts the timer, so the windows alone left some seeds without a timeout: derived seed 930231584, and 1728083710 at `REPLAY_TIMEOUT` 1400, [#401](https://github.com/amichai-bd/pcie-factory/issues/401)); delivered once and in order | `tlp_partner_errors` | 1 | 0; seeds 1 and 2 in `tlp_partner_errors_sweep` |
 | The same, wide sweep | `tlp_partner_errors_sweep` | 2 | its 8 derived seeds pinned, then 1 and 2 from `tlp_partner_errors` |
 | The same at `REPLAY_TIMEOUT` 1400, whose `pcie_dll` and `pcie_dll_tlp_tx` are their own specializations: Naks, timeouts, an Ack ending or shortening a running replay, a replay held while one runs ([#401](https://github.com/amichai-bd/pcie-factory/issues/401)) | `tlp_partner_errors_slow` | 2 | 0; `REPLAY_TIMEOUT` 1400 |
-| [Rollover target](../../arch/dll/HAS.md#targets): TLPs lost from a set cycle until the retrain; architecture model against the partner in the same scenario | `tlp_rollover` / `tlp_rollover_sweep` | 1 / 2 | 0 / 1, no coverage run |
+| [Rollover target](../../arch/dll/HAS.md#targets): TLPs lost from a set cycle until the retrain; architecture model against the partner in the same scenario | `tlp_rollover` | 1 | seed 0; retained assertions unchanged |
 | The same at `REPLAY_TIMEOUT` 1400: 4 timeouts of 1400 cycles, the rollover and its hold; the shadow and the architecture model at the same timeout ([#401](https://github.com/amichai-bd/pcie-factory/issues/401)) | `tlp_rollover_slow` | 2 | 0; `REPLAY_TIMEOUT` 1400 |
 | [Line use and replay-buffer sizing targets](../../arch/dll/HAS.md#targets) (`mwr_max`, `ack_spec_max`): 500 128-byte writes, partner Acks at 32 and 118 cycles, at least 99% | `mwr_max`, `ack_spec_max` | 2 | 1 each; 99.30% both (architecture model 99.20%) |
 | Sequence numbers across the 4095-to-0 wrap with Naks, lost TLPs and lost Acks around it | `seq_wrap` | 2 | 2 derived |
@@ -321,7 +321,7 @@ fixed at 356. `replay_timeout_slow`
 by the same test on the default build, or, for a timeout fixed at 356, by
 `replay_timeout_slow`. They take about 5, 3, 4 and 1 s of CPU.
 
-**One seed per entry in level 1** ([#389](https://github.com/amichai-bd/pcie-factory/issues/389)):
+**Seed-placement history (#389; plain repeats trimmed below)** ([#389](https://github.com/amichai-bd/pcie-factory/issues/389)):
 the full level 1 of every IP, which `ci-gate` runs for a change to a
 shared package, was over its 1200 s CPU budget (1269.6 s on the `ci-gate`
 runner at `00990ed`), and `dll` was its largest share (310.6 s). The
@@ -347,6 +347,25 @@ rc_seq L1 added on `main`) also moves `updatefc_refresh`, `rx_stall` and
 advertisement each, 0, 1 and 2, so level 1 still runs three of the four;
 each entry's other three seeds run in its `_sweep`. Level 1 of `dll` is
 now 23 runs.
+
+**Plain repeat removal (#461).** Six plain L2 repeats are removed; each
+retains the same configuration and assertions in L1:
+
+| Retained entry | Seed | Recorded mutant retained |
+| --- | --- | --- |
+| `fc_rx_accounting_infinite` | 844183907 | No first-catch row names it; finite overflow mutants retain `fc_rx_accounting_finite` and `credit_starve_rx` |
+| `credits_infinite` | 1044722899 | No first-catch row names it; infinite-data reserve mutant retains `credits_infinite_rx` seed 55090061 |
+| `tlp_partner` | 0 | No first-catch row names it; LCRC/replay directed catches remain |
+| `tlp_rollover` | 0 | No first-catch row names it; rollover mutants retain `rollover_directed` / `rollover_edge` |
+| `rx_traffic` | 0 | Every accepted TLP restarts Ack timer: Ack 154 cycles after eop, bound 118 |
+| `updatefc_refresh` | 711896023 | Refresh never falls due: only one UpdateFC per class in two periods |
+
+The #389 first-seed mutation evidence above remains valid at these seeds;
+no checker changes. Removed seeds collect no coverage and add no recorded
+sole fault catch. Extra stream-order/random-skew breadth and these rows'
+nightly rotations are trimmed. Every covered sweep remains. In particular,
+`link_up_sweep` stays: seed 3 selects the smallest partner advertisement
+against default DUT credits, a distinct configuration cross beyond L1 seed 0.
 
 **Coverage runs** ([#327](https://github.com/amichai-bd/pcie-factory/issues/327)):
 `--coverage` instruments each entry's first seed only (`coverage_seeds`,

@@ -1,197 +1,122 @@
+# Directed contracts share one clock and configured fixture across named phases.
+# DV_PLAN.md maps every original scenario and preserves its RNG identity.
 tests:
-  # Type 1 header: reset values, then with the IDs set.
-  - name: hdr_reset
-    module: tests.test_rc_tl_hdr
-    testcase: hdr_reset
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-  - name: hdr_reset_ids
-    module: tests.test_rc_tl_hdr
-    testcase: hdr_reset
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-    params: {VENDOR_ID: 0x1234, DEVICE_ID: 0xABCD, REVISION_ID: 0x5A}
-  - name: hdr_rw
-    module: tests.test_rc_tl_hdr
-    testcase: hdr_rw
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-  # Front end: checks 2 to 5, byte enables, routing, check 1 and the
-  # result beats.
-  - name: cmd_checks
-    module: tests.test_rc_tl_cmd
-    testcase: cmd_checks
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-  - name: byte_enables
-    module: tests.test_rc_tl_cmd
-    testcase: byte_enables
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-  - name: routing
-    module: tests.test_rc_tl_cmd
-    testcase: routing
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-  - name: check1
-    module: tests.test_rc_tl_cmd
-    testcase: check1
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-  - name: result_beats
-    module: tests.test_rc_tl_cmd
-    testcase: result_beats
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-  - name: random_cmds
-    module: tests.test_rc_tl_cmd
-    testcase: random_cmds
-    top: pcie_rc_tl_tb
-    seeds: [47070509]
-    timeout_s: 300
-  # Requester: requests, completion statuses and checks, splits,
-  # unexpected completions, the timeout, link down, credits, the error
-  # record; random endpoint commands against the model.
-  - name: req_success
-    module: tests.test_rc_tl_req
-    testcase: req_success
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-  - name: req_status
-    module: tests.test_rc_tl_req
-    testcase: req_status
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-    params: {CPL_TIMEOUT_DIV: 1024}
-  - name: req_malformed
-    module: tests.test_rc_tl_req
-    testcase: req_malformed
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-    params: {CPL_TIMEOUT_DIV: 1024}
-  - name: req_split
-    module: tests.test_rc_tl_req
-    testcase: req_split
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-    params: {CPL_TIMEOUT_DIV: 1024}
-  - name: req_unexpected
-    module: tests.test_rc_tl_req
-    testcase: req_unexpected
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-    params: {CPL_TIMEOUT_DIV: 1024}
-  - name: req_timeout
-    module: tests.test_rc_tl_req
-    testcase: req_timeout
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-    params: {CPL_TIMEOUT_DIV: 1024}
-  - name: req_timeout_div1000
-    module: tests.test_rc_tl_req
-    testcase: req_timeout
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-    params: {CPL_TIMEOUT_DIV: 1000}
-  - name: req_link_down
-    module: tests.test_rc_tl_req
-    testcase: req_link_down
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-    params: {CPL_TIMEOUT_DIV: 1024}
-  - name: req_credits
-    module: tests.test_rc_tl_req
-    testcase: req_credits
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-    params: {CPL_TIMEOUT_DIV: 1024}
-  - name: err_record
-    module: tests.test_rc_tl_req
-    testcase: err_record
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-    params: {CPL_TIMEOUT_DIV: 1024}
-  - name: random_req
-    module: tests.test_rc_tl_req
-    testcase: random_req
-    top: pcie_rc_tl_tb
-    seeds: [169113172]
-    timeout_s: 600
-    params: {CPL_TIMEOUT_DIV: 1024}
-  # Inbound: HOST_*, posted writes, the completer, MSI capture, messages,
-  # the receive checks, ordering and priority, link down; random traffic.
-  - name: host_cmds
-    module: tests.test_rc_tl_inb
-    testcase: host_cmds
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-  - name: host_cmds_aw8
-    module: tests.test_rc_tl_inb
-    testcase: host_cmds
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-    params: {HOST_MEM_ADDR_W: 8, HOST_MEM_BASE: 0x300}
-  - name: host_cmds_aw16
-    module: tests.test_rc_tl_inb
-    testcase: host_cmds
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-    params: {HOST_MEM_ADDR_W: 16, HOST_MEM_BASE: 0x10000}
-  - name: inb_write
-    module: tests.test_rc_tl_inb
-    testcase: inb_write
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-  - name: inb_host_edge
-    module: tests.test_rc_tl_inb
-    testcase: inb_host_edge
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-    params: {HOST_MEM_ADDR_W: 8, HOST_MEM_BASE: 0x300}
-  - name: inb_read
-    module: tests.test_rc_tl_inb
-    testcase: inb_read
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-  - name: msi_capture
-    module: tests.test_rc_tl_inb
-    testcase: msi_capture
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-  - name: inb_msg
-    module: tests.test_rc_tl_inb
-    testcase: inb_msg
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-  - name: inb_malformed
-    module: tests.test_rc_tl_inb
-    testcase: inb_malformed
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-  - name: inb_order
-    module: tests.test_rc_tl_inb
-    testcase: inb_order
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-  - name: inb_link_down
-    module: tests.test_rc_tl_inb
-    testcase: inb_link_down
-    top: pcie_rc_tl_tb
-    timeout_s: 300
-  - name: random_inb_aw8
-    module: tests.test_rc_tl_inb
-    testcase: random_inb
-    top: pcie_rc_tl_tb
-    timeout_s: 600
-    params: {HOST_MEM_ADDR_W: 8, HOST_MEM_BASE: 0xF00, FC_NPH: 1}
-  - name: random_inb
-    module: tests.test_rc_tl_inb
-    testcase: random_inb
-    top: pcie_rc_tl_tb
-    timeout_s: 600
-  # Every parameter check fires on illegal values; the boundaries pass.
-  - name: param_limits
-    module: tests.test_rc_tl_params
-    testcase: param_limits
-    top: pcie_rc_tl_tb
-    timeout_s: 300
+- name: header_contract
+  module: tests.test_rc_tl_contracts
+  testcase: header_contract
+  top: pcie_rc_tl_tb
+  timeout_s: 600
+- name: hdr_reset_ids
+  module: tests.test_rc_tl_hdr
+  testcase: hdr_reset
+  top: pcie_rc_tl_tb
+  timeout_s: 300
+  params:
+    VENDOR_ID: 4660
+    DEVICE_ID: 43981
+    REVISION_ID: 90
+- name: frontend_contract
+  module: tests.test_rc_tl_contracts
+  testcase: frontend_contract
+  top: pcie_rc_tl_tb
+  timeout_s: 900
+- name: routing
+  module: tests.test_rc_tl_cmd
+  testcase: routing
+  top: pcie_rc_tl_tb
+  timeout_s: 300
+- name: result_beats
+  module: tests.test_rc_tl_cmd
+  testcase: result_beats
+  top: pcie_rc_tl_tb
+  timeout_s: 300
+- name: random_cmds
+  module: tests.test_rc_tl_cmd
+  testcase: random_cmds
+  top: pcie_rc_tl_tb
+  seeds: [47070509]
+  timeout_s: 300
+- name: req_success
+  module: tests.test_rc_tl_req
+  testcase: req_success
+  top: pcie_rc_tl_tb
+  timeout_s: 300
+- name: request_completion_contract
+  module: tests.test_rc_tl_contracts
+  testcase: request_completion_contract
+  top: pcie_rc_tl_tb
+  timeout_s: 1200
+  params:
+    CPL_TIMEOUT_DIV: 1024
+- name: request_lifecycle_contract
+  module: tests.test_rc_tl_contracts
+  testcase: request_lifecycle_contract
+  top: pcie_rc_tl_tb
+  timeout_s: 1200
+  params:
+    CPL_TIMEOUT_DIV: 1024
+- name: req_timeout_div1000
+  module: tests.test_rc_tl_req
+  testcase: req_timeout
+  top: pcie_rc_tl_tb
+  timeout_s: 300
+  params:
+    CPL_TIMEOUT_DIV: 1000
+- name: random_req
+  module: tests.test_rc_tl_req
+  testcase: random_req
+  top: pcie_rc_tl_tb
+  seeds: [169113172]
+  timeout_s: 600
+  params:
+    CPL_TIMEOUT_DIV: 1024
+- name: host_memory_contract
+  module: tests.test_rc_tl_contracts
+  testcase: host_memory_contract
+  top: pcie_rc_tl_tb
+  timeout_s: 900
+- name: host_aw8_contract
+  module: tests.test_rc_tl_contracts
+  testcase: host_aw8_contract
+  top: pcie_rc_tl_tb
+  timeout_s: 600
+  params:
+    HOST_MEM_ADDR_W: 8
+    HOST_MEM_BASE: 768
+- name: host_cmds_aw16
+  module: tests.test_rc_tl_inb
+  testcase: host_cmds
+  top: pcie_rc_tl_tb
+  timeout_s: 300
+  params:
+    HOST_MEM_ADDR_W: 16
+    HOST_MEM_BASE: 65536
+- name: inbound_classification_contract
+  module: tests.test_rc_tl_contracts
+  testcase: inbound_classification_contract
+  top: pcie_rc_tl_tb
+  timeout_s: 900
+- name: inbound_order_reset_contract
+  module: tests.test_rc_tl_contracts
+  testcase: inbound_order_reset_contract
+  top: pcie_rc_tl_tb
+  timeout_s: 600
+- name: random_inb_aw8
+  module: tests.test_rc_tl_inb
+  testcase: random_inb
+  top: pcie_rc_tl_tb
+  timeout_s: 600
+  params:
+    HOST_MEM_ADDR_W: 8
+    HOST_MEM_BASE: 3840
+    FC_NPH: 1
+- name: random_inb
+  module: tests.test_rc_tl_inb
+  testcase: random_inb
+  top: pcie_rc_tl_tb
+  timeout_s: 600
+- name: param_limits
+  module: tests.test_rc_tl_params
+  testcase: param_limits
+  top: pcie_rc_tl_tb
+  timeout_s: 300
