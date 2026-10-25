@@ -193,7 +193,10 @@ async def phase_e2e_bar_traffic(env):
     """Goal item 5, host side: memory writes and reads to BAR0 of every size
     and alignment, reads split into several completions (the HAS splitting
     examples), a zero-length read, with the application stalling cq; every
-    read returns the data written before it."""
+    read returns the data written before it. A write issued while a read
+    is outstanding may pass it (tl ORDERING.md: a posted request passes a
+    non-posted one that waits), so each byte it overlaps may read either
+    value (#468)."""
     dev = env.dev
     h, rng = env.host.model, env.rng
     env.app.cq_ready_p = 0.7
@@ -227,14 +230,22 @@ async def phase_e2e_bar_traffic(env):
             data = bytes(rng.getrandbits(8) for _ in range(n))
             h.mem_write(base + off, data)
             mirror[off:off + n] = data
+            # Bytes a later write may already show to the reads outstanding.
+            for p in pend:
+                for a in range(max(off, p[0]), min(off + n, p[0] + p[1])):
+                    p[4].setdefault(a - p[0], set()).add(data[a - off])
         else:
-            pend.append((off, n, bytes(mirror[off:off + n]), h.mem_read(base + off, n)))
+            pend.append((off, n, bytes(mirror[off:off + n]), h.mem_read(base + off, n), {}))
         if len(pend) >= 6 or k == 47:
             await env.until(lambda: all(p[3].done for p in pend), 50_000, "host reads")
-            for off_, n_, want, r in pend:
-                assert r.ok and bytes(r.data) == want, (
-                    f"read {off_:#x}+{n_}: status {r.status}, got {bytes(r.data)[:8].hex()}..., "
-                    f"expected {want[:8].hex()}...")
+            for off_, n_, want, r, later in pend:
+                got = bytes(r.data)
+                bad = [i for i in range(n_) if i >= len(got)
+                       or got[i] != want[i] and got[i] not in later.get(i, ())]
+                assert r.ok and len(got) == n_ and not bad, (
+                    f"read {off_:#x}+{n_}: status {r.status}, got {got[:8].hex()}..., "
+                    f"expected {want[:8].hex()}... (first bad byte {bad[:1]}, neither the "
+                    "value written before the read nor one written while it was outstanding)")
             pend = []
     await env.drain()
     assert bytes(env.app.bar0) == bytes(mirror), "application BAR0 differs from the host's writes"

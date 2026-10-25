@@ -498,6 +498,46 @@ def test_cut_tlp_counts_as_sent_only_at_a_retrain(retrain):
     assert chk.stats["cut_ab"] == 2 and chk.stats["credit_unread_ab"] == 1
 
 
+@pytest.mark.parametrize("retrain", [True, False])
+def test_unread_cut_new_tlp_then_the_next_new_one(retrain):
+    """A new TLP cut before its sequence number (#468) still used it: after
+    the retrain the sender goes on with the next new TLP, then replays the
+    cut one. The checker infers the unread TLP was new only when the next
+    readable TLP is just past it, charges its credits at its first
+    readable replay, and flags the cut when the sender was in L0."""
+    chk = PassiveChecker(cut_slack=20)
+    init_views(chk)
+    chk.sent("ab", tlp(0, start=100))
+    chk.sent("ab", ViewPacket(120, 121, False, tlp(1).data[:1], True))   # seq unreadable
+    chk.sent("ab", tlp(2, start=200))           # next new after the retrain
+    chk.sent("ab", tlp(3, start=220))
+    chk.delivered("ba", dllp(m.NAK, 0, start=300))
+    chk.sent("ab", tlp(1, start=400))           # replay from the oldest unacknowledged
+    chk.sent("ab", tlp(2, start=420))
+    chk.sent("ab", tlp(3, start=440))
+    if retrain:
+        chk.retrain("a", 118, 190)
+        assert chk.check() == []
+    else:
+        v = chk.check()
+        assert len(v) == 1 and "cut short on the line while the sender was in L0" in v[0]
+    assert chk.stats["new_ab"] == 4 and chk.stats["new_unread_ab"] == 1
+    assert chk.stats["credit_checked_ab"] == 4 and "credit_unread_ab" not in chk.stats
+
+
+def test_unread_cut_does_not_excuse_a_skipped_sequence():
+    """One unread cut covers one sequence number: a new TLP two past the
+    last new one is still flagged."""
+    chk = PassiveChecker(cut_slack=20)
+    init_views(chk)
+    chk.retrain("a", 118, 190)
+    chk.sent("ab", tlp(0, start=100))
+    chk.sent("ab", ViewPacket(120, 121, False, tlp(1).data[:1], True))
+    chk.sent("ab", tlp(3, start=200))
+    v = chk.check()
+    assert len(v) == 1 and "TLP 3 is neither new (1)" in v[0]
+
+
 def test_duplicate_acknowledged_in_time():
     """A good duplicate is Acked at once: an Ack covering it within the
     bound passes; a late one is flagged."""
