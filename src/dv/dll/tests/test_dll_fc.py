@@ -13,6 +13,8 @@ cocotb.RANDOM_SEED, which the regression passes.
 
 from __future__ import annotations
 
+import hashlib
+import os
 import random
 
 import cocotb
@@ -451,6 +453,17 @@ async def starve_rx_run(dut, schedule, *, release=None, count: int = 1500,
     return env
 
 
+def as_testcase(name: str) -> None:
+    """Take the test seed cocotb gives testcase ``name`` of this module (the
+    regression seed plus the SHA1 of its full name) as ``cocotb.RANDOM_SEED``
+    and Python's ``random`` seed, so a ``_full`` testcase replays that
+    testcase's stimulus at full depth."""
+    seed = int(os.environ["COCOTB_RANDOM_SEED"]) \
+        + int(hashlib.sha1(f"{__name__}.{name}".encode()).hexdigest(), 16)
+    cocotb.RANDOM_SEED = seed
+    random.seed(seed)
+
+
 # The receive-side starvation schedule: (cycles, take probability).
 STARVE_RX = [(2000, 0.3), (4000, 0.0), (2000, 0.3), (10000, 0.0)]
 
@@ -470,7 +483,9 @@ async def credit_starve_rx(dut):
 
 @cocotb.test()
 async def credit_starve_rx_full(dut):
-    """L2: ``credit_starve_rx`` at the full depth, 1500 TLPs."""
+    """L2: ``credit_starve_rx`` at the full depth, 1500 TLPs, with its
+    stimulus (``as_testcase``)."""
+    as_testcase("credit_starve_rx")
     await starve_rx_run(dut, STARVE_RX, count=1500)
 
 
@@ -572,5 +587,7 @@ async def credits_infinite_rx(dut):
 
 @cocotb.test()
 async def credits_infinite_rx_full(dut):
-    """L2: ``credits_infinite_rx`` at the full depth, 1500 TLPs."""
+    """L2: ``credits_infinite_rx`` at the full depth, 1500 TLPs, with its
+    stimulus (``as_testcase``)."""
+    as_testcase("credits_infinite_rx")
     await starve_rx_run(dut, [(6000, 1.0)], count=1500)
