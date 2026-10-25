@@ -17,11 +17,11 @@ jobs:
     runs-on: [self-hosted, linux, x64, wsl]
     timeout-minutes: 180
     env:
-      SOURCE_SHA: 7099542f5eb9f8f36ba1e7bc1b7dbaf11bcb470c
+      SOURCE_SHA: e99253999e9a7783ef587761f2af5e51baf473b2
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          ref: 7099542f5eb9f8f36ba1e7bc1b7dbaf11bcb470c
+          ref: e99253999e9a7783ef587761f2af5e51baf473b2
           fetch-depth: 1
           persist-credentials: false
 
